@@ -274,7 +274,9 @@ extension UnsubscribeSuggestionTests {
       allowCreation: true
     )
     let transport = RecordingSuggestionPreferenceTransport()
+    let recordScope = MailProfileRecordScope.profile(MailProfileId(rawValue: "work"))
     let sync = FeatureSuggestionPreferenceSyncService(
+      recordScope: recordScope,
       recordBoundary: ProductSyncRecordBoundary(
         keyMaterialStore: keyStore,
         transport: transport
@@ -299,7 +301,10 @@ extension UnsubscribeSuggestionTests {
     let payload = try #require(transport.payload)
     let ciphertext = try #require(Data(base64Encoded: payload.encryptedPayload.ciphertextBase64))
     #expect(!ciphertext.contains(Data("opaque-list-001".utf8)))
-    #expect(payload.payloadIdentifier == FeatureSuggestionPreferences.primaryIdentifier)
+    #expect(
+      payload.payloadIdentifier
+        == recordScope.productSyncIdentifier(FeatureSuggestionPreferences.primaryIdentifier)
+    )
   }
 }
 

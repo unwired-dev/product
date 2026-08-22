@@ -368,10 +368,13 @@ enum SignatureSyncError: LocalizedError, Equatable {
 final class SignatureSyncService: SignaturePreferenceSyncing {
   private let preferenceRecord: ProductSyncSingletonHandle<SignaturePreferences>
 
-  init(recordBoundary: ProductSyncRecordBoundary = ProductSyncRecordBoundary()) {
+  init(
+    recordScope: MailProfileRecordScope = .legacyProductAccount,
+    recordBoundary: ProductSyncRecordBoundary = ProductSyncRecordBoundary()
+  ) {
     preferenceRecord = recordBoundary.singleton(
       ProductSyncSingletonDefinition(
-        identifier: SignaturePreferences.primaryIdentifier,
+        identifier: recordScope.productSyncIdentifier(SignaturePreferences.primaryIdentifier),
         cachePolicy: .authoritative
       )
     )

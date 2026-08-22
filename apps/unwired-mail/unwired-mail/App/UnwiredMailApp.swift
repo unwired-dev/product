@@ -7,8 +7,8 @@ struct UnwiredMailApp: App {
   @State private var messageContentPreferences: MessageContentPreferences
   @State private var session: ProductAccountSession
   @State private var settingsRouter = SettingsRouter()
-  #if DEBUG && targetEnvironment(macCatalyst)
-    @State private var showsDevelopmentSettings = false
+  #if targetEnvironment(macCatalyst)
+    @State private var showsSettings = false
   #endif
   #if MAIL_TEST_BOOTSTRAP
     private let mailTestRuntime: MailTestBootstrapRuntime?
@@ -60,23 +60,24 @@ struct UnwiredMailApp: App {
   }
 
   var body: some Scene {
-    #if DEBUG && targetEnvironment(macCatalyst)
+    #if targetEnvironment(macCatalyst)
       WindowGroup {
         MailProfileSceneRoot { profileDeepLinkRouter in
           rootView(profileDeepLinkRouter: profileDeepLinkRouter)
             .onChange(of: settingsRouter.request?.id) { _, requestId in
-              if requestId != nil {
-                showsDevelopmentSettings = true
+              if requestId != nil,
+                SettingsPresentation.current(isSignedIn: isSignedIn) == .adaptiveSettings
+              {
+                showsSettings = true
               }
             }
-            .sheet(isPresented: $showsDevelopmentSettings) {
-              DevelopmentSettingsRootView(session: session)
-                .environment(settingsRouter)
-                .deviceAppearance(appearancePreferences)
-                .environment(appearancePreferences)
-                .environment(attachmentNetworkMonitor)
-                .environment(messageContentPreferences)
-                .frame(width: 920, height: 720)
+            .onChange(of: isSignedIn) { _, isSignedIn in
+              if SettingsPresentation.current(isSignedIn: isSignedIn) == .accountSettings {
+                showsSettings = false
+              }
+            }
+            .sheet(isPresented: $showsSettings) {
+              catalystSettings
             }
         }
         .environment(settingsRouter)
@@ -86,7 +87,7 @@ struct UnwiredMailApp: App {
         .environment(messageContentPreferences)
       }
       .commands {
-        DevelopmentSettingsCommands(settingsRouter: settingsRouter)
+        CatalystSettingsCommands(settingsRouter: settingsRouter)
       }
     #else
       WindowGroup {
@@ -100,6 +101,22 @@ struct UnwiredMailApp: App {
         .environment(messageContentPreferences)
       }
     #endif
+  }
+
+  private var isSignedIn: Bool {
+    if case .signedIn = session.state { true } else { false }
+  }
+
+  @ViewBuilder
+  private var catalystSettings: some View {
+    Group {
+      #if DEBUG
+        DevelopmentSettingsRootView(session: session)
+      #else
+        SignedOutSettingsView()
+      #endif
+    }
+    .frame(minWidth: 640, idealWidth: 920, minHeight: 480, idealHeight: 720)
   }
 
   @ViewBuilder
@@ -139,8 +156,8 @@ private struct MailProfileSceneRoot<Content: View>: View {
   }
 }
 
-#if DEBUG && targetEnvironment(macCatalyst)
-  private struct DevelopmentSettingsCommands: Commands {
+#if targetEnvironment(macCatalyst)
+  private struct CatalystSettingsCommands: Commands {
     let settingsRouter: SettingsRouter
 
     var body: some Commands {

@@ -552,6 +552,44 @@ final class ConvexClient {
     )
   }
 
+  func admitScheduledSend(
+    _ record: ScheduledSendRecord,
+    payload: ScheduledSendPayloadAcknowledgement,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> ScheduledSendOperationalAcknowledgement {
+    try await performMutation(
+      path: "scheduledSend:admit",
+      args: AdmitScheduledSendArgs(
+        deadlineAt: record.deadlineAtMilliseconds,
+        dueAt: record.dueAtMilliseconds,
+        encryptedPayloadIdentifier: payload.payloadIdentifier,
+        encryptedPayloadUpdatedAt: payload.updatedAt,
+        revision: record.revision,
+        scheduleId: record.scheduleId.uuidString.lowercased(),
+        trustedDeviceCredential: try trustedDeviceCredential(session.trustedDeviceId),
+        trustedDeviceId: session.trustedDeviceId
+      ),
+      identityToken: session.identityToken
+    )
+  }
+
+  func cancelScheduledSend(
+    scheduleId: UUID,
+    revision: Int,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> Bool {
+    try await performMutation(
+      path: "scheduledSend:cancel",
+      args: CancelScheduledSendArgs(
+        revision: revision,
+        scheduleId: scheduleId.uuidString.lowercased(),
+        trustedDeviceCredential: try trustedDeviceCredential(session.trustedDeviceId),
+        trustedDeviceId: session.trustedDeviceId
+      ),
+      identityToken: session.identityToken
+    )
+  }
+
   private func performAction<Response: Decodable>(
     path: String,
     args: some Encodable = EmptyConvexArgs(),
@@ -959,6 +997,24 @@ private struct MarkProductSyncMaterialInitializedArgs: Encodable {
 private struct ListEncryptedProductSyncPayloadsArgs: Encodable {
   let paginationOpts: ConvexPaginationOptions
   let payloadIdentifierPrefix: String?
+  let trustedDeviceCredential: String?
+  let trustedDeviceId: String
+}
+
+private struct AdmitScheduledSendArgs: Encodable {
+  let deadlineAt: Int64
+  let dueAt: Int64
+  let encryptedPayloadIdentifier: String
+  let encryptedPayloadUpdatedAt: Int64
+  let revision: Int
+  let scheduleId: String
+  let trustedDeviceCredential: String?
+  let trustedDeviceId: String
+}
+
+private struct CancelScheduledSendArgs: Encodable {
+  let revision: Int
+  let scheduleId: String
   let trustedDeviceCredential: String?
   let trustedDeviceId: String
 }

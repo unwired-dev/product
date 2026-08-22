@@ -77,6 +77,7 @@ final class SignatureStore {
   private var fieldEditRevisions: [SignaturePreferenceField: Int] = [:]
   private var localState: SignaturePreferenceLocalState
   private let localStateStore: SignaturePreferenceLocalStatePersisting
+  private let recordScope: MailProfileRecordScope
   private var restorationSucceeded = true
   private var session: ProductAccountSessionSnapshot
   private var sessionGeneration = 0
@@ -94,17 +95,22 @@ final class SignatureStore {
 
   init(
     session: ProductAccountSessionSnapshot,
-    syncService: SignaturePreferenceSyncing = SignatureSyncService(),
+    syncService: SignaturePreferenceSyncing? = nil,
     localStateStore: SignaturePreferenceLocalStatePersisting =
       KeychainSignatureStateStore(),
+    recordScope: MailProfileRecordScope = .legacyProductAccount,
     automaticallySynchronizes: Bool = true
   ) {
     self.session = session
-    self.syncService = syncService
+    self.syncService = syncService ?? SignatureSyncService(recordScope: recordScope)
     self.localStateStore = localStateStore
+    self.recordScope = recordScope
     self.automaticallySynchronizes = automaticallySynchronizes
     do {
-      let restored = try localStateStore.load(productAccountId: session.productAccountId) ?? .empty
+      let restored =
+        try localStateStore.load(
+          productAccountId: Self.localStateScope(for: session, recordScope: recordScope)
+        ) ?? .empty
       localState = restored
       preferences = restored.preferences
     } catch {
@@ -179,7 +185,10 @@ final class SignatureStore {
     isSynchronizing = false
     self.session = session
     do {
-      localState = try localStateStore.load(productAccountId: session.productAccountId) ?? .empty
+      localState =
+        try localStateStore.load(
+          productAccountId: Self.localStateScope(for: session, recordScope: recordScope)
+        ) ?? .empty
       preferences = localState.preferences
       restorationSucceeded = true
       errorMessage = nil
@@ -294,7 +303,10 @@ final class SignatureStore {
   private func persist() {
     guard restorationSucceeded else { return }
     do {
-      try localStateStore.save(localState, productAccountId: session.productAccountId)
+      try localStateStore.save(
+        localState,
+        productAccountId: Self.localStateScope(for: session, recordScope: recordScope)
+      )
     } catch {
       errorMessage = error.localizedDescription
     }
@@ -311,6 +323,14 @@ final class SignatureStore {
       syncTask = nil
       if editRevision != scheduledRevision { scheduleSyncIfNeeded() }
     }
+  }
+
+  private static func localStateScope(
+    for session: ProductAccountSessionSnapshot,
+    recordScope: MailProfileRecordScope
+  ) -> String {
+    guard let namespace = recordScope.namespace else { return session.productAccountId }
+    return "\(session.productAccountId).mail-profile.\(namespace)"
   }
 }
 

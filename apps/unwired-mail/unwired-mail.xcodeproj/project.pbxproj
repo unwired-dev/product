@@ -103,6 +103,12 @@
 		71A6A1862C0B000100000001 /* Services/Mailbox/MessageHTMLSanitizationSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1872C0B000100000001 /* Services/Mailbox/MessageHTMLSanitizationSupport.swift */; };
 		71A6A17A2C0B000100000001 /* MessageHTMLPresentationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A17B2C0B000100000001 /* MessageHTMLPresentationTests.swift */; };
 		71A6A17C2C0B000100000001 /* Features/Settings/AppearanceSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A17D2C0B000100000001 /* Features/Settings/AppearanceSettingsView.swift */; };
+		C0DEC0DE1320000000000001 /* Features/Settings/AboutAppInformation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE1320000000000002 /* Features/Settings/AboutAppInformation.swift */; };
+		C0DEC0DE1320000000000003 /* Features/Settings/OpenSourcePackage.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE1320000000000004 /* Features/Settings/OpenSourcePackage.swift */; };
+		C0DEC0DE1320000000000005 /* Features/Settings/OpenSourceAcknowledgementsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE1320000000000006 /* Features/Settings/OpenSourceAcknowledgementsView.swift */; };
+		C0DEC0DE1320000000000007 /* Features/Settings/AboutSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE1320000000000008 /* Features/Settings/AboutSettingsView.swift */; };
+		C0DEC0DE1320000000000009 /* Features/Settings/SettingsPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE132000000000000A /* Features/Settings/SettingsPresentation.swift */; };
+		C0DEC0DE132000000000000B /* Features/Settings/SignedOutSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE132000000000000C /* Features/Settings/SignedOutSettingsView.swift */; };
 		71A6A1882C0B000100000001 /* Features/Settings/PrivacyDataSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1892C0B000100000001 /* Features/Settings/PrivacyDataSettingsView.swift */; };
 		9809FCB28E1A4D7684FA57F8 /* Features/Settings/StorageDataSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8AA1032F9EE448E1B6E5B977 /* Features/Settings/StorageDataSettingsView.swift */; };
 		D8E2729F42264382AD3DADA8 /* Features/Settings/StorageDataSettingsViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A8E1950634146CA9C79DB71 /* Features/Settings/StorageDataSettingsViewModel.swift */; };
@@ -144,6 +150,7 @@
 		71A6A17E2C0B000100000001 /* MessageAppearanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A17F2C0B000100000001 /* MessageAppearanceTests.swift */; };
 		71A6A1692C0B000100000001 /* SwiftSoup in Frameworks */ = {isa = PBXBuildFile; productRef = 71A6A1682C0B000100000001 /* SwiftSoup */; };
 		71A6A1602C0B000100000001 /* Features/Settings/SettingsScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1612C0B000100000001 /* Features/Settings/SettingsScene.swift */; };
+		C0DEC0DE3940000000000001 /* Features/Settings/MailProfilesSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE3940000000000002 /* Features/Settings/MailProfilesSettingsView.swift */; };
 		71A6A1642C0B000100000001 /* Features/Settings/EmailAccountsSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1652C0B000100000001 /* Features/Settings/EmailAccountsSettingsView.swift */; };
 		71A6A1622C0B000100000001 /* SettingsDestinationRegistryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1632C0B000100000001 /* SettingsDestinationRegistryTests.swift */; };
 		71A6A0F02C0B000100000001 /* Services/ProductSync/PinSyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A0F12C0B000100000001 /* Services/ProductSync/PinSyncService.swift */; };
@@ -208,6 +215,29 @@
 		C0DEC0DE414000000000001 /* Services/Assistance/UnderstandingAssistance.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE414000000000002 /* Services/Assistance/UnderstandingAssistance.swift */; };
 		C0DEC0DE414000000000003 /* Features/Account/UnderstandingAssistanceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE414000000000004 /* Features/Account/UnderstandingAssistanceView.swift */; };
 		C0DEC0DE414000000000005 /* UnderstandingAssistanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE414000000000006 /* UnderstandingAssistanceTests.swift */; };
+		C0DEC0DE4060A00000000001 /* ShareExtensionConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE4060F00000000001 /* ShareExtensionConfiguration.swift */; };
+		C0DEC0DE4060A00000000002 /* ShareExtensionCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE4060F00000000002 /* ShareExtensionCatalog.swift */; };
+		C0DEC0DE4060A00000000003 /* ShareExtensionDraftPayload.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE4060F00000000003 /* ShareExtensionDraftPayload.swift */; };
+		C0DEC0DE4060A00000000004 /* ShareExtensionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE4060F00000000004 /* ShareExtensionStore.swift */; };
+		C0DEC0DE4060A00000000005 /* ShareExtensionDraftBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE4060F00000000005 /* ShareExtensionDraftBuilder.swift */; };
+		C0DEC0DE4060A00000000006 /* ShareExtensionInputLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE4060F00000000006 /* ShareExtensionInputLoader.swift */; };
+		C0DEC0DE4060A00000000007 /* ShareExtensionProfileAuthenticator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE4060F00000000007 /* ShareExtensionProfileAuthenticator.swift */; };
+		C0DEC0DE4060A00000000008 /* ShareExtensionViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE4060F00000000008 /* ShareExtensionViewModel.swift */; };
+		C0DEC0DE4060A00000000009 /* ShareExtensionCatalogSynchronizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE4060F00000000009 /* ShareExtensionCatalogSynchronizer.swift */; };
+		C0DEC0DE4060A0000000000A /* ShareExtensionDraftImporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE4060F0000000000A /* ShareExtensionDraftImporter.swift */; };
+		C0DEC0DE4060B00000000001 /* ShareExtensionConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE4060F00000000001 /* ShareExtensionConfiguration.swift */; };
+		C0DEC0DE4060B00000000002 /* ShareExtensionCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE4060F00000000002 /* ShareExtensionCatalog.swift */; };
+		C0DEC0DE4060B00000000003 /* ShareExtensionDraftPayload.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE4060F00000000003 /* ShareExtensionDraftPayload.swift */; };
+		C0DEC0DE4060B00000000004 /* ShareExtensionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE4060F00000000004 /* ShareExtensionStore.swift */; };
+		C0DEC0DE4060B00000000005 /* ShareExtensionDraftBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE4060F00000000005 /* ShareExtensionDraftBuilder.swift */; };
+		C0DEC0DE4060B00000000006 /* ShareExtensionInputLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE4060F00000000006 /* ShareExtensionInputLoader.swift */; };
+		C0DEC0DE4060B00000000007 /* ShareExtensionProfileAuthenticator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE4060F00000000007 /* ShareExtensionProfileAuthenticator.swift */; };
+		C0DEC0DE4060B00000000008 /* ShareExtensionViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE4060F00000000008 /* ShareExtensionViewModel.swift */; };
+		C0DEC0DE4060B00000000009 /* ShareExtensionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE4060F0000000000B /* ShareExtensionView.swift */; };
+		C0DEC0DE4060B0000000000A /* ShareExtensionDraftForm.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE4060F0000000000C /* ShareExtensionDraftForm.swift */; };
+		C0DEC0DE4060B0000000000B /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE4060F0000000000D /* ShareViewController.swift */; };
+		C0DEC0DE4060E00000000001 /* unwired-mailShareExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = C0DEC0DE4060F00000000010 /* unwired-mailShareExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		C0DEC0DE4060A0000000000B /* ShareExtensionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE4060F00000000011 /* ShareExtensionTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -225,7 +255,28 @@
 			remoteGlobalIDString = 71A6A0302C0B000100000001;
 			remoteInfo = "unwired-mail";
 		};
+		C0DEC0DE4060C00000000005 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 71A6A0202C0B000100000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = C0DEC0DE4060C00000000001;
+			remoteInfo = "unwired-mailShareExtension";
+		};
 /* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		C0DEC0DE4060C00000000002 /* Embed App Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				C0DEC0DE4060E00000000001 /* unwired-mailShareExtension.appex in Embed App Extensions */,
+			);
+			name = "Embed App Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		71A6A0102C0B000100000001 /* unwired-mail.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "unwired-mail.app"; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -330,6 +381,12 @@
 		71A6A1872C0B000100000001 /* Services/Mailbox/MessageHTMLSanitizationSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/Mailbox/MessageHTMLSanitizationSupport.swift; sourceTree = "<group>"; };
 		71A6A17B2C0B000100000001 /* MessageHTMLPresentationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageHTMLPresentationTests.swift; sourceTree = "<group>"; };
 		71A6A17D2C0B000100000001 /* Features/Settings/AppearanceSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Settings/AppearanceSettingsView.swift; sourceTree = "<group>"; };
+		C0DEC0DE1320000000000002 /* Features/Settings/AboutAppInformation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Settings/AboutAppInformation.swift; sourceTree = "<group>"; };
+		C0DEC0DE1320000000000004 /* Features/Settings/OpenSourcePackage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Settings/OpenSourcePackage.swift; sourceTree = "<group>"; };
+		C0DEC0DE1320000000000006 /* Features/Settings/OpenSourceAcknowledgementsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Settings/OpenSourceAcknowledgementsView.swift; sourceTree = "<group>"; };
+		C0DEC0DE1320000000000008 /* Features/Settings/AboutSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Settings/AboutSettingsView.swift; sourceTree = "<group>"; };
+		C0DEC0DE132000000000000A /* Features/Settings/SettingsPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Settings/SettingsPresentation.swift; sourceTree = "<group>"; };
+		C0DEC0DE132000000000000C /* Features/Settings/SignedOutSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Settings/SignedOutSettingsView.swift; sourceTree = "<group>"; };
 		71A6A1892C0B000100000001 /* Features/Settings/PrivacyDataSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Settings/PrivacyDataSettingsView.swift; sourceTree = "<group>"; };
 		8AA1032F9EE448E1B6E5B977 /* Features/Settings/StorageDataSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Settings/StorageDataSettingsView.swift; sourceTree = "<group>"; };
 		2A8E1950634146CA9C79DB71 /* Features/Settings/StorageDataSettingsViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Settings/StorageDataSettingsViewModel.swift; sourceTree = "<group>"; };
@@ -370,6 +427,7 @@
 		71A6A1D32C0B000100000001 /* AdvancedSettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AdvancedSettingsTests.swift; sourceTree = "<group>"; };
 		71A6A17F2C0B000100000001 /* MessageAppearanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageAppearanceTests.swift; sourceTree = "<group>"; };
 		71A6A1612C0B000100000001 /* Features/Settings/SettingsScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Settings/SettingsScene.swift; sourceTree = "<group>"; };
+		C0DEC0DE3940000000000002 /* Features/Settings/MailProfilesSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Settings/MailProfilesSettingsView.swift; sourceTree = "<group>"; };
 		71A6A1652C0B000100000001 /* Features/Settings/EmailAccountsSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Settings/EmailAccountsSettingsView.swift; sourceTree = "<group>"; };
 		71A6A1632C0B000100000001 /* SettingsDestinationRegistryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsDestinationRegistryTests.swift; sourceTree = "<group>"; };
 		71A6A0F12C0B000100000001 /* Services/ProductSync/PinSyncService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/ProductSync/PinSyncService.swift; sourceTree = "<group>"; };
@@ -434,6 +492,23 @@
 		C0DEC0DE414000000000002 /* Services/Assistance/UnderstandingAssistance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/Assistance/UnderstandingAssistance.swift; sourceTree = "<group>"; };
 		C0DEC0DE414000000000004 /* Features/Account/UnderstandingAssistanceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Account/UnderstandingAssistanceView.swift; sourceTree = "<group>"; };
 		C0DEC0DE414000000000006 /* UnderstandingAssistanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UnderstandingAssistanceTests.swift; sourceTree = "<group>"; };
+		C0DEC0DE4060F00000000001 /* ShareExtensionConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/ShareExtension/Shared/ShareExtensionConfiguration.swift; sourceTree = "<group>"; };
+		C0DEC0DE4060F00000000002 /* ShareExtensionCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/ShareExtension/Shared/ShareExtensionCatalog.swift; sourceTree = "<group>"; };
+		C0DEC0DE4060F00000000003 /* ShareExtensionDraftPayload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/ShareExtension/Shared/ShareExtensionDraftPayload.swift; sourceTree = "<group>"; };
+		C0DEC0DE4060F00000000004 /* ShareExtensionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/ShareExtension/Shared/ShareExtensionStore.swift; sourceTree = "<group>"; };
+		C0DEC0DE4060F00000000005 /* ShareExtensionDraftBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/ShareExtension/Shared/ShareExtensionDraftBuilder.swift; sourceTree = "<group>"; };
+		C0DEC0DE4060F00000000006 /* ShareExtensionInputLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/ShareExtension/Shared/ShareExtensionInputLoader.swift; sourceTree = "<group>"; };
+		C0DEC0DE4060F00000000007 /* ShareExtensionProfileAuthenticator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/ShareExtension/Shared/ShareExtensionProfileAuthenticator.swift; sourceTree = "<group>"; };
+		C0DEC0DE4060F00000000008 /* ShareExtensionViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/ShareExtension/Shared/ShareExtensionViewModel.swift; sourceTree = "<group>"; };
+		C0DEC0DE4060F00000000009 /* ShareExtensionCatalogSynchronizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/ShareExtension/App/ShareExtensionCatalogSynchronizer.swift; sourceTree = "<group>"; };
+		C0DEC0DE4060F0000000000A /* ShareExtensionDraftImporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/ShareExtension/App/ShareExtensionDraftImporter.swift; sourceTree = "<group>"; };
+		C0DEC0DE4060F0000000000B /* ShareExtensionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareExtensionView.swift; sourceTree = "<group>"; };
+		C0DEC0DE4060F0000000000C /* ShareExtensionDraftForm.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareExtensionDraftForm.swift; sourceTree = "<group>"; };
+		C0DEC0DE4060F0000000000D /* ShareViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareViewController.swift; sourceTree = "<group>"; };
+		C0DEC0DE4060F0000000000E /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		C0DEC0DE4060F0000000000F /* unwired-mail-share-extension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "unwired-mail-share-extension.entitlements"; sourceTree = "<group>"; };
+		C0DEC0DE4060F00000000010 /* unwired-mailShareExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = "unwired-mailShareExtension.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
+		C0DEC0DE4060F00000000011 /* ShareExtensionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareExtensionTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -460,6 +535,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		C0DEC0DE4060C00000000003 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -467,6 +549,7 @@
 			isa = PBXGroup;
 			children = (
 				71A6A0242C0B000100000001 /* unwired-mail */,
+				C0DEC0DE4060C00000000008 /* unwired-mailShareExtension */,
 				71A6A0252C0B000100000001 /* unwired-mailTests */,
 				71A6A2152C0B000100000001 /* unwired-mailMailTestUITests */,
 				71A6A0262C0B000100000001 /* Products */,
@@ -476,6 +559,16 @@
 		71A6A0242C0B000100000001 /* unwired-mail */ = {
 			isa = PBXGroup;
 			children = (
+				C0DEC0DE4060F00000000001 /* ShareExtensionConfiguration.swift */,
+				C0DEC0DE4060F00000000002 /* ShareExtensionCatalog.swift */,
+				C0DEC0DE4060F00000000003 /* ShareExtensionDraftPayload.swift */,
+				C0DEC0DE4060F00000000004 /* ShareExtensionStore.swift */,
+				C0DEC0DE4060F00000000005 /* ShareExtensionDraftBuilder.swift */,
+				C0DEC0DE4060F00000000006 /* ShareExtensionInputLoader.swift */,
+				C0DEC0DE4060F00000000007 /* ShareExtensionProfileAuthenticator.swift */,
+				C0DEC0DE4060F00000000008 /* ShareExtensionViewModel.swift */,
+				C0DEC0DE4060F00000000009 /* ShareExtensionCatalogSynchronizer.swift */,
+				C0DEC0DE4060F0000000000A /* ShareExtensionDraftImporter.swift */,
 				71A6A1A12C0B000100000001 /* AppIcon.icon */,
 				71A6A0A02C0B000100000001 /* Shared.xcconfig */,
 				71A6A0112C0B000100000001 /* App/UnwiredMailApp.swift */,
@@ -502,6 +595,8 @@
 				71A6A0632C0B000100000001 /* Features/Account/SignInView.swift */,
 				71A6A1D12C0B000100000001 /* Features/Settings/AdvancedSettingsView.swift */,
 				71A6A17D2C0B000100000001 /* Features/Settings/AppearanceSettingsView.swift */,
+				C0DEC0DE1320000000000002 /* Features/Settings/AboutAppInformation.swift */,
+				C0DEC0DE1320000000000008 /* Features/Settings/AboutSettingsView.swift */,
 				71A6A1C52C0B000100000001 /* Features/Settings/ComposeSettingsView.swift */,
 				71A6A2252C0B000100000001 /* Features/Settings/SignatureSettingsView.swift */,
 				C0DEC0DE1220000000000006 /* Features/Settings/TemplateSettingsView.swift */,
@@ -509,9 +604,14 @@
 				71A6A1E52C0B000100000001 /* Features/Settings/SwipeSettingsView.swift */,
 				71A6A1F52C0B000100000001 /* Features/Settings/ReadingSettingsView.swift */,
 				71A6A1892C0B000100000001 /* Features/Settings/PrivacyDataSettingsView.swift */,
+				C0DEC0DE1320000000000006 /* Features/Settings/OpenSourceAcknowledgementsView.swift */,
+				C0DEC0DE1320000000000004 /* Features/Settings/OpenSourcePackage.swift */,
+				C0DEC0DE132000000000000A /* Features/Settings/SettingsPresentation.swift */,
+				C0DEC0DE132000000000000C /* Features/Settings/SignedOutSettingsView.swift */,
 				8AA1032F9EE448E1B6E5B977 /* Features/Settings/StorageDataSettingsView.swift */,
 				2A8E1950634146CA9C79DB71 /* Features/Settings/StorageDataSettingsViewModel.swift */,
 				71A6A1612C0B000100000001 /* Features/Settings/SettingsScene.swift */,
+				C0DEC0DE3940000000000002 /* Features/Settings/MailProfilesSettingsView.swift */,
 				C0DEC0DE465000000000004 /* Features/Settings/MailProfileInterruptionSettingsView.swift */,
 				C0DEC0DE411000000000010 /* Features/Settings/MailAssistanceSettingsView.swift */,
 				71A6A1652C0B000100000001 /* Features/Settings/EmailAccountsSettingsView.swift */,
@@ -627,6 +727,7 @@
 		71A6A0252C0B000100000001 /* unwired-mailTests */ = {
 			isa = PBXGroup;
 			children = (
+				C0DEC0DE4060F00000000011 /* ShareExtensionTests.swift */,
 				D16100000000000000000016 /* MailCompositionDraftTests.swift */,
 				C0DEC0DE162000000000006 /* SemanticMessageDocumentTests.swift */,
 				71A6A1D32C0B000100000001 /* AdvancedSettingsTests.swift */,
@@ -697,10 +798,23 @@
 			path = "unwired-mailMailTestUITests";
 			sourceTree = "<group>";
 		};
+		C0DEC0DE4060C00000000008 /* unwired-mailShareExtension */ = {
+			isa = PBXGroup;
+			children = (
+				C0DEC0DE4060F0000000000B /* ShareExtensionView.swift */,
+				C0DEC0DE4060F0000000000C /* ShareExtensionDraftForm.swift */,
+				C0DEC0DE4060F0000000000D /* ShareViewController.swift */,
+				C0DEC0DE4060F0000000000E /* Info.plist */,
+				C0DEC0DE4060F0000000000F /* unwired-mail-share-extension.entitlements */,
+			);
+			path = "unwired-mailShareExtension";
+			sourceTree = "<group>";
+		};
 		71A6A0262C0B000100000001 /* Products */ = {
 			isa = PBXGroup;
 			children = (
 				71A6A0102C0B000100000001 /* unwired-mail.app */,
+				C0DEC0DE4060F00000000010 /* unwired-mailShareExtension.appex */,
 				71A6A0152C0B000100000001 /* unwired-mailTests.xctest */,
 				71A6A2132C0B000100000001 /* unwired-mailMailTestUITests.xctest */,
 			);
@@ -717,10 +831,12 @@
 				71A6A0312C0B000100000001 /* Sources */,
 				71A6A0212C0B000100000001 /* Frameworks */,
 				71A6A0322C0B000100000001 /* Resources */,
+				C0DEC0DE4060C00000000002 /* Embed App Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				C0DEC0DE4060C00000000006 /* PBXTargetDependency */,
 			);
 			name = "unwired-mail";
 			packageProductDependencies = (
@@ -730,6 +846,23 @@
 			productName = "unwired-mail";
 			productReference = 71A6A0102C0B000100000001 /* unwired-mail.app */;
 			productType = "com.apple.product-type.application";
+		};
+		C0DEC0DE4060C00000000001 /* unwired-mailShareExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = C0DEC0DE4060C00000000009 /* Build configuration list for PBXNativeTarget "unwired-mailShareExtension" */;
+			buildPhases = (
+				C0DEC0DE4060C00000000004 /* Sources */,
+				C0DEC0DE4060C00000000003 /* Frameworks */,
+				C0DEC0DE4060C00000000007 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = "unwired-mailShareExtension";
+			productName = "unwired-mailShareExtension";
+			productReference = C0DEC0DE4060F00000000010 /* unwired-mailShareExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 		71A6A0332C0B000100000001 /* unwired-mailTests */ = {
 			isa = PBXNativeTarget;
@@ -780,6 +913,9 @@
 					71A6A0302C0B000100000001 = {
 						CreatedOnToolsVersion = 16.0;
 					};
+					C0DEC0DE4060C00000000001 = {
+						CreatedOnToolsVersion = 26.0;
+					};
 					71A6A0332C0B000100000001 = {
 						CreatedOnToolsVersion = 16.0;
 						TestTargetID = 71A6A0302C0B000100000001;
@@ -808,6 +944,7 @@
 			projectRoot = "";
 			targets = (
 				71A6A0302C0B000100000001 /* unwired-mail */,
+				C0DEC0DE4060C00000000001 /* unwired-mailShareExtension */,
 				71A6A0332C0B000100000001 /* unwired-mailTests */,
 				71A6A2162C0B000100000001 /* unwired-mailMailTestUITests */,
 			);
@@ -837,6 +974,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		C0DEC0DE4060C00000000007 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -844,6 +988,16 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C0DEC0DE4060A00000000001 /* ShareExtensionConfiguration.swift in Sources */,
+				C0DEC0DE4060A00000000002 /* ShareExtensionCatalog.swift in Sources */,
+				C0DEC0DE4060A00000000003 /* ShareExtensionDraftPayload.swift in Sources */,
+				C0DEC0DE4060A00000000004 /* ShareExtensionStore.swift in Sources */,
+				C0DEC0DE4060A00000000005 /* ShareExtensionDraftBuilder.swift in Sources */,
+				C0DEC0DE4060A00000000006 /* ShareExtensionInputLoader.swift in Sources */,
+				C0DEC0DE4060A00000000007 /* ShareExtensionProfileAuthenticator.swift in Sources */,
+				C0DEC0DE4060A00000000008 /* ShareExtensionViewModel.swift in Sources */,
+				C0DEC0DE4060A00000000009 /* ShareExtensionCatalogSynchronizer.swift in Sources */,
+				C0DEC0DE4060A0000000000A /* ShareExtensionDraftImporter.swift in Sources */,
 				71A6A0012C0B000100000001 /* App/UnwiredMailApp.swift in Sources */,
 				71A6A2002C0B000100000001 /* App/MailTestBootstrap.swift in Sources */,
 				71A6A0662C0B000100000001 /* Features/Account/RootView.swift in Sources */,
@@ -868,15 +1022,22 @@
 				71A6A0622C0B000100000001 /* Features/Account/SignInView.swift in Sources */,
 				71A6A1D02C0B000100000001 /* Features/Settings/AdvancedSettingsView.swift in Sources */,
 				71A6A17C2C0B000100000001 /* Features/Settings/AppearanceSettingsView.swift in Sources */,
+				C0DEC0DE1320000000000001 /* Features/Settings/AboutAppInformation.swift in Sources */,
+				C0DEC0DE1320000000000007 /* Features/Settings/AboutSettingsView.swift in Sources */,
 				71A6A1C42C0B000100000001 /* Features/Settings/ComposeSettingsView.swift in Sources */,
 				71A6A2242C0B000100000001 /* Features/Settings/SignatureSettingsView.swift in Sources */,
 				C0DEC0DE1220000000000005 /* Features/Settings/TemplateSettingsView.swift in Sources */,
 				71A6A1B22C0B000100000001 /* Features/Settings/InboxSettingsView.swift in Sources */,
 				71A6A1E42C0B000100000001 /* Features/Settings/SwipeSettingsView.swift in Sources */,
 				71A6A1882C0B000100000001 /* Features/Settings/PrivacyDataSettingsView.swift in Sources */,
+				C0DEC0DE1320000000000005 /* Features/Settings/OpenSourceAcknowledgementsView.swift in Sources */,
+				C0DEC0DE1320000000000003 /* Features/Settings/OpenSourcePackage.swift in Sources */,
+				C0DEC0DE1320000000000009 /* Features/Settings/SettingsPresentation.swift in Sources */,
+				C0DEC0DE132000000000000B /* Features/Settings/SignedOutSettingsView.swift in Sources */,
 				9809FCB28E1A4D7684FA57F8 /* Features/Settings/StorageDataSettingsView.swift in Sources */,
 				D8E2729F42264382AD3DADA8 /* Features/Settings/StorageDataSettingsViewModel.swift in Sources */,
 				71A6A1602C0B000100000001 /* Features/Settings/SettingsScene.swift in Sources */,
+				C0DEC0DE3940000000000001 /* Features/Settings/MailProfilesSettingsView.swift in Sources */,
 				C0DEC0DE465000000000003 /* Features/Settings/MailProfileInterruptionSettingsView.swift in Sources */,
 				C0DEC0DE411000000000009 /* Features/Settings/MailAssistanceSettingsView.swift in Sources */,
 				71A6A1642C0B000100000001 /* Features/Settings/EmailAccountsSettingsView.swift in Sources */,
@@ -990,6 +1151,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C0DEC0DE4060A0000000000B /* ShareExtensionTests.swift in Sources */,
 				D16100000000000000000006 /* MailCompositionDraftTests.swift in Sources */,
 				C0DEC0DE162000000000005 /* SemanticMessageDocumentTests.swift in Sources */,
 				71A6A1D22C0B000100000001 /* AdvancedSettingsTests.swift in Sources */,
@@ -1059,6 +1221,24 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		C0DEC0DE4060C00000000004 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C0DEC0DE4060B00000000001 /* ShareExtensionConfiguration.swift in Sources */,
+				C0DEC0DE4060B00000000002 /* ShareExtensionCatalog.swift in Sources */,
+				C0DEC0DE4060B00000000003 /* ShareExtensionDraftPayload.swift in Sources */,
+				C0DEC0DE4060B00000000004 /* ShareExtensionStore.swift in Sources */,
+				C0DEC0DE4060B00000000005 /* ShareExtensionDraftBuilder.swift in Sources */,
+				C0DEC0DE4060B00000000006 /* ShareExtensionInputLoader.swift in Sources */,
+				C0DEC0DE4060B00000000007 /* ShareExtensionProfileAuthenticator.swift in Sources */,
+				C0DEC0DE4060B00000000008 /* ShareExtensionViewModel.swift in Sources */,
+				C0DEC0DE4060B00000000009 /* ShareExtensionView.swift in Sources */,
+				C0DEC0DE4060B0000000000A /* ShareExtensionDraftForm.swift in Sources */,
+				C0DEC0DE4060B0000000000B /* ShareViewController.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -1071,6 +1251,11 @@
 			isa = PBXTargetDependency;
 			target = 71A6A0302C0B000100000001 /* unwired-mail */;
 			targetProxy = 71A6A2142C0B000100000001 /* PBXContainerItemProxy */;
+		};
+		C0DEC0DE4060C00000000006 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = C0DEC0DE4060C00000000001 /* unwired-mailShareExtension */;
+			targetProxy = C0DEC0DE4060C00000000005 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -1387,6 +1572,58 @@
 			};
 			name = Release;
 		};
+		C0DEC0DE4060D00000000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 71A6A0A02C0B000100000001 /* Shared.xcconfig */;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = "unwired-mailShareExtension/unwired-mail-share-extension.entitlements";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "unwired-mailShareExtension/Info.plist";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.unwired.mail.share-extension;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		C0DEC0DE4060D00000000002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 71A6A0A02C0B000100000001 /* Shared.xcconfig */;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = "unwired-mailShareExtension/unwired-mail-share-extension.entitlements";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "unwired-mailShareExtension/Info.plist";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.unwired.mail.share-extension;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -1422,6 +1659,15 @@
 			buildConfigurations = (
 				71A6A21B2C0B000100000001 /* Debug */,
 				71A6A21C2C0B000100000001 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		C0DEC0DE4060C00000000009 /* Build configuration list for PBXNativeTarget "unwired-mailShareExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C0DEC0DE4060D00000000001 /* Debug */,
+				C0DEC0DE4060D00000000002 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

@@ -234,6 +234,55 @@ struct StorageDataSettingsTests {
     #expect(fileManager.fileExists(atPath: fixture.metadataFile.path))
   }
 
+  @Test(.bug(id: 132))
+  func signedOutStorageInspectionClearsOnlyDeviceCaches() async throws {
+    let fileManager = FileManager.default
+    let root = fileManager.temporaryDirectory.appending(
+      path: "SignedOutStorageDataSettingsTests-\(UUID().uuidString)",
+      directoryHint: .isDirectory
+    )
+    defer { try? fileManager.removeItem(at: root) }
+    let bodyDirectory = root.appending(path: "Bodies", directoryHint: .isDirectory)
+    let attachmentDirectory = root.appending(path: "Attachments", directoryHint: .isDirectory)
+    let draftDirectory = root.appending(path: "Drafts", directoryHint: .isDirectory)
+    let metadataFile = root.appending(path: "Metadata.store")
+    for directory in [bodyDirectory, attachmentDirectory, draftDirectory] {
+      try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+    }
+    try Data(repeating: 0x01, count: 7).write(
+      to: bodyDirectory.appending(path: "cached-body")
+    )
+    try Data(repeating: 0x02, count: 11).write(
+      to: attachmentDirectory.appending(path: "attachment")
+    )
+    try Data(repeating: 0x03, count: 13).write(
+      to: draftDirectory.appending(path: "draft")
+    )
+    try Data(repeating: 0x04, count: 5).write(to: metadataFile)
+    let service = DeviceLocalMailStorageService(
+      fileManager: fileManager,
+      paths: LocalMailStoragePaths(
+        attachmentDirectory: attachmentDirectory,
+        bodyCacheDirectory: bodyDirectory,
+        draftDirectory: draftDirectory,
+        metadataLocations: [metadataFile]
+      )
+    )
+
+    let before = try await service.snapshot()
+    #expect(before.cachedBodyByteCount == 7)
+    #expect(before.downloadedAttachmentByteCount == 11)
+    #expect(before.draftByteCount == 13)
+    #expect(before.metadataByteCount == 5)
+
+    try await service.clearEvictableContent()
+    let after = try await service.snapshot()
+    #expect(after.cachedBodyByteCount == 0)
+    #expect(after.downloadedAttachmentByteCount == 0)
+    #expect(after.draftByteCount == 13)
+    #expect(after.metadataByteCount == 5)
+  }
+
   @MainActor
   @Test(.bug(id: 127))
   func cancellingExportClearsWorkingStateWithoutPresentingAFile() async {
@@ -250,6 +299,124 @@ struct StorageDataSettingsTests {
     #expect(viewModel.exportData == nil)
     #expect(viewModel.isExporting == false)
     #expect(viewModel.statusMessage == "Export cancelled.")
+  }
+
+  @MainActor
+  @Test
+  func reconfigurationDiscardsStaleRefreshAndLoadsReplacementStorage() async {
+    let oldStorage = ControlledLocalMailStorageManager(
+      snapshotValue: makeSnapshot(cachedBodyByteCount: 1),
+      suspendsSnapshot: true
+    )
+    let newStorage = ControlledLocalMailStorageManager(
+      snapshotValue: makeSnapshot(cachedBodyByteCount: 2),
+      suspendsSnapshot: false
+    )
+    let viewModel = StorageDataSettingsViewModel(
+      exporter: SuspendingProductSyncExporter(),
+      readReceiptSummary: "Incoming: Ask Every Time. Outgoing: Never.",
+      storage: oldStorage
+    )
+
+    let oldRefresh = Task { await viewModel.refresh() }
+    await oldStorage.waitForSnapshotRequest()
+    viewModel.updateConfiguration(
+      session: session,
+      profileIds: [MailProfileId(rawValue: "profile-a")],
+      readingPreferences: .defaults,
+      storage: newStorage
+    )
+    await newStorage.waitForSnapshotRequest()
+    await oldStorage.releaseSnapshot()
+    await oldRefresh.value
+
+    #expect(viewModel.snapshot == makeSnapshot(cachedBodyByteCount: 2))
+    #expect(viewModel.isLoading == false)
+    #expect(viewModel.alertMessage == nil)
+  }
+
+  @MainActor
+  @Test
+  func reconfigurationDiscardsStaleClearSuccess() async {
+    let oldStorage = ControlledLocalMailStorageManager(
+      snapshotValue: makeSnapshot(cachedBodyByteCount: 1),
+      suspendsSnapshot: false,
+      suspendsClear: true
+    )
+    let newStorage = ControlledLocalMailStorageManager(
+      snapshotValue: makeSnapshot(cachedBodyByteCount: 2),
+      suspendsSnapshot: false
+    )
+    let viewModel = StorageDataSettingsViewModel(
+      exporter: SuspendingProductSyncExporter(),
+      readReceiptSummary: "Incoming: Ask Every Time. Outgoing: Never.",
+      storage: oldStorage
+    )
+
+    let oldClear = Task { await viewModel.clearCaches() }
+    await oldStorage.waitForClearRequest()
+    viewModel.updateConfiguration(
+      session: session,
+      profileIds: [MailProfileId(rawValue: "profile-a")],
+      readingPreferences: .defaults,
+      storage: newStorage
+    )
+    await newStorage.waitForSnapshotRequest()
+    await oldStorage.releaseClear()
+    await oldClear.value
+
+    #expect(viewModel.snapshot == makeSnapshot(cachedBodyByteCount: 2))
+    #expect(viewModel.isClearing == false)
+    #expect(viewModel.statusMessage == nil)
+    #expect(viewModel.alertMessage == nil)
+  }
+
+  @MainActor
+  @Test
+  func reconfigurationDiscardsStaleClearFailure() async {
+    let oldStorage = ControlledLocalMailStorageManager(
+      snapshotValue: makeSnapshot(cachedBodyByteCount: 1),
+      suspendsSnapshot: false,
+      suspendsClear: true,
+      clearError: .clearFailed
+    )
+    let newStorage = ControlledLocalMailStorageManager(
+      snapshotValue: makeSnapshot(cachedBodyByteCount: 2),
+      suspendsSnapshot: false
+    )
+    let viewModel = StorageDataSettingsViewModel(
+      exporter: SuspendingProductSyncExporter(),
+      readReceiptSummary: "Incoming: Ask Every Time. Outgoing: Never.",
+      storage: oldStorage
+    )
+
+    let oldClear = Task { await viewModel.clearCaches() }
+    await oldStorage.waitForClearRequest()
+    viewModel.updateConfiguration(
+      session: session,
+      profileIds: [MailProfileId(rawValue: "profile-a")],
+      readingPreferences: .defaults,
+      storage: newStorage
+    )
+    await newStorage.waitForSnapshotRequest()
+    await oldStorage.releaseClear()
+    await oldClear.value
+
+    #expect(viewModel.snapshot == makeSnapshot(cachedBodyByteCount: 2))
+    #expect(viewModel.isClearing == false)
+    #expect(viewModel.statusMessage == nil)
+    #expect(viewModel.alertMessage == nil)
+  }
+
+  private func makeSnapshot(cachedBodyByteCount: Int64) -> LocalMailStorageSnapshot {
+    LocalMailStorageSnapshot(
+      cachedBodyByteCount: cachedBodyByteCount,
+      downloadedAttachmentByteCount: 0,
+      draftByteCount: 0,
+      metadataByteCount: 0,
+      pendingDraftAssetByteCount: 0,
+      pendingDraftAssetCount: 0
+    )
   }
 
   private func makeProductSyncExport() async throws -> ExportResult {
@@ -438,5 +605,84 @@ private actor EmptyLocalMailStorageManager: LocalMailStorageManaging {
       pendingDraftAssetByteCount: 0,
       pendingDraftAssetCount: 0
     )
+  }
+}
+
+private enum StorageTestError: Error, Sendable {
+  case clearFailed
+}
+
+private actor ControlledLocalMailStorageManager: LocalMailStorageManaging {
+  private let snapshotValue: LocalMailStorageSnapshot
+  private let suspendsSnapshot: Bool
+  private let suspendsClear: Bool
+  private let clearError: StorageTestError?
+  private var snapshotRequested = false
+  private var snapshotRequestContinuation: CheckedContinuation<Void, Never>?
+  private var snapshotReleaseContinuation: CheckedContinuation<Void, Never>?
+  private var clearRequested = false
+  private var clearRequestContinuation: CheckedContinuation<Void, Never>?
+  private var clearReleaseContinuation: CheckedContinuation<Void, Never>?
+
+  init(
+    snapshotValue: LocalMailStorageSnapshot,
+    suspendsSnapshot: Bool,
+    suspendsClear: Bool = false,
+    clearError: StorageTestError? = nil
+  ) {
+    self.snapshotValue = snapshotValue
+    self.suspendsSnapshot = suspendsSnapshot
+    self.suspendsClear = suspendsClear
+    self.clearError = clearError
+  }
+
+  func clearEvictableContent() async throws {
+    clearRequested = true
+    clearRequestContinuation?.resume()
+    clearRequestContinuation = nil
+    if suspendsClear {
+      await withCheckedContinuation { continuation in
+        clearReleaseContinuation = continuation
+      }
+    }
+    if let clearError {
+      throw clearError
+    }
+  }
+
+  func snapshot() async throws -> LocalMailStorageSnapshot {
+    snapshotRequested = true
+    snapshotRequestContinuation?.resume()
+    snapshotRequestContinuation = nil
+    if suspendsSnapshot {
+      await withCheckedContinuation { continuation in
+        snapshotReleaseContinuation = continuation
+      }
+    }
+    return snapshotValue
+  }
+
+  func waitForSnapshotRequest() async {
+    guard !snapshotRequested else { return }
+    await withCheckedContinuation { continuation in
+      snapshotRequestContinuation = continuation
+    }
+  }
+
+  func waitForClearRequest() async {
+    guard !clearRequested else { return }
+    await withCheckedContinuation { continuation in
+      clearRequestContinuation = continuation
+    }
+  }
+
+  func releaseSnapshot() {
+    snapshotReleaseContinuation?.resume()
+    snapshotReleaseContinuation = nil
+  }
+
+  func releaseClear() {
+    clearReleaseContinuation?.resume()
+    clearReleaseContinuation = nil
   }
 }

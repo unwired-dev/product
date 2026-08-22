@@ -14,10 +14,15 @@ protocol FeatureSuggestionPreferenceSyncing {
 final class FeatureSuggestionPreferenceSyncService: FeatureSuggestionPreferenceSyncing {
   private let preferenceRecord: ProductSyncSingletonHandle<FeatureSuggestionPreferences>
 
-  init(recordBoundary: ProductSyncRecordBoundary = ProductSyncRecordBoundary()) {
+  init(
+    recordScope: MailProfileRecordScope = .legacyProductAccount,
+    recordBoundary: ProductSyncRecordBoundary = ProductSyncRecordBoundary()
+  ) {
     preferenceRecord = recordBoundary.singleton(
       ProductSyncSingletonDefinition(
-        identifier: FeatureSuggestionPreferences.primaryIdentifier,
+        identifier: recordScope.productSyncIdentifier(
+          FeatureSuggestionPreferences.primaryIdentifier
+        ),
         cachePolicy: .authoritative
       )
     )

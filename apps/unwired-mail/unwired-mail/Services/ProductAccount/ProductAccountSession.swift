@@ -245,20 +245,23 @@ final class ProductAccountSession {
   private(set) var unacknowledgedRecoveryKey: String?
 
   @ObservationIgnored private var bootstrapTask: Task<Void, Never>?
-  @ObservationIgnored private var composePreferenceSession: ProductAccountSessionSnapshot?
-  @ObservationIgnored private var composePreferenceStore: ComposePreferenceStore?
-  @ObservationIgnored private var featureSuggestionPreferenceSession: ProductAccountSessionSnapshot?
-  @ObservationIgnored private var featureSuggestionPreferenceStore:
-    FeatureSuggestionPreferenceStore?
-  @ObservationIgnored private var signaturePreferenceSession: ProductAccountSessionSnapshot?
-  @ObservationIgnored private var signatureStore: SignatureStore?
+  @ObservationIgnored private var composePreferenceStoreSessions:
+    [String: ProductAccountSessionSnapshot] = [:]
+  @ObservationIgnored private var composePreferenceStores: [String: ComposePreferenceStore] = [:]
+  @ObservationIgnored private var featureSuggestionPreferenceStoreSessions:
+    [String: ProductAccountSessionSnapshot] = [:]
+  @ObservationIgnored private var featureSuggestionPreferenceStores:
+    [String: FeatureSuggestionPreferenceStore] = [:]
+  @ObservationIgnored private var signatureStoreSessions: [String: ProductAccountSessionSnapshot] =
+    [:]
+  @ObservationIgnored private var signatureStores: [String: SignatureStore] = [:]
   @ObservationIgnored private var templateStoreSessions: [String: ProductAccountSessionSnapshot] =
     [:]
   @ObservationIgnored private var templateStores: [String: TemplateStore] = [:]
   @ObservationIgnored private var deletionTask: Task<Void, Never>?
-  @ObservationIgnored private var inboxPreferenceSession: ProductAccountSessionSnapshot?
-  @ObservationIgnored private var inboxPreferenceRecordScope: MailProfileRecordScope?
-  @ObservationIgnored private var inboxPreferenceStore: InboxPreferenceStore?
+  @ObservationIgnored private var inboxPreferenceStoreSessions:
+    [String: ProductAccountSessionSnapshot] = [:]
+  @ObservationIgnored private var inboxPreferenceStores: [String: InboxPreferenceStore] = [:]
   @ObservationIgnored private var mailboxFreshnessSession: ProductAccountSessionSnapshot?
   @ObservationIgnored private var mailboxFreshnessViewModel: MailboxFreshnessViewModel?
   @ObservationIgnored private var mailActionSession: ProductAccountSessionSnapshot?
@@ -1734,33 +1737,40 @@ extension ProductAccountSession {
   }
 
   private func retirePreferenceStoresForSignOut(productAccountId: String) {
+    for key in composePreferenceStoreSessions.keys.filter({
+      composePreferenceStoreSessions[$0]?.productAccountId == productAccountId
+    }) {
+      composePreferenceStores[key]?.retire()
+      composePreferenceStores[key] = nil
+      composePreferenceStoreSessions[key] = nil
+    }
+    for key in featureSuggestionPreferenceStoreSessions.keys.filter({
+      featureSuggestionPreferenceStoreSessions[$0]?.productAccountId == productAccountId
+    }) {
+      featureSuggestionPreferenceStores[key]?.retire()
+      featureSuggestionPreferenceStores[key] = nil
+      featureSuggestionPreferenceStoreSessions[key] = nil
+    }
+    for key in signatureStoreSessions.keys.filter({
+      signatureStoreSessions[$0]?.productAccountId == productAccountId
+    }) {
+      signatureStores[key]?.retire()
+      signatureStores[key] = nil
+      signatureStoreSessions[key] = nil
+    }
+    for key in inboxPreferenceStoreSessions.keys.filter({
+      inboxPreferenceStoreSessions[$0]?.productAccountId == productAccountId
+    }) {
+      inboxPreferenceStores[key]?.retire()
+      inboxPreferenceStores[key] = nil
+      inboxPreferenceStoreSessions[key] = nil
+    }
     for key in templateStoreSessions.keys.filter({
       templateStoreSessions[$0]?.productAccountId == productAccountId
     }) {
       templateStores[key]?.retire()
       templateStores[key] = nil
       templateStoreSessions[key] = nil
-    }
-    if composePreferenceSession?.productAccountId == productAccountId {
-      composePreferenceStore?.retire()
-      composePreferenceSession = nil
-      composePreferenceStore = nil
-    }
-    if featureSuggestionPreferenceSession?.productAccountId == productAccountId {
-      featureSuggestionPreferenceStore?.retire()
-      featureSuggestionPreferenceSession = nil
-      featureSuggestionPreferenceStore = nil
-    }
-    if signaturePreferenceSession?.productAccountId == productAccountId {
-      signatureStore?.retire()
-      signaturePreferenceSession = nil
-      signatureStore = nil
-    }
-    if inboxPreferenceSession?.productAccountId == productAccountId {
-      inboxPreferenceStore?.retire()
-      inboxPreferenceSession = nil
-      inboxPreferenceRecordScope = nil
-      inboxPreferenceStore = nil
     }
   }
 
@@ -1974,77 +1984,88 @@ extension ProductAccountSession {
 
   func sharedComposePreferenceStore(
     for snapshot: ProductAccountSessionSnapshot,
-    syncService: ComposePreferenceSyncing = ComposePreferenceSyncService()
+    recordScope: MailProfileRecordScope = .legacyProductAccount,
+    syncService: ComposePreferenceSyncing? = nil
   ) -> ComposePreferenceStore {
-    if let composePreferenceSession,
-      composePreferenceSession.appleUserIdentifier == snapshot.appleUserIdentifier,
-      composePreferenceSession.productAccountId == snapshot.productAccountId,
-      composePreferenceSession.trustedDeviceId == snapshot.trustedDeviceId,
-      let composePreferenceStore
+    let key = recordScope.namespace ?? "legacy"
+    if let existingSession = composePreferenceStoreSessions[key],
+      existingSession.appleUserIdentifier == snapshot.appleUserIdentifier,
+      existingSession.productAccountId == snapshot.productAccountId,
+      existingSession.trustedDeviceId == snapshot.trustedDeviceId,
+      let composePreferenceStore = composePreferenceStores[key]
     {
-      self.composePreferenceSession = snapshot
+      composePreferenceStoreSessions[key] = snapshot
       composePreferenceStore.updateSession(snapshot)
       return composePreferenceStore
     }
 
+    composePreferenceStores[key]?.retire()
     let store = ComposePreferenceStore(
       session: snapshot,
-      syncService: syncService,
-      localStateStore: composePreferenceLocalStateStore
+      syncService: syncService ?? ComposePreferenceSyncService(recordScope: recordScope),
+      localStateStore: composePreferenceLocalStateStore,
+      recordScope: recordScope
     )
-    composePreferenceSession = snapshot
-    composePreferenceStore = store
+    composePreferenceStoreSessions[key] = snapshot
+    composePreferenceStores[key] = store
     return store
   }
 
   func sharedFeatureSuggestionPreferenceStore(
     for snapshot: ProductAccountSessionSnapshot,
-    syncService: FeatureSuggestionPreferenceSyncing =
-      FeatureSuggestionPreferenceSyncService()
+    recordScope: MailProfileRecordScope = .legacyProductAccount,
+    syncService: FeatureSuggestionPreferenceSyncing? = nil
   ) -> FeatureSuggestionPreferenceStore {
-    if let featureSuggestionPreferenceSession,
-      featureSuggestionPreferenceSession.appleUserIdentifier == snapshot.appleUserIdentifier,
-      featureSuggestionPreferenceSession.productAccountId == snapshot.productAccountId,
-      featureSuggestionPreferenceSession.trustedDeviceId == snapshot.trustedDeviceId,
-      let featureSuggestionPreferenceStore
+    let key = recordScope.namespace ?? "legacy"
+    if let existingSession = featureSuggestionPreferenceStoreSessions[key],
+      existingSession.appleUserIdentifier == snapshot.appleUserIdentifier,
+      existingSession.productAccountId == snapshot.productAccountId,
+      existingSession.trustedDeviceId == snapshot.trustedDeviceId,
+      let featureSuggestionPreferenceStore = featureSuggestionPreferenceStores[key]
     {
-      self.featureSuggestionPreferenceSession = snapshot
+      featureSuggestionPreferenceStoreSessions[key] = snapshot
       featureSuggestionPreferenceStore.updateSession(snapshot)
       return featureSuggestionPreferenceStore
     }
 
+    featureSuggestionPreferenceStores[key]?.retire()
     let store = FeatureSuggestionPreferenceStore(
       session: snapshot,
-      syncService: syncService,
-      localStateStore: featureSuggestionStateStore
+      syncService: syncService ?? FeatureSuggestionPreferenceSyncService(recordScope: recordScope),
+      localStateStore: featureSuggestionStateStore,
+      recordScope: recordScope
     )
-    featureSuggestionPreferenceSession = snapshot
-    featureSuggestionPreferenceStore = store
+    featureSuggestionPreferenceStoreSessions[key] = snapshot
+    featureSuggestionPreferenceStores[key] = store
     return store
   }
 
   func sharedSignatureStore(
     for snapshot: ProductAccountSessionSnapshot,
-    syncService: SignaturePreferenceSyncing = SignatureSyncService()
+    recordScope: MailProfileRecordScope = .legacyProductAccount,
+    syncService: SignaturePreferenceSyncing? = nil
   ) -> SignatureStore {
-    if let signaturePreferenceSession,
-      signaturePreferenceSession.appleUserIdentifier == snapshot.appleUserIdentifier,
-      signaturePreferenceSession.productAccountId == snapshot.productAccountId,
-      signaturePreferenceSession.trustedDeviceId == snapshot.trustedDeviceId,
-      let signatureStore
+    let key = recordScope.namespace ?? "legacy"
+    if let existingSession = signatureStoreSessions[key],
+      existingSession.appleUserIdentifier == snapshot.appleUserIdentifier,
+      existingSession.productAccountId == snapshot.productAccountId,
+      existingSession.trustedDeviceId == snapshot.trustedDeviceId,
+      let signatureStore = signatureStores[key]
     {
-      self.signaturePreferenceSession = snapshot
+      signatureStoreSessions[key] = snapshot
       signatureStore.updateSession(snapshot)
       return signatureStore
     }
 
+    signatureStores[key]?.retire()
     let store = SignatureStore(
       session: snapshot,
-      syncService: syncService,
-      localStateStore: signaturePreferenceLocalStateStore
+      syncService: syncService ?? SignatureSyncService(recordScope: recordScope),
+      localStateStore: signaturePreferenceLocalStateStore,
+      recordScope: recordScope
     )
-    signaturePreferenceSession = snapshot
-    signatureStore = store
+    signatureStoreSessions[key] = snapshot
+    signatureStores[key] = store
     return store
   }
 
@@ -2053,27 +2074,27 @@ extension ProductAccountSession {
     recordScope: MailProfileRecordScope = .legacyProductAccount,
     syncService: InboxPreferenceSyncing? = nil
   ) -> InboxPreferenceStore {
-    if let inboxPreferenceSession,
-      inboxPreferenceSession.appleUserIdentifier == snapshot.appleUserIdentifier,
-      inboxPreferenceSession.productAccountId == snapshot.productAccountId,
-      inboxPreferenceSession.trustedDeviceId == snapshot.trustedDeviceId,
-      inboxPreferenceRecordScope == recordScope,
-      let inboxPreferenceStore
+    let key = recordScope.namespace ?? "legacy"
+    if let existingSession = inboxPreferenceStoreSessions[key],
+      existingSession.appleUserIdentifier == snapshot.appleUserIdentifier,
+      existingSession.productAccountId == snapshot.productAccountId,
+      existingSession.trustedDeviceId == snapshot.trustedDeviceId,
+      let inboxPreferenceStore = inboxPreferenceStores[key]
     {
-      self.inboxPreferenceSession = snapshot
+      inboxPreferenceStoreSessions[key] = snapshot
       inboxPreferenceStore.updateSession(snapshot)
       return inboxPreferenceStore
     }
 
+    inboxPreferenceStores[key]?.retire()
     let store = InboxPreferenceStore(
       session: snapshot,
       syncService: syncService ?? InboxPreferenceSyncService(recordScope: recordScope),
       localStateStore: inboxPreferenceLocalStateStore,
       recordScope: recordScope
     )
-    inboxPreferenceSession = snapshot
-    inboxPreferenceRecordScope = recordScope
-    inboxPreferenceStore = store
+    inboxPreferenceStoreSessions[key] = snapshot
+    inboxPreferenceStores[key] = store
     return store
   }
 

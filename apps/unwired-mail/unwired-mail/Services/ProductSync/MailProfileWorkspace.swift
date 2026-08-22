@@ -122,12 +122,15 @@ struct UserDefaultsMailProfileStartupStore: MailProfileStartupSelectionPersistin
 }
 
 struct MailProfileDeepLink: Equatable, Sendable {
+  static let draftIdQueryName = "draftId"
   static let profileIdQueryName = "profileId"
   static let scheme = "unwired-mail"
 
+  let draftId: UUID?
   let profileId: MailProfileId
 
-  init(profileId: MailProfileId) {
+  init(profileId: MailProfileId, draftId: UUID? = nil) {
+    self.draftId = draftId
     self.profileId = profileId
   }
 
@@ -142,6 +145,9 @@ struct MailProfileDeepLink: Equatable, Sendable {
       ? url.pathComponents.dropFirst().first
       : nil
     guard let rawValue = queryProfileId ?? pathProfileId, !rawValue.isEmpty else { return nil }
+    draftId = components?.queryItems?.first {
+      $0.name.caseInsensitiveCompare(Self.draftIdQueryName) == .orderedSame
+    }?.value.flatMap(UUID.init(uuidString:))
     profileId = MailProfileId(rawValue: rawValue)
   }
 
@@ -152,6 +158,11 @@ struct MailProfileDeepLink: Equatable, Sendable {
     components.queryItems = [
       URLQueryItem(name: Self.profileIdQueryName, value: profileId.rawValue)
     ]
+    if let draftId {
+      components.queryItems?.append(
+        URLQueryItem(name: Self.draftIdQueryName, value: draftId.uuidString.lowercased())
+      )
+    }
     return components.url!
   }
 }

@@ -20,6 +20,7 @@ import type * as productAccountDeletion from "../productAccountDeletion.js";
 import type * as productAccountDeletionData from "../productAccountDeletionData.js";
 import type * as productSync from "../productSync.js";
 import type * as pushRelay from "../pushRelay.js";
+import type * as scheduledSend from "../scheduledSend.js";
 
 import type {
   ApiFromModules,
@@ -40,6 +41,7 @@ declare const fullApi: ApiFromModules<{
   productAccountDeletionData: typeof productAccountDeletionData;
   productSync: typeof productSync;
   pushRelay: typeof pushRelay;
+  scheduledSend: typeof scheduledSend;
 }>;
 
 /**

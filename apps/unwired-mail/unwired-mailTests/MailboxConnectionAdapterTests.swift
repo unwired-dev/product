@@ -7475,7 +7475,7 @@ final class MailboxConnectionAdapterTests {
   }
 
   @Test
-  func testUnsubscribeEmailTreatsConcurrentActionAsCancellation() async throws {
+  func testUnsubscribeEmailReportsOutboxUnavailableForConcurrentAction() async throws {
     let service = RecordingUnsubscribeDeliveryService()
     let viewModel = GmailMailActionViewModel(
       service: service,
@@ -7493,7 +7493,11 @@ final class MailboxConnectionAdapterTests {
       subject: ""
     )
 
-    await #expect(throws: CancellationError.self) {
+    await #expect(
+      throws: UnsubscribeEmailDeliveryError.outboxUnavailable(
+        "Another mail action is in progress. Try again."
+      )
+    ) {
       try await viewModel.enqueueUnsubscribeEmail(
         message,
         through: connection,
@@ -11348,14 +11352,18 @@ extension MailboxConnectionSyncSnapshot {
 private final class RecordingAdapterMetadataService: GmailMessageMetadataSyncing {
   private let eventLog: RecordingAdapterEventLog?
   private let historicalBackfillGate: AdapterLifecycleOperationGate?
+  private let loadedCollectionsLock = NSLock()
   private let loadGate: AdapterLifecycleOperationGate?
   private let syncPriorityProbe: AdapterSyncPriorityProbe?
+  private var storedLoadedCollections: [MailboxMessageCollection] = []
   var cachedService: GmailMessageMetadataSyncing?
   var cancelsAfterHistoricalBackfill = false
   var failsRecentSync = false
   var inboxProjectionCandidateMessageIds: Set<String> = []
   var loadedConnection: GmailProviderConnectionStatus?
-  var loadedCollections: [MailboxMessageCollection] = []
+  var loadedCollections: [MailboxMessageCollection] {
+    loadedCollectionsLock.withLock { storedLoadedCollections }
+  }
   var inboxSyncResult = RecordingAdapterMetadataService.defaultResult
   var recentSyncResult = RecordingAdapterMetadataService.defaultResult
   var setCategoryIds: [String]?
@@ -11416,7 +11424,7 @@ private final class RecordingAdapterMetadataService: GmailMessageMetadataSyncing
     session: ProductAccountSessionSnapshot
   ) async throws -> GmailMetadataSyncResult {
     loadedConnection = connection
-    loadedCollections.append(collection)
+    loadedCollectionsLock.withLock { storedLoadedCollections.append(collection) }
     if collection == .allObserved {
       eventLog?.events.append("observed")
     } else if collection == .role(.inbox) {
