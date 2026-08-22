@@ -193,6 +193,19 @@ enum SettingsDestination: String, CaseIterable, Identifiable {
 extension SettingsDestination {
   var searchItems: [SettingsSearchItem] {
     switch self {
+    case .about:
+      return [
+        SettingsSearchItem(title: "Version & Build", route: route),
+        SettingsSearchItem(title: "Privacy Policy", route: route),
+        SettingsSearchItem(title: "Terms of Use", route: route),
+        SettingsSearchItem(
+          title: "Open Source",
+          keywords: ["Licenses", "Acknowledgements"],
+          route: route
+        ),
+        SettingsSearchItem(title: "Support", route: route),
+        SettingsSearchItem(title: "Product Website", route: route),
+      ]
     case .advanced:
       return [
         SettingsSearchItem(
@@ -729,6 +742,8 @@ extension View {
 }
 
 enum SettingsDestinationRegistry {
+  static let signedOutUnavailableExplanation = "Sign in to use this setting."
+
   static let implementedDestinations: [SettingsDestination] = [
     .emailAccounts,
     .accountAndDevices,
@@ -743,24 +758,25 @@ enum SettingsDestinationRegistry {
     .categories,
     .notifications,
     .templates,
+    .about,
   ]
 
   static var implementedGroups: [SettingsGroup] {
     implementedGroups(isSignedIn: true)
   }
 
-  static func implementedGroups(isSignedIn: Bool) -> [SettingsGroup] {
+  static func implementedGroups(isSignedIn _: Bool) -> [SettingsGroup] {
     SettingsGroup.allCases.filter {
-      !destinations(in: $0, isSignedIn: isSignedIn).isEmpty
+      !destinations(in: $0).isEmpty
     }
   }
 
   static func destinations(
     in group: SettingsGroup,
-    isSignedIn: Bool = true
+    isSignedIn _: Bool = true
   ) -> [SettingsDestination] {
     implementedDestinations.filter {
-      $0.group == group && (isSignedIn || $0.isAvailableWhenSignedOut)
+      $0.group == group
     }
   }
 
@@ -796,13 +812,12 @@ enum SettingsDestinationRegistry {
 
   static func search(
     matching query: String,
-    isSignedIn: Bool
+    isSignedIn _: Bool
   ) -> [SettingsSearchResult] {
     let query = normalizedSearchText(query)
     guard !query.isEmpty else { return [] }
 
     return implementedDestinations.flatMap { destination -> [SettingsSearchResult] in
-      guard isSignedIn || destination.isAvailableWhenSignedOut else { return [] }
       var results: [SettingsSearchResult] = []
       if normalizedSearchText(
         [destination.title, destination.group.title].joined(separator: " ")
@@ -933,6 +948,8 @@ struct AdaptiveSettingsScene<DestinationContent: View>: View {
         NavigationLink(value: destination) {
           destinationLabel(destination)
         }
+        .disabled(!isAvailable(destination))
+        .accessibilityHint(unavailableHint(for: destination))
       }
       .navigationTitle("Settings")
       .navigationDestination(for: SettingsDestination.self) { destination in
@@ -964,6 +981,8 @@ struct AdaptiveSettingsScene<DestinationContent: View>: View {
           destinationLabel(destination)
         }
         .buttonStyle(.plain)
+        .disabled(!isAvailable(destination))
+        .accessibilityHint(unavailableHint(for: destination))
         .listRowBackground(
           selection == destination ? Color.accentColor.opacity(0.14) : Color.clear
         )
@@ -1015,6 +1034,11 @@ struct AdaptiveSettingsScene<DestinationContent: View>: View {
                     Text(result.subtitle)
                       .font(.caption)
                       .foregroundStyle(.secondary)
+                    if !isAvailable(result.route.destination) {
+                      Text(Self.unavailableExplanation)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    }
                   }
                   Spacer()
                   Image(systemName: "chevron.right")
@@ -1024,6 +1048,8 @@ struct AdaptiveSettingsScene<DestinationContent: View>: View {
                 .contentShape(Rectangle())
               }
               .buttonStyle(.plain)
+              .disabled(!isAvailable(result.route.destination))
+              .accessibilityHint(unavailableHint(for: result.route.destination))
             }
           }
         }
@@ -1034,7 +1060,14 @@ struct AdaptiveSettingsScene<DestinationContent: View>: View {
 
   private func destinationLabel(_ destination: SettingsDestination) -> some View {
     HStack {
-      Label(destination.title, systemImage: destination.systemImage)
+      VStack(alignment: .leading, spacing: 4) {
+        Label(destination.title, systemImage: destination.systemImage)
+        if !isAvailable(destination) {
+          Text(Self.unavailableExplanation)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+      }
       Spacer()
       if attention(for: destination) != nil {
         Image(systemName: "exclamationmark.circle.fill")
@@ -1043,6 +1076,18 @@ struct AdaptiveSettingsScene<DestinationContent: View>: View {
       }
     }
     .contentShape(Rectangle())
+  }
+
+  private func isAvailable(_ destination: SettingsDestination) -> Bool {
+    isSignedIn || destination.isAvailableWhenSignedOut
+  }
+
+  private func unavailableHint(for destination: SettingsDestination) -> String {
+    isAvailable(destination) ? "" : Self.unavailableExplanation
+  }
+
+  private static var unavailableExplanation: String {
+    SettingsDestinationRegistry.signedOutUnavailableExplanation
   }
 
   private func detail(_ destination: SettingsDestination) -> some View {
@@ -2399,47 +2444,16 @@ private struct CategoryHistoricalSettingsSection: View {
           ProgressView("Loading Settings…")
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .signedOut:
-          AdaptiveSettingsScene(
-            isSignedIn: false,
-            showsDismissButton: true,
-            destinationContent: { destination, request in
-              if destination == .appearance {
-                AppearanceSettingsView(navigationRequest: request)
-              } else if destination == .privacyAndData {
-                PrivacyDataSettingsView(connections: [])
-              } else if destination == .advanced {
-                AdvancedSettingsView(
-                  connections: [],
-                  productSyncHealth: .signedOut,
-                  status: { _ in .idle }
-                )
-              }
-            }
-          )
+          SignedOutSettingsView()
         case .failed(let message):
-          AdaptiveSettingsScene(
-            isSignedIn: false,
-            showsDismissButton: true,
+          SignedOutSettingsView(
             attentions: [
               SettingsAttention(
                 destination: .appearance,
                 kind: .recovery,
                 message: message
               )
-            ],
-            destinationContent: { destination, request in
-              if destination == .appearance {
-                AppearanceSettingsView(navigationRequest: request)
-              } else if destination == .privacyAndData {
-                PrivacyDataSettingsView(connections: [])
-              } else if destination == .advanced {
-                AdvancedSettingsView(
-                  connections: [],
-                  productSyncHealth: .signedOut,
-                  status: { _ in .idle }
-                )
-              }
-            }
+            ]
           )
         case .signedIn(let snapshot):
           DevelopmentEmailAccountsSettingsHost(
@@ -2732,6 +2746,8 @@ private struct CategoryHistoricalSettingsSection: View {
               navigationRequest: request
             )
             .task { await readingPreferenceStore.synchronize() }
+          case .about:
+            AboutSettingsView()
           case .appearance:
             AppearanceSettingsView(navigationRequest: request)
           case .privacyAndData:
