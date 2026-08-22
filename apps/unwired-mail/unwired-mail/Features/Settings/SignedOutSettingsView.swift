@@ -48,6 +48,7 @@ struct SignedOutSettingsView: View {
             )
           }
         case .accountAndDevices, .categories, .compose, .emailAccounts, .inbox,
+          .mailProfiles,
           .notifications, .reading, .signatures, .swipes, .templates:
           EmptyView()
         }

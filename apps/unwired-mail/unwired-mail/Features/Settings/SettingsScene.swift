@@ -892,6 +892,7 @@ enum SettingsDestinationRegistry {
   }
 }
 
+// swiftlint:disable:next type_body_length
 struct AdaptiveSettingsScene<DestinationContent: View>: View {
   let activeProfile: MailProfileDefinition?
   let isSignedIn: Bool
