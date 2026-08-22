@@ -1,6 +1,6 @@
 # Scheduled Send and Send Reminder implementation plan
 
-Status: local Send Reminder implemented; cross-device notification ownership and automatic Scheduled Send remain planned
+Status: local and cross-device Send Reminder implemented; automatic Scheduled Send remains planned
 
 ## Goal
 
@@ -23,8 +23,8 @@ Scheduled Send means delivery at or after one absolute future instant, not exact
 Composer
   ├─ Remind me to send
   │    └─ encrypted Draft + reminder revision
-  │         ├─ local notification when created offline
-  │         └─ one routed notification after synchronization
+  │         ├─ visibly pending when created offline
+  │         └─ one local notification on the current owner device
   └─ Send automatically
        └─ encrypted Outbox manifest + payload/assets
             ├─ Product Sync: content, connection, schedule, idempotency
@@ -65,7 +65,7 @@ Add a backend-readable operational record containing only:
 
 The record must not contain the sending connection, provider, sender, recipients, subject, body, asset metadata, message size, or provider result. It is removed after confirmed delivery, cancellation, conversion to reminder, or Product Account deletion. Bounded tombstone data may remain only as long as necessary to reject a stale claim or replayed mutation.
 
-Send Reminder uses a separate backend-readable notification schedule containing only the Product Account, opaque reminder identity, due time, expected encrypted reminder revision, notification owner and ownership generation, delivery phase, and ownership timestamps. It excludes Draft content, assets, the selected Mailbox Connection, and provider credentials. Synchronization prepares this record and assigns notification ownership before the originating device cancels its redundant local notification. The owner then durably records that cancellation and activates the prepared schedule through compare-and-swap against the same reminder revision and ownership generation. A crash before cancellation leaves local delivery authoritative; a crash after cancellation resumes activation from the durable handoff state. Retries first read both states and may only cancel or activate the recorded generation, so they converge to one active owner. Opening, cancelling, rescheduling, or deleting the reminder advances its revision and clears stale notification ownership. Signing out, device revocation, or loss of notification capability also invalidates that owner's prepared or active generation; another compatible device may then claim ownership through compare-and-swap with a higher generation.
+Send Reminder uses a separate end-to-end encrypted additive record family keyed by Mail Profile and Draft. The record carries the current reminder revision, absolute due time, original time zone, last-change clock, notification-owner Trusted Device identifier, and active-or-tombstone state. Draft content, assets, the selected Mailbox Connection, and provider credentials remain outside this record, and the backend cannot read any reminder field. The latest foreground notification-authorized Trusted Device to reconcile the record claims ownership through Product Sync compare-and-swap. A prior owner observes the new fence and cancels its local notification. Opening, cancelling, sending, discarding, or deleting the reminder writes a revision-aware tombstone; rescheduling writes a new revision. Loss of notification capability leaves the reminder available as overdue until another compatible active device claims it.
 
 ### Scheduled Delivery Authorization
 
@@ -95,7 +95,7 @@ Automatic scheduling is an idempotent, crash-recoverable admission protocol rath
 
 Until step 7 commits, the Draft remains authoritative and the schedule is unclaimable. Until step 8 commits, the schedule is not presented as accepted. A failure or uncertain response triggers reconciliation by idempotency key. A proven orphaned operational record is cancelled; a proven tombstoned Draft with matching complete records resumes activation. The client must never guess that admission completed.
 
-Send Reminder admission is local-first: save the Draft and reminder revision atomically, schedule a local notification, and mark Product Sync as pending. Synchronization prepares the opaque reminder notification schedule for one owner generation without making it deliverable. The originating device then cancels its local notification, durably records that cancellation, and activates backend notification ownership through compare-and-swap for that exact revision and generation. Recovery retries the incomplete prepare, cancellation, or activation step from the durable handoff state; it never activates a new generation while an earlier local notification remains authoritative. Offline creation remains visibly pending for cross-device availability.
+Send Reminder admission is local-first: save the Draft and reminder revision atomically and mark Product Sync as pending. Synchronization commits or reconciles the encrypted record, then the active notification-authorized device claims ownership for that exact revision. Only the owner schedules the local notification; every non-owner cancels its matching local notification. Failed synchronization retains the local reminder as visibly pending and retries during later Draft reconciliation. Concurrent reschedules converge by the last-change clock and Trusted Device identifier, and stale notification actions cannot clear a newer revision.
 
 ## Claim and delivery protocol
 
@@ -162,6 +162,8 @@ A state transition retains shared chunks and releases them only after no Draft, 
 
 Scheduled Send uses additive encrypted record families. Older clients ignore them and cannot display, edit, cancel, claim, or notify for their items. A new client may create a schedule when at least one compatible trusted device has the selected Mailbox Authorization and a complete payload; upgrading every trusted device is not required.
 
+Send Reminder also uses an additive encrypted record family. Older clients ignore that family while continuing to read the reminder projection embedded in the synchronized Draft. Ownership is mirrored into the legacy origin-device field so an older client does not independently notify after a compatible device takes ownership. New clients honor reminder tombstones and revision fences before changing that Draft projection.
+
 Draft admission and cancellation tombstones remain authoritative to older clients. An older client's offline edit may become a conflicted Draft but must never recreate a cancelled or delivered Scheduled Send. New clients show which trusted devices are compatible and eligible without exposing provider identities to the backend.
 
 ## Delivery phases
@@ -198,7 +200,7 @@ Draft admission and cancellation tombstones remain authoritative to older client
 
 - Implemented: add the Send Later interaction, accessible actions, presets, date/time picker, and local Send Reminder mode to every composer flow.
 - Add Outbox grouping, editing, cancellation, conversion, Send Now, warnings, and Needs Attention recovery.
-- Implemented locally: add offline reminder persistence, origin-device notifications, overdue Draft presentation, notification deep links, cancellation, and rescheduling. Cross-device notification ownership remains part of issue #378.
+- Implemented: add offline reminder persistence, synchronized revisions and tombstones, latest-active-device notification ownership, overdue Draft presentation, notification deep links, cancellation, and rescheduling.
 - Verify VoiceOver, hardware keyboard, compact and regular layouts, macOS behavior, DST boundaries, travel, notification permissions, and lock-screen privacy.
 
 ### 6. Lifecycle, compatibility, and end-to-end evidence

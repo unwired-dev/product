@@ -1499,6 +1499,7 @@ struct AccountView: View {
   private let sendingIdentitySyncFactory: (MailProfileRecordScope) -> SendingIdentitySyncing
   private let templatePreferenceSyncFactory: (MailProfileRecordScope) -> TemplatePreferenceSyncing
   private let compositionDraftRepository: MailCompositionDraftRepository
+  private let notificationPreferenceStore: NotificationDevicePreferencePersisting
   private let sendReminderNotificationScheduler: any SendReminderNotificationScheduling
   private let profileDeepLinkRouter: MailProfileDeepLinkRouter
   private let releaseBudgetDriver: MailShellReleaseBudgetDriver?
@@ -1583,8 +1584,11 @@ struct AccountView: View {
     categorySyncServiceFactory: ((MailProfileRecordScope) -> CustomCategorySyncing)? = nil,
     composePreferenceSync: ComposePreferenceSyncing = ComposePreferenceSyncService(),
     compositionDraftStore: any MailCompositionDraftPersisting = FileMailCompositionDraftStore(),
+    sendReminderSyncService: any SendReminderSyncing = SendReminderSyncService(),
     sendReminderNotificationScheduler: any SendReminderNotificationScheduling =
       UserNotificationService(),
+    notificationPreferenceStore: NotificationDevicePreferencePersisting =
+      UserDefaultsNotificationPreferenceStore(),
     featureSuggestionPreferenceSync: FeatureSuggestionPreferenceSyncing =
       FeatureSuggestionPreferenceSyncService(),
     signaturePreferenceSync: SignaturePreferenceSyncing = SignatureSyncService(),
@@ -1631,8 +1635,10 @@ struct AccountView: View {
     self.mailboxConnection = mailboxConnection
     self.messageReader = mailboxConnection
     self.compositionDraftRepository = MailCompositionDraftRepository(
-      store: compositionDraftStore
+      store: compositionDraftStore,
+      reminderSyncService: sendReminderSyncService
     )
+    self.notificationPreferenceStore = notificationPreferenceStore
     self.sendReminderNotificationScheduler = sendReminderNotificationScheduler
     self.blockedSenderSyncServiceFactory =
       blockedSenderSyncServiceFactory ?? { scope in
@@ -1816,6 +1822,7 @@ struct AccountView: View {
     )
     _snoozeViewModel = State(
       initialValue: ThreadSnoozeViewModel(
+        notificationPreferenceStore: notificationPreferenceStore,
         profileLockStore: profileLockStore,
         service: snoozeSyncService,
         session: snapshot
@@ -3655,10 +3662,13 @@ extension AccountView {
       savedCompositionDrafts = []
     }
     do {
+      let claimsNotificationOwnership =
+        await sendReminderNotificationAuthorizationState() == .authorized
       let drafts = try await compositionDraftRepository.drafts(
         productAccountId: snapshot.productAccountId,
         profileId: profileId,
-        session: snapshot
+        session: snapshot,
+        claimsNotificationOwnership: claimsNotificationOwnership
       )
       guard load.generation == compositionDraftLoadGate.generation,
         profileId == activeDraftProfileId
@@ -3679,6 +3689,12 @@ extension AccountView {
     profileId: MailProfileId
   ) async throws -> SendReminderNotificationOutcome {
     guard let reminder = draft.sendReminder else { return .unavailable }
+    guard reminder.notificationOwnerDeviceId == snapshot.trustedDeviceId,
+      sendReminderInterruptionPolicy(for: reminder).allowsInterruption
+    else {
+      cancelSendReminder(reminder, draftId: draft.id, profileId: profileId)
+      return .unavailable
+    }
     return try await sendReminderNotificationScheduler.scheduleSendReminder(
       reminder,
       draftId: draft.id,
@@ -3704,9 +3720,39 @@ extension AccountView {
     _ drafts: [MailShellCompositionDraft],
     profileId: MailProfileId
   ) async {
-    for draft in drafts where draft.sendReminder?.originatingDeviceId == snapshot.trustedDeviceId {
-      _ = try? await scheduleSendReminder(for: draft, profileId: profileId)
+    for draft in drafts {
+      guard let reminder = draft.sendReminder else { continue }
+      if reminder.notificationOwnerDeviceId == snapshot.trustedDeviceId {
+        _ = try? await scheduleSendReminder(for: draft, profileId: profileId)
+      } else {
+        cancelSendReminder(reminder, draftId: draft.id, profileId: profileId)
+      }
     }
+  }
+
+  private func sendReminderNotificationAuthorizationState() async
+    -> NotificationAuthorizationState
+  {
+    guard
+      let authorization =
+        sendReminderNotificationScheduler as? any NotificationAuthorizationStateChecking
+    else { return .denied }
+    return await authorization.notificationAuthorizationState()
+  }
+
+  private func sendReminderInterruptionPolicy(
+    for reminder: SendReminder
+  ) -> SendReminderInterruptionPolicy {
+    let preferences = notificationPreferenceStore.load(
+      productAccountId: snapshot.productAccountId
+    )
+    return SendReminderInterruptionPolicy(
+      isDeviceQuietAtDueTime: preferences.quietSchedule.isQuiet(at: reminder.dueAt),
+      isProfileLocked: !profileInterruptionViewModel.policy.allowsContentReveal,
+      isProfileQuietAtDueTime:
+        profileInterruptionViewModel.activeProfile.quietState.isActive(at: reminder.dueAt),
+      returnToAttentionEnabled: snoozeViewModel.preferences.returnToAttentionEnabled
+    )
   }
 
   private func openCompositionDraft(_ draft: MailShellCompositionDraft) {
@@ -5565,8 +5611,7 @@ private struct MailShellSavedDraftsButton: View {
           } label: {
             Label(
               title(for: draft, at: context.date),
-              systemImage: draft.sendReminder?.isOverdue(at: context.date) == true
-                ? "clock.badge.exclamationmark" : "doc.text"
+              systemImage: icon(for: draft, at: context.date)
             )
           }
         }
@@ -5587,7 +5632,14 @@ private struct MailShellSavedDraftsButton: View {
     let title = subject.isEmpty ? "Untitled Draft" : subject
     guard let reminder = draft.sendReminder else { return title }
     if reminder.isOverdue(at: date) { return "Overdue — \(title)" }
+    if reminder.isSynchronizationPending { return "Syncing — \(title)" }
     return "\(title) — Reminder \(reminder.dueAt.formatted(date: .abbreviated, time: .shortened))"
+  }
+
+  private func icon(for draft: MailShellCompositionDraft, at date: Date) -> String {
+    guard let reminder = draft.sendReminder else { return "doc.text" }
+    if reminder.isOverdue(at: date) { return "clock.badge.exclamationmark" }
+    return reminder.isSynchronizationPending ? "arrow.triangle.2.circlepath" : "doc.text"
   }
 
   private func savedDraftsIcon(at date: Date) -> String {
@@ -5597,7 +5649,9 @@ private struct MailShellSavedDraftsButton: View {
 
   private func accessibilityLabel(at date: Date) -> String {
     let overdueCount = drafts.count { $0.sendReminder?.isOverdue(at: date) == true }
-    return overdueCount == 0 ? "Saved Drafts" : "Saved Drafts, \(overdueCount) overdue"
+    let pendingCount = drafts.count { $0.sendReminder?.isSynchronizationPending == true }
+    if overdueCount > 0 { return "Saved Drafts, \(overdueCount) overdue" }
+    return pendingCount == 0 ? "Saved Drafts" : "Saved Drafts, \(pendingCount) syncing"
   }
 }
 
@@ -7047,7 +7101,8 @@ private struct ThreadSnoozeSettingsPanel: View {
       .accessibilityIdentifier("mail-snooze-return-to-attention")
       .disabled(viewModel.isUpdatingPreferences)
       Text(
-        "Allow due Snoozes and Follow-Up Nudges to request attention when Profile and device policies permit."
+        "Allow due Snoozes, Send Reminders, and Follow-Up Nudges to request attention when "
+          + "Profile and device policies permit."
       )
       .font(.footnote)
       .foregroundStyle(.secondary)

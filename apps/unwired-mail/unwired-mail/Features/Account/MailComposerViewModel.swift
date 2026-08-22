@@ -205,7 +205,9 @@ final class MailComposerViewModel {
     if let existing = candidate.sendReminder {
       candidate.sendReminder = existing.rescheduled(
         to: dueAt,
-        originalTimeZoneIdentifier: timeZoneIdentifier
+        originalTimeZoneIdentifier: timeZoneIdentifier,
+        changedByTrustedDeviceId: reminderOwnerDeviceId,
+        changedAt: now()
       )
     } else {
       candidate.sendReminder = SendReminder(

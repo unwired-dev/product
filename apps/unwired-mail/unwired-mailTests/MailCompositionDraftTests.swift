@@ -592,7 +592,9 @@ final class MailCompositionDraftTests {
       try await service.scheduleSendReminder(
         reminder.rescheduled(
           to: now.addingTimeInterval(7_200),
-          originalTimeZoneIdentifier: "UTC"
+          originalTimeZoneIdentifier: "UTC",
+          changedByTrustedDeviceId: "device-a",
+          changedAt: now.addingTimeInterval(1)
         ),
         draftId: draftId,
         productAccountId: "account-a",

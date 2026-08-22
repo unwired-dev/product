@@ -136,6 +136,7 @@ actor MailCompositionDraftSyncService: MailCompositionDraftSyncing {
     }
     var metadata = draft
     metadata.assets = draft.assets.map(\.metadataOnly)
+    metadata.sendReminder = metadata.sendReminder?.synchronized()
     let recordId = MailCompositionDraftSyncRecordId(draftId: draft.id, profileId: profileId)
     _ = try await drafts.update(recordId, session: session) { current in
       guard current?.value.updatedAtMilliseconds ?? .min <= metadata.updatedAtMilliseconds else {
