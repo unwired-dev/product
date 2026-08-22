@@ -1,5 +1,7 @@
 import Foundation
 
+// swiftlint:disable file_length
+
 struct LocalMailStorageSnapshot: Equatable, Sendable {
   static let draftStorageLimit: Int64 = 100 * 1_024 * 1_024
 
