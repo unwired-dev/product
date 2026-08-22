@@ -2791,15 +2791,19 @@ struct AccountView: View {
                 AppearanceSettingsView()
               case .privacyAndData:
                 if request?.route?.context == .storage {
-                  StorageDataSettingsView(
-                    session: snapshot,
-                    viewModel: storageDataSettingsViewModel
+                  AnyView(
+                    StorageDataSettingsView(
+                      session: snapshot,
+                      viewModel: storageDataSettingsViewModel
+                    )
                   )
                 } else {
-                  PrivacyDataSettingsView(
-                    connections: profileConnections,
-                    storageSession: snapshot,
-                    storageViewModel: storageDataSettingsViewModel
+                  AnyView(
+                    PrivacyDataSettingsView(
+                      connections: profileConnections,
+                      storageSession: snapshot,
+                      storageViewModel: storageDataSettingsViewModel
+                    )
                   )
                 }
               default:
