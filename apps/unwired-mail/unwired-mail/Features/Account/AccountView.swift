@@ -1352,11 +1352,11 @@ final class MailShellReleaseBudgetDriver {
 
 enum MailProfileContentPresentationDismissal {
   static func dismissRoot<Draft>(
-    showsAccountSettings: inout Bool,
+    showsSettings: inout Bool,
     compositionDraft: inout Draft?,
     showsMessageActionAlert: inout Bool
   ) {
-    showsAccountSettings = false
+    showsSettings = false
     compositionDraft = nil
     showsMessageActionAlert = false
   }
@@ -1609,8 +1609,7 @@ struct AccountView: View {
   @State private var sendingIdentityStore: SendingIdentityStore
   @State private var preferredCompactColumn: NavigationSplitViewColumn = .content
   @State private var showsBlockedActionAlert = false
-  @State private var showsAccountSettings = false
-  @State private var showsDevelopmentSettings = false
+  @State private var showsSettings = false
   @State private var mailboxWorkCoordinator = MailboxWorkCoordinator.shared
 
   @MainActor
@@ -1984,11 +1983,10 @@ struct AccountView: View {
       }
       mailAssistanceViewModel.profileDidLock()
       MailProfileContentPresentationDismissal.dismissRoot(
-        showsAccountSettings: &showsAccountSettings,
+        showsSettings: &showsSettings,
         compositionDraft: &compositionDraft,
         showsMessageActionAlert: &showsBlockedActionAlert
       )
-      showsDevelopmentSettings = false
       contentPresentationDismissalSignal &+= 1
     }
     .onChange(of: profileViewModel.activeProfileId) { _, profileId in
@@ -2238,9 +2236,7 @@ struct AccountView: View {
         }
       }
       .onChange(of: genericMailSetupViewModel.connectionReloadKey) { _, _ in
-        #if DEBUG
-          guard !showsDevelopmentSettings else { return }
-        #endif
+        guard !showsSettings else { return }
         Task {
           _ = await gmailViewModel.load()
         }
@@ -2264,14 +2260,9 @@ struct AccountView: View {
       }
       .onChange(of: settingsRouter.request?.id) { _, requestId in
         guard requestId != nil else { return }
-        switch SettingsPresentation.current(isSignedIn: true) {
-        case .accountSettings:
-          showsAccountSettings = true
-        case .adaptiveSettings:
-          #if !targetEnvironment(macCatalyst)
-            showsDevelopmentSettings = true
-          #endif
-        }
+        #if !targetEnvironment(macCatalyst)
+          showsSettings = true
+        #endif
       }
       .onChange(of: editMode?.wrappedValue) { _, _ in
         updatePreferredCompactColumn()
@@ -2451,8 +2442,7 @@ struct AccountView: View {
         navigationSnapshot: inboxViewModel.navigationSnapshot,
         openSettings: { openSettings($0) },
         selectedMailbox: selectedMailboxBinding,
-        showAccountSettings: { showsAccountSettings = true },
-        showDevelopmentSettings: { openSettings(nil) },
+        showSettings: { openSettings(nil) },
         syncStatus: mailboxFreshnessViewModel.status
       )
       .mailShellBottomInset(isEnabled: horizontalSizeClass == .compact) {
@@ -2642,11 +2632,8 @@ struct AccountView: View {
         .padding(.bottom, horizontalSizeClass == .compact ? 48 : 0)
       }
     }
-    .sheet(isPresented: $showsAccountSettings) {
-      accountSettings
-    }
-    #if DEBUG && !targetEnvironment(macCatalyst)
-      .sheet(isPresented: $showsDevelopmentSettings) {
+    #if !targetEnvironment(macCatalyst)
+      .sheet(isPresented: $showsSettings) {
         Group {
           AdaptiveSettingsScene(
             activeProfile: profileViewModel.activeProfile,
@@ -3134,13 +3121,9 @@ struct AccountView: View {
   }
 
   private func openSettings(_ route: SettingsRoute?) {
-    #if DEBUG
-      settingsRouter.open(route)
-      #if !targetEnvironment(macCatalyst)
-        showsDevelopmentSettings = true
-      #endif
-    #else
-      showsAccountSettings = true
+    settingsRouter.open(route)
+    #if !targetEnvironment(macCatalyst)
+      showsSettings = true
     #endif
   }
 
@@ -4244,179 +4227,6 @@ extension AccountView {
     )
   }
 
-  fileprivate var accountSettings: some View {
-    NavigationStack {
-      ScrollView {
-        VStack(alignment: .leading, spacing: 24) {
-          VStack(alignment: .leading, spacing: 8) {
-            Label("Signed in with Apple", systemImage: "checkmark.circle.fill")
-              .foregroundStyle(.green)
-              .font(.headline)
-            Text("Product account: \(snapshot.productAccountId)")
-            Text("Trusted device: \(snapshot.trustedDeviceId)")
-              .foregroundStyle(.secondary)
-          }
-
-          NavigationLink {
-            AccountAndDevicesSettingsView(
-              session: session,
-              snapshot: snapshot,
-              signOut: signOut
-            )
-          } label: {
-            Label("Account & Devices", systemImage: "person.2")
-          }
-
-          NavigationLink {
-            InboxSettingsView(
-              store: inboxPreferenceStore,
-              featureSuggestionStore: featureSuggestionPreferenceStore,
-              categoryChoices: availableCategoryChoices,
-              mutedThreads: mutedThreadSettingsItems,
-              unmute: { await muteViewModel.unmute($0) }
-            )
-          } label: {
-            Label("Inbox", systemImage: "tray")
-          }
-
-          NavigationLink {
-            BlockedSendersSettingsView(
-              acknowledgeFailure: { connection in
-                await mailActionViewModel.acknowledgeFailures(connection: connection)
-              },
-              connections: profileConnections,
-              failedConnectionIds: Set(mailActionViewModel.failedConnectionIds),
-              pendingConnectionIds: Set(mailActionViewModel.blockedConnectionIds),
-              retry: { connection in
-                await mailActionViewModel.retryBlockedAction(connection: connection)
-              },
-              store: blockedSenderStore
-            )
-          } label: {
-            Label("Blocked Senders", systemImage: "hand.raised")
-          }
-
-          NavigationLink {
-            ComposeSettingsView(store: composePreferenceStore)
-          } label: {
-            Label("Compose", systemImage: "square.and.pencil")
-          }
-
-          NavigationLink {
-            ReadingSettingsView(
-              connections: profileConnections,
-              store: readingPreferenceStore
-            )
-          } label: {
-            Label("Reading", systemImage: "text.book.closed")
-          }
-
-          NavigationLink {
-            PrivacyDataSettingsView(
-              connections: profileConnections,
-              storageSession: snapshot,
-              storageViewModel: storageDataSettingsViewModel
-            )
-          } label: {
-            Label("Privacy & Data", systemImage: "hand.raised")
-          }
-
-          NavigationLink {
-            SwipeSettingsView(store: swipePreferenceStore)
-          } label: {
-            Label("Swipes", systemImage: "hand.draw")
-          }
-
-          NavigationLink {
-            MailProfileInterruptionSettingsView(
-              viewModel: profileInterruptionViewModel
-            )
-          } label: {
-            Label("Quiet & Profile Lock", systemImage: "lock.shield")
-          }
-
-          NavigationLink {
-            MailAssistanceSettingsView(
-              profileName: profileInterruptionViewModel.activeProfile.name,
-              viewModel: mailAssistanceViewModel
-            )
-          } label: {
-            Label("Mail Assistance", systemImage: "sparkles")
-          }
-
-          NavigationLink {
-            advancedSettings
-          } label: {
-            Label("Advanced", systemImage: "wrench.and.screwdriver")
-          }
-
-          CustomCategoryPanel(viewModel: categoryViewModel)
-
-          NotificationRulePanel(
-            categoryChoices: MessageCategoryChoice.available(
-              customCategories: categoryViewModel.categories
-            ),
-            hasLoadedCategory: categoryViewModel.hasLoadedCategory,
-            viewModel: notificationRuleViewModel
-          )
-
-          ThreadSnoozeSettingsPanel(viewModel: snoozeViewModel)
-
-          GmailProviderConnectionPanel(
-            cancelBodyPrefetch: { await inboxViewModel.cancelBodyPrefetch() },
-            viewModel: gmailViewModel,
-            isMailboxBusy: inboxViewModel.isBusy || mailActionViewModel.isPerformingAction,
-            selectMailbox: { selectConnection($0) }
-          )
-
-          MicrosoftGraphConnectionPanel(
-            cancelBodyPrefetch: { await inboxViewModel.cancelBodyPrefetch() },
-            connectionsDidChange: {
-              Task {
-                _ = await gmailViewModel.load()
-              }
-            },
-            connectionDidConnect: { selectConnection($0) },
-            isMailboxBusy: inboxViewModel.isBusy || mailActionViewModel.isPerformingAction,
-            selectMailbox: { selectConnection($0) },
-            viewModel: microsoftGraphViewModel
-          )
-
-          EWSSetupPanel(
-            viewModel: ewsSetupViewModel,
-            cancelBodyPrefetch: { await inboxViewModel.cancelBodyPrefetch() },
-            connectionDidConnect: { selectConnection($0) },
-            connectionsDidChange: {
-              Task { _ = await gmailViewModel.load() }
-            },
-            isMailboxBusy: inboxViewModel.isBusy || mailActionViewModel.isPerformingAction
-          )
-
-          GenericMailSetupPanel(viewModel: genericMailSetupViewModel)
-
-          SmokeView(service: ConvexBackendHealthService())
-
-          if let signOutErrorMessage = session.signOutErrorMessage {
-            SignOutErrorBanner(message: signOutErrorMessage)
-          }
-
-          Button("Sign Out", role: .destructive) {
-            signOut()
-          }
-          .buttonStyle(.bordered)
-        }
-        .padding(24)
-        .frame(maxWidth: .infinity, alignment: .topLeading)
-      }
-      .navigationTitle("Account Settings")
-      .toolbar {
-        ToolbarItem(placement: .confirmationAction) {
-          Button("Done") { showsAccountSettings = false }
-        }
-      }
-    }
-  }
-
   private func settingsConnectionName(_ connectionId: MailboxConnectionId) -> String {
     gmailViewModel.connections.first(where: { $0.id == connectionId })?.displayName
       ?? "Mailbox Connection"
@@ -5496,8 +5306,7 @@ private struct MailShellSidebar: View {
   let navigationSnapshot: MailboxNavigationSnapshot
   let openSettings: (SettingsRoute) -> Void
   @Binding var selectedMailbox: MailShellMailboxSelection?
-  let showAccountSettings: () -> Void
-  let showDevelopmentSettings: () -> Void
+  let showSettings: () -> Void
   let syncStatus: (MailboxConnection) -> MailboxSyncStatus
 
   var body: some View {
@@ -5651,19 +5460,8 @@ private struct MailShellSidebar: View {
       }
 
       Section {
-        ForEach(SettingsEntryPointRegistry.currentEntries) { entryPoint in
-          switch entryPoint {
-          case .accountSettings:
-            Button(action: showAccountSettings) {
-              Label("Account Settings", systemImage: "gearshape")
-            }
-          case .adaptiveSettings:
-            #if DEBUG
-              Button(action: showDevelopmentSettings) {
-                Label("Development Settings", systemImage: "gearshape.2")
-              }
-            #endif
-          }
+        Button(action: showSettings) {
+          Label("Settings", systemImage: "gearshape")
         }
       }
     }

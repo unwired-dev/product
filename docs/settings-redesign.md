@@ -1,10 +1,8 @@
 # Settings redesign
 
-Status: implementation in progress. Signed-out users can open production Settings for Appearance,
-Privacy & Data, local-only Advanced diagnostics, and About while account-bound destinations remain
-visible but unavailable. Signed-in production still uses Account Settings until the complete
-Settings release in #133 is ready; development entry points expose the full adaptive shell,
-including Mail Profiles.
+Status: released. Signed-out users can open Settings for Appearance, Privacy & Data, local-only
+Advanced diagnostics, and About while account-bound destinations remain visible but unavailable.
+Signed-in users receive the complete adaptive Settings experience, including Mail Profiles.
 
 ## Goal
 
@@ -109,8 +107,8 @@ temporary empty cache.
 
 ### Mail Profiles
 
-The development Settings experience implements Profile lifecycle management without enabling the
-production Settings entry point. It always shows the Profile that owns a Profile-scoped control;
+Settings implements Profile lifecycle management and always shows the Profile that owns a
+Profile-scoped control;
 changing that control updates the running window without restarting the app.
 
 - Create, rename, and style a Profile with a curated icon and color. Offline edits remain visible
@@ -249,7 +247,7 @@ Default sender selection remains in Email Accounts.
 
 ### Categories
 
-The development Settings experience implements this destination. Its synchronized policy is
+Settings implements this destination. Its synchronized policy is
 profile-scoped, and historical runs are available only for provider connections that advertise the
 historical-categorization capability.
 
@@ -265,7 +263,7 @@ Disabling a Category stops future System Categorization into it but preserves ex
 
 ### Notifications
 
-The development Settings experience implements this destination with one independently encrypted
+Settings implements this destination with one independently encrypted
 policy per Mail Profile and only that Profile's Mailbox Connection overrides.
 
 - Show operating-system authorization status and link to System Settings when permission is denied.
@@ -409,9 +407,10 @@ Implementation is tracked by [#115](https://github.com/unwired-dev/product/issue
 3. Migrate existing Email Accounts, Categories, Notifications, Account & Devices, and Advanced functionality.
 4. Implement Inbox, Reading, Swipes, Compose, Signatures, Templates, Appearance, Privacy & Data, and About.
 5. Implement device revocation, Product Account deletion, data export, diagnostics, and remaining backend support.
-6. Enable the production Settings entry points and remove the old Account Settings sheet.
+6. Enable the production Settings entry points and remove the old Account Settings sheet. Complete.
 
-Each slice includes its own tests and documentation. The new production entry points remain disabled until all destinations meet the release requirements.
+Each slice includes its own tests and documentation. All destinations met the release requirements
+before issue #133 enabled the production entry points.
 
 The first delivered slice provides the typed destination registry, adaptive compact and
 regular-width navigation, a dedicated Mac Catalyst Settings window with Command-, support,
