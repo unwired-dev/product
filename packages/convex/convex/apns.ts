@@ -290,7 +290,7 @@ async function deliverWakeupBatch<Recipient extends StaleTokenRecipient>(
   ctx: ActionCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex action context invokes mutations.
   recipients: readonly Recipient[],
   payload: (recipient: Recipient) => string,
-): Promise<void> {
+): Promise<readonly PromiseSettledResult<void>[]> {
   const configuration = apnsConfiguration();
   const authorization = providerToken(configuration);
   const clients = new Map<
@@ -334,6 +334,7 @@ async function deliverWakeupBatch<Recipient extends StaleTokenRecipient>(
       handleDeliveryResult(ctx, result, recipients[index]),
     ),
   );
+  return results;
 }
 
 async function deliverGmailWakeupBatch(
@@ -345,13 +346,8 @@ async function deliverGmailWakeupBatch(
     recipients: readonly GmailWakeupRecipient[];
   }>,
 ): Promise<null> {
-  await deliverWakeupBatch(
-    ctx,
-    args.recipients,
-    (recipient) =>
-      JSON.stringify(
-        gmailWakeupPayload(args.historyId, recipient.routeId),
-      ),
+  await deliverWakeupBatch(ctx, args.recipients, (recipient) =>
+    JSON.stringify(gmailWakeupPayload(args.historyId, recipient.routeId)),
   );
   return null;
 }
@@ -418,30 +414,13 @@ export const deliverMicrosoftGraphWakeup = internalAction({
     let delivered = false;
     let terminalFailure = false;
     try {
-      const configuration = apnsConfiguration();
-      const client = connect(apnsAuthority(recipient.apnsEnvironment));
-      client.on('error', (error) => {
-        console.error('APNs HTTP/2 session failed', error);
-      });
-      const result = await Promise.allSettled([
-        sendWakeup(
-          {
-            apnsEnvironment: recipient.apnsEnvironment,
-            apnsToken: recipient.apnsToken,
-            authorization: providerToken(configuration),
-            configuration,
-            payload: JSON.stringify({
-              aps: { 'content-available': 1 },
-              provider: 'microsoft-graph',
-              routeId: recipient.routeId,
-            }),
-          },
-          client,
-        ),
-      ]).finally(() => {
-        client.close();
-      });
-      await handleDeliveryResult(ctx, result[0], recipient);
+      const result = await deliverWakeupBatch(ctx, [recipient], (target) =>
+        JSON.stringify({
+          aps: { 'content-available': 1 },
+          provider: 'microsoft-graph',
+          routeId: target.routeId,
+        }),
+      );
       delivered = result[0].status === 'fulfilled';
       terminalFailure = isPermanentApnsFailure(result[0]);
     } catch (error) {
@@ -472,16 +451,13 @@ export const deliverScheduledSendWakeup = internalAction({
       return null;
     }
     try {
-      await deliverWakeupBatch(
-        ctx,
-        recipients,
-        (recipient) =>
-          JSON.stringify({
-            aps: { 'content-available': 1 },
-            provider: 'scheduled-send',
-            revision: recipient.revision,
-            scheduleId: recipient.scheduleId,
-          }),
+      await deliverWakeupBatch(ctx, recipients, (recipient) =>
+        JSON.stringify({
+          aps: { 'content-available': 1 },
+          provider: 'scheduled-send',
+          revision: recipient.revision,
+          scheduleId: recipient.scheduleId,
+        }),
       );
     } catch (error) {
       console.error('Scheduled Send APNs wakeup delivery failed', error);
