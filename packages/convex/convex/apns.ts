@@ -447,3 +447,50 @@ export const deliverMicrosoftGraphWakeup = internalAction({
   },
   returns: v.null(),
 });
+
+export const deliverScheduledSendWakeup = internalAction({
+  args: {
+    revision: v.number(),
+    scheduleDocumentId: v.id('scheduledSends'),
+  },
+  handler: async (ctx, args) => {
+    const recipient = await ctx.runMutation(
+      internal.scheduledSend.claimWakeup,
+      args,
+    );
+    if (recipient === null) {
+      return null;
+    }
+    try {
+      const configuration = apnsConfiguration();
+      const client = connect(apnsAuthority(recipient.apnsEnvironment));
+      client.on('error', (error) => {
+        console.error('APNs HTTP/2 session failed', error);
+      });
+      const result = await Promise.allSettled([
+        sendWakeup(
+          {
+            apnsEnvironment: recipient.apnsEnvironment,
+            apnsToken: recipient.apnsToken,
+            authorization: providerToken(configuration),
+            configuration,
+            payload: JSON.stringify({
+              aps: { 'content-available': 1 },
+              provider: 'scheduled-send',
+              revision: recipient.revision,
+              scheduleId: recipient.scheduleId,
+            }),
+          },
+          client,
+        ),
+      ]).finally(() => {
+        client.close();
+      });
+      await handleDeliveryResult(ctx, result[0], recipient);
+    } catch (error) {
+      console.error('Scheduled Send APNs wakeup delivery failed', error);
+    }
+    return null;
+  },
+  returns: v.null(),
+});

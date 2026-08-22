@@ -4,6 +4,13 @@ struct SendLaterRequest: Identifiable {
   let id = UUID()
 }
 
+private enum SendLaterMode: String, CaseIterable, Identifiable {
+  case automatically = "Send Automatically"
+  case reminder = "Remind Me"
+
+  var id: Self { self }
+}
+
 struct MailComposerSendButton: View {
   let canSendLater: Bool
   let isSendEnabled: Bool
@@ -34,7 +41,7 @@ struct MailComposerSendButton: View {
 
   private var accessibilityHint: String {
     if isSendEnabled {
-      "Sends now. Press and hold for Send Later."
+      "Sends now. Press and hold to schedule Gmail delivery or set a reminder."
     } else if canSendLater {
       "Send now is unavailable. Use Send Later to set a reminder."
     } else {
@@ -44,11 +51,14 @@ struct MailComposerSendButton: View {
 }
 
 struct SendLaterSheet: View {
+  let canAutomaticallySend: Bool
   let schedule: @MainActor (Date, String) async -> Bool
+  let scheduleAutomatically: @MainActor (Date, String) async -> Bool
 
   @Environment(\.dismiss) private var dismiss
   @State private var errorMessage: String?
   @State private var isSaving = false
+  @State private var mode: SendLaterMode = .reminder
   @State private var repeatedTimeChoice: SendReminderRepeatedTimeChoice = .first
   @State private var selectedDate: Date
 
@@ -59,18 +69,24 @@ struct SendLaterSheet: View {
 
   init(
     existingReminder: SendReminder?,
+    canAutomaticallySend: Bool = false,
     now: Date = .now,
     calendar: Calendar = .current,
     timeZone: TimeZone = .current,
+    scheduleAutomatically: @escaping @MainActor (Date, String) async -> Bool = { _, _ in
+      false
+    },
     schedule: @escaping @MainActor (Date, String) async -> Bool
   ) {
     var calendar = calendar
     calendar.timeZone = timeZone
     let presets = SendReminderSchedule.presets(now: now, calendar: calendar)
     self.calendar = calendar
+    self.canAutomaticallySend = canAutomaticallySend
     self.now = now
     self.presets = presets
     self.schedule = schedule
+    self.scheduleAutomatically = scheduleAutomatically
     self.timeZone = timeZone
     let minimumDate = now.addingTimeInterval(60)
     let existingDate = existingReminder?.dueAt
@@ -84,6 +100,15 @@ struct SendLaterSheet: View {
   var body: some View {
     NavigationStack {
       Form {
+        if canAutomaticallySend {
+          Picker("Send Later Mode", selection: $mode) {
+            ForEach(SendLaterMode.allCases) { mode in
+              Text(mode.rawValue).tag(mode)
+            }
+          }
+          .pickerStyle(.segmented)
+        }
+
         if !presets.isEmpty {
           Section("Suggested") {
             ForEach(presets) { preset in
@@ -102,7 +127,7 @@ struct SendLaterSheet: View {
 
         Section("Pick Date & Time") {
           DatePicker(
-            "Reminder",
+            mode == .automatically ? "Send At" : "Reminder",
             selection: $selectedDate,
             in: minimumDate...maximumDate,
             displayedComponents: [.date, .hourAndMinute]
@@ -125,7 +150,7 @@ struct SendLaterSheet: View {
         }
 
         Section {
-          Text("This keeps the message as a Draft. It will not be sent automatically.")
+          Text(explanation)
             .font(.footnote)
             .foregroundStyle(.secondary)
         }
@@ -139,7 +164,7 @@ struct SendLaterSheet: View {
             .disabled(isSaving)
         }
         ToolbarItem(placement: .confirmationAction) {
-          Button("Remind Me to Send", action: saveReminder)
+          Button(mode == .automatically ? "Schedule Send" : "Remind Me to Send", action: save)
             .disabled(resolvedDate == nil || isSaving)
             .accessibilityIdentifier("mail-compose-remind-to-send")
         }
@@ -193,15 +218,33 @@ struct SendLaterSheet: View {
     timeZone.localizedName(for: .generic, locale: .current) ?? timeZone.identifier
   }
 
-  private func saveReminder() {
+  private var explanation: String {
+    switch mode {
+    case .automatically:
+      "This device will send through Gmail at or after the selected time. Delivery may wait until the app can run."
+    case .reminder:
+      "This keeps the message as a Draft. It will not be sent automatically."
+    }
+  }
+
+  private func save() {
     guard let resolvedDate else { return }
     isSaving = true
     errorMessage = nil
     Task {
-      if await schedule(resolvedDate, timeZone.identifier) {
+      let saved =
+        if mode == .automatically {
+          await scheduleAutomatically(resolvedDate, timeZone.identifier)
+        } else {
+          await schedule(resolvedDate, timeZone.identifier)
+        }
+      if saved {
         dismiss()
       } else {
-        errorMessage = "The reminder could not be saved. Review the Draft and try again."
+        errorMessage =
+          mode == .automatically
+          ? "The message could not be scheduled. It remains a Draft; review it and try again."
+          : "The reminder could not be saved. Review the Draft and try again."
         isSaving = false
       }
     }
