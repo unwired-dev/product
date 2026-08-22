@@ -592,7 +592,9 @@ final class MailCompositionDraftTests {
       try await service.scheduleSendReminder(
         reminder.rescheduled(
           to: now.addingTimeInterval(7_200),
-          originalTimeZoneIdentifier: "UTC"
+          originalTimeZoneIdentifier: "UTC",
+          changedByTrustedDeviceId: "device-a",
+          changedAt: now.addingTimeInterval(1)
         ),
         draftId: draftId,
         productAccountId: "account-a",
@@ -926,7 +928,8 @@ final class MailCompositionDraftTests {
         keyMaterialStore: try keyedStore(productAccountId: accountId),
         rootDirectory: rootDirectory
       ),
-      syncService: OfflineDraftSyncService()
+      syncService: OfflineDraftSyncService(),
+      reminderSyncService: OfflineSendReminderSyncService()
     )
     let profileId = MailProfileId(rawValue: "profile")
     let session = ProductAccountSessionSnapshot(
@@ -1242,6 +1245,43 @@ private struct OfflineDraftSyncService: MailCompositionDraftSyncing {
     profileId _: MailProfileId,
     session _: ProductAccountSessionSnapshot
   ) async throws {
+    throw DraftFixtureError.offline
+  }
+}
+
+private struct OfflineSendReminderSyncService: SendReminderSyncing {
+  func cancel(
+    draftId _: UUID,
+    expectedRevision _: UUID?,
+    profileId _: MailProfileId,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> SendReminderSyncMutation {
+    throw DraftFixtureError.offline
+  }
+
+  func claimNotificationOwnership(
+    draftId _: UUID,
+    expectedRevision _: UUID,
+    profileId _: MailProfileId,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> SendReminder? {
+    throw DraftFixtureError.offline
+  }
+
+  func load(
+    profileId _: MailProfileId,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> SendReminderSyncSnapshot {
+    throw DraftFixtureError.offline
+  }
+
+  func synchronize(
+    _: SendReminder,
+    draftId _: UUID,
+    draftUpdatedAtMilliseconds _: Int64,
+    profileId _: MailProfileId,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> SendReminderSyncMutation {
     throw DraftFixtureError.offline
   }
 }

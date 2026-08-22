@@ -1,5 +1,7 @@
 import Foundation
 
+// swiftlint:disable file_length
+
 enum SendReminderNotificationOutcome: Equatable, Sendable {
   case scheduled
   case unavailable
@@ -214,10 +216,14 @@ enum SendReminderSchedule {
 }
 
 struct SendReminder: Codable, Equatable, Identifiable, Sendable {
+  var changedAtMilliseconds: Int64
+  var changedByTrustedDeviceId: String
   let createdAtMilliseconds: Int64
   var dueAtMilliseconds: Int64
   let id: UUID
-  let originatingDeviceId: String
+  var isSynchronizationPending: Bool
+  var notificationOwnerDeviceId: String
+  var originatingDeviceId: String
   var originalTimeZoneIdentifier: String
   var revision: UUID
 
@@ -227,11 +233,20 @@ struct SendReminder: Codable, Equatable, Identifiable, Sendable {
     originalTimeZoneIdentifier: String,
     createdAt: Date = .now,
     id: UUID = UUID(),
-    revision: UUID = UUID()
+    revision: UUID = UUID(),
+    changedAtMilliseconds: Int64? = nil,
+    changedByTrustedDeviceId: String? = nil,
+    isSynchronizationPending: Bool = true,
+    notificationOwnerDeviceId: String? = nil
   ) {
-    createdAtMilliseconds = Int64(createdAt.timeIntervalSince1970 * 1_000)
+    let createdAtMilliseconds = Int64(createdAt.timeIntervalSince1970 * 1_000)
+    self.changedAtMilliseconds = changedAtMilliseconds ?? createdAtMilliseconds
+    self.changedByTrustedDeviceId = changedByTrustedDeviceId ?? originatingDeviceId
+    self.createdAtMilliseconds = createdAtMilliseconds
     dueAtMilliseconds = Int64(dueAt.timeIntervalSince1970 * 1_000)
     self.id = id
+    self.isSynchronizationPending = isSynchronizationPending
+    self.notificationOwnerDeviceId = notificationOwnerDeviceId ?? originatingDeviceId
     self.originatingDeviceId = originatingDeviceId
     self.originalTimeZoneIdentifier = originalTimeZoneIdentifier
     self.revision = revision
@@ -247,13 +262,80 @@ struct SendReminder: Codable, Equatable, Identifiable, Sendable {
 
   func rescheduled(
     to dueAt: Date,
-    originalTimeZoneIdentifier: String
+    originalTimeZoneIdentifier: String,
+    changedByTrustedDeviceId: String,
+    changedAt: Date = .now
   ) -> Self {
     var reminder = self
+    reminder.changedAtMilliseconds = Int64(changedAt.timeIntervalSince1970 * 1_000)
+    reminder.changedByTrustedDeviceId = changedByTrustedDeviceId
     reminder.dueAtMilliseconds = Int64(dueAt.timeIntervalSince1970 * 1_000)
+    reminder.isSynchronizationPending = true
+    reminder.notificationOwnerDeviceId = changedByTrustedDeviceId
+    // Older clients use this field as their notification-ownership fence.
+    reminder.originatingDeviceId = changedByTrustedDeviceId
     reminder.originalTimeZoneIdentifier = originalTimeZoneIdentifier
     reminder.revision = UUID()
     return reminder
+  }
+
+  func claimingNotificationOwnership(
+    for trustedDeviceId: String,
+    changedAtMilliseconds: Int64
+  ) -> Self {
+    guard notificationOwnerDeviceId != trustedDeviceId else { return self }
+    var reminder = self
+    reminder.changedAtMilliseconds = changedAtMilliseconds
+    reminder.changedByTrustedDeviceId = trustedDeviceId
+    reminder.isSynchronizationPending = false
+    reminder.notificationOwnerDeviceId = trustedDeviceId
+    // Preserve the ownership handoff for clients that predate the additive record family.
+    reminder.originatingDeviceId = trustedDeviceId
+    return reminder
+  }
+
+  func synchronized() -> Self {
+    var reminder = self
+    reminder.isSynchronizationPending = false
+    return reminder
+  }
+
+  private enum CodingKeys: String, CodingKey {
+    case changedAtMilliseconds
+    case changedByTrustedDeviceId
+    case createdAtMilliseconds
+    case dueAtMilliseconds
+    case id
+    case isSynchronizationPending
+    case notificationOwnerDeviceId
+    case originatingDeviceId
+    case originalTimeZoneIdentifier
+    case revision
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    createdAtMilliseconds = try container.decode(Int64.self, forKey: .createdAtMilliseconds)
+    dueAtMilliseconds = try container.decode(Int64.self, forKey: .dueAtMilliseconds)
+    id = try container.decode(UUID.self, forKey: .id)
+    originatingDeviceId = try container.decode(String.self, forKey: .originatingDeviceId)
+    originalTimeZoneIdentifier = try container.decode(
+      String.self,
+      forKey: .originalTimeZoneIdentifier
+    )
+    revision = try container.decode(UUID.self, forKey: .revision)
+    changedAtMilliseconds =
+      try container.decodeIfPresent(Int64.self, forKey: .changedAtMilliseconds)
+      ?? createdAtMilliseconds
+    changedByTrustedDeviceId =
+      try container.decodeIfPresent(String.self, forKey: .changedByTrustedDeviceId)
+      ?? originatingDeviceId
+    isSynchronizationPending =
+      try container.decodeIfPresent(Bool.self, forKey: .isSynchronizationPending)
+      ?? true
+    notificationOwnerDeviceId =
+      try container.decodeIfPresent(String.self, forKey: .notificationOwnerDeviceId)
+      ?? originatingDeviceId
   }
 }
 

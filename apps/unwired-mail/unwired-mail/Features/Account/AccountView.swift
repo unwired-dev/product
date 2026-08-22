@@ -1534,6 +1534,7 @@ struct AccountView: View {
   private let signaturePreferenceSyncFactory: (MailProfileRecordScope) -> SignaturePreferenceSyncing
   private let templatePreferenceSyncFactory: (MailProfileRecordScope) -> TemplatePreferenceSyncing
   private let compositionDraftRepository: MailCompositionDraftRepository
+  private let notificationPreferenceStore: NotificationDevicePreferencePersisting
   private let sendReminderNotificationScheduler: any SendReminderNotificationScheduling
   private let profileDeepLinkRouter: MailProfileDeepLinkRouter
   private let releaseBudgetDriver: MailShellReleaseBudgetDriver?
@@ -1623,8 +1624,11 @@ struct AccountView: View {
     composePreferenceSyncFactory:
       ((MailProfileRecordScope) -> ComposePreferenceSyncing)? = nil,
     compositionDraftStore: any MailCompositionDraftPersisting = FileMailCompositionDraftStore(),
+    sendReminderSyncService: any SendReminderSyncing = SendReminderSyncService(),
     sendReminderNotificationScheduler: any SendReminderNotificationScheduling =
       UserNotificationService(),
+    notificationPreferenceStore: NotificationDevicePreferencePersisting =
+      UserDefaultsNotificationPreferenceStore(),
     featureSuggestionPreferenceSync: FeatureSuggestionPreferenceSyncing =
       FeatureSuggestionPreferenceSyncService(),
     featureSuggestionPreferenceSyncFactory:
@@ -1677,10 +1681,11 @@ struct AccountView: View {
     self.initialStartupDidFinish = initialStartupDidFinish
     self.mailboxConnection = mailboxConnection
     self.messageReader = mailboxConnection
-    let compositionDraftRepository = MailCompositionDraftRepository(
-      store: compositionDraftStore
+    self.compositionDraftRepository = MailCompositionDraftRepository(
+      store: compositionDraftStore,
+      reminderSyncService: sendReminderSyncService
     )
-    self.compositionDraftRepository = compositionDraftRepository
+    self.notificationPreferenceStore = notificationPreferenceStore
     self.sendReminderNotificationScheduler = sendReminderNotificationScheduler
     if let shareExtensionStore = try? ShareExtensionStore.live() {
       self.shareExtensionCatalogSynchronizer = ShareExtensionCatalogSynchronizer(
@@ -1901,6 +1906,7 @@ struct AccountView: View {
     )
     _snoozeViewModel = State(
       initialValue: ThreadSnoozeViewModel(
+        notificationPreferenceStore: notificationPreferenceStore,
         profileLockStore: profileLockStore,
         service: snoozeSyncService,
         session: snapshot
@@ -1969,6 +1975,9 @@ struct AccountView: View {
     .onChange(of: profileInterruptionViewModel.policy.allowsContentReveal) { _, allowsReveal in
       if allowsReveal {
         mailAssistanceViewModel.profileDidUnlock()
+        Task {
+          await loadCompositionDrafts(profileId: activeDraftProfileId)
+        }
         reconcileSpotlight()
         return
       }
@@ -2411,7 +2420,7 @@ struct AccountView: View {
     )
   }
 
-  private var mailShellWithCoreLifecycleHandlers: some View {
+  private var mailShellPresentation: some View {
     NavigationSplitView(
       columnVisibility: $columnVisibility,
       preferredCompactColumn: $preferredCompactColumn
@@ -2768,22 +2777,12 @@ struct AccountView: View {
               case .appearance:
                 AppearanceSettingsView()
               case .privacyAndData:
-                if request?.route?.context == .storage {
-                  AnyView(
-                    StorageDataSettingsView(
-                      session: snapshot,
-                      viewModel: storageDataSettingsViewModel
-                    )
-                  )
-                } else {
-                  AnyView(
-                    PrivacyDataSettingsView(
-                      connections: profileConnections,
-                      storageSession: snapshot,
-                      storageViewModel: storageDataSettingsViewModel
-                    )
-                  )
-                }
+                AccountPrivacyAndDataSettingsDestination(
+                  connections: profileConnections,
+                  request: request,
+                  session: snapshot,
+                  viewModel: storageDataSettingsViewModel
+                )
               default:
                 EmptyView()
               }
@@ -2855,260 +2854,254 @@ struct AccountView: View {
     } message: {
       Text(mailActionViewModel.errorMessage ?? "Reconnect or discard the pending action.")
     }
-    .task {
-      #if canImport(UIKit)
-        requestDevicePushRegistration()
-      #endif
-      let deepLinkTarget = profileDeepLinkRouter.consumeTarget()
-      let targetedProfileId = deepLinkTarget?.profileId
-      let targetedDraftId =
-        if case .profile(let deepLink) = deepLinkTarget {
-          deepLink.draftId
-        } else {
-          nil
-        }
-      await loadCachedMailState(targetedProfileId: targetedProfileId)
-      await loadCurrentMailboxFromCache()
-      initialLaunchDidFinish()
-      await categoryViewModel.load()
-      await composePreferenceStore.synchronize()
-      await featureSuggestionPreferenceStore.synchronize()
-      await signatureStore.synchronize()
-      await inboxPreferenceStore.synchronize()
-      updateMailViews()
-      await readingPreferenceStore.synchronize()
-      await swipePreferenceStore.synchronize()
-      await notificationRuleViewModel.load(
-        categoryIds: categoryViewModel.hasLoadedCategory
-          ? Set(
-            MessageCategoryChoice.available(customCategories: categoryViewModel.categories).map(
-              \.id)
-          )
-          : nil
-      )
-      await reloadSyncedMailState(
-        targetedProfileId: targetedProfileId
-      )
-      await importShareExtensionDrafts()
-      await loadCompositionDrafts(profileId: activeDraftProfileId)
-      openSavedDraft(targetedDraftId)
-      await loadCurrentMailboxFromCache()
-      mailboxObserversAreActive = true
-      await mailboxFreshnessViewModel.synchronize(
-        connections: gmailViewModel.connections,
-        snapshotIsAuthoritative: gmailViewModel.connectionsSnapshotIsAuthoritative
-      )
-      await reloadObservedMailboxes()
-      if case .message(let deepLink) = deepLinkTarget {
-        await openSpotlightMessage(deepLink)
-      }
-      inboxViewModel.refreshPinnedBodyPrefetch(connections: profileConnections)
-      initialStartupDidFinish()
-      await blockedSenderStore.synchronize()
-    }
-    .task(id: sendingIdentitySynchronizationKey) {
-      guard await session.revalidateTrustedDeviceAfterForegrounding() else { return }
-      guard session.isCurrentSessionIdentity(snapshot) else { return }
-      let eligibleConnections = profileConnections.filter {
-        $0.authorizationState == .authorized && $0.capabilities.canSend
-      }
-      var providerConfirmedAddresses: [MailboxConnectionId: [String]] = [:]
-      var providerDiscoveryFailures: [String] = []
-      await withTaskGroup(
-        of: (MailboxConnectionId, [String]?, String?).self
-      ) { group in
-        for connection in eligibleConnections {
-          group.addTask { @MainActor in
-            do {
-              let addresses =
-                try await mailboxConnection.loadProviderConfirmedSendingAddresses(
-                  connection: connection,
-                  session: snapshot
-                )
-              return (connection.id, addresses, nil)
-            } catch is CancellationError {
-              return (connection.id, nil, nil)
-            } catch {
-              return (
-                connection.id,
-                nil,
-                "\(connection.displayName): \(error.localizedDescription)"
-              )
-            }
+  }
+
+  private var mailShellWithCoreLifecycleHandlers: some View {
+    mailShellPresentation
+      .task {
+        #if canImport(UIKit)
+          requestDevicePushRegistration()
+        #endif
+        let deepLinkTarget = profileDeepLinkRouter.consumeTarget()
+        let targetedProfileId = deepLinkTarget?.profileId
+        let targetedDraftId: UUID? =
+          if case .profile(let deepLink) = deepLinkTarget {
+            deepLink.draftId
+          } else {
+            nil
           }
-        }
-        for await (connectionId, addresses, failure) in group {
-          if let addresses { providerConfirmedAddresses[connectionId] = addresses }
-          if let failure { providerDiscoveryFailures.append(failure) }
-        }
-      }
-      guard !Task.isCancelled, session.isCurrentSessionIdentity(snapshot) else { return }
-      await sendingIdentityStore.synchronize(
-        connections: profileConnections,
-        connectionsAreAuthoritative: gmailViewModel.connectionsSnapshotIsAuthoritative,
-        legacyDefaultConnectionId: profileDefaultSendingConnectionId,
-        providerConfirmedAddresses: providerConfirmedAddresses,
-        providerDiscoveryErrorDescription: providerDiscoveryFailures.isEmpty
-          ? nil
-          : providerDiscoveryFailures.sorted().joined(separator: "\n")
-      )
-    }
-    .task(id: shareExtensionCatalogSynchronizationKey) {
-      await synchronizeShareExtensionCatalog()
-    }
-    .onChange(of: profileDeepLinkRouter.pendingTarget) { _, _ in
-      guard let target = profileDeepLinkRouter.consumeTarget() else { return }
-      Task {
-        switch target {
-        case .message(let deepLink):
-          await openSpotlightMessage(deepLink)
-        case .profile(let deepLink):
-          await handleProfileDeepLink(
-            profileId: deepLink.profileId,
-            draftId: deepLink.draftId
-          )
-        }
-      }
-    }
-    .task(id: scenePhase) {
-      guard scenePhase == .active else { return }
-      await session.revalidateProductAccountAfterForegrounding()
-      guard session.isCurrentSessionIdentity(snapshot) else { return }
-      await mailboxFreshnessViewModel.pollWhileActive(
-        connections: { gmailViewModel.connections },
-        snapshotIsAuthoritative: { gmailViewModel.connectionsSnapshotIsAuthoritative },
-        revalidateTrustedDevice: {
-          await session.revalidateTrustedDeviceAfterForegrounding()
-        },
-        didSynchronize: { await reloadObservedMailboxes() }
-      )
-    }
-    .onChange(of: scenePhase) { _, phase in
-      guard phase == .active else { return }
-      Task {
-        guard await session.revalidateTrustedDeviceAfterForegrounding() else { return }
-        guard session.isCurrentSessionIdentity(snapshot) else { return }
-        await blockedSenderStore.synchronize()
+        await loadCachedMailState(targetedProfileId: targetedProfileId)
+        await loadCurrentMailboxFromCache()
+        initialLaunchDidFinish()
+        await categoryViewModel.load()
         await composePreferenceStore.synchronize()
         await featureSuggestionPreferenceStore.synchronize()
         await signatureStore.synchronize()
-        await templateStore.synchronize()
         await inboxPreferenceStore.synchronize()
+        updateMailViews()
         await readingPreferenceStore.synchronize()
         await swipePreferenceStore.synchronize()
-        await reloadSyncedMailState()
-        await synchronizeMailboxes()
-        inboxViewModel.refreshPinnedBodyPrefetch(connections: profileConnections)
-      }
-    }
-    .onReceive(
-      NotificationCenter.default.publisher(for: .mailboxMetadataDidSynchronize)
-        .receive(on: RunLoop.main)
-    ) { notification in
-      guard
-        notification.userInfo?[MailboxSyncNotificationUserInfoKey.productAccountId]
-          as? String == snapshot.productAccountId,
-        let connectionId =
-          notification.userInfo?[MailboxSyncNotificationUserInfoKey.connectionId] as? String,
-        let phase = notification.userInfo?[MailboxSyncNotificationUserInfoKey.phase]
-          as? MailboxSyncPhase
-      else { return }
-      let successfulSyncAt =
-        notification.userInfo?[MailboxSyncNotificationUserInfoKey.successfulSyncAt] as? Date
-      mailboxFreshnessViewModel.recordExternalSync(
-        connectionIdRawValue: connectionId,
-        phase: phase,
-        successfulSyncAt: successfulSyncAt,
-        supersedesHistoricalBackfill:
-          notification.userInfo?[
-            MailboxSyncNotificationUserInfoKey.supersedesHistoricalBackfill
-          ] as? Bool
-          ?? true,
-        updatesExternalStatusRevision:
-          notification.userInfo?[
-            MailboxSyncNotificationUserInfoKey.updatesExternalStatusRevision
-          ] as? Bool
-          ?? true
-      )
-      let reloadObservedMetadata =
-        notification.userInfo?[MailboxSyncNotificationUserInfoKey.reloadObservedMetadata]
-        as? Bool == true
-      guard successfulSyncAt != nil || reloadObservedMetadata else { return }
-      Task {
-        if successfulSyncAt != nil {
-          let connectionsAreAuthoritative = await gmailViewModel.refreshSnapshot()
-          mailboxFreshnessViewModel.updateConnections(
-            gmailViewModel.connections,
-            snapshotIsAuthoritative: connectionsAreAuthoritative,
-            prunesPersistedState: connectionsAreAuthoritative
-          )
-        }
-        await reloadObservedMailboxes()
-      }
-    }
-    .onReceive(
-      NotificationCenter.default.publisher(for: .standardsMailIdleDidChange)
-        .receive(on: RunLoop.main)
-    ) { notification in
-      guard
-        notification.userInfo?[MailboxSyncNotificationUserInfoKey.productAccountId]
-          as? String == snapshot.productAccountId,
-        let rawConnectionId =
-          notification.userInfo?[MailboxSyncNotificationUserInfoKey.connectionId] as? String,
-        let connection = standardsMailIdleConnection(
-          rawConnectionId: rawConnectionId,
-          accountConnections: gmailViewModel.connections
+        await notificationRuleViewModel.load(
+          categoryIds: categoryViewModel.hasLoadedCategory
+            ? Set(
+              MessageCategoryChoice.available(customCategories: categoryViewModel.categories).map(
+                \.id)
+            )
+            : nil
         )
-      else { return }
-      Task {
+        await reloadSyncedMailState(
+          targetedProfileId: targetedProfileId
+        )
+        await importShareExtensionDrafts()
+        await loadCompositionDrafts(profileId: activeDraftProfileId)
+        openSavedDraft(targetedDraftId)
+        await loadCurrentMailboxFromCache()
+        mailboxObserversAreActive = true
+        await mailboxFreshnessViewModel.synchronize(
+          connections: gmailViewModel.connections,
+          snapshotIsAuthoritative: gmailViewModel.connectionsSnapshotIsAuthoritative
+        )
+        await reloadObservedMailboxes()
+        if case .message(let deepLink) = deepLinkTarget {
+          await openSpotlightMessage(deepLink)
+        }
+        inboxViewModel.refreshPinnedBodyPrefetch(connections: profileConnections)
+        initialStartupDidFinish()
+        await blockedSenderStore.synchronize()
+      }
+      .task(id: sendingIdentitySynchronizationKey) {
         guard await session.revalidateTrustedDeviceAfterForegrounding() else { return }
         guard session.isCurrentSessionIdentity(snapshot) else { return }
-        _ = try? await mailboxFreshnessViewModel.syncInbox(
-          connection: connection,
-          session: snapshot
+        let eligibleConnections = profileConnections.filter {
+          $0.authorizationState == .authorized && $0.capabilities.canSend
+        }
+        var providerConfirmedAddresses: [MailboxConnectionId: [String]] = [:]
+        var providerDiscoveryFailures: [String] = []
+        await withTaskGroup(
+          of: (MailboxConnectionId, [String]?, String?).self
+        ) { group in
+          for connection in eligibleConnections {
+            group.addTask { @MainActor in
+              do {
+                let addresses =
+                  try await mailboxConnection.loadProviderConfirmedSendingAddresses(
+                    connection: connection,
+                    session: snapshot
+                  )
+                return (connection.id, addresses, nil)
+              } catch is CancellationError {
+                return (connection.id, nil, nil)
+              } catch {
+                return (
+                  connection.id,
+                  nil,
+                  "\(connection.displayName): \(error.localizedDescription)"
+                )
+              }
+            }
+          }
+          for await (connectionId, addresses, failure) in group {
+            if let addresses { providerConfirmedAddresses[connectionId] = addresses }
+            if let failure { providerDiscoveryFailures.append(failure) }
+          }
+        }
+        guard !Task.isCancelled, session.isCurrentSessionIdentity(snapshot) else { return }
+        await sendingIdentityStore.synchronize(
+          connections: profileConnections,
+          connectionsAreAuthoritative: gmailViewModel.connectionsSnapshotIsAuthoritative,
+          legacyDefaultConnectionId: profileDefaultSendingConnectionId,
+          providerConfirmedAddresses: providerConfirmedAddresses,
+          providerDiscoveryErrorDescription: providerDiscoveryFailures.isEmpty
+            ? nil
+            : providerDiscoveryFailures.sorted().joined(separator: "\n")
         )
-        await reloadObservedMailboxes()
       }
-    }
-    .onReceive(
-      NotificationCenter.default.publisher(for: .mailboxConnectionsDidChange)
-        .receive(on: RunLoop.main)
-    ) { notification in
-      guard
-        notification.userInfo?[MailboxSyncNotificationUserInfoKey.productAccountId]
-          as? String == snapshot.productAccountId
-      else { return }
-      Task { await reloadSyncedMailState() }
-    }
-    .onReceive(
-      NotificationCenter.default.publisher(for: .categoryNotificationDeepLink)
-        .receive(on: RunLoop.main)
-    ) { notification in
-      guard
-        let deepLink =
-          notification.object as? NotificationDeepLink
-          ?? NotificationDeepLink(userInfo: notification.userInfo ?? [:])
-      else { return }
-      handleNotificationDeepLink(
-        PendingNotificationDeepLinkStore.shared.take(
-          productAccountId: snapshot.productAccountId
-        ) ?? deepLink
-      )
-    }
-    .onReceive(
-      NotificationCenter.default.publisher(for: .sendReminderDeepLink)
-        .receive(on: RunLoop.main)
-    ) { notification in
-      guard
-        let deepLink = notification.object as? SendReminderDeepLink
-          ?? SendReminderDeepLink(userInfo: notification.userInfo ?? [:])
-      else { return }
-      handleSendReminderDeepLink(
-        PendingSendReminderDeepLinkStore.shared.take(
-          productAccountId: snapshot.productAccountId
-        ) ?? deepLink
-      )
-    }
+      .task(id: shareExtensionCatalogSynchronizationKey) {
+        await synchronizeShareExtensionCatalog()
+      }
+      .onChange(of: profileDeepLinkRouter.pendingTarget) { _, _ in
+        guard let target = profileDeepLinkRouter.consumeTarget() else { return }
+        Task {
+          switch target {
+          case .message(let deepLink):
+            await openSpotlightMessage(deepLink)
+          case .profile(let deepLink):
+            await handleProfileDeepLink(
+              profileId: deepLink.profileId,
+              draftId: deepLink.draftId
+            )
+          }
+        }
+      }
+      .task(id: scenePhase) {
+        guard scenePhase == .active else { return }
+        await session.revalidateProductAccountAfterForegrounding()
+        guard session.isCurrentSessionIdentity(snapshot) else { return }
+        await mailboxFreshnessViewModel.pollWhileActive(
+          connections: { gmailViewModel.connections },
+          snapshotIsAuthoritative: { gmailViewModel.connectionsSnapshotIsAuthoritative },
+          revalidateTrustedDevice: {
+            await session.revalidateTrustedDeviceAfterForegrounding()
+          },
+          didSynchronize: { await reloadObservedMailboxes() }
+        )
+      }
+      .onChange(of: scenePhase) { _, phase in
+        guard phase == .active else { return }
+        Task {
+          guard await session.revalidateTrustedDeviceAfterForegrounding() else { return }
+          guard session.isCurrentSessionIdentity(snapshot) else { return }
+          await blockedSenderStore.synchronize()
+          await composePreferenceStore.synchronize()
+          await featureSuggestionPreferenceStore.synchronize()
+          await signatureStore.synchronize()
+          await templateStore.synchronize()
+          await inboxPreferenceStore.synchronize()
+          await readingPreferenceStore.synchronize()
+          await swipePreferenceStore.synchronize()
+          await reloadSyncedMailState()
+          await synchronizeMailboxes()
+          inboxViewModel.refreshPinnedBodyPrefetch(connections: profileConnections)
+        }
+      }
+      .onReceive(
+        NotificationCenter.default.publisher(for: .mailboxMetadataDidSynchronize)
+          .receive(on: RunLoop.main)
+      ) { notification in
+        guard
+          notification.userInfo?[MailboxSyncNotificationUserInfoKey.productAccountId]
+            as? String == snapshot.productAccountId,
+          let connectionId =
+            notification.userInfo?[MailboxSyncNotificationUserInfoKey.connectionId] as? String,
+          let phase = notification.userInfo?[MailboxSyncNotificationUserInfoKey.phase]
+            as? MailboxSyncPhase
+        else { return }
+        let successfulSyncAt =
+          notification.userInfo?[MailboxSyncNotificationUserInfoKey.successfulSyncAt] as? Date
+        mailboxFreshnessViewModel.recordExternalSync(
+          connectionIdRawValue: connectionId,
+          phase: phase,
+          successfulSyncAt: successfulSyncAt,
+          supersedesHistoricalBackfill:
+            notification.userInfo?[
+              MailboxSyncNotificationUserInfoKey.supersedesHistoricalBackfill
+            ] as? Bool
+            ?? true,
+          updatesExternalStatusRevision:
+            notification.userInfo?[
+              MailboxSyncNotificationUserInfoKey.updatesExternalStatusRevision
+            ] as? Bool
+            ?? true
+        )
+        let reloadObservedMetadata =
+          notification.userInfo?[MailboxSyncNotificationUserInfoKey.reloadObservedMetadata]
+          as? Bool == true
+        guard successfulSyncAt != nil || reloadObservedMetadata else { return }
+        Task {
+          if successfulSyncAt != nil {
+            let connectionsAreAuthoritative = await gmailViewModel.refreshSnapshot()
+            mailboxFreshnessViewModel.updateConnections(
+              gmailViewModel.connections,
+              snapshotIsAuthoritative: connectionsAreAuthoritative,
+              prunesPersistedState: connectionsAreAuthoritative
+            )
+          }
+          await reloadObservedMailboxes()
+        }
+      }
+      .onReceive(
+        NotificationCenter.default.publisher(for: .standardsMailIdleDidChange)
+          .receive(on: RunLoop.main)
+      ) { notification in
+        guard
+          notification.userInfo?[MailboxSyncNotificationUserInfoKey.productAccountId]
+            as? String == snapshot.productAccountId,
+          let rawConnectionId =
+            notification.userInfo?[MailboxSyncNotificationUserInfoKey.connectionId] as? String,
+          let connection = standardsMailIdleConnection(
+            rawConnectionId: rawConnectionId,
+            accountConnections: gmailViewModel.connections
+          )
+        else { return }
+        Task {
+          guard await session.revalidateTrustedDeviceAfterForegrounding() else { return }
+          guard session.isCurrentSessionIdentity(snapshot) else { return }
+          _ = try? await mailboxFreshnessViewModel.syncInbox(
+            connection: connection,
+            session: snapshot
+          )
+          await reloadObservedMailboxes()
+        }
+      }
+      .onReceive(
+        NotificationCenter.default.publisher(for: .mailboxConnectionsDidChange)
+          .receive(on: RunLoop.main)
+      ) { notification in
+        guard
+          notification.userInfo?[MailboxSyncNotificationUserInfoKey.productAccountId]
+            as? String == snapshot.productAccountId
+        else { return }
+        Task { await reloadSyncedMailState() }
+      }
+      .onReceive(
+        NotificationCenter.default.publisher(for: .categoryNotificationDeepLink)
+          .receive(on: RunLoop.main)
+      ) { notification in
+        guard
+          let deepLink =
+            notification.object as? NotificationDeepLink
+            ?? NotificationDeepLink(userInfo: notification.userInfo ?? [:])
+        else { return }
+        handleNotificationDeepLink(
+          PendingNotificationDeepLinkStore.shared.take(
+            productAccountId: snapshot.productAccountId
+          ) ?? deepLink
+        )
+      }
+      .onReceive(
+        NotificationCenter.default.publisher(for: .sendReminderDeepLink)
+          .receive(on: RunLoop.main)
+      ) { handleSendReminderDeepLinkNotification($0) }
   }
 
   private func openSettings(_ route: SettingsRoute?) {
@@ -3583,6 +3576,41 @@ struct AccountView: View {
       }
     }
   }
+
+  private func handleSendReminderDeepLinkNotification(_ notification: Notification) {
+    guard
+      let deepLink = notification.object as? SendReminderDeepLink
+        ?? SendReminderDeepLink(userInfo: notification.userInfo ?? [:])
+    else { return }
+    handleSendReminderDeepLink(
+      PendingSendReminderDeepLinkStore.shared.take(
+        productAccountId: snapshot.productAccountId
+      ) ?? deepLink
+    )
+  }
+}
+
+private struct AccountPrivacyAndDataSettingsDestination: View {
+  let connections: [MailboxConnection]
+  let request: SettingsRouteRequest?
+  let session: ProductAccountSessionSnapshot
+  let viewModel: StorageDataSettingsViewModel
+
+  @ViewBuilder
+  var body: some View {
+    if request?.route?.context == .storage {
+      StorageDataSettingsView(
+        session: session,
+        viewModel: viewModel
+      )
+    } else {
+      PrivacyDataSettingsView(
+        connections: connections,
+        storageSession: session,
+        storageViewModel: viewModel
+      )
+    }
+  }
 }
 
 extension AccountView {
@@ -3945,10 +3973,13 @@ extension AccountView {
       savedCompositionDrafts = []
     }
     do {
+      let claimsNotificationOwnership =
+        await sendReminderNotificationAuthorizationState() == .authorized
       let drafts = try await compositionDraftRepository.drafts(
         productAccountId: snapshot.productAccountId,
         profileId: profileId,
-        session: snapshot
+        session: snapshot,
+        claimsNotificationOwnership: claimsNotificationOwnership
       )
       guard load.generation == compositionDraftLoadGate.generation,
         profileId == activeDraftProfileId
@@ -4012,6 +4043,13 @@ extension AccountView {
     profileId: MailProfileId
   ) async throws -> SendReminderNotificationOutcome {
     guard let reminder = draft.sendReminder else { return .unavailable }
+    guard reminder.isSynchronizationPending == false,
+      reminder.notificationOwnerDeviceId == snapshot.trustedDeviceId,
+      sendReminderInterruptionPolicy(for: reminder).allowsInterruption
+    else {
+      cancelSendReminder(reminder, draftId: draft.id, profileId: profileId)
+      return .unavailable
+    }
     return try await sendReminderNotificationScheduler.scheduleSendReminder(
       reminder,
       draftId: draft.id,
@@ -4037,9 +4075,39 @@ extension AccountView {
     _ drafts: [MailShellCompositionDraft],
     profileId: MailProfileId
   ) async {
-    for draft in drafts where draft.sendReminder?.originatingDeviceId == snapshot.trustedDeviceId {
-      _ = try? await scheduleSendReminder(for: draft, profileId: profileId)
+    for draft in drafts {
+      guard let reminder = draft.sendReminder else { continue }
+      if reminder.notificationOwnerDeviceId == snapshot.trustedDeviceId {
+        _ = try? await scheduleSendReminder(for: draft, profileId: profileId)
+      } else {
+        cancelSendReminder(reminder, draftId: draft.id, profileId: profileId)
+      }
     }
+  }
+
+  private func sendReminderNotificationAuthorizationState() async
+    -> NotificationAuthorizationState
+  {
+    guard
+      let authorization =
+        sendReminderNotificationScheduler as? any NotificationAuthorizationStateChecking
+    else { return .denied }
+    return await authorization.notificationAuthorizationState()
+  }
+
+  private func sendReminderInterruptionPolicy(
+    for reminder: SendReminder
+  ) -> SendReminderInterruptionPolicy {
+    let preferences = notificationPreferenceStore.load(
+      productAccountId: snapshot.productAccountId
+    )
+    return SendReminderInterruptionPolicy(
+      isDeviceQuietAtDueTime: preferences.quietSchedule.isQuiet(at: reminder.dueAt),
+      isProfileLocked: !profileInterruptionViewModel.policy.allowsContentReveal,
+      isProfileQuietAtDueTime:
+        profileInterruptionViewModel.activeProfile.quietState.isActive(at: reminder.dueAt),
+      returnToAttentionEnabled: snoozeViewModel.preferences.returnToAttentionEnabled
+    )
   }
 
   private func openCompositionDraft(_ draft: MailShellCompositionDraft) {
@@ -5718,8 +5786,7 @@ private struct MailShellSavedDraftsButton: View {
           } label: {
             Label(
               title(for: draft, at: context.date),
-              systemImage: draft.sendReminder?.isOverdue(at: context.date) == true
-                ? "clock.badge.exclamationmark" : "doc.text"
+              systemImage: icon(for: draft, at: context.date)
             )
           }
         }
@@ -5740,7 +5807,14 @@ private struct MailShellSavedDraftsButton: View {
     let title = subject.isEmpty ? "Untitled Draft" : subject
     guard let reminder = draft.sendReminder else { return title }
     if reminder.isOverdue(at: date) { return "Overdue — \(title)" }
+    if reminder.isSynchronizationPending { return "Syncing — \(title)" }
     return "\(title) — Reminder \(reminder.dueAt.formatted(date: .abbreviated, time: .shortened))"
+  }
+
+  private func icon(for draft: MailShellCompositionDraft, at date: Date) -> String {
+    guard let reminder = draft.sendReminder else { return "doc.text" }
+    if reminder.isOverdue(at: date) { return "clock.badge.exclamationmark" }
+    return reminder.isSynchronizationPending ? "arrow.triangle.2.circlepath" : "doc.text"
   }
 
   private func savedDraftsIcon(at date: Date) -> String {
@@ -5750,7 +5824,9 @@ private struct MailShellSavedDraftsButton: View {
 
   private func accessibilityLabel(at date: Date) -> String {
     let overdueCount = drafts.count { $0.sendReminder?.isOverdue(at: date) == true }
-    return overdueCount == 0 ? "Saved Drafts" : "Saved Drafts, \(overdueCount) overdue"
+    let pendingCount = drafts.count { $0.sendReminder?.isSynchronizationPending == true }
+    if overdueCount > 0 { return "Saved Drafts, \(overdueCount) overdue" }
+    return pendingCount == 0 ? "Saved Drafts" : "Saved Drafts, \(pendingCount) syncing"
   }
 }
 
@@ -7204,7 +7280,8 @@ private struct ThreadSnoozeSettingsPanel: View {
       .accessibilityIdentifier("mail-snooze-return-to-attention")
       .disabled(viewModel.isUpdatingPreferences)
       Text(
-        "Allow due Snoozes and Follow-Up Nudges to request attention when Profile and device policies permit."
+        "Allow due Snoozes, Send Reminders, and Follow-Up Nudges to request attention when "
+          + "Profile and device policies permit."
       )
       .font(.footnote)
       .foregroundStyle(.secondary)

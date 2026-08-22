@@ -163,6 +163,9 @@
 		72B7B3522D1C000100000001 /* Services/ProductSync/ThreadSnoozeSyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72B7B3532D1C000100000001 /* Services/ProductSync/ThreadSnoozeSyncService.swift */; };
 		C0DEC0DE397000000000001 /* Services/ProductSync/FollowUpNudgeSyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE397000000000002 /* Services/ProductSync/FollowUpNudgeSyncService.swift */; };
 		C0DEC0DE397000000000003 /* FollowUpNudgeSyncServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE397000000000004 /* FollowUpNudgeSyncServiceTests.swift */; };
+		C0DEC0DE378000000000001 /* Services/ProductSync/SendReminderSyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE378000000000002 /* Services/ProductSync/SendReminderSyncService.swift */; };
+		C0DEC0DE378000000000003 /* SendReminderSyncServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE378000000000004 /* SendReminderSyncServiceTests.swift */; };
+		C0DEC0DE378000000000005 /* Services/Mailbox/MailCompositionDraftRepository+SendReminder.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE378000000000006 /* Services/Mailbox/MailCompositionDraftRepository+SendReminder.swift */; };
 		71A6A1062C0B000100000001 /* Services/Mailbox/IMAPMailboxConnectionAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1072C0B000100000001 /* Services/Mailbox/IMAPMailboxConnectionAdapter.swift */; };
 		71A6A10A2C0B000100000001 /* IMAPMailboxConnectionAdapterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A10B2C0B000100000001 /* IMAPMailboxConnectionAdapterTests.swift */; };
 		71A6A1702C0B000100000001 /* Services/Mailbox/MailEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1712C0B000100000001 /* Services/Mailbox/MailEngine.swift */; };
@@ -442,6 +445,9 @@
 		72B7B3532D1C000100000001 /* Services/ProductSync/ThreadSnoozeSyncService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/ProductSync/ThreadSnoozeSyncService.swift; sourceTree = "<group>"; };
 		C0DEC0DE397000000000002 /* Services/ProductSync/FollowUpNudgeSyncService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/ProductSync/FollowUpNudgeSyncService.swift; sourceTree = "<group>"; };
 		C0DEC0DE397000000000004 /* FollowUpNudgeSyncServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FollowUpNudgeSyncServiceTests.swift; sourceTree = "<group>"; };
+		C0DEC0DE378000000000002 /* Services/ProductSync/SendReminderSyncService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/ProductSync/SendReminderSyncService.swift; sourceTree = "<group>"; };
+		C0DEC0DE378000000000004 /* SendReminderSyncServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SendReminderSyncServiceTests.swift; sourceTree = "<group>"; };
+		C0DEC0DE378000000000006 /* Services/Mailbox/MailCompositionDraftRepository+SendReminder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Services/Mailbox/MailCompositionDraftRepository+SendReminder.swift"; sourceTree = "<group>"; };
 		71A6A1072C0B000100000001 /* Services/Mailbox/IMAPMailboxConnectionAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/Mailbox/IMAPMailboxConnectionAdapter.swift; sourceTree = "<group>"; };
 		71A6A10B2C0B000100000001 /* IMAPMailboxConnectionAdapterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IMAPMailboxConnectionAdapterTests.swift; sourceTree = "<group>"; };
 		71A6A1712C0B000100000001 /* Services/Mailbox/MailEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/Mailbox/MailEngine.swift; sourceTree = "<group>"; };
@@ -715,6 +721,8 @@
 				72C8C3512D1C000100000001 /* Services/ProductSync/ThreadMuteSyncService.swift */,
 				72B7B3532D1C000100000001 /* Services/ProductSync/ThreadSnoozeSyncService.swift */,
 				C0DEC0DE397000000000002 /* Services/ProductSync/FollowUpNudgeSyncService.swift */,
+				C0DEC0DE378000000000002 /* Services/ProductSync/SendReminderSyncService.swift */,
+				C0DEC0DE378000000000006 /* Services/Mailbox/MailCompositionDraftRepository+SendReminder.swift */,
 				71A6A0742C0B000100000001 /* Services/ProductSync/ProductSyncEncryption.swift */,
 				71A6A0752C0B000100000001 /* Services/ProductSync/ProductSyncKeyMaterialStore.swift */,
 				71A6A1932C0B000100000001 /* Services/ProductSync/ProductSyncRecordBoundary.swift */,
@@ -781,6 +789,7 @@
 				72C8C3532C0B000100000001 /* ThreadMuteSyncServiceTests.swift */,
 				72B7B3512D1C000100000001 /* ThreadSnoozeSyncServiceTests.swift */,
 				C0DEC0DE397000000000004 /* FollowUpNudgeSyncServiceTests.swift */,
+				C0DEC0DE378000000000004 /* SendReminderSyncServiceTests.swift */,
 				71A6A1032C0B000100000001 /* PendingProviderActionServiceTests.swift */,
 				71A6A1132C0B000100000001 /* OutboxDeliveryServiceTests.swift */,
 				71A6A0832C0B000100000001 /* GmailProviderConnectionServiceTests.swift */,
@@ -1144,6 +1153,8 @@
 				72C8C3502D1C000100000001 /* Services/ProductSync/ThreadMuteSyncService.swift in Sources */,
 				72B7B3522D1C000100000001 /* Services/ProductSync/ThreadSnoozeSyncService.swift in Sources */,
 				C0DEC0DE397000000000001 /* Services/ProductSync/FollowUpNudgeSyncService.swift in Sources */,
+				C0DEC0DE378000000000001 /* Services/ProductSync/SendReminderSyncService.swift in Sources */,
+				C0DEC0DE378000000000005 /* Services/Mailbox/MailCompositionDraftRepository+SendReminder.swift in Sources */,
 				71A6A0702C0B000100000001 /* Services/ProductSync/ProductSyncEncryption.swift in Sources */,
 				71A6A0712C0B000100000001 /* Services/ProductSync/ProductSyncKeyMaterialStore.swift in Sources */,
 				71A6A1922C0B000100000001 /* Services/ProductSync/ProductSyncRecordBoundary.swift in Sources */,
@@ -1207,6 +1218,7 @@
 				72C8C3522C0B000100000001 /* ThreadMuteSyncServiceTests.swift in Sources */,
 				72B7B3502D1C000100000001 /* ThreadSnoozeSyncServiceTests.swift in Sources */,
 				C0DEC0DE397000000000003 /* FollowUpNudgeSyncServiceTests.swift in Sources */,
+				C0DEC0DE378000000000003 /* SendReminderSyncServiceTests.swift in Sources */,
 				71A6A1022C0B000100000001 /* PendingProviderActionServiceTests.swift in Sources */,
 				71A6A1122C0B000100000001 /* OutboxDeliveryServiceTests.swift in Sources */,
 				71A6A0812C0B000100000001 /* GmailProviderConnectionServiceTests.swift in Sources */,

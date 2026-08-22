@@ -265,13 +265,16 @@ struct FileMailCompositionDraftStore: MailCompositionDraftPersisting, @unchecked
 }
 
 actor MailCompositionDraftRepository {
-  private let store: any MailCompositionDraftPersisting
-  private let syncService: any MailCompositionDraftSyncing
+  let reminderSyncService: any SendReminderSyncing
+  let store: any MailCompositionDraftPersisting
+  let syncService: any MailCompositionDraftSyncing
 
   init(
     store: any MailCompositionDraftPersisting = FileMailCompositionDraftStore(),
-    syncService: any MailCompositionDraftSyncing = MailCompositionDraftSyncService()
+    syncService: any MailCompositionDraftSyncing = MailCompositionDraftSyncService(),
+    reminderSyncService: any SendReminderSyncing = SendReminderSyncService()
   ) {
+    self.reminderSyncService = reminderSyncService
     self.store = store
     self.syncService = syncService
   }
@@ -279,7 +282,8 @@ actor MailCompositionDraftRepository {
   func drafts(
     productAccountId: String,
     profileId: MailProfileId,
-    session: ProductAccountSessionSnapshot? = nil
+    session: ProductAccountSessionSnapshot? = nil,
+    claimsNotificationOwnership: Bool = false
   ) async throws -> [MailShellCompositionDraft] {
     var local = try store.load(productAccountId: productAccountId, profileId: profileId)
     guard let session else { return local }
@@ -314,7 +318,13 @@ actor MailCompositionDraftRepository {
       }
       merged[draft.id] = draft
     }
-    return merged.values.sorted { $0.updatedAtMilliseconds > $1.updatedAtMilliseconds }
+    return await reconcileSendReminders(
+      in: Array(merged.values),
+      profileId: profileId,
+      session: session,
+      claimsNotificationOwnership: claimsNotificationOwnership
+    )
+    .sorted { $0.updatedAtMilliseconds > $1.updatedAtMilliseconds }
   }
 
   func remove(
@@ -324,20 +334,15 @@ actor MailCompositionDraftRepository {
     session: ProductAccountSessionSnapshot? = nil
   ) async throws {
     if let session {
+      _ = try await reminderSyncService.cancel(
+        draftId: draftId,
+        expectedRevision: nil,
+        profileId: profileId,
+        session: session
+      )
       try await syncService.remove(draftId, profileId: profileId, session: session)
     }
     try store.remove(draftId, productAccountId: productAccountId, profileId: profileId)
   }
 
-  func save(
-    _ draft: MailShellCompositionDraft,
-    productAccountId: String,
-    profileId: MailProfileId,
-    session: ProductAccountSessionSnapshot? = nil
-  ) async throws {
-    try store.save(draft, productAccountId: productAccountId, profileId: profileId)
-    if let session {
-      try? await syncService.save(draft, profileId: profileId, session: session)
-    }
-  }
 }
