@@ -59,7 +59,8 @@ interface AdmissionArguments {
 }
 
 function assertValidAdmission(
-  args: Readonly<AdmissionArguments>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- AdmissionArguments fields are explicitly readonly but the generated trusted-device ID is not inferred as readonly.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- AdmissionArguments fields are explicitly readonly but the generated trusted-device ID is not inferred as readonly.
+  args: Readonly<AdmissionArguments>,
   now: number,
 ) {
   const isValid = [
@@ -76,7 +77,8 @@ function assertValidAdmission(
 
 function admissionConflicts(
   existing: Readonly<Doc<'scheduledSends'>>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents contain generated mutable fields but are not mutated here.
-  args: Readonly<AdmissionArguments>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- AdmissionArguments fields are explicitly readonly but the generated trusted-device ID is not inferred as readonly.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- AdmissionArguments fields are explicitly readonly but the generated trusted-device ID is not inferred as readonly.
+  args: Readonly<AdmissionArguments>,
 ) {
   return [
     existing.trustedDeviceId === args.trustedDeviceId,
