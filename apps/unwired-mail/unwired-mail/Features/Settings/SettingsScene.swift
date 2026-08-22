@@ -2,27 +2,6 @@ import SwiftUI
 
 // swiftlint:disable file_length
 
-enum SettingsEntryPoint: CaseIterable, Hashable, Identifiable {
-  case accountSettings
-  case adaptiveSettings
-
-  var id: Self { self }
-}
-
-enum SettingsEntryPointRegistry {
-  static var currentEntries: [SettingsEntryPoint] {
-    #if DEBUG
-      entries(isDevelopmentBuild: true)
-    #else
-      entries(isDevelopmentBuild: false)
-    #endif
-  }
-
-  static func entries(isDevelopmentBuild: Bool) -> [SettingsEntryPoint] {
-    isDevelopmentBuild ? SettingsEntryPoint.allCases : [.accountSettings]
-  }
-}
-
 enum SettingsGroup: String, CaseIterable, Identifiable {
   case accounts
   case application
@@ -2494,518 +2473,516 @@ private struct CategoryHistoricalSettingsSection: View {
   }
 }
 
-#if DEBUG
-  @MainActor
-  struct DevelopmentSettingsRootView: View {
-    let session: ProductAccountSession
+@MainActor
+struct SettingsRootView: View {
+  let session: ProductAccountSession
 
-    var body: some View {
-      Group {
-        switch session.state {
-        case .loading:
-          ProgressView("Loading Settings…")
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        case .signedOut:
-          SignedOutSettingsView()
-        case .failed(let message):
-          SignedOutSettingsView(
-            attentions: [
-              SettingsAttention(
-                destination: .appearance,
-                kind: .recovery,
-                message: message
-              )
-            ]
-          )
-        case .signedIn(let snapshot):
-          DevelopmentEmailAccountsSettingsHost(
-            session: session,
-            snapshot: snapshot
-          )
-        }
+  var body: some View {
+    Group {
+      switch session.state {
+      case .loading:
+        ProgressView("Loading Settings…")
+          .frame(maxWidth: .infinity, maxHeight: .infinity)
+      case .signedOut:
+        SignedOutSettingsView()
+      case .failed(let message):
+        SignedOutSettingsView(
+          attentions: [
+            SettingsAttention(
+              destination: .appearance,
+              kind: .recovery,
+              message: message
+            )
+          ]
+        )
+      case .signedIn(let snapshot):
+        SettingsSessionHost(
+          session: session,
+          snapshot: snapshot
+        )
       }
     }
   }
+}
 
-  @MainActor
-  // swiftlint:disable:next type_body_length
-  private struct DevelopmentEmailAccountsSettingsHost: View {
-    let session: ProductAccountSession
-    let snapshot: ProductAccountSessionSnapshot
-    private let mailboxConnection: MailboxConnectionRouter
+@MainActor
+// swiftlint:disable:next type_body_length
+private struct SettingsSessionHost: View {
+  let session: ProductAccountSession
+  let snapshot: ProductAccountSessionSnapshot
+  private let mailboxConnection: MailboxConnectionRouter
 
-    @State private var categoryViewModel: CustomCategoryViewModel
-    @State private var ewsViewModel: EWSSetupViewModel
-    @State private var composePreferenceStore: ComposePreferenceStore
-    @State private var featureSuggestionPreferenceStore: FeatureSuggestionPreferenceStore
-    @State private var signatureStore: SignatureStore
-    @State private var templateStore: TemplateStore
-    @State private var freshnessViewModel: MailboxFreshnessViewModel
-    @State private var genericMailViewModel: GenericMailSetupViewModel
-    @State private var gmailViewModel: MailboxProviderConnectionViewModel
-    @State private var inboxPreferenceStore: InboxPreferenceStore
-    @State private var swipePreferenceStore: SwipePreferenceStore
-    @State private var inboxViewModel: GmailInboxViewModel
-    @State private var mailActionViewModel: GmailMailActionViewModel
-    @State private var microsoftGraphViewModel: MailboxProviderConnectionViewModel
-    @State private var notificationRuleViewModel: NotificationRuleViewModel
-    @State private var readingPreferenceStore: ReadingPreferenceStore
-    @State private var mailboxWorkCoordinator = MailboxWorkCoordinator.shared
+  @State private var categoryViewModel: CustomCategoryViewModel
+  @State private var ewsViewModel: EWSSetupViewModel
+  @State private var composePreferenceStore: ComposePreferenceStore
+  @State private var featureSuggestionPreferenceStore: FeatureSuggestionPreferenceStore
+  @State private var signatureStore: SignatureStore
+  @State private var templateStore: TemplateStore
+  @State private var freshnessViewModel: MailboxFreshnessViewModel
+  @State private var genericMailViewModel: GenericMailSetupViewModel
+  @State private var gmailViewModel: MailboxProviderConnectionViewModel
+  @State private var inboxPreferenceStore: InboxPreferenceStore
+  @State private var swipePreferenceStore: SwipePreferenceStore
+  @State private var inboxViewModel: GmailInboxViewModel
+  @State private var mailActionViewModel: GmailMailActionViewModel
+  @State private var microsoftGraphViewModel: MailboxProviderConnectionViewModel
+  @State private var notificationRuleViewModel: NotificationRuleViewModel
+  @State private var readingPreferenceStore: ReadingPreferenceStore
+  @State private var mailboxWorkCoordinator = MailboxWorkCoordinator.shared
 
-    // swiftlint:disable:next function_body_length
-    init(
-      session: ProductAccountSession,
-      snapshot: ProductAccountSessionSnapshot
-    ) {
-      self.session = session
-      self.snapshot = snapshot
-      let mailboxConnection = MailboxConnectionRouter()
-      self.mailboxConnection = mailboxConnection
-      let defaultProfile = MailProfileDefinition.defaultProfile(
-        productAccountId: snapshot.productAccountId
-      )
-      let revalidateTrustedDevice = {
-        await session.revalidateTrustedDeviceAfterForegrounding()
-      }
-      _categoryViewModel = State(
-        initialValue: CustomCategoryViewModel(
-          service: CustomCategorySyncService(recordScope: defaultProfile.recordScope),
-          session: snapshot
-        )
-      )
-      _ewsViewModel = State(
-        initialValue: EWSSetupViewModel(
-          isSessionCurrent: { session.isCurrent($0) },
-          revalidateTrustedDevice: revalidateTrustedDevice,
-          session: snapshot
-        )
-      )
-      _composePreferenceStore = State(
-        initialValue: session.sharedComposePreferenceStore(for: snapshot)
-      )
-      _featureSuggestionPreferenceStore = State(
-        initialValue: session.sharedFeatureSuggestionPreferenceStore(for: snapshot)
-      )
-      _signatureStore = State(
-        initialValue: session.sharedSignatureStore(for: snapshot)
-      )
-      _templateStore = State(
-        initialValue: session.sharedTemplateStore(
-          for: snapshot,
-          recordScope: defaultProfile.recordScope
-        )
-      )
-      _freshnessViewModel = State(
-        initialValue: session.sharedMailboxFreshnessViewModel(
-          for: snapshot,
-          service: mailboxConnection
-        )
-      )
-      _genericMailViewModel = State(
-        initialValue: GenericMailSetupViewModel(
-          productAccountId: ProductAccountId(snapshot.productAccountId),
-          clearLocalData: { definition, requestedSession in
-            try await AccountView.clearGenericMailLocalData(
-              definition,
-              session: requestedSession,
-              mailboxConnection: mailboxConnection
-            )
-          },
-          isSessionCurrent: { session.isCurrent(snapshot) },
-          isSyncSessionCurrent: { candidate in
-            candidate.map(session.isCurrent) ?? false
-          },
-          revalidateTrustedDevice: revalidateTrustedDevice,
-          syncSession: snapshot
-        )
-      )
-      _gmailViewModel = State(
-        initialValue: MailboxProviderConnectionViewModel(
-          service: mailboxConnection,
-          isSessionCurrent: { session.isCurrent($0) },
-          revalidateTrustedDevice: revalidateTrustedDevice,
-          session: snapshot
-        )
-      )
-      _inboxPreferenceStore = State(
-        initialValue: session.sharedInboxPreferenceStore(for: snapshot)
-      )
-      _swipePreferenceStore = State(
-        initialValue: SwipePreferenceStore(session: snapshot)
-      )
-      _inboxViewModel = State(
-        initialValue: GmailInboxViewModel(
-          bodyPrefetcher: mailboxConnection,
-          service: mailboxConnection,
-          searchService: mailboxConnection,
-          syncCoordinator: session.sharedMailboxFreshnessViewModel(
-            for: snapshot,
-            service: mailboxConnection
-          ),
-          session: snapshot
-        )
-      )
-      _mailActionViewModel = State(
-        initialValue: session.sharedMailActionViewModel(
-          for: snapshot,
-          service: mailboxConnection
-        )
-      )
-      _microsoftGraphViewModel = State(
-        initialValue: MailboxProviderConnectionViewModel(
-          service: MicrosoftGraphMailboxConnectionAdapter(),
-          isSessionCurrent: { session.isCurrent($0) },
-          revalidateTrustedDevice: revalidateTrustedDevice,
-          session: snapshot
-        )
-      )
-      _notificationRuleViewModel = State(
-        initialValue: NotificationRuleViewModel(
-          authorization: UserNotificationService(),
-          profileLoader: MailboxConnectionSyncService(),
-          profileServiceFactory: { scope in
-            NotificationRuleSyncService(recordScope: scope)
-          },
-          service: NotificationRuleSyncService(),
-          session: snapshot
-        )
-      )
-      _readingPreferenceStore = State(
-        initialValue: ReadingPreferenceStore(session: snapshot)
-      )
+  // swiftlint:disable:next function_body_length
+  init(
+    session: ProductAccountSession,
+    snapshot: ProductAccountSessionSnapshot
+  ) {
+    self.session = session
+    self.snapshot = snapshot
+    let mailboxConnection = MailboxConnectionRouter()
+    self.mailboxConnection = mailboxConnection
+    let defaultProfile = MailProfileDefinition.defaultProfile(
+      productAccountId: snapshot.productAccountId
+    )
+    let revalidateTrustedDevice = {
+      await session.revalidateTrustedDeviceAfterForegrounding()
     }
-
-    var body: some View {
-      AdaptiveSettingsScene(
-        activeProfile: MailProfileDefinition.defaultProfile(
-          productAccountId: snapshot.productAccountId
-        ),
-        isSignedIn: true,
-        showsDismissButton: true,
-        attentions: settingsAttentions,
-        hasUnsavedChanges: {
-          ewsViewModel.hasUnsavedChanges || genericMailViewModel.hasUnsavedChanges
-            || notificationRuleViewModel.hasUnsavedChanges
-        },
-        canDiscardChanges: {
-          SettingsNavigationPolicy.canDiscardChanges(
-            isSetupWorking: ewsViewModel.isWorking || genericMailViewModel.isConnecting
-              || notificationRuleViewModel.isSaving
-          )
-        },
-        discardChanges: {
-          ewsViewModel.discardUnsavedChanges()
-          genericMailViewModel.discardUnsavedChanges()
-          notificationRuleViewModel.discardUnsavedChanges()
-        },
-        destinationContent: { destination, request in
-          switch destination {
-          case .accountAndDevices:
-            AccountAndDevicesSettingsView(
-              session: session,
-              snapshot: snapshot,
-              signOut: signOut
-            )
-          case .advanced:
-            AdvancedSettingsView(
-              connections: gmailViewModel.connections,
-              productSyncHealth: .current(session: snapshot),
-              status: freshnessViewModel.status,
-              backendHealth: { try await ConvexBackendHealthService().health() },
-              rebuildIndexes: {
-                try await performMaintenance(.rebuildIndexes)
-              },
-              clearAndResynchronize: {
-                try await performMaintenance(.clearAndResynchronize)
-              }
-            )
-            .task {
-              let isAuthoritative = await gmailViewModel.load()
-              freshnessViewModel.updateConnections(
-                gmailViewModel.connections,
-                snapshotIsAuthoritative: isAuthoritative
-              )
-            }
-          case .categories:
-            CategoriesSettingsView(
-              viewModel: categoryViewModel,
-              connections: gmailViewModel.connections,
-              loadProviderMailboxes: { connection in
-                try await mailboxConnection.loadProviderMailboxes(
-                  connection: connection,
-                  session: snapshot
-                )
-              },
-              categorizeHistorical: { scope, connection in
-                let result = try await mailboxConnection.categorizeHistorical(
-                  scope: scope,
-                  connection: connection,
-                  session: snapshot
-                )
-                _ = await inboxViewModel.reloadLocal(connection: connection)
-                return result.categorizedMessageCount
-              }
-            )
-            .task { _ = await gmailViewModel.load() }
-          case .emailAccounts:
-            EmailAccountsSettingsView(
-              ewsViewModel: ewsViewModel,
-              genericMailViewModel: genericMailViewModel,
-              gmailViewModel: gmailViewModel,
-              microsoftGraphViewModel: microsoftGraphViewModel,
-              freshnessViewModel: freshnessViewModel,
-              cancelBodyPrefetch: {
-                await mailboxWorkCoordinator.cancelBodyPrefetch(
-                  productAccountId: snapshot.productAccountId
-                )
-              },
-              connectionsDidChange: refreshConnectionAuthorityAndNotify,
-              gmailConnectionsDidChange: notifyConnectionsDidChange,
-              isMailboxBusy: mailboxWorkCoordinator.isBusy(
-                productAccountId: snapshot.productAccountId
-              ),
-              navigationRequest: request
-            )
-          case .inbox:
-            InboxSettingsView(
-              store: inboxPreferenceStore,
-              featureSuggestionStore: featureSuggestionPreferenceStore,
-              navigationRequest: request
-            )
-          case .mailProfiles:
-            MailProfilesSettingsView(
-              viewModel: MailProfileSettingsViewModel(session: snapshot),
-              connectionName: { connectionId in
-                gmailViewModel.connections.first(where: { $0.id == connectionId })?.displayName
-                  ?? "Mailbox Connection"
-              },
-              profilesDidChange: { _ in }
-            )
-          case .notifications:
-            NotificationsSettingsView(
-              categoryChoices: MessageCategoryChoice.available(
-                customCategories: categoryViewModel.categories
-              ),
-              connections: gmailViewModel.connections,
-              hasLoadedCategory: categoryViewModel.hasLoadedCategory,
-              interruptionViewModel: nil,
-              navigationRequest: request,
-              viewModel: notificationRuleViewModel
-            )
-            .task {
-              async let categories: Void = categoryViewModel.load()
-              async let connections: Bool = gmailViewModel.load()
-              _ = await (categories, connections)
-            }
-          case .compose:
-            ComposeSettingsView(
-              store: composePreferenceStore,
-              navigationRequest: request
-            )
-          case .signatures:
-            SignatureSettingsView(
-              connections: gmailViewModel.connections,
-              store: signatureStore,
-              navigationRequest: request
-            )
-            .task { _ = await gmailViewModel.load() }
-          case .templates:
-            TemplateSettingsView(store: templateStore, navigationRequest: request)
-          case .swipes:
-            SwipeSettingsView(store: swipePreferenceStore)
-          case .reading:
-            ReadingSettingsView(
-              connections: gmailViewModel.connections,
-              store: readingPreferenceStore,
-              navigationRequest: request
-            )
-            .task { await readingPreferenceStore.synchronize() }
-          case .about:
-            AboutSettingsView()
-          case .appearance:
-            AppearanceSettingsView(navigationRequest: request)
-          case .privacyAndData:
-            let storageViewModel = StorageDataSettingsViewModel.live(
-              session: snapshot,
-              profileIds: [
-                MailProfileDefinition.defaultProfile(productAccountId: snapshot.productAccountId)
-                  .id
-              ],
-              readingPreferences: readingPreferenceStore.preferences
-            )
-            if request?.route?.context == .storage {
-              StorageDataSettingsView(
-                session: snapshot,
-                viewModel: storageViewModel
-              )
-            } else {
-              PrivacyDataSettingsView(
-                connections: gmailViewModel.connections,
-                storageSession: snapshot,
-                storageViewModel: storageViewModel
-              )
-              .task { _ = await gmailViewModel.load() }
-            }
-          default:
-            EmptyView()
-          }
-        }
-      )
-      .task {
-        await composePreferenceStore.synchronize()
-        await featureSuggestionPreferenceStore.synchronize()
-        await signatureStore.synchronize()
-        await templateStore.synchronize()
-        await inboxPreferenceStore.synchronize()
-        await swipePreferenceStore.synchronize()
-        await readingPreferenceStore.synchronize()
-      }
-      .onChange(of: snapshot) { _, refreshedSnapshot in
-        categoryViewModel.updateSession(refreshedSnapshot)
-        ewsViewModel.updateSession(refreshedSnapshot)
-        composePreferenceStore.updateSession(refreshedSnapshot)
-        featureSuggestionPreferenceStore.updateSession(refreshedSnapshot)
-        signatureStore.updateSession(refreshedSnapshot)
-        templateStore.updateSession(refreshedSnapshot)
-        freshnessViewModel.updateSession(refreshedSnapshot)
-        genericMailViewModel.updateSession(refreshedSnapshot)
-        gmailViewModel.sessionSnapshot = refreshedSnapshot
-        inboxPreferenceStore.updateSession(refreshedSnapshot)
-        swipePreferenceStore.updateSession(refreshedSnapshot)
-        inboxViewModel.updateSession(refreshedSnapshot)
-        mailActionViewModel.updateSession(refreshedSnapshot)
-        microsoftGraphViewModel.sessionSnapshot = refreshedSnapshot
-        notificationRuleViewModel.updateSession(refreshedSnapshot)
-        readingPreferenceStore.updateSession(refreshedSnapshot)
-      }
-      .onDisappear {
-        ewsViewModel.invalidate()
-        genericMailViewModel.invalidate()
-      }
-    }
-
-    private var settingsAttentions: [SettingsAttention] {
-      let connections = EmailAccountsSettingsView.makeSummaryConnections(
-        routedConnections: gmailViewModel.connections,
-        genericDefinitions: genericMailViewModel.syncedDefinitions,
-        authorizedGenericConnectionIds: genericMailViewModel.authorizedSyncedConnectionIds,
+    _categoryViewModel = State(
+      initialValue: CustomCategoryViewModel(
+        service: CustomCategorySyncService(recordScope: defaultProfile.recordScope),
         session: snapshot
       )
-      let syncFailure = connections.lazy.compactMap { connection -> String? in
-        guard case .failed(let message) = freshnessViewModel.status(for: connection).phase else {
-          return nil
+    )
+    _ewsViewModel = State(
+      initialValue: EWSSetupViewModel(
+        isSessionCurrent: { session.isCurrent($0) },
+        revalidateTrustedDevice: revalidateTrustedDevice,
+        session: snapshot
+      )
+    )
+    _composePreferenceStore = State(
+      initialValue: session.sharedComposePreferenceStore(for: snapshot)
+    )
+    _featureSuggestionPreferenceStore = State(
+      initialValue: session.sharedFeatureSuggestionPreferenceStore(for: snapshot)
+    )
+    _signatureStore = State(
+      initialValue: session.sharedSignatureStore(for: snapshot)
+    )
+    _templateStore = State(
+      initialValue: session.sharedTemplateStore(
+        for: snapshot,
+        recordScope: defaultProfile.recordScope
+      )
+    )
+    _freshnessViewModel = State(
+      initialValue: session.sharedMailboxFreshnessViewModel(
+        for: snapshot,
+        service: mailboxConnection
+      )
+    )
+    _genericMailViewModel = State(
+      initialValue: GenericMailSetupViewModel(
+        productAccountId: ProductAccountId(snapshot.productAccountId),
+        clearLocalData: { definition, requestedSession in
+          try await AccountView.clearGenericMailLocalData(
+            definition,
+            session: requestedSession,
+            mailboxConnection: mailboxConnection
+          )
+        },
+        isSessionCurrent: { session.isCurrent(snapshot) },
+        isSyncSessionCurrent: { candidate in
+          candidate.map(session.isCurrent) ?? false
+        },
+        revalidateTrustedDevice: revalidateTrustedDevice,
+        syncSession: snapshot
+      )
+    )
+    _gmailViewModel = State(
+      initialValue: MailboxProviderConnectionViewModel(
+        service: mailboxConnection,
+        isSessionCurrent: { session.isCurrent($0) },
+        revalidateTrustedDevice: revalidateTrustedDevice,
+        session: snapshot
+      )
+    )
+    _inboxPreferenceStore = State(
+      initialValue: session.sharedInboxPreferenceStore(for: snapshot)
+    )
+    _swipePreferenceStore = State(
+      initialValue: SwipePreferenceStore(session: snapshot)
+    )
+    _inboxViewModel = State(
+      initialValue: GmailInboxViewModel(
+        bodyPrefetcher: mailboxConnection,
+        service: mailboxConnection,
+        searchService: mailboxConnection,
+        syncCoordinator: session.sharedMailboxFreshnessViewModel(
+          for: snapshot,
+          service: mailboxConnection
+        ),
+        session: snapshot
+      )
+    )
+    _mailActionViewModel = State(
+      initialValue: session.sharedMailActionViewModel(
+        for: snapshot,
+        service: mailboxConnection
+      )
+    )
+    _microsoftGraphViewModel = State(
+      initialValue: MailboxProviderConnectionViewModel(
+        service: MicrosoftGraphMailboxConnectionAdapter(),
+        isSessionCurrent: { session.isCurrent($0) },
+        revalidateTrustedDevice: revalidateTrustedDevice,
+        session: snapshot
+      )
+    )
+    _notificationRuleViewModel = State(
+      initialValue: NotificationRuleViewModel(
+        authorization: UserNotificationService(),
+        profileLoader: MailboxConnectionSyncService(),
+        profileServiceFactory: { scope in
+          NotificationRuleSyncService(recordScope: scope)
+        },
+        service: NotificationRuleSyncService(),
+        session: snapshot
+      )
+    )
+    _readingPreferenceStore = State(
+      initialValue: ReadingPreferenceStore(session: snapshot)
+    )
+  }
+
+  var body: some View {
+    AdaptiveSettingsScene(
+      activeProfile: MailProfileDefinition.defaultProfile(
+        productAccountId: snapshot.productAccountId
+      ),
+      isSignedIn: true,
+      showsDismissButton: true,
+      attentions: settingsAttentions,
+      hasUnsavedChanges: {
+        ewsViewModel.hasUnsavedChanges || genericMailViewModel.hasUnsavedChanges
+          || notificationRuleViewModel.hasUnsavedChanges
+      },
+      canDiscardChanges: {
+        SettingsNavigationPolicy.canDiscardChanges(
+          isSetupWorking: ewsViewModel.isWorking || genericMailViewModel.isConnecting
+            || notificationRuleViewModel.isSaving
+        )
+      },
+      discardChanges: {
+        ewsViewModel.discardUnsavedChanges()
+        genericMailViewModel.discardUnsavedChanges()
+        notificationRuleViewModel.discardUnsavedChanges()
+      },
+      destinationContent: { destination, request in
+        switch destination {
+        case .accountAndDevices:
+          AccountAndDevicesSettingsView(
+            session: session,
+            snapshot: snapshot,
+            signOut: signOut
+          )
+        case .advanced:
+          AdvancedSettingsView(
+            connections: gmailViewModel.connections,
+            productSyncHealth: .current(session: snapshot),
+            status: freshnessViewModel.status,
+            backendHealth: { try await ConvexBackendHealthService().health() },
+            rebuildIndexes: {
+              try await performMaintenance(.rebuildIndexes)
+            },
+            clearAndResynchronize: {
+              try await performMaintenance(.clearAndResynchronize)
+            }
+          )
+          .task {
+            let isAuthoritative = await gmailViewModel.load()
+            freshnessViewModel.updateConnections(
+              gmailViewModel.connections,
+              snapshotIsAuthoritative: isAuthoritative
+            )
+          }
+        case .categories:
+          CategoriesSettingsView(
+            viewModel: categoryViewModel,
+            connections: gmailViewModel.connections,
+            loadProviderMailboxes: { connection in
+              try await mailboxConnection.loadProviderMailboxes(
+                connection: connection,
+                session: snapshot
+              )
+            },
+            categorizeHistorical: { scope, connection in
+              let result = try await mailboxConnection.categorizeHistorical(
+                scope: scope,
+                connection: connection,
+                session: snapshot
+              )
+              _ = await inboxViewModel.reloadLocal(connection: connection)
+              return result.categorizedMessageCount
+            }
+          )
+          .task { _ = await gmailViewModel.load() }
+        case .emailAccounts:
+          EmailAccountsSettingsView(
+            ewsViewModel: ewsViewModel,
+            genericMailViewModel: genericMailViewModel,
+            gmailViewModel: gmailViewModel,
+            microsoftGraphViewModel: microsoftGraphViewModel,
+            freshnessViewModel: freshnessViewModel,
+            cancelBodyPrefetch: {
+              await mailboxWorkCoordinator.cancelBodyPrefetch(
+                productAccountId: snapshot.productAccountId
+              )
+            },
+            connectionsDidChange: refreshConnectionAuthorityAndNotify,
+            gmailConnectionsDidChange: notifyConnectionsDidChange,
+            isMailboxBusy: mailboxWorkCoordinator.isBusy(
+              productAccountId: snapshot.productAccountId
+            ),
+            navigationRequest: request
+          )
+        case .inbox:
+          InboxSettingsView(
+            store: inboxPreferenceStore,
+            featureSuggestionStore: featureSuggestionPreferenceStore,
+            navigationRequest: request
+          )
+        case .mailProfiles:
+          MailProfilesSettingsView(
+            viewModel: MailProfileSettingsViewModel(session: snapshot),
+            connectionName: { connectionId in
+              gmailViewModel.connections.first(where: { $0.id == connectionId })?.displayName
+                ?? "Mailbox Connection"
+            },
+            profilesDidChange: { _ in }
+          )
+        case .notifications:
+          NotificationsSettingsView(
+            categoryChoices: MessageCategoryChoice.available(
+              customCategories: categoryViewModel.categories
+            ),
+            connections: gmailViewModel.connections,
+            hasLoadedCategory: categoryViewModel.hasLoadedCategory,
+            interruptionViewModel: nil,
+            navigationRequest: request,
+            viewModel: notificationRuleViewModel
+          )
+          .task {
+            async let categories: Void = categoryViewModel.load()
+            async let connections: Bool = gmailViewModel.load()
+            _ = await (categories, connections)
+          }
+        case .compose:
+          ComposeSettingsView(
+            store: composePreferenceStore,
+            navigationRequest: request
+          )
+        case .signatures:
+          SignatureSettingsView(
+            connections: gmailViewModel.connections,
+            store: signatureStore,
+            navigationRequest: request
+          )
+          .task { _ = await gmailViewModel.load() }
+        case .templates:
+          TemplateSettingsView(store: templateStore, navigationRequest: request)
+        case .swipes:
+          SwipeSettingsView(store: swipePreferenceStore)
+        case .reading:
+          ReadingSettingsView(
+            connections: gmailViewModel.connections,
+            store: readingPreferenceStore,
+            navigationRequest: request
+          )
+          .task { await readingPreferenceStore.synchronize() }
+        case .about:
+          AboutSettingsView()
+        case .appearance:
+          AppearanceSettingsView(navigationRequest: request)
+        case .privacyAndData:
+          let storageViewModel = StorageDataSettingsViewModel.live(
+            session: snapshot,
+            profileIds: [
+              MailProfileDefinition.defaultProfile(productAccountId: snapshot.productAccountId)
+                .id
+            ],
+            readingPreferences: readingPreferenceStore.preferences
+          )
+          if request?.route?.context == .storage {
+            StorageDataSettingsView(
+              session: snapshot,
+              viewModel: storageViewModel
+            )
+          } else {
+            PrivacyDataSettingsView(
+              connections: gmailViewModel.connections,
+              storageSession: snapshot,
+              storageViewModel: storageViewModel
+            )
+            .task { _ = await gmailViewModel.load() }
+          }
+        default:
+          EmptyView()
         }
-        return message
-      }.first
-      guard
-        let attention = SettingsAttention.emailAccounts(
-          authorizationRequired: connections.contains {
-            $0.authorizationState == .required
-          },
-          syncFailureMessage: syncFailure
-        )
-      else {
-        return []
       }
-      return [attention]
+    )
+    .task {
+      await composePreferenceStore.synchronize()
+      await featureSuggestionPreferenceStore.synchronize()
+      await signatureStore.synchronize()
+      await templateStore.synchronize()
+      await inboxPreferenceStore.synchronize()
+      await swipePreferenceStore.synchronize()
+      await readingPreferenceStore.synchronize()
     }
+    .onChange(of: snapshot) { _, refreshedSnapshot in
+      categoryViewModel.updateSession(refreshedSnapshot)
+      ewsViewModel.updateSession(refreshedSnapshot)
+      composePreferenceStore.updateSession(refreshedSnapshot)
+      featureSuggestionPreferenceStore.updateSession(refreshedSnapshot)
+      signatureStore.updateSession(refreshedSnapshot)
+      templateStore.updateSession(refreshedSnapshot)
+      freshnessViewModel.updateSession(refreshedSnapshot)
+      genericMailViewModel.updateSession(refreshedSnapshot)
+      gmailViewModel.sessionSnapshot = refreshedSnapshot
+      inboxPreferenceStore.updateSession(refreshedSnapshot)
+      swipePreferenceStore.updateSession(refreshedSnapshot)
+      inboxViewModel.updateSession(refreshedSnapshot)
+      mailActionViewModel.updateSession(refreshedSnapshot)
+      microsoftGraphViewModel.sessionSnapshot = refreshedSnapshot
+      notificationRuleViewModel.updateSession(refreshedSnapshot)
+      readingPreferenceStore.updateSession(refreshedSnapshot)
+    }
+    .onDisappear {
+      ewsViewModel.invalidate()
+      genericMailViewModel.invalidate()
+    }
+  }
 
-    private func signOut() {
-      coordinateProductAccountSignOut(
-        session: session,
-        mailActionViewModel: mailActionViewModel
-      ) {
-        ewsViewModel.invalidate()
-        genericMailViewModel.invalidate()
-        freshnessViewModel.cancelAll()
-        freshnessViewModel.clearPersistedState()
-        await mailboxWorkCoordinator.cancelBodyPrefetch(
-          productAccountId: snapshot.productAccountId
-        )
-        await inboxViewModel.prepareForSignOut()
+  private var settingsAttentions: [SettingsAttention] {
+    let connections = EmailAccountsSettingsView.makeSummaryConnections(
+      routedConnections: gmailViewModel.connections,
+      genericDefinitions: genericMailViewModel.syncedDefinitions,
+      authorizedGenericConnectionIds: genericMailViewModel.authorizedSyncedConnectionIds,
+      session: snapshot
+    )
+    let syncFailure = connections.lazy.compactMap { connection -> String? in
+      guard case .failed(let message) = freshnessViewModel.status(for: connection).phase else {
+        return nil
       }
+      return message
+    }.first
+    guard
+      let attention = SettingsAttention.emailAccounts(
+        authorizationRequired: connections.contains {
+          $0.authorizationState == .required
+        },
+        syncFailureMessage: syncFailure
+      )
+    else {
+      return []
     }
+    return [attention]
+  }
 
-    private func refreshConnectionAuthorityAndNotify() {
-      Task {
-        await EmailAccountsSettingsView.refreshConnectionAuthority(
-          loadRoutedConnections: gmailViewModel.load,
-          loadGenericConnections: genericMailViewModel.loadSyncedDefinitions,
-          loadMicrosoftConnections: microsoftGraphViewModel.load,
-          loadEWSConnections: ewsViewModel.load,
-          connectionsDidChange: notifyConnectionsDidChange
-        )
-      }
-    }
-
-    private func performMaintenance(
-      _ operation: AdvancedMaintenanceOperation
-    ) async throws -> AdvancedMaintenanceOutcome {
+  private func signOut() {
+    coordinateProductAccountSignOut(
+      session: session,
+      mailActionViewModel: mailActionViewModel
+    ) {
+      ewsViewModel.invalidate()
+      genericMailViewModel.invalidate()
       freshnessViewModel.cancelAll()
+      freshnessViewModel.clearPersistedState()
       await mailboxWorkCoordinator.cancelBodyPrefetch(
         productAccountId: snapshot.productAccountId
       )
-      switch operation {
-      case .clearAndResynchronize:
-        try await mailboxConnection.clearLocalMailboxData(session: snapshot)
-      case .rebuildIndexes:
-        try await mailboxConnection.rebuildLocalIndexes(session: snapshot)
-      }
-      try Task.checkCancellation()
-      guard session.isCurrent(snapshot) else { throw CancellationError() }
-
-      let connectionsAreAuthoritative = await gmailViewModel.load()
-      let connections = gmailViewModel.connections
-      freshnessViewModel.clearPersistedState()
-      freshnessViewModel.updateConnections(
-        connections,
-        snapshotIsAuthoritative: connectionsAreAuthoritative
-      )
-      guard connectionsAreAuthoritative else {
-        return .pending(
-          "Local maintenance completed. Connection status could not be confirmed, so resynchronization is pending."
-        )
-      }
-      await freshnessViewModel.synchronizeFully(connections: connections)
-      return maintenanceOutcome(for: connections)
+      await inboxViewModel.prepareForSignOut()
     }
+  }
 
-    private func maintenanceOutcome(
-      for connections: [MailboxConnection]
-    ) -> AdvancedMaintenanceOutcome {
-      let phases = connections.map { freshnessViewModel.status(for: $0).phase }
-      if phases.contains(where: { if case .offline = $0 { true } else { false } }) {
-        return .pending(
-          "Local maintenance completed. Resynchronization will resume when this device is online."
-        )
-      }
-      if phases.contains(where: { if case .authorizationRequired = $0 { true } else { false } }) {
-        return .pending(
-          "Local maintenance completed. Authorize the affected Mailbox Connection to resynchronize it."
-        )
-      }
-      if phases.contains(where: { if case .failed = $0 { true } else { false } }) {
-        return .pending(
-          "Local maintenance completed. One or more Mailbox Connections need attention "
-            + "before resynchronization can finish."
-        )
-      }
-      if phases.contains(where: { if case .backfillPending = $0 { true } else { false } }) {
-        return .pending(
-          "Recent mail is available. Historical metadata rebuilding will continue in the background."
-        )
-      }
-      return .completed("Local maintenance and resynchronization completed.")
-    }
-
-    private func notifyConnectionsDidChange() {
-      NotificationCenter.default.post(
-        name: .mailboxConnectionsDidChange,
-        object: nil,
-        userInfo: [
-          MailboxSyncNotificationUserInfoKey.productAccountId: snapshot.productAccountId
-        ]
+  private func refreshConnectionAuthorityAndNotify() {
+    Task {
+      await EmailAccountsSettingsView.refreshConnectionAuthority(
+        loadRoutedConnections: gmailViewModel.load,
+        loadGenericConnections: genericMailViewModel.loadSyncedDefinitions,
+        loadMicrosoftConnections: microsoftGraphViewModel.load,
+        loadEWSConnections: ewsViewModel.load,
+        connectionsDidChange: notifyConnectionsDidChange
       )
     }
   }
-#endif
+
+  private func performMaintenance(
+    _ operation: AdvancedMaintenanceOperation
+  ) async throws -> AdvancedMaintenanceOutcome {
+    freshnessViewModel.cancelAll()
+    await mailboxWorkCoordinator.cancelBodyPrefetch(
+      productAccountId: snapshot.productAccountId
+    )
+    switch operation {
+    case .clearAndResynchronize:
+      try await mailboxConnection.clearLocalMailboxData(session: snapshot)
+    case .rebuildIndexes:
+      try await mailboxConnection.rebuildLocalIndexes(session: snapshot)
+    }
+    try Task.checkCancellation()
+    guard session.isCurrent(snapshot) else { throw CancellationError() }
+
+    let connectionsAreAuthoritative = await gmailViewModel.load()
+    let connections = gmailViewModel.connections
+    freshnessViewModel.clearPersistedState()
+    freshnessViewModel.updateConnections(
+      connections,
+      snapshotIsAuthoritative: connectionsAreAuthoritative
+    )
+    guard connectionsAreAuthoritative else {
+      return .pending(
+        "Local maintenance completed. Connection status could not be confirmed, so resynchronization is pending."
+      )
+    }
+    await freshnessViewModel.synchronizeFully(connections: connections)
+    return maintenanceOutcome(for: connections)
+  }
+
+  private func maintenanceOutcome(
+    for connections: [MailboxConnection]
+  ) -> AdvancedMaintenanceOutcome {
+    let phases = connections.map { freshnessViewModel.status(for: $0).phase }
+    if phases.contains(where: { if case .offline = $0 { true } else { false } }) {
+      return .pending(
+        "Local maintenance completed. Resynchronization will resume when this device is online."
+      )
+    }
+    if phases.contains(where: { if case .authorizationRequired = $0 { true } else { false } }) {
+      return .pending(
+        "Local maintenance completed. Authorize the affected Mailbox Connection to resynchronize it."
+      )
+    }
+    if phases.contains(where: { if case .failed = $0 { true } else { false } }) {
+      return .pending(
+        "Local maintenance completed. One or more Mailbox Connections need attention "
+          + "before resynchronization can finish."
+      )
+    }
+    if phases.contains(where: { if case .backfillPending = $0 { true } else { false } }) {
+      return .pending(
+        "Recent mail is available. Historical metadata rebuilding will continue in the background."
+      )
+    }
+    return .completed("Local maintenance and resynchronization completed.")
+  }
+
+  private func notifyConnectionsDidChange() {
+    NotificationCenter.default.post(
+      name: .mailboxConnectionsDidChange,
+      object: nil,
+      userInfo: [
+        MailboxSyncNotificationUserInfoKey.productAccountId: snapshot.productAccountId
+      ]
+    )
+  }
+}
