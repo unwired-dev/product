@@ -87,6 +87,7 @@ async function authorizationDigest(authorization: string): Promise<string> {
   );
 }
 
+// fallow-ignore-next-line complexity -- This boundary validates every credential and capability invariant before returning a narrowed device.
 async function requireScheduledDeliveryAuthorization(
   ctx: QueryCtx | MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Convex generated IDs are mutable types.
@@ -212,6 +213,7 @@ function claimedResponse(
   };
 }
 
+// fallow-ignore-next-line complexity -- Claim replacement must keep expiry, ownership, authorization generation, and capability checks atomic.
 async function preHandoffClaimCanBeReplaced(
   ctx: QueryCtx | MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
   schedule: Readonly<Doc<'scheduledSends'>>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents contain generated mutable fields but are not mutated here.
@@ -264,6 +266,7 @@ export const registerDeliveryCapability = mutation({
     scheduledDeliveryAuthorization: v.optional(v.string()),
     trustedDeviceId: v.id('trustedDevices'),
   },
+  // fallow-ignore-next-line complexity -- Registration atomically validates credentials, rotates authorization, and invalidates stale claims.
   handler: async (ctx, args) => {
     await requireAuthenticatedTrustedDevice(
       ctx,
@@ -390,6 +393,7 @@ export const claim = mutation({
     revision: v.number(),
     scheduleId: v.string(),
   },
+  // fallow-ignore-next-line complexity -- Claim acquisition atomically enforces schedule state, timing, ownership, and authorization fencing.
   handler: async (ctx, args) => {
     const device = await requireScheduledDeliveryAuthorization(ctx, args);
     const schedule = await ctx.db
@@ -464,6 +468,7 @@ export const advanceClaimToHandoff = mutation({
     revision: v.number(),
     scheduleId: v.string(),
   },
+  // fallow-ignore-next-line complexity -- Handoff advancement validates the complete revision-bound claim fence before one state transition.
   handler: async (ctx, args) => {
     const device = await requireScheduledDeliveryAuthorization(ctx, args);
     const schedule = await ctx.db
@@ -505,6 +510,7 @@ export const revalidateClaim = query({
     revision: v.number(),
     scheduleId: v.string(),
   },
+  // fallow-ignore-next-line complexity -- Revalidation checks every claim identity field at the authorization boundary.
   handler: async (ctx, args) => {
     const device = await requireScheduledDeliveryAuthorization(ctx, args);
     const schedule = await ctx.db
@@ -766,6 +772,19 @@ export const complete = mutation({
       !matchesClaim(schedule, device, args)
     ) {
       return false;
+    }
+    if (args.state === 'needs-attention') {
+      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+      await ctx.db.patch(schedule._id, {
+        claimAuthorizationGeneration: undefined,
+        claimExpiresAt: undefined,
+        claimOwnerTrustedDeviceId: undefined,
+        claimPhase: undefined,
+        claimUpdatedAt: Date.now(),
+        state: 'needs-attention',
+        updatedAt: Date.now(),
+      });
+      return true;
     }
     // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
     await ctx.db.delete(schedule._id);

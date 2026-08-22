@@ -463,33 +463,52 @@ export const deliverScheduledSendWakeup = internalAction({
     }
     try {
       const configuration = apnsConfiguration();
+      const authorization = providerToken(configuration);
+      const clients = new Map<
+        ApnsDelivery['apnsEnvironment'],
+        ClientHttp2Session
+      >();
+      const clientFor = (
+        environment: ApnsDelivery['apnsEnvironment'],
+      ): ClientHttp2Session => {
+        const existing = clients.get(environment);
+        if (existing !== undefined) {
+          return existing;
+        }
+        const client = connect(apnsAuthority(environment));
+        client.on('error', (error) => {
+          console.error('APNs HTTP/2 session failed', error);
+        });
+        clients.set(environment, client);
+        return client;
+      };
+      const results = await Promise.allSettled(
+        recipients.map(async (recipient) =>
+          sendWakeup(
+            {
+              apnsEnvironment: recipient.apnsEnvironment,
+              apnsToken: recipient.apnsToken,
+              authorization,
+              configuration,
+              payload: JSON.stringify({
+                aps: { 'content-available': 1 },
+                provider: 'scheduled-send',
+                revision: recipient.revision,
+                scheduleId: recipient.scheduleId,
+              }),
+            },
+            clientFor(recipient.apnsEnvironment),
+          ),
+        ),
+      ).finally(() => {
+        for (const client of clients.values()) {
+          client.close();
+        }
+      });
       await Promise.all(
-        recipients.map(async (recipient) => {
-          const client = connect(apnsAuthority(recipient.apnsEnvironment));
-          client.on('error', (error) => {
-            console.error('APNs HTTP/2 session failed', error);
-          });
-          const [result] = await Promise.allSettled([
-            sendWakeup(
-              {
-                apnsEnvironment: recipient.apnsEnvironment,
-                apnsToken: recipient.apnsToken,
-                authorization: providerToken(configuration),
-                configuration,
-                payload: JSON.stringify({
-                  aps: { 'content-available': 1 },
-                  provider: 'scheduled-send',
-                  revision: recipient.revision,
-                  scheduleId: recipient.scheduleId,
-                }),
-              },
-              client,
-            ),
-          ]).finally(() => {
-            client.close();
-          });
-          await handleDeliveryResult(ctx, result, recipient);
-        }),
+        results.map(async (result, index) =>
+          handleDeliveryResult(ctx, result, recipients[index]),
+        ),
       );
     } catch (error) {
       console.error('Scheduled Send APNs wakeup delivery failed', error);

@@ -2280,7 +2280,8 @@ struct ScheduledSendWakeupHandler {
           scheduleId: requestedSchedule.id,
           session: session
         ), record.revision == requestedSchedule.revision,
-        let connection = connectionsById[record.connectionId]
+        let connection = connectionsById[record.connectionId],
+        try await mailService.hasActiveAuthorization(connection, session: session)
       else { return false }
       let claimResult = try await scheduledSendTransport.claimScheduledSend(
         scheduleId: requestedSchedule.id,

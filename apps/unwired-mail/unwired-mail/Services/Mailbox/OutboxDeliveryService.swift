@@ -1377,6 +1377,10 @@ actor OutboxDeliveryService {
     guard attempt.state == .outcomeUnknown else {
       throw OutboxDeliveryError.attemptCannotBeChanged
     }
+    try await completeScheduledSendClaim(
+      attempt,
+      state: asDelivered ? .completed : .needsAttention
+    )
     guard
       let resolvedAttempt = try update(
         attemptId,
@@ -1818,9 +1822,12 @@ actor OutboxDeliveryService {
           productAccountId: productAccountId
         )
       } catch {
+        let claimFailureCount = (handoffClaimFailureCounts[attemptId] ?? 0) + 1
+        handoffClaimFailureCounts[attemptId] = claimFailureCount
+        guard claimFailureCount < maximumAttempts else { return returnedAttempt }
         scheduleRetry(
           retryAttempt,
-          delay: retryDelayNanoseconds(1),
+          delay: retryDelayNanoseconds(claimFailureCount),
           provider: provider,
           reconcile: reconcile
         )

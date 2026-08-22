@@ -593,4 +593,50 @@ describe('scheduled Send cross-device claims', () => {
       }),
     ).resolves.toBeNull();
   });
+
+  it('retains needs-attention after fenced completion', async () => {
+    expect.assertions(3);
+    const fixture = await claimFixture();
+    const claim = await fixture.asUser.mutation(
+      api.scheduledSend.claim,
+      claimArgs(
+        fixture.originAuthorization.authorization,
+        fixture.device.trustedDeviceId,
+      ),
+    );
+    const generation = claimedGeneration(claim);
+    await expect(
+      fixture.asUser.mutation(api.scheduledSend.complete, {
+        ...claimArgs(
+          fixture.originAuthorization.authorization,
+          fixture.device.trustedDeviceId,
+        ),
+        claimGeneration: generation,
+        state: 'needs-attention',
+      }),
+    ).resolves.toBe(false); // oxlint-disable-line vitest/prefer-to-be-falsy -- A pre-handoff claim must not complete.
+    await fixture.asUser.mutation(api.scheduledSend.advanceClaimToHandoff, {
+      ...claimArgs(
+        fixture.originAuthorization.authorization,
+        fixture.device.trustedDeviceId,
+      ),
+      claimGeneration: generation,
+    });
+    await expect(
+      fixture.asUser.mutation(api.scheduledSend.complete, {
+        ...claimArgs(
+          fixture.originAuthorization.authorization,
+          fixture.device.trustedDeviceId,
+        ),
+        claimGeneration: generation,
+        state: 'needs-attention',
+      }),
+    ).resolves.toBe(true);
+    await expect(
+      fixture.asUser.query(api.scheduledSend.status, {
+        scheduleId: 'schedule-001',
+        trustedDeviceId: fixture.device.trustedDeviceId,
+      }),
+    ).resolves.toMatchObject({ state: 'needs-attention' });
+  });
 });
