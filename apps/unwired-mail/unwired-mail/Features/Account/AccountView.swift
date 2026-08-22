@@ -2672,6 +2672,14 @@ struct AccountView: View {
         scheduleReminder: { [profileId = activeDraftProfileId] draft in
           try await scheduleSendReminder(for: draft, profileId: profileId)
         },
+        scheduleSend: { [profileId = activeDraftProfileId] draft, dueAt, timeZone in
+          await scheduleNewMessage(
+            draft,
+            profileId: profileId,
+            dueAt: dueAt,
+            originalTimeZoneIdentifier: timeZone
+          )
+        },
         send: sendNewMessage
       )
     }
@@ -3609,6 +3617,47 @@ extension AccountView {
       replyTo: nil,
       connection: connection,
       requestsReadReceipt: draft.requestsReadReceipt,
+      undoSendWindow: composePreferenceStore.preferences.undoSendWindow
+    )
+  }
+
+  private func scheduleNewMessage(
+    _ draft: MailShellCompositionDraft,
+    profileId: MailProfileId,
+    dueAt: Date,
+    originalTimeZoneIdentifier: String
+  ) async -> Bool {
+    guard await session.revalidateTrustedDeviceAfterForegrounding() else { return false }
+    guard session.isCurrentSessionIdentity(snapshot) else { return false }
+    guard
+      let connectionId = draft.connectionId,
+      let connection = profileConnections.first(where: { $0.id == connectionId }),
+      let identity = profileSendingIdentities.first(where: { $0.id == draft.sendingIdentityId }),
+      connection.authorizationState == .authorized,
+      connection.providerId == .gmail,
+      connection.capabilities.canSend,
+      identity.connectionId == connectionId
+    else {
+      return false
+    }
+    return await mailActionViewModel.scheduleSend(
+      recipient: draft.recipient,
+      subject: draft.subject,
+      body: draft.deliveryBody,
+      document: draft.deliveryDocument,
+      assets: draft.assets,
+      ccRecipients: draft.ccRecipients,
+      bccRecipients: draft.bccRecipients,
+      fromAddress: identity.headerValue,
+      sendingIdentityId: identity.id,
+      replyTo: draft.replyToMessage,
+      sourceMessage: draft.sourceMessage,
+      connection: connection,
+      requestsReadReceipt: draft.requestsReadReceipt,
+      draftId: draft.id,
+      profileId: profileId,
+      dueAt: dueAt,
+      originalTimeZoneIdentifier: originalTimeZoneIdentifier,
       undoSendWindow: composePreferenceStore.preferences.undoSendWindow
     )
   }
@@ -11346,6 +11395,7 @@ final class GmailMailActionViewModel {
   private var outboxRetryObservationTask: Task<Void, Never>?
   private var retryObservationTask: Task<Void, Never>?
   private let revalidateTrustedDevice: @MainActor @Sendable () async -> Bool
+  private let scheduledSendService: ScheduledSendService
   private let service: MailboxProviderMailActing
   private var session: ProductAccountSessionSnapshot
 
@@ -11386,10 +11436,12 @@ final class GmailMailActionViewModel {
     service: MailboxProviderMailActing,
     session: ProductAccountSessionSnapshot,
     outboxService: OutboxDeliveryService = .shared,
+    scheduledSendService: ScheduledSendService = .shared,
     revalidateTrustedDevice: @escaping @MainActor @Sendable () async -> Bool = { true }
   ) {
     self.outboxService = outboxService
     self.revalidateTrustedDevice = revalidateTrustedDevice
+    self.scheduledSendService = scheduledSendService
     self.service = service
     self.session = session
   }
@@ -11668,9 +11720,93 @@ final class GmailMailActionViewModel {
     }
   }
 
+  // swiftlint:disable:next function_body_length function_parameter_count
+  func scheduleSend(
+    recipient: String,
+    subject: String,
+    body: String,
+    document: SemanticMessageDocument?,
+    assets: [MailDraftAsset],
+    ccRecipients: String,
+    bccRecipients: String,
+    fromAddress: String,
+    sendingIdentityId: SendingIdentityId,
+    replyTo: MailboxMessageMetadata?,
+    sourceMessage: MailboxMessageMetadata?,
+    connection: MailboxConnection,
+    requestsReadReceipt: Bool,
+    draftId: UUID,
+    profileId: MailProfileId,
+    dueAt: Date,
+    originalTimeZoneIdentifier: String,
+    undoSendWindow: UndoSendWindow
+  ) async -> Bool {
+    guard !isPreparingForSignOut, !isPerformingAction else { return false }
+    guard connection.providerId == .gmail else {
+      errorMessage = ScheduledSendAdmissionError.providerUnavailable.localizedDescription
+      return false
+    }
+    isPerformingAction = true
+    defer { isPerformingAction = false }
+    let trimmedCcRecipients = ccRecipients.trimmingCharacters(in: .whitespacesAndNewlines)
+    let trimmedBccRecipients = bccRecipients.trimmingCharacters(in: .whitespacesAndNewlines)
+    let message = OutgoingMessage(
+      body: body,
+      recipient: recipient,
+      subject: subject,
+      htmlBody: document.map { assets.applyingInlineImageMetadata(to: $0.html) },
+      semanticDocument: document,
+      assets: assets,
+      ccRecipients: trimmedCcRecipients.isEmpty ? nil : trimmedCcRecipients,
+      bccRecipients: trimmedBccRecipients.isEmpty ? nil : trimmedBccRecipients,
+      fromAddress: fromAddress,
+      inReplyTo: replyTo?.rfcMessageId,
+      kind: sourceMessage == nil ? .new : (replyTo != nil ? .reply : .forward),
+      providerThreadId: replyTo?.connectionId == connection.id && replyTo?.rfcMessageId != nil
+        ? replyTo?.providerThreadId : nil,
+      requestsReadReceipt: requestsReadReceipt
+        && connection.capabilities.canRequestReadReceipts,
+      sendingIdentityId: sendingIdentityId,
+      sourceProviderMessageId: sourceMessage?.providerMessageId
+    )
+    do {
+      _ = try await scheduledSendService.schedule(
+        message,
+        connection: connection,
+        draftId: draftId,
+        profileId: profileId,
+        originalTimeZoneIdentifier: originalTimeZoneIdentifier,
+        dueAt: dueAt,
+        session: session,
+        undoSendDelayNanoseconds: undoSendWindow.nanoseconds,
+        provider: outboxProvider(connections: knownConnections + [connection]),
+        reconcile: outboxReconciler(connections: knownConnections + [connection])
+      )
+      remember(connection)
+      await refreshOutbox()
+      observeOutboxRetries()
+      errorMessage = nil
+      return true
+    } catch is CancellationError {
+      return false
+    } catch {
+      errorMessage = error.localizedDescription
+      return false
+    }
+  }
+
   func cancelOutboxAttempt(_ attempt: OutgoingDeliveryAttempt) async {
     do {
       _ = try await outboxService.cancel(attempt.id, session: session)
+      if let scheduleId = attempt.scheduledSendId,
+        let revision = attempt.scheduledSendRevision
+      {
+        try await scheduledSendService.cancel(
+          scheduleId: scheduleId,
+          revision: revision,
+          session: session
+        )
+      }
       await refreshOutbox()
       errorMessage = nil
     } catch {

@@ -55,6 +55,123 @@ final class OutboxDeliveryServiceTests {
   )
 
   @Test
+  func testScheduledSendNeverHandsOffEarlyAndResumesAfterRestart() async throws {
+    let clock = LockedOutboxClock(Date(timeIntervalSince1970: 1_800_000_000))
+    let deliveries = DeliveryCounter()
+    let store = InMemoryOutboxDeliveryStore()
+    let dueAt = clock.now().addingTimeInterval(10 * 60)
+    let queuedService = OutboxDeliveryService(now: { clock.now() }, store: store)
+    let attempt = try await queuedService.enqueueScheduled(
+      message,
+      connection: connection,
+      session: session,
+      scheduleId: UUID(),
+      revision: 1,
+      dueAt: dueAt,
+      deadline: dueAt.addingTimeInterval(24 * 60 * 60),
+      undoSendDelayNanoseconds: UndoSendWindow.tenSeconds.nanoseconds,
+      provider: { _, _, _ in Issue.record("The original process should be suspended.") },
+      reconcile: { _, _ in .notSent }
+    )
+    await queuedService.suspend(productAccountId: session.productAccountId)
+
+    #expect(attempt.scheduledSendAtMilliseconds == Int64(dueAt.timeIntervalSince1970 * 1_000))
+    #expect(
+      attempt.providerHandoffNotBeforeMilliseconds
+        == Int64(dueAt.timeIntervalSince1970 * 1_000) + 10_000
+    )
+
+    clock.advance(by: 9 * 60)
+    let restartedService = OutboxDeliveryService(now: { clock.now() }, store: store)
+    try await restartedService.resume(
+      connections: [connection],
+      session: session,
+      provider: { _, _, _ in await deliveries.increment() },
+      reconcile: { _, _ in .notSent }
+    )
+    #expect(await deliveries.currentValue() == 0)
+    await restartedService.suspend(productAccountId: session.productAccountId)
+
+    clock.advance(by: 71)
+    let dueService = OutboxDeliveryService(now: { clock.now() }, store: store)
+    try await dueService.resume(
+      connections: [connection],
+      session: session,
+      provider: { _, _, _ in await deliveries.increment() },
+      reconcile: { _, _ in .notSent }
+    )
+    #expect(await deliveries.currentValue() == 1)
+  }
+
+  @Test
+  func testScheduledSendCanBeCancelledDuringUndoWindow() async throws {
+    let clock = LockedOutboxClock(Date(timeIntervalSince1970: 1_800_000_000))
+    let deliveries = DeliveryCounter()
+    let service = OutboxDeliveryService(now: { clock.now() }, store: InMemoryOutboxDeliveryStore())
+    let dueAt = clock.now().addingTimeInterval(60)
+    let attempt = try await service.enqueueScheduled(
+      message,
+      connection: connection,
+      session: session,
+      scheduleId: UUID(),
+      revision: 1,
+      dueAt: dueAt,
+      deadline: dueAt.addingTimeInterval(24 * 60 * 60),
+      undoSendDelayNanoseconds: UndoSendWindow.thirtySeconds.nanoseconds,
+      provider: { _, _, _ in await deliveries.increment() },
+      reconcile: { _, _ in .notSent }
+    )
+
+    clock.advance(by: 65)
+    _ = try await service.cancel(attempt.id, session: session)
+    clock.advance(by: 30)
+    try await service.resume(
+      connections: [connection],
+      session: session,
+      provider: { _, _, _ in await deliveries.increment() },
+      reconcile: { _, _ in .notSent }
+    )
+
+    #expect(await deliveries.currentValue() == 0)
+  }
+
+  @Test
+  func testScheduledSendBecomesNeedsAttentionAfterTwentyFourHoursWithoutHandoff() async throws {
+    let clock = LockedOutboxClock(Date(timeIntervalSince1970: 1_800_000_000))
+    let deliveries = DeliveryCounter()
+    let store = InMemoryOutboxDeliveryStore()
+    let dueAt = clock.now().addingTimeInterval(60)
+    let queuedService = OutboxDeliveryService(now: { clock.now() }, store: store)
+    _ = try await queuedService.enqueueScheduled(
+      message,
+      connection: connection,
+      session: session,
+      scheduleId: UUID(),
+      revision: 1,
+      dueAt: dueAt,
+      deadline: dueAt.addingTimeInterval(24 * 60 * 60),
+      undoSendDelayNanoseconds: 0,
+      provider: { _, _, _ in Issue.record("The original process should be suspended.") },
+      reconcile: { _, _ in .notSent }
+    )
+    await queuedService.suspend(productAccountId: session.productAccountId)
+    clock.advance(by: 24 * 60 * 60 + 61)
+
+    let restartedService = OutboxDeliveryService(now: { clock.now() }, store: store)
+    try await restartedService.resume(
+      connections: [connection],
+      session: session,
+      provider: { _, _, _ in await deliveries.increment() },
+      reconcile: { _, _ in .notSent }
+    )
+    let retained = try #require(try await restartedService.items(session: session).first)
+
+    #expect(retained.state == .userActionRequired)
+    #expect(retained.lastErrorDescription?.contains("within 24 hours") == true)
+    #expect(await deliveries.currentValue() == 0)
+  }
+
+  @Test
   func testWaitForScheduledRetriesReturnsFalseWhenIdle() async {
     let service = OutboxDeliveryService(store: InMemoryOutboxDeliveryStore())
 

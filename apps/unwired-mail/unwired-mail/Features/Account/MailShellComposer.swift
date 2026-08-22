@@ -65,6 +65,7 @@ struct MailShellComposer: View {
     reminderOwnerDeviceId: String = "local-device",
     cancelReminder: @escaping MailComposerViewModel.CancelReminder = { _, _ in },
     scheduleReminder: @escaping MailComposerViewModel.ScheduleReminder = { _ in .unavailable },
+    scheduleSend: @escaping MailComposerViewModel.ScheduleSend = { _, _, _ in false },
     send: @escaping MailComposerViewModel.SendDraft
   ) {
     self.connections = connections
@@ -99,6 +100,7 @@ struct MailShellComposer: View {
         deleteDraft: deleteDraft,
         cancelReminder: cancelReminder,
         scheduleReminder: scheduleReminder,
+        scheduleSend: scheduleSend,
         sendDraft: send
       )
     )
@@ -247,9 +249,16 @@ struct MailShellComposer: View {
         Text("Enter an HTTP, HTTPS, or email link for the selected text.")
       }
       .sheet(item: $sendLaterRequest) { _ in
-        SendLaterSheet(existingReminder: viewModel.draft.sendReminder) { dueAt, timeZone in
-          await viewModel.remind(at: dueAt, timeZoneIdentifier: timeZone)
-        }
+        SendLaterSheet(
+          existingReminder: viewModel.draft.sendReminder,
+          canAutomaticallySend: canScheduleSend,
+          scheduleAutomatically: { dueAt, timeZone in
+            await viewModel.scheduleSend(at: dueAt, timeZoneIdentifier: timeZone)
+          },
+          schedule: { dueAt, timeZone in
+            await viewModel.remind(at: dueAt, timeZoneIdentifier: timeZone)
+          }
+        )
       }
     }
   }
@@ -500,6 +509,11 @@ struct MailShellComposer: View {
   private var isSendEnabled: Bool {
     !isSending && selectedConnectionCanSend && selectedIdentity != nil
       && viewModel.canSend && !exceedsKnownTransferLimit
+  }
+
+  private var canScheduleSend: Bool {
+    isSendEnabled && selectedConnection?.providerId == .gmail
+      && viewModel.draft.kind != .editing
   }
 
   private func openSendLater() {
