@@ -1,8 +1,8 @@
 # Scheduled Send and Send Reminder implementation plan
 
-Status: Send Reminder and originating-device Gmail Scheduled Send implemented; cross-device claims, provider parity, and full Outbox management remain planned
+Status: Send Reminder and cross-device Gmail Scheduled Send delivery implemented; provider parity and full Outbox management remain planned
 
-The first automatic-delivery slice admits only an authorized Gmail message on the originating device. It synchronizes the exact outgoing commitment through encrypted Product Sync, requires an opaque backend acknowledgement for the same identity, due instant, and revision, persists the delayed Outbox attempt before dismissing the Draft, routes an opaque APNs wake back to that device, reuses provider handoff reconciliation, and moves an unstarted item to Needs Attention after 24 hours. Issues #380–#386 add cross-device claims, management, provider parity, lifecycle compatibility, and release evidence without weakening this privacy boundary.
+The automatic-delivery slice admits an authorized Gmail message on the originating device. It synchronizes the exact outgoing commitment through encrypted Product Sync, requires an opaque backend acknowledgement for the same identity, due instant, and revision, persists the delayed Outbox attempt before dismissing the Draft, and routes an opaque APNs wake to eligible trusted devices. A device with the encrypted payload, selected Mailbox Authorization, and separate revocable Scheduled Delivery Authorization may acquire the one revision-bound claim. The client durably fences provider handoff, reuses provider reconciliation, removes completed operational records, and moves work that cannot start within 24 hours to Needs Attention. Issues #381–#386 add full management, provider parity, lifecycle compatibility, and release evidence without weakening this privacy boundary.
 
 ## Goal
 
@@ -15,7 +15,7 @@ Let a person choose a future time from any new-message, reply, reply-all, or for
 | Send automatically | Scheduled Send in Outbox | Exactly one eligible trusted device | No; admission fails closed | Sent, cancelled to Draft, or Needs Attention |
 | Remind me to send | Send Reminder attached to Draft | None | Yes; cross-device sync may remain pending | Opened, rescheduled, sent, or discarded |
 
-Both choices share one Send Later surface. Automatic delivery currently appears for an authorized Gmail connection on the originating device; later provider and cross-device phases extend the same product-owned scheduling contract. Receive-only connections do not offer automatic scheduling. The product never delegates selectively to provider-native scheduling and never changes the selected sending connection without explicit user action.
+Both choices share one Send Later surface. Automatic delivery currently appears for an authorized Gmail connection, and any compatible trusted device that holds the same Mailbox Authorization may deliver it. Later provider phases extend the same product-owned scheduling contract. Receive-only connections do not offer automatic scheduling. The product never delegates selectively to provider-native scheduling and never changes the selected sending connection without explicit user action.
 
 Scheduled Send means delivery at or after one absolute future instant, not exact-time delivery. The allowed range is one minute through one year. A delivery that cannot begin within 24 hours becomes Needs Attention and requires Send Now, reschedule, edit, or cancel.
 
@@ -184,16 +184,16 @@ Draft admission and cancellation tombstones remain authoritative to older client
 
 ### 3. Operational scheduling and authorization
 
-- Implemented for the originating-device Gmail slice: add the minimal opaque operational schedule schema, scheduled wake action, cancellation, 24-hour deadline, and Product Account deletion coverage.
-- Add Scheduled Delivery Authorization issuance, capability registration, revocation, and compatibility checks.
-- Add pre-handoff claims, handing-off fences, deadlines, notification ownership, and idempotent reconciliation APIs.
+- Implemented for Gmail: add the minimal opaque operational schedule schema, scheduled wake action, revision-fenced cancellation and rescheduling, 24-hour deadline, and Product Account deletion coverage.
+- Implemented: add separate Scheduled Delivery Authorization issuance, device-bound secure storage, capability registration, rotation, revocation, and compatibility checks.
+- Implemented: add expiring pre-handoff claims, durable handing-off fences, failover, and idempotent opaque completion APIs.
 - Verify that backend storage and logs never contain message content, provider identity, sending connection, or provider credentials.
 
 ### 4. Apple background coordinator
 
-- Implemented for the originating-device Gmail slice: integrate Outbox work with the existing background task and opaque remote wakes instead of only foreground AccountView resume.
-- Extract delivery construction from UI/session state so a background entry point can build the provider adapter safely.
-- Implement nearest-due scheduling, claim acquisition, Undo Send, handoff fencing, provider reconciliation, late-work handling, and resubmission.
+- Implemented for Gmail: integrate Outbox work with the existing background task and fan-out opaque remote wakes instead of only foreground AccountView resume.
+- Implemented: sync the encrypted payload on a woken eligible device and construct the selected local Gmail adapter without exposing provider or connection identity to the backend.
+- Implemented: add claim acquisition and revalidation, durable handoff fencing, provider reconciliation, completion cleanup, late-work handling, and retry after pre-handoff claim loss.
 - Verify force-quit, disabled Background App Refresh, first-unlock key availability, expired foreground identity, offline provider, device revocation, and ambiguous SMTP outcomes.
 
 ### 5. Composer, Outbox, and reminders

@@ -1,6 +1,7 @@
 import { v } from 'convex/values';
 
-import type { Doc } from './_generated/dataModel.js';
+import type { Doc, Id } from './_generated/dataModel.js';
+import type { MutationCtx, QueryCtx } from './_generated/server.js';
 
 import { internal } from './_generated/api.js';
 import { internalMutation, mutation, query } from './_generated/server.js';
@@ -12,6 +13,9 @@ import {
 const minuteMilliseconds = 60 * 1000;
 const dayMilliseconds = 24 * 60 * minuteMilliseconds;
 const yearMilliseconds = 365 * dayMilliseconds;
+const claimDurationMilliseconds = 15 * minuteMilliseconds;
+const scheduledDeliveryCapabilityVersion = 1;
+const authorizationByteCount = 32;
 
 const admissionResponseValidator = v.object({
   dueAt: v.number(),
@@ -28,6 +32,9 @@ const statusResponseValidator = v.union(
     encryptedPayloadUpdatedAt: v.number(),
     revision: v.number(),
     scheduleId: v.string(),
+    claimPhase: v.optional(
+      v.union(v.literal('pre-handoff'), v.literal('handing-off')),
+    ),
     state: v.union(
       v.literal('active'),
       v.literal('cancelled'),
@@ -36,6 +43,80 @@ const statusResponseValidator = v.union(
     ),
   }),
 );
+
+const authorizationResponseValidator = v.object({
+  authorization: v.string(),
+  capabilityVersion: v.number(),
+  generation: v.number(),
+});
+
+const claimResponseValidator = v.union(
+  v.object({ status: v.literal('unavailable') }),
+  v.object({
+    authorizationGeneration: v.number(),
+    expiresAt: v.optional(v.number()),
+    generation: v.number(),
+    phase: v.union(v.literal('pre-handoff'), v.literal('handing-off')),
+    status: v.literal('claimed'),
+  }),
+);
+
+const scheduledDeliveryAuthorizationArgs = {
+  scheduledDeliveryAuthorization: v.string(),
+  trustedDeviceId: v.id('trustedDevices'),
+};
+
+function bytesToHex(bytes: Readonly<Uint8Array>): string {
+  return [...bytes].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+function issueScheduledDeliveryAuthorization(): string {
+  return bytesToHex(
+    crypto.getRandomValues(new Uint8Array(authorizationByteCount)),
+  );
+}
+
+async function authorizationDigest(authorization: string): Promise<string> {
+  return bytesToHex(
+    new Uint8Array(
+      await crypto.subtle.digest(
+        'SHA-256',
+        new TextEncoder().encode(authorization),
+      ),
+    ),
+  );
+}
+
+async function requireScheduledDeliveryAuthorization(
+  ctx: QueryCtx | MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Convex generated IDs are mutable types.
+  args: Readonly<{
+    scheduledDeliveryAuthorization: string;
+    trustedDeviceId: Id<'trustedDevices'>;
+  }>,
+) {
+  const device = await ctx.db.get(args.trustedDeviceId);
+  if (
+    device === null ||
+    device.scheduledDeliveryAuthorizationDigest === undefined ||
+    device.scheduledDeliveryAuthorizationGeneration === undefined ||
+    device.scheduledDeliveryCapabilityVersion !==
+      scheduledDeliveryCapabilityVersion ||
+    !/^[0-9a-f]{64}$/u.test(args.scheduledDeliveryAuthorization) ||
+    (await authorizationDigest(args.scheduledDeliveryAuthorization)) !==
+      device.scheduledDeliveryAuthorizationDigest
+  ) {
+    throw new Error('Scheduled Delivery Authorization required');
+  }
+  return {
+    ...device,
+    scheduledDeliveryAuthorizationDigest:
+      device.scheduledDeliveryAuthorizationDigest,
+    scheduledDeliveryAuthorizationGeneration:
+      device.scheduledDeliveryAuthorizationGeneration,
+    scheduledDeliveryCapabilityVersion,
+  };
+}
 
 function admissionResponse(
   schedule: Readonly<Doc<'scheduledSends'>>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents contain generated mutable fields but are not mutated here.
@@ -112,20 +193,122 @@ function hasPushRecipient(
   );
 }
 
-function isOwnedActiveRevision(
-  schedule: Readonly<Doc<'scheduledSends'>> | null, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents contain generated mutable fields but are not mutated here.
-  trustedDeviceId: Doc<'trustedDevices'>['_id'],
-  revision: number,
-): schedule is Doc<'scheduledSends'> {
-  if (schedule === null) {
+function claimedResponse(
+  schedule: Readonly<Doc<'scheduledSends'>>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents contain generated mutable fields but are not mutated here.
+) {
+  if (
+    schedule.claimAuthorizationGeneration === undefined ||
+    schedule.claimGeneration === undefined ||
+    schedule.claimPhase === undefined
+  ) {
+    throw new Error('Scheduled Send claim is incomplete');
+  }
+  return {
+    authorizationGeneration: schedule.claimAuthorizationGeneration,
+    expiresAt: schedule.claimExpiresAt,
+    generation: schedule.claimGeneration,
+    phase: schedule.claimPhase,
+    status: 'claimed' as const,
+  };
+}
+
+async function preHandoffClaimCanBeReplaced(
+  ctx: QueryCtx | MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
+  schedule: Readonly<Doc<'scheduledSends'>>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents contain generated mutable fields but are not mutated here.
+  now: number,
+) {
+  if (schedule.claimPhase === undefined) {
+    return true;
+  }
+  if (schedule.claimPhase === 'handing-off') {
     return false;
   }
+  if ((schedule.claimExpiresAt ?? 0) <= now) {
+    return true;
+  }
+  if (
+    schedule.claimOwnerTrustedDeviceId === undefined ||
+    schedule.claimAuthorizationGeneration === undefined
+  ) {
+    return true;
+  }
+  const owner = await ctx.db.get(schedule.claimOwnerTrustedDeviceId);
+  return (
+    owner === null ||
+    owner.scheduledDeliveryAuthorizationGeneration !==
+      schedule.claimAuthorizationGeneration ||
+    owner.scheduledDeliveryCapabilityVersion !==
+      scheduledDeliveryCapabilityVersion
+  );
+}
+
+function matchesClaim(
+  schedule: Readonly<Doc<'scheduledSends'>>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents contain generated mutable fields but are not mutated here.
+  device: Readonly<Doc<'trustedDevices'>>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents contain generated mutable fields but are not mutated here.
+  claim: Readonly<{ claimGeneration: number; revision: number }>,
+) {
   return [
-    schedule.trustedDeviceId === trustedDeviceId,
-    schedule.revision === revision,
     schedule.state === 'active',
+    schedule.revision === claim.revision,
+    schedule.claimOwnerTrustedDeviceId === device._id, // oxlint-disable-line eslint/no-underscore-dangle -- Convex document id field
+    schedule.claimAuthorizationGeneration ===
+      device.scheduledDeliveryAuthorizationGeneration,
+    schedule.claimGeneration === claim.claimGeneration,
   ].every(Boolean);
 }
+
+export const registerDeliveryCapability = mutation({
+  args: {
+    ...trustedDeviceCredentialArgs,
+    capabilityVersion: v.number(),
+    scheduledDeliveryAuthorization: v.optional(v.string()),
+    trustedDeviceId: v.id('trustedDevices'),
+  },
+  handler: async (ctx, args) => {
+    await requireAuthenticatedTrustedDevice(
+      ctx,
+      args.trustedDeviceId,
+      args.trustedDeviceCredential,
+    );
+    if (args.capabilityVersion !== scheduledDeliveryCapabilityVersion) {
+      throw new Error('Unsupported Scheduled Delivery capability');
+    }
+    const device = await ctx.db.get(args.trustedDeviceId);
+    if (device === null) {
+      throw new Error('Trusted device required');
+    }
+    if (
+      args.scheduledDeliveryAuthorization !== undefined &&
+      device.scheduledDeliveryAuthorizationDigest !== undefined &&
+      device.scheduledDeliveryAuthorizationGeneration !== undefined &&
+      device.scheduledDeliveryCapabilityVersion ===
+        scheduledDeliveryCapabilityVersion &&
+      (await authorizationDigest(args.scheduledDeliveryAuthorization)) ===
+        device.scheduledDeliveryAuthorizationDigest
+    ) {
+      return {
+        authorization: args.scheduledDeliveryAuthorization,
+        capabilityVersion: scheduledDeliveryCapabilityVersion,
+        generation: device.scheduledDeliveryAuthorizationGeneration,
+      };
+    }
+    const authorization = issueScheduledDeliveryAuthorization();
+    const generation =
+      (device.scheduledDeliveryAuthorizationGeneration ?? 0) + 1;
+    await ctx.db.patch(args.trustedDeviceId, {
+      scheduledDeliveryAuthorizationDigest:
+        await authorizationDigest(authorization),
+      scheduledDeliveryAuthorizationGeneration: generation,
+      scheduledDeliveryCapabilityVersion,
+    });
+    return {
+      authorization,
+      capabilityVersion: scheduledDeliveryCapabilityVersion,
+      generation,
+    };
+  },
+  returns: authorizationResponseValidator,
+});
 
 export const admit = mutation({
   args: {
@@ -201,6 +384,189 @@ export const admit = mutation({
   returns: admissionResponseValidator,
 });
 
+export const claim = mutation({
+  args: {
+    ...scheduledDeliveryAuthorizationArgs,
+    revision: v.number(),
+    scheduleId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const device = await requireScheduledDeliveryAuthorization(ctx, args);
+    const schedule = await ctx.db
+      .query('scheduledSends')
+      .withIndex('by_productAccountId_and_scheduleId', (q) =>
+        q
+          .eq('productAccountId', device.productAccountId)
+          .eq('scheduleId', args.scheduleId),
+      )
+      .unique();
+    if (
+      schedule === null ||
+      schedule.state !== 'active' ||
+      schedule.revision !== args.revision
+    ) {
+      return { status: 'unavailable' as const };
+    }
+    const now = Date.now();
+    if (now < schedule.dueAt) {
+      return { status: 'unavailable' as const };
+    }
+    if (now > schedule.deadlineAt) {
+      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+      await ctx.db.patch(schedule._id, {
+        scheduledFunctionId: undefined,
+        state: 'needs-attention',
+        updatedAt: now,
+      });
+      return { status: 'unavailable' as const };
+    }
+    if (
+      schedule.claimOwnerTrustedDeviceId === args.trustedDeviceId &&
+      schedule.claimAuthorizationGeneration ===
+        device.scheduledDeliveryAuthorizationGeneration &&
+      schedule.claimPhase !== undefined &&
+      (schedule.claimPhase === 'handing-off' ||
+        (schedule.claimExpiresAt ?? 0) > now)
+    ) {
+      return claimedResponse(schedule);
+    }
+    if (!(await preHandoffClaimCanBeReplaced(ctx, schedule, now))) {
+      return { status: 'unavailable' as const };
+    }
+    const generation = (schedule.claimGeneration ?? 0) + 1;
+    const expiresAt = now + claimDurationMilliseconds;
+    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+    await ctx.db.patch(schedule._id, {
+      claimAuthorizationGeneration:
+        device.scheduledDeliveryAuthorizationGeneration,
+      claimExpiresAt: expiresAt,
+      claimGeneration: generation,
+      claimOwnerTrustedDeviceId: args.trustedDeviceId,
+      claimPhase: 'pre-handoff',
+      claimUpdatedAt: now,
+      updatedAt: now,
+    });
+    return {
+      authorizationGeneration: device.scheduledDeliveryAuthorizationGeneration,
+      expiresAt,
+      generation,
+      phase: 'pre-handoff' as const,
+      status: 'claimed' as const,
+    };
+  },
+  returns: claimResponseValidator,
+});
+
+export const advanceClaimToHandoff = mutation({
+  args: {
+    ...scheduledDeliveryAuthorizationArgs,
+    claimGeneration: v.number(),
+    revision: v.number(),
+    scheduleId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const device = await requireScheduledDeliveryAuthorization(ctx, args);
+    const schedule = await ctx.db
+      .query('scheduledSends')
+      .withIndex('by_productAccountId_and_scheduleId', (q) =>
+        q
+          .eq('productAccountId', device.productAccountId)
+          .eq('scheduleId', args.scheduleId),
+      )
+      .unique();
+    if (schedule === null || !matchesClaim(schedule, device, args)) {
+      return false;
+    }
+    if (schedule.claimPhase === 'handing-off') {
+      return true;
+    }
+    if (
+      schedule.claimPhase !== 'pre-handoff' ||
+      (schedule.claimExpiresAt ?? 0) <= Date.now()
+    ) {
+      return false;
+    }
+    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+    await ctx.db.patch(schedule._id, {
+      claimExpiresAt: undefined,
+      claimPhase: 'handing-off',
+      claimUpdatedAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+    return true;
+  },
+  returns: v.boolean(),
+});
+
+export const revalidateClaim = query({
+  args: {
+    ...scheduledDeliveryAuthorizationArgs,
+    claimGeneration: v.number(),
+    revision: v.number(),
+    scheduleId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const device = await requireScheduledDeliveryAuthorization(ctx, args);
+    const schedule = await ctx.db
+      .query('scheduledSends')
+      .withIndex('by_productAccountId_and_scheduleId', (q) =>
+        q
+          .eq('productAccountId', device.productAccountId)
+          .eq('scheduleId', args.scheduleId),
+      )
+      .unique();
+    if (
+      schedule === null ||
+      !matchesClaim(schedule, device, args) ||
+      schedule.claimPhase === undefined ||
+      (schedule.claimPhase === 'pre-handoff' &&
+        (schedule.claimExpiresAt ?? 0) <= Date.now())
+    ) {
+      return { status: 'unavailable' as const };
+    }
+    return claimedResponse(schedule);
+  },
+  returns: claimResponseValidator,
+});
+
+export const releaseClaim = mutation({
+  args: {
+    ...scheduledDeliveryAuthorizationArgs,
+    claimGeneration: v.number(),
+    revision: v.number(),
+    scheduleId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const device = await requireScheduledDeliveryAuthorization(ctx, args);
+    const schedule = await ctx.db
+      .query('scheduledSends')
+      .withIndex('by_productAccountId_and_scheduleId', (q) =>
+        q
+          .eq('productAccountId', device.productAccountId)
+          .eq('scheduleId', args.scheduleId),
+      )
+      .unique();
+    if (
+      schedule === null ||
+      schedule.claimPhase !== 'pre-handoff' ||
+      !matchesClaim(schedule, device, args)
+    ) {
+      return false;
+    }
+    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+    await ctx.db.patch(schedule._id, {
+      claimAuthorizationGeneration: undefined,
+      claimExpiresAt: undefined,
+      claimOwnerTrustedDeviceId: undefined,
+      claimPhase: undefined,
+      claimUpdatedAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+    return true;
+  },
+  returns: v.boolean(),
+});
+
 export const status = query({
   args: {
     ...trustedDeviceCredentialArgs,
@@ -221,13 +587,11 @@ export const status = query({
           .eq('scheduleId', args.scheduleId),
       )
       .unique();
-    if (
-      schedule === null ||
-      schedule.trustedDeviceId !== args.trustedDeviceId
-    ) {
+    if (schedule === null) {
       return null;
     }
     return {
+      claimPhase: schedule.claimPhase,
       deadlineAt: schedule.deadlineAt,
       dueAt: schedule.dueAt,
       encryptedPayloadUpdatedAt: schedule.encryptedPayloadUpdatedAt,
@@ -260,7 +624,12 @@ export const cancel = mutation({
           .eq('scheduleId', args.scheduleId),
       )
       .unique();
-    if (!isOwnedActiveRevision(schedule, args.trustedDeviceId, args.revision)) {
+    if (
+      schedule === null ||
+      schedule.revision !== args.revision ||
+      schedule.state !== 'active' ||
+      schedule.claimPhase === 'handing-off'
+    ) {
       return false;
     }
     if (schedule.scheduledFunctionId !== undefined) {
@@ -269,6 +638,11 @@ export const cancel = mutation({
     // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
     await ctx.db.patch(schedule._id, {
       scheduledFunctionId: undefined,
+      claimAuthorizationGeneration: undefined,
+      claimExpiresAt: undefined,
+      claimOwnerTrustedDeviceId: undefined,
+      claimPhase: undefined,
+      claimUpdatedAt: Date.now(),
       state: 'cancelled',
       updatedAt: Date.now(),
     });
@@ -277,20 +651,40 @@ export const cancel = mutation({
   returns: v.boolean(),
 });
 
-export const complete = mutation({
+export const reschedule = mutation({
   args: {
     ...trustedDeviceCredentialArgs,
+    deadlineAt: v.number(),
+    dueAt: v.number(),
+    encryptedPayloadIdentifier: v.string(),
+    encryptedPayloadUpdatedAt: v.number(),
+    expectedRevision: v.number(),
     revision: v.number(),
     scheduleId: v.string(),
-    state: v.union(v.literal('completed'), v.literal('needs-attention')),
     trustedDeviceId: v.id('trustedDevices'),
   },
+  // fallow-ignore-next-line complexity -- Rescheduling compares the encrypted and operational revisions before replacing due work.
   handler: async (ctx, args) => {
     const account = await requireAuthenticatedTrustedDevice(
       ctx,
       args.trustedDeviceId,
       args.trustedDeviceCredential,
     );
+    if (args.revision !== args.expectedRevision + 1) {
+      throw new Error('Scheduled Send revision must advance exactly once');
+    }
+    assertValidAdmission(args, Date.now());
+    const payload = await ctx.db
+      .query('encryptedProductSyncPayloads')
+      .withIndex('by_productAccountId_and_payloadIdentifier', (q) =>
+        q
+          .eq('productAccountId', account.productAccountId)
+          .eq('payloadIdentifier', args.encryptedPayloadIdentifier),
+      )
+      .unique();
+    if (payload?.updatedAt !== args.encryptedPayloadUpdatedAt) {
+      throw new Error('Exact encrypted Scheduled Send payload required');
+    }
     const schedule = await ctx.db
       .query('scheduledSends')
       .withIndex('by_productAccountId_and_scheduleId', (q) =>
@@ -299,15 +693,82 @@ export const complete = mutation({
           .eq('scheduleId', args.scheduleId),
       )
       .unique();
-    if (!isOwnedActiveRevision(schedule, args.trustedDeviceId, args.revision)) {
+    if (
+      schedule === null ||
+      schedule.state !== 'active' ||
+      schedule.revision !== args.expectedRevision ||
+      schedule.claimPhase === 'handing-off'
+    ) {
+      throw new Error('Scheduled Send revision is no longer editable');
+    }
+    if (schedule.scheduledFunctionId !== undefined) {
+      await ctx.scheduler.cancel(schedule.scheduledFunctionId);
+    }
+    const scheduledFunctionId = await ctx.scheduler.runAt(
+      args.dueAt,
+      internal.apns.deliverScheduledSendWakeup,
+      {
+        revision: args.revision,
+        // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+        scheduleDocumentId: schedule._id,
+      },
+    );
+    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+    await ctx.db.patch(schedule._id, {
+      claimAuthorizationGeneration: undefined,
+      claimExpiresAt: undefined,
+      claimOwnerTrustedDeviceId: undefined,
+      claimPhase: undefined,
+      claimUpdatedAt: Date.now(),
+      deadlineAt: args.deadlineAt,
+      dueAt: args.dueAt,
+      encryptedPayloadIdentifier: args.encryptedPayloadIdentifier,
+      encryptedPayloadUpdatedAt: args.encryptedPayloadUpdatedAt,
+      revision: args.revision,
+      scheduledFunctionId,
+      trustedDeviceId: args.trustedDeviceId,
+      updatedAt: Date.now(),
+      wakeAttemptedAt: undefined,
+    });
+    return {
+      dueAt: args.dueAt,
+      encryptedPayloadUpdatedAt: args.encryptedPayloadUpdatedAt,
+      revision: args.revision,
+      scheduleId: args.scheduleId,
+    };
+  },
+  returns: admissionResponseValidator,
+});
+
+export const complete = mutation({
+  args: {
+    ...scheduledDeliveryAuthorizationArgs,
+    claimGeneration: v.number(),
+    revision: v.number(),
+    scheduleId: v.string(),
+    state: v.union(v.literal('completed'), v.literal('needs-attention')),
+  },
+  handler: async (ctx, args) => {
+    const device = await requireScheduledDeliveryAuthorization(ctx, args);
+    const schedule = await ctx.db
+      .query('scheduledSends')
+      .withIndex('by_productAccountId_and_scheduleId', (q) =>
+        q
+          .eq('productAccountId', device.productAccountId)
+          .eq('scheduleId', args.scheduleId),
+      )
+      .unique();
+    if (schedule === null) {
+      return true;
+    }
+    if (
+      schedule.claimPhase !== 'handing-off' ||
+      !matchesClaim(schedule, device, args)
+    ) {
       return false;
     }
     // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-    await ctx.db.patch(schedule._id, {
-      scheduledFunctionId: undefined,
-      state: args.state,
-      updatedAt: Date.now(),
-    });
+    await ctx.db.delete(schedule._id);
     return true;
   },
   returns: v.boolean(),
@@ -322,11 +783,11 @@ export const claimWakeup = internalMutation({
   handler: async (ctx, args) => {
     const schedule = await ctx.db.get(args.scheduleDocumentId);
     if (!isCurrentActiveSchedule(schedule, args.revision)) {
-      return null;
+      return [];
     }
     const now = Date.now();
     if (now < schedule.dueAt) {
-      return null;
+      return [];
     }
     if (now > schedule.deadlineAt) {
       await ctx.db.patch(args.scheduleDocumentId, {
@@ -334,28 +795,43 @@ export const claimWakeup = internalMutation({
         state: 'needs-attention',
         updatedAt: now,
       });
-      return null;
+      return [];
     }
-    const device = await ctx.db.get(schedule.trustedDeviceId);
+    const devices = await ctx.db
+      .query('trustedDevices')
+      .withIndex('by_productAccountId', (q) =>
+        q.eq('productAccountId', schedule.productAccountId),
+      )
+      .collect();
     await ctx.db.patch(args.scheduleDocumentId, {
       scheduledFunctionId: undefined,
       updatedAt: now,
       wakeAttemptedAt: now,
     });
-    if (!hasPushRecipient(device)) {
-      return null;
-    }
-    return {
-      apnsEnvironment: device.apnsEnvironment,
-      apnsToken: device.apnsToken,
-      pushCleanupGeneration: device.pushCleanupGeneration,
-      revision: schedule.revision,
-      scheduleId: schedule.scheduleId,
-      trustedDeviceId: schedule.trustedDeviceId,
-    };
+    return devices.flatMap((device) => {
+      if (
+        !hasPushRecipient(device) ||
+        device.scheduledDeliveryAuthorizationDigest === undefined ||
+        device.scheduledDeliveryAuthorizationGeneration === undefined ||
+        device.scheduledDeliveryCapabilityVersion !==
+          scheduledDeliveryCapabilityVersion
+      ) {
+        return [];
+      }
+      return [
+        {
+          apnsEnvironment: device.apnsEnvironment,
+          apnsToken: device.apnsToken,
+          pushCleanupGeneration: device.pushCleanupGeneration,
+          revision: schedule.revision,
+          scheduleId: schedule.scheduleId,
+          // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+          trustedDeviceId: device._id,
+        },
+      ];
+    });
   },
-  returns: v.union(
-    v.null(),
+  returns: v.array(
     v.object({
       apnsEnvironment: v.union(v.literal('production'), v.literal('sandbox')),
       apnsToken: v.string(),
