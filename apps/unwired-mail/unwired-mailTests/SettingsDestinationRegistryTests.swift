@@ -233,15 +233,6 @@ final class SettingsDestinationRegistryTests {
   }
 
   @Test
-  func testProductionKeepsOnlyExistingAccountSettingsEntryPoint() {
-    #expect(SettingsEntryPointRegistry.entries(isDevelopmentBuild: false) == [.accountSettings])
-    #expect(
-      SettingsEntryPointRegistry.entries(isDevelopmentBuild: true) == [
-        .accountSettings, .adaptiveSettings,
-      ])
-  }
-
-  @Test
   func testAppEnablesMultipleScenesForProfileScopedWindows() {
     let sceneManifest =
       Bundle.main.object(forInfoDictionaryKey: "UIApplicationSceneManifest") as? [String: Any]
@@ -254,8 +245,8 @@ final class SettingsDestinationRegistryTests {
     #expect(Bundle.main.object(forInfoDictionaryKey: "UILaunchScreen") != nil)
   }
 
-  @Test
-  func testDevelopmentRegistryContainsOnlyCompleteDestinations() {
+  @Test(.bug(id: 133))
+  func releasedRegistryContainsOnlyCompleteDestinations() {
     #expect(
       SettingsDestinationRegistry.implementedDestinations == [
         .emailAccounts, .mailProfiles, .accountAndDevices, .appearance, .privacyAndData, .advanced,
@@ -1568,15 +1559,6 @@ final class SettingsDestinationRegistryTests {
     #expect(
       SettingsDestinationRegistry.resolveRoute(.emailAccounts, isSignedIn: true)
         == .emailAccounts)
-    #expect(
-      SettingsPresentation.resolve(isSignedIn: false, isDevelopmentBuild: false)
-        == .adaptiveSettings)
-    #expect(
-      SettingsPresentation.resolve(isSignedIn: true, isDevelopmentBuild: false)
-        == .accountSettings)
-    #expect(
-      SettingsPresentation.resolve(isSignedIn: true, isDevelopmentBuild: true)
-        == .adaptiveSettings)
   }
 }
 

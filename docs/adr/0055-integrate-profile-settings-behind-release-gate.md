@@ -1,5 +1,8 @@
 # Integrate Profile-scoped Settings behind the release gate
 
+Status: released by issue #133 after the gate's dependencies closed. The adaptive Settings
+experience is now the only Settings presentation; the legacy Account Settings sheet was removed.
+
 ## Status
 
 Accepted.

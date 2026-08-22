@@ -107,7 +107,6 @@
 		C0DEC0DE1320000000000003 /* Features/Settings/OpenSourcePackage.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE1320000000000004 /* Features/Settings/OpenSourcePackage.swift */; };
 		C0DEC0DE1320000000000005 /* Features/Settings/OpenSourceAcknowledgementsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE1320000000000006 /* Features/Settings/OpenSourceAcknowledgementsView.swift */; };
 		C0DEC0DE1320000000000007 /* Features/Settings/AboutSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE1320000000000008 /* Features/Settings/AboutSettingsView.swift */; };
-		C0DEC0DE1320000000000009 /* Features/Settings/SettingsPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE132000000000000A /* Features/Settings/SettingsPresentation.swift */; };
 		C0DEC0DE132000000000000B /* Features/Settings/SignedOutSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE132000000000000C /* Features/Settings/SignedOutSettingsView.swift */; };
 		71A6A1882C0B000100000001 /* Features/Settings/PrivacyDataSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1892C0B000100000001 /* Features/Settings/PrivacyDataSettingsView.swift */; };
 		9809FCB28E1A4D7684FA57F8 /* Features/Settings/StorageDataSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8AA1032F9EE448E1B6E5B977 /* Features/Settings/StorageDataSettingsView.swift */; };
@@ -385,7 +384,6 @@
 		C0DEC0DE1320000000000004 /* Features/Settings/OpenSourcePackage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Settings/OpenSourcePackage.swift; sourceTree = "<group>"; };
 		C0DEC0DE1320000000000006 /* Features/Settings/OpenSourceAcknowledgementsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Settings/OpenSourceAcknowledgementsView.swift; sourceTree = "<group>"; };
 		C0DEC0DE1320000000000008 /* Features/Settings/AboutSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Settings/AboutSettingsView.swift; sourceTree = "<group>"; };
-		C0DEC0DE132000000000000A /* Features/Settings/SettingsPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Settings/SettingsPresentation.swift; sourceTree = "<group>"; };
 		C0DEC0DE132000000000000C /* Features/Settings/SignedOutSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Settings/SignedOutSettingsView.swift; sourceTree = "<group>"; };
 		71A6A1892C0B000100000001 /* Features/Settings/PrivacyDataSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Settings/PrivacyDataSettingsView.swift; sourceTree = "<group>"; };
 		8AA1032F9EE448E1B6E5B977 /* Features/Settings/StorageDataSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Settings/StorageDataSettingsView.swift; sourceTree = "<group>"; };
@@ -606,7 +604,6 @@
 				71A6A1892C0B000100000001 /* Features/Settings/PrivacyDataSettingsView.swift */,
 				C0DEC0DE1320000000000006 /* Features/Settings/OpenSourceAcknowledgementsView.swift */,
 				C0DEC0DE1320000000000004 /* Features/Settings/OpenSourcePackage.swift */,
-				C0DEC0DE132000000000000A /* Features/Settings/SettingsPresentation.swift */,
 				C0DEC0DE132000000000000C /* Features/Settings/SignedOutSettingsView.swift */,
 				8AA1032F9EE448E1B6E5B977 /* Features/Settings/StorageDataSettingsView.swift */,
 				2A8E1950634146CA9C79DB71 /* Features/Settings/StorageDataSettingsViewModel.swift */,
@@ -1032,7 +1029,6 @@
 				71A6A1882C0B000100000001 /* Features/Settings/PrivacyDataSettingsView.swift in Sources */,
 				C0DEC0DE1320000000000005 /* Features/Settings/OpenSourceAcknowledgementsView.swift in Sources */,
 				C0DEC0DE1320000000000003 /* Features/Settings/OpenSourcePackage.swift in Sources */,
-				C0DEC0DE1320000000000009 /* Features/Settings/SettingsPresentation.swift in Sources */,
 				C0DEC0DE132000000000000B /* Features/Settings/SignedOutSettingsView.swift in Sources */,
 				9809FCB28E1A4D7684FA57F8 /* Features/Settings/StorageDataSettingsView.swift in Sources */,
 				D8E2729F42264382AD3DADA8 /* Features/Settings/StorageDataSettingsViewModel.swift in Sources */,

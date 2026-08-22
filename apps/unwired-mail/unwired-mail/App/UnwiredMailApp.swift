@@ -65,15 +65,8 @@ struct UnwiredMailApp: App {
         MailProfileSceneRoot { profileDeepLinkRouter in
           rootView(profileDeepLinkRouter: profileDeepLinkRouter)
             .onChange(of: settingsRouter.request?.id) { _, requestId in
-              if requestId != nil,
-                SettingsPresentation.current(isSignedIn: isSignedIn) == .adaptiveSettings
-              {
+              if requestId != nil {
                 showsSettings = true
-              }
-            }
-            .onChange(of: isSignedIn) { _, isSignedIn in
-              if SettingsPresentation.current(isSignedIn: isSignedIn) == .accountSettings {
-                showsSettings = false
               }
             }
             .sheet(isPresented: $showsSettings) {
@@ -103,20 +96,10 @@ struct UnwiredMailApp: App {
     #endif
   }
 
-  private var isSignedIn: Bool {
-    if case .signedIn = session.state { true } else { false }
-  }
-
   @ViewBuilder
   private var catalystSettings: some View {
-    Group {
-      #if DEBUG
-        DevelopmentSettingsRootView(session: session)
-      #else
-        SignedOutSettingsView()
-      #endif
-    }
-    .frame(minWidth: 640, idealWidth: 920, minHeight: 480, idealHeight: 720)
+    SettingsRootView(session: session)
+      .frame(minWidth: 640, idealWidth: 920, minHeight: 480, idealHeight: 720)
   }
 
   @ViewBuilder
