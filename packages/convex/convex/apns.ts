@@ -423,6 +423,7 @@ export const deliverMicrosoftGraphWakeup = internalAction({
     routeId: v.id('mailProviderConnections'),
     scheduledAt: v.number(),
   },
+  // fallow-ignore-next-line code-duplication -- Provider completion and Scheduled Send wakeup retain distinct claim and completion contracts around shared APNs transport.
   handler: async (ctx, args) => {
     const recipient = await ctx.runMutation(
       internal.pushRelay.claimMicrosoftGraphWakeup,
@@ -434,10 +435,11 @@ export const deliverMicrosoftGraphWakeup = internalAction({
     let delivered = false;
     let terminalFailure = false;
     try {
-      const result = await deliverWakeupBatch(ctx, [recipient], (target) =>
-        microsoftGraphWakeupPayload(target.routeId),
+      const [deliveryResult] = await deliverWakeupBatch(
+        ctx,
+        [recipient],
+        (target) => microsoftGraphWakeupPayload(target.routeId),
       );
-      const deliveryResult = result[0];
       if (deliveryResult === undefined) {
         throw new Error('APNs delivery produced no result');
       }
@@ -462,6 +464,7 @@ export const deliverScheduledSendWakeup = internalAction({
     revision: v.number(),
     scheduleDocumentId: v.id('scheduledSends'),
   },
+  // fallow-ignore-next-line code-duplication -- Scheduled Send wakeup and provider completion retain distinct claim and completion contracts around shared APNs transport.
   handler: async (ctx, args) => {
     const recipients = await ctx.runMutation(
       internal.scheduledSend.claimWakeup,
