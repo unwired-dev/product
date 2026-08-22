@@ -177,7 +177,9 @@ extension MailCompositionDraftRepository {
     var result = draft
     if snapshot.removedDraftIds.contains(draft.id) {
       result.sendReminder = nil
-    } else if let authoritative = snapshot.remindersByDraftId[draft.id] {
+    } else if let authoritative = snapshot.remindersByDraftId[draft.id],
+      draft.sendReminder?.isSynchronizationPending != true
+    {
       result.sendReminder = authoritative.synchronized()
     } else if let localReminder = draft.sendReminder {
       let mutation = try await reminderSyncService.synchronize(

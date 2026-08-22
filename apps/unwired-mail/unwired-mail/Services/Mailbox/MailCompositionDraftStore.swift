@@ -333,19 +333,13 @@ actor MailCompositionDraftRepository {
     profileId: MailProfileId,
     session: ProductAccountSessionSnapshot? = nil
   ) async throws {
-    let localReminder = try store.load(
-      productAccountId: productAccountId,
-      profileId: profileId
-    ).first { $0.id == draftId }?.sendReminder
     if let session {
-      if localReminder != nil {
-        _ = try await reminderSyncService.cancel(
-          draftId: draftId,
-          expectedRevision: nil,
-          profileId: profileId,
-          session: session
-        )
-      }
+      _ = try await reminderSyncService.cancel(
+        draftId: draftId,
+        expectedRevision: nil,
+        profileId: profileId,
+        session: session
+      )
       try await syncService.remove(draftId, profileId: profileId, session: session)
     }
     try store.remove(draftId, productAccountId: productAccountId, profileId: profileId)
