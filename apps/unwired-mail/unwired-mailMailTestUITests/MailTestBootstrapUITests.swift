@@ -94,6 +94,7 @@ final class MailTestBootstrapUITests: XCTestCase {
     body.typeText("Synthetic compose delivery")
 
     try sendVisibleDraft(step: "compose-send", in: app)
+    waitForOutboxToDrain(in: app)
   }
 
   func testReplyThroughVisibleClient() throws {
@@ -188,6 +189,21 @@ final class MailTestBootstrapUITests: XCTestCase {
     XCTAssertTrue(
       send.waitForNonExistence(timeout: 10),
       "MAIL_TEST_FAILURE:outbox: The visible composer did not admit the message to Outbox."
+    )
+  }
+
+  private func waitForOutboxToDrain(in app: XCUIApplication) {
+    let outbox = element(identifier: "mail-mailbox-outbox", in: app)
+    if !outbox.exists {
+      let sidebar = app.navigationBars.buttons.firstMatch
+      if sidebar.waitForExistence(timeout: 5) {
+        sidebar.tap()
+      }
+    }
+    guard outbox.waitForExistence(timeout: 2) else { return }
+    XCTAssertTrue(
+      outbox.waitForNonExistence(timeout: 30),
+      "MAIL_TEST_FAILURE:outbox: The admitted message did not leave Outbox."
     )
   }
 
