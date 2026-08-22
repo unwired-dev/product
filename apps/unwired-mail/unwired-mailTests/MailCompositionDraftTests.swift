@@ -928,8 +928,8 @@ final class MailCompositionDraftTests {
         keyMaterialStore: try keyedStore(productAccountId: accountId),
         rootDirectory: rootDirectory
       ),
-      reminderSyncService: OfflineSendReminderSyncService(),
-      syncService: OfflineDraftSyncService()
+      syncService: OfflineDraftSyncService(),
+      reminderSyncService: OfflineSendReminderSyncService()
     )
     let profileId = MailProfileId(rawValue: "profile")
     let session = ProductAccountSessionSnapshot(
