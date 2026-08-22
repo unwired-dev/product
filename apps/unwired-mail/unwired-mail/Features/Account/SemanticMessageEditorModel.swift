@@ -111,6 +111,86 @@ final class SemanticMessageEditorModel {
   var canRedo: Bool { !redoDocuments.isEmpty }
   var canUndo: Bool { !undoDocuments.isEmpty }
 
+  /// Captures the current selection, or the full authored body when no text is selected.
+  func composeAssistanceTarget() -> ComposeAssistanceTarget {
+    let offsets =
+      selectionOffsets ?? (attributedText.characters.count, attributedText.characters.count)
+    guard offsets.0 < offsets.1 else {
+      return ComposeAssistanceTarget(
+        insertionOffset: offsets.0,
+        range: nil,
+        scope: .authoredBody,
+        sourceDocument: document,
+        targetDocument: document
+      )
+    }
+    let lower = attributedText.characters.index(attributedText.startIndex, offsetBy: offsets.0)
+    let upper = attributedText.characters.index(attributedText.startIndex, offsetBy: offsets.1)
+    return ComposeAssistanceTarget(
+      insertionOffset: offsets.0,
+      range: offsets.0..<offsets.1,
+      scope: .selection,
+      sourceDocument: document,
+      targetDocument: SemanticMessageDocument(
+        attributedText: AttributedString(attributedText[lower..<upper])
+      )
+    )
+  }
+
+  /// Applies accepted assistance as one undoable semantic-document mutation.
+  func applyAssistanceDocument(
+    _ replacement: SemanticMessageDocument,
+    application: ComposeAssistanceApplication,
+    target: ComposeAssistanceTarget
+  ) -> Bool {
+    guard document == target.sourceDocument else { return false }
+    let previousDocument = document
+    var updatedText = attributedText
+    let replacementText = replacement.attributedText
+    switch application {
+    case .insert:
+      guard target.insertionOffset <= updatedText.characters.count else { return false }
+      let insertion = updatedText.characters.index(
+        updatedText.startIndex,
+        offsetBy: target.insertionOffset
+      )
+      updatedText.replaceSubrange(insertion..<insertion, with: replacementText)
+    case .replaceTarget:
+      if let range = target.range {
+        guard range.lowerBound >= 0, range.upperBound <= updatedText.characters.count else {
+          return false
+        }
+        let lower = updatedText.characters.index(
+          updatedText.startIndex,
+          offsetBy: range.lowerBound
+        )
+        let upper = updatedText.characters.index(
+          updatedText.startIndex,
+          offsetBy: range.upperBound
+        )
+        updatedText.replaceSubrange(lower..<upper, with: replacementText)
+      } else {
+        updatedText = replacementText
+      }
+    case .replaceSubject:
+      return false
+    }
+    let updatedDocument = SemanticMessageDocument(attributedText: updatedText)
+    if updatedDocument == previousDocument { return true }
+    recordUndo(previousDocument)
+    redoDocuments.removeAll()
+    document = updatedDocument
+    let selectionOffset = min(
+      target.insertionOffset + replacementText.characters.count,
+      updatedText.characters.count
+    )
+    replaceAttributedText(
+      with: updatedDocument,
+      selectionOffsets: (selectionOffset, selectionOffset)
+    )
+    return true
+  }
+
   /// Converts one direct TextEditor mutation into the supported semantic vocabulary.
   func textDidChange() {
     if ignoredTextSnapshot == attributedText {
