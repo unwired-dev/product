@@ -3097,17 +3097,7 @@ struct AccountView: View {
     .onReceive(
       NotificationCenter.default.publisher(for: .sendReminderDeepLink)
         .receive(on: RunLoop.main)
-    ) { notification in
-      guard
-        let deepLink = notification.object as? SendReminderDeepLink
-          ?? SendReminderDeepLink(userInfo: notification.userInfo ?? [:])
-      else { return }
-      handleSendReminderDeepLink(
-        PendingSendReminderDeepLinkStore.shared.take(
-          productAccountId: snapshot.productAccountId
-        ) ?? deepLink
-      )
-    }
+    ) { handleSendReminderDeepLinkNotification($0) }
   }
 
   private func openSettings(_ route: SettingsRoute?) {
@@ -3581,6 +3571,18 @@ struct AccountView: View {
         profileViewModel.show(error)
       }
     }
+  }
+
+  private func handleSendReminderDeepLinkNotification(_ notification: Notification) {
+    guard
+      let deepLink = notification.object as? SendReminderDeepLink
+        ?? SendReminderDeepLink(userInfo: notification.userInfo ?? [:])
+    else { return }
+    handleSendReminderDeepLink(
+      PendingSendReminderDeepLinkStore.shared.take(
+        productAccountId: snapshot.productAccountId
+      ) ?? deepLink
+    )
   }
 }
 
