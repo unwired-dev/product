@@ -4,7 +4,7 @@ Research date: 2026-07-26
 
 Status update: 2026-07-31
 
-Decision update: [ADR 0047](../adr/0047-stage-mail-engine-adoption-before-provider-certification.md) supersedes this research's original sequencing. SwiftMail 1.11.0 is now the accepted runtime dependency, issue [#66](https://github.com/unwired-dev/product/issues/66) completed the product adapter, and issue [#280](https://github.com/unwired-dev/product/issues/280) records the passing iCloud Mail and Fastmail spikes required for production enablement. The alternatives below are retained as historical decision input.
+Decision update: [ADR 0047](../adr/0047-stage-mail-engine-adoption-before-provider-certification.md) supersedes this research's original sequencing. SwiftMail 1.11.0 is now the accepted runtime dependency, issue [#66](https://github.com/unwired-dev/product/issues/66) completed the product adapter, and issue [#280](https://github.com/unwired-dev/product/issues/280) records the completed iCloud Mail and Fastmail provider certification required for external Release enablement. The alternatives below are retained as historical decision input.
 
 ## Question
 
@@ -110,8 +110,8 @@ Postal is MIT licensed ([license](https://github.com/snipsco/Postal/blob/1e107ef
 ## Historical next-decision record
 
 The first two steps are complete and superseded by ADR 0047: the accepted pin
-is SwiftMail 1.11.0, both certified-provider spikes passed in issue #280, and
-external Release enablement is available.
+is SwiftMail 1.11.0, issue #280 records completed iCloud Mail and Fastmail
+provider certification, and external Release enablement is available.
 
 1. Retain the accepted SwiftMail 1.11.0 pin and repeat qualification before a future exact-pin change.
 2. Preserve issue #280 as the completed iCloud Mail and Fastmail provider-certification record.

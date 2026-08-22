@@ -3258,6 +3258,7 @@ struct AccountView: View {
       // Reset Profile-owned projections before presenting, then hydrate them on a later frame.
       prepareProfilePresentationForSwitch()
       try? await Task.sleep(for: .milliseconds(1))
+      guard profileViewModel.activeProfileId == profileId else { return false }
       prepareProfileThreadState(for: profileId)
       finishProfileSwitch(to: profileId)
       if let preparedProfileRecordScope {
