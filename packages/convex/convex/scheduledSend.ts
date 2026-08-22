@@ -58,7 +58,7 @@ interface AdmissionArguments {
   readonly trustedDeviceId: Doc<'trustedDevices'>['_id'];
 }
 
-function assertValidAdmission(args: AdmissionArguments, now: number) {
+function assertValidAdmission(args: Readonly<AdmissionArguments>, now: number) {
   const isValid = [
     args.dueAt >= now + minuteMilliseconds,
     args.dueAt <= now + yearMilliseconds,
@@ -73,7 +73,7 @@ function assertValidAdmission(args: AdmissionArguments, now: number) {
 
 function admissionConflicts(
   existing: Readonly<Doc<'scheduledSends'>>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents contain generated mutable fields but are not mutated here.
-  args: AdmissionArguments,
+  args: Readonly<AdmissionArguments>,
 ) {
   return [
     existing.trustedDeviceId === args.trustedDeviceId,
@@ -110,7 +110,9 @@ function isOwnedActiveRevision(
   trustedDeviceId: Doc<'trustedDevices'>['_id'],
   revision: number,
 ): schedule is Doc<'scheduledSends'> {
-  if (schedule === null) return false;
+  if (schedule === null) {
+    return false;
+  }
   return [
     schedule.trustedDeviceId === trustedDeviceId,
     schedule.revision === revision,
@@ -129,6 +131,7 @@ export const admit = mutation({
     scheduleId: v.string(),
     trustedDeviceId: v.id('trustedDevices'),
   },
+  // fallow-ignore-next-line complexity -- Admission atomically validates ownership, payload revision, and idempotency before scheduling.
   handler: async (ctx, args) => {
     const account = await requireAuthenticatedTrustedDevice(
       ctx,
@@ -308,6 +311,7 @@ export const claimWakeup = internalMutation({
     revision: v.number(),
     scheduleDocumentId: v.id('scheduledSends'),
   },
+  // fallow-ignore-next-line complexity -- Wakeup claims atomically fence schedule state, deadlines, and device eligibility.
   handler: async (ctx, args) => {
     const schedule = await ctx.db.get(args.scheduleDocumentId);
     if (!isCurrentActiveSchedule(schedule, args.revision)) {

@@ -66,7 +66,11 @@ struct OutgoingDeliveryAttempt: Codable, Equatable, Identifiable, Sendable {
 
   var canEditOrCancel: Bool {
     !isScheduledSend
-      && state.canEditOrCancel
+      && canCancel
+  }
+
+  var canCancel: Bool {
+    state.canEditOrCancel
       && reconciliationPausedForAuthorization != true
   }
 
@@ -1013,8 +1017,8 @@ actor OutboxDeliveryService {
     if markedNeedsAttention {
       try store.save(attempts, productAccountId: session.productAccountId)
     }
-    for attempt in attempts
-    where connectionIds.contains(attempt.connectionId) && attempt.providerDraftRequiresCleanup
+    for attempt in attempts where connectionIds.contains(attempt.connectionId)
+      && attempt.providerDraftRequiresCleanup
     {
       scheduleProviderDraftCleanup(attempt)
     }

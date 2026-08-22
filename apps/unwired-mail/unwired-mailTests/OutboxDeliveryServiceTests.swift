@@ -121,6 +121,8 @@ final class OutboxDeliveryServiceTests {
       provider: { _, _, _ in await deliveries.increment() },
       reconcile: { _, _ in .notSent }
     )
+    #expect(attempt.canEditOrCancel == false)
+    #expect(attempt.canCancel)
 
     clock.advance(by: 65)
     _ = try await service.cancel(attempt.id, session: session)

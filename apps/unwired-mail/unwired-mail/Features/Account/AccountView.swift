@@ -6692,6 +6692,8 @@ struct MailShellThreadList: View {
             HStack {
               if attempt.canEditOrCancel {
                 Button("Edit") { editingAttempt = attempt }
+              }
+              if attempt.canCancel {
                 Button("Cancel", role: .destructive) {
                   Task { await mailActionViewModel.cancelOutboxAttempt(attempt) }
                 }
