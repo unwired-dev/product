@@ -66,6 +66,9 @@ export default defineSchema({
     productAccountId: v.id('productAccounts'),
     productSyncKeyEpoch: v.optional(v.number()),
     registeredAt: v.number(),
+    scheduledDeliveryAuthorizationDigest: v.optional(v.string()),
+    scheduledDeliveryAuthorizationGeneration: v.optional(v.number()),
+    scheduledDeliveryCapabilityVersion: v.optional(v.number()),
   })
     .index('by_productAccountId', ['productAccountId'])
     .index('by_apnsToken', ['apnsToken'])
@@ -126,6 +129,14 @@ export default defineSchema({
     dueAt: v.number(),
     encryptedPayloadIdentifier: v.string(),
     encryptedPayloadUpdatedAt: v.number(),
+    claimAuthorizationGeneration: v.optional(v.number()),
+    claimExpiresAt: v.optional(v.number()),
+    claimGeneration: v.optional(v.number()),
+    claimOwnerTrustedDeviceId: v.optional(v.id('trustedDevices')),
+    claimPhase: v.optional(
+      v.union(v.literal('pre-handoff'), v.literal('handing-off')),
+    ),
+    claimUpdatedAt: v.optional(v.number()),
     productAccountId: v.id('productAccounts'),
     revision: v.number(),
     scheduleId: v.string(),
