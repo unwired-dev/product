@@ -85,6 +85,40 @@ final class AdvancedSettingsTests {
   }
 
   @MainActor
+  @Test(.bug(id: 132))
+  func signedOutDiagnosticsNeverContactOrDescribeAccountServices() async {
+    var backendRequestCount = 0
+    let viewModel = AdvancedSettingsViewModel(
+      backendHealth: {
+        backendRequestCount += 1
+        return HealthResponse(
+          bootstrapVersion: 7,
+          serverTime: 1,
+          service: "private-email-api",
+          status: "ok"
+        )
+      }
+    )
+    let snapshot = AdvancedDiagnosticsSnapshot(
+      appVersion: "1.2.3",
+      buildVersion: "45",
+      generatedAt: Date(timeIntervalSince1970: 1_700_000_000),
+      mailboxes: [],
+      operatingSystemVersion: "Test OS 1",
+      productSyncHealth: .signedOut
+    )
+
+    await viewModel.runDiagnostics(snapshot: snapshot, includesAccountHealth: false)
+
+    #expect(backendRequestCount == 0)
+    #expect(viewModel.report?.contains("App version: 1.2.3") == true)
+    #expect(viewModel.report?.contains("Operating system: Test OS 1") == true)
+    #expect(viewModel.report?.contains("Product Sync") == false)
+    #expect(viewModel.report?.contains("Backend") == false)
+    #expect(viewModel.report?.contains("Mailbox connections") == false)
+  }
+
+  @MainActor
   @Test
   func testOfflineMaintenanceOutcomeRemainsPending() async {
     var rebuildCount = 0

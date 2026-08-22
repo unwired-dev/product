@@ -444,6 +444,10 @@ _Avoid_: Startup Profile, default mailbox account
 The device-local **Mail Profile** used only when opening a new app window. A restored window keeps its own last active Profile, and a targeted deep link takes precedence over both restoration and Startup Profile.
 _Avoid_: Default Profile, default sending account
 
+**Share Intake Draft**:
+A device-local encrypted Draft created by the Apple Share Extension from explicit text, links, images, or files. It is bound to one authenticated **Mail Profile** and **Sending Identity**, enters the normal Draft store when Unwired Mail opens, remains editable, and never authorizes delivery.
+_Avoid_: direct share, shared message, automatic send
+
 **Mail Profile Window**:
 One app window whose navigation, Unified Mailboxes, Mail Views, search, composer, and message context are constrained to exactly one active **Mail Profile** while background synchronization continues for every Profile.
 _Avoid_: Product Account window, combined workspace
@@ -636,6 +640,7 @@ _Avoid_: Password reset, support recovery
 - An ambiguous post-content SMTP outcome is never retried automatically and requires explicit user reconciliation
 - The **Outbox** appears only while it contains a scheduled, pending, retrying, failed, or needs-attention outgoing message
 - Composer edits continuously autosave to an encrypted **Draft**; if the **Outgoing Content Store** cannot admit the latest edit, the composer visibly retains unsaved state and blocks closing, sending, and discard until the edit is saved or explicitly abandoned
+- The Apple Share Extension binds explicit shared content to the device-local **Startup Profile** and its Default Sending Identity, authenticates before revealing a locked Profile, stores only an encrypted **Share Intake Draft** in the shared App Group, and opens the normal composer without a direct-send path or backend-readable copy
 - Sending removes a **Draft** only after the outgoing message is durably admitted to the **Outbox**, which atomically retains the complete rendered MIME payload and referenced Draft Assets until the attempt becomes terminal or is cancelled
 - **Draft Assets** synchronize through **End-to-End Encrypted Product Sync** as independently encrypted, verified chunks; Send remains unavailable until every required asset is complete and valid on the sending device
 - Product-authored Drafts are distinct from provider-hosted Draft mailboxes: provider Draft messages remain read-only provider mail in v1 and are not imported, mirrored, or retired by Product Sync Draft operations

@@ -171,6 +171,77 @@ actor LocalMailStorageService: LocalMailStorageManaging {
   }
 }
 
+/// Inspects device-wide local mail storage without requiring Product Account state.
+actor DeviceLocalMailStorageService: LocalMailStorageManaging {
+  private let fileManager: FileManager
+  private let paths: LocalMailStoragePaths
+
+  /// Creates a device-wide storage service for the app's known local paths.
+  init(
+    fileManager: FileManager = .default,
+    paths: LocalMailStoragePaths? = nil
+  ) {
+    self.fileManager = fileManager
+    self.paths = paths ?? .live(fileManager: fileManager)
+  }
+
+  func snapshot() async throws -> LocalMailStorageSnapshot {
+    try Task.checkCancellation()
+    return LocalMailStorageSnapshot(
+      cachedBodyByteCount: fileByteCount(at: paths.bodyCacheDirectory),
+      downloadedAttachmentByteCount: fileByteCount(at: paths.attachmentDirectory),
+      draftByteCount: fileByteCount(at: paths.draftDirectory),
+      metadataByteCount: paths.metadataLocations.reduce(0) {
+        $0 + fileByteCount(at: $1)
+      },
+      pendingDraftAssetByteCount: 0,
+      pendingDraftAssetCount: 0
+    )
+  }
+
+  func clearEvictableContent() async throws {
+    try Task.checkCancellation()
+    try clearContents(of: paths.bodyCacheDirectory)
+    try Task.checkCancellation()
+    try clearContents(of: paths.attachmentDirectory)
+  }
+
+  private func clearContents(of directory: URL) throws {
+    guard fileManager.fileExists(atPath: directory.path) else { return }
+    for location in try fileManager.contentsOfDirectory(
+      at: directory,
+      includingPropertiesForKeys: nil
+    ) {
+      try fileManager.removeItem(at: location)
+    }
+  }
+
+  private func fileByteCount(at location: URL) -> Int64 {
+    guard fileManager.fileExists(atPath: location.path) else { return 0 }
+    if let values = try? location.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey]),
+      values.isRegularFile == true,
+      let size = values.fileSize
+    {
+      return Int64(size)
+    }
+    guard
+      let enumerator = fileManager.enumerator(
+        at: location,
+        includingPropertiesForKeys: [.fileSizeKey, .isRegularFileKey],
+        options: [.skipsHiddenFiles]
+      )
+    else { return 0 }
+    return enumerator.reduce(into: Int64.zero) { total, element in
+      guard let file = element as? URL,
+        let values = try? file.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey]),
+        values.isRegularFile == true,
+        let size = values.fileSize
+      else { return }
+      total += Int64(size)
+    }
+  }
+}
+
 @MainActor
 @Observable
 final class StorageDataSettingsViewModel {
@@ -182,10 +253,12 @@ final class StorageDataSettingsViewModel {
   private(set) var snapshot: LocalMailStorageSnapshot?
   private(set) var statusMessage: String?
 
-  let readReceiptSummary: String
+  private(set) var readReceiptSummary: String
 
   private let exporter: ProductSyncExporting
-  private let storage: LocalMailStorageManaging
+  private var storage: LocalMailStorageManaging
+  private var refreshTask: Task<Void, Never>?
+  private var storageGeneration = 0
   private var exportTask: Task<Void, Never>?
   private var exportGeneration = 0
 
@@ -199,29 +272,86 @@ final class StorageDataSettingsViewModel {
     self.storage = storage
   }
 
+  func updateConfiguration(
+    session: ProductAccountSessionSnapshot,
+    profileIds: [MailProfileId],
+    readingPreferences: ReadingPreferences,
+    draftRepository: MailCompositionDraftRepository = MailCompositionDraftRepository(),
+    storage replacementStorage: LocalMailStorageManaging? = nil
+  ) {
+    refreshTask?.cancel()
+    storageGeneration += 1
+    let generation = storageGeneration
+    exportTask?.cancel()
+    exportGeneration += 1
+    isExporting = false
+    exportData = nil
+    isLoading = false
+    isClearing = false
+    snapshot = nil
+    statusMessage = nil
+    alertMessage = nil
+    storage =
+      replacementStorage
+      ?? LocalMailStorageService(
+        productAccountId: session.productAccountId,
+        profileIds: profileIds,
+        session: session,
+        draftRepository: draftRepository
+      )
+    readReceiptSummary = Self.readReceiptSummary(for: readingPreferences)
+    refreshTask = Task { [weak self] in
+      await self?.refresh(generation: generation)
+    }
+  }
+
   func refresh() async {
+    await refresh(generation: storageGeneration)
+  }
+
+  private func refresh(generation: Int) async {
+    guard generation == storageGeneration else { return }
+    let storage = storage
     isLoading = true
-    defer { isLoading = false }
+    defer {
+      if generation == storageGeneration {
+        isLoading = false
+      }
+    }
     do {
-      snapshot = try await storage.snapshot()
+      let snapshot = try await storage.snapshot()
+      try Task.checkCancellation()
+      guard generation == storageGeneration else { return }
+      self.snapshot = snapshot
     } catch is CancellationError {
     } catch {
+      guard generation == storageGeneration else { return }
       alertMessage = error.localizedDescription
     }
   }
 
   func clearCaches() async {
     guard !isClearing else { return }
+    let generation = storageGeneration
+    let storage = storage
     isClearing = true
     statusMessage = nil
-    defer { isClearing = false }
+    defer {
+      if generation == storageGeneration {
+        isClearing = false
+      }
+    }
     do {
       try await storage.clearEvictableContent()
       try Task.checkCancellation()
-      snapshot = try await storage.snapshot()
+      let snapshot = try await storage.snapshot()
+      try Task.checkCancellation()
+      guard generation == storageGeneration else { return }
+      self.snapshot = snapshot
       statusMessage = "Cached bodies and downloaded attachments cleared."
     } catch is CancellationError {
     } catch {
+      guard generation == storageGeneration else { return }
       alertMessage = error.localizedDescription
     }
   }
@@ -278,22 +408,26 @@ final class StorageDataSettingsViewModel {
 }
 
 extension StorageDataSettingsViewModel {
+  /// Creates the signed-out view model that exposes only device-local storage.
+  static func deviceLocal(
+    storage: LocalMailStorageManaging = DeviceLocalMailStorageService()
+  ) -> StorageDataSettingsViewModel {
+    StorageDataSettingsViewModel(
+      exporter: ProductSyncExportService(),
+      readReceiptSummary: "",
+      storage: storage
+    )
+  }
+
   static func live(
     session: ProductAccountSessionSnapshot,
     profileIds: [MailProfileId],
     readingPreferences: ReadingPreferences,
     draftRepository: MailCompositionDraftRepository = MailCompositionDraftRepository()
   ) -> StorageDataSettingsViewModel {
-    let overrideCount = readingPreferences.connectionOverrides.values.filter {
-      $0.isEmpty == false
-    }.count
-    let overrideSummary = overrideCount == 0 ? "" : " \(overrideCount) connection override(s)."
     return StorageDataSettingsViewModel(
       exporter: ProductSyncExportService(),
-      readReceiptSummary:
-        "Incoming: \(readingPreferences.incomingReadReceipts.title). "
-        + "Outgoing: \(readingPreferences.outgoingReadReceipts.title)."
-        + overrideSummary,
+      readReceiptSummary: Self.readReceiptSummary(for: readingPreferences),
       storage: LocalMailStorageService(
         productAccountId: session.productAccountId,
         profileIds: profileIds,
@@ -301,5 +435,15 @@ extension StorageDataSettingsViewModel {
         draftRepository: draftRepository
       )
     )
+  }
+
+  private static func readReceiptSummary(for readingPreferences: ReadingPreferences) -> String {
+    let overrideCount = readingPreferences.connectionOverrides.values.filter {
+      $0.isEmpty == false
+    }.count
+    let overrideSummary = overrideCount == 0 ? "" : " \(overrideCount) connection override(s)."
+    return "Incoming: \(readingPreferences.incomingReadReceipts.title). "
+      + "Outgoing: \(readingPreferences.outgoingReadReceipts.title)."
+      + overrideSummary
   }
 }
