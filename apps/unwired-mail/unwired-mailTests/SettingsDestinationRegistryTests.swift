@@ -1480,7 +1480,7 @@ final class SettingsDestinationRegistryTests {
       ])
     #expect(
       SettingsDestinationRegistry.destinations(in: .accounts, isSignedIn: false) == [
-        .emailAccounts, .accountAndDevices,
+        .emailAccounts, .mailProfiles, .accountAndDevices,
       ])
     #expect(
       SettingsDestinationRegistry.destinations(in: .application, isSignedIn: false) == [
