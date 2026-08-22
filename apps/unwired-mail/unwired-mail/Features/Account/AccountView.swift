@@ -47,13 +47,28 @@ enum MailboxSyncNotificationUserInfoKey {
 
 @Observable
 final class MailProfileDeepLinkRouter {
-  private(set) var targetedDraftId: UUID?
-  private(set) var targetedProfileId: MailProfileId?
+  enum Target: Equatable {
+    case message(MailMessageDeepLink)
+    case profile(MailProfileDeepLink)
+
+    var profileId: MailProfileId {
+      switch self {
+      case .message(let deepLink): deepLink.profileId
+      case .profile(let deepLink): deepLink.profileId
+      }
+    }
+  }
+
+  private(set) var pendingTarget: Target?
+
+  var targetedProfileId: MailProfileId? { pendingTarget?.profileId }
 
   func route(_ url: URL) {
-    guard let deepLink = MailProfileDeepLink(url: url) else { return }
-    targetedDraftId = deepLink.draftId
-    targetedProfileId = deepLink.profileId
+    if let deepLink = MailMessageDeepLink(url: url) {
+      pendingTarget = .message(deepLink)
+    } else if let deepLink = MailProfileDeepLink(url: url) {
+      pendingTarget = .profile(deepLink)
+    }
   }
 
   func route(profileId: MailProfileId) {
@@ -61,14 +76,14 @@ final class MailProfileDeepLinkRouter {
   }
 
   func consumeTargetedProfileId() -> MailProfileId? {
-    defer { targetedProfileId = nil }
-    return targetedProfileId
+    consumeTarget()?.profileId
   }
 
-  func consumeTargetedDraftId() -> UUID? {
-    defer { targetedDraftId = nil }
-    return targetedDraftId
+  func consumeTarget() -> Target? {
+    defer { pendingTarget = nil }
+    return pendingTarget
   }
+
 }
 
 private actor RemoteMessageContentLoadGate {
@@ -1479,6 +1494,13 @@ final class MailProfileWorkspaceViewModel {
     selection?.connections(from: connections) ?? []
   }
 
+  func connections(
+    for profileId: MailProfileId,
+    from connections: [MailboxConnection]
+  ) -> [MailboxConnection] {
+    selection?.connections(for: profileId, from: connections) ?? []
+  }
+
   func owns(_ connectionId: MailboxConnectionId) -> Bool {
     selection?.owns(connectionId) == true
   }
@@ -1577,6 +1599,7 @@ struct AccountView: View {
   @State private var pinViewModel: PinViewModel
   @State private var snoozeReconcileTask: Task<Void, Never>?
   @State private var snoozeViewModel: ThreadSnoozeViewModel
+  @State private var spotlightReconcileTask: Task<Void, Never>?
   @State private var profileInterruptionViewModel: MailProfileInterruptionViewModel
   @State private var parkedCompositionDrafts: [MailProfileId: MailShellCompositionDraft] = [:]
   @State private var profilePreferenceRecordScope: MailProfileRecordScope = .legacyProductAccount
@@ -1635,6 +1658,9 @@ struct AccountView: View {
     profileLockStore: MailProfileLockPersisting = UserDefaultsMailProfileLockStore(),
     profileLockAuthenticator: MailProfileLockAuthenticating? = nil,
     profileSearchIndex: MailProfileSearchIndexConcealing? = nil,
+    profileSpotlightIndex: MailProfileSpotlightIndexing? = nil,
+    profileSpotlightPreferenceStore: MailProfileSpotlightPreferencePersisting =
+      UserDefaultsMailProfileSpotlightStore(),
     profileSnapshotLoader: MailProfileSnapshotLoading = MailboxConnectionSyncService(),
     profileStartupStore: MailProfileStartupSelectionPersisting =
       UserDefaultsMailProfileStartupStore(),
@@ -1894,7 +1920,9 @@ struct AccountView: View {
         syncService: profileInterruptionSync,
         lockStore: profileLockStore,
         authenticator: profileLockAuthenticator,
-        searchIndex: profileSearchIndex
+        searchIndex: profileSearchIndex,
+        spotlightIndex: profileSpotlightIndex,
+        spotlightPreferenceStore: profileSpotlightPreferenceStore
       )
     )
     _profileViewModel = State(
@@ -1942,6 +1970,7 @@ struct AccountView: View {
     .onChange(of: profileInterruptionViewModel.policy.allowsContentReveal) { _, allowsReveal in
       if allowsReveal {
         mailAssistanceViewModel.profileDidUnlock()
+        reconcileSpotlight()
         return
       }
       mailAssistanceViewModel.profileDidLock()
@@ -1964,6 +1993,7 @@ struct AccountView: View {
         guard profileViewModel.activeProfileId == profileId else { return }
         if profileInterruptionViewModel.policy.allowsContentReveal {
           mailAssistanceViewModel.profileDidUnlock()
+          reconcileSpotlight()
         } else {
           mailAssistanceViewModel.profileDidLock()
         }
@@ -2338,6 +2368,8 @@ struct AccountView: View {
         followUpNudgeReconcileTask = nil
         snoozeReconcileTask?.cancel()
         snoozeReconcileTask = nil
+        spotlightReconcileTask?.cancel()
+        spotlightReconcileTask = nil
         releaseBudgetDriver?.removeSelectionHandler(owner: releaseBudgetDriverOwner)
       }
   }
@@ -2349,6 +2381,13 @@ struct AccountView: View {
         reconcileMutes(with: messages)
         reconcileSnoozes(with: messages)
         reconcileFollowUpNudges(with: messages)
+        reconcileSpotlight(messagesByConnection: messages)
+      }
+      .onChange(of: profileViewModel.profiles) { _, _ in
+        reconcileSpotlight()
+      }
+      .onChange(of: profileInterruptionViewModel.spotlightIndexingIsEnabled) { _, _ in
+        reconcileSpotlight()
       }
   }
 
@@ -2829,8 +2868,14 @@ struct AccountView: View {
       #if canImport(UIKit)
         requestDevicePushRegistration()
       #endif
-      let targetedProfileId = profileDeepLinkRouter.consumeTargetedProfileId()
-      let targetedDraftId = profileDeepLinkRouter.consumeTargetedDraftId()
+      let deepLinkTarget = profileDeepLinkRouter.consumeTarget()
+      let targetedProfileId = deepLinkTarget?.profileId
+      let targetedDraftId =
+        if case .profile(let deepLink) = deepLinkTarget {
+          deepLink.draftId
+        } else {
+          nil
+        }
       await loadCachedMailState(targetedProfileId: targetedProfileId)
       await loadCurrentMailboxFromCache()
       initialLaunchDidFinish()
@@ -2863,6 +2908,9 @@ struct AccountView: View {
         snapshotIsAuthoritative: gmailViewModel.connectionsSnapshotIsAuthoritative
       )
       await reloadObservedMailboxes()
+      if case .message(let deepLink) = deepLinkTarget {
+        await openSpotlightMessage(deepLink)
+      }
       inboxViewModel.refreshPinnedBodyPrefetch(connections: profileConnections)
       initialStartupDidFinish()
       await blockedSenderStore.synchronize()
@@ -2917,10 +2965,18 @@ struct AccountView: View {
     .task(id: shareExtensionCatalogSynchronizationKey) {
       await synchronizeShareExtensionCatalog()
     }
-    .onChange(of: profileDeepLinkRouter.targetedProfileId) { _, _ in
-      if let profileId = profileDeepLinkRouter.consumeTargetedProfileId() {
-        let draftId = profileDeepLinkRouter.consumeTargetedDraftId()
-        Task { await handleProfileDeepLink(profileId: profileId, draftId: draftId) }
+    .onChange(of: profileDeepLinkRouter.pendingTarget) { _, _ in
+      guard let target = profileDeepLinkRouter.consumeTarget() else { return }
+      Task {
+        switch target {
+        case .message(let deepLink):
+          await openSpotlightMessage(deepLink)
+        case .profile(let deepLink):
+          await handleProfileDeepLink(
+            profileId: deepLink.profileId,
+            draftId: deepLink.draftId
+          )
+        }
       }
     }
     .task(id: scenePhase) {
@@ -3142,6 +3198,47 @@ struct AccountView: View {
         connections: profileConnections
       )
     }
+  }
+
+  private func reconcileSpotlight(
+    messagesByConnection: [MailboxConnectionId: [MailboxMessageMetadata]]? = nil
+  ) {
+    let messagesByConnection =
+      messagesByConnection ?? inboxViewModel.navigationSnapshot.messagesByConnection
+    let connectionsByProfile = Dictionary(
+      uniqueKeysWithValues: profileViewModel.profiles.map { profile in
+        (
+          profile.id,
+          profileViewModel.connections(for: profile.id, from: gmailViewModel.connections)
+        )
+      }
+    )
+    spotlightReconcileTask?.cancel()
+    spotlightReconcileTask = Task {
+      await profileInterruptionViewModel.reconcileSpotlight(
+        profiles: profileViewModel.profiles,
+        messagesByConnection: messagesByConnection,
+        connectionsByProfile: connectionsByProfile
+      )
+    }
+  }
+
+  private func openSpotlightMessage(_ deepLink: MailMessageDeepLink) async {
+    guard deepLink.productAccountId == snapshot.productAccountId else { return }
+    guard await switchProfileAndWait(to: deepLink.profileId) else { return }
+    await profileInterruptionViewModel.load(profileId: deepLink.profileId)
+    guard
+      profileViewModel.activeProfileId == deepLink.profileId,
+      profileInterruptionViewModel.policy.allowsContentReveal,
+      profileViewModel.owns(deepLink.connectionId)
+    else { return }
+    await inboxViewModel.loadNavigation(connections: profileConnections)
+    guard
+      let message = deepLink.message(
+        in: inboxViewModel.navigationSnapshot.messagesByConnection
+      )
+    else { return }
+    selectSearchResult(message)
   }
 
   private func switchProfile(to profileId: MailProfileId) {

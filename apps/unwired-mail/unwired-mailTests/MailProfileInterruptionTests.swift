@@ -184,6 +184,240 @@ struct MailProfileInterruptionTests {
   }
 
   @Test
+  func spotlightPreferenceDefaultsOffAndStaysDeviceLocalAndProfileScoped() throws {
+    let suiteName = "MailProfileSpotlightTests.\(UUID().uuidString)"
+    let defaults = try #require(UserDefaults(suiteName: suiteName))
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+    let store = UserDefaultsMailProfileSpotlightStore(defaults: defaults)
+    let firstProfile = MailProfileId(rawValue: "first")
+    let secondProfile = MailProfileId(rawValue: "second")
+
+    #expect(!store.isEnabled(productAccountId: "first-account", profileId: firstProfile))
+    store.setEnabled(true, productAccountId: "first-account", profileId: firstProfile)
+
+    #expect(store.isEnabled(productAccountId: "first-account", profileId: firstProfile))
+    #expect(!store.isEnabled(productAccountId: "first-account", profileId: secondProfile))
+    #expect(!store.isEnabled(productAccountId: "second-account", profileId: firstProfile))
+  }
+
+  @Test
+  func spotlightIndexUsesOnlyBoundedMetadataAndExactDeepLinks() throws {
+    let profile = MailProfileDefinition.defaultProfile(productAccountId: session.productAccountId)
+    let connection = spotlightConnection()
+    let message = spotlightMessage(id: "message-1", snippet: "private body sentinel")
+
+    let item = MailProfileSpotlightIndex.item(
+      message: message,
+      profile: profile,
+      connection: connection
+    )
+    let deepLink = try #require(MailMessageDeepLink(url: item.contentURL))
+
+    #expect(item.subject == "Subject message-1")
+    #expect(item.sender == "Sender")
+    #expect(item.recipients == ["recipient@example.com"])
+    #expect(item.profileName == profile.name)
+    #expect(item.connectionName == connection.displayName)
+    #expect(!String(reflecting: item).contains("private body sentinel"))
+    #expect(deepLink.productAccountId == session.productAccountId)
+    #expect(deepLink.profileId == profile.id)
+    #expect(deepLink.connectionId == connection.id)
+    #expect(deepLink.providerMessageId == message.providerMessageId)
+    #expect(deepLink.message(in: [connection.id: [message]]) == message)
+    #expect(deepLink.message(in: [connection.id: []]) == nil)
+  }
+
+  @Test
+  // swiftlint:disable:next function_body_length
+  func spotlightIndexReconcilesChangesDeletionRevocationTransferAndProfileDeletion() async throws {
+    let suiteName = "MailProfileSpotlightIndexTests.\(UUID().uuidString)"
+    let defaults = try #require(UserDefaults(suiteName: suiteName))
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+    let backend = RecordingMailProfileSpotlightBackend()
+    let index = MailProfileSpotlightIndex(backend: backend, defaults: defaults)
+    let firstProfile = MailProfileDefinition.defaultProfile(
+      productAccountId: session.productAccountId
+    )
+    let secondProfile = MailProfileDefinition(
+      id: MailProfileId(rawValue: "second-profile"),
+      appearance: .default,
+      name: "Second",
+      recordScope: .profile(MailProfileId(rawValue: "second-profile")),
+      quietState: .inactive
+    )
+    let connection = spotlightConnection()
+    let first = spotlightMessage(id: "first")
+    let second = spotlightMessage(id: "second")
+
+    try await index.reconcile(
+      productAccountId: session.productAccountId,
+      profile: firstProfile,
+      profiles: [firstProfile, secondProfile],
+      messagesByConnection: [connection.id: [first, second]],
+      connections: [connection]
+    )
+    #expect(
+      backend.deletedDomains.last == [
+        MailProfileSpotlightIndex.domainIdentifier(
+          profileId: firstProfile.id
+        )
+      ])
+    #expect(backend.indexedBatches.map(\.count) == [2])
+
+    try await index.reconcile(
+      productAccountId: session.productAccountId,
+      profile: firstProfile,
+      profiles: [firstProfile, secondProfile],
+      messagesByConnection: [connection.id: [first, second]],
+      connections: [connection]
+    )
+    #expect(backend.indexedBatches.map(\.count) == [2])
+
+    let changed = spotlightMessage(id: "first", subject: "Changed")
+    try await index.reconcile(
+      productAccountId: session.productAccountId,
+      profile: firstProfile,
+      profiles: [firstProfile, secondProfile],
+      messagesByConnection: [connection.id: [changed]],
+      connections: [connection]
+    )
+    #expect(backend.deletedItemIdentifiers.last?.count == 1)
+    #expect(backend.indexedBatches.map(\.count) == [2, 1])
+
+    let revokedConnection = MailboxConnection(
+      authorizationState: .required,
+      capabilities: .none,
+      connectedAt: 0,
+      displayName: connection.displayName,
+      id: connection.id,
+      lastVerifiedAt: 0,
+      productAccountId: ProductAccountId(session.productAccountId),
+      trustedDeviceId: session.trustedDeviceId,
+      updatedAt: 0
+    )
+    try await index.reconcile(
+      productAccountId: session.productAccountId,
+      profile: firstProfile,
+      profiles: [firstProfile, secondProfile],
+      messagesByConnection: [connection.id: [changed]],
+      connections: [revokedConnection]
+    )
+    #expect(backend.deletedItemIdentifiers.last?.count == 1)
+    let deletionCount = backend.deletedItemIdentifiers.count
+    let domainDeletionCount = backend.deletedDomains.count
+    try await index.reconcile(
+      productAccountId: session.productAccountId,
+      profile: firstProfile,
+      profiles: [firstProfile, secondProfile],
+      messagesByConnection: [connection.id: [changed]],
+      connections: [revokedConnection]
+    )
+    #expect(backend.deletedItemIdentifiers.count == deletionCount)
+    #expect(backend.deletedDomains.count == domainDeletionCount)
+
+    try await index.reconcile(
+      productAccountId: session.productAccountId,
+      profile: secondProfile,
+      profiles: [firstProfile, secondProfile],
+      messagesByConnection: [connection.id: [first]],
+      connections: [connection]
+    )
+    #expect(
+      backend.deletedDomains.contains([
+        MailProfileSpotlightIndex.domainIdentifier(profileId: firstProfile.id)
+      ])
+    )
+
+    try await index.reconcile(
+      productAccountId: session.productAccountId,
+      profile: secondProfile,
+      profiles: [secondProfile],
+      messagesByConnection: [:],
+      connections: []
+    )
+    #expect(
+      backend.deletedDomains.contains([
+        MailProfileSpotlightIndex.domainIdentifier(profileId: firstProfile.id)
+      ])
+    )
+  }
+
+  @Test
+  func spotlightIndexBatchesLargeUpdatesAndUsesCompleteFileProtection() async throws {
+    let suiteName = "MailProfileSpotlightBatchTests.\(UUID().uuidString)"
+    let defaults = try #require(UserDefaults(suiteName: suiteName))
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+    let backend = RecordingMailProfileSpotlightBackend()
+    let index = MailProfileSpotlightIndex(backend: backend, defaults: defaults)
+    let profile = MailProfileDefinition.defaultProfile(productAccountId: session.productAccountId)
+    let connection = spotlightConnection()
+
+    try await index.reconcile(
+      productAccountId: session.productAccountId,
+      profile: profile,
+      profiles: [profile],
+      messagesByConnection: [
+        connection.id: (0..<251).map { spotlightMessage(id: "message-\($0)") }
+      ],
+      connections: [connection]
+    )
+
+    #expect(backend.indexedBatches.map(\.count).sorted() == [1, 250])
+    #expect(SystemMailProfileSpotlightIndexBackend.protectionClass == .complete)
+  }
+
+  @Test
+  func spotlightReconciliationDoesNotIndexConcealedProfilesAndRetriesDisabledCleanup()
+    async throws
+  {
+    let suiteName = "MailProfileSpotlightCleanupTests.\(UUID().uuidString)"
+    let defaults = try #require(UserDefaults(suiteName: suiteName))
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+    let profile = MailProfileDefinition.defaultProfile(productAccountId: session.productAccountId)
+    let connection = spotlightConnection()
+    let backend = RecordingMailProfileSpotlightBackend()
+    let index = MailProfileSpotlightIndex(backend: backend, defaults: defaults)
+    let lockStore = RecordingMailProfileLockStore()
+    lockStore.configurations[profile.id] = MailProfileLockConfiguration(
+      backgroundGracePeriod: .fiveMinutes,
+      isEnabled: true
+    )
+    let viewModel = MailProfileInterruptionViewModel(
+      session: session,
+      syncService: StubMailProfileInterruptionSyncService(
+        snapshot: snapshot(profile: profile)
+      ),
+      lockStore: lockStore,
+      spotlightIndex: index,
+      spotlightPreferenceStore: UserDefaultsMailProfileSpotlightStore(defaults: defaults)
+    )
+
+    await viewModel.reconcileSpotlight(
+      profiles: [profile],
+      messagesByConnection: [connection.id: [spotlightMessage(id: "locked")]],
+      connectionsByProfile: [profile.id: [connection]]
+    )
+    #expect(backend.indexedBatches.isEmpty)
+
+    lockStore.configurations[profile.id] = .disabled
+    await viewModel.load()
+    defaults.set(
+      [profile.id.rawValue],
+      forKey: "mail-profile-spotlight-indexed.v1.\(session.productAccountId)"
+    )
+    await viewModel.reconcileSpotlight(
+      profiles: [profile],
+      messagesByConnection: [:],
+      connectionsByProfile: [profile.id: []]
+    )
+    #expect(
+      backend.deletedDomains.contains([
+        MailProfileSpotlightIndex.domainIdentifier(profileId: profile.id)
+      ])
+    )
+  }
+
+  @Test
   func lockReengagesExplicitlyAndAfterTheConfiguredBackgroundGrace() async {
     let clock = MutableMailProfileClock(now: Date(timeIntervalSince1970: 1_000))
     let profile = MailProfileDefinition.defaultProfile(productAccountId: session.productAccountId)
@@ -358,6 +592,48 @@ struct MailProfileInterruptionTests {
       updatedAt: 1
     )
   }
+
+  private func spotlightConnection() -> MailboxConnection {
+    MailboxConnection(
+      authorizationState: .authorized,
+      capabilities: .none,
+      connectedAt: 0,
+      displayName: "Inbox Connection",
+      id: MailboxConnectionId(
+        providerMailboxIdentity: StableProviderMailboxIdentity(
+          providerId: .gmail,
+          value: "provider-account"
+        )
+      ),
+      lastVerifiedAt: 0,
+      productAccountId: ProductAccountId(session.productAccountId),
+      trustedDeviceId: session.trustedDeviceId,
+      updatedAt: 0
+    )
+  }
+
+  private func spotlightMessage(
+    id: String,
+    snippet: String = "snippet",
+    subject: String? = nil
+  ) -> MailboxMessageMetadata {
+    MailboxMessageMetadata(
+      categoryId: nil,
+      connectionId: spotlightConnection().id,
+      from: "sender@example.com",
+      isHistorical: false,
+      providerInternalDateMilliseconds: 1_000,
+      providerMessageId: id,
+      providerStateIds: ["INBOX"],
+      providerThreadId: "thread-\(id)",
+      recipientHeaders: ["recipient@example.com"],
+      replyTo: nil,
+      rfcMessageId: nil,
+      snippet: snippet,
+      subject: subject ?? "Subject \(id)",
+      sender: "Sender"
+    )
+  }
 }
 
 private final class StubMailProfileInterruptionSyncService: MailProfileInterruptionSyncing {
@@ -433,6 +709,25 @@ private final class RecordingMailProfileSearchIndex: MailProfileSearchIndexConce
 
   func conceal(profileId: MailProfileId) async throws {
     profileIds.append(profileId)
+  }
+}
+
+@MainActor
+private final class RecordingMailProfileSpotlightBackend: MailProfileSpotlightIndexBackend {
+  private(set) var deletedDomains: [[String]] = []
+  private(set) var deletedItemIdentifiers: [[String]] = []
+  private(set) var indexedBatches: [[MailProfileSpotlightItem]] = []
+
+  func delete(domainIdentifiers: [String]) async throws {
+    deletedDomains.append(domainIdentifiers)
+  }
+
+  func delete(itemIdentifiers: [String]) async throws {
+    deletedItemIdentifiers.append(itemIdentifiers)
+  }
+
+  func index(_ items: [MailProfileSpotlightItem]) async throws {
+    indexedBatches.append(items)
   }
 }
 
