@@ -1,11 +1,10 @@
 # Settings redesign
 
-Status: implementation in progress. The adaptive shell plus Email Accounts, Account & Devices,
-Appearance, Privacy & Data, Advanced, Inbox, Reading, Swipes, Compose, Signatures, Templates,
-Categories, Notifications, and Mail Profiles destinations are available through development-only
-entry points.
-Production still uses Account Settings until the signed-out Settings and About work in #132 and
-the complete Settings release in #133 are ready.
+Status: implementation in progress. Signed-out users can open production Settings for Appearance,
+Privacy & Data, local-only Advanced diagnostics, and About while account-bound destinations remain
+visible but unavailable. Signed-in production still uses Account Settings until the complete
+Settings release in #133 is ready; development entry points expose the full adaptive shell,
+including Mail Profiles.
 
 ## Goal
 
@@ -330,6 +329,10 @@ Raw backend health checks, environment switching, and test controls are debug-on
 - Copyright
 
 Diagnostics, account identifiers, and environment information are excluded.
+
+The production About destination links to the public Privacy Policy, Terms of Use, support contact,
+and product website. The Terms of Use page must be published at `https://www.unwired.dev/terms`
+before this slice can merge.
 
 ## Signed-out behavior
 

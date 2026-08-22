@@ -7475,7 +7475,7 @@ final class MailboxConnectionAdapterTests {
   }
 
   @Test
-  func testUnsubscribeEmailTreatsConcurrentActionAsCancellation() async throws {
+  func testUnsubscribeEmailReportsOutboxUnavailableForConcurrentAction() async throws {
     let service = RecordingUnsubscribeDeliveryService()
     let viewModel = GmailMailActionViewModel(
       service: service,
@@ -7493,7 +7493,11 @@ final class MailboxConnectionAdapterTests {
       subject: ""
     )
 
-    await #expect(throws: CancellationError.self) {
+    await #expect(
+      throws: UnsubscribeEmailDeliveryError.outboxUnavailable(
+        "Another mail action is in progress. Try again."
+      )
+    ) {
       try await viewModel.enqueueUnsubscribeEmail(
         message,
         through: connection,

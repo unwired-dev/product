@@ -47,10 +47,12 @@ enum MailboxSyncNotificationUserInfoKey {
 
 @Observable
 final class MailProfileDeepLinkRouter {
+  private(set) var targetedDraftId: UUID?
   private(set) var targetedProfileId: MailProfileId?
 
   func route(_ url: URL) {
     guard let deepLink = MailProfileDeepLink(url: url) else { return }
+    targetedDraftId = deepLink.draftId
     targetedProfileId = deepLink.profileId
   }
 
@@ -61,6 +63,11 @@ final class MailProfileDeepLinkRouter {
   func consumeTargetedProfileId() -> MailProfileId? {
     defer { targetedProfileId = nil }
     return targetedProfileId
+  }
+
+  func consumeTargetedDraftId() -> UUID? {
+    defer { targetedDraftId = nil }
+    return targetedDraftId
   }
 }
 
@@ -1364,6 +1371,7 @@ final class MailProfileWorkspaceViewModel {
   private(set) var errorMessage: String?
   private(set) var isLoading = false
   private(set) var selection: MailProfileWorkspaceSelection?
+  private(set) var startupProfileId: MailProfileId?
 
   private var session: ProductAccountSessionSnapshot
   private var loadGeneration = 0
@@ -1379,6 +1387,7 @@ final class MailProfileWorkspaceViewModel {
     self.session = session
     self.snapshotLoader = snapshotLoader
     self.startupStore = startupStore
+    startupProfileId = startupStore.load(productAccountId: session.productAccountId)
   }
 
   var activeProfile: MailProfileDefinition? { selection?.activeProfile }
@@ -1390,14 +1399,13 @@ final class MailProfileWorkspaceViewModel {
     } ?? []
   }
 
-  var startupProfileId: MailProfileId? {
-    startupStore.load(productAccountId: session.productAccountId)
-  }
+  var profileSnapshot: MailProfileSyncSnapshot? { selection?.snapshot }
 
   func updateSession(_ session: ProductAccountSessionSnapshot) {
     loadGeneration += 1
     isLoading = false
     self.session = session
+    startupProfileId = startupStore.load(productAccountId: session.productAccountId)
   }
 
   func load(
@@ -1478,6 +1486,7 @@ final class MailProfileWorkspaceViewModel {
   func setStartupProfile(_ profileId: MailProfileId) {
     guard profiles.contains(where: { $0.id == profileId }) else { return }
     startupStore.save(profileId, productAccountId: session.productAccountId)
+    startupProfileId = profileId
   }
 
   func show(_ error: Error) {
@@ -1506,6 +1515,8 @@ struct AccountView: View {
   private let sendReminderNotificationScheduler: any SendReminderNotificationScheduling
   private let profileDeepLinkRouter: MailProfileDeepLinkRouter
   private let releaseBudgetDriver: MailShellReleaseBudgetDriver?
+  private let shareExtensionCatalogSynchronizer: ShareExtensionCatalogSynchronizer?
+  private let shareExtensionDraftImporter: ShareExtensionDraftImporter?
 
   @Environment(\.scenePhase) private var scenePhase
   @Environment(\.editMode) private var editMode
@@ -1532,6 +1543,7 @@ struct AccountView: View {
   @State private var signatureStore: SignatureStore
   @State private var templateStore: TemplateStore
   @State private var compositionDraft: MailShellCompositionDraft?
+  @State private var storageDataSettingsViewModel: StorageDataSettingsViewModel
   @State private var compositionDraftLoadGate = MailCompositionDraftLoadGate()
   @State private var isReaderComposerPresented = false
   @State private var savedCompositionDrafts: [MailShellCompositionDraft] = []
@@ -1640,10 +1652,27 @@ struct AccountView: View {
     self.initialStartupDidFinish = initialStartupDidFinish
     self.mailboxConnection = mailboxConnection
     self.messageReader = mailboxConnection
-    self.compositionDraftRepository = MailCompositionDraftRepository(
+    let compositionDraftRepository = MailCompositionDraftRepository(
       store: compositionDraftStore
     )
+    self.compositionDraftRepository = compositionDraftRepository
     self.sendReminderNotificationScheduler = sendReminderNotificationScheduler
+    if let shareExtensionStore = try? ShareExtensionStore.live() {
+      self.shareExtensionCatalogSynchronizer = ShareExtensionCatalogSynchronizer(
+        store: shareExtensionStore,
+        lockStore: profileLockStore,
+        identitySyncFactory: sendingIdentitySyncFactory ?? {
+          SendingIdentitySyncService(recordScope: $0)
+        }
+      )
+      self.shareExtensionDraftImporter = ShareExtensionDraftImporter(
+        store: shareExtensionStore,
+        repository: compositionDraftRepository
+      )
+    } else {
+      self.shareExtensionCatalogSynchronizer = nil
+      self.shareExtensionDraftImporter = nil
+    }
     self.blockedSenderSyncServiceFactory =
       blockedSenderSyncServiceFactory ?? { scope in
         scope == .legacyProductAccount
@@ -1881,6 +1910,14 @@ struct AccountView: View {
         syncService: readingPreferenceSync
       )
     )
+    _storageDataSettingsViewModel = State(
+      initialValue: StorageDataSettingsViewModel.live(
+        session: snapshot,
+        profileIds: [defaultProfileId],
+        readingPreferences: .defaults,
+        draftRepository: compositionDraftRepository
+      )
+    )
   }
 
   var body: some View {
@@ -1979,6 +2016,29 @@ struct AccountView: View {
     ]
       + profileConnections.map {
         "\($0.id.rawValue):\($0.authorizationState):\($0.capabilities.canSend)"
+      }
+  }
+
+  private var shareExtensionCatalogSynchronizationKey: [String] {
+    [
+      snapshot.productAccountId,
+      profileViewModel.startupProfileId?.rawValue ?? "no-startup-profile",
+    ]
+      + profileViewModel.profiles.flatMap { profile in
+        [
+          profile.id.rawValue,
+          profile.name,
+          profile.appearance.colorName,
+          profile.appearance.symbolName,
+        ]
+      }
+      + profileSendingIdentities.flatMap { identity in
+        [
+          identity.id.rawValue,
+          identity.connectionId.rawValue,
+          identity.address,
+          identity.displayName ?? "",
+        ]
       }
   }
 
@@ -2164,13 +2224,15 @@ struct AccountView: View {
         updatePreferredCompactColumn()
       }
       .onChange(of: settingsRouter.request?.id) { _, requestId in
-        #if DEBUG
+        guard requestId != nil else { return }
+        switch SettingsPresentation.current(isSignedIn: true) {
+        case .accountSettings:
+          showsAccountSettings = true
+        case .adaptiveSettings:
           #if !targetEnvironment(macCatalyst)
-            if requestId != nil {
-              showsDevelopmentSettings = true
-            }
+            showsDevelopmentSettings = true
           #endif
-        #endif
+        }
       }
       .onChange(of: editMode?.wrappedValue) { _, _ in
         updatePreferredCompactColumn()
@@ -2222,6 +2284,13 @@ struct AccountView: View {
         profileInterruptionViewModel.updateSession(refreshedSnapshot)
         profileViewModel.updateSession(refreshedSnapshot)
         readingPreferenceStore.updateSession(refreshedSnapshot)
+        updateStorageDataSettingsViewModel()
+      }
+      .onChange(of: profileViewModel.profiles) { _, _ in
+        updateStorageDataSettingsViewModel()
+      }
+      .onChange(of: readingPreferenceStore.preferences) { _, _ in
+        updateStorageDataSettingsViewModel()
       }
       .onChange(of: inboxPreferenceStore.preferences.mailViewConfiguration) { _, _ in
         updateMailViews()
@@ -2659,20 +2728,21 @@ struct AccountView: View {
                 )
               case .swipes:
                 SwipeSettingsView(store: swipePreferenceStore)
+              case .about:
+                AboutSettingsView()
               case .appearance:
                 AppearanceSettingsView()
               case .privacyAndData:
-                let storageViewModel = makeStorageDataSettingsViewModel()
                 if request?.route?.context == .storage {
                   StorageDataSettingsView(
                     session: snapshot,
-                    viewModel: storageViewModel
+                    viewModel: storageDataSettingsViewModel
                   )
                 } else {
                   PrivacyDataSettingsView(
                     connections: profileConnections,
                     storageSession: snapshot,
-                    storageViewModel: storageViewModel
+                    storageViewModel: storageDataSettingsViewModel
                   )
                 }
               default:
@@ -2742,6 +2812,7 @@ struct AccountView: View {
         requestDevicePushRegistration()
       #endif
       let targetedProfileId = profileDeepLinkRouter.consumeTargetedProfileId()
+      let targetedDraftId = profileDeepLinkRouter.consumeTargetedDraftId()
       await loadCachedMailState(targetedProfileId: targetedProfileId)
       await loadCurrentMailboxFromCache()
       initialLaunchDidFinish()
@@ -2764,7 +2835,9 @@ struct AccountView: View {
       await reloadSyncedMailState(
         targetedProfileId: targetedProfileId
       )
+      await importShareExtensionDrafts()
       await loadCompositionDrafts(profileId: activeDraftProfileId)
+      openSavedDraft(targetedDraftId)
       await loadCurrentMailboxFromCache()
       mailboxObserversAreActive = true
       await mailboxFreshnessViewModel.synchronize(
@@ -2823,9 +2896,13 @@ struct AccountView: View {
           : providerDiscoveryFailures.sorted().joined(separator: "\n")
       )
     }
+    .task(id: shareExtensionCatalogSynchronizationKey) {
+      await synchronizeShareExtensionCatalog()
+    }
     .onChange(of: profileDeepLinkRouter.targetedProfileId) { _, _ in
       if let profileId = profileDeepLinkRouter.consumeTargetedProfileId() {
-        switchProfile(to: profileId)
+        let draftId = profileDeepLinkRouter.consumeTargetedDraftId()
+        Task { await handleProfileDeepLink(profileId: profileId, draftId: draftId) }
       }
     }
     .task(id: scenePhase) {
@@ -3744,6 +3821,49 @@ extension AccountView {
     }
   }
 
+  private func synchronizeShareExtensionCatalog() async {
+    guard let shareExtensionCatalogSynchronizer,
+      let profileSnapshot = profileViewModel.profileSnapshot
+    else { return }
+    do {
+      try await shareExtensionCatalogSynchronizer.synchronize(
+        session: snapshot,
+        profileSnapshot: profileSnapshot,
+        startupProfileId: profileViewModel.startupProfileId
+      )
+    } catch is CancellationError {
+    } catch {
+      profileViewModel.show(error)
+    }
+  }
+
+  private func importShareExtensionDrafts() async {
+    guard let shareExtensionDraftImporter else { return }
+    do {
+      _ = try await shareExtensionDraftImporter.importPendingDrafts(session: snapshot)
+    } catch is CancellationError {
+    } catch {
+      profileViewModel.show(error)
+    }
+  }
+
+  private func openSavedDraft(_ draftId: UUID?) {
+    guard let draftId,
+      let draft = savedCompositionDrafts.first(where: { $0.id == draftId })
+    else { return }
+    compositionDraft = draft
+  }
+
+  private func handleProfileDeepLink(
+    profileId: MailProfileId,
+    draftId: UUID?
+  ) async {
+    await importShareExtensionDrafts()
+    guard await switchProfileAndWait(to: profileId) else { return }
+    await loadCompositionDrafts(profileId: profileId)
+    openSavedDraft(draftId)
+  }
+
   private func scheduleSendReminder(
     for draft: MailShellCompositionDraft,
     profileId: MailProfileId
@@ -3986,7 +4106,7 @@ extension AccountView {
             PrivacyDataSettingsView(
               connections: profileConnections,
               storageSession: snapshot,
-              storageViewModel: makeStorageDataSettingsViewModel()
+              storageViewModel: storageDataSettingsViewModel
             )
           } label: {
             Label("Privacy & Data", systemImage: "hand.raised")
@@ -4189,8 +4309,8 @@ extension AccountView {
   }
 
   @MainActor
-  private func makeStorageDataSettingsViewModel() -> StorageDataSettingsViewModel {
-    StorageDataSettingsViewModel.live(
+  private func updateStorageDataSettingsViewModel() {
+    storageDataSettingsViewModel.updateConfiguration(
       session: snapshot,
       profileIds: profileViewModel.profiles.map(\.id),
       readingPreferences: readingPreferenceStore.preferences,
@@ -11641,7 +11761,9 @@ final class GmailMailActionViewModel {
       throw UnsubscribeEmailDeliveryError.sendUnavailable
     }
     guard !isPreparingForSignOut, !isPerformingAction else {
-      throw CancellationError()
+      throw UnsubscribeEmailDeliveryError.outboxUnavailable(
+        "Another mail action is in progress. Try again."
+      )
     }
     let didSend = await send(
       recipient: message.recipient,

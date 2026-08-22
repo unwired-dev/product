@@ -266,6 +266,7 @@ final class SettingsDestinationRegistryTests {
         .categories,
         .notifications,
         .templates,
+        .about,
       ])
     #expect(
       SettingsDestinationRegistry.implementedGroups == [
@@ -384,7 +385,7 @@ final class SettingsDestinationRegistryTests {
       ])
     #expect(
       SettingsDestinationRegistry.destinations(in: .application) == [
-        .appearance, .privacyAndData, .advanced,
+        .appearance, .privacyAndData, .advanced, .about,
       ])
     #expect(SettingsDestinationRegistry.destinations(in: .mail) == [.inbox, .reading, .swipes])
   }
@@ -1079,6 +1080,59 @@ final class SettingsDestinationRegistryTests {
         .map(\.route) == [destination.route])
   }
 
+  @Test(.bug(id: 132))
+  func aboutMetadataExposesOnlyPublicProductInformation() {
+    let destination = SettingsDestination.about
+
+    #expect(destination.group == .application)
+    #expect(destination.title == "About")
+    #expect(destination.systemImage == "info.circle")
+    #expect(destination.isAvailableWhenSignedOut)
+    #expect(
+      destination.searchItems.map(\.title) == [
+        "Version & Build", "Privacy Policy", "Terms of Use", "Open Source", "Support",
+        "Product Website",
+      ])
+    #expect(
+      SettingsDestinationRegistry.search(matching: "licenses", isSignedIn: false)
+        .map(\.route) == [destination.route])
+  }
+
+  @Test(.bug(id: 132))
+  func aboutInformationContainsPublicLinksVersionsAndCompleteAcknowledgements() {
+    let information = AboutAppInformation(
+      appName: "Unwired Mail",
+      version: "1.2.3",
+      build: "45",
+      copyrightYear: 2026
+    )
+
+    #expect(information.appName == "Unwired Mail")
+    #expect(information.version == "1.2.3")
+    #expect(information.build == "45")
+    #expect(information.copyrightNotice == "Copyright © 2026 Unwired, s.r.o.")
+    #expect(AboutAppInformation.privacyPolicyURL.path == "/privacy")
+    #expect(
+      AboutAppInformation.termsOfUseURL.absoluteString
+        == "https://www.unwired.dev/terms"
+    )
+    #expect(AboutAppInformation.productWebsiteURL.path == "/unwired-mail")
+    #expect(AboutAppInformation.supportURL.scheme == "mailto")
+    #expect(OpenSourcePackage.all.count == 13)
+    #expect(OpenSourcePackage.all.allSatisfy { $0.licenseURL.scheme == "https" })
+    #expect(Set(OpenSourcePackage.all.map(\.name)).count == OpenSourcePackage.all.count)
+  }
+
+  @Test(.bug(id: 132))
+  func aboutInformationCurrentUsesGregorianCopyrightYear() throws {
+    let calendar = Calendar(identifier: .gregorian)
+    let date = try #require(calendar.date(from: DateComponents(year: 2026, month: 1, day: 1)))
+
+    let information = AboutAppInformation.current(date: date)
+
+    #expect(information.copyrightNotice == "Copyright © 2026 Unwired, s.r.o.")
+  }
+
   @Test
   func testAccountAndDevicesAccessibilityDistinguishesDeviceActions() {
     #expect(AccountAndDevicesAccessibility.currentDevice == "Current Trusted Device")
@@ -1204,7 +1258,7 @@ final class SettingsDestinationRegistryTests {
       SettingsDestinationRegistry.search(
         matching: "Authorization",
         isSignedIn: false
-      ).isEmpty)
+      ).allSatisfy { $0.route.destination.isAvailableWhenSignedOut == false })
   }
 
   @Test
@@ -1251,6 +1305,7 @@ final class SettingsDestinationRegistryTests {
         .categories,
         .notifications,
         .templates,
+        .about,
       ])
   }
 
@@ -1413,14 +1468,33 @@ final class SettingsDestinationRegistryTests {
     #expect(SettingsDestinationRegistry.defaultDestination(isSignedIn: false) == .appearance)
   }
 
-  @Test
-  func testSignedOutSettingsHideUnavailableDestinations() {
-    #expect(SettingsDestinationRegistry.implementedGroups(isSignedIn: false) == [.application])
-    #expect(SettingsDestinationRegistry.destinations(in: .accounts, isSignedIn: false).isEmpty)
+  @Test(.bug(id: 132))
+  func signedOutSettingsKeepAccountDestinationsVisibleButUnavailable() {
+    #expect(
+      SettingsDestinationRegistry.signedOutUnavailableExplanation
+        == "Sign in to use this setting."
+    )
+    #expect(
+      SettingsDestinationRegistry.implementedGroups(isSignedIn: false) == [
+        .accounts, .application, .automation, .composing, .mail,
+      ])
+    #expect(
+      SettingsDestinationRegistry.destinations(in: .accounts, isSignedIn: false) == [
+        .emailAccounts, .accountAndDevices,
+      ])
     #expect(
       SettingsDestinationRegistry.destinations(in: .application, isSignedIn: false) == [
-        .appearance, .privacyAndData, .advanced,
+        .appearance, .privacyAndData, .advanced, .about,
       ])
+    #expect(
+      SettingsDestinationRegistry.resolveRoute(.emailAccounts, isSignedIn: false) == nil)
+    #expect(
+      SettingsNavigationPolicy.decision(
+        currentRoute: .appearance(.theme),
+        requestedRoute: .emailAccounts,
+        hasUnsavedChanges: false,
+        isSignedIn: false
+      ) == .unavailable)
   }
 
   @MainActor
@@ -1482,6 +1556,27 @@ final class SettingsDestinationRegistryTests {
         storedRawValue: SettingsDestination.appearance.rawValue,
         isSignedIn: false
       ) == .appearance)
+  }
+
+  @Test(.bug(id: 132))
+  func signInTransitionMakesAccountDestinationsAvailableWithoutChangingSignedOutDefaults() {
+    #expect(
+      SettingsDestinationRegistry.resolveDestination(
+        storedRawValue: SettingsDestination.emailAccounts.rawValue,
+        isSignedIn: false
+      ) == .appearance)
+    #expect(
+      SettingsDestinationRegistry.resolveRoute(.emailAccounts, isSignedIn: true)
+        == .emailAccounts)
+    #expect(
+      SettingsPresentation.resolve(isSignedIn: false, isDevelopmentBuild: false)
+        == .adaptiveSettings)
+    #expect(
+      SettingsPresentation.resolve(isSignedIn: true, isDevelopmentBuild: false)
+        == .accountSettings)
+    #expect(
+      SettingsPresentation.resolve(isSignedIn: true, isDevelopmentBuild: true)
+        == .adaptiveSettings)
   }
 }
 
