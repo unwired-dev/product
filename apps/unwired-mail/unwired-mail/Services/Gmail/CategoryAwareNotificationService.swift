@@ -217,7 +217,7 @@ struct UserNotificationService:
   LegacyUserNotificationMigrating, NotificationAuthorizationRequesting,
   NotificationAuthorizationStateChecking, NotificationPreviewDelivering,
   ProfileAwareNotificationDelivering, ThreadSnoozeAttentionDelivering,
-  UserNotificationClearing
+  SendReminderNotificationScheduling, UserNotificationClearing
 {
   private let center: UserNotificationCenterClient
   private let identifierStore: UserNotificationIdentifierPersisting
@@ -402,6 +402,81 @@ struct UserNotificationService:
     )
   }
 
+  func cancelSendReminder(
+    _ reminder: SendReminder,
+    draftId: UUID,
+    productAccountId: String,
+    profileId: MailProfileId
+  ) {
+    let identifier = sendReminderIdentifier(
+      reminder,
+      draftId: draftId,
+      productAccountId: productAccountId,
+      profileId: profileId
+    )
+    center.removePendingNotificationRequests(withIdentifiers: [identifier])
+    center.removeDeliveredNotifications(withIdentifiers: [identifier])
+  }
+
+  func scheduleSendReminder(
+    _ reminder: SendReminder,
+    draftId: UUID,
+    productAccountId: String,
+    profileId: MailProfileId
+  ) async throws -> SendReminderNotificationOutcome {
+    cancelSendReminder(
+      reminder,
+      draftId: draftId,
+      productAccountId: productAccountId,
+      profileId: profileId
+    )
+    guard reminder.dueAt > now() else { return .unavailable }
+    let authorizationState = await center.notificationAuthorizationState()
+    let isAuthorized: Bool
+    switch authorizationState {
+    case .authorized:
+      isAuthorized = true
+    case .denied:
+      isAuthorized = false
+    case .notDetermined:
+      isAuthorized = try await requestAuthorization()
+    }
+    guard isAuthorized else { return .unavailable }
+
+    let content = UNMutableNotificationContent()
+    content.title = "Send Reminder"
+    content.body = "A Draft is ready to finish."
+    content.sound = .default
+    content.userInfo = [
+      NotificationDeliveryContext.productAccountIdUserInfoKey: productAccountId,
+      NotificationDeliveryContext.profileIdUserInfoKey: profileId.rawValue,
+      SendReminderDeepLink.draftIdUserInfoKey: draftId.uuidString,
+      SendReminderDeepLink.reminderIdUserInfoKey: reminder.id.uuidString,
+      SendReminderDeepLink.reminderRevisionUserInfoKey: reminder.revision.uuidString,
+    ]
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = TimeZone(identifier: "UTC") ?? .current
+    var dateComponents = calendar.dateComponents(
+      [.year, .month, .day, .hour, .minute, .second],
+      from: reminder.dueAt
+    )
+    dateComponents.timeZone = calendar.timeZone
+    try await add(
+      UNNotificationRequest(
+        identifier: sendReminderIdentifier(
+          reminder,
+          draftId: draftId,
+          productAccountId: productAccountId,
+          profileId: profileId
+        ),
+        content: content,
+        trigger: UNCalendarNotificationTrigger(dateMatching: dateComponents, repeats: false)
+      ),
+      productAccountId: productAccountId
+    )
+    return .scheduled
+  }
+
   func deliverThreadSnoozeAttention(
     decision: ThreadSnoozeInterruptionDecision,
     snooze: ThreadSnooze,
@@ -514,6 +589,21 @@ struct UserNotificationService:
 
   private func identifier(_ identifier: String, _ productAccountId: String) -> String {
     "\(productAccountId):\(identifier)"
+  }
+
+  private func sendReminderIdentifier(
+    _ reminder: SendReminder,
+    draftId: UUID,
+    productAccountId: String,
+    profileId: MailProfileId
+  ) -> String {
+    [
+      productAccountId,
+      "send-reminder",
+      profileId.rawValue,
+      draftId.uuidString,
+      reminder.id.uuidString,
+    ].joined(separator: ":")
   }
 
   private func isOwnedLegacyIdentifier(

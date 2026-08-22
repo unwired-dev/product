@@ -35,6 +35,7 @@ struct MailShellComposer: View {
   @State private var editorModel: SemanticMessageEditorModel
   @State private var assetErrorMessage: String?
   @State private var linkDestination = "https://"
+  @State private var sendLaterRequest: SendLaterRequest?
   @State private var selectedPhoto: PhotosPickerItem?
   @State private var suggestions: [MailRecipientSuggestion] = []
   @State private var showsDiscardConfirmation = false
@@ -61,6 +62,9 @@ struct MailShellComposer: View {
     draftDidChange: @escaping (MailShellCompositionDraft) -> Void = { _ in },
     saveDraft: @escaping MailComposerViewModel.SaveDraft = { _ in },
     deleteDraft: @escaping MailComposerViewModel.DeleteDraft = { _ in },
+    reminderOwnerDeviceId: String = "local-device",
+    cancelReminder: @escaping MailComposerViewModel.CancelReminder = { _, _ in },
+    scheduleReminder: @escaping MailComposerViewModel.ScheduleReminder = { _ in .unavailable },
     send: @escaping MailComposerViewModel.SendDraft
   ) {
     self.connections = connections
@@ -90,8 +94,11 @@ struct MailShellComposer: View {
       initialValue: MailComposerViewModel(
         draft: initialDraft,
         presentation: preferences.presentation,
+        reminderOwnerDeviceId: reminderOwnerDeviceId,
         saveDraft: saveDraft,
         deleteDraft: deleteDraft,
+        cancelReminder: cancelReminder,
+        scheduleReminder: scheduleReminder,
         sendDraft: send
       )
     )
@@ -239,6 +246,11 @@ struct MailShellComposer: View {
       } message: {
         Text("Enter an HTTP, HTTPS, or email link for the selected text.")
       }
+      .sheet(item: $sendLaterRequest) { _ in
+        SendLaterSheet(existingReminder: viewModel.draft.sendReminder) { dueAt, timeZone in
+          await viewModel.remind(at: dueAt, timeZoneIdentifier: timeZone)
+        }
+      }
     }
   }
 
@@ -258,6 +270,12 @@ struct MailShellComposer: View {
       )
       if let signature = viewModel.draft.signature {
         MailComposerSignatureSummary(signature: signature)
+      }
+      if let reminder = viewModel.draft.sendReminder {
+        MailComposerReminderSummary(
+          notificationState: viewModel.reminderState,
+          reminder: reminder
+        )
       }
       MailComposerAssetList(
         assets: viewModel.draft.assets,
@@ -443,12 +461,17 @@ struct MailShellComposer: View {
       }
     }
     ToolbarItem(placement: .confirmationAction) {
-      Button("Send", action: sendDraft)
-        .accessibilityIdentifier("mail-compose-send")
-        .disabled(
-          isSending || !selectedConnectionCanSend || selectedIdentity == nil
-            || !viewModel.canSend || exceedsKnownTransferLimit
-        )
+      MailComposerSendButton(
+        canSendLater: viewModel.canCreateSendReminder,
+        isSendEnabled: isSendEnabled,
+        send: sendDraft,
+        sendLater: openSendLater
+      )
+    }
+    ToolbarItem(placement: .secondaryAction) {
+      Button("Send Later", systemImage: "clock", action: openSendLater)
+        .disabled(!viewModel.canCreateSendReminder)
+        .keyboardShortcut("l", modifiers: [.command, .shift])
     }
     ToolbarItem(placement: .secondaryAction) {
       PhotosPicker(selection: $selectedPhoto, matching: .images) {
@@ -472,6 +495,16 @@ struct MailShellComposer: View {
   private var selectedConnection: MailboxConnection? {
     guard let connectionId = viewModel.draft.connectionId else { return nil }
     return connections.first { $0.id == connectionId }
+  }
+
+  private var isSendEnabled: Bool {
+    !isSending && selectedConnectionCanSend && selectedIdentity != nil
+      && viewModel.canSend && !exceedsKnownTransferLimit
+  }
+
+  private func openSendLater() {
+    guard viewModel.canCreateSendReminder else { return }
+    sendLaterRequest = SendLaterRequest()
   }
 
   private var selectedConnectionCanSend: Bool {
