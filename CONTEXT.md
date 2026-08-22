@@ -17,12 +17,18 @@ A device-local opt-in scoped to one Product Account and Mail Profile that permit
 _Avoid_: Synchronized AI preference, automatic assistance, background enablement
 
 **Assistance Context**:
+Compose Assistance admits only the authored Semantic Message Document, current selection, separate subject, and parsed To/Cc display names. Understanding Assistance admits only already-local Thread message text; neither admits Bcc identities or raw recipient addresses.
 The size-bounded, already-local Draft, selection, recipient-display, and Thread text explicitly admitted to one On-Device Mail Assistance operation. It excludes provider fetches, attachments, Inline Images, Remote Message Content, Contacts, Calendar data, and unrelated correspondence.
 _Avoid_: mailbox context, account history, implicit retrieval
 
 **Assistance Preview**:
 Ephemeral generated or transformed content that remains separate from provider mail and saved Draft content until explicit acceptance and becomes unusable when its Mail Profile or source input revision changes.
 _Avoid_: generated Draft, automatic edit, model memory
+
+**Compose Assistance**:
+Subject suggestions use the separate subject input and subject action; body drafting and rewriting remain limited to the authored body or current selection.
+Explicitly requested, device-local drafting, subject suggestion, mechanical proofreading, or meaning-preserving rewriting of a Draft's authored body or current selection. Its ephemeral refinement transcript and preview remain outside the editor until explicit acceptance, and it cannot change recipients, signatures, quoted correspondence, attachments, or delivery state.
+_Avoid_: automatic rewrite, generated signature, inferred recipient, automatic send
 
 **Understanding Assistance**:
 An explicitly requested, device-local, ephemeral, source-linked summary of already-local Thread message text within one Mail Profile, including supported actions, open questions, stated or inferred dates, and stated deadlines. It excludes attachments, Inline Images, Remote Message Content, unrelated correspondence, Product Sync, and Drafts; discloses omitted content; never fetches a missing body; and becomes stale when its local Thread sources change.
@@ -803,9 +809,12 @@ _Avoid_: Password reset, support recovery
 - Inbox behavior, read-state rules, swipe assignments, compose behavior, signatures, templates, category configuration, and per-connection notification and **Read Receipt** policies are **Mail Workflow Preferences**
 - A Mail Profile's **Quiet State** is encrypted user data: it synchronizes through **End-to-End Encrypted Product Sync**, may be indefinite or end at one absolute instant, and suppresses visible notifications and proactive suggestions without suspending mailbox synchronization, indexing, Outbox, or Scheduled Send work
 - **Mail Assistance Enablement** is a **Device-Local Preference** scoped to one Product Account and Mail Profile. It defaults off independently on every device, never synchronizes, permits only explicit assistance actions, and remains usable during **Quiet State**
+- **Compose Assistance** admits only the authored **Semantic Message Document**, current selection, separate subject, and parsed recipient display identities. It excludes signatures, quoted correspondence, attachments, source Thread content, **Remote Message Content**, and delivery actions; proofreading is mechanical, while every rewrite preserves facts, questions, commitments, dates, amounts, links, quotes, meaning, and surrounding formatting or asks for clarification
+- **Compose Assistance** previews and refinements remain ephemeral outside the editor. Dismissal destroys their transcript, source changes invalidate them, and explicit Insert or Replace creates one undoable authored-body edit. Accepted content becomes ordinary encrypted Draft content without an assistance marker and never sends automatically
 - **Understanding Assistance** is explicitly requested, device-local, scoped to one Mail Profile, and admits only already-local source-message text newest-first within deterministic bounds. It excludes attachments, **Inline Images**, **Remote Message Content**, unrelated correspondence, **Product Sync**, and Drafts; links every result item to its supporting messages; and identifies omissions, uncertainty, inferred dates, unresolved questions, and ambiguous responsibility instead of inventing detail
 - **Understanding Assistance** results remain ephemeral, are excluded from **Product Sync** and Drafts, and become unusable until regenerated whenever their local Thread sources change
 - **Profile Lock** and its background grace period are **Device-Local Preferences**; when enabled they require device-owner authentication before mail UI or search can reveal Profile content, remove that Profile's Spotlight entries on lock, and suppress content-bearing notification presentation while background work continues
+- **Spotlight Mail Indexing** is an off-by-default **Device-Local Preference** scoped to one Product Account and Mail Profile. Its complete-file-protection index admits only sender, recipients, subject, date, Profile, Mailbox Connection, and opaque exact-message deep-link metadata; it excludes bodies, attachments, **Product Sync**, and the product backend. Lock, disablement, authorization revocation, message deletion, connection transfer, and Profile deletion remove stale entries
 - Locking a Profile cancels its On-Device Mail Assistance work and destroys every retained Assistance Context and Assistance Preview; successful reauthentication does not restore a discarded preview
 - Appearance, operating-system notification permission, sounds, badges, lock-screen content level, **Generic Notification Fallback**, remote-content and download behavior, storage controls, diagnostics, and the last-opened settings destination are **Device-Local Preferences**
 - Diagnostic exports are built on the trusted device from allowlisted health and version fields; they exclude mailbox addresses and identifiers, message content, provider credentials, Categories, raw failures, and Product Sync plaintext

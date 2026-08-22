@@ -16,6 +16,8 @@ Store Profile Lock enablement and its background grace period only in device-loc
 
 Lock is a presentation boundary, not a synchronization boundary. The mail shell remains alive but hidden from rendering, hit testing, and accessibility while a lock overlay is shown, so mailbox synchronization, local indexing, Outbox, and Scheduled Send work continue. Lock removes the Profile's Core Spotlight domain. Deep links still enter the concealed shell and cannot reveal content before authentication. A Profile with device-local lock enabled suppresses content-bearing notification presentation on that device.
 
+Core Spotlight mail indexing is separately off by default and stored as a device-local preference scoped by Product Account and Profile. The complete-file-protection index contains only sender, recipients, subject, date, Profile, Mailbox Connection, and a stable exact-message deep link. It never contains bodies or attachments and has no Product Sync or backend path. Reconciliation uses already-local metadata, removes stale entries after message deletion, authorization revocation, connection transfer, or Profile deletion, and performs no body fetch. A locked Profile cannot reindex until authenticated content reveal resumes.
+
 ## Consequences
 
 - Quiet and Resume converge without exposing their plaintext to the backend.

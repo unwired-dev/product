@@ -292,6 +292,7 @@ final class ProductAccountSession {
   private let inboxPreferenceLocalStateStore: InboxPreferenceLocalStatePersisting
   private let mailAssistanceEnablementStore: MailAssistanceEnablementPersisting
   private let mailProfileLockStore: MailProfileLockPersisting
+  private let mailProfileSpotlightDataClearer: MailProfileSpotlightDataClearing
   private let mailCompositionDraftStore: MailCompositionDraftPersisting
   private let outboxDeliveryService: OutboxDeliveryClearing
   private let productSyncCacheClearer: ProductSyncCacheClearing
@@ -326,6 +327,7 @@ final class ProductAccountSession {
     mailAssistanceEnablementStore: MailAssistanceEnablementPersisting =
       UserDefaultsMailAssistanceStore(),
     mailProfileLockStore: MailProfileLockPersisting = UserDefaultsMailProfileLockStore(),
+    mailProfileSpotlightDataClearer: MailProfileSpotlightDataClearing? = nil,
     mailCompositionDraftStore: MailCompositionDraftPersisting = FileMailCompositionDraftStore(),
     outboxDeliveryService: OutboxDeliveryClearing = OutboxDeliveryService.shared,
     productSyncCacheClearer: ProductSyncCacheClearing = KeychainProductSyncCacheClearer(),
@@ -351,6 +353,8 @@ final class ProductAccountSession {
     self.inboxPreferenceLocalStateStore = inboxPreferenceLocalStateStore
     self.mailAssistanceEnablementStore = mailAssistanceEnablementStore
     self.mailProfileLockStore = mailProfileLockStore
+    self.mailProfileSpotlightDataClearer =
+      mailProfileSpotlightDataClearer ?? MailProfileSpotlightDataClearer()
     self.mailCompositionDraftStore = mailCompositionDraftStore
     self.outboxDeliveryService = outboxDeliveryService
     self.productSyncCacheClearer = productSyncCacheClearer
@@ -1693,6 +1697,7 @@ extension ProductAccountSession {
     try featureSuggestionStateStore.clear(productAccountId: productAccountId)
     try inboxPreferenceLocalStateStore.clear(productAccountId: productAccountId)
     mailProfileLockStore.clear(productAccountId: productAccountId)
+    try await mailProfileSpotlightDataClearer.clear(productAccountId: productAccountId)
     try productSyncCacheClearer.clear(productAccountId: productAccountId)
     try mailCompositionDraftStore.clear(productAccountId: productAccountId)
     try productSyncKeyMaterialStore.clear(

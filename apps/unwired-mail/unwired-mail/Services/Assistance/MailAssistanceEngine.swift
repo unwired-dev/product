@@ -9,20 +9,36 @@ enum MailAssistanceCapability: String, Codable, Equatable, Sendable {
 
 enum MailAssistanceOperation: Codable, Equatable, Sendable {
   case compose(prompt: String)
+  case proofread
+  case refine(instruction: String)
+  case refineSubject(instruction: String)
   case respond(instruction: String?)
+  case suggestSubject
   case transform(instruction: String)
   case understand
 
   var capability: MailAssistanceCapability {
     switch self {
-    case .compose:
+    case .compose, .refineSubject, .suggestSubject:
       .compose
     case .respond:
       .respond
-    case .transform:
+    case .proofread, .refine, .transform:
       .transform
     case .understand:
       .understand
+    }
+  }
+
+  var characterCount: Int {
+    switch self {
+    case .compose(let prompt):
+      prompt.count
+    case .refine(let instruction), .refineSubject(let instruction),
+      .respond(let instruction?), .transform(let instruction):
+      instruction.count
+    case .proofread, .respond(nil), .suggestSubject, .understand:
+      0
     }
   }
 }
@@ -53,6 +69,19 @@ struct MailAssistanceDraftContext: Codable, Equatable, Sendable {
   let authoredBody: String
   let selectedText: String?
   let subject: String
+  let formattedTarget: SemanticMessageDocument?
+
+  init(
+    authoredBody: String,
+    selectedText: String?,
+    subject: String,
+    formattedTarget: SemanticMessageDocument? = nil
+  ) {
+    self.authoredBody = authoredBody
+    self.selectedText = selectedText
+    self.subject = subject
+    self.formattedTarget = formattedTarget
+  }
 }
 
 struct MailAssistanceSourceMessage: Codable, Equatable, Sendable {
@@ -118,6 +147,7 @@ struct MailAssistanceContext: Codable, Equatable, Sendable {
     count += sourceMessages.reduce(0) { $0 + $1.characterCount }
     if let draft {
       count += draft.authoredBody.count + draft.subject.count + (draft.selectedText?.count ?? 0)
+      count += draft.formattedTarget?.plainText.count ?? 0
     }
     return count
   }
@@ -222,6 +252,7 @@ struct MailAssistancePreview: Equatable, Sendable {
   let inputVersion: MailAssistanceInputVersion
   let kind: MailAssistancePreviewKind
   let profileId: MailProfileId
+  let semanticDocument: SemanticMessageDocument?
   let understanding: UnderstandingAssistanceResult?
 
   init(
@@ -229,12 +260,14 @@ struct MailAssistancePreview: Equatable, Sendable {
     inputVersion: MailAssistanceInputVersion,
     kind: MailAssistancePreviewKind,
     profileId: MailProfileId,
+    semanticDocument: SemanticMessageDocument? = nil,
     understanding: UnderstandingAssistanceResult? = nil
   ) {
     self.content = content
     self.inputVersion = inputVersion
     self.kind = kind
     self.profileId = profileId
+    self.semanticDocument = semanticDocument
     self.understanding = understanding
   }
 
@@ -258,6 +291,7 @@ enum DeterministicMailAssistanceOutcome: Equatable, Sendable {
   case clarification(String)
   case failure(MailAssistanceError)
   case success(String)
+  case semantic(SemanticMessageDocument)
   case suspendUntilCancelled
   case understanding([UnderstandingAssistanceItem])
 }
@@ -297,7 +331,20 @@ struct DeterministicMailAssistanceEngine: MailAssistanceEngine {
     case .failure(let error):
       throw error
     case .success(let content):
-      return preview(content: content, kind: .content, request: request)
+      return preview(
+        content: content,
+        kind: .content,
+        request: request,
+        semanticDocument: request.operation == .suggestSubject
+          ? nil : SemanticMessageDocument(plainText: content)
+      )
+    case .semantic(let document):
+      return preview(
+        content: document.plainText,
+        kind: .content,
+        request: request,
+        semanticDocument: document
+      )
     case .suspendUntilCancelled:
       do {
         try await Task.sleep(for: .seconds(3_600))
@@ -322,13 +369,15 @@ struct DeterministicMailAssistanceEngine: MailAssistanceEngine {
   private func preview(
     content: String,
     kind: MailAssistancePreviewKind,
-    request: MailAssistanceRequest
+    request: MailAssistanceRequest,
+    semanticDocument: SemanticMessageDocument? = nil
   ) -> MailAssistancePreview {
     MailAssistancePreview(
       content: content,
       inputVersion: request.context.inputVersion,
       kind: kind,
-      profileId: request.context.profileId
+      profileId: request.context.profileId,
+      semanticDocument: semanticDocument
     )
   }
 
