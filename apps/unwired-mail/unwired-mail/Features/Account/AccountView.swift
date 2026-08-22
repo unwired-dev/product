@@ -3255,9 +3255,9 @@ struct AccountView: View {
       }
       let preparedProfileRecordScope = prepareProfileScopedStoresIfNeeded()
       guard profileViewModel.activeProfileId == profileId else { return false }
-      // Reset Profile-owned projections before presenting, then hydrate them after cached mail.
+      // Reset Profile-owned projections before presenting, then hydrate them on a later frame.
       prepareProfilePresentationForSwitch()
-      await Task.yield()
+      try? await Task.sleep(for: .milliseconds(1))
       prepareProfileThreadState(for: profileId)
       finishProfileSwitch(to: profileId)
       if let preparedProfileRecordScope {
