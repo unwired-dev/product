@@ -4,7 +4,7 @@ import Testing
 
 @testable import unwired_mail
 
-@Suite("Experimental SwiftMail engine – unsubscribe headers")
+@Suite("SwiftMail engine – unsubscribe headers")
 struct SwiftMailUnsubscribeHeaderTests {
   @Test
   func testStandardsMetadataProjectsFoldedAndRepeatedUnsubscribeHeaders() throws {
