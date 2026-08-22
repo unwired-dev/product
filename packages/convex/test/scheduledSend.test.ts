@@ -81,7 +81,21 @@ describe('scheduled Send admission', () => {
     });
     expect(stored?.state).toBe('active');
     expect(stored?.trustedDeviceId).toBe(device.trustedDeviceId);
-    expect(stored).not.toHaveProperty('message');
+    expect(Object.keys(stored ?? {}).sort()).toStrictEqual([
+      '_creationTime',
+      '_id',
+      'deadlineAt',
+      'dueAt',
+      'encryptedPayloadIdentifier',
+      'encryptedPayloadUpdatedAt',
+      'productAccountId',
+      'revision',
+      'scheduleId',
+      'scheduledFunctionId',
+      'state',
+      'trustedDeviceId',
+      'updatedAt',
+    ]);
   });
 
   it('rejects a payload revision the backend did not acknowledge', async () => {

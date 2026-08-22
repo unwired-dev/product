@@ -253,7 +253,12 @@ struct MailShellComposer: View {
           existingReminder: viewModel.draft.sendReminder,
           canAutomaticallySend: canScheduleSend,
           scheduleAutomatically: { dueAt, timeZone in
-            await viewModel.scheduleSend(at: dueAt, timeZoneIdentifier: timeZone)
+            let scheduled = await viewModel.scheduleSend(
+              at: dueAt,
+              timeZoneIdentifier: timeZone
+            )
+            if scheduled { dismiss() }
+            return scheduled
           },
           schedule: { dueAt, timeZone in
             await viewModel.remind(at: dueAt, timeZoneIdentifier: timeZone)

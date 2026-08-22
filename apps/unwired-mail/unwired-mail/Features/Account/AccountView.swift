@@ -2499,6 +2499,14 @@ struct AccountView: View {
         scheduleReminder: { [profileId = activeDraftProfileId] draft in
           try await scheduleSendReminder(for: draft, profileId: profileId)
         },
+        scheduleSend: { [profileId = activeDraftProfileId] draft, dueAt, timeZone in
+          await scheduleNewMessage(
+            draft,
+            profileId: profileId,
+            dueAt: dueAt,
+            originalTimeZoneIdentifier: timeZone
+          )
+        },
         signatures: signatureStore.preferences,
         templates: templateStore.preferences,
         sendingIdentities: profileSendingIdentities
@@ -7522,6 +7530,7 @@ struct MailShellConversationReader: View {
   var reminderOwnerDeviceId = "local-device"
   var cancelReminder: MailComposerViewModel.CancelReminder = { _, _ in }
   var scheduleReminder: MailComposerViewModel.ScheduleReminder = { _ in .unavailable }
+  var scheduleSend: MailComposerViewModel.ScheduleSend = { _, _, _ in false }
   var signatures: SignaturePreferences = .empty
   var templates: TemplatePreferences = .empty
   var sendingIdentities: [SendingIdentity] = []
@@ -8026,6 +8035,7 @@ struct MailShellConversationReader: View {
         reminderOwnerDeviceId: reminderOwnerDeviceId,
         cancelReminder: cancelReminder,
         scheduleReminder: scheduleReminder,
+        scheduleSend: scheduleSend,
         send: send
       )
     }

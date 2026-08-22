@@ -48,6 +48,65 @@ function admissionResponse(
   };
 }
 
+type AdmissionArguments = {
+  deadlineAt: number;
+  dueAt: number;
+  encryptedPayloadIdentifier: string;
+  encryptedPayloadUpdatedAt: number;
+  revision: number;
+  scheduleId: string;
+  trustedDeviceId: Doc<'trustedDevices'>['_id'];
+};
+
+function assertValidAdmission(
+  args: Readonly<AdmissionArguments>,
+  now: number,
+) {
+  if (
+    args.dueAt < now + minuteMilliseconds ||
+    args.dueAt > now + yearMilliseconds ||
+    args.deadlineAt !== args.dueAt + dayMilliseconds ||
+    !Number.isSafeInteger(args.revision) ||
+    args.revision < 1
+  ) {
+    throw new Error('Invalid Scheduled Send admission');
+  }
+}
+
+function admissionConflicts(
+  existing: Readonly<Doc<'scheduledSends'>>,
+  args: Readonly<AdmissionArguments>,
+) {
+  return (
+    existing.trustedDeviceId !== args.trustedDeviceId ||
+    existing.revision !== args.revision ||
+    existing.dueAt !== args.dueAt ||
+    existing.deadlineAt !== args.deadlineAt ||
+    existing.encryptedPayloadIdentifier !== args.encryptedPayloadIdentifier ||
+    existing.encryptedPayloadUpdatedAt !== args.encryptedPayloadUpdatedAt
+  );
+}
+
+function isCurrentActiveSchedule(
+  schedule: Readonly<Doc<'scheduledSends'>> | null,
+  revision: number,
+): schedule is Doc<'scheduledSends'> {
+  return (
+    schedule !== null &&
+    schedule.state === 'active' &&
+    schedule.revision === revision
+  );
+}
+
+function hasPushRecipient(
+  device: Readonly<Doc<'trustedDevices'>> | null,
+): device is Doc<'trustedDevices'> & {
+  apnsEnvironment: 'production' | 'sandbox';
+  apnsToken: string;
+} {
+  return device?.apnsEnvironment !== undefined && device.apnsToken !== undefined;
+}
+
 export const admit = mutation({
   args: {
     ...trustedDeviceCredentialArgs,
@@ -66,15 +125,7 @@ export const admit = mutation({
       args.trustedDeviceCredential,
     );
     const now = Date.now();
-    if (
-      args.dueAt < now + minuteMilliseconds ||
-      args.dueAt > now + yearMilliseconds ||
-      args.deadlineAt !== args.dueAt + dayMilliseconds ||
-      !Number.isSafeInteger(args.revision) ||
-      args.revision < 1
-    ) {
-      throw new Error('Invalid Scheduled Send admission');
-    }
+    assertValidAdmission(args, now);
     const payload = await ctx.db
       .query('encryptedProductSyncPayloads')
       .withIndex('by_productAccountId_and_payloadIdentifier', (q) =>
@@ -98,15 +149,7 @@ export const admit = mutation({
       )
       .unique();
     if (existing !== null) {
-      if (
-        existing.trustedDeviceId !== args.trustedDeviceId ||
-        existing.revision !== args.revision ||
-        existing.dueAt !== args.dueAt ||
-        existing.deadlineAt !== args.deadlineAt ||
-        existing.encryptedPayloadIdentifier !==
-          args.encryptedPayloadIdentifier ||
-        existing.encryptedPayloadUpdatedAt !== args.encryptedPayloadUpdatedAt
-      ) {
+      if (admissionConflicts(existing, args)) {
         throw new Error('Scheduled Send admission conflicts with its revision');
       }
       return admissionResponse(existing);
@@ -269,11 +312,7 @@ export const claimWakeup = internalMutation({
   },
   handler: async (ctx, args) => {
     const schedule = await ctx.db.get(args.scheduleDocumentId);
-    if (
-      schedule === null ||
-      schedule.state !== 'active' ||
-      schedule.revision !== args.revision
-    ) {
+    if (!isCurrentActiveSchedule(schedule, args.revision)) {
       return null;
     }
     const now = Date.now();
@@ -294,10 +333,7 @@ export const claimWakeup = internalMutation({
       updatedAt: now,
       wakeAttemptedAt: now,
     });
-    if (
-      device?.apnsEnvironment === undefined ||
-      device.apnsToken === undefined
-    ) {
+    if (!hasPushRecipient(device)) {
       return null;
     }
     return {

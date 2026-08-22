@@ -65,7 +65,9 @@ struct OutgoingDeliveryAttempt: Codable, Equatable, Identifiable, Sendable {
   }
 
   var canEditOrCancel: Bool {
-    state.canEditOrCancel && reconciliationPausedForAuthorization != true
+    !isScheduledSend
+      && state.canEditOrCancel
+      && reconciliationPausedForAuthorization != true
   }
 
   var providerDraftRequiresCleanup: Bool {
@@ -348,6 +350,7 @@ enum OutboxDeliveryError: LocalizedError, Equatable {
   case deliveryNotConfirmed
   case productAccountMismatch
   case attemptCannotBeChanged
+  case invalidScheduledWindow
 
   var errorDescription: String? {
     switch self {
@@ -359,6 +362,8 @@ enum OutboxDeliveryError: LocalizedError, Equatable {
       "The Mailbox Connection does not belong to the current Product Account."
     case .attemptCannotBeChanged:
       "This delivery is already being handed to the mail provider."
+    case .invalidScheduledWindow:
+      "Choose a new Scheduled Send time and try again."
     }
   }
 }
@@ -804,12 +809,7 @@ actor ScheduledSendService {
       throw ScheduledSendAdmissionError.incompleteAssets
     }
     let current = now()
-    let maximum =
-      Calendar(identifier: .gregorian).date(
-        byAdding: .year,
-        value: 1,
-        to: current
-      ) ?? current.addingTimeInterval(365 * 24 * 60 * 60)
+    let maximum = current.addingTimeInterval(365 * 24 * 60 * 60)
     guard dueAt >= current.addingTimeInterval(60), dueAt <= maximum else {
       throw ScheduledSendAdmissionError.invalidDueDate
     }
@@ -829,6 +829,9 @@ extension ConvexClient: ScheduledSendOperationalTransport {}
 // swiftlint:disable:next type_body_length
 actor OutboxDeliveryService {
   static let shared = OutboxDeliveryService()
+
+  private static let scheduledSendNeedsAttentionMessage =
+    "Scheduled Send did not begin within 24 hours. Send now, reschedule, edit, or cancel."
 
   private let failureDisposition: @Sendable (Error) -> OutboxDeliveryFailureDisposition
   private let handoffDelayNanoseconds: UInt64
@@ -944,7 +947,7 @@ actor OutboxDeliveryService {
       dueAtMilliseconds >= currentMilliseconds,
       deadlineMilliseconds == dueAtMilliseconds + 24 * 60 * 60 * 1_000
     else {
-      throw OutboxDeliveryError.attemptCannotBeChanged
+      throw OutboxDeliveryError.invalidScheduledWindow
     }
     let handoffAtMilliseconds =
       dueAtMilliseconds
@@ -990,33 +993,42 @@ actor OutboxDeliveryService {
 
   // swiftlint:disable:next cyclomatic_complexity function_body_length
   func resume(
-    connections _: [MailboxConnection],
+    connections: [MailboxConnection],
     session: ProductAccountSessionSnapshot,
     provider: @escaping OutboxDeliveryPerformer,
     reconcile: @escaping OutboxDeliveryReconciler
   ) async throws {
     var attempts = try loadPruningTerminalAttempts(productAccountId: session.productAccountId)
+    let connectionIds = Set(connections.map(\.id))
     var markedNeedsAttention = false
     for index in attempts.indices
-    where scheduledSendMissedDeadline(attempts[index]) {
+    where connectionIds.contains(attempts[index].connectionId)
+      && scheduledSendMissedDeadline(attempts[index])
+    {
       attempts[index].state = .userActionRequired
-      attempts[index].lastErrorDescription =
-        "Scheduled Send did not begin within 24 hours. Send now, reschedule, edit, or cancel."
+      attempts[index].lastErrorDescription = Self.scheduledSendNeedsAttentionMessage
       attempts[index].nextRetryAtMilliseconds = nil
       markedNeedsAttention = true
     }
     if markedNeedsAttention {
       try store.save(attempts, productAccountId: session.productAccountId)
     }
-    for attempt in attempts where attempt.providerDraftRequiresCleanup {
+    for attempt in attempts
+    where connectionIds.contains(attempt.connectionId) && attempt.providerDraftRequiresCleanup
+    {
       scheduleProviderDraftCleanup(attempt)
     }
     let interruptedHandoffs = attempts.filter {
-      $0.state == .handingOff && inFlightRetryTasks[$0.id] == nil
+      connectionIds.contains($0.connectionId)
+        && $0.state == .handingOff
+        && inFlightRetryTasks[$0.id] == nil
     }
     var recoveredInterruptedHandoff = false
     for index in attempts.indices
-    where attempts[index].state == .handingOff && inFlightRetryTasks[attempts[index].id] == nil {
+    where connectionIds.contains(attempts[index].connectionId)
+      && attempts[index].state == .handingOff
+      && inFlightRetryTasks[attempts[index].id] == nil
+    {
       attempts[index].state = .reconciling
       attempts[index].lastErrorDescription =
         "Confirming delivery after the app stopped during provider handoff."
@@ -1043,8 +1055,9 @@ actor OutboxDeliveryService {
     var immediateTasks: [Task<Void, Never>] = []
     for attempt in attempts
     where
-      attempt.state == .pending || attempt.state == .retrying || attempt.state == .reconciling
-      || attempt.state == .sentCopyPending
+      connectionIds.contains(attempt.connectionId)
+      && (attempt.state == .pending || attempt.state == .retrying || attempt.state == .reconciling
+        || attempt.state == .sentCopyPending)
     {
       guard inFlightRetryTasks[attempt.id] == nil else {
         continue
@@ -1117,6 +1130,7 @@ actor OutboxDeliveryService {
     var attempts = try loadPruningTerminalAttempts(productAccountId: session.productAccountId)
     guard var index = attempts.firstIndex(where: { $0.id == attemptId }),
       attempts[index].state.canEditOrCancel,
+      !attempts[index].isScheduledSend,
       attempts[index].reconciliationPausedForAuthorization != true
     else {
       throw OutboxDeliveryError.attemptCannotBeChanged
@@ -1147,6 +1161,7 @@ actor OutboxDeliveryService {
       attempts = try loadPruningTerminalAttempts(productAccountId: session.productAccountId)
       guard let refreshedIndex = attempts.firstIndex(where: { $0.id == attemptId }),
         attempts[refreshedIndex].state.canEditOrCancel,
+        !attempts[refreshedIndex].isScheduledSend,
         attempts[refreshedIndex].reconciliationPausedForAuthorization != true
       else {
         throw OutboxDeliveryError.attemptCannotBeChanged
@@ -1524,8 +1539,7 @@ actor OutboxDeliveryService {
       let attemptId = attempts[index].id
       if scheduledSendMissedDeadline(attempts[index]) {
         attempts[index].state = .userActionRequired
-        attempts[index].lastErrorDescription =
-          "Scheduled Send did not begin within 24 hours. Send now, reschedule, edit, or cancel."
+        attempts[index].lastErrorDescription = Self.scheduledSendNeedsAttentionMessage
         attempts[index].nextRetryAtMilliseconds = nil
         try store.save(attempts, productAccountId: productAccountId)
         continue
