@@ -1017,7 +1017,8 @@ actor OutboxDeliveryService {
     if markedNeedsAttention {
       try store.save(attempts, productAccountId: session.productAccountId)
     }
-    for attempt in attempts where connectionIds.contains(attempt.connectionId)
+    for attempt in attempts
+    where connectionIds.contains(attempt.connectionId)
       && attempt.providerDraftRequiresCleanup
     {
       scheduleProviderDraftCleanup(attempt)
