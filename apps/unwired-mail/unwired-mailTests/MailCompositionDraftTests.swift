@@ -928,6 +928,7 @@ final class MailCompositionDraftTests {
         keyMaterialStore: try keyedStore(productAccountId: accountId),
         rootDirectory: rootDirectory
       ),
+      reminderSyncService: OfflineSendReminderSyncService(),
       syncService: OfflineDraftSyncService()
     )
     let profileId = MailProfileId(rawValue: "profile")
@@ -1244,6 +1245,43 @@ private struct OfflineDraftSyncService: MailCompositionDraftSyncing {
     profileId _: MailProfileId,
     session _: ProductAccountSessionSnapshot
   ) async throws {
+    throw DraftFixtureError.offline
+  }
+}
+
+private struct OfflineSendReminderSyncService: SendReminderSyncing {
+  func cancel(
+    draftId _: UUID,
+    expectedRevision _: UUID?,
+    profileId _: MailProfileId,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> SendReminderSyncMutation {
+    throw DraftFixtureError.offline
+  }
+
+  func claimNotificationOwnership(
+    draftId _: UUID,
+    expectedRevision _: UUID,
+    profileId _: MailProfileId,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> SendReminder? {
+    throw DraftFixtureError.offline
+  }
+
+  func load(
+    profileId _: MailProfileId,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> SendReminderSyncSnapshot {
+    throw DraftFixtureError.offline
+  }
+
+  func synchronize(
+    _: SendReminder,
+    draftId _: UUID,
+    draftUpdatedAtMilliseconds _: Int64,
+    profileId _: MailProfileId,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> SendReminderSyncMutation {
     throw DraftFixtureError.offline
   }
 }
