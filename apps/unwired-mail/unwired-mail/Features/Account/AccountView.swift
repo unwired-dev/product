@@ -2777,22 +2777,12 @@ struct AccountView: View {
               case .appearance:
                 AppearanceSettingsView()
               case .privacyAndData:
-                if request?.route?.context == .storage {
-                  AnyView(
-                    StorageDataSettingsView(
-                      session: snapshot,
-                      viewModel: storageDataSettingsViewModel
-                    )
-                  )
-                } else {
-                  AnyView(
-                    PrivacyDataSettingsView(
-                      connections: profileConnections,
-                      storageSession: snapshot,
-                      storageViewModel: storageDataSettingsViewModel
-                    )
-                  )
-                }
+                AccountPrivacyAndDataSettingsDestination(
+                  connections: profileConnections,
+                  request: request,
+                  session: snapshot,
+                  viewModel: storageDataSettingsViewModel
+                )
               default:
                 EmptyView()
               }
@@ -3590,6 +3580,29 @@ struct AccountView: View {
       } catch {
         profileViewModel.show(error)
       }
+    }
+  }
+}
+
+private struct AccountPrivacyAndDataSettingsDestination: View {
+  let connections: [MailboxConnection]
+  let request: SettingsRouteRequest?
+  let session: ProductAccountSessionSnapshot
+  let viewModel: StorageDataSettingsViewModel
+
+  @ViewBuilder
+  var body: some View {
+    if request?.route?.context == .storage {
+      StorageDataSettingsView(
+        session: session,
+        viewModel: viewModel
+      )
+    } else {
+      PrivacyDataSettingsView(
+        connections: connections,
+        storageSession: session,
+        storageViewModel: viewModel
+      )
     }
   }
 }
