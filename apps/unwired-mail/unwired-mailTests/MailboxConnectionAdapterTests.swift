@@ -5911,6 +5911,8 @@ final class MailboxConnectionAdapterTests {
             session: productAccountSession,
             snapshot: launchSnapshot,
             categorySyncServiceFactory: { _ in ReleaseCustomCategorySyncService() },
+            sendReminderSyncService: ReleaseSendReminderService(),
+            sendReminderNotificationScheduler: ReleaseSendReminderService(),
             genericMailSetupService: genericMailSetupService,
             inboxPreferenceSync: ReleaseInboxPreferenceSyncService(),
             inboxPreferenceSyncFactory: { _ in ReleaseInboxPreferenceSyncService() },
@@ -10489,6 +10491,65 @@ private struct ReleaseInboxPreferenceSyncService: InboxPreferenceSyncing {
 private struct ReleaseNotificationAuthorization: NotificationAuthorizationRequesting {
   func requestAuthorization() async throws -> Bool {
     true
+  }
+}
+
+private struct ReleaseSendReminderService: SendReminderSyncing,
+  SendReminderNotificationScheduling, NotificationAuthorizationStateChecking
+{
+  func cancel(
+    draftId _: UUID,
+    expectedRevision _: UUID?,
+    profileId _: MailProfileId,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> SendReminderSyncMutation {
+    .accepted(nil)
+  }
+
+  func claimNotificationOwnership(
+    draftId _: UUID,
+    expectedRevision _: UUID,
+    profileId _: MailProfileId,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> SendReminder? {
+    nil
+  }
+
+  func load(
+    profileId _: MailProfileId,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> SendReminderSyncSnapshot {
+    SendReminderSyncSnapshot(remindersByDraftId: [:], removedDraftIds: [])
+  }
+
+  func synchronize(
+    _ reminder: SendReminder,
+    draftId _: UUID,
+    draftUpdatedAtMilliseconds _: Int64,
+    profileId _: MailProfileId,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> SendReminderSyncMutation {
+    .accepted(reminder)
+  }
+
+  func cancelSendReminder(
+    _: SendReminder,
+    draftId _: UUID,
+    productAccountId _: String,
+    profileId _: MailProfileId
+  ) {}
+
+  func scheduleSendReminder(
+    _: SendReminder,
+    draftId _: UUID,
+    productAccountId _: String,
+    profileId _: MailProfileId
+  ) async throws -> SendReminderNotificationOutcome {
+    .unavailable
+  }
+
+  func notificationAuthorizationState() async -> NotificationAuthorizationState {
+    .denied
   }
 }
 
