@@ -220,7 +220,8 @@ final class StorageDataSettingsViewModel {
     snapshot = nil
     statusMessage = nil
     alertMessage = nil
-    storage = replacementStorage
+    storage =
+      replacementStorage
       ?? LocalMailStorageService(
         productAccountId: session.productAccountId,
         profileIds: profileIds,
