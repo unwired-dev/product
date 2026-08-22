@@ -71,14 +71,17 @@ struct PrivacyDataSettingsView: View {
       }
 
       Section {
-        if let storageSession, let storageViewModel {
+        if let storageViewModel {
           NavigationLink {
             StorageDataSettingsView(
               session: storageSession,
               viewModel: storageViewModel
             )
           } label: {
-            Label("Storage & Product Sync Data", systemImage: "externaldrive")
+            Label(
+              storageSession == nil ? "Device Storage" : "Storage & Product Sync Data",
+              systemImage: "externaldrive"
+            )
           }
         } else {
           Label("Sign in to inspect storage and export Product Sync data", systemImage: "lock")
@@ -87,10 +90,14 @@ struct PrivacyDataSettingsView: View {
       } header: {
         Text("Storage & Export")
       } footer: {
-        Text(
-          "Inspect device-local mail storage, clear downloadable copies, and export "
-            + "end-to-end encrypted Product Sync data on a Trusted Device."
-        )
+        if storageSession == nil {
+          Text("Inspect device-local mail storage and clear downloadable copies.")
+        } else {
+          Text(
+            "Inspect device-local mail storage, clear downloadable copies, and export "
+              + "end-to-end encrypted Product Sync data on a Trusted Device."
+          )
+        }
       }
 
       Section("Privacy Boundary") {

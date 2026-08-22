@@ -2193,13 +2193,15 @@ struct AccountView: View {
         updatePreferredCompactColumn()
       }
       .onChange(of: settingsRouter.request?.id) { _, requestId in
-        #if DEBUG
+        guard requestId != nil else { return }
+        switch SettingsPresentation.current(isSignedIn: true) {
+        case .accountSettings:
+          showsAccountSettings = true
+        case .adaptiveSettings:
           #if !targetEnvironment(macCatalyst)
-            if requestId != nil {
-              showsDevelopmentSettings = true
-            }
+            showsDevelopmentSettings = true
           #endif
-        #endif
+        }
       }
       .onChange(of: editMode?.wrappedValue) { _, _ in
         updatePreferredCompactColumn()
@@ -2686,6 +2688,8 @@ struct AccountView: View {
                 )
               case .swipes:
                 SwipeSettingsView(store: swipePreferenceStore)
+              case .about:
+                AboutSettingsView()
               case .appearance:
                 AppearanceSettingsView()
               case .privacyAndData:
