@@ -20,37 +20,13 @@ This runbook is the repository-safe handoff for provisioning the human-owned Goo
 4. Configure the OAuth consent audience as internal to this tenant. The Apple client owns consent and scope selection and currently requests only `openid`, `email`, and `https://www.googleapis.com/auth/gmail.modify`; do not approve broader Gmail scopes for this tenant unless the client implementation and this document change together. The protected TypeScript workflow must consume only credentials with this attested scope set and must not broaden Gmail scopes.
 5. Store credentials, recovery material, tokens, and any tenant identifiers only in the approved secret and protected-document systems. Record lifecycle procedures for access review, operator replacement, user rotation, billing review, incident response, and tenant retirement.
 6. Have an authorized operator verify the protected record and the live tenant configuration. The verifier must confirm the synthetic-only boundary without copying sensitive values into the readiness record.
-7. Publish the completed redacted readiness record. Only a record with `status: ready` and every required Boolean set to `true` authorizes subsequent automation work.
+7. Publish the completed redacted readiness record in a reviewed pull request. Run `pnpm mail:test readiness inspect --json` before review and `pnpm mail:test readiness require-ready --json` after completing the record. Only a record with `status: ready` and every required Boolean set to `true` authorizes subsequent automation work.
 
 ## Current redacted readiness record
 
-The canonical readiness artifact is the single YAML block in this section of `docs/gmail-provider-test-tenant.md`. An authorized operator updates it in a reviewed pull request after human verification. Keep `schema_version` set to `1`, change `status` from `awaiting_operator_attestation` to `ready`, set every Boolean field to `true`, provide an ISO 8601 UTC `verified_at`, and provide a non-identifying `authorizer_role`. Do not include domains, email addresses, names, client identifiers, project identifiers, secret names, recovery channels, or links to protected systems.
+The canonical readiness artifact is [`gmail-provider-test-tenant-readiness.json`](gmail-provider-test-tenant-readiness.json). An authorized operator updates it in a reviewed pull request after human verification. Keep `schema_version` set to `1`, change `status` from `awaiting_operator_attestation` to `ready`, set every Boolean field to `true`, provide an ISO 8601 UTC `verified_at`, and provide a non-identifying lowercase role slug such as `provider-compatibility-authorizer` in `authorizer_role`. Do not include domains, email addresses, names, client identifiers, project identifiers, secret names, recovery channels, or links to protected systems.
 
-```yaml
-schema_version: 1
-status: awaiting_operator_attestation
-verified_at: null
-tenant:
-  project_controlled: null
-  synthetic_only: null
-  at_least_two_test_users: null
-oauth:
-  audience_internal: null
-  scopes_match_client: null
-operations:
-  administrative_owner_recorded: null
-  mfa_recorded: null
-  recovery_recorded: null
-  lifecycle_recorded: null
-  cost_owner_recorded: null
-secrets:
-  approved_system_only: null
-  repository_exposure_reviewed: null
-automation:
-  authorizer_role: null
-```
-
-The protected workflow must find exactly one readiness artifact, parse only the documented schema, require `schema_version: 1`, reject unknown fields, and reject missing, duplicate, or malformed artifacts. Readiness requires `status: ready`, a valid ISO 8601 UTC `verified_at`, a non-identifying `authorizer_role`, and every Boolean field set to `true`. Any other value fails closed and leaves Provider Compatibility Runs unauthorized.
+`pnpm mail:test readiness inspect --json` parses the exact documented schema and rejects unknown fields and missing or malformed values while reporting incomplete controls. `pnpm mail:test readiness require-ready --json` additionally exits unsuccessfully unless `status` is `ready`, the timestamp and role are present, and every Boolean is `true`. Protected Provider Compatibility workflows must run the latter command before accessing credentials or provider resources.
 
 ## Handoff after readiness
 

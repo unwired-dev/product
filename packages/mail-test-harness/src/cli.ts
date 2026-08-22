@@ -3,6 +3,10 @@ import type { RunCoreMailLoopOptions } from './command.ts';
 import { executeCommand } from './command.ts';
 import { visibleStepFailureContext } from './evidence.ts';
 import {
+  inspectGmailTenantReadiness,
+  requireGmailTenantReadiness,
+} from './gmail-readiness.ts';
+import {
   MessageContentFixtureError,
   runCategorizationScenario,
   runCoreMailLoopSmoke,
@@ -30,6 +34,12 @@ async function main(): Promise<void> {
   try {
     await executeCommand(args, abortController.signal, {
       doctor: runDoctor,
+      readinessInspect: async () => {
+        writeResult(await inspectGmailTenantReadiness());
+      },
+      readinessRequireReady: async () => {
+        writeResult(await requireGmailTenantReadiness());
+      },
       runCategorization,
       runCoreMailLoop,
       runIncrementalArrival,

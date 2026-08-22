@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "status": "awaiting_operator_attestation",
+  "verified_at": null,
+  "tenant": {
+    "project_controlled": null,
+    "synthetic_only": null,
+    "at_least_two_test_users": null
+  },
+  "oauth": {
+    "audience_internal": null,
+    "scopes_match_client": null
+  },
+  "operations": {
+    "administrative_owner_recorded": null,
+    "mfa_recorded": null,
+    "recovery_recorded": null,
+    "lifecycle_recorded": null,
+    "cost_owner_recorded": null
+  },
+  "secrets": {
+    "approved_system_only": null,
+    "repository_exposure_reviewed": null
+  },
+  "automation": {
+    "authorizer_role": null
+  }
+}
