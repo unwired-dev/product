@@ -7,10 +7,15 @@ extension MailCompositionDraftRepository {
     profileId: MailProfileId,
     session: ProductAccountSessionSnapshot? = nil
   ) async throws {
-    let previousReminder = try store.load(
-      productAccountId: productAccountId,
-      profileId: profileId
-    ).first { $0.id == draft.id }?.sendReminder
+    let previousReminder: SendReminder?
+    if session == nil {
+      previousReminder = nil
+    } else {
+      previousReminder = try store.load(
+        productAccountId: productAccountId,
+        profileId: profileId
+      ).first { $0.id == draft.id }?.sendReminder
+    }
     try store.save(draft, productAccountId: productAccountId, profileId: profileId)
     guard let session else { return }
 

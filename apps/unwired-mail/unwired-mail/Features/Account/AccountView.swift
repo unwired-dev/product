@@ -1917,6 +1917,9 @@ struct AccountView: View {
     .onChange(of: profileInterruptionViewModel.policy.allowsContentReveal) { _, allowsReveal in
       if allowsReveal {
         mailAssistanceViewModel.profileDidUnlock()
+        Task {
+          await loadCompositionDrafts(profileId: activeDraftProfileId)
+        }
         return
       }
       mailAssistanceViewModel.profileDidLock()
@@ -3808,7 +3811,8 @@ extension AccountView {
     profileId: MailProfileId
   ) async throws -> SendReminderNotificationOutcome {
     guard let reminder = draft.sendReminder else { return .unavailable }
-    guard reminder.notificationOwnerDeviceId == snapshot.trustedDeviceId,
+    guard reminder.isSynchronizationPending == false,
+      reminder.notificationOwnerDeviceId == snapshot.trustedDeviceId,
       sendReminderInterruptionPolicy(for: reminder).allowsInterruption
     else {
       cancelSendReminder(reminder, draftId: draft.id, profileId: profileId)
