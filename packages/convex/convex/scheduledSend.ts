@@ -48,47 +48,45 @@ function admissionResponse(
   };
 }
 
-type AdmissionArguments = {
-  deadlineAt: number;
-  dueAt: number;
-  encryptedPayloadIdentifier: string;
-  encryptedPayloadUpdatedAt: number;
-  revision: number;
-  scheduleId: string;
-  trustedDeviceId: Doc<'trustedDevices'>['_id'];
-};
+interface AdmissionArguments {
+  readonly deadlineAt: number;
+  readonly dueAt: number;
+  readonly encryptedPayloadIdentifier: string;
+  readonly encryptedPayloadUpdatedAt: number;
+  readonly revision: number;
+  readonly scheduleId: string;
+  readonly trustedDeviceId: Doc<'trustedDevices'>['_id'];
+}
 
-function assertValidAdmission(
-  args: Readonly<AdmissionArguments>,
-  now: number,
-) {
-  if (
-    args.dueAt < now + minuteMilliseconds ||
-    args.dueAt > now + yearMilliseconds ||
-    args.deadlineAt !== args.dueAt + dayMilliseconds ||
-    !Number.isSafeInteger(args.revision) ||
-    args.revision < 1
-  ) {
+function assertValidAdmission(args: AdmissionArguments, now: number) {
+  const isValid = [
+    args.dueAt >= now + minuteMilliseconds,
+    args.dueAt <= now + yearMilliseconds,
+    args.deadlineAt === args.dueAt + dayMilliseconds,
+    Number.isSafeInteger(args.revision),
+    args.revision >= 1,
+  ].every(Boolean);
+  if (!isValid) {
     throw new Error('Invalid Scheduled Send admission');
   }
 }
 
 function admissionConflicts(
-  existing: Readonly<Doc<'scheduledSends'>>,
-  args: Readonly<AdmissionArguments>,
+  existing: Readonly<Doc<'scheduledSends'>>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents contain generated mutable fields but are not mutated here.
+  args: AdmissionArguments,
 ) {
-  return (
-    existing.trustedDeviceId !== args.trustedDeviceId ||
-    existing.revision !== args.revision ||
-    existing.dueAt !== args.dueAt ||
-    existing.deadlineAt !== args.deadlineAt ||
-    existing.encryptedPayloadIdentifier !== args.encryptedPayloadIdentifier ||
-    existing.encryptedPayloadUpdatedAt !== args.encryptedPayloadUpdatedAt
-  );
+  return [
+    existing.trustedDeviceId === args.trustedDeviceId,
+    existing.revision === args.revision,
+    existing.dueAt === args.dueAt,
+    existing.deadlineAt === args.deadlineAt,
+    existing.encryptedPayloadIdentifier === args.encryptedPayloadIdentifier,
+    existing.encryptedPayloadUpdatedAt === args.encryptedPayloadUpdatedAt,
+  ].some((matches) => !matches);
 }
 
 function isCurrentActiveSchedule(
-  schedule: Readonly<Doc<'scheduledSends'>> | null,
+  schedule: Readonly<Doc<'scheduledSends'>> | null, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents contain generated mutable fields but are not mutated here.
   revision: number,
 ): schedule is Doc<'scheduledSends'> {
   return (
@@ -99,12 +97,25 @@ function isCurrentActiveSchedule(
 }
 
 function hasPushRecipient(
-  device: Readonly<Doc<'trustedDevices'>> | null,
+  device: Readonly<Doc<'trustedDevices'>> | null, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents contain generated mutable fields but are not mutated here.
 ): device is Doc<'trustedDevices'> & {
   apnsEnvironment: 'production' | 'sandbox';
   apnsToken: string;
 } {
   return device?.apnsEnvironment !== undefined && device.apnsToken !== undefined;
+}
+
+function isOwnedActiveRevision(
+  schedule: Readonly<Doc<'scheduledSends'>> | null, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents contain generated mutable fields but are not mutated here.
+  trustedDeviceId: Doc<'trustedDevices'>['_id'],
+  revision: number,
+): schedule is Doc<'scheduledSends'> {
+  if (schedule === null) return false;
+  return [
+    schedule.trustedDeviceId === trustedDeviceId,
+    schedule.revision === revision,
+    schedule.state === 'active',
+  ].every(Boolean);
 }
 
 export const admit = mutation({
@@ -134,10 +145,7 @@ export const admit = mutation({
           .eq('payloadIdentifier', args.encryptedPayloadIdentifier),
       )
       .unique();
-    if (
-      payload === null ||
-      payload.updatedAt !== args.encryptedPayloadUpdatedAt
-    ) {
+    if (payload?.updatedAt !== args.encryptedPayloadUpdatedAt) {
       throw new Error('Exact encrypted Scheduled Send payload required');
     }
     const existing = await ctx.db
@@ -242,12 +250,7 @@ export const cancel = mutation({
           .eq('scheduleId', args.scheduleId),
       )
       .unique();
-    if (
-      schedule === null ||
-      schedule.trustedDeviceId !== args.trustedDeviceId ||
-      schedule.revision !== args.revision ||
-      schedule.state !== 'active'
-    ) {
+    if (!isOwnedActiveRevision(schedule, args.trustedDeviceId, args.revision)) {
       return false;
     }
     if (schedule.scheduledFunctionId !== undefined) {
@@ -286,12 +289,7 @@ export const complete = mutation({
           .eq('scheduleId', args.scheduleId),
       )
       .unique();
-    if (
-      schedule === null ||
-      schedule.trustedDeviceId !== args.trustedDeviceId ||
-      schedule.revision !== args.revision ||
-      schedule.state !== 'active'
-    ) {
+    if (!isOwnedActiveRevision(schedule, args.trustedDeviceId, args.revision)) {
       return false;
     }
     // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field

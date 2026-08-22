@@ -81,7 +81,8 @@ describe('scheduled Send admission', () => {
     });
     expect(stored?.state).toBe('active');
     expect(stored?.trustedDeviceId).toBe(device.trustedDeviceId);
-    expect(Object.keys(stored ?? {}).sort()).toStrictEqual([
+    expect(stored).not.toBeNull();
+    expect(Object.keys(stored!).toSorted()).toStrictEqual([
       '_creationTime',
       '_id',
       'deadlineAt',
