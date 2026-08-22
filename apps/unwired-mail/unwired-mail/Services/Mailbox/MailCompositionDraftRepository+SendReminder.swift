@@ -175,26 +175,49 @@ extension MailCompositionDraftRepository {
     session: ProductAccountSessionSnapshot
   ) async throws -> MailShellCompositionDraft {
     var result = draft
-    if snapshot.removedDraftIds.contains(draft.id) {
+    if let localReminder = draft.sendReminder,
+      localReminder.isSynchronizationPending
+    {
+      result.sendReminder = try await synchronizedReminder(
+        localReminder,
+        for: draft,
+        profileId: profileId,
+        session: session
+      )
+    } else if snapshot.removedDraftIds.contains(draft.id) {
       result.sendReminder = nil
     } else if let authoritative = snapshot.remindersByDraftId[draft.id],
       draft.sendReminder?.isSynchronizationPending != true
     {
       result.sendReminder = authoritative.synchronized()
     } else if let localReminder = draft.sendReminder {
-      let mutation = try await reminderSyncService.synchronize(
+      result.sendReminder = try await synchronizedReminder(
         localReminder,
-        draftId: draft.id,
-        draftUpdatedAtMilliseconds: draft.updatedAtMilliseconds,
+        for: draft,
         profileId: profileId,
         session: session
       )
-      switch mutation {
-      case .accepted(let reminder), .authoritative(let reminder):
-        result.sendReminder = reminder
-      }
     }
     return result
+  }
+
+  private func synchronizedReminder(
+    _ reminder: SendReminder,
+    for draft: MailShellCompositionDraft,
+    profileId: MailProfileId,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> SendReminder? {
+    let mutation = try await reminderSyncService.synchronize(
+      reminder,
+      draftId: draft.id,
+      draftUpdatedAtMilliseconds: draft.updatedAtMilliseconds,
+      profileId: profileId,
+      session: session
+    )
+    switch mutation {
+    case .accepted(let reminder), .authoritative(let reminder):
+      return reminder
+    }
   }
 
   private func persistReminderProjection(

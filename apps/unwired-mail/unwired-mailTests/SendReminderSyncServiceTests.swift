@@ -297,6 +297,79 @@ struct SendReminderSyncServiceTests {
   }
 
   @Test(.bug(id: 378))
+  func newerOfflineRescheduleWinsOlderCancellationTombstone() async throws {
+    let fixture = try makeFixture()
+    let rootDirectory = FileManager.default.temporaryDirectory.appending(
+      path: "send-reminder-reschedule-\(UUID().uuidString)",
+      directoryHint: .isDirectory
+    )
+    defer { try? FileManager.default.removeItem(at: rootDirectory) }
+    let onlineRepository = repository(
+      rootDirectory: rootDirectory,
+      keyStore: fixture.firstKeyStore,
+      transport: fixture.transport,
+      nowMilliseconds: { 2_000_000_000_001 }
+    )
+    var source = draft(updatedAtMilliseconds: 2_000_000_000_000)
+    let initial = reminder(
+      owner: firstSession.trustedDeviceId,
+      changedAtMilliseconds: source.updatedAtMilliseconds
+    )
+    source.sendReminder = initial
+    try await onlineRepository.save(
+      source,
+      productAccountId: firstSession.productAccountId,
+      profileId: profileId,
+      session: firstSession
+    )
+    let remoteService = service(
+      keyStore: fixture.secondKeyStore,
+      transport: fixture.transport,
+      nowMilliseconds: { 2_000_000_000_001 }
+    )
+    #expect(
+      try await remoteService.cancel(
+        draftId: source.id,
+        expectedRevision: initial.revision,
+        profileId: profileId,
+        session: secondSession
+      ) == .accepted(nil)
+    )
+
+    let rescheduled = initial.rescheduled(
+      to: Date(timeIntervalSince1970: 2_000_020_000),
+      originalTimeZoneIdentifier: "Europe/Prague",
+      changedByTrustedDeviceId: firstSession.trustedDeviceId,
+      changedAt: Date(timeIntervalSince1970: 2_000_000_001)
+    )
+    source.updatedAtMilliseconds = rescheduled.changedAtMilliseconds
+    source.sendReminder = rescheduled
+    let offlineRepository = repository(
+      rootDirectory: rootDirectory,
+      keyStore: fixture.firstKeyStore,
+      transport: OfflineSendReminderTransport(),
+      nowMilliseconds: { 2_000_000_001_001 }
+    )
+    try await offlineRepository.save(
+      source,
+      productAccountId: firstSession.productAccountId,
+      profileId: profileId,
+      session: firstSession
+    )
+
+    let reconciled = try #require(
+      try await onlineRepository.drafts(
+        productAccountId: firstSession.productAccountId,
+        profileId: profileId,
+        session: firstSession
+      ).first
+    )
+    #expect(reconciled.sendReminder?.revision == rescheduled.revision)
+    #expect(reconciled.sendReminder?.dueAt == rescheduled.dueAt)
+    #expect(reconciled.sendReminder?.isSynchronizationPending == false)
+  }
+
+  @Test(.bug(id: 378))
   func interruptionPolicyHonorsEveryPresentationGate() {
     let cases: [(SendReminderInterruptionPolicy, Bool)] = [
       (
