@@ -121,6 +121,35 @@ export default defineSchema({
     trustedDeviceId: v.id('trustedDevices'),
   }).index('by_trustedDeviceId', ['trustedDeviceId']),
 
+  scheduledSends: defineTable({
+    deadlineAt: v.number(),
+    dueAt: v.number(),
+    encryptedPayloadIdentifier: v.string(),
+    encryptedPayloadUpdatedAt: v.number(),
+    productAccountId: v.id('productAccounts'),
+    revision: v.number(),
+    scheduleId: v.string(),
+    scheduledFunctionId: v.optional(v.id('_scheduled_functions')),
+    state: v.union(
+      v.literal('active'),
+      v.literal('cancelled'),
+      v.literal('completed'),
+      v.literal('needs-attention'),
+    ),
+    trustedDeviceId: v.id('trustedDevices'),
+    updatedAt: v.number(),
+    wakeAttemptedAt: v.optional(v.number()),
+  })
+    .index('by_productAccountId_and_scheduleId', [
+      'productAccountId',
+      'scheduleId',
+    ])
+    .index('by_trustedDeviceId_and_state_and_dueAt', [
+      'trustedDeviceId',
+      'state',
+      'dueAt',
+    ]),
+
   encryptedProductSyncPayloads: defineTable({
     encryptedPayload: v.object({
       algorithm: v.literal('AES-GCM-256'),

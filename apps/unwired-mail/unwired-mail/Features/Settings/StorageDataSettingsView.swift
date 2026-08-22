@@ -2,7 +2,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct StorageDataSettingsView: View {
-  let session: ProductAccountSessionSnapshot
+  let session: ProductAccountSessionSnapshot?
   let viewModel: StorageDataSettingsViewModel
 
   @State private var confirmsClear = false
@@ -13,8 +13,10 @@ struct StorageDataSettingsView: View {
       StorageOverviewSection(viewModel: viewModel)
       DraftStorageSection(snapshot: viewModel.snapshot)
       ClearStorageSection(confirmsClear: $confirmsClear, viewModel: viewModel)
-      ProductSyncExportSection(session: session, viewModel: viewModel)
-      ReadReceiptStorageSection(summary: viewModel.readReceiptSummary)
+      if let session {
+        ProductSyncExportSection(session: session, viewModel: viewModel)
+        ReadReceiptStorageSection(summary: viewModel.readReceiptSummary)
+      }
 
       if let statusMessage = viewModel.statusMessage {
         Section {
@@ -22,7 +24,7 @@ struct StorageDataSettingsView: View {
         }
       }
     }
-    .navigationTitle("Storage & Export")
+    .navigationTitle(session == nil ? "Device Storage" : "Storage & Export")
     .task(id: ObjectIdentifier(viewModel)) {
       await viewModel.refresh()
     }
@@ -50,7 +52,7 @@ struct StorageDataSettingsView: View {
       )
     }
     .alert(
-      "Storage & Export unavailable",
+      session == nil ? "Device Storage unavailable" : "Storage & Export unavailable",
       isPresented: Binding(
         get: { viewModel.alertMessage != nil },
         set: { isPresented in
@@ -74,7 +76,6 @@ struct StorageDataSettingsView: View {
       viewModel.finishExport()
     }
   }
-
 }
 
 private struct StorageOverviewSection: View {

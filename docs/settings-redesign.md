@@ -1,10 +1,10 @@
 # Settings redesign
 
-Status: implementation in progress. The adaptive shell plus Email Accounts, Account & Devices,
-Appearance, Privacy & Data, Advanced, Inbox, Reading, Swipes, Compose, Signatures, Templates,
-Categories, and Notifications destinations are available through development-only entry points.
-Production still uses Account Settings until the signed-out Settings and About work in #132 and
-the complete Settings release in #133 are ready.
+Status: implementation in progress. Signed-out users can open production Settings for Appearance,
+Privacy & Data, local-only Advanced diagnostics, and About while account-bound destinations remain
+visible but unavailable. Signed-in production still uses Account Settings until the complete
+Settings release in #133 is ready; development entry points expose the full adaptive shell,
+including Mail Profiles.
 
 ## Goal
 
@@ -17,6 +17,7 @@ The released experience must not contain empty or “Coming Soon” destinations
 | Group | Destination | Purpose |
 | --- | --- | --- |
 | Accounts | Email Accounts | Manage Mailbox Connections, authorization, sending identity, and synchronization |
+| Accounts | Mail Profiles | Create, style, duplicate, transfer, and delete encrypted workspace boundaries |
 | Accounts | Account & Devices | Manage the Product Account, Trusted Devices, recovery, sign-out, and deletion |
 | Mail | Inbox | Configure inbox presentation and launch behavior |
 | Mail | Reading | Configure Message Read State and Read Receipt behavior |
@@ -105,6 +106,28 @@ providers cannot overwrite newer cached definitions or one another's durable sta
 temporary empty cache.
 
 ## Destination requirements
+
+### Mail Profiles
+
+The development Settings experience implements Profile lifecycle management without enabling the
+production Settings entry point. It always shows the Profile that owns a Profile-scoped control;
+changing that control updates the running window without restarting the app.
+
+- Create, rename, and style a Profile with a curated icon and color. Offline edits remain visible
+  and retry through encrypted Product Sync.
+- Duplicate only explicitly selected Categories, Mail Views, and Templates. Mailbox Connections,
+  credentials, provider mail, Drafts, Outbox attempts, pending actions, and Pins are never copied.
+- Transfer a Mailbox Connection atomically without reauthorization. Source Profile-wide settings
+  remain in the source Profile, and only explicitly reviewed Custom Categories may be copied.
+- Delete only a non-final Profile with no Mailbox Connections, Drafts, Outbox attempts, or pending
+  Provider Mail Actions. The deletion review reads local operational stores before committing.
+- Keep Startup Profile and per-window restoration on this device.
+
+The migrated Default Profile keeps legacy Product Account-scoped identifiers. New Profiles use an
+opaque `mail-profile-v1` namespace, so mixed-version clients continue to operate on the Default
+Profile without reading or overwriting another Profile. Profile names, appearance, ownership, and
+Profile-owned settings are included in the encrypted Product Sync export; credentials and
+device-local preferences remain excluded.
 
 ### Email Accounts
 
@@ -307,6 +330,10 @@ Raw backend health checks, environment switching, and test controls are debug-on
 
 Diagnostics, account identifiers, and environment information are excluded.
 
+The production About destination links to the public Privacy Policy, Terms of Use, support contact,
+and product website. The Terms of Use page must be published at `https://www.unwired.dev/terms`
+before this slice can merge.
+
 ## Signed-out behavior
 
 Settings remains available before Product Account sign-in:
@@ -425,6 +452,8 @@ require action.
 - UI tests cover iPhone compact width, iPad regular and compact widths, and the macOS Settings window.
 - Accessibility validation covers VoiceOver labels, keyboard navigation, focus order, Dynamic Type, contrast, and reduced motion.
 - Regression tests prove existing connections, Categories, Notification Rules, and Generic Notification Fallback survive migration.
+- Mixed-version tests prove the Default Profile retains legacy record identifiers while new Profiles remain namespaced.
+- Release validation exercises create, switch, edit, sync, duplicate, transfer, notification routing, export, and delete flows on iPhone, iPad, and macOS, including two simultaneous windows with different active Profiles.
 - Apple formatting, lint, and the relevant full test suite pass.
 - When a slice touches Convex or other TypeScript support, `pnpm lint`, `pnpm format`, `pnpm turbo run check-types`, `pnpm test`, and `pnpm fallow` pass.
 

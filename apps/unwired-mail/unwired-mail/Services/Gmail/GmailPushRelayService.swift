@@ -2184,6 +2184,94 @@ private struct GmailWatchResponse: Decodable {
   let historyId: String
 }
 
+@MainActor
+struct ScheduledSendWakeupHandler {
+  private let connectionStore: GmailPushConnectionPersisting
+  private let mailService: GmailMailboxConnectionAdapter
+  private let outboxService: OutboxDeliveryService
+  private let revalidateTrustedDevice: @MainActor (ProductAccountSessionSnapshot) async -> Bool
+  private let sessionStore: ProductAccountSessionPersisting
+
+  init(
+    connectionStore: GmailPushConnectionPersisting = KeychainGmailPushConnectionStore(),
+    mailService: GmailMailboxConnectionAdapter = GmailMailboxConnectionAdapter(),
+    outboxService: OutboxDeliveryService = .shared,
+    revalidateTrustedDevice:
+      @escaping @MainActor (ProductAccountSessionSnapshot) async -> Bool = { _ in true },
+    sessionStore: ProductAccountSessionPersisting = KeychainProductAccountSessionStore()
+  ) {
+    self.connectionStore = connectionStore
+    self.mailService = mailService
+    self.outboxService = outboxService
+    self.revalidateTrustedDevice = revalidateTrustedDevice
+    self.sessionStore = sessionStore
+  }
+
+  // swiftlint:disable:next function_body_length
+  func handle(userInfo: [AnyHashable: Any]? = nil) async throws -> Bool {
+    let requestedSchedule: (id: UUID, revision: Int)?
+    if let userInfo {
+      guard userInfo["provider"] as? String == "scheduled-send",
+        let idValue = userInfo["scheduleId"] as? String,
+        let id = UUID(uuidString: idValue),
+        let revision = (userInfo["revision"] as? NSNumber)?.intValue
+      else { return false }
+      requestedSchedule = (id, revision)
+    } else {
+      requestedSchedule = nil
+    }
+    guard let session = try sessionStore.load(),
+      await revalidateTrustedDevice(session)
+    else { return false }
+    let attempts = try await outboxService.actionableItems(session: session)
+    let scheduledAttempts = attempts.filter { attempt in
+      guard attempt.isScheduledSend else { return false }
+      guard let requestedSchedule else { return true }
+      return attempt.scheduledSendId == requestedSchedule.id
+        && attempt.scheduledSendRevision == requestedSchedule.revision
+    }
+    guard !scheduledAttempts.isEmpty else { return false }
+
+    let statuses = try connectionStore.loadAll(productAccountId: session.productAccountId)
+      .filter { $0.provider == "gmail" && $0.trustedDeviceId == session.trustedDeviceId }
+    let connections = statuses.map {
+      $0.mailboxConnection(
+        productAccountId: session.productAccountId,
+        authorizationState: .authorized
+      )
+    }
+    let connectionsById = Dictionary(
+      connections.map { ($0.id, $0) },
+      uniquingKeysWith: { _, latest in latest }
+    )
+    try await outboxService.resume(
+      connections: connections,
+      session: session,
+      provider: { message, idempotencyKey, connectionId in
+        guard let connection = connectionsById[connectionId] else {
+          throw MailboxConnectionAdapterError.authorizationRequired
+        }
+        try await mailService.send(
+          message.withIdempotencyKey(idempotencyKey),
+          connection: connection,
+          session: session
+        )
+      },
+      reconcile: { idempotencyKey, connectionId in
+        guard let connection = connectionsById[connectionId] else {
+          throw MailboxConnectionAdapterError.authorizationRequired
+        }
+        return try await mailService.deliveryStatus(
+          idempotencyKey: idempotencyKey,
+          connection: connection,
+          session: session
+        )
+      }
+    )
+    return true
+  }
+}
+
 #if canImport(UIKit)
   import BackgroundTasks
 
@@ -2195,6 +2283,18 @@ private struct GmailWatchResponse: Decodable {
   enum MailRefreshBackgroundTask {
     static let identifier = "dev.unwired.mail.refresh"
     static let interval: TimeInterval = 12 * 60 * 60
+
+    static func nextInterval(
+      now: Date,
+      attempts: [OutgoingDeliveryAttempt]
+    ) -> TimeInterval {
+      let nextDueAt = attempts.compactMap(\.scheduledSendAtMilliseconds).min()
+      guard let nextDueAt else { return interval }
+      return min(
+        interval,
+        max(0, Double(nextDueAt) / 1_000 - now.timeIntervalSince1970)
+      )
+    }
 
     @discardableResult
     nonisolated static func run(
@@ -2361,6 +2461,11 @@ private struct GmailWatchResponse: Decodable {
                 revalidateTrustedDevice: revalidator.revalidate
               ).handle(userInfo: userInfo)
             }
+            if !handled {
+              handled = try await ScheduledSendWakeupHandler(
+                revalidateTrustedDevice: revalidator.revalidate
+              ).handle(userInfo: userInfo)
+            }
             return handled
           }
           if let revokedSession = revocationRecorder.session {
@@ -2373,6 +2478,7 @@ private struct GmailWatchResponse: Decodable {
       }
     }
 
+    // swiftlint:disable:next cyclomatic_complexity function_body_length
     nonisolated private static func handle(
       _ refreshTask: BGAppRefreshTask,
       trustedDeviceRevoked:
@@ -2409,6 +2515,15 @@ private struct GmailWatchResponse: Decodable {
                   firstError = firstError ?? error
                 }
               }
+              if !Task.isCancelled {
+                do {
+                  _ = try await ScheduledSendWakeupHandler(
+                    revalidateTrustedDevice: revalidator.revalidate
+                  ).handle()
+                } catch {
+                  firstError = firstError ?? error
+                }
+              }
               if Task.isCancelled { throw CancellationError() }
               if let firstError { throw firstError }
               return true
@@ -2432,8 +2547,15 @@ private struct GmailWatchResponse: Decodable {
 
     nonisolated private static func scheduleBackgroundRefresh() {
       let request = BGAppRefreshTaskRequest(identifier: MailRefreshBackgroundTask.identifier)
+      let attempts =
+        (try? ProductAccountSessionStore.load()).flatMap { session in
+          try? FileOutboxDeliveryStore().load(productAccountId: session.productAccountId)
+        } ?? []
       request.earliestBeginDate = Date(
-        timeIntervalSinceNow: MailRefreshBackgroundTask.interval
+        timeIntervalSinceNow: MailRefreshBackgroundTask.nextInterval(
+          now: .now,
+          attempts: attempts
+        )
       )
       do {
         try BGTaskScheduler.shared.submit(request)

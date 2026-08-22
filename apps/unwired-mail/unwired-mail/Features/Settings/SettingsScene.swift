@@ -86,6 +86,7 @@ enum SettingsDestination: String, CaseIterable, Identifiable {
   case compose
   case emailAccounts
   case inbox
+  case mailProfiles
   case notifications
   case privacyAndData
   case reading
@@ -97,7 +98,7 @@ enum SettingsDestination: String, CaseIterable, Identifiable {
 
   var group: SettingsGroup {
     switch self {
-    case .accountAndDevices, .emailAccounts:
+    case .accountAndDevices, .emailAccounts, .mailProfiles:
       return .accounts
     case .appearance, .privacyAndData, .advanced, .about:
       return .application
@@ -128,6 +129,8 @@ enum SettingsDestination: String, CaseIterable, Identifiable {
       return "Email Accounts"
     case .inbox:
       return "Inbox"
+    case .mailProfiles:
+      return "Mail Profiles"
     case .notifications:
       return "Notifications"
     case .privacyAndData:
@@ -161,6 +164,8 @@ enum SettingsDestination: String, CaseIterable, Identifiable {
       return "at"
     case .inbox:
       return "tray"
+    case .mailProfiles:
+      return "person.crop.rectangle.stack"
     case .notifications:
       return "bell"
     case .privacyAndData:
@@ -191,8 +196,31 @@ enum SettingsDestination: String, CaseIterable, Identifiable {
 }
 
 extension SettingsDestination {
+  var containsMailProfileOwnedControls: Bool {
+    switch self {
+    case .categories, .compose, .emailAccounts, .inbox, .signatures, .templates:
+      return true
+    case .about, .accountAndDevices, .advanced, .appearance, .mailProfiles, .notifications,
+      .privacyAndData, .reading, .swipes:
+      return false
+    }
+  }
+
   var searchItems: [SettingsSearchItem] {
     switch self {
+    case .about:
+      return [
+        SettingsSearchItem(title: "Version & Build", route: route),
+        SettingsSearchItem(title: "Privacy Policy", route: route),
+        SettingsSearchItem(title: "Terms of Use", route: route),
+        SettingsSearchItem(
+          title: "Open Source",
+          keywords: ["Licenses", "Acknowledgements"],
+          route: route
+        ),
+        SettingsSearchItem(title: "Support", route: route),
+        SettingsSearchItem(title: "Product Website", route: route),
+      ]
     case .advanced:
       return [
         SettingsSearchItem(
@@ -203,6 +231,24 @@ extension SettingsDestination {
         SettingsSearchItem(
           title: "Local Maintenance",
           keywords: ["Rebuild indexes", "Clear", "Resynchronize"],
+          route: route
+        ),
+      ]
+    case .mailProfiles:
+      return [
+        SettingsSearchItem(
+          title: "Profile Identity",
+          keywords: ["Create", "Rename", "Icon", "Color", "Duplicate"],
+          route: route
+        ),
+        SettingsSearchItem(
+          title: "Mailbox Connection Ownership",
+          keywords: ["Transfer", "Move", "Delete Profile"],
+          route: route
+        ),
+        SettingsSearchItem(
+          title: "Startup Profile",
+          keywords: ["New Windows", "Device local"],
           route: route
         ),
       ]
@@ -455,8 +501,8 @@ extension SettingsDestination {
     switch self {
     case .about, .advanced, .appearance, .privacyAndData:
       return true
-    case .accountAndDevices, .categories, .compose, .emailAccounts, .inbox, .notifications,
-      .reading, .signatures, .swipes, .templates:
+    case .accountAndDevices, .categories, .compose, .emailAccounts, .inbox, .mailProfiles,
+      .notifications, .reading, .signatures, .swipes, .templates:
       return false
     }
   }
@@ -729,8 +775,11 @@ extension View {
 }
 
 enum SettingsDestinationRegistry {
+  static let signedOutUnavailableExplanation = "Sign in to use this setting."
+
   static let implementedDestinations: [SettingsDestination] = [
     .emailAccounts,
+    .mailProfiles,
     .accountAndDevices,
     .appearance,
     .privacyAndData,
@@ -743,24 +792,25 @@ enum SettingsDestinationRegistry {
     .categories,
     .notifications,
     .templates,
+    .about,
   ]
 
   static var implementedGroups: [SettingsGroup] {
     implementedGroups(isSignedIn: true)
   }
 
-  static func implementedGroups(isSignedIn: Bool) -> [SettingsGroup] {
+  static func implementedGroups(isSignedIn _: Bool) -> [SettingsGroup] {
     SettingsGroup.allCases.filter {
-      !destinations(in: $0, isSignedIn: isSignedIn).isEmpty
+      !destinations(in: $0).isEmpty
     }
   }
 
   static func destinations(
     in group: SettingsGroup,
-    isSignedIn: Bool = true
+    isSignedIn _: Bool = true
   ) -> [SettingsDestination] {
     implementedDestinations.filter {
-      $0.group == group && (isSignedIn || $0.isAvailableWhenSignedOut)
+      $0.group == group
     }
   }
 
@@ -796,13 +846,12 @@ enum SettingsDestinationRegistry {
 
   static func search(
     matching query: String,
-    isSignedIn: Bool
+    isSignedIn _: Bool
   ) -> [SettingsSearchResult] {
     let query = normalizedSearchText(query)
     guard !query.isEmpty else { return [] }
 
     return implementedDestinations.flatMap { destination -> [SettingsSearchResult] in
-      guard isSignedIn || destination.isAvailableWhenSignedOut else { return [] }
       var results: [SettingsSearchResult] = []
       if normalizedSearchText(
         [destination.title, destination.group.title].joined(separator: " ")
@@ -843,7 +892,9 @@ enum SettingsDestinationRegistry {
   }
 }
 
+// swiftlint:disable:next type_body_length
 struct AdaptiveSettingsScene<DestinationContent: View>: View {
+  let activeProfile: MailProfileDefinition?
   let isSignedIn: Bool
   let showsDismissButton: Bool
   let attentions: [SettingsAttention]
@@ -869,6 +920,7 @@ struct AdaptiveSettingsScene<DestinationContent: View>: View {
   }
 
   init(
+    activeProfile: MailProfileDefinition? = nil,
     isSignedIn: Bool,
     showsDismissButton: Bool,
     attentions: [SettingsAttention] = [],
@@ -878,6 +930,7 @@ struct AdaptiveSettingsScene<DestinationContent: View>: View {
     @ViewBuilder destinationContent:
       @escaping (SettingsDestination, SettingsRouteRequest?) -> DestinationContent
   ) {
+    self.activeProfile = activeProfile
     self.isSignedIn = isSignedIn
     self.showsDismissButton = showsDismissButton
     self.attentions = attentions
@@ -933,6 +986,8 @@ struct AdaptiveSettingsScene<DestinationContent: View>: View {
         NavigationLink(value: destination) {
           destinationLabel(destination)
         }
+        .disabled(!isAvailable(destination))
+        .accessibilityHint(unavailableHint(for: destination))
       }
       .navigationTitle("Settings")
       .navigationDestination(for: SettingsDestination.self) { destination in
@@ -964,6 +1019,8 @@ struct AdaptiveSettingsScene<DestinationContent: View>: View {
           destinationLabel(destination)
         }
         .buttonStyle(.plain)
+        .disabled(!isAvailable(destination))
+        .accessibilityHint(unavailableHint(for: destination))
         .listRowBackground(
           selection == destination ? Color.accentColor.opacity(0.14) : Color.clear
         )
@@ -1015,6 +1072,11 @@ struct AdaptiveSettingsScene<DestinationContent: View>: View {
                     Text(result.subtitle)
                       .font(.caption)
                       .foregroundStyle(.secondary)
+                    if !isAvailable(result.route.destination) {
+                      Text(Self.unavailableExplanation)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    }
                   }
                   Spacer()
                   Image(systemName: "chevron.right")
@@ -1024,6 +1086,8 @@ struct AdaptiveSettingsScene<DestinationContent: View>: View {
                 .contentShape(Rectangle())
               }
               .buttonStyle(.plain)
+              .disabled(!isAvailable(result.route.destination))
+              .accessibilityHint(unavailableHint(for: result.route.destination))
             }
           }
         }
@@ -1034,7 +1098,14 @@ struct AdaptiveSettingsScene<DestinationContent: View>: View {
 
   private func destinationLabel(_ destination: SettingsDestination) -> some View {
     HStack {
-      Label(destination.title, systemImage: destination.systemImage)
+      VStack(alignment: .leading, spacing: 4) {
+        Label(destination.title, systemImage: destination.systemImage)
+        if !isAvailable(destination) {
+          Text(Self.unavailableExplanation)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+      }
       Spacer()
       if attention(for: destination) != nil {
         Image(systemName: "exclamationmark.circle.fill")
@@ -1045,8 +1116,23 @@ struct AdaptiveSettingsScene<DestinationContent: View>: View {
     .contentShape(Rectangle())
   }
 
+  private func isAvailable(_ destination: SettingsDestination) -> Bool {
+    isSignedIn || destination.isAvailableWhenSignedOut
+  }
+
+  private func unavailableHint(for destination: SettingsDestination) -> String {
+    isAvailable(destination) ? "" : Self.unavailableExplanation
+  }
+
+  private static var unavailableExplanation: String {
+    SettingsDestinationRegistry.signedOutUnavailableExplanation
+  }
+
   private func detail(_ destination: SettingsDestination) -> some View {
     VStack(spacing: 0) {
+      if destination.containsMailProfileOwnedControls, let activeProfile {
+        MailProfileSettingsScopeBanner(profile: activeProfile)
+      }
       if let attention = attention(for: destination) {
         Label(attention.message, systemImage: "exclamationmark.circle.fill")
           .font(.callout)
@@ -1073,6 +1159,27 @@ struct AdaptiveSettingsScene<DestinationContent: View>: View {
         }
       }
     }
+  }
+}
+
+private struct MailProfileSettingsScopeBanner: View {
+  let profile: MailProfileDefinition
+
+  var body: some View {
+    Label {
+      Text(
+        "Profile-owned controls apply to **\(profile.name)**. Device-only controls stay on this device."
+      )
+    } icon: {
+      Image(systemName: profile.appearance.symbolName)
+        .accessibilityHidden(true)
+    }
+    .font(.callout)
+    .foregroundStyle(.secondary)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .padding()
+    .background(.secondary.opacity(0.08))
+    .accessibilityElement(children: .combine)
   }
 }
 
@@ -2399,47 +2506,16 @@ private struct CategoryHistoricalSettingsSection: View {
           ProgressView("Loading Settings…")
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .signedOut:
-          AdaptiveSettingsScene(
-            isSignedIn: false,
-            showsDismissButton: true,
-            destinationContent: { destination, request in
-              if destination == .appearance {
-                AppearanceSettingsView(navigationRequest: request)
-              } else if destination == .privacyAndData {
-                PrivacyDataSettingsView(connections: [])
-              } else if destination == .advanced {
-                AdvancedSettingsView(
-                  connections: [],
-                  productSyncHealth: .signedOut,
-                  status: { _ in .idle }
-                )
-              }
-            }
-          )
+          SignedOutSettingsView()
         case .failed(let message):
-          AdaptiveSettingsScene(
-            isSignedIn: false,
-            showsDismissButton: true,
+          SignedOutSettingsView(
             attentions: [
               SettingsAttention(
                 destination: .appearance,
                 kind: .recovery,
                 message: message
               )
-            ],
-            destinationContent: { destination, request in
-              if destination == .appearance {
-                AppearanceSettingsView(navigationRequest: request)
-              } else if destination == .privacyAndData {
-                PrivacyDataSettingsView(connections: [])
-              } else if destination == .advanced {
-                AdvancedSettingsView(
-                  connections: [],
-                  productSyncHealth: .signedOut,
-                  status: { _ in .idle }
-                )
-              }
-            }
+            ]
           )
         case .signedIn(let snapshot):
           DevelopmentEmailAccountsSettingsHost(
@@ -2601,6 +2677,9 @@ private struct CategoryHistoricalSettingsSection: View {
 
     var body: some View {
       AdaptiveSettingsScene(
+        activeProfile: MailProfileDefinition.defaultProfile(
+          productAccountId: snapshot.productAccountId
+        ),
         isSignedIn: true,
         showsDismissButton: true,
         attentions: settingsAttentions,
@@ -2693,6 +2772,15 @@ private struct CategoryHistoricalSettingsSection: View {
               featureSuggestionStore: featureSuggestionPreferenceStore,
               navigationRequest: request
             )
+          case .mailProfiles:
+            MailProfilesSettingsView(
+              viewModel: MailProfileSettingsViewModel(session: snapshot),
+              connectionName: { connectionId in
+                gmailViewModel.connections.first(where: { $0.id == connectionId })?.displayName
+                  ?? "Mailbox Connection"
+              },
+              profilesDidChange: { _ in }
+            )
           case .notifications:
             NotificationsSettingsView(
               categoryChoices: MessageCategoryChoice.available(
@@ -2732,6 +2820,8 @@ private struct CategoryHistoricalSettingsSection: View {
               navigationRequest: request
             )
             .task { await readingPreferenceStore.synchronize() }
+          case .about:
+            AboutSettingsView()
           case .appearance:
             AppearanceSettingsView(navigationRequest: request)
           case .privacyAndData:
