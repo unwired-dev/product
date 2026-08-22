@@ -286,6 +286,7 @@ function apnsAuthority(environment: ApnsDelivery['apnsEnvironment']): string {
     : 'https://api.sandbox.push.apple.com';
 }
 
+// fallow-ignore-next-line code-duplication -- Gmail and Scheduled Send wakeups share transport mechanics but retain different payload and cleanup contracts.
 async function deliverGmailWakeupBatch(
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Convex supplies its mutable action context.
   ctx: ActionCtx,
@@ -453,6 +454,7 @@ export const deliverScheduledSendWakeup = internalAction({
     revision: v.number(),
     scheduleDocumentId: v.id('scheduledSends'),
   },
+  // fallow-ignore-next-line code-duplication -- Scheduled Send fan-out mirrors pooled APNs transport while preserving schedule-specific payload and cleanup.
   handler: async (ctx, args) => {
     const recipients = await ctx.runMutation(
       internal.scheduledSend.claimWakeup,

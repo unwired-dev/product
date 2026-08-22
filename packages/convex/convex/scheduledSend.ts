@@ -66,6 +66,7 @@ const scheduledDeliveryAuthorizationArgs = {
   trustedDeviceId: v.id('trustedDevices'),
 };
 
+// fallow-ignore-next-line code-duplication -- Scheduled Delivery Authorization keeps its private digest encoding local to this capability boundary.
 function bytesToHex(bytes: Readonly<Uint8Array>): string {
   return [...bytes].map((byte) => byte.toString(16).padStart(2, '0')).join('');
 }
@@ -461,6 +462,7 @@ export const claim = mutation({
   returns: claimResponseValidator,
 });
 
+// fallow-ignore-next-line code-duplication -- Handoff advancement and release remain distinct capabilities with different permitted claim phases.
 export const advanceClaimToHandoff = mutation({
   args: {
     ...scheduledDeliveryAuthorizationArgs,
@@ -535,6 +537,7 @@ export const revalidateClaim = query({
   returns: claimResponseValidator,
 });
 
+// fallow-ignore-next-line code-duplication -- Claim release clears a pre-handoff lease and cannot share handoff mutation authority.
 export const releaseClaim = mutation({
   args: {
     ...scheduledDeliveryAuthorizationArgs,
