@@ -418,12 +418,12 @@ export const deliverQueuedGmailWakeups = internalAction({
   returns: v.null(),
 });
 
-// fallow-ignore-next-line code-duplication -- Provider completion and Scheduled Send wakeup retain distinct claim and completion contracts around shared APNs transport.
 export const deliverMicrosoftGraphWakeup = internalAction({
   args: {
     routeId: v.id('mailProviderConnections'),
     scheduledAt: v.number(),
   },
+  // fallow-ignore-next-line code-duplication -- Provider completion and Scheduled Send wakeup retain distinct claim and completion contracts around shared APNs transport.
   handler: async (ctx, args) => {
     const recipient = await ctx.runMutation(
       internal.pushRelay.claimMicrosoftGraphWakeup,
@@ -459,12 +459,12 @@ export const deliverMicrosoftGraphWakeup = internalAction({
   returns: v.null(),
 });
 
-// fallow-ignore-next-line code-duplication -- Scheduled Send wakeup and provider completion retain distinct claim and completion contracts around shared APNs transport.
 export const deliverScheduledSendWakeup = internalAction({
   args: {
     revision: v.number(),
     scheduleDocumentId: v.id('scheduledSends'),
   },
+  // fallow-ignore-next-line code-duplication -- Scheduled Send wakeup and provider completion retain distinct claim and completion contracts around shared APNs transport.
   handler: async (ctx, args) => {
     const recipients = await ctx.runMutation(
       internal.scheduledSend.claimWakeup,
