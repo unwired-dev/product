@@ -14,6 +14,7 @@ const minuteMilliseconds = 60 * 1000;
 const dayMilliseconds = 24 * 60 * minuteMilliseconds;
 const yearMilliseconds = 365 * dayMilliseconds;
 const claimDurationMilliseconds = 15 * minuteMilliseconds;
+const editDurationMilliseconds = 15 * minuteMilliseconds;
 const scheduledDeliveryCapabilityVersion = 1;
 const authorizationByteCount = 32;
 const scheduledWakeupPageSize = 20;
@@ -32,6 +33,7 @@ const statusResponseValidator = v.union(
   v.object({
     deadlineAt: v.number(),
     dueAt: v.number(),
+    encryptedPayloadIdentifier: v.string(),
     encryptedPayloadUpdatedAt: v.number(),
     revision: v.number(),
     scheduleId: v.string(),
@@ -61,6 +63,15 @@ const claimResponseValidator = v.union(
     generation: v.number(),
     phase: v.union(v.literal('pre-handoff'), v.literal('handing-off')),
     status: v.literal('claimed'),
+  }),
+);
+
+const editResponseValidator = v.union(
+  v.object({ status: v.literal('unavailable') }),
+  v.object({
+    expiresAt: v.number(),
+    generation: v.number(),
+    status: v.literal('acquired'),
   }),
 );
 
@@ -169,6 +180,23 @@ function assertValidAdmission(
   ].every(Boolean);
   if (!isValid) {
     throw new Error('Invalid Scheduled Send admission');
+  }
+}
+
+function assertValidImmediateAdmission(
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- AdmissionArguments fields are explicitly readonly but the generated trusted-device ID is not inferred as readonly.
+  args: Readonly<AdmissionArguments>,
+  now: number,
+) {
+  const isValid = [
+    args.dueAt >= now - minuteMilliseconds,
+    args.dueAt <= now + minuteMilliseconds,
+    args.deadlineAt === args.dueAt + dayMilliseconds,
+    Number.isSafeInteger(args.revision),
+    args.revision >= 2,
+  ].every(Boolean);
+  if (!isValid) {
+    throw new Error('Invalid immediate Scheduled Send admission');
   }
 }
 
@@ -284,6 +312,35 @@ function matchesClaim(
       device.scheduledDeliveryAuthorizationGeneration,
     schedule.claimGeneration === claim.claimGeneration,
   ].every(Boolean);
+}
+
+function hasActiveEdit(
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Convex documents contain generated mutable identifiers but are not mutated here.
+  schedule: Readonly<Doc<'scheduledSends'>>,
+  now: number,
+) {
+  return (
+    schedule.editOwnerTrustedDeviceId !== undefined &&
+    schedule.editGeneration !== undefined &&
+    (schedule.editExpiresAt ?? 0) > now
+  );
+}
+
+function matchesEdit(
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Convex documents contain generated mutable identifiers but are not mutated here.
+  schedule: Readonly<Doc<'scheduledSends'>>,
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The generated trusted-device ID is not inferred as readonly.
+  edit: Readonly<{
+    generation: number;
+    now: number;
+    trustedDeviceId: Id<'trustedDevices'>;
+  }>,
+) {
+  return (
+    schedule.editOwnerTrustedDeviceId === edit.trustedDeviceId &&
+    schedule.editGeneration === edit.generation &&
+    (schedule.editExpiresAt ?? 0) > edit.now
+  );
 }
 
 export const registerDeliveryCapability = mutation({
@@ -434,7 +491,8 @@ export const claim = mutation({
     if (
       schedule === null ||
       schedule.state !== 'active' ||
-      schedule.revision !== args.revision
+      schedule.revision !== args.revision ||
+      hasActiveEdit(schedule, Date.now())
     ) {
       return { status: 'unavailable' as const };
     }
@@ -468,6 +526,9 @@ export const claim = mutation({
     const expiresAt = now + claimDurationMilliseconds;
     // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
     await ctx.db.patch(schedule._id, {
+      editExpiresAt: undefined,
+      editGeneration: undefined,
+      editOwnerTrustedDeviceId: undefined,
       claimAuthorizationGeneration:
         device.scheduledDeliveryAuthorizationGeneration,
       claimExpiresAt: expiresAt,
@@ -629,6 +690,7 @@ export const status = query({
       claimPhase: schedule.claimPhase,
       deadlineAt: schedule.deadlineAt,
       dueAt: schedule.dueAt,
+      encryptedPayloadIdentifier: schedule.encryptedPayloadIdentifier,
       encryptedPayloadUpdatedAt: schedule.encryptedPayloadUpdatedAt,
       revision: schedule.revision,
       scheduleId: schedule.scheduleId,
@@ -638,7 +700,7 @@ export const status = query({
   returns: statusResponseValidator,
 });
 
-export const cancel = mutation({
+export const beginEdit = mutation({
   args: {
     ...trustedDeviceCredentialArgs,
     revision: v.number(),
@@ -661,9 +723,123 @@ export const cancel = mutation({
       .unique();
     if (
       schedule === null ||
+      (schedule.state !== 'active' && schedule.state !== 'needs-attention') ||
       schedule.revision !== args.revision ||
-      schedule.state !== 'active' ||
       schedule.claimPhase === 'handing-off'
+    ) {
+      return { status: 'unavailable' as const };
+    }
+    const now = Date.now();
+    if (hasActiveEdit(schedule, now)) {
+      if (schedule.editOwnerTrustedDeviceId !== args.trustedDeviceId) {
+        return { status: 'unavailable' as const };
+      }
+      return {
+        expiresAt: schedule.editExpiresAt ?? now,
+        generation: schedule.editGeneration ?? 0,
+        status: 'acquired' as const,
+      };
+    }
+    const generation = (schedule.editGeneration ?? 0) + 1;
+    const expiresAt = now + editDurationMilliseconds;
+    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+    await ctx.db.patch(schedule._id, {
+      claimAuthorizationGeneration: undefined,
+      claimExpiresAt: undefined,
+      claimOwnerTrustedDeviceId: undefined,
+      claimPhase: undefined,
+      claimUpdatedAt: now,
+      editExpiresAt: expiresAt,
+      editGeneration: generation,
+      editOwnerTrustedDeviceId: args.trustedDeviceId,
+      updatedAt: now,
+    });
+    return { expiresAt, generation, status: 'acquired' as const };
+  },
+  returns: editResponseValidator,
+});
+
+export const releaseEdit = mutation({
+  args: {
+    ...trustedDeviceCredentialArgs,
+    editGeneration: v.number(),
+    revision: v.number(),
+    scheduleId: v.string(),
+    trustedDeviceId: v.id('trustedDevices'),
+  },
+  handler: async (ctx, args) => {
+    const account = await requireAuthenticatedTrustedDevice(
+      ctx,
+      args.trustedDeviceId,
+      args.trustedDeviceCredential,
+    );
+    const schedule = await ctx.db
+      .query('scheduledSends')
+      .withIndex('by_productAccountId_and_scheduleId', (q) =>
+        q
+          .eq('productAccountId', account.productAccountId)
+          .eq('scheduleId', args.scheduleId),
+      )
+      .unique();
+    if (
+      schedule === null ||
+      schedule.revision !== args.revision ||
+      schedule.editOwnerTrustedDeviceId !== args.trustedDeviceId ||
+      schedule.editGeneration !== args.editGeneration
+    ) {
+      return false;
+    }
+    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+    await ctx.db.patch(schedule._id, {
+      editExpiresAt: undefined,
+      editGeneration: undefined,
+      editOwnerTrustedDeviceId: undefined,
+      updatedAt: Date.now(),
+    });
+    return true;
+  },
+  returns: v.boolean(),
+});
+
+export const cancel = mutation({
+  args: {
+    ...trustedDeviceCredentialArgs,
+    editGeneration: v.optional(v.number()),
+    revision: v.number(),
+    scheduleId: v.string(),
+    trustedDeviceId: v.id('trustedDevices'),
+  },
+  handler: async (ctx, args) => {
+    const account = await requireAuthenticatedTrustedDevice(
+      ctx,
+      args.trustedDeviceId,
+      args.trustedDeviceCredential,
+    );
+    const schedule = await ctx.db
+      .query('scheduledSends')
+      .withIndex('by_productAccountId_and_scheduleId', (q) =>
+        q
+          .eq('productAccountId', account.productAccountId)
+          .eq('scheduleId', args.scheduleId),
+      )
+      .unique();
+    if (schedule === null) {
+      return false;
+    }
+    const now = Date.now();
+    const editPermitsCancellation =
+      !hasActiveEdit(schedule, now) ||
+      (args.editGeneration !== undefined &&
+        matchesEdit(schedule, {
+          generation: args.editGeneration,
+          now,
+          trustedDeviceId: args.trustedDeviceId,
+        }));
+    if (
+      schedule.revision !== args.revision ||
+      (schedule.state !== 'active' && schedule.state !== 'needs-attention') ||
+      schedule.claimPhase === 'handing-off' ||
+      !editPermitsCancellation
     ) {
       return false;
     }
@@ -673,6 +849,9 @@ export const cancel = mutation({
     // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
     await ctx.db.patch(schedule._id, {
       scheduledFunctionId: undefined,
+      editExpiresAt: undefined,
+      editGeneration: undefined,
+      editOwnerTrustedDeviceId: undefined,
       claimAuthorizationGeneration: undefined,
       claimExpiresAt: undefined,
       claimOwnerTrustedDeviceId: undefined,
@@ -693,6 +872,7 @@ export const reschedule = mutation({
     dueAt: v.number(),
     encryptedPayloadIdentifier: v.string(),
     encryptedPayloadUpdatedAt: v.number(),
+    editGeneration: v.number(),
     expectedRevision: v.number(),
     revision: v.number(),
     scheduleId: v.string(),
@@ -730,9 +910,113 @@ export const reschedule = mutation({
       .unique();
     if (
       schedule === null ||
-      schedule.state !== 'active' ||
+      (schedule.state !== 'active' && schedule.state !== 'needs-attention') ||
       schedule.revision !== args.expectedRevision ||
-      schedule.claimPhase === 'handing-off'
+      schedule.claimPhase === 'handing-off' ||
+      !matchesEdit(schedule, {
+        generation: args.editGeneration,
+        now: Date.now(),
+        trustedDeviceId: args.trustedDeviceId,
+      })
+    ) {
+      throw new Error('Scheduled Send revision is no longer editable');
+    }
+    if (schedule.scheduledFunctionId !== undefined) {
+      await ctx.scheduler.cancel(schedule.scheduledFunctionId);
+    }
+    const scheduledFunctionId = await ctx.scheduler.runAt(
+      args.dueAt,
+      internal.apns.deliverScheduledSendWakeup,
+      {
+        revision: args.revision,
+        // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+        scheduleDocumentId: schedule._id,
+      },
+    );
+    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+    await ctx.db.patch(schedule._id, {
+      editExpiresAt: undefined,
+      editGeneration: undefined,
+      editOwnerTrustedDeviceId: undefined,
+      claimAuthorizationGeneration: undefined,
+      claimExpiresAt: undefined,
+      claimOwnerTrustedDeviceId: undefined,
+      claimPhase: undefined,
+      claimUpdatedAt: Date.now(),
+      deadlineAt: args.deadlineAt,
+      dueAt: args.dueAt,
+      encryptedPayloadIdentifier: args.encryptedPayloadIdentifier,
+      encryptedPayloadUpdatedAt: args.encryptedPayloadUpdatedAt,
+      revision: args.revision,
+      scheduledFunctionId,
+      state: 'active',
+      trustedDeviceId: args.trustedDeviceId,
+      updatedAt: Date.now(),
+      wakeAttemptedAt: undefined,
+    });
+    return {
+      dueAt: args.dueAt,
+      encryptedPayloadUpdatedAt: args.encryptedPayloadUpdatedAt,
+      revision: args.revision,
+      scheduleId: args.scheduleId,
+    };
+  },
+  returns: admissionResponseValidator,
+});
+
+export const sendNow = mutation({
+  args: {
+    ...trustedDeviceCredentialArgs,
+    deadlineAt: v.number(),
+    dueAt: v.number(),
+    editGeneration: v.number(),
+    encryptedPayloadIdentifier: v.string(),
+    encryptedPayloadUpdatedAt: v.number(),
+    expectedRevision: v.number(),
+    revision: v.number(),
+    scheduleId: v.string(),
+    trustedDeviceId: v.id('trustedDevices'),
+  },
+  // fallow-ignore-next-line complexity -- Send Now replaces one fenced revision and schedules its immediate opaque wake atomically.
+  handler: async (ctx, args) => {
+    const account = await requireAuthenticatedTrustedDevice(
+      ctx,
+      args.trustedDeviceId,
+      args.trustedDeviceCredential,
+    );
+    if (args.revision !== args.expectedRevision + 1) {
+      throw new Error('Scheduled Send revision must advance exactly once');
+    }
+    assertValidImmediateAdmission(args, Date.now());
+    const payload = await ctx.db
+      .query('encryptedProductSyncPayloads')
+      .withIndex('by_productAccountId_and_payloadIdentifier', (q) =>
+        q
+          .eq('productAccountId', account.productAccountId)
+          .eq('payloadIdentifier', args.encryptedPayloadIdentifier),
+      )
+      .unique();
+    if (payload?.updatedAt !== args.encryptedPayloadUpdatedAt) {
+      throw new Error('Exact encrypted Scheduled Send payload required');
+    }
+    const schedule = await ctx.db
+      .query('scheduledSends')
+      .withIndex('by_productAccountId_and_scheduleId', (q) =>
+        q
+          .eq('productAccountId', account.productAccountId)
+          .eq('scheduleId', args.scheduleId),
+      )
+      .unique();
+    if (
+      schedule === null ||
+      (schedule.state !== 'active' && schedule.state !== 'needs-attention') ||
+      schedule.revision !== args.expectedRevision ||
+      schedule.claimPhase === 'handing-off' ||
+      !matchesEdit(schedule, {
+        generation: args.editGeneration,
+        now: Date.now(),
+        trustedDeviceId: args.trustedDeviceId,
+      })
     ) {
       throw new Error('Scheduled Send revision is no longer editable');
     }
@@ -757,20 +1041,26 @@ export const reschedule = mutation({
       claimUpdatedAt: Date.now(),
       deadlineAt: args.deadlineAt,
       dueAt: args.dueAt,
+      editExpiresAt: undefined,
+      editGeneration: undefined,
+      editOwnerTrustedDeviceId: undefined,
       encryptedPayloadIdentifier: args.encryptedPayloadIdentifier,
       encryptedPayloadUpdatedAt: args.encryptedPayloadUpdatedAt,
       revision: args.revision,
       scheduledFunctionId,
+      state: 'active',
       trustedDeviceId: args.trustedDeviceId,
       updatedAt: Date.now(),
       wakeAttemptedAt: undefined,
     });
-    return {
+    return admissionResponse({
+      ...schedule,
+      deadlineAt: args.deadlineAt,
       dueAt: args.dueAt,
+      encryptedPayloadIdentifier: args.encryptedPayloadIdentifier,
       encryptedPayloadUpdatedAt: args.encryptedPayloadUpdatedAt,
       revision: args.revision,
-      scheduleId: args.scheduleId,
-    };
+    });
   },
   returns: admissionResponseValidator,
 });

@@ -1318,6 +1318,13 @@ func profileScopedOutboxItems(
   items.filter { connectionIds.contains($0.mailboxConnectionId) }
 }
 
+func profileScopedScheduledSendItems(
+  _ items: [ManagedScheduledSend],
+  profileId: MailProfileId
+) -> [ManagedScheduledSend] {
+  items.filter { $0.record.profileId == profileId }
+}
+
 func standardsMailIdleConnection(
   rawConnectionId: String,
   accountConnections: [MailboxConnection]
@@ -2149,6 +2156,13 @@ struct AccountView: View {
     )
   }
 
+  private var profileScheduledSendItems: [ManagedScheduledSend] {
+    profileScopedScheduledSendItems(
+      mailActionViewModel.scheduledSendItems,
+      profileId: activeDraftProfileId
+    )
+  }
+
   private var profileDefaultSendingConnectionId: MailboxConnectionId? {
     if let defaultSendingConnectionId = gmailViewModel.defaultSendingConnectionId,
       profileViewModel.owns(defaultSendingConnectionId)
@@ -2343,6 +2357,9 @@ struct AccountView: View {
       .onChange(of: mailActionViewModel.outboxItems) { _, _ in
         updateProductMailboxState()
       }
+      .onChange(of: mailActionViewModel.scheduledSendItems) { _, _ in
+        updateProductMailboxState()
+      }
       .onChange(of: mailActionViewModel.pendingFailureConnectionId) { _, connectionId in
         showsBlockedActionAlert = connectionId != nil
       }
@@ -2515,6 +2532,7 @@ struct AccountView: View {
         mailAssistanceViewModel: mailAssistanceViewModel,
         mailActionViewModel: mailActionViewModel,
         outboxItems: profileOutboxItems,
+        scheduledSendItems: profileScheduledSendItems,
         sendingIdentities: profileSendingIdentities,
         mailboxSelection: mailShellSelection.selectedMailbox,
         navigationSnapshot: inboxViewModel.navigationSnapshot,
@@ -2553,6 +2571,19 @@ struct AccountView: View {
         revalidateTrustedDevice: {
           guard await session.revalidateTrustedDeviceAfterForegrounding() else { return false }
           return session.isCurrentSessionIdentity(snapshot)
+        },
+        saveDraft: { [profileId = activeDraftProfileId] draft in
+          try await saveCompositionDraft(draft, profileId: profileId)
+        },
+        deleteDraft: { [profileId = activeDraftProfileId] draftId in
+          try await deleteCompositionDraft(draftId, profileId: profileId)
+        },
+        reminderOwnerDeviceId: snapshot.trustedDeviceId,
+        cancelReminder: { [profileId = activeDraftProfileId] reminder, draftId in
+          cancelSendReminder(reminder, draftId: draftId, profileId: profileId)
+        },
+        scheduleReminder: { [profileId = activeDraftProfileId] draft in
+          try await scheduleSendReminder(for: draft, profileId: profileId)
         },
         itemDidRender: { item in
           releaseBudgetDriver?.recordRenderedItemId(item.id, owner: releaseBudgetDriverOwner)
@@ -3170,7 +3201,10 @@ struct AccountView: View {
   private func updateProductMailboxState() {
     inboxViewModel.updateProductMailboxState(
       MailShellProductMailboxState(
-        outboxStates: profileOutboxItems.map(GmailMailActionViewModel.outboxState),
+        outboxStates: profileOutboxItems.map(GmailMailActionViewModel.outboxState)
+          + profileScheduledSendItems.map { item in
+            item.state == .needsAttention ? .failed : .pending
+          },
         pinnedThreadIds: pinViewModel.pinnedThreadIds,
         snoozedThreadIds: snoozeViewModel.snoozedThreadIds
       )
@@ -6095,6 +6129,7 @@ struct MailShellThreadList: View {
   var mailAssistanceViewModel: MailAssistanceViewModel?
   @Bindable var mailActionViewModel: GmailMailActionViewModel
   var outboxItems: [OutgoingDeliveryAttempt] = []
+  var scheduledSendItems: [ManagedScheduledSend] = []
   var sendingIdentities: [SendingIdentity] = []
   let mailboxSelection: MailShellMailboxSelection?
   let navigationSnapshot: MailboxNavigationSnapshot
@@ -6113,9 +6148,15 @@ struct MailShellThreadList: View {
   var allowsProactiveSuggestions = true
   var clearCachedBodies: () async throws -> Void = {}
   var revalidateTrustedDevice: () async -> Bool = { true }
+  var saveDraft: MailComposerViewModel.SaveDraft = { _ in }
+  var deleteDraft: MailComposerViewModel.DeleteDraft = { _ in }
+  var reminderOwnerDeviceId = "local-device"
+  var cancelReminder: MailComposerViewModel.CancelReminder = { _, _ in }
+  var scheduleReminder: MailComposerViewModel.ScheduleReminder = { _ in .unavailable }
   var itemDidRender: (MailShellThreadListItem) -> Void = { _ in }
   var contentPresentationDismissalSignal = 0
   @State private var editingAttempt: OutgoingDeliveryAttempt?
+  @State private var scheduledEditSession: ScheduledSendEditSession?
   @State private var cleanupOutcome: InboxCleanupExecutionOutcome?
   @State private var cleanupProposal: InboxCleanupProposal?
   @State private var cleanupProposalTask: Task<Void, Never>?
@@ -6346,6 +6387,68 @@ struct MailShellThreadList: View {
           )
         }
       )
+    }
+    .composePresentation(
+      item: $scheduledEditSession,
+      preference: composePreferences.presentation
+    ) { editSession in
+      let dueAt = Date(
+        timeIntervalSince1970: Double(editSession.item.record.dueAtMilliseconds) / 1_000
+      )
+      MailShellComposer(
+        connections: connections,
+        draft: .editing(editSession.item.record),
+        preferences: composePreferences,
+        isSending: mailActionViewModel.isPerformingAction,
+        mailAssistanceViewModel: mailAssistanceViewModel,
+        readingPreferences: readingPreferences,
+        sendingIdentities: sendingIdentities,
+        saveDraft: { _ in },
+        deleteDraft: { _ in },
+        reminderOwnerDeviceId: reminderOwnerDeviceId,
+        cancelReminder: cancelReminder,
+        scheduleReminder: { draft in
+          try await saveDraft(draft)
+          guard
+            await mailActionViewModel.cancelScheduledSend(
+              editSession.item,
+              editGeneration: editSession.lease.generation
+            )
+          else {
+            try? await deleteDraft(draft.id)
+            throw ScheduledSendManagementError.staleRevision
+          }
+          return try await scheduleReminder(draft)
+        },
+        scheduleSend: { draft, newDueAt, timeZone in
+          await replaceScheduledSend(
+            editSession,
+            draft: draft,
+            dueAt: newDueAt,
+            timeZoneIdentifier: timeZone
+          )
+        },
+        scheduledSendDueAt: dueAt,
+        sendNow: { draft in
+          await replaceScheduledSend(
+            editSession,
+            draft: draft,
+            dueAt: nil,
+            timeZoneIdentifier: TimeZone.current.identifier
+          )
+        },
+        send: { draft in
+          await replaceScheduledSend(
+            editSession,
+            draft: draft,
+            dueAt: dueAt,
+            timeZoneIdentifier: editSession.item.record.originalTimeZoneIdentifier
+          )
+        }
+      )
+      .onDisappear {
+        Task { await mailActionViewModel.releaseScheduledSendEdit(editSession) }
+      }
     }
     .sheet(item: $cleanupReviewModel) { model in
       InboxCleanupReviewSheet(
@@ -6876,84 +6979,181 @@ struct MailShellThreadList: View {
 
   @ViewBuilder
   private var outboxContent: some View {
-    if outboxItems.isEmpty {
+    if outboxItems.isEmpty && scheduledSendItems.isEmpty {
       ContentUnavailableView(
         "Outbox is empty",
         systemImage: "paperplane",
-        description: Text("Pending, retrying, and failed deliveries appear here.")
+        description: Text("Scheduled, sending, and attention-needed deliveries appear here.")
       )
     } else {
       List {
-        ForEach(outboxItems) { attempt in
-          VStack(alignment: .leading, spacing: 8) {
-            HStack {
-              Text(attempt.message.subject.isEmpty ? "(No subject)" : attempt.message.subject)
-                .font(.headline)
-                .accessibilityIdentifier("mail-outbox-subject")
-              Spacer()
-              Text(outboxStateTitle(attempt.state))
-                .font(.caption)
-                .foregroundStyle(attempt.state == .failed ? .red : .secondary)
-                .accessibilityIdentifier("mail-outbox-state")
-                .accessibilityLabel(
-                  "Outbox status for \(attempt.message.subject.isEmpty ? "(No subject)" : attempt.message.subject)"
-                )
-                .accessibilityValue(outboxStateTitle(attempt.state))
-            }
-            Text("To: \(attempt.message.recipient)")
-              .font(.subheadline)
-            if let connection = connections.first(where: {
-              $0.id == attempt.mailboxConnectionId
-            }) {
-              Text("From: \(connection.displayName)")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            }
-            if let lastErrorDescription = attempt.lastErrorDescription {
-              Text(lastErrorDescription)
-                .font(.caption)
-                .foregroundStyle(.orange)
-            }
-            HStack {
-              if attempt.canEditOrCancel {
-                Button("Edit") { editingAttempt = attempt }
-              }
-              if attempt.canCancel {
-                Button("Cancel", role: .destructive) {
-                  Task { await mailActionViewModel.cancelOutboxAttempt(attempt) }
-                }
-              }
-              if attempt.state == .failed || attempt.state == .userActionRequired {
-                Button("Retry") {
-                  Task { await mailActionViewModel.retryOutboxAttempt(attempt) }
-                }
-              }
-              if attempt.state == .outcomeUnknown {
-                Button("Mark Sent") {
-                  Task {
-                    await mailActionViewModel.resolveUnknownOutboxAttempt(
-                      attempt,
-                      asDelivered: true
-                    )
-                  }
-                }
-                Button("Not Sent") {
-                  Task {
-                    await mailActionViewModel.resolveUnknownOutboxAttempt(
-                      attempt,
-                      asDelivered: false
-                    )
-                  }
-                }
-              }
-            }
-            .buttonStyle(.bordered)
+        if !scheduledItems.isEmpty {
+          Section("Scheduled") {
+            ForEach(scheduledItems) { scheduledSendRow($0) }
           }
-          .padding(.vertical, 4)
+        }
+        if !sendingScheduledItems.isEmpty || !sendingOutboxItems.isEmpty {
+          Section("Sending") {
+            ForEach(sendingScheduledItems) { scheduledSendRow($0) }
+            ForEach(sendingOutboxItems) { outboxRow($0) }
+          }
+        }
+        if !attentionScheduledItems.isEmpty || !attentionOutboxItems.isEmpty {
+          Section("Needs Attention") {
+            ForEach(attentionScheduledItems) { scheduledSendRow($0) }
+            ForEach(attentionOutboxItems) { outboxRow($0) }
+          }
         }
       }
       .mailShellTopScrollEdgeEffectHidden()
     }
+  }
+
+  private var scheduledItems: [ManagedScheduledSend] {
+    scheduledSendItems.filter { $0.state == .scheduled }
+  }
+
+  private var sendingScheduledItems: [ManagedScheduledSend] {
+    scheduledSendItems.filter { $0.state == .sending }
+  }
+
+  private var attentionScheduledItems: [ManagedScheduledSend] {
+    scheduledSendItems.filter { $0.state == .needsAttention }
+  }
+
+  private var sendingOutboxItems: [OutgoingDeliveryAttempt] {
+    outboxItems.filter { ![.failed, .outcomeUnknown, .userActionRequired].contains($0.state) }
+  }
+
+  private var attentionOutboxItems: [OutgoingDeliveryAttempt] {
+    outboxItems.filter { [.failed, .outcomeUnknown, .userActionRequired].contains($0.state) }
+  }
+
+  private func scheduledSendRow(_ item: ManagedScheduledSend) -> some View {
+    VStack(alignment: .leading, spacing: 8) {
+      Text(item.record.message.subject.isEmpty ? "(No subject)" : item.record.message.subject)
+        .font(.headline)
+      Text("To: \(item.record.message.recipient)")
+        .font(.subheadline)
+      Text(
+        Date(timeIntervalSince1970: Double(item.record.dueAtMilliseconds) / 1_000),
+        format: .dateTime.month().day().hour().minute()
+      )
+      .font(.caption)
+      .foregroundStyle(.secondary)
+      if let connection = connections.first(where: { $0.id == item.record.connectionId }) {
+        Text("From: \(connection.displayName)")
+          .font(.caption)
+          .foregroundStyle(.secondary)
+      }
+      if item.state != .sending {
+        HStack {
+          Button("Edit") {
+            Task {
+              scheduledEditSession = await mailActionViewModel.beginScheduledSendEdit(item)
+            }
+          }
+          Button("Cancel Scheduled Send", role: .destructive) {
+            Task { await cancelScheduledSendAndRestoreDraft(item) }
+          }
+        }
+        .buttonStyle(.bordered)
+      }
+    }
+    .padding(.vertical, 4)
+  }
+
+  // swiftlint:disable:next function_body_length
+  private func outboxRow(_ attempt: OutgoingDeliveryAttempt) -> some View {
+    VStack(alignment: .leading, spacing: 8) {
+      HStack {
+        Text(attempt.message.subject.isEmpty ? "(No subject)" : attempt.message.subject)
+          .font(.headline)
+          .accessibilityIdentifier("mail-outbox-subject")
+        Spacer()
+        Text(outboxStateTitle(attempt.state))
+          .font(.caption)
+          .foregroundStyle(attempt.state == .failed ? .red : .secondary)
+          .accessibilityIdentifier("mail-outbox-state")
+      }
+      Text("To: \(attempt.message.recipient)")
+        .font(.subheadline)
+      if let connection = connections.first(where: { $0.id == attempt.mailboxConnectionId }) {
+        Text("From: \(connection.displayName)")
+          .font(.caption)
+          .foregroundStyle(.secondary)
+      }
+      if let lastErrorDescription = attempt.lastErrorDescription {
+        Text(lastErrorDescription)
+          .font(.caption)
+          .foregroundStyle(.orange)
+      }
+      HStack {
+        if attempt.canEditOrCancel {
+          Button("Edit") { editingAttempt = attempt }
+        }
+        if attempt.canCancel {
+          Button("Cancel", role: .destructive) {
+            Task { await mailActionViewModel.cancelOutboxAttempt(attempt) }
+          }
+        }
+        if attempt.state == .failed || attempt.state == .userActionRequired {
+          Button("Retry") { Task { await mailActionViewModel.retryOutboxAttempt(attempt) } }
+        }
+        if attempt.state == .outcomeUnknown {
+          Button("Mark Sent") {
+            Task {
+              await mailActionViewModel.resolveUnknownOutboxAttempt(attempt, asDelivered: true)
+            }
+          }
+          Button("Not Sent") {
+            Task {
+              await mailActionViewModel.resolveUnknownOutboxAttempt(attempt, asDelivered: false)
+            }
+          }
+        }
+      }
+      .buttonStyle(.bordered)
+    }
+    .padding(.vertical, 4)
+  }
+
+  private func cancelScheduledSendAndRestoreDraft(_ item: ManagedScheduledSend) async {
+    let restoredDraft = MailShellCompositionDraft.editing(item.record).preservingAsNewDraft()
+    do {
+      try await saveDraft(restoredDraft)
+      guard await mailActionViewModel.cancelScheduledSend(item) else {
+        try? await deleteDraft(restoredDraft.id)
+        return
+      }
+    } catch {
+      try? await deleteDraft(restoredDraft.id)
+      mailActionViewModel.errorMessage = error.localizedDescription
+    }
+  }
+
+  private func replaceScheduledSend(
+    _ editSession: ScheduledSendEditSession,
+    draft: MailShellCompositionDraft,
+    dueAt: Date?,
+    timeZoneIdentifier: String
+  ) async -> Bool {
+    guard
+      let identity = sendingIdentities.first(where: { $0.id == draft.sendingIdentityId }),
+      identity.connectionId == draft.connectionId
+    else { return false }
+    let replaced = await mailActionViewModel.replaceScheduledSend(
+      editSession,
+      draft: draft,
+      fromAddress: identity.headerValue,
+      dueAt: dueAt,
+      originalTimeZoneIdentifier: timeZoneIdentifier,
+      undoSendWindow: composePreferences.undoSendWindow
+    )
+    if !replaced, mailActionViewModel.scheduledSendEditConflict {
+      try? await saveDraft(draft.preservingAsNewDraft())
+    }
+    return replaced
   }
 
   // swiftlint:disable:next cyclomatic_complexity
@@ -11743,6 +11943,8 @@ final class GmailMailActionViewModel {
   private(set) var failedConnectionIds: [MailboxConnectionId] = []
   var isPerformingAction = false
   private(set) var outboxItems: [OutgoingDeliveryAttempt] = []
+  private(set) var scheduledSendItems: [ManagedScheduledSend] = []
+  private(set) var scheduledSendEditConflict = false
 
   private var knownConnections: [MailboxConnection] = []
   private var deferredBulkFailures: [UUID: [MailboxBulkActionFailure]] = [:]
@@ -11776,6 +11978,12 @@ final class GmailMailActionViewModel {
 
   var outboxStates: [MailShellOutboxState] {
     outboxItems.map(Self.outboxState)
+      + scheduledSendItems.map { item in
+        switch item.state {
+        case .scheduled, .sending: .pending
+        case .needsAttention: .failed
+        }
+      }
   }
 
   static func outboxState(_ attempt: OutgoingDeliveryAttempt) -> MailShellOutboxState {
@@ -12175,6 +12383,129 @@ final class GmailMailActionViewModel {
     }
   }
 
+  func beginScheduledSendEdit(_ item: ManagedScheduledSend) async -> ScheduledSendEditSession? {
+    guard !isPerformingAction else { return nil }
+    isPerformingAction = true
+    defer { isPerformingAction = false }
+    do {
+      let editSession = try await scheduledSendService.beginEditing(item, session: session)
+      errorMessage = nil
+      return editSession
+    } catch {
+      errorMessage = error.localizedDescription
+      await refreshOutbox()
+      return nil
+    }
+  }
+
+  func releaseScheduledSendEdit(_ editSession: ScheduledSendEditSession) async {
+    await scheduledSendService.releaseEditing(editSession, session: session)
+  }
+
+  // swiftlint:disable:next function_parameter_count
+  func replaceScheduledSend(
+    _ editSession: ScheduledSendEditSession,
+    draft: MailShellCompositionDraft,
+    fromAddress: String,
+    dueAt: Date?,
+    originalTimeZoneIdentifier: String,
+    undoSendWindow: UndoSendWindow
+  ) async -> Bool {
+    guard !isPerformingAction,
+      let connectionId = draft.connectionId,
+      let connection = knownConnections.first(where: { $0.id == connectionId })
+    else { return false }
+    isPerformingAction = true
+    defer { isPerformingAction = false }
+    let message = scheduledOutgoingMessage(
+      from: draft,
+      fromAddress: fromAddress,
+      preserving: editSession.item.record.message
+    )
+    scheduledSendEditConflict = false
+    do {
+      if let dueAt {
+        _ = try await scheduledSendService.reschedule(
+          editSession,
+          message: message,
+          connection: connection,
+          dueAt: dueAt,
+          originalTimeZoneIdentifier: originalTimeZoneIdentifier,
+          session: session,
+          undoSendDelayNanoseconds: undoSendWindow.nanoseconds,
+          provider: outboxProvider(connections: knownConnections),
+          reconcile: outboxReconciler(connections: knownConnections)
+        )
+      } else {
+        _ = try await scheduledSendService.sendNow(
+          editSession,
+          message: message,
+          connection: connection,
+          session: session,
+          undoSendDelayNanoseconds: undoSendWindow.nanoseconds,
+          provider: outboxProvider(connections: knownConnections),
+          reconcile: outboxReconciler(connections: knownConnections)
+        )
+      }
+      await refreshOutbox()
+      observeOutboxRetries()
+      errorMessage = nil
+      return true
+    } catch {
+      scheduledSendEditConflict = error as? ScheduledSendManagementError == .staleRevision
+      errorMessage = error.localizedDescription
+      await refreshOutbox()
+      return false
+    }
+  }
+
+  func cancelScheduledSend(_ item: ManagedScheduledSend, editGeneration: Int? = nil) async -> Bool {
+    guard !isPerformingAction else { return false }
+    isPerformingAction = true
+    defer { isPerformingAction = false }
+    do {
+      try await scheduledSendService.cancel(
+        scheduleId: item.id,
+        revision: item.record.revision,
+        editGeneration: editGeneration,
+        session: session
+      )
+      await refreshOutbox()
+      errorMessage = nil
+      return true
+    } catch {
+      errorMessage = error.localizedDescription
+      await refreshOutbox()
+      return false
+    }
+  }
+
+  private func scheduledOutgoingMessage(
+    from draft: MailShellCompositionDraft,
+    fromAddress: String,
+    preserving original: OutgoingMessage
+  ) -> OutgoingMessage {
+    let ccRecipients = draft.ccRecipients.trimmingCharacters(in: .whitespacesAndNewlines)
+    let bccRecipients = draft.bccRecipients.trimmingCharacters(in: .whitespacesAndNewlines)
+    return OutgoingMessage(
+      body: draft.deliveryBody,
+      recipient: draft.recipient,
+      subject: draft.subject,
+      htmlBody: draft.assets.applyingInlineImageMetadata(to: draft.deliveryDocument.html),
+      semanticDocument: draft.deliveryDocument,
+      assets: draft.assets,
+      ccRecipients: ccRecipients.isEmpty ? nil : ccRecipients,
+      bccRecipients: bccRecipients.isEmpty ? nil : bccRecipients,
+      fromAddress: fromAddress,
+      inReplyTo: original.inReplyTo,
+      kind: original.kind,
+      providerThreadId: original.providerThreadId,
+      requestsReadReceipt: draft.requestsReadReceipt,
+      sendingIdentityId: draft.sendingIdentityId,
+      sourceProviderMessageId: original.sourceProviderMessageId
+    )
+  }
+
   // swiftlint:disable:next function_parameter_count
   func editOutboxAttempt(
     _ attempt: OutgoingDeliveryAttempt,
@@ -12281,8 +12612,14 @@ final class GmailMailActionViewModel {
   private func refreshOutbox() async {
     do {
       outboxItems = try await outboxService.actionableItems(session: session)
+        .filter { !$0.isScheduledSend }
     } catch {
       errorMessage = error.localizedDescription
+    }
+    do {
+      scheduledSendItems = try await scheduledSendService.managedItems(session: session)
+    } catch {
+      scheduledSendItems = []
     }
   }
 
@@ -12327,6 +12664,7 @@ final class GmailMailActionViewModel {
     outboxRetryObservationTask?.cancel()
     retryObservationTask?.cancel()
     outboxItems = []
+    scheduledSendItems = []
   }
 
   private func observeOutboxRetries() {

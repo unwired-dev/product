@@ -33,6 +33,7 @@ enum MailComposerReminderState: Equatable {
 
 @MainActor
 @Observable
+// swiftlint:disable:next type_body_length
 final class MailComposerViewModel {
   typealias DeleteDraft = @MainActor (UUID) async throws -> Void
   typealias CancelReminder = @MainActor (SendReminder, UUID) async -> Void
@@ -48,6 +49,7 @@ final class MailComposerViewModel {
   private(set) var saveState: MailComposerSaveState = .idle
 
   private let calendar: Calendar
+  private let allowsEditingTransitions: Bool
   private let cancelReminder: CancelReminder
   private let deleteDraft: DeleteDraft
   private var editRevision = 0
@@ -67,6 +69,7 @@ final class MailComposerViewModel {
     reminderOwnerDeviceId: String = "local-device",
     calendar: Calendar = .current,
     now: @escaping () -> Date = Date.init,
+    allowsEditingTransitions: Bool = false,
     saveDraft: @escaping SaveDraft = { _ in },
     deleteDraft: @escaping DeleteDraft = { _ in },
     cancelReminder: @escaping CancelReminder = { _, _ in },
@@ -74,6 +77,7 @@ final class MailComposerViewModel {
     scheduleSend: @escaping ScheduleSend = { _, _, _ in false },
     sendDraft: @escaping SendDraft
   ) {
+    self.allowsEditingTransitions = allowsEditingTransitions
     self.calendar = calendar
     self.cancelReminder = cancelReminder
     self.deleteDraft = deleteDraft
@@ -93,7 +97,8 @@ final class MailComposerViewModel {
   }
 
   var canCreateSendReminder: Bool {
-    draft.kind != .editing && draft.hasUserState && !saveState.blocksDismissal
+    (draft.kind != .editing || allowsEditingTransitions) && draft.hasUserState
+      && !saveState.blocksDismissal
   }
 
   var hasUnsavedChanges: Bool {
@@ -205,11 +210,18 @@ final class MailComposerViewModel {
       try await deleteDraft(draft.id)
       saveState = .saved
     } catch {
+      var retainedDraft = draft
+      retainedDraft.sendReminder = nil
+      retainedDraft.markEdited(now: now())
       do {
-        try await deleteDraft(draft.id)
+        try await saveDraft(retainedDraft)
+        draft = retainedDraft
+        lastSavedDraft = retainedDraft
         saveState = .saved
       } catch {
-        saveState = .failed("Message scheduled, but its local Draft could not be removed.")
+        saveState = .failed(
+          "Message scheduled, but its previous Send Reminder could not be cleared. Reload Drafts."
+        )
       }
     }
     return true

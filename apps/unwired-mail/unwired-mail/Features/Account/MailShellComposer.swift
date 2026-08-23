@@ -30,6 +30,8 @@ struct MailShellComposer: View {
   let sendingIdentities: [SendingIdentity]
   let signatures: SignaturePreferences
   let templates: TemplatePreferences
+  let scheduledSendDueAt: Date?
+  let sendNow: MailComposerViewModel.SendDraft?
 
   @Environment(\.dismiss) private var dismiss
   @FocusState private var focusedField: MailComposerFocus?
@@ -69,6 +71,8 @@ struct MailShellComposer: View {
     cancelReminder: @escaping MailComposerViewModel.CancelReminder = { _, _ in },
     scheduleReminder: @escaping MailComposerViewModel.ScheduleReminder = { _ in .unavailable },
     scheduleSend: @escaping MailComposerViewModel.ScheduleSend = { _, _, _ in false },
+    scheduledSendDueAt: Date? = nil,
+    sendNow: MailComposerViewModel.SendDraft? = nil,
     send: @escaping MailComposerViewModel.SendDraft
   ) {
     self.connections = connections
@@ -91,6 +95,8 @@ struct MailShellComposer: View {
     self.sendingIdentities = sendingIdentities
     self.signatures = signatures
     self.templates = templates
+    self.scheduledSendDueAt = scheduledSendDueAt
+    self.sendNow = sendNow
     _suggestionService = State(initialValue: suggestionService)
     _editorModel = State(
       initialValue: SemanticMessageEditorModel(document: initialDraft.document)
@@ -100,6 +106,7 @@ struct MailShellComposer: View {
         draft: initialDraft,
         presentation: preferences.presentation,
         reminderOwnerDeviceId: reminderOwnerDeviceId,
+        allowsEditingTransitions: scheduledSendDueAt != nil,
         saveDraft: saveDraft,
         deleteDraft: deleteDraft,
         cancelReminder: cancelReminder,
@@ -137,6 +144,8 @@ struct MailShellComposer: View {
     self.sendingIdentities = sendingIdentities
     self.signatures = signatures
     self.templates = templates
+    scheduledSendDueAt = nil
+    sendNow = nil
     _suggestionService = State(initialValue: suggestionService)
     _editorModel = State(
       initialValue: SemanticMessageEditorModel(document: viewModel.draft.document)
@@ -284,6 +293,7 @@ struct MailShellComposer: View {
       .sheet(item: $sendLaterRequest) { _ in
         SendLaterSheet(
           existingReminder: viewModel.draft.sendReminder,
+          existingAutomaticDueAt: scheduledSendDueAt,
           canAutomaticallySend: canScheduleSend,
           scheduleAutomatically: { dueAt, timeZone in
             let scheduled = await viewModel.scheduleSend(
@@ -323,6 +333,12 @@ struct MailShellComposer: View {
           notificationState: viewModel.reminderState,
           reminder: reminder
         )
+      }
+      if let scheduledSendDueAt {
+        LabeledContent(
+          "Scheduled", value: scheduledSendDueAt.formatted(date: .abbreviated, time: .shortened)
+        )
+        .foregroundStyle(.secondary)
       }
       MailComposerAssetList(
         assets: viewModel.draft.assets,
@@ -509,11 +525,18 @@ struct MailShellComposer: View {
     }
     ToolbarItem(placement: .confirmationAction) {
       MailComposerSendButton(
+        title: scheduledSendDueAt == nil ? "Send" : "Save Changes",
         canSendLater: viewModel.canCreateSendReminder,
         isSendEnabled: isSendEnabled,
         send: sendDraft,
         sendLater: openSendLater
       )
+    }
+    ToolbarItem(placement: .secondaryAction) {
+      if scheduledSendDueAt != nil, sendNow != nil {
+        Button("Send Now", systemImage: "paperplane.fill", action: sendScheduledNow)
+          .disabled(!isSendEnabled)
+      }
     }
     ToolbarItem(placement: .secondaryAction) {
       Button("Send Later", systemImage: "clock", action: openSendLater)
@@ -551,7 +574,7 @@ struct MailShellComposer: View {
 
   private var canScheduleSend: Bool {
     isSendEnabled && selectedConnection?.providerId == .gmail
-      && viewModel.draft.kind != .editing
+      && (viewModel.draft.kind != .editing || scheduledSendDueAt != nil)
   }
 
   private func openSendLater() {
@@ -751,6 +774,13 @@ struct MailShellComposer: View {
   private func sendWithoutSubject() {
     Task {
       if await viewModel.sendWithoutSubject() == .sent { dismiss() }
+    }
+  }
+
+  private func sendScheduledNow() {
+    guard let sendNow else { return }
+    Task {
+      if await sendNow(viewModel.draft) { dismiss() }
     }
   }
 

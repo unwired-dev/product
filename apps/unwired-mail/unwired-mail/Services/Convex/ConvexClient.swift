@@ -595,11 +595,139 @@ final class ConvexClient {
     revision: Int,
     session: ProductAccountSessionSnapshot
   ) async throws -> Bool {
+    try await cancelScheduledSend(
+      scheduleId: scheduleId,
+      revision: revision,
+      editGeneration: nil,
+      session: session
+    )
+  }
+
+  func cancelScheduledSend(
+    scheduleId: UUID,
+    revision: Int,
+    editGeneration: Int?,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> Bool {
     try await performMutation(
       path: "scheduledSend:cancel",
       args: CancelScheduledSendArgs(
+        editGeneration: editGeneration,
         revision: revision,
         scheduleId: scheduleId.uuidString.lowercased(),
+        trustedDeviceCredential: try trustedDeviceCredential(session.trustedDeviceId),
+        trustedDeviceId: session.trustedDeviceId
+      ),
+      identityToken: session.identityToken
+    )
+  }
+
+  func scheduledSendStatus(
+    scheduleId: UUID,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> ScheduledSendOperationalStatus? {
+    try await performQuery(
+      path: "scheduledSend:status",
+      args: ScheduledSendStatusArgs(
+        scheduleId: scheduleId.uuidString.lowercased(),
+        trustedDeviceCredential: try trustedDeviceCredential(session.trustedDeviceId),
+        trustedDeviceId: session.trustedDeviceId
+      ),
+      identityToken: session.identityToken
+    )
+  }
+
+  func beginScheduledSendEdit(
+    scheduleId: UUID,
+    revision: Int,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> ScheduledSendEditLeaseResult {
+    let response: ScheduledSendEditLeaseWireResponse = try await performMutation(
+      path: "scheduledSend:beginEdit",
+      args: BeginScheduledSendEditArgs(
+        revision: revision,
+        scheduleId: scheduleId.uuidString.lowercased(),
+        trustedDeviceCredential: try trustedDeviceCredential(session.trustedDeviceId),
+        trustedDeviceId: session.trustedDeviceId
+      ),
+      identityToken: session.identityToken
+    )
+    return try response.result()
+  }
+
+  func releaseScheduledSendEdit(
+    scheduleId: UUID,
+    revision: Int,
+    editGeneration: Int,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> Bool {
+    try await performMutation(
+      path: "scheduledSend:releaseEdit",
+      args: ReleaseScheduledSendEditArgs(
+        editGeneration: editGeneration,
+        revision: revision,
+        scheduleId: scheduleId.uuidString.lowercased(),
+        trustedDeviceCredential: try trustedDeviceCredential(session.trustedDeviceId),
+        trustedDeviceId: session.trustedDeviceId
+      ),
+      identityToken: session.identityToken
+    )
+  }
+
+  func rescheduleScheduledSend(
+    _ record: ScheduledSendRecord,
+    payload: ScheduledSendPayloadAcknowledgement,
+    expectedRevision: Int,
+    editGeneration: Int,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> ScheduledSendOperationalAcknowledgement {
+    try await replaceScheduledSend(
+      path: "scheduledSend:reschedule",
+      record: record,
+      payload: payload,
+      expectedRevision: expectedRevision,
+      editGeneration: editGeneration,
+      session: session
+    )
+  }
+
+  func sendScheduledSendNow(
+    _ record: ScheduledSendRecord,
+    payload: ScheduledSendPayloadAcknowledgement,
+    expectedRevision: Int,
+    editGeneration: Int,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> ScheduledSendOperationalAcknowledgement {
+    try await replaceScheduledSend(
+      path: "scheduledSend:sendNow",
+      record: record,
+      payload: payload,
+      expectedRevision: expectedRevision,
+      editGeneration: editGeneration,
+      session: session
+    )
+  }
+
+  // swiftlint:disable:next function_parameter_count
+  private func replaceScheduledSend(
+    path: String,
+    record: ScheduledSendRecord,
+    payload: ScheduledSendPayloadAcknowledgement,
+    expectedRevision: Int,
+    editGeneration: Int,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> ScheduledSendOperationalAcknowledgement {
+    try await performMutation(
+      path: path,
+      args: ReplaceScheduledSendArgs(
+        deadlineAt: record.deadlineAtMilliseconds,
+        dueAt: record.dueAtMilliseconds,
+        editGeneration: editGeneration,
+        encryptedPayloadIdentifier: payload.payloadIdentifier,
+        encryptedPayloadUpdatedAt: payload.updatedAt,
+        expectedRevision: expectedRevision,
+        revision: record.revision,
+        scheduleId: record.scheduleId.uuidString.lowercased(),
         trustedDeviceCredential: try trustedDeviceCredential(session.trustedDeviceId),
         trustedDeviceId: session.trustedDeviceId
       ),
@@ -1190,6 +1318,41 @@ private struct AdmitScheduledSendArgs: Encodable {
 }
 
 private struct CancelScheduledSendArgs: Encodable {
+  let editGeneration: Int?
+  let revision: Int
+  let scheduleId: String
+  let trustedDeviceCredential: String?
+  let trustedDeviceId: String
+}
+
+private struct ScheduledSendStatusArgs: Encodable {
+  let scheduleId: String
+  let trustedDeviceCredential: String?
+  let trustedDeviceId: String
+}
+
+private struct BeginScheduledSendEditArgs: Encodable {
+  let revision: Int
+  let scheduleId: String
+  let trustedDeviceCredential: String?
+  let trustedDeviceId: String
+}
+
+private struct ReleaseScheduledSendEditArgs: Encodable {
+  let editGeneration: Int
+  let revision: Int
+  let scheduleId: String
+  let trustedDeviceCredential: String?
+  let trustedDeviceId: String
+}
+
+private struct ReplaceScheduledSendArgs: Encodable {
+  let deadlineAt: Int64
+  let dueAt: Int64
+  let editGeneration: Int
+  let encryptedPayloadIdentifier: String
+  let encryptedPayloadUpdatedAt: Int64
+  let expectedRevision: Int
   let revision: Int
   let scheduleId: String
   let trustedDeviceCredential: String?
@@ -1255,6 +1418,27 @@ private struct ScheduledSendClaimWireResponse: Decodable {
           phase: phase
         )
       )
+    }
+  }
+}
+
+private struct ScheduledSendEditLeaseWireResponse: Decodable {
+  let expiresAt: Int64?
+  let generation: Int?
+  let status: Status
+
+  enum Status: String, Decodable {
+    case acquired
+    case unavailable
+  }
+
+  func result() throws -> ScheduledSendEditLeaseResult {
+    switch status {
+    case .unavailable:
+      return .unavailable
+    case .acquired:
+      guard let expiresAt, let generation else { throw ConvexClientError.decodeError }
+      return .acquired(ScheduledSendEditLease(expiresAt: expiresAt, generation: generation))
     }
   }
 }
