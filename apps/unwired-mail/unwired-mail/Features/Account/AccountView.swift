@@ -1603,7 +1603,7 @@ struct AccountView: View {
   @State private var spotlightReconcileTask: Task<Void, Never>?
   @State private var profileInterruptionViewModel: MailProfileInterruptionViewModel
   @State private var parkedCompositionDrafts: [MailProfileId: MailShellCompositionDraft] = [:]
-  @State private var profileSwitchGeneration = 0
+  @State private var profileSwitchGate = MailProfileSwitchGate()
   @State private var profilePreferenceRecordScope: MailProfileRecordScope = .legacyProductAccount
   @State private var profileViewModel: MailProfileWorkspaceViewModel
   @State private var readingPreferenceStore: ReadingPreferenceStore
@@ -3227,8 +3227,7 @@ struct AccountView: View {
   }
 
   private func switchProfileAndWait(to profileId: MailProfileId) async -> Bool {
-    profileSwitchGeneration &+= 1
-    let switchGeneration = profileSwitchGeneration
+    let switchGeneration = profileSwitchGate.begin()
     guard let sourceProfileId = profileViewModel.activeProfileId else {
       return await loadProfileAndWait(to: profileId, switchGeneration: switchGeneration)
     }
@@ -3266,9 +3265,9 @@ struct AccountView: View {
   ) async -> Bool {
     restoredProfileIdRawValue = profileId.rawValue
     await reloadProfileScopedStoresIfNeeded()
-    guard profileSwitchGeneration == switchGeneration else { return false }
+    guard profileSwitchGate.isCurrent(switchGeneration) else { return false }
     await loadActiveProfileMutes()
-    return profileSwitchGeneration == switchGeneration
+    return profileSwitchGate.isCurrent(switchGeneration)
   }
 
   private func activateProfileAndWait(
@@ -3281,7 +3280,7 @@ struct AccountView: View {
       prepareProfilePresentationForSwitch()
       await Task.yield()
       guard
-        profileSwitchGeneration == switchGeneration,
+        profileSwitchGate.isCurrent(switchGeneration),
         profileViewModel.activeProfileId == sourceProfileId
       else { return false }
       try profileViewModel.activate(profileId) {
@@ -3292,7 +3291,7 @@ struct AccountView: View {
       }
       let preparedProfileRecordScope = prepareProfileScopedStoresIfNeeded()
       guard
-        profileSwitchGeneration == switchGeneration,
+        profileSwitchGate.isCurrent(switchGeneration),
         profileViewModel.activeProfileId == profileId
       else { return false }
       prepareProfileThreadState(for: profileId)
@@ -3314,7 +3313,8 @@ struct AccountView: View {
     _ switchGeneration: Int,
     profileId: MailProfileId
   ) -> Bool {
-    profileSwitchGeneration == switchGeneration && profileViewModel.activeProfileId == profileId
+    profileSwitchGate.isCurrent(switchGeneration)
+      && profileViewModel.activeProfileId == profileId
   }
 
   private func prepareProfilePresentationForSwitch() {
@@ -4215,6 +4215,20 @@ extension AccountView {
       selectConnection(connection)
     }
     mailShellSelection.selectSearchResult(message)
+  }
+}
+
+@MainActor
+final class MailProfileSwitchGate {
+  private var generation = 0
+
+  func begin() -> Int {
+    generation &+= 1
+    return generation
+  }
+
+  func isCurrent(_ generation: Int) -> Bool {
+    self.generation == generation
   }
 }
 
