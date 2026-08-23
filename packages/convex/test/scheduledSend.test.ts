@@ -1,6 +1,7 @@
 /// <reference types="vite/client" />
 
 import { generateKeyPairSync } from 'node:crypto';
+import type * as NodeHttp2 from 'node:http2';
 
 import { convexTest } from 'convex-test';
 
@@ -11,8 +12,9 @@ import schema from '../convex/schema.js';
 
 const modules = import.meta.glob('../convex/**/*.ts');
 
+// oxlint-disable-next-line vitest/prefer-import-in-mock -- Importing the original module keeps this partial transport failure mock type-safe.
 vi.mock('node:http2', async (importOriginal) => {
-  const original = await importOriginal<typeof import('node:http2')>();
+  const original = await importOriginal<typeof NodeHttp2>();
   return {
     ...original,
     connect: () => {
