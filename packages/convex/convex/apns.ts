@@ -21,6 +21,7 @@ const apnsEnvironmentValidator = v.union(
 );
 
 const apnsRequestTimeoutMs = 10_000;
+const scheduledWakeupDeviceLimit = 100;
 const permanentApnsFailureStatuses = new Set([400, 403, 404, 405, 410, 413]);
 
 type ApnsConfiguration = Readonly<{
@@ -49,6 +50,19 @@ type GmailWakeupRecipient = StaleTokenRecipient &
   Readonly<{
     routeId: string;
   }>;
+
+type ScheduledSendWakeupRecipient = StaleTokenRecipient &
+  Readonly<{
+    revision: number;
+    scheduleId: string;
+  }>;
+
+type ScheduledSendWakeupPage = Readonly<{
+  inspectedDeviceCount: number;
+  isDone: boolean;
+  nextCursor: string | null;
+  recipients: readonly ScheduledSendWakeupRecipient[];
+}>;
 
 class ApnsRequestError extends Error {
   public readonly status: number;
@@ -286,15 +300,33 @@ function apnsAuthority(environment: ApnsDelivery['apnsEnvironment']): string {
     : 'https://api.sandbox.push.apple.com';
 }
 
-async function deliverGmailWakeupBatch(
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Convex supplies its mutable action context.
-  ctx: ActionCtx,
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Convex validates and owns the generated action arguments.
-  args: Readonly<{
-    historyId: string;
-    recipients: readonly GmailWakeupRecipient[];
-  }>,
-): Promise<null> {
+function backgroundWakeupPayload(
+  provider: 'microsoft-graph' | 'scheduled-send',
+  fields: Readonly<Record<string, number | string>>,
+): string {
+  return JSON.stringify({
+    aps: { 'content-available': 1 },
+    provider,
+    ...fields,
+  });
+}
+
+function microsoftGraphWakeupPayload(routeId: string): string {
+  return backgroundWakeupPayload('microsoft-graph', { routeId });
+}
+
+function scheduledSendWakeupPayload(
+  revision: number,
+  scheduleId: string,
+): string {
+  return backgroundWakeupPayload('scheduled-send', { revision, scheduleId });
+}
+
+async function deliverWakeupBatch<Recipient extends StaleTokenRecipient>(
+  ctx: ActionCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex action context invokes mutations.
+  recipients: readonly Recipient[],
+  payload: (recipient: Recipient) => string,
+): Promise<ReadonlyArray<PromiseSettledResult<void>>> {
   const configuration = apnsConfiguration();
   const authorization = providerToken(configuration);
   const clients = new Map<
@@ -315,18 +347,15 @@ async function deliverGmailWakeupBatch(
     clients.set(environment, client);
     return client;
   };
-
   const results = await Promise.allSettled(
-    args.recipients.map(async (recipient) =>
+    recipients.map(async (recipient) =>
       sendWakeup(
         {
           apnsEnvironment: recipient.apnsEnvironment,
           apnsToken: recipient.apnsToken,
           authorization,
           configuration,
-          payload: JSON.stringify(
-            gmailWakeupPayload(args.historyId, recipient.routeId),
-          ),
+          payload: payload(recipient),
         },
         clientFor(recipient.apnsEnvironment),
       ),
@@ -336,13 +365,47 @@ async function deliverGmailWakeupBatch(
       client.close();
     }
   });
-
   await Promise.all(
     results.map(async (result, index) =>
-      handleDeliveryResult(ctx, result, args.recipients[index]),
+      handleDeliveryResult(ctx, result, recipients[index]),
     ),
   );
+  return results;
+}
 
+async function attemptWakeupDelivery<Recipient extends StaleTokenRecipient>(
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Convex action contexts expose mutable mutation methods.
+  options: Readonly<{
+    ctx: ActionCtx;
+    failureMessage: string;
+    payload: (recipient: Recipient) => string;
+    recipients: readonly Recipient[];
+  }>,
+): Promise<ReadonlyArray<PromiseSettledResult<void>> | undefined> {
+  try {
+    return await deliverWakeupBatch(
+      options.ctx,
+      options.recipients,
+      options.payload,
+    );
+  } catch (error) {
+    console.error(options.failureMessage, error);
+    return undefined;
+  }
+}
+
+async function deliverGmailWakeupBatch(
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Convex supplies its mutable action context.
+  ctx: ActionCtx,
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Convex validates and owns the generated action arguments.
+  args: Readonly<{
+    historyId: string;
+    recipients: readonly GmailWakeupRecipient[];
+  }>,
+): Promise<null> {
+  await deliverWakeupBatch(ctx, args.recipients, (recipient) =>
+    JSON.stringify(gmailWakeupPayload(args.historyId, recipient.routeId)),
+  );
   return null;
 }
 
@@ -407,35 +470,16 @@ export const deliverMicrosoftGraphWakeup = internalAction({
     }
     let delivered = false;
     let terminalFailure = false;
-    try {
-      const configuration = apnsConfiguration();
-      const client = connect(apnsAuthority(recipient.apnsEnvironment));
-      client.on('error', (error) => {
-        console.error('APNs HTTP/2 session failed', error);
-      });
-      const result = await Promise.allSettled([
-        sendWakeup(
-          {
-            apnsEnvironment: recipient.apnsEnvironment,
-            apnsToken: recipient.apnsToken,
-            authorization: providerToken(configuration),
-            configuration,
-            payload: JSON.stringify({
-              aps: { 'content-available': 1 },
-              provider: 'microsoft-graph',
-              routeId: recipient.routeId,
-            }),
-          },
-          client,
-        ),
-      ]).finally(() => {
-        client.close();
-      });
-      await handleDeliveryResult(ctx, result[0], recipient);
-      delivered = result[0].status === 'fulfilled';
-      terminalFailure = isPermanentApnsFailure(result[0]);
-    } catch (error) {
-      console.error('APNs wakeup delivery failed', error);
+    const deliveryResults = await attemptWakeupDelivery({
+      ctx,
+      failureMessage: 'APNs wakeup delivery failed',
+      payload: (target) => microsoftGraphWakeupPayload(target.routeId),
+      recipients: [recipient],
+    });
+    const deliveryResult = deliveryResults?.[0];
+    if (deliveryResult !== undefined) {
+      delivered = deliveryResult.status === 'fulfilled';
+      terminalFailure = isPermanentApnsFailure(deliveryResult);
     }
     await ctx.runMutation(internal.pushRelay.completeMicrosoftGraphWakeup, {
       delivered,
@@ -453,42 +497,45 @@ export const deliverScheduledSendWakeup = internalAction({
     revision: v.number(),
     scheduleDocumentId: v.id('scheduledSends'),
   },
+  // fallow-ignore-next-line complexity -- Delivery pages must preserve bounded reads, ordered APNs batches, and retry persistence.
   handler: async (ctx, args) => {
-    const recipient = await ctx.runMutation(
-      internal.scheduledSend.claimWakeup,
-      args,
-    );
-    if (recipient === null) {
-      return null;
+    let cursor: string | null = null;
+    let delivered = false;
+    let attemptedDelivery = false;
+    let remainingDeviceCount = scheduledWakeupDeviceLimit;
+    while (remainingDeviceCount > 0) {
+      const page: ScheduledSendWakeupPage = await ctx.runMutation(
+        internal.scheduledSend.claimWakeup,
+        { ...args, cursor, remainingDeviceCount },
+      );
+      remainingDeviceCount -= page.inspectedDeviceCount;
+      if (page.recipients.length > 0) {
+        attemptedDelivery = true;
+        const deliveryResults = await attemptWakeupDelivery({
+          ctx,
+          failureMessage: 'Scheduled Send APNs wakeup delivery failed',
+          payload: (recipient) =>
+            scheduledSendWakeupPayload(
+              recipient.revision,
+              recipient.scheduleId,
+            ),
+          recipients: page.recipients,
+        });
+        if (deliveryResults === undefined) {
+          await ctx.runMutation(internal.scheduledSend.retryWakeup, args);
+          return null;
+        }
+        delivered ||= deliveryResults.some(
+          (result) => result.status === 'fulfilled',
+        );
+      }
+      if (page.isDone || page.nextCursor === null) {
+        break;
+      }
+      cursor = page.nextCursor;
     }
-    try {
-      const configuration = apnsConfiguration();
-      const client = connect(apnsAuthority(recipient.apnsEnvironment));
-      client.on('error', (error) => {
-        console.error('APNs HTTP/2 session failed', error);
-      });
-      const result = await Promise.allSettled([
-        sendWakeup(
-          {
-            apnsEnvironment: recipient.apnsEnvironment,
-            apnsToken: recipient.apnsToken,
-            authorization: providerToken(configuration),
-            configuration,
-            payload: JSON.stringify({
-              aps: { 'content-available': 1 },
-              provider: 'scheduled-send',
-              revision: recipient.revision,
-              scheduleId: recipient.scheduleId,
-            }),
-          },
-          client,
-        ),
-      ]).finally(() => {
-        client.close();
-      });
-      await handleDeliveryResult(ctx, result[0], recipient);
-    } catch (error) {
-      console.error('Scheduled Send APNs wakeup delivery failed', error);
+    if (attemptedDelivery && !delivered) {
+      await ctx.runMutation(internal.scheduledSend.retryWakeup, args);
     }
     return null;
   },

@@ -35,6 +35,54 @@ struct KeychainTrustedDeviceCredentialStore: TrustedDeviceCredentialPersisting {
   }
 }
 
+struct ScheduledDeliveryAuthorization: Codable, Equatable, Sendable {
+  let authorization: String
+  let capabilityVersion: Int
+  let generation: Int
+}
+
+protocol ScheduledDeliveryAuthorizationPersisting {
+  func load(trustedDeviceId: String) throws -> ScheduledDeliveryAuthorization?
+  func save(
+    _ authorization: ScheduledDeliveryAuthorization,
+    trustedDeviceId: String
+  ) throws
+  func clear(trustedDeviceId: String) throws
+}
+
+struct KeychainScheduledDeliveryAuthStore:
+  ScheduledDeliveryAuthorizationPersisting
+{
+  private let service = "dev.unwired.mail.scheduled-delivery-authorization"
+
+  func load(trustedDeviceId: String) throws -> ScheduledDeliveryAuthorization? {
+    guard let value = try KeychainStore.readString(service: service, account: trustedDeviceId),
+      let data = value.data(using: .utf8)
+    else { return nil }
+    return try JSONDecoder().decode(ScheduledDeliveryAuthorization.self, from: data)
+  }
+
+  func save(
+    _ authorization: ScheduledDeliveryAuthorization,
+    trustedDeviceId: String
+  ) throws {
+    let data = try JSONEncoder().encode(authorization)
+    guard let value = String(data: data, encoding: .utf8) else {
+      throw KeychainStoreError.unexpectedData
+    }
+    try KeychainStore.writeString(
+      value,
+      service: service,
+      account: trustedDeviceId,
+      accessible: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+    )
+  }
+
+  func clear(trustedDeviceId: String) throws {
+    try KeychainStore.delete(service: service, account: trustedDeviceId)
+  }
+}
+
 struct ProductAccountSessionSnapshot: Codable, Equatable, Hashable {
   let appleUserIdentifier: String
   let identityToken: String
