@@ -873,10 +873,7 @@ export const claimWakeup = internalMutation({
       .paginate({
         cursor: args.cursor,
         maximumBytesRead: scheduledWakeupPageByteLimit,
-        numItems: Math.min(
-          scheduledWakeupPageSize,
-          args.remainingDeviceCount,
-        ),
+        numItems: Math.min(scheduledWakeupPageSize, args.remainingDeviceCount),
       });
     await ctx.db.patch(args.scheduleDocumentId, {
       scheduledFunctionId: undefined,
