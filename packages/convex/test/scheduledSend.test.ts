@@ -1,7 +1,5 @@
 /// <reference types="vite/client" />
 
-import { generateKeyPairSync } from 'node:crypto';
-
 import { convexTest } from 'convex-test';
 
 import type { Id } from '../convex/_generated/dataModel.js';
@@ -311,11 +309,7 @@ describe('scheduled Send admission', () => {
     });
     vi.stubEnv('APNS_KEY_ID', 'key-id');
     vi.stubEnv('APNS_TEAM_ID', 'team-id');
-    const { privateKey } = generateKeyPairSync('ec', { namedCurve: 'P-256' });
-    vi.stubEnv(
-      'APNS_PRIVATE_KEY',
-      privateKey.export({ format: 'pem', type: 'pkcs8' }),
-    );
+    vi.stubEnv('APNS_PRIVATE_KEY', 'invalid-private-key');
     vi.stubEnv('APNS_TOPIC', 'dev.unwired.mail');
     try {
       await t.action(internal.apns.deliverScheduledSendWakeup, {
