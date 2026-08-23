@@ -79,6 +79,7 @@
 		C0DEC0DE4350000000000001 /* Services/ProductAccount/AppAuthGmailOAuthService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE4350000000000002 /* Services/ProductAccount/AppAuthGmailOAuthService.swift */; };
 		C0DEC0DE4350000000000003 /* AppAuthGmailOAuthServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE4350000000000004 /* AppAuthGmailOAuthServiceTests.swift */; };
 		C0DEC0DE4350000000000005 /* AppAuth in Frameworks */ = {isa = PBXBuildFile; productRef = C0DEC0DE4350000000000007 /* AppAuth */; };
+		C0DEC0DE4350000000000008 /* AppAuth in Frameworks */ = {isa = PBXBuildFile; productRef = C0DEC0DE4350000000000009 /* AppAuth */; };
 		71A6A0C02C0B000100000001 /* Services/Mailbox/MailboxConnection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A0C12C0B000100000001 /* Services/Mailbox/MailboxConnection.swift */; };
 		71A6A0C22C0B000100000001 /* MailboxConnectionAdapterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A0C32C0B000100000001 /* MailboxConnectionAdapterTests.swift */; };
 		71A6A0D02C0B000100000001 /* Features/Account/GenericMailSetupPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A0D12C0B000100000001 /* Features/Account/GenericMailSetupPanel.swift */; };
@@ -541,6 +542,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C0DEC0DE4350000000000008 /* AppAuth in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -902,6 +904,9 @@
 				71A6A0362C0B000100000001 /* PBXTargetDependency */,
 			);
 			name = "unwired-mailTests";
+			packageProductDependencies = (
+				C0DEC0DE4350000000000009 /* AppAuth */,
+			);
 			productName = "unwired-mailTests";
 			productReference = 71A6A0152C0B000100000001 /* unwired-mailTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
@@ -1320,6 +1325,11 @@
 
 /* Begin XCSwiftPackageProductDependency section */
 		C0DEC0DE4350000000000007 /* AppAuth */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C0DEC0DE4350000000000006 /* XCRemoteSwiftPackageReference "AppAuth-iOS" */;
+			productName = AppAuth;
+		};
+		C0DEC0DE4350000000000009 /* AppAuth */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = C0DEC0DE4350000000000006 /* XCRemoteSwiftPackageReference "AppAuth-iOS" */;
 			productName = AppAuth;
