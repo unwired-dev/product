@@ -76,22 +76,31 @@ final class MailTestBootstrapUITests: XCTestCase {
       in: app,
       failure: "MAIL_TEST_FAILURE:ui: The recipient field was not visible."
     )
-    recipient.tap()
-    recipient.typeText("recipient@synthetic.invalid")
+    try focusAndType(
+      "recipient@synthetic.invalid",
+      into: recipient,
+      failure: "MAIL_TEST_FAILURE:ui: The recipient field did not receive keyboard focus."
+    )
     let subject = try requireElement(
       identifier: "mail-compose-subject",
       in: app,
       failure: "MAIL_TEST_FAILURE:ui: The subject field was not visible."
     )
-    subject.tap()
-    subject.typeText(composeSubject)
+    try focusAndType(
+      composeSubject,
+      into: subject,
+      failure: "MAIL_TEST_FAILURE:ui: The subject field did not receive keyboard focus."
+    )
     let body = try requireElement(
       identifier: "mail-compose-body",
       in: app,
       failure: "MAIL_TEST_FAILURE:ui: The message body was not visible."
     )
-    body.tap()
-    body.typeText("Synthetic compose delivery")
+    try focusAndType(
+      "Synthetic compose delivery",
+      into: body,
+      failure: "MAIL_TEST_FAILURE:ui: The message body did not receive keyboard focus."
+    )
 
     try sendVisibleDraft(step: "compose-send", in: app)
     waitForOutboxToDrain(in: app)
@@ -130,8 +139,11 @@ final class MailTestBootstrapUITests: XCTestCase {
       in: app,
       failure: "MAIL_TEST_FAILURE:ui: The reply composer did not open."
     )
-    body.tap()
-    body.typeText("Synthetic visible reply")
+    try focusAndType(
+      "Synthetic visible reply",
+      into: body,
+      failure: "MAIL_TEST_FAILURE:ui: The reply body did not receive keyboard focus."
+    )
 
     try sendVisibleDraft(step: "reply", in: app)
     try verifyReplyConversation(in: app)
@@ -141,6 +153,25 @@ final class MailTestBootstrapUITests: XCTestCase {
     let app = XCUIApplication()
     app.launch()
     return app
+  }
+
+  private func focusAndType(
+    _ text: String,
+    into element: XCUIElement,
+    failure: String
+  ) throws {
+    let focused = NSPredicate(format: "hasKeyboardFocus == true")
+    for _ in 0..<2 {
+      element.tap()
+      let focusExpectation = XCTNSPredicateExpectation(predicate: focused, object: element)
+      if XCTWaiter.wait(for: [focusExpectation], timeout: 2) == .completed {
+        element.typeText(text)
+        return
+      }
+    }
+
+    XCTFail(failure)
+    throw NSError(domain: "MailTestBootstrapUITests", code: 1)
   }
 
   private func requireComposeAction(in app: XCUIApplication) throws -> XCUIElement {
