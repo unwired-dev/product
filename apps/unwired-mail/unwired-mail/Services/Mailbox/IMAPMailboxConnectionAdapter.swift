@@ -320,6 +320,7 @@ struct IMAPMailboxDescriptor: Codable, Equatable, Hashable, Sendable {
 }
 
 struct IMAPProviderMessage: Codable, Equatable, Sendable {
+  var attachmentDescriptors: [MailEngineAttachmentDescriptor]? = .none
   var calendarInvitation: CalendarInvitationDescriptor? = .none
   var categoryId: String?
   var categoryIds: [String]? = .none
@@ -367,6 +368,7 @@ struct IMAPProviderMessage: Codable, Equatable, Sendable {
     uidValidity: Int64
   ) -> IMAPProviderMessage {
     IMAPProviderMessage(
+      attachmentDescriptors: attachmentDescriptors,
       calendarInvitation: calendarInvitation,
       categoryId: categoryId,
       categoryIds: categoryIds,
@@ -542,6 +544,12 @@ protocol IMAPMailboxClient {
     authorization: DeviceLocalGenericMailAuthorization
   ) async throws -> String
 
+  func loadAttachment(
+    _ attachment: MailEngineAttachmentDescriptor,
+    message: IMAPProviderMessage,
+    authorization: DeviceLocalGenericMailAuthorization
+  ) async throws -> Data
+
   func loadRawMessage(
     message: IMAPProviderMessage,
     maximumByteCount: Int,
@@ -556,6 +564,14 @@ protocol IMAPMailboxClient {
 }
 
 extension IMAPMailboxClient {
+  func loadAttachment(
+    _: MailEngineAttachmentDescriptor,
+    message _: IMAPProviderMessage,
+    authorization _: DeviceLocalGenericMailAuthorization
+  ) async throws -> Data {
+    throw MailEngineError.operationUnsupported
+  }
+
   func loadRawMessage(
     message _: IMAPProviderMessage,
     maximumByteCount _: Int,
@@ -1949,7 +1965,16 @@ struct IMAPMessageBodyService {
     session: ProductAccountSessionSnapshot,
     authorization: DeviceLocalGenericMailAuthorization
   ) async throws -> MailboxMessageBody {
-    if let cached = try loadCachedMessageBody(message: message, session: session) {
+    let providerMessage = try metadataStore.loadProviderMessage(
+      stableProviderMessageId: message.stableProviderMessageId,
+      productAccountId: session.productAccountId,
+      connectionId: message.connectionId
+    )
+    if let cached = try loadCachedMessageBody(
+      message: message,
+      providerMessage: providerMessage,
+      session: session
+    ) {
       try? cache.recordMessageBodyAccess(
         productAccountId: session.productAccountId,
         stableProviderMessageId: message.stableProviderMessageId,
@@ -1957,13 +1982,7 @@ struct IMAPMessageBodyService {
       )
       return cached
     }
-    guard
-      let providerMessage = try metadataStore.loadProviderMessage(
-        stableProviderMessageId: message.stableProviderMessageId,
-        productAccountId: session.productAccountId,
-        connectionId: message.connectionId
-      )
-    else { throw IMAPMailboxError.missingMessage }
+    guard let providerMessage else { throw IMAPMailboxError.missingMessage }
     let body = try await client.loadTextBody(
       message: providerMessage,
       authorization: authorization
@@ -1977,7 +1996,37 @@ struct IMAPMessageBodyService {
       productAccountId: session.productAccountId,
       stableProviderMessageId: message.stableProviderMessageId
     )
-    return MailboxMessageBody(text: body)
+    return messageBody(text: body, providerMessage: providerMessage)
+  }
+
+  func loadMessageAttachment(
+    _ attachment: MailboxMessageAttachment,
+    message: MailboxMessageMetadata,
+    session: ProductAccountSessionSnapshot,
+    authorization: DeviceLocalGenericMailAuthorization
+  ) async throws -> Data {
+    guard
+      let providerMessage = try metadataStore.loadProviderMessage(
+        stableProviderMessageId: message.stableProviderMessageId,
+        productAccountId: session.productAccountId,
+        connectionId: message.connectionId
+      ),
+      let descriptor = providerMessage.attachmentDescriptors?.first(where: {
+        $0.selector.rawValue == attachment.id && mailboxAttachment($0) == attachment
+      }),
+      descriptor.byteCount >= 0,
+      descriptor.byteCount <= MailboxMessageAttachmentPolicy.maximumByteCount
+    else { throw MailboxMessageAttachmentError.invalidResponse }
+    let data = try await client.loadAttachment(
+      descriptor,
+      message: providerMessage,
+      authorization: authorization
+    )
+    try Task.checkCancellation()
+    guard data.count <= descriptor.byteCount,
+      data.count <= MailboxMessageAttachmentPolicy.maximumByteCount
+    else { throw MailboxMessageAttachmentError.invalidResponse }
+    return data
   }
 
   func loadMessageSource(
@@ -2145,6 +2194,23 @@ struct IMAPMessageBodyService {
     message: MailboxMessageMetadata,
     session: ProductAccountSessionSnapshot
   ) throws -> MailboxMessageBody? {
+    let providerMessage = try metadataStore.loadProviderMessage(
+      stableProviderMessageId: message.stableProviderMessageId,
+      productAccountId: session.productAccountId,
+      connectionId: message.connectionId
+    )
+    return try loadCachedMessageBody(
+      message: message,
+      providerMessage: providerMessage,
+      session: session
+    )
+  }
+
+  private func loadCachedMessageBody(
+    message: MailboxMessageMetadata,
+    providerMessage: IMAPProviderMessage?,
+    session: ProductAccountSessionSnapshot
+  ) throws -> MailboxMessageBody? {
     guard
       let payload = try cache.loadMessageBody(
         productAccountId: session.productAccountId,
@@ -2160,7 +2226,7 @@ struct IMAPMessageBodyService {
       guard let text = String(data: decrypted, encoding: .utf8) else {
         throw IMAPMailboxError.unsupportedBody
       }
-      return MailboxMessageBody(text: text)
+      return messageBody(text: text, providerMessage: providerMessage)
     } catch {
       try? cache.removeMessageBody(
         productAccountId: session.productAccountId,
@@ -2168,6 +2234,27 @@ struct IMAPMessageBodyService {
       )
       return nil
     }
+  }
+
+  private func messageBody(
+    text: String,
+    providerMessage: IMAPProviderMessage?
+  ) -> MailboxMessageBody {
+    MailboxMessageBody(
+      text: text,
+      attachments: providerMessage?.attachmentDescriptors?.map(mailboxAttachment) ?? []
+    )
+  }
+
+  private func mailboxAttachment(
+    _ descriptor: MailEngineAttachmentDescriptor
+  ) -> MailboxMessageAttachment {
+    MailboxMessageAttachment(
+      byteCount: descriptor.byteCount,
+      filename: descriptor.filename,
+      id: descriptor.selector.rawValue,
+      mimeType: descriptor.mimeType
+    )
   }
 
   private func requiredKeyMaterial(productAccountId: String) throws -> ProductSyncKeyMaterial {
@@ -2914,6 +3001,30 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxConnection
       } catch MailEngineError.operationUnsupported {
         return .unavailable(for: message)
       }
+    }
+  }
+
+  func loadMessageAttachment(
+    _ attachment: MailboxMessageAttachment,
+    message: MailboxMessageMetadata,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> Data {
+    guard message.connectionId.providerId == .imapSMTP else {
+      throw MailboxConnectionAdapterError.unsupportedProvider
+    }
+    let connection = try await connection(id: message.connectionId, session: session)
+    return try await syncGate.withLock(connection.id) {
+      let authorization = try await authorizationForProviderAccess(
+        connection: connection,
+        session: session,
+        isWithinSyncGate: true
+      )
+      return try await bodyReader.loadMessageAttachment(
+        attachment,
+        message: message,
+        session: session,
+        authorization: authorization
+      )
     }
   }
 

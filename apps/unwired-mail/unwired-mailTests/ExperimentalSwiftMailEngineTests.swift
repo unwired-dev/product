@@ -4,6 +4,8 @@ import Testing
 
 @testable import unwired_mail
 
+// swiftlint:disable file_length
+
 @Suite("Experimental SwiftMail engine")
 struct ExperimentalSwiftMailEngineTests {
   @Test
@@ -233,6 +235,68 @@ struct ExperimentalSwiftMailEngineTests {
 
 @Suite("Experimental SwiftMail calendar parts")
 struct ExperimentalSwiftMailCalendarPartTests {
+  @Test
+  // swiftlint:disable:next function_body_length
+  func testMetadataExposesOnlyOrdinaryAttachmentsFromMIMEStructure() throws {
+    let metadata = try SwiftMailEngineSession.metadata(
+      MessageInfo(
+        sequenceNumber: SequenceNumber(1),
+        uid: UID(7),
+        parts: [
+          MessagePart(
+            sectionString: "1",
+            contentType: "text/plain; charset=utf-8",
+            size: 120
+          ),
+          MessagePart(
+            sectionString: "2",
+            contentType: "application/pdf; name=receipt.pdf",
+            disposition: "attachment",
+            encoding: "base64",
+            filename: "receipt.pdf",
+            size: 2_048
+          ),
+          MessagePart(
+            sectionString: "3",
+            contentType: "image/png",
+            disposition: "inline",
+            filename: "logo.png",
+            contentId: "logo@example.com",
+            size: 512
+          ),
+          MessagePart(
+            sectionString: "4",
+            contentType: "image/jpeg",
+            filename: "signature.jpg",
+            contentId: "signature@example.com",
+            size: 256
+          ),
+          MessagePart(
+            sectionString: "5",
+            contentType: "application/octet-stream",
+            disposition: "attachment"
+          ),
+        ]
+      ),
+      connectionID: "connection",
+      mailbox: MailEngineMailboxIdentity("INBOX"),
+      uidValidity: 4
+    )
+
+    #expect(
+      metadata.attachmentDescriptors
+        == [
+          MailEngineAttachmentDescriptor(
+            byteCount: 2_048,
+            contentTransferEncoding: "base64",
+            filename: "receipt.pdf",
+            mimeType: "application/pdf",
+            selector: MailEngineBodyPartSelector("2")
+          )
+        ])
+    #expect(metadata.hasAttachments)
+  }
+
   @Test
   func testMetadataDetectsCalendarStructureWithoutPartData() throws {
     let metadata = try SwiftMailEngineSession.metadata(

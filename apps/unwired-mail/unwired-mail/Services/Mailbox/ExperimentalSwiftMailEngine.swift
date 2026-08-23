@@ -913,6 +913,7 @@ actor SwiftMailEngineSession: MailEngineSession {
     guard let uid = info.uid, uid.value > 0 else {
       throw MailEngineUIDMappingError.invalidUID
     }
+    let attachmentDescriptors = attachmentDescriptors(info)
     return MailEngineMessageMetadata(
       flags: Set(info.flags.map(flag)),
       identity: MailEngineMessageIdentity(
@@ -923,10 +924,11 @@ actor SwiftMailEngineSession: MailEngineSession {
       ),
       internalDate: info.internalDate ?? info.date ?? .distantPast,
       rfcMessageID: info.messageId?.description,
+      attachmentDescriptors: attachmentDescriptors,
       calendarInvitationPart: calendarInvitationPart(info.parts),
       ccRecipients: info.cc,
       from: info.from,
-      hasAttachments: info.parts.contains(where: isAttachment),
+      hasAttachments: !attachmentDescriptors.isEmpty,
       headerFields: (info.additionalHeaderFields ?? []).map {
         MailEngineHeaderField(name: $0.name, value: $0.value)
       },
@@ -945,11 +947,27 @@ actor SwiftMailEngineSession: MailEngineSession {
     fields?.first { $0.name.caseInsensitiveCompare(name) == .orderedSame }?.value
   }
 
-  private static func isAttachment(_ part: MessagePart) -> Bool {
-    let disposition = part.disposition?.lowercased()
-    let contentType = part.contentType.lowercased()
-    if disposition == "attachment" || contentType.hasPrefix("text/calendar") { return true }
-    return !(part.filename?.isEmpty ?? true) && disposition != "inline"
+  /// Returns safe ordinary attachment descriptors without selecting any part bytes.
+  static func attachmentDescriptors(
+    _ info: MessageInfo
+  ) -> [MailEngineAttachmentDescriptor] {
+    Message(header: info, parts: info.parts).attachments.compactMap { part in
+      guard let byteCount = part.size, byteCount >= 0 else { return nil }
+      let mimeType =
+        part.contentType
+        .split(separator: ";", maxSplits: 1)
+        .first?
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+        .lowercased() ?? ""
+      guard !mimeType.isEmpty else { return nil }
+      return MailEngineAttachmentDescriptor(
+        byteCount: byteCount,
+        contentTransferEncoding: part.encoding,
+        filename: part.suggestedFilename,
+        mimeType: mimeType,
+        selector: MailEngineBodyPartSelector(part.section.description)
+      )
+    }
   }
 
   static func calendarInvitationPart(
@@ -1268,6 +1286,7 @@ struct SwiftMailMailboxClient: IMAPMailboxClient {
 
   static func providerMessage(_ message: MailEngineMessageMetadata) -> IMAPProviderMessage {
     IMAPProviderMessage(
+      attachmentDescriptors: message.attachmentDescriptors,
       calendarInvitation: message.calendarInvitationPart.map {
         CalendarInvitationDescriptor(
           byteCount: $0.byteCount,
@@ -1335,6 +1354,27 @@ struct SwiftMailMailboxClient: IMAPMailboxClient {
       ),
       maximumByteCount: maximumByteCount
     )
+  }
+
+  func loadAttachment(
+    _ attachment: MailEngineAttachmentDescriptor,
+    message: IMAPProviderMessage,
+    authorization: DeviceLocalGenericMailAuthorization
+  ) async throws -> Data {
+    do {
+      return try await connect(authorization: authorization).session.fetchDecodedBodyPart(
+        attachment.bodyPart,
+        for: MailEngineMessageIdentity(
+          connectionID: authorization.definition.connectionId.rawValue,
+          mailbox: MailEngineMailboxIdentity(message.mailbox),
+          uid: message.uid,
+          uidValidity: message.uidValidity
+        ),
+        maximumByteCount: MailboxMessageAttachmentPolicy.maximumByteCount
+      )
+    } catch MailEngineError.cancelled {
+      throw CancellationError()
+    }
   }
 
   func loadCalendarInvitation(
