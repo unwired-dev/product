@@ -286,24 +286,26 @@ function apnsAuthority(environment: ApnsDelivery['apnsEnvironment']): string {
     : 'https://api.sandbox.push.apple.com';
 }
 
-function microsoftGraphWakeupPayload(routeId: string): string {
+function backgroundWakeupPayload(
+  provider: 'microsoft-graph' | 'scheduled-send',
+  fields: Readonly<Record<string, number | string>>,
+): string {
   return JSON.stringify({
     aps: { 'content-available': 1 },
-    provider: 'microsoft-graph',
-    routeId,
+    provider,
+    ...fields,
   });
+}
+
+function microsoftGraphWakeupPayload(routeId: string): string {
+  return backgroundWakeupPayload('microsoft-graph', { routeId });
 }
 
 function scheduledSendWakeupPayload(
   revision: number,
   scheduleId: string,
 ): string {
-  return JSON.stringify({
-    aps: { 'content-available': 1 },
-    provider: 'scheduled-send',
-    revision,
-    scheduleId,
-  });
+  return backgroundWakeupPayload('scheduled-send', { revision, scheduleId });
 }
 
 async function deliverWakeupBatch<Recipient extends StaleTokenRecipient>(
@@ -358,6 +360,7 @@ async function deliverWakeupBatch<Recipient extends StaleTokenRecipient>(
 }
 
 async function attemptWakeupDelivery<Recipient extends StaleTokenRecipient>(
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Convex action contexts expose mutable mutation methods.
   options: Readonly<{
     ctx: ActionCtx;
     failureMessage: string;
