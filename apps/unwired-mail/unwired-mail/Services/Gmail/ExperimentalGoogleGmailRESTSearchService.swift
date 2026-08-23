@@ -18,10 +18,28 @@ enum GoogleGmailRESTClientBuildPolicy {
 
 enum GmailSearchServiceFactory {
   static func makeDefault() -> any GmailMessageSearching {
+    BuildPolicySelectedGmailSearchService()
+  }
+}
+
+private struct BuildPolicySelectedGmailSearchService: GmailMessageSearching {
+  func searchProvider(
+    query: String,
+    connection: GmailProviderConnectionStatus,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> [GmailMessageMetadata] {
     if GoogleGmailRESTClientBuildPolicy.isEnabled {
-      ExperimentalGoogleGmailRESTSearchService()
+      try await ExperimentalGoogleGmailRESTSearchService().searchProvider(
+        query: query,
+        connection: connection,
+        session: session
+      )
     } else {
-      GmailMessageMetadataService()
+      try await GmailMessageMetadataService().searchProvider(
+        query: query,
+        connection: connection,
+        session: session
+      )
     }
   }
 }
