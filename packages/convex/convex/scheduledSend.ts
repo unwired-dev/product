@@ -890,14 +890,17 @@ export const retryWakeup = internalMutation({
       return true;
     }
     const now = Date.now();
-    const retryAt = now + minuteMilliseconds;
-    if (retryAt >= schedule.deadlineAt) {
+    if (now >= schedule.deadlineAt) {
       await ctx.db.patch(args.scheduleDocumentId, {
         state: 'needs-attention',
         updatedAt: now,
       });
       return false;
     }
+    const retryAt = Math.min(
+      now + minuteMilliseconds,
+      schedule.deadlineAt,
+    );
     const scheduledFunctionId = await ctx.scheduler.runAt(
       retryAt,
       internal.apns.deliverScheduledSendWakeup,

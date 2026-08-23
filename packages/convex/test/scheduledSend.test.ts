@@ -1,5 +1,7 @@
 /// <reference types="vite/client" />
 
+import { generateKeyPairSync } from 'node:crypto';
+
 import { convexTest } from 'convex-test';
 
 import type { Id } from '../convex/_generated/dataModel.js';
@@ -8,6 +10,12 @@ import { api, internal } from '../convex/_generated/api.js';
 import schema from '../convex/schema.js';
 
 const modules = import.meta.glob('../convex/**/*.ts');
+
+vi.mock('node:http2', () => ({
+  connect: () => {
+    throw new Error('Simulated APNs batch failure');
+  },
+}));
 
 function requireValue<Value>(value: Value | null): Value {
   if (value === null) {
@@ -264,6 +272,15 @@ describe('scheduled Send admission', () => {
   it('persists a retry after a batch-level wakeup failure', async () => {
     expect.assertions(4);
     const { asUser, device, payload, t } = await fixture();
+    await asUser.mutation(api.pushRelay.registerDevice, {
+      apnsEnvironment: 'sandbox',
+      apnsToken: 'scheduled-send-token',
+      trustedDeviceId: device.trustedDeviceId,
+    });
+    await asUser.mutation(api.scheduledSend.registerDeliveryCapability, {
+      capabilityVersion: 1,
+      trustedDeviceId: device.trustedDeviceId,
+    });
     const dueAt = Date.now() + 2 * 60 * 1000;
     await asUser.mutation(api.scheduledSend.admit, {
       deadlineAt: dueAt + 24 * 60 * 60 * 1000,
@@ -288,10 +305,63 @@ describe('scheduled Send admission', () => {
       await ctx.db.patch(schedule._id, { dueAt: Date.now() - 1 });
       return schedule;
     });
-    await t.mutation(internal.scheduledSend.claimWakeup, {
-      revision: 1,
+    vi.stubEnv('APNS_KEY_ID', 'key-id');
+    vi.stubEnv('APNS_TEAM_ID', 'team-id');
+    const { privateKey } = generateKeyPairSync('ec', { namedCurve: 'P-256' });
+    vi.stubEnv(
+      'APNS_PRIVATE_KEY',
+      privateKey.export({ format: 'pem', type: 'pkcs8' }),
+    );
+    vi.stubEnv('APNS_TOPIC', 'dev.unwired.mail');
+    try {
+      await t.action(internal.apns.deliverScheduledSendWakeup, {
+        revision: 1,
+        // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+        scheduleDocumentId: schedule._id,
+      });
       // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-      scheduleDocumentId: schedule._id,
+      const retried = await t.run(async (ctx) => ctx.db.get(schedule._id));
+
+      expect(retried?.state).toBe('active');
+      expect(retried?.wakeAttemptedAt).toBeTypeOf('number');
+      expect(retried?.scheduledFunctionId).toBeDefined();
+      expect(retried?.scheduledFunctionId).not.toBe(
+        schedule.scheduledFunctionId,
+      );
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('uses the deadline for a retry during the final minute', async () => {
+    expect.assertions(2);
+    const { asUser, device, payload, t } = await fixture();
+    const dueAt = Date.now() + 2 * 60 * 1000;
+    await asUser.mutation(api.scheduledSend.admit, {
+      deadlineAt: dueAt + 24 * 60 * 60 * 1000,
+      dueAt,
+      encryptedPayloadIdentifier: payload.payloadIdentifier,
+      encryptedPayloadUpdatedAt: payload.updatedAt,
+      revision: 1,
+      scheduleId: 'schedule-001',
+      trustedDeviceId: device.trustedDeviceId,
+    });
+    const schedule = await t.run(async (ctx) => {
+      const stored = await ctx.db
+        .query('scheduledSends')
+        .withIndex('by_productAccountId_and_scheduleId', (q) =>
+          q
+            .eq('productAccountId', device.productAccountId)
+            .eq('scheduleId', 'schedule-001'),
+        )
+        .unique();
+      const schedule = requireValue(stored);
+      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+      await ctx.db.patch(schedule._id, {
+        deadlineAt: Date.now() + 30_000,
+        scheduledFunctionId: undefined,
+      });
+      return schedule;
     });
 
     const persisted = await t.mutation(internal.scheduledSend.retryWakeup, {
@@ -304,8 +374,6 @@ describe('scheduled Send admission', () => {
 
     expect(persisted).toBe(true);
     expect(retried?.state).toBe('active');
-    expect(retried?.wakeAttemptedAt).toBeTypeOf('number');
-    expect(retried?.scheduledFunctionId).toBeDefined();
   });
 });
 
