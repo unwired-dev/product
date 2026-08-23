@@ -3255,8 +3255,11 @@ struct AccountView: View {
     prepareProfilePresentationForSwitch()
     prepareProfileThreadState(for: profileId)
     await reloadPreparedProfileThreadState(for: profileId)
-    finishProfileSwitch(to: profileId)
-    return true
+    guard profileViewModel.activeProfileId == profileId else { return false }
+    return profileSwitchGate.performIfCurrent(switchGeneration) {
+      finishProfileSwitch(to: profileId)
+      return true
+    } ?? false
   }
 
   private func refreshProfileAndWait(
@@ -4229,6 +4232,14 @@ final class MailProfileSwitchGate {
 
   func isCurrent(_ generation: Int) -> Bool {
     self.generation == generation
+  }
+
+  func performIfCurrent<Result>(
+    _ generation: Int,
+    _ operation: () -> Result
+  ) -> Result? {
+    guard isCurrent(generation) else { return nil }
+    return operation()
   }
 }
 
