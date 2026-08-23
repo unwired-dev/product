@@ -1,6 +1,7 @@
 import Combine
 import Contacts
 import ContactsUI
+import CoreFoundation
 import EventKitUI
 import SwiftUI
 import UIKit
@@ -1240,6 +1241,21 @@ func waitForCurrentMailboxLoad(
   }
 }
 
+@MainActor
+func waitForNextMainRunLoopCycle() async {
+  await withCheckedContinuation { continuation in
+    let observer = CFRunLoopObserverCreateWithHandler(
+      nil,
+      CFRunLoopActivity.afterWaiting.rawValue,
+      false,
+      0
+    ) { _, _ in
+      continuation.resume()
+    }
+    CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
+  }
+}
+
 func newlyFailedConnectionIds(
   from oldIds: [MailboxConnectionId],
   to newIds: [MailboxConnectionId],
@@ -1603,6 +1619,7 @@ struct AccountView: View {
   @State private var spotlightReconcileTask: Task<Void, Never>?
   @State private var profileInterruptionViewModel: MailProfileInterruptionViewModel
   @State private var parkedCompositionDrafts: [MailProfileId: MailShellCompositionDraft] = [:]
+  @State private var profileSwitchGate = MailProfileSwitchGate()
   @State private var profilePreferenceRecordScope: MailProfileRecordScope = .legacyProductAccount
   @State private var profileViewModel: MailProfileWorkspaceViewModel
   @State private var readingPreferenceStore: ReadingPreferenceStore
@@ -2241,7 +2258,8 @@ struct AccountView: View {
           _ = await gmailViewModel.load()
         }
       }
-      .onChange(of: inboxViewModel.threads) { _, threads in
+      .onChange(of: inboxViewModel.threadProjectionRevision) { _, _ in
+        let threads = inboxViewModel.threads
         if mailShellSelection.selectedMailbox?.isUnified == true {
           if let connectionId = inboxViewModel.currentConnectionId {
             mailShellSelection.updateThreads(threads, for: connectionId)
@@ -3226,39 +3244,96 @@ struct AccountView: View {
   }
 
   private func switchProfileAndWait(to profileId: MailProfileId) async -> Bool {
+    let switchGeneration = profileSwitchGate.begin()
     guard let sourceProfileId = profileViewModel.activeProfileId else {
-      await profileViewModel.load(
-        restoredProfileId: restoredProfileIdRawValue.map(MailProfileId.init(rawValue:)),
-        targetedProfileId: profileId
-      )
-      guard profileViewModel.activeProfileId == profileId else { return false }
-      await reloadProfileScopedStoresIfNeeded()
-      guard profileViewModel.activeProfileId == profileId else { return false }
-      prepareProfilePresentationForSwitch()
-      prepareProfileThreadState(for: profileId)
-      await reloadPreparedProfileThreadState(for: profileId)
-      finishProfileSwitch(to: profileId)
-      return true
+      return await loadProfileAndWait(to: profileId, switchGeneration: switchGeneration)
     }
     guard sourceProfileId != profileId else {
-      restoredProfileIdRawValue = profileId.rawValue
-      await reloadProfileScopedStoresIfNeeded()
-      await loadActiveProfileMutes()
-      return true
+      return await refreshProfileAndWait(profileId, switchGeneration: switchGeneration)
     }
+    return await activateProfileAndWait(
+      from: sourceProfileId,
+      to: profileId,
+      switchGeneration: switchGeneration
+    )
+  }
+
+  private func loadProfileAndWait(
+    to profileId: MailProfileId,
+    switchGeneration: Int
+  ) async -> Bool {
+    await profileViewModel.load(
+      restoredProfileId: restoredProfileIdRawValue.map(MailProfileId.init(rawValue:)),
+      targetedProfileId: profileId
+    )
+    guard isCurrentProfileSwitch(switchGeneration, profileId: profileId) else { return false }
+    await reloadProfileScopedStoresIfNeeded()
+    guard isCurrentProfileSwitch(switchGeneration, profileId: profileId) else { return false }
+    prepareProfilePresentationForSwitch()
+    prepareProfileThreadState(for: profileId)
+    await reloadPreparedProfileThreadState(for: profileId)
+    guard profileViewModel.activeProfileId == profileId else { return false }
+    return profileSwitchGate.performIfCurrent(switchGeneration) {
+      finishProfileSwitch(to: profileId)
+      return true
+    } ?? false
+  }
+
+  private func refreshProfileAndWait(
+    _ profileId: MailProfileId,
+    switchGeneration: Int
+  ) async -> Bool {
+    restoredProfileIdRawValue = profileId.rawValue
+    await reloadProfileScopedStoresIfNeeded()
+    guard profileSwitchGate.isCurrent(switchGeneration) else { return false }
+    await loadActiveProfileMutes()
+    return profileSwitchGate.isCurrent(switchGeneration)
+  }
+
+  private func activateProfileAndWait(
+    from sourceProfileId: MailProfileId,
+    to profileId: MailProfileId,
+    switchGeneration: Int
+  ) async -> Bool {
     do {
+      // Present the reset shell in stages so its observed mutations do not share a frame.
+      guard
+        await prepareStagedProfilePresentationForSwitch(
+          from: sourceProfileId,
+          switchGeneration: switchGeneration
+        )
+      else { return false }
+      guard
+        !Task.isCancelled,
+        profileSwitchGate.isCurrent(switchGeneration),
+        profileViewModel.activeProfileId == sourceProfileId
+      else { return false }
       try profileViewModel.activate(profileId) {
         if let compositionDraft {
           parkedCompositionDrafts[sourceProfileId] = compositionDraft
           self.compositionDraft = nil
         }
       }
+      await waitForNextMainRunLoopCycle()
+      guard
+        !Task.isCancelled,
+        profileSwitchGate.isCurrent(switchGeneration),
+        profileViewModel.activeProfileId == profileId
+      else { return false }
       let preparedProfileRecordScope = prepareProfileScopedStoresIfNeeded()
-      guard profileViewModel.activeProfileId == profileId else { return false }
-      // Reset Profile-owned projections before presenting, then hydrate them after cached mail.
-      prepareProfilePresentationForSwitch()
-      await Task.yield()
+      await waitForNextMainRunLoopCycle()
+      guard
+        !Task.isCancelled,
+        profileSwitchGate.isCurrent(switchGeneration),
+        profileViewModel.activeProfileId == profileId
+      else { return false }
       prepareProfileThreadState(for: profileId)
+      await waitForNextMainRunLoopCycle()
+      guard
+        !Task.isCancelled,
+        profileSwitchGate.isCurrent(switchGeneration),
+        profileViewModel.activeProfileId == profileId
+      else { return false }
       finishProfileSwitch(to: profileId)
       if let preparedProfileRecordScope {
         Task {
@@ -3273,9 +3348,45 @@ struct AccountView: View {
     }
   }
 
+  private func isCurrentProfileSwitch(
+    _ switchGeneration: Int,
+    profileId: MailProfileId
+  ) -> Bool {
+    profileSwitchGate.isCurrent(switchGeneration)
+      && profileViewModel.activeProfileId == profileId
+  }
+
   private func prepareProfilePresentationForSwitch() {
     mailShellSelection.selectUnifiedInbox()
     inboxViewModel.prepareForProfileSwitch()
+  }
+
+  private func prepareStagedProfilePresentationForSwitch(
+    from sourceProfileId: MailProfileId,
+    switchGeneration: Int
+  ) async -> Bool {
+    mailShellSelection.selectUnifiedInbox()
+    await waitForNextMainRunLoopCycle()
+    guard
+      !Task.isCancelled,
+      profileSwitchGate.isCurrent(switchGeneration),
+      profileViewModel.activeProfileId == sourceProfileId
+    else { return false }
+    inboxViewModel.clearVisibleThreadsForProfileSwitch()
+    await waitForNextMainRunLoopCycle()
+    guard
+      !Task.isCancelled,
+      profileSwitchGate.isCurrent(switchGeneration),
+      profileViewModel.activeProfileId == sourceProfileId
+    else { return false }
+    inboxViewModel.prepareForProfileSwitch()
+    await waitForNextMainRunLoopCycle()
+    guard
+      !Task.isCancelled,
+      profileSwitchGate.isCurrent(switchGeneration),
+      profileViewModel.activeProfileId == sourceProfileId
+    else { return false }
+    return true
   }
 
   private func finishProfileSwitch(to profileId: MailProfileId) {
@@ -4171,6 +4282,28 @@ extension AccountView {
       selectConnection(connection)
     }
     mailShellSelection.selectSearchResult(message)
+  }
+}
+
+@MainActor
+final class MailProfileSwitchGate {
+  private var generation = 0
+
+  func begin() -> Int {
+    generation &+= 1
+    return generation
+  }
+
+  func isCurrent(_ generation: Int) -> Bool {
+    self.generation == generation
+  }
+
+  func performIfCurrent<Result>(
+    _ generation: Int,
+    _ operation: () -> Result
+  ) -> Result? {
+    guard isCurrent(generation) else { return nil }
+    return operation()
   }
 }
 
@@ -12763,7 +12896,10 @@ final class GmailInboxViewModel {
   var isSyncing = false
   var searchQuery = ""
   var searchResult: GmailSearchResult?
-  var threads: [MailboxThread] = []
+  private(set) var threadProjectionRevision = 0
+  var threads: [MailboxThread] = [] {
+    didSet { threadProjectionRevision &+= 1 }
+  }
 
   private(set) var currentConnectionId: MailboxConnectionId?
   private(set) var navigationSnapshot = MailboxNavigationSnapshot.empty
@@ -13345,10 +13481,16 @@ final class GmailInboxViewModel {
     isLoading = false
     navigationSnapshot = .empty
     visibleMessageBodyPrefetches = [:]
-    threads = []
+    clearVisibleThreadsForProfileSwitch()
     searchQuery = ""
     searchResult = nil
     errorMessage = nil
+  }
+
+  func clearVisibleThreadsForProfileSwitch() {
+    currentConnectionId = nil
+    guard !threads.isEmpty else { return }
+    threads = []
   }
 
   func clear() {
@@ -13716,8 +13858,9 @@ final class GmailInboxViewModel {
     loadId: UUID,
     connectionIds: Set<MailboxConnectionId>
   ) async -> Bool {
+    let firstBatchSize = 1
     let batchSize = 2
-    guard threads.isEmpty, initialProjectedThreads.count > batchSize else {
+    guard threads.isEmpty, initialProjectedThreads.count > firstBatchSize else {
       threads = initialProjectedThreads
       return true
     }
@@ -13740,7 +13883,8 @@ final class GmailInboxViewModel {
         projectionRevision = projection.revision
         if projectionRevision != productMailboxStateRevision { continue }
       }
-      let endIndex = min(publishedCount + batchSize, projectedThreads.count)
+      let nextBatchSize = publishedCount == 0 ? firstBatchSize : batchSize
+      let endIndex = min(publishedCount + nextBatchSize, projectedThreads.count)
       threads = Array(projectedThreads.prefix(endIndex))
       publishedCount = endIndex
       guard publishedCount < projectedThreads.count else { return true }
