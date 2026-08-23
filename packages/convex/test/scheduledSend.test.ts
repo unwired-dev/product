@@ -16,9 +16,9 @@ vi.mock('node:http2', async () => {
   const { EventEmitter } = await import('node:events');
 
   return {
-    connect: () => {
+    connect: () =>
       // oxlint-disable-next-line unicorn/prefer-event-target -- the production client is an EventEmitter.
-      return Object.assign(new EventEmitter(), {
+      Object.assign(new EventEmitter(), {
         close() {
           return undefined;
         },
@@ -40,8 +40,7 @@ vi.mock('node:http2', async () => {
           });
           return request;
         },
-      });
-    },
+      }),
   };
 });
 
