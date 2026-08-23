@@ -3230,32 +3230,52 @@ struct AccountView: View {
     profileSwitchGeneration &+= 1
     let switchGeneration = profileSwitchGeneration
     guard let sourceProfileId = profileViewModel.activeProfileId else {
-      await profileViewModel.load(
-        restoredProfileId: restoredProfileIdRawValue.map(MailProfileId.init(rawValue:)),
-        targetedProfileId: profileId
-      )
-      guard
-        profileSwitchGeneration == switchGeneration,
-        profileViewModel.activeProfileId == profileId
-      else { return false }
-      await reloadProfileScopedStoresIfNeeded()
-      guard
-        profileSwitchGeneration == switchGeneration,
-        profileViewModel.activeProfileId == profileId
-      else { return false }
-      prepareProfilePresentationForSwitch()
-      prepareProfileThreadState(for: profileId)
-      await reloadPreparedProfileThreadState(for: profileId)
-      finishProfileSwitch(to: profileId)
-      return true
+      return await loadProfileAndWait(to: profileId, switchGeneration: switchGeneration)
     }
     guard sourceProfileId != profileId else {
-      restoredProfileIdRawValue = profileId.rawValue
-      await reloadProfileScopedStoresIfNeeded()
-      guard profileSwitchGeneration == switchGeneration else { return false }
-      await loadActiveProfileMutes()
-      return profileSwitchGeneration == switchGeneration
+      return await refreshProfileAndWait(profileId, switchGeneration: switchGeneration)
     }
+    return await activateProfileAndWait(
+      from: sourceProfileId,
+      to: profileId,
+      switchGeneration: switchGeneration
+    )
+  }
+
+  private func loadProfileAndWait(
+    to profileId: MailProfileId,
+    switchGeneration: Int
+  ) async -> Bool {
+    await profileViewModel.load(
+      restoredProfileId: restoredProfileIdRawValue.map(MailProfileId.init(rawValue:)),
+      targetedProfileId: profileId
+    )
+    guard isCurrentProfileSwitch(switchGeneration, profileId: profileId) else { return false }
+    await reloadProfileScopedStoresIfNeeded()
+    guard isCurrentProfileSwitch(switchGeneration, profileId: profileId) else { return false }
+    prepareProfilePresentationForSwitch()
+    prepareProfileThreadState(for: profileId)
+    await reloadPreparedProfileThreadState(for: profileId)
+    finishProfileSwitch(to: profileId)
+    return true
+  }
+
+  private func refreshProfileAndWait(
+    _ profileId: MailProfileId,
+    switchGeneration: Int
+  ) async -> Bool {
+    restoredProfileIdRawValue = profileId.rawValue
+    await reloadProfileScopedStoresIfNeeded()
+    guard profileSwitchGeneration == switchGeneration else { return false }
+    await loadActiveProfileMutes()
+    return profileSwitchGeneration == switchGeneration
+  }
+
+  private func activateProfileAndWait(
+    from sourceProfileId: MailProfileId,
+    to profileId: MailProfileId,
+    switchGeneration: Int
+  ) async -> Bool {
     do {
       // Present the reset shell first so the Profile activation and hydration do not share a frame.
       prepareProfilePresentationForSwitch()
@@ -3288,6 +3308,13 @@ struct AccountView: View {
       profileViewModel.show(error)
       return false
     }
+  }
+
+  private func isCurrentProfileSwitch(
+    _ switchGeneration: Int,
+    profileId: MailProfileId
+  ) -> Bool {
+    profileSwitchGeneration == switchGeneration && profileViewModel.activeProfileId == profileId
   }
 
   private func prepareProfilePresentationForSwitch() {
