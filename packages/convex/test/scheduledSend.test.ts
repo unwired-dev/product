@@ -260,6 +260,53 @@ describe('scheduled Send admission', () => {
     expect(recipient).toStrictEqual([]);
     expect(status?.state).toBe('needs-attention');
   });
+
+  it('persists a retry after a batch-level wakeup failure', async () => {
+    expect.assertions(4);
+    const { asUser, device, payload, t } = await fixture();
+    const dueAt = Date.now() + 2 * 60 * 1000;
+    await asUser.mutation(api.scheduledSend.admit, {
+      deadlineAt: dueAt + 24 * 60 * 60 * 1000,
+      dueAt,
+      encryptedPayloadIdentifier: payload.payloadIdentifier,
+      encryptedPayloadUpdatedAt: payload.updatedAt,
+      revision: 1,
+      scheduleId: 'schedule-001',
+      trustedDeviceId: device.trustedDeviceId,
+    });
+    const schedule = await t.run(async (ctx) => {
+      const stored = await ctx.db
+        .query('scheduledSends')
+        .withIndex('by_productAccountId_and_scheduleId', (q) =>
+          q
+            .eq('productAccountId', device.productAccountId)
+            .eq('scheduleId', 'schedule-001'),
+        )
+        .unique();
+      const schedule = requireValue(stored);
+      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+      await ctx.db.patch(schedule._id, { dueAt: Date.now() - 1 });
+      return schedule;
+    });
+    await t.mutation(internal.scheduledSend.claimWakeup, {
+      revision: 1,
+      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+      scheduleDocumentId: schedule._id,
+    });
+
+    const persisted = await t.mutation(internal.scheduledSend.retryWakeup, {
+      revision: 1,
+      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+      scheduleDocumentId: schedule._id,
+    });
+    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+    const retried = await t.run(async (ctx) => ctx.db.get(schedule._id));
+
+    expect(persisted).toBe(true);
+    expect(retried?.state).toBe('active');
+    expect(retried?.wakeAttemptedAt).toBeTypeOf('number');
+    expect(retried?.scheduledFunctionId).toBeDefined();
+  });
 });
 
 describe('scheduled Send cross-device claims', () => {

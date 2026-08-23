@@ -3295,17 +3295,17 @@ struct AccountView: View {
         }
       }
       let preparedProfileRecordScope = prepareProfileScopedStoresIfNeeded()
+      if let preparedProfileRecordScope {
+        Task {
+          await synchronizePreparedProfileScopedStores(for: preparedProfileRecordScope)
+        }
+      }
       guard
         profileSwitchGate.isCurrent(switchGeneration),
         profileViewModel.activeProfileId == profileId
       else { return false }
       prepareProfileThreadState(for: profileId)
       finishProfileSwitch(to: profileId)
-      if let preparedProfileRecordScope {
-        Task {
-          await synchronizePreparedProfileScopedStores(for: preparedProfileRecordScope)
-        }
-      }
       Task { await reloadPreparedProfileThreadState(for: profileId) }
       return true
     } catch {

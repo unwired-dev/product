@@ -864,3 +864,39 @@ export const claimWakeup = internalMutation({
     }),
   ),
 });
+
+export const retryWakeup = internalMutation({
+  args: {
+    revision: v.number(),
+    scheduleDocumentId: v.id('scheduledSends'),
+  },
+  handler: async (ctx, args) => {
+    const schedule = await ctx.db.get(args.scheduleDocumentId);
+    if (!isCurrentActiveSchedule(schedule, args.revision)) {
+      return false;
+    }
+    if (schedule.scheduledFunctionId !== undefined) {
+      return true;
+    }
+    const now = Date.now();
+    const retryAt = now + minuteMilliseconds;
+    if (retryAt >= schedule.deadlineAt) {
+      await ctx.db.patch(args.scheduleDocumentId, {
+        state: 'needs-attention',
+        updatedAt: now,
+      });
+      return false;
+    }
+    const scheduledFunctionId = await ctx.scheduler.runAt(
+      retryAt,
+      internal.apns.deliverScheduledSendWakeup,
+      args,
+    );
+    await ctx.db.patch(args.scheduleDocumentId, {
+      scheduledFunctionId,
+      updatedAt: now,
+    });
+    return true;
+  },
+  returns: v.boolean(),
+});

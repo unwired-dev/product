@@ -491,13 +491,16 @@ export const deliverScheduledSendWakeup = internalAction({
     if (recipients.length === 0) {
       return null;
     }
-    await attemptWakeupDelivery({
+    const deliveryResults = await attemptWakeupDelivery({
       ctx,
       failureMessage: 'Scheduled Send APNs wakeup delivery failed',
       payload: (recipient) =>
         scheduledSendWakeupPayload(recipient.revision, recipient.scheduleId),
       recipients,
     });
+    if (deliveryResults === undefined) {
+      await ctx.runMutation(internal.scheduledSend.retryWakeup, args);
+    }
     return null;
   },
   returns: v.null(),
