@@ -500,6 +500,8 @@ export const deliverScheduledSendWakeup = internalAction({
   // fallow-ignore-next-line complexity -- Delivery pages must preserve bounded reads, ordered APNs batches, and retry persistence.
   handler: async (ctx, args) => {
     let cursor: string | null = null;
+    let delivered = false;
+    let attemptedDelivery = false;
     let remainingDeviceCount = scheduledWakeupDeviceLimit;
     while (remainingDeviceCount > 0) {
       const page: ScheduledSendWakeupPage = await ctx.runMutation(
@@ -508,6 +510,7 @@ export const deliverScheduledSendWakeup = internalAction({
       );
       remainingDeviceCount -= page.inspectedDeviceCount;
       if (page.recipients.length > 0) {
+        attemptedDelivery = true;
         const deliveryResults = await attemptWakeupDelivery({
           ctx,
           failureMessage: 'Scheduled Send APNs wakeup delivery failed',
@@ -522,11 +525,17 @@ export const deliverScheduledSendWakeup = internalAction({
           await ctx.runMutation(internal.scheduledSend.retryWakeup, args);
           return null;
         }
+        delivered ||= deliveryResults.some(
+          (result) => result.status === 'fulfilled',
+        );
       }
       if (page.isDone || page.nextCursor === null) {
-        return null;
+        break;
       }
       cursor = page.nextCursor;
+    }
+    if (attemptedDelivery && !delivered) {
+      await ctx.runMutation(internal.scheduledSend.retryWakeup, args);
     }
     return null;
   },

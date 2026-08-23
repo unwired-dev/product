@@ -1,5 +1,7 @@
 /// <reference types="vite/client" />
 
+import { generateKeyPairSync } from 'node:crypto';
+
 import { convexTest } from 'convex-test';
 
 import type { Id } from '../convex/_generated/dataModel.js';
@@ -9,12 +11,36 @@ import schema from '../convex/schema.js';
 
 const modules = import.meta.glob('../convex/**/*.ts');
 
-vi.mock(import('node:http2'), async (importOriginal) => {
-  const original = await importOriginal();
+// oxlint-disable-next-line vitest/prefer-import-in-mock -- This partial transport fake exercises an individual APNs rejection.
+vi.mock('node:http2', async () => {
+  const { EventEmitter } = await import('node:events');
+
   return {
-    ...original,
     connect: () => {
-      throw new Error('Simulated APNs batch failure');
+      // oxlint-disable-next-line unicorn/prefer-event-target -- the production client is an EventEmitter.
+      return Object.assign(new EventEmitter(), {
+        close() {
+          return undefined;
+        },
+        request() {
+          // oxlint-disable-next-line unicorn/prefer-event-target -- node:events.once requires EventEmitter semantics.
+          const request = Object.assign(new EventEmitter(), {
+            close() {
+              return undefined;
+            },
+            end() {
+              queueMicrotask(() => {
+                request.emit('response', { ':status': 500 });
+                request.emit('end');
+              });
+            },
+            setEncoding() {
+              return undefined;
+            },
+          });
+          return request;
+        },
+      });
     },
   };
 });
@@ -329,6 +355,41 @@ describe('scheduled Send admission', () => {
 
       expect(retried?.state).toBe('active');
       expect(retried?.wakeAttemptedAt).toBeTypeOf('number');
+      expect(retried?.scheduledFunctionId).toBeDefined();
+      expect(retried?.scheduledFunctionId).not.toBe(
+        schedule.scheduledFunctionId,
+      );
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('persists a retry when every APNs delivery rejects', async () => {
+    expect.assertions(3);
+    const { asUser, device, schedule, t } = await claimFixture();
+    await asUser.mutation(api.pushRelay.registerDevice, {
+      apnsEnvironment: 'sandbox',
+      apnsToken: 'scheduled-send-token',
+      trustedDeviceId: device.trustedDeviceId,
+    });
+    const { privateKey } = generateKeyPairSync('ec', { namedCurve: 'P-256' });
+    vi.stubEnv('APNS_KEY_ID', 'key-id');
+    vi.stubEnv('APNS_TEAM_ID', 'team-id');
+    vi.stubEnv(
+      'APNS_PRIVATE_KEY',
+      privateKey.export({ format: 'pem', type: 'pkcs8' }),
+    );
+    vi.stubEnv('APNS_TOPIC', 'dev.unwired.mail');
+    try {
+      await t.action(internal.apns.deliverScheduledSendWakeup, {
+        revision: 1,
+        // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+        scheduleDocumentId: schedule._id,
+      });
+      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+      const retried = await t.run(async (ctx) => ctx.db.get(schedule._id));
+
+      expect(retried?.state).toBe('active');
       expect(retried?.scheduledFunctionId).toBeDefined();
       expect(retried?.scheduledFunctionId).not.toBe(
         schedule.scheduledFunctionId,
