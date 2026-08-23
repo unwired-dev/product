@@ -16,6 +16,9 @@ const yearMilliseconds = 365 * dayMilliseconds;
 const claimDurationMilliseconds = 15 * minuteMilliseconds;
 const scheduledDeliveryCapabilityVersion = 1;
 const authorizationByteCount = 32;
+const scheduledWakeupPageSize = 20;
+const scheduledWakeupPageByteLimit = 1024 * 1024;
+const apnsTokenMaximumLength = 256;
 
 const admissionResponseValidator = v.object({
   dueAt: v.number(),
@@ -69,6 +72,12 @@ const scheduledDeliveryAuthorizationArgs = {
 const wakeupArgs = {
   revision: v.number(),
   scheduleDocumentId: v.id('scheduledSends'),
+};
+
+const wakeupPageArgs = {
+  ...wakeupArgs,
+  cursor: v.union(v.string(), v.null()),
+  remainingDeviceCount: v.number(),
 };
 
 // fallow-ignore-next-line code-duplication -- Scheduled Delivery Authorization keeps its private digest encoding local to this capability boundary.
@@ -814,16 +823,26 @@ export const complete = mutation({
 });
 
 export const claimWakeup = internalMutation({
-  args: wakeupArgs,
+  args: wakeupPageArgs,
   // fallow-ignore-next-line complexity -- Wakeup claims atomically fence schedule state, deadlines, and device eligibility.
   handler: async (ctx, args) => {
     const schedule = await currentActiveSchedule(ctx, args);
     if (schedule === null) {
-      return [];
+      return {
+        inspectedDeviceCount: 0,
+        isDone: true,
+        nextCursor: null,
+        recipients: [],
+      };
     }
     const now = Date.now();
     if (now < schedule.dueAt) {
-      return [];
+      return {
+        inspectedDeviceCount: 0,
+        isDone: true,
+        nextCursor: null,
+        recipients: [],
+      };
     }
     if (now > schedule.deadlineAt) {
       await ctx.db.patch(args.scheduleDocumentId, {
@@ -831,22 +850,43 @@ export const claimWakeup = internalMutation({
         state: 'needs-attention',
         updatedAt: now,
       });
-      return [];
+      return {
+        inspectedDeviceCount: 0,
+        isDone: true,
+        nextCursor: null,
+        recipients: [],
+      };
+    }
+    if (args.remainingDeviceCount <= 0) {
+      return {
+        inspectedDeviceCount: 0,
+        isDone: true,
+        nextCursor: null,
+        recipients: [],
+      };
     }
     const devices = await ctx.db
       .query('trustedDevices')
       .withIndex('by_productAccountId', (q) =>
         q.eq('productAccountId', schedule.productAccountId),
       )
-      .collect();
+      .paginate({
+        cursor: args.cursor,
+        maximumBytesRead: scheduledWakeupPageByteLimit,
+        numItems: Math.min(
+          scheduledWakeupPageSize,
+          args.remainingDeviceCount,
+        ),
+      });
     await ctx.db.patch(args.scheduleDocumentId, {
       scheduledFunctionId: undefined,
       updatedAt: now,
       wakeAttemptedAt: now,
     });
-    return devices.flatMap((device) => {
+    const recipients = devices.page.flatMap((device) => {
       if (
         !hasPushRecipient(device) ||
+        device.apnsToken.length > apnsTokenMaximumLength ||
         device.scheduledDeliveryAuthorizationDigest === undefined ||
         device.scheduledDeliveryAuthorizationGeneration === undefined ||
         device.scheduledDeliveryCapabilityVersion !==
@@ -866,17 +906,34 @@ export const claimWakeup = internalMutation({
         },
       ];
     });
+    const reachedDeviceLimit =
+      devices.page.length >= args.remainingDeviceCount;
+    return {
+      inspectedDeviceCount: devices.page.length,
+      isDone: devices.isDone || reachedDeviceLimit,
+      nextCursor:
+        devices.isDone || reachedDeviceLimit ? null : devices.continueCursor,
+      recipients,
+    };
   },
-  returns: v.array(
-    v.object({
-      apnsEnvironment: v.union(v.literal('production'), v.literal('sandbox')),
-      apnsToken: v.string(),
-      pushCleanupGeneration: v.optional(v.number()),
-      revision: v.number(),
-      scheduleId: v.string(),
-      trustedDeviceId: v.id('trustedDevices'),
-    }),
-  ),
+  returns: v.object({
+    inspectedDeviceCount: v.number(),
+    isDone: v.boolean(),
+    nextCursor: v.union(v.string(), v.null()),
+    recipients: v.array(
+      v.object({
+        apnsEnvironment: v.union(
+          v.literal('production'),
+          v.literal('sandbox'),
+        ),
+        apnsToken: v.string(),
+        pushCleanupGeneration: v.optional(v.number()),
+        revision: v.number(),
+        scheduleId: v.string(),
+        trustedDeviceId: v.id('trustedDevices'),
+      }),
+    ),
+  }),
 });
 
 export const retryWakeup = internalMutation({

@@ -258,6 +258,8 @@ describe('scheduled Send admission', () => {
     });
 
     const recipient = await t.mutation(internal.scheduledSend.claimWakeup, {
+      cursor: null,
+      remainingDeviceCount: 100,
       revision: 1,
       // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
       scheduleDocumentId: schedule._id,
@@ -267,7 +269,12 @@ describe('scheduled Send admission', () => {
       trustedDeviceId: device.trustedDeviceId,
     });
 
-    expect(recipient).toStrictEqual([]);
+    expect(recipient).toStrictEqual({
+      inspectedDeviceCount: 0,
+      isDone: true,
+      nextCursor: null,
+      recipients: [],
+    });
     expect(status?.state).toBe('needs-attention');
   });
 
@@ -329,6 +336,37 @@ describe('scheduled Send admission', () => {
     } finally {
       vi.unstubAllEnvs();
     }
+  });
+
+  it('stops wakeup pagination at the requested device limit', async () => {
+    expect.assertions(4);
+    const fixture = await claimFixture();
+    await fixture.asUser.mutation(api.pushRelay.registerDevice, {
+      apnsEnvironment: 'sandbox',
+      apnsToken: 'origin-token',
+      trustedDeviceId: fixture.device.trustedDeviceId,
+    });
+    await fixture.asUser.mutation(api.pushRelay.registerDevice, {
+      apnsEnvironment: 'sandbox',
+      apnsToken: 'second-token',
+      trustedDeviceId: fixture.secondDevice.trustedDeviceId,
+    });
+
+    const page = await fixture.t.mutation(
+      internal.scheduledSend.claimWakeup,
+      {
+        cursor: null,
+        remainingDeviceCount: 1,
+        revision: 1,
+        // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+        scheduleDocumentId: fixture.schedule._id,
+      },
+    );
+
+    expect(page.inspectedDeviceCount).toBe(1);
+    expect(page.isDone).toBe(true);
+    expect(page.nextCursor).toBeNull();
+    expect(page.recipients).toHaveLength(1);
   });
 
   it('uses the deadline for a retry during the final minute', async () => {

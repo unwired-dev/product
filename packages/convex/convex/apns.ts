@@ -21,6 +21,7 @@ const apnsEnvironmentValidator = v.union(
 );
 
 const apnsRequestTimeoutMs = 10_000;
+const scheduledWakeupDeviceLimit = 100;
 const permanentApnsFailureStatuses = new Set([400, 403, 404, 405, 410, 413]);
 
 type ApnsConfiguration = Readonly<{
@@ -483,23 +484,39 @@ export const deliverScheduledSendWakeup = internalAction({
     revision: v.number(),
     scheduleDocumentId: v.id('scheduledSends'),
   },
+  // fallow-ignore-next-line complexity -- Delivery pages must preserve bounded reads, ordered APNs batches, and retry persistence.
   handler: async (ctx, args) => {
-    const recipients = await ctx.runMutation(
-      internal.scheduledSend.claimWakeup,
-      args,
-    );
-    if (recipients.length === 0) {
-      return null;
-    }
-    const deliveryResults = await attemptWakeupDelivery({
-      ctx,
-      failureMessage: 'Scheduled Send APNs wakeup delivery failed',
-      payload: (recipient) =>
-        scheduledSendWakeupPayload(recipient.revision, recipient.scheduleId),
-      recipients,
-    });
-    if (deliveryResults === undefined) {
-      await ctx.runMutation(internal.scheduledSend.retryWakeup, args);
+    let cursor: string | null = null;
+    let remainingDeviceCount = scheduledWakeupDeviceLimit;
+    while (remainingDeviceCount > 0) {
+      // oxlint-disable-next-line eslint/no-await-in-loop -- Each cursor depends on the preceding bounded claim page.
+      const page = await ctx.runMutation(
+        internal.scheduledSend.claimWakeup,
+        { ...args, cursor, remainingDeviceCount },
+      );
+      remainingDeviceCount -= page.inspectedDeviceCount;
+      if (page.recipients.length > 0) {
+        // oxlint-disable-next-line eslint/no-await-in-loop -- Preserve APNs batch order and stop before claiming another page on failure.
+        const deliveryResults = await attemptWakeupDelivery({
+          ctx,
+          failureMessage: 'Scheduled Send APNs wakeup delivery failed',
+          payload: (recipient) =>
+            scheduledSendWakeupPayload(
+              recipient.revision,
+              recipient.scheduleId,
+            ),
+          recipients: page.recipients,
+        });
+        if (deliveryResults === undefined) {
+          // oxlint-disable-next-line eslint/no-await-in-loop -- Persist one retry before leaving the failed page loop.
+          await ctx.runMutation(internal.scheduledSend.retryWakeup, args);
+          return null;
+        }
+      }
+      if (page.isDone || page.nextCursor === null) {
+        return null;
+      }
+      cursor = page.nextCursor;
     }
     return null;
   },
