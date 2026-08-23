@@ -1104,7 +1104,7 @@ struct GoogleGmailProviderCredentialVerifier: GmailProviderCredentialVerifying {
       providerAccountIdentifier: refreshedProfileAndTokenInfo.subject,
       tokens: GmailProviderTokens(
         accessToken: refreshedProfileAndTokenInfo.accessToken,
-        refreshToken: refreshToken,
+        refreshToken: refreshedProfileAndTokenInfo.refreshToken ?? refreshToken,
         idToken: refreshedProfileAndTokenInfo.idToken
       )
     )
@@ -1204,6 +1204,7 @@ struct GoogleGmailProviderCredentialVerifier: GmailProviderCredentialVerifying {
       accessToken: tokenResponse.accessToken,
       idToken: tokenResponse.idToken,
       profile: profile,
+      refreshToken: tokenResponse.refreshToken,
       subject: subject,
       tokenInfo: tokenInfo
     )
@@ -1283,6 +1284,7 @@ private struct RefreshedGmailVerification {
   let accessToken: String
   let idToken: String?
   let profile: GoogleGmailProfileResponse
+  let refreshToken: String?
   let subject: String
   let tokenInfo: GoogleTokenInfoResponse
 }
@@ -1299,10 +1301,12 @@ private struct GoogleGmailProfileResponse: Decodable {
 private struct GoogleRefreshTokenResponse: Decodable {
   let accessToken: String
   let idToken: String?
+  let refreshToken: String?
 
   enum CodingKeys: String, CodingKey {
     case accessToken = "access_token"
     case idToken = "id_token"
+    case refreshToken = "refresh_token"
   }
 }
 

@@ -1829,7 +1829,7 @@ final class GmailProviderConnectionServiceTests {
 
   @Test
   // swiftlint:disable:next function_body_length
-  func testVerifierReturnsVerifiedAccountAfterAccessRefreshAndGmailChecksPass() async throws {
+  func testVerifierPersistsRotatedRefreshTokenAfterGmailChecksPass() async throws {
     var profileAuthorizations: [String] = []
     let session = ConvexClientTesting.makeSession(
       protocolClass: GmailProviderURLStub.self
@@ -1849,7 +1849,10 @@ final class GmailProviderConnectionServiceTests {
         return (
           Self.httpResponse(for: request, statusCode: 200),
           Data(
-            #"{"access_token":"refreshed-access-token","id_token":"refreshed-id-token"}"#.utf8
+            """
+            {"access_token":"refreshed-access-token","id_token":"refreshed-id-token",
+            "refresh_token":"rotated-refresh-token"}
+            """.utf8
           )
         )
       }
@@ -1883,9 +1886,32 @@ final class GmailProviderConnectionServiceTests {
       account.tokens
         == GmailProviderTokens(
           accessToken: "refreshed-access-token",
-          refreshToken: "refresh-token",
+          refreshToken: "rotated-refresh-token",
           idToken: "refreshed-id-token"
         ))
+  }
+
+  @Test
+  func testVerifierMapsRevokedRefreshGrantToInvalidRefreshToken() async {
+    let session = ConvexClientTesting.makeSession(
+      protocolClass: GmailProviderURLStub.self
+    ) { request in
+      (
+        Self.httpResponse(for: request, statusCode: 400),
+        Data(#"{"error":"invalid_grant"}"#.utf8)
+      )
+    }
+    let verifier = GoogleGmailProviderCredentialVerifier(
+      oauthClientId: "gmail-client-id",
+      session: session
+    )
+
+    await #expect(throws: GmailProviderCredentialVerificationError.invalidRefreshToken) {
+      try await verifier.verify(
+        accessToken: "access-token",
+        refreshToken: "revoked-refresh-token"
+      )
+    }
   }
 
   @Test

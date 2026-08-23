@@ -76,6 +76,9 @@
 		71A6A2442C0B000100000001 /* Features/Settings/NotificationRuleViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A2452C0B000100000001 /* Features/Settings/NotificationRuleViewModel.swift */; };
 		71A6A2462C0B000100000001 /* Features/Settings/NotificationsSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A2472C0B000100000001 /* Features/Settings/NotificationsSettingsView.swift */; };
 		71A6A0B12C0B000100000001 /* Services/ProductAccount/GoogleGmailOAuthService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A0B02C0B000100000001 /* Services/ProductAccount/GoogleGmailOAuthService.swift */; };
+		C0DEC0DE4350000000000001 /* Services/ProductAccount/AppAuthGmailOAuthService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE4350000000000002 /* Services/ProductAccount/AppAuthGmailOAuthService.swift */; };
+		C0DEC0DE4350000000000003 /* AppAuthGmailOAuthServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE4350000000000004 /* AppAuthGmailOAuthServiceTests.swift */; };
+		C0DEC0DE4350000000000005 /* AppAuth in Frameworks */ = {isa = PBXBuildFile; productRef = C0DEC0DE4350000000000007 /* AppAuth */; };
 		71A6A0C02C0B000100000001 /* Services/Mailbox/MailboxConnection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A0C12C0B000100000001 /* Services/Mailbox/MailboxConnection.swift */; };
 		71A6A0C22C0B000100000001 /* MailboxConnectionAdapterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A0C32C0B000100000001 /* MailboxConnectionAdapterTests.swift */; };
 		71A6A0D02C0B000100000001 /* Features/Account/GenericMailSetupPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A0D12C0B000100000001 /* Features/Account/GenericMailSetupPanel.swift */; };
@@ -359,6 +362,8 @@
 		71A6A2472C0B000100000001 /* Features/Settings/NotificationsSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Settings/NotificationsSettingsView.swift; sourceTree = "<group>"; };
 		71A6A0A02C0B000100000001 /* Shared.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Shared.xcconfig; sourceTree = "<group>"; };
 		71A6A0B02C0B000100000001 /* Services/ProductAccount/GoogleGmailOAuthService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/ProductAccount/GoogleGmailOAuthService.swift; sourceTree = "<group>"; };
+		C0DEC0DE4350000000000002 /* Services/ProductAccount/AppAuthGmailOAuthService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/ProductAccount/AppAuthGmailOAuthService.swift; sourceTree = "<group>"; };
+		C0DEC0DE4350000000000004 /* AppAuthGmailOAuthServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppAuthGmailOAuthServiceTests.swift; sourceTree = "<group>"; };
 		71A6A0C12C0B000100000001 /* Services/Mailbox/MailboxConnection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/Mailbox/MailboxConnection.swift; sourceTree = "<group>"; };
 		71A6A0C32C0B000100000001 /* MailboxConnectionAdapterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MailboxConnectionAdapterTests.swift; sourceTree = "<group>"; };
 		71A6A0D12C0B000100000001 /* Features/Account/GenericMailSetupPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Account/GenericMailSetupPanel.swift; sourceTree = "<group>"; };
@@ -526,6 +531,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C0DEC0DE4350000000000005 /* AppAuth in Frameworks */,
 				71A6A22C2C0B000100000001 /* SwiftMail in Frameworks */,
 				71A6A1692C0B000100000001 /* SwiftSoup in Frameworks */,
 			);
@@ -678,6 +684,7 @@
 				71A6A1252C0B000100000001 /* Services/MicrosoftGraph/MicrosoftGraphPushRelayService.swift */,
 				71A6A0D52C0B000100000001 /* Services/Mailbox/SystemGenericMailEndpointVerifier.swift */,
 				71A6A0822C0B000100000001 /* Services/ProductAccount/GmailProviderConnectionService.swift */,
+				C0DEC0DE4350000000000002 /* Services/ProductAccount/AppAuthGmailOAuthService.swift */,
 				71A6A0B02C0B000100000001 /* Services/ProductAccount/GoogleGmailOAuthService.swift */,
 				71A6A01F2C0B000100000001 /* Services/ProductAccount/ProductAccountService.swift */,
 				71A6A0612C0B000100000001 /* Services/ProductAccount/ProductAccountSession.swift */,
@@ -793,6 +800,7 @@
 				71A6A1032C0B000100000001 /* PendingProviderActionServiceTests.swift */,
 				71A6A1132C0B000100000001 /* OutboxDeliveryServiceTests.swift */,
 				71A6A0832C0B000100000001 /* GmailProviderConnectionServiceTests.swift */,
+				C0DEC0DE4350000000000004 /* AppAuthGmailOAuthServiceTests.swift */,
 				71A6A0692C0B000100000001 /* ProductAccountSessionStoreTests.swift */,
 				71A6A06B2C0B000100000001 /* ProductAccountSessionTests.swift */,
 				71A6A0762C0B000100000001 /* ProductSyncEncryptionTests.swift */,
@@ -855,6 +863,7 @@
 			);
 			name = "unwired-mail";
 			packageProductDependencies = (
+				C0DEC0DE4350000000000007 /* AppAuth */,
 				71A6A1682C0B000100000001 /* SwiftSoup */,
 				71A6A22F2C0B000100000001 /* SwiftMail */,
 			);
@@ -951,6 +960,7 @@
 			);
 			mainGroup = 71A6A0232C0B000100000001;
 			packageReferences = (
+				C0DEC0DE4350000000000006 /* XCRemoteSwiftPackageReference "AppAuth-iOS" */,
 				71A6A1672C0B000100000001 /* XCRemoteSwiftPackageReference "SwiftSoup" */,
 				71A6A22E2C0B000100000001 /* XCRemoteSwiftPackageReference "SwiftMail" */,
 			);
@@ -1109,6 +1119,7 @@
 				342C0A000000000000000001 /* Services/Mailbox/RFCMailboxHeaderParser.swift in Sources */,
 				71A6A0D42C0B000100000001 /* Services/Mailbox/SystemGenericMailEndpointVerifier.swift in Sources */,
 				71A6A0802C0B000100000001 /* Services/ProductAccount/GmailProviderConnectionService.swift in Sources */,
+				C0DEC0DE4350000000000001 /* Services/ProductAccount/AppAuthGmailOAuthService.swift in Sources */,
 				71A6A0B12C0B000100000001 /* Services/ProductAccount/GoogleGmailOAuthService.swift in Sources */,
 				71A6A00F2C0B000100000001 /* Services/ProductAccount/ProductAccountService.swift in Sources */,
 				71A6A0602C0B000100000001 /* Services/ProductAccount/ProductAccountSession.swift in Sources */,
@@ -1222,6 +1233,7 @@
 				71A6A1022C0B000100000001 /* PendingProviderActionServiceTests.swift in Sources */,
 				71A6A1122C0B000100000001 /* OutboxDeliveryServiceTests.swift in Sources */,
 				71A6A0812C0B000100000001 /* GmailProviderConnectionServiceTests.swift in Sources */,
+				C0DEC0DE4350000000000003 /* AppAuthGmailOAuthServiceTests.swift in Sources */,
 				71A6A0682C0B000100000001 /* ProductAccountSessionStoreTests.swift in Sources */,
 				71A6A06A2C0B000100000001 /* ProductAccountSessionTests.swift in Sources */,
 				71A6A0722C0B000100000001 /* ProductSyncEncryptionTests.swift in Sources */,
@@ -1280,6 +1292,14 @@
 /* End PBXTargetDependency section */
 
 /* Begin XCRemoteSwiftPackageReference section */
+		C0DEC0DE4350000000000006 /* XCRemoteSwiftPackageReference "AppAuth-iOS" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/openid/AppAuth-iOS.git";
+			requirement = {
+				kind = exactVersion;
+				version = 2.1.0;
+			};
+		};
 		71A6A1672C0B000100000001 /* XCRemoteSwiftPackageReference "SwiftSoup" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/scinfu/SwiftSoup.git";
@@ -1299,6 +1319,11 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		C0DEC0DE4350000000000007 /* AppAuth */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C0DEC0DE4350000000000006 /* XCRemoteSwiftPackageReference "AppAuth-iOS" */;
+			productName = AppAuth;
+		};
 		71A6A1682C0B000100000001 /* SwiftSoup */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 71A6A1672C0B000100000001 /* XCRemoteSwiftPackageReference "SwiftSoup" */;

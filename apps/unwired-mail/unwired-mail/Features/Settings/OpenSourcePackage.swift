@@ -12,6 +12,12 @@ struct OpenSourcePackage: Equatable, Identifiable {
   /// Every package pinned by the Apple app's resolved Swift package graph.
   static let all: [Self] = [
     package(
+      "AppAuth",
+      license: "Apache 2.0",
+      repository: "https://github.com/openid/AppAuth-iOS",
+      licensePath: "blob/2.1.0/LICENSE"
+    ),
+    package(
       "Swift Argument Parser",
       license: "Apache 2.0",
       repository: "https://github.com/apple/swift-argument-parser",

@@ -1,6 +1,6 @@
 # Gmail and iCloud Mail library and protocol options
 
-Research current through: 2026-08-11
+Research current through: 2026-08-23
 
 ## Conclusion
 
@@ -359,14 +359,29 @@ network behavior before release.
    standalone mail clients. Treat any answer as a new architecture input rather
    than a blocker for IMAP/SMTP delivery.
 
+## AppAuth qualification result
+
+Issue [#435](https://github.com/unwired-dev/product/issues/435) conditionally accepts exact-pinned
+AppAuth-iOS 2.1.0 as an internal-only candidate behind `GmailOAuthAuthorizing`. The candidate keeps
+one transient AppAuth session per authorization attempt and hands tokens back to the existing
+product verifier and connection-scoped `ThisDeviceOnly` Keychain store; it introduces no global
+current-user or persisted AppAuth state. Ordinary Release builds retain the current implementation.
+
+The deterministic contract covers the system-browser request shape, state/nonce/S256 PKCE,
+least-privilege scopes, no-secret policy, reverse-order overlapping completion, cancellation,
+consent denial, interrupted callbacks, refresh-token rotation, revoked grants, missing scopes, and
+wrong-identity preservation. The protected live run remains required by
+[`appauth-gmail-oauth.md`](../qualification/appauth-gmail-oauth.md), so production selection is a
+separate decision after credential-free Provider Test Tenant evidence exists.
+
 ## Remaining uncertainties
 
 - Whether Google will require this exact device-local plus transient-push-relay
   architecture to complete an annual restricted-scope security assessment.
 - Whether Google Sign-In can safely support the product's simultaneous local
   multi-account lifecycle despite the open multiple-account issue.
-- Whether AppAuth 2.1.0 builds cleanly with the repository's exact Xcode version
-  and strict warning settings.
+- Whether the AppAuth candidate's device-lock and interrupted-callback behavior passes the
+  protected two-account Provider Compatibility Run.
 - Whether MSAL's account selection, broker/Keychain behavior, privacy manifest,
   and macOS presentation preserve independent Mailbox Connection semantics.
 - Whether Apple's newer account-authorization flow is open to independent mail
