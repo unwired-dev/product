@@ -2112,7 +2112,7 @@ final class MailboxConnectionAdapterTests {
         )
       }
       await firstBatchGate.waitUntilStarted()
-      #expect(viewModel.threads.count == 2)
+      #expect(viewModel.threads.count == 1)
 
       viewModel.updateProductMailboxState(
         MailShellProductMailboxState(
