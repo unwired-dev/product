@@ -264,7 +264,7 @@ The automated push test proves real Gmail watch registration, Pub/Sub delivery, 
 - Available: the `core-mail-loop` scenario, stable compose/reply accessibility identifiers, focused XCUITest steps, and independent recipient-mailbox, Sent Mailbox, duplicate, and Stable Thread Identity assertions.
 - Standards-Based Mailbox Connections derive send, reply, and Provider Mail Actions from each connection's advertised capabilities. Unsupported connections report those steps as `unavailable`; evidence verifies that the visible client creates no Outbox handoff, recipient delivery, or Sent Mailbox copy and leaves IMAP state unchanged.
 - Available: the `core-mail-loop` scenario, stable accessibility identifiers, focused XCUITest steps, and independent server assertions for opening, read state, archive, move, and trash.
-- External Release availability for Standards-Based Mailbox Connections remains gated by the iCloud Mail and Fastmail certification tracked in #280.
+- Available: issue #280 records passing iCloud Mail and Fastmail certification, so Standards-Based Mailbox Connections are enabled for externally distributed Release builds with the accepted SwiftMail 1.11.0 pin.
 - Available: the on-demand `message-content` raw-message corpus, visible semantic assertions, remote-content connection beacon, and before-and-after IMAP invariants.
 - Available: the affected-path pull-request and nightly Core Mail Loop gate with redacted failure diagnostics and XCTest result bundles.
 - Current verification: `pnpm mail:test run core-mail-loop --json` and `pnpm mail:test run message-content --json` run locally, and release builds cannot compile or activate the bootstrap.

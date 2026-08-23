@@ -54,6 +54,47 @@ final class OutboxDeliveryServiceTests {
     trustedDeviceId: "trusted-device-001"
   )
 
+  @Test(.bug(id: 380))
+  func testScheduledSendClaimFencePrecedesProviderHandoff() async throws {
+    let clock = LockedOutboxClock(Date(timeIntervalSince1970: 1_800_000_000))
+    let store = InMemoryOutboxDeliveryStore()
+    let transport = ScheduledSendClaimTransportSpy()
+    let dueAt = clock.now().addingTimeInterval(60)
+    let queuedService = OutboxDeliveryService(
+      now: { clock.now() },
+      scheduledSendTransport: transport,
+      store: store
+    )
+    _ = try await queuedService.enqueueScheduled(
+      message,
+      connection: connection,
+      session: session,
+      scheduleId: UUID(),
+      revision: 1,
+      dueAt: dueAt,
+      deadline: dueAt.addingTimeInterval(24 * 60 * 60),
+      undoSendDelayNanoseconds: 0,
+      provider: { _, _, _ in Issue.record("The original process should be suspended.") },
+      reconcile: { _, _ in .notSent }
+    )
+    await queuedService.suspend(productAccountId: session.productAccountId)
+    clock.advance(by: 60)
+
+    let restartedService = OutboxDeliveryService(
+      now: { clock.now() },
+      scheduledSendTransport: transport,
+      store: store
+    )
+    try await restartedService.resume(
+      connections: [connection],
+      session: session,
+      provider: { _, _, _ in await transport.recordProviderHandoff() },
+      reconcile: { _, _ in .notSent }
+    )
+
+    #expect(await transport.events() == ["claim", "advance", "provider", "complete"])
+  }
+
   @Test
   func testScheduledSendNeverHandsOffEarlyAndResumesAfterRestart() async throws {
     let clock = LockedOutboxClock(Date(timeIntervalSince1970: 1_800_000_000))
@@ -2454,6 +2495,104 @@ private actor DeliveryCounter {
 
   func currentValue() -> Int {
     value
+  }
+}
+
+private actor ScheduledSendClaimTransportSpy: ScheduledSendOperationalTransport {
+  private var recordedEvents: [String] = []
+
+  func admitScheduledSend(
+    _ record: ScheduledSendRecord,
+    payload: ScheduledSendPayloadAcknowledgement,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> ScheduledSendOperationalAcknowledgement {
+    ScheduledSendOperationalAcknowledgement(
+      dueAt: record.dueAtMilliseconds,
+      encryptedPayloadUpdatedAt: payload.updatedAt,
+      revision: record.revision,
+      scheduleId: record.scheduleId.uuidString.lowercased()
+    )
+  }
+
+  func cancelScheduledSend(
+    scheduleId _: UUID,
+    revision _: Int,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> Bool { true }
+
+  func registerScheduledDeliveryCapability(
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> ScheduledDeliveryAuthorization {
+    ScheduledDeliveryAuthorization(
+      authorization: "authorization", capabilityVersion: 1, generation: 1)
+  }
+
+  func claimScheduledSend(
+    scheduleId _: UUID,
+    revision _: Int,
+    trustedDeviceId _: String
+  ) async throws -> ScheduledSendClaimResult {
+    recordedEvents.append("claim")
+    return .claimed(
+      ScheduledSendClaim(
+        authorizationGeneration: 1,
+        expiresAt: 1_800_001_000_000,
+        generation: 7,
+        phase: .preHandoff
+      )
+    )
+  }
+
+  func advanceScheduledSendClaimToHandoff(
+    scheduleId _: UUID,
+    revision _: Int,
+    claimGeneration _: Int,
+    trustedDeviceId _: String
+  ) async throws -> Bool {
+    recordedEvents.append("advance")
+    return true
+  }
+
+  func revalidateScheduledSendClaim(
+    scheduleId _: UUID,
+    revision _: Int,
+    claimGeneration: Int,
+    trustedDeviceId _: String
+  ) async throws -> ScheduledSendClaimResult {
+    .claimed(
+      ScheduledSendClaim(
+        authorizationGeneration: 1,
+        expiresAt: nil,
+        generation: claimGeneration,
+        phase: .handingOff
+      )
+    )
+  }
+
+  func releaseScheduledSendClaim(
+    scheduleId _: UUID,
+    revision _: Int,
+    claimGeneration _: Int,
+    trustedDeviceId _: String
+  ) async throws -> Bool { true }
+
+  func completeScheduledSendClaim(
+    scheduleId _: UUID,
+    revision _: Int,
+    claimGeneration _: Int,
+    state _: ScheduledSendCompletionState,
+    trustedDeviceId _: String
+  ) async throws -> Bool {
+    recordedEvents.append("complete")
+    return true
+  }
+
+  func recordProviderHandoff() {
+    recordedEvents.append("provider")
+  }
+
+  func events() -> [String] {
+    recordedEvents
   }
 }
 

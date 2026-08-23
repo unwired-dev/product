@@ -3,9 +3,9 @@
 The Apple app approves and pins SwiftMail `1.11.0` at resolved commit
 `a2d4a94f844db62843ef6aec16f3ed9462152acc`. Dependency review must compare both values; do
 not move the tag, switch to a branch, carry a fork, or add a product-owned IMAP/SMTP fallback.
-Issue [#66](https://github.com/unwired-dev/product/issues/66) completed its runtime adoption. Live
-provider certification remains the separate release gate in issue
-[#280](https://github.com/unwired-dev/product/issues/280).
+Issue [#66](https://github.com/unwired-dev/product/issues/66) completed its runtime adoption, and
+issue [#280](https://github.com/unwired-dev/product/issues/280) records the passing iCloud Mail and
+Fastmail provider-qualification evidence required for external Release availability.
 
 Link the SwiftMail product only to the app target. The hosted test target intentionally accesses
 that module through its app test host: linking SwiftMail to both targets makes Xcode materialize a
@@ -14,9 +14,8 @@ dynamic package-product framework whose Release link previously exposed a missin
 linkage remains the approved pattern. The focused engine tests verify that this hosted linkage
 remains available.
 
-`ExperimentalSwiftMailEngine` implements the transient, provider-neutral `MailEngine` boundary;
-its name reflects release availability, not dependency approval. SwiftMail owns TLS,
-authentication, IMAP and SMTP framing, MIME rendering and reads, IDLE, UID operations,
+`SwiftMailEngine` implements the transient, provider-neutral `MailEngine` boundary. SwiftMail owns
+TLS, authentication, IMAP and SMTP framing, MIME rendering and reads, IDLE, UID operations,
 submission, and Sent append. SwiftMail also owns IMAP and SMTP setup verification. Product
 services retain persistence, mailbox roles, capability policy, durable retries, reconciliation,
 Stable Provider Message Identity, and provider-action policy. The removed product-owned IMAP and
@@ -58,15 +57,11 @@ which SwiftMail does not support.
 
 ## Dependency approval and release availability
 
-The exact dependency and runtime adapter are approved. Debug and test builds can construct the
-engine, and an explicitly controlled internal Release build can define
-`UNWIRED_INTERNAL_SWIFTMAIL`. Ordinary externally distributed Release builds still fail closed
-because `providerCertificationComplete` remains `false` in
-`SwiftMailExperimentalBuildPolicy`.
-
-Do not set that value to `true` until issue #280 records passing iCloud Mail and Fastmail
-qualification evidence. The approved dependency remains linked while the Standards-Based Mail
-capability is unavailable; no external Release setup or Mailbox Connection path selects it.
+The exact dependency and runtime adapter are accepted for external Release use. Issue #280 records
+passing iCloud Mail and Fastmail qualification evidence, so `providerCertificationComplete` is
+`true` in `SwiftMailReleasePolicy` and ordinary externally distributed Release builds can construct
+the engine. A future exact-pin change must keep deterministic qualification green and repeat any
+provider certification required by ADR 0027 before that version is accepted for Release use.
 
 ## Validation
 
