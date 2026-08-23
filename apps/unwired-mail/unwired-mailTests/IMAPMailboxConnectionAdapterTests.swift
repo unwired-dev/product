@@ -1784,6 +1784,19 @@ final class IMAPMailboxConnectionAdapterTests {
         session: session
       )
     }
+
+    let attachmentGate = TestRendezvous()
+    client.beforeAttachmentReturn = { await attachmentGate.hold() }
+    client.attachmentDataBySelector[descriptor.selector] = Data("receipt".utf8)
+    let download = Task {
+      try await adapter.loadMessageAttachment(attachment, message: message, session: session)
+    }
+    await attachmentGate.waitUntilHeld()
+    download.cancel()
+    await attachmentGate.release()
+    await #expect(throws: CancellationError.self) {
+      _ = try await download.value
+    }
   }
 
   @Test
@@ -3453,6 +3466,7 @@ private final class RecordingIMAPClient: IMAPMailboxClient {
   }
 
   var attachmentDataBySelector: [MailEngineBodyPartSelector: Data] = [:]
+  var beforeAttachmentReturn: (() async -> Void)?
   private(set) var attachmentRequests: [AttachmentRequest] = []
   var beforeBodyReturn: (() async -> Void)?
   var bodyByUID: [Int64: String] = [:]
@@ -3550,6 +3564,7 @@ private final class RecordingIMAPClient: IMAPMailboxClient {
     authorization _: DeviceLocalGenericMailAuthorization
   ) async throws -> Data {
     attachmentRequests.append(AttachmentRequest(descriptor: attachment, messageUID: message.uid))
+    await beforeAttachmentReturn?()
     return attachmentDataBySelector[attachment.selector] ?? Data()
   }
 
