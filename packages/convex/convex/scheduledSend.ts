@@ -66,6 +66,11 @@ const scheduledDeliveryAuthorizationArgs = {
   trustedDeviceId: v.id('trustedDevices'),
 };
 
+const wakeupArgs = {
+  revision: v.number(),
+  scheduleDocumentId: v.id('scheduledSends'),
+};
+
 // fallow-ignore-next-line code-duplication -- Scheduled Delivery Authorization keeps its private digest encoding local to this capability boundary.
 function bytesToHex(bytes: Readonly<Uint8Array>): string {
   return [...bytes].map((byte) => byte.toString(16).padStart(2, '0')).join('');
@@ -182,6 +187,17 @@ function isCurrentActiveSchedule(
     schedule.state === 'active' &&
     schedule.revision === revision
   );
+}
+
+async function currentActiveSchedule(
+  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation contexts expose mutable database methods.
+  args: Readonly<{
+    revision: number;
+    scheduleDocumentId: Id<'scheduledSends'>;
+  }>,
+): Promise<Doc<'scheduledSends'> | null> {
+  const schedule = await ctx.db.get(args.scheduleDocumentId);
+  return isCurrentActiveSchedule(schedule, args.revision) ? schedule : null;
 }
 
 function hasPushRecipient(
@@ -797,14 +813,11 @@ export const complete = mutation({
 });
 
 export const claimWakeup = internalMutation({
-  args: {
-    revision: v.number(),
-    scheduleDocumentId: v.id('scheduledSends'),
-  },
+  args: wakeupArgs,
   // fallow-ignore-next-line complexity -- Wakeup claims atomically fence schedule state, deadlines, and device eligibility.
   handler: async (ctx, args) => {
-    const schedule = await ctx.db.get(args.scheduleDocumentId);
-    if (!isCurrentActiveSchedule(schedule, args.revision)) {
+    const schedule = await currentActiveSchedule(ctx, args);
+    if (schedule === null) {
       return [];
     }
     const now = Date.now();
@@ -866,13 +879,10 @@ export const claimWakeup = internalMutation({
 });
 
 export const retryWakeup = internalMutation({
-  args: {
-    revision: v.number(),
-    scheduleDocumentId: v.id('scheduledSends'),
-  },
+  args: wakeupArgs,
   handler: async (ctx, args) => {
-    const schedule = await ctx.db.get(args.scheduleDocumentId);
-    if (!isCurrentActiveSchedule(schedule, args.revision)) {
+    const schedule = await currentActiveSchedule(ctx, args);
+    if (schedule === null) {
       return false;
     }
     if (schedule.scheduledFunctionId !== undefined) {
