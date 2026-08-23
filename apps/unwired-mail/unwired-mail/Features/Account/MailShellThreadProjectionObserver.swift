@@ -2,6 +2,33 @@ import SwiftUI
 
 @MainActor
 struct MailShellThreadProjectionObserver: View {
+  @MainActor
+  private final class SynchronizationCoordinator {
+    private var pendingAction: (@MainActor () -> Void)?
+    private var task: Task<Void, Never>?
+
+    func schedule(_ action: @escaping @MainActor () -> Void) {
+      pendingAction = action
+      guard task == nil else { return }
+
+      task = Task { @MainActor [weak self] in
+        await waitForNextMainRunLoopCycle()
+        guard let self, !Task.isCancelled else { return }
+
+        let action = pendingAction
+        pendingAction = nil
+        task = nil
+        action?()
+      }
+    }
+
+    func cancel() {
+      task?.cancel()
+      task = nil
+      pendingAction = nil
+    }
+  }
+
   private struct TaskIdentity: Equatable {
     let revision: Int
     let mailbox: MailShellMailboxSelection?
@@ -12,16 +39,18 @@ struct MailShellThreadProjectionObserver: View {
   let inboxViewModel: GmailInboxViewModel
   let mailShellSelection: MailShellSelectionModel
   let connectionIds: Set<MailboxConnectionId>
-  @State private var synchronizationTask: Task<Void, Never>?
+  @State private var synchronization = SynchronizationCoordinator()
 
   var body: some View {
     Color.clear
       .onChange(of: taskIdentity, initial: true) { _, identity in
-        scheduleSynchronization(for: identity)
+        synchronization.schedule {
+          guard taskIdentity == identity else { return }
+          synchronizeProjection()
+        }
       }
       .onDisappear {
-        synchronizationTask?.cancel()
-        synchronizationTask = nil
+        synchronization.cancel()
       }
       .allowsHitTesting(false)
       .accessibilityHidden(true)
@@ -34,15 +63,6 @@ struct MailShellThreadProjectionObserver: View {
       connectionId: mailShellSelection.selectedConnectionId,
       connectionIds: connectionIds
     )
-  }
-
-  private func scheduleSynchronization(for identity: TaskIdentity) {
-    synchronizationTask?.cancel()
-    synchronizationTask = Task { @MainActor in
-      await waitForNextMainRunLoopCycle()
-      guard !Task.isCancelled, taskIdentity == identity else { return }
-      synchronizeProjection()
-    }
   }
 
   private func synchronizeProjection() {
