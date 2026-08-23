@@ -421,20 +421,17 @@ actor SwiftMailEngineSession: MailEngineSession {
       } onCancel: {
         Task { try? await boundedIMAP.disconnect() }
       }
-    } catch where Task.isCancelled {
-      try? await boundedIMAP.disconnect()
-      throw MailEngineError.cancelled
-    } catch let error as MailEngineError {
-      try? await boundedIMAP.disconnect()
-      throw error
-    } catch is CancellationError {
-      try? await boundedIMAP.disconnect()
-      throw MailEngineError.cancelled
-    } catch is ExceededResponseBodySizeError {
-      try? await boundedIMAP.disconnect()
-      throw MailEngineError.protocolRejected(code: "BODY-PART-TOO-LARGE", retryable: false)
     } catch {
       try? await boundedIMAP.disconnect()
+      if Task.isCancelled || error is CancellationError {
+        throw MailEngineError.cancelled
+      }
+      if let error = error as? MailEngineError {
+        throw error
+      }
+      if error is ExceededResponseBodySizeError {
+        throw MailEngineError.protocolRejected(code: "BODY-PART-TOO-LARGE", retryable: false)
+      }
       throw ExperimentalSwiftMailEngine.connectionError(error)
     }
   }
