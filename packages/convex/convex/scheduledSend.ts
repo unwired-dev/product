@@ -918,10 +918,7 @@ export const claimWakeup = internalMutation({
     nextCursor: v.union(v.string(), v.null()),
     recipients: v.array(
       v.object({
-        apnsEnvironment: v.union(
-          v.literal('production'),
-          v.literal('sandbox'),
-        ),
+        apnsEnvironment: v.union(v.literal('production'), v.literal('sandbox')),
         apnsToken: v.string(),
         pushCleanupGeneration: v.optional(v.number()),
         revision: v.number(),
