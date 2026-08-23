@@ -24,6 +24,7 @@
 		71A6A0602C0B000100000001 /* Services/ProductAccount/ProductAccountSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A0612C0B000100000001 /* Services/ProductAccount/ProductAccountSession.swift */; };
 		71A6A0622C0B000100000001 /* Features/Account/SignInView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A0632C0B000100000001 /* Features/Account/SignInView.swift */; };
 		71A6A0642C0B000100000001 /* Features/Account/AccountView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A0652C0B000100000001 /* Features/Account/AccountView.swift */; };
+		A539A539A539A539A539A539 /* Features/Account/MailShellThreadProjectionObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = B539B539B539B539B539B539 /* Features/Account/MailShellThreadProjectionObserver.swift */; };
 		D16100000000000000000001 /* Features/Account/MailShellCompositionDraft.swift in Sources */ = {isa = PBXBuildFile; fileRef = D16100000000000000000011 /* Features/Account/MailShellCompositionDraft.swift */; };
 		C0DEC0DE162000000000007 /* Features/Account/MailShellCompositionDraft+Codable.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE162000000000008 /* Features/Account/MailShellCompositionDraft+Codable.swift */; };
 		D16100000000000000000002 /* Features/Account/MailComposerViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D16100000000000000000012 /* Features/Account/MailComposerViewModel.swift */; };
@@ -304,6 +305,7 @@
 		71A6A0612C0B000100000001 /* Services/ProductAccount/ProductAccountSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/ProductAccount/ProductAccountSession.swift; sourceTree = "<group>"; };
 		71A6A0632C0B000100000001 /* Features/Account/SignInView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Account/SignInView.swift; sourceTree = "<group>"; };
 		71A6A0652C0B000100000001 /* Features/Account/AccountView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Account/AccountView.swift; sourceTree = "<group>"; };
+		B539B539B539B539B539B539 /* Features/Account/MailShellThreadProjectionObserver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Account/MailShellThreadProjectionObserver.swift; sourceTree = "<group>"; };
 		D16100000000000000000011 /* Features/Account/MailShellCompositionDraft.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Account/MailShellCompositionDraft.swift; sourceTree = "<group>"; };
 		C0DEC0DE162000000000008 /* Features/Account/MailShellCompositionDraft+Codable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Features/Account/MailShellCompositionDraft+Codable.swift"; sourceTree = "<group>"; };
 		D16100000000000000000012 /* Features/Account/MailComposerViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Account/MailComposerViewModel.swift; sourceTree = "<group>"; };
@@ -587,6 +589,7 @@
 				71A6A2102C0B000100000001 /* App/MailTestBootstrap.swift */,
 				71A6A0672C0B000100000001 /* Features/Account/RootView.swift */,
 				71A6A0652C0B000100000001 /* Features/Account/AccountView.swift */,
+				B539B539B539B539B539B539 /* Features/Account/MailShellThreadProjectionObserver.swift */,
 				C0DEC0DE412000000000004 /* Features/Account/ComposeAssistanceView.swift */,
 				C0DEC0DE414000000000004 /* Features/Account/UnderstandingAssistanceView.swift */,
 				D16100000000000000000011 /* Features/Account/MailShellCompositionDraft.swift */,
@@ -1020,6 +1023,7 @@
 				71A6A2002C0B000100000001 /* App/MailTestBootstrap.swift in Sources */,
 				71A6A0662C0B000100000001 /* Features/Account/RootView.swift in Sources */,
 				71A6A0642C0B000100000001 /* Features/Account/AccountView.swift in Sources */,
+				A539A539A539A539A539A539 /* Features/Account/MailShellThreadProjectionObserver.swift in Sources */,
 				C0DEC0DE412000000000003 /* Features/Account/ComposeAssistanceView.swift in Sources */,
 				C0DEC0DE414000000000003 /* Features/Account/UnderstandingAssistanceView.swift in Sources */,
 				D16100000000000000000001 /* Features/Account/MailShellCompositionDraft.swift in Sources */,
