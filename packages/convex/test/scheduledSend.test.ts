@@ -352,16 +352,13 @@ describe('scheduled Send admission', () => {
       trustedDeviceId: fixture.secondDevice.trustedDeviceId,
     });
 
-    const page = await fixture.t.mutation(
-      internal.scheduledSend.claimWakeup,
-      {
-        cursor: null,
-        remainingDeviceCount: 1,
-        revision: 1,
-        // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-        scheduleDocumentId: fixture.schedule._id,
-      },
-    );
+    const page = await fixture.t.mutation(internal.scheduledSend.claimWakeup, {
+      cursor: null,
+      remainingDeviceCount: 1,
+      revision: 1,
+      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+      scheduleDocumentId: fixture.schedule._id,
+    });
 
     expect(page.inspectedDeviceCount).toBe(1);
     expect(page.isDone).toBe(true);

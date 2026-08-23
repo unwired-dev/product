@@ -903,8 +903,7 @@ export const claimWakeup = internalMutation({
         },
       ];
     });
-    const reachedDeviceLimit =
-      devices.page.length >= args.remainingDeviceCount;
+    const reachedDeviceLimit = devices.page.length >= args.remainingDeviceCount;
     return {
       inspectedDeviceCount: devices.page.length,
       isDone: devices.isDone || reachedDeviceLimit,
