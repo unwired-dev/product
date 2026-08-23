@@ -5,29 +5,22 @@ import SwiftSoup
 
 // swiftlint:disable file_length type_body_length
 
-enum SwiftMailExperimentalBuildPolicy {
+enum SwiftMailReleasePolicy {
   static let dependencyVersion = "1.11.0"
   static let dependencyRevision = "a2d4a94f844db62843ef6aec16f3ed9462152acc"
   static let providerCertificationIssue = 280
 
-  // This must be changed only after #280 records passing iCloud Mail and Fastmail evidence.
-  static let providerCertificationComplete = false
+  static let providerCertificationComplete = true
 
-  static var isEnabled: Bool {
-    #if DEBUG || TESTING || UNWIRED_INTERNAL_SWIFTMAIL
-      true
-    #else
-      providerCertificationComplete
-    #endif
-  }
+  static let isEnabled = providerCertificationComplete
 }
 
-struct ExperimentalSwiftMailEngine: MailEngine {
+struct SwiftMailEngine: MailEngine {
   func connect(
     configuration: MailEngineConfiguration,
     logger: any MailEngineLogging
   ) async throws -> (snapshot: MailEngineConnectionSnapshot, session: any MailEngineSession) {
-    guard SwiftMailExperimentalBuildPolicy.isEnabled else {
+    guard SwiftMailReleasePolicy.isEnabled else {
       throw MailEngineError.operationUnsupported
     }
 
@@ -347,7 +340,7 @@ actor SwiftMailEngineSession: MailEngineSession {
     } catch is CancellationError {
       throw MailEngineError.cancelled
     } catch {
-      throw ExperimentalSwiftMailEngine.connectionError(error)
+      throw SwiftMailEngine.connectionError(error)
     }
   }
 
@@ -370,7 +363,7 @@ actor SwiftMailEngineSession: MailEngineSession {
     } catch is CancellationError {
       throw MailEngineError.cancelled
     } catch {
-      throw ExperimentalSwiftMailEngine.connectionError(error)
+      throw SwiftMailEngine.connectionError(error)
     }
   }
 
@@ -391,14 +384,14 @@ actor SwiftMailEngineSession: MailEngineSession {
       throw MailEngineError.staleMessageIdentity
     }
 
-    let boundedIMAP = ExperimentalSwiftMailEngine.makeIMAPServer(
+    let boundedIMAP = SwiftMailEngine.makeIMAPServer(
       configuration: configuration,
       parserLimits: Self.bodyPartParserLimits(maximumByteCount: maximumByteCount)
     )
     do {
       return try await withTaskCancellationHandler {
         try Task.checkCancellation()
-        try await ExperimentalSwiftMailEngine.connect(
+        try await SwiftMailEngine.connect(
           imap: boundedIMAP,
           authorization: configuration.authorization
         )
@@ -432,7 +425,7 @@ actor SwiftMailEngineSession: MailEngineSession {
       if error is ExceededResponseBodySizeError {
         throw MailEngineError.protocolRejected(code: "BODY-PART-TOO-LARGE", retryable: false)
       }
-      throw ExperimentalSwiftMailEngine.connectionError(error)
+      throw SwiftMailEngine.connectionError(error)
     }
   }
 
@@ -508,7 +501,7 @@ actor SwiftMailEngineSession: MailEngineSession {
       throw MailEngineError.cancelled
     } catch {
       try? await session.done()
-      throw ExperimentalSwiftMailEngine.connectionError(error)
+      throw SwiftMailEngine.connectionError(error)
     }
   }
 
@@ -540,7 +533,7 @@ actor SwiftMailEngineSession: MailEngineSession {
     } catch is CancellationError {
       throw MailEngineError.cancelled
     } catch {
-      throw ExperimentalSwiftMailEngine.connectionError(error)
+      throw SwiftMailEngine.connectionError(error)
     }
   }
 
@@ -560,12 +553,12 @@ actor SwiftMailEngineSession: MailEngineSession {
       throw MailEngineError.staleMessageIdentity
     }
 
-    let boundedIMAP = ExperimentalSwiftMailEngine.makeIMAPServer(
+    let boundedIMAP = SwiftMailEngine.makeIMAPServer(
       configuration: configuration,
       parserLimits: Self.bodyPartParserLimits(maximumByteCount: maximumByteCount)
     )
     do {
-      try await ExperimentalSwiftMailEngine.connect(
+      try await SwiftMailEngine.connect(
         imap: boundedIMAP,
         authorization: configuration.authorization
       )
@@ -593,7 +586,7 @@ actor SwiftMailEngineSession: MailEngineSession {
       throw MailEngineError.protocolRejected(code: "RAW-MESSAGE-TOO-LARGE", retryable: false)
     } catch {
       try? await boundedIMAP.disconnect()
-      throw ExperimentalSwiftMailEngine.connectionError(error)
+      throw SwiftMailEngine.connectionError(error)
     }
   }
 
@@ -655,7 +648,7 @@ actor SwiftMailEngineSession: MailEngineSession {
     } catch is CancellationError {
       throw MailEngineError.cancelled
     } catch {
-      throw ExperimentalSwiftMailEngine.connectionError(error)
+      throw SwiftMailEngine.connectionError(error)
     }
   }
 
@@ -823,14 +816,14 @@ actor SwiftMailEngineSession: MailEngineSession {
     let isIMAPConnected = await imap.isConnected
     guard !isIMAPConnected else { return }
     do {
-      try await ExperimentalSwiftMailEngine.connect(
+      try await SwiftMailEngine.connect(
         imap: imap,
         authorization: configuration.authorization
       )
     } catch is CancellationError {
       throw MailEngineError.cancelled
     } catch {
-      throw ExperimentalSwiftMailEngine.connectionError(error)
+      throw SwiftMailEngine.connectionError(error)
     }
   }
 
@@ -844,9 +837,9 @@ actor SwiftMailEngineSession: MailEngineSession {
 
   private func reconnectSMTP() async throws {
     try? await smtp.disconnect()
-    let replacement = ExperimentalSwiftMailEngine.makeSMTPServer(configuration: configuration)
+    let replacement = SwiftMailEngine.makeSMTPServer(configuration: configuration)
     do {
-      try await ExperimentalSwiftMailEngine.connect(
+      try await SwiftMailEngine.connect(
         smtp: replacement,
         authorization: configuration.authorization
       )
@@ -854,7 +847,7 @@ actor SwiftMailEngineSession: MailEngineSession {
       smtpNeedsReconnect = false
     } catch {
       try? await replacement.disconnect()
-      throw ExperimentalSwiftMailEngine.connectionError(error)
+      throw SwiftMailEngine.connectionError(error)
     }
   }
 
@@ -1075,7 +1068,7 @@ actor SwiftMailEngineSession: MailEngineSession {
       case .connectionFailed, .timeout:
         return .operationOutcomeUnknown
       default:
-        return ExperimentalSwiftMailEngine.connectionError(error)
+        return SwiftMailEngine.connectionError(error)
       }
     }
     return .operationOutcomeUnknown
@@ -1235,7 +1228,7 @@ struct SwiftMailMailboxClient: IMAPMailboxClient {
   private let engine: any MailEngine
   private let pool: SwiftMailRuntimeSessionPool
 
-  init(engine: any MailEngine = ExperimentalSwiftMailEngine()) {
+  init(engine: any MailEngine = SwiftMailEngine()) {
     self.engine = engine
     pool = SwiftMailRuntimeSessionPool(engine: engine)
   }
@@ -1456,7 +1449,7 @@ struct SwiftMailEndpointVerifier: SwiftMailEndpointVerifying {
     credential: String,
     authorizationMethod: MailAuthorizationMethod
   ) async throws -> GenericMailEndpointVerification {
-    guard SwiftMailExperimentalBuildPolicy.isEnabled else {
+    guard SwiftMailReleasePolicy.isEnabled else {
       throw GenericMailSetupError.standardsMailUnavailable
     }
     guard endpoint.mailProtocol == .imap || endpoint.mailProtocol == .smtp else {
@@ -1490,7 +1483,7 @@ struct SwiftMailEndpointVerifier: SwiftMailEndpointVerifying {
     } catch is CancellationError {
       throw CancellationError()
     } catch {
-      switch ExperimentalSwiftMailEngine.connectionError(error) {
+      switch SwiftMailEngine.connectionError(error) {
       case .authenticationRejected:
         throw GenericMailSetupError.authenticationFailed(endpoint.mailProtocol)
       case .certificateRejected, .serverIdentityMismatch, .startTLSRejected,
@@ -1506,17 +1499,17 @@ struct SwiftMailEndpointVerifier: SwiftMailEndpointVerifying {
     configuration: MailEngineConfiguration,
     authorization: MailEngineAuthorization
   ) async throws -> GenericMailEndpointVerification {
-    let server = ExperimentalSwiftMailEngine.makeIMAPServer(configuration: configuration)
+    let server = SwiftMailEngine.makeIMAPServer(configuration: configuration)
     do {
-      try await ExperimentalSwiftMailEngine.connect(imap: server, authorization: authorization)
-      let capabilityNames = ExperimentalSwiftMailEngine.capabilityNames(
+      try await SwiftMailEngine.connect(imap: server, authorization: authorization)
+      let capabilityNames = SwiftMailEngine.capabilityNames(
         try await server.fetchCapabilities().map(\.name)
       )
       let mailboxes = try await server.listMailboxes()
       let verification = GenericMailEndpointVerification(
         authenticated: true,
         discoveredRoleMappings: Self.roleMappings(mailboxes),
-        engineCapabilities: ExperimentalSwiftMailEngine.capabilities(
+        engineCapabilities: SwiftMailEngine.capabilities(
           capabilityNames,
           mailboxes: mailboxes
         ),
@@ -1534,9 +1527,9 @@ struct SwiftMailEndpointVerifier: SwiftMailEndpointVerifying {
     configuration: MailEngineConfiguration,
     authorization: MailEngineAuthorization
   ) async throws -> GenericMailEndpointVerification {
-    let server = ExperimentalSwiftMailEngine.makeSMTPServer(configuration: configuration)
+    let server = SwiftMailEngine.makeSMTPServer(configuration: configuration)
     do {
-      try await ExperimentalSwiftMailEngine.connect(smtp: server, authorization: authorization)
+      try await SwiftMailEngine.connect(smtp: server, authorization: authorization)
       try? await server.disconnect()
       return GenericMailEndpointVerification(
         authenticated: true,
@@ -1553,7 +1546,7 @@ struct SwiftMailEndpointVerifier: SwiftMailEndpointVerifying {
   ) -> [CanonicalMailboxRole: String] {
     var candidates: [CanonicalMailboxRole: Set<String>] = [:]
     for mailbox in mailboxes {
-      for specialUse in ExperimentalSwiftMailEngine.specialUses(mailbox.attributes) {
+      for specialUse in SwiftMailEngine.specialUses(mailbox.attributes) {
         candidates[canonicalRole(specialUse), default: []].insert(mailbox.name)
       }
     }

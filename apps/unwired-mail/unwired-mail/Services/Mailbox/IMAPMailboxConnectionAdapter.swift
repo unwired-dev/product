@@ -2575,14 +2575,14 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxConnection
         authorization.map {
           $0.authorizationGeneration == definition.authorizationGeneration
             && hasMatchingCredentials($0.definition, genericDefinition)
-            && (!SwiftMailExperimentalBuildPolicy.isEnabled
+            && (!SwiftMailReleasePolicy.isEnabled
               || $0.hasPersistedEngineCapabilities)
         } ?? false
       return MailboxConnection(
         authorizationGeneration: definition.authorizationGeneration,
         authorizationState: isAuthorized ? .authorized : .required,
         capabilities:
-          isAuthorized && SwiftMailExperimentalBuildPolicy.isEnabled
+          isAuthorized && SwiftMailReleasePolicy.isEnabled
           ? .standardsMail(
             engineCapabilities: authorization?.engineCapabilities ?? [],
             roleMappings: genericDefinition.roleMappings
@@ -2617,14 +2617,14 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxConnection
         authorization.map {
           $0.authorizationGeneration == definition.authorizationGeneration
             && hasMatchingCredentials($0.definition, genericDefinition)
-            && (!SwiftMailExperimentalBuildPolicy.isEnabled
+            && (!SwiftMailReleasePolicy.isEnabled
               || $0.hasPersistedEngineCapabilities)
         } ?? false
       return MailboxConnection(
         authorizationGeneration: definition.authorizationGeneration,
         authorizationState: isAuthorized ? .authorized : .required,
         capabilities:
-          isAuthorized && SwiftMailExperimentalBuildPolicy.isEnabled
+          isAuthorized && SwiftMailReleasePolicy.isEnabled
           ? .standardsMail(
             engineCapabilities: authorization?.engineCapabilities ?? [],
             roleMappings: genericDefinition.roleMappings

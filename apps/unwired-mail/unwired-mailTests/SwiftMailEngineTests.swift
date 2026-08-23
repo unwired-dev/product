@@ -6,18 +6,18 @@ import Testing
 
 // swiftlint:disable file_length
 
-@Suite("Experimental SwiftMail engine")
-struct ExperimentalSwiftMailEngineTests {
+@Suite("SwiftMail engine")
+struct SwiftMailEngineTests {
   @Test
-  func testExactDependencyAndExperimentalBuildPolicy() {
-    #expect(SwiftMailExperimentalBuildPolicy.dependencyVersion == "1.11.0")
+  func testExactDependencyAndAcceptedReleasePolicy() {
+    #expect(SwiftMailReleasePolicy.dependencyVersion == "1.11.0")
     #expect(
-      SwiftMailExperimentalBuildPolicy.dependencyRevision
+      SwiftMailReleasePolicy.dependencyRevision
         == "a2d4a94f844db62843ef6aec16f3ed9462152acc"
     )
-    #expect(SwiftMailExperimentalBuildPolicy.providerCertificationIssue == 280)
-    #expect(!SwiftMailExperimentalBuildPolicy.providerCertificationComplete)
-    #expect(SwiftMailExperimentalBuildPolicy.isEnabled)
+    #expect(SwiftMailReleasePolicy.providerCertificationIssue == 280)
+    #expect(SwiftMailReleasePolicy.providerCertificationComplete)
+    #expect(SwiftMailReleasePolicy.isEnabled)
   }
 
   @Test
@@ -97,13 +97,13 @@ struct ExperimentalSwiftMailEngineTests {
   @Test
   func testCapabilitiesRequireExactTokens() {
     #expect(
-      ExperimentalSwiftMailEngine.capabilities(
+      SwiftMailEngine.capabilities(
         ["IDLE", "MOVE", "SPECIAL-USE", "UIDPLUS"],
         mailboxes: []
       ) == [.idle, .move, .specialUse, .uidPlus]
     )
     #expect(
-      ExperimentalSwiftMailEngine.capabilities(
+      SwiftMailEngine.capabilities(
         ["X-IDLE", "XMOVE", "SPECIAL-USE-EXTENDED", "X-UIDPLUS"],
         mailboxes: []
       ).isEmpty
@@ -113,7 +113,7 @@ struct ExperimentalSwiftMailEngineTests {
   @Test
   func testCapabilityNamesUseProtocolNamesInsteadOfDebugDescriptions() {
     #expect(
-      ExperimentalSwiftMailEngine.capabilityNames([
+      SwiftMailEngine.capabilityNames([
         "idle", "MOVE", "UIDPLUS",
       ]) == ["IDLE", "MOVE", "UIDPLUS"]
     )
@@ -223,7 +223,7 @@ struct ExperimentalSwiftMailEngineTests {
   @Test
   func testTransportErrorsPreserveMutationUncertainty() {
     #expect(
-      ExperimentalSwiftMailEngine.connectionError(IMAPError.connectionFailed("offline"))
+      SwiftMailEngine.connectionError(IMAPError.connectionFailed("offline"))
         == .connectionClosed
     )
     #expect(
@@ -233,8 +233,8 @@ struct ExperimentalSwiftMailEngineTests {
   }
 }
 
-@Suite("Experimental SwiftMail calendar parts")
-struct ExperimentalSwiftMailCalendarPartTests {
+@Suite("SwiftMail calendar parts")
+struct SwiftMailCalendarPartTests {
   @Test
   // swiftlint:disable:next function_body_length
   func testMetadataExposesOnlyOrdinaryAttachmentsFromMIMEStructure() throws {

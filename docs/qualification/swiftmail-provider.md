@@ -1,6 +1,6 @@
 # SwiftMail 1.11.0 Provider Compatibility Run
 
-SwiftMail is an approved, exact-pinned app dependency, but issue [#280](https://github.com/unwired-dev/product/issues/280) still requires live iCloud Mail and Fastmail Mail Test Evidence before Standards-Based Mailbox Connections can be enabled in an externally distributed Release build. The Provider Compatibility Run package remains deliberately separate from the app project and independently verifies tag `1.11.0` at commit `a2d4a94f844db62843ef6aec16f3ed9462152acc`; provider credentials and the 10,000-message qualification fixtures never enter ordinary pull-request CI.
+SwiftMail is an accepted, exact-pinned app dependency. Issue [#280](https://github.com/unwired-dev/product/issues/280) records passing live iCloud Mail and Fastmail Mail Test Evidence, so Standards-Based Mailbox Connections can be enabled in externally distributed Release builds. The Provider Compatibility Run package remains deliberately separate from the app project and independently verifies tag `1.11.0` at commit `a2d4a94f844db62843ef6aec16f3ed9462152acc`; provider credentials and the 10,000-message qualification fixtures never enter ordinary pull-request CI.
 
 ## Protected environment and accounts
 
@@ -79,4 +79,6 @@ Record the workflow run URL and Mail Test Evidence names for both providers, the
 - [ ] Search Inbox, Sent, Junk, and both scratch mailboxes for the run identifier and confirm no run-owned message remains.
 - [ ] Confirm the 10,000-message dataset remains intact and no message outside the qualification fixtures changed flags or location.
 
-Do not mark #280 complete until both Provider Compatibility Runs pass and this checklist is attached as credential-free Mail Test Evidence.
+Issue #280 records the completed checklist and credential-free Mail Test Evidence for the accepted
+SwiftMail 1.11.0 pin. Repeat this evidence process before accepting a future pin when ADR 0027
+requires renewed provider certification.
