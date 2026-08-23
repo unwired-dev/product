@@ -1185,6 +1185,11 @@ struct DevicePushRegistrationService {
       identityToken: session.identityToken,
       trustedDeviceId: session.trustedDeviceId
     )
+    if let scheduledDeliveryTransport = transport as? any ScheduledSendOperationalTransport {
+      _ = try await scheduledDeliveryTransport.registerScheduledDeliveryCapability(
+        session: session
+      )
+    }
   }
 }
 
@@ -2189,25 +2194,31 @@ struct ScheduledSendWakeupHandler {
   private let connectionStore: GmailPushConnectionPersisting
   private let mailService: GmailMailboxConnectionAdapter
   private let outboxService: OutboxDeliveryService
+  private let payloadSync: ScheduledSendPayloadSyncing
   private let revalidateTrustedDevice: @MainActor (ProductAccountSessionSnapshot) async -> Bool
+  private let scheduledSendTransport: ScheduledSendOperationalTransport
   private let sessionStore: ProductAccountSessionPersisting
 
   init(
     connectionStore: GmailPushConnectionPersisting = KeychainGmailPushConnectionStore(),
     mailService: GmailMailboxConnectionAdapter = GmailMailboxConnectionAdapter(),
     outboxService: OutboxDeliveryService = .shared,
+    payloadSync: ScheduledSendPayloadSyncing = ScheduledSendSyncService(),
     revalidateTrustedDevice:
       @escaping @MainActor (ProductAccountSessionSnapshot) async -> Bool = { _ in true },
+    scheduledSendTransport: ScheduledSendOperationalTransport = ConvexClient(),
     sessionStore: ProductAccountSessionPersisting = KeychainProductAccountSessionStore()
   ) {
     self.connectionStore = connectionStore
     self.mailService = mailService
     self.outboxService = outboxService
+    self.payloadSync = payloadSync
     self.revalidateTrustedDevice = revalidateTrustedDevice
+    self.scheduledSendTransport = scheduledSendTransport
     self.sessionStore = sessionStore
   }
 
-  // swiftlint:disable:next function_body_length
+  // swiftlint:disable:next cyclomatic_complexity function_body_length
   func handle(userInfo: [AnyHashable: Any]? = nil) async throws -> Bool {
     let requestedSchedule: (id: UUID, revision: Int)?
     if let userInfo {
@@ -2223,15 +2234,6 @@ struct ScheduledSendWakeupHandler {
     guard let session = try sessionStore.load(),
       await revalidateTrustedDevice(session)
     else { return false }
-    let attempts = try await outboxService.actionableItems(session: session)
-    let scheduledAttempts = attempts.filter { attempt in
-      guard attempt.isScheduledSend else { return false }
-      guard let requestedSchedule else { return true }
-      return attempt.scheduledSendId == requestedSchedule.id
-        && attempt.scheduledSendRevision == requestedSchedule.revision
-    }
-    guard !scheduledAttempts.isEmpty else { return false }
-
     let statuses = try connectionStore.loadAll(productAccountId: session.productAccountId)
       .filter { $0.provider == "gmail" && $0.trustedDeviceId == session.trustedDeviceId }
     let connections = statuses.map {
@@ -2244,29 +2246,73 @@ struct ScheduledSendWakeupHandler {
       connections.map { ($0.id, $0) },
       uniquingKeysWith: { _, latest in latest }
     )
+    let provider: OutboxDeliveryPerformer = { message, idempotencyKey, connectionId in
+      guard let connection = connectionsById[connectionId] else {
+        throw MailboxConnectionAdapterError.authorizationRequired
+      }
+      try await mailService.send(
+        message.withIdempotencyKey(idempotencyKey),
+        connection: connection,
+        session: session
+      )
+    }
+    let reconcile: OutboxDeliveryReconciler = { idempotencyKey, connectionId in
+      guard let connection = connectionsById[connectionId] else {
+        throw MailboxConnectionAdapterError.authorizationRequired
+      }
+      return try await mailService.deliveryStatus(
+        idempotencyKey: idempotencyKey,
+        connection: connection,
+        session: session
+      )
+    }
+
+    let attempts = try await outboxService.actionableItems(session: session)
+    let scheduledAttempts = attempts.filter { attempt in
+      guard attempt.isScheduledSend else { return false }
+      guard let requestedSchedule else { return true }
+      return attempt.scheduledSendId == requestedSchedule.id
+        && attempt.scheduledSendRevision == requestedSchedule.revision
+    }
+    if scheduledAttempts.isEmpty, let requestedSchedule {
+      guard
+        let record = try await payloadSync.load(
+          scheduleId: requestedSchedule.id,
+          session: session
+        ), record.revision == requestedSchedule.revision,
+        let connectionStatus = statuses.first(where: {
+          $0.mailboxConnectionId == record.connectionId
+        }),
+        let connection = connectionsById[record.connectionId],
+        try await mailService.hasActiveAuthorization(connectionStatus, session: session)
+      else { return false }
+      let claimResult = try await scheduledSendTransport.claimScheduledSend(
+        scheduleId: requestedSchedule.id,
+        revision: requestedSchedule.revision,
+        trustedDeviceId: session.trustedDeviceId
+      )
+      guard case .claimed(let claim) = claimResult else { return false }
+      _ = try await outboxService.enqueueScheduled(
+        record.message,
+        connection: connection,
+        session: session,
+        scheduleId: record.scheduleId,
+        revision: record.revision,
+        dueAt: Date(timeIntervalSince1970: Double(record.dueAtMilliseconds) / 1_000),
+        deadline: Date(timeIntervalSince1970: Double(record.deadlineAtMilliseconds) / 1_000),
+        undoSendDelayNanoseconds: 0,
+        claim: claim,
+        provider: provider,
+        reconcile: reconcile
+      )
+    } else if scheduledAttempts.isEmpty {
+      return false
+    }
     try await outboxService.resume(
       connections: connections,
       session: session,
-      provider: { message, idempotencyKey, connectionId in
-        guard let connection = connectionsById[connectionId] else {
-          throw MailboxConnectionAdapterError.authorizationRequired
-        }
-        try await mailService.send(
-          message.withIdempotencyKey(idempotencyKey),
-          connection: connection,
-          session: session
-        )
-      },
-      reconcile: { idempotencyKey, connectionId in
-        guard let connection = connectionsById[connectionId] else {
-          throw MailboxConnectionAdapterError.authorizationRequired
-        }
-        return try await mailService.deliveryStatus(
-          idempotencyKey: idempotencyKey,
-          connection: connection,
-          session: session
-        )
-      }
+      provider: provider,
+      reconcile: reconcile
     )
     return true
   }

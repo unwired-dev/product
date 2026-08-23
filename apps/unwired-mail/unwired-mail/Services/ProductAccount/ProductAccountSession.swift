@@ -297,6 +297,7 @@ final class ProductAccountSession {
   private let outboxDeliveryService: OutboxDeliveryClearing
   private let productSyncCacheClearer: ProductSyncCacheClearing
   private let productSyncKeyMaterialStore: ProductSyncKeyMaterialPersisting
+  private let scheduledDeliveryAuthorizationStore: ScheduledDeliveryAuthorizationPersisting
   private let trustedDeviceCredentialStore: TrustedDeviceCredentialPersisting
 
   init(
@@ -333,6 +334,8 @@ final class ProductAccountSession {
     productSyncCacheClearer: ProductSyncCacheClearing = KeychainProductSyncCacheClearer(),
     productSyncKeyMaterialStore: ProductSyncKeyMaterialPersisting =
       KeychainProductSyncKeyMaterialStore(),
+    scheduledDeliveryAuthorizationStore: ScheduledDeliveryAuthorizationPersisting =
+      KeychainScheduledDeliveryAuthStore(),
     trustedDeviceCredentialStore: TrustedDeviceCredentialPersisting =
       KeychainTrustedDeviceCredentialStore()
   ) {
@@ -359,6 +362,7 @@ final class ProductAccountSession {
     self.outboxDeliveryService = outboxDeliveryService
     self.productSyncCacheClearer = productSyncCacheClearer
     self.productSyncKeyMaterialStore = productSyncKeyMaterialStore
+    self.scheduledDeliveryAuthorizationStore = scheduledDeliveryAuthorizationStore
     self.trustedDeviceCredentialStore = trustedDeviceCredentialStore
   }
 
@@ -694,6 +698,7 @@ final class ProductAccountSession {
   private func clearDeletedProductAccountSession(
     _ snapshot: ProductAccountSessionSnapshot
   ) async throws {
+    try? scheduledDeliveryAuthorizationStore.clear(trustedDeviceId: snapshot.trustedDeviceId)
     try? trustedDeviceCredentialStore.clear(trustedDeviceId: snapshot.trustedDeviceId)
     try sessionStore.savePendingDeletedProductAccountId(snapshot.productAccountId)
     try sessionStore.savePendingSignOutProductAccountId(snapshot.productAccountId)
@@ -724,6 +729,7 @@ final class ProductAccountSession {
   private func handleTrustedDeviceReconnectRequired(
     _ snapshot: ProductAccountSessionSnapshot
   ) {
+    try? scheduledDeliveryAuthorizationStore.clear(trustedDeviceId: snapshot.trustedDeviceId)
     try? trustedDeviceCredentialStore.clear(trustedDeviceId: snapshot.trustedDeviceId)
     state = .failed(ProductAccountServiceError.trustedDeviceReconnectRequired.localizedDescription)
   }
@@ -1583,6 +1589,7 @@ extension ProductAccountSession {
       snapshot.productAccountId
     )
     if !persistUnregistrationRetry {
+      try? scheduledDeliveryAuthorizationStore.clear(trustedDeviceId: snapshot.trustedDeviceId)
       try? trustedDeviceCredentialStore.clear(trustedDeviceId: snapshot.trustedDeviceId)
     }
     await gmailPushWakeupDrainer.cancelAndDrain(productAccountId: snapshot.productAccountId)
@@ -1679,6 +1686,7 @@ extension ProductAccountSession {
       let snapshot = try sessionStore.load(),
       snapshot.productAccountId == productAccountId
     {
+      try? scheduledDeliveryAuthorizationStore.clear(trustedDeviceId: snapshot.trustedDeviceId)
       if snapshot.identityTokenState() == .active {
         try? await devicePushUnregistrationService.unregister(session: snapshot)
       } else {

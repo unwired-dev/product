@@ -66,6 +66,7 @@ type ApnsRecipient = Readonly<{
 }>;
 
 const gmailPushVerificationSignalLifetimeMs = 10 * 60 * 1000;
+const apnsTokenMaximumLength = 256;
 const devicePushRouteInactivityLifetimeMs = 30 * 24 * 60 * 60 * 1000;
 const devicePushRouteReconciliationBatchSize = 10;
 const devicePushTokenCleanupBatchSize = 10;
@@ -1320,6 +1321,9 @@ export const registerDevice = mutation({
   handler: async (ctx, args) => {
     if (args.apnsToken.length === 0) {
       throw new Error('APNs token required');
+    }
+    if (args.apnsToken.length > apnsTokenMaximumLength) {
+      throw new Error('APNs token exceeds maximum length');
     }
 
     const device = await registeredTrustedDevice(
