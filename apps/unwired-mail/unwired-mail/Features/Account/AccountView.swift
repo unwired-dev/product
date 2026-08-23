@@ -3366,6 +3366,12 @@ struct AccountView: View {
       profileViewModel.activeProfileId == sourceProfileId
     else { return false }
     inboxViewModel.prepareForProfileSwitch()
+    await waitForNextMainRunLoopCycle()
+    guard
+      !Task.isCancelled,
+      profileSwitchGate.isCurrent(switchGeneration),
+      profileViewModel.activeProfileId == sourceProfileId
+    else { return false }
     return true
   }
 
