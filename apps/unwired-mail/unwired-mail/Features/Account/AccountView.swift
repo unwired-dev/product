@@ -3282,8 +3282,9 @@ struct AccountView: View {
     do {
       // Present the reset shell first so the Profile activation and hydration do not share a frame.
       prepareProfilePresentationForSwitch()
-      await Task.yield()
+      try? await Task.sleep(for: .milliseconds(1))
       guard
+        !Task.isCancelled,
         profileSwitchGate.isCurrent(switchGeneration),
         profileViewModel.activeProfileId == sourceProfileId
       else { return false }
