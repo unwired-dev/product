@@ -13850,8 +13850,9 @@ final class GmailInboxViewModel {
     loadId: UUID,
     connectionIds: Set<MailboxConnectionId>
   ) async -> Bool {
+    let firstBatchSize = 1
     let batchSize = 2
-    guard threads.isEmpty, initialProjectedThreads.count > batchSize else {
+    guard threads.isEmpty, initialProjectedThreads.count > firstBatchSize else {
       threads = initialProjectedThreads
       return true
     }
@@ -13874,7 +13875,8 @@ final class GmailInboxViewModel {
         projectionRevision = projection.revision
         if projectionRevision != productMailboxStateRevision { continue }
       }
-      let endIndex = min(publishedCount + batchSize, projectedThreads.count)
+      let nextBatchSize = publishedCount == 0 ? firstBatchSize : batchSize
+      let endIndex = min(publishedCount + nextBatchSize, projectedThreads.count)
       threads = Array(projectedThreads.prefix(endIndex))
       publishedCount = endIndex
       guard publishedCount < projectedThreads.count else { return true }
