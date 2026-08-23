@@ -897,10 +897,7 @@ export const retryWakeup = internalMutation({
       });
       return false;
     }
-    const retryAt = Math.min(
-      now + minuteMilliseconds,
-      schedule.deadlineAt,
-    );
+    const retryAt = Math.min(now + minuteMilliseconds, schedule.deadlineAt);
     const scheduledFunctionId = await ctx.scheduler.runAt(
       retryAt,
       internal.apns.deliverScheduledSendWakeup,
