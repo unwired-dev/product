@@ -31,7 +31,7 @@ vi.mock('node:http2', async () => {
             end() {
               queueMicrotask(() => {
                 request.emit('response', { ':status': 500 });
-                request.emit('end');
+                queueMicrotask(() => request.emit('end'));
               });
             },
             setEncoding() {
