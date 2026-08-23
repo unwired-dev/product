@@ -11,11 +11,15 @@ import schema from '../convex/schema.js';
 
 const modules = import.meta.glob('../convex/**/*.ts');
 
-vi.mock('node:http2', () => ({
-  connect: () => {
-    throw new Error('Simulated APNs batch failure');
-  },
-}));
+vi.mock('node:http2', async (importOriginal) => {
+  const original = await importOriginal<typeof import('node:http2')>();
+  return {
+    ...original,
+    connect: () => {
+      throw new Error('Simulated APNs batch failure');
+    },
+  };
+});
 
 function requireValue<Value>(value: Value | null): Value {
   if (value === null) {
