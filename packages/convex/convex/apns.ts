@@ -502,14 +502,12 @@ export const deliverScheduledSendWakeup = internalAction({
     let cursor: string | null = null;
     let remainingDeviceCount = scheduledWakeupDeviceLimit;
     while (remainingDeviceCount > 0) {
-      // oxlint-disable-next-line eslint/no-await-in-loop -- Each cursor depends on the preceding bounded claim page.
       const page: ScheduledSendWakeupPage = await ctx.runMutation(
         internal.scheduledSend.claimWakeup,
         { ...args, cursor, remainingDeviceCount },
       );
       remainingDeviceCount -= page.inspectedDeviceCount;
       if (page.recipients.length > 0) {
-        // oxlint-disable-next-line eslint/no-await-in-loop -- Preserve APNs batch order and stop before claiming another page on failure.
         const deliveryResults = await attemptWakeupDelivery({
           ctx,
           failureMessage: 'Scheduled Send APNs wakeup delivery failed',
@@ -521,7 +519,6 @@ export const deliverScheduledSendWakeup = internalAction({
           recipients: page.recipients,
         });
         if (deliveryResults === undefined) {
-          // oxlint-disable-next-line eslint/no-await-in-loop -- Persist one retry before leaving the failed page loop.
           await ctx.runMutation(internal.scheduledSend.retryWakeup, args);
           return null;
         }
