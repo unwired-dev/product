@@ -357,6 +357,20 @@ async function deliverWakeupBatch<Recipient extends StaleTokenRecipient>(
   return results;
 }
 
+async function attemptWakeupDelivery<Recipient extends StaleTokenRecipient>(
+  ctx: ActionCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex action context invokes mutations.
+  recipients: readonly Recipient[],
+  payload: (recipient: Recipient) => string,
+  failureMessage: string,
+): Promise<ReadonlyArray<PromiseSettledResult<void>> | undefined> {
+  try {
+    return await deliverWakeupBatch(ctx, recipients, payload);
+  } catch (error) {
+    console.error(failureMessage, error);
+    return undefined;
+  }
+}
+
 async function deliverGmailWakeupBatch(
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Convex supplies its mutable action context.
   ctx: ActionCtx,
@@ -423,7 +437,6 @@ export const deliverMicrosoftGraphWakeup = internalAction({
     routeId: v.id('mailProviderConnections'),
     scheduledAt: v.number(),
   },
-  // fallow-ignore-next-line code-duplication -- Provider completion and Scheduled Send wakeup retain distinct claim and completion contracts around shared APNs transport.
   handler: async (ctx, args) => {
     const recipient = await ctx.runMutation(
       internal.pushRelay.claimMicrosoftGraphWakeup,
@@ -434,19 +447,16 @@ export const deliverMicrosoftGraphWakeup = internalAction({
     }
     let delivered = false;
     let terminalFailure = false;
-    try {
-      const [deliveryResult] = await deliverWakeupBatch(
-        ctx,
-        [recipient],
-        (target) => microsoftGraphWakeupPayload(target.routeId),
-      );
-      if (deliveryResult === undefined) {
-        throw new Error('APNs delivery produced no result');
-      }
+    const deliveryResults = await attemptWakeupDelivery(
+      ctx,
+      [recipient],
+      (target) => microsoftGraphWakeupPayload(target.routeId),
+      'APNs wakeup delivery failed',
+    );
+    const deliveryResult = deliveryResults?.[0];
+    if (deliveryResult !== undefined) {
       delivered = deliveryResult.status === 'fulfilled';
       terminalFailure = isPermanentApnsFailure(deliveryResult);
-    } catch (error) {
-      console.error('APNs wakeup delivery failed', error);
     }
     await ctx.runMutation(internal.pushRelay.completeMicrosoftGraphWakeup, {
       delivered,
@@ -464,7 +474,6 @@ export const deliverScheduledSendWakeup = internalAction({
     revision: v.number(),
     scheduleDocumentId: v.id('scheduledSends'),
   },
-  // fallow-ignore-next-line code-duplication -- Scheduled Send wakeup and provider completion retain distinct claim and completion contracts around shared APNs transport.
   handler: async (ctx, args) => {
     const recipients = await ctx.runMutation(
       internal.scheduledSend.claimWakeup,
@@ -473,13 +482,13 @@ export const deliverScheduledSendWakeup = internalAction({
     if (recipients.length === 0) {
       return null;
     }
-    try {
-      await deliverWakeupBatch(ctx, recipients, (recipient) =>
+    await attemptWakeupDelivery(
+      ctx,
+      recipients,
+      (recipient) =>
         scheduledSendWakeupPayload(recipient.revision, recipient.scheduleId),
-      );
-    } catch (error) {
-      console.error('Scheduled Send APNs wakeup delivery failed', error);
-    }
+      'Scheduled Send APNs wakeup delivery failed',
+    );
     return null;
   },
   returns: v.null(),
