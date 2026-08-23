@@ -3314,12 +3314,26 @@ struct AccountView: View {
           self.compositionDraft = nil
         }
       }
-      let preparedProfileRecordScope = prepareProfileScopedStoresIfNeeded()
+      await waitForNextMainRunLoopCycle()
       guard
+        !Task.isCancelled,
+        profileSwitchGate.isCurrent(switchGeneration),
+        profileViewModel.activeProfileId == profileId
+      else { return false }
+      let preparedProfileRecordScope = prepareProfileScopedStoresIfNeeded()
+      await waitForNextMainRunLoopCycle()
+      guard
+        !Task.isCancelled,
         profileSwitchGate.isCurrent(switchGeneration),
         profileViewModel.activeProfileId == profileId
       else { return false }
       prepareProfileThreadState(for: profileId)
+      await waitForNextMainRunLoopCycle()
+      guard
+        !Task.isCancelled,
+        profileSwitchGate.isCurrent(switchGeneration),
+        profileViewModel.activeProfileId == profileId
+      else { return false }
       finishProfileSwitch(to: profileId)
       if let preparedProfileRecordScope {
         Task {
