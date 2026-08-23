@@ -1,6 +1,7 @@
 import Combine
 import Contacts
 import ContactsUI
+import CoreFoundation
 import EventKitUI
 import SwiftUI
 import UIKit
@@ -1237,6 +1238,21 @@ func waitForCurrentMailboxLoad(
     guard let task = load.task else { return }
     await task.value
     guard currentLoad().generation != load.generation else { return }
+  }
+}
+
+@MainActor
+func waitForNextMainRunLoopCycle() async {
+  await withCheckedContinuation { continuation in
+    let observer = CFRunLoopObserverCreateWithHandler(
+      nil,
+      CFRunLoopActivity.afterWaiting.rawValue,
+      false,
+      0
+    ) { _, _ in
+      continuation.resume()
+    }
+    CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
   }
 }
 
@@ -3336,14 +3352,14 @@ struct AccountView: View {
     switchGeneration: Int
   ) async -> Bool {
     mailShellSelection.selectUnifiedInbox()
-    try? await Task.sleep(for: .milliseconds(10))
+    await waitForNextMainRunLoopCycle()
     guard
       !Task.isCancelled,
       profileSwitchGate.isCurrent(switchGeneration),
       profileViewModel.activeProfileId == sourceProfileId
     else { return false }
     inboxViewModel.clearVisibleThreadsForProfileSwitch()
-    try? await Task.sleep(for: .milliseconds(40))
+    await waitForNextMainRunLoopCycle()
     guard
       !Task.isCancelled,
       profileSwitchGate.isCurrent(switchGeneration),
