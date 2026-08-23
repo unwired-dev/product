@@ -1242,18 +1242,64 @@ func waitForCurrentMailboxLoad(
 }
 
 @MainActor
-func waitForNextMainRunLoopCycle() async {
-  await withCheckedContinuation { continuation in
-    let observer = CFRunLoopObserverCreateWithHandler(
-      nil,
-      CFRunLoopActivity.afterWaiting.rawValue,
-      false,
-      0
-    ) { _, _ in
-      continuation.resume()
+private final class MainRunLoopCycleWaiter {
+  private var continuation: CheckedContinuation<Void, Never>?
+  private var observer: CFRunLoopObserver?
+  private var timer: CFRunLoopTimer?
+
+  func wait() async {
+    await withTaskCancellationHandler {
+      await withCheckedContinuation { continuation in
+        guard !Task.isCancelled else {
+          continuation.resume()
+          return
+        }
+        self.continuation = continuation
+        let observer = CFRunLoopObserverCreateWithHandler(
+          nil,
+          CFRunLoopActivity.afterWaiting.rawValue,
+          false,
+          0
+        ) { [weak self] _, _ in
+          Task { @MainActor in self?.finish() }
+        }
+        self.observer = observer
+        CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
+        let timer = CFRunLoopTimerCreateWithHandler(
+          nil,
+          CFAbsoluteTimeGetCurrent() + 0.05,
+          0,
+          0,
+          0
+        ) { [weak self] _ in
+          Task { @MainActor in self?.finish() }
+        }
+        self.timer = timer
+        CFRunLoopAddTimer(CFRunLoopGetMain(), timer, .commonModes)
+      }
+    } onCancel: {
+      Task { @MainActor [weak self] in self?.finish() }
     }
-    CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
   }
+
+  private func finish() {
+    guard let continuation else { return }
+    self.continuation = nil
+    if let observer {
+      CFRunLoopRemoveObserver(CFRunLoopGetMain(), observer, .commonModes)
+      self.observer = nil
+    }
+    if let timer {
+      CFRunLoopRemoveTimer(CFRunLoopGetMain(), timer, .commonModes)
+      self.timer = nil
+    }
+    continuation.resume()
+  }
+}
+
+@MainActor
+func waitForNextMainRunLoopCycle() async {
+  await MainRunLoopCycleWaiter().wait()
 }
 
 func newlyFailedConnectionIds(
