@@ -2005,6 +2005,7 @@ final class MailboxConnectionAdapterTests {
     await viewModel.loadAfterConnectionChange(connection: connection, synchronizes: false)
     viewModel.threads = MailboxThread.group([adapterMessage])
     let projectionRevision = viewModel.threadProjectionRevision
+    #expect(viewModel.currentConnectionId == connection.id)
 
     viewModel.clearVisibleThreadsForProfileSwitch()
 
