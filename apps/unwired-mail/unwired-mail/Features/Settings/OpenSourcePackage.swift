@@ -12,6 +12,18 @@ struct OpenSourcePackage: Equatable, Identifiable {
   /// Every package pinned by the Apple app's resolved Swift package graph.
   static let all: [Self] = [
     package(
+      "Google API Client for REST",
+      license: "Apache 2.0",
+      repository: "https://github.com/google/google-api-objectivec-client-for-rest",
+      licensePath: "blob/main/LICENSE"
+    ),
+    package(
+      "Google Toolbox for Mac Session Fetcher",
+      license: "Apache 2.0",
+      repository: "https://github.com/google/gtm-session-fetcher",
+      licensePath: "blob/main/LICENSE"
+    ),
+    package(
       "Swift Argument Parser",
       license: "Apache 2.0",
       repository: "https://github.com/apple/swift-argument-parser",

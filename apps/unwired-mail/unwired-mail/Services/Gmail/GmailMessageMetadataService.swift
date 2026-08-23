@@ -1633,14 +1633,6 @@ struct GmailMessageMetadataService:
   GmailMessageMetadataSyncing, GmailMessageSearching, GmailProviderMailActing,
   GmailProviderTokenRefreshing
 {
-  private static let recipientHeaderNames = ["Cc", "To"]
-  private static let bccHeaderName = "Bcc"
-  private static let unsubscribeHeaderNames = [
-    "List-ID", "List-Unsubscribe", "List-Unsubscribe-Post",
-  ]
-  private static let metadataHeaderNames =
-    recipientHeaderNames + [bccHeaderName] + unsubscribeHeaderNames
-
   private let categorizer: GmailMessageCategorizing
   private let gmailBaseURL: URL
   private let notificationEligibilityStore: GmailPushEligibilityPersisting
@@ -2797,7 +2789,6 @@ struct GmailMessageMetadataService:
     return messages
   }
 
-  // swiftlint:disable:next function_body_length
   private func fetchMessageMetadata(
     accessToken: String,
     categorizationBoundary: Date,
@@ -2811,22 +2802,9 @@ struct GmailMessageMetadataService:
     components?.queryItems =
       [
         URLQueryItem(name: "format", value: "full"),
-        URLQueryItem(
-          name: "fields",
-          value:
-            "id,threadId,labelIds,snippet,internalDate,"
-            + "payload(body(attachmentId,size),filename,headers,mimeType,partId,"
-            + "parts(body(attachmentId,size),filename,headers,mimeType,partId,"
-            + "parts(body(attachmentId,size),filename,headers,mimeType,partId,"
-            + "parts(body(attachmentId,size),filename,headers,mimeType,partId,"
-            + "parts(body(attachmentId,size),filename,headers,mimeType,partId)))))"
-        ),
-        URLQueryItem(name: "metadataHeaders", value: "From"),
-        URLQueryItem(name: "metadataHeaders", value: "Message-ID"),
-        URLQueryItem(name: "metadataHeaders", value: "Reply-To"),
-        URLQueryItem(name: "metadataHeaders", value: "Subject"),
+        URLQueryItem(name: "fields", value: GmailMessageMetadataResponse.requestedFields),
       ]
-      + Self.metadataHeaderNames.map {
+      + GmailMessageMetadataResponse.requestedHeaderNames.map {
         URLQueryItem(name: "metadataHeaders", value: $0)
       }
     guard let url = components?.url else {
@@ -2838,58 +2816,10 @@ struct GmailMessageMetadataService:
       accessToken: accessToken,
       responseType: GmailMessageMetadataResponse.self
     )
-    let internalDateMilliseconds = Int64(response.internalDate) ?? 0
-    let internalDate = Date(timeIntervalSince1970: TimeInterval(internalDateMilliseconds) / 1_000)
-    let subject = response.payload?.headers.first {
-      $0.name.caseInsensitiveCompare("Subject") == .orderedSame
-    }?.value
-    let stableProviderMessageId =
-      "gmail:\(connection.providerAccountIdentifier):\(response.id)"
-
-    return GmailMessageMetadata(
-      categoryId: nil,
-      from: response.payload?.headers.first {
-        $0.name.caseInsensitiveCompare("From") == .orderedSame
-      }?.value,
-      hasAttachments: response.payload?.hasAttachments == true ? true : nil,
-      isHistorical: internalDate <= categorizationBoundary,
-      providerAccountIdentifier: connection.providerAccountIdentifier,
-      providerInternalDateMilliseconds: internalDateMilliseconds,
-      providerLabelIds: response.labelIds ?? [],
-      providerMessageId: response.id,
-      providerThreadId: response.threadId,
-      replyTo: response.payload?.headers.first {
-        $0.name.caseInsensitiveCompare("Reply-To") == .orderedSame
-      }?.value,
-      snippet: response.snippet,
-      stableProviderMessageId: stableProviderMessageId,
-      subject: subject?.isEmpty == false ? subject! : "(No subject)",
-      recipientHeaders: recipientHeaders(in: response),
-      bccRecipients: bccRecipients(in: response),
-      calendarInvitation: response.calendarInvitation(
-        providerMessageIdentity: stableProviderMessageId
-      ),
-      rfcMessageId: response.payload?.headers.first {
-        $0.name.caseInsensitiveCompare("Message-ID") == .orderedSame
-      }?.value,
-      unsubscribeSuggestion: UnsubscribeSuggestionParser.suggestion(
-        headers: response.payload?.headers.map { ($0.name, $0.value) } ?? []
-      )
+    return response.metadata(
+      categorizationBoundary: categorizationBoundary,
+      connection: connection
     )
-  }
-
-  private func recipientHeaders(in response: GmailMessageMetadataResponse) -> [String]? {
-    response.payload?.headers.filter { header in
-      Self.recipientHeaderNames.contains {
-        header.name.caseInsensitiveCompare($0) == .orderedSame
-      }
-    }.map(\.value)
-  }
-
-  private func bccRecipients(in response: GmailMessageMetadataResponse) -> [String]? {
-    response.payload?.headers.filter {
-      $0.name.caseInsensitiveCompare(Self.bccHeaderName) == .orderedSame
-    }.map(\.value)
   }
 
   private func sendAuthorizedRequest<Response: Decodable>(
@@ -3500,6 +3430,18 @@ private struct GmailListedMessage: Decodable {
 }
 
 struct GmailMessageMetadataResponse: Decodable {
+  static let requestedHeaderNames = [
+    "From", "Message-ID", "Reply-To", "Subject", "Cc", "To", "Bcc", "List-ID",
+    "List-Unsubscribe", "List-Unsubscribe-Post",
+  ]
+  static let requestedFields =
+    "id,threadId,labelIds,snippet,internalDate,"
+    + "payload(body(attachmentId,size),filename,headers,mimeType,partId,"
+    + "parts(body(attachmentId,size),filename,headers,mimeType,partId,"
+    + "parts(body(attachmentId,size),filename,headers,mimeType,partId,"
+    + "parts(body(attachmentId,size),filename,headers,mimeType,partId,"
+    + "parts(body(attachmentId,size),filename,headers,mimeType,partId)))))"
+
   let id: String
   let internalDate: String
   let labelIds: [String]?
@@ -3511,6 +3453,53 @@ struct GmailMessageMetadataResponse: Decodable {
     providerMessageIdentity: String
   ) -> CalendarInvitationDescriptor? {
     payload?.calendarInvitation(providerMessageIdentity: providerMessageIdentity)
+  }
+
+  func metadata(
+    categorizationBoundary: Date,
+    connection: GmailProviderConnectionStatus
+  ) -> GmailMessageMetadata {
+    let internalDateMilliseconds = Int64(internalDate) ?? 0
+    let internalDate = Date(timeIntervalSince1970: TimeInterval(internalDateMilliseconds) / 1_000)
+    let subject = header(named: "Subject")
+    let stableProviderMessageId = "gmail:\(connection.providerAccountIdentifier):\(id)"
+
+    return GmailMessageMetadata(
+      categoryId: nil,
+      from: header(named: "From"),
+      hasAttachments: payload?.hasAttachments == true ? true : nil,
+      isHistorical: internalDate <= categorizationBoundary,
+      providerAccountIdentifier: connection.providerAccountIdentifier,
+      providerInternalDateMilliseconds: internalDateMilliseconds,
+      providerLabelIds: labelIds ?? [],
+      providerMessageId: id,
+      providerThreadId: threadId,
+      replyTo: header(named: "Reply-To"),
+      snippet: snippet,
+      stableProviderMessageId: stableProviderMessageId,
+      subject: subject.flatMap { $0.isEmpty ? nil : $0 } ?? "(No subject)",
+      recipientHeaders: headers(namedAnyOf: ["Cc", "To"]),
+      bccRecipients: headers(namedAnyOf: ["Bcc"]),
+      calendarInvitation: calendarInvitation(providerMessageIdentity: stableProviderMessageId),
+      rfcMessageId: header(named: "Message-ID"),
+      unsubscribeSuggestion: UnsubscribeSuggestionParser.suggestion(
+        headers: payload?.headers.map { ($0.name, $0.value) } ?? []
+      )
+    )
+  }
+
+  private func header(named name: String) -> String? {
+    payload?.headers.first {
+      $0.name.caseInsensitiveCompare(name) == .orderedSame
+    }?.value
+  }
+
+  private func headers(namedAnyOf names: [String]) -> [String]? {
+    payload?.headers.filter { header in
+      names.contains {
+        header.name.caseInsensitiveCompare($0) == .orderedSame
+      }
+    }.map(\.value)
   }
 }
 
