@@ -13918,11 +13918,7 @@ final class GmailInboxViewModel {
       #if DEBUG
         await initialThreadBatchDidPublish?()
       #endif
-      do {
-        try await Task.sleep(for: .milliseconds(17))
-      } catch {
-        return false
-      }
+      await waitForNextMainRunLoopCycle()
     }
   }
 
