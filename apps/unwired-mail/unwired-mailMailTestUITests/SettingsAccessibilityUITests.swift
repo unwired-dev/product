@@ -48,7 +48,11 @@ final class SettingsAccessibilityUITests: XCTestCase {
 
   private func launchSignedOutSettings(layout: SettingsLayout) -> XCUIApplication {
     let app = XCUIApplication()
-    app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+    app.launchArguments += [
+      "-AppleLanguages", "(en)",
+      "-AppleLocale", "en_US",
+      "-settings.lastDestination", "appearance",
+    ]
     app.launchEnvironment["SETTINGS_UI_TEST_LAYOUT"] = layout.launchEnvironmentValue
     app.launch()
 
@@ -86,9 +90,10 @@ final class SettingsAccessibilityUITests: XCTestCase {
 
   private func assertUnavailable(_ row: XCUIElement) {
     XCTAssertFalse(row.isEnabled, "The signed-out destination remained enabled.")
+    let explanation = row.staticTexts[unavailableHint]
     XCTAssertTrue(
-      row.debugDescription.contains(unavailableHint),
-      "VoiceOver did not expose the signed-out explanation: \(row.debugDescription)"
+      explanation.waitForExistence(timeout: 2),
+      "The signed-out destination did not show its explanation."
     )
   }
 }
