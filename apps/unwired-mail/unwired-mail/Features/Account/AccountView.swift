@@ -4233,21 +4233,6 @@ extension AccountView {
     }
   }
 
-  private func handleThreadsChange(_ threads: [MailboxThread]) {
-    if mailShellSelection.selectedMailbox?.isUnified == true {
-      if let connectionId = inboxViewModel.currentConnectionId {
-        mailShellSelection.updateThreads(threads, for: connectionId)
-      } else {
-        mailShellSelection.replaceUnifiedThreads(
-          threads,
-          connectionIds: Set(profileConnections.map(\.id))
-        )
-      }
-    } else if let connectionId = mailShellSelection.selectedConnectionId {
-      mailShellSelection.updateThreads(threads, for: connectionId)
-    }
-  }
-
   private func selectConnection(
     _ connection: MailboxConnection,
     collection: MailboxMessageCollection = .role(.inbox),
