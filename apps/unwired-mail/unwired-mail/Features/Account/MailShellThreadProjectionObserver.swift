@@ -8,7 +8,9 @@ struct MailShellThreadProjectionObserver: View {
 
   var body: some View {
     Color.clear
-      .onChange(of: inboxViewModel.threadProjectionRevision, initial: true) { _, _ in
+      .task(id: inboxViewModel.threadProjectionRevision) {
+        await waitForNextMainRunLoopCycle()
+        guard !Task.isCancelled else { return }
         synchronizeProjection()
       }
       .allowsHitTesting(false)
