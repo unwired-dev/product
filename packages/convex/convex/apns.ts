@@ -51,6 +51,19 @@ type GmailWakeupRecipient = StaleTokenRecipient &
     routeId: string;
   }>;
 
+type ScheduledSendWakeupRecipient = StaleTokenRecipient &
+  Readonly<{
+    revision: number;
+    scheduleId: string;
+  }>;
+
+type ScheduledSendWakeupPage = Readonly<{
+  inspectedDeviceCount: number;
+  isDone: boolean;
+  nextCursor: string | null;
+  recipients: readonly ScheduledSendWakeupRecipient[];
+}>;
+
 class ApnsRequestError extends Error {
   public readonly status: number;
 
@@ -490,7 +503,7 @@ export const deliverScheduledSendWakeup = internalAction({
     let remainingDeviceCount = scheduledWakeupDeviceLimit;
     while (remainingDeviceCount > 0) {
       // oxlint-disable-next-line eslint/no-await-in-loop -- Each cursor depends on the preceding bounded claim page.
-      const page = await ctx.runMutation(
+      const page: ScheduledSendWakeupPage = await ctx.runMutation(
         internal.scheduledSend.claimWakeup,
         { ...args, cursor, remainingDeviceCount },
       );
