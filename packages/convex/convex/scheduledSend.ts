@@ -191,6 +191,7 @@ function isCurrentActiveSchedule(
 
 async function currentActiveSchedule(
   ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation contexts expose mutable database methods.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Convex IDs contain generated mutable fields.
   args: Readonly<{
     revision: number;
     scheduleDocumentId: Id<'scheduledSends'>;
