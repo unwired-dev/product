@@ -349,6 +349,42 @@ final class ThreadMuteSyncServiceTests {
     #expect(viewModel.isUpdating(Self.threadId) == false)
   }
 
+  @MainActor
+  @Test(
+    "Concurrent mute failures roll back independently",
+    .bug("https://github.com/unwired-dev/product/issues/500")
+  )
+  func concurrentMuteFailureRollsBackIndependently() async throws {
+    let service = ConcurrentThreadMuteSyncService()
+    let viewModel = ThreadMuteViewModel(
+      service: service,
+      session: firstSession,
+      profileId: Self.profileId
+    )
+    let firstThread = try #require(
+      MailboxThread.group([Self.message(messageId: "message-first", threadId: "thread-first")])
+        .first
+    )
+    let secondThread = try #require(
+      MailboxThread.group([Self.message(messageId: "message-second", threadId: "thread-second")])
+        .first
+    )
+
+    let firstUpdate = Task { await viewModel.toggleMute(firstThread) }
+    let secondUpdate = Task { await viewModel.toggleMute(secondThread) }
+    await service.waitUntilSaveStarted(for: firstThread.id)
+    await service.waitUntilSaveStarted(for: secondThread.id)
+    await service.succeedSave(for: firstThread.id)
+    await firstUpdate.value
+    await service.failSave(for: secondThread.id)
+    await secondUpdate.value
+
+    #expect(viewModel.mutedThreadIds == [firstThread.id])
+    #expect(viewModel.errorMessage != nil)
+    #expect(viewModel.isUpdating(firstThread.id) == false)
+    #expect(viewModel.isUpdating(secondThread.id) == false)
+  }
+
   @Test
   func testSettingsItemKeepsMuteInspectableAndUnmuteAccessible() {
     let item = MutedThreadSettingsItem(
@@ -684,5 +720,69 @@ private actor DelayedThreadMuteSyncService: ThreadMuteSyncing {
   func releaseLoad() {
     loadContinuation?.resume()
     loadContinuation = nil
+  }
+}
+
+private actor ConcurrentThreadMuteSyncService: ThreadMuteSyncing {
+  private var saveContinuations: [
+    StableThreadIdentity: CheckedContinuation<Void, Error>
+  ] = [:]
+  private var saveStartedContinuations: [
+    StableThreadIdentity: [CheckedContinuation<Void, Never>]
+  ] = [:]
+
+  func load(
+    profileId _: MailProfileId,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> ThreadMuteSnapshot {
+    .empty
+  }
+
+  func isMutedAuthoritatively(
+    _: StableThreadIdentity,
+    profileId _: MailProfileId,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> Bool {
+    false
+  }
+
+  func reconcile(
+    with _: [MailboxMessageMetadata],
+    profileId _: MailProfileId,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> ThreadMuteSnapshot {
+    .empty
+  }
+
+  func setMuted(
+    _: Bool,
+    threadId: StableThreadIdentity,
+    anchorMessageId _: StableProviderMessageIdentity,
+    profileId _: MailProfileId,
+    session _: ProductAccountSessionSnapshot
+  ) async throws {
+    try await withCheckedThrowingContinuation { continuation in
+      saveContinuations[threadId] = continuation
+      for waiter in saveStartedContinuations.removeValue(forKey: threadId) ?? [] {
+        waiter.resume()
+      }
+    }
+  }
+
+  func waitUntilSaveStarted(for threadId: StableThreadIdentity) async {
+    guard saveContinuations[threadId] == nil else { return }
+    await withCheckedContinuation { continuation in
+      saveStartedContinuations[threadId, default: []].append(continuation)
+    }
+  }
+
+  func succeedSave(for threadId: StableThreadIdentity) {
+    saveContinuations.removeValue(forKey: threadId)?.resume(returning: ())
+  }
+
+  func failSave(for threadId: StableThreadIdentity) {
+    saveContinuations.removeValue(forKey: threadId)?.resume(
+      throwing: DelayedThreadMuteSyncServiceError.saveFailed
+    )
   }
 }
