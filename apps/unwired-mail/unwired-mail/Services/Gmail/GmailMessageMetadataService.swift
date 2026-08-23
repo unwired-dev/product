@@ -2326,23 +2326,11 @@ struct GmailMessageMetadataService:
     connection: GmailProviderConnectionStatus,
     session: ProductAccountSessionSnapshot
   ) async throws -> GmailProviderTokens {
-    guard
-      let storedTokens = try tokenStore.load(
-        productAccountId: session.productAccountId,
-        providerAccountIdentifier: connection.providerAccountIdentifier
-      )
-    else {
-      throw GmailMessageMetadataSyncError.missingLocalGmailTokens
-    }
-
-    let tokens = try await refreshedTokens(
-      storedTokens,
-      persist: true,
-      productAccountId: session.productAccountId,
-      providerAccountIdentifier: connection.providerAccountIdentifier
-    )
-    try await validateRefreshedToken(tokens.accessToken, matches: connection)
-    return tokens
+    try await tokensForSync(
+      connection: connection,
+      deferPersistence: false,
+      session: session
+    ).providerTokens
   }
 
   func overrideCategory(
