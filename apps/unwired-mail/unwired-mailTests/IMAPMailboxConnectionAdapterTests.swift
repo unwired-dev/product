@@ -995,6 +995,7 @@ final class IMAPMailboxConnectionAdapterTests {
   }
 
   @Test
+  // swiftlint:disable:next function_body_length
   func testInitialFiftyMessagesRemainUsableWhileBackfillResumesAfterRecreation() async throws {
     let definition = imapDefinition(username: "reader")
     let authorizationStore = authorizedStore(definition)

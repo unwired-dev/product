@@ -367,6 +367,7 @@ actor SwiftMailEngineSession: MailEngineSession {
     }
   }
 
+  // swiftlint:disable:next function_body_length
   func fetchDecodedBodyPart(
     _ part: MailEngineBodyPartDescriptor,
     for message: MailEngineMessageIdentity,
