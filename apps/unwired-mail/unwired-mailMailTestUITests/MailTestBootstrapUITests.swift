@@ -160,8 +160,15 @@ final class MailTestBootstrapUITests: XCTestCase {
     into element: XCUIElement,
     failure: String
   ) throws {
+    let hittable = NSPredicate(format: "hittable == true")
+    let hittableExpectation = XCTNSPredicateExpectation(predicate: hittable, object: element)
+    guard XCTWaiter.wait(for: [hittableExpectation], timeout: 5) == .completed else {
+      XCTFail(failure)
+      throw NSError(domain: "MailTestBootstrapUITests", code: 1)
+    }
+
     let focused = NSPredicate(format: "hasKeyboardFocus == true")
-    for _ in 0..<2 {
+    for _ in 0..<3 {
       element.tap()
       let focusExpectation = XCTNSPredicateExpectation(predicate: focused, object: element)
       if XCTWaiter.wait(for: [focusExpectation], timeout: 2) == .completed {
