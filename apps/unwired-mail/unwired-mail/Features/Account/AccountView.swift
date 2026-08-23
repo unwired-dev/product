@@ -1603,6 +1603,7 @@ struct AccountView: View {
   @State private var spotlightReconcileTask: Task<Void, Never>?
   @State private var profileInterruptionViewModel: MailProfileInterruptionViewModel
   @State private var parkedCompositionDrafts: [MailProfileId: MailShellCompositionDraft] = [:]
+  @State private var profileSwitchGeneration = 0
   @State private var profilePreferenceRecordScope: MailProfileRecordScope = .legacyProductAccount
   @State private var profileViewModel: MailProfileWorkspaceViewModel
   @State private var readingPreferenceStore: ReadingPreferenceStore
@@ -3226,14 +3227,22 @@ struct AccountView: View {
   }
 
   private func switchProfileAndWait(to profileId: MailProfileId) async -> Bool {
+    profileSwitchGeneration &+= 1
+    let switchGeneration = profileSwitchGeneration
     guard let sourceProfileId = profileViewModel.activeProfileId else {
       await profileViewModel.load(
         restoredProfileId: restoredProfileIdRawValue.map(MailProfileId.init(rawValue:)),
         targetedProfileId: profileId
       )
-      guard profileViewModel.activeProfileId == profileId else { return false }
+      guard
+        profileSwitchGeneration == switchGeneration,
+        profileViewModel.activeProfileId == profileId
+      else { return false }
       await reloadProfileScopedStoresIfNeeded()
-      guard profileViewModel.activeProfileId == profileId else { return false }
+      guard
+        profileSwitchGeneration == switchGeneration,
+        profileViewModel.activeProfileId == profileId
+      else { return false }
       prepareProfilePresentationForSwitch()
       prepareProfileThreadState(for: profileId)
       await reloadPreparedProfileThreadState(for: profileId)
@@ -3243,10 +3252,18 @@ struct AccountView: View {
     guard sourceProfileId != profileId else {
       restoredProfileIdRawValue = profileId.rawValue
       await reloadProfileScopedStoresIfNeeded()
+      guard profileSwitchGeneration == switchGeneration else { return false }
       await loadActiveProfileMutes()
-      return true
+      return profileSwitchGeneration == switchGeneration
     }
     do {
+      // Present the reset shell first so the Profile activation and hydration do not share a frame.
+      prepareProfilePresentationForSwitch()
+      await Task.yield()
+      guard
+        profileSwitchGeneration == switchGeneration,
+        profileViewModel.activeProfileId == sourceProfileId
+      else { return false }
       try profileViewModel.activate(profileId) {
         if let compositionDraft {
           parkedCompositionDrafts[sourceProfileId] = compositionDraft
@@ -3254,11 +3271,10 @@ struct AccountView: View {
         }
       }
       let preparedProfileRecordScope = prepareProfileScopedStoresIfNeeded()
-      guard profileViewModel.activeProfileId == profileId else { return false }
-      // Reset Profile-owned projections before presenting, then hydrate them on a later frame.
-      prepareProfilePresentationForSwitch()
-      try? await Task.sleep(for: .milliseconds(1))
-      guard profileViewModel.activeProfileId == profileId else { return false }
+      guard
+        profileSwitchGeneration == switchGeneration,
+        profileViewModel.activeProfileId == profileId
+      else { return false }
       prepareProfileThreadState(for: profileId)
       finishProfileSwitch(to: profileId)
       if let preparedProfileRecordScope {
