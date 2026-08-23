@@ -724,12 +724,9 @@ private actor DelayedThreadMuteSyncService: ThreadMuteSyncing {
 }
 
 private actor ConcurrentThreadMuteSyncService: ThreadMuteSyncing {
-  private var saveContinuations: [
-    StableThreadIdentity: CheckedContinuation<Void, Error>
-  ] = [:]
-  private var saveStartedContinuations: [
-    StableThreadIdentity: [CheckedContinuation<Void, Never>]
-  ] = [:]
+  private var saveContinuations: [StableThreadIdentity: CheckedContinuation<Void, Error>] = [:]
+  private var saveStartedContinuations: [StableThreadIdentity: [CheckedContinuation<Void, Never>]] =
+    [:]
 
   func load(
     profileId _: MailProfileId,
