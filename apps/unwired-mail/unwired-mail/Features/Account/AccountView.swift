@@ -3303,24 +3303,43 @@ struct AccountView: View {
           switchGeneration: switchGeneration
         )
       else { return false }
+      guard
+        !Task.isCancelled,
+        profileSwitchGate.isCurrent(switchGeneration),
+        profileViewModel.activeProfileId == sourceProfileId
+      else { return false }
       try profileViewModel.activate(profileId) {
         if let compositionDraft {
           parkedCompositionDrafts[sourceProfileId] = compositionDraft
           self.compositionDraft = nil
         }
       }
+      await waitForNextMainRunLoopCycle()
+      guard
+        !Task.isCancelled,
+        profileSwitchGate.isCurrent(switchGeneration),
+        profileViewModel.activeProfileId == profileId
+      else { return false }
       let preparedProfileRecordScope = prepareProfileScopedStoresIfNeeded()
+      await waitForNextMainRunLoopCycle()
+      guard
+        !Task.isCancelled,
+        profileSwitchGate.isCurrent(switchGeneration),
+        profileViewModel.activeProfileId == profileId
+      else { return false }
+      prepareProfileThreadState(for: profileId)
+      await waitForNextMainRunLoopCycle()
+      guard
+        !Task.isCancelled,
+        profileSwitchGate.isCurrent(switchGeneration),
+        profileViewModel.activeProfileId == profileId
+      else { return false }
+      finishProfileSwitch(to: profileId)
       if let preparedProfileRecordScope {
         Task {
           await synchronizePreparedProfileScopedStores(for: preparedProfileRecordScope)
         }
       }
-      guard
-        profileSwitchGate.isCurrent(switchGeneration),
-        profileViewModel.activeProfileId == profileId
-      else { return false }
-      prepareProfileThreadState(for: profileId)
-      finishProfileSwitch(to: profileId)
       Task { await reloadPreparedProfileThreadState(for: profileId) }
       return true
     } catch {
@@ -3361,6 +3380,12 @@ struct AccountView: View {
       profileViewModel.activeProfileId == sourceProfileId
     else { return false }
     inboxViewModel.prepareForProfileSwitch()
+    await waitForNextMainRunLoopCycle()
+    guard
+      !Task.isCancelled,
+      profileSwitchGate.isCurrent(switchGeneration),
+      profileViewModel.activeProfileId == sourceProfileId
+    else { return false }
     return true
   }
 
