@@ -3280,9 +3280,13 @@ struct AccountView: View {
     switchGeneration: Int
   ) async -> Bool {
     do {
-      // Present the reset shell first so the Profile activation and hydration do not share a frame.
-      prepareProfilePresentationForSwitch()
-      try? await Task.sleep(for: .milliseconds(50))
+      // Present the reset shell in stages so its observed mutations do not share a frame.
+      guard
+        await prepareStagedProfilePresentationForSwitch(
+          from: sourceProfileId,
+          switchGeneration: switchGeneration
+        )
+      else { return false }
       guard
         !Task.isCancelled,
         profileSwitchGate.isCurrent(switchGeneration),
@@ -3325,6 +3329,28 @@ struct AccountView: View {
   private func prepareProfilePresentationForSwitch() {
     mailShellSelection.selectUnifiedInbox()
     inboxViewModel.prepareForProfileSwitch()
+  }
+
+  private func prepareStagedProfilePresentationForSwitch(
+    from sourceProfileId: MailProfileId,
+    switchGeneration: Int
+  ) async -> Bool {
+    mailShellSelection.selectUnifiedInbox()
+    try? await Task.sleep(for: .milliseconds(10))
+    guard
+      !Task.isCancelled,
+      profileSwitchGate.isCurrent(switchGeneration),
+      profileViewModel.activeProfileId == sourceProfileId
+    else { return false }
+    inboxViewModel.clearVisibleThreadsForProfileSwitch()
+    try? await Task.sleep(for: .milliseconds(40))
+    guard
+      !Task.isCancelled,
+      profileSwitchGate.isCurrent(switchGeneration),
+      profileViewModel.activeProfileId == sourceProfileId
+    else { return false }
+    inboxViewModel.prepareForProfileSwitch()
+    return true
   }
 
   private func finishProfileSwitch(to profileId: MailProfileId) {
@@ -13419,10 +13445,15 @@ final class GmailInboxViewModel {
     isLoading = false
     navigationSnapshot = .empty
     visibleMessageBodyPrefetches = [:]
-    threads = []
+    clearVisibleThreadsForProfileSwitch()
     searchQuery = ""
     searchResult = nil
     errorMessage = nil
+  }
+
+  func clearVisibleThreadsForProfileSwitch() {
+    guard !threads.isEmpty else { return }
+    threads = []
   }
 
   func clear() {
