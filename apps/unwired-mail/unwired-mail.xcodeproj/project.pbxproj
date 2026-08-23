@@ -203,6 +203,7 @@
 		71A6A2002C0B000100000001 /* App/MailTestBootstrap.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A2102C0B000100000001 /* App/MailTestBootstrap.swift */; };
 		71A6A2012C0B000100000001 /* MailTestBootstrapTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A2112C0B000100000001 /* MailTestBootstrapTests.swift */; };
 		71A6A2022C0B000100000001 /* MailTestBootstrapUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A2122C0B000100000001 /* MailTestBootstrapUITests.swift */; };
+		C0DEC0DE5320000000000001 /* SettingsAccessibilityUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE5320000000000002 /* SettingsAccessibilityUITests.swift */; };
 		C0DEC0DE465000000000001 /* Services/ProductSync/MailProfileInterruption.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE465000000000002 /* Services/ProductSync/MailProfileInterruption.swift */; };
 		C0DEC0DE465000000000003 /* Features/Settings/MailProfileInterruptionSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE465000000000004 /* Features/Settings/MailProfileInterruptionSettingsView.swift */; };
 		C0DEC0DE465000000000005 /* MailProfileInterruptionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE465000000000006 /* MailProfileInterruptionTests.swift */; };
@@ -484,6 +485,7 @@
 		71A6A2102C0B000100000001 /* App/MailTestBootstrap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/MailTestBootstrap.swift; sourceTree = "<group>"; };
 		71A6A2112C0B000100000001 /* MailTestBootstrapTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MailTestBootstrapTests.swift; sourceTree = "<group>"; };
 		71A6A2122C0B000100000001 /* MailTestBootstrapUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MailTestBootstrapUITests.swift; sourceTree = "<group>"; };
+		C0DEC0DE5320000000000002 /* SettingsAccessibilityUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsAccessibilityUITests.swift; sourceTree = "<group>"; };
 		71A6A2132C0B000100000001 /* unwired-mailMailTestUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "unwired-mailMailTestUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		C0DEC0DE465000000000002 /* Services/ProductSync/MailProfileInterruption.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/ProductSync/MailProfileInterruption.swift; sourceTree = "<group>"; };
 		C0DEC0DE465000000000004 /* Features/Settings/MailProfileInterruptionSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Settings/MailProfileInterruptionSettingsView.swift; sourceTree = "<group>"; };
@@ -809,6 +811,7 @@
 			isa = PBXGroup;
 			children = (
 				71A6A2122C0B000100000001 /* MailTestBootstrapUITests.swift */,
+				C0DEC0DE5320000000000002 /* SettingsAccessibilityUITests.swift */,
 			);
 			path = "unwired-mailMailTestUITests";
 			sourceTree = "<group>";
@@ -1238,6 +1241,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				71A6A2022C0B000100000001 /* MailTestBootstrapUITests.swift in Sources */,
+				C0DEC0DE5320000000000001 /* SettingsAccessibilityUITests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

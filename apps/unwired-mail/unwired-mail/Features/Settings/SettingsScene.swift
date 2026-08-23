@@ -921,7 +921,7 @@ struct AdaptiveSettingsScene<DestinationContent: View>: View {
 
   var body: some View {
     Group {
-      if SettingsNavigationLayout.resolve(horizontalSizeClass) == .compact {
+      if navigationLayout == .compact {
         compactNavigation
       } else {
         splitNavigation
@@ -957,6 +957,18 @@ struct AdaptiveSettingsScene<DestinationContent: View>: View {
       }
     }
     .interactiveDismissDisabled(showsDismissButton || hasUnsavedChanges())
+  }
+
+  private var navigationLayout: SettingsNavigationLayout {
+    #if DEBUG
+      if ProcessInfo.processInfo.environment["SETTINGS_UI_TEST_LAYOUT"] == "compact" {
+        return .compact
+      }
+      if ProcessInfo.processInfo.environment["SETTINGS_UI_TEST_LAYOUT"] == "split" {
+        return .split
+      }
+    #endif
+    return SettingsNavigationLayout.resolve(horizontalSizeClass)
   }
 
   private var compactNavigation: some View {
