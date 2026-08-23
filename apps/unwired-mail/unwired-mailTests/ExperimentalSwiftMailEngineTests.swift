@@ -315,6 +315,7 @@ struct ExperimentalSwiftMailCalendarPartTests {
           MessagePart(
             sectionString: "2.1",
             contentType: "text/calendar; method=REQUEST",
+            disposition: "attachment",
             encoding: "base64",
             filename: "invite.ics",
             size: 512
@@ -339,6 +340,7 @@ struct ExperimentalSwiftMailCalendarPartTests {
           mimeType: "text/calendar",
           selector: MailEngineBodyPartSelector("2.1")
         ))
+    #expect(metadata.attachmentDescriptors.map(\.mimeType) == ["application/pdf"])
     #expect(metadata.hasAttachments)
   }
 

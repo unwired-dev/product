@@ -1702,6 +1702,14 @@ struct IMAPMessageMetadataService {
       .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     let activeNames = Set(descriptors.map(\.name))
     var state = existingState
+    let mailboxesRequiringAttachmentBackfill = Set(
+      try store.loadMessages(
+        productAccountId: productAccountId,
+        connectionId: definition.connectionId
+      )
+      .filter { $0.attachmentDescriptors == nil }
+      .map(\.mailbox)
+    )
     try store.beginScan(
       activeMailboxes: activeNames,
       state: state,
@@ -1735,8 +1743,11 @@ struct IMAPMessageMetadataService {
       if let index = existingIndex {
         state.mailboxes[index].descriptor = descriptor
         let uidValidityChanged = state.mailboxes[index].uidValidity != page.uidValidity
+        let requiresAttachmentBackfill = mailboxesRequiringAttachmentBackfill.contains {
+          IMAPProviderMessage.mailboxNamesEqual($0, descriptor.name)
+        }
         state.mailboxes[index].uidValidity = page.uidValidity
-        if !hadCompletedBackfill || uidValidityChanged {
+        if !hadCompletedBackfill || uidValidityChanged || requiresAttachmentBackfill {
           state.mailboxes[index].nextOlderUID = page.nextOlderUID
         }
       } else {
@@ -2143,8 +2154,14 @@ struct IMAPMessageBodyService {
     let material = try requiredKeyMaterial(productAccountId: session.productAccountId)
     for message in plan {
       try Task.checkCancellation()
-      guard try loadCachedMessageBody(message: message, session: session) == nil else { continue }
       guard let providerMessage = messagesById[message.id] else { continue }
+      guard
+        try loadCachedMessageBody(
+          message: message,
+          providerMessage: providerMessage,
+          session: session
+        ) == nil
+      else { continue }
       let body: String
       do {
         body = try await client.loadTextBody(

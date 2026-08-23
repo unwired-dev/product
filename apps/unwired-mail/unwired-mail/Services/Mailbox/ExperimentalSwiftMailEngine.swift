@@ -396,26 +396,34 @@ actor SwiftMailEngineSession: MailEngineSession {
       parserLimits: Self.bodyPartParserLimits(maximumByteCount: maximumByteCount)
     )
     do {
-      try await ExperimentalSwiftMailEngine.connect(
-        imap: boundedIMAP,
-        authorization: configuration.authorization
-      )
-      let selection = try await boundedIMAP.selectMailbox(message.mailbox.rawValue)
-      guard Int64(selection.uidValidity.value) == message.uidValidity else {
-        throw MailEngineError.staleMessageIdentity
+      return try await withTaskCancellationHandler {
+        try Task.checkCancellation()
+        try await ExperimentalSwiftMailEngine.connect(
+          imap: boundedIMAP,
+          authorization: configuration.authorization
+        )
+        let selection = try await boundedIMAP.selectMailbox(message.mailbox.rawValue)
+        guard Int64(selection.uidValidity.value) == message.uidValidity else {
+          throw MailEngineError.staleMessageIdentity
+        }
+        let data = try await boundedIMAP.fetchPart(
+          section: Section(part.selector.rawValue),
+          of: SwiftMail.UID(UInt32(message.uid))
+        )
+        try await boundedIMAP.disconnect()
+        let decoded = try Self.decodedBodyPart(
+          data,
+          descriptor: part,
+          maximumByteCount: maximumByteCount
+        )
+        try Task.checkCancellation()
+        return decoded
+      } onCancel: {
+        Task { try? await boundedIMAP.disconnect() }
       }
-      let data = try await boundedIMAP.fetchPart(
-        section: Section(part.selector.rawValue),
-        of: SwiftMail.UID(UInt32(message.uid))
-      )
-      try await boundedIMAP.disconnect()
-      let decoded = try Self.decodedBodyPart(
-        data,
-        descriptor: part,
-        maximumByteCount: maximumByteCount
-      )
-      try Task.checkCancellation()
-      return decoded
+    } catch where Task.isCancelled {
+      try? await boundedIMAP.disconnect()
+      throw MailEngineError.cancelled
     } catch let error as MailEngineError {
       try? await boundedIMAP.disconnect()
       throw error
@@ -960,6 +968,8 @@ actor SwiftMailEngineSession: MailEngineSession {
         .trimmingCharacters(in: .whitespacesAndNewlines)
         .lowercased() ?? ""
       guard !mimeType.isEmpty else { return nil }
+      guard !["application/ics", "text/calendar", "text/x-vcalendar"].contains(mimeType)
+      else { return nil }
       return MailEngineAttachmentDescriptor(
         byteCount: byteCount,
         contentTransferEncoding: part.encoding,
@@ -1362,6 +1372,7 @@ struct SwiftMailMailboxClient: IMAPMailboxClient {
     authorization: DeviceLocalGenericMailAuthorization
   ) async throws -> Data {
     do {
+      try Task.checkCancellation()
       return try await connect(authorization: authorization).session.fetchDecodedBodyPart(
         attachment.bodyPart,
         for: MailEngineMessageIdentity(

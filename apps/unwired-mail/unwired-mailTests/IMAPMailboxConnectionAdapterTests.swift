@@ -1045,15 +1045,47 @@ final class IMAPMailboxConnectionAdapterTests {
     #expect(completed.historicalMetadataBackfillIsComplete)
     #expect(completed.messages.count == 76)
 
+    var legacyMessage = try requireValue(
+      try store.loadMessages(
+        productAccountId: session.productAccountId,
+        connectionId: connection.id
+      ).first { $0.uid == 1 })
+    legacyMessage.attachmentDescriptors = nil
+    let completedState = try requireValue(
+      try store.loadState(
+        productAccountId: session.productAccountId,
+        connectionId: connection.id
+      ))
+    try store.savePage(
+      [legacyMessage],
+      mailbox: legacyMessage.mailbox,
+      reconciliation: .backfill,
+      state: completedState,
+      uidValidity: legacyMessage.uidValidity,
+      productAccountId: session.productAccountId,
+      connectionId: connection.id
+    )
+
     client.messagesByUsername[definition.username]?.append(
       imapMessage(uid: 77, subject: "Message 77")
     )
 
     let refreshed = try await recreatedAdapter.syncInbox(connection: connection, session: session)
 
-    #expect(refreshed.historicalMetadataBackfillIsComplete)
+    #expect(!refreshed.historicalMetadataBackfillIsComplete)
     #expect(refreshed.messages.count == 77)
     #expect(refreshed.messages.last?.subject == "Message 1")
+
+    let migrated = try await recreatedAdapter.continueHistoricalBackfill(
+      connection: connection,
+      session: session
+    )
+    #expect(migrated.historicalMetadataBackfillIsComplete)
+    #expect(
+      try store.loadMessages(
+        productAccountId: session.productAccountId,
+        connectionId: connection.id
+      ).first { $0.uid == 1 }?.attachmentDescriptors == [])
   }
 
   @Test
