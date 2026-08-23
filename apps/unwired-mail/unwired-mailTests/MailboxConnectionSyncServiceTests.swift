@@ -19,6 +19,23 @@ final class MailboxConnectionSyncServiceTests {
     trustedDeviceId: "trusted-device-002"
   )
 
+  @MainActor
+  @Test
+  func testSupersededProfileSwitchCannotCommitRestoredProfile() {
+    let gate = MailProfileSwitchGate()
+    let staleGeneration = gate.begin()
+    var restoredProfileId = "new-profile"
+
+    _ = gate.begin()
+    let committed = gate.performIfCurrent(staleGeneration) {
+      restoredProfileId = "stale-profile"
+      return true
+    }
+
+    #expect(committed == nil)
+    #expect(restoredProfileId == "new-profile")
+  }
+
   @Test
   func testConnectionCreatedOnOneDeviceAppearsOnAnotherWithoutAuthorization() async throws {
     let services = try makeServices()
