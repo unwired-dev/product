@@ -2242,7 +2242,8 @@ struct AccountView: View {
           _ = await gmailViewModel.load()
         }
       }
-      .onChange(of: inboxViewModel.threads) { _, threads in
+      .onChange(of: inboxViewModel.threadProjectionRevision) { _, _ in
+        let threads = inboxViewModel.threads
         if mailShellSelection.selectedMailbox?.isUnified == true {
           if let connectionId = inboxViewModel.currentConnectionId {
             mailShellSelection.updateThreads(threads, for: connectionId)
@@ -12832,7 +12833,10 @@ final class GmailInboxViewModel {
   var isSyncing = false
   var searchQuery = ""
   var searchResult: GmailSearchResult?
-  var threads: [MailboxThread] = []
+  private(set) var threadProjectionRevision = 0
+  var threads: [MailboxThread] = [] {
+    didSet { threadProjectionRevision &+= 1 }
+  }
 
   private(set) var currentConnectionId: MailboxConnectionId?
   private(set) var navigationSnapshot = MailboxNavigationSnapshot.empty
