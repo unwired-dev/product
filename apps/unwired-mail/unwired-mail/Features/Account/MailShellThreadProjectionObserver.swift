@@ -12,13 +12,16 @@ struct MailShellThreadProjectionObserver: View {
   let inboxViewModel: GmailInboxViewModel
   let mailShellSelection: MailShellSelectionModel
   let connectionIds: Set<MailboxConnectionId>
+  @State private var synchronizationTask: Task<Void, Never>?
 
   var body: some View {
     Color.clear
-      .task(id: taskIdentity) {
-        await waitForNextMainRunLoopCycle()
-        guard !Task.isCancelled else { return }
-        synchronizeProjection()
+      .onChange(of: taskIdentity, initial: true) { _, identity in
+        scheduleSynchronization(for: identity)
+      }
+      .onDisappear {
+        synchronizationTask?.cancel()
+        synchronizationTask = nil
       }
       .allowsHitTesting(false)
       .accessibilityHidden(true)
@@ -31,6 +34,15 @@ struct MailShellThreadProjectionObserver: View {
       connectionId: mailShellSelection.selectedConnectionId,
       connectionIds: connectionIds
     )
+  }
+
+  private func scheduleSynchronization(for identity: TaskIdentity) {
+    synchronizationTask?.cancel()
+    synchronizationTask = Task { @MainActor in
+      await waitForNextMainRunLoopCycle()
+      guard !Task.isCancelled, taskIdentity == identity else { return }
+      synchronizeProjection()
+    }
   }
 
   private func synchronizeProjection() {
