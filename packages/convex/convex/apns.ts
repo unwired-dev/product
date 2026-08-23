@@ -358,15 +358,21 @@ async function deliverWakeupBatch<Recipient extends StaleTokenRecipient>(
 }
 
 async function attemptWakeupDelivery<Recipient extends StaleTokenRecipient>(
-  ctx: ActionCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex action context invokes mutations.
-  recipients: readonly Recipient[],
-  payload: (recipient: Recipient) => string,
-  failureMessage: string,
+  options: Readonly<{
+    ctx: ActionCtx;
+    failureMessage: string;
+    payload: (recipient: Recipient) => string;
+    recipients: readonly Recipient[];
+  }>,
 ): Promise<ReadonlyArray<PromiseSettledResult<void>> | undefined> {
   try {
-    return await deliverWakeupBatch(ctx, recipients, payload);
+    return await deliverWakeupBatch(
+      options.ctx,
+      options.recipients,
+      options.payload,
+    );
   } catch (error) {
-    console.error(failureMessage, error);
+    console.error(options.failureMessage, error);
     return undefined;
   }
 }
@@ -447,12 +453,12 @@ export const deliverMicrosoftGraphWakeup = internalAction({
     }
     let delivered = false;
     let terminalFailure = false;
-    const deliveryResults = await attemptWakeupDelivery(
+    const deliveryResults = await attemptWakeupDelivery({
       ctx,
-      [recipient],
-      (target) => microsoftGraphWakeupPayload(target.routeId),
-      'APNs wakeup delivery failed',
-    );
+      failureMessage: 'APNs wakeup delivery failed',
+      payload: (target) => microsoftGraphWakeupPayload(target.routeId),
+      recipients: [recipient],
+    });
     const deliveryResult = deliveryResults?.[0];
     if (deliveryResult !== undefined) {
       delivered = deliveryResult.status === 'fulfilled';
@@ -482,13 +488,13 @@ export const deliverScheduledSendWakeup = internalAction({
     if (recipients.length === 0) {
       return null;
     }
-    await attemptWakeupDelivery(
+    await attemptWakeupDelivery({
       ctx,
-      recipients,
-      (recipient) =>
+      failureMessage: 'Scheduled Send APNs wakeup delivery failed',
+      payload: (recipient) =>
         scheduledSendWakeupPayload(recipient.revision, recipient.scheduleId),
-      'Scheduled Send APNs wakeup delivery failed',
-    );
+      recipients,
+    });
     return null;
   },
   returns: v.null(),
