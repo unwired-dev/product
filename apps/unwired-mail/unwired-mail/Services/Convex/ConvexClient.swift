@@ -45,12 +45,14 @@ enum ConvexClientError: LocalizedError, Equatable {
 final class ConvexClient {
   private let convexSiteURL: URL?
   private let convexURL: URL?
+  private let scheduledDeliveryAuthorizationStore: ScheduledDeliveryAuthorizationPersisting
   private let session: URLSession
   private let trustedDeviceCredentialStore: TrustedDeviceCredentialPersisting
 
   convenience init(
     convexURL: URL? = BackendEnvironment.convexURL,
     session: URLSession = .shared,
+    scheduledDeliveryAuthorizationStore: ScheduledDeliveryAuthorizationPersisting? = nil,
     trustedDeviceCredentialStore: TrustedDeviceCredentialPersisting? = nil
   ) {
     let convexSiteURL =
@@ -61,6 +63,7 @@ final class ConvexClient {
       convexURL: convexURL,
       convexSiteURL: convexSiteURL,
       session: session,
+      scheduledDeliveryAuthorizationStore: scheduledDeliveryAuthorizationStore,
       trustedDeviceCredentialStore: trustedDeviceCredentialStore
     )
   }
@@ -69,10 +72,13 @@ final class ConvexClient {
     convexURL: URL?,
     convexSiteURL: URL?,
     session: URLSession = .shared,
+    scheduledDeliveryAuthorizationStore: ScheduledDeliveryAuthorizationPersisting? = nil,
     trustedDeviceCredentialStore: TrustedDeviceCredentialPersisting? = nil
   ) {
     self.convexURL = convexURL
     self.convexSiteURL = convexSiteURL
+    self.scheduledDeliveryAuthorizationStore =
+      scheduledDeliveryAuthorizationStore ?? KeychainScheduledDeliveryAuthStore()
     self.session = session
     self.trustedDeviceCredentialStore =
       trustedDeviceCredentialStore ?? KeychainTrustedDeviceCredentialStore()
@@ -80,6 +86,17 @@ final class ConvexClient {
 
   private func trustedDeviceCredential(_ trustedDeviceId: String) throws -> String? {
     try trustedDeviceCredentialStore.load(trustedDeviceId: trustedDeviceId)
+  }
+
+  private func scheduledDeliveryAuthorization(
+    _ trustedDeviceId: String
+  ) throws -> ScheduledDeliveryAuthorization {
+    guard
+      let authorization = try scheduledDeliveryAuthorizationStore.load(
+        trustedDeviceId: trustedDeviceId
+      )
+    else { throw ScheduledDeliveryAuthorizationError.missing }
+    return authorization
   }
 
   func health() async throws -> HealthResponse {
@@ -590,6 +607,136 @@ final class ConvexClient {
     )
   }
 
+  func registerScheduledDeliveryCapability(
+    session: ProductAccountSessionSnapshot
+  ) async throws -> ScheduledDeliveryAuthorization {
+    let currentAuthorization = try scheduledDeliveryAuthorizationStore.load(
+      trustedDeviceId: session.trustedDeviceId
+    )
+    let authorization: ScheduledDeliveryAuthorization = try await performMutation(
+      path: "scheduledSend:registerDeliveryCapability",
+      args: RegisterScheduledDeliveryCapabilityArgs(
+        capabilityVersion: 1,
+        scheduledDeliveryAuthorization: currentAuthorization?.authorization,
+        trustedDeviceCredential: try trustedDeviceCredential(session.trustedDeviceId),
+        trustedDeviceId: session.trustedDeviceId
+      ),
+      identityToken: session.identityToken
+    )
+    try scheduledDeliveryAuthorizationStore.save(
+      authorization,
+      trustedDeviceId: session.trustedDeviceId
+    )
+    return authorization
+  }
+
+  func claimScheduledSend(
+    scheduleId: UUID,
+    revision: Int,
+    trustedDeviceId: String
+  ) async throws -> ScheduledSendClaimResult {
+    let response: ScheduledSendClaimWireResponse = try await performScheduledDeliveryMutation(
+      path: "scheduledSend:claim",
+      args: ClaimScheduledSendArgs(
+        revision: revision,
+        scheduleId: scheduleId.uuidString.lowercased(),
+        scheduledDeliveryAuthorization:
+          try scheduledDeliveryAuthorization(trustedDeviceId).authorization,
+        trustedDeviceId: trustedDeviceId
+      )
+    )
+    return try response.result()
+  }
+
+  func advanceScheduledSendClaimToHandoff(
+    scheduleId: UUID,
+    revision: Int,
+    claimGeneration: Int,
+    trustedDeviceId: String
+  ) async throws -> Bool {
+    try await performScheduledDeliveryMutation(
+      path: "scheduledSend:advanceClaimToHandoff",
+      args: try scheduledSendClaimArgs(
+        scheduleId: scheduleId,
+        revision: revision,
+        claimGeneration: claimGeneration,
+        trustedDeviceId: trustedDeviceId
+      )
+    )
+  }
+
+  func revalidateScheduledSendClaim(
+    scheduleId: UUID,
+    revision: Int,
+    claimGeneration: Int,
+    trustedDeviceId: String
+  ) async throws -> ScheduledSendClaimResult {
+    let response: ScheduledSendClaimWireResponse = try await performScheduledDeliveryQuery(
+      path: "scheduledSend:revalidateClaim",
+      args: try scheduledSendClaimArgs(
+        scheduleId: scheduleId,
+        revision: revision,
+        claimGeneration: claimGeneration,
+        trustedDeviceId: trustedDeviceId
+      )
+    )
+    return try response.result()
+  }
+
+  func releaseScheduledSendClaim(
+    scheduleId: UUID,
+    revision: Int,
+    claimGeneration: Int,
+    trustedDeviceId: String
+  ) async throws -> Bool {
+    try await performScheduledDeliveryMutation(
+      path: "scheduledSend:releaseClaim",
+      args: try scheduledSendClaimArgs(
+        scheduleId: scheduleId,
+        revision: revision,
+        claimGeneration: claimGeneration,
+        trustedDeviceId: trustedDeviceId
+      )
+    )
+  }
+
+  func completeScheduledSendClaim(
+    scheduleId: UUID,
+    revision: Int,
+    claimGeneration: Int,
+    state: ScheduledSendCompletionState,
+    trustedDeviceId: String
+  ) async throws -> Bool {
+    let authorization = try scheduledDeliveryAuthorization(trustedDeviceId)
+    return try await performScheduledDeliveryMutation(
+      path: "scheduledSend:complete",
+      args: CompleteScheduledSendClaimArgs(
+        claimGeneration: claimGeneration,
+        revision: revision,
+        scheduleId: scheduleId.uuidString.lowercased(),
+        scheduledDeliveryAuthorization: authorization.authorization,
+        state: state,
+        trustedDeviceId: trustedDeviceId
+      )
+    )
+  }
+
+  private func scheduledSendClaimArgs(
+    scheduleId: UUID,
+    revision: Int,
+    claimGeneration: Int,
+    trustedDeviceId: String
+  ) throws -> ScheduledSendClaimMutationArgs {
+    ScheduledSendClaimMutationArgs(
+      claimGeneration: claimGeneration,
+      revision: revision,
+      scheduleId: scheduleId.uuidString.lowercased(),
+      scheduledDeliveryAuthorization:
+        try scheduledDeliveryAuthorization(trustedDeviceId).authorization,
+      trustedDeviceId: trustedDeviceId
+    )
+  }
+
   private func performAction<Response: Decodable>(
     path: String,
     args: some Encodable = EmptyConvexArgs(),
@@ -656,6 +803,36 @@ final class ConvexClient {
       path: path,
       args: args,
       identityToken: identityToken
+    )
+  }
+
+  private func performScheduledDeliveryMutation<Response: Decodable>(
+    path: String,
+    args: some Encodable
+  ) async throws -> Response {
+    guard convexURL?.scheme?.lowercased() == "https" else {
+      throw ConvexClientError.insecureConvexURL
+    }
+    return try await performRequest(
+      endpoint: "api/mutation",
+      path: path,
+      args: args,
+      identityToken: nil
+    )
+  }
+
+  private func performScheduledDeliveryQuery<Response: Decodable>(
+    path: String,
+    args: some Encodable
+  ) async throws -> Response {
+    guard convexURL?.scheme?.lowercased() == "https" else {
+      throw ConvexClientError.insecureConvexURL
+    }
+    return try await performRequest(
+      endpoint: "api/query",
+      path: path,
+      args: args,
+      identityToken: nil
     )
   }
 
@@ -1017,6 +1194,69 @@ private struct CancelScheduledSendArgs: Encodable {
   let scheduleId: String
   let trustedDeviceCredential: String?
   let trustedDeviceId: String
+}
+
+private struct RegisterScheduledDeliveryCapabilityArgs: Encodable {
+  let capabilityVersion: Int
+  let scheduledDeliveryAuthorization: String?
+  let trustedDeviceCredential: String?
+  let trustedDeviceId: String
+}
+
+private struct ClaimScheduledSendArgs: Encodable {
+  let revision: Int
+  let scheduleId: String
+  let scheduledDeliveryAuthorization: String
+  let trustedDeviceId: String
+}
+
+private struct ScheduledSendClaimMutationArgs: Encodable {
+  let claimGeneration: Int
+  let revision: Int
+  let scheduleId: String
+  let scheduledDeliveryAuthorization: String
+  let trustedDeviceId: String
+}
+
+private struct CompleteScheduledSendClaimArgs: Encodable {
+  let claimGeneration: Int
+  let revision: Int
+  let scheduleId: String
+  let scheduledDeliveryAuthorization: String
+  let state: ScheduledSendCompletionState
+  let trustedDeviceId: String
+}
+
+private struct ScheduledSendClaimWireResponse: Decodable {
+  let authorizationGeneration: Int?
+  let expiresAt: Int64?
+  let generation: Int?
+  let phase: ScheduledSendClaimPhase?
+  let status: Status
+
+  enum Status: String, Decodable {
+    case claimed
+    case unavailable
+  }
+
+  func result() throws -> ScheduledSendClaimResult {
+    switch status {
+    case .unavailable:
+      return .unavailable
+    case .claimed:
+      guard let authorizationGeneration, let generation, let phase else {
+        throw ConvexClientError.decodeError
+      }
+      return .claimed(
+        ScheduledSendClaim(
+          authorizationGeneration: authorizationGeneration,
+          expiresAt: expiresAt,
+          generation: generation,
+          phase: phase
+        )
+      )
+    }
+  }
 }
 
 private struct ConvexPaginationOptions: Encodable {

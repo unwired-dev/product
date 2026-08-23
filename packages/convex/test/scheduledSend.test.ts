@@ -1,11 +1,64 @@
 /// <reference types="vite/client" />
 
+import { generateKeyPairSync } from 'node:crypto';
+
 import { convexTest } from 'convex-test';
+
+import type { Id } from '../convex/_generated/dataModel.js';
 
 import { api, internal } from '../convex/_generated/api.js';
 import schema from '../convex/schema.js';
 
 const modules = import.meta.glob('../convex/**/*.ts');
+
+// oxlint-disable-next-line vitest/prefer-import-in-mock -- This partial transport fake exercises an individual APNs rejection.
+vi.mock('node:http2', async () => {
+  const { EventEmitter } = await import('node:events');
+
+  return {
+    connect: () =>
+      // oxlint-disable-next-line unicorn/prefer-event-target -- the production client is an EventEmitter.
+      Object.assign(new EventEmitter(), {
+        close() {
+          return undefined;
+        },
+        request() {
+          // oxlint-disable-next-line unicorn/prefer-event-target -- node:events.once requires EventEmitter semantics.
+          const request = Object.assign(new EventEmitter(), {
+            close() {
+              return undefined;
+            },
+            end() {
+              queueMicrotask(() => {
+                request.emit('response', { ':status': 500 });
+                setImmediate(() => request.emit('end'));
+              });
+            },
+            setEncoding() {
+              return undefined;
+            },
+          });
+          return request;
+        },
+      }),
+  };
+});
+
+function requireValue<Value>(value: Value | null): Value {
+  if (value === null) {
+    throw new Error('Scheduled Send fixture missing');
+  }
+  return value;
+}
+
+function claimedGeneration(
+  claim: Readonly<{ generation?: number; status: string }>,
+): number {
+  if (claim.status !== 'claimed' || claim.generation === undefined) {
+    throw new Error('Scheduled Send claim missing');
+  }
+  return claim.generation;
+}
 
 const appleIdentity = {
   issuer: 'https://appleid.apple.com',
@@ -41,11 +94,72 @@ async function fixture() {
   return { asUser, device, payload, t };
 }
 
-function requireValue<Value>(value: Value | null): Value {
-  if (value === null) {
-    throw new Error('Scheduled Send fixture missing');
-  }
-  return value;
+async function claimFixture() {
+  const base = await fixture();
+  const secondDevice = await base.asUser.mutation(api.productAccount.connect, {
+    deviceIdentifier: 'second-device',
+    platform: 'macos',
+  });
+  const originAuthorization = await base.asUser.mutation(
+    api.scheduledSend.registerDeliveryCapability,
+    {
+      capabilityVersion: 1,
+      trustedDeviceId: base.device.trustedDeviceId,
+    },
+  );
+  const secondAuthorization = await base.asUser.mutation(
+    api.scheduledSend.registerDeliveryCapability,
+    {
+      capabilityVersion: 1,
+      trustedDeviceId: secondDevice.trustedDeviceId,
+    },
+  );
+  const dueAt = Date.now() + 2 * 60 * 1000;
+  await base.asUser.mutation(api.scheduledSend.admit, {
+    deadlineAt: dueAt + 24 * 60 * 60 * 1000,
+    dueAt,
+    encryptedPayloadIdentifier: base.payload.payloadIdentifier,
+    encryptedPayloadUpdatedAt: base.payload.updatedAt,
+    revision: 1,
+    scheduleId: 'schedule-001',
+    trustedDeviceId: base.device.trustedDeviceId,
+  });
+  const schedule = await base.t.run(async (ctx) => {
+    const stored = await ctx.db
+      .query('scheduledSends')
+      .withIndex('by_productAccountId_and_scheduleId', (q) =>
+        q
+          .eq('productAccountId', base.device.productAccountId)
+          .eq('scheduleId', 'schedule-001'),
+      )
+      .unique();
+    const schedule = requireValue(stored);
+    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+    await ctx.db.patch(schedule._id, {
+      deadlineAt: Date.now() + 24 * 60 * 60 * 1000,
+      dueAt: Date.now() - 1,
+    });
+    return schedule;
+  });
+  return {
+    ...base,
+    originAuthorization,
+    schedule,
+    secondAuthorization,
+    secondDevice,
+  };
+}
+
+function claimArgs(
+  authorization: string,
+  trustedDeviceId: Id<'trustedDevices'>,
+) {
+  return {
+    revision: 1,
+    scheduleId: 'schedule-001',
+    scheduledDeliveryAuthorization: authorization,
+    trustedDeviceId,
+  };
 }
 
 describe('scheduled Send admission', () => {
@@ -169,6 +283,8 @@ describe('scheduled Send admission', () => {
     });
 
     const recipient = await t.mutation(internal.scheduledSend.claimWakeup, {
+      cursor: null,
+      remainingDeviceCount: 100,
       revision: 1,
       // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
       scheduleDocumentId: schedule._id,
@@ -178,7 +294,557 @@ describe('scheduled Send admission', () => {
       trustedDeviceId: device.trustedDeviceId,
     });
 
-    expect(recipient).toBeNull();
+    expect(recipient).toStrictEqual({
+      inspectedDeviceCount: 0,
+      isDone: true,
+      nextCursor: null,
+      recipients: [],
+    });
     expect(status?.state).toBe('needs-attention');
+  });
+
+  it('persists a retry after a batch-level wakeup failure', async () => {
+    expect.assertions(4);
+    const { asUser, device, payload, t } = await fixture();
+    await asUser.mutation(api.pushRelay.registerDevice, {
+      apnsEnvironment: 'sandbox',
+      apnsToken: 'scheduled-send-token',
+      trustedDeviceId: device.trustedDeviceId,
+    });
+    await asUser.mutation(api.scheduledSend.registerDeliveryCapability, {
+      capabilityVersion: 1,
+      trustedDeviceId: device.trustedDeviceId,
+    });
+    const dueAt = Date.now() + 2 * 60 * 1000;
+    await asUser.mutation(api.scheduledSend.admit, {
+      deadlineAt: dueAt + 24 * 60 * 60 * 1000,
+      dueAt,
+      encryptedPayloadIdentifier: payload.payloadIdentifier,
+      encryptedPayloadUpdatedAt: payload.updatedAt,
+      revision: 1,
+      scheduleId: 'schedule-001',
+      trustedDeviceId: device.trustedDeviceId,
+    });
+    const schedule = await t.run(async (ctx) => {
+      const stored = await ctx.db
+        .query('scheduledSends')
+        .withIndex('by_productAccountId_and_scheduleId', (q) =>
+          q
+            .eq('productAccountId', device.productAccountId)
+            .eq('scheduleId', 'schedule-001'),
+        )
+        .unique();
+      const schedule = requireValue(stored);
+      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+      await ctx.db.patch(schedule._id, { dueAt: Date.now() - 1 });
+      return schedule;
+    });
+    vi.stubEnv('APNS_KEY_ID', 'key-id');
+    vi.stubEnv('APNS_TEAM_ID', 'team-id');
+    vi.stubEnv('APNS_PRIVATE_KEY', 'invalid-private-key');
+    vi.stubEnv('APNS_TOPIC', 'dev.unwired.mail');
+    try {
+      await t.action(internal.apns.deliverScheduledSendWakeup, {
+        revision: 1,
+        // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+        scheduleDocumentId: schedule._id,
+      });
+      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+      const retried = await t.run(async (ctx) => ctx.db.get(schedule._id));
+
+      expect(retried?.state).toBe('active');
+      expect(retried?.wakeAttemptedAt).toBeTypeOf('number');
+      expect(retried?.scheduledFunctionId).toBeDefined();
+      expect(retried?.scheduledFunctionId).not.toBe(
+        schedule.scheduledFunctionId,
+      );
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('persists a retry when every APNs delivery rejects', async () => {
+    expect.assertions(3);
+    const { asUser, device, schedule, t } = await claimFixture();
+    await asUser.mutation(api.pushRelay.registerDevice, {
+      apnsEnvironment: 'sandbox',
+      apnsToken: 'scheduled-send-token',
+      trustedDeviceId: device.trustedDeviceId,
+    });
+    const { privateKey } = generateKeyPairSync('ec', { namedCurve: 'P-256' });
+    vi.stubEnv('APNS_KEY_ID', 'key-id');
+    vi.stubEnv('APNS_TEAM_ID', 'team-id');
+    vi.stubEnv(
+      'APNS_PRIVATE_KEY',
+      privateKey.export({ format: 'pem', type: 'pkcs8' }),
+    );
+    vi.stubEnv('APNS_TOPIC', 'dev.unwired.mail');
+    try {
+      await t.action(internal.apns.deliverScheduledSendWakeup, {
+        revision: 1,
+        // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+        scheduleDocumentId: schedule._id,
+      });
+      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+      const retried = await t.run(async (ctx) => ctx.db.get(schedule._id));
+
+      expect(retried?.state).toBe('active');
+      expect(retried?.scheduledFunctionId).toBeDefined();
+      expect(retried?.scheduledFunctionId).not.toBe(
+        schedule.scheduledFunctionId,
+      );
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('stops wakeup pagination at the requested device limit', async () => {
+    expect.assertions(4);
+    const fixture = await claimFixture();
+    await fixture.asUser.mutation(api.pushRelay.registerDevice, {
+      apnsEnvironment: 'sandbox',
+      apnsToken: 'origin-token',
+      trustedDeviceId: fixture.device.trustedDeviceId,
+    });
+    await fixture.asUser.mutation(api.pushRelay.registerDevice, {
+      apnsEnvironment: 'sandbox',
+      apnsToken: 'second-token',
+      trustedDeviceId: fixture.secondDevice.trustedDeviceId,
+    });
+
+    const page = await fixture.t.mutation(internal.scheduledSend.claimWakeup, {
+      cursor: null,
+      remainingDeviceCount: 1,
+      revision: 1,
+      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+      scheduleDocumentId: fixture.schedule._id,
+    });
+
+    expect(page.inspectedDeviceCount).toBe(1);
+    expect(page.isDone).toBe(true);
+    expect(page.nextCursor).toBeNull();
+    expect(page.recipients).toHaveLength(1);
+  });
+
+  it('uses the deadline for a retry during the final minute', async () => {
+    expect.assertions(2);
+    const { asUser, device, payload, t } = await fixture();
+    const dueAt = Date.now() + 2 * 60 * 1000;
+    await asUser.mutation(api.scheduledSend.admit, {
+      deadlineAt: dueAt + 24 * 60 * 60 * 1000,
+      dueAt,
+      encryptedPayloadIdentifier: payload.payloadIdentifier,
+      encryptedPayloadUpdatedAt: payload.updatedAt,
+      revision: 1,
+      scheduleId: 'schedule-001',
+      trustedDeviceId: device.trustedDeviceId,
+    });
+    const schedule = await t.run(async (ctx) => {
+      const stored = await ctx.db
+        .query('scheduledSends')
+        .withIndex('by_productAccountId_and_scheduleId', (q) =>
+          q
+            .eq('productAccountId', device.productAccountId)
+            .eq('scheduleId', 'schedule-001'),
+        )
+        .unique();
+      const schedule = requireValue(stored);
+      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+      await ctx.db.patch(schedule._id, {
+        deadlineAt: Date.now() + 30_000,
+        scheduledFunctionId: undefined,
+      });
+      return schedule;
+    });
+
+    const persisted = await t.mutation(internal.scheduledSend.retryWakeup, {
+      revision: 1,
+      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+      scheduleDocumentId: schedule._id,
+    });
+    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+    const retried = await t.run(async (ctx) => ctx.db.get(schedule._id));
+
+    expect(persisted).toBe(true);
+    expect(retried?.state).toBe('active');
+  });
+});
+
+describe('scheduled Send cross-device claims', () => {
+  it('allows exactly one compatible device to claim the current due revision', async () => {
+    expect.assertions(4);
+    const fixture = await claimFixture();
+
+    const claims = await Promise.all([
+      fixture.asUser.mutation(
+        api.scheduledSend.claim,
+        claimArgs(
+          fixture.originAuthorization.authorization,
+          fixture.device.trustedDeviceId,
+        ),
+      ),
+      fixture.asUser.mutation(
+        api.scheduledSend.claim,
+        claimArgs(
+          fixture.secondAuthorization.authorization,
+          fixture.secondDevice.trustedDeviceId,
+        ),
+      ),
+    ]);
+    const winners = claims.filter((claim) => claim.status === 'claimed');
+    const losers = claims.filter((claim) => claim.status === 'unavailable');
+
+    expect(winners).toHaveLength(1);
+    expect(losers).toHaveLength(1);
+    expect(winners[0]).toMatchObject({ generation: 1, phase: 'pre-handoff' });
+    expect(winners[0]).not.toHaveProperty('provider');
+  });
+
+  it('rejects early and stale-revision claims using backend time', async () => {
+    expect.assertions(2);
+    const fixture = await claimFixture();
+    await fixture.t.run(async (ctx) => {
+      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+      await ctx.db.patch(fixture.schedule._id, { dueAt: Date.now() + 60_000 });
+    });
+
+    await expect(
+      fixture.asUser.mutation(
+        api.scheduledSend.claim,
+        claimArgs(
+          fixture.originAuthorization.authorization,
+          fixture.device.trustedDeviceId,
+        ),
+      ),
+    ).resolves.toStrictEqual({ status: 'unavailable' });
+    await expect(
+      fixture.asUser.mutation(api.scheduledSend.claim, {
+        ...claimArgs(
+          fixture.originAuthorization.authorization,
+          fixture.device.trustedDeviceId,
+        ),
+        revision: 2,
+      }),
+    ).resolves.toStrictEqual({ status: 'unavailable' });
+  });
+
+  it('expires or invalidates only pre-handoff ownership and permits failover', async () => {
+    expect.assertions(4);
+    const fixture = await claimFixture();
+    const firstClaim = await fixture.asUser.mutation(
+      api.scheduledSend.claim,
+      claimArgs(
+        fixture.originAuthorization.authorization,
+        fixture.device.trustedDeviceId,
+      ),
+    );
+    const rotated = await fixture.asUser.mutation(
+      api.scheduledSend.registerDeliveryCapability,
+      {
+        capabilityVersion: 1,
+        trustedDeviceId: fixture.device.trustedDeviceId,
+      },
+    );
+
+    await expect(
+      fixture.asUser.mutation(
+        api.scheduledSend.claim,
+        claimArgs(
+          fixture.originAuthorization.authorization,
+          fixture.device.trustedDeviceId,
+        ),
+      ),
+    ).rejects.toThrow('Scheduled Delivery Authorization required');
+    expect(rotated.generation).toBe(fixture.originAuthorization.generation + 1);
+    const failover = await fixture.asUser.mutation(
+      api.scheduledSend.claim,
+      claimArgs(
+        fixture.secondAuthorization.authorization,
+        fixture.secondDevice.trustedDeviceId,
+      ),
+    );
+    expect(firstClaim).toMatchObject({ generation: 1, status: 'claimed' });
+    expect(failover).toMatchObject({ generation: 2, status: 'claimed' });
+  });
+
+  it('keeps provider handoff fenced across rotation, cancellation, and takeover', async () => {
+    expect.assertions(5);
+    const fixture = await claimFixture();
+    const claim = await fixture.asUser.mutation(
+      api.scheduledSend.claim,
+      claimArgs(
+        fixture.originAuthorization.authorization,
+        fixture.device.trustedDeviceId,
+      ),
+    );
+    const generation = claimedGeneration(claim);
+    const advanced = await fixture.asUser.mutation(
+      api.scheduledSend.advanceClaimToHandoff,
+      {
+        ...claimArgs(
+          fixture.originAuthorization.authorization,
+          fixture.device.trustedDeviceId,
+        ),
+        claimGeneration: generation,
+      },
+    );
+    await fixture.asUser.mutation(
+      api.scheduledSend.registerDeliveryCapability,
+      {
+        capabilityVersion: 1,
+        trustedDeviceId: fixture.device.trustedDeviceId,
+      },
+    );
+
+    expect(advanced).toBe(true);
+    await expect(
+      fixture.asUser.mutation(
+        api.scheduledSend.claim,
+        claimArgs(
+          fixture.secondAuthorization.authorization,
+          fixture.secondDevice.trustedDeviceId,
+        ),
+      ),
+    ).resolves.toStrictEqual({ status: 'unavailable' });
+    await expect(
+      fixture.asUser.mutation(api.scheduledSend.cancel, {
+        revision: 1,
+        scheduleId: 'schedule-001',
+        trustedDeviceId: fixture.secondDevice.trustedDeviceId,
+      }),
+    ).resolves.toBe(false); // oxlint-disable-line vitest/prefer-to-be-falsy -- The mutation contract returns a strict boolean.
+    await expect(
+      fixture.asUser.mutation(api.scheduledSend.releaseClaim, {
+        ...claimArgs(
+          fixture.secondAuthorization.authorization,
+          fixture.secondDevice.trustedDeviceId,
+        ),
+        claimGeneration: generation,
+      }),
+    ).resolves.toBe(false); // oxlint-disable-line vitest/prefer-to-be-falsy -- The mutation contract returns a strict boolean.
+    const status = await fixture.asUser.query(api.scheduledSend.status, {
+      scheduleId: 'schedule-001',
+      trustedDeviceId: fixture.secondDevice.trustedDeviceId,
+    });
+    expect(status?.claimPhase).toBe('handing-off');
+  });
+
+  it('lets revision-fenced cancellation win before provider handoff', async () => {
+    expect.assertions(3);
+    const fixture = await claimFixture();
+    await fixture.asUser.mutation(
+      api.scheduledSend.claim,
+      claimArgs(
+        fixture.originAuthorization.authorization,
+        fixture.device.trustedDeviceId,
+      ),
+    );
+
+    await expect(
+      fixture.asUser.mutation(api.scheduledSend.cancel, {
+        revision: 2,
+        scheduleId: 'schedule-001',
+        trustedDeviceId: fixture.secondDevice.trustedDeviceId,
+      }),
+    ).resolves.toBe(false); // oxlint-disable-line vitest/prefer-to-be-falsy -- The mutation contract returns a strict boolean.
+    await expect(
+      fixture.asUser.mutation(api.scheduledSend.cancel, {
+        revision: 1,
+        scheduleId: 'schedule-001',
+        trustedDeviceId: fixture.secondDevice.trustedDeviceId,
+      }),
+    ).resolves.toBe(true);
+    await expect(
+      fixture.asUser.mutation(
+        api.scheduledSend.claim,
+        claimArgs(
+          fixture.originAuthorization.authorization,
+          fixture.device.trustedDeviceId,
+        ),
+      ),
+    ).resolves.toStrictEqual({ status: 'unavailable' });
+  });
+
+  it('reschedules only from the current pre-handoff revision', async () => {
+    expect.assertions(3);
+    const fixture = await claimFixture();
+    await fixture.asUser.mutation(
+      api.scheduledSend.claim,
+      claimArgs(
+        fixture.originAuthorization.authorization,
+        fixture.device.trustedDeviceId,
+      ),
+    );
+    const replacementPayload = await fixture.asUser.mutation(
+      api.productSync.putEncryptedPayloadIfUnchanged,
+      {
+        encryptedPayload: {
+          ...encryptedPayload,
+          ciphertextBase64: 'cmVzY2hlZHVsZWQ',
+        },
+        expectedUpdatedAt: fixture.payload.updatedAt,
+        payloadIdentifier: fixture.payload.payloadIdentifier,
+        trustedDeviceId: fixture.secondDevice.trustedDeviceId,
+      },
+    );
+    const dueAt = Date.now() + 3 * 60 * 1000;
+
+    await expect(
+      fixture.asUser.mutation(api.scheduledSend.reschedule, {
+        deadlineAt: dueAt + 24 * 60 * 60 * 1000,
+        dueAt,
+        encryptedPayloadIdentifier: replacementPayload.payloadIdentifier,
+        encryptedPayloadUpdatedAt: replacementPayload.updatedAt,
+        expectedRevision: 1,
+        revision: 2,
+        scheduleId: 'schedule-001',
+        trustedDeviceId: fixture.secondDevice.trustedDeviceId,
+      }),
+    ).resolves.toMatchObject({ revision: 2, scheduleId: 'schedule-001' });
+    await expect(
+      fixture.asUser.mutation(
+        api.scheduledSend.claim,
+        claimArgs(
+          fixture.originAuthorization.authorization,
+          fixture.device.trustedDeviceId,
+        ),
+      ),
+    ).resolves.toStrictEqual({ status: 'unavailable' });
+    await expect(
+      fixture.asUser.mutation(api.scheduledSend.reschedule, {
+        deadlineAt: dueAt + 24 * 60 * 60 * 1000,
+        dueAt,
+        encryptedPayloadIdentifier: replacementPayload.payloadIdentifier,
+        encryptedPayloadUpdatedAt: replacementPayload.updatedAt,
+        expectedRevision: 1,
+        revision: 2,
+        scheduleId: 'schedule-001',
+        trustedDeviceId: fixture.secondDevice.trustedDeviceId,
+      }),
+    ).rejects.toThrow('Scheduled Send revision is no longer editable');
+  });
+
+  it('releases a revoked device pre-handoff claim without weakening the fence', async () => {
+    expect.assertions(2);
+    const fixture = await claimFixture();
+    await fixture.asUser.mutation(
+      api.scheduledSend.claim,
+      claimArgs(
+        fixture.originAuthorization.authorization,
+        fixture.device.trustedDeviceId,
+      ),
+    );
+    await fixture.t.run(async (ctx) => {
+      await ctx.db.insert('revokedTrustedDevices', {
+        deviceIdentifier: 'origin-device',
+        productAccountId: fixture.device.productAccountId,
+        productSyncKeyEpoch: 1,
+        revokedAt: Date.now(),
+        trustedDeviceId: fixture.device.trustedDeviceId,
+      });
+      await ctx.db.delete(fixture.device.trustedDeviceId);
+    });
+
+    await expect(
+      fixture.asUser.mutation(
+        api.scheduledSend.claim,
+        claimArgs(
+          fixture.originAuthorization.authorization,
+          fixture.device.trustedDeviceId,
+        ),
+      ),
+    ).rejects.toThrow('Scheduled Delivery Authorization required');
+    await expect(
+      fixture.asUser.mutation(
+        api.scheduledSend.claim,
+        claimArgs(
+          fixture.secondAuthorization.authorization,
+          fixture.secondDevice.trustedDeviceId,
+        ),
+      ),
+    ).resolves.toMatchObject({ generation: 2, status: 'claimed' });
+  });
+
+  it('removes the operational record only after fenced completion', async () => {
+    expect.assertions(2);
+    const fixture = await claimFixture();
+    const claim = await fixture.asUser.mutation(
+      api.scheduledSend.claim,
+      claimArgs(
+        fixture.originAuthorization.authorization,
+        fixture.device.trustedDeviceId,
+      ),
+    );
+    const generation = claimedGeneration(claim);
+    await fixture.asUser.mutation(api.scheduledSend.advanceClaimToHandoff, {
+      ...claimArgs(
+        fixture.originAuthorization.authorization,
+        fixture.device.trustedDeviceId,
+      ),
+      claimGeneration: generation,
+    });
+
+    await expect(
+      fixture.asUser.mutation(api.scheduledSend.complete, {
+        ...claimArgs(
+          fixture.originAuthorization.authorization,
+          fixture.device.trustedDeviceId,
+        ),
+        claimGeneration: generation,
+        state: 'completed',
+      }),
+    ).resolves.toBe(true);
+    await expect(
+      fixture.asUser.query(api.scheduledSend.status, {
+        scheduleId: 'schedule-001',
+        trustedDeviceId: fixture.device.trustedDeviceId,
+      }),
+    ).resolves.toBeNull();
+  });
+
+  it('retains needs-attention after fenced completion', async () => {
+    expect.assertions(3);
+    const fixture = await claimFixture();
+    const claim = await fixture.asUser.mutation(
+      api.scheduledSend.claim,
+      claimArgs(
+        fixture.originAuthorization.authorization,
+        fixture.device.trustedDeviceId,
+      ),
+    );
+    const generation = claimedGeneration(claim);
+    await expect(
+      fixture.asUser.mutation(api.scheduledSend.complete, {
+        ...claimArgs(
+          fixture.originAuthorization.authorization,
+          fixture.device.trustedDeviceId,
+        ),
+        claimGeneration: generation,
+        state: 'needs-attention',
+      }),
+    ).resolves.toBe(false); // oxlint-disable-line vitest/prefer-to-be-falsy -- A pre-handoff claim must not complete.
+    await fixture.asUser.mutation(api.scheduledSend.advanceClaimToHandoff, {
+      ...claimArgs(
+        fixture.originAuthorization.authorization,
+        fixture.device.trustedDeviceId,
+      ),
+      claimGeneration: generation,
+    });
+    await expect(
+      fixture.asUser.mutation(api.scheduledSend.complete, {
+        ...claimArgs(
+          fixture.originAuthorization.authorization,
+          fixture.device.trustedDeviceId,
+        ),
+        claimGeneration: generation,
+        state: 'needs-attention',
+      }),
+    ).resolves.toBe(true);
+    await expect(
+      fixture.asUser.query(api.scheduledSend.status, {
+        scheduleId: 'schedule-001',
+        trustedDeviceId: fixture.device.trustedDeviceId,
+      }),
+    ).resolves.toMatchObject({ state: 'needs-attention' });
   });
 });

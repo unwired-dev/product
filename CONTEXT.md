@@ -58,9 +58,10 @@ _Avoid_: Email backend, email source
 An exact-pinned third-party IMAP/SMTP engine admitted behind the product-owned Mail Engine boundary after deterministic qualification. Dependency approval does not certify any external Mail Provider or enable Standards-Based Mailbox Connections in an externally distributed release.
 _Avoid_: Certified provider, universally compatible mail engine
 
-**Experimental Standards-Based Mail**:
-The release-gated IMAP/SMTP capability backed by the **Approved Mail Engine Dependency** while live-provider certification remains incomplete.
-_Avoid_: Experimental dependency, certified provider support
+**Standards-Based Mail**:
+The IMAP/SMTP capability backed by the **Approved Mail Engine Dependency**. Its current exact pin is
+available in external Release builds after passing iCloud Mail and Fastmail provider certification.
+_Avoid_: Experimental dependency, universally certified provider support
 
 **Local Mail Test Environment**:
 A disposable, developer-controlled mail system used to exercise the product against realistic mailbox behavior without contacting an external **Mail Provider**.

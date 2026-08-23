@@ -54,6 +54,8 @@ struct OutgoingDeliveryAttempt: Codable, Equatable, Identifiable, Sendable {
   var providerHandoffNotBeforeMilliseconds: Int64? = .none
   var reconciliationAttemptCount: Int
   var reconciliationPausedForAuthorization: Bool? = .none
+  var scheduledSendClaimGeneration: Int? = .none
+  var scheduledSendClaimOwnerTrustedDeviceId: String? = .none
   var scheduledSendDeadlineMilliseconds: Int64? = .none
   var scheduledSendId: UUID? = .none
   var scheduledSendRevision: Int? = .none
@@ -355,6 +357,8 @@ enum OutboxDeliveryError: LocalizedError, Equatable {
   case productAccountMismatch
   case attemptCannotBeChanged
   case invalidScheduledWindow
+  case scheduledSendClaimUnavailable
+  case scheduledSendHandoffRejected
 
   var errorDescription: String? {
     switch self {
@@ -368,6 +372,10 @@ enum OutboxDeliveryError: LocalizedError, Equatable {
       "This delivery is already being handed to the mail provider."
     case .invalidScheduledWindow:
       "Choose a new Scheduled Send time and try again."
+    case .scheduledSendClaimUnavailable:
+      "Another Trusted Device is preparing this Scheduled Send."
+    case .scheduledSendHandoffRejected:
+      "Scheduled Send changed before provider handoff."
     }
   }
 }
@@ -561,7 +569,41 @@ struct ScheduledSendOperationalAcknowledgement: Decodable, Equatable, Sendable {
   let scheduleId: String
 }
 
+enum ScheduledSendClaimPhase: String, Decodable, Equatable, Sendable {
+  case handingOff = "handing-off"
+  case preHandoff = "pre-handoff"
+}
+
+struct ScheduledSendClaim: Equatable, Sendable {
+  let authorizationGeneration: Int
+  let expiresAt: Int64?
+  let generation: Int
+  let phase: ScheduledSendClaimPhase
+}
+
+enum ScheduledSendClaimResult: Equatable, Sendable {
+  case claimed(ScheduledSendClaim)
+  case unavailable
+}
+
+enum ScheduledSendCompletionState: String, Encodable, Sendable {
+  case completed
+  case needsAttention = "needs-attention"
+}
+
+enum ScheduledDeliveryAuthorizationError: LocalizedError, Equatable {
+  case missing
+
+  var errorDescription: String? {
+    "Register this trusted device for Scheduled Delivery before claiming due mail."
+  }
+}
+
 protocol ScheduledSendPayloadSyncing {
+  func load(
+    scheduleId: UUID,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> ScheduledSendRecord?
   func remove(scheduleId: UUID, session: ProductAccountSessionSnapshot) async throws
   func save(
     _ record: ScheduledSendRecord,
@@ -581,6 +623,45 @@ protocol ScheduledSendOperationalTransport {
     revision: Int,
     session: ProductAccountSessionSnapshot
   ) async throws -> Bool
+
+  func registerScheduledDeliveryCapability(
+    session: ProductAccountSessionSnapshot
+  ) async throws -> ScheduledDeliveryAuthorization
+
+  func claimScheduledSend(
+    scheduleId: UUID,
+    revision: Int,
+    trustedDeviceId: String
+  ) async throws -> ScheduledSendClaimResult
+
+  func advanceScheduledSendClaimToHandoff(
+    scheduleId: UUID,
+    revision: Int,
+    claimGeneration: Int,
+    trustedDeviceId: String
+  ) async throws -> Bool
+
+  func revalidateScheduledSendClaim(
+    scheduleId: UUID,
+    revision: Int,
+    claimGeneration: Int,
+    trustedDeviceId: String
+  ) async throws -> ScheduledSendClaimResult
+
+  func releaseScheduledSendClaim(
+    scheduleId: UUID,
+    revision: Int,
+    claimGeneration: Int,
+    trustedDeviceId: String
+  ) async throws -> Bool
+
+  func completeScheduledSendClaim(
+    scheduleId: UUID,
+    revision: Int,
+    claimGeneration: Int,
+    state: ScheduledSendCompletionState,
+    trustedDeviceId: String
+  ) async throws -> Bool
 }
 
 private struct ScheduledSendSyncPayload: Codable, Sendable {
@@ -594,6 +675,20 @@ actor ScheduledSendSyncService: ScheduledSendPayloadSyncing {
 
   init(recordBoundary: ProductSyncRecordBoundary = ProductSyncRecordBoundary()) {
     self.recordBoundary = recordBoundary
+  }
+
+  func load(
+    scheduleId: UUID,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> ScheduledSendRecord? {
+    let handle: ProductSyncSingletonHandle<ScheduledSendSyncPayload> =
+      recordBoundary.singleton(
+        ProductSyncSingletonDefinition(
+          identifier: Self.identifier(scheduleId),
+          cachePolicy: .authoritative
+        )
+      )
+    return try await handle.read(session: session)?.value.record
   }
 
   func save(
@@ -730,6 +825,7 @@ actor ScheduledSendService {
       revision: 1,
       scheduleId: scheduleId
     )
+    _ = try await transport.registerScheduledDeliveryCapability(session: session)
     let payload = try await payloadSync.save(record, session: session)
     let acknowledgement: ScheduledSendOperationalAcknowledgement
     do {
@@ -784,11 +880,13 @@ actor ScheduledSendService {
     revision: Int,
     session: ProductAccountSessionSnapshot
   ) async throws {
-    _ = try await transport.cancelScheduledSend(
-      scheduleId: scheduleId,
-      revision: revision,
-      session: session
-    )
+    guard
+      try await transport.cancelScheduledSend(
+        scheduleId: scheduleId,
+        revision: revision,
+        session: session
+      )
+    else { throw OutboxDeliveryError.attemptCannotBeChanged }
     try await payloadSync.remove(scheduleId: scheduleId, session: session)
   }
 
@@ -832,7 +930,7 @@ extension ConvexClient: ScheduledSendOperationalTransport {}
 
 // swiftlint:disable:next type_body_length
 actor OutboxDeliveryService {
-  static let shared = OutboxDeliveryService()
+  static let shared = OutboxDeliveryService(scheduledSendTransport: ConvexClient())
 
   private static let scheduledSendNeedsAttentionMessage =
     "Scheduled Send did not begin within 24 hours. Send now, reschedule, edit, or cancel."
@@ -860,6 +958,7 @@ actor OutboxDeliveryService {
   private var retryTaskTokens: [UUID: UUID] = [:]
   private var retryWaiters: [UUID: CheckedContinuation<Void, Never>] = [:]
   private let sentCopyStore: StandardsMailSentCopyPersisting
+  private let scheduledSendTransport: ScheduledSendOperationalTransport?
   private let store: OutboxDeliveryPersisting
 
   init(
@@ -873,6 +972,7 @@ actor OutboxDeliveryService {
       defaultDraftCleaner,
     retryDelayNanoseconds: @escaping @Sendable (Int) -> UInt64 =
       defaultOutboxRetryDelay,
+    scheduledSendTransport: ScheduledSendOperationalTransport? = nil,
     sentCopyStore: StandardsMailSentCopyPersisting = FileStandardsMailSentCopyStore(),
     store: OutboxDeliveryPersisting = FileOutboxDeliveryStore()
   ) {
@@ -883,6 +983,7 @@ actor OutboxDeliveryService {
     self.now = now
     self.providerDraftCleaner = providerDraftCleaner
     self.retryDelayNanoseconds = retryDelayNanoseconds
+    self.scheduledSendTransport = scheduledSendTransport
     self.sentCopyStore = sentCopyStore
     self.store = store
   }
@@ -940,6 +1041,7 @@ actor OutboxDeliveryService {
     dueAt: Date,
     deadline: Date,
     undoSendDelayNanoseconds: UInt64,
+    claim: ScheduledSendClaim? = nil,
     provider: @escaping OutboxDeliveryPerformer,
     reconcile: @escaping OutboxDeliveryReconciler
   ) async throws -> OutgoingDeliveryAttempt {
@@ -948,7 +1050,7 @@ actor OutboxDeliveryService {
     let dueAtMilliseconds = milliseconds(dueAt)
     let deadlineMilliseconds = milliseconds(deadline)
     guard revision > 0,
-      dueAtMilliseconds >= currentMilliseconds,
+      currentMilliseconds <= deadlineMilliseconds,
       deadlineMilliseconds == dueAtMilliseconds + 24 * 60 * 60 * 1_000
     else {
       throw OutboxDeliveryError.invalidScheduledWindow
@@ -962,6 +1064,8 @@ actor OutboxDeliveryService {
       connection: connection,
       session: session,
       handoffDelayNanoseconds: UInt64(delayMilliseconds) * 1_000_000,
+      scheduledSendClaimGeneration: claim?.generation,
+      scheduledSendClaimOwnerTrustedDeviceId: session.trustedDeviceId,
       scheduledSendDeadlineMilliseconds: deadlineMilliseconds,
       scheduledSendId: scheduleId,
       scheduledSendRevision: revision,
@@ -1003,6 +1107,17 @@ actor OutboxDeliveryService {
     reconcile: @escaping OutboxDeliveryReconciler
   ) async throws {
     var attempts = try loadPruningTerminalAttempts(productAccountId: session.productAccountId)
+    var assignedScheduledSendOwner = false
+    for index in attempts.indices
+    where attempts[index].isScheduledSend
+      && attempts[index].scheduledSendClaimOwnerTrustedDeviceId == nil
+    {
+      attempts[index].scheduledSendClaimOwnerTrustedDeviceId = session.trustedDeviceId
+      assignedScheduledSendOwner = true
+    }
+    if assignedScheduledSendOwner {
+      try store.save(attempts, productAccountId: session.productAccountId)
+    }
     let connectionIds = Set(connections.map(\.id))
     var markedNeedsAttention = false
     for index in attempts.indices
@@ -1107,6 +1222,24 @@ actor OutboxDeliveryService {
     _ attemptId: UUID,
     session: ProductAccountSessionSnapshot
   ) async throws -> OutgoingDeliveryAttempt {
+    let currentAttempt = try requiredAttempt(
+      attemptId,
+      productAccountId: session.productAccountId
+    )
+    if currentAttempt.isScheduledSend,
+      let scheduleId = currentAttempt.scheduledSendId,
+      let revision = currentAttempt.scheduledSendRevision,
+      let scheduledSendTransport
+    {
+      guard currentAttempt.state.canEditOrCancel,
+        currentAttempt.reconciliationPausedForAuthorization != true,
+        try await scheduledSendTransport.cancelScheduledSend(
+          scheduleId: scheduleId,
+          revision: revision,
+          session: session
+        )
+      else { throw OutboxDeliveryError.attemptCannotBeChanged }
+    }
     let cancelledAttempt = try replaceEligibleAttempt(
       attemptId,
       connection: nil,
@@ -1244,6 +1377,10 @@ actor OutboxDeliveryService {
     guard attempt.state == .outcomeUnknown else {
       throw OutboxDeliveryError.attemptCannotBeChanged
     }
+    try await completeScheduledSendClaim(
+      attempt,
+      state: asDelivered ? .completed : .needsAttention
+    )
     guard
       let resolvedAttempt = try update(
         attemptId,
@@ -1437,6 +1574,8 @@ actor OutboxDeliveryService {
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot,
     handoffDelayNanoseconds: UInt64,
+    scheduledSendClaimGeneration: Int? = nil,
+    scheduledSendClaimOwnerTrustedDeviceId: String? = nil,
     scheduledSendDeadlineMilliseconds: Int64? = nil,
     scheduledSendId: UUID? = nil,
     scheduledSendRevision: Int? = nil,
@@ -1458,6 +1597,8 @@ actor OutboxDeliveryService {
       providerHandoffNotBeforeMilliseconds:
         createdAtMilliseconds + Int64(handoffDelayNanoseconds / 1_000_000),
       reconciliationAttemptCount: 0,
+      scheduledSendClaimGeneration: scheduledSendClaimGeneration,
+      scheduledSendClaimOwnerTrustedDeviceId: scheduledSendClaimOwnerTrustedDeviceId,
       scheduledSendDeadlineMilliseconds: scheduledSendDeadlineMilliseconds,
       scheduledSendId: scheduledSendId,
       scheduledSendRevision: scheduledSendRevision,
@@ -1575,6 +1716,7 @@ actor OutboxDeliveryService {
             reconcilingAttempt.mailboxConnectionId
           ) {
           case .sent:
+            try await completeScheduledSendClaim(reconcilingAttempt, state: .completed)
             let updatedAttempt = try update(
               attemptId,
               productAccountId: productAccountId,
@@ -1673,14 +1815,36 @@ actor OutboxDeliveryService {
         continue
       }
       let retryAttempt = attempts[index]
-      attempts[index].state = .handingOff
-      attempts[index].attemptCount += 1
-      attempts[index].firstAttemptAtMilliseconds =
-        attempts[index].firstAttemptAtMilliseconds ?? milliseconds(now())
-      attempts[index].nextRetryAtMilliseconds = nil
-      attempts[index].reconciliationAttemptCount = 0
-      attempts[index].notSentConfirmationCount = nil
-      attempts[index].reconciliationPausedForAuthorization = nil
+      let fencedAttempt: OutgoingDeliveryAttempt
+      do {
+        fencedAttempt = try await prepareScheduledSendForHandoff(
+          retryAttempt,
+          productAccountId: productAccountId
+        )
+      } catch {
+        let claimFailureCount = (handoffClaimFailureCounts[attemptId] ?? 0) + 1
+        handoffClaimFailureCounts[attemptId] = claimFailureCount
+        guard claimFailureCount < maximumAttempts else { return returnedAttempt }
+        scheduleRetry(
+          retryAttempt,
+          delay: retryDelayNanoseconds(claimFailureCount),
+          provider: provider,
+          reconcile: reconcile
+        )
+        return returnedAttempt
+      }
+      attempts = try loadPruningTerminalAttempts(productAccountId: productAccountId)
+      guard let fencedIndex = attempts.firstIndex(where: { $0.id == fencedAttempt.id }),
+        attempts[fencedIndex].state == .pending || attempts[fencedIndex].state == .retrying
+      else { continue }
+      attempts[fencedIndex].state = .handingOff
+      attempts[fencedIndex].attemptCount += 1
+      attempts[fencedIndex].firstAttemptAtMilliseconds =
+        attempts[fencedIndex].firstAttemptAtMilliseconds ?? milliseconds(now())
+      attempts[fencedIndex].nextRetryAtMilliseconds = nil
+      attempts[fencedIndex].reconciliationAttemptCount = 0
+      attempts[fencedIndex].notSentConfirmationCount = nil
+      attempts[fencedIndex].reconciliationPausedForAuthorization = nil
       do {
         try store.save(attempts, productAccountId: productAccountId)
         handoffClaimFailureCounts[attemptId] = nil
@@ -1696,7 +1860,7 @@ actor OutboxDeliveryService {
         )
         return returnedAttempt
       }
-      let claimedAttempt = attempts[index]
+      let claimedAttempt = attempts[fencedIndex]
 
       do {
         try await provider(
@@ -1738,6 +1902,7 @@ actor OutboxDeliveryService {
           }
           switch status {
           case .sent:
+            try await completeScheduledSendClaim(claimedAttempt, state: .completed)
             let updatedAttempt = try update(
               attemptId,
               productAccountId: productAccountId,
@@ -1773,6 +1938,7 @@ actor OutboxDeliveryService {
             )
           }
         case .permanent:
+          try await completeScheduledSendClaim(claimedAttempt, state: .needsAttention)
           try update(
             attemptId,
             productAccountId: productAccountId,
@@ -1801,6 +1967,7 @@ actor OutboxDeliveryService {
           )
           return returnedAttempt
         case .userActionRequired:
+          try await completeScheduledSendClaim(claimedAttempt, state: .needsAttention)
           try update(
             attemptId,
             productAccountId: productAccountId,
@@ -1810,6 +1977,7 @@ actor OutboxDeliveryService {
         }
         continue
       }
+      try await completeScheduledSendClaim(claimedAttempt, state: .completed)
       let updatedAttempt = try update(
         attemptId,
         productAccountId: productAccountId,
@@ -1822,6 +1990,95 @@ actor OutboxDeliveryService {
     }
   }
 
+  // swiftlint:disable:next function_body_length
+  private func prepareScheduledSendForHandoff(
+    _ attempt: OutgoingDeliveryAttempt,
+    productAccountId: String
+  ) async throws -> OutgoingDeliveryAttempt {
+    guard let scheduleId = attempt.scheduledSendId,
+      let revision = attempt.scheduledSendRevision,
+      let trustedDeviceId = attempt.scheduledSendClaimOwnerTrustedDeviceId,
+      let scheduledSendTransport
+    else { return attempt }
+
+    let claimResult: ScheduledSendClaimResult
+    if let claimGeneration = attempt.scheduledSendClaimGeneration {
+      claimResult = try await scheduledSendTransport.revalidateScheduledSendClaim(
+        scheduleId: scheduleId,
+        revision: revision,
+        claimGeneration: claimGeneration,
+        trustedDeviceId: trustedDeviceId
+      )
+    } else {
+      claimResult = try await scheduledSendTransport.claimScheduledSend(
+        scheduleId: scheduleId,
+        revision: revision,
+        trustedDeviceId: trustedDeviceId
+      )
+    }
+    guard case .claimed(let claim) = claimResult else {
+      throw OutboxDeliveryError.scheduledSendClaimUnavailable
+    }
+
+    var attempts = try loadPruningTerminalAttempts(productAccountId: productAccountId)
+    guard let index = attempts.firstIndex(where: { $0.id == attempt.id }),
+      attempts[index].state == .pending || attempts[index].state == .retrying,
+      attempts[index].scheduledSendId == scheduleId,
+      attempts[index].scheduledSendRevision == revision
+    else {
+      if claim.phase == .preHandoff {
+        _ = try? await scheduledSendTransport.releaseScheduledSendClaim(
+          scheduleId: scheduleId,
+          revision: revision,
+          claimGeneration: claim.generation,
+          trustedDeviceId: trustedDeviceId
+        )
+      }
+      throw OutboxDeliveryError.attemptCannotBeChanged
+    }
+    attempts[index].scheduledSendClaimGeneration = claim.generation
+    try store.save(attempts, productAccountId: productAccountId)
+
+    if claim.phase == .preHandoff {
+      guard
+        try await scheduledSendTransport.advanceScheduledSendClaimToHandoff(
+          scheduleId: scheduleId,
+          revision: revision,
+          claimGeneration: claim.generation,
+          trustedDeviceId: trustedDeviceId
+        )
+      else { throw OutboxDeliveryError.scheduledSendHandoffRejected }
+    }
+
+    attempts = try loadPruningTerminalAttempts(productAccountId: productAccountId)
+    guard let refreshed = attempts.first(where: { $0.id == attempt.id }),
+      refreshed.state == .pending || refreshed.state == .retrying,
+      refreshed.scheduledSendClaimGeneration == claim.generation
+    else { throw OutboxDeliveryError.attemptCannotBeChanged }
+    return refreshed
+  }
+
+  private func completeScheduledSendClaim(
+    _ attempt: OutgoingDeliveryAttempt,
+    state: ScheduledSendCompletionState
+  ) async throws {
+    guard let scheduleId = attempt.scheduledSendId,
+      let revision = attempt.scheduledSendRevision,
+      let claimGeneration = attempt.scheduledSendClaimGeneration,
+      let trustedDeviceId = attempt.scheduledSendClaimOwnerTrustedDeviceId,
+      let scheduledSendTransport
+    else { return }
+    guard
+      try await scheduledSendTransport.completeScheduledSendClaim(
+        scheduleId: scheduleId,
+        revision: revision,
+        claimGeneration: claimGeneration,
+        state: state,
+        trustedDeviceId: trustedDeviceId
+      )
+    else { throw OutboxDeliveryError.scheduledSendHandoffRejected }
+  }
+
   private func handleTransientFailure(
     _ attemptId: UUID,
     error: Error,
@@ -1832,6 +2089,7 @@ actor OutboxDeliveryService {
     var attempts = try loadPruningTerminalAttempts(productAccountId: productAccountId)
     guard let index = attempts.firstIndex(where: { $0.id == attemptId }) else { return }
     guard !retryLimitReached(attempts[index]) else {
+      try await completeScheduledSendClaim(attempts[index], state: .needsAttention)
       attempts[index].state = .failed
       attempts[index].lastErrorDescription = error.localizedDescription
       attempts[index].nextRetryAtMilliseconds = nil
