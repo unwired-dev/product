@@ -2276,10 +2276,14 @@ struct ScheduledSendWakeupHandler {
     }
     if scheduledAttempts.isEmpty, let requestedSchedule {
       guard
-        let record = try await payloadSync.load(
+        let snapshot = try await payloadSync.load(
           scheduleId: requestedSchedule.id,
+          revision: requestedSchedule.revision,
           session: session
-        ), record.revision == requestedSchedule.revision,
+        )
+      else { return false }
+      let record = snapshot.record
+      guard
         let connectionStatus = statuses.first(where: {
           $0.mailboxConnectionId == record.connectionId
         }),

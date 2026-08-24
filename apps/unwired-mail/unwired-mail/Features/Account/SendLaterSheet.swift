@@ -12,6 +12,7 @@ private enum SendLaterMode: String, CaseIterable, Identifiable {
 }
 
 struct MailComposerSendButton: View {
+  var title = "Send"
   let canSendLater: Bool
   let isSendEnabled: Bool
   let send: () -> Void
@@ -20,7 +21,7 @@ struct MailComposerSendButton: View {
   @State private var suppressSendUntil = Date.distantPast
 
   var body: some View {
-    Button("Send") {
+    Button(title) {
       guard Date.now >= suppressSendUntil, isSendEnabled else { return }
       send()
     }
@@ -69,6 +70,7 @@ struct SendLaterSheet: View {
 
   init(
     existingReminder: SendReminder?,
+    existingAutomaticDueAt: Date? = nil,
     canAutomaticallySend: Bool = false,
     now: Date = .now,
     calendar: Calendar = .current,
@@ -88,8 +90,12 @@ struct SendLaterSheet: View {
     self.schedule = schedule
     self.scheduleAutomatically = scheduleAutomatically
     self.timeZone = timeZone
+    _mode = State(
+      initialValue: existingAutomaticDueAt != nil && canAutomaticallySend
+        ? .automatically : .reminder
+    )
     let minimumDate = now.addingTimeInterval(60)
-    let existingDate = existingReminder?.dueAt
+    let existingDate = existingAutomaticDueAt ?? existingReminder?.dueAt
     _selectedDate = State(
       initialValue: existingDate.flatMap { $0 >= minimumDate ? $0 : nil }
         ?? presets.first?.dueAt
