@@ -313,7 +313,7 @@ describe('scheduled Send admission', () => {
   });
 
   it('persists a retry after a batch-level wakeup failure', async () => {
-    expect.assertions(6);
+    expect.assertions(4);
     const { asUser, device, payload, t } = await fixture();
     await asUser.mutation(api.pushRelay.registerDevice, {
       apnsEnvironment: 'sandbox',
@@ -834,8 +834,9 @@ describe('scheduled Send cross-device claims', () => {
     ).resolves.toBe(false);
   });
 
+  // oxlint-disable-next-line vitest/max-expects -- One fixture verifies every edit-fence predicate without admitting a valid transition.
   it('rejects stale, foreign, and expired edit transitions', async () => {
-    expect.assertions(4);
+    expect.assertions(6);
     const fixture = await claimFixture();
     const edit = await fixture.asUser.mutation(api.scheduledSend.beginEdit, {
       revision: 1,
@@ -918,6 +919,7 @@ describe('scheduled Send cross-device claims', () => {
         scheduleId: 'schedule-001',
         trustedDeviceId: fixture.secondDevice.trustedDeviceId,
       }),
+      // oxlint-disable-next-line vitest/prefer-to-be-falsy -- The strict boolean matcher verifies the mutation contract.
     ).resolves.toBe(false);
   });
 
