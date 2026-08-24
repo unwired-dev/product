@@ -1650,8 +1650,7 @@ actor OutboxDeliveryService {
   private let maximumAge: TimeInterval
   private let maximumAttempts: Int
   private let now: @Sendable () -> Date
-  private var connectionAuthorizationGenerations:
-    [String: [MailboxConnectionId: Int]] = [:]
+  private var connectionAuthorizationGenerations: [String: [MailboxConnectionId: Int]] = [:]
   private var handoffClaimFailureCounts: [UUID: Int] = [:]
   private var reconciliationStateWriteFailureCounts: [UUID: Int] = [:]
   private var processingConnectionIds: Set<String> = []
