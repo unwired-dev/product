@@ -256,10 +256,14 @@ final class MailComposerViewModel {
     do {
       reminderState = .saved(try await scheduleReminder(candidate))
     } catch let schedulingError as ScheduledSendManagementError {
-      draft = previousDraft
+      let rollbackDraft = makeReminderRollbackDraft(
+        restoring: previousDraft,
+        superseding: candidate
+      )
+      draft = rollbackDraft
       do {
-        try await saveDraft(previousDraft)
-        lastSavedDraft = previousDraft
+        try await saveDraft(rollbackDraft)
+        lastSavedDraft = rollbackDraft
         saveState = .saved
       } catch {
         saveState = .failed(error.localizedDescription)
@@ -297,6 +301,32 @@ final class MailComposerViewModel {
     }
     candidate.markEdited(now: now())
     return candidate
+  }
+
+  /// Returns the previous draft with a reminder revision that supersedes a failed reschedule.
+  private func makeReminderRollbackDraft(
+    restoring previousDraft: MailShellCompositionDraft,
+    superseding candidate: MailShellCompositionDraft
+  ) -> MailShellCompositionDraft {
+    guard let previousReminder = previousDraft.sendReminder,
+      let candidateReminder = candidate.sendReminder
+    else { return previousDraft }
+
+    let currentMilliseconds = Int64(now().timeIntervalSince1970 * 1_000)
+    let rollbackMilliseconds = max(
+      currentMilliseconds,
+      candidateReminder.changedAtMilliseconds + 1
+    )
+    let rollbackDate = Date(timeIntervalSince1970: TimeInterval(rollbackMilliseconds) / 1_000)
+    var rollbackDraft = previousDraft
+    rollbackDraft.sendReminder = previousReminder.rescheduled(
+      to: previousReminder.dueAt,
+      originalTimeZoneIdentifier: previousReminder.originalTimeZoneIdentifier,
+      changedByTrustedDeviceId: reminderOwnerDeviceId,
+      changedAt: rollbackDate
+    )
+    rollbackDraft.markEdited(now: rollbackDate)
+    return rollbackDraft
   }
 
   func togglePresentation() {

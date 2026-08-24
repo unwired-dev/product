@@ -576,15 +576,22 @@ final class MailCompositionDraftTests {
   }
 
   @Test(.bug(id: 377))
-  func managedReminderSchedulingFailureRestoresTheOriginalDraft() async {
-    let now = Date(timeIntervalSince1970: 2_000_000_000)
-    let source = draft(recipient: "recipient@example.com")
+  func managedReminderRescheduleFailurePersistsANewerRollbackRevision() async throws {
+    let initialTime = Date(timeIntervalSince1970: 2_000_000_000)
+    let currentTime = initialTime.addingTimeInterval(60)
+    var source = draft(recipient: "recipient@example.com")
+    source.sendReminder = SendReminder(
+      dueAt: initialTime.addingTimeInterval(3_600),
+      originatingDeviceId: "device-a",
+      originalTimeZoneIdentifier: "Europe/Prague",
+      createdAt: initialTime
+    )
     var savedDrafts: [MailShellCompositionDraft] = []
     let viewModel = MailComposerViewModel(
       draft: source,
       presentation: .partial,
       reminderOwnerDeviceId: "device-a",
-      now: { now },
+      now: { currentTime },
       saveDraft: { savedDrafts.append($0) },
       scheduleReminder: { _ in throw ScheduledSendManagementError.staleRevision },
       sendDraft: { _ in false }
@@ -592,16 +599,68 @@ final class MailCompositionDraftTests {
 
     #expect(
       !(await viewModel.remind(
-        at: now.addingTimeInterval(60),
+        at: initialTime.addingTimeInterval(7_200),
         timeZoneIdentifier: "UTC"
       ))
     )
     #expect(savedDrafts.count == 2)
-    #expect(savedDrafts.first?.sendReminder != nil)
-    #expect(savedDrafts.last == source)
-    #expect(viewModel.draft == source)
-    #expect(viewModel.draft.sendReminder == nil)
+    let originalReminder = try #require(source.sendReminder)
+    let candidateReminder = try #require(savedDrafts.first?.sendReminder)
+    let rollbackDraft = try #require(savedDrafts.last)
+    let rollbackReminder = try #require(rollbackDraft.sendReminder)
+    #expect(rollbackReminder.id == originalReminder.id)
+    #expect(rollbackReminder.dueAtMilliseconds == originalReminder.dueAtMilliseconds)
+    #expect(rollbackReminder.originalTimeZoneIdentifier == originalReminder.originalTimeZoneIdentifier)
+    #expect(rollbackReminder.revision != originalReminder.revision)
+    #expect(rollbackReminder.revision != candidateReminder.revision)
+    #expect(rollbackReminder.changedAtMilliseconds > candidateReminder.changedAtMilliseconds)
+    #expect(viewModel.draft == rollbackDraft)
     #expect(viewModel.saveState == .saved)
+    #expect(
+      viewModel.reminderState
+        == .failed(ScheduledSendManagementError.staleRevision.localizedDescription)
+    )
+  }
+
+  @Test(.bug(id: 377))
+  func managedReminderRollbackSaveFailureRemainsVisible() async throws {
+    let initialTime = Date(timeIntervalSince1970: 2_000_000_000)
+    let currentTime = initialTime.addingTimeInterval(60)
+    var source = draft(recipient: "recipient@example.com")
+    source.sendReminder = SendReminder(
+      dueAt: initialTime.addingTimeInterval(3_600),
+      originatingDeviceId: "device-a",
+      originalTimeZoneIdentifier: "Europe/Prague",
+      createdAt: initialTime
+    )
+    var savedDrafts: [MailShellCompositionDraft] = []
+    let viewModel = MailComposerViewModel(
+      draft: source,
+      presentation: .partial,
+      reminderOwnerDeviceId: "device-a",
+      now: { currentTime },
+      saveDraft: { draft in
+        guard savedDrafts.isEmpty else { throw DraftFixtureError.saveFailed }
+        savedDrafts.append(draft)
+      },
+      scheduleReminder: { _ in throw ScheduledSendManagementError.staleRevision },
+      sendDraft: { _ in false }
+    )
+
+    #expect(
+      !(await viewModel.remind(
+        at: initialTime.addingTimeInterval(7_200),
+        timeZoneIdentifier: "UTC"
+      ))
+    )
+    let candidateReminder = try #require(savedDrafts.first?.sendReminder)
+    let rollbackReminder = try #require(viewModel.draft.sendReminder)
+    #expect(rollbackReminder.dueAtMilliseconds == source.sendReminder?.dueAtMilliseconds)
+    #expect(rollbackReminder.changedAtMilliseconds > candidateReminder.changedAtMilliseconds)
+    guard case .failed = viewModel.saveState else {
+      Issue.record("Expected the reminder rollback save failure to remain visible")
+      return
+    }
     #expect(
       viewModel.reminderState
         == .failed(ScheduledSendManagementError.staleRevision.localizedDescription)
