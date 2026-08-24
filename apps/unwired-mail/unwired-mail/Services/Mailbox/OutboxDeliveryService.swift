@@ -1091,7 +1091,8 @@ enum ScheduledSendAdmissionError: LocalizedError, Equatable {
     case .invalidRecipients:
       "Add valid recipients before scheduling delivery."
     case .providerUnavailable:
-      "Choose an authorized Gmail, Microsoft 365, or On-Premises Exchange Mailbox Connection for automatic delivery."
+      "Choose an authorized Gmail, Microsoft 365, On-Premises Exchange, "
+        + "or Standards-Based Mailbox Connection for automatic delivery."
     case .sizeLimitExceeded:
       "This message is too large for the selected Mailbox Connection. Remove an attachment before scheduling delivery."
     }
@@ -1102,6 +1103,7 @@ extension MailProviderId {
   /// Whether the provider supports product-owned Scheduled Send delivery.
   var supportsProductOwnedScheduledSend: Bool {
     self == .gmail || self == .microsoftGraph || self == .exchangeWebServices
+      || self == .imapSMTP
   }
 }
 
@@ -1503,6 +1505,7 @@ actor ScheduledSendService {
     {
       throw ScheduledSendAdmissionError.sizeLimitExceeded
     }
+    // Providers without a fixed advertised limit enforce their policy during provider handoff.
   }
 }
 
