@@ -245,6 +245,49 @@ struct MailShellCompositionDraft: Codable, Equatable, Identifiable, Sendable {
     )
   }
 
+  static func editing(_ record: ScheduledSendRecord) -> MailShellCompositionDraft {
+    MailShellCompositionDraft(
+      body: record.message.body,
+      connectionId: record.connectionId,
+      recipient: record.message.recipient,
+      replyToMessage: nil,
+      requestsReadReceipt: record.message.requestsReadReceipt == true,
+      sourceMessage: nil,
+      subject: record.message.subject,
+      bccRecipients: record.message.bccRecipients ?? "",
+      ccRecipients: record.message.ccRecipients ?? "",
+      hasExplicitReadReceiptChoice: true,
+      id: record.draftId,
+      kind: .editing,
+      sendingIdentityId: record.message.sendingIdentityId,
+      document: record.message.semanticDocument,
+      assets: record.message.assets
+    )
+  }
+
+  func preservingAsNewDraft() -> MailShellCompositionDraft {
+    MailShellCompositionDraft(
+      body: body,
+      connectionId: connectionId,
+      recipient: recipient,
+      replyToMessage: replyToMessage,
+      requestsReadReceipt: requestsReadReceipt,
+      sourceMessage: sourceMessage,
+      subject: subject,
+      bccRecipients: bccRecipients,
+      ccRecipients: ccRecipients,
+      hasExplicitReadReceiptChoice: hasExplicitReadReceiptChoice,
+      kind: .newMessage,
+      omittedForwardAttachmentCount: omittedForwardAttachmentCount,
+      quotedText: quotedText,
+      sendReminder: sendReminder,
+      sendingIdentityId: sendingIdentityId,
+      signature: signature,
+      document: document,
+      assets: assets
+    )
+  }
+
   static func reply(
     to message: MailboxMessageMetadata,
     quotedText: String? = nil,

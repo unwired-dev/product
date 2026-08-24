@@ -6116,6 +6116,29 @@ final class GmailMessageMetadataServiceTests {
   }
 
   @Test
+  func testProviderTokenRefreshMigratesLegacyDeviceHeldGmailTokens() async throws {
+    let fixture = try makeSyncFixture(usesLegacyTokens: true)
+
+    let tokens = try await fixture.service.refreshProviderTokens(
+      connection: connection,
+      session: session
+    )
+
+    #expect(
+      tokens
+        == GmailProviderTokens(
+          accessToken: "refreshed-access-token",
+          refreshToken: "refresh-token"
+        ))
+    #expect(
+      try fixture.tokenStore.load(
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: connection.providerAccountIdentifier
+      ) == tokens)
+    #expect(try fixture.tokenStore.loadLegacy(productAccountId: session.productAccountId) == nil)
+  }
+
+  @Test
   func testProviderActionsUseGmailModifyAndTrashEndpoints() async throws {
     let fixture = try makeMailActionFixture()
 

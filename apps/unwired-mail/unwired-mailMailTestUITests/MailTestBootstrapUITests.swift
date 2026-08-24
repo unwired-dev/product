@@ -168,8 +168,11 @@ final class MailTestBootstrapUITests: XCTestCase {
     }
 
     let focused = NSPredicate(format: "hasKeyboardFocus == true")
-    for _ in 0..<3 {
-      element.tap()
+    let tapOffsets: [CGFloat] = [0.5, 0.85, 0.15]
+    for horizontalOffset in tapOffsets {
+      element.coordinate(
+        withNormalizedOffset: CGVector(dx: horizontalOffset, dy: 0.5)
+      ).tap()
       let focusExpectation = XCTNSPredicateExpectation(predicate: focused, object: element)
       if XCTWaiter.wait(for: [focusExpectation], timeout: 2) == .completed {
         element.typeText(text)
@@ -500,6 +503,9 @@ final class MailTestBootstrapUITests: XCTestCase {
     let row = app.buttons.matching(identifier: "mail-thread-row")
       .matching(NSPredicate(format: "label CONTAINS %@", subject)).firstMatch
     let deadline = Date().addingTimeInterval(60)
+    for _ in 0..<8 where !row.exists {
+      app.swipeDown()
+    }
     while Date() < deadline {
       if row.waitForExistence(timeout: 2), row.isHittable {
         return row

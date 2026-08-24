@@ -1,6 +1,6 @@
 # Scheduled Send and Send Reminder implementation plan
 
-Status: local and cross-device Send Reminder and cross-device Gmail Scheduled Send delivery implemented; provider parity and full Outbox management remain planned
+Status: cross-device Send Reminder, Gmail Scheduled Send delivery, and revision-fenced Outbox management implemented; provider parity and lifecycle completion remain planned
 
 The automatic-delivery slice admits an authorized Gmail message on the originating device. It synchronizes the exact outgoing commitment through encrypted Product Sync, requires an opaque backend acknowledgement for the same identity, due instant, and revision, persists the delayed Outbox attempt before dismissing the Draft, and routes an opaque APNs wake to eligible trusted devices. A device with the encrypted payload, selected Mailbox Authorization, and separate revocable Scheduled Delivery Authorization may acquire the one revision-bound claim. The client durably fences provider handoff, reuses provider reconciliation, removes completed operational records, and moves work that cannot start within 24 hours to Needs Attention. Issues #381–#386 add full management, provider parity, lifecycle compatibility, and release evidence without weakening this privacy boundary.
 
@@ -179,9 +179,9 @@ Draft admission and cancellation tombstones remain authoritative to older client
 
 ### 2. Synchronized Scheduled Send model
 
-- Add encrypted manifest, payload, asset, reminder, and tombstone record families.
-- Add revisioned admission, edit, cancel, conversion, and restore-to-Draft operations.
-- Materialize Scheduled, Sending, and Needs Attention views locally.
+- Implemented for authored message payloads: add revision-addressed encrypted Scheduled Send records alongside the existing encrypted Draft, asset, and reminder families.
+- Implemented: add revision-fenced edit leases, reschedule, Send Now, cancellation, conversion to reminder, and restore-to-Draft operations.
+- Implemented: materialize Scheduled, Sending, and Needs Attention Outbox groups from synchronized payload and opaque operational state.
 - Verify Product Sync compare-and-swap conflicts, missing chunks, old-client edits, connection merging, and key rotation.
 
 ### 3. Operational scheduling and authorization
@@ -201,7 +201,7 @@ Draft admission and cancellation tombstones remain authoritative to older client
 ### 5. Composer, Outbox, and reminders
 
 - Implemented: add the Send Later interaction, accessible actions, presets, date/time picker, and local Send Reminder mode to every composer flow.
-- Add Outbox grouping, editing, cancellation, conversion, Send Now, warnings, and Needs Attention recovery.
+- Implemented: add Outbox grouping, editing, cancellation, conversion, Send Now, stale-editor Draft preservation, warnings, and Needs Attention recovery.
 - Implemented: add offline reminder persistence, synchronized revisions and tombstones, latest-active-device notification ownership, overdue Draft presentation, notification deep links, cancellation, and rescheduling.
 - Verify VoiceOver, hardware keyboard, compact and regular layouts, macOS behavior, DST boundaries, travel, notification permissions, and lock-screen privacy.
 

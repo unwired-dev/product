@@ -18,6 +18,18 @@ struct OpenSourcePackage: Equatable, Identifiable {
       licensePath: "blob/2.1.0/LICENSE"
     ),
     package(
+      "Google API Client for REST",
+      license: "Apache 2.0",
+      repository: "https://github.com/google/google-api-objectivec-client-for-rest",
+      licensePath: "blob/main/LICENSE"
+    ),
+    package(
+      "Google Toolbox for Mac Session Fetcher",
+      license: "Apache 2.0",
+      repository: "https://github.com/google/gtm-session-fetcher",
+      licensePath: "blob/main/LICENSE"
+    ),
+    package(
       "Swift Argument Parser",
       license: "Apache 2.0",
       repository: "https://github.com/apple/swift-argument-parser",
