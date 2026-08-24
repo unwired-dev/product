@@ -168,7 +168,7 @@ final class MailTestBootstrapUITests: XCTestCase {
     }
 
     let focused = NSPredicate(format: "hasKeyboardFocus == true")
-    let tapOffsets = [0.5, 0.85, 0.15]
+    let tapOffsets: [CGFloat] = [0.5, 0.85, 0.15]
     for horizontalOffset in tapOffsets {
       element.coordinate(
         withNormalizedOffset: CGVector(dx: horizontalOffset, dy: 0.5)
