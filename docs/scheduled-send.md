@@ -2,7 +2,7 @@
 
 Status: cross-device Send Reminder, Gmail, Microsoft Graph, and Standards-Based Scheduled Send delivery, and revision-fenced Outbox management implemented; remaining provider parity and lifecycle completion remain planned
 
-The automatic-delivery slice admits a message for an authorized Gmail, Microsoft 365, or Standards-Based connection on the originating device. It synchronizes the exact outgoing commitment through encrypted Product Sync, requires an opaque backend acknowledgement for the same identity, due instant, and revision, persists the delayed Outbox attempt before dismissing the Draft, and routes an opaque APNs wake to eligible trusted devices. A device with the encrypted payload, selected Mailbox Authorization, and separate revocable Scheduled Delivery Authorization may acquire the one revision-bound claim. The client durably fences provider handoff, reuses provider reconciliation, removes completed operational records, and moves work that cannot start within 24 hours to Needs Attention. Issues #381, #382, and #384 add the implemented management, Microsoft Graph parity, and Standards-Based parity; Issues #383, #385, and #386 plan EWS parity, lifecycle compatibility, and release evidence without weakening this privacy boundary.
+The automatic-delivery slice admits a scheduled message on a selected, authorized Gmail, Microsoft 365, or Standards-Based Mailbox Connection on the originating device. It synchronizes the exact outgoing commitment through encrypted Product Sync, requires an opaque backend acknowledgement for the same identity, due instant, and revision, persists the delayed Outbox attempt before dismissing the Draft, and routes an opaque APNs wake to eligible trusted devices. A device with the encrypted payload, selected Mailbox Authorization, and separate revocable Scheduled Delivery Authorization may acquire the one revision-bound claim. The client durably fences provider handoff, reuses provider reconciliation, removes completed operational records, and moves work that cannot start within 24 hours to Needs Attention. Issues #381, #382, and #384 add the implemented management, Microsoft Graph parity, and Standards-Based parity; Issues #383, #385, and #386 plan EWS parity, lifecycle compatibility, and release evidence without weakening this privacy boundary.
 
 ## Goal
 
@@ -188,7 +188,7 @@ Draft admission and cancellation tombstones remain authoritative to older client
 
 - Implemented for Gmail and Standards-Based Mail: add the minimal opaque operational schedule schema, scheduled wake action, revision-fenced cancellation and rescheduling, 24-hour deadline, and Product Account deletion coverage.
 - Implemented: add separate Scheduled Delivery Authorization issuance, device-bound secure storage, capability registration, rotation, revocation, and compatibility checks.
-- Implemented: add expiring pre-handoff claims, durable handing-off fences, failover, and idempotent opaque completion APIs.
+- Implemented: add expiring pre-handoff claims, durable handoff fences, failover, and idempotent opaque completion APIs.
 - Verify that backend storage and logs never contain message content, provider identity, sending connection, or provider credentials.
 
 ### 4. Apple background coordinator

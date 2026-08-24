@@ -214,16 +214,17 @@ final class OutboxDeliveryServiceTests {
 
   @Test(.bug(id: 384))
   func standardsMailScheduledSendAdmissionPreservesItsPayloadAndConnection() async throws {
-    let now = Date(timeIntervalSince1970: 1_800_000_000)
+    let clock = LockedOutboxClock(Date(timeIntervalSince1970: 1_800_000_000))
+    let deliveries = DeliveryCounter()
     let payloads = InMemoryScheduledSendPayloadSync(snapshots: [])
     let transport = ScheduledSendClaimTransportSpy()
     let outbox = OutboxDeliveryService(
-      now: { now },
+      now: { clock.now() },
       scheduledSendTransport: transport,
       store: InMemoryOutboxDeliveryStore()
     )
     let service = ScheduledSendService(
-      now: { now },
+      now: { clock.now() },
       outboxService: outbox,
       payloadSync: payloads,
       transport: transport
@@ -238,10 +239,10 @@ final class OutboxDeliveryServiceTests {
       draftId: draftId,
       profileId: MailProfileId.defaultProfile(productAccountId: session.productAccountId),
       originalTimeZoneIdentifier: "Europe/Prague",
-      dueAt: now.addingTimeInterval(60),
+      dueAt: clock.now().addingTimeInterval(60),
       session: session,
       undoSendDelayNanoseconds: 10_000_000_000,
-      provider: { _, _, _ in Issue.record("Delivery must wait for the scheduled instant.") },
+      provider: { _, _, _ in await deliveries.increment() },
       reconcile: { _, _ in .notSent }
     )
     let payload = try #require(await payloads.list(session: session).first)
@@ -250,6 +251,48 @@ final class OutboxDeliveryServiceTests {
     #expect(attempt.message == message)
     #expect(payload.record.connectionId == standardsMailConnection.id)
     #expect(payload.record.message == message)
+    #expect(await deliveries.currentValue() == 0)
+
+    clock.advance(by: 70)
+    try await outbox.resume(
+      connections: [standardsMailConnection],
+      session: session,
+      provider: { _, _, _ in await deliveries.increment() },
+      reconcile: { _, _ in .notSent }
+    )
+    #expect(await deliveries.currentValue() == 1)
+
+    await outbox.suspend(productAccountId: session.productAccountId)
+  }
+
+  @Test(.bug(id: 384))
+  func standardsMailScheduledSendUsesTheProvidersUnknownLimitPolicy() async throws {
+    let now = Date(timeIntervalSince1970: 1_800_000_000)
+    let outbox = OutboxDeliveryService(store: InMemoryOutboxDeliveryStore())
+    let service = ScheduledSendService(
+      now: { now },
+      outboxService: outbox,
+      payloadSync: InMemoryScheduledSendPayloadSync(snapshots: []),
+      transport: ScheduledSendClaimTransportSpy()
+    )
+    let messageAboveGraphLimit = OutgoingMessage(
+      body: String(repeating: "a", count: 3 * 1_024 * 1_024),
+      recipient: message.recipient,
+      subject: message.subject
+    )
+
+    _ = try await service.schedule(
+      messageAboveGraphLimit,
+      connection: standardsMailConnection,
+      draftId: UUID(),
+      profileId: MailProfileId.defaultProfile(productAccountId: session.productAccountId),
+      originalTimeZoneIdentifier: "Europe/Prague",
+      dueAt: now.addingTimeInterval(60),
+      session: session,
+      undoSendDelayNanoseconds: 0,
+      provider: { _, _, _ in Issue.record("Delivery must wait for the scheduled instant.") },
+      reconcile: { _, _ in .notSent }
+    )
 
     await outbox.suspend(productAccountId: session.productAccountId)
   }

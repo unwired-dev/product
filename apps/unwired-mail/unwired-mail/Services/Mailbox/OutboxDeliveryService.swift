@@ -1503,6 +1503,7 @@ actor ScheduledSendService {
     {
       throw ScheduledSendAdmissionError.sizeLimitExceeded
     }
+    // Providers without a fixed advertised limit enforce their policy during provider handoff.
   }
 }
 
