@@ -5370,6 +5370,25 @@ final class MailboxConnectionAdapterTests {
   }
 
   @Test
+  func testProfileSwitchClearsUnifiedConversationWithoutDiscardingCachedThreads() {
+    let thread = mailShellThread(
+      providerThreadId: "profile-switch-thread",
+      receivedAt: 100
+    )
+    let model = MailShellSelectionModel()
+    model.selectUnifiedInbox()
+    model.updateThreads([thread], for: adapterConnectionId)
+    model.selectThread(thread.id)
+
+    model.clearThreadSelection()
+    model.selectUnifiedInbox()
+
+    #expect(model.selectedMailbox == .unified(.inbox))
+    #expect(model.selectedThreadId == nil)
+    #expect(model.threads.map(\.id) == [thread.id])
+  }
+
+  @Test
   func testUnsupportedMailboxesHideMailViewPresentations() {
     let model = MailShellSelectionModel()
 
