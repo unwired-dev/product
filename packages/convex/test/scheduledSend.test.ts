@@ -313,7 +313,7 @@ describe('scheduled Send admission', () => {
   });
 
   it('persists a retry after a batch-level wakeup failure', async () => {
-    expect.assertions(4);
+    expect.assertions(6);
     const { asUser, device, payload, t } = await fixture();
     await asUser.mutation(api.pushRelay.registerDevice, {
       apnsEnvironment: 'sandbox',
@@ -871,6 +871,23 @@ describe('scheduled Send cross-device claims', () => {
       fixture.asUser.mutation(api.scheduledSend.reschedule, {
         ...replacementArgs,
         editGeneration: editGeneration + 1,
+        trustedDeviceId: fixture.secondDevice.trustedDeviceId,
+      }),
+    ).rejects.toThrow('Scheduled Send revision is no longer editable');
+    await expect(
+      fixture.asUser.mutation(api.scheduledSend.reschedule, {
+        ...replacementArgs,
+        editGeneration,
+        trustedDeviceId: fixture.device.trustedDeviceId,
+      }),
+    ).rejects.toThrow('Scheduled Send revision is no longer editable');
+    await expect(
+      fixture.asUser.mutation(api.scheduledSend.sendNow, {
+        ...replacementArgs,
+        dueAt: immediateDueAt,
+        deadlineAt: immediateDueAt + 24 * 60 * 60 * 1000,
+        editGeneration: editGeneration + 1,
+        requestedAt: immediateDueAt,
         trustedDeviceId: fixture.secondDevice.trustedDeviceId,
       }),
     ).rejects.toThrow('Scheduled Send revision is no longer editable');
