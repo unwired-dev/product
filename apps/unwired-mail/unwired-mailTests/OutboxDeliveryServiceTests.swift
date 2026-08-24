@@ -943,6 +943,7 @@ final class OutboxDeliveryServiceTests {
   }
 
   @Test(.bug(id: 385))
+  // swiftlint:disable:next function_body_length
   func authorizationChangeDuringClaimPreventsProviderHandoff() async throws {
     let clock = LockedOutboxClock(Date(timeIntervalSince1970: 1_800_000_000))
     let handoffGate = DeliveryHandoffGate()
