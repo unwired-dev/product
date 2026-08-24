@@ -508,7 +508,8 @@ final class MailTestBootstrapUITests: XCTestCase {
     }
     return try XCTUnwrap(
       row.exists && row.isHittable ? row : nil,
-      "MAIL_TEST_FAILURE:\(step):message-row-not-presented: The expected synthetic message row did not become interactive."
+      "MAIL_TEST_FAILURE:\(step):message-row-not-presented: "
+        + "The expected synthetic message row did not become interactive."
     )
   }
 
