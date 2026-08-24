@@ -610,7 +610,9 @@ final class MailCompositionDraftTests {
     let rollbackReminder = try #require(rollbackDraft.sendReminder)
     #expect(rollbackReminder.id == originalReminder.id)
     #expect(rollbackReminder.dueAtMilliseconds == originalReminder.dueAtMilliseconds)
-    #expect(rollbackReminder.originalTimeZoneIdentifier == originalReminder.originalTimeZoneIdentifier)
+    #expect(
+      rollbackReminder.originalTimeZoneIdentifier == originalReminder.originalTimeZoneIdentifier
+    )
     #expect(rollbackReminder.revision != originalReminder.revision)
     #expect(rollbackReminder.revision != candidateReminder.revision)
     #expect(rollbackReminder.changedAtMilliseconds > candidateReminder.changedAtMilliseconds)
