@@ -278,6 +278,7 @@ final class OutboxDeliveryServiceTests {
     let now = Date(timeIntervalSince1970: 1_800_000_000)
     let dueAtMilliseconds = Int64(now.addingTimeInterval(-60).timeIntervalSince1970 * 1_000)
     let record = ScheduledSendRecord(
+      connectionAuthorizationGeneration: exchangeWebServicesConnection.authorizationGeneration,
       connectionId: exchangeWebServicesConnection.id,
       createdAtMilliseconds: dueAtMilliseconds - 60_000,
       deadlineAtMilliseconds: dueAtMilliseconds + 24 * 60 * 60 * 1_000,
