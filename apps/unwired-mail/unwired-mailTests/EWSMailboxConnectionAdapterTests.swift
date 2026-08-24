@@ -2504,7 +2504,7 @@ final class EWSMailboxConnectionAdapterTests {
     }
   }
 
-  @Test
+  @Test(.bug(id: 383))
   func testSystemClientBuildsOAuthAppPasswordActionAndSendRequests() async throws {
     var requests: [URLRequest] = []
     var requestBodies: [String] = []
@@ -2593,6 +2593,7 @@ final class EWSMailboxConnectionAdapterTests {
         "<t:BccRecipients><t:Mailbox><t:EmailAddress>hidden@example.com</t:EmailAddress>"
       ))
     #expect(!(sendBody.contains("Recipient, One")))
+    #expect(!(sendBody.contains("DeferredSendTime")))
   }
 
   @Test(arguments: [false, true])

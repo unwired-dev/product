@@ -42,6 +42,22 @@ final class OutboxDeliveryServiceTests {
     trustedDeviceId: "trusted-device-001",
     updatedAt: 1_781_200_000_200
   )
+  private let exchangeWebServicesConnection = MailboxConnection(
+    authorizationState: .authorized,
+    capabilities: .exchangeWebServices,
+    connectedAt: 1_781_200_000_000,
+    displayName: "sender@corp.example",
+    id: MailboxConnectionId(
+      providerMailboxIdentity: StableProviderMailboxIdentity(
+        providerId: .exchangeWebServices,
+        value: "ews-user-001"
+      )
+    ),
+    lastVerifiedAt: 1_781_200_000_100,
+    productAccountId: ProductAccountId("product-account-001"),
+    trustedDeviceId: "trusted-device-001",
+    updatedAt: 1_781_200_000_200
+  )
 
   @Test
   func scheduledSendManagementDiscoversRemoteStateAndFencesHandoff() async throws {
@@ -191,6 +207,98 @@ final class OutboxDeliveryServiceTests {
     trustedDeviceId: "trusted-device-001"
   )
 
+  @Test(.bug(id: 383))
+  func exchangeWebServicesScheduledSendAdmissionPreservesItsPayloadAndConnection() async throws {
+    let now = Date(timeIntervalSince1970: 1_800_000_000)
+    let payloads = InMemoryScheduledSendPayloadSync(snapshots: [])
+    let transport = ScheduledSendClaimTransportSpy()
+    let outbox = OutboxDeliveryService(
+      now: { now },
+      scheduledSendTransport: transport,
+      store: InMemoryOutboxDeliveryStore()
+    )
+    let service = ScheduledSendService(
+      now: { now },
+      outboxService: outbox,
+      payloadSync: payloads,
+      transport: transport
+    )
+
+    let attempt = try await service.schedule(
+      message,
+      connection: exchangeWebServicesConnection,
+      draftId: UUID(uuidString: "00000000-0000-0000-0000-000000000383")!,
+      profileId: MailProfileId.defaultProfile(productAccountId: session.productAccountId),
+      originalTimeZoneIdentifier: "Europe/Prague",
+      dueAt: now.addingTimeInterval(60),
+      session: session,
+      undoSendDelayNanoseconds: 10_000_000_000,
+      provider: { _, _, _ in Issue.record("Delivery must wait for the scheduled instant.") },
+      reconcile: { _, _ in .notSent }
+    )
+    let payload = try #require(await payloads.list(session: session).first)
+
+    #expect(attempt.mailboxConnectionId == exchangeWebServicesConnection.id)
+    #expect(attempt.message == message)
+    #expect(payload.record.connectionId == exchangeWebServicesConnection.id)
+    #expect(payload.record.message == message)
+
+    await outbox.suspend(productAccountId: session.productAccountId)
+  }
+
+  @Test(.bug(id: 383))
+  func exchangeWebServicesScheduledSendWakeRestoresAndDeliversTheAttempt() async throws {
+    let now = Date(timeIntervalSince1970: 1_800_000_000)
+    let dueAtMilliseconds = Int64(now.addingTimeInterval(-60).timeIntervalSince1970 * 1_000)
+    let record = ScheduledSendRecord(
+      connectionId: exchangeWebServicesConnection.id,
+      createdAtMilliseconds: dueAtMilliseconds - 60_000,
+      deadlineAtMilliseconds: dueAtMilliseconds + 24 * 60 * 60 * 1_000,
+      draftId: UUID(uuidString: "00000000-0000-0000-0000-000000000381")!,
+      dueAtMilliseconds: dueAtMilliseconds,
+      message: message,
+      originatingDeviceId: session.trustedDeviceId,
+      originalTimeZoneIdentifier: "Europe/Prague",
+      profileId: MailProfileId.defaultProfile(productAccountId: session.productAccountId),
+      revision: 1,
+      scheduleId: UUID(uuidString: "00000000-0000-0000-0000-000000000383")!
+    )
+    let payload = ScheduledSendPayloadSnapshot(
+      acknowledgement: ScheduledSendPayloadAcknowledgement(
+        payloadIdentifier: "payload-ews-wake",
+        updatedAt: dueAtMilliseconds - 30_000
+      ),
+      record: record
+    )
+    let sessionStore = InMemoryProductAccountSessionStore()
+    try sessionStore.save(session)
+    let transport = ScheduledSendClaimTransportSpy()
+    let mailService = ScheduledSendMailboxRoutingSpy(
+      connections: [exchangeWebServicesConnection]
+    )
+    let handler = ScheduledSendWakeupHandler(
+      mailService: mailService,
+      outboxService: OutboxDeliveryService(
+        now: { now },
+        scheduledSendTransport: transport,
+        store: InMemoryOutboxDeliveryStore()
+      ),
+      payloadSync: InMemoryScheduledSendPayloadSync(snapshots: [payload]),
+      scheduledSendTransport: transport,
+      sessionStore: sessionStore
+    )
+
+    let handled = try await handler.handle(userInfo: [
+      "provider": "scheduled-send",
+      "revision": NSNumber(value: record.revision),
+      "scheduleId": record.scheduleId.uuidString,
+    ])
+
+    #expect(handled)
+    #expect(mailService.sentConnectionIds == [exchangeWebServicesConnection.id])
+    #expect(await transport.events() == ["claim", "advance", "complete"])
+  }
+
   @Test(.bug(id: 382))
   func microsoftGraphScheduledSendAdmissionPreservesItsPayloadAndConnection() async throws {
     let now = Date(timeIntervalSince1970: 1_800_000_000)
@@ -316,6 +424,88 @@ final class OutboxDeliveryServiceTests {
         reconcile: { _, _ in .notSent }
       )
     }
+  }
+
+  @Test(.bug(id: 383))
+  func dueScheduledSendWaitsForTheBusyConnectionsCurrentPass() async throws {
+    let now = Date(timeIntervalSince1970: 1_800_000_000)
+    let gate = DeliveryHandoffGate()
+    let deliveries = DeliveryCounter()
+    let service = OutboxDeliveryService(
+      handoffDelayNanoseconds: immediateHandoffDelay,
+      now: { now },
+      store: InMemoryOutboxDeliveryStore()
+    )
+    let provider: OutboxDeliveryPerformer = { message, _, _ in
+      await deliveries.increment()
+      if message.subject == "Offline delivery" {
+        await gate.waitForRelease()
+      }
+    }
+    let currentPass = Task {
+      try await service.enqueue(
+        message,
+        connection: connection,
+        session: session,
+        provider: provider,
+        reconcile: { _, _ in .notSent }
+      )
+    }
+    await gate.waitUntilStarted()
+    let firstScheduledPass = Task {
+      try await enqueueDueScheduled(
+        "First scheduled", service: service, provider: provider, now: now
+      )
+    }
+    let secondScheduledPass = Task {
+      try await enqueueDueScheduled(
+        "Second scheduled", service: service, provider: provider, now: now
+      )
+    }
+    while try await service.items(session: session).count < 3 {
+      await Task.yield()
+    }
+
+    #expect(await deliveries.currentValue() == 1)
+    await gate.release()
+    _ = try await currentPass.value
+    let firstScheduledAttempt = try await firstScheduledPass.value
+    let secondScheduledAttempt = try await secondScheduledPass.value
+
+    #expect(firstScheduledAttempt.state == .sent)
+    #expect(secondScheduledAttempt.state == .sent)
+    #expect(await deliveries.currentValue() == 3)
+  }
+
+  @Test(.bug(id: 383))
+  func dueScheduledSendRetainsRetryCleanupAfterATransientFailure() async throws {
+    let now = Date(timeIntervalSince1970: 1_800_000_000)
+    let delivery = TransientSecondMessageDelivery()
+    let service = OutboxDeliveryService(
+      now: { now },
+      retryDelayNanoseconds: { _ in 0 },
+      store: InMemoryOutboxDeliveryStore()
+    )
+
+    let firstPass = try await service.enqueueScheduled(
+      OutgoingMessage(body: "Retry", recipient: message.recipient, subject: "Second"),
+      connection: connection,
+      session: session,
+      scheduleId: UUID(),
+      revision: 1,
+      dueAt: now,
+      deadline: now.addingTimeInterval(24 * 60 * 60),
+      undoSendDelayNanoseconds: 0,
+      provider: { message, _, _ in try await delivery.deliver(message) },
+      reconcile: { _, _ in .notSent }
+    )
+    _ = await service.waitForScheduledRetries()
+    let remainingAttempts = try await service.items(session: session)
+    let attemptCount = await delivery.attemptCount()
+
+    #expect(firstPass.state == .retrying)
+    #expect(remainingAttempts.isEmpty)
+    #expect(attemptCount == 2)
   }
 
   @Test(.bug(id: 380))
@@ -2636,6 +2826,30 @@ final class OutboxDeliveryServiceTests {
       },
       retryDelayNanoseconds: { _ in 60_000_000_000 },
       store: store
+    )
+  }
+
+  private func enqueueDueScheduled(
+    _ subject: String,
+    service: OutboxDeliveryService,
+    provider: @escaping OutboxDeliveryPerformer,
+    now: Date
+  ) async throws -> OutgoingDeliveryAttempt {
+    try await service.enqueueScheduled(
+      OutgoingMessage(
+        body: "Restored while the connection is busy",
+        recipient: message.recipient,
+        subject: subject
+      ),
+      connection: connection,
+      session: session,
+      scheduleId: UUID(),
+      revision: 1,
+      dueAt: now,
+      deadline: now.addingTimeInterval(24 * 60 * 60),
+      undoSendDelayNanoseconds: 0,
+      provider: provider,
+      reconcile: { _, _ in .notSent }
     )
   }
 
