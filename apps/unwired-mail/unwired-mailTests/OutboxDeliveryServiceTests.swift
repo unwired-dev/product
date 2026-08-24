@@ -854,6 +854,53 @@ final class OutboxDeliveryServiceTests {
     #expect(attemptCount == 2)
   }
 
+  @Test(.bug(id: 385))
+  func authorizationRemovalStopsAnExistingScheduledRetry() async throws {
+    let now = Date(timeIntervalSince1970: 1_800_000_000)
+    let deliveryGate = DeliveryHandoffGate()
+    let deliveries = DeliveryCounter()
+    let service = OutboxDeliveryService(
+      now: { now },
+      retryDelayNanoseconds: { _ in 0 },
+      store: InMemoryOutboxDeliveryStore()
+    )
+    let deliveryTask = Task {
+      try await service.enqueueScheduled(
+        message,
+        connection: connection,
+        session: session,
+        scheduleId: UUID(),
+        revision: 1,
+        dueAt: now,
+        deadline: now.addingTimeInterval(24 * 60 * 60),
+        undoSendDelayNanoseconds: 0,
+        provider: { _, _, _ in
+          await deliveries.increment()
+          await deliveryGate.waitForRelease()
+          throw URLError(.notConnectedToInternet)
+        },
+        reconcile: { _, _ in .notSent }
+      )
+    }
+    await deliveryGate.waitUntilStarted()
+
+    let authorizationRemoval = Task {
+      try await service.resume(
+        connections: [],
+        session: session,
+        provider: { _, _, _ in await deliveries.increment() },
+        reconcile: { _, _ in .notSent }
+      )
+    }
+    await deliveryGate.release()
+    let attempt = try await deliveryTask.value
+    try await authorizationRemoval.value
+    while await service.waitForScheduledRetries() {}
+
+    #expect(attempt.state == .retrying)
+    #expect(await deliveries.currentValue() == 1)
+  }
+
   @Test(.bug(id: 380))
   func testScheduledSendClaimFencePrecedesProviderHandoff() async throws {
     let clock = LockedOutboxClock(Date(timeIntervalSince1970: 1_800_000_000))
@@ -893,6 +940,69 @@ final class OutboxDeliveryServiceTests {
     )
 
     #expect(await transport.events() == ["claim", "advance", "provider", "complete"])
+  }
+
+  @Test(.bug(id: 385))
+  func authorizationChangeDuringClaimPreventsProviderHandoff() async throws {
+    let clock = LockedOutboxClock(Date(timeIntervalSince1970: 1_800_000_000))
+    let handoffGate = DeliveryHandoffGate()
+    let store = InMemoryOutboxDeliveryStore()
+    let transport = ScheduledSendClaimTransportSpy(handoffGate: handoffGate)
+    let dueAt = clock.now().addingTimeInterval(60)
+    let queuedService = OutboxDeliveryService(
+      now: { clock.now() },
+      scheduledSendTransport: transport,
+      store: store
+    )
+    _ = try await queuedService.enqueueScheduled(
+      message,
+      connection: connection,
+      session: session,
+      scheduleId: UUID(),
+      revision: 1,
+      dueAt: dueAt,
+      deadline: dueAt.addingTimeInterval(24 * 60 * 60),
+      undoSendDelayNanoseconds: 0,
+      provider: { _, _, _ in Issue.record("The original process should be suspended.") },
+      reconcile: { _, _ in .notSent }
+    )
+    await queuedService.suspend(productAccountId: session.productAccountId)
+    clock.advance(by: 60)
+
+    let deliveries = DeliveryCounter()
+    let restartedService = OutboxDeliveryService(
+      now: { clock.now() },
+      scheduledSendTransport: transport,
+      store: store
+    )
+    let deliveryTask = Task {
+      try await restartedService.resume(
+        connections: [connection],
+        session: session,
+        provider: { _, _, _ in await deliveries.increment() },
+        reconcile: { _, _ in .notSent }
+      )
+    }
+    await handoffGate.waitUntilStarted()
+    let replacementConnection = connection.withAuthorizationGeneration(
+      connection.authorizationGeneration + 1
+    )
+    let replacementResume = Task {
+      try await restartedService.resume(
+        connections: [replacementConnection],
+        session: session,
+        provider: { _, _, _ in await deliveries.increment() },
+        reconcile: { _, _ in .notSent }
+      )
+    }
+    await handoffGate.release()
+    try await deliveryTask.value
+    try await replacementResume.value
+
+    let attempt = try #require(try await restartedService.items(session: session).first)
+    #expect(attempt.state == .userActionRequired)
+    #expect(await deliveries.currentValue() == 0)
+    #expect(await transport.events() == ["claim", "advance", "complete"])
   }
 
   @Test
@@ -3356,7 +3466,12 @@ private final class ScheduledSendMailboxRoutingSpy: ScheduledSendMailboxRouting 
 
 private actor ScheduledSendClaimTransportSpy: ScheduledSendOperationalTransport {
   private var claimPhase = ScheduledSendClaimPhase.preHandoff
+  private let handoffGate: DeliveryHandoffGate?
   private var recordedEvents: [String] = []
+
+  init(handoffGate: DeliveryHandoffGate? = nil) {
+    self.handoffGate = handoffGate
+  }
 
   func admitScheduledSend(
     _ record: ScheduledSendRecord,
@@ -3407,6 +3522,7 @@ private actor ScheduledSendClaimTransportSpy: ScheduledSendOperationalTransport 
     trustedDeviceId _: String
   ) async throws -> Bool {
     recordedEvents.append("advance")
+    await handoffGate?.waitForRelease()
     claimPhase = .handingOff
     return true
   }

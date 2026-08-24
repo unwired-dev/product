@@ -2708,6 +2708,24 @@ actor OutboxDeliveryService {
       guard let fencedIndex = attempts.firstIndex(where: { $0.id == fencedAttempt.id }),
         attempts[fencedIndex].state == .pending || attempts[fencedIndex].state == .retrying
       else { continue }
+      guard
+        connectionIsAuthorized(
+          for: attempts[fencedIndex],
+          authorizationGeneration:
+            connectionAuthorizationGenerations[productAccountId]?[connectionId]
+        )
+      else {
+        attempts[fencedIndex].state = .userActionRequired
+        attempts[fencedIndex].lastErrorDescription =
+          "Mailbox Connection authorization changed before provider handoff."
+        attempts[fencedIndex].nextRetryAtMilliseconds = nil
+        try store.save(attempts, productAccountId: productAccountId)
+        try await completeScheduledSendClaim(
+          attempts[fencedIndex],
+          state: .needsAttention
+        )
+        continue
+      }
       attempts[fencedIndex].state = .handingOff
       attempts[fencedIndex].attemptCount += 1
       attempts[fencedIndex].firstAttemptAtMilliseconds =
@@ -3231,6 +3249,13 @@ actor OutboxDeliveryService {
     }
     let currentMilliseconds = milliseconds(now())
     for attempt in attempts where attempt.connectionId == connectionId {
+      guard
+        connectionIsAuthorized(
+          for: attempt,
+          authorizationGeneration:
+            connectionAuthorizationGenerations[productAccountId]?[connectionId]
+        )
+      else { continue }
       let isDue =
         (attempt.state == .pending
           && handoffNotBeforeMilliseconds(for: attempt) <= currentMilliseconds)
