@@ -5372,6 +5372,8 @@ final class MailboxConnectionAdapterTests {
   @Test
   func testProfileSwitchClearsUnifiedConversationWithoutDiscardingCachedThreads() {
     let thread = mailShellThread(
+      connectionId: adapterConnectionId,
+      providerMessageId: "profile-switch-message",
       providerThreadId: "profile-switch-thread",
       receivedAt: 100
     )
