@@ -73,6 +73,7 @@ final class MailTestBootstrapUITests: XCTestCase {
 
     let recipient = try requireElement(
       identifier: "mail-compose-to",
+      matching: .textField,
       in: app,
       failure: "MAIL_TEST_FAILURE:ui: The recipient field was not visible."
     )
@@ -83,6 +84,7 @@ final class MailTestBootstrapUITests: XCTestCase {
     )
     let subject = try requireElement(
       identifier: "mail-compose-subject",
+      matching: .textField,
       in: app,
       failure: "MAIL_TEST_FAILURE:ui: The subject field was not visible."
     )
@@ -93,6 +95,7 @@ final class MailTestBootstrapUITests: XCTestCase {
     )
     let body = try requireElement(
       identifier: "mail-compose-body",
+      matching: .textView,
       in: app,
       failure: "MAIL_TEST_FAILURE:ui: The message body was not visible."
     )
@@ -136,6 +139,7 @@ final class MailTestBootstrapUITests: XCTestCase {
     reply.tap()
     let body = try requireElement(
       identifier: "mail-compose-body",
+      matching: .textView,
       in: app,
       failure: "MAIL_TEST_FAILURE:ui: The reply composer did not open."
     )
@@ -299,10 +303,11 @@ final class MailTestBootstrapUITests: XCTestCase {
 
   private func requireElement(
     identifier: String,
+    matching elementType: XCUIElement.ElementType = .any,
     in app: XCUIApplication,
     failure: String
   ) throws -> XCUIElement {
-    let candidate = element(identifier: identifier, in: app)
+    let candidate = element(identifier: identifier, matching: elementType, in: app)
     return try XCTUnwrap(
       candidate.waitForExistence(timeout: 15) ? candidate : nil,
       failure
@@ -311,9 +316,10 @@ final class MailTestBootstrapUITests: XCTestCase {
 
   private func element(
     identifier: String,
+    matching elementType: XCUIElement.ElementType = .any,
     in app: XCUIApplication
   ) -> XCUIElement {
-    app.descendants(matching: .any).matching(identifier: identifier).firstMatch
+    app.descendants(matching: elementType).matching(identifier: identifier).firstMatch
   }
 
   private func button(
