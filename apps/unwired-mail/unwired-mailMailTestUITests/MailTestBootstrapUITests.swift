@@ -500,12 +500,15 @@ final class MailTestBootstrapUITests: XCTestCase {
     let row = app.buttons.matching(identifier: "mail-thread-row")
       .matching(NSPredicate(format: "label CONTAINS %@", subject)).firstMatch
     let deadline = Date().addingTimeInterval(60)
-    while !row.waitForExistence(timeout: 2), Date() < deadline {
+    while Date() < deadline {
+      if row.waitForExistence(timeout: 2), row.isHittable {
+        return row
+      }
       app.swipeUp()
     }
     return try XCTUnwrap(
-      row.exists ? row : nil,
-      "MAIL_TEST_FAILURE:\(step):message-row-not-presented: The expected synthetic message row did not appear."
+      row.exists && row.isHittable ? row : nil,
+      "MAIL_TEST_FAILURE:\(step):message-row-not-presented: The expected synthetic message row did not become interactive."
     )
   }
 
