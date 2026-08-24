@@ -245,7 +245,7 @@ struct MailShellComposer: View {
         viewModel.draftChanged()
         await Task.yield()
         guard focusedField == nil else { return }
-        focusedField = .body
+        focusedField = viewModel.draft.recipient.isEmpty ? .to : .body
       }
       .task(id: suggestionRequest) {
         await updateSuggestions()
@@ -574,7 +574,7 @@ struct MailShellComposer: View {
   }
 
   private var canScheduleSend: Bool {
-    isSendEnabled && selectedConnection?.providerId == .gmail
+    isSendEnabled && selectedConnection?.providerId.supportsScheduledSend == true
       && (viewModel.draft.kind != .editing || scheduledSendDueAt != nil)
   }
 

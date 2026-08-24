@@ -4087,7 +4087,7 @@ extension AccountView {
       let connection = profileConnections.first(where: { $0.id == connectionId }),
       let identity = profileSendingIdentities.first(where: { $0.id == draft.sendingIdentityId }),
       connection.authorizationState == .authorized,
-      connection.providerId == .gmail,
+      connection.providerId.supportsScheduledSend,
       connection.capabilities.canSend,
       identity.connectionId == connectionId
     else {
@@ -12332,7 +12332,7 @@ final class GmailMailActionViewModel {
     undoSendWindow: UndoSendWindow
   ) async -> Bool {
     guard !isPreparingForSignOut, !isPerformingAction else { return false }
-    guard connection.providerId == .gmail else {
+    guard connection.providerId.supportsScheduledSend else {
       errorMessage = ScheduledSendAdmissionError.providerUnavailable.localizedDescription
       return false
     }
@@ -14283,10 +14283,12 @@ final class GmailInboxViewModel {
         projectedThreads = projection.threads
         projectionRevision = projection.revision
         if projectionRevision != productMailboxStateRevision { continue }
+        publishedCount = 0
+        threads.removeAll(keepingCapacity: true)
       }
       let nextBatchSize = publishedCount == 0 ? firstBatchSize : batchSize
       let endIndex = min(publishedCount + nextBatchSize, projectedThreads.count)
-      threads = Array(projectedThreads.prefix(endIndex))
+      threads.append(contentsOf: projectedThreads[publishedCount..<endIndex])
       publishedCount = endIndex
       guard publishedCount < projectedThreads.count else { return true }
       #if DEBUG
