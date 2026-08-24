@@ -43,7 +43,8 @@ struct MailShellThreadProjectionObserver: View {
 
   var body: some View {
     Color.clear
-      .onChange(of: taskIdentity, initial: true) { _, identity in
+      .task(id: taskIdentity) {
+        let identity = taskIdentity
         synchronization.schedule {
           guard taskIdentity == identity else { return }
           synchronizeProjection()

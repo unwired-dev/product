@@ -762,7 +762,8 @@ final class IMAPMailboxConnectionAdapterTests {
       exchangeWebServices: RouterTestAdapter(),
       gmail: RouterTestAdapter(),
       imap: RouterTestAdapter(),
-      microsoftGraph: RouterTestAdapter()
+      microsoftGraph: RouterTestAdapter(),
+      scheduledSendLifecycle: RouterScheduledSendLifecycleSpy()
     )
 
     _ = try attachmentStore.save(
@@ -797,7 +798,8 @@ final class IMAPMailboxConnectionAdapterTests {
       exchangeWebServices: RouterTestAdapter(),
       gmail: RouterTestAdapter(),
       imap: RouterTestAdapter(removalError: IMAPAdapterTestError.unavailable),
-      microsoftGraph: RouterTestAdapter()
+      microsoftGraph: RouterTestAdapter(),
+      scheduledSendLifecycle: RouterScheduledSendLifecycleSpy()
     )
 
     _ = try attachmentStore.save(
