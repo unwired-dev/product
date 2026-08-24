@@ -612,7 +612,7 @@ final class MailCompositionDraftTests {
     let viewModel = MailComposerViewModel(
       draft: initialDraft,
       presentation: .partial,
-      saveDraft: { await saver.save($0) },
+      saveDraft: { try await saver.save($0) },
       sendDraft: { _ in true }
     )
 
@@ -627,6 +627,75 @@ final class MailCompositionDraftTests {
     saver.releaseFirstSave()
     #expect(await closeTask.value)
     #expect(saver.completedBodies == ["First edit", "Latest edit"])
+  }
+
+  @Test
+  func discardWaitsForCancelledAutosaveBeforeReportingDeletionFailure() async {
+    let saver = ControlledDraftSaver()
+    var deleteAttempted = false
+    var initialDraft = draft(recipient: "recipient@example.com")
+    initialDraft.document = SemanticMessageDocument(plainText: "Autosaving")
+    let viewModel = MailComposerViewModel(
+      draft: initialDraft,
+      presentation: .partial,
+      saveDraft: { try await saver.save($0) },
+      deleteDraft: { _ in
+        deleteAttempted = true
+        throw DraftFixtureError.deleteFailed
+      },
+      sendDraft: { _ in true }
+    )
+
+    viewModel.draftChanged()
+    await saver.waitForFirstSave()
+    let discardTask = Task { await viewModel.discard() }
+    await saver.waitForFirstSaveCancellation()
+
+    #expect(!deleteAttempted)
+    saver.releaseFirstSave()
+    #expect(await discardTask.value == false)
+    #expect(deleteAttempted)
+    guard case .failed = viewModel.saveState else {
+      Issue.record("Expected the Draft deletion failure to remain recorded")
+      return
+    }
+  }
+
+  @Test(.bug(id: 377))
+  func remindWaitsForCancelledAutosaveBeforeReportingReminderSaveFailure() async {
+    let now = Date(timeIntervalSince1970: 2_000_000_000)
+    let saver = ControlledDraftSaver(failAfterFirstSave: true)
+    var initialDraft = draft(recipient: "recipient@example.com")
+    initialDraft.document = SemanticMessageDocument(plainText: "Autosaving")
+    let viewModel = MailComposerViewModel(
+      draft: initialDraft,
+      presentation: .partial,
+      reminderOwnerDeviceId: "device-a",
+      now: { now },
+      saveDraft: { try await saver.save($0) },
+      sendDraft: { _ in false }
+    )
+
+    viewModel.draftChanged()
+    await saver.waitForFirstSave()
+    let remindTask = Task {
+      await viewModel.remind(
+        at: now.addingTimeInterval(3_600),
+        timeZoneIdentifier: "Europe/Prague"
+      )
+    }
+    await saver.waitForFirstSaveCancellation()
+
+    #expect(saver.startedDrafts.count == 1)
+    saver.releaseFirstSave()
+    #expect(await remindTask.value == false)
+    #expect(saver.startedDrafts.count == 2)
+    #expect(saver.startedDrafts.last?.sendReminder != nil)
+    #expect(viewModel.draft.sendReminder == nil)
+    guard case .failed = viewModel.reminderState else {
+      Issue.record("Expected the reminder save failure to remain recorded")
+      return
+    }
   }
 
   @Test
@@ -1127,18 +1196,22 @@ final class MailCompositionDraftTests {
 @MainActor
 private final class ControlledDraftSaver {
   private(set) var completedBodies: [String] = []
+  private(set) var startedDrafts: [MailShellCompositionDraft] = []
   private(set) var startedBodies: [String] = []
+  private let failAfterFirstSave: Bool
   private let firstSaveCancellationContinuation: AsyncStream<Void>.Continuation
   private let firstSaveCancellationStream: AsyncStream<Void>
   private var firstSaveContinuation: CheckedContinuation<Void, Never>?
 
-  init() {
+  init(failAfterFirstSave: Bool = false) {
+    self.failAfterFirstSave = failAfterFirstSave
     let stream = AsyncStream<Void>.makeStream()
     firstSaveCancellationStream = stream.stream
     firstSaveCancellationContinuation = stream.continuation
   }
 
-  func save(_ draft: MailShellCompositionDraft) async {
+  func save(_ draft: MailShellCompositionDraft) async throws {
+    startedDrafts.append(draft)
     startedBodies.append(draft.body)
     if startedBodies.count == 1 {
       let cancellationContinuation = firstSaveCancellationContinuation
@@ -1149,6 +1222,9 @@ private final class ControlledDraftSaver {
       } onCancel: {
         cancellationContinuation.yield(())
       }
+    }
+    if failAfterFirstSave, startedDrafts.count > 1 {
+      throw DraftFixtureError.saveFailed
     }
     completedBodies.append(draft.body)
   }
