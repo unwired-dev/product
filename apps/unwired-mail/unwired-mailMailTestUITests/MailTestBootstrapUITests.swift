@@ -168,8 +168,11 @@ final class MailTestBootstrapUITests: XCTestCase {
     }
 
     let focused = NSPredicate(format: "hasKeyboardFocus == true")
-    for _ in 0..<3 {
-      element.tap()
+    let tapOffsets: [CGFloat] = [0.5, 0.85, 0.15]
+    for horizontalOffset in tapOffsets {
+      element.coordinate(
+        withNormalizedOffset: CGVector(dx: horizontalOffset, dy: 0.5)
+      ).tap()
       let focusExpectation = XCTNSPredicateExpectation(predicate: focused, object: element)
       if XCTWaiter.wait(for: [focusExpectation], timeout: 2) == .completed {
         element.typeText(text)
