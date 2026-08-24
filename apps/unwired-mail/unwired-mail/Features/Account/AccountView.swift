@@ -2568,7 +2568,6 @@ struct AccountView: View {
         },
         contentPresentationDismissalSignal: contentPresentationDismissalSignal
       )
-      .id(profileViewModel.activeProfileId)
       .mailShellBottomInset(isEnabled: horizontalSizeClass == .compact) {
         mailShellBottomBar
       }
@@ -3403,6 +3402,7 @@ struct AccountView: View {
     from sourceProfileId: MailProfileId,
     switchGeneration: Int
   ) async -> Bool {
+    contentPresentationDismissalSignal &+= 1
     mailShellSelection.selectUnifiedInbox()
     await waitForNextMainRunLoopCycle()
     guard
