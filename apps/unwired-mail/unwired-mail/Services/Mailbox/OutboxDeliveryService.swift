@@ -1317,7 +1317,7 @@ actor ScheduledSendService {
     reconcile: @escaping OutboxDeliveryReconciler
   ) async throws -> ManagedScheduledSend {
     let undoSendDelay = TimeInterval(undoSendDelayNanoseconds) / 1_000_000_000
-    try await replace(
+    return try await replace(
       editSession,
       message: message,
       connection: connection,
