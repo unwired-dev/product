@@ -255,11 +255,16 @@ final class MailComposerViewModel {
 
     do {
       reminderState = .saved(try await scheduleReminder(candidate))
-    } catch let error as ScheduledSendManagementError {
+    } catch let schedulingError as ScheduledSendManagementError {
       draft = previousDraft
-      lastSavedDraft = previousDraft
-      saveState = .saved
-      reminderState = .failed(error.localizedDescription)
+      do {
+        try await saveDraft(previousDraft)
+        lastSavedDraft = previousDraft
+        saveState = .saved
+      } catch {
+        saveState = .failed(error.localizedDescription)
+      }
+      reminderState = .failed(schedulingError.localizedDescription)
       return false
     } catch {
       reminderState = .failed(

@@ -449,7 +449,8 @@ final class MailCompositionDraftTests {
   @Test(.bug(id: 377))
   // swiftlint:disable:next function_body_length
   func reminderRescheduleAdvancesRevisionAndSendOrDiscardCancelsCurrentRevision() async throws {
-    let now = Date(timeIntervalSince1970: 2_000_000_000)
+    let initialTime = Date(timeIntervalSince1970: 2_000_000_000)
+    var currentTime = initialTime
     var source = draft(recipient: "recipient@example.com")
     source.subject = "Subject"
     var cancelled: [(UUID, UUID)] = []
@@ -457,7 +458,7 @@ final class MailCompositionDraftTests {
       draft: source,
       presentation: .partial,
       reminderOwnerDeviceId: "device-a",
-      now: { now },
+      now: { currentTime },
       cancelReminder: { reminder, draftId in
         cancelled.append((reminder.revision, draftId))
       },
@@ -467,14 +468,15 @@ final class MailCompositionDraftTests {
 
     #expect(
       await viewModel.remind(
-        at: now.addingTimeInterval(3_600),
+        at: initialTime.addingTimeInterval(3_600),
         timeZoneIdentifier: "Europe/Prague"
       )
     )
     let first = try #require(viewModel.draft.sendReminder)
+    currentTime = initialTime.addingTimeInterval(60)
     #expect(
       await viewModel.remind(
-        at: now.addingTimeInterval(7_200),
+        at: initialTime.addingTimeInterval(7_200),
         timeZoneIdentifier: "Europe/Prague"
       )
     )
@@ -486,8 +488,9 @@ final class MailCompositionDraftTests {
     #expect(second.changedByTrustedDeviceId == "device-a")
     #expect(second.originalTimeZoneIdentifier == "Europe/Prague")
     #expect(second.isSynchronizationPending)
-    #expect(second.changedAtMilliseconds == Int64(now.timeIntervalSince1970 * 1_000))
-    #expect(viewModel.draft.updatedAtMilliseconds == Int64(now.timeIntervalSince1970 * 1_000))
+    #expect(second.createdAtMilliseconds == first.createdAtMilliseconds)
+    #expect(second.changedAtMilliseconds == Int64(currentTime.timeIntervalSince1970 * 1_000))
+    #expect(viewModel.draft.updatedAtMilliseconds == Int64(currentTime.timeIntervalSince1970 * 1_000))
     #expect(await viewModel.send() == .sent)
     #expect(cancelled.map(\.0) == [second.revision])
     #expect(cancelled.map(\.1) == [source.id])
@@ -591,8 +594,9 @@ final class MailCompositionDraftTests {
         timeZoneIdentifier: "UTC"
       ))
     )
-    #expect(savedDrafts.count == 1)
-    #expect(savedDrafts.last?.sendReminder != nil)
+    #expect(savedDrafts.count == 2)
+    #expect(savedDrafts.first?.sendReminder != nil)
+    #expect(savedDrafts.last == source)
     #expect(viewModel.draft == source)
     #expect(viewModel.draft.sendReminder == nil)
     #expect(viewModel.saveState == .saved)
