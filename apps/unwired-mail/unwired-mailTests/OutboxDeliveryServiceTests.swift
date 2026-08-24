@@ -42,6 +42,27 @@ final class OutboxDeliveryServiceTests {
     trustedDeviceId: "trusted-device-001",
     updatedAt: 1_781_200_000_200
   )
+  private let standardsMailConnection = MailboxConnection(
+    authorizationState: .authorized,
+    capabilities: .standardsMail(
+      engineCapabilities: [.idle, .uidPlus],
+      roleMappings: Dictionary(
+        uniqueKeysWithValues: CanonicalMailboxRole.allCases.map { ($0, $0.rawValue) }
+      )
+    ),
+    connectedAt: 1_781_200_000_000,
+    displayName: "sender@example.com",
+    id: MailboxConnectionId(
+      providerMailboxIdentity: StableProviderMailboxIdentity(
+        providerId: .imapSMTP,
+        value: "standards-mail-user-001"
+      )
+    ),
+    lastVerifiedAt: 1_781_200_000_100,
+    productAccountId: ProductAccountId("product-account-001"),
+    trustedDeviceId: "trusted-device-001",
+    updatedAt: 1_781_200_000_200
+  )
   private let exchangeWebServicesConnection = MailboxConnection(
     authorizationState: .authorized,
     capabilities: .exchangeWebServices,
@@ -233,6 +254,91 @@ final class OutboxDeliveryServiceTests {
     productAccountId: "product-account-001",
     trustedDeviceId: "trusted-device-001"
   )
+
+  @Test(.bug(id: 384))
+  func standardsMailScheduledSendAdmissionPreservesItsPayloadAndConnection() async throws {
+    let clock = LockedOutboxClock(Date(timeIntervalSince1970: 1_800_000_000))
+    let deliveries = DeliveryCounter()
+    let payloads = InMemoryScheduledSendPayloadSync(snapshots: [])
+    let transport = ScheduledSendClaimTransportSpy()
+    let outbox = OutboxDeliveryService(
+      now: { clock.now() },
+      scheduledSendTransport: transport,
+      store: InMemoryOutboxDeliveryStore()
+    )
+    let service = ScheduledSendService(
+      now: { clock.now() },
+      outboxService: outbox,
+      payloadSync: payloads,
+      transport: transport
+    )
+    let draftId = try #require(
+      UUID(uuidString: "00000000-0000-0000-0000-000000000384")
+    )
+
+    let attempt = try await service.schedule(
+      message,
+      connection: standardsMailConnection,
+      draftId: draftId,
+      profileId: MailProfileId.defaultProfile(productAccountId: session.productAccountId),
+      originalTimeZoneIdentifier: "Europe/Prague",
+      dueAt: clock.now().addingTimeInterval(60),
+      session: session,
+      undoSendDelayNanoseconds: 10_000_000_000,
+      provider: { _, _, _ in await deliveries.increment() },
+      reconcile: { _, _ in .notSent }
+    )
+    let payload = try #require(await payloads.list(session: session).first)
+
+    #expect(attempt.mailboxConnectionId == standardsMailConnection.id)
+    #expect(attempt.message == message)
+    #expect(payload.record.connectionId == standardsMailConnection.id)
+    #expect(payload.record.message == message)
+    #expect(await deliveries.currentValue() == 0)
+
+    clock.advance(by: 70)
+    try await outbox.resume(
+      connections: [standardsMailConnection],
+      session: session,
+      provider: { _, _, _ in await deliveries.increment() },
+      reconcile: { _, _ in .notSent }
+    )
+    #expect(await deliveries.currentValue() == 1)
+
+    await outbox.suspend(productAccountId: session.productAccountId)
+  }
+
+  @Test(.bug(id: 384))
+  func standardsMailScheduledSendUsesTheProvidersUnknownLimitPolicy() async throws {
+    let now = Date(timeIntervalSince1970: 1_800_000_000)
+    let outbox = OutboxDeliveryService(store: InMemoryOutboxDeliveryStore())
+    let service = ScheduledSendService(
+      now: { now },
+      outboxService: outbox,
+      payloadSync: InMemoryScheduledSendPayloadSync(snapshots: []),
+      transport: ScheduledSendClaimTransportSpy()
+    )
+    let messageAboveGraphLimit = OutgoingMessage(
+      body: String(repeating: "a", count: 3 * 1_024 * 1_024),
+      recipient: message.recipient,
+      subject: message.subject
+    )
+
+    _ = try await service.schedule(
+      messageAboveGraphLimit,
+      connection: standardsMailConnection,
+      draftId: UUID(),
+      profileId: MailProfileId.defaultProfile(productAccountId: session.productAccountId),
+      originalTimeZoneIdentifier: "Europe/Prague",
+      dueAt: now.addingTimeInterval(60),
+      session: session,
+      undoSendDelayNanoseconds: 0,
+      provider: { _, _, _ in Issue.record("Delivery must wait for the scheduled instant.") },
+      reconcile: { _, _ in .notSent }
+    )
+
+    await outbox.suspend(productAccountId: session.productAccountId)
+  }
 
   @Test(.bug(id: 383))
   func exchangeWebServicesScheduledSendAdmissionPreservesItsPayloadAndConnection() async throws {
