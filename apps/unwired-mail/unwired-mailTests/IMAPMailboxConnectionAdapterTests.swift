@@ -836,10 +836,11 @@ final class IMAPMailboxConnectionAdapterTests {
   @Test(.bug(id: 385))
   func testRouterPreservesConnectionWhenScheduledSendCancellationFails() async {
     let connection = routerConnection(providerId: .gmail, displayName: "Gmail")
+    let gmail = RouterTestAdapter()
     let lifecycle = RouterScheduledSendLifecycleSpy(error: IMAPAdapterTestError.unavailable)
     let router = MailboxConnectionRouter(
       exchangeWebServices: RouterTestAdapter(),
-      gmail: RouterTestAdapter(),
+      gmail: gmail,
       imap: RouterTestAdapter(),
       microsoftGraph: RouterTestAdapter(),
       scheduledSendLifecycle: lifecycle
@@ -848,6 +849,7 @@ final class IMAPMailboxConnectionAdapterTests {
     await #expect(throws: IMAPAdapterTestError.unavailable) {
       try await router.removeMailboxConnectionEverywhere(connection, session: session)
     }
+    #expect(await gmail.removalCallCount() == 0)
   }
 
   @Test
@@ -3737,6 +3739,18 @@ private actor RouterScheduledSendLifecycleSpy: ScheduledSendLifecycleManaging {
   }
 }
 
+private actor RouterRemovalCallSpy {
+  private var count = 0
+
+  func record() {
+    count += 1
+  }
+
+  func value() -> Int {
+    count
+  }
+}
+
 private final class RouterTestAdapter: MailboxConnectionAdapter, @unchecked Sendable {
   private let blockedConnectionIds: [MailboxConnectionId]
   private let connections: [MailboxConnection]
@@ -3744,6 +3758,7 @@ private final class RouterTestAdapter: MailboxConnectionAdapter, @unchecked Send
   private let loadGate: RouterOperationGate?
   private let pendingActionError: String?
   private let pendingActionGate: RouterOperationGate?
+  private let removalCalls = RouterRemovalCallSpy()
   private let removalError: Error?
 
   init(
@@ -3799,7 +3814,12 @@ private final class RouterTestAdapter: MailboxConnectionAdapter, @unchecked Send
     _: MailboxConnection,
     session _: ProductAccountSessionSnapshot
   ) async throws {
+    await removalCalls.record()
     if let removalError { throw removalError }
+  }
+
+  func removalCallCount() async -> Int {
+    await removalCalls.value()
   }
 
   func setDefaultSendingConnection(
