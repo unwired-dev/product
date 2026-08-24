@@ -574,7 +574,7 @@ struct MailShellComposer: View {
   }
 
   private var canScheduleSend: Bool {
-    isSendEnabled && selectedConnection?.providerId.supportsScheduledSend == true
+    isSendEnabled && selectedConnection?.providerId.supportsProductOwnedScheduledSend == true
       && (viewModel.draft.kind != .editing || scheduledSendDueAt != nil)
   }
 
