@@ -4190,7 +4190,7 @@ struct MailboxConnectionRouter: MailboxConnectionAdapter, MailboxConnectionCache
     _ connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws {
-    if connection.providerId.supportsScheduledSend {
+    if connection.providerId.supportsProductOwnedScheduledSend {
       try await scheduledSendLifecycle.cancelScheduledSends(
         for: connection.id,
         session: session
