@@ -834,7 +834,6 @@ describe('scheduled Send cross-device claims', () => {
     ).resolves.toBe(false);
   });
 
-  // oxlint-disable-next-line vitest/max-expects -- One fixture verifies every edit-fence predicate without admitting a valid transition.
   it('rejects stale, foreign, and expired edit transitions', async () => {
     expect.assertions(6);
     const fixture = await claimFixture();
@@ -912,6 +911,7 @@ describe('scheduled Send cross-device claims', () => {
         trustedDeviceId: fixture.secondDevice.trustedDeviceId,
       }),
     ).rejects.toThrow('Invalid immediate Scheduled Send admission');
+    // oxlint-disable-next-line vitest/max-expects -- One fixture verifies every edit-fence predicate without admitting a valid transition.
     await expect(
       fixture.asUser.mutation(api.scheduledSend.cancel, {
         editGeneration: editGeneration + 1,
