@@ -140,11 +140,7 @@ final class MailComposerViewModel {
   }
 
   func discard() async -> Bool {
-    editRevision += 1
-    let pendingAutosaveTask = autosaveTask
-    autosaveTask = nil
-    pendingAutosaveTask?.cancel()
-    await pendingAutosaveTask?.value
+    await cancelPendingAutosave()
     do {
       try await deleteDraft(draft.id)
       await cancelCurrentReminder()
@@ -232,11 +228,7 @@ final class MailComposerViewModel {
       SendReminderSchedule.isValid(dueAt: dueAt, now: now(), calendar: calendar)
     else { return false }
 
-    editRevision += 1
-    let pendingAutosaveTask = autosaveTask
-    autosaveTask = nil
-    pendingAutosaveTask?.cancel()
-    await pendingAutosaveTask?.value
+    await cancelPendingAutosave()
 
     let previousDraft = draft
     let candidate = makeReminderDraft(dueAt: dueAt, timeZoneIdentifier: timeZoneIdentifier)
@@ -334,12 +326,16 @@ final class MailComposerViewModel {
   }
 
   private func flushAutosave() async -> Bool {
+    await cancelPendingAutosave()
+    return await persistCurrentDraft(revision: editRevision)
+  }
+
+  private func cancelPendingAutosave() async {
     editRevision += 1
     let pendingAutosaveTask = autosaveTask
     autosaveTask = nil
     pendingAutosaveTask?.cancel()
     await pendingAutosaveTask?.value
-    return await persistCurrentDraft(revision: editRevision)
   }
 
   private func cancelCurrentReminder() async {

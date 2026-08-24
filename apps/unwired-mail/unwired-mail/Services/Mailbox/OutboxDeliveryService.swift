@@ -1091,10 +1091,17 @@ enum ScheduledSendAdmissionError: LocalizedError, Equatable {
     case .invalidRecipients:
       "Add valid recipients before scheduling delivery."
     case .providerUnavailable:
-      "Scheduled Send currently requires an authorized Gmail connection on this device."
+      "Choose an authorized Gmail or Microsoft 365 Mailbox Connection for automatic delivery."
     case .sizeLimitExceeded:
-      "This message is too large for Gmail. Remove an attachment before scheduling delivery."
+      "This message is too large for the selected Mailbox Connection. Remove an attachment before scheduling delivery."
     }
+  }
+}
+
+extension MailProviderId {
+  /// Whether the provider supports product-owned Scheduled Send delivery.
+  var supportsScheduledSend: Bool {
+    self == .gmail || self == .microsoftGraph
   }
 }
 
@@ -1472,7 +1479,7 @@ actor ScheduledSendService {
     _ message: OutgoingMessage,
     connection: MailboxConnection
   ) throws {
-    guard connection.providerId == .gmail,
+    guard connection.providerId.supportsScheduledSend,
       connection.authorizationState == .authorized,
       connection.capabilities.canSend
     else { throw ScheduledSendAdmissionError.providerUnavailable }
@@ -1492,7 +1499,9 @@ actor ScheduledSendService {
       htmlBody: message.htmlBody ?? "",
       assets: message.assets
     )
-    guard let limit = MailDraftTransferBudget.knownLimit(for: .gmail), byteCount <= limit else {
+    guard let limit = MailDraftTransferBudget.knownLimit(for: connection.providerId),
+      byteCount <= limit
+    else {
       throw ScheduledSendAdmissionError.sizeLimitExceeded
     }
   }
