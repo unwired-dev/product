@@ -2189,18 +2189,22 @@ private struct GmailWatchResponse: Decodable {
   let historyId: String
 }
 
+/// Routes a Scheduled Send through its selected provider connection.
 @MainActor
 protocol ScheduledSendMailboxRouting {
+  /// Loads this device's current Mailbox Connections.
   func loadConnections(
     session: ProductAccountSessionSnapshot
   ) async throws -> [MailboxConnection]
 
+  /// Sends a message through its fixed Mailbox Connection.
   func send(
     _ message: OutgoingMessage,
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws
 
+  /// Reconciles a prior handoff through its fixed Mailbox Connection.
   func deliveryStatus(
     idempotencyKey: String,
     connection: MailboxConnection,
