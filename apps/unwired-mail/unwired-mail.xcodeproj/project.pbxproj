@@ -62,6 +62,8 @@
 		71A6A0812C0B000100000001 /* GmailProviderConnectionServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A0832C0B000100000001 /* GmailProviderConnectionServiceTests.swift */; };
 		71A6A0842C0B000100000001 /* Services/Gmail/GmailMessageMetadataService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A0862C0B000100000001 /* Services/Gmail/GmailMessageMetadataService.swift */; };
 		71A6A0852C0B000100000001 /* GmailMessageMetadataServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A0872C0B000100000001 /* GmailMessageMetadataServiceTests.swift */; };
+		434000000000000000000001 /* Services/Gmail/ExperimentalGoogleGmailRESTSearchService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 434000000000000000000002 /* Services/Gmail/ExperimentalGoogleGmailRESTSearchService.swift */; };
+		434000000000000000000003 /* ExperimentalGoogleGmailRESTSearchServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 434000000000000000000004 /* ExperimentalGoogleGmailRESTSearchServiceTests.swift */; };
 		71A6A0882C0B000100000001 /* Services/Gmail/GmailMessageBodyService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A08A2C0B000100000001 /* Services/Gmail/GmailMessageBodyService.swift */; };
 		71A6A0892C0B000100000001 /* GmailMessageBodyServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A08B2C0B000100000001 /* GmailMessageBodyServiceTests.swift */; };
 		71A6A08C2C0B000100000001 /* Services/Gmail/MessageCategorizationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A08E2C0B000100000001 /* Services/Gmail/MessageCategorizationService.swift */; };
@@ -174,6 +176,7 @@
 		71A6A2282C0B000100000001 /* Services/Mailbox/SwiftMailEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A2292C0B000100000001 /* Services/Mailbox/SwiftMailEngine.swift */; };
 		71A6A22A2C0B000100000001 /* SwiftMailEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A22B2C0B000100000001 /* SwiftMailEngineTests.swift */; };
 		71A6A22C2C0B000100000001 /* SwiftMail in Frameworks */ = {isa = PBXBuildFile; productRef = 71A6A22F2C0B000100000001 /* SwiftMail */; };
+		434000000000000000000007 /* GoogleAPIClientForREST_Gmail in Frameworks */ = {isa = PBXBuildFile; productRef = 434000000000000000000006 /* GoogleAPIClientForREST_Gmail */; };
 		71A6A2302C0B000100000001 /* Services/Mailbox/UnsubscribeSuggestion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A2312C0B000100000001 /* Services/Mailbox/UnsubscribeSuggestion.swift */; };
 		71A6A2322C0B000100000001 /* Services/ProductSync/FeatureSuggestionPreferenceSyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A2332C0B000100000001 /* Services/ProductSync/FeatureSuggestionPreferenceSyncService.swift */; };
 		71A6A2342C0B000100000001 /* UnsubscribeSuggestionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A2352C0B000100000001 /* UnsubscribeSuggestionTests.swift */; };
@@ -344,6 +347,8 @@
 		71A6A0832C0B000100000001 /* GmailProviderConnectionServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GmailProviderConnectionServiceTests.swift; sourceTree = "<group>"; };
 		71A6A0862C0B000100000001 /* Services/Gmail/GmailMessageMetadataService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/Gmail/GmailMessageMetadataService.swift; sourceTree = "<group>"; };
 		71A6A0872C0B000100000001 /* GmailMessageMetadataServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GmailMessageMetadataServiceTests.swift; sourceTree = "<group>"; };
+		434000000000000000000002 /* Services/Gmail/ExperimentalGoogleGmailRESTSearchService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/Gmail/ExperimentalGoogleGmailRESTSearchService.swift; sourceTree = "<group>"; };
+		434000000000000000000004 /* ExperimentalGoogleGmailRESTSearchServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExperimentalGoogleGmailRESTSearchServiceTests.swift; sourceTree = "<group>"; };
 		71A6A08A2C0B000100000001 /* Services/Gmail/GmailMessageBodyService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/Gmail/GmailMessageBodyService.swift; sourceTree = "<group>"; };
 		71A6A08B2C0B000100000001 /* GmailMessageBodyServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GmailMessageBodyServiceTests.swift; sourceTree = "<group>"; };
 		71A6A08E2C0B000100000001 /* Services/Gmail/MessageCategorizationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/Gmail/MessageCategorizationService.swift; sourceTree = "<group>"; };
@@ -528,6 +533,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				434000000000000000000007 /* GoogleAPIClientForREST_Gmail in Frameworks */,
 				71A6A22C2C0B000100000001 /* SwiftMail in Frameworks */,
 				71A6A1692C0B000100000001 /* SwiftSoup in Frameworks */,
 			);
@@ -641,6 +647,7 @@
 				71A6A0162C0B000100000001 /* Services/BackendEnvironment.swift */,
 				71A6A0192C0B000100000001 /* Services/DotEnvFile.swift */,
 				71A6A0862C0B000100000001 /* Services/Gmail/GmailMessageMetadataService.swift */,
+				434000000000000000000002 /* Services/Gmail/ExperimentalGoogleGmailRESTSearchService.swift */,
 				71A6A09A2C0B000100000001 /* Services/Gmail/CategoryAwareNotificationService.swift */,
 				71A6A2432C0B000100000001 /* Services/Gmail/NotificationDevicePreferences.swift */,
 				71A6A08A2C0B000100000001 /* Services/Gmail/GmailMessageBodyService.swift */,
@@ -758,6 +765,7 @@
 				C0DEC0DE1220000000000008 /* TemplateSyncServiceTests.swift */,
 				71A6A01A2C0B000100000001 /* DotEnvFileTests.swift */,
 				71A6A0872C0B000100000001 /* GmailMessageMetadataServiceTests.swift */,
+				434000000000000000000004 /* ExperimentalGoogleGmailRESTSearchServiceTests.swift */,
 				71A6A2352C0B000100000001 /* UnsubscribeSuggestionTests.swift */,
 				71A6A2392C0B000100000001 /* CalendarInvitationTests.swift */,
 				339C0A000000000000000004 /* ContactCandidateTests.swift */,
@@ -858,6 +866,7 @@
 			);
 			name = "unwired-mail";
 			packageProductDependencies = (
+				434000000000000000000006 /* GoogleAPIClientForREST_Gmail */,
 				71A6A1682C0B000100000001 /* SwiftSoup */,
 				71A6A22F2C0B000100000001 /* SwiftMail */,
 			);
@@ -954,6 +963,7 @@
 			);
 			mainGroup = 71A6A0232C0B000100000001;
 			packageReferences = (
+				434000000000000000000005 /* XCRemoteSwiftPackageReference "google-api-objectivec-client-for-rest" */,
 				71A6A1672C0B000100000001 /* XCRemoteSwiftPackageReference "SwiftSoup" */,
 				71A6A22E2C0B000100000001 /* XCRemoteSwiftPackageReference "SwiftMail" */,
 			);
@@ -1073,6 +1083,7 @@
 				71A6A0062C0B000100000001 /* Services/BackendEnvironment.swift in Sources */,
 				71A6A0092C0B000100000001 /* Services/DotEnvFile.swift in Sources */,
 				71A6A0842C0B000100000001 /* Services/Gmail/GmailMessageMetadataService.swift in Sources */,
+				434000000000000000000001 /* Services/Gmail/ExperimentalGoogleGmailRESTSearchService.swift in Sources */,
 				71A6A0992C0B000100000001 /* Services/Gmail/CategoryAwareNotificationService.swift in Sources */,
 				71A6A2422C0B000100000001 /* Services/Gmail/NotificationDevicePreferences.swift in Sources */,
 				71A6A0882C0B000100000001 /* Services/Gmail/GmailMessageBodyService.swift in Sources */,
@@ -1188,6 +1199,7 @@
 				C0DEC0DE1220000000000007 /* TemplateSyncServiceTests.swift in Sources */,
 				71A6A00A2C0B000100000001 /* DotEnvFileTests.swift in Sources */,
 				71A6A0852C0B000100000001 /* GmailMessageMetadataServiceTests.swift in Sources */,
+				434000000000000000000003 /* ExperimentalGoogleGmailRESTSearchServiceTests.swift in Sources */,
 				71A6A2342C0B000100000001 /* UnsubscribeSuggestionTests.swift in Sources */,
 				71A6A2382C0B000100000001 /* CalendarInvitationTests.swift in Sources */,
 				339C0A000000000000000003 /* ContactCandidateTests.swift in Sources */,
@@ -1284,6 +1296,14 @@
 /* End PBXTargetDependency section */
 
 /* Begin XCRemoteSwiftPackageReference section */
+		434000000000000000000005 /* XCRemoteSwiftPackageReference "google-api-objectivec-client-for-rest" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/google/google-api-objectivec-client-for-rest.git";
+			requirement = {
+				kind = exactVersion;
+				version = 5.4.0;
+			};
+		};
 		71A6A1672C0B000100000001 /* XCRemoteSwiftPackageReference "SwiftSoup" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/scinfu/SwiftSoup.git";
@@ -1303,6 +1323,11 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		434000000000000000000006 /* GoogleAPIClientForREST_Gmail */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 434000000000000000000005 /* XCRemoteSwiftPackageReference "google-api-objectivec-client-for-rest" */;
+			productName = GoogleAPIClientForREST_Gmail;
+		};
 		71A6A1682C0B000100000001 /* SwiftSoup */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 71A6A1672C0B000100000001 /* XCRemoteSwiftPackageReference "SwiftSoup" */;

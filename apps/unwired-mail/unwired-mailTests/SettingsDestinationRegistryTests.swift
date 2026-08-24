@@ -1109,7 +1109,7 @@ final class SettingsDestinationRegistryTests {
     )
     #expect(AboutAppInformation.productWebsiteURL.path == "/unwired-mail")
     #expect(AboutAppInformation.supportURL.scheme == "mailto")
-    #expect(OpenSourcePackage.all.count == 13)
+    #expect(OpenSourcePackage.all.count == 15)
     #expect(OpenSourcePackage.all.allSatisfy { $0.licenseURL.scheme == "https" })
     #expect(Set(OpenSourcePackage.all.map(\.name)).count == OpenSourcePackage.all.count)
   }

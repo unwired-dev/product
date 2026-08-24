@@ -2453,7 +2453,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxConnectio
     pendingActionService: PendingProviderActionService = .shared,
     pendingActionGate: MailboxConnectionSyncGate = .pendingActions,
     outboxService: OutboxDeliveryService = .shared,
-    searchService: GmailMessageSearching = GmailMessageMetadataService(),
+    searchService: GmailMessageSearching = GmailSearchServiceFactory.makeDefault(),
     syncGate: MailboxConnectionSyncGate = .shared
   ) {
     self.attachmentStore = attachmentStore
