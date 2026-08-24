@@ -1716,8 +1716,7 @@ actor OutboxDeliveryService {
     attempts.append(replacement)
     try store.save(attempts, productAccountId: session.productAccountId)
     for attempt in attempts
-    where attempt.scheduledSendId == record.scheduleId && attempt.providerDraftRequiresCleanup
-    {
+    where attempt.scheduledSendId == record.scheduleId && attempt.providerDraftRequiresCleanup {
       scheduleProviderDraftCleanup(attempt)
     }
     scheduleRetry(
