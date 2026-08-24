@@ -250,7 +250,7 @@
 		C0DEC0DE4060B00000000009 /* ShareExtensionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE4060F0000000000B /* ShareExtensionView.swift */; };
 		C0DEC0DE4060B0000000000A /* ShareExtensionDraftForm.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE4060F0000000000C /* ShareExtensionDraftForm.swift */; };
 		C0DEC0DE4060B0000000000B /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE4060F0000000000D /* ShareViewController.swift */; };
-		C0DEC0DE4060E00000000001 /* unwired-mailShareExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = C0DEC0DE4060F00000000010 /* unwired-mailShareExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		C0DEC0DE4060E00000000001 /* unwired-mailShareExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = C0DEC0DE4060F00000000010 /* unwired-mailShareExtension.appex */; platformFilter = ios; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		C0DEC0DE4060A0000000000B /* ShareExtensionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE4060F00000000011 /* ShareExtensionTests.swift */; };
 /* End PBXBuildFile section */
 
@@ -1311,6 +1311,7 @@
 		};
 		C0DEC0DE4060C00000000006 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
+			platformFilter = ios;
 			target = C0DEC0DE4060C00000000001 /* unwired-mailShareExtension */;
 			targetProxy = C0DEC0DE4060C00000000005 /* PBXContainerItemProxy */;
 		};
@@ -1532,7 +1533,7 @@
 				MARKETING_VERSION = 0.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = dev.unwired.mail;
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = YES;
 				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -1571,7 +1572,7 @@
 				MARKETING_VERSION = 0.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = dev.unwired.mail;
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = YES;
 				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;

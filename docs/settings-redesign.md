@@ -1,12 +1,14 @@
 # Settings redesign
 
-Status: released. Signed-out users can open Settings for Appearance, Privacy & Data, local-only
-Advanced diagnostics, and About while account-bound destinations remain visible but unavailable.
-Signed-in users receive the complete adaptive Settings experience, including Mail Profiles.
+Status: the destination model and released controls are implemented. The independent platform
+navigation and destination-local failure amendments in ADR-0058 are accepted but implementation
+is pending. Signed-out users can open Settings for Appearance, Privacy & Data, local-only Advanced
+diagnostics, and About while account-bound destinations remain visible but unavailable. Signed-in
+users receive the complete adaptive Settings destination set, including Mail Profiles.
 
 ## Goal
 
-Replace the current single-scroll Account Settings sheet with one adaptive Settings experience. Wide layouts use a grouped navigation sidebar and one detail pane. Compact layouts preserve the same information architecture as a navigable settings list.
+Keep one adaptive Settings experience independent from mailbox loading and composer presentation. Wide layouts use a grouped navigation sidebar and one detail pane. Compact layouts preserve the same information architecture as a navigable settings list in the existing app navigation stack.
 
 The released experience must not contain empty or “Coming Soon” destinations. Work may land incrementally behind development-only access, but every visible destination must have functional core controls before the new Settings entry points are enabled.
 
@@ -35,11 +37,11 @@ The released experience must not contain empty or “Coming Soon” destinations
 ## Platform behavior
 
 - macOS uses a dedicated Settings window available from the app menu and `Command-,`.
-- Regular-width iPad layouts use the two-pane Settings layout in a resizable sheet.
-- iPhone and compact-width iPad layouts use a full-height sheet with a settings list that pushes destinations.
+- Regular-width iPad layouts navigate to an in-app two-pane Settings workspace.
+- iPhone and compact-width iPad layouts push a settings list into the existing navigation stack.
 - Email Accounts is selected the first time Settings opens after Product Account sign-in. Before sign-in, Appearance is selected first so an available destination is shown.
 - Later openings restore the last destination on that device. A missing destination falls back to Email Accounts after sign-in or Appearance before sign-in.
-- macOS does not add a Done button to its Settings window. iPhone and iPad use platform-appropriate dismissal controls.
+- macOS does not add a Done button to its Settings window. iPhone and iPad use their existing navigation controls rather than modal dismissal controls.
 - The same destination registry, labels, grouping, search metadata, and deep-link routes drive every platform layout.
 
 ## Navigation and search
@@ -65,6 +67,8 @@ Sidebar indicators appear only when action is needed:
 - Any synchronized destination: unresolved conflict or failed sync
 
 A temporary pending-sync indicator may be shown. Decorative counts and permanent success badges are excluded. Selecting an indicated destination explains the issue at the top of its detail pane.
+
+The Settings shell always opens from local state and never waits for Thread, body, image, prefetch, or historical synchronization work. A destination-specific load or save failure keeps existing values visible, presents a concise inline error with Retry only in that detail pane, and leaves the Settings sidebar and unrelated destinations usable.
 
 Unsupported provider capabilities remain visible in account-scoped views but disabled with a concise provider-specific explanation. Global selectors mark affected accounts instead of hiding them. An unsupported action is never silently replaced with a different action.
 
@@ -172,9 +176,9 @@ Billing and subscriptions are excluded until the product has a commercial plan.
 - Show Category badges
 - Show attachment indicators
 
-Defaults are Unified Inbox with the Important Mail View at the start of each application session, comfortable density, two preview lines, and shown contact images, Category badges, and attachment indicators.
+Defaults are Unified Inbox with the Important Mail View at the start of each application session, comfortable density, one preview line, and shown real contact images, Category badges, and attachment indicators. Existing users retain their saved density and preview-length choices, and the redesigned row keeps the sender, subject, then preview hierarchy at every setting.
 
-Thread grouping, latest-message ordering, source-connection identity in Unified Inbox, and the latest message opening expanded remain fixed product behavior.
+Thread grouping, newest-first message ordering, source-connection identity in Unified Inbox, and every message opening expanded remain fixed product behavior.
 
 The actual inbox and message browser remain in the main mail experience and are removed from Settings.
 
@@ -213,7 +217,7 @@ The account-wide incoming and outgoing defaults and each per-connection override
 - Undo Send: Off, 10, 20, or 30 seconds; default 10 seconds.
 - Default format: rich text with a plain-text alternative.
 - Default reply action: Reply, never Reply All.
-- Choose the synchronized default Composer Presentation Preference: partial-height or full-screen.
+- Regular-width composing always starts in the detail-column overlay, while compact-width composing starts in its pushed editor; expansion is transient to the current editor and is not a preference.
 - Choose whether the synchronized Formatting Toolbar Preference shows the formatting toolbar.
 - Include quoted text collapsed beneath the draft.
 - Include original attachments when forwarding.
@@ -296,8 +300,8 @@ Inbox density remains in Inbox. Arbitrary accent colors, custom fonts, and a dup
 - Block known Tracking Pixels even when other remote content is allowed.
 - Per-connection remote-content overrides.
 - Attachment download policy: On Demand, Wi-Fi, or Always.
-- Show local storage used by metadata, bodies, drafts, and attachments.
-- Clear cached bodies and downloaded attachments without deleting provider mail.
+- Show local storage used by metadata, bodies, authorized remote content, drafts, and attachments.
+- Clear cached bodies, the separate Authorized Remote Content Cache, and downloaded attachments without deleting provider mail.
 - Explain Product Sync encryption and link to Recovery Key management.
 - Summarize the Read Receipt policy and link to Reading.
 - Export user-owned Product Sync data.
