@@ -127,6 +127,7 @@ enum MailEngineError: Error, Equatable, Sendable {
 }
 
 struct MailEngineMessageMetadata: Equatable, Sendable {
+  let attachmentDescriptors: [MailEngineAttachmentDescriptor]
   let calendarInvitationPart: MailEngineBodyPartDescriptor?
   let ccRecipients: [String]
   let flags: Set<String>
@@ -147,6 +148,7 @@ struct MailEngineMessageMetadata: Equatable, Sendable {
     identity: MailEngineMessageIdentity,
     internalDate: Date,
     rfcMessageID: String?,
+    attachmentDescriptors: [MailEngineAttachmentDescriptor] = [],
     calendarInvitationPart: MailEngineBodyPartDescriptor? = nil,
     ccRecipients: [String] = [],
     from: String? = nil,
@@ -158,6 +160,7 @@ struct MailEngineMessageMetadata: Equatable, Sendable {
     subject: String = "",
     toRecipients: [String] = []
   ) {
+    self.attachmentDescriptors = attachmentDescriptors
     self.calendarInvitationPart = calendarInvitationPart
     self.ccRecipients = ccRecipients
     self.flags = flags
@@ -181,11 +184,30 @@ struct MailEngineMetadataPage: Equatable, Sendable {
   let uidValidity: Int64
 }
 
-struct MailEngineBodyPartSelector: Equatable, Hashable, Sendable {
+struct MailEngineBodyPartSelector: Codable, Equatable, Hashable, Sendable {
   let rawValue: String
 
   init(_ rawValue: String) {
     self.rawValue = rawValue
+  }
+}
+
+/// Metadata required to display and retrieve one ordinary incoming attachment.
+struct MailEngineAttachmentDescriptor: Codable, Equatable, Sendable {
+  let byteCount: Int
+  let contentTransferEncoding: String?
+  let filename: String
+  let mimeType: String
+  let selector: MailEngineBodyPartSelector
+
+  /// The bounded body-part request represented by this attachment.
+  var bodyPart: MailEngineBodyPartDescriptor {
+    MailEngineBodyPartDescriptor(
+      byteCount: byteCount,
+      contentTransferEncoding: contentTransferEncoding,
+      mimeType: mimeType,
+      selector: selector
+    )
   }
 }
 
