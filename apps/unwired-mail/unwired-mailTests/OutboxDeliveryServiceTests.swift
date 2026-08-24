@@ -429,7 +429,8 @@ final class OutboxDeliveryServiceTests {
   @Test(.bug(id: 383))
   func dueScheduledSendWaitsForTheBusyConnectionsCurrentPass() async throws {
     let now = Date(timeIntervalSince1970: 1_800_000_000)
-    let gate = DeliveryHandoffGate(), deliveries = DeliveryCounter()
+    let gate = DeliveryHandoffGate()
+    let deliveries = DeliveryCounter()
     let service = OutboxDeliveryService(
       handoffDelayNanoseconds: immediateHandoffDelay,
       now: { now },
@@ -452,10 +453,14 @@ final class OutboxDeliveryServiceTests {
     }
     await gate.waitUntilStarted()
     let firstScheduledPass = Task {
-      try await enqueueDueScheduled("First scheduled", service: service, provider: provider, now: now)
+      try await enqueueDueScheduled(
+        "First scheduled", service: service, provider: provider, now: now
+      )
     }
     let secondScheduledPass = Task {
-      try await enqueueDueScheduled("Second scheduled", service: service, provider: provider, now: now)
+      try await enqueueDueScheduled(
+        "Second scheduled", service: service, provider: provider, now: now
+      )
     }
     while try await service.items(session: session).count < 3 {
       await Task.yield()
