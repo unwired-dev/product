@@ -3403,6 +3403,7 @@ struct AccountView: View {
     switchGeneration: Int
   ) async -> Bool {
     contentPresentationDismissalSignal &+= 1
+    mailShellSelection.clearThreadSelection()
     mailShellSelection.selectUnifiedInbox()
     await waitForNextMainRunLoopCycle()
     guard
