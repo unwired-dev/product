@@ -429,8 +429,7 @@ final class OutboxDeliveryServiceTests {
   @Test(.bug(id: 383))
   func dueScheduledSendWaitsForTheBusyConnectionsCurrentPass() async throws {
     let now = Date(timeIntervalSince1970: 1_800_000_000)
-    let gate = DeliveryHandoffGate()
-    let deliveries = DeliveryCounter()
+    let gate = DeliveryHandoffGate(), deliveries = DeliveryCounter()
     let service = OutboxDeliveryService(
       handoffDelayNanoseconds: immediateHandoffDelay,
       now: { now },
