@@ -626,7 +626,7 @@ final class ConvexClient {
     scheduleId: UUID,
     session: ProductAccountSessionSnapshot
   ) async throws -> ScheduledSendOperationalStatus? {
-    try await performQuery(
+    try await performNullableQuery(
       path: "scheduledSend:status",
       args: ScheduledSendStatusArgs(
         scheduleId: scheduleId.uuidString.lowercased(),
@@ -704,6 +704,7 @@ final class ConvexClient {
       payload: payload,
       expectedRevision: expectedRevision,
       editGeneration: editGeneration,
+      requestedAt: Int64(Date.now.timeIntervalSince1970 * 1_000),
       session: session
     )
   }
@@ -715,6 +716,7 @@ final class ConvexClient {
     payload: ScheduledSendPayloadAcknowledgement,
     expectedRevision: Int,
     editGeneration: Int,
+    requestedAt: Int64? = nil,
     session: ProductAccountSessionSnapshot
   ) async throws -> ScheduledSendOperationalAcknowledgement {
     try await performMutation(
@@ -726,6 +728,7 @@ final class ConvexClient {
         encryptedPayloadIdentifier: payload.payloadIdentifier,
         encryptedPayloadUpdatedAt: payload.updatedAt,
         expectedRevision: expectedRevision,
+        requestedAt: requestedAt,
         revision: record.revision,
         scheduleId: record.scheduleId.uuidString.lowercased(),
         trustedDeviceCredential: try trustedDeviceCredential(session.trustedDeviceId),
@@ -1353,6 +1356,7 @@ private struct ReplaceScheduledSendArgs: Encodable {
   let encryptedPayloadIdentifier: String
   let encryptedPayloadUpdatedAt: Int64
   let expectedRevision: Int
+  let requestedAt: Int64?
   let revision: Int
   let scheduleId: String
   let trustedDeviceCredential: String?

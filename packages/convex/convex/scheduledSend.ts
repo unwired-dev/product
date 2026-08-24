@@ -166,6 +166,10 @@ interface AdmissionArguments {
   readonly trustedDeviceId: Doc<'trustedDevices'>['_id'];
 }
 
+interface ImmediateAdmissionArguments extends AdmissionArguments {
+  readonly requestedAt: number;
+}
+
 function assertValidAdmission(
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- AdmissionArguments fields are explicitly readonly but the generated trusted-device ID is not inferred as readonly.
   args: Readonly<AdmissionArguments>,
@@ -185,12 +189,13 @@ function assertValidAdmission(
 
 function assertValidImmediateAdmission(
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- AdmissionArguments fields are explicitly readonly but the generated trusted-device ID is not inferred as readonly.
-  args: Readonly<AdmissionArguments>,
+  args: Readonly<ImmediateAdmissionArguments>,
   now: number,
 ) {
   const isValid = [
-    args.dueAt >= now - minuteMilliseconds,
-    args.dueAt <= now + minuteMilliseconds,
+    args.requestedAt >= now - minuteMilliseconds,
+    args.requestedAt <= now + minuteMilliseconds,
+    args.dueAt <= args.requestedAt + minuteMilliseconds,
     args.deadlineAt === args.dueAt + dayMilliseconds,
     Number.isSafeInteger(args.revision),
     args.revision >= 2,
@@ -973,6 +978,7 @@ export const sendNow = mutation({
     encryptedPayloadIdentifier: v.string(),
     encryptedPayloadUpdatedAt: v.number(),
     expectedRevision: v.number(),
+    requestedAt: v.number(),
     revision: v.number(),
     scheduleId: v.string(),
     trustedDeviceId: v.id('trustedDevices'),

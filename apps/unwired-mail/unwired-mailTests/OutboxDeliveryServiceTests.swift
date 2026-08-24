@@ -72,6 +72,36 @@ final class OutboxDeliveryServiceTests {
   }
 
   @Test
+  func scheduledSendManagementSelectsTheOperationalRevision() async throws {
+    let current = ScheduledSendPayloadSnapshot(
+      acknowledgement: ScheduledSendPayloadAcknowledgement(
+        payloadIdentifier: "payload-1",
+        updatedAt: 11
+      ),
+      record: scheduledSendRecord(revision: 1)
+    )
+    let orphan = ScheduledSendPayloadSnapshot(
+      acknowledgement: ScheduledSendPayloadAcknowledgement(
+        payloadIdentifier: "payload-2",
+        updatedAt: 12
+      ),
+      record: scheduledSendRecord(revision: 2)
+    )
+    let service = ScheduledSendService(
+      outboxService: OutboxDeliveryService(store: InMemoryOutboxDeliveryStore()),
+      payloadSync: InMemoryScheduledSendPayloadSync(snapshots: [current, orphan]),
+      transport: ScheduledSendManagementTransportSpy(
+        status: scheduledSendStatus(for: current, claimPhase: nil)
+      )
+    )
+
+    let item = try #require(await service.managedItems(session: session).first)
+
+    #expect(item.record.revision == 1)
+    #expect(item.payload == current.acknowledgement)
+  }
+
+  @Test
   func scheduledSendEditCreatesAValidatedRevisionAndNewOutboxAttempt() async throws {
     let record = scheduledSendRecord(revision: 1)
     let snapshot = ScheduledSendPayloadSnapshot(

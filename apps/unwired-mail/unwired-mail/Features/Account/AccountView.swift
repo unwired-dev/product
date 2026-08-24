@@ -6993,7 +6993,7 @@ struct MailShellThreadList: View {
           }
         }
         if !sendingScheduledItems.isEmpty || !sendingOutboxItems.isEmpty {
-          Section("Sending") {
+          Section("In Progress") {
             ForEach(sendingScheduledItems) { scheduledSendRow($0) }
             ForEach(sendingOutboxItems) { outboxRow($0) }
           }
@@ -12411,10 +12411,13 @@ final class GmailMailActionViewModel {
     originalTimeZoneIdentifier: String,
     undoSendWindow: UndoSendWindow
   ) async -> Bool {
-    guard !isPerformingAction,
-      let connectionId = draft.connectionId,
+    guard !isPerformingAction else { return false }
+    guard let connectionId = draft.connectionId,
       let connection = knownConnections.first(where: { $0.id == connectionId })
-    else { return false }
+    else {
+      errorMessage = "Authorize this Mailbox Connection before changing the Scheduled Send."
+      return false
+    }
     isPerformingAction = true
     defer { isPerformingAction = false }
     let message = scheduledOutgoingMessage(
@@ -12618,8 +12621,9 @@ final class GmailMailActionViewModel {
     }
     do {
       scheduledSendItems = try await scheduledSendService.managedItems(session: session)
+    } catch is CancellationError {
     } catch {
-      scheduledSendItems = []
+      errorMessage = error.localizedDescription
     }
   }
 

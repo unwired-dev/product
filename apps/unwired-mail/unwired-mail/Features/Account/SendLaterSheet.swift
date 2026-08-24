@@ -90,7 +90,10 @@ struct SendLaterSheet: View {
     self.schedule = schedule
     self.scheduleAutomatically = scheduleAutomatically
     self.timeZone = timeZone
-    _mode = State(initialValue: existingAutomaticDueAt == nil ? .reminder : .automatically)
+    _mode = State(
+      initialValue: existingAutomaticDueAt != nil && canAutomaticallySend
+        ? .automatically : .reminder
+    )
     let minimumDate = now.addingTimeInterval(60)
     let existingDate = existingAutomaticDueAt ?? existingReminder?.dueAt
     _selectedDate = State(

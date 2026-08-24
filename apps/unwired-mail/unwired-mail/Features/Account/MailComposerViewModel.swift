@@ -238,6 +238,7 @@ final class MailComposerViewModel {
     pendingAutosaveTask?.cancel()
     await pendingAutosaveTask?.value
 
+    let previousDraft = draft
     var candidate = draft
     if let existing = candidate.sendReminder {
       candidate.sendReminder = existing.rescheduled(
@@ -270,6 +271,12 @@ final class MailComposerViewModel {
 
     do {
       reminderState = .saved(try await scheduleReminder(candidate))
+    } catch let error as ScheduledSendManagementError {
+      draft = previousDraft
+      lastSavedDraft = previousDraft
+      saveState = .saved
+      reminderState = .failed(error.localizedDescription)
+      return false
     } catch {
       reminderState = .failed(
         "Reminder saved, but this device could not schedule its notification."

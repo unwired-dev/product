@@ -77,7 +77,7 @@ struct MailShellComposer: View {
   ) {
     self.connections = connections
     var initialDraft = draft
-    if initialDraft.signature == nil {
+    if initialDraft.signature == nil, scheduledSendDueAt == nil {
       initialDraft.applyDefaultSignature(from: signatures)
     }
     if let connectionId = draft.connectionId {

@@ -793,20 +793,11 @@ extension ScheduledSendPayloadSyncing {
   ) async throws -> [ScheduledSendPayloadSnapshot] { [] }
 
   func load(
-    scheduleId: UUID,
-    revision: Int,
-    session: ProductAccountSessionSnapshot
+    scheduleId _: UUID,
+    revision _: Int,
+    session _: ProductAccountSessionSnapshot
   ) async throws -> ScheduledSendPayloadSnapshot? {
-    guard let record = try await load(scheduleId: scheduleId, session: session),
-      record.revision == revision
-    else { return nil }
-    return ScheduledSendPayloadSnapshot(
-      acknowledgement: ScheduledSendPayloadAcknowledgement(
-        payloadIdentifier: "scheduled-send.v1." + scheduleId.uuidString.lowercased(),
-        updatedAt: record.createdAtMilliseconds
-      ),
-      record: record
-    )
+    nil
   }
 
   func remove(
@@ -1212,22 +1203,20 @@ actor ScheduledSendService {
     session: ProductAccountSessionSnapshot
   ) async throws -> [ManagedScheduledSend] {
     let snapshots = try await payloadSync.list(session: session)
-    var latestByScheduleId: [UUID: ScheduledSendPayloadSnapshot] = [:]
-    for snapshot in snapshots {
-      let existing = latestByScheduleId[snapshot.record.scheduleId]
-      if snapshot.record.revision > (existing?.record.revision ?? 0) {
-        latestByScheduleId[snapshot.record.scheduleId] = snapshot
-      }
-    }
+    let scheduleIds = Set(snapshots.map(\.record.scheduleId))
     var items: [ManagedScheduledSend] = []
-    for snapshot in latestByScheduleId.values {
+    for scheduleId in scheduleIds {
       try Task.checkCancellation()
       guard
         let status = try await transport.scheduledSendStatus(
-          scheduleId: snapshot.record.scheduleId,
+          scheduleId: scheduleId,
           session: session
-        ), status.scheduleId == snapshot.record.scheduleId.uuidString.lowercased(),
-        status.revision == snapshot.record.revision,
+        ), status.scheduleId == scheduleId.uuidString.lowercased(),
+        let snapshot = try await payloadSync.load(
+          scheduleId: scheduleId,
+          revision: status.revision,
+          session: session
+        ),
         status.dueAt == snapshot.record.dueAtMilliseconds,
         status.deadlineAt == snapshot.record.deadlineAtMilliseconds,
         status.encryptedPayloadIdentifier == snapshot.acknowledgement.payloadIdentifier,
@@ -1327,11 +1316,12 @@ actor ScheduledSendService {
     provider: @escaping OutboxDeliveryPerformer,
     reconcile: @escaping OutboxDeliveryReconciler
   ) async throws -> ManagedScheduledSend {
+    let undoSendDelay = TimeInterval(undoSendDelayNanoseconds) / 1_000_000_000
     try await replace(
       editSession,
       message: message,
       connection: connection,
-      dueAt: now(),
+      dueAt: now().addingTimeInterval(undoSendDelay),
       originalTimeZoneIdentifier: TimeZone.current.identifier,
       sendsImmediately: true,
       session: session,
@@ -1416,22 +1406,27 @@ actor ScheduledSendService {
           session: session
         )
       }
-    } catch {
+    } catch let replacementError {
       try? await payloadSync.remove(
         scheduleId: replacement.scheduleId,
         revision: replacement.revision,
         session: session
       )
-      let status = try? await transport.scheduledSendStatus(
-        scheduleId: current.scheduleId,
-        session: session
-      )
+      let status: ScheduledSendOperationalStatus?
+      do {
+        status = try await transport.scheduledSendStatus(
+          scheduleId: current.scheduleId,
+          session: session
+        )
+      } catch {
+        throw replacementError
+      }
       if status?.revision != current.revision || status?.state == .cancelled
         || status?.state == .completed
       {
         throw ScheduledSendManagementError.staleRevision
       }
-      throw error
+      throw replacementError
     }
     guard acknowledgement.scheduleId == replacement.scheduleId.uuidString.lowercased(),
       acknowledgement.revision == replacement.revision,
@@ -1449,7 +1444,7 @@ actor ScheduledSendService {
       replacement,
       connection: connection,
       session: session,
-      undoSendDelayNanoseconds: undoSendDelayNanoseconds,
+      undoSendDelayNanoseconds: sendsImmediately ? 0 : undoSendDelayNanoseconds,
       provider: provider,
       reconcile: reconcile
     )
@@ -1698,7 +1693,12 @@ actor OutboxDeliveryService {
       retryTasks.removeValue(forKey: attempt.id)?.cancel()
       inFlightRetryTasks.removeValue(forKey: attempt.id)?.cancel()
     }
-    attempts.removeAll { $0.scheduledSendId == record.scheduleId }
+    for index in attempts.indices where attempts[index].scheduledSendId == record.scheduleId {
+      attempts[index].state = .superseded
+      attempts[index].lastErrorDescription = nil
+      attempts[index].nextRetryAtMilliseconds = nil
+    }
+    attempts = pruningTerminalAttempts(attempts)
     let handoffAtMilliseconds =
       record.dueAtMilliseconds + Int64(undoSendDelayNanoseconds / 1_000_000)
     let delayMilliseconds = max(0, handoffAtMilliseconds - milliseconds(now()))
@@ -1715,6 +1715,11 @@ actor OutboxDeliveryService {
     )
     attempts.append(replacement)
     try store.save(attempts, productAccountId: session.productAccountId)
+    for attempt in attempts
+    where attempt.scheduledSendId == record.scheduleId && attempt.providerDraftRequiresCleanup
+    {
+      scheduleProviderDraftCleanup(attempt)
+    }
     scheduleRetry(
       replacement,
       delay: UInt64(delayMilliseconds) * 1_000_000,
@@ -1737,10 +1742,23 @@ actor OutboxDeliveryService {
       retryTasks.removeValue(forKey: attemptId)?.cancel()
       inFlightRetryTasks.removeValue(forKey: attemptId)?.cancel()
     }
-    attempts.removeAll {
-      $0.scheduledSendId == scheduleId && $0.scheduledSendRevision == revision
+    for index in attempts.indices
+    where attempts[index].scheduledSendId == scheduleId
+      && attempts[index].scheduledSendRevision == revision
+    {
+      attempts[index].state = .cancelled
+      attempts[index].lastErrorDescription = nil
+      attempts[index].nextRetryAtMilliseconds = nil
     }
-    try store.save(attempts, productAccountId: session.productAccountId)
+    let retainedAttempts = pruningTerminalAttempts(attempts)
+    try store.save(retainedAttempts, productAccountId: session.productAccountId)
+    for attempt in retainedAttempts
+    where attempt.scheduledSendId == scheduleId
+      && attempt.scheduledSendRevision == revision
+      && attempt.providerDraftRequiresCleanup
+    {
+      scheduleProviderDraftCleanup(attempt)
+    }
   }
 
   // swiftlint:disable:next cyclomatic_complexity function_body_length

@@ -798,6 +798,7 @@ describe('scheduled Send cross-device claims', () => {
       },
     );
     const dueAt = Date.now();
+    const requestedAt = Date.now();
 
     await expect(
       fixture.asUser.mutation(api.scheduledSend.sendNow, {
@@ -807,6 +808,7 @@ describe('scheduled Send cross-device claims', () => {
         encryptedPayloadIdentifier: replacementPayload.payloadIdentifier,
         encryptedPayloadUpdatedAt: replacementPayload.updatedAt,
         expectedRevision: 1,
+        requestedAt,
         revision: 2,
         scheduleId: 'schedule-001',
         trustedDeviceId: fixture.secondDevice.trustedDeviceId,
@@ -829,6 +831,76 @@ describe('scheduled Send cross-device claims', () => {
         trustedDeviceId: fixture.secondDevice.trustedDeviceId,
       }),
       // oxlint-disable-next-line vitest/prefer-to-be-falsy -- The strict boolean matcher conflicts with this recommendation.
+    ).resolves.toBe(false);
+  });
+
+  it('rejects stale, foreign, and expired edit transitions', async () => {
+    expect.assertions(4);
+    const fixture = await claimFixture();
+    const edit = await fixture.asUser.mutation(api.scheduledSend.beginEdit, {
+      revision: 1,
+      scheduleId: 'schedule-001',
+      trustedDeviceId: fixture.secondDevice.trustedDeviceId,
+    });
+    const editGeneration = acquiredEditGeneration(edit);
+    const replacementPayload = await fixture.asUser.mutation(
+      api.productSync.putEncryptedPayloadIfUnchanged,
+      {
+        encryptedPayload: {
+          ...encryptedPayload,
+          ciphertextBase64: 'ZmVuY2VkLWVkaXQ',
+        },
+        expectedUpdatedAt: fixture.payload.updatedAt,
+        payloadIdentifier: fixture.payload.payloadIdentifier,
+        trustedDeviceId: fixture.secondDevice.trustedDeviceId,
+      },
+    );
+    const dueAt = Date.now() + 3 * 60 * 1000;
+    const immediateDueAt = Date.now();
+    const replacementArgs = {
+      deadlineAt: dueAt + 24 * 60 * 60 * 1000,
+      dueAt,
+      encryptedPayloadIdentifier: replacementPayload.payloadIdentifier,
+      encryptedPayloadUpdatedAt: replacementPayload.updatedAt,
+      expectedRevision: 1,
+      revision: 2,
+      scheduleId: 'schedule-001',
+    };
+
+    await expect(
+      fixture.asUser.mutation(api.scheduledSend.reschedule, {
+        ...replacementArgs,
+        editGeneration: editGeneration + 1,
+        trustedDeviceId: fixture.secondDevice.trustedDeviceId,
+      }),
+    ).rejects.toThrow('Scheduled Send revision is no longer editable');
+    await expect(
+      fixture.asUser.mutation(api.scheduledSend.sendNow, {
+        ...replacementArgs,
+        dueAt: immediateDueAt,
+        deadlineAt: immediateDueAt + 24 * 60 * 60 * 1000,
+        editGeneration,
+        requestedAt: immediateDueAt,
+        trustedDeviceId: fixture.device.trustedDeviceId,
+      }),
+    ).rejects.toThrow('Scheduled Send revision is no longer editable');
+    await expect(
+      fixture.asUser.mutation(api.scheduledSend.sendNow, {
+        ...replacementArgs,
+        dueAt: immediateDueAt,
+        deadlineAt: immediateDueAt + 24 * 60 * 60 * 1000,
+        editGeneration,
+        requestedAt: immediateDueAt - 2 * 60 * 1000,
+        trustedDeviceId: fixture.secondDevice.trustedDeviceId,
+      }),
+    ).rejects.toThrow('Invalid immediate Scheduled Send admission');
+    await expect(
+      fixture.asUser.mutation(api.scheduledSend.cancel, {
+        editGeneration: editGeneration + 1,
+        revision: 1,
+        scheduleId: 'schedule-001',
+        trustedDeviceId: fixture.secondDevice.trustedDeviceId,
+      }),
     ).resolves.toBe(false);
   });
 
