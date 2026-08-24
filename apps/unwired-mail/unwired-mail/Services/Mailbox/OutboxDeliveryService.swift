@@ -1091,7 +1091,8 @@ enum ScheduledSendAdmissionError: LocalizedError, Equatable {
     case .invalidRecipients:
       "Add valid recipients before scheduling delivery."
     case .providerUnavailable:
-      "Choose an authorized Gmail, Microsoft 365, On-Premises Exchange, or Standards-Based Mailbox Connection for automatic delivery."
+      "Choose an authorized Gmail, Microsoft 365, On-Premises Exchange, "
+        + "or Standards-Based Mailbox Connection for automatic delivery."
     case .sizeLimitExceeded:
       "This message is too large for the selected Mailbox Connection. Remove an attachment before scheduling delivery."
     }
