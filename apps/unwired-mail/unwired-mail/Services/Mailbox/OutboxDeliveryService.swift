@@ -1091,10 +1091,17 @@ enum ScheduledSendAdmissionError: LocalizedError, Equatable {
     case .invalidRecipients:
       "Add valid recipients before scheduling delivery."
     case .providerUnavailable:
-      "Scheduled Send currently requires an authorized Gmail connection on this device."
+      "Choose an authorized Gmail or On-Premises Exchange Mailbox Connection for automatic delivery."
     case .sizeLimitExceeded:
-      "This message is too large for Gmail. Remove an attachment before scheduling delivery."
+      "This message is too large for the selected Mailbox Connection. Remove an attachment before scheduling delivery."
     }
+  }
+}
+
+extension MailProviderId {
+  /// Whether the provider supports product-owned Scheduled Send delivery.
+  var supportsProductOwnedScheduledSend: Bool {
+    self == .gmail || self == .exchangeWebServices
   }
 }
 
@@ -1472,7 +1479,7 @@ actor ScheduledSendService {
     _ message: OutgoingMessage,
     connection: MailboxConnection
   ) throws {
-    guard connection.providerId == .gmail,
+    guard connection.providerId.supportsProductOwnedScheduledSend,
       connection.authorizationState == .authorized,
       connection.capabilities.canSend
     else { throw ScheduledSendAdmissionError.providerUnavailable }
@@ -1492,7 +1499,8 @@ actor ScheduledSendService {
       htmlBody: message.htmlBody ?? "",
       assets: message.assets
     )
-    guard let limit = MailDraftTransferBudget.knownLimit(for: .gmail), byteCount <= limit else {
+    if let limit = MailDraftTransferBudget.knownLimit(for: connection.providerId), byteCount > limit
+    {
       throw ScheduledSendAdmissionError.sizeLimitExceeded
     }
   }
@@ -1603,7 +1611,7 @@ actor OutboxDeliveryService {
   }
 
   @discardableResult
-  // swiftlint:disable:next function_parameter_count
+  // swiftlint:disable:next function_body_length function_parameter_count
   func enqueueScheduled(
     _ message: OutgoingMessage,
     connection: MailboxConnection,
@@ -1651,6 +1659,18 @@ actor OutboxDeliveryService {
     }
     attempts.append(attempt)
     try store.save(attempts, productAccountId: session.productAccountId)
+    if delayMilliseconds == 0 {
+      let completedAttempt = try await process(
+        connectionId: connection.id,
+        productAccountId: session.productAccountId,
+        provider: provider,
+        reconcile: reconcile,
+        returning: attempt.id
+      )
+      return
+        try completedAttempt
+        ?? requiredAttempt(attempt.id, productAccountId: session.productAccountId)
+    }
     scheduleRetry(
       attempt,
       delay: UInt64(delayMilliseconds) * 1_000_000,

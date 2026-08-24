@@ -1,8 +1,8 @@
 # Scheduled Send and Send Reminder implementation plan
 
-Status: cross-device Send Reminder, Gmail Scheduled Send delivery, and revision-fenced Outbox management implemented; provider parity and lifecycle completion remain planned
+Status: cross-device Send Reminder, Gmail and On-Premises Exchange Scheduled Send delivery, and revision-fenced Outbox management implemented; provider parity and lifecycle completion remain planned
 
-The automatic-delivery slice admits an authorized Gmail message on the originating device. It synchronizes the exact outgoing commitment through encrypted Product Sync, requires an opaque backend acknowledgement for the same identity, due instant, and revision, persists the delayed Outbox attempt before dismissing the Draft, and routes an opaque APNs wake to eligible trusted devices. A device with the encrypted payload, selected Mailbox Authorization, and separate revocable Scheduled Delivery Authorization may acquire the one revision-bound claim. The client durably fences provider handoff, reuses provider reconciliation, removes completed operational records, and moves work that cannot start within 24 hours to Needs Attention. Issues #381–#386 add full management, provider parity, lifecycle compatibility, and release evidence without weakening this privacy boundary.
+The automatic-delivery slice admits an authorized Gmail or On-Premises Exchange message on the originating device. It synchronizes the exact outgoing commitment through encrypted Product Sync, requires an opaque backend acknowledgement for the same identity, due instant, and revision, persists the delayed Outbox attempt before dismissing the Draft, and routes an opaque APNs wake to eligible trusted devices. A device with the encrypted payload, selected Mailbox Authorization, and separate revocable Scheduled Delivery Authorization may acquire the one revision-bound claim. The client durably fences provider handoff, reuses provider reconciliation, removes completed operational records, and moves work that cannot start within 24 hours to Needs Attention. Issues #381 and #383 add the implemented management and EWS parity; Issues #382 and #384–#386 plan the remaining provider parity, lifecycle compatibility, and release evidence without weakening this privacy boundary.
 
 ## Goal
 
@@ -15,7 +15,7 @@ Let a person choose a future time from any new-message, reply, reply-all, or for
 | Send automatically | Scheduled Send in Outbox | Exactly one eligible trusted device | No; admission fails closed | Sent, cancelled to Draft, or Needs Attention |
 | Remind me to send | Send Reminder attached to Draft | None | Yes; cross-device sync may remain pending | Opened, rescheduled, sent, or discarded |
 
-Both choices share one Send Later surface. Automatic delivery currently appears for an authorized Gmail connection, and any compatible trusted device that holds the same Mailbox Authorization may deliver it. Later provider phases extend the same product-owned scheduling contract. Receive-only connections do not offer automatic scheduling. The product never delegates selectively to provider-native scheduling and never changes the selected sending connection without explicit user action.
+Both choices share one Send Later surface. Automatic delivery appears for an authorized Gmail or On-Premises Exchange connection, and any compatible trusted device that holds the same Mailbox Authorization and a separate revocable Scheduled Delivery Authorization may deliver it. Receive-only connections do not offer automatic scheduling. The product never delegates selectively to provider-native scheduling and never changes the selected sending connection without explicit user action.
 
 Scheduled Send means delivery at or after one absolute future instant, not exact-time delivery. The allowed range is one minute through one year. A delivery that cannot begin within 24 hours becomes Needs Attention and requires Send Now, reschedule, edit, or cancel.
 
