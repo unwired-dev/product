@@ -678,7 +678,6 @@ final class OutboxDeliveryServiceTests {
   }
 
   @Test(.bug(id: 385), arguments: [false, true], [false, true])
-  // swiftlint:disable:next function_body_length
   func unavailableConnectionDoesNotResumeScheduledSend(
     usesLegacyGeneration: Bool,
     usesReceiveOnlyConnection: Bool
