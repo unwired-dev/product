@@ -1171,7 +1171,7 @@ enum ScheduledSendAdmissionError: LocalizedError, Equatable {
     case .invalidRecipients:
       "Add valid recipients before scheduling delivery."
     case .providerUnavailable:
-      "Choose an authorized Gmail or Microsoft 365 Mailbox Connection for automatic delivery."
+      "Choose an authorized Gmail, Microsoft 365, or On-Premises Exchange Mailbox Connection for automatic delivery."
     case .sizeLimitExceeded:
       "This message is too large for the selected Mailbox Connection. Remove an attachment before scheduling delivery."
     }
@@ -1180,8 +1180,8 @@ enum ScheduledSendAdmissionError: LocalizedError, Equatable {
 
 extension MailProviderId {
   /// Whether the provider supports product-owned Scheduled Send delivery.
-  var supportsScheduledSend: Bool {
-    self == .gmail || self == .microsoftGraph
+  var supportsProductOwnedScheduledSend: Bool {
+    self == .gmail || self == .microsoftGraph || self == .exchangeWebServices
   }
 }
 
@@ -1604,7 +1604,7 @@ actor ScheduledSendService {
     _ message: OutgoingMessage,
     connection: MailboxConnection
   ) throws {
-    guard connection.providerId.supportsScheduledSend,
+    guard connection.providerId.supportsProductOwnedScheduledSend,
       connection.authorizationState == .authorized,
       connection.capabilities.canSend
     else { throw ScheduledSendAdmissionError.providerUnavailable }
@@ -1624,9 +1624,8 @@ actor ScheduledSendService {
       htmlBody: message.htmlBody ?? "",
       assets: message.assets
     )
-    guard let limit = MailDraftTransferBudget.knownLimit(for: connection.providerId),
-      byteCount <= limit
-    else {
+    if let limit = MailDraftTransferBudget.knownLimit(for: connection.providerId), byteCount > limit
+    {
       throw ScheduledSendAdmissionError.sizeLimitExceeded
     }
   }
@@ -1651,6 +1650,7 @@ actor OutboxDeliveryService {
   private var handoffClaimFailureCounts: [UUID: Int] = [:]
   private var reconciliationStateWriteFailureCounts: [UUID: Int] = [:]
   private var processingConnectionIds: Set<String> = []
+  private var processingConnectionWaiters: [String: [CheckedContinuation<Void, Never>]] = [:]
   private let retryDelayNanoseconds: @Sendable (Int) -> UInt64
   private var inFlightRetryTaskTokens: [UUID: UUID] = [:]
   private var inFlightRetryTaskConnectionIds: [UUID: MailboxConnectionId] = [:]
@@ -1789,6 +1789,9 @@ actor OutboxDeliveryService {
     attempts.append(attempt)
     try store.save(attempts, productAccountId: session.productAccountId)
     if delayMilliseconds == 0 {
+      defer {
+        finishProcessingPass(attempt, provider: provider, reconcile: reconcile)
+      }
       let completedAttempt = try await process(
         connectionId: connection.id,
         productAccountId: session.productAccountId,
@@ -2474,21 +2477,31 @@ actor OutboxDeliveryService {
     productAccountId: String,
     provider: @escaping OutboxDeliveryPerformer,
     reconcile: @escaping OutboxDeliveryReconciler,
-    returning returnedAttemptId: UUID? = nil
+    returning returnedAttemptId: UUID? = nil,
+    ownsProcessingConnection: Bool = false
   ) async throws -> OutgoingDeliveryAttempt? {
     var returnedAttempt: OutgoingDeliveryAttempt?
-    guard processingConnectionIds.insert(connectionId.rawValue).inserted else {
-      scheduleDueAttempts(
+    var processedAttempt = false
+    guard ownsProcessingConnection || processingConnectionIds.insert(connectionId.rawValue).inserted
+    else {
+      await waitForProcessingConnection(connectionId)
+      return try await process(
         connectionId: connectionId,
         productAccountId: productAccountId,
         provider: provider,
-        reconcile: reconcile
+        reconcile: reconcile,
+        returning: returnedAttemptId,
+        ownsProcessingConnection: true
       )
-      return nil
     }
-    defer { processingConnectionIds.remove(connectionId.rawValue) }
+    defer { finishProcessingConnection(connectionId) }
 
     while true {
+      if processedAttempt,
+        processingConnectionWaiters[connectionId.rawValue]?.isEmpty == false
+      {
+        return returnedAttempt
+      }
       var attempts = try loadPruningTerminalAttempts(productAccountId: productAccountId)
       guard
         let index =
@@ -2508,6 +2521,7 @@ actor OutboxDeliveryService {
             }))
       else { return returnedAttempt }
 
+      processedAttempt = true
       let attemptId = attempts[index].id
       if scheduledSendMissedDeadline(attempts[index]) {
         attempts[index].state = .userActionRequired
@@ -3119,10 +3133,17 @@ actor OutboxDeliveryService {
     retryTaskTokens[attemptId] = nil
     retryTaskConnectionIds[attemptId] = nil
     retryTaskProductAccountIds[attemptId] = nil
-    guard recoverInterruptedHandoffs(productAccountId: attempt.productAccountId.rawValue)
-    else {
-      let failureCount = reconciliationStateWriteFailureCounts[attemptId, default: 0] + 1
-      reconciliationStateWriteFailureCounts[attemptId] = failureCount
+    finishProcessingPass(attempt, provider: provider, reconcile: reconcile)
+  }
+
+  private func finishProcessingPass(
+    _ attempt: OutgoingDeliveryAttempt,
+    provider: @escaping OutboxDeliveryPerformer,
+    reconcile: @escaping OutboxDeliveryReconciler
+  ) {
+    guard recoverInterruptedHandoffs(productAccountId: attempt.productAccountId.rawValue) else {
+      let failureCount = reconciliationStateWriteFailureCounts[attempt.id, default: 0] + 1
+      reconciliationStateWriteFailureCounts[attempt.id] = failureCount
       guard failureCount < maximumAttempts, !retryAgeLimitReached(attempt) else {
         notifyRetryWaiters()
         return
@@ -3135,7 +3156,7 @@ actor OutboxDeliveryService {
       )
       return
     }
-    reconciliationStateWriteFailureCounts[attemptId] = nil
+    reconciliationStateWriteFailureCounts[attempt.id] = nil
     notifyRetryWaiters()
     scheduleDueAttempts(
       connectionId: attempt.mailboxConnectionId,
@@ -3206,6 +3227,27 @@ actor OutboxDeliveryService {
         reconcile: reconcile
       )
     }
+  }
+
+  private func waitForProcessingConnection(_ connectionId: MailboxConnectionId) async {
+    await withCheckedContinuation { continuation in
+      processingConnectionWaiters[connectionId.rawValue, default: []].append(continuation)
+    }
+  }
+
+  private func finishProcessingConnection(_ connectionId: MailboxConnectionId) {
+    let key = connectionId.rawValue
+    guard var waiters = processingConnectionWaiters[key], !waiters.isEmpty else {
+      processingConnectionIds.remove(key)
+      return
+    }
+    let nextWaiter = waiters.removeFirst()
+    if waiters.isEmpty {
+      processingConnectionWaiters[key] = nil
+    } else {
+      processingConnectionWaiters[key] = waiters
+    }
+    nextWaiter.resume()
   }
 
   private func handoffNotBeforeMilliseconds(for attempt: OutgoingDeliveryAttempt) -> Int64 {

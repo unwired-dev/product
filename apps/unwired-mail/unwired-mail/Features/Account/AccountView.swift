@@ -4085,7 +4085,7 @@ extension AccountView {
       let connection = profileConnections.first(where: { $0.id == connectionId }),
       let identity = profileSendingIdentities.first(where: { $0.id == draft.sendingIdentityId }),
       connection.authorizationState == .authorized,
-      connection.providerId.supportsScheduledSend,
+      connection.providerId.supportsProductOwnedScheduledSend,
       connection.capabilities.canSend,
       identity.connectionId == connectionId
     else {
@@ -12330,7 +12330,7 @@ final class GmailMailActionViewModel {
     undoSendWindow: UndoSendWindow
   ) async -> Bool {
     guard !isPreparingForSignOut, !isPerformingAction else { return false }
-    guard connection.providerId.supportsScheduledSend else {
+    guard connection.providerId.supportsProductOwnedScheduledSend else {
       errorMessage = ScheduledSendAdmissionError.providerUnavailable.localizedDescription
       return false
     }
