@@ -814,6 +814,42 @@ final class IMAPMailboxConnectionAdapterTests {
     #expect(attachmentStore.existingURL(attachment: attachment, messageId: messageId) == nil)
   }
 
+  @Test(.bug(id: 385))
+  func testRouterCancelsScheduledSendsBeforeRemovingEligibleConnectionEverywhere() async throws {
+    let connection = routerConnection(providerId: .gmail, displayName: "Gmail")
+    let lifecycle = RouterScheduledSendLifecycleSpy()
+    let router = MailboxConnectionRouter(
+      exchangeWebServices: RouterTestAdapter(),
+      gmail: RouterTestAdapter(removalError: IMAPAdapterTestError.unavailable),
+      imap: RouterTestAdapter(),
+      microsoftGraph: RouterTestAdapter(),
+      scheduledSendLifecycle: lifecycle
+    )
+
+    await #expect(throws: IMAPAdapterTestError.unavailable) {
+      try await router.removeMailboxConnectionEverywhere(connection, session: session)
+    }
+
+    #expect(await lifecycle.cancelledConnectionIds() == [connection.id])
+  }
+
+  @Test(.bug(id: 385))
+  func testRouterPreservesConnectionWhenScheduledSendCancellationFails() async {
+    let connection = routerConnection(providerId: .gmail, displayName: "Gmail")
+    let lifecycle = RouterScheduledSendLifecycleSpy(error: IMAPAdapterTestError.unavailable)
+    let router = MailboxConnectionRouter(
+      exchangeWebServices: RouterTestAdapter(),
+      gmail: RouterTestAdapter(),
+      imap: RouterTestAdapter(),
+      microsoftGraph: RouterTestAdapter(),
+      scheduledSendLifecycle: lifecycle
+    )
+
+    await #expect(throws: IMAPAdapterTestError.unavailable) {
+      try await router.removeMailboxConnectionEverywhere(connection, session: session)
+    }
+  }
+
   @Test
   func testRouterResumesProviderActionsConcurrentlyAndPreservesErrorOrdering() async {
     let gmailGate = RouterOperationGate()
@@ -2815,7 +2851,7 @@ final class IMAPMailboxConnectionAdapterTests {
   }
 }
 
-private enum IMAPAdapterTestError: Error {
+private enum IMAPAdapterTestError: Error, Equatable {
   case unavailable
 }
 
@@ -3677,6 +3713,27 @@ private actor RouterOperationGate {
     for continuation in continuations {
       continuation.resume()
     }
+  }
+}
+
+private actor RouterScheduledSendLifecycleSpy: ScheduledSendLifecycleManaging {
+  private var connectionIds: [MailboxConnectionId] = []
+  private let error: Error?
+
+  init(error: Error? = nil) {
+    self.error = error
+  }
+
+  func cancelScheduledSends(
+    for connectionId: MailboxConnectionId,
+    session _: ProductAccountSessionSnapshot
+  ) async throws {
+    connectionIds.append(connectionId)
+    if let error { throw error }
+  }
+
+  func cancelledConnectionIds() -> [MailboxConnectionId] {
+    connectionIds
   }
 }
 

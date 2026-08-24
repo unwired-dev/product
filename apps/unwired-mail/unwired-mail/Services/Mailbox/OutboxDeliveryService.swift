@@ -54,6 +54,7 @@ struct OutgoingDeliveryAttempt: Codable, Equatable, Identifiable, Sendable {
   var providerHandoffNotBeforeMilliseconds: Int64? = .none
   var reconciliationAttemptCount: Int
   var reconciliationPausedForAuthorization: Bool? = .none
+  var scheduledConnectionGeneration: Int? = .none
   var scheduledSendClaimGeneration: Int? = .none
   var scheduledSendClaimOwnerTrustedDeviceId: String? = .none
   var scheduledSendDeadlineMilliseconds: Int64? = .none
@@ -544,6 +545,7 @@ private let defaultOutboxRetryDelay: @Sendable (Int) -> UInt64 = { attempt in
 private let defaultOutboxHandoffDelay: UInt64 = 10_000_000_000
 
 struct ScheduledSendRecord: Codable, Equatable, Sendable {
+  let connectionAuthorizationGeneration: Int?
   let connectionId: MailboxConnectionId
   let createdAtMilliseconds: Int64
   let deadlineAtMilliseconds: Int64
@@ -691,6 +693,14 @@ protocol ScheduledSendPayloadSyncing {
     _ record: ScheduledSendRecord,
     session: ProductAccountSessionSnapshot
   ) async throws -> ScheduledSendPayloadAcknowledgement
+}
+
+/// Cancels Scheduled Sends whose current revision still uses a Mailbox Connection.
+protocol ScheduledSendLifecycleManaging {
+  func cancelScheduledSends(
+    for connectionId: MailboxConnectionId,
+    session: ProductAccountSessionSnapshot
+  ) async throws
 }
 
 protocol ScheduledSendOperationalTransport {
@@ -872,10 +882,14 @@ private struct ScheduledSendSyncRecordId: Hashable, Sendable {
   let scheduleId: UUID
 }
 
+// swiftlint:disable:next type_body_length
 actor ScheduledSendSyncService: ScheduledSendPayloadSyncing {
   private static let legacyPrefix = "scheduled-send.v1."
-  private static let revisionedPrefix = "scheduled-send.v2."
+  private static let legacyRevisionedPrefix = "scheduled-send.v2."
+  private static let revisionedPrefix = "scheduled-send.v3."
   private let legacyRecords: ProductSyncRecordFamilyHandle<UUID, ScheduledSendSyncPayload>
+  private let legacyRevisionedRecords:
+    ProductSyncRecordFamilyHandle<ScheduledSendSyncRecordId, ScheduledSendSyncPayload>
   private let revisionedRecords:
     ProductSyncRecordFamilyHandle<ScheduledSendSyncRecordId, ScheduledSendSyncPayload>
 
@@ -885,6 +899,14 @@ actor ScheduledSendSyncService: ScheduledSendPayloadSyncing {
         identifier: { Self.legacyIdentifier($0) },
         identifierPrefix: Self.legacyPrefix,
         recordId: { Self.legacyRecordId($0) },
+        cachePolicy: .authoritative
+      )
+    )
+    legacyRevisionedRecords = recordBoundary.family(
+      ProductSyncRecordFamilyDefinition(
+        identifier: { Self.legacyRevisionedIdentifier($0) },
+        identifierPrefix: Self.legacyRevisionedPrefix,
+        recordId: { Self.legacyRevisionedRecordId($0) },
         cachePolicy: .authoritative
       )
     )
@@ -927,6 +949,18 @@ actor ScheduledSendSyncService: ScheduledSendPayloadSyncing {
         record: value
       )
     }
+    if let record = try await legacyRevisionedRecords.read(
+      [recordId],
+      session: session
+    )[recordId], let value = record.value.record {
+      return ScheduledSendPayloadSnapshot(
+        acknowledgement: ScheduledSendPayloadAcknowledgement(
+          payloadIdentifier: Self.legacyRevisionedIdentifier(recordId),
+          updatedAt: record.revision.legacyUpdatedAt
+        ),
+        record: value
+      )
+    }
     guard revision == 1,
       let legacy = try await legacyRecords.read([scheduleId], session: session)[scheduleId],
       let value = legacy.value.record
@@ -955,6 +989,20 @@ actor ScheduledSendSyncService: ScheduledSendPayloadSyncing {
         )
       }
     }
+    let legacyRevisioned = try await legacyRevisionedRecords.list(session: session)
+    snapshots.append(
+      contentsOf: legacyRevisioned.compactMap { recordId, record in
+        record.value.record.map {
+          ScheduledSendPayloadSnapshot(
+            acknowledgement: ScheduledSendPayloadAcknowledgement(
+              payloadIdentifier: Self.legacyRevisionedIdentifier(recordId),
+              updatedAt: record.revision.legacyUpdatedAt
+            ),
+            record: $0
+          )
+        }
+      }
+    )
     let legacy = try await legacyRecords.list(session: session)
     snapshots.append(
       contentsOf: legacy.compactMap { scheduleId, record in
@@ -1030,6 +1078,18 @@ actor ScheduledSendSyncService: ScheduledSendPayloadSyncing {
         )
       )
     }
+    _ = try await legacyRevisionedRecords.update(recordId, session: session) { current in
+      guard current != nil else { return .acceptAuthoritative }
+      return .write(
+        ScheduledSendSyncPayload(
+          record: nil,
+          updatedAtMilliseconds: max(
+            current?.value.updatedAtMilliseconds ?? 0,
+            Int64(Date.now.timeIntervalSince1970 * 1_000)
+          )
+        )
+      )
+    }
     if revision == 1 {
       _ = try await legacyRecords.update(scheduleId, session: session) { current in
         guard current != nil else { return .acceptAuthoritative }
@@ -1060,9 +1120,29 @@ actor ScheduledSendSyncService: ScheduledSendPayloadSyncing {
     revisionedPrefix + recordId.scheduleId.uuidString.lowercased() + "." + String(recordId.revision)
   }
 
+  private static func legacyRevisionedIdentifier(
+    _ recordId: ScheduledSendSyncRecordId
+  ) -> String {
+    legacyRevisionedPrefix + recordId.scheduleId.uuidString.lowercased() + "."
+      + String(recordId.revision)
+  }
+
+  private static func legacyRevisionedRecordId(
+    _ identifier: String
+  ) -> ScheduledSendSyncRecordId? {
+    revisionedRecordId(identifier, prefix: legacyRevisionedPrefix)
+  }
+
   private static func revisionedRecordId(_ identifier: String) -> ScheduledSendSyncRecordId? {
-    guard identifier.hasPrefix(revisionedPrefix) else { return nil }
-    let parts = identifier.dropFirst(revisionedPrefix.count).split(separator: ".")
+    revisionedRecordId(identifier, prefix: revisionedPrefix)
+  }
+
+  private static func revisionedRecordId(
+    _ identifier: String,
+    prefix: String
+  ) -> ScheduledSendSyncRecordId? {
+    guard identifier.hasPrefix(prefix) else { return nil }
+    let parts = identifier.dropFirst(prefix.count).split(separator: ".")
     guard parts.count == 2,
       let scheduleId = UUID(uuidString: String(parts[0])),
       let revision = Int(parts[1]),
@@ -1144,6 +1224,7 @@ actor ScheduledSendService {
     let scheduleId = UUID()
     let dueAtMilliseconds = Int64(dueAt.timeIntervalSince1970 * 1_000)
     let record = ScheduledSendRecord(
+      connectionAuthorizationGeneration: connection.authorizationGeneration,
       connectionId: connection.id,
       createdAtMilliseconds: Int64(now().timeIntervalSince1970 * 1_000),
       deadlineAtMilliseconds: dueAtMilliseconds + 24 * 60 * 60 * 1_000,
@@ -1360,6 +1441,49 @@ actor ScheduledSendService {
     )
   }
 
+  /// Cancels the current commitment for every Scheduled Send that still targets the connection.
+  func cancelScheduledSends(
+    for connectionId: MailboxConnectionId,
+    session: ProductAccountSessionSnapshot
+  ) async throws {
+    let snapshots = try await payloadSync.list(session: session)
+    let matchingSnapshots = snapshots.filter { $0.record.connectionId == connectionId }
+    let scheduleIds = Set(matchingSnapshots.map { $0.record.scheduleId })
+    for scheduleId in scheduleIds {
+      try Task.checkCancellation()
+      guard
+        let status = try await transport.scheduledSendStatus(
+          scheduleId: scheduleId,
+          session: session
+        )
+      else { throw ScheduledSendManagementError.staleRevision }
+      guard
+        let current = try await payloadSync.load(
+          scheduleId: scheduleId,
+          revision: status.revision,
+          session: session
+        )
+      else { throw ScheduledSendManagementError.staleRevision }
+      guard current.record.connectionId == connectionId else { continue }
+      switch status.state {
+      case .active, .needsAttention:
+        try await cancel(
+          scheduleId: scheduleId,
+          revision: status.revision,
+          session: session
+        )
+        try await payloadSync.remove(scheduleId: scheduleId, session: session)
+      case .cancelled, .completed:
+        try await payloadSync.remove(scheduleId: scheduleId, session: session)
+        try? await outboxService.cancelScheduledLocally(
+          scheduleId: scheduleId,
+          revision: status.revision,
+          session: session
+        )
+      }
+    }
+  }
+
   // swiftlint:disable:next function_body_length function_parameter_count
   private func replace(
     _ editSession: ScheduledSendEditSession,
@@ -1381,6 +1505,7 @@ actor ScheduledSendService {
     let current = editSession.item.record
     let dueAtMilliseconds = Int64(dueAt.timeIntervalSince1970 * 1_000)
     let replacement = ScheduledSendRecord(
+      connectionAuthorizationGeneration: connection.authorizationGeneration,
       connectionId: connection.id,
       createdAtMilliseconds: current.createdAtMilliseconds,
       deadlineAtMilliseconds: dueAtMilliseconds + 24 * 60 * 60 * 1_000,
@@ -1507,6 +1632,8 @@ actor ScheduledSendService {
   }
 }
 
+extension ScheduledSendService: ScheduledSendLifecycleManaging {}
+
 extension ConvexClient: ScheduledSendOperationalTransport {}
 
 // swiftlint:disable:next type_body_length
@@ -1612,7 +1739,7 @@ actor OutboxDeliveryService {
   }
 
   @discardableResult
-  // swiftlint:disable:next function_parameter_count
+  // swiftlint:disable:next function_body_length function_parameter_count
   func enqueueScheduled(
     _ message: OutgoingMessage,
     connection: MailboxConnection,
@@ -1645,6 +1772,7 @@ actor OutboxDeliveryService {
       connection: connection,
       session: session,
       handoffDelayNanoseconds: UInt64(delayMilliseconds) * 1_000_000,
+      scheduledConnectionGeneration: connection.authorizationGeneration,
       scheduledSendClaimGeneration: claim?.generation,
       scheduledSendClaimOwnerTrustedDeviceId: session.trustedDeviceId,
       scheduledSendDeadlineMilliseconds: deadlineMilliseconds,
@@ -1660,6 +1788,18 @@ actor OutboxDeliveryService {
     }
     attempts.append(attempt)
     try store.save(attempts, productAccountId: session.productAccountId)
+    if delayMilliseconds == 0 {
+      let completedAttempt = try await process(
+        connectionId: connection.id,
+        productAccountId: session.productAccountId,
+        provider: provider,
+        reconcile: reconcile,
+        returning: attempt.id
+      )
+      return
+        try completedAttempt
+        ?? requiredAttempt(attempt.id, productAccountId: session.productAccountId)
+    }
     scheduleRetry(
       attempt,
       delay: UInt64(delayMilliseconds) * 1_000_000,
@@ -1716,6 +1856,7 @@ actor OutboxDeliveryService {
       connection: connection,
       session: session,
       handoffDelayNanoseconds: UInt64(delayMilliseconds) * 1_000_000,
+      scheduledConnectionGeneration: connection.authorizationGeneration,
       scheduledSendClaimOwnerTrustedDeviceId: session.trustedDeviceId,
       scheduledSendDeadlineMilliseconds: record.deadlineAtMilliseconds,
       scheduledSendId: record.scheduleId,
@@ -1788,10 +1929,13 @@ actor OutboxDeliveryService {
     if assignedScheduledSendOwner {
       try store.save(attempts, productAccountId: session.productAccountId)
     }
-    let connectionIds = Set(connections.map(\.id))
+    let connectionsById = Dictionary(
+      connections.map { ($0.id, $0) },
+      uniquingKeysWith: { _, latest in latest }
+    )
     var markedNeedsAttention = false
     for index in attempts.indices
-    where connectionIds.contains(attempts[index].connectionId)
+    where connectionIsAuthorized(for: attempts[index], in: connectionsById)
       && scheduledSendMissedDeadline(attempts[index])
     {
       attempts[index].state = .userActionRequired
@@ -1803,19 +1947,19 @@ actor OutboxDeliveryService {
       try store.save(attempts, productAccountId: session.productAccountId)
     }
     for attempt in attempts
-    where connectionIds.contains(attempt.connectionId)
+    where connectionIsAuthorized(for: attempt, in: connectionsById)
       && attempt.providerDraftRequiresCleanup
     {
       scheduleProviderDraftCleanup(attempt)
     }
     let interruptedHandoffs = attempts.filter {
-      connectionIds.contains($0.connectionId)
+      connectionIsAuthorized(for: $0, in: connectionsById)
         && $0.state == .handingOff
         && inFlightRetryTasks[$0.id] == nil
     }
     var recoveredInterruptedHandoff = false
     for index in attempts.indices
-    where connectionIds.contains(attempts[index].connectionId)
+    where connectionIsAuthorized(for: attempts[index], in: connectionsById)
       && attempts[index].state == .handingOff
       && inFlightRetryTasks[attempts[index].id] == nil
     {
@@ -1845,7 +1989,7 @@ actor OutboxDeliveryService {
     var immediateTasks: [Task<Void, Never>] = []
     for attempt in attempts
     where
-      connectionIds.contains(attempt.connectionId)
+      connectionIsAuthorized(for: attempt, in: connectionsById)
       && (attempt.state == .pending || attempt.state == .retrying || attempt.state == .reconciling
         || attempt.state == .sentCopyPending)
     {
@@ -2244,6 +2388,7 @@ actor OutboxDeliveryService {
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot,
     handoffDelayNanoseconds: UInt64,
+    scheduledConnectionGeneration: Int? = nil,
     scheduledSendClaimGeneration: Int? = nil,
     scheduledSendClaimOwnerTrustedDeviceId: String? = nil,
     scheduledSendDeadlineMilliseconds: Int64? = nil,
@@ -2267,6 +2412,7 @@ actor OutboxDeliveryService {
       providerHandoffNotBeforeMilliseconds:
         createdAtMilliseconds + Int64(handoffDelayNanoseconds / 1_000_000),
       reconciliationAttemptCount: 0,
+      scheduledConnectionGeneration: scheduledConnectionGeneration,
       scheduledSendClaimGeneration: scheduledSendClaimGeneration,
       scheduledSendClaimOwnerTrustedDeviceId: scheduledSendClaimOwnerTrustedDeviceId,
       scheduledSendDeadlineMilliseconds: scheduledSendDeadlineMilliseconds,
@@ -2275,6 +2421,16 @@ actor OutboxDeliveryService {
       scheduledSendAtMilliseconds: scheduledSendAtMilliseconds,
       state: .pending
     )
+  }
+
+  private func connectionIsAuthorized(
+    for attempt: OutgoingDeliveryAttempt,
+    in connectionsById: [MailboxConnectionId: MailboxConnection]
+  ) -> Bool {
+    guard let connection = connectionsById[attempt.connectionId] else { return false }
+    guard attempt.isScheduledSend else { return true }
+    return (attempt.scheduledConnectionGeneration ?? 0)
+      == connection.authorizationGeneration
   }
 
   private func scheduledSendMissedDeadline(_ attempt: OutgoingDeliveryAttempt) -> Bool {

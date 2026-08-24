@@ -15891,6 +15891,7 @@ struct MicrosoftGraphConnectionPanel: View {
   }
 }
 
+// swiftlint:disable:next type_body_length
 struct MailboxProviderConnectionPanel: View {
   struct Configuration {
     let allowsDefaultSender: Bool
@@ -15943,6 +15944,7 @@ struct MailboxProviderConnectionPanel: View {
   let selectMailbox: (MailboxConnection) -> Void
   @Bindable var viewModel: MailboxProviderConnectionViewModel
   @State private var connectTask: Task<Void, Never>?
+  @State private var connectionPendingEverywhereRemoval: MailboxConnection?
 
   private var connections: [MailboxConnection] {
     viewModel.connections.filter { $0.id.providerId == configuration.providerId }
@@ -16060,13 +16062,7 @@ struct MailboxProviderConnectionPanel: View {
             }
             Divider()
             Button("Remove Mailbox Connection Everywhere", role: .destructive) {
-              Task {
-                await Self.performDestructiveAction(
-                  cancelMailboxWork: cancelBodyPrefetch,
-                  action: { await viewModel.removeEverywhere(connection) },
-                  connectionsDidChange: connectionsDidChange
-                )
-              }
+              connectionPendingEverywhereRemoval = connection
             }
           } label: {
             Label("Manage", systemImage: "ellipsis.circle")
@@ -16121,6 +16117,37 @@ struct MailboxProviderConnectionPanel: View {
           .foregroundStyle(.orange)
           .font(.footnote)
       }
+    }
+    .confirmationDialog(
+      "Remove this Mailbox Connection everywhere?",
+      isPresented: Binding(
+        get: { connectionPendingEverywhereRemoval != nil },
+        set: { isPresented in
+          if !isPresented { connectionPendingEverywhereRemoval = nil }
+        }
+      ),
+      titleVisibility: .visible
+    ) {
+      Button("Cancel Scheduled Sends and Remove Connection", role: .destructive) {
+        guard let connection = connectionPendingEverywhereRemoval else { return }
+        connectionPendingEverywhereRemoval = nil
+        Task {
+          await Self.performDestructiveAction(
+            cancelMailboxWork: cancelBodyPrefetch,
+            action: { await viewModel.removeEverywhere(connection) },
+            connectionsDidChange: connectionsDidChange
+          )
+        }
+      }
+      Button("Keep Mailbox Connection", role: .cancel) {
+        connectionPendingEverywhereRemoval = nil
+      }
+    } message: {
+      Text(
+        "This cancels every Scheduled Send for this Mailbox Connection, then removes "
+          + "the connection and its authorization from every trusted device. "
+          + "Provider mail remains at the provider."
+      )
     }
     .task {
       guard configuration.loadsOnAppear else { return }

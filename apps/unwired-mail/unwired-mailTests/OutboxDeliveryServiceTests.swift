@@ -71,6 +71,32 @@ final class OutboxDeliveryServiceTests {
     #expect(await transport.beginEditCallCount() == 0)
   }
 
+  @Test(.bug(id: 385))
+  func removingConnectionEverywhereCancelsItsCurrentScheduledSends() async throws {
+    let record = scheduledSendRecord(revision: 1)
+    let snapshot = ScheduledSendPayloadSnapshot(
+      acknowledgement: ScheduledSendPayloadAcknowledgement(
+        payloadIdentifier: "payload-1",
+        updatedAt: 11
+      ),
+      record: record
+    )
+    let payloads = InMemoryScheduledSendPayloadSync(snapshots: [snapshot])
+    let transport = ScheduledSendManagementTransportSpy(
+      status: scheduledSendStatus(for: snapshot, claimPhase: .preHandoff)
+    )
+    let service = ScheduledSendService(
+      outboxService: OutboxDeliveryService(store: InMemoryOutboxDeliveryStore()),
+      payloadSync: payloads,
+      transport: transport
+    )
+
+    try await service.cancelScheduledSends(for: connection.id, session: session)
+
+    #expect(try await payloads.list(session: session).isEmpty)
+    #expect(await transport.cancelledRevision() == 1)
+  }
+
   @Test
   func scheduledSendManagementSelectsTheOperationalRevision() async throws {
     let current = ScheduledSendPayloadSnapshot(
@@ -150,6 +176,7 @@ final class OutboxDeliveryServiceTests {
   private func scheduledSendRecord(revision: Int) -> ScheduledSendRecord {
     let dueAt: Int64 = 1_800_003_600_000
     return ScheduledSendRecord(
+      connectionAuthorizationGeneration: nil,
       connectionId: connection.id,
       createdAtMilliseconds: 1_800_000_000_000,
       deadlineAtMilliseconds: dueAt + 24 * 60 * 60 * 1_000,
@@ -223,8 +250,16 @@ final class OutboxDeliveryServiceTests {
     let payload = try #require(await payloads.list(session: session).first)
 
     #expect(attempt.mailboxConnectionId == graphConnection.id)
+    #expect(
+      attempt.scheduledConnectionGeneration
+        == graphConnection.authorizationGeneration
+    )
     #expect(attempt.message == message)
     #expect(payload.record.connectionId == graphConnection.id)
+    #expect(
+      payload.record.connectionAuthorizationGeneration
+        == graphConnection.authorizationGeneration
+    )
     #expect(payload.record.message == message)
 
     await outbox.suspend(productAccountId: session.productAccountId)
@@ -235,6 +270,7 @@ final class OutboxDeliveryServiceTests {
     let now = Date(timeIntervalSince1970: 1_800_000_000)
     let dueAtMilliseconds = Int64(now.addingTimeInterval(-60).timeIntervalSince1970 * 1_000)
     let record = ScheduledSendRecord(
+      connectionAuthorizationGeneration: nil,
       connectionId: graphConnection.id,
       createdAtMilliseconds: dueAtMilliseconds - 60_000,
       deadlineAtMilliseconds: dueAtMilliseconds + 24 * 60 * 60 * 1_000,
@@ -278,7 +314,61 @@ final class OutboxDeliveryServiceTests {
 
     #expect(handled)
     #expect(mailService.sentConnectionIds == [graphConnection.id])
-    #expect(await transport.events() == ["claim", "advance", "complete"])
+    let transportEvents = await transport.events()
+    #expect(transportEvents == ["claim", "advance", "complete"])
+  }
+
+  @Test(.bug(id: 385))
+  func scheduledSendWakeRejectsAStaleMailboxConnectionAuthorizationGeneration() async throws {
+    let now = Date(timeIntervalSince1970: 1_800_000_000)
+    let dueAtMilliseconds = Int64(now.addingTimeInterval(-60).timeIntervalSince1970 * 1_000)
+    let currentConnection = graphConnection.withAuthorizationGeneration(2)
+    let record = ScheduledSendRecord(
+      connectionAuthorizationGeneration: 1,
+      connectionId: currentConnection.id,
+      createdAtMilliseconds: dueAtMilliseconds - 60_000,
+      deadlineAtMilliseconds: dueAtMilliseconds + 24 * 60 * 60 * 1_000,
+      draftId: UUID(),
+      dueAtMilliseconds: dueAtMilliseconds,
+      message: message,
+      originatingDeviceId: session.trustedDeviceId,
+      originalTimeZoneIdentifier: "Europe/Prague",
+      profileId: MailProfileId.defaultProfile(productAccountId: session.productAccountId),
+      revision: 1,
+      scheduleId: UUID()
+    )
+    let payload = ScheduledSendPayloadSnapshot(
+      acknowledgement: ScheduledSendPayloadAcknowledgement(
+        payloadIdentifier: "payload-stale-authorization",
+        updatedAt: dueAtMilliseconds - 30_000
+      ),
+      record: record
+    )
+    let sessionStore = InMemoryProductAccountSessionStore()
+    try sessionStore.save(session)
+    let transport = ScheduledSendClaimTransportSpy()
+    let mailService = ScheduledSendMailboxRoutingSpy(connections: [currentConnection])
+    let handler = ScheduledSendWakeupHandler(
+      mailService: mailService,
+      outboxService: OutboxDeliveryService(
+        now: { now },
+        scheduledSendTransport: transport,
+        store: InMemoryOutboxDeliveryStore()
+      ),
+      payloadSync: InMemoryScheduledSendPayloadSync(snapshots: [payload]),
+      scheduledSendTransport: transport,
+      sessionStore: sessionStore
+    )
+
+    let handled = try await handler.handle(userInfo: [
+      "provider": "scheduled-send",
+      "revision": NSNumber(value: record.revision),
+      "scheduleId": record.scheduleId.uuidString,
+    ])
+
+    #expect(!handled)
+    #expect(mailService.sentConnectionIds.isEmpty)
+    #expect(await transport.events().isEmpty)
   }
 
   @Test(.bug(id: 382))
@@ -2795,6 +2885,7 @@ private final class ScheduledSendMailboxRoutingSpy: ScheduledSendMailboxRouting 
 }
 
 private actor ScheduledSendClaimTransportSpy: ScheduledSendOperationalTransport {
+  private var claimPhase = ScheduledSendClaimPhase.preHandoff
   private var recordedEvents: [String] = []
 
   func admitScheduledSend(
@@ -2846,6 +2937,7 @@ private actor ScheduledSendClaimTransportSpy: ScheduledSendOperationalTransport 
     trustedDeviceId _: String
   ) async throws -> Bool {
     recordedEvents.append("advance")
+    claimPhase = .handingOff
     return true
   }
 
@@ -2860,7 +2952,7 @@ private actor ScheduledSendClaimTransportSpy: ScheduledSendOperationalTransport 
         authorizationGeneration: 1,
         expiresAt: nil,
         generation: claimGeneration,
-        phase: .handingOff
+        phase: claimPhase
       )
     )
   }
@@ -2955,6 +3047,7 @@ private actor InMemoryScheduledSendPayloadSync: ScheduledSendPayloadSyncing {
 
 private actor ScheduledSendManagementTransportSpy: ScheduledSendOperationalTransport {
   private var beginEditCalls = 0
+  private var cancelCalls: [Int] = []
   private var replacementRevision: Int?
   private let status: ScheduledSendOperationalStatus
 
@@ -2972,9 +3065,16 @@ private actor ScheduledSendManagementTransportSpy: ScheduledSendOperationalTrans
 
   func cancelScheduledSend(
     scheduleId _: UUID,
-    revision _: Int,
+    revision: Int,
     session _: ProductAccountSessionSnapshot
-  ) async throws -> Bool { true }
+  ) async throws -> Bool {
+    cancelCalls.append(revision)
+    return true
+  }
+
+  func cancelledRevision() -> Int? {
+    cancelCalls.last
+  }
 
   func scheduledSendStatus(
     scheduleId _: UUID,

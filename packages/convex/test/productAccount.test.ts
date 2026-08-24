@@ -2996,6 +2996,18 @@ describe('gmail operational connection registration', () => {
         routeId,
         scheduledAt: now,
       });
+      await ctx.db.insert('scheduledSends', {
+        deadlineAt: now + 86_400_000,
+        dueAt: now + 60_000,
+        encryptedPayloadIdentifier: 'scheduled-send.v3.schedule-001.1',
+        encryptedPayloadUpdatedAt: now,
+        productAccountId: currentDevice.productAccountId,
+        revision: 1,
+        scheduleId: 'schedule-001',
+        state: 'active',
+        trustedDeviceId: otherDevice.trustedDeviceId,
+        updatedAt: now,
+      });
       await ctx.db.insert('mailProviderConnections', {
         connectedAt: now,
         gmailRoutingDigest: 'shared-gmail-routing-digest',
@@ -3033,6 +3045,7 @@ describe('gmail operational connection registration', () => {
         heartbeats: await ctx.db.query('devicePushRouteHeartbeats').collect(),
         payloads: await ctx.db.query('encryptedProductSyncPayloads').collect(),
         routes: await ctx.db.query('mailProviderConnections').collect(),
+        schedules: await ctx.db.query('scheduledSends').collect(),
         wakeups: await ctx.db.query('microsoftGraphWakeupStates').collect(),
       })),
     ).resolves.toStrictEqual({
@@ -3042,6 +3055,7 @@ describe('gmail operational connection registration', () => {
       heartbeats: [],
       payloads: [],
       routes: [],
+      schedules: [],
       wakeups: [],
     });
     await expect(
