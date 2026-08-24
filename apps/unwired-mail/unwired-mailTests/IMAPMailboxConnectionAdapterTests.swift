@@ -1074,8 +1074,13 @@ final class IMAPMailboxConnectionAdapterTests {
     let refreshed = try await recreatedAdapter.syncInbox(connection: connection, session: session)
 
     #expect(!refreshed.historicalMetadataBackfillIsComplete)
-    #expect(refreshed.messages.count == 77)
-    #expect(refreshed.messages.last?.subject == "Message 1")
+    #expect(refreshed.messages.count == 50)
+    #expect(refreshed.messages.last?.subject == "Message 28")
+    #expect(
+      try store.loadMessages(
+        productAccountId: session.productAccountId,
+        connectionId: connection.id
+      ).count == 77)
 
     let migrated = try await recreatedAdapter.continueHistoricalBackfill(
       connection: connection,
