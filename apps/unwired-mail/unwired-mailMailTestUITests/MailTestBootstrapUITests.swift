@@ -500,6 +500,9 @@ final class MailTestBootstrapUITests: XCTestCase {
     let row = app.buttons.matching(identifier: "mail-thread-row")
       .matching(NSPredicate(format: "label CONTAINS %@", subject)).firstMatch
     let deadline = Date().addingTimeInterval(60)
+    for _ in 0..<8 where !row.exists {
+      app.swipeDown()
+    }
     while !row.waitForExistence(timeout: 2), Date() < deadline {
       app.swipeUp()
     }
