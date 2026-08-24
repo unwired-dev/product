@@ -1,5 +1,7 @@
 import Foundation
 
+// swiftlint:disable file_length
+
 enum MailAssistanceCapability: String, Codable, Equatable, Sendable {
   case compose
   case respond
@@ -123,6 +125,7 @@ struct MailAssistanceContext: Codable, Equatable, Sendable {
   let inputVersion: MailAssistanceInputVersion
   let profileId: MailProfileId
   let recipientDisplayNames: [String]
+  let responseScope: ResponseAssistanceScope?
   let sourceMessages: [MailAssistanceSourceMessage]
   let understandingScope: UnderstandingAssistanceScope?
 
@@ -132,12 +135,14 @@ struct MailAssistanceContext: Codable, Equatable, Sendable {
     profileId: MailProfileId,
     recipientDisplayNames: [String],
     sourceMessages: [MailAssistanceSourceMessage],
+    responseScope: ResponseAssistanceScope? = nil,
     understandingScope: UnderstandingAssistanceScope? = nil
   ) {
     self.draft = draft
     self.inputVersion = inputVersion
     self.profileId = profileId
     self.recipientDisplayNames = recipientDisplayNames
+    self.responseScope = responseScope
     self.sourceMessages = sourceMessages
     self.understandingScope = understandingScope
   }
@@ -252,6 +257,7 @@ struct MailAssistancePreview: Equatable, Sendable {
   let inputVersion: MailAssistanceInputVersion
   let kind: MailAssistancePreviewKind
   let profileId: MailProfileId
+  let response: ResponseAssistanceResult?
   let semanticDocument: SemanticMessageDocument?
   let understanding: UnderstandingAssistanceResult?
 
@@ -260,6 +266,7 @@ struct MailAssistancePreview: Equatable, Sendable {
     inputVersion: MailAssistanceInputVersion,
     kind: MailAssistancePreviewKind,
     profileId: MailProfileId,
+    response: ResponseAssistanceResult? = nil,
     semanticDocument: SemanticMessageDocument? = nil,
     understanding: UnderstandingAssistanceResult? = nil
   ) {
@@ -267,6 +274,7 @@ struct MailAssistancePreview: Equatable, Sendable {
     self.inputVersion = inputVersion
     self.kind = kind
     self.profileId = profileId
+    self.response = response
     self.semanticDocument = semanticDocument
     self.understanding = understanding
   }
@@ -293,6 +301,11 @@ enum DeterministicMailAssistanceOutcome: Equatable, Sendable {
   case success(String)
   case semantic(SemanticMessageDocument)
   case suspendUntilCancelled
+  case response(
+    suggestions: [ResponseAssistanceSuggestion],
+    fullReply: SemanticMessageDocument,
+    completenessItems: [ResponseAssistanceCompletenessItem]
+  )
   case understanding([UnderstandingAssistanceItem])
 }
 
@@ -316,6 +329,7 @@ struct DeterministicMailAssistanceEngine: MailAssistanceEngine {
     availabilityState
   }
 
+  // swiftlint:disable:next cyclomatic_complexity function_body_length
   func generate(_ request: MailAssistanceRequest) async throws -> MailAssistancePreview {
     try validate(request)
     if case .unavailable(let reason) = availabilityState {
@@ -352,6 +366,19 @@ struct DeterministicMailAssistanceEngine: MailAssistanceEngine {
       } catch is CancellationError {
         throw MailAssistanceError.cancelled
       }
+    case .response(let suggestions, let fullReply, let completenessItems):
+      guard request.operation.capability == .respond,
+        let scope = request.context.responseScope
+      else {
+        throw MailAssistanceError.guardrailViolation
+      }
+      return try MailAssistancePreview.response(
+        suggestions: suggestions,
+        fullReply: fullReply,
+        completenessItems: completenessItems,
+        scope: scope,
+        request: request
+      )
     case .understanding(let items):
       guard request.operation == .understand,
         let scope = request.context.understandingScope

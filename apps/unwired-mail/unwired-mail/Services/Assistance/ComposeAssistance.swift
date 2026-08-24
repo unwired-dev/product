@@ -1,6 +1,8 @@
 import CryptoKit
 import Foundation
 
+// swiftlint:disable file_length
+
 /// The deliberate Compose Assistance transformations available from every composer.
 enum ComposeAssistancePreset: String, CaseIterable, Codable, Equatable, Identifiable, Sendable {
   case professional
@@ -332,7 +334,11 @@ enum ComposeAssistanceOutputValidator {
       else {
         throw MailAssistanceError.guardrailViolation
       }
-    case .respond, .suggestSubject, .understand:
+    case .respond:
+      guard preservesFactualTokens(from: source.plainText, to: output.plainText) else {
+        throw MailAssistanceError.guardrailViolation
+      }
+    case .suggestSubject, .understand:
       break
     }
   }
