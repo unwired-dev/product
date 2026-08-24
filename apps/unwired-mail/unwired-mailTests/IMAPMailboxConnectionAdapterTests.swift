@@ -995,6 +995,7 @@ final class IMAPMailboxConnectionAdapterTests {
   }
 
   @Test
+  // swiftlint:disable:next function_body_length
   func testInitialFiftyMessagesRemainUsableWhileBackfillResumesAfterRecreation() async throws {
     let definition = imapDefinition(username: "reader")
     let authorizationStore = authorizedStore(definition)
@@ -1045,15 +1046,52 @@ final class IMAPMailboxConnectionAdapterTests {
     #expect(completed.historicalMetadataBackfillIsComplete)
     #expect(completed.messages.count == 76)
 
+    var legacyMessage = try requireValue(
+      try store.loadMessages(
+        productAccountId: session.productAccountId,
+        connectionId: connection.id
+      ).first { $0.uid == 1 })
+    legacyMessage.attachmentDescriptors = nil
+    let completedState = try requireValue(
+      try store.loadState(
+        productAccountId: session.productAccountId,
+        connectionId: connection.id
+      ))
+    try store.savePage(
+      [legacyMessage],
+      mailbox: legacyMessage.mailbox,
+      reconciliation: .backfill,
+      state: completedState,
+      uidValidity: legacyMessage.uidValidity,
+      productAccountId: session.productAccountId,
+      connectionId: connection.id
+    )
+
     client.messagesByUsername[definition.username]?.append(
       imapMessage(uid: 77, subject: "Message 77")
     )
 
     let refreshed = try await recreatedAdapter.syncInbox(connection: connection, session: session)
 
-    #expect(refreshed.historicalMetadataBackfillIsComplete)
-    #expect(refreshed.messages.count == 77)
-    #expect(refreshed.messages.last?.subject == "Message 1")
+    #expect(!refreshed.historicalMetadataBackfillIsComplete)
+    #expect(refreshed.messages.count == 50)
+    #expect(refreshed.messages.last?.subject == "Message 28")
+    #expect(
+      try store.loadMessages(
+        productAccountId: session.productAccountId,
+        connectionId: connection.id
+      ).count == 77)
+
+    let migrated = try await recreatedAdapter.continueHistoricalBackfill(
+      connection: connection,
+      session: session
+    )
+    #expect(migrated.historicalMetadataBackfillIsComplete)
+    #expect(
+      try store.loadMessages(
+        productAccountId: session.productAccountId,
+        connectionId: connection.id
+      ).first { $0.uid == 1 }?.attachmentDescriptors == [])
   }
 
   @Test
@@ -1621,11 +1659,21 @@ final class IMAPMailboxConnectionAdapterTests {
   }
 
   @Test
+  // swiftlint:disable:next function_body_length
   func testOpenedBodyUsesSharedEncryptedCacheAcrossAdapterRecreation() async throws {
     let definition = imapDefinition(username: "reader")
     let authorizationStore = authorizedStore(definition)
     let client = RecordingIMAPClient()
-    client.messagesByUsername[definition.username] = [imapMessage(uid: 1)]
+    let attachmentDescriptor = MailEngineAttachmentDescriptor(
+      byteCount: 7,
+      contentTransferEncoding: "base64",
+      filename: "receipt.pdf",
+      mimeType: "application/pdf",
+      selector: MailEngineBodyPartSelector("2")
+    )
+    client.messagesByUsername[definition.username] = [
+      imapMessage(attachmentDescriptors: [attachmentDescriptor], uid: 1)
+    ]
     client.bodyByUID[1] = "Private body"
     let store = try SwiftDataIMAPMessageMetadataStore.inMemory()
     let rootDirectory = FileManager.default.temporaryDirectory
@@ -1663,7 +1711,97 @@ final class IMAPMailboxConnectionAdapterTests {
 
     #expect(first.text == "Private body")
     #expect(second == first)
+    #expect(
+      second.attachments
+        == [
+          MailboxMessageAttachment(
+            byteCount: 7,
+            filename: "receipt.pdf",
+            id: "2",
+            mimeType: "application/pdf"
+          )
+        ])
     #expect(client.bodyRequestCount == 1)
+  }
+
+  @Test
+  // swiftlint:disable:next function_body_length
+  func testAttachmentDownloadRevalidatesDescriptorAndBoundsDecodedBytes() async throws {
+    let definition = imapDefinition(username: "attachment-reader")
+    let descriptor = MailEngineAttachmentDescriptor(
+      byteCount: 7,
+      contentTransferEncoding: "base64",
+      filename: "receipt.pdf",
+      mimeType: "application/pdf",
+      selector: MailEngineBodyPartSelector("2")
+    )
+    let client = RecordingIMAPClient()
+    client.messagesByUsername[definition.username] = [
+      imapMessage(attachmentDescriptors: [descriptor], uid: 1)
+    ]
+    client.attachmentDataBySelector[descriptor.selector] = Data("receipt".utf8)
+    let adapter = try makeAdapter(
+      authorizationStore: authorizedStore(definition),
+      client: client,
+      definitions: [definition]
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try requireValue(connections.first)
+    let inbox = try await adapter.syncInbox(connection: connection, session: session)
+    let message = try requireValue(inbox.messages.first)
+    let attachment = MailboxMessageAttachment(
+      byteCount: descriptor.byteCount,
+      filename: descriptor.filename,
+      id: descriptor.selector.rawValue,
+      mimeType: descriptor.mimeType
+    )
+
+    let data = try await adapter.loadMessageAttachment(
+      attachment,
+      message: message,
+      session: session
+    )
+
+    #expect(data == Data("receipt".utf8))
+    #expect(client.attachmentRequests.count == 1)
+    #expect(client.attachmentRequests.first?.messageUID == 1)
+    #expect(client.attachmentRequests.first?.descriptor == descriptor)
+
+    let alteredAttachment = MailboxMessageAttachment(
+      byteCount: attachment.byteCount,
+      filename: "different.pdf",
+      id: attachment.id,
+      mimeType: attachment.mimeType
+    )
+    await #expect(throws: MailboxMessageAttachmentError.self) {
+      _ = try await adapter.loadMessageAttachment(
+        alteredAttachment,
+        message: message,
+        session: session
+      )
+    }
+
+    client.attachmentDataBySelector[descriptor.selector] = Data("too large".utf8)
+    await #expect(throws: MailboxMessageAttachmentError.self) {
+      _ = try await adapter.loadMessageAttachment(
+        attachment,
+        message: message,
+        session: session
+      )
+    }
+
+    let attachmentGate = TestRendezvous()
+    client.beforeAttachmentReturn = { await attachmentGate.hold() }
+    client.attachmentDataBySelector[descriptor.selector] = Data("receipt".utf8)
+    let download = Task {
+      try await adapter.loadMessageAttachment(attachment, message: message, session: session)
+    }
+    await attachmentGate.waitUntilHeld()
+    download.cancel()
+    await attachmentGate.release()
+    await #expect(throws: CancellationError.self) {
+      _ = try await download.value
+    }
   }
 
   @Test
@@ -2912,6 +3050,7 @@ private actor RecordingIMAPCloseGate {
 }
 
 private func imapMessage(
+  attachmentDescriptors: [MailEngineAttachmentDescriptor] = [],
   calendarInvitation: CalendarInvitationDescriptor? = nil,
   flags: [String] = [],
   mailbox: String = "INBOX",
@@ -2926,6 +3065,7 @@ private func imapMessage(
   subject: String = "Subject"
 ) -> IMAPProviderMessage {
   IMAPProviderMessage(
+    attachmentDescriptors: attachmentDescriptors,
     calendarInvitation: calendarInvitation,
     categoryId: nil,
     cc: nil,
@@ -3325,6 +3465,14 @@ private actor RecordingIMAPEngineSession: MailEngineSession {
 }
 
 private final class RecordingIMAPClient: IMAPMailboxClient {
+  struct AttachmentRequest: Equatable {
+    let descriptor: MailEngineAttachmentDescriptor
+    let messageUID: Int64
+  }
+
+  var attachmentDataBySelector: [MailEngineBodyPartSelector: Data] = [:]
+  var beforeAttachmentReturn: (() async -> Void)?
+  private(set) var attachmentRequests: [AttachmentRequest] = []
   var beforeBodyReturn: (() async -> Void)?
   var bodyByUID: [Int64: String] = [:]
   private(set) var bodyRequestCount = 0
@@ -3413,6 +3561,16 @@ private final class RecordingIMAPClient: IMAPMailboxClient {
     bodyRequestCount += 1
     await beforeBodyReturn?()
     return bodyByUID[message.uid] ?? "Body \(message.uid)"
+  }
+
+  func loadAttachment(
+    _ attachment: MailEngineAttachmentDescriptor,
+    message: IMAPProviderMessage,
+    authorization _: DeviceLocalGenericMailAuthorization
+  ) async throws -> Data {
+    attachmentRequests.append(AttachmentRequest(descriptor: attachment, messageUID: message.uid))
+    await beforeAttachmentReturn?()
+    return attachmentDataBySelector[attachment.selector] ?? Data()
   }
 
   func loadRawMessage(

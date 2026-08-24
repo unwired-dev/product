@@ -367,6 +367,7 @@ actor SwiftMailEngineSession: MailEngineSession {
     }
   }
 
+  // swiftlint:disable:next function_body_length
   func fetchDecodedBodyPart(
     _ part: MailEngineBodyPartDescriptor,
     for message: MailEngineMessageIdentity,
@@ -389,37 +390,42 @@ actor SwiftMailEngineSession: MailEngineSession {
       parserLimits: Self.bodyPartParserLimits(maximumByteCount: maximumByteCount)
     )
     do {
-      try await SwiftMailEngine.connect(
-        imap: boundedIMAP,
-        authorization: configuration.authorization
-      )
-      let selection = try await boundedIMAP.selectMailbox(message.mailbox.rawValue)
-      guard Int64(selection.uidValidity.value) == message.uidValidity else {
-        throw MailEngineError.staleMessageIdentity
+      return try await withTaskCancellationHandler {
+        try Task.checkCancellation()
+        try await SwiftMailEngine.connect(
+          imap: boundedIMAP,
+          authorization: configuration.authorization
+        )
+        let selection = try await boundedIMAP.selectMailbox(message.mailbox.rawValue)
+        guard Int64(selection.uidValidity.value) == message.uidValidity else {
+          throw MailEngineError.staleMessageIdentity
+        }
+        let data = try await boundedIMAP.fetchPart(
+          section: Section(part.selector.rawValue),
+          of: SwiftMail.UID(UInt32(message.uid))
+        )
+        try await boundedIMAP.disconnect()
+        let decoded = try Self.decodedBodyPart(
+          data,
+          descriptor: part,
+          maximumByteCount: maximumByteCount
+        )
+        try Task.checkCancellation()
+        return decoded
+      } onCancel: {
+        Task { try? await boundedIMAP.disconnect() }
       }
-      let data = try await boundedIMAP.fetchPart(
-        section: Section(part.selector.rawValue),
-        of: SwiftMail.UID(UInt32(message.uid))
-      )
-      try await boundedIMAP.disconnect()
-      let decoded = try Self.decodedBodyPart(
-        data,
-        descriptor: part,
-        maximumByteCount: maximumByteCount
-      )
-      try Task.checkCancellation()
-      return decoded
-    } catch let error as MailEngineError {
-      try? await boundedIMAP.disconnect()
-      throw error
-    } catch is CancellationError {
-      try? await boundedIMAP.disconnect()
-      throw MailEngineError.cancelled
-    } catch is ExceededResponseBodySizeError {
-      try? await boundedIMAP.disconnect()
-      throw MailEngineError.protocolRejected(code: "BODY-PART-TOO-LARGE", retryable: false)
     } catch {
       try? await boundedIMAP.disconnect()
+      if Task.isCancelled || error is CancellationError {
+        throw MailEngineError.cancelled
+      }
+      if let error = error as? MailEngineError {
+        throw error
+      }
+      if error is ExceededResponseBodySizeError {
+        throw MailEngineError.protocolRejected(code: "BODY-PART-TOO-LARGE", retryable: false)
+      }
       throw SwiftMailEngine.connectionError(error)
     }
   }
@@ -906,6 +912,7 @@ actor SwiftMailEngineSession: MailEngineSession {
     guard let uid = info.uid, uid.value > 0 else {
       throw MailEngineUIDMappingError.invalidUID
     }
+    let attachmentDescriptors = attachmentDescriptors(info)
     return MailEngineMessageMetadata(
       flags: Set(info.flags.map(flag)),
       identity: MailEngineMessageIdentity(
@@ -916,10 +923,11 @@ actor SwiftMailEngineSession: MailEngineSession {
       ),
       internalDate: info.internalDate ?? info.date ?? .distantPast,
       rfcMessageID: info.messageId?.description,
+      attachmentDescriptors: attachmentDescriptors,
       calendarInvitationPart: calendarInvitationPart(info.parts),
       ccRecipients: info.cc,
       from: info.from,
-      hasAttachments: info.parts.contains(where: isAttachment),
+      hasAttachments: !attachmentDescriptors.isEmpty,
       headerFields: (info.additionalHeaderFields ?? []).map {
         MailEngineHeaderField(name: $0.name, value: $0.value)
       },
@@ -938,11 +946,29 @@ actor SwiftMailEngineSession: MailEngineSession {
     fields?.first { $0.name.caseInsensitiveCompare(name) == .orderedSame }?.value
   }
 
-  private static func isAttachment(_ part: MessagePart) -> Bool {
-    let disposition = part.disposition?.lowercased()
-    let contentType = part.contentType.lowercased()
-    if disposition == "attachment" || contentType.hasPrefix("text/calendar") { return true }
-    return !(part.filename?.isEmpty ?? true) && disposition != "inline"
+  /// Returns safe ordinary attachment descriptors without selecting any part bytes.
+  static func attachmentDescriptors(
+    _ info: MessageInfo
+  ) -> [MailEngineAttachmentDescriptor] {
+    Message(header: info, parts: info.parts).attachments.compactMap { part in
+      guard let byteCount = part.size, byteCount >= 0 else { return nil }
+      let mimeType =
+        part.contentType
+        .split(separator: ";", maxSplits: 1)
+        .first?
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+        .lowercased() ?? ""
+      guard !mimeType.isEmpty else { return nil }
+      guard !["application/ics", "text/calendar", "text/x-vcalendar"].contains(mimeType)
+      else { return nil }
+      return MailEngineAttachmentDescriptor(
+        byteCount: byteCount,
+        contentTransferEncoding: part.encoding,
+        filename: part.suggestedFilename,
+        mimeType: mimeType,
+        selector: MailEngineBodyPartSelector(part.section.description)
+      )
+    }
   }
 
   static func calendarInvitationPart(
@@ -1261,6 +1287,7 @@ struct SwiftMailMailboxClient: IMAPMailboxClient {
 
   static func providerMessage(_ message: MailEngineMessageMetadata) -> IMAPProviderMessage {
     IMAPProviderMessage(
+      attachmentDescriptors: message.attachmentDescriptors,
       calendarInvitation: message.calendarInvitationPart.map {
         CalendarInvitationDescriptor(
           byteCount: $0.byteCount,
@@ -1328,6 +1355,28 @@ struct SwiftMailMailboxClient: IMAPMailboxClient {
       ),
       maximumByteCount: maximumByteCount
     )
+  }
+
+  func loadAttachment(
+    _ attachment: MailEngineAttachmentDescriptor,
+    message: IMAPProviderMessage,
+    authorization: DeviceLocalGenericMailAuthorization
+  ) async throws -> Data {
+    do {
+      try Task.checkCancellation()
+      return try await connect(authorization: authorization).session.fetchDecodedBodyPart(
+        attachment.bodyPart,
+        for: MailEngineMessageIdentity(
+          connectionID: authorization.definition.connectionId.rawValue,
+          mailbox: MailEngineMailboxIdentity(message.mailbox),
+          uid: message.uid,
+          uidValidity: message.uidValidity
+        ),
+        maximumByteCount: MailboxMessageAttachmentPolicy.maximumByteCount
+      )
+    } catch MailEngineError.cancelled {
+      throw CancellationError()
+    }
   }
 
   func loadCalendarInvitation(

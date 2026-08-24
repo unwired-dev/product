@@ -2599,7 +2599,6 @@ struct AccountView: View {
         },
         contentPresentationDismissalSignal: contentPresentationDismissalSignal
       )
-      .id(profileViewModel.activeProfileId)
       .mailShellBottomInset(isEnabled: horizontalSizeClass == .compact) {
         mailShellBottomBar
       }
@@ -3437,6 +3436,8 @@ struct AccountView: View {
     from sourceProfileId: MailProfileId,
     switchGeneration: Int
   ) async -> Bool {
+    contentPresentationDismissalSignal &+= 1
+    mailShellSelection.clearThreadSelection()
     mailShellSelection.selectUnifiedInbox()
     await waitForNextMainRunLoopCycle()
     guard
@@ -4310,21 +4311,6 @@ extension AccountView {
       } catch {
         profileViewModel.show(error)
       }
-    }
-  }
-
-  private func handleThreadsChange(_ threads: [MailboxThread]) {
-    if mailShellSelection.selectedMailbox?.isUnified == true {
-      if let connectionId = inboxViewModel.currentConnectionId {
-        mailShellSelection.updateThreads(threads, for: connectionId)
-      } else {
-        mailShellSelection.replaceUnifiedThreads(
-          threads,
-          connectionIds: Set(profileConnections.map(\.id))
-        )
-      }
-    } else if let connectionId = mailShellSelection.selectedConnectionId {
-      mailShellSelection.updateThreads(threads, for: connectionId)
     }
   }
 
@@ -11341,8 +11327,11 @@ final class ThreadMuteViewModel {
   private var profileId: MailProfileId
   private var session: ProductAccountSessionSnapshot
   private var snapshot = ThreadMuteSnapshot.empty
-  private var stateRevision = 0
+  private var contextRevision = 0
+  private var snapshotRevision = 0
   private var updatingThreadIds: Set<StableThreadIdentity> = []
+  private var updateGenerations: [StableThreadIdentity: Int] = [:]
+  private var nextUpdateGeneration = 0
 
   init(
     service: ThreadMuteSyncing,
@@ -11355,36 +11344,46 @@ final class ThreadMuteViewModel {
   }
 
   func updateSession(_ session: ProductAccountSessionSnapshot) {
-    stateRevision += 1
+    contextRevision += 1
+    snapshotRevision += 1
     self.session = session
   }
 
   func updateProfile(_ profileId: MailProfileId) {
     guard self.profileId != profileId else { return }
-    stateRevision += 1
+    contextRevision += 1
+    snapshotRevision += 1
     self.profileId = profileId
     snapshot = .empty
     mutedThreadIds = []
     updatingThreadIds = []
+    updateGenerations = [:]
     errorMessage = nil
   }
 
   func load() async {
-    let revision = stateRevision
+    let profileId = profileId
+    let revision = snapshotRevision
+    let session = session
     do {
       let loaded = try await service.load(profileId: profileId, session: session)
-      guard revision == stateRevision else { return }
+      try Task.checkCancellation()
+      guard profileId == self.profileId, revision == snapshotRevision else { return }
       apply(loaded)
       errorMessage = nil
     } catch is CancellationError {
     } catch {
-      guard !Task.isCancelled, revision == stateRevision else { return }
+      guard
+        !Task.isCancelled,
+        profileId == self.profileId,
+        revision == snapshotRevision
+      else { return }
       errorMessage = error.localizedDescription
     }
   }
 
   func reconcile(with messages: [MailboxMessageMetadata]) async {
-    let revision = stateRevision
+    let revision = snapshotRevision
     do {
       let reconciled = try await service.reconcile(
         with: messages,
@@ -11392,12 +11391,12 @@ final class ThreadMuteViewModel {
         session: session
       )
       try Task.checkCancellation()
-      guard revision == stateRevision else { return }
+      guard revision == snapshotRevision else { return }
       apply(reconciled)
       errorMessage = nil
     } catch is CancellationError {
     } catch {
-      guard !Task.isCancelled, revision == stateRevision else { return }
+      guard !Task.isCancelled, revision == snapshotRevision else { return }
       errorMessage = error.localizedDescription
     }
   }
@@ -11437,11 +11436,22 @@ final class ThreadMuteViewModel {
     anchorMessageId: StableProviderMessageIdentity
   ) async {
     guard !updatingThreadIds.contains(threadId) else { return }
+    let profileId = profileId
+    let revision = contextRevision
+    let session = session
     let wasMuted = mutedThreadIds.contains(threadId)
     setMutedLocally(isMuted, threadId: threadId, anchorMessageId: anchorMessageId)
+    nextUpdateGeneration += 1
+    let updateGeneration = nextUpdateGeneration
     updatingThreadIds.insert(threadId)
+    updateGenerations[threadId] = updateGeneration
     errorMessage = nil
-    defer { updatingThreadIds.remove(threadId) }
+    defer {
+      if updateGenerations[threadId] == updateGeneration {
+        updatingThreadIds.remove(threadId)
+        updateGenerations[threadId] = nil
+      }
+    }
     do {
       try await service.setMuted(
         isMuted,
@@ -11450,10 +11460,21 @@ final class ThreadMuteViewModel {
         profileId: profileId,
         session: session
       )
-      stateRevision += 1
+      try Task.checkCancellation()
+      guard
+        profileId == self.profileId,
+        revision == contextRevision,
+        updateGenerations[threadId] == updateGeneration
+      else { return }
+      snapshotRevision += 1
     } catch is CancellationError {
-      setMutedLocally(wasMuted, threadId: threadId, anchorMessageId: anchorMessageId)
     } catch {
+      guard
+        !Task.isCancelled,
+        profileId == self.profileId,
+        revision == contextRevision,
+        updateGenerations[threadId] == updateGeneration
+      else { return }
       setMutedLocally(wasMuted, threadId: threadId, anchorMessageId: anchorMessageId)
       errorMessage = error.localizedDescription
     }
