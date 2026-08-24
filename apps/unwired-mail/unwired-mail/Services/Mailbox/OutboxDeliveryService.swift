@@ -2432,8 +2432,8 @@ actor OutboxDeliveryService {
   ) -> Bool {
     guard let connection = connectionsById[attempt.connectionId] else { return false }
     guard attempt.isScheduledSend else { return true }
-    return (attempt.scheduledConnectionGeneration ?? 0)
-      == connection.authorizationGeneration
+    return attempt.scheduledConnectionGeneration == nil
+      || attempt.scheduledConnectionGeneration == connection.authorizationGeneration
   }
 
   private func scheduledSendMissedDeadline(_ attempt: OutgoingDeliveryAttempt) -> Bool {

@@ -2304,8 +2304,8 @@ struct ScheduledSendWakeupHandler {
       let record = snapshot.record
       guard
         let connection = connectionsById[record.connectionId],
-        (record.connectionAuthorizationGeneration ?? 0)
-          == connection.authorizationGeneration
+        record.connectionAuthorizationGeneration == nil
+          || record.connectionAuthorizationGeneration == connection.authorizationGeneration
       else { return false }
       let claimResult = try await scheduledSendTransport.claimScheduledSend(
         scheduleId: requestedSchedule.id,

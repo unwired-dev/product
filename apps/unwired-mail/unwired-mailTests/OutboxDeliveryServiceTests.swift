@@ -373,13 +373,14 @@ final class OutboxDeliveryServiceTests {
     await outbox.suspend(productAccountId: session.productAccountId)
   }
 
-  @Test(.bug(id: 382))
-  func microsoftGraphScheduledSendWakeRestoresAndDeliversTheAttempt() async throws {
+  @Test(.bug(id: 385))
+  func legacyScheduledSendWakeRestoresOnARecreatedConnection() async throws {
     let now = Date(timeIntervalSince1970: 1_800_000_000)
     let dueAtMilliseconds = Int64(now.addingTimeInterval(-60).timeIntervalSince1970 * 1_000)
+    let currentConnection = graphConnection.withAuthorizationGeneration(2)
     let record = ScheduledSendRecord(
       connectionAuthorizationGeneration: nil,
-      connectionId: graphConnection.id,
+      connectionId: currentConnection.id,
       createdAtMilliseconds: dueAtMilliseconds - 60_000,
       deadlineAtMilliseconds: dueAtMilliseconds + 24 * 60 * 60 * 1_000,
       draftId: UUID(uuidString: "00000000-0000-0000-0000-000000000381")!,
@@ -401,7 +402,7 @@ final class OutboxDeliveryServiceTests {
     let sessionStore = InMemoryProductAccountSessionStore()
     try sessionStore.save(session)
     let transport = ScheduledSendClaimTransportSpy()
-    let mailService = ScheduledSendMailboxRoutingSpy(connections: [graphConnection])
+    let mailService = ScheduledSendMailboxRoutingSpy(connections: [currentConnection])
     let handler = ScheduledSendWakeupHandler(
       mailService: mailService,
       outboxService: OutboxDeliveryService(
@@ -421,7 +422,7 @@ final class OutboxDeliveryServiceTests {
     ])
 
     #expect(handled)
-    #expect(mailService.sentConnectionIds == [graphConnection.id])
+    #expect(mailService.sentConnectionIds == [currentConnection.id])
     let transportEvents = await transport.events()
     #expect(transportEvents == ["claim", "advance", "complete"])
   }
@@ -477,6 +478,45 @@ final class OutboxDeliveryServiceTests {
     #expect(!handled)
     #expect(mailService.sentConnectionIds.isEmpty)
     #expect(await transport.events().isEmpty)
+  }
+
+  @Test(.bug(id: 385))
+  func legacyScheduledSendAttemptResumesOnARecreatedConnection() async throws {
+    let clock = LockedOutboxClock(Date(timeIntervalSince1970: 1_800_000_000))
+    let currentConnection = graphConnection.withAuthorizationGeneration(2)
+    let deliveries = DeliveryCounter()
+    let store = InMemoryOutboxDeliveryStore()
+    let dueAt = clock.now().addingTimeInterval(60)
+    let queuedService = OutboxDeliveryService(now: { clock.now() }, store: store)
+    _ = try await queuedService.enqueueScheduled(
+      message,
+      connection: currentConnection,
+      session: session,
+      scheduleId: UUID(),
+      revision: 1,
+      dueAt: dueAt,
+      deadline: dueAt.addingTimeInterval(24 * 60 * 60),
+      undoSendDelayNanoseconds: 0,
+      provider: { _, _, _ in Issue.record("The original process should be suspended.") },
+      reconcile: { _, _ in .notSent }
+    )
+    await queuedService.suspend(productAccountId: session.productAccountId)
+    var legacyAttempt = try #require(
+      try store.load(productAccountId: session.productAccountId).first
+    )
+    legacyAttempt.scheduledConnectionGeneration = nil
+    try store.save([legacyAttempt], productAccountId: session.productAccountId)
+    clock.advance(by: 60)
+
+    let restartedService = OutboxDeliveryService(now: { clock.now() }, store: store)
+    try await restartedService.resume(
+      connections: [currentConnection],
+      session: session,
+      provider: { _, _, _ in await deliveries.increment() },
+      reconcile: { _, _ in .notSent }
+    )
+
+    #expect(await deliveries.currentValue() == 1)
   }
 
   @Test(.bug(id: 382))
