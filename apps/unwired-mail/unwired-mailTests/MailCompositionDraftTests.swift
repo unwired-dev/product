@@ -490,7 +490,9 @@ final class MailCompositionDraftTests {
     #expect(second.isSynchronizationPending)
     #expect(second.createdAtMilliseconds == first.createdAtMilliseconds)
     #expect(second.changedAtMilliseconds == Int64(currentTime.timeIntervalSince1970 * 1_000))
-    #expect(viewModel.draft.updatedAtMilliseconds == Int64(currentTime.timeIntervalSince1970 * 1_000))
+    #expect(
+      viewModel.draft.updatedAtMilliseconds == Int64(currentTime.timeIntervalSince1970 * 1_000)
+    )
     #expect(await viewModel.send() == .sent)
     #expect(cancelled.map(\.0) == [second.revision])
     #expect(cancelled.map(\.1) == [source.id])
