@@ -2869,8 +2869,6 @@ struct AccountView: View {
                   session: snapshot,
                   viewModel: storageDataSettingsViewModel
                 )
-              default:
-                EmptyView()
               }
             }
           )
