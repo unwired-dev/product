@@ -677,6 +677,65 @@ final class OutboxDeliveryServiceTests {
     #expect(await deliveries.currentValue() == 1)
   }
 
+  @Test(.bug(id: 385), arguments: [false, true], [false, true])
+  // swiftlint:disable:next function_body_length
+  func unavailableConnectionDoesNotResumeScheduledSend(
+    usesLegacyGeneration: Bool,
+    usesReceiveOnlyConnection: Bool
+  ) async throws {
+    let clock = LockedOutboxClock(Date(timeIntervalSince1970: 1_800_000_000))
+    let currentConnection = graphConnection.withAuthorizationGeneration(2)
+    let deliveries = DeliveryCounter()
+    let store = InMemoryOutboxDeliveryStore()
+    let dueAt = clock.now().addingTimeInterval(60)
+    let queuedService = OutboxDeliveryService(now: { clock.now() }, store: store)
+    _ = try await queuedService.enqueueScheduled(
+      message,
+      connection: currentConnection,
+      session: session,
+      scheduleId: UUID(),
+      revision: 1,
+      dueAt: dueAt,
+      deadline: dueAt.addingTimeInterval(24 * 60 * 60),
+      undoSendDelayNanoseconds: 0,
+      provider: { _, _, _ in Issue.record("The original process should be suspended.") },
+      reconcile: { _, _ in .notSent }
+    )
+    await queuedService.suspend(productAccountId: session.productAccountId)
+    if usesLegacyGeneration {
+      var legacyAttempt = try #require(
+        try store.load(productAccountId: session.productAccountId).first
+      )
+      legacyAttempt.scheduledConnectionGeneration = nil
+      try store.save([legacyAttempt], productAccountId: session.productAccountId)
+    }
+    clock.advance(by: 60)
+    let unavailableConnection = MailboxConnection(
+      authorizationGeneration: currentConnection.authorizationGeneration,
+      authorizationState: usesReceiveOnlyConnection ? .authorized : .required,
+      capabilities: usesReceiveOnlyConnection ? .imapRead : .none,
+      connectedAt: currentConnection.connectedAt,
+      displayName: currentConnection.displayName,
+      id: currentConnection.id,
+      lastVerifiedAt: currentConnection.lastVerifiedAt,
+      productAccountId: currentConnection.productAccountId,
+      trustedDeviceId: currentConnection.trustedDeviceId,
+      updatedAt: currentConnection.updatedAt
+    )
+
+    let restartedService = OutboxDeliveryService(now: { clock.now() }, store: store)
+    try await restartedService.resume(
+      connections: [unavailableConnection],
+      session: session,
+      provider: { _, _, _ in await deliveries.increment() },
+      reconcile: { _, _ in .notSent }
+    )
+    let attempt = try #require(try await restartedService.items(session: session).first)
+
+    #expect(await deliveries.currentValue() == 0)
+    #expect(attempt.state == .pending)
+  }
+
   @Test(.bug(id: 382))
   func microsoftGraphScheduledSendAdmissionUsesTheGraphTransferLimit() async {
     let now = Date(timeIntervalSince1970: 1_800_000_000)

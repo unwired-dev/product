@@ -1924,8 +1924,11 @@ actor OutboxDeliveryService {
     provider: @escaping OutboxDeliveryPerformer,
     reconcile: @escaping OutboxDeliveryReconciler
   ) async throws {
+    let sendCapableConnections = connections.filter {
+      $0.authorizationState == .authorized && $0.capabilities.canSend
+    }
     connectionAuthorizationGenerations[session.productAccountId] = Dictionary(
-      connections.map { ($0.id, $0.authorizationGeneration) },
+      sendCapableConnections.map { ($0.id, $0.authorizationGeneration) },
       uniquingKeysWith: { _, latest in latest }
     )
     var attempts = try loadPruningTerminalAttempts(productAccountId: session.productAccountId)
@@ -1941,7 +1944,7 @@ actor OutboxDeliveryService {
       try store.save(attempts, productAccountId: session.productAccountId)
     }
     let connectionsById = Dictionary(
-      connections.map { ($0.id, $0) },
+      sendCapableConnections.map { ($0.id, $0) },
       uniquingKeysWith: { _, latest in latest }
     )
     var markedNeedsAttention = false
@@ -2439,7 +2442,10 @@ actor OutboxDeliveryService {
     for attempt: OutgoingDeliveryAttempt,
     in connectionsById: [MailboxConnectionId: MailboxConnection]
   ) -> Bool {
-    guard let connection = connectionsById[attempt.connectionId] else { return false }
+    guard let connection = connectionsById[attempt.connectionId],
+      connection.authorizationState == .authorized,
+      connection.capabilities.canSend
+    else { return false }
     return connectionIsAuthorized(
       for: attempt,
       authorizationGeneration: connection.authorizationGeneration
@@ -2451,6 +2457,7 @@ actor OutboxDeliveryService {
     authorizationGeneration: Int?
   ) -> Bool {
     guard attempt.isScheduledSend else { return true }
+    guard let authorizationGeneration else { return false }
     return attempt.scheduledConnectionGeneration == nil
       || attempt.scheduledConnectionGeneration == authorizationGeneration
   }
