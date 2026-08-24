@@ -2333,18 +2333,21 @@ actor OutboxDeliveryService {
     productAccountId: String,
     provider: @escaping OutboxDeliveryPerformer,
     reconcile: @escaping OutboxDeliveryReconciler,
-    returning returnedAttemptId: UUID? = nil
+    returning returnedAttemptId: UUID? = nil,
+    ownsProcessingConnection: Bool = false
   ) async throws -> OutgoingDeliveryAttempt? {
     var returnedAttempt: OutgoingDeliveryAttempt?
     var processedAttempt = false
-    guard processingConnectionIds.insert(connectionId.rawValue).inserted else {
+    guard ownsProcessingConnection || processingConnectionIds.insert(connectionId.rawValue).inserted
+    else {
       await waitForProcessingConnection(connectionId)
       return try await process(
         connectionId: connectionId,
         productAccountId: productAccountId,
         provider: provider,
         reconcile: reconcile,
-        returning: returnedAttemptId
+        returning: returnedAttemptId,
+        ownsProcessingConnection: true
       )
     }
     defer { finishProcessingConnection(connectionId) }
@@ -3089,11 +3092,18 @@ actor OutboxDeliveryService {
   }
 
   private func finishProcessingConnection(_ connectionId: MailboxConnectionId) {
-    processingConnectionIds.remove(connectionId.rawValue)
-    let waiters = processingConnectionWaiters.removeValue(forKey: connectionId.rawValue) ?? []
-    for waiter in waiters {
-      waiter.resume()
+    let key = connectionId.rawValue
+    guard var waiters = processingConnectionWaiters[key], !waiters.isEmpty else {
+      processingConnectionIds.remove(key)
+      return
     }
+    let nextWaiter = waiters.removeFirst()
+    if waiters.isEmpty {
+      processingConnectionWaiters[key] = nil
+    } else {
+      processingConnectionWaiters[key] = waiters
+    }
+    nextWaiter.resume()
   }
 
   private func handoffNotBeforeMilliseconds(for attempt: OutgoingDeliveryAttempt) -> Int64 {

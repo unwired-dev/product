@@ -451,35 +451,25 @@ final class OutboxDeliveryServiceTests {
       )
     }
     await gate.waitUntilStarted()
-    let scheduledPass = Task {
-      try await service.enqueueScheduled(
-        OutgoingMessage(
-          body: "Restored while the connection is busy",
-          recipient: message.recipient,
-          subject: "Scheduled"
-        ),
-        connection: connection,
-        session: session,
-        scheduleId: UUID(),
-        revision: 1,
-        dueAt: now,
-        deadline: now.addingTimeInterval(24 * 60 * 60),
-        undoSendDelayNanoseconds: 0,
-        provider: provider,
-        reconcile: { _, _ in .notSent }
-      )
+    let firstScheduledPass = Task {
+      try await enqueueDueScheduled("First scheduled", service: service, provider: provider, now: now)
     }
-    while try await service.items(session: session).count < 2 {
+    let secondScheduledPass = Task {
+      try await enqueueDueScheduled("Second scheduled", service: service, provider: provider, now: now)
+    }
+    while try await service.items(session: session).count < 3 {
       await Task.yield()
     }
 
+    #expect(await deliveries.currentValue() == 1)
     await gate.release()
-    let currentAttempt = try await currentPass.value
-    let scheduledAttempt = try await scheduledPass.value
+    _ = try await currentPass.value
+    let firstScheduledAttempt = try await firstScheduledPass.value
+    let secondScheduledAttempt = try await secondScheduledPass.value
 
-    #expect(currentAttempt.state == .sent)
-    #expect(scheduledAttempt.state == .sent)
-    #expect(await deliveries.currentValue() == 2)
+    #expect(firstScheduledAttempt.state == .sent)
+    #expect(secondScheduledAttempt.state == .sent)
+    #expect(await deliveries.currentValue() == 3)
   }
 
   @Test(.bug(id: 383))
@@ -2831,6 +2821,30 @@ final class OutboxDeliveryServiceTests {
       },
       retryDelayNanoseconds: { _ in 60_000_000_000 },
       store: store
+    )
+  }
+
+  private func enqueueDueScheduled(
+    _ subject: String,
+    service: OutboxDeliveryService,
+    provider: @escaping OutboxDeliveryPerformer,
+    now: Date
+  ) async throws -> OutgoingDeliveryAttempt {
+    try await service.enqueueScheduled(
+      OutgoingMessage(
+        body: "Restored while the connection is busy",
+        recipient: message.recipient,
+        subject: subject
+      ),
+      connection: connection,
+      session: session,
+      scheduleId: UUID(),
+      revision: 1,
+      dueAt: now,
+      deadline: now.addingTimeInterval(24 * 60 * 60),
+      undoSendDelayNanoseconds: 0,
+      provider: provider,
+      reconcile: { _, _ in .notSent }
     )
   }
 
