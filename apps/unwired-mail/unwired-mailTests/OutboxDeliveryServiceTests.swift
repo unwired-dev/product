@@ -231,6 +231,57 @@ final class OutboxDeliveryServiceTests {
   }
 
   @Test(.bug(id: 382))
+  func microsoftGraphScheduledSendWakeRestoresAndDeliversTheAttempt() async throws {
+    let now = Date(timeIntervalSince1970: 1_800_000_000)
+    let dueAtMilliseconds = Int64(now.addingTimeInterval(-60).timeIntervalSince1970 * 1_000)
+    let record = ScheduledSendRecord(
+      connectionId: graphConnection.id,
+      createdAtMilliseconds: dueAtMilliseconds - 60_000,
+      deadlineAtMilliseconds: dueAtMilliseconds + 24 * 60 * 60 * 1_000,
+      draftId: UUID(uuidString: "00000000-0000-0000-0000-000000000381")!,
+      dueAtMilliseconds: dueAtMilliseconds,
+      message: message,
+      originatingDeviceId: session.trustedDeviceId,
+      originalTimeZoneIdentifier: "Europe/Prague",
+      profileId: MailProfileId.defaultProfile(productAccountId: session.productAccountId),
+      revision: 1,
+      scheduleId: UUID(uuidString: "00000000-0000-0000-0000-000000000382")!
+    )
+    let payload = ScheduledSendPayloadSnapshot(
+      acknowledgement: ScheduledSendPayloadAcknowledgement(
+        payloadIdentifier: "payload-graph-wake",
+        updatedAt: dueAtMilliseconds - 30_000
+      ),
+      record: record
+    )
+    let sessionStore = InMemoryProductAccountSessionStore()
+    try sessionStore.save(session)
+    let transport = ScheduledSendClaimTransportSpy()
+    let mailService = ScheduledSendMailboxRoutingSpy(connections: [graphConnection])
+    let handler = ScheduledSendWakeupHandler(
+      mailService: mailService,
+      outboxService: OutboxDeliveryService(
+        now: { now },
+        scheduledSendTransport: transport,
+        store: InMemoryOutboxDeliveryStore()
+      ),
+      payloadSync: InMemoryScheduledSendPayloadSync(snapshots: [payload]),
+      scheduledSendTransport: transport,
+      sessionStore: sessionStore
+    )
+
+    let handled = try await handler.handle(userInfo: [
+      "provider": "scheduled-send",
+      "revision": NSNumber(value: record.revision),
+      "scheduleId": record.scheduleId.uuidString,
+    ])
+
+    #expect(handled)
+    #expect(mailService.sentConnectionIds == [graphConnection.id])
+    #expect(await transport.events() == ["claim", "advance", "complete"])
+  }
+
+  @Test(.bug(id: 382))
   func microsoftGraphScheduledSendAdmissionUsesTheGraphTransferLimit() async {
     let now = Date(timeIntervalSince1970: 1_800_000_000)
     let transport = ScheduledSendClaimTransportSpy()
@@ -2708,6 +2759,38 @@ private actor DeliveryCounter {
 
   func currentValue() -> Int {
     value
+  }
+}
+
+@MainActor
+private final class ScheduledSendMailboxRoutingSpy: ScheduledSendMailboxRouting {
+  private let connections: [MailboxConnection]
+  private(set) var sentConnectionIds: [MailboxConnectionId] = []
+
+  init(connections: [MailboxConnection]) {
+    self.connections = connections
+  }
+
+  func loadConnections(
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> [MailboxConnection] {
+    connections
+  }
+
+  func send(
+    _: OutgoingMessage,
+    connection: MailboxConnection,
+    session _: ProductAccountSessionSnapshot
+  ) async throws {
+    sentConnectionIds.append(connection.id)
+  }
+
+  func deliveryStatus(
+    idempotencyKey _: String,
+    connection _: MailboxConnection,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> MailboxDeliveryStatus {
+    .notSent
   }
 }
 
