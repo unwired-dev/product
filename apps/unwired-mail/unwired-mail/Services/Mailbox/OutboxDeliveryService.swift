@@ -1650,6 +1650,8 @@ actor OutboxDeliveryService {
   private let maximumAge: TimeInterval
   private let maximumAttempts: Int
   private let now: @Sendable () -> Date
+  private var connectionAuthorizationGenerations:
+    [String: [MailboxConnectionId: Int]] = [:]
   private var handoffClaimFailureCounts: [UUID: Int] = [:]
   private var reconciliationStateWriteFailureCounts: [UUID: Int] = [:]
   private var processingConnectionIds: Set<String> = []
@@ -1923,6 +1925,10 @@ actor OutboxDeliveryService {
     provider: @escaping OutboxDeliveryPerformer,
     reconcile: @escaping OutboxDeliveryReconciler
   ) async throws {
+    connectionAuthorizationGenerations[session.productAccountId] = Dictionary(
+      connections.map { ($0.id, $0.authorizationGeneration) },
+      uniquingKeysWith: { _, latest in latest }
+    )
     var attempts = try loadPruningTerminalAttempts(productAccountId: session.productAccountId)
     var assignedScheduledSendOwner = false
     for index in attempts.indices
@@ -2332,6 +2338,7 @@ actor OutboxDeliveryService {
       pruningTerminalAttempts(attempts.filter { $0.connectionId != connection.id }),
       productAccountId: session.productAccountId
     )
+    connectionAuthorizationGenerations[session.productAccountId]?[connection.id] = nil
     cancelDeliveryRetryTasks(
       attemptIds: attemptIds,
       connectionId: connection.id,
@@ -2434,9 +2441,19 @@ actor OutboxDeliveryService {
     in connectionsById: [MailboxConnectionId: MailboxConnection]
   ) -> Bool {
     guard let connection = connectionsById[attempt.connectionId] else { return false }
+    return connectionIsAuthorized(
+      for: attempt,
+      authorizationGeneration: connection.authorizationGeneration
+    )
+  }
+
+  private func connectionIsAuthorized(
+    for attempt: OutgoingDeliveryAttempt,
+    authorizationGeneration: Int?
+  ) -> Bool {
     guard attempt.isScheduledSend else { return true }
     return attempt.scheduledConnectionGeneration == nil
-      || attempt.scheduledConnectionGeneration == connection.authorizationGeneration
+      || attempt.scheduledConnectionGeneration == authorizationGeneration
   }
 
   private func scheduledSendMissedDeadline(_ attempt: OutgoingDeliveryAttempt) -> Bool {
@@ -2511,6 +2528,11 @@ actor OutboxDeliveryService {
           (attempts.indices
             .filter {
               attempts[$0].connectionId == connectionId
+                && connectionIsAuthorized(
+                  for: attempts[$0],
+                  authorizationGeneration:
+                    connectionAuthorizationGenerations[productAccountId]?[connectionId]
+                )
                 && ((attempts[$0].state == .pending
                   && handoffNotBeforeMilliseconds(for: attempts[$0]) <= milliseconds(now()))
                   || ((attempts[$0].state == .retrying
@@ -3459,6 +3481,8 @@ actor OutboxDeliveryService {
     guard connection.authorizationState == .authorized, connection.capabilities.canSend else {
       throw MailboxConnectionAdapterError.authorizationRequired
     }
+    connectionAuthorizationGenerations[session.productAccountId, default: [:]][connection.id] =
+      connection.authorizationGeneration
   }
 
   private func milliseconds(_ date: Date) -> Int64 {

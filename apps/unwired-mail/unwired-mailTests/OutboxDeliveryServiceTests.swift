@@ -588,6 +588,57 @@ final class OutboxDeliveryServiceTests {
   }
 
   @Test(.bug(id: 385))
+  func newActivityDoesNotHandoffAScheduledSendFromAnOlderAuthorization() async throws {
+    let clock = LockedOutboxClock(Date(timeIntervalSince1970: 1_800_000_000))
+    let originalConnection = graphConnection.withAuthorizationGeneration(1)
+    let currentConnection = graphConnection.withAuthorizationGeneration(2)
+    let deliveries = DeliveryCounter()
+    let store = InMemoryOutboxDeliveryStore()
+    let transport = ScheduledSendClaimTransportSpy()
+    let dueAt = clock.now().addingTimeInterval(60)
+    let queuedService = OutboxDeliveryService(
+      now: { clock.now() },
+      scheduledSendTransport: transport,
+      store: store
+    )
+    _ = try await queuedService.enqueueScheduled(
+      message,
+      connection: originalConnection,
+      session: session,
+      scheduleId: UUID(),
+      revision: 1,
+      dueAt: dueAt,
+      deadline: dueAt.addingTimeInterval(24 * 60 * 60),
+      undoSendDelayNanoseconds: 0,
+      provider: { _, _, _ in Issue.record("The original process should be suspended.") },
+      reconcile: { _, _ in .notSent }
+    )
+    await queuedService.suspend(productAccountId: session.productAccountId)
+    clock.advance(by: 60)
+
+    let restartedService = OutboxDeliveryService(
+      now: { clock.now() },
+      scheduledSendTransport: transport,
+      store: store
+    )
+    _ = try await restartedService.enqueue(
+      message,
+      connection: currentConnection,
+      session: session,
+      undoSendDelayNanoseconds: 0,
+      provider: { _, _, _ in await deliveries.increment() },
+      reconcile: { _, _ in .notSent }
+    )
+    let scheduledAttempt = try #require(
+      try await restartedService.items(session: session).first(where: \.isScheduledSend)
+    )
+
+    #expect(await deliveries.currentValue() == 1)
+    #expect(await transport.events().isEmpty)
+    #expect(scheduledAttempt.state == .pending)
+  }
+
+  @Test(.bug(id: 385))
   func legacyScheduledSendAttemptResumesOnARecreatedConnection() async throws {
     let clock = LockedOutboxClock(Date(timeIntervalSince1970: 1_800_000_000))
     let currentConnection = graphConnection.withAuthorizationGeneration(2)
