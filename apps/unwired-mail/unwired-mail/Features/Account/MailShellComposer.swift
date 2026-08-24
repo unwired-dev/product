@@ -245,7 +245,7 @@ struct MailShellComposer: View {
         viewModel.draftChanged()
         await Task.yield()
         guard focusedField == nil else { return }
-        focusedField = .body
+        focusedField = viewModel.draft.recipient.isEmpty ? .to : .body
       }
       .task(id: suggestionRequest) {
         await updateSuggestions()

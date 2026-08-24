@@ -2869,8 +2869,6 @@ struct AccountView: View {
                   session: snapshot,
                   viewModel: storageDataSettingsViewModel
                 )
-              default:
-                EmptyView()
               }
             }
           )
@@ -14283,10 +14281,12 @@ final class GmailInboxViewModel {
         projectedThreads = projection.threads
         projectionRevision = projection.revision
         if projectionRevision != productMailboxStateRevision { continue }
+        publishedCount = 0
+        threads.removeAll(keepingCapacity: true)
       }
       let nextBatchSize = publishedCount == 0 ? firstBatchSize : batchSize
       let endIndex = min(publishedCount + nextBatchSize, projectedThreads.count)
-      threads = Array(projectedThreads.prefix(endIndex))
+      threads.append(contentsOf: projectedThreads[publishedCount..<endIndex])
       publishedCount = endIndex
       guard publishedCount < projectedThreads.count else { return true }
       #if DEBUG
