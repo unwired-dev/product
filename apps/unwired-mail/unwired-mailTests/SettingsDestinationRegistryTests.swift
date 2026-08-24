@@ -1110,6 +1110,15 @@ final class SettingsDestinationRegistryTests {
     #expect(AboutAppInformation.productWebsiteURL.path == "/unwired-mail")
     #expect(AboutAppInformation.supportURL.scheme == "mailto")
     #expect(OpenSourcePackage.all.count == 16)
+    #expect(
+      OpenSourcePackage.all.contains {
+        $0.name == "AppAuth"
+          && $0.license == "Apache 2.0"
+          && $0.repositoryURL.absoluteString == "https://github.com/openid/AppAuth-iOS"
+          && $0.licenseURL.absoluteString
+            == "https://github.com/openid/AppAuth-iOS/blob/2.1.0/LICENSE"
+      }
+    )
     #expect(OpenSourcePackage.all.allSatisfy { $0.licenseURL.scheme == "https" })
     #expect(Set(OpenSourcePackage.all.map(\.name)).count == OpenSourcePackage.all.count)
   }
