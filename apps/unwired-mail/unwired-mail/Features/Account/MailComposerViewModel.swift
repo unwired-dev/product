@@ -239,23 +239,7 @@ final class MailComposerViewModel {
     await pendingAutosaveTask?.value
 
     let previousDraft = draft
-    var candidate = draft
-    if let existing = candidate.sendReminder {
-      candidate.sendReminder = existing.rescheduled(
-        to: dueAt,
-        originalTimeZoneIdentifier: timeZoneIdentifier,
-        changedByTrustedDeviceId: reminderOwnerDeviceId,
-        changedAt: now()
-      )
-    } else {
-      candidate.sendReminder = SendReminder(
-        dueAt: dueAt,
-        originatingDeviceId: reminderOwnerDeviceId,
-        originalTimeZoneIdentifier: timeZoneIdentifier,
-        createdAt: now()
-      )
-    }
-    candidate.markEdited(now: now())
+    let candidate = makeReminderDraft(dueAt: dueAt, timeZoneIdentifier: timeZoneIdentifier)
     reminderState = .saving
     saveState = .saving
     do {
@@ -283,6 +267,31 @@ final class MailComposerViewModel {
       )
     }
     return true
+  }
+
+  /// Returns the current draft with a newly created or rescheduled reminder.
+  private func makeReminderDraft(
+    dueAt: Date,
+    timeZoneIdentifier: String
+  ) -> MailShellCompositionDraft {
+    var candidate = draft
+    if let existing = candidate.sendReminder {
+      candidate.sendReminder = existing.rescheduled(
+        to: dueAt,
+        originalTimeZoneIdentifier: timeZoneIdentifier,
+        changedByTrustedDeviceId: reminderOwnerDeviceId,
+        changedAt: now()
+      )
+    } else {
+      candidate.sendReminder = SendReminder(
+        dueAt: dueAt,
+        originatingDeviceId: reminderOwnerDeviceId,
+        originalTimeZoneIdentifier: timeZoneIdentifier,
+        createdAt: now()
+      )
+    }
+    candidate.markEdited(now: now())
+    return candidate
   }
 
   func togglePresentation() {
