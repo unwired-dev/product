@@ -1523,6 +1523,7 @@ actor OutboxDeliveryService {
   private var handoffClaimFailureCounts: [UUID: Int] = [:]
   private var reconciliationStateWriteFailureCounts: [UUID: Int] = [:]
   private var processingConnectionIds: Set<String> = []
+  private var processingConnectionWaiters: [String: [CheckedContinuation<Void, Never>]] = [:]
   private let retryDelayNanoseconds: @Sendable (Int) -> UInt64
   private var inFlightRetryTaskTokens: [UUID: UUID] = [:]
   private var inFlightRetryTaskConnectionIds: [UUID: MailboxConnectionId] = [:]
@@ -1660,6 +1661,9 @@ actor OutboxDeliveryService {
     attempts.append(attempt)
     try store.save(attempts, productAccountId: session.productAccountId)
     if delayMilliseconds == 0 {
+      defer {
+        finishProcessingPass(attempt, provider: provider, reconcile: reconcile)
+      }
       let completedAttempt = try await process(
         connectionId: connection.id,
         productAccountId: session.productAccountId,
@@ -2332,18 +2336,25 @@ actor OutboxDeliveryService {
     returning returnedAttemptId: UUID? = nil
   ) async throws -> OutgoingDeliveryAttempt? {
     var returnedAttempt: OutgoingDeliveryAttempt?
+    var processedAttempt = false
     guard processingConnectionIds.insert(connectionId.rawValue).inserted else {
-      scheduleDueAttempts(
+      await waitForProcessingConnection(connectionId)
+      return try await process(
         connectionId: connectionId,
         productAccountId: productAccountId,
         provider: provider,
-        reconcile: reconcile
+        reconcile: reconcile,
+        returning: returnedAttemptId
       )
-      return nil
     }
-    defer { processingConnectionIds.remove(connectionId.rawValue) }
+    defer { finishProcessingConnection(connectionId) }
 
     while true {
+      if processedAttempt,
+        processingConnectionWaiters[connectionId.rawValue]?.isEmpty == false
+      {
+        return returnedAttempt
+      }
       var attempts = try loadPruningTerminalAttempts(productAccountId: productAccountId)
       guard
         let index =
@@ -2363,6 +2374,7 @@ actor OutboxDeliveryService {
             }))
       else { return returnedAttempt }
 
+      processedAttempt = true
       let attemptId = attempts[index].id
       if scheduledSendMissedDeadline(attempts[index]) {
         attempts[index].state = .userActionRequired
@@ -2974,10 +2986,17 @@ actor OutboxDeliveryService {
     retryTaskTokens[attemptId] = nil
     retryTaskConnectionIds[attemptId] = nil
     retryTaskProductAccountIds[attemptId] = nil
-    guard recoverInterruptedHandoffs(productAccountId: attempt.productAccountId.rawValue)
-    else {
-      let failureCount = reconciliationStateWriteFailureCounts[attemptId, default: 0] + 1
-      reconciliationStateWriteFailureCounts[attemptId] = failureCount
+    finishProcessingPass(attempt, provider: provider, reconcile: reconcile)
+  }
+
+  private func finishProcessingPass(
+    _ attempt: OutgoingDeliveryAttempt,
+    provider: @escaping OutboxDeliveryPerformer,
+    reconcile: @escaping OutboxDeliveryReconciler
+  ) {
+    guard recoverInterruptedHandoffs(productAccountId: attempt.productAccountId.rawValue) else {
+      let failureCount = reconciliationStateWriteFailureCounts[attempt.id, default: 0] + 1
+      reconciliationStateWriteFailureCounts[attempt.id] = failureCount
       guard failureCount < maximumAttempts, !retryAgeLimitReached(attempt) else {
         notifyRetryWaiters()
         return
@@ -2990,7 +3009,7 @@ actor OutboxDeliveryService {
       )
       return
     }
-    reconciliationStateWriteFailureCounts[attemptId] = nil
+    reconciliationStateWriteFailureCounts[attempt.id] = nil
     notifyRetryWaiters()
     scheduleDueAttempts(
       connectionId: attempt.mailboxConnectionId,
@@ -3060,6 +3079,20 @@ actor OutboxDeliveryService {
         provider: provider,
         reconcile: reconcile
       )
+    }
+  }
+
+  private func waitForProcessingConnection(_ connectionId: MailboxConnectionId) async {
+    await withCheckedContinuation { continuation in
+      processingConnectionWaiters[connectionId.rawValue, default: []].append(continuation)
+    }
+  }
+
+  private func finishProcessingConnection(_ connectionId: MailboxConnectionId) {
+    processingConnectionIds.remove(connectionId.rawValue)
+    let waiters = processingConnectionWaiters.removeValue(forKey: connectionId.rawValue) ?? []
+    for waiter in waiters {
+      waiter.resume()
     }
   }
 

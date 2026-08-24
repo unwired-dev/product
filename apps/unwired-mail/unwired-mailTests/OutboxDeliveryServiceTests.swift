@@ -296,7 +296,7 @@ final class OutboxDeliveryServiceTests {
 
     #expect(handled)
     #expect(mailService.sentConnectionIds == [exchangeWebServicesConnection.id])
-    #expect(await transport.events() == ["claim", "complete"])
+    #expect(await transport.events() == ["claim", "advance", "complete"])
   }
 
   @Test(.bug(id: 382))
@@ -424,6 +424,94 @@ final class OutboxDeliveryServiceTests {
         reconcile: { _, _ in .notSent }
       )
     }
+  }
+
+  @Test(.bug(id: 383))
+  func dueScheduledSendWaitsForTheBusyConnectionsCurrentPass() async throws {
+    let now = Date(timeIntervalSince1970: 1_800_000_000)
+    let gate = DeliveryHandoffGate()
+    let deliveries = DeliveryCounter()
+    let service = OutboxDeliveryService(
+      handoffDelayNanoseconds: immediateHandoffDelay,
+      now: { now },
+      store: InMemoryOutboxDeliveryStore()
+    )
+    let provider: OutboxDeliveryPerformer = { message, _, _ in
+      await deliveries.increment()
+      if message.subject == "Offline delivery" {
+        await gate.waitForRelease()
+      }
+    }
+    let currentPass = Task {
+      try await service.enqueue(
+        message,
+        connection: connection,
+        session: session,
+        provider: provider,
+        reconcile: { _, _ in .notSent }
+      )
+    }
+    await gate.waitUntilStarted()
+    let scheduledPass = Task {
+      try await service.enqueueScheduled(
+        OutgoingMessage(
+          body: "Restored while the connection is busy",
+          recipient: message.recipient,
+          subject: "Scheduled"
+        ),
+        connection: connection,
+        session: session,
+        scheduleId: UUID(),
+        revision: 1,
+        dueAt: now,
+        deadline: now.addingTimeInterval(24 * 60 * 60),
+        undoSendDelayNanoseconds: 0,
+        provider: provider,
+        reconcile: { _, _ in .notSent }
+      )
+    }
+    while try await service.items(session: session).count < 2 {
+      await Task.yield()
+    }
+
+    await gate.release()
+    let currentAttempt = try await currentPass.value
+    let scheduledAttempt = try await scheduledPass.value
+
+    #expect(currentAttempt.state == .sent)
+    #expect(scheduledAttempt.state == .sent)
+    #expect(await deliveries.currentValue() == 2)
+  }
+
+  @Test(.bug(id: 383))
+  func dueScheduledSendRetainsRetryCleanupAfterATransientFailure() async throws {
+    let now = Date(timeIntervalSince1970: 1_800_000_000)
+    let delivery = TransientSecondMessageDelivery()
+    let service = OutboxDeliveryService(
+      now: { now },
+      retryDelayNanoseconds: { _ in 0 },
+      store: InMemoryOutboxDeliveryStore()
+    )
+
+    let firstPass = try await service.enqueueScheduled(
+      OutgoingMessage(body: "Retry", recipient: message.recipient, subject: "Second"),
+      connection: connection,
+      session: session,
+      scheduleId: UUID(),
+      revision: 1,
+      dueAt: now,
+      deadline: now.addingTimeInterval(24 * 60 * 60),
+      undoSendDelayNanoseconds: 0,
+      provider: { message, _, _ in try await delivery.deliver(message) },
+      reconcile: { _, _ in .notSent }
+    )
+    _ = await service.waitForScheduledRetries()
+    let remainingAttempts = try await service.items(session: session)
+    let attemptCount = await delivery.attemptCount()
+
+    #expect(firstPass.state == .retrying)
+    #expect(remainingAttempts.isEmpty)
+    #expect(attemptCount == 2)
   }
 
   @Test(.bug(id: 380))
