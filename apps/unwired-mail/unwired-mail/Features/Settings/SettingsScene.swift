@@ -471,8 +471,6 @@ extension SettingsDestination {
           route: route
         ),
       ]
-    default:
-      return []
     }
   }
 
@@ -2836,8 +2834,6 @@ private struct SettingsSessionHost: View {
             )
             .task { _ = await gmailViewModel.load() }
           }
-        default:
-          EmptyView()
         }
       }
     )

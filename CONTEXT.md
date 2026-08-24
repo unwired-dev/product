@@ -232,12 +232,16 @@ A product-owned queue containing outgoing messages that are pending, retrying, o
 _Avoid_: Sent Mailbox, sent folder
 
 **Draft**:
-An editable, unsent outgoing message retained by the product until it is explicitly discarded or durably admitted to the **Outbox**.
+An editable, unsent outgoing message retained by the product until it is explicitly discarded or durably admitted to the **Outbox**. Selecting a product-authored Draft opens it directly for editing; it has no read-only presentation.
 _Avoid_: Outbox message, temporary composer
 
 **Semantic Message Document**:
 The editable message-body representation shared by Markdown input shortcuts, formatting controls, context actions, Draft synchronization, and outgoing format generation.
 _Avoid_: Stored Markdown, raw HTML draft
+
+**Slash Command Menu**:
+A command picker opened by typing `/` in the authored body. It filters semantic formatting commands and explicitly invoked **Compose Assistance** actions without storing slash syntax in the **Semantic Message Document** or starting generation automatically.
+_Avoid_: Automatic generation, body autocomplete, stored slash command
 
 **Mail Template**:
 A reusable name, subject, and versioned **Semantic Message Document** synchronized end-to-end within one **Mail Profile**. Applying a Mail Template creates a new **Draft** or inserts its semantic body into an existing Draft without flattening formatting or silently replacing authored content.
@@ -372,8 +376,12 @@ Locally encrypted storage for prefetched recent readable body representations an
 _Avoid_: On-demand-only body cache, permanent body store, attachment archive
 
 **Remote Message Content**:
-Content referenced by a message but fetched from an external server only when the message is viewed, such as remote images.
+Content referenced by a message but fetched from an external server only for an authorized message presentation, such as remote images. After that fetch, the client may restore it from the **Authorized Remote Content Cache** without contacting the server again.
 _Avoid_: Message body, downloaded attachment
+
+**Authorized Remote Content Cache**:
+The separate 250 MB device-wide encrypted store for non-tracking **Remote Message Content** fetched after a person or their explicit loading policy authorized it. Its quota is shared, but every entry is encrypted and namespaced by Product Account, Mail Profile, Mailbox Connection, stable message identity, and resource revision without cross-Profile deduplication. It evicts least-recently-used entries first, protects content currently displayed, and retains hidden bytes after a Never-policy change until eviction or manual removal through Clear Remote Content.
+_Avoid_: Browser cache, Bounded Encrypted Body Cache, automatic remote-content permission
 
 **Inline Image**:
 An image placed at a position inside message content and delivered as a MIME part rather than fetched as **Remote Message Content**. A user-authored Inline Image occupies a position in the **Semantic Message Document**; a received Inline Image is resolved from its normalized Content-ID only when that message is explicitly opened.
@@ -495,16 +503,12 @@ _Avoid_: Server-readable sync, plaintext sync
 A user-owned choice about handling mail that follows the user across trusted devices through **End-to-End Encrypted Product Sync**.
 _Avoid_: Device setting, provider credential
 
-**Compose Presentation Preference**:
-The global **Mail Workflow Preference** that chooses partial or full-screen presentation when any new-message, reply, reply-all, or forward composer opens.
-_Avoid_: Current composer size, per-draft layout
-
 **Formatting Toolbar Preference**:
 The global **Mail Workflow Preference** that controls whether the composer displays its formatting toolbar without disabling formatting capabilities.
 _Avoid_: Plain-text mode, formatting disablement
 
 **Recipient Suggestion**:
-An on-device autocomplete candidate derived from local correspondence, recent recipients, permissioned Apple Contacts, or an optional device-authenticated Mail Provider directory.
+An on-device autocomplete candidate derived from recent local correspondence and permissioned Apple Contacts. Accepting one creates a validated recipient token and cannot duplicate an address already present in To, Cc, or Bcc.
 _Avoid_: Backend contact, uploaded address query
 
 **Inbox Cleanup Candidate**:
@@ -636,7 +640,28 @@ _Avoid_: Password reset, support recovery
 - One global **Mail View** configuration applies across all mailboxes; changing the selected mailbox changes only the view's message scope
 - **Mail View** configuration is a **Mail Workflow Preference** synchronized through **End-to-End Encrypted Product Sync**
 - The selected mailbox and **Mail View** are transient device-local navigation state; a new application session starts in Unified Inbox with Important selected
-- The **Compose Presentation Preference** defaults to partial and applies globally to every compose type; changing one open composer to full screen does not change the preference
+- The interface uses an Apple-native, content-first visual system that respects the device's System, Light, or Dark appearance preference and renders coherently in either appearance
+- Mail lists and reading surfaces use a flat hierarchy with separators rather than nested cards; typography prioritizes sender, subject, and preview in that order
+- By default, each Thread-list row presents sender and time first, subject second, and a single-line preview plus only essential attachment, pin, Category, and source-connection status third; existing density and zero-through-three-line preview preferences preserve that hierarchy and retain each person's saved choice
+- Unread Threads use stronger sender and subject weight together with a small accent indicator; neither unread state nor any other status relies on color alone
+- A real contact photo may aid recognition, but the list does not generate an initials avatar for every sender; swipe, pointer, and keyboard actions remain available without permanently filling rows with action buttons
+- One restrained accent color identifies selection and primary actions, while all other color communicates a labeled status and is never the only status indicator
+- Controls retain native platform sizing and comfortable hit targets; translucent material is reserved for floating controls and the nonmodal composer rather than ordinary content containers
+- Regular-width layouts retain three stable columns, while compact layouts collapse those destinations into native navigation
+- The regular-width sidebar presents the active Profile and search first, a prominent Compose action second, primary Unified Mailboxes before secondary Archive, All Mail, Spam, and Trash, then collapsible connection sections containing provider folders and labels
+- Settings remains fixed at the bottom of the sidebar, while synchronization or authorization problems appear beside the affected **Mailbox Connection** rather than as global status
+- Settings owns navigation state independently from mailbox synchronization and composer presentation: Mac and Catalyst use a dedicated native Settings window available through `Command-,`, iPad uses an in-app two-column Settings workspace, and iPhone pushes a one-column Settings destination into the existing navigation stack
+- Opening Settings or a deep-linked Settings destination never waits for Thread, message-body, image, prefetch, or historical synchronization work
+- The Settings shell always opens from local state; a destination-specific load or save failure leaves existing values visible, shows a concise inline error and Retry only in that detail pane, and keeps the sidebar and unrelated destinations usable
+- On regular-width layouts, composing starts as a bottom-anchored, nonmodal overlay contained by the detail column; expanding that composer takes over the entire app surface while preserving the same editor and Draft state
+- While that composer is not expanded, the sidebar and Thread list remain interactive, the covered detail column does not, and changing Thread selection updates the reader behind the composer without dismissing or resetting its Draft; closing reveals the latest selection
+- The regular-width composer spans the detail column with 12-point outer insets and uses 70 percent of available height clamped from 420 through 720 points; it has only overlay and full-app states, not freeform drag resizing
+- On compact layouts, composing is an editor destination pushed into the existing navigation stack rather than a sheet or full-screen modal
+- Composer expansion is transient to the open editor and never changes how a later Draft opens; the legacy synchronized partial-or-full opening preference is ignored after migration and removed only after older clients are fenced out
+- Selecting a product-authored **Draft** enters that same editor directly; Drafts have no read-only reader state
+- Each mail window has one active composer. Its `x` closes only after the latest autosave succeeds and never discards the Draft; Discard remains an explicit destructive overflow action
+- Starting another message or selecting another product-authored Draft autosaves and parks the current Draft, then switches the same editor to the requested Draft; a save failure blocks the switch and remains visible inline
+- The expand or collapse control remains directly visible in both regular-width states and is absent on compact iPhone, where the composer already fills its navigation destination
 - The **Formatting Toolbar Preference** synchronizes globally and hides only the formatting toolbar; Markdown, keyboard, context-menu, document, and delivery formatting remain available
 - A **Unified Mailbox** interleaves mailbox-scoped **Threads** by latest message time rather than grouping them by account
 - Every thread in a **Unified Mailbox** visibly identifies its source **Mailbox Connection**
@@ -667,6 +692,14 @@ _Avoid_: Password reset, support recovery
 - Removing authorization from one device preserves Scheduled Sends for other eligible devices; removing their Mailbox Connection everywhere or deleting the Product Account warns and cancels affected commitments
 - The **Outgoing Content Store** has a non-evicting 100 MB device-wide limit shared by Drafts, Send Reminders, Scheduled Sends, and their documents and assets
 - Markdown syntax acts as an input shortcut over the **Semantic Message Document** rather than becoming the stored or sent message format
+- Typing `# `, `## `, `### `, `- `, `1. `, `> `, or triple backticks at the start of a body block immediately removes the marker and applies the matching heading, list, quote, or code-block semantics without an intermediate style; one Undo restores the literal marker and pasted Markdown remains unchanged unless explicitly converted
+- The authored body uses native spelling, autocorrection, and predictive-text behavior
+- Typing `/` in the authored body opens the **Slash Command Menu**; its generative entries remain explicit **Compose Assistance** actions and never appear or run automatically while typing
+- The v1 **Slash Command Menu** offers Text, Heading 1, Heading 2, Heading 3, Bulleted List, Numbered List, Quote, and Code Block, followed by the context-eligible Ask Compose Assistance, Draft from Prompt, Rewrite Selection, Proofread, Shorten, Change Tone, and Suggest Subject actions
+- Heading 4, To-do List, Toggle List, Page, and Callout remain outside the v1 menu because they are not part of the interoperable **Semantic Message Document**
+- The **Slash Command Menu** opens only when `/` is the first non-whitespace character in a body block; subsequent text filters commands, Up Arrow and Down Arrow move selection, Return or Tab applies it and removes the slash query, and Escape or deleting `/` closes the menu
+- On regular-width layouts, the **Slash Command Menu** is a 320-point caret-anchored menu that flips above the caret when necessary; on iPhone it clamps to the composer width and keyboard-safe area rather than becoming a sheet
+- The menu may scroll internally, follows system appearance, highlights one active command, and preserves body-editor focus
 - Formatting controls and context actions edit the same **Semantic Message Document**
 - A **Mail Template** uses that same semantic vocabulary, never includes recipients, attachments, Inline Images, signatures, or dynamic placeholders in v1, and never sends automatically
 - Creating a Draft from a Mail Template retains the Profile's default authorized **Sending Identity**; inserting one leaves an authored subject unchanged
@@ -719,7 +752,11 @@ _Avoid_: Password reset, support recovery
 - A **Thread** uses a reliable provider conversation identity when available, otherwise RFC message and reply identifiers
 - Subject similarity alone never combines messages into a **Thread**, and messages without reliable linkage remain separate
 - Selecting a **Thread** opens its conversation rather than only its latest message
-- The conversation reader orders messages newest to oldest and expands every message, with the newest message at the top
+- The conversation reader orders messages newest to oldest and expands every message, with the newest message at the top; its load coordinator gives bodies intersecting the visible viewport priority over every off-screen body and immediately reprioritizes when scrolling changes visibility
+- The reader uses one flat detail-column scroll with subject and Thread summary first, then compact sender-and-date headers, disclosed recipient details, message bodies, and thin message separators rather than stacked cards
+- Thread-level actions remain in one fixed reader toolbar instead of repeating controls on every expanded message
+- After visible bodies finish, off-screen bodies load automatically in distance-from-viewport order until the Thread is ready; Inline Images and **Remote Message Content** begin only within the visible viewport or a one-viewport prefetch margin
+- As bodies and images resolve, the reader preserves the topmost visible message and its text offset; content resolving above the viewport cannot move what is being read, a visible body reveals once beneath its anchored header without a cross-fade, and images reserve sanitized dimensions when available
 - Reply, Reply All, Forward, and the fixed reader toolbar's multi-select Category control target the newest message; Archive, Delete, Move, Spam, **Pin**, **Muted Thread**, and read-state actions target the entire **Thread**
 - The Category control stages multiple membership changes and commits them as one **User Override** only when the user applies them; cancelling commits nothing, while an offline apply updates local presentation and queues encrypted synchronization
 - The Category control includes Add New, which opens the same required-name and optional-**Category Description** creation flow used in Settings
@@ -727,7 +764,11 @@ _Avoid_: Password reset, support recovery
 - Replies and forwards preserve the authorized **Sending Identity** that received the source message
 - If the receiving **Sending Identity** is unavailable on the current device, Send remains blocked until the user authorizes it or explicitly chooses another active-Profile identity
 - A new message defaults to the Profile's **Default Sending Identity** and always exposes its From address
-- Recipient autocomplete ranks local correspondents, recent recipients, permissioned Apple Contacts, and optional device-authenticated provider-directory results; manual valid addresses remain available and neither addresses nor queries pass through the product backend
+- To, Cc, and Bcc show **Recipient Suggestions** beneath the active field from recent local correspondence and permissioned Apple Contacts; pointer, touch, Up Arrow, Down Arrow, Return, and Tab can select or accept a suggestion, which creates one validated recipient token without duplicates
+- To remains visible, while a trailing “Cc/Bcc” control reveals both optional fields; once either has a recipient, both remain visible for that Draft across autosave, reopen, Product Sync, and adaptive-layout changes, and Reply All reveals populated fields automatically
+- For manual entry, comma, semicolon, Return, Tab, or leaving a recipient field asks the mail parser to create a removable name-and-address token; invalid text remains editable with an inline explanation and blocks Send
+- A duplicate address across To, Cc, and Bcc is not added and reports “Already added” beside the active field
+- Manual valid addresses remain available, and recipient addresses and suggestion queries never pass through the product backend
 - Non-secret **Sending Identity** definitions, verification state, and the **Default Sending Identity** synchronize end-to-end encrypted; provider credentials and manual verification codes remain device-local
 - Existing primary addresses migrate as provider-confirmed identities, and the legacy **Default Sending Connection** selects the initial default without changing behavior
 - The product never silently substitutes a different sending identity
@@ -771,6 +812,9 @@ _Avoid_: Password reset, support recovery
 - **Historical Metadata Backfill** pauses under low storage, low power, or network loss and resumes when conditions permit
 - Completing **Historical Metadata Backfill** does not require retaining historical message bodies
 - Body prefetch begins after **Initial Mailbox Availability** rather than delaying the newest message list
+- The Product Account mail-load coordinator permits at most four concurrent message-body pipelines account-wide and two per **Mailbox Connection**; a provider may lower only its own connection limit when its transport cannot safely multiplex
+- An open message permits at most six concurrent remote-image requests, with twelve account-wide; duplicate message or image requests share one task
+- Each **Mailbox Connection** has at most one speculative prefetch or historical-work lane, which yields immediately to interactive work and never occupies another connection's capacity
 - The **Bounded Encrypted Body Cache** prefetches body text for a recent working set without prefetching attachments or Inline Images
 - For each **Mailbox Connection**, the prefetched recent working set contains at most 500 distinct messages combined across Inbox and **Sent Mailbox**, selected at one synchronization reference instant from messages whose applicable timestamp falls from that instant minus 30 days through that instant, inclusive, ordered by newest applicable timestamp first; duplicate appearances use the later applicable timestamp, and **Stable Provider Message Identity** is the deterministic tie-breaker
 - A synchronization first computes a cache-fitting combined protected set: selected-recent candidates take priority in recency order, then bodies belonging to pinned **Threads** in most-recently-read Thread and message order, stopping when eligible eviction space is exhausted. Applying a new selection may drop an existing pin-only body protection to admit a selected-recent candidate; the dropped body then follows last-resort pinned-Thread eviction. Only admitted candidates are protected; candidates of the same selection never evict one another, and a candidate that still cannot free eligible space is refused and remains on demand until a later synchronization finds space
@@ -782,9 +826,11 @@ _Avoid_: Password reset, support recovery
 - Evicting a body from a pinned **Thread** preserves the Thread's **Pin** and fetches the body again on demand
 - **Outgoing Content Store** data does not count against the body-cache limit, but Drafts, Send Reminders, Scheduled Sends, and their documents and assets share its separate 100 MB limit
 - **Remote Message Content** is requested per device, defaults to asking the user, and may be configured to never load or always load
-- One-message consent to load **Remote Message Content** is scoped to the current presentation; remote image requests use an isolated cookie-free and credential-free HTTPS path, reject any literal or resolved non-public destination, pin one validated public address while authenticating the original TLS hostname, repeat that boundary for every redirect, and keep loaded bytes presentation-scoped
+- One-message consent authorizes only the current remote retrieval and later encrypted-cache reuse for the same stable message presentation; it does not authorize changed content or a new request. Remote image requests use an isolated cookie-free and credential-free HTTPS path, reject any literal or resolved non-public destination, pin one validated public address while authenticating the original TLS hostname, and repeat that boundary for every redirect
+- The **Authorized Remote Content Cache** has a fixed 250 MB device-wide limit separate from the 500 MB body cache; least-recently-used entries are evicted first, currently displayed content is protected, and Storage Settings provides Clear Remote Content
+- The remote-content limit is a shared quota only: entries use Product Account-, Mail Profile-, connection-, stable-message-, and resource-revision-scoped encryption and identity, never deduplicate across Profiles, become inaccessible with Profile Lock, and follow existing Profile-removal deletion rules
 - Known **Tracking Pixels** remain blocked when other **Remote Message Content** is allowed
-- Explicitly opening retained Gmail HTML may resolve only sanitized, referenced, bounded, supported MIME Inline Images into the isolated presentation; missing or invalid parts fail independently, and their plaintext bytes remain presentation-scoped in memory without entering prefetch or the body cache
+- Explicitly opening retained Gmail HTML may resolve only sanitized, referenced, bounded, supported MIME Inline Images into the isolated presentation; missing or invalid parts fail independently, admitted bytes remain encrypted with the versioned body-cache entry for later provider-free opens, and only their decoded presentation remains scoped to memory
 - Building a reply or forward quote never fetches **Remote Message Content**; quoted HTML is sanitized, blocked images remain non-loading placeholders, and unavailable embedded content or attachments are excluded unless the user explicitly downloads them
 - Clearing cached bodies or downloaded attachments removes only device-local copies and never deletes provider mail
 - **System Categorization** may use the **Bounded Encrypted Body Cache** when **Minimized Classification Input** is insufficient
@@ -811,7 +857,10 @@ _Avoid_: Password reset, support recovery
 - A Mail Profile's **Quiet State** is encrypted user data: it synchronizes through **End-to-End Encrypted Product Sync**, may be indefinite or end at one absolute instant, and suppresses visible notifications and proactive suggestions without suspending mailbox synchronization, indexing, Outbox, or Scheduled Send work
 - **Mail Assistance Enablement** is a **Device-Local Preference** scoped to one Product Account and Mail Profile. It defaults off independently on every device, never synchronizes, permits only explicit assistance actions, and remains usable during **Quiet State**
 - **Compose Assistance** admits only the authored **Semantic Message Document**, current selection, separate subject, and parsed recipient display identities. It excludes signatures, quoted correspondence, attachments, source Thread content, **Remote Message Content**, and delivery actions; proofreading is mechanical, while every rewrite preserves facts, questions, commitments, dates, amounts, links, quotes, meaning, and surrounding formatting or asks for clarification
+- Ask Compose Assistance uses the current selection when present and otherwise only the authored body; Draft from Prompt previews insertion at the caret without overwriting existing text; Rewrite Selection, Proofread, Shorten, and Change Tone require a selection; Suggest Subject reads the authored body and previews a separate subject
 - **Compose Assistance** previews and refinements remain ephemeral outside the editor. Dismissal destroys their transcript, source changes invalidate them, and explicit Insert or Replace creates one undoable authored-body edit. Accepted content becomes ordinary encrypted Draft content without an assistance marker and never sends automatically
+- Every slash-menu assistance result requires an explicit Insert, Replace, or Use Subject action
+- Selecting a slash-menu assistance command replaces that menu with an anchored, nonmodal composer panel containing its prompt or options, Cancel, and Generate; progress remains inside the panel while the Draft stays scrollable and editable, and dismissal destroys the preview without changing the Draft
 - **Understanding Assistance** is explicitly requested, device-local, scoped to one Mail Profile, and admits only already-local source-message text newest-first within deterministic bounds. It excludes attachments, **Inline Images**, **Remote Message Content**, unrelated correspondence, **Product Sync**, and Drafts; links every result item to its supporting messages; and identifies omissions, uncertainty, inferred dates, unresolved questions, and ambiguous responsibility instead of inventing detail
 - **Understanding Assistance** results remain ephemeral, are excluded from **Product Sync** and Drafts, and become unusable until regenerated whenever their local Thread sources change
 - **Profile Lock** and its background grace period are **Device-Local Preferences**; when enabled they require device-owner authentication before mail UI or search can reveal Profile content, remove that Profile's Spotlight entries on lock, and suppress content-bearing notification presentation while background work continues

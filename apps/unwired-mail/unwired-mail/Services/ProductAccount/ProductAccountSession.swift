@@ -306,7 +306,7 @@ final class ProductAccountSession {
       DevicePushUnregistrationService(),
     genericNotificationFallbackStore: GenericNotificationFallbackClearing =
       UserDefaultsFallbackStore(),
-    gmailPushWakeupDrainer: GmailPushWakeupDraining = GmailPushWakeupCoordinator.shared,
+    gmailPushWakeupDrainer: GmailPushWakeupDraining? = nil,
     notificationDevicePreferenceStore: NotificationDevicePreferencePersisting =
       UserDefaultsNotificationPreferenceStore(),
     notificationClearer: LegacyUserNotificationMigrating & UserNotificationClearing =
@@ -342,7 +342,7 @@ final class ProductAccountSession {
     self.appleSignInService = appleSignInService
     self.devicePushUnregistrationService = devicePushUnregistrationService
     self.genericNotificationFallbackStore = genericNotificationFallbackStore
-    self.gmailPushWakeupDrainer = gmailPushWakeupDrainer
+    self.gmailPushWakeupDrainer = gmailPushWakeupDrainer ?? GmailPushWakeupCoordinator.shared
     self.notificationDevicePreferenceStore = notificationDevicePreferenceStore
     self.notificationClearer = notificationClearer
     self.productAccountService = productAccountService

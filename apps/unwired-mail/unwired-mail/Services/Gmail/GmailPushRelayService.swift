@@ -2190,9 +2190,29 @@ private struct GmailWatchResponse: Decodable {
 }
 
 @MainActor
+protocol ScheduledSendMailboxRouting {
+  func loadConnections(
+    session: ProductAccountSessionSnapshot
+  ) async throws -> [MailboxConnection]
+
+  func send(
+    _ message: OutgoingMessage,
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async throws
+
+  func deliveryStatus(
+    idempotencyKey: String,
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailboxDeliveryStatus
+}
+
+extension MailboxConnectionRouter: ScheduledSendMailboxRouting {}
+
+@MainActor
 struct ScheduledSendWakeupHandler {
-  private let connectionStore: GmailPushConnectionPersisting
-  private let mailService: GmailMailboxConnectionAdapter
+  private let mailService: ScheduledSendMailboxRouting
   private let outboxService: OutboxDeliveryService
   private let payloadSync: ScheduledSendPayloadSyncing
   private let revalidateTrustedDevice: @MainActor (ProductAccountSessionSnapshot) async -> Bool
@@ -2200,8 +2220,7 @@ struct ScheduledSendWakeupHandler {
   private let sessionStore: ProductAccountSessionPersisting
 
   init(
-    connectionStore: GmailPushConnectionPersisting = KeychainGmailPushConnectionStore(),
-    mailService: GmailMailboxConnectionAdapter = GmailMailboxConnectionAdapter(),
+    mailService: ScheduledSendMailboxRouting = MailboxConnectionRouter(),
     outboxService: OutboxDeliveryService = .shared,
     payloadSync: ScheduledSendPayloadSyncing = ScheduledSendSyncService(),
     revalidateTrustedDevice:
@@ -2209,7 +2228,6 @@ struct ScheduledSendWakeupHandler {
     scheduledSendTransport: ScheduledSendOperationalTransport = ConvexClient(),
     sessionStore: ProductAccountSessionPersisting = KeychainProductAccountSessionStore()
   ) {
-    self.connectionStore = connectionStore
     self.mailService = mailService
     self.outboxService = outboxService
     self.payloadSync = payloadSync
@@ -2234,13 +2252,10 @@ struct ScheduledSendWakeupHandler {
     guard let session = try sessionStore.load(),
       await revalidateTrustedDevice(session)
     else { return false }
-    let statuses = try connectionStore.loadAll(productAccountId: session.productAccountId)
-      .filter { $0.provider == "gmail" && $0.trustedDeviceId == session.trustedDeviceId }
-    let connections = statuses.map {
-      $0.mailboxConnection(
-        productAccountId: session.productAccountId,
-        authorizationState: .authorized
-      )
+    let connections = try await mailService.loadConnections(session: session).filter {
+      $0.providerId.supportsProductOwnedScheduledSend
+        && $0.authorizationState == .authorized
+        && $0.trustedDeviceId == session.trustedDeviceId
     }
     let connectionsById = Dictionary(
       connections.map { ($0.id, $0) },
@@ -2284,11 +2299,7 @@ struct ScheduledSendWakeupHandler {
       else { return false }
       let record = snapshot.record
       guard
-        let connectionStatus = statuses.first(where: {
-          $0.mailboxConnectionId == record.connectionId
-        }),
-        let connection = connectionsById[record.connectionId],
-        try await mailService.hasActiveAuthorization(connectionStatus, session: session)
+        let connection = connectionsById[record.connectionId]
       else { return false }
       let claimResult = try await scheduledSendTransport.claimScheduledSend(
         scheduleId: requestedSchedule.id,
