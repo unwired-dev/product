@@ -149,6 +149,7 @@ final class MailTestBootstrapUITests: XCTestCase {
     try focusAndType(
       "Synthetic visible reply",
       into: body,
+      in: app,
       failure: "MAIL_TEST_FAILURE:ui: The reply body did not receive keyboard focus."
     )
 
