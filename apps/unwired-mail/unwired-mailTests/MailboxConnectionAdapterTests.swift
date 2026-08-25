@@ -5143,6 +5143,80 @@ final class MailboxConnectionAdapterTests {
   }
 
   @Test
+  func testMailShellComposerNavigationPreservesDraftAcrossAdaptivePresentation() {
+    let draft = MailShellCompositionDraft.new(defaultSendingConnectionId: nil)
+    var navigation = MailShellComposerNavigationState()
+    navigation.present(draft)
+
+    let regular = MailShellComposerPresentationLayout(
+      containerFrame: CGRect(x: 0, y: 0, width: 1_400, height: 1_000),
+      detailColumnFrame: CGRect(x: 600, y: 0, width: 800, height: 1_000),
+      isCompact: false,
+      isExpanded: navigation.isExpanded
+    )
+    let compact = MailShellComposerPresentationLayout(
+      containerFrame: CGRect(x: 0, y: 0, width: 390, height: 844),
+      detailColumnFrame: nil,
+      isCompact: true,
+      isExpanded: navigation.isExpanded
+    )
+
+    #expect(regular.mode == .detailOverlay)
+    #expect(compact.mode == .compactDestination)
+    #expect(navigation.draft?.id == draft.id)
+
+    navigation.toggleExpansion()
+    let expanded = MailShellComposerPresentationLayout(
+      containerFrame: CGRect(x: 0, y: 0, width: 1_400, height: 1_000),
+      detailColumnFrame: CGRect(x: 600, y: 0, width: 800, height: 1_000),
+      isCompact: false,
+      isExpanded: navigation.isExpanded
+    )
+    let compactWhileExpanded = MailShellComposerPresentationLayout(
+      containerFrame: CGRect(x: 0, y: 0, width: 390, height: 844),
+      detailColumnFrame: nil,
+      isCompact: true,
+      isExpanded: navigation.isExpanded
+    )
+
+    #expect(expanded.mode == .expanded)
+    #expect(compactWhileExpanded.mode == .compactDestination)
+    #expect(navigation.draft?.id == draft.id)
+
+    navigation.toggleExpansion()
+    #expect(navigation.isExpanded == false)
+    #expect(navigation.draft?.id == draft.id)
+  }
+
+  @Test(.bug(id: 553))
+  func testMailShellComposerOverlayUsesAcceptedInsetsAndHeightClamps() {
+    let container = CGRect(x: 0, y: 0, width: 1_400, height: 1_000)
+    let detail = CGRect(x: 600, y: 0, width: 800, height: 1_000)
+    let layout = MailShellComposerPresentationLayout(
+      containerFrame: container,
+      detailColumnFrame: detail,
+      isCompact: false,
+      isExpanded: false
+    )
+    let minimum = MailShellComposerPresentationLayout(
+      containerFrame: container,
+      detailColumnFrame: CGRect(x: 600, y: 0, width: 800, height: 500),
+      isCompact: false,
+      isExpanded: false
+    )
+    let maximum = MailShellComposerPresentationLayout(
+      containerFrame: CGRect(x: 0, y: 0, width: 1_400, height: 1_200),
+      detailColumnFrame: CGRect(x: 600, y: 0, width: 800, height: 1_200),
+      isCompact: false,
+      isExpanded: false
+    )
+
+    #expect(layout.frame == CGRect(x: 612, y: 288, width: 776, height: 700))
+    #expect(minimum.frame.height == 420)
+    #expect(maximum.frame.height == 720)
+  }
+
+  @Test
   func testMailShellPreservesSelectedThreadAcrossReordering() {
     let olderThread = mailShellThread(
       providerThreadId: "thread-older",

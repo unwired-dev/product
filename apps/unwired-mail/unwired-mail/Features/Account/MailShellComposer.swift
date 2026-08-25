@@ -17,12 +17,21 @@ private struct MailRecipientSuggestionRequest: Equatable {
   let query: String
 }
 
+/// The mail-shell navigation actions available to an embedded composer.
+struct MailShellComposerNavigation {
+  let isExpanded: Bool
+  let showsExpansionControl: Bool
+  let dismiss: () -> Void
+  let toggleExpansion: () -> Void
+}
+
 // swiftlint:disable:next type_body_length
 struct MailShellComposer: View {
   let connections: [MailboxConnection]
   let draftDidChange: (MailShellCompositionDraft) -> Void
   let isSending: Bool
   let mailAssistanceViewModel: MailAssistanceViewModel?
+  let navigation: MailShellComposerNavigation?
   let preferences: ComposePreferences
   let profileName: String
   let readingPreferences: ReadingPreferences
@@ -63,6 +72,7 @@ struct MailShellComposer: View {
     profileName: String = "Mail Profile",
     recipientMessages: [MailboxMessageMetadata] = [],
     sendingIdentities: [SendingIdentity] = [],
+    navigation: MailShellComposerNavigation? = nil,
     suggestionService: MailRecipientSuggestionService = MailRecipientSuggestionService(),
     draftDidChange: @escaping (MailShellCompositionDraft) -> Void = { _ in },
     saveDraft: @escaping MailComposerViewModel.SaveDraft = { _ in },
@@ -88,6 +98,7 @@ struct MailShellComposer: View {
     self.draftDidChange = draftDidChange
     self.isSending = isSending
     self.mailAssistanceViewModel = mailAssistanceViewModel
+    self.navigation = navigation
     self.preferences = preferences
     self.profileName = profileName
     self.readingPreferences = readingPreferences
@@ -130,6 +141,7 @@ struct MailShellComposer: View {
     profileName: String = "Mail Profile",
     recipientMessages: [MailboxMessageMetadata] = [],
     sendingIdentities: [SendingIdentity] = [],
+    navigation: MailShellComposerNavigation? = nil,
     suggestionService: MailRecipientSuggestionService = MailRecipientSuggestionService(),
     draftDidChange: @escaping (MailShellCompositionDraft) -> Void = { _ in }
   ) {
@@ -137,6 +149,7 @@ struct MailShellComposer: View {
     self.draftDidChange = draftDidChange
     self.isSending = isSending
     self.mailAssistanceViewModel = mailAssistanceViewModel
+    self.navigation = navigation
     self.preferences = preferences
     self.profileName = profileName
     self.readingPreferences = readingPreferences
@@ -156,14 +169,18 @@ struct MailShellComposer: View {
   @ViewBuilder
   var body: some View {
     #if os(iOS)
-      composer
-        .presentationDetents(
-          viewModel.presentation == .partial ? [.fraction(0.6)] : [.large]
-        )
-        .presentationDragIndicator(viewModel.presentation == .partial ? .visible : .hidden)
-        .presentationBackgroundInteraction(
-          viewModel.presentation == .partial ? .enabled : .disabled
-        )
+      if navigation == nil {
+        composer
+          .presentationDetents(
+            viewModel.presentation == .partial ? [.fraction(0.6)] : [.large]
+          )
+          .presentationDragIndicator(viewModel.presentation == .partial ? .visible : .hidden)
+          .presentationBackgroundInteraction(
+            viewModel.presentation == .partial ? .enabled : .disabled
+          )
+      } else {
+        composer
+      }
     #else
       composer
         .frame(minWidth: 560, minHeight: 520)
@@ -301,7 +318,7 @@ struct MailShellComposer: View {
               at: dueAt,
               timeZoneIdentifier: timeZone
             )
-            if scheduled { dismiss() }
+            if scheduled { dismissComposer() }
             return scheduled
           },
           schedule: { dueAt, timeZone in
@@ -533,6 +550,17 @@ struct MailShellComposer: View {
         sendLater: openSendLater
       )
     }
+    if let navigation, navigation.showsExpansionControl {
+      ToolbarItem(placement: .primaryAction) {
+        Button(
+          navigation.isExpanded ? "Collapse Composer" : "Expand Composer",
+          systemImage: navigation.isExpanded
+            ? "arrow.down.right.and.arrow.up.left"
+            : "arrow.up.left.and.arrow.down.right",
+          action: navigation.toggleExpansion
+        )
+      }
+    }
     ToolbarItem(placement: .secondaryAction) {
       if scheduledSendDueAt != nil, sendNow != nil {
         Button("Send Now", systemImage: "paperplane.fill", action: sendScheduledNow)
@@ -550,13 +578,15 @@ struct MailShellComposer: View {
       }
     }
     ToolbarItem(placement: .secondaryAction) {
-      Button(
-        viewModel.presentation == .partial ? "Expand Composer" : "Use Partial Composer",
-        systemImage: viewModel.presentation == .partial
-          ? "arrow.up.left.and.arrow.down.right"
-          : "arrow.down.right.and.arrow.up.left",
-        action: viewModel.togglePresentation
-      )
+      if navigation == nil {
+        Button(
+          viewModel.presentation == .partial ? "Expand Composer" : "Use Partial Composer",
+          systemImage: viewModel.presentation == .partial
+            ? "arrow.up.left.and.arrow.down.right"
+            : "arrow.down.right.and.arrow.up.left",
+          action: viewModel.togglePresentation
+        )
+      }
     }
     ToolbarItem(placement: .secondaryAction) {
       Button("Discard Draft", systemImage: "trash", action: requestDiscard)
@@ -741,7 +771,7 @@ struct MailShellComposer: View {
 
   private func closeComposer() {
     Task {
-      if await viewModel.close() { dismiss() }
+      if await viewModel.close() { dismissComposer() }
     }
   }
 
@@ -755,7 +785,7 @@ struct MailShellComposer: View {
 
   private func discardDraft() {
     Task {
-      if await viewModel.discard() { dismiss() }
+      if await viewModel.discard() { dismissComposer() }
     }
   }
 
@@ -765,7 +795,7 @@ struct MailShellComposer: View {
       case .needsSubjectConfirmation:
         showsMissingSubjectConfirmation = true
       case .sent:
-        dismiss()
+        dismissComposer()
       case .notSent:
         break
       }
@@ -774,14 +804,22 @@ struct MailShellComposer: View {
 
   private func sendWithoutSubject() {
     Task {
-      if await viewModel.sendWithoutSubject() == .sent { dismiss() }
+      if await viewModel.sendWithoutSubject() == .sent { dismissComposer() }
     }
   }
 
   private func sendScheduledNow() {
     guard let sendNow else { return }
     Task {
-      if await sendNow(viewModel.draft) { dismiss() }
+      if await sendNow(viewModel.draft) { dismissComposer() }
+    }
+  }
+
+  private func dismissComposer() {
+    if let navigation {
+      navigation.dismiss()
+    } else {
+      dismiss()
     }
   }
 
