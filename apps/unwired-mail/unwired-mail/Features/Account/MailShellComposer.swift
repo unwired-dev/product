@@ -27,6 +27,7 @@ struct MailShellComposer: View {
   let profileName: String
   let readingPreferences: ReadingPreferences
   let recipientMessages: [MailboxMessageMetadata]
+  let responseAssistanceContext: ResponseAssistanceContext?
   let sendingIdentities: [SendingIdentity]
   let signatures: SignaturePreferences
   let templates: TemplatePreferences
@@ -38,6 +39,7 @@ struct MailShellComposer: View {
   @State private var editorModel: SemanticMessageEditorModel
   @State private var assetErrorMessage: String?
   @State private var composeAssistancePresentation: ComposeAssistancePresentation?
+  @State private var responseAssistancePresentation: ResponseAssistancePresentation?
   @State private var linkDestination = "https://"
   @State private var sendLaterRequest: SendLaterRequest?
   @State private var selectedPhoto: PhotosPickerItem?
@@ -62,6 +64,7 @@ struct MailShellComposer: View {
     readingPreferences: ReadingPreferences = .defaults,
     profileName: String = "Mail Profile",
     recipientMessages: [MailboxMessageMetadata] = [],
+    responseAssistanceContext: ResponseAssistanceContext? = nil,
     sendingIdentities: [SendingIdentity] = [],
     suggestionService: MailRecipientSuggestionService = MailRecipientSuggestionService(),
     draftDidChange: @escaping (MailShellCompositionDraft) -> Void = { _ in },
@@ -92,6 +95,7 @@ struct MailShellComposer: View {
     self.profileName = profileName
     self.readingPreferences = readingPreferences
     self.recipientMessages = recipientMessages
+    self.responseAssistanceContext = responseAssistanceContext
     self.sendingIdentities = sendingIdentities
     self.signatures = signatures
     self.templates = templates
@@ -129,6 +133,7 @@ struct MailShellComposer: View {
     readingPreferences: ReadingPreferences = .defaults,
     profileName: String = "Mail Profile",
     recipientMessages: [MailboxMessageMetadata] = [],
+    responseAssistanceContext: ResponseAssistanceContext? = nil,
     sendingIdentities: [SendingIdentity] = [],
     suggestionService: MailRecipientSuggestionService = MailRecipientSuggestionService(),
     draftDidChange: @escaping (MailShellCompositionDraft) -> Void = { _ in }
@@ -141,6 +146,7 @@ struct MailShellComposer: View {
     self.profileName = profileName
     self.readingPreferences = readingPreferences
     self.recipientMessages = recipientMessages
+    self.responseAssistanceContext = responseAssistanceContext
     self.sendingIdentities = sendingIdentities
     self.signatures = signatures
     self.templates = templates
@@ -195,7 +201,8 @@ struct MailShellComposer: View {
           selectedSignatureId: selectedSignatureId,
           templates: templates,
           applyTemplate: applyTemplate,
-          requestAssistance: mailAssistanceViewModel == nil ? nil : requestComposeAssistance
+          requestAssistance: mailAssistanceViewModel == nil ? nil : requestComposeAssistance,
+          requestResponseAssistance: responseAssistanceAction
         )
         Divider()
         ScrollView {
@@ -234,6 +241,16 @@ struct MailShellComposer: View {
             applySubject: { subject in
               viewModel.draft.subject = subject
             }
+          )
+        }
+      }
+      .sheet(item: $responseAssistancePresentation) { presentation in
+        if let mailAssistanceViewModel {
+          ResponseAssistanceView(
+            presentation: presentation,
+            assistanceViewModel: mailAssistanceViewModel,
+            draft: currentResponseDraft,
+            applyDocument: applyResponseDocument
           )
         }
       }
@@ -802,6 +819,51 @@ struct MailShellComposer: View {
     )
   }
 
+  private var responseAssistanceAction: (() -> Void)? {
+    guard mailAssistanceViewModel != nil,
+      responseAssistanceContext != nil,
+      viewModel.draft.kind == .reply || viewModel.draft.kind == .replyAll
+    else { return nil }
+    return requestResponseAssistance
+  }
+
+  private func requestResponseAssistance() {
+    guard let mailAssistanceViewModel, let responseAssistanceContext else { return }
+    mailAssistanceViewModel.discardPreview()
+    responseAssistancePresentation = ResponseAssistancePresentation(
+      context: responseAssistanceContext,
+      localeIdentifier: Locale.current.identifier,
+      profileId: mailAssistanceViewModel.activeProfileId
+    )
+  }
+
+  private func currentResponseDraft() -> MailShellCompositionDraft {
+    var draft = viewModel.draft
+    draft.document = editorModel.document
+    return draft
+  }
+
+  private func applyResponseDocument(_ document: SemanticMessageDocument) -> Bool {
+    let sourceDocument = editorModel.document
+    let target = ComposeAssistanceTarget(
+      insertionOffset: sourceDocument.attributedText.characters.count,
+      range: nil,
+      scope: .authoredBody,
+      sourceDocument: sourceDocument,
+      targetDocument: sourceDocument
+    )
+    let didApply = editorModel.applyAssistanceDocument(
+      document,
+      application: .replaceTarget,
+      target: target
+    )
+    if didApply {
+      responseAssistancePresentation = nil
+      mailAssistanceViewModel?.discardPreview()
+    }
+    return didApply
+  }
+
   private var recipientDisplayNames: [String] {
     [viewModel.draft.recipient, viewModel.draft.ccRecipients]
       .flatMap { RFCMailboxHeaderParser.mailboxes(in: $0) ?? [] }
@@ -937,6 +999,7 @@ private struct MailComposerActionBar: View {
   let templates: TemplatePreferences
   let applyTemplate: (MailTemplate) -> Void
   let requestAssistance: (() -> Void)?
+  let requestResponseAssistance: (() -> Void)?
 
   var body: some View {
     HStack(spacing: 8) {
@@ -983,6 +1046,14 @@ private struct MailComposerActionBar: View {
       if let requestAssistance {
         Button("Compose Assistance", systemImage: "sparkles", action: requestAssistance)
           .labelStyle(.iconOnly)
+      }
+      if let requestResponseAssistance {
+        Button(
+          "Response Assistance",
+          systemImage: "text.bubble",
+          action: requestResponseAssistance
+        )
+        .labelStyle(.iconOnly)
       }
       MailComposerKeyboardCommands(editorModel: editorModel, requestLink: requestLink)
       Spacer()

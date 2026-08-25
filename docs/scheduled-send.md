@@ -1,8 +1,8 @@
 # Scheduled Send and Send Reminder implementation plan
 
-Status: cross-device Send Reminder plus Gmail, Microsoft Graph, On-Premises Exchange, and Standards-Based Scheduled Send delivery and revision-fenced Outbox management implemented; lifecycle completion remains planned
+Status: cross-device Send Reminder plus Gmail, Microsoft Graph, On-Premises Exchange, and Standards-Based Scheduled Send delivery, revision-fenced Outbox management, and lifecycle hardening implemented; end-to-end release evidence remains planned
 
-The automatic-delivery slice admits a scheduled message on a selected, authorized Gmail, Microsoft 365, On-Premises Exchange, or Standards-Based Mailbox Connection on the originating device. It synchronizes the exact outgoing commitment through encrypted Product Sync, requires an opaque backend acknowledgement for the same identity, due instant, and revision, persists the delayed Outbox attempt before dismissing the Draft, and routes an opaque APNs wake to eligible trusted devices. A device with the encrypted payload, selected Mailbox Authorization, and separate revocable Scheduled Delivery Authorization may acquire the one revision-bound claim. The client durably fences provider handoff, reuses provider reconciliation, removes completed operational records, and moves work that cannot start within 24 hours to Needs Attention. Issues #381–#384 add the implemented management and provider parity; Issues #385 and #386 plan lifecycle compatibility and release evidence without weakening this privacy boundary.
+The automatic-delivery slice admits a scheduled message on a selected, authorized Gmail, Microsoft 365, On-Premises Exchange, or Standards-Based Mailbox Connection on the originating device. It synchronizes the exact outgoing commitment through encrypted Product Sync, requires an opaque backend acknowledgement for the same identity, due instant, and revision, persists the delayed Outbox attempt before dismissing the Draft, and routes an opaque APNs wake to eligible trusted devices. A device with the encrypted payload, selected Mailbox Authorization, and separate revocable Scheduled Delivery Authorization may acquire the one revision-bound claim. The client durably fences provider handoff, reuses provider reconciliation, removes completed operational records, and moves work that cannot start within 24 hours to Needs Attention. Issues #381–#385 add the implemented management, provider parity, and lifecycle compatibility; Issue #386 plans release evidence without weakening this privacy boundary.
 
 ## Goal
 
@@ -107,7 +107,7 @@ Send Reminder admission is local-first: save the Draft and reminder revision ato
 4. The claim enters a pre-handoff phase. The ordinary configured Undo Send Window begins, and cancellation, edit, reschedule, or Send Now may still win through compare-and-swap.
 5. Immediately before provider access, the device rechecks Product Account state, connection generation, Scheduled Delivery Authorization generation, Trusted Device Credential revocation state, record revision, payload hashes, deadline, and claim ownership. A revoked credential or stale authorization generation rejects the claim before provider access.
 6. Advancing the claim to handing-off creates a durable fence. No timeout or second device may cross that fence until the provider outcome is reconciled.
-7. Existing Gmail or SwiftMail SMTP delivery and Outgoing Delivery Attempt reconciliation rules execute with the stored idempotency key and deterministic Message-ID. SwiftMail submits only over verified implicit TLS or STARTTLS, classifies failures by SMTP phase, and records accepted delivery separately from idempotent Sent-copy reconciliation. Every credential-bearing HTTP provider request requires HTTPS, and every redirect is accepted only after revalidating an HTTPS same-origin destination; credentials are withheld from the redirected hop until that validation succeeds. Planned EWS and Graph parity must retain their provider-specific endpoint and redirect checks. Connections remain serialized; different Mailbox Connections may deliver concurrently.
+7. Gmail, Microsoft Graph, EWS, or Standards-Based Mail delivery and Outgoing Delivery Attempt reconciliation rules execute with the stored idempotency key and deterministic Message-ID. The SwiftMail implementation of Standards-Based Mail submits only over verified implicit TLS or STARTTLS, classifies failures by SMTP phase, and records accepted delivery separately from idempotent Sent-copy reconciliation. Every credential-bearing HTTP provider request requires HTTPS, and every redirect is accepted only after revalidating an HTTPS same-origin destination; credentials are withheld from the redirected hop until that validation succeeds. Microsoft Graph and EWS retain their provider-specific endpoint and redirect checks. Connections remain serialized; different Mailbox Connections may deliver concurrently.
 8. Confirmed success removes the operational schedule and synchronized Outbox commitment while provider synchronization supplies the Sent message. A transient failure follows the existing retry policy. An ambiguous SMTP response requires explicit reconciliation or user resolution and never automatic cross-device takeover.
 
 An abandoned pre-handoff claim may expire and be claimed by another eligible device. Due work is ordered per Mailbox Connection by delivery instant, commitment instant, then stable opaque identity.
@@ -162,7 +162,7 @@ A state transition retains shared chunks and releases them only after no Draft, 
 
 ## Compatibility
 
-Scheduled Send uses additive encrypted record families. Older clients ignore them and cannot display, edit, cancel, claim, or notify for their items. A new client may create a schedule when at least one compatible trusted device has the selected Mailbox Authorization and a complete payload; upgrading every trusted device is not required.
+Scheduled Send uses additive encrypted record families. Lifecycle-hardened clients write `scheduled-send.v3` records and continue reading and tombstoning the earlier `v1` and `v2` families. Earlier clients do not recognize `v3`, so they cannot display, edit, cancel, claim, or notify for new commitments. The encrypted record and local Outbox attempt carry the selected Mailbox Connection authorization generation; a recreated connection or losing merge epoch cannot claim or resume the stale commitment. A new client may create a schedule when at least one compatible trusted device has the selected Mailbox Authorization and a complete payload; upgrading every trusted device is not required.
 
 Send Reminder also uses an additive encrypted record family. Older clients ignore that family while continuing to read the reminder projection embedded in the synchronized Draft. Ownership is mirrored into the legacy origin-device field so an older client does not independently notify after a compatible device takes ownership. New clients honor reminder tombstones and revision fences before changing that Draft projection.
 
@@ -186,14 +186,14 @@ Draft admission and cancellation tombstones remain authoritative to older client
 
 ### 3. Operational scheduling and authorization
 
-- Implemented for Gmail and Standards-Based Mail: add the minimal opaque operational schedule schema, scheduled wake action, revision-fenced cancellation and rescheduling, 24-hour deadline, and Product Account deletion coverage.
-- Implemented: add separate Scheduled Delivery Authorization issuance, device-bound secure storage, capability registration, rotation, revocation, and compatibility checks.
-- Implemented: add expiring pre-handoff claims, durable handoff fences, failover, and idempotent opaque completion APIs.
+- Implemented for Gmail, Microsoft Graph, EWS, and Standards-Based Mail, including the minimal opaque operational schedule schema, scheduled wake action, revision-fenced cancellation and rescheduling, 24-hour deadline, and Product Account deletion coverage.
+- Implemented separate Scheduled Delivery Authorization issuance, device-bound secure storage, capability registration, rotation, revocation, and compatibility checks.
+- Implemented expiring pre-handoff claims, durable handoff fences, failover, and idempotent opaque completion APIs.
 - Verify that backend storage and logs never contain message content, provider identity, sending connection, or provider credentials.
 
 ### 4. Apple background coordinator
 
-- Implemented for Gmail and Standards-Based Mail: integrate Outbox work with the existing background task and fan-out opaque remote wakes instead of only foreground AccountView resume.
+- Implemented for Gmail, Microsoft Graph, EWS, and Standards-Based Mail: integrate Outbox work with the existing background task and fan-out opaque remote wakes instead of only foreground AccountView resume.
 - Implemented: sync the encrypted payload on a woken eligible device and construct the selected local provider adapter without exposing provider or connection identity to the backend.
 - Implemented: add claim acquisition and revalidation, durable handoff fencing, provider reconciliation, completion cleanup, late-work handling, and retry after pre-handoff claim loss.
 - Verify force-quit, disabled Background App Refresh, first-unlock key availability, expired foreground identity, offline provider, device revocation, and ambiguous SMTP outcomes.
@@ -207,8 +207,9 @@ Draft admission and cancellation tombstones remain authoritative to older client
 
 ### 6. Lifecycle, compatibility, and end-to-end evidence
 
-- Integrate account deletion, sign-out, device authorization removal, device revocation, connection removal, and connection merge.
-- Add old-client fixtures and stale-revision/replayed-claim attacks.
+- Implemented: preserve synchronized commitments on device-only sign-out or revocation, reject stale connection-authorization generations, cancel current commitments before connection-wide removal, and include operational schedules plus encrypted payloads in bounded Product Account deletion.
+- Implemented: write the additive `scheduled-send.v3` family while reading and tombstoning legacy families so older clients ignore new commitments and cannot resurrect them through a stale Mailbox Connection epoch.
+- Verify additional old-client fixtures and stale-revision/replayed-claim attacks.
 - Extend the Local Mail Test Environment with scheduled success, late wake, cancellation race, transient retry, permanent failure, and ambiguous SMTP scenarios.
 - Run Apple lint, focused Swift Testing suites, Convex lint/typecheck/tests, Core Mail Loop coverage, and provider compatibility checks for every send-capable adapter.
 

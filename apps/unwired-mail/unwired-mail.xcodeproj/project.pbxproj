@@ -227,6 +227,10 @@
 		C0DEC0DE414000000000001 /* Services/Assistance/UnderstandingAssistance.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE414000000000002 /* Services/Assistance/UnderstandingAssistance.swift */; };
 		C0DEC0DE414000000000003 /* Features/Account/UnderstandingAssistanceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE414000000000004 /* Features/Account/UnderstandingAssistanceView.swift */; };
 		C0DEC0DE414000000000005 /* UnderstandingAssistanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE414000000000006 /* UnderstandingAssistanceTests.swift */; };
+		C0DEC0DE413000000000001 /* Services/Assistance/ResponseAssistance.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE413000000000002 /* Services/Assistance/ResponseAssistance.swift */; };
+		C0DEC0DE413000000000003 /* Features/Account/ResponseAssistanceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE413000000000004 /* Features/Account/ResponseAssistanceView.swift */; };
+		C0DEC0DE413000000000005 /* Features/Account/ResponseAssistancePreviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE413000000000006 /* Features/Account/ResponseAssistancePreviewView.swift */; };
+		C0DEC0DE413000000000007 /* ResponseAssistanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE413000000000008 /* ResponseAssistanceTests.swift */; };
 		C0DEC0DE412000000000001 /* Services/Assistance/ComposeAssistance.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE412000000000002 /* Services/Assistance/ComposeAssistance.swift */; };
 		C0DEC0DE412000000000003 /* Features/Account/ComposeAssistanceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE412000000000004 /* Features/Account/ComposeAssistanceView.swift */; };
 		C0DEC0DE412000000000005 /* ComposeAssistanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE412000000000006 /* ComposeAssistanceTests.swift */; };
@@ -518,6 +522,10 @@
 		C0DEC0DE414000000000002 /* Services/Assistance/UnderstandingAssistance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/Assistance/UnderstandingAssistance.swift; sourceTree = "<group>"; };
 		C0DEC0DE414000000000004 /* Features/Account/UnderstandingAssistanceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Account/UnderstandingAssistanceView.swift; sourceTree = "<group>"; };
 		C0DEC0DE414000000000006 /* UnderstandingAssistanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UnderstandingAssistanceTests.swift; sourceTree = "<group>"; };
+		C0DEC0DE413000000000002 /* Services/Assistance/ResponseAssistance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/Assistance/ResponseAssistance.swift; sourceTree = "<group>"; };
+		C0DEC0DE413000000000004 /* Features/Account/ResponseAssistanceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Account/ResponseAssistanceView.swift; sourceTree = "<group>"; };
+		C0DEC0DE413000000000006 /* Features/Account/ResponseAssistancePreviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Account/ResponseAssistancePreviewView.swift; sourceTree = "<group>"; };
+		C0DEC0DE413000000000008 /* ResponseAssistanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResponseAssistanceTests.swift; sourceTree = "<group>"; };
 		C0DEC0DE412000000000002 /* Services/Assistance/ComposeAssistance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/Assistance/ComposeAssistance.swift; sourceTree = "<group>"; };
 		C0DEC0DE412000000000004 /* Features/Account/ComposeAssistanceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Account/ComposeAssistanceView.swift; sourceTree = "<group>"; };
 		C0DEC0DE412000000000006 /* ComposeAssistanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComposeAssistanceTests.swift; sourceTree = "<group>"; };
@@ -607,6 +615,8 @@
 				71A6A0652C0B000100000001 /* Features/Account/AccountView.swift */,
 				B539B539B539B539B539B539 /* Features/Account/MailShellThreadProjectionObserver.swift */,
 				C0DEC0DE412000000000004 /* Features/Account/ComposeAssistanceView.swift */,
+				C0DEC0DE413000000000004 /* Features/Account/ResponseAssistanceView.swift */,
+				C0DEC0DE413000000000006 /* Features/Account/ResponseAssistancePreviewView.swift */,
 				C0DEC0DE414000000000004 /* Features/Account/UnderstandingAssistanceView.swift */,
 				D16100000000000000000011 /* Features/Account/MailShellCompositionDraft.swift */,
 				C0DEC0DE162000000000008 /* Features/Account/MailShellCompositionDraft+Codable.swift */,
@@ -659,6 +669,7 @@
 				C0DEC0DE411000000000006 /* Services/Assistance/UserDefaultsMailAssistanceStore.swift */,
 				C0DEC0DE411000000000008 /* Services/Assistance/MailAssistanceViewModel.swift */,
 				C0DEC0DE412000000000002 /* Services/Assistance/ComposeAssistance.swift */,
+				C0DEC0DE413000000000002 /* Services/Assistance/ResponseAssistance.swift */,
 				C0DEC0DE414000000000002 /* Services/Assistance/UnderstandingAssistance.swift */,
 				71A6A0162C0B000100000001 /* Services/BackendEnvironment.swift */,
 				71A6A0192C0B000100000001 /* Services/DotEnvFile.swift */,
@@ -810,6 +821,7 @@
 				C0DEC0DE410000000000004 /* MailAssistanceEngineTests.swift */,
 				C0DEC0DE411000000000002 /* MailAssistanceEnablementTests.swift */,
 				C0DEC0DE412000000000006 /* ComposeAssistanceTests.swift */,
+				C0DEC0DE413000000000008 /* ResponseAssistanceTests.swift */,
 				C0DEC0DE414000000000006 /* UnderstandingAssistanceTests.swift */,
 				71A6A0962C0B000100000001 /* NotificationRuleSyncServiceTests.swift */,
 				71A6A09C2C0B000100000001 /* NotificationRuleViewModelTests.swift */,
@@ -1050,6 +1062,8 @@
 				71A6A0642C0B000100000001 /* Features/Account/AccountView.swift in Sources */,
 				A539A539A539A539A539A539 /* Features/Account/MailShellThreadProjectionObserver.swift in Sources */,
 				C0DEC0DE412000000000003 /* Features/Account/ComposeAssistanceView.swift in Sources */,
+				C0DEC0DE413000000000003 /* Features/Account/ResponseAssistanceView.swift in Sources */,
+				C0DEC0DE413000000000005 /* Features/Account/ResponseAssistancePreviewView.swift in Sources */,
 				C0DEC0DE414000000000003 /* Features/Account/UnderstandingAssistanceView.swift in Sources */,
 				D16100000000000000000001 /* Features/Account/MailShellCompositionDraft.swift in Sources */,
 				C0DEC0DE162000000000007 /* Features/Account/MailShellCompositionDraft+Codable.swift in Sources */,
@@ -1101,6 +1115,7 @@
 				C0DEC0DE411000000000005 /* Services/Assistance/UserDefaultsMailAssistanceStore.swift in Sources */,
 				C0DEC0DE411000000000007 /* Services/Assistance/MailAssistanceViewModel.swift in Sources */,
 				C0DEC0DE412000000000001 /* Services/Assistance/ComposeAssistance.swift in Sources */,
+				C0DEC0DE413000000000001 /* Services/Assistance/ResponseAssistance.swift in Sources */,
 				C0DEC0DE414000000000001 /* Services/Assistance/UnderstandingAssistance.swift in Sources */,
 				71A6A0062C0B000100000001 /* Services/BackendEnvironment.swift in Sources */,
 				71A6A0092C0B000100000001 /* Services/DotEnvFile.swift in Sources */,
@@ -1250,6 +1265,7 @@
 				C0DEC0DE410000000000003 /* MailAssistanceEngineTests.swift in Sources */,
 				C0DEC0DE411000000000001 /* MailAssistanceEnablementTests.swift in Sources */,
 				C0DEC0DE412000000000005 /* ComposeAssistanceTests.swift in Sources */,
+				C0DEC0DE413000000000007 /* ResponseAssistanceTests.swift in Sources */,
 				C0DEC0DE414000000000005 /* UnderstandingAssistanceTests.swift in Sources */,
 				71A6A0952C0B000100000001 /* NotificationRuleSyncServiceTests.swift in Sources */,
 				71A6A09B2C0B000100000001 /* NotificationRuleViewModelTests.swift in Sources */,
