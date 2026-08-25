@@ -303,6 +303,7 @@ struct RemoteMessageContentLoader {
       guard
         let attempt = try await admission(
           for: reference,
+          deadline: deadline,
           remainingLoadDuration: remainingLoadDuration,
           maximumByteCount: maximumResponseByteCount,
           remainingPixelCount: remainingPixelCount
@@ -363,6 +364,7 @@ struct RemoteMessageContentLoader {
           group.addTask {
             let attempt = try await admission(
               for: candidate.reference,
+              deadline: deadline,
               remainingLoadDuration: remainingLoadDuration,
               maximumByteCount: candidate.maximumByteCount,
               remainingPixelCount: candidate.maximumPixelCount
@@ -452,6 +454,7 @@ struct RemoteMessageContentLoader {
 
   private func admission(
     for reference: RemoteMessageImageReference,
+    deadline: TimeInterval,
     remainingLoadDuration: TimeInterval,
     maximumByteCount: Int,
     remainingPixelCount: Int
@@ -464,6 +467,7 @@ struct RemoteMessageContentLoader {
     do {
       let load = try await admittedResponse(
         for: request(url: reference.url, timeoutInterval: remainingLoadDuration),
+        deadline: deadline,
         maximumByteCount: maximumByteCount
       )
       return (
@@ -492,13 +496,26 @@ struct RemoteMessageContentLoader {
 
   private func admittedResponse(
     for request: URLRequest,
+    deadline: TimeInterval,
     maximumByteCount: Int
   ) async throws -> RemoteMessageContentNetworkLoad {
     guard let requestGate, let messageId else {
       return try await response(for: request, maximumByteCount: maximumByteCount)
     }
-    return try await requestGate.loadResource(for: request, messageId: messageId) {
-      try await response(for: request, maximumByteCount: maximumByteCount)
+    return try await requestGate.loadResource(
+      for: request,
+      messageId: messageId,
+      deadline: deadline,
+      monotonicTime: monotonicTime
+    ) {
+      let remainingLoadDuration = deadline - monotonicTime()
+      guard remainingLoadDuration > 0, let url = request.url else {
+        throw URLError(.timedOut)
+      }
+      return try await response(
+        for: self.request(url: url, timeoutInterval: remainingLoadDuration),
+        maximumByteCount: maximumByteCount
+      )
     }
   }
 

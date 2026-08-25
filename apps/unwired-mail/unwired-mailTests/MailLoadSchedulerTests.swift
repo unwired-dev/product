@@ -147,7 +147,7 @@ struct MailLoadSchedulerTests {
       label: "duplicate-provider-load",
       messageId: message
     )
-    await probe.waitUntilStarted(1)
+    await scheduler.waitUntilSharedBodyConsumerCountForTesting(2, messageId: message)
 
     cancelledConsumer.cancel()
     await #expect(throws: CancellationError.self) {
@@ -162,6 +162,90 @@ struct MailLoadSchedulerTests {
     #expect(body.text == "provider-load")
     snapshot = await probe.snapshot()
     #expect(snapshot.startedCount == 1)
+  }
+
+  @Test("Queued body work cancels without consuming a permit", .bug(id: 551))
+  func queuedBodyWorkCancels() async throws {
+    let scheduler = ProductAccountMailLoadScheduler()
+    let probe = MailLoadConcurrencyProbe()
+    let connection = connectionId(provider: .gmail, value: "queued-cancellation")
+    let blockers = (0..<2).map { index in
+      bodyTask(
+        scheduler: scheduler,
+        probe: probe,
+        label: "blocker-\(index)",
+        messageId: messageId(connection: connection, value: "blocker-\(index)")
+      )
+    }
+    await probe.waitUntilStarted(2)
+
+    let queued = bodyTask(
+      scheduler: scheduler,
+      probe: probe,
+      label: "cancelled",
+      messageId: messageId(connection: connection, value: "cancelled")
+    )
+    await scheduler.waitUntilBodyPermitWaiterCountForTesting(1)
+    queued.cancel()
+    await #expect(throws: CancellationError.self) {
+      _ = try await queued.value
+    }
+
+    await probe.releaseAll()
+    for blocker in blockers {
+      _ = try await blocker.value
+    }
+    #expect(await probe.startedLabels().contains("cancelled") == false)
+  }
+
+  @Test("An interactive consumer promotes a queued shared speculative load", .bug(id: 551))
+  func interactiveConsumerPromotesQueuedSharedLoad() async throws {
+    let scheduler = ProductAccountMailLoadScheduler()
+    let probe = MailLoadConcurrencyProbe()
+    let connection = connectionId(provider: .gmail, value: "queued-promotion")
+    let sharedMessage = messageId(connection: connection, value: "shared")
+    let blockers = (0..<2).map { index in
+      bodyTask(
+        scheduler: scheduler,
+        probe: probe,
+        label: "blocker-\(index)",
+        messageId: messageId(connection: connection, value: "blocker-\(index)")
+      )
+    }
+    await probe.waitUntilStarted(2)
+
+    let speculative = Task { @MainActor in
+      try await scheduler.loadMessageBody(for: sharedMessage, priority: .speculative) {
+        await probe.run(label: "promoted", connectionId: connection)
+        return MailboxMessageBody(text: "promoted")
+      }
+    }
+    await scheduler.waitUntilBodyPermitWaiterCountForTesting(1)
+    let laterInteractive = bodyTask(
+      scheduler: scheduler,
+      probe: probe,
+      label: "later-interactive",
+      messageId: messageId(connection: connection, value: "later-interactive")
+    )
+    let interactive = Task { @MainActor in
+      try await scheduler.loadMessageBody(for: sharedMessage) {
+        Issue.record("The shared provider load ran twice")
+        return MailboxMessageBody(text: "duplicate")
+      }
+    }
+    await scheduler.waitUntilSharedBodyConsumerCountForTesting(2, messageId: sharedMessage)
+
+    await probe.release("blocker-0")
+    await probe.waitUntilStarted(3)
+    #expect(await probe.startedLabels().prefix(3) == ["blocker-0", "blocker-1", "promoted"])
+
+    await probe.releaseAll()
+    for blocker in blockers {
+      _ = try await blocker.value
+    }
+    _ = try await speculative.value
+    _ = try await interactive.value
+    _ = try await laterInteractive.value
   }
 
   @Test("Remote image requests respect per-message and Product Account limits", .bug(id: 551))
@@ -243,9 +327,7 @@ struct MailLoadSchedulerTests {
         await probe.load()
       }
     }
-    for _ in 0..<100 {
-      await Task.yield()
-    }
+    await scheduler.remoteImageRequests.waitUntilSharedConsumerCountForTesting(2, url: url)
 
     var startedCount = await probe.startedCount
     #expect(startedCount == 1)
@@ -257,6 +339,53 @@ struct MailLoadSchedulerTests {
     #expect(secondResult.data == firstResult.data)
     startedCount = await probe.startedCount
     #expect(startedCount == 1)
+  }
+
+  @Test("Remote-image pool wait counts against the aggregate deadline", .bug(id: 551))
+  func remoteImagePoolWaitCountsAgainstDeadline() async throws {
+    let scheduler = ProductAccountMailLoadScheduler()
+    let connection = connectionId(provider: .gmail, value: "remote-deadline")
+    let firstMessage = messageId(connection: connection, value: "first")
+    let secondMessage = messageId(connection: connection, value: "second")
+    let waitingMessage = messageId(connection: connection, value: "waiting")
+    for _ in 0..<6 {
+      #expect(await scheduler.remoteImageRequests.acquire(for: firstMessage))
+      #expect(await scheduler.remoteImageRequests.acquire(for: secondMessage))
+    }
+    let url = try #require(URL(string: "https://images.example.com/deadline.png"))
+    let clock = LockedMonotonicTime()
+    let operationStarted = TestFlag()
+    let load = Task {
+      try await scheduler.remoteImageRequests.loadResource(
+        for: URLRequest(url: url),
+        messageId: waitingMessage,
+        deadline: 30,
+        monotonicTime: clock.now
+      ) {
+        await operationStarted.set()
+        throw URLError(.cannotLoadFromNetwork)
+      }
+    }
+    await scheduler.remoteImageRequests.waitUntilWaiterCountForTesting(1)
+
+    clock.advance(by: 31)
+    await scheduler.remoteImageRequests.release(for: firstMessage)
+    do {
+      _ = try await load.value
+      Issue.record("Expected the expired request to stop before network work")
+    } catch let error as URLError {
+      #expect(error.code == .timedOut)
+    } catch {
+      Issue.record("Expected a timeout, got \(error)")
+    }
+    #expect(await operationStarted.value == false)
+
+    for _ in 0..<5 {
+      await scheduler.remoteImageRequests.release(for: firstMessage)
+    }
+    for _ in 0..<6 {
+      await scheduler.remoteImageRequests.release(for: secondMessage)
+    }
   }
 
   private func bodyTask(
@@ -306,6 +435,19 @@ struct MailLoadSchedulerTests {
     value: String
   ) -> StableProviderMessageIdentity {
     StableProviderMessageIdentity(connectionId: connection, providerMessageId: value)
+  }
+}
+
+private final class LockedMonotonicTime: @unchecked Sendable {
+  private let lock = NSLock()
+  private var value: TimeInterval = 0
+
+  func now() -> TimeInterval {
+    lock.withLock { value }
+  }
+
+  func advance(by duration: TimeInterval) {
+    lock.withLock { value += duration }
   }
 }
 

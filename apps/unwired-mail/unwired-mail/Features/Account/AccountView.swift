@@ -11876,6 +11876,14 @@ final class ThreadSnoozeViewModel {
     errorMessage = nil
   }
 
+  #if DEBUG || TESTING
+    func scheduledWakeTaskForTesting(
+      _ threadId: StableThreadIdentity
+    ) -> Task<Void, Never>? {
+      wakeTasks[threadId]
+    }
+  #endif
+
   // swiftlint:disable:next function_body_length
   private func apply(_ snapshot: ThreadSnoozeSnapshot) throws {
     try Task.checkCancellation()
@@ -13950,7 +13958,9 @@ final class GmailInboxViewModel {
   }
 
   func clearVisibleThreadsForProfileSwitch() {
-    currentConnectionId = nil
+    if currentConnectionId != nil {
+      currentConnectionId = nil
+    }
     guard !threads.isEmpty else { return }
     threads = []
   }

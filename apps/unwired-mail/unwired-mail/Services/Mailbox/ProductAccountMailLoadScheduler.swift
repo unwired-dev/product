@@ -42,6 +42,18 @@ final class ProductAccountMailLoadScheduler {
   private var activeSpeculativePipelineCounts: [MailboxConnectionId: Int] = [:]
   private var bodyPermitWaiters: [BodyPermitWaiter] = []
   private var sharedBodyLoads: [StableProviderMessageIdentity: SharedBodyLoad] = [:]
+  #if DEBUG || TESTING
+    private var bodyPermitCountWaiters: [
+      (count: Int, continuation: CheckedContinuation<Void, Never>)
+    ] = []
+    private var sharedBodyConsumerWaiters: [
+      (
+        messageId: StableProviderMessageIdentity,
+        count: Int,
+        continuation: CheckedContinuation<Void, Never>
+      )
+    ] = []
+  #endif
 
   /// Loads one message body, sharing the provider task with duplicate consumers.
   ///
@@ -87,6 +99,9 @@ final class ProductAccountMailLoadScheduler {
         }
         load.waiters[waiterId] = continuation
         sharedBodyLoads[messageId] = load
+        #if DEBUG || TESTING
+          resumeSharedBodyConsumerWaiters(for: messageId)
+        #endif
       }
     } onCancel: {
       Task { @MainActor [weak self] in
@@ -122,6 +137,25 @@ final class ProductAccountMailLoadScheduler {
       operation: operation
     )
   }
+
+  #if DEBUG || TESTING
+    func waitUntilSharedBodyConsumerCountForTesting(
+      _ count: Int,
+      messageId: StableProviderMessageIdentity
+    ) async {
+      guard (sharedBodyLoads[messageId]?.waiters.count ?? 0) < count else { return }
+      await withCheckedContinuation { continuation in
+        sharedBodyConsumerWaiters.append((messageId, count, continuation))
+      }
+    }
+
+    func waitUntilBodyPermitWaiterCountForTesting(_ count: Int) async {
+      guard bodyPermitWaiters.count < count else { return }
+      await withCheckedContinuation { continuation in
+        bodyPermitCountWaiters.append((count, continuation))
+      }
+    }
+  #endif
 
   private func startSharedBodyLoad(
     for messageId: StableProviderMessageIdentity,
@@ -195,6 +229,23 @@ final class ProductAccountMailLoadScheduler {
     load.task.cancel()
   }
 
+  #if DEBUG || TESTING
+    private func resumeSharedBodyConsumerWaiters(
+      for messageId: StableProviderMessageIdentity
+    ) {
+      let consumerCount = sharedBodyLoads[messageId]?.waiters.count ?? 0
+      let ready = sharedBodyConsumerWaiters.filter {
+        $0.messageId == messageId && consumerCount >= $0.count
+      }
+      sharedBodyConsumerWaiters.removeAll {
+        $0.messageId == messageId && consumerCount >= $0.count
+      }
+      for waiter in ready {
+        waiter.continuation.resume()
+      }
+    }
+  #endif
+
   private func performWork<Result>(
     connectionId: MailboxConnectionId,
     loadId: UUID? = nil,
@@ -254,6 +305,9 @@ final class ProductAccountMailLoadScheduler {
             maximumConcurrentPipelines: maximumConcurrentPipelines,
             priority: priority
           ))
+        #if DEBUG || TESTING
+          resumeBodyPermitCountWaiters()
+        #endif
       }
     } onCancel: {
       Task { @MainActor [weak self] in
@@ -326,6 +380,16 @@ final class ProductAccountMailLoadScheduler {
     bodyPermitWaiters.remove(at: index).continuation.resume(returning: nil)
   }
 
+  #if DEBUG || TESTING
+    private func resumeBodyPermitCountWaiters() {
+      let ready = bodyPermitCountWaiters.filter { bodyPermitWaiters.count >= $0.count }
+      bodyPermitCountWaiters.removeAll { bodyPermitWaiters.count >= $0.count }
+      for waiter in ready {
+        waiter.continuation.resume()
+      }
+    }
+  #endif
+
   private func promoteBodyPermitWaiter(loadId: UUID) {
     guard let index = bodyPermitWaiters.firstIndex(where: { $0.loadId == loadId }),
       bodyPermitWaiters[index].priority == .speculative
@@ -378,21 +442,42 @@ actor ProductAccountRemoteImageRequestGate {
   private var activeRequestCounts: [StableProviderMessageIdentity: Int] = [:]
   private var sharedRequests: [URL: SharedRequest] = [:]
   private var waiters: [Waiter] = []
+  #if DEBUG || TESTING
+    private var sharedConsumerWaiters: [
+      (url: URL, count: Int, continuation: CheckedContinuation<Void, Never>)
+    ] = []
+    private var waiterCountWaiters: [
+      (count: Int, continuation: CheckedContinuation<Void, Never>)
+    ] = []
+  #endif
 
   /// Loads one remote resource once while allowing every consumer to await the result.
   func loadResource(
     for request: URLRequest,
     messageId: StableProviderMessageIdentity,
+    deadline: TimeInterval? = nil,
+    monotonicTime: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
     operation: @Sendable @escaping () async throws -> RemoteMessageContentNetworkLoad
   ) async throws -> RemoteMessageContentNetworkLoad {
     guard let url = request.url else { return try await operation() }
+    try requireTimeRemaining(until: deadline, monotonicTime: monotonicTime)
     if let request = joinSharedRequest(url) {
-      return try await awaitSharedRequest(request, url: url)
+      let result = try await awaitSharedRequest(request, url: url)
+      try requireTimeRemaining(until: deadline, monotonicTime: monotonicTime)
+      return result
     }
     guard await acquire(for: messageId) else { throw CancellationError() }
+    do {
+      try requireTimeRemaining(until: deadline, monotonicTime: monotonicTime)
+    } catch {
+      release(for: messageId)
+      throw error
+    }
     if let request = joinSharedRequest(url) {
       release(for: messageId)
-      return try await awaitSharedRequest(request, url: url)
+      let result = try await awaitSharedRequest(request, url: url)
+      try requireTimeRemaining(until: deadline, monotonicTime: monotonicTime)
+      return result
     }
 
     let requestId = UUID()
@@ -404,11 +489,38 @@ actor ProductAccountRemoteImageRequestGate {
       messageId: messageId,
       task: task
     )
+    #if DEBUG || TESTING
+      resumeSharedConsumerWaiters(for: url)
+    #endif
     return try await awaitSharedRequest(
       SharedRequestConsumer(consumerId: consumerId, requestId: requestId, task: task),
       url: url
     )
   }
+
+  private func requireTimeRemaining(
+    until deadline: TimeInterval?,
+    monotonicTime: () -> TimeInterval
+  ) throws {
+    guard let deadline else { return }
+    guard monotonicTime() < deadline else { throw URLError(.timedOut) }
+  }
+
+  #if DEBUG || TESTING
+    func waitUntilSharedConsumerCountForTesting(_ count: Int, url: URL) async {
+      guard (sharedRequests[url]?.consumerIds.count ?? 0) < count else { return }
+      await withCheckedContinuation { continuation in
+        sharedConsumerWaiters.append((url, count, continuation))
+      }
+    }
+
+    func waitUntilWaiterCountForTesting(_ count: Int) async {
+      guard waiters.count < count else { return }
+      await withCheckedContinuation { continuation in
+        waiterCountWaiters.append((count, continuation))
+      }
+    }
+  #endif
 
   /// Acquires one request slot, returning `false` when the waiting task is cancelled.
   func acquire(for messageId: StableProviderMessageIdentity) async -> Bool {
@@ -424,6 +536,9 @@ actor ProductAccountRemoteImageRequestGate {
           return
         }
         waiters.append(Waiter(continuation: continuation, id: waiterId, messageId: messageId))
+        #if DEBUG || TESTING
+          resumeWaiterCountWaiters()
+        #endif
       }
     } onCancel: {
       Task { await self.cancelWaiter(waiterId) }
@@ -464,6 +579,16 @@ actor ProductAccountRemoteImageRequestGate {
     waiters.remove(at: index).continuation.resume(returning: false)
   }
 
+  #if DEBUG || TESTING
+    private func resumeWaiterCountWaiters() {
+      let ready = waiterCountWaiters.filter { waiters.count >= $0.count }
+      waiterCountWaiters.removeAll { waiters.count >= $0.count }
+      for waiter in ready {
+        waiter.continuation.resume()
+      }
+    }
+  #endif
+
   private func joinSharedRequest(
     _ url: URL
   ) -> SharedRequestConsumer? {
@@ -471,12 +596,30 @@ actor ProductAccountRemoteImageRequestGate {
     let consumerId = UUID()
     request.consumerIds.insert(consumerId)
     sharedRequests[url] = request
+    #if DEBUG || TESTING
+      resumeSharedConsumerWaiters(for: url)
+    #endif
     return SharedRequestConsumer(
       consumerId: consumerId,
       requestId: request.id,
       task: request.task
     )
   }
+
+  #if DEBUG || TESTING
+    private func resumeSharedConsumerWaiters(for url: URL) {
+      let consumerCount = sharedRequests[url]?.consumerIds.count ?? 0
+      let ready = sharedConsumerWaiters.filter {
+        $0.url == url && consumerCount >= $0.count
+      }
+      sharedConsumerWaiters.removeAll {
+        $0.url == url && consumerCount >= $0.count
+      }
+      for waiter in ready {
+        waiter.continuation.resume()
+      }
+    }
+  #endif
 
   private func awaitSharedRequest(
     _ request: SharedRequestConsumer,
