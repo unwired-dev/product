@@ -14292,6 +14292,8 @@ final class GmailInboxViewModel {
       #if DEBUG
         await initialThreadBatchDidPublish?()
       #endif
+      // Keep consecutive observed row mutations out of the same presentation cycle.
+      try? await Task.sleep(for: .milliseconds(8))
       await waitForNextMainRunLoopCycle()
     }
   }
