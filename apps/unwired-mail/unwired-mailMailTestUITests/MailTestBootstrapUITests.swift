@@ -177,6 +177,12 @@ final class MailTestBootstrapUITests: XCTestCase {
     }
 
     let keyboard = app.keyboards.firstMatch
+    element.tap()
+    if keyboard.waitForExistence(timeout: 2) {
+      element.typeText(text)
+      return
+    }
+
     let tapOffsets: [CGFloat] = [0.5, 0.85, 0.15]
     for horizontalOffset in tapOffsets {
       element.coordinate(
