@@ -8441,6 +8441,7 @@ struct MailShellConversationReader: View {
         readingPreferences: readingPreferences,
         profileName: profileName,
         recipientMessages: selection.threads.flatMap(\.messages),
+        responseAssistanceContext: responseAssistanceContext(for: draft),
         sendingIdentities: sendingIdentities,
         draftDidChange: { compositionDraft = $0 },
         saveDraft: saveDraft,
@@ -9481,6 +9482,20 @@ struct MailShellConversationReader: View {
       readerErrorMessage = error.localizedDescription
       readerErrorSource = .other
     }
+  }
+
+  private func responseAssistanceContext(
+    for draft: MailShellCompositionDraft
+  ) -> ResponseAssistanceContext? {
+    guard let replyToMessage = draft.replyToMessage,
+      let thread = selection.threads.first(where: { $0.id == replyToMessage.threadIdentity })
+    else { return nil }
+    return ResponseAssistanceContext(
+      localBodyText: inboxViewModel.loadedMessageBodyText(for:),
+      thread: {
+        selection.threads.first(where: { $0.id == thread.id })
+      }
+    )
   }
 
   private func prepareReply(
