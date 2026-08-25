@@ -9565,8 +9565,8 @@ struct MailShellConversationReader: View {
     SendingIdentityPreferences(identities: sendingIdentities).receivingIdentity(for: message)
   }
 
-  /// Presents a reply draft through the Mail Shell composer navigation entry point.
   // swiftlint:disable:next function_parameter_count
+  /// Presents a reply draft through the Mail Shell composer navigation entry point.
   static func presentReply(
     to message: MailboxMessageMetadata,
     replyAll: Bool,

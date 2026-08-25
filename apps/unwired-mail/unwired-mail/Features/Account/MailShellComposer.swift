@@ -750,7 +750,7 @@ struct MailShellComposer: View {
     case .bcc: .bcc
     case .cc: .cc
     case .to: .to
-    case .body, .subject: nil
+    case .subject: nil
     }
   }
 

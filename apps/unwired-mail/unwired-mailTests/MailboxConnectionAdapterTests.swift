@@ -5273,6 +5273,7 @@ final class MailboxConnectionAdapterTests {
     .bug(id: 561),
     arguments: [MailCompositionKind.reply, .replyAll, .forward]
   )
+  // swiftlint:disable:next function_body_length
   func testReplyAndForwardEntryPointsUseMailShellComposerNavigation(
     kind: MailCompositionKind
   ) throws {
