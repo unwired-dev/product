@@ -360,7 +360,8 @@ extension RemoteMessageContentLoadProgress {
     )
     return RemoteMessageContentLoadResult(
       failedImageCount: html.remoteImageReferences.count - images.count,
-      html: unresolvedHTML
+      html:
+        unresolvedHTML
         .prioritizingUnattemptedRemoteImages(attemptedIdentifiers),
       loadedByteCount: loadedByteCount,
       loadedImageCount: images.count,

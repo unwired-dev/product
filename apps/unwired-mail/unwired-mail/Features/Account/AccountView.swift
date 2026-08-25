@@ -2041,9 +2041,10 @@ struct AccountView: View {
         return
       }
       mailAssistanceViewModel.profileDidLock()
+      var compositionDraft = composerNavigation.draft
       MailProfileContentPresentationDismissal.dismissRoot(
         showsSettings: &showsSettings,
-        compositionDraft: &composerNavigation.draft,
+        compositionDraft: &compositionDraft,
         showsMessageActionAlert: &showsBlockedActionAlert
       )
       composerNavigation.dismissAll()

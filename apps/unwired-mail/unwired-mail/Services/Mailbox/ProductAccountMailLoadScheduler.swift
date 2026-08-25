@@ -202,12 +202,13 @@ final class ProductAccountMailLoadScheduler {
     priority: MailLoadPriority,
     operation: () async throws -> Result
   ) async throws -> Result {
-    guard let acquiredPriority = await acquireBodyPermit(
-      connectionId: connectionId,
-      loadId: loadId,
-      maximumConcurrentPipelines: maximumConcurrentPipelines,
-      priority: priority
-    )
+    guard
+      let acquiredPriority = await acquireBodyPermit(
+        connectionId: connectionId,
+        loadId: loadId,
+        maximumConcurrentPipelines: maximumConcurrentPipelines,
+        priority: priority
+      )
     else { throw CancellationError() }
     do {
       try Task.checkCancellation()
