@@ -1283,7 +1283,11 @@ extension MessageHTMLPresentationTests {
       Set(result.html.remoteImageReferences.map(\.url.absoluteString)) == [
         "https://images.example.com/not-an-image"
       ])
-    #expect(result.html.documentHTML.contains("src=\"data:image/png;base64,"))
+    let resolvedHTML = RemoteMessageImageResolver.resolve(
+      result.html,
+      images: result.loadedImages
+    )
+    #expect(resolvedHTML.documentHTML.contains("src=\"data:image/png;base64,"))
     #expect(!(result.html.documentHTML.contains("<script")))
     #expect(!(result.html.documentHTML.contains("images.example.com")))
     #expect(!(result.html.documentHTML.contains("legacy.example.com")))
@@ -1524,7 +1528,11 @@ extension MessageHTMLPresentationTests {
 
     #expect(result.loadedImageCount == 1)
     #expect(result.failedImageCount == invalidReferences.count)
-    #expect(result.html.documentHTML.contains("src=\"data:image/png;base64,"))
+    let resolvedHTML = RemoteMessageImageResolver.resolve(
+      result.html,
+      images: result.loadedImages
+    )
+    #expect(resolvedHTML.documentHTML.contains("src=\"data:image/png;base64,"))
   }
 
   @Test
@@ -1639,11 +1647,15 @@ extension MessageHTMLPresentationTests {
     })
 
     let result = try await loader.load(presentation)
+    let resolvedHTML = RemoteMessageImageResolver.resolve(
+      result.html,
+      images: result.loadedImages
+    )
+    let resolvedMarkerCount =
+      resolvedHTML.documentHTML.components(separatedBy: "src=\"data:image/png;base64,").count - 1
 
     #expect(result.loadedImageCount == 1)
-    #expect(
-      result.html.documentHTML.components(separatedBy: "src=\"data:image/png;base64,").count - 1
-        == 5)
+    #expect(resolvedMarkerCount == 5)
   }
 
   @Test

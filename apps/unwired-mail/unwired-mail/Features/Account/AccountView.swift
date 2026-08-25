@@ -14010,6 +14010,9 @@ final class GmailInboxViewModel {
   }
 
   func clearVisibleThreadsForProfileSwitch() {
+    if currentConnectionId != nil {
+      currentConnectionId = nil
+    }
     guard !threads.isEmpty else { return }
     threads = []
   }

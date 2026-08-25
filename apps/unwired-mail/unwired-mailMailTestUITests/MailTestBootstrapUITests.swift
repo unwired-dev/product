@@ -177,12 +177,12 @@ final class MailTestBootstrapUITests: XCTestCase {
       in: app,
       failure: "MAIL_TEST_FAILURE:ui: The reply composer did not open."
     )
-    let keyboard = app.keyboards.firstMatch
-    guard keyboard.waitForExistence(timeout: 5) else {
-      XCTFail("MAIL_TEST_FAILURE:ui: The reply body did not receive keyboard focus.")
-      throw NSError(domain: "MailTestBootstrapUITests", code: 1)
-    }
-    body.typeText("Synthetic visible reply")
+    try focusAndType(
+      "Synthetic visible reply",
+      into: body,
+      in: app,
+      failure: "MAIL_TEST_FAILURE:ui: The reply body did not receive keyboard focus."
+    )
 
     try sendVisibleDraft(step: "reply", in: app)
     try verifyReplyConversation(in: app)
