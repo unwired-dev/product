@@ -5203,6 +5203,7 @@ final class MailboxConnectionAdapterTests {
 
   @Test
   func testMailShellComposerSendFailurePresentsActionErrorOrFallback() {
+    let activeDraftId = UUID()
     #expect(
       AccountView.composerSendErrorMessage(
         didSend: true,
@@ -5220,6 +5221,22 @@ final class MailboxConnectionAdapterTests {
         didSend: false,
         actionErrorMessage: nil
       ) == "The message could not be added to Outbox. Keep editing and try again."
+    )
+    #expect(
+      AccountView.composerSendErrorMessage(
+        didSend: false,
+        actionErrorMessage: "Late failure",
+        attemptedDraftId: UUID(),
+        presentedDraftId: activeDraftId
+      ) == nil
+    )
+    #expect(
+      AccountView.composerSendErrorMessage(
+        didSend: false,
+        actionErrorMessage: "Current failure",
+        attemptedDraftId: activeDraftId,
+        presentedDraftId: activeDraftId
+      ) == "Current failure"
     )
   }
 
@@ -5323,6 +5340,27 @@ final class MailboxConnectionAdapterTests {
       preconditionFailure("Only reply and forward entry points belong in this regression")
     }
     let draft = try #require(navigation.draft)
+
+    switch kind {
+    case .reply, .replyAll:
+      #expect(draft.kind == kind)
+      #expect(draft.replyToMessage == message)
+      #expect(draft.sourceMessage == message)
+      #expect(draft.forwardSourceMessage == nil)
+      #expect(draft.recipient == "sender@example.com")
+      #expect(draft.quotedText == "Quoted reply")
+      #expect(draft.deliveryBody.contains("Quoted reply"))
+    case .forward:
+      #expect(draft.kind == .forward)
+      #expect(draft.replyToMessage == nil)
+      #expect(draft.sourceMessage == message)
+      #expect(draft.forwardSourceMessage == message)
+      #expect(draft.recipient.isEmpty)
+      #expect(draft.quotedText?.contains("Forwarded body") == true)
+      #expect(draft.deliveryBody.contains("Forwarded body"))
+    case .editing, .newMessage:
+      preconditionFailure("Only reply and forward entry points belong in this regression")
+    }
 
     let regular = MailShellComposerPresentationLayout(
       containerFrame: CGRect(x: 0, y: 0, width: 1_400, height: 1_000),

@@ -2921,10 +2921,14 @@ struct AccountView: View {
               },
               send: { draft in
                 mailActionViewModel.clearError()
+                composerSendErrorMessage = ""
+                showsComposerSendError = false
                 let didSend = await sendCompositionDraft(draft)
                 if let message = Self.composerSendErrorMessage(
                   didSend: didSend,
-                  actionErrorMessage: mailActionViewModel.errorMessage
+                  actionErrorMessage: mailActionViewModel.errorMessage,
+                  attemptedDraftId: draft.id,
+                  presentedDraftId: composerNavigation.draft?.id
                 ) {
                   composerSendErrorMessage = message
                   showsComposerSendError = true
@@ -3498,7 +3502,7 @@ struct AccountView: View {
     restoredProfileIdRawValue = profileId.rawValue
     gmailViewModel.selectedConnectionId = profileConnections.first?.id
     if let compositionDraft = parkedCompositionDrafts.removeValue(forKey: profileId) {
-      composerNavigation.present(compositionDraft)
+      presentComposerDraft(compositionDraft)
     } else {
       composerNavigation.park()
     }
@@ -3790,7 +3794,7 @@ struct AccountView: View {
           try await saveCompositionDraft(draft, profileId: deepLink.profileId)
           cancelSendReminder(reminder, draftId: draft.id, profileId: deepLink.profileId)
         }
-        composerNavigation.present(draft)
+        presentComposerDraft(draft)
       } catch {
         profileViewModel.show(error)
       }
@@ -3947,7 +3951,7 @@ extension AccountView {
 
   private func beginNewMessage(using template: MailTemplate?) {
     let defaultIdentity = sendingIdentityStore.preferences.defaultIdentity
-    composerNavigation.present(
+    presentComposerDraft(
       .new(
         defaultSendingConnectionId:
           defaultIdentity?.connectionId ?? profileDefaultSendingConnectionId,
@@ -4010,6 +4014,12 @@ extension AccountView {
 
   private func dismissCompositionDraft() {
     composerNavigation.dismiss()
+  }
+
+  private func presentComposerDraft(_ draft: MailShellCompositionDraft) {
+    composerSendErrorMessage = ""
+    showsComposerSendError = false
+    composerNavigation.present(draft)
   }
 
   private func toggleCompositionDraftExpansion() {
@@ -4162,8 +4172,11 @@ extension AccountView {
   /// Returns the error to present after a Mail Shell composer send attempt.
   static func composerSendErrorMessage(
     didSend: Bool,
-    actionErrorMessage: String?
+    actionErrorMessage: String?,
+    attemptedDraftId: UUID? = nil,
+    presentedDraftId: UUID? = nil
   ) -> String? {
+    if let attemptedDraftId, attemptedDraftId != presentedDraftId { return nil }
     guard !didSend else { return nil }
     return actionErrorMessage
       ?? "The message could not be added to Outbox. Keep editing and try again."
@@ -4312,7 +4325,7 @@ extension AccountView {
     guard let draftId,
       let draft = savedCompositionDrafts.first(where: { $0.id == draftId })
     else { return }
-    composerNavigation.present(draft)
+    presentComposerDraft(draft)
   }
 
   private func handleProfileDeepLink(
@@ -4399,7 +4412,7 @@ extension AccountView {
 
   private func openCompositionDraft(_ draft: MailShellCompositionDraft) {
     guard let reminder = draft.sendReminder, reminder.isOverdue() else {
-      composerNavigation.present(draft)
+      presentComposerDraft(draft)
       return
     }
     let profileId = activeDraftProfileId
@@ -4410,7 +4423,7 @@ extension AccountView {
       do {
         try await saveCompositionDraft(candidate, profileId: profileId)
         cancelSendReminder(reminder, draftId: draft.id, profileId: profileId)
-        composerNavigation.present(candidate)
+        presentComposerDraft(candidate)
       } catch {
         profileViewModel.show(error)
       }
