@@ -961,13 +961,8 @@ private struct MailComposerBodyField: View {
   let focusedField: FocusState<MailComposerFocus?>.Binding
 
   var body: some View {
-    TextEditor(text: $editorModel.attributedText, selection: $editorModel.selection)
-      .focused(focusedField, equals: .body)
-      .padding(16)
-      .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-      .accessibilityIdentifier("mail-compose-body")
-      .accessibilityLabel("Message")
-      .onChange(of: editorModel.attributedText, editorModel.textDidChange)
+    SemanticMessageTextView(editorModel: editorModel, isFocused: bodyIsFocused)
+      .frame(maxWidth: .infinity, minHeight: 160, alignment: .topLeading)
       .contextMenu {
         ForEach(SemanticMessageBlockCommand.allCases) { command in
           Button(command.title, systemImage: command.systemImage) {
@@ -975,6 +970,19 @@ private struct MailComposerBodyField: View {
           }
         }
       }
+  }
+
+  private var bodyIsFocused: Binding<Bool> {
+    Binding(
+      get: { focusedField.wrappedValue == .body },
+      set: { isFocused in
+        if isFocused {
+          focusedField.wrappedValue = .body
+        } else if focusedField.wrappedValue == .body {
+          focusedField.wrappedValue = nil
+        }
+      }
+    )
   }
 }
 
