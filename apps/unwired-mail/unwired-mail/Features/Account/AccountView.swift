@@ -1411,7 +1411,7 @@ final class MailShellReleaseBudgetDriver {
 /// Coordinates presentation cleanup without invalidating the mail shell's root view.
 @MainActor
 @Observable
-final class MailContentPresentationDismissalCoordinator {
+final class MailPresentationDismissalCoordinator {
   private(set) var revision = 0
 
   /// Requests that presented mail content be dismissed.
@@ -1422,7 +1422,7 @@ final class MailContentPresentationDismissalCoordinator {
 
 /// Observes presentation cleanup requests at a leaf view boundary.
 private struct MailContentPresentationDismissalObserver: View {
-  let coordinator: MailContentPresentationDismissalCoordinator
+  let coordinator: MailPresentationDismissalCoordinator
   let dismissPresentations: () -> Void
 
   var body: some View {
@@ -1656,7 +1656,7 @@ struct AccountView: View {
   @State private var isReaderComposerPresented = false
   @State private var savedCompositionDrafts: [MailShellCompositionDraft] = []
   @State private var contentPresentationDismissal =
-    MailContentPresentationDismissalCoordinator()
+    MailPresentationDismissalCoordinator()
   @State private var ewsSetupViewModel: EWSSetupViewModel
   @State private var genericMailSetupViewModel: GenericMailSetupViewModel
   @State private var gmailViewModel: MailboxProviderConnectionViewModel
@@ -6225,7 +6225,7 @@ struct MailShellThreadList: View {
   var cancelReminder: MailComposerViewModel.CancelReminder = { _, _ in }
   var scheduleReminder: MailComposerViewModel.ScheduleReminder = { _ in .unavailable }
   var itemDidRender: (MailShellThreadListItem) -> Void = { _ in }
-  var contentPresentationDismissal = MailContentPresentationDismissalCoordinator()
+  var contentPresentationDismissal = MailPresentationDismissalCoordinator()
   @State private var editingAttempt: OutgoingDeliveryAttempt?
   @State private var scheduledEditSession: ScheduledSendEditSession?
   @State private var cleanupOutcome: InboxCleanupExecutionOutcome?
@@ -8014,7 +8014,7 @@ struct MailShellConversationReader: View {
   var revalidateTrustedDevice: () async -> Bool = { true }
   var allowsProactiveSuggestions = true
   var allowsContentReveal = true
-  var contentPresentationDismissal = MailContentPresentationDismissalCoordinator()
+  var contentPresentationDismissal = MailPresentationDismissalCoordinator()
   var categoryChoices: [MessageCategoryChoice] = []
   var createCustomCategory: (CustomCategoryEditorDraft) async throws -> CustomCategory = { _ in
     throw CustomCategorySyncError.invalidPayload
