@@ -4,6 +4,12 @@ struct RootView<SignedInContent: View>: View {
   let session: ProductAccountSession
   private let signedInContent: (ProductAccountSessionSnapshot) -> SignedInContent
 
+  @Environment(SettingsRouter.self) private var settingsRouter
+  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+  @State private var navigationPath = NavigationPath()
+  @State private var regularSettingsRequest: SettingsRouteRequest?
+  @State private var settingsPresentationOwnerID = UUID()
+
   init(
     session: ProductAccountSession,
     @ViewBuilder signedInContent: @escaping (ProductAccountSessionSnapshot) -> SignedInContent
@@ -13,6 +19,38 @@ struct RootView<SignedInContent: View>: View {
   }
 
   var body: some View {
+    #if targetEnvironment(macCatalyst)
+      accountContent
+    #else
+      Group {
+        if usesCompactSettingsNavigation, !isSignedIn {
+          NavigationStack(path: $navigationPath) {
+            accountContent
+              .navigationDestination(for: SettingsRouteRequest.self) { _ in
+                SettingsRootView(
+                  session: session,
+                  usesParentCompactNavigation: true
+                )
+              }
+          }
+        } else if regularSettingsRequest != nil {
+          SettingsRootView(
+            session: session,
+            showsDismissButton: true,
+            dismissAction: { regularSettingsRequest = nil }
+          )
+        } else {
+          accountContent
+        }
+      }
+      .onAppear(perform: presentPendingSettingsRequest)
+      .onChange(of: settingsRouter.request?.id) { _, _ in
+        presentPendingSettingsRequest()
+      }
+    #endif
+  }
+
+  private var accountContent: some View {
     Group {
       switch session.state {
       case .loading:
@@ -29,6 +67,37 @@ struct RootView<SignedInContent: View>: View {
     .task {
       await session.bootstrap()
     }
+  }
+
+  private func presentPendingSettingsRequest() {
+    guard
+      let request = settingsRouter.request,
+      !(usesCompactSettingsNavigation && isSignedIn),
+      settingsRouter.claimPresentation(request.id, ownerID: settingsPresentationOwnerID)
+    else { return }
+    if usesCompactSettingsNavigation {
+      navigationPath = NavigationPath()
+      navigationPath.append(request)
+    } else {
+      regularSettingsRequest = request
+    }
+  }
+
+  private var isSignedIn: Bool {
+    if case .signedIn = session.state { return true }
+    return false
+  }
+
+  private var usesCompactSettingsNavigation: Bool {
+    #if DEBUG
+      if ProcessInfo.processInfo.environment["SETTINGS_UI_TEST_LAYOUT"] == "compact" {
+        return true
+      }
+      if ProcessInfo.processInfo.environment["SETTINGS_UI_TEST_LAYOUT"] == "split" {
+        return false
+      }
+    #endif
+    return SettingsNavigationLayout.resolve(horizontalSizeClass) == .compact
   }
 }
 

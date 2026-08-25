@@ -5,16 +5,22 @@ import SwiftUI
 struct SignedOutSettingsView: View {
   let showsDismissButton: Bool
   let attentions: [SettingsAttention]
+  let usesParentCompactNavigation: Bool
+  let dismissAction: (() -> Void)?
 
   @State private var storageViewModel: StorageDataSettingsViewModel
 
   init(
     showsDismissButton: Bool = true,
     attentions: [SettingsAttention] = [],
-    storageViewModel: StorageDataSettingsViewModel? = nil
+    storageViewModel: StorageDataSettingsViewModel? = nil,
+    usesParentCompactNavigation: Bool = false,
+    dismissAction: (() -> Void)? = nil
   ) {
     self.showsDismissButton = showsDismissButton
     self.attentions = attentions
+    self.usesParentCompactNavigation = usesParentCompactNavigation
+    self.dismissAction = dismissAction
     _storageViewModel = State(initialValue: storageViewModel ?? .deviceLocal())
   }
 
@@ -23,6 +29,8 @@ struct SignedOutSettingsView: View {
       isSignedIn: false,
       showsDismissButton: showsDismissButton,
       attentions: attentions,
+      usesParentCompactNavigation: usesParentCompactNavigation,
+      dismissAction: dismissAction,
       destinationContent: { destination, request in
         switch destination {
         case .about:

@@ -699,7 +699,7 @@ enum SettingsNavigationLayout: Equatable {
   }
 }
 
-struct SettingsRouteRequest: Equatable {
+struct SettingsRouteRequest: Hashable {
   let id: UUID
   let route: SettingsRoute?
 
@@ -715,10 +715,21 @@ struct SettingsRouteRequest: Equatable {
 @MainActor
 @Observable
 final class SettingsRouter {
+  static let catalystWindowID = "settings"
+
   private(set) var request: SettingsRouteRequest?
+  private(set) var presentationOwnerID: UUID?
+  private var claimedRequestID: UUID?
 
   func open(_ route: SettingsRoute?) {
     request = SettingsRouteRequest(route: route)
+  }
+
+  func claimPresentation(_ requestID: UUID, ownerID: UUID) -> Bool {
+    guard claimedRequestID != requestID else { return false }
+    claimedRequestID = requestID
+    presentationOwnerID = ownerID
+    return true
   }
 }
 
@@ -879,6 +890,8 @@ struct AdaptiveSettingsScene<DestinationContent: View>: View {
   private let discardChanges: () -> Void
   private let hasUnsavedChanges: () -> Bool
   private let destinationContent: (SettingsDestination, SettingsRouteRequest?) -> DestinationContent
+  private let usesParentCompactNavigation: Bool
+  private let dismissAction: (() -> Void)?
 
   @AppStorage("settings.lastDestination") private var storedDestination = ""
   @Environment(\.dismiss) private var dismiss
@@ -904,6 +917,8 @@ struct AdaptiveSettingsScene<DestinationContent: View>: View {
     hasUnsavedChanges: @escaping () -> Bool = { false },
     canDiscardChanges: @escaping () -> Bool = { true },
     discardChanges: @escaping () -> Void = {},
+    usesParentCompactNavigation: Bool = false,
+    dismissAction: (() -> Void)? = nil,
     @ViewBuilder destinationContent:
       @escaping (SettingsDestination, SettingsRouteRequest?) -> DestinationContent
   ) {
@@ -914,6 +929,8 @@ struct AdaptiveSettingsScene<DestinationContent: View>: View {
     self.hasUnsavedChanges = hasUnsavedChanges
     self.canDiscardChanges = canDiscardChanges
     self.discardChanges = discardChanges
+    self.usesParentCompactNavigation = usesParentCompactNavigation
+    self.dismissAction = dismissAction
     self.destinationContent = destinationContent
   }
 
@@ -969,34 +986,33 @@ struct AdaptiveSettingsScene<DestinationContent: View>: View {
     return SettingsNavigationLayout.resolve(horizontalSizeClass)
   }
 
+  @ViewBuilder
   private var compactNavigation: some View {
-    NavigationStack(path: compactPath) {
-      settingsList { destination in
-        NavigationLink(value: destination) {
-          destinationLabel(destination)
-        }
-        .disabled(!isAvailable(destination))
-        .accessibilityHint(unavailableHint(for: destination))
+    if usesParentCompactNavigation {
+      compactSettingsList
+    } else {
+      NavigationStack {
+        compactSettingsList
       }
-      .navigationTitle("Settings")
-      .navigationDestination(for: SettingsDestination.self) { destination in
-        detail(destination)
-      }
-      .toolbar { dismissToolbar }
     }
   }
 
-  private var compactPath: Binding<[SettingsDestination]> {
-    Binding(
-      get: { selection.map { [$0] } ?? [] },
-      set: { path in
-        if let destination = path.last {
-          requestNavigation(destination.route)
-        } else {
-          requestShowList()
-        }
+  private var compactSettingsList: some View {
+    settingsList { destination in
+      Button {
+        requestNavigation(destination.route)
+      } label: {
+        destinationLabel(destination)
       }
-    )
+      .buttonStyle(.plain)
+      .disabled(!isAvailable(destination))
+      .accessibilityHint(unavailableHint(for: destination))
+    }
+    .navigationTitle("Settings")
+    .navigationDestination(item: $selection) { destination in
+      detail(destination)
+    }
+    .toolbar { dismissToolbar }
   }
 
   private var splitNavigation: some View {
@@ -1248,7 +1264,11 @@ extension AdaptiveSettingsScene {
   private func perform(_ action: PendingAction) {
     switch action {
     case .dismiss:
-      dismiss()
+      if let dismissAction {
+        dismissAction()
+      } else {
+        dismiss()
+      }
     case .navigate(let route):
       apply(route)
     case .showList:
@@ -2491,29 +2511,57 @@ private struct CategoryHistoricalSettingsSection: View {
 @MainActor
 struct SettingsRootView: View {
   let session: ProductAccountSession
+  let showsDismissButton: Bool
+  let usesParentCompactNavigation: Bool
+  let dismissAction: (() -> Void)?
+
+  init(
+    session: ProductAccountSession,
+    showsDismissButton: Bool = false,
+    usesParentCompactNavigation: Bool = false,
+    dismissAction: (() -> Void)? = nil
+  ) {
+    self.session = session
+    self.showsDismissButton = showsDismissButton
+    self.usesParentCompactNavigation = usesParentCompactNavigation
+    self.dismissAction = dismissAction
+  }
 
   var body: some View {
     Group {
       switch session.state {
       case .loading:
-        ProgressView("Loading Settings…")
-          .frame(maxWidth: .infinity, maxHeight: .infinity)
+        SignedOutSettingsView(
+          showsDismissButton: showsDismissButton,
+          usesParentCompactNavigation: usesParentCompactNavigation,
+          dismissAction: dismissAction
+        )
       case .signedOut:
-        SignedOutSettingsView()
+        SignedOutSettingsView(
+          showsDismissButton: showsDismissButton,
+          usesParentCompactNavigation: usesParentCompactNavigation,
+          dismissAction: dismissAction
+        )
       case .failed(let message):
         SignedOutSettingsView(
+          showsDismissButton: showsDismissButton,
           attentions: [
             SettingsAttention(
               destination: .appearance,
               kind: .recovery,
               message: message
             )
-          ]
+          ],
+          usesParentCompactNavigation: usesParentCompactNavigation,
+          dismissAction: dismissAction
         )
       case .signedIn(let snapshot):
         SettingsSessionHost(
           session: session,
-          snapshot: snapshot
+          snapshot: snapshot,
+          showsDismissButton: showsDismissButton,
+          usesParentCompactNavigation: usesParentCompactNavigation,
+          dismissAction: dismissAction
         )
       }
     }
@@ -2525,6 +2573,9 @@ struct SettingsRootView: View {
 private struct SettingsSessionHost: View {
   let session: ProductAccountSession
   let snapshot: ProductAccountSessionSnapshot
+  let showsDismissButton: Bool
+  let usesParentCompactNavigation: Bool
+  let dismissAction: (() -> Void)?
   private let mailboxConnection: MailboxConnectionRouter
 
   @State private var categoryViewModel: CustomCategoryViewModel
@@ -2548,10 +2599,16 @@ private struct SettingsSessionHost: View {
   // swiftlint:disable:next function_body_length
   init(
     session: ProductAccountSession,
-    snapshot: ProductAccountSessionSnapshot
+    snapshot: ProductAccountSessionSnapshot,
+    showsDismissButton: Bool,
+    usesParentCompactNavigation: Bool,
+    dismissAction: (() -> Void)?
   ) {
     self.session = session
     self.snapshot = snapshot
+    self.showsDismissButton = showsDismissButton
+    self.usesParentCompactNavigation = usesParentCompactNavigation
+    self.dismissAction = dismissAction
     let mailboxConnection = MailboxConnectionRouter()
     self.mailboxConnection = mailboxConnection
     let defaultProfile = MailProfileDefinition.defaultProfile(
@@ -2674,7 +2731,7 @@ private struct SettingsSessionHost: View {
         productAccountId: snapshot.productAccountId
       ),
       isSignedIn: true,
-      showsDismissButton: true,
+      showsDismissButton: showsDismissButton,
       attentions: settingsAttentions,
       hasUnsavedChanges: {
         ewsViewModel.hasUnsavedChanges || genericMailViewModel.hasUnsavedChanges
@@ -2691,6 +2748,8 @@ private struct SettingsSessionHost: View {
         genericMailViewModel.discardUnsavedChanges()
         notificationRuleViewModel.discardUnsavedChanges()
       },
+      usesParentCompactNavigation: usesParentCompactNavigation,
+      dismissAction: dismissAction,
       destinationContent: { destination, request in
         switch destination {
         case .accountAndDevices:
