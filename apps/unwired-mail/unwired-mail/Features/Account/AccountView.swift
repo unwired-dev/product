@@ -9565,7 +9565,7 @@ struct MailShellConversationReader: View {
     SendingIdentityPreferences(identities: sendingIdentities).receivingIdentity(for: message)
   }
 
-  // swiftlint:disable:next function_parameter_count
+  // swiftlint:disable function_parameter_count
   /// Presents a reply draft through the Mail Shell composer navigation entry point.
   static func presentReply(
     to message: MailboxMessageMetadata,
@@ -9592,6 +9592,7 @@ struct MailShellConversationReader: View {
     draft.applyDefaultSignature(from: signatures)
     present(draft)
   }
+  // swiftlint:enable function_parameter_count
 
   /// Presents a forward draft through the Mail Shell composer navigation entry point.
   static func presentForward(
