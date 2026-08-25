@@ -477,6 +477,7 @@ enum MessageHTMLDocument {
 struct MessageHTMLView: View {
   let connectionId: MailboxConnectionId?
   let html: SanitizedMessageHTML
+  let onInitialDocumentReady: () -> Void
   let onRenderingFailure: () -> Void
   let onResetRemoteContent: () -> Void
   private let loadRemoteContent:
@@ -494,6 +495,7 @@ struct MessageHTMLView: View {
   init(
     connectionId: MailboxConnectionId?,
     html: SanitizedMessageHTML,
+    onInitialDocumentReady: @escaping () -> Void = {},
     onRenderingFailure: @escaping () -> Void,
     onResetRemoteContent: @escaping () -> Void = {},
     loadRemoteContent:
@@ -504,6 +506,7 @@ struct MessageHTMLView: View {
   ) {
     self.connectionId = connectionId
     self.html = html
+    self.onInitialDocumentReady = onInitialDocumentReady
     self.onRenderingFailure = onRenderingFailure
     self.onResetRemoteContent = onResetRemoteContent
     self.loadRemoteContent = loadRemoteContent
@@ -521,7 +524,7 @@ struct MessageHTMLView: View {
       MessageHTMLWebView(
         contentHeight: $contentHeight,
         documentHTML: MessageHTMLDocument.styled(
-          displayedHTML,
+          html,
           style: MessageHTMLStyle(
             colorScheme: colorScheme == .dark ? .dark : .light,
             increasedContrast: appearancePreferences?.increasedContrast == true
@@ -530,6 +533,8 @@ struct MessageHTMLView: View {
             typeface: appearancePreferences?.messageBodyTypeface ?? .senderFormatting
           )
         ),
+        remoteImages: remoteContent.loadedImages,
+        onInitialDocumentReady: onInitialDocumentReady,
         onOpenURL: { openURL($0) },
         onRenderingFailure: onRenderingFailure
       )
@@ -572,12 +577,15 @@ struct MessageHTMLView: View {
 struct MessageHTMLWebView: UIViewRepresentable {
   @Binding var contentHeight: CGFloat
   let documentHTML: String
+  let remoteImages: [RemoteMessageImage]
+  let onInitialDocumentReady: () -> Void
   let onOpenURL: (URL) -> Void
   let onRenderingFailure: () -> Void
 
   func makeCoordinator() -> Coordinator {
     Coordinator(
       onHeightChange: { contentHeight = $0 },
+      onInitialDocumentReady: onInitialDocumentReady,
       onOpenURL: onOpenURL,
       onRenderingFailure: onRenderingFailure
     )
@@ -600,16 +608,20 @@ struct MessageHTMLWebView: UIViewRepresentable {
 
   func updateUIView(_ webView: WKWebView, context: Context) {
     context.coordinator.onHeightChange = { contentHeight = $0 }
+    context.coordinator.onInitialDocumentReady = onInitialDocumentReady
     context.coordinator.onOpenURL = onOpenURL
     context.coordinator.onRenderingFailure = onRenderingFailure
-    guard context.coordinator.loadedDocument != documentHTML else { return }
-
-    context.coordinator.loadedDocument = documentHTML
-    context.coordinator.isLoadingDocument = true
-    webView.loadHTMLString(documentHTML, baseURL: nil)
+    context.coordinator.perform(
+      context.coordinator.nextUpdate(
+        documentHTML: documentHTML,
+        remoteImages: remoteImages
+      ),
+      in: webView
+    )
   }
 
   static func dismantleUIView(_ webView: WKWebView, coordinator: Coordinator) {
+    coordinator.invalidateDocument()
     coordinator.stopObservingContentSize(of: webView.scrollView)
     webView.navigationDelegate = nil
     webView.stopLoading()
@@ -619,18 +631,25 @@ struct MessageHTMLWebView: UIViewRepresentable {
     var isLoadingDocument = false
     var loadedDocument: String?
     var onHeightChange: (CGFloat) -> Void
+    var onInitialDocumentReady: () -> Void
     var onOpenURL: (URL) -> Void
     var onRenderingFailure: () -> Void
+    private var appliedRemoteImages: [String: RemoteMessageImage] = [:]
     private var contentSizeObservation: NSKeyValueObservation?
     private var contentOffsetObservation: NSKeyValueObservation?
     private var viewportObservation: NSKeyValueObservation?
+    private var documentGeneration = UUID()
+    private var documentReadyTask: Task<Void, Never>?
+    private var pendingRemoteImages: [String: RemoteMessageImage] = [:]
 
     init(
       onHeightChange: @escaping (CGFloat) -> Void,
+      onInitialDocumentReady: @escaping () -> Void = {},
       onOpenURL: @escaping (URL) -> Void,
       onRenderingFailure: @escaping () -> Void
     ) {
       self.onHeightChange = onHeightChange
+      self.onInitialDocumentReady = onInitialDocumentReady
       self.onOpenURL = onOpenURL
       self.onRenderingFailure = onRenderingFailure
     }
@@ -661,6 +680,43 @@ struct MessageHTMLWebView: UIViewRepresentable {
       viewportObservation = nil
     }
 
+    func nextUpdate(
+      documentHTML: String,
+      remoteImages: [RemoteMessageImage]
+    ) -> MessageHTMLWebViewUpdate {
+      if loadedDocument != documentHTML {
+        invalidateDocument()
+        loadedDocument = documentHTML
+        isLoadingDocument = true
+        appliedRemoteImages = [:]
+        pendingRemoteImages = Dictionary(
+          remoteImages.map { ($0.identifier, $0) },
+          uniquingKeysWith: { _, latest in latest }
+        )
+        return .loadDocument(documentHTML)
+      }
+
+      pendingRemoteImages = Dictionary(
+        remoteImages.map { ($0.identifier, $0) },
+        uniquingKeysWith: { _, latest in latest }
+      )
+      return nextRemoteImageUpdate()
+    }
+
+    func documentDidFinish() -> MessageHTMLWebViewUpdate {
+      isLoadingDocument = false
+      return nextRemoteImageUpdate()
+    }
+
+    private func nextRemoteImageUpdate() -> MessageHTMLWebViewUpdate {
+      guard !isLoadingDocument else { return .none }
+      guard pendingRemoteImages != appliedRemoteImages else { return .none }
+      appliedRemoteImages = pendingRemoteImages
+      return .patchRemoteImages(
+        pendingRemoteImages.values.sorted { $0.identifier < $1.identifier }
+      )
+    }
+
     func webView(
       _ webView: WKWebView,
       decidePolicyFor navigationAction: WKNavigationAction,
@@ -687,8 +743,12 @@ struct MessageHTMLWebView: UIViewRepresentable {
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation?) {
-      isLoadingDocument = false
-      updateLayout(for: webView.scrollView)
+      perform(documentDidFinish(), in: webView)
+      updateLayout(
+        for: webView.scrollView,
+        documentGeneration: documentGeneration,
+        completion: onInitialDocumentReady
+      )
     }
 
     func webView(
@@ -716,11 +776,22 @@ struct MessageHTMLWebView: UIViewRepresentable {
     }
 
     private func renderingDidFail() {
+      invalidateDocument()
       isLoadingDocument = false
       onRenderingFailure()
     }
 
-    private func updateLayout(for scrollView: UIScrollView) {
+    func invalidateDocument() {
+      documentGeneration = UUID()
+      documentReadyTask?.cancel()
+      documentReadyTask = nil
+    }
+
+    private func updateLayout(
+      for scrollView: UIScrollView,
+      documentGeneration: UUID? = nil,
+      completion: (() -> Void)? = nil
+    ) {
       scrollView.isScrollEnabled = MessageHTMLLayout.isInternallyScrollable(
         for: scrollView.contentSize,
         within: scrollView.bounds.size
@@ -730,8 +801,15 @@ struct MessageHTMLWebView: UIViewRepresentable {
       }
       constrainContentOffset(for: scrollView)
       let height = MessageHTMLLayout.height(for: scrollView.contentSize)
-      DispatchQueue.main.async { [weak self] in
-        self?.onHeightChange(height)
+      let task = Task { @MainActor [weak self] in
+        guard let self, !Task.isCancelled else { return }
+        if let documentGeneration, self.documentGeneration != documentGeneration { return }
+        self.onHeightChange(height)
+        completion?()
+      }
+      if completion != nil {
+        documentReadyTask?.cancel()
+        documentReadyTask = task
       }
     }
 
@@ -757,4 +835,50 @@ struct MessageHTMLWebView: UIViewRepresentable {
       scrollView.contentOffset.y = topOffset
     }
   }
+}
+
+extension MessageHTMLWebView.Coordinator {
+  func perform(_ update: MessageHTMLWebViewUpdate, in webView: WKWebView) {
+    switch update {
+    case .loadDocument(let documentHTML):
+      webView.loadHTMLString(documentHTML, baseURL: nil)
+    case .patchRemoteImages(let images):
+      Task { @MainActor in
+        try? await webView.callAsyncJavaScript(
+          """
+          const sources = remoteImageSources;
+          for (const image of document.querySelectorAll('img[data-unwired-remote-image]')) {
+            const identifier = image.getAttribute('data-unwired-remote-image');
+            const source = sources[identifier];
+            if (typeof source === 'string') {
+              image.setAttribute('src', source);
+            } else {
+              image.removeAttribute('src');
+            }
+          }
+          """,
+          arguments: [
+            "remoteImageSources": Dictionary(
+              uniqueKeysWithValues: images.map {
+                (
+                  $0.identifier,
+                  "data:\($0.mimeType);base64,\($0.data.base64EncodedString())"
+                )
+              }
+            )
+          ],
+          in: nil,
+          contentWorld: .defaultClient
+        )
+      }
+    case .none:
+      break
+    }
+  }
+}
+
+enum MessageHTMLWebViewUpdate: Equatable {
+  case loadDocument(String)
+  case none
+  case patchRemoteImages([RemoteMessageImage])
 }
