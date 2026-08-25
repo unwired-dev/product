@@ -37,20 +37,27 @@ final class ProductAccountMailLoadScheduler {
     var waiters: [UUID: CheckedContinuation<MailboxMessageBody, any Error>]
   }
 
+  #if DEBUG || TESTING
+    private struct BodyPermitCountWaiter {
+      let count: Int
+      let continuation: CheckedContinuation<Void, Never>
+    }
+
+    private struct SharedBodyConsumerWaiter {
+      let messageId: StableProviderMessageIdentity
+      let count: Int
+      let continuation: CheckedContinuation<Void, Never>
+    }
+  #endif
+
   private var activeBodyPipelineCount = 0
   private var activeBodyPipelineCounts: [MailboxConnectionId: Int] = [:]
   private var activeSpeculativePipelineCounts: [MailboxConnectionId: Int] = [:]
   private var bodyPermitWaiters: [BodyPermitWaiter] = []
   private var sharedBodyLoads: [StableProviderMessageIdentity: SharedBodyLoad] = [:]
   #if DEBUG || TESTING
-    private var bodyPermitCountWaiters:
-      [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
-    private var sharedBodyConsumerWaiters:
-      [(
-        messageId: StableProviderMessageIdentity,
-        count: Int,
-        continuation: CheckedContinuation<Void, Never>
-      )] = []
+    private var bodyPermitCountWaiters: [BodyPermitCountWaiter] = []
+    private var sharedBodyConsumerWaiters: [SharedBodyConsumerWaiter] = []
   #endif
 
   /// Loads one message body, sharing the provider task with duplicate consumers.
@@ -143,14 +150,21 @@ final class ProductAccountMailLoadScheduler {
     ) async {
       guard (sharedBodyLoads[messageId]?.waiters.count ?? 0) < count else { return }
       await withCheckedContinuation { continuation in
-        sharedBodyConsumerWaiters.append((messageId, count, continuation))
+        sharedBodyConsumerWaiters.append(
+          SharedBodyConsumerWaiter(
+            messageId: messageId,
+            count: count,
+            continuation: continuation
+          ))
       }
     }
 
     func waitUntilBodyPermitWaiterCountForTesting(_ count: Int) async {
       guard bodyPermitWaiters.count < count else { return }
       await withCheckedContinuation { continuation in
-        bodyPermitCountWaiters.append((count, continuation))
+        bodyPermitCountWaiters.append(
+          BodyPermitCountWaiter(count: count, continuation: continuation)
+        )
       }
     }
   #endif
@@ -436,15 +450,26 @@ actor ProductAccountRemoteImageRequestGate {
     let task: Task<RemoteMessageContentNetworkLoad, Error>
   }
 
+  #if DEBUG || TESTING
+    private struct SharedConsumerWaiter {
+      let url: URL
+      let count: Int
+      let continuation: CheckedContinuation<Void, Never>
+    }
+
+    private struct WaiterCountWaiter {
+      let count: Int
+      let continuation: CheckedContinuation<Void, Never>
+    }
+  #endif
+
   private var activeRequestCount = 0
   private var activeRequestCounts: [StableProviderMessageIdentity: Int] = [:]
   private var sharedRequests: [URL: SharedRequest] = [:]
   private var waiters: [Waiter] = []
   #if DEBUG || TESTING
-    private var sharedConsumerWaiters:
-      [(url: URL, count: Int, continuation: CheckedContinuation<Void, Never>)] = []
-    private var waiterCountWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] =
-      []
+    private var sharedConsumerWaiters: [SharedConsumerWaiter] = []
+    private var waiterCountWaiters: [WaiterCountWaiter] = []
   #endif
 
   /// Loads one remote resource once while allowing every consumer to await the result.
@@ -506,14 +531,16 @@ actor ProductAccountRemoteImageRequestGate {
     func waitUntilSharedConsumerCountForTesting(_ count: Int, url: URL) async {
       guard (sharedRequests[url]?.consumerIds.count ?? 0) < count else { return }
       await withCheckedContinuation { continuation in
-        sharedConsumerWaiters.append((url, count, continuation))
+        sharedConsumerWaiters.append(
+          SharedConsumerWaiter(url: url, count: count, continuation: continuation)
+        )
       }
     }
 
     func waitUntilWaiterCountForTesting(_ count: Int) async {
       guard waiters.count < count else { return }
       await withCheckedContinuation { continuation in
-        waiterCountWaiters.append((count, continuation))
+        waiterCountWaiters.append(WaiterCountWaiter(count: count, continuation: continuation))
       }
     }
   #endif
