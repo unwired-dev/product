@@ -5177,6 +5177,53 @@ final class MailboxConnectionAdapterTests {
   }
 
   @Test
+  func testMailboxNavigationSnapshotResolvesCachedThreadOutsideCurrentSelection() throws {
+    let source = mailShellMessage(
+      providerMessageId: "reply-source",
+      providerThreadId: "reply-thread",
+      receivedAt: 100
+    )
+    let other = mailShellMessage(
+      providerMessageId: "other-message",
+      providerThreadId: "other-thread",
+      receivedAt: 200
+    )
+    let snapshot = MailboxNavigationSnapshot(
+      messagesByConnection: [source.connectionId: [source, other]],
+      pinnedThreadIds: [],
+      snoozedThreadIds: [],
+      outboxStates: []
+    )
+
+    let thread = try #require(snapshot.thread(source.threadIdentity))
+
+    #expect(thread.id == source.threadIdentity)
+    #expect(thread.messages == [source])
+  }
+
+  @Test
+  func testMailShellComposerSendFailurePresentsActionErrorOrFallback() {
+    #expect(
+      AccountView.composerSendErrorMessage(
+        didSend: true,
+        actionErrorMessage: "Ignored"
+      ) == nil
+    )
+    #expect(
+      AccountView.composerSendErrorMessage(
+        didSend: false,
+        actionErrorMessage: "Provider rejected the message."
+      ) == "Provider rejected the message."
+    )
+    #expect(
+      AccountView.composerSendErrorMessage(
+        didSend: false,
+        actionErrorMessage: nil
+      ) == "The message could not be added to Outbox. Keep editing and try again."
+    )
+  }
+
+  @Test
   func testMailShellComposerNavigationPreservesDraftAcrossAdaptivePresentation() {
     let draft = MailShellCompositionDraft.new(defaultSendingConnectionId: nil)
     var navigation = MailShellComposerNavigationState()
@@ -5228,30 +5275,48 @@ final class MailboxConnectionAdapterTests {
   )
   func testReplyAndForwardEntryPointsUseMailShellComposerNavigation(
     kind: MailCompositionKind
-  ) {
+  ) throws {
     let message = mailShellMessage(
       providerMessageId: "composer-source",
       providerThreadId: "composer-thread",
       receivedAt: 100
     )
-    let draft =
-      switch kind {
-      case .reply:
-        MailShellCompositionDraft.reply(to: message, quotedText: "Quoted reply")
-      case .replyAll:
-        MailShellCompositionDraft.replyAll(
-          to: message,
-          senderAddress: "reader@example.com",
-          quotedText: "Quoted reply"
-        )
-      case .forward:
-        MailShellCompositionDraft.forward(message, body: "Forwarded body")
-      case .editing, .newMessage:
-        preconditionFailure("Only reply and forward entry points belong in this regression")
-      }
     var navigation = MailShellComposerNavigationState()
 
-    navigation.present(draft)
+    switch kind {
+      case .reply:
+        MailShellConversationReader.presentReply(
+          to: message,
+          replyAll: false,
+          senderAddress: "reader@example.com",
+          quotedText: "Quoted reply",
+          sendingIdentityId: nil,
+          signatures: .empty,
+          present: navigation.present
+        )
+      case .replyAll:
+        MailShellConversationReader.presentReply(
+          to: message,
+          replyAll: true,
+          senderAddress: "reader@example.com",
+          quotedText: "Quoted reply",
+          sendingIdentityId: nil,
+          signatures: .empty,
+          present: navigation.present
+        )
+      case .forward:
+        MailShellConversationReader.presentForward(
+          message,
+          body: MailboxMessageBody(text: "Forwarded body"),
+          sendingIdentityId: nil,
+          signatures: .empty,
+          present: navigation.present
+        )
+      case .editing, .newMessage:
+        preconditionFailure("Only reply and forward entry points belong in this regression")
+    }
+    let draft = try #require(navigation.draft)
+
     let regular = MailShellComposerPresentationLayout(
       containerFrame: CGRect(x: 0, y: 0, width: 1_400, height: 1_000),
       detailColumnFrame: CGRect(x: 600, y: 0, width: 800, height: 1_000),
