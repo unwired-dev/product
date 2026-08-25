@@ -2041,11 +2041,8 @@ struct AccountView: View {
         return
       }
       mailAssistanceViewModel.profileDidLock()
-      MailProfileContentPresentationDismissal.dismissRoot(
-        showsSettings: &showsSettings,
-        compositionDraft: &composerNavigation.draft,
-        showsMessageActionAlert: &showsBlockedActionAlert
-      )
+      showsSettings = false
+      showsBlockedActionAlert = false
       composerNavigation.dismissAll()
       contentPresentationDismissalSignal &+= 1
     }
@@ -2883,7 +2880,7 @@ struct AccountView: View {
           let layout = MailShellComposerPresentationLayout(
             containerFrame: containerFrame,
             detailColumnFrame: detailColumnFrame,
-            isCompact: horizontalSizeClass == .compact,
+            isCompact: usesCompactComposerPresentation,
             isExpanded: composerNavigation.isExpanded
           )
           ZStack {
@@ -4000,7 +3997,7 @@ extension AccountView {
   }
 
   private func updatePreferredCompactColumn() {
-    if composerNavigation.draft != nil, horizontalSizeClass == .compact {
+    if composerNavigation.draft != nil, usesCompactComposerPresentation {
       preferredCompactColumn = .detail
       return
     }
@@ -4015,6 +4012,17 @@ extension AccountView {
 
   private func toggleCompositionDraftExpansion() {
     composerNavigation.toggleExpansion()
+  }
+
+  private var usesCompactComposerPresentation: Bool {
+    #if MAIL_TEST_BOOTSTRAP
+      switch ProcessInfo.processInfo.environment["COMPOSER_UI_TEST_LAYOUT"] {
+      case "compact": return true
+      case "regular": return false
+      default: break
+      }
+    #endif
+    return horizontalSizeClass == .compact
   }
 
   private var selectedThreadsBinding: Binding<Set<MailboxThreadIdentity>> {

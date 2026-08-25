@@ -5,6 +5,7 @@ import UIKit
 struct SemanticMessageTextView: UIViewRepresentable {
   let editorModel: SemanticMessageEditorModel
   @Binding var isFocused: Bool
+  let minimumHeight: CGFloat
 
   func makeCoordinator() -> SemanticMessageTextViewCoordinator {
     SemanticMessageTextViewCoordinator(parent: self)
@@ -32,7 +33,7 @@ struct SemanticMessageTextView: UIViewRepresentable {
     context.coordinator.parent = self
     context.coordinator.synchronizeTextView()
     if isFocused, textView.isFirstResponder == false {
-      textView.becomeFirstResponder()
+      context.coordinator.focusOnNextRunLoop()
     }
   }
 
@@ -45,6 +46,6 @@ struct SemanticMessageTextView: UIViewRepresentable {
     let fittingSize = uiView.sizeThatFits(
       CGSize(width: width, height: .greatestFiniteMagnitude)
     )
-    return CGSize(width: width, height: ceil(fittingSize.height))
+    return CGSize(width: width, height: max(minimumHeight, ceil(fittingSize.height)))
   }
 }

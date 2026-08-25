@@ -67,10 +67,55 @@ final class MailTestBootstrapUITests: XCTestCase {
   }
 
   func testComposeAndSendThroughVisibleClient() throws {
-    let app = launchApplication()
-    let compose = try requireComposeAction(in: app)
-    compose.tap()
+    let app = launchApplication(
+      composerLayout: "regular",
+      preferredContentSizeCategory: "UICTContentSizeCategoryAccessibilityExtraExtraExtraLarge"
+    )
+    let header = try openRegularComposer(in: app)
+    let initialCloseFrame = header.close.frame
+    let draft = try populateVisibleDraft(in: app)
+    try verifyNativeSemanticEditing(in: draft.body, document: draft.document, app: app)
+    assertFixedHeaderAndExpansion(
+      close: header.close,
+      initialCloseFrame: initialCloseFrame,
+      expansion: header.expansion,
+      body: draft.body,
+      in: app
+    )
 
+    try sendVisibleDraft(step: "compose-send", in: app)
+    waitForOutboxToDrain(in: app)
+  }
+
+  private func openRegularComposer(
+    in app: XCUIApplication
+  ) throws -> (close: XCUIElement, expansion: XCUIElement) {
+    try requireComposeAction(in: app).tap()
+
+    let close = try requireElement(
+      identifier: "mail-compose-close",
+      matching: .button,
+      in: app,
+      failure: "MAIL_TEST_FAILURE:ui: The fixed Close Composer action was not visible."
+    )
+    let expansion = try requireElement(
+      identifier: "mail-compose-expansion",
+      matching: .button,
+      in: app,
+      failure: "MAIL_TEST_FAILURE:ui: The regular-width expansion action was not visible."
+    )
+    _ = try requireElement(
+      identifier: "mail-compose-more",
+      matching: .button,
+      in: app,
+      failure: "MAIL_TEST_FAILURE:ui: The composer overflow action was not visible."
+    )
+    return (close, expansion)
+  }
+
+  private func populateVisibleDraft(
+    in app: XCUIApplication
+  ) throws -> (body: XCUIElement, document: XCUIElement) {
     let recipient = try requireElement(
       identifier: "mail-compose-to",
       matching: .textField,
@@ -78,11 +123,13 @@ final class MailTestBootstrapUITests: XCTestCase {
       failure: "MAIL_TEST_FAILURE:ui: The recipient field was not visible."
     )
     try focusAndType(
-      "recipient@synthetic.invalid",
+      (0..<12).map { "recipient\($0)@synthetic.invalid" }.joined(separator: ", "),
       into: recipient,
       in: app,
       failure: "MAIL_TEST_FAILURE:ui: The recipient field did not receive keyboard focus."
     )
+    recipient.typeKey("a", modifierFlags: .command)
+    recipient.typeText("recipient@synthetic.invalid")
     let subject = try requireElement(
       identifier: "mail-compose-subject",
       matching: .textField,
@@ -95,20 +142,58 @@ final class MailTestBootstrapUITests: XCTestCase {
       in: app,
       failure: "MAIL_TEST_FAILURE:ui: The subject field did not receive keyboard focus."
     )
+    subject.typeKey(.return, modifierFlags: [])
+    let document = try requireElement(
+      identifier: "mail-compose-document-scroll",
+      matching: .scrollView,
+      in: app,
+      failure: "MAIL_TEST_FAILURE:ui: The composer document scroll was not visible."
+    )
     let body = try requireElement(
       identifier: "mail-compose-body",
       matching: .textView,
       in: app,
       failure: "MAIL_TEST_FAILURE:ui: The message body was not visible."
     )
-    try verifyNativeSemanticEditing(in: body, app: app)
+    return (body, document)
+  }
 
-    try sendVisibleDraft(step: "compose-send", in: app)
-    waitForOutboxToDrain(in: app)
+  private func assertFixedHeaderAndExpansion(
+    close: XCUIElement,
+    initialCloseFrame: CGRect,
+    expansion: XCUIElement,
+    body: XCUIElement,
+    in app: XCUIApplication
+  ) {
+    XCTAssertEqual(
+      close.frame.minY,
+      initialCloseFrame.minY,
+      accuracy: 1,
+      "The Close Composer action scrolled away with the Draft document."
+    )
+
+    expansion.tap()
+    XCTAssertTrue(
+      element(identifier: "mail-shell-composer-expanded", in: app)
+        .waitForExistence(timeout: 5),
+      "The regular-width composer did not expand."
+    )
+    XCTAssertEqual(
+      body.value as? String,
+      "Synthetic compose delivery",
+      "Expansion replaced or reset the authored document."
+    )
+    expansion.tap()
+    XCTAssertTrue(
+      element(identifier: "mail-shell-composer-detailOverlay", in: app)
+        .waitForExistence(timeout: 5),
+      "The expanded composer did not collapse to its detail overlay."
+    )
   }
 
   private func verifyNativeSemanticEditing(
     in body: XCUIElement,
+    document: XCUIElement,
     app: XCUIApplication
   ) throws {
     try focusAndType(
@@ -141,6 +226,7 @@ final class MailTestBootstrapUITests: XCTestCase {
     body.typeKey("a", modifierFlags: .command)
     body.typeKey(.delete, modifierFlags: [])
     body.typeText("Synthetic compose delivery")
+    document.swipeUp()
   }
 
   func testReplyThroughVisibleClient() throws {
@@ -171,6 +257,14 @@ final class MailTestBootstrapUITests: XCTestCase {
       throw XCTSkip("MAIL_TEST_CAPABILITY_UNAVAILABLE:reply")
     }
     reply.tap()
+    XCTAssertTrue(
+      app.buttons["mail-compose-close"].waitForExistence(timeout: 5),
+      "MAIL_TEST_FAILURE:ui: The compact composer did not show Close Composer."
+    )
+    XCTAssertFalse(
+      app.buttons["mail-compose-expansion"].exists,
+      "MAIL_TEST_FAILURE:ui: Compact composing exposed an unnecessary expansion action."
+    )
     let body = try requireElement(
       identifier: "mail-compose-body",
       matching: .textView,
@@ -188,8 +282,20 @@ final class MailTestBootstrapUITests: XCTestCase {
     try verifyReplyConversation(in: app)
   }
 
-  private func launchApplication() -> XCUIApplication {
+  private func launchApplication(
+    composerLayout: String? = nil,
+    preferredContentSizeCategory: String? = nil
+  ) -> XCUIApplication {
     let app = XCUIApplication()
+    if let composerLayout {
+      app.launchEnvironment["COMPOSER_UI_TEST_LAYOUT"] = composerLayout
+    }
+    if let preferredContentSizeCategory {
+      app.launchArguments += [
+        "-UIPreferredContentSizeCategoryName",
+        preferredContentSizeCategory,
+      ]
+    }
     app.launch()
     return app
   }
