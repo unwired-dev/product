@@ -40,18 +40,24 @@ interface SimulatorDevice {
 export type MailTestSendStep = 'compose-send' | 'reply';
 export type MailTestSendStepOutcome = 'performed' | 'unavailable';
 
-const SCHEDULED_SEND_DETERMINISTIC_TESTS = [
-  'unwired-mailTests/OutboxDeliveryServiceTests/testScheduledSendNeverHandsOffEarlyAndResumesAfterRestart',
-  'unwired-mailTests/OutboxDeliveryServiceTests/testScheduledSendBecomesNeedsAttentionAfterTwentyFourHoursWithoutHandoff',
-  'unwired-mailTests/OutboxDeliveryServiceTests/testEditAndCancelLoseRaceOnceProviderHandoffStarts',
-  'unwired-mailTests/OutboxDeliveryServiceTests/dueScheduledSendRetainsRetryCleanupAfterATransientFailure',
-  'unwired-mailTests/OutboxDeliveryServiceTests/testPermanentGraphFailureDeletesProviderDraftWithoutChangingFailureOutcome',
-  'unwired-mailTests/SendReminderSyncServiceTests/reminderAndDraftSynchronizeWithinOneProfileAndTransferOwnership',
-  'unwired-mailTests/SwiftMailEngineTests/testSMTPAmbiguousPostContentFailureIsNeverRetryable',
-  'unwired-mailTests/OutboxDeliveryServiceTests/microsoftGraphScheduledSendAdmissionPreservesItsPayloadAndConnection',
-  'unwired-mailTests/OutboxDeliveryServiceTests/exchangeWebServicesScheduledSendAdmissionPreservesItsPayloadAndConnection',
-  'unwired-mailTests/OutboxDeliveryServiceTests/standardsMailScheduledSendAdmissionPreservesItsPayloadAndConnection',
-  'unwired-mailTests/ScheduledSendReleasePolicyTests/newSchedulingIsReleaseGatedWhileExistingCommitmentsRemainEditable',
+const SCHEDULED_SEND_DETERMINISTIC_SUITES = [
+  'unwired-mailTests/OutboxDeliveryServiceTests',
+  'unwired-mailTests/SendReminderSyncServiceTests',
+  'unwired-mailTests/SwiftMailEngineTests',
+  'unwired-mailTests/ScheduledSendReleasePolicyTests',
+] as const;
+const REQUIRED_SCHEDULED_SEND_TESTS = [
+  'OutboxDeliveryServiceTests/testScheduledSendNeverHandsOffEarlyAndResumesAfterRestart()',
+  'OutboxDeliveryServiceTests/testScheduledSendBecomesNeedsAttentionAfterTwentyFourHoursWithoutHandoff()',
+  'OutboxDeliveryServiceTests/testEditAndCancelLoseRaceOnceProviderHandoffStarts()',
+  'OutboxDeliveryServiceTests/dueScheduledSendRetainsRetryCleanupAfterATransientFailure()',
+  'OutboxDeliveryServiceTests/testPermanentGraphFailureDeletesProviderDraftWithoutChangingFailureOutcome()',
+  'SendReminderSyncServiceTests/reminderAndDraftSynchronizeWithinOneProfileAndTransferOwnership()',
+  'SwiftMailEngineTests/testSMTPAmbiguousPostContentFailureIsNeverRetryable()',
+  'OutboxDeliveryServiceTests/microsoftGraphScheduledSendAdmissionPreservesItsPayloadAndConnection()',
+  'OutboxDeliveryServiceTests/exchangeWebServicesScheduledSendAdmissionPreservesItsPayloadAndConnection()',
+  'OutboxDeliveryServiceTests/standardsMailScheduledSendAdmissionPreservesItsPayloadAndConnection()',
+  'ScheduledSendReleasePolicyTests/newSchedulingIsReleaseGatedWhileExistingCommitmentsRemainEditable()',
 ] as const;
 const INVALID_SCHEDULED_SEND_DETERMINISTIC_SUMMARY =
   'Scheduled Send deterministic evidence returned an invalid XCTest summary.';
@@ -266,7 +272,7 @@ export async function runScheduledSendDeterministicTests(
       'NO',
       '-resultBundlePath',
       resultBundlePath,
-      ...SCHEDULED_SEND_DETERMINISTIC_TESTS.map(
+      ...SCHEDULED_SEND_DETERMINISTIC_SUITES.map(
         (test) => `-only-testing:${test}`,
       ),
     ],
@@ -288,16 +294,71 @@ export async function runScheduledSendDeterministicTests(
   const summary = parseScheduledSendDeterministicSummary(summaryResult.stdout);
   if (
     summary.result !== 'Passed' ||
-    summary.totalTestCount !== SCHEDULED_SEND_DETERMINISTIC_TESTS.length ||
-    summary.passedTests !== SCHEDULED_SEND_DETERMINISTIC_TESTS.length ||
+    summary.totalTestCount < REQUIRED_SCHEDULED_SEND_TESTS.length ||
+    summary.passedTests !== summary.totalTestCount ||
     summary.failedTests !== 0 ||
     summary.skippedTests !== 0
   ) {
     throw new Error(
-      `Scheduled Send deterministic evidence selected ${summary.totalTestCount} tests; expected ${SCHEDULED_SEND_DETERMINISTIC_TESTS.length} passing tests with none failed or skipped.`,
+      `Scheduled Send deterministic evidence selected ${summary.totalTestCount} tests; expected at least ${REQUIRED_SCHEDULED_SEND_TESTS.length} passing tests with none failed or skipped.`,
     );
   }
-  return summary.totalTestCount;
+  const testsResult = await run(
+    'xcrun',
+    [
+      'xcresulttool',
+      'get',
+      'test-results',
+      'tests',
+      '--path',
+      resultBundlePath,
+      '--compact',
+    ],
+    { signal: options.signal },
+  );
+  const passedTests = scheduledSendPassedTestIdentifiers(testsResult.stdout);
+  const missingTests = REQUIRED_SCHEDULED_SEND_TESTS.filter(
+    (test) => !passedTests.has(test),
+  );
+  if (missingTests.length > 0) {
+    throw new Error(
+      `Scheduled Send deterministic evidence did not pass required tests: ${missingTests.join(', ')}.`,
+    );
+  }
+  return REQUIRED_SCHEDULED_SEND_TESTS.length;
+}
+
+function scheduledSendPassedTestIdentifiers(
+  value: string,
+): ReadonlySet<string> {
+  const parsed: unknown = JSON.parse(value);
+  if (!isRecord(parsed) || !Array.isArray(parsed.testNodes)) {
+    throw new TypeError(INVALID_SCHEDULED_SEND_DETERMINISTIC_SUMMARY);
+  }
+  const identifiers = new Set<string>();
+  collectPassedTestIdentifiers(parsed.testNodes, identifiers);
+  return identifiers;
+}
+
+function collectPassedTestIdentifiers(
+  values: readonly unknown[],
+  identifiers: Set<string>,
+): void {
+  for (const value of values) {
+    if (!isRecord(value)) {
+      throw new TypeError(INVALID_SCHEDULED_SEND_DETERMINISTIC_SUMMARY);
+    }
+    if (
+      value.nodeType === 'Test Case' &&
+      value.result === 'Passed' &&
+      typeof value.nodeIdentifier === 'string'
+    ) {
+      identifiers.add(value.nodeIdentifier);
+    }
+    if (Array.isArray(value.children)) {
+      collectPassedTestIdentifiers(value.children, identifiers);
+    }
+  }
 }
 
 function parseScheduledSendDeterministicSummary(value: string): {

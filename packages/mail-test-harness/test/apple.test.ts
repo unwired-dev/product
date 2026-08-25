@@ -417,19 +417,49 @@ describe('mail test device lifecycle', () => {
   });
 
   it('requires every selected Scheduled Send deterministic test to execute', async () => {
-    expect.assertions(3);
+    expect.assertions(4);
     const evidenceDirectory = await mkdtemp(
       path.join(tmpdir(), 'scheduled-send-evidence-'),
     );
     const summary = JSON.stringify({
       failedTests: 0,
-      passedTests: 11,
+      passedTests: 184,
       result: 'Passed',
       skippedTests: 0,
-      totalTestCount: 11,
+      totalTestCount: 184,
+    });
+    const tests = JSON.stringify({
+      testNodes: [
+        {
+          children: [
+            {
+              children: [
+                'OutboxDeliveryServiceTests/testScheduledSendNeverHandsOffEarlyAndResumesAfterRestart()',
+                'OutboxDeliveryServiceTests/testScheduledSendBecomesNeedsAttentionAfterTwentyFourHoursWithoutHandoff()',
+                'OutboxDeliveryServiceTests/testEditAndCancelLoseRaceOnceProviderHandoffStarts()',
+                'OutboxDeliveryServiceTests/dueScheduledSendRetainsRetryCleanupAfterATransientFailure()',
+                'OutboxDeliveryServiceTests/testPermanentGraphFailureDeletesProviderDraftWithoutChangingFailureOutcome()',
+                'SendReminderSyncServiceTests/reminderAndDraftSynchronizeWithinOneProfileAndTransferOwnership()',
+                'SwiftMailEngineTests/testSMTPAmbiguousPostContentFailureIsNeverRetryable()',
+                'OutboxDeliveryServiceTests/microsoftGraphScheduledSendAdmissionPreservesItsPayloadAndConnection()',
+                'OutboxDeliveryServiceTests/exchangeWebServicesScheduledSendAdmissionPreservesItsPayloadAndConnection()',
+                'OutboxDeliveryServiceTests/standardsMailScheduledSendAdmissionPreservesItsPayloadAndConnection()',
+                'ScheduledSendReleasePolicyTests/newSchedulingIsReleaseGatedWhileExistingCommitmentsRemainEditable()',
+              ].map((nodeIdentifier) => ({
+                nodeIdentifier,
+                nodeType: 'Test Case',
+                result: 'Passed',
+              })),
+            },
+          ],
+        },
+      ],
     });
     const run = vi.fn<TestCommandRunner>();
-    run.mockResolvedValueOnce(result()).mockResolvedValueOnce(result(summary));
+    run
+      .mockResolvedValueOnce(result())
+      .mockResolvedValueOnce(result(summary))
+      .mockResolvedValueOnce(result(tests));
 
     try {
       await expect(
@@ -454,7 +484,7 @@ describe('mail test device lifecycle', () => {
           'id=AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE',
           '-resultBundlePath',
           path.join(evidenceDirectory, 'scheduled-send-deterministic.xcresult'),
-          '-only-testing:unwired-mailTests/SwiftMailEngineTests/testSMTPAmbiguousPostContentFailureIsNeverRetryable',
+          '-only-testing:unwired-mailTests/SwiftMailEngineTests',
         ]),
       );
       expect(run.mock.calls[1]).toStrictEqual([
@@ -469,6 +499,15 @@ describe('mail test device lifecycle', () => {
           '--compact',
         ],
         { signal: undefined },
+      ]);
+      expect(run.mock.calls[2]?.[1]).toStrictEqual([
+        'xcresulttool',
+        'get',
+        'test-results',
+        'tests',
+        '--path',
+        path.join(evidenceDirectory, 'scheduled-send-deterministic.xcresult'),
+        '--compact',
       ]);
     } finally {
       await rm(evidenceDirectory, { force: true, recursive: true });
@@ -502,7 +541,7 @@ describe('mail test device lifecycle', () => {
         },
         run,
       ),
-    ).rejects.toThrow('selected 9 tests; expected 11 passing tests');
+    ).rejects.toThrow('selected 9 tests; expected at least 11 passing tests');
   });
 
   it('runs the requested UI step on the exact owned simulator', async () => {
