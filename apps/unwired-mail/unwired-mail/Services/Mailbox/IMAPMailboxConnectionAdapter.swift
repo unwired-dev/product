@@ -4003,6 +4003,7 @@ struct MailboxConnectionRouter: MailboxConnectionAdapter, MailboxConnectionCache
   private let gmail: MailboxConnectionAdapter
   private let imap: MailboxConnectionAdapter
   private let microsoftGraph: MailboxConnectionAdapter
+  private let scheduledSendLifecycle: any ScheduledSendLifecycleManaging
 
   init(
     attachmentStore: DownloadedAttachmentStore = DownloadedAttachmentStore(),
@@ -4011,13 +4012,15 @@ struct MailboxConnectionRouter: MailboxConnectionAdapter, MailboxConnectionCache
     imap: MailboxConnectionAdapter = IMAPMailboxConnectionAdapter(
       messageCategorizer: GmailMessageCategorizationService()
     ),
-    microsoftGraph: MailboxConnectionAdapter = MicrosoftGraphMailboxConnectionAdapter()
+    microsoftGraph: MailboxConnectionAdapter = MicrosoftGraphMailboxConnectionAdapter(),
+    scheduledSendLifecycle: any ScheduledSendLifecycleManaging = ScheduledSendService.shared
   ) {
     self.attachmentStore = attachmentStore
     self.exchangeWebServices = exchangeWebServices
     self.gmail = gmail
     self.imap = imap
     self.microsoftGraph = microsoftGraph
+    self.scheduledSendLifecycle = scheduledSendLifecycle
   }
 
   func clearLocalConnection(session: ProductAccountSessionSnapshot) async throws {
@@ -4187,6 +4190,12 @@ struct MailboxConnectionRouter: MailboxConnectionAdapter, MailboxConnectionCache
     _ connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws {
+    if connection.providerId.supportsProductOwnedScheduledSend {
+      try await scheduledSendLifecycle.cancelScheduledSends(
+        for: connection.id,
+        session: session
+      )
+    }
     var firstError: Error?
     do {
       try await adapter(for: connection.id)

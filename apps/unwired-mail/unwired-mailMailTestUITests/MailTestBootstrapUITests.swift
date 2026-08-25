@@ -146,12 +146,12 @@ final class MailTestBootstrapUITests: XCTestCase {
       in: app,
       failure: "MAIL_TEST_FAILURE:ui: The reply composer did not open."
     )
-    try focusAndType(
-      "Synthetic visible reply",
-      into: body,
-      in: app,
-      failure: "MAIL_TEST_FAILURE:ui: The reply body did not receive keyboard focus."
-    )
+    let keyboard = app.keyboards.firstMatch
+    guard keyboard.waitForExistence(timeout: 5) else {
+      XCTFail("MAIL_TEST_FAILURE:ui: The reply body did not receive keyboard focus.")
+      throw NSError(domain: "MailTestBootstrapUITests", code: 1)
+    }
+    body.typeText("Synthetic visible reply")
 
     try sendVisibleDraft(step: "reply", in: app)
     try verifyReplyConversation(in: app)
@@ -169,28 +169,25 @@ final class MailTestBootstrapUITests: XCTestCase {
     in app: XCUIApplication,
     failure: String
   ) throws {
-    let hittable = NSPredicate(format: "hittable == true")
-    let hittableExpectation = XCTNSPredicateExpectation(predicate: hittable, object: element)
-    guard XCTWaiter.wait(for: [hittableExpectation], timeout: 5) == .completed else {
-      XCTFail(failure)
-      throw NSError(domain: "MailTestBootstrapUITests", code: 1)
-    }
-
     let keyboard = app.keyboards.firstMatch
-    element.tap()
     dismissKeyboardIntroductionIfNeeded()
-    if keyboard.waitForExistence(timeout: 2) {
-      element.typeText(text)
-      return
+    if element.isHittable {
+      element.tap()
+      dismissKeyboardIntroductionIfNeeded()
+      if keyboard.waitForExistence(timeout: 2), waitForKeyboardFocus(on: element) {
+        element.typeText(text)
+        return
+      }
     }
 
     let tapOffsets: [CGFloat] = [0.5, 0.85, 0.15]
     for horizontalOffset in tapOffsets {
+      dismissKeyboardIntroductionIfNeeded()
       element.coordinate(
         withNormalizedOffset: CGVector(dx: horizontalOffset, dy: 0.5)
       ).tap()
       dismissKeyboardIntroductionIfNeeded()
-      if keyboard.waitForExistence(timeout: 2) {
+      if keyboard.waitForExistence(timeout: 2), waitForKeyboardFocus(on: element) {
         element.typeText(text)
         return
       }
@@ -198,6 +195,14 @@ final class MailTestBootstrapUITests: XCTestCase {
 
     XCTFail(failure)
     throw NSError(domain: "MailTestBootstrapUITests", code: 1)
+  }
+
+  private func waitForKeyboardFocus(on element: XCUIElement) -> Bool {
+    let focused = XCTNSPredicateExpectation(
+      predicate: NSPredicate(format: "hasKeyboardFocus == true"),
+      object: element
+    )
+    return XCTWaiter.wait(for: [focused], timeout: 2) == .completed
   }
 
   private func dismissKeyboardIntroductionIfNeeded() {

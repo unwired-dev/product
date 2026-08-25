@@ -1699,6 +1699,7 @@ struct AccountAndDevicesSettingsView: View {
     } message: {
       Text(
         "This immediately cuts off Unwired access and rotates Product Sync keys. "
+          + "Scheduled Sends remain available to other authorized devices. "
           + "The device's local data cannot be erased remotely while it is offline."
       )
     }
@@ -1737,7 +1738,10 @@ struct AccountAndDevicesSettingsView: View {
       }
       Button("Cancel", role: .cancel) {}
     } message: {
-      Text("Your Product Account and provider mail remain available on other devices.")
+      Text(
+        "Your Product Account, Scheduled Sends, Send Reminders, and provider mail remain "
+          + "available on other devices."
+      )
     }
     .confirmationDialog(
       "Permanently delete this Product Account?",
@@ -1751,6 +1755,7 @@ struct AccountAndDevicesSettingsView: View {
     } message: {
       Text(
         "Sign in with Apple will confirm your identity. This cannot be undone. "
+          + "Every Scheduled Send and Send Reminder will be cancelled and removed. "
           + "Your provider mail will remain at the provider, and provider authorization "
           + "must be removed separately."
       )

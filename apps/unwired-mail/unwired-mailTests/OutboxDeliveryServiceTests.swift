@@ -108,6 +108,32 @@ final class OutboxDeliveryServiceTests {
     #expect(await transport.beginEditCallCount() == 0)
   }
 
+  @Test(.bug(id: 385))
+  func removingConnectionEverywhereCancelsItsCurrentScheduledSends() async throws {
+    let record = scheduledSendRecord(revision: 1)
+    let snapshot = ScheduledSendPayloadSnapshot(
+      acknowledgement: ScheduledSendPayloadAcknowledgement(
+        payloadIdentifier: "payload-1",
+        updatedAt: 11
+      ),
+      record: record
+    )
+    let payloads = InMemoryScheduledSendPayloadSync(snapshots: [snapshot])
+    let transport = ScheduledSendManagementTransportSpy(
+      status: scheduledSendStatus(for: snapshot, claimPhase: .preHandoff)
+    )
+    let service = ScheduledSendService(
+      outboxService: OutboxDeliveryService(store: InMemoryOutboxDeliveryStore()),
+      payloadSync: payloads,
+      transport: transport
+    )
+
+    try await service.cancelScheduledSends(for: connection.id, session: session)
+
+    #expect(try await payloads.list(session: session).isEmpty)
+    #expect(await transport.cancelledRevision() == 1)
+  }
+
   @Test
   func scheduledSendManagementSelectsTheOperationalRevision() async throws {
     let current = ScheduledSendPayloadSnapshot(
@@ -187,6 +213,7 @@ final class OutboxDeliveryServiceTests {
   private func scheduledSendRecord(revision: Int) -> ScheduledSendRecord {
     let dueAt: Int64 = 1_800_003_600_000
     return ScheduledSendRecord(
+      connectionAuthorizationGeneration: nil,
       connectionId: connection.id,
       createdAtMilliseconds: 1_800_000_000_000,
       deadlineAtMilliseconds: dueAt + 24 * 60 * 60 * 1_000,
@@ -357,6 +384,7 @@ final class OutboxDeliveryServiceTests {
     let now = Date(timeIntervalSince1970: 1_800_000_000)
     let dueAtMilliseconds = Int64(now.addingTimeInterval(-60).timeIntervalSince1970 * 1_000)
     let record = ScheduledSendRecord(
+      connectionAuthorizationGeneration: exchangeWebServicesConnection.authorizationGeneration,
       connectionId: exchangeWebServicesConnection.id,
       createdAtMilliseconds: dueAtMilliseconds - 60_000,
       deadlineAtMilliseconds: dueAtMilliseconds + 24 * 60 * 60 * 1_000,
@@ -437,19 +465,29 @@ final class OutboxDeliveryServiceTests {
     let payload = try #require(await payloads.list(session: session).first)
 
     #expect(attempt.mailboxConnectionId == graphConnection.id)
+    #expect(
+      attempt.scheduledConnectionGeneration
+        == graphConnection.authorizationGeneration
+    )
     #expect(attempt.message == message)
     #expect(payload.record.connectionId == graphConnection.id)
+    #expect(
+      payload.record.connectionAuthorizationGeneration
+        == graphConnection.authorizationGeneration
+    )
     #expect(payload.record.message == message)
 
     await outbox.suspend(productAccountId: session.productAccountId)
   }
 
-  @Test(.bug(id: 382))
-  func microsoftGraphScheduledSendWakeRestoresAndDeliversTheAttempt() async throws {
+  @Test(.bug(id: 385))
+  func legacyScheduledSendWakeRestoresOnARecreatedConnection() async throws {
     let now = Date(timeIntervalSince1970: 1_800_000_000)
     let dueAtMilliseconds = Int64(now.addingTimeInterval(-60).timeIntervalSince1970 * 1_000)
+    let currentConnection = graphConnection.withAuthorizationGeneration(2)
     let record = ScheduledSendRecord(
-      connectionId: graphConnection.id,
+      connectionAuthorizationGeneration: nil,
+      connectionId: currentConnection.id,
       createdAtMilliseconds: dueAtMilliseconds - 60_000,
       deadlineAtMilliseconds: dueAtMilliseconds + 24 * 60 * 60 * 1_000,
       draftId: UUID(uuidString: "00000000-0000-0000-0000-000000000381")!,
@@ -471,7 +509,7 @@ final class OutboxDeliveryServiceTests {
     let sessionStore = InMemoryProductAccountSessionStore()
     try sessionStore.save(session)
     let transport = ScheduledSendClaimTransportSpy()
-    let mailService = ScheduledSendMailboxRoutingSpy(connections: [graphConnection])
+    let mailService = ScheduledSendMailboxRoutingSpy(connections: [currentConnection])
     let handler = ScheduledSendWakeupHandler(
       mailService: mailService,
       outboxService: OutboxDeliveryService(
@@ -491,8 +529,210 @@ final class OutboxDeliveryServiceTests {
     ])
 
     #expect(handled)
-    #expect(mailService.sentConnectionIds == [graphConnection.id])
-    #expect(await transport.events() == ["claim", "advance", "complete"])
+    #expect(mailService.sentConnectionIds == [currentConnection.id])
+    let transportEvents = await transport.events()
+    #expect(transportEvents == ["claim", "advance", "complete"])
+  }
+
+  @Test(.bug(id: 385))
+  func scheduledSendWakeRejectsAStaleMailboxConnectionAuthorizationGeneration() async throws {
+    let now = Date(timeIntervalSince1970: 1_800_000_000)
+    let dueAtMilliseconds = Int64(now.addingTimeInterval(-60).timeIntervalSince1970 * 1_000)
+    let currentConnection = graphConnection.withAuthorizationGeneration(2)
+    let record = ScheduledSendRecord(
+      connectionAuthorizationGeneration: 1,
+      connectionId: currentConnection.id,
+      createdAtMilliseconds: dueAtMilliseconds - 60_000,
+      deadlineAtMilliseconds: dueAtMilliseconds + 24 * 60 * 60 * 1_000,
+      draftId: UUID(),
+      dueAtMilliseconds: dueAtMilliseconds,
+      message: message,
+      originatingDeviceId: session.trustedDeviceId,
+      originalTimeZoneIdentifier: "Europe/Prague",
+      profileId: MailProfileId.defaultProfile(productAccountId: session.productAccountId),
+      revision: 1,
+      scheduleId: UUID()
+    )
+    let payload = ScheduledSendPayloadSnapshot(
+      acknowledgement: ScheduledSendPayloadAcknowledgement(
+        payloadIdentifier: "payload-stale-authorization",
+        updatedAt: dueAtMilliseconds - 30_000
+      ),
+      record: record
+    )
+    let sessionStore = InMemoryProductAccountSessionStore()
+    try sessionStore.save(session)
+    let transport = ScheduledSendClaimTransportSpy()
+    let mailService = ScheduledSendMailboxRoutingSpy(connections: [currentConnection])
+    let handler = ScheduledSendWakeupHandler(
+      mailService: mailService,
+      outboxService: OutboxDeliveryService(
+        now: { now },
+        scheduledSendTransport: transport,
+        store: InMemoryOutboxDeliveryStore()
+      ),
+      payloadSync: InMemoryScheduledSendPayloadSync(snapshots: [payload]),
+      scheduledSendTransport: transport,
+      sessionStore: sessionStore
+    )
+
+    let handled = try await handler.handle(userInfo: [
+      "provider": "scheduled-send",
+      "revision": NSNumber(value: record.revision),
+      "scheduleId": record.scheduleId.uuidString,
+    ])
+
+    #expect(!handled)
+    #expect(mailService.sentConnectionIds.isEmpty)
+    #expect(await transport.events().isEmpty)
+  }
+
+  @Test(.bug(id: 385))
+  func newActivityDoesNotHandoffAScheduledSendFromAnOlderAuthorization() async throws {
+    let clock = LockedOutboxClock(Date(timeIntervalSince1970: 1_800_000_000))
+    let originalConnection = graphConnection.withAuthorizationGeneration(1)
+    let currentConnection = graphConnection.withAuthorizationGeneration(2)
+    let deliveries = DeliveryCounter()
+    let store = InMemoryOutboxDeliveryStore()
+    let transport = ScheduledSendClaimTransportSpy()
+    let dueAt = clock.now().addingTimeInterval(60)
+    let queuedService = OutboxDeliveryService(
+      now: { clock.now() },
+      scheduledSendTransport: transport,
+      store: store
+    )
+    _ = try await queuedService.enqueueScheduled(
+      message,
+      connection: originalConnection,
+      session: session,
+      scheduleId: UUID(),
+      revision: 1,
+      dueAt: dueAt,
+      deadline: dueAt.addingTimeInterval(24 * 60 * 60),
+      undoSendDelayNanoseconds: 0,
+      provider: { _, _, _ in Issue.record("The original process should be suspended.") },
+      reconcile: { _, _ in .notSent }
+    )
+    await queuedService.suspend(productAccountId: session.productAccountId)
+    clock.advance(by: 60)
+
+    let restartedService = OutboxDeliveryService(
+      now: { clock.now() },
+      scheduledSendTransport: transport,
+      store: store
+    )
+    _ = try await restartedService.enqueue(
+      message,
+      connection: currentConnection,
+      session: session,
+      undoSendDelayNanoseconds: 0,
+      provider: { _, _, _ in await deliveries.increment() },
+      reconcile: { _, _ in .notSent }
+    )
+    let scheduledAttempt = try #require(
+      try await restartedService.items(session: session).first(where: \.isScheduledSend)
+    )
+
+    #expect(await deliveries.currentValue() == 1)
+    #expect(await transport.events().isEmpty)
+    #expect(scheduledAttempt.state == .pending)
+  }
+
+  @Test(.bug(id: 385))
+  func legacyScheduledSendAttemptResumesOnARecreatedConnection() async throws {
+    let clock = LockedOutboxClock(Date(timeIntervalSince1970: 1_800_000_000))
+    let currentConnection = graphConnection.withAuthorizationGeneration(2)
+    let deliveries = DeliveryCounter()
+    let store = InMemoryOutboxDeliveryStore()
+    let dueAt = clock.now().addingTimeInterval(60)
+    let queuedService = OutboxDeliveryService(now: { clock.now() }, store: store)
+    _ = try await queuedService.enqueueScheduled(
+      message,
+      connection: currentConnection,
+      session: session,
+      scheduleId: UUID(),
+      revision: 1,
+      dueAt: dueAt,
+      deadline: dueAt.addingTimeInterval(24 * 60 * 60),
+      undoSendDelayNanoseconds: 0,
+      provider: { _, _, _ in Issue.record("The original process should be suspended.") },
+      reconcile: { _, _ in .notSent }
+    )
+    await queuedService.suspend(productAccountId: session.productAccountId)
+    var legacyAttempt = try #require(
+      try store.load(productAccountId: session.productAccountId).first
+    )
+    legacyAttempt.scheduledConnectionGeneration = nil
+    try store.save([legacyAttempt], productAccountId: session.productAccountId)
+    clock.advance(by: 60)
+
+    let restartedService = OutboxDeliveryService(now: { clock.now() }, store: store)
+    try await restartedService.resume(
+      connections: [currentConnection],
+      session: session,
+      provider: { _, _, _ in await deliveries.increment() },
+      reconcile: { _, _ in .notSent }
+    )
+
+    #expect(await deliveries.currentValue() == 1)
+  }
+
+  @Test(.bug(id: 385), arguments: [false, true], [false, true])
+  func unavailableConnectionDoesNotResumeScheduledSend(
+    usesLegacyGeneration: Bool,
+    usesReceiveOnlyConnection: Bool
+  ) async throws {
+    let clock = LockedOutboxClock(Date(timeIntervalSince1970: 1_800_000_000))
+    let currentConnection = graphConnection.withAuthorizationGeneration(2)
+    let deliveries = DeliveryCounter()
+    let store = InMemoryOutboxDeliveryStore()
+    let dueAt = clock.now().addingTimeInterval(60)
+    let queuedService = OutboxDeliveryService(now: { clock.now() }, store: store)
+    _ = try await queuedService.enqueueScheduled(
+      message,
+      connection: currentConnection,
+      session: session,
+      scheduleId: UUID(),
+      revision: 1,
+      dueAt: dueAt,
+      deadline: dueAt.addingTimeInterval(24 * 60 * 60),
+      undoSendDelayNanoseconds: 0,
+      provider: { _, _, _ in Issue.record("The original process should be suspended.") },
+      reconcile: { _, _ in .notSent }
+    )
+    await queuedService.suspend(productAccountId: session.productAccountId)
+    if usesLegacyGeneration {
+      var legacyAttempt = try #require(
+        try store.load(productAccountId: session.productAccountId).first
+      )
+      legacyAttempt.scheduledConnectionGeneration = nil
+      try store.save([legacyAttempt], productAccountId: session.productAccountId)
+    }
+    clock.advance(by: 60)
+    let unavailableConnection = MailboxConnection(
+      authorizationGeneration: currentConnection.authorizationGeneration,
+      authorizationState: usesReceiveOnlyConnection ? .authorized : .required,
+      capabilities: usesReceiveOnlyConnection ? .imapRead : .none,
+      connectedAt: currentConnection.connectedAt,
+      displayName: currentConnection.displayName,
+      id: currentConnection.id,
+      lastVerifiedAt: currentConnection.lastVerifiedAt,
+      productAccountId: currentConnection.productAccountId,
+      trustedDeviceId: currentConnection.trustedDeviceId,
+      updatedAt: currentConnection.updatedAt
+    )
+
+    let restartedService = OutboxDeliveryService(now: { clock.now() }, store: store)
+    try await restartedService.resume(
+      connections: [unavailableConnection],
+      session: session,
+      provider: { _, _, _ in await deliveries.increment() },
+      reconcile: { _, _ in .notSent }
+    )
+    let attempt = try #require(try await restartedService.items(session: session).first)
+
+    #expect(await deliveries.currentValue() == 0)
+    #expect(attempt.state == .pending)
   }
 
   @Test(.bug(id: 382))
@@ -614,6 +854,53 @@ final class OutboxDeliveryServiceTests {
     #expect(attemptCount == 2)
   }
 
+  @Test(.bug(id: 385))
+  func authorizationRemovalStopsAnExistingScheduledRetry() async throws {
+    let now = Date(timeIntervalSince1970: 1_800_000_000)
+    let deliveryGate = DeliveryHandoffGate()
+    let deliveries = DeliveryCounter()
+    let service = OutboxDeliveryService(
+      now: { now },
+      retryDelayNanoseconds: { _ in 0 },
+      store: InMemoryOutboxDeliveryStore()
+    )
+    let deliveryTask = Task {
+      try await service.enqueueScheduled(
+        message,
+        connection: connection,
+        session: session,
+        scheduleId: UUID(),
+        revision: 1,
+        dueAt: now,
+        deadline: now.addingTimeInterval(24 * 60 * 60),
+        undoSendDelayNanoseconds: 0,
+        provider: { _, _, _ in
+          await deliveries.increment()
+          await deliveryGate.waitForRelease()
+          throw URLError(.notConnectedToInternet)
+        },
+        reconcile: { _, _ in .notSent }
+      )
+    }
+    await deliveryGate.waitUntilStarted()
+
+    let authorizationRemoval = Task {
+      try await service.resume(
+        connections: [],
+        session: session,
+        provider: { _, _, _ in await deliveries.increment() },
+        reconcile: { _, _ in .notSent }
+      )
+    }
+    await deliveryGate.release()
+    let attempt = try await deliveryTask.value
+    try await authorizationRemoval.value
+    while await service.waitForScheduledRetries() {}
+
+    #expect(attempt.state == .retrying)
+    #expect(await deliveries.currentValue() == 1)
+  }
+
   @Test(.bug(id: 380))
   func testScheduledSendClaimFencePrecedesProviderHandoff() async throws {
     let clock = LockedOutboxClock(Date(timeIntervalSince1970: 1_800_000_000))
@@ -653,6 +940,69 @@ final class OutboxDeliveryServiceTests {
     )
 
     #expect(await transport.events() == ["claim", "advance", "provider", "complete"])
+  }
+
+  @Test(.bug(id: 385))
+  // swiftlint:disable:next function_body_length
+  func authorizationChangeDuringClaimPreventsProviderHandoff() async throws {
+    let clock = LockedOutboxClock(Date(timeIntervalSince1970: 1_800_000_000))
+    let handoffGate = DeliveryHandoffGate()
+    let store = InMemoryOutboxDeliveryStore()
+    let transport = ScheduledSendClaimTransportSpy(handoffGate: handoffGate)
+    let dueAt = clock.now().addingTimeInterval(60)
+    let queuedService = OutboxDeliveryService(
+      now: { clock.now() },
+      scheduledSendTransport: transport,
+      store: store
+    )
+    _ = try await queuedService.enqueueScheduled(
+      message,
+      connection: connection,
+      session: session,
+      scheduleId: UUID(),
+      revision: 1,
+      dueAt: dueAt,
+      deadline: dueAt.addingTimeInterval(24 * 60 * 60),
+      undoSendDelayNanoseconds: 0,
+      provider: { _, _, _ in Issue.record("The original process should be suspended.") },
+      reconcile: { _, _ in .notSent }
+    )
+    await queuedService.suspend(productAccountId: session.productAccountId)
+    clock.advance(by: 60)
+
+    let deliveries = DeliveryCounter()
+    let restartedService = OutboxDeliveryService(
+      now: { clock.now() },
+      scheduledSendTransport: transport,
+      store: store
+    )
+    let deliveryTask = Task {
+      try await restartedService.resume(
+        connections: [connection],
+        session: session,
+        provider: { _, _, _ in await deliveries.increment() },
+        reconcile: { _, _ in .notSent }
+      )
+    }
+    await handoffGate.waitUntilStarted()
+    let replacementConnection = connection.withAuthorizationGeneration(
+      connection.authorizationGeneration + 1
+    )
+    store.onNextLoad {
+      Task { await handoffGate.release() }
+    }
+    try await restartedService.resume(
+      connections: [replacementConnection],
+      session: session,
+      provider: { _, _, _ in await deliveries.increment() },
+      reconcile: { _, _ in .notSent }
+    )
+    try await deliveryTask.value
+
+    let attempt = try #require(try await restartedService.items(session: session).first)
+    #expect(attempt.state == .userActionRequired)
+    #expect(await deliveries.currentValue() == 0)
+    #expect(await transport.events() == ["claim", "advance", "complete"])
   }
 
   @Test
@@ -2982,17 +3332,33 @@ final class OutboxDeliveryServiceTests {
 private final class InMemoryOutboxDeliveryStore:
   OutboxDeliveryPersisting, @unchecked Sendable
 {
+  private let lock = NSLock()
   private var attemptsByProductAccountId: [String: [OutgoingDeliveryAttempt]] = [:]
+  private var nextLoadAction: (@Sendable () -> Void)?
+
+  func onNextLoad(_ action: @escaping @Sendable () -> Void) {
+    lock.withLock {
+      nextLoadAction = action
+    }
+  }
 
   func load(productAccountId: String) throws -> [OutgoingDeliveryAttempt] {
-    attemptsByProductAccountId[productAccountId] ?? []
+    let (attempts, action) = lock.withLock {
+      let action = nextLoadAction
+      nextLoadAction = nil
+      return (attemptsByProductAccountId[productAccountId] ?? [], action)
+    }
+    action?()
+    return attempts
   }
 
   func save(
     _ attempts: [OutgoingDeliveryAttempt],
     productAccountId: String
   ) throws {
-    attemptsByProductAccountId[productAccountId] = attempts
+    lock.withLock {
+      attemptsByProductAccountId[productAccountId] = attempts
+    }
   }
 }
 
@@ -3116,7 +3482,12 @@ private final class ScheduledSendMailboxRoutingSpy: ScheduledSendMailboxRouting 
 
 private actor ScheduledSendClaimTransportSpy: ScheduledSendOperationalTransport {
   private var claimPhase = ScheduledSendClaimPhase.preHandoff
+  private let handoffGate: DeliveryHandoffGate?
   private var recordedEvents: [String] = []
+
+  init(handoffGate: DeliveryHandoffGate? = nil) {
+    self.handoffGate = handoffGate
+  }
 
   func admitScheduledSend(
     _ record: ScheduledSendRecord,
@@ -3167,6 +3538,7 @@ private actor ScheduledSendClaimTransportSpy: ScheduledSendOperationalTransport 
     trustedDeviceId _: String
   ) async throws -> Bool {
     recordedEvents.append("advance")
+    await handoffGate?.waitForRelease()
     claimPhase = .handingOff
     return true
   }
@@ -3277,6 +3649,7 @@ actor InMemoryScheduledSendPayloadSync: ScheduledSendPayloadSyncing {
 
 private actor ScheduledSendManagementTransportSpy: ScheduledSendOperationalTransport {
   private var beginEditCalls = 0
+  private var cancelCalls: [Int] = []
   private var replacementRevision: Int?
   private let status: ScheduledSendOperationalStatus
 
@@ -3294,9 +3667,16 @@ private actor ScheduledSendManagementTransportSpy: ScheduledSendOperationalTrans
 
   func cancelScheduledSend(
     scheduleId _: UUID,
-    revision _: Int,
+    revision: Int,
     session _: ProductAccountSessionSnapshot
-  ) async throws -> Bool { true }
+  ) async throws -> Bool {
+    cancelCalls.append(revision)
+    return true
+  }
+
+  func cancelledRevision() -> Int? {
+    cancelCalls.last
+  }
 
   func scheduledSendStatus(
     scheduleId _: UUID,

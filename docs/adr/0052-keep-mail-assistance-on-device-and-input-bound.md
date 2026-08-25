@@ -25,5 +25,5 @@ Map system availability and generation failures into product-owned states. A det
 - Mail remains usable when assistance is unavailable; child features decide how to explain the specific state.
 - Opening a composer cannot start model preparation because this foundation is not connected to composer lifecycle and never calls `prewarm`.
 - Downstream features must build Assistance Context explicitly and revalidate the returned preview before insertion or display.
-- Profile-scoped device enablement, Compose Assistance, Response Assistance, Understanding Assistance, and Translation Assistance remain separate issues.
+- Profile-scoped device enablement and each Compose, Response, Understanding, and Translation capability remain separately reviewable on the shared boundary.
 - Translation continues to require Apple's dedicated Translation framework rather than this generative engine.
