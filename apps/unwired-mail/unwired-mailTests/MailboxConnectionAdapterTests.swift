@@ -5293,7 +5293,7 @@ final class MailboxConnectionAdapterTests {
         quotedText: "Quoted reply",
         sendingIdentityId: nil,
         signatures: .empty,
-        present: navigation.present
+        present: { navigation.present($0) }
       )
     case .replyAll:
       MailShellConversationReader.presentReply(
@@ -5303,7 +5303,7 @@ final class MailboxConnectionAdapterTests {
         quotedText: "Quoted reply",
         sendingIdentityId: nil,
         signatures: .empty,
-        present: navigation.present
+        present: { navigation.present($0) }
       )
     case .forward:
       MailShellConversationReader.presentForward(
@@ -5311,7 +5311,7 @@ final class MailboxConnectionAdapterTests {
         body: MailboxMessageBody(text: "Forwarded body"),
         sendingIdentityId: nil,
         signatures: .empty,
-        present: navigation.present
+        present: { navigation.present($0) }
       )
     case .editing, .newMessage:
       preconditionFailure("Only reply and forward entry points belong in this regression")
