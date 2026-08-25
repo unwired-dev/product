@@ -80,6 +80,7 @@ final class MailTestBootstrapUITests: XCTestCase {
     try focusAndType(
       "recipient@synthetic.invalid",
       into: recipient,
+      in: app,
       failure: "MAIL_TEST_FAILURE:ui: The recipient field did not receive keyboard focus."
     )
     let subject = try requireElement(
@@ -91,6 +92,7 @@ final class MailTestBootstrapUITests: XCTestCase {
     try focusAndType(
       composeSubject,
       into: subject,
+      in: app,
       failure: "MAIL_TEST_FAILURE:ui: The subject field did not receive keyboard focus."
     )
     let body = try requireElement(
@@ -102,6 +104,7 @@ final class MailTestBootstrapUITests: XCTestCase {
     try focusAndType(
       "Synthetic compose delivery",
       into: body,
+      in: app,
       failure: "MAIL_TEST_FAILURE:ui: The message body did not receive keyboard focus."
     )
 
@@ -146,6 +149,7 @@ final class MailTestBootstrapUITests: XCTestCase {
     try focusAndType(
       "Synthetic visible reply",
       into: body,
+      in: app,
       failure: "MAIL_TEST_FAILURE:ui: The reply body did not receive keyboard focus."
     )
 
@@ -162,6 +166,7 @@ final class MailTestBootstrapUITests: XCTestCase {
   private func focusAndType(
     _ text: String,
     into element: XCUIElement,
+    in app: XCUIApplication,
     failure: String
   ) throws {
     let hittable = NSPredicate(format: "hittable == true")
@@ -171,14 +176,13 @@ final class MailTestBootstrapUITests: XCTestCase {
       throw NSError(domain: "MailTestBootstrapUITests", code: 1)
     }
 
-    let focused = NSPredicate(format: "hasKeyboardFocus == true")
+    let keyboard = app.keyboards.firstMatch
     let tapOffsets: [CGFloat] = [0.5, 0.85, 0.15]
     for horizontalOffset in tapOffsets {
       element.coordinate(
         withNormalizedOffset: CGVector(dx: horizontalOffset, dy: 0.5)
       ).tap()
-      let focusExpectation = XCTNSPredicateExpectation(predicate: focused, object: element)
-      if XCTWaiter.wait(for: [focusExpectation], timeout: 2) == .completed {
+      if keyboard.waitForExistence(timeout: 2) {
         element.typeText(text)
         return
       }

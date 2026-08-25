@@ -14284,6 +14284,10 @@ final class GmailInboxViewModel {
         publishedCount = 0
         threads.removeAll(keepingCapacity: true)
       }
+      await waitForNextMainRunLoopCycle()
+      guard isCurrentUnifiedLoad(loadId: loadId, connectionIds: connectionIds) else {
+        return false
+      }
       let nextBatchSize = publishedCount == 0 ? firstBatchSize : batchSize
       let endIndex = min(publishedCount + nextBatchSize, projectedThreads.count)
       threads.append(contentsOf: projectedThreads[publishedCount..<endIndex])
@@ -14292,9 +14296,6 @@ final class GmailInboxViewModel {
       #if DEBUG
         await initialThreadBatchDidPublish?()
       #endif
-      // Keep consecutive observed row mutations out of the same presentation cycle.
-      try? await Task.sleep(for: .milliseconds(8))
-      await waitForNextMainRunLoopCycle()
     }
   }
 
