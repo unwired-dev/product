@@ -988,17 +988,16 @@ final class OutboxDeliveryServiceTests {
     let replacementConnection = connection.withAuthorizationGeneration(
       connection.authorizationGeneration + 1
     )
-    let replacementResume = Task {
-      try await restartedService.resume(
-        connections: [replacementConnection],
-        session: session,
-        provider: { _, _, _ in await deliveries.increment() },
-        reconcile: { _, _ in .notSent }
-      )
+    store.onNextLoad {
+      Task { await handoffGate.release() }
     }
-    await handoffGate.release()
+    try await restartedService.resume(
+      connections: [replacementConnection],
+      session: session,
+      provider: { _, _, _ in await deliveries.increment() },
+      reconcile: { _, _ in .notSent }
+    )
     try await deliveryTask.value
-    try await replacementResume.value
 
     let attempt = try #require(try await restartedService.items(session: session).first)
     #expect(attempt.state == .userActionRequired)
@@ -3333,17 +3332,33 @@ final class OutboxDeliveryServiceTests {
 private final class InMemoryOutboxDeliveryStore:
   OutboxDeliveryPersisting, @unchecked Sendable
 {
+  private let lock = NSLock()
   private var attemptsByProductAccountId: [String: [OutgoingDeliveryAttempt]] = [:]
+  private var nextLoadAction: (@Sendable () -> Void)?
+
+  func onNextLoad(_ action: @escaping @Sendable () -> Void) {
+    lock.withLock {
+      nextLoadAction = action
+    }
+  }
 
   func load(productAccountId: String) throws -> [OutgoingDeliveryAttempt] {
-    attemptsByProductAccountId[productAccountId] ?? []
+    let (attempts, action) = lock.withLock {
+      let action = nextLoadAction
+      nextLoadAction = nil
+      return (attemptsByProductAccountId[productAccountId] ?? [], action)
+    }
+    action?()
+    return attempts
   }
 
   func save(
     _ attempts: [OutgoingDeliveryAttempt],
     productAccountId: String
   ) throws {
-    attemptsByProductAccountId[productAccountId] = attempts
+    lock.withLock {
+      attemptsByProductAccountId[productAccountId] = attempts
+    }
   }
 }
 

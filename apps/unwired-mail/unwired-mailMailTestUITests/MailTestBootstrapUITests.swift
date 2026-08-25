@@ -169,19 +169,14 @@ final class MailTestBootstrapUITests: XCTestCase {
     in app: XCUIApplication,
     failure: String
   ) throws {
-    let hittable = NSPredicate(format: "hittable == true")
-    let hittableExpectation = XCTNSPredicateExpectation(predicate: hittable, object: element)
-    guard XCTWaiter.wait(for: [hittableExpectation], timeout: 5) == .completed else {
-      XCTFail(failure)
-      throw NSError(domain: "MailTestBootstrapUITests", code: 1)
-    }
-
     let keyboard = app.keyboards.firstMatch
-    element.tap()
-    dismissKeyboardIntroductionIfNeeded()
-    if keyboard.waitForExistence(timeout: 2) {
-      element.typeText(text)
-      return
+    if element.isHittable {
+      element.tap()
+      dismissKeyboardIntroductionIfNeeded()
+      if keyboard.waitForExistence(timeout: 2) {
+        element.typeText(text)
+        return
+      }
     }
 
     let tapOffsets: [CGFloat] = [0.5, 0.85, 0.15]
