@@ -8,7 +8,6 @@ enum MailRecipientSuggestionSource: Int, Codable, Equatable, Sendable {
   case recent = 0
   case correspondent = 1
   case contact = 2
-  case providerDirectory = 3
 }
 
 struct MailRecipientSuggestion: Equatable, Identifiable, Sendable {
@@ -19,50 +18,214 @@ struct MailRecipientSuggestion: Equatable, Identifiable, Sendable {
   var id: String { emailAddress.lowercased() }
 
   var headerValue: String {
-    guard let displayName, !displayName.isEmpty else { return emailAddress }
-    let escapedName =
-      displayName
-      .replacing("\\", with: "\\\\")
-      .replacing("\"", with: "\\\"")
-    return "\"\(escapedName)\" <\(emailAddress)>"
+    RFCMailbox(displayName: displayName, emailAddress: emailAddress).headerValue
   }
 }
 
-enum MailRecipientText {
-  static func applying(
-    _ suggestion: MailRecipientSuggestion,
-    to value: String
-  ) -> String {
-    var components =
-      value
-      .split(separator: ",", omittingEmptySubsequences: false)
-      .map(String.init)
-    if components.isEmpty {
-      components = [suggestion.headerValue]
-    } else {
-      components[components.count - 1] = suggestion.headerValue
+/// Editable To, Cc, and Bcc state backed by RFC mailbox header strings.
+struct MailRecipientEditor: Equatable, Sendable {
+  enum Field: Equatable, Sendable {
+    case bcc
+    case cc  // swiftlint:disable:this identifier_name
+    case to  // swiftlint:disable:this identifier_name
+  }
+
+  enum Issue: Equatable, Sendable {
+    case alreadyAdded
+    case invalidAddress
+
+    var message: String {
+      switch self {
+      case .alreadyAdded: "Already added"
+      case .invalidAddress: "Enter a complete email address."
+      }
     }
-    return components.joined(separator: ", ")
   }
-}
 
-protocol MailProviderDirectorySearching: Sendable {
-  func suggestions(matching query: String) async -> [MailRecipientSuggestion]
-}
+  struct Token: Equatable, Identifiable, Sendable {
+    let displayName: String?
+    let emailAddress: String
 
-struct EmptyMailProviderDirectory: MailProviderDirectorySearching {
-  func suggestions(matching _: String) async -> [MailRecipientSuggestion] { [] }
+    init(_ mailbox: RFCMailbox) {
+      displayName = mailbox.displayName
+      emailAddress = mailbox.emailAddress
+    }
+
+    var id: String { emailAddress.lowercased() }
+
+    var headerValue: String {
+      RFCMailbox(displayName: displayName, emailAddress: emailAddress).headerValue
+    }
+
+    var title: String {
+      guard let displayName, !displayName.isEmpty else { return emailAddress }
+      return "\(displayName) <\(emailAddress)>"
+    }
+  }
+
+  private struct Entry: Equatable, Sendable {
+    var issue: Issue?
+    var pendingText: String
+    var tokens: [Token]
+
+    init(headerValue: String) {
+      let trimmed = headerValue.trimmingCharacters(in: .whitespacesAndNewlines)
+      guard !trimmed.isEmpty else {
+        issue = nil
+        pendingText = ""
+        tokens = []
+        return
+      }
+      guard let mailboxes = RFCMailboxHeaderParser.mailboxes(in: trimmed) else {
+        issue = .invalidAddress
+        pendingText = headerValue
+        tokens = []
+        return
+      }
+      issue = nil
+      pendingText = ""
+      tokens = mailboxes.map(Token.init)
+    }
+
+    var headerValue: String {
+      let pendingText = pendingText.trimmingCharacters(in: .whitespacesAndNewlines)
+      return (tokens.map(\.headerValue) + (pendingText.isEmpty ? [] : [pendingText]))
+        .joined(separator: ", ")
+    }
+  }
+
+  struct Headers: Equatable, Sendable {
+    let bcc: String
+    let cc: String  // swiftlint:disable:this identifier_name
+    let to: String  // swiftlint:disable:this identifier_name
+  }
+
+  private var bcc: Entry
+  private var cc: Entry  // swiftlint:disable:this identifier_name
+  private var to: Entry  // swiftlint:disable:this identifier_name
+
+  init(to: String, cc: String, bcc: String) {  // swiftlint:disable:this identifier_name
+    self.bcc = Entry(headerValue: bcc)
+    self.cc = Entry(headerValue: cc)
+    self.to = Entry(headerValue: to)
+  }
+
+  var headers: Headers {
+    Headers(bcc: bcc.headerValue, cc: cc.headerValue, to: to.headerValue)
+  }
+
+  var hasPopulatedOptionalRecipients: Bool {
+    !cc.headerValue.isEmpty || !bcc.headerValue.isEmpty
+  }
+
+  func contains(emailAddress: String) -> Bool {
+    allEmailAddresses.contains(emailAddress.lowercased())
+  }
+
+  func issue(in field: Field) -> Issue? {
+    entry(for: field).issue
+  }
+
+  func pendingText(in field: Field) -> String {
+    entry(for: field).pendingText
+  }
+
+  func tokens(in field: Field) -> [Token] {
+    entry(for: field).tokens
+  }
+
+  mutating func updatePendingText(_ value: String, in field: Field) {
+    var entry = entry(for: field)
+    entry.issue = nil
+    entry.pendingText = value
+    setEntry(entry, for: field)
+    guard value.last == "," || value.last == ";" else { return }
+    entry.pendingText.removeLast()
+    setEntry(entry, for: field)
+    commitPendingText(in: field)
+  }
+
+  mutating func commitPendingText(in field: Field) {
+    var entry = entry(for: field)
+    let pendingText = entry.pendingText.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !pendingText.isEmpty else {
+      entry.issue = nil
+      entry.pendingText = ""
+      setEntry(entry, for: field)
+      return
+    }
+    let normalized = pendingText.replacing(";", with: ",")
+    guard let mailboxes = RFCMailboxHeaderParser.mailboxes(in: normalized) else {
+      entry.issue = .invalidAddress
+      setEntry(entry, for: field)
+      return
+    }
+
+    var knownAddresses = allEmailAddresses
+    var foundDuplicate = false
+    for mailbox in mailboxes {
+      let address = mailbox.emailAddress.lowercased()
+      guard knownAddresses.insert(address).inserted else {
+        foundDuplicate = true
+        continue
+      }
+      entry.tokens.append(Token(mailbox))
+    }
+    entry.issue = foundDuplicate ? .alreadyAdded : nil
+    entry.pendingText = ""
+    setEntry(entry, for: field)
+  }
+
+  mutating func accept(_ suggestion: MailRecipientSuggestion, in field: Field) {
+    var entry = entry(for: field)
+    let address = suggestion.emailAddress.lowercased()
+    guard !allEmailAddresses.contains(address) else {
+      entry.issue = .alreadyAdded
+      entry.pendingText = ""
+      setEntry(entry, for: field)
+      return
+    }
+    guard let mailbox = RFCMailboxHeaderParser.singleMailbox(in: suggestion.headerValue) else {
+      entry.issue = .invalidAddress
+      setEntry(entry, for: field)
+      return
+    }
+    entry.issue = nil
+    entry.pendingText = ""
+    entry.tokens.append(Token(mailbox))
+    setEntry(entry, for: field)
+  }
+
+  mutating func remove(_ token: Token, from field: Field) {
+    var entry = entry(for: field)
+    entry.tokens.removeAll { $0.id == token.id }
+    entry.issue = nil
+    setEntry(entry, for: field)
+  }
+
+  private var allEmailAddresses: Set<String> {
+    Set((to.tokens + cc.tokens + bcc.tokens).map(\.id))
+  }
+
+  private func entry(for field: Field) -> Entry {
+    switch field {
+    case .bcc: bcc
+    case .cc: cc
+    case .to: to
+    }
+  }
+
+  private mutating func setEntry(_ entry: Entry, for field: Field) {
+    switch field {
+    case .bcc: bcc = entry
+    case .cc: cc = entry
+    case .to: to = entry
+    }
+  }
 }
 
 actor MailRecipientSuggestionService {
-  private let providerDirectory: any MailProviderDirectorySearching
   private var contactSuggestions: [MailRecipientSuggestion]?
-
-  init(
-    providerDirectory: any MailProviderDirectorySearching = EmptyMailProviderDirectory()
-  ) {
-    self.providerDirectory = providerDirectory
-  }
 
   func suggestions(
     matching query: String,
@@ -71,12 +234,10 @@ actor MailRecipientSuggestionService {
     let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !query.isEmpty else { return [] }
 
-    async let providerSuggestions = providerDirectory.suggestions(matching: query)
-    async let contactSuggestions = systemContactSuggestions(matching: query)
     let localSuggestions = localSuggestions(matching: query, messages: messages)
-    let (contacts, provider) = await (contactSuggestions, providerSuggestions)
+    let contacts = systemContactSuggestions(matching: query)
     return ranked(
-      localSuggestions + contacts + provider,
+      localSuggestions + contacts,
       matching: query
     )
   }
@@ -144,7 +305,8 @@ actor MailRecipientSuggestionService {
     matching query: String
   ) -> [MailRecipientSuggestion] {
     #if canImport(Contacts)
-      guard CNContactStore.authorizationStatus(for: .contacts) == .authorized else {
+      let authorizationStatus = CNContactStore.authorizationStatus(for: .contacts)
+      guard authorizationStatus == .authorized || authorizationStatus == .limited else {
         contactSuggestions = nil
         return []
       }
@@ -158,24 +320,31 @@ actor MailRecipientSuggestionService {
         CNContactEmailAddressesKey as CNKeyDescriptor,
       ])
       var suggestions: [MailRecipientSuggestion] = []
-      try? store.enumerateContacts(with: request) { contact, stop in
-        guard !Task.isCancelled else {
-          stop.pointee = true
-          return
+      do {
+        try store.enumerateContacts(with: request) { contact, stop in
+          guard !Task.isCancelled else {
+            stop.pointee = true
+            return
+          }
+          var name = PersonNameComponents()
+          name.givenName = contact.givenName
+          name.familyName = contact.familyName
+          let displayName = name.formatted().trimmingCharacters(in: .whitespacesAndNewlines)
+          for email in contact.emailAddresses {
+            guard let mailbox = RFCMailboxHeaderParser.singleMailbox(in: String(email.value)) else {
+              continue
+            }
+            suggestions.append(
+              MailRecipientSuggestion(
+                displayName: displayName.isEmpty ? nil : displayName,
+                emailAddress: mailbox.emailAddress,
+                source: .contact
+              )
+            )
+          }
         }
-        var name = PersonNameComponents()
-        name.givenName = contact.givenName
-        name.familyName = contact.familyName
-        let displayName = name.formatted().trimmingCharacters(in: .whitespacesAndNewlines)
-        for email in contact.emailAddresses {
-          let address = String(email.value)
-          let suggestion = MailRecipientSuggestion(
-            displayName: displayName.isEmpty ? nil : displayName,
-            emailAddress: address,
-            source: .contact
-          )
-          suggestions.append(suggestion)
-        }
+      } catch {
+        return []
       }
       guard !Task.isCancelled else { return [] }
       contactSuggestions = suggestions

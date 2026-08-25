@@ -1,8 +1,17 @@
 import Foundation
 
-struct RFCMailbox {
+struct RFCMailbox: Equatable, Sendable {
   let displayName: String?
   let emailAddress: String
+
+  var headerValue: String {
+    guard let displayName, !displayName.isEmpty else { return emailAddress }
+    let escapedName =
+      displayName
+      .replacing("\\", with: "\\\\")
+      .replacing("\"", with: "\\\"")
+    return "\"\(escapedName)\" <\(emailAddress)>"
+  }
 }
 
 // The parser stays centralized so incoming-header and outgoing-recipient validation share rules.

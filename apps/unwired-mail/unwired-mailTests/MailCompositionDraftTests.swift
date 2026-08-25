@@ -843,7 +843,7 @@ final class MailCompositionDraftTests {
   }
 
   @Test
-  func recipientSuggestionsPreferLocalRecentsAndDeduplicateProviderResults() async {
+  func recipientSuggestionsPreferLocalRecentsAndDeduplicateCorrespondents() async {
     let recent = message(
       from: "sender@example.com",
       providerMessageId: "sent",
@@ -858,21 +858,7 @@ final class MailCompositionDraftTests {
       recipientHeaders: ["sender@example.com"],
       receivedAt: 100
     )
-    let provider = FixtureProviderDirectory(
-      values: [
-        MailRecipientSuggestion(
-          displayName: "Provider Duplicate",
-          emailAddress: "alice161fixture@example.com",
-          source: .providerDirectory
-        ),
-        MailRecipientSuggestion(
-          displayName: "Provider Result",
-          emailAddress: "alice161fixture-directory@example.com",
-          source: .providerDirectory
-        ),
-      ]
-    )
-    let service = MailRecipientSuggestionService(providerDirectory: provider)
+    let service = MailRecipientSuggestionService()
 
     let suggestions = await service.suggestions(
       matching: "alice161fixture",
@@ -882,11 +868,11 @@ final class MailCompositionDraftTests {
     #expect(suggestions.first?.emailAddress == "alice161fixture@example.com")
     #expect(suggestions.first?.source == .recent)
     #expect(suggestions.map(\.emailAddress).count == Set(suggestions.map(\.emailAddress)).count)
-    #expect(suggestions.contains { $0.source == .providerDirectory })
   }
 
-  @Test
-  func recipientSuggestionEscapesQuotedNamesAndProducesACompleteMailboxList() {
+  @Test(.bug(id: 555))
+  func recipientEditorCreatesRemovableTokensFromSuggestionsAndSeparators() throws {
+    var editor = MailRecipientEditor(to: "first@example.com", cc: "", bcc: "")
     let suggestion = MailRecipientSuggestion(
       displayName: #"Path\Name "Alias""#,
       emailAddress: "alias@example.com",
@@ -894,9 +880,51 @@ final class MailCompositionDraftTests {
     )
 
     #expect(suggestion.headerValue == #""Path\\Name \"Alias\"" <alias@example.com>"#)
-    let value = MailRecipientText.applying(suggestion, to: "first@example.com, ali")
-    #expect(value == #"first@example.com, "Path\\Name \"Alias\"" <alias@example.com>"#)
-    #expect(RFCMailboxHeaderParser.mailboxes(in: value) != nil)
+    editor.accept(suggestion, in: .to)
+    editor.updatePendingText("copy@example.com;", in: .cc)
+
+    #expect(
+      editor.headers.to == #"first@example.com, "Path\\Name \"Alias\"" <alias@example.com>"#
+    )
+    #expect(editor.headers.cc == "copy@example.com")
+    let copyToken = try #require(editor.tokens(in: .cc).first)
+    editor.remove(copyToken, from: .cc)
+    #expect(editor.headers.cc.isEmpty)
+  }
+
+  @Test(.bug(id: 555))
+  func recipientEditorKeepsInvalidTextAndRejectsDuplicatesAcrossFields() {
+    var editor = MailRecipientEditor(
+      to: "Alice <alice@example.com>",
+      cc: "copy@example.com",
+      bcc: ""
+    )
+
+    editor.updatePendingText("unfinished@", in: .bcc)
+    editor.commitPendingText(in: .bcc)
+    #expect(editor.pendingText(in: .bcc) == "unfinished@")
+    #expect(editor.issue(in: .bcc) == .invalidAddress)
+    #expect(editor.headers.bcc == "unfinished@")
+
+    editor.updatePendingText("ALICE@example.com,", in: .bcc)
+    #expect(editor.tokens(in: .bcc).isEmpty)
+    #expect(editor.pendingText(in: .bcc).isEmpty)
+    #expect(editor.issue(in: .bcc) == .alreadyAdded)
+    #expect(editor.headers.bcc.isEmpty)
+  }
+
+  @Test(.bug(id: 555))
+  func recipientEditorRestoresOptionalRecipientTokensFromDraftHeaders() {
+    let editor = MailRecipientEditor(
+      to: "to@example.com",
+      cc: "Copy <copy@example.com>",
+      bcc: "hidden@example.com"
+    )
+
+    #expect(editor.hasPopulatedOptionalRecipients)
+    #expect(editor.tokens(in: .cc).map(\.emailAddress) == ["copy@example.com"])
+    #expect(editor.tokens(in: .bcc).map(\.emailAddress) == ["hidden@example.com"])
+    #expect(editor.headers.cc == #""Copy" <copy@example.com>"#)
   }
 
   @Test
@@ -962,6 +990,8 @@ final class MailCompositionDraftTests {
     )
     let profileId = MailProfileId(rawValue: "profile-a")
     var source = draft(recipient: "recipient@example.com")
+    source.ccRecipients = "Copy <copy@example.com>"
+    source.bccRecipients = "hidden@example.com"
     source.assets = [
       MailDraftAsset(
         data: Data(repeating: 0xA5, count: MailDraftAssetChunk.maximumByteCount + 17),
@@ -1359,16 +1389,5 @@ private struct OfflineSendReminderSyncService: SendReminderSyncing {
     session _: ProductAccountSessionSnapshot
   ) async throws -> SendReminderSyncMutation {
     throw DraftFixtureError.offline
-  }
-}
-
-private struct FixtureProviderDirectory: MailProviderDirectorySearching {
-  let values: [MailRecipientSuggestion]
-
-  func suggestions(matching query: String) async -> [MailRecipientSuggestion] {
-    values.filter {
-      $0.emailAddress.localizedCaseInsensitiveContains(query)
-        || $0.displayName?.localizedCaseInsensitiveContains(query) == true
-    }
   }
 }
