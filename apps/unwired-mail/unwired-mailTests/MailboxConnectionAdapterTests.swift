@@ -5284,36 +5284,36 @@ final class MailboxConnectionAdapterTests {
     var navigation = MailShellComposerNavigationState()
 
     switch kind {
-      case .reply:
-        MailShellConversationReader.presentReply(
-          to: message,
-          replyAll: false,
-          senderAddress: "reader@example.com",
-          quotedText: "Quoted reply",
-          sendingIdentityId: nil,
-          signatures: .empty,
-          present: navigation.present
-        )
-      case .replyAll:
-        MailShellConversationReader.presentReply(
-          to: message,
-          replyAll: true,
-          senderAddress: "reader@example.com",
-          quotedText: "Quoted reply",
-          sendingIdentityId: nil,
-          signatures: .empty,
-          present: navigation.present
-        )
-      case .forward:
-        MailShellConversationReader.presentForward(
-          message,
-          body: MailboxMessageBody(text: "Forwarded body"),
-          sendingIdentityId: nil,
-          signatures: .empty,
-          present: navigation.present
-        )
-      case .editing, .newMessage:
-        preconditionFailure("Only reply and forward entry points belong in this regression")
+    case .reply:
+      MailShellConversationReader.presentReply(
+        to: message,
+        replyAll: false,
+        senderAddress: "reader@example.com",
+        quotedText: "Quoted reply",
+        sendingIdentityId: nil,
+        signatures: .empty,
+        present: navigation.present
+      )
+    case .replyAll:
+      MailShellConversationReader.presentReply(
+        to: message,
+        replyAll: true,
+        senderAddress: "reader@example.com",
+        quotedText: "Quoted reply",
+        sendingIdentityId: nil,
+        signatures: .empty,
+        present: navigation.present
+      )
+    case .forward:
+      MailShellConversationReader.presentForward(
+        message,
+        body: MailboxMessageBody(text: "Forwarded body"),
+        sendingIdentityId: nil,
+        signatures: .empty,
+        present: navigation.present
+      )
+    case .editing, .newMessage:
+      preconditionFailure("Only reply and forward entry points belong in this regression")
     }
     let draft = try #require(navigation.draft)
 
