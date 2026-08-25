@@ -2,7 +2,7 @@ import SwiftUI
 
 struct ResponseAssistanceContext {
   let localBodyText: (StableProviderMessageIdentity) -> String?
-  let thread: MailboxThread
+  let thread: () -> MailboxThread?
 }
 
 struct ResponseAssistancePresentation: Identifiable {
@@ -99,7 +99,7 @@ struct ResponseAssistanceView: View {
       } description: {
         Text(preview.content)
       } actions: {
-        Button("Try Again", action: generate)
+        Button("Edit Draft", action: close)
           .buttonStyle(.borderedProminent)
       }
     } else if let result = preview.response {
@@ -280,8 +280,11 @@ struct ResponseAssistanceView: View {
   }
 
   private func makeRequest() throws -> MailAssistanceRequest {
-    try ResponseAssistanceRequestBuilder().makeRequest(
-      for: presentation.context.thread,
+    guard let thread = presentation.context.thread() else {
+      throw MailAssistanceError.invalidInputVersion
+    }
+    return try ResponseAssistanceRequestBuilder().makeRequest(
+      for: thread,
       draft: draft(),
       profileId: presentation.profileId,
       localeIdentifier: presentation.localeIdentifier,

@@ -9492,7 +9492,9 @@ struct MailShellConversationReader: View {
     else { return nil }
     return ResponseAssistanceContext(
       localBodyText: inboxViewModel.loadedMessageBodyText(for:),
-      thread: thread
+      thread: {
+        selection.threads.first(where: { $0.id == thread.id })
+      }
     )
   }
 

@@ -335,7 +335,13 @@ enum ComposeAssistanceOutputValidator {
         throw MailAssistanceError.guardrailViolation
       }
     case .respond:
-      guard preservesFactualTokens(from: source.plainText, to: output.plainText) else {
+      guard
+        preservesFactualTokens(
+          from: source.plainText,
+          to: output.plainText,
+          allowsAdditionalTokens: true
+        )
+      else {
         throw MailAssistanceError.guardrailViolation
       }
     case .suggestSubject, .understand:
@@ -364,7 +370,11 @@ enum ComposeAssistanceOutputValidator {
     }
   }
 
-  private static func preservesFactualTokens(from source: String, to output: String) -> Bool {
+  private static func preservesFactualTokens(
+    from source: String,
+    to output: String,
+    allowsAdditionalTokens: Bool = false
+  ) -> Bool {
     let patterns = [
       #"https?://[^\s]+"#,
       #"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}"#,
@@ -373,7 +383,15 @@ enum ComposeAssistanceOutputValidator {
     ]
     let sourceTokens = patterns.flatMap { matches(of: $0, in: source) }
     let outputTokens = patterns.flatMap { matches(of: $0, in: output) }
-    guard tokenCounts(sourceTokens) == tokenCounts(outputTokens) else { return false }
+    let sourceCounts = tokenCounts(sourceTokens)
+    let outputCounts = tokenCounts(outputTokens)
+    let preservesTokens =
+      if allowsAdditionalTokens {
+        sourceCounts.allSatisfy { token, count in outputCounts[token, default: 0] >= count }
+      } else {
+        sourceCounts == outputCounts
+      }
+    guard preservesTokens else { return false }
     guard source.count(where: { $0 == "?" }) <= output.count(where: { $0 == "?" }) else {
       return false
     }

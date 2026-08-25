@@ -47,7 +47,9 @@ struct ResponseAssistanceTests {
     let request = try makeRequest()
     let sourceId = try #require(request.context.sourceMessages.first?.sourceMessageId)
     let suggestions = suggestionSet()
-    let fullReply = SemanticMessageDocument(plainText: "Thanks. Tuesday works for me.")
+    let fullReply = SemanticMessageDocument(
+      plainText: "Thanks. Tuesday at 2 works for me. See https://example.com/plan."
+    )
     let completeness = ResponseAssistanceCompletenessItem(
       kind: .question,
       sourceMessageIds: [sourceId],
