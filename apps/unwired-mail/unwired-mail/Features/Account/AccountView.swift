@@ -5425,6 +5425,7 @@ final class MailShellSelectionModel {
   }
 
   private func reconcileSelectedThreads() {
+    guard !selectedThreadIds.isEmpty else { return }
     let availableThreadIds = Set(threads.map(\.id))
     selectedThreadIds.formIntersection(availableThreadIds)
   }
