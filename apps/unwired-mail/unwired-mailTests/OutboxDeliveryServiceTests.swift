@@ -3115,6 +3115,7 @@ private final class ScheduledSendMailboxRoutingSpy: ScheduledSendMailboxRouting 
 }
 
 private actor ScheduledSendClaimTransportSpy: ScheduledSendOperationalTransport {
+  private var claimPhase = ScheduledSendClaimPhase.preHandoff
   private var recordedEvents: [String] = []
 
   func admitScheduledSend(
@@ -3166,6 +3167,7 @@ private actor ScheduledSendClaimTransportSpy: ScheduledSendOperationalTransport 
     trustedDeviceId _: String
   ) async throws -> Bool {
     recordedEvents.append("advance")
+    claimPhase = .handingOff
     return true
   }
 
@@ -3180,7 +3182,7 @@ private actor ScheduledSendClaimTransportSpy: ScheduledSendOperationalTransport 
         authorizationGeneration: 1,
         expiresAt: nil,
         generation: claimGeneration,
-        phase: .handingOff
+        phase: claimPhase
       )
     )
   }
