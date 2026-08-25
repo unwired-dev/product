@@ -5672,6 +5672,59 @@ final class MailboxConnectionAdapterTests {
     withExtendedLifetime(window) {}
   }
 
+  @Test(.bug(id: 552))
+  func testMessageBodyPresentationRevealsOnlyPreparedContent() {
+    let html = SanitizedMessageHTML(documentHTML: "styled-document")
+    var state = MailShellMessageBodyPresentationState.placeholder
+
+    state.didPrepare(.html(html))
+    #expect(state == .placeholder)
+
+    state.didRenderHTML()
+    #expect(state == .revealed)
+
+    state.didClear()
+    #expect(state == .cleared)
+
+    state.retry()
+    #expect(state == .placeholder)
+
+    state.didFail("Unavailable")
+    #expect(state == .failed("Unavailable"))
+
+    state.retry()
+    state.didPrepare(.plainText("Readable fallback"))
+    #expect(state == .revealed)
+  }
+
+  @Test(.bug(id: 552))
+  func testMessageBodyRenderingFailureFallsBackToPlainText() async throws {
+    let bodyLoaded = expectation(description: "Plain-text fallback revealed")
+    let host = UIHostingController(
+      rootView: MailShellMessageBody(
+        onLoaded: { bodyLoaded.fulfill() },
+        load: {
+          MailboxMessageBody(
+            text: "Readable fallback",
+            html: "<p>Styled body</p>"
+          )
+        }
+      )
+    )
+    let window = try releaseFixtureWindow(hosting: host)
+
+    releaseBeginRendering(host.view)
+    let webView = try #require(
+      await releaseWaitForDescendant(WKWebView.self, in: host.view)
+    )
+    webView.navigationDelegate?.webViewWebContentProcessDidTerminate?(webView)
+    await fulfillment(of: [bodyLoaded], timeout: 1)
+    await releaseRenderFrame(host.view)
+
+    #expect(releaseDescendant(WKWebView.self, in: host.view) == nil)
+    withExtendedLifetime(window) {}
+  }
+
   @Test
   func testMailShellMessageBodyReleasesLoadedPresentationAfterClear() async throws {
     let bodyLoaded = expectation(description: "Message body loaded")
@@ -10746,6 +10799,30 @@ private func releaseRenderFrame(_ view: UIView) async {
   try? await Task.sleep(nanoseconds: 17_000_000)
   view.layoutIfNeeded()
   CATransaction.flush()
+}
+
+@MainActor
+private func releaseDescendant<View: UIView>(
+  _ type: View.Type,
+  in root: UIView
+) -> View? {
+  if let match = root as? View { return match }
+  for subview in root.subviews {
+    if let match = releaseDescendant(type, in: subview) { return match }
+  }
+  return nil
+}
+
+@MainActor
+private func releaseWaitForDescendant<View: UIView>(
+  _ type: View.Type,
+  in root: UIView
+) async -> View? {
+  for _ in 0..<100 {
+    if let match = releaseDescendant(type, in: root) { return match }
+    await releaseRenderFrame(root)
+  }
+  return nil
 }
 
 @MainActor
