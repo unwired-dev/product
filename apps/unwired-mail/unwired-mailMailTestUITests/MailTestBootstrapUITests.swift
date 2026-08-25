@@ -170,10 +170,11 @@ final class MailTestBootstrapUITests: XCTestCase {
     failure: String
   ) throws {
     let keyboard = app.keyboards.firstMatch
+    dismissKeyboardIntroductionIfNeeded()
     if element.isHittable {
       element.tap()
       dismissKeyboardIntroductionIfNeeded()
-      if keyboard.waitForExistence(timeout: 2) {
+      if keyboard.waitForExistence(timeout: 2), waitForKeyboardFocus(on: element) {
         element.typeText(text)
         return
       }
@@ -181,11 +182,12 @@ final class MailTestBootstrapUITests: XCTestCase {
 
     let tapOffsets: [CGFloat] = [0.5, 0.85, 0.15]
     for horizontalOffset in tapOffsets {
+      dismissKeyboardIntroductionIfNeeded()
       element.coordinate(
         withNormalizedOffset: CGVector(dx: horizontalOffset, dy: 0.5)
       ).tap()
       dismissKeyboardIntroductionIfNeeded()
-      if keyboard.waitForExistence(timeout: 2) {
+      if keyboard.waitForExistence(timeout: 2), waitForKeyboardFocus(on: element) {
         element.typeText(text)
         return
       }
@@ -193,6 +195,14 @@ final class MailTestBootstrapUITests: XCTestCase {
 
     XCTFail(failure)
     throw NSError(domain: "MailTestBootstrapUITests", code: 1)
+  }
+
+  private func waitForKeyboardFocus(on element: XCUIElement) -> Bool {
+    let focused = XCTNSPredicateExpectation(
+      predicate: NSPredicate(format: "hasKeyboardFocus == true"),
+      object: element
+    )
+    return XCTWaiter.wait(for: [focused], timeout: 2) == .completed
   }
 
   private func dismissKeyboardIntroductionIfNeeded() {
