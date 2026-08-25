@@ -7849,13 +7849,6 @@ struct MailShellReadBatchTaskOwner {
 }
 
 enum MailShellMessageReadVisibility {
-  static func isLoaded(
-    freshBodyIsLoaded: Bool,
-    cachedBodyText: String?
-  ) -> Bool {
-    freshBodyIsLoaded || cachedBodyText != nil
-  }
-
   static func isEligible(
     isBodyLoaded: Bool,
     bodyFrame: CGRect,
@@ -8113,7 +8106,6 @@ struct MailShellConversationReader: View {
                           guard allowsContentReveal else { return false }
                           return await revalidateTrustedDevice()
                         },
-                        cachedBodyText: inboxViewModel.loadedMessageBodyText(for: message.id),
                         clearBodySignal: inboxViewModel.loadedMessageBodyClearSignal(
                           for: message.id),
                         removesQuotedReplies: Self.removesQuotedReplies(
@@ -8492,6 +8484,7 @@ struct MailShellConversationReader: View {
         readingPreferences: readingPreferences,
         profileName: profileName,
         recipientMessages: selection.threads.flatMap(\.messages),
+        responseAssistanceContext: responseAssistanceContext(for: draft),
         sendingIdentities: sendingIdentities,
         draftDidChange: { compositionDraft = $0 },
         saveDraft: saveDraft,
@@ -9532,6 +9525,20 @@ struct MailShellConversationReader: View {
       readerErrorMessage = error.localizedDescription
       readerErrorSource = .other
     }
+  }
+
+  private func responseAssistanceContext(
+    for draft: MailShellCompositionDraft
+  ) -> ResponseAssistanceContext? {
+    guard let replyToMessage = draft.replyToMessage,
+      let thread = selection.threads.first(where: { $0.id == replyToMessage.threadIdentity })
+    else { return nil }
+    return ResponseAssistanceContext(
+      localBodyText: inboxViewModel.loadedMessageBodyText(for:),
+      thread: {
+        selection.threads.first(where: { $0.id == thread.id })
+      }
+    )
   }
 
   private func prepareReply(
@@ -10773,7 +10780,6 @@ private struct MailShellConversationMessageHeader: View {
 
 private struct MailShellConversationMessageBody: View {
   let authorizeLinkOpening: () async -> Bool
-  let cachedBodyText: String?
   let clearBodySignal: UUID?
   let removesQuotedReplies: Bool
   let loadBody: () async throws -> MailboxMessageBody
@@ -10793,7 +10799,6 @@ private struct MailShellConversationMessageBody: View {
   var body: some View {
     MailShellMessageBody(
       authorizeLinkOpening: authorizeLinkOpening,
-      cachedBodyText: cachedBodyText,
       clearSignal: clearBodySignal,
       connectionId: message.connectionId,
       messageId: message.id,
@@ -10825,13 +10830,6 @@ private struct MailShellConversationMessageBody: View {
     .onChange(of: visibleViewportFrame) {
       updateBodyVisibility()
     }
-    .onChange(of: cachedBodyText) { _, newCachedBodyText in
-      updateBodyVisibility(
-        isBodyLoaded: MailShellMessageReadVisibility.isLoaded(
-          freshBodyIsLoaded: isBodyLoaded,
-          cachedBodyText: newCachedBodyText
-        ))
-    }
     .onChange(of: clearBodySignal) {
       isBodyLoaded = false
       updateBodyVisibility(isBodyLoaded: false)
@@ -10842,12 +10840,7 @@ private struct MailShellConversationMessageBody: View {
     isBodyLoaded: Bool? = nil,
     bodyFrame: CGRect? = nil
   ) {
-    let resolvedBodyIsLoaded =
-      isBodyLoaded
-      ?? MailShellMessageReadVisibility.isLoaded(
-        freshBodyIsLoaded: self.isBodyLoaded,
-        cachedBodyText: cachedBodyText
-      )
+    let resolvedBodyIsLoaded = isBodyLoaded ?? self.isBodyLoaded
     let isVisible = MailShellMessageReadVisibility.isEligible(
       isBodyLoaded: resolvedBodyIsLoaded,
       bodyFrame: bodyFrame ?? self.bodyFrame,
@@ -10865,7 +10858,6 @@ private struct MailShellConversationMessageBody: View {
 
 struct MailShellMessageBody: View {
   let authorizeLinkOpening: () async -> Bool
-  let cachedBodyText: String?
   let clearSignal: UUID?
   let connectionId: MailboxConnectionId?
   let messageId: StableProviderMessageIdentity?
@@ -10880,20 +10872,15 @@ struct MailShellMessageBody: View {
   let onRelease: () -> Void
   let onReleaseRemoteContent: () -> Void
   let removesQuotedReplies: Bool
-  let showsLoadingIndicator: Bool
   let loadRemoteContent: (SanitizedMessageHTML) async throws -> RemoteMessageContentLoadResult
   @State private var loadedContent: MailShellLoadedMessageContent?
-  @State private var errorMessage: String?
-  @State private var isCleared = false
-  @State private var isLoading = false
-  @State private var isLoadingIndicatorVisible = false
   @State private var isPresentationRetained = false
   @State private var loadAttempt = 0
   @State private var loadGeneration = UUID()
+  @State private var presentationState = MailShellMessageBodyPresentationState.placeholder
 
   init(
     authorizeLinkOpening: @escaping () async -> Bool = { true },
-    cachedBodyText: String? = nil,
     clearSignal: UUID? = nil,
     connectionId: MailboxConnectionId? = nil,
     messageId: StableProviderMessageIdentity? = nil,
@@ -10906,7 +10893,6 @@ struct MailShellMessageBody: View {
     onRelease: @escaping () -> Void = {},
     onReleaseRemoteContent: @escaping () -> Void = {},
     removesQuotedReplies: Bool = false,
-    showsLoadingIndicator: Bool = true,
     loadAttachment: @escaping (MailboxMessageAttachment) async throws -> Data = { _ in
       throw MailboxMessageAttachmentError.unsupportedProvider
     },
@@ -10918,7 +10904,6 @@ struct MailShellMessageBody: View {
     load: @escaping () async throws -> MailboxMessageBody
   ) {
     self.authorizeLinkOpening = authorizeLinkOpening
-    self.cachedBodyText = cachedBodyText
     self.clearSignal = clearSignal
     self.connectionId = connectionId
     self.messageId = messageId
@@ -10933,7 +10918,6 @@ struct MailShellMessageBody: View {
     self.onRelease = onRelease
     self.onReleaseRemoteContent = onReleaseRemoteContent
     self.removesQuotedReplies = removesQuotedReplies
-    self.showsLoadingIndicator = showsLoadingIndicator
     self.loadRemoteContent = loadRemoteContent
   }
 
@@ -10947,23 +10931,32 @@ struct MailShellMessageBody: View {
           loadAttachment: loadAttachment,
           loadRemoteContent: loadRemoteContent,
           onResetRemoteContent: onReleaseRemoteContent,
+          onInitialHTMLDocumentReady: revealPreparedContent,
           onRenderingFailure: {
+            let wasRevealed = presentationState.revealsContent
             self.loadedContent = MailShellLoadedMessageContent(
               attachments: loadedContent.attachments,
               fallbackText: loadedContent.fallbackText,
               hasInlineContent: loadedContent.hasInlineContent,
               presentation: .plainText(loadedContent.fallbackText)
             )
+            presentationState.didPrepare(.plainText(loadedContent.fallbackText))
+            if !wasRevealed {
+              onLoaded()
+            }
           }
         )
-      } else if isCleared {
+        .opacity(presentationState.revealsContent ? 1 : 0)
+        .accessibilityHidden(!presentationState.revealsContent)
+        .overlay(alignment: .topLeading) {
+          if presentationState == .placeholder {
+            MailShellMessageBodyPlaceholder()
+          }
+        }
+      } else if presentationState == .cleared {
         Text("Cached body removed.")
           .foregroundStyle(.secondary)
-      } else if let cachedPresentationText {
-        MailShellPlainMessageText(text: cachedPresentationText)
-      } else if isLoading && isLoadingIndicatorVisible {
-        ProgressView("Loading message…")
-      } else if let errorMessage {
+      } else if case .failed(let errorMessage) = presentationState {
         ContentUnavailableView {
           Label("Message unavailable", systemImage: "exclamationmark.triangle")
         } description: {
@@ -10973,7 +10966,7 @@ struct MailShellMessageBody: View {
             .accessibilityIdentifier("mail-message-body-retry")
         }
       } else {
-        Color.clear.frame(height: 44)
+        MailShellMessageBodyPlaceholder()
       }
     }
     .handlingSuspiciousLinks(
@@ -10982,20 +10975,6 @@ struct MailShellMessageBody: View {
     )
     .task(id: loadAttempt) {
       let generation = loadGeneration
-      isLoading = true
-      let loadingIndicatorTask = Task { @MainActor in
-        try? await Task.sleep(for: .milliseconds(300))
-        guard showsLoadingIndicator, !Task.isCancelled, generation == loadGeneration, isLoading
-        else { return }
-        isLoadingIndicatorVisible = true
-      }
-      defer {
-        loadingIndicatorTask.cancel()
-        if generation == loadGeneration {
-          isLoading = false
-          isLoadingIndicatorVisible = false
-        }
-      }
       do {
         let loadedMessageBody = try await load()
         isPresentationRetained = true
@@ -11027,39 +11006,36 @@ struct MailShellMessageBody: View {
           presentation: presentation
         )
         onBodyLoaded(loadedMessageBody)
-        errorMessage = nil
-        isCleared = false
-        onLoaded()
+        presentationState.didPrepare(presentation)
+        if presentationState.revealsContent {
+          onLoaded()
+        }
       } catch is CancellationError {
         releasePresentation()
       } catch {
         releasePresentation()
         guard generation == loadGeneration else { return }
-        errorMessage = error.localizedDescription
+        presentationState.didFail(error.localizedDescription)
       }
     }
     .onAppear {
       onDisplay()
     }
     .onChange(of: retrySignal) {
-      guard errorMessage != nil else { return }
+      guard presentationState.isFailed else { return }
       retryLoad()
     }
     .onChange(of: clearSignal) {
       releasePresentation()
       loadGeneration = UUID()
       loadedContent = nil
-      errorMessage = nil
-      isCleared = true
-      isLoading = false
-      isLoadingIndicatorVisible = false
+      presentationState.didClear()
     }
     .onDisappear {
       onDismiss()
       loadGeneration = UUID()
       loadedContent = nil
-      isLoading = false
-      isLoadingIndicatorVisible = false
+      presentationState.retry()
       releasePresentation()
     }
   }
@@ -11071,18 +11047,73 @@ struct MailShellMessageBody: View {
   }
 
   private func retryLoad() {
-    errorMessage = nil
-    isLoadingIndicatorVisible = false
+    presentationState.retry()
     loadGeneration = UUID()
     loadAttempt += 1
   }
 
-  private var cachedPresentationText: String? {
-    guard let cachedBodyText else { return nil }
-    let text =
-      removesQuotedReplies
-      ? MessagePlainTextPresentation.withoutQuotedReply(cachedBodyText) : cachedBodyText
-    return text.isEmpty ? nil : text
+  private func revealPreparedContent() {
+    guard presentationState == .placeholder else { return }
+    presentationState.didRenderHTML()
+    onLoaded()
+  }
+}
+
+enum MailShellMessageBodyPresentationState: Equatable {
+  case cleared
+  case failed(String)
+  case placeholder
+  case revealed
+
+  var isFailed: Bool {
+    if case .failed = self { true } else { false }
+  }
+
+  var revealsContent: Bool {
+    self == .revealed
+  }
+
+  mutating func didPrepare(_ presentation: MessageHTMLPresentation) {
+    switch presentation {
+    case .html:
+      self = .placeholder
+    case .plainText:
+      self = .revealed
+    }
+  }
+
+  mutating func didRenderHTML() {
+    guard self == .placeholder else { return }
+    self = .revealed
+  }
+
+  mutating func didFail(_ message: String) {
+    self = .failed(message)
+  }
+
+  mutating func didClear() {
+    self = .cleared
+  }
+
+  mutating func retry() {
+    self = .placeholder
+  }
+}
+
+private struct MailShellMessageBodyPlaceholder: View {
+  var body: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      Text("Message body loading placeholder")
+      Text("Message body loading placeholder")
+      Text("Message body")
+        .frame(maxWidth: 220, alignment: .leading)
+    }
+    .font(.body)
+    .foregroundStyle(.secondary)
+    .redacted(reason: .placeholder)
+    .accessibilityElement(children: .ignore)
+    .accessibilityLabel("Loading message")
+    .frame(maxWidth: .infinity, alignment: .leading)
   }
 }
 
@@ -11149,6 +11180,7 @@ private struct MailShellMessageContent: View {
   let loadAttachment: (MailboxMessageAttachment) async throws -> Data
   let loadRemoteContent: (SanitizedMessageHTML) async throws -> RemoteMessageContentLoadResult
   let onResetRemoteContent: () -> Void
+  let onInitialHTMLDocumentReady: () -> Void
   let onRenderingFailure: () -> Void
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
@@ -11157,6 +11189,7 @@ private struct MailShellMessageContent: View {
         MessageHTMLView(
           connectionId: connectionId,
           html: html,
+          onInitialDocumentReady: onInitialHTMLDocumentReady,
           onRenderingFailure: onRenderingFailure,
           onResetRemoteContent: onResetRemoteContent,
           loadRemoteContent: loadRemoteContent
@@ -13923,18 +13956,36 @@ final class GmailInboxViewModel {
       prefetch.task.cancel()
     }
     visibleMessageBodyPrefetchTasks = [:]
-    currentConnectionId = nil
-    displayedMessageBodyIds = []
-    unifiedConnectionIds = []
+    if currentConnectionId != nil {
+      currentConnectionId = nil
+    }
+    if !displayedMessageBodyIds.isEmpty {
+      displayedMessageBodyIds = []
+    }
+    if !unifiedConnectionIds.isEmpty {
+      unifiedConnectionIds = []
+    }
     unifiedLoadId = nil
     navigationLoadId = nil
-    isLoading = false
-    navigationSnapshot = .empty
-    visibleMessageBodyPrefetches = [:]
+    if isLoading {
+      isLoading = false
+    }
+    if navigationSnapshot != .empty {
+      navigationSnapshot = .empty
+    }
+    if !visibleMessageBodyPrefetches.isEmpty {
+      visibleMessageBodyPrefetches = [:]
+    }
     clearVisibleThreadsForProfileSwitch()
-    searchQuery = ""
-    searchResult = nil
-    errorMessage = nil
+    if !searchQuery.isEmpty {
+      searchQuery = ""
+    }
+    if searchResult != nil {
+      searchResult = nil
+    }
+    if errorMessage != nil {
+      errorMessage = nil
+    }
   }
 
   func clearVisibleThreadsForProfileSwitch() {
@@ -14309,7 +14360,7 @@ final class GmailInboxViewModel {
     connectionIds: Set<MailboxConnectionId>
   ) async -> Bool {
     let firstBatchSize = 1
-    let batchSize = 4
+    let batchSize = 2
     guard threads.isEmpty, initialProjectedThreads.count > firstBatchSize else {
       threads = initialProjectedThreads
       return true
@@ -14335,6 +14386,10 @@ final class GmailInboxViewModel {
         publishedCount = 0
         threads.removeAll(keepingCapacity: true)
       }
+      await waitForNextMainRunLoopCycle()
+      guard isCurrentUnifiedLoad(loadId: loadId, connectionIds: connectionIds) else {
+        return false
+      }
       let nextBatchSize = publishedCount == 0 ? firstBatchSize : batchSize
       let endIndex = min(publishedCount + nextBatchSize, projectedThreads.count)
       threads.append(contentsOf: projectedThreads[publishedCount..<endIndex])
@@ -14343,7 +14398,6 @@ final class GmailInboxViewModel {
       #if DEBUG
         await initialThreadBatchDidPublish?()
       #endif
-      await waitForNextMainRunLoopCycle()
     }
   }
 
@@ -15942,6 +15996,7 @@ struct MicrosoftGraphConnectionPanel: View {
   }
 }
 
+// swiftlint:disable:next type_body_length
 struct MailboxProviderConnectionPanel: View {
   struct Configuration {
     let allowsDefaultSender: Bool
@@ -15994,6 +16049,7 @@ struct MailboxProviderConnectionPanel: View {
   let selectMailbox: (MailboxConnection) -> Void
   @Bindable var viewModel: MailboxProviderConnectionViewModel
   @State private var connectTask: Task<Void, Never>?
+  @State private var connectionPendingEverywhereRemoval: MailboxConnection?
 
   private var connections: [MailboxConnection] {
     viewModel.connections.filter { $0.id.providerId == configuration.providerId }
@@ -16111,13 +16167,7 @@ struct MailboxProviderConnectionPanel: View {
             }
             Divider()
             Button("Remove Mailbox Connection Everywhere", role: .destructive) {
-              Task {
-                await Self.performDestructiveAction(
-                  cancelMailboxWork: cancelBodyPrefetch,
-                  action: { await viewModel.removeEverywhere(connection) },
-                  connectionsDidChange: connectionsDidChange
-                )
-              }
+              connectionPendingEverywhereRemoval = connection
             }
           } label: {
             Label("Manage", systemImage: "ellipsis.circle")
@@ -16172,6 +16222,37 @@ struct MailboxProviderConnectionPanel: View {
           .foregroundStyle(.orange)
           .font(.footnote)
       }
+    }
+    .confirmationDialog(
+      "Remove this Mailbox Connection everywhere?",
+      isPresented: Binding(
+        get: { connectionPendingEverywhereRemoval != nil },
+        set: { isPresented in
+          if !isPresented { connectionPendingEverywhereRemoval = nil }
+        }
+      ),
+      titleVisibility: .visible
+    ) {
+      Button("Cancel Scheduled Sends and Remove Connection", role: .destructive) {
+        guard let connection = connectionPendingEverywhereRemoval else { return }
+        connectionPendingEverywhereRemoval = nil
+        Task {
+          await Self.performDestructiveAction(
+            cancelMailboxWork: cancelBodyPrefetch,
+            action: { await viewModel.removeEverywhere(connection) },
+            connectionsDidChange: connectionsDidChange
+          )
+        }
+      }
+      Button("Keep Mailbox Connection", role: .cancel) {
+        connectionPendingEverywhereRemoval = nil
+      }
+    } message: {
+      Text(
+        "This cancels every Scheduled Send for this Mailbox Connection, then removes "
+          + "the connection and its authorization from every trusted device. "
+          + "Provider mail remains at the provider."
+      )
     }
     .task {
       guard configuration.loadsOnAppear else { return }

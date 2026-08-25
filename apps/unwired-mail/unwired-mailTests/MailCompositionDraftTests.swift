@@ -1202,6 +1202,7 @@ private final class ControlledDraftSaver {
   private let firstSaveCancellationContinuation: AsyncStream<Void>.Continuation
   private let firstSaveCancellationStream: AsyncStream<Void>
   private var firstSaveContinuation: CheckedContinuation<Void, Never>?
+  private var hasReleasedFirstSave = false
 
   init(failAfterFirstSave: Bool = false) {
     self.failAfterFirstSave = failAfterFirstSave
@@ -1217,7 +1218,11 @@ private final class ControlledDraftSaver {
       let cancellationContinuation = firstSaveCancellationContinuation
       await withTaskCancellationHandler {
         await withCheckedContinuation { continuation in
-          firstSaveContinuation = continuation
+          if hasReleasedFirstSave {
+            continuation.resume()
+          } else {
+            firstSaveContinuation = continuation
+          }
         }
       } onCancel: {
         cancellationContinuation.yield(())
@@ -1242,6 +1247,8 @@ private final class ControlledDraftSaver {
   }
 
   func releaseFirstSave() {
+    guard !hasReleasedFirstSave else { return }
+    hasReleasedFirstSave = true
     firstSaveContinuation?.resume()
     firstSaveContinuation = nil
   }
