@@ -87,24 +87,71 @@ final class MailProfileDeepLinkRouter {
 
 }
 
-private struct MailShellThreadColumnBoundsPreferenceKey: PreferenceKey {
-  static let defaultValue: Anchor<CGRect>? = nil
+private actor RemoteMessageContentLoadGate {
+  private struct Waiter {
+    let continuation: CheckedContinuation<Bool, Never>
+    let id: UUID
+  }
 
-  static func reduce(
-    value: inout Anchor<CGRect>?,
-    nextValue: () -> Anchor<CGRect>?
-  ) {
-    value = nextValue() ?? value
+  private var isAcquired = false
+  private var waiters: [Waiter] = []
+
+  func acquire() async -> Bool {
+    await acquire(maximumWaitDuration: nil)
+  }
+
+  func acquire(maximumWaitDuration: Duration) async -> Bool {
+    await acquire(maximumWaitDuration: Optional(maximumWaitDuration))
+  }
+
+  private func acquire(maximumWaitDuration: Duration?) async -> Bool {
+    guard isAcquired else {
+      isAcquired = true
+      return true
+    }
+    if let maximumWaitDuration, maximumWaitDuration <= .zero { return false }
+    let waiterId = UUID()
+    return await withTaskCancellationHandler {
+      await withCheckedContinuation { continuation in
+        guard !Task.isCancelled else {
+          continuation.resume(returning: false)
+          return
+        }
+        waiters.append(Waiter(continuation: continuation, id: waiterId))
+        guard let maximumWaitDuration else { return }
+        Task {
+          try? await Task.sleep(for: maximumWaitDuration)
+          self.cancelWaiter(waiterId)
+        }
+      }
+    } onCancel: {
+      Task { await self.cancelWaiter(waiterId) }
+    }
+  }
+
+  func release() {
+    guard !waiters.isEmpty else {
+      isAcquired = false
+      return
+    }
+    waiters.removeFirst().continuation.resume(returning: true)
+  }
+
+  private func cancelWaiter(_ waiterId: UUID) {
+    guard let index = waiters.firstIndex(where: { $0.id == waiterId }) else { return }
+    waiters.remove(at: index).continuation.resume(returning: false)
   }
 }
 
 @MainActor
 private final class LoadedMessageImageBudget {
   var attachmentByteCount = 0
+  let bodyLoadGate = RemoteMessageContentLoadGate()
   var inlineByteCount = 0
   var inlinePixelCount = 0
   var remoteByteCount = 0
   var remotePixelCount = 0
+  let loadGate = RemoteMessageContentLoadGate()
 }
 
 struct SignOutErrorBanner: View {
@@ -1576,7 +1623,7 @@ struct AccountView: View {
   @State private var followUpNudgeViewModel: FollowUpNudgeViewModel
   @State private var signatureStore: SignatureStore
   @State private var templateStore: TemplateStore
-  @State private var compositionDraft: MailShellCompositionDraft?
+  @State private var composerNavigation = MailShellComposerNavigationState()
   @State private var storageDataSettingsViewModel: StorageDataSettingsViewModel
   @State private var compositionDraftLoadGate = MailCompositionDraftLoadGate()
   @State private var isReaderComposerPresented = false
@@ -1996,9 +2043,10 @@ struct AccountView: View {
       mailAssistanceViewModel.profileDidLock()
       MailProfileContentPresentationDismissal.dismissRoot(
         showsSettings: &showsSettings,
-        compositionDraft: &compositionDraft,
+        compositionDraft: &composerNavigation.draft,
         showsMessageActionAlert: &showsBlockedActionAlert
       )
+      composerNavigation.dismissAll()
       contentPresentationDismissalSignal &+= 1
     }
     .onChange(of: profileViewModel.activeProfileId) { _, profileId in
@@ -2268,6 +2316,12 @@ struct AccountView: View {
         )
       }
       .onChange(of: mailShellSelection.navigationLevel) { _, _ in
+        updatePreferredCompactColumn()
+      }
+      .onChange(of: composerNavigation.draft?.id) { _, _ in
+        updatePreferredCompactColumn()
+      }
+      .onChange(of: horizontalSizeClass) { _, _ in
         updatePreferredCompactColumn()
       }
       .onChange(of: settingsRouter.request?.id) { _, requestId in
@@ -2612,6 +2666,10 @@ struct AccountView: View {
       .mailShellBottomInset(isEnabled: horizontalSizeClass == .compact) {
         mailShellBottomBar
       }
+      .anchorPreference(
+        key: MailShellDetailColumnBoundsPreferenceKey.self,
+        value: .bounds
+      ) { $0 }
     }
     .navigationSplitViewStyle(.balanced)
     .overlayPreferenceValue(MailShellThreadColumnBoundsPreferenceKey.self) { bounds in
@@ -2817,46 +2875,80 @@ struct AccountView: View {
         }
       }
     #endif
-    .composePresentation(
-      item: $compositionDraft,
-      preference: composePreferenceStore.preferences.presentation
-    ) { draft in
-      MailShellComposer(
-        connections: profileConnections,
-        draft: draft,
-        preferences: composePreferenceStore.preferences,
-        signatures: signatureStore.preferences,
-        templates: templateStore.preferences,
-        isSending: mailActionViewModel.isPerformingAction,
-        mailAssistanceViewModel: mailAssistanceViewModel,
-        readingPreferences: readingPreferenceStore.preferences,
-        profileName: profileViewModel.activeProfile?.name ?? "Mail Profile",
-        recipientMessages: mailShellSelection.threads.flatMap(\.messages),
-        sendingIdentities: profileSendingIdentities,
-        draftDidChange: { compositionDraft = $0 },
-        saveDraft: { [profileId = activeDraftProfileId] draft in
-          try await saveCompositionDraft(draft, profileId: profileId)
-        },
-        deleteDraft: { [profileId = activeDraftProfileId] draftId in
-          try await deleteCompositionDraft(draftId, profileId: profileId)
-        },
-        reminderOwnerDeviceId: snapshot.trustedDeviceId,
-        cancelReminder: { [profileId = activeDraftProfileId] reminder, draftId in
-          cancelSendReminder(reminder, draftId: draftId, profileId: profileId)
-        },
-        scheduleReminder: { [profileId = activeDraftProfileId] draft in
-          try await scheduleSendReminder(for: draft, profileId: profileId)
-        },
-        scheduleSend: { [profileId = activeDraftProfileId] draft, dueAt, timeZone in
-          await scheduleNewMessage(
-            draft,
-            profileId: profileId,
-            dueAt: dueAt,
-            originalTimeZoneIdentifier: timeZone
+    .overlayPreferenceValue(MailShellDetailColumnBoundsPreferenceKey.self) { bounds in
+      GeometryReader { proxy in
+        if let draft = composerNavigation.draft {
+          let containerFrame = CGRect(origin: .zero, size: proxy.size)
+          let detailColumnFrame = bounds.map { proxy[$0] }
+          let layout = MailShellComposerPresentationLayout(
+            containerFrame: containerFrame,
+            detailColumnFrame: detailColumnFrame,
+            isCompact: horizontalSizeClass == .compact,
+            isExpanded: composerNavigation.isExpanded
           )
-        },
-        send: sendNewMessage
-      )
+          ZStack {
+            if layout.mode == .detailOverlay, let detailColumnFrame {
+              Rectangle()
+                .fill(MailTheme.canvas.opacity(0.001))
+                .frame(width: detailColumnFrame.width, height: detailColumnFrame.height)
+                .position(x: detailColumnFrame.midX, y: detailColumnFrame.midY)
+                .accessibilityHidden(true)
+            }
+
+            MailShellComposer(
+              connections: profileConnections,
+              draft: draft,
+              preferences: composePreferenceStore.preferences,
+              signatures: signatureStore.preferences,
+              templates: templateStore.preferences,
+              isSending: mailActionViewModel.isPerformingAction,
+              mailAssistanceViewModel: mailAssistanceViewModel,
+              readingPreferences: readingPreferenceStore.preferences,
+              profileName: profileViewModel.activeProfile?.name ?? "Mail Profile",
+              recipientMessages: mailShellSelection.threads.flatMap(\.messages),
+              sendingIdentities: profileSendingIdentities,
+              navigation: MailShellComposerNavigation(
+                isExpanded: composerNavigation.isExpanded,
+                showsExpansionControl: layout.mode != .compactDestination,
+                dismiss: dismissCompositionDraft,
+                toggleExpansion: toggleCompositionDraftExpansion
+              ),
+              draftDidChange: { composerNavigation.updatePresentedDraft($0) },
+              saveDraft: { [profileId = activeDraftProfileId] draft in
+                try await saveCompositionDraft(draft, profileId: profileId)
+              },
+              deleteDraft: { [profileId = activeDraftProfileId] draftId in
+                try await deleteCompositionDraft(draftId, profileId: profileId)
+              },
+              reminderOwnerDeviceId: snapshot.trustedDeviceId,
+              cancelReminder: { [profileId = activeDraftProfileId] reminder, draftId in
+                cancelSendReminder(reminder, draftId: draftId, profileId: profileId)
+              },
+              scheduleReminder: { [profileId = activeDraftProfileId] draft in
+                try await scheduleSendReminder(for: draft, profileId: profileId)
+              },
+              scheduleSend: { [profileId = activeDraftProfileId] draft, dueAt, timeZone in
+                await scheduleNewMessage(
+                  draft,
+                  profileId: profileId,
+                  dueAt: dueAt,
+                  originalTimeZoneIdentifier: timeZone
+                )
+              },
+              send: sendNewMessage
+            )
+            .id(draft.id)
+            .frame(width: layout.frame.width, height: layout.frame.height)
+            .background(MailTheme.canvas)
+            .clipShape(
+              .rect(cornerRadius: layout.mode == .detailOverlay ? 12 : 0)
+            )
+            .position(x: layout.frame.midX, y: layout.frame.midY)
+            .accessibilityIdentifier("mail-shell-composer-\(layout.mode)")
+          }
+        }
+      }
+      .ignoresSafeArea(.container)
     }
     .alert(
       "Pending message action requires attention",
@@ -3320,9 +3412,9 @@ struct AccountView: View {
         profileViewModel.activeProfileId == sourceProfileId
       else { return false }
       try profileViewModel.activate(profileId) {
-        if let compositionDraft {
+        if let compositionDraft = composerNavigation.draft {
           parkedCompositionDrafts[sourceProfileId] = compositionDraft
-          self.compositionDraft = nil
+          composerNavigation.park()
         }
       }
       await waitForNextMainRunLoopCycle()
@@ -3405,7 +3497,11 @@ struct AccountView: View {
   private func finishProfileSwitch(to profileId: MailProfileId) {
     restoredProfileIdRawValue = profileId.rawValue
     gmailViewModel.selectedConnectionId = profileConnections.first?.id
-    compositionDraft = parkedCompositionDrafts.removeValue(forKey: profileId)
+    if let compositionDraft = parkedCompositionDrafts.removeValue(forKey: profileId) {
+      composerNavigation.present(compositionDraft)
+    } else {
+      composerNavigation.park()
+    }
     loadUnifiedMailbox(synchronizes: false)
     Task {
       await waitForCurrentMailboxLoad {
@@ -3694,7 +3790,7 @@ struct AccountView: View {
           try await saveCompositionDraft(draft, profileId: deepLink.profileId)
           cancelSendReminder(reminder, draftId: draft.id, profileId: deepLink.profileId)
         }
-        compositionDraft = draft
+        composerNavigation.present(draft)
       } catch {
         profileViewModel.show(error)
       }
@@ -3839,7 +3935,7 @@ extension AccountView {
   }
 
   private var showsComposeButton: Bool {
-    compositionDraft == nil
+    composerNavigation.draft == nil
       && !isReaderComposerPresented
       && mailShellSelection.selectedMailbox != nil
       && !profileConnections.isEmpty
@@ -3852,13 +3948,14 @@ extension AccountView {
 
   private func beginNewMessage(using template: MailTemplate?) {
     let defaultIdentity = sendingIdentityStore.preferences.defaultIdentity
-    compositionDraft = .new(
-      defaultSendingConnectionId:
-        defaultIdentity?.connectionId ?? profileDefaultSendingConnectionId,
-      defaultSendingIdentityId: defaultIdentity?.id,
-      signatures: signatureStore.preferences,
-      template: template
-    )
+    composerNavigation.present(
+      .new(
+        defaultSendingConnectionId:
+          defaultIdentity?.connectionId ?? profileDefaultSendingConnectionId,
+        defaultSendingIdentityId: defaultIdentity?.id,
+        signatures: signatureStore.preferences,
+        template: template
+      ))
   }
 
   private var selectedSynchronizationConnections: [MailboxSyncOverlayConnection] {
@@ -3903,9 +4000,21 @@ extension AccountView {
   }
 
   private func updatePreferredCompactColumn() {
+    if composerNavigation.draft != nil, horizontalSizeClass == .compact {
+      preferredCompactColumn = .detail
+      return
+    }
     preferredCompactColumn = mailShellSelection.compactColumn(
       isEditing: editMode?.wrappedValue == .active
     )
+  }
+
+  private func dismissCompositionDraft() {
+    composerNavigation.dismiss()
+  }
+
+  private func toggleCompositionDraftExpansion() {
+    composerNavigation.toggleExpansion()
   }
 
   private var selectedThreadsBinding: Binding<Set<MailboxThreadIdentity>> {
@@ -4149,7 +4258,7 @@ extension AccountView {
     guard let draftId,
       let draft = savedCompositionDrafts.first(where: { $0.id == draftId })
     else { return }
-    compositionDraft = draft
+    composerNavigation.present(draft)
   }
 
   private func handleProfileDeepLink(
@@ -4236,7 +4345,7 @@ extension AccountView {
 
   private func openCompositionDraft(_ draft: MailShellCompositionDraft) {
     guard let reminder = draft.sendReminder, reminder.isOverdue() else {
-      compositionDraft = draft
+      composerNavigation.present(draft)
       return
     }
     let profileId = activeDraftProfileId
@@ -4247,7 +4356,7 @@ extension AccountView {
       do {
         try await saveCompositionDraft(candidate, profileId: profileId)
         cancelSendReminder(reminder, draftId: draft.id, profileId: profileId)
-        compositionDraft = candidate
+        composerNavigation.present(candidate)
       } catch {
         profileViewModel.show(error)
       }
