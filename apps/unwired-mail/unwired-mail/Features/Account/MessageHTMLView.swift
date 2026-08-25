@@ -621,6 +621,7 @@ struct MessageHTMLWebView: UIViewRepresentable {
   }
 
   static func dismantleUIView(_ webView: WKWebView, coordinator: Coordinator) {
+    coordinator.invalidateDocument()
     coordinator.stopObservingContentSize(of: webView.scrollView)
     webView.navigationDelegate = nil
     webView.stopLoading()
@@ -637,6 +638,8 @@ struct MessageHTMLWebView: UIViewRepresentable {
     private var contentSizeObservation: NSKeyValueObservation?
     private var contentOffsetObservation: NSKeyValueObservation?
     private var viewportObservation: NSKeyValueObservation?
+    private var documentGeneration = UUID()
+    private var documentReadyTask: Task<Void, Never>?
     private var pendingRemoteImages: [String: RemoteMessageImage] = [:]
 
     init(
@@ -682,6 +685,7 @@ struct MessageHTMLWebView: UIViewRepresentable {
       remoteImages: [RemoteMessageImage]
     ) -> MessageHTMLWebViewUpdate {
       if loadedDocument != documentHTML {
+        invalidateDocument()
         loadedDocument = documentHTML
         isLoadingDocument = true
         appliedRemoteImages = [:]
@@ -740,7 +744,11 @@ struct MessageHTMLWebView: UIViewRepresentable {
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation?) {
       perform(documentDidFinish(), in: webView)
-      updateLayout(for: webView.scrollView, completion: onInitialDocumentReady)
+      updateLayout(
+        for: webView.scrollView,
+        documentGeneration: documentGeneration,
+        completion: onInitialDocumentReady
+      )
     }
 
     func webView(
@@ -768,12 +776,20 @@ struct MessageHTMLWebView: UIViewRepresentable {
     }
 
     private func renderingDidFail() {
+      invalidateDocument()
       isLoadingDocument = false
       onRenderingFailure()
     }
 
+    func invalidateDocument() {
+      documentGeneration = UUID()
+      documentReadyTask?.cancel()
+      documentReadyTask = nil
+    }
+
     private func updateLayout(
       for scrollView: UIScrollView,
+      documentGeneration: UUID? = nil,
       completion: (() -> Void)? = nil
     ) {
       scrollView.isScrollEnabled = MessageHTMLLayout.isInternallyScrollable(
@@ -785,9 +801,15 @@ struct MessageHTMLWebView: UIViewRepresentable {
       }
       constrainContentOffset(for: scrollView)
       let height = MessageHTMLLayout.height(for: scrollView.contentSize)
-      Task { @MainActor [weak self] in
-        self?.onHeightChange(height)
+      let task = Task { @MainActor [weak self] in
+        guard let self, !Task.isCancelled else { return }
+        if let documentGeneration, self.documentGeneration != documentGeneration { return }
+        self.onHeightChange(height)
         completion?()
+      }
+      if completion != nil {
+        documentReadyTask?.cancel()
+        documentReadyTask = task
       }
     }
 

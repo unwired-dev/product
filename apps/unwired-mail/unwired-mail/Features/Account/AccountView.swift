@@ -7798,13 +7798,6 @@ struct MailShellReadBatchTaskOwner {
 }
 
 enum MailShellMessageReadVisibility {
-  static func isLoaded(
-    freshBodyIsLoaded: Bool,
-    cachedBodyText: String?
-  ) -> Bool {
-    freshBodyIsLoaded || cachedBodyText != nil
-  }
-
   static func isEligible(
     isBodyLoaded: Bool,
     bodyFrame: CGRect,
@@ -8062,7 +8055,6 @@ struct MailShellConversationReader: View {
                           guard allowsContentReveal else { return false }
                           return await revalidateTrustedDevice()
                         },
-                        cachedBodyText: inboxViewModel.loadedMessageBodyText(for: message.id),
                         clearBodySignal: inboxViewModel.loadedMessageBodyClearSignal(
                           for: message.id),
                         removesQuotedReplies: Self.removesQuotedReplies(
@@ -10722,7 +10714,6 @@ private struct MailShellConversationMessageHeader: View {
 
 private struct MailShellConversationMessageBody: View {
   let authorizeLinkOpening: () async -> Bool
-  let cachedBodyText: String?
   let clearBodySignal: UUID?
   let removesQuotedReplies: Bool
   let loadBody: () async throws -> MailboxMessageBody
@@ -10773,13 +10764,6 @@ private struct MailShellConversationMessageBody: View {
     .onChange(of: visibleViewportFrame) {
       updateBodyVisibility()
     }
-    .onChange(of: cachedBodyText) { _, newCachedBodyText in
-      updateBodyVisibility(
-        isBodyLoaded: MailShellMessageReadVisibility.isLoaded(
-          freshBodyIsLoaded: isBodyLoaded,
-          cachedBodyText: newCachedBodyText
-        ))
-    }
     .onChange(of: clearBodySignal) {
       isBodyLoaded = false
       updateBodyVisibility(isBodyLoaded: false)
@@ -10790,12 +10774,7 @@ private struct MailShellConversationMessageBody: View {
     isBodyLoaded: Bool? = nil,
     bodyFrame: CGRect? = nil
   ) {
-    let resolvedBodyIsLoaded =
-      isBodyLoaded
-      ?? MailShellMessageReadVisibility.isLoaded(
-        freshBodyIsLoaded: self.isBodyLoaded,
-        cachedBodyText: cachedBodyText
-      )
+    let resolvedBodyIsLoaded = isBodyLoaded ?? self.isBodyLoaded
     let isVisible = MailShellMessageReadVisibility.isEligible(
       isBodyLoaded: resolvedBodyIsLoaded,
       bodyFrame: bodyFrame ?? self.bodyFrame,

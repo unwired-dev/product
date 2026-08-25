@@ -2187,6 +2187,32 @@ extension MessageHTMLPresentationTests {
     #expect(presentation.displayedHTML(originalHTML: originalHTML) == originalHTML)
   }
 
+  @Test(.bug(id: 552))
+  func testRemoteContentLoadResultKeepsImagePayloadOnlyInLoadedImages() throws {
+    let originalHTML = try remoteContentTestPresentation()
+    let reference = try #require(originalHTML.remoteImageReferences.first)
+    let image = RemoteMessageImage(
+      data: Data([0]),
+      identifier: reference.identifier,
+      mimeType: "image/png"
+    )
+    let progress = RemoteMessageContentLoadProgress(
+      attemptedIdentifiers: [reference.identifier],
+      attemptedImageCount: 1,
+      images: [image],
+      loadedByteCount: 1,
+      loadedPixelCount: 1,
+      receivedByteCount: 1
+    )
+
+    let result = progress.loadResult(for: originalHTML)
+
+    #expect(result.html.documentHTML == originalHTML.documentHTML)
+    #expect(result.html.documentHTML.contains("data:image/") == false)
+    #expect(result.html.remoteImageReferences.contains(reference) == false)
+    #expect(result.loadedImages == [image])
+  }
+
   @MainActor
   @Test
   func testRemoteContentPresentationAppliesAlwaysAndNeverPolicies() async throws {
@@ -2730,6 +2756,29 @@ extension MessageHTMLPresentationTests {
       coordinator.nextUpdate(documentHTML: "styled-document", remoteImages: [])
         == .patchRemoteImages([])
     )
+  }
+
+  @MainActor
+  @Test(.bug(id: 552))
+  func testInvalidatedWebDocumentDoesNotPublishDeferredReadiness() async {
+    var didPublishReadiness = false
+    let coordinator = MessageHTMLWebView.Coordinator(
+      onHeightChange: { _ in },
+      onInitialDocumentReady: { didPublishReadiness = true },
+      onOpenURL: { _ in },
+      onRenderingFailure: {}
+    )
+    let webView = WKWebView(
+      frame: .zero,
+      configuration: MessageHTMLWebViewConfiguration.make()
+    )
+
+    _ = coordinator.nextUpdate(documentHTML: "styled-document", remoteImages: [])
+    coordinator.webView(webView, didFinish: nil)
+    coordinator.invalidateDocument()
+    await Task.yield()
+
+    #expect(didPublishReadiness == false)
   }
 
   @MainActor

@@ -350,9 +350,17 @@ struct RemoteMessageContentLoadResult: Equatable, Sendable {
 
 extension RemoteMessageContentLoadProgress {
   func loadResult(for html: SanitizedMessageHTML) -> RemoteMessageContentLoadResult {
-    RemoteMessageContentLoadResult(
+    let loadedIdentifiers = Set(images.map(\.identifier))
+    let unresolvedHTML = SanitizedMessageHTML(
+      documentHTML: html.documentHTML,
+      linkPresentations: html.linkPresentations,
+      remoteImageReferences: html.remoteImageReferences.filter {
+        !loadedIdentifiers.contains($0.identifier)
+      }
+    )
+    return RemoteMessageContentLoadResult(
       failedImageCount: html.remoteImageReferences.count - images.count,
-      html: RemoteMessageImageResolver.resolve(html, images: images)
+      html: unresolvedHTML
         .prioritizingUnattemptedRemoteImages(attemptedIdentifiers),
       loadedByteCount: loadedByteCount,
       loadedImageCount: images.count,
