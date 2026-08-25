@@ -1,6 +1,8 @@
 import Foundation
 import SwiftSoup
 
+// swiftlint:disable file_length
+
 struct RemoteMessageImageReference: Equatable, Sendable {
   let identifier: String
   let url: URL
@@ -229,30 +231,49 @@ enum RemoteMessageContentSession {
   }
 }
 
+// swiftlint:disable:next type_body_length
 struct RemoteMessageContentLoader {
   typealias Fetch = (URLRequest, Int) async throws -> (Data, URLResponse)
 
   private let fetch: Fetch?
+  private let maximumConcurrentRequestCount: Int
   private let maximumLoadDuration: TimeInterval
   private let maximumTotalByteCount: Int
   private let maximumTotalPixelCount: Int
+  private let messageId: StableProviderMessageIdentity?
   private let monotonicTime: () -> TimeInterval
+  private let requestGate: ProductAccountRemoteImageRequestGate?
 
   init(
+    maximumConcurrentRequestCount: Int = 1,
     maximumLoadDuration: TimeInterval = 30,
     maximumTotalByteCount: Int = MailboxMessageImagePolicy.maximumTotalByteCount,
     maximumTotalPixelCount: Int = MailboxMessageImagePolicy.maximumTotalPixelCount,
+    messageId: StableProviderMessageIdentity? = nil,
     monotonicTime: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
+    requestGate: ProductAccountRemoteImageRequestGate? = nil,
     fetch: Fetch? = nil
   ) {
     self.fetch = fetch
+    self.maximumConcurrentRequestCount = max(1, maximumConcurrentRequestCount)
     self.maximumLoadDuration = maximumLoadDuration
     self.maximumTotalByteCount = maximumTotalByteCount
     self.maximumTotalPixelCount = maximumTotalPixelCount
+    self.messageId = messageId
     self.monotonicTime = monotonicTime
+    self.requestGate = requestGate
   }
 
   func load(_ html: SanitizedMessageHTML) async throws -> RemoteMessageContentLoadResult {
+    guard maximumConcurrentRequestCount > 1 else {
+      return try await loadSerially(html)
+    }
+    return try await loadConcurrently(html)
+  }
+
+  private func loadSerially(
+    _ html: SanitizedMessageHTML
+  ) async throws -> RemoteMessageContentLoadResult {
     let deadline = monotonicTime() + maximumLoadDuration
     var progress = RemoteMessageContentLoadProgress()
     let occurrenceCounts = RemoteMessageContentMarkup.occurrenceCounts(in: html)
@@ -282,6 +303,7 @@ struct RemoteMessageContentLoader {
       guard
         let attempt = try await admission(
           for: reference,
+          deadline: deadline,
           remainingLoadDuration: remainingLoadDuration,
           maximumByteCount: maximumResponseByteCount,
           remainingPixelCount: remainingPixelCount
@@ -298,8 +320,141 @@ struct RemoteMessageContentLoader {
     return progress.loadResult(for: html)
   }
 
+  private struct ConcurrentCandidate: Sendable {
+    let maximumByteCount: Int
+    let maximumPixelCount: Int
+    let occurrenceCount: Int
+    let order: Int
+    let reference: RemoteMessageImageReference
+  }
+
+  private struct ConcurrentAttempt: Sendable {
+    let admission: RemoteMessageContentAdmission?
+    let candidate: ConcurrentCandidate
+    let receivedByteCount: Int
+  }
+
+  // swiftlint:disable:next function_body_length
+  private func loadConcurrently(
+    _ html: SanitizedMessageHTML
+  ) async throws -> RemoteMessageContentLoadResult {
+    let deadline = monotonicTime() + maximumLoadDuration
+    let occurrenceCounts = RemoteMessageContentMarkup.occurrenceCounts(in: html)
+    var nextReferenceIndex = 0
+    var progress = RemoteMessageContentLoadProgress()
+
+    while nextReferenceIndex < html.remoteImageReferences.count,
+      progress.attemptedImageCount < MailboxMessageImagePolicy.maximumImageAttemptCount
+    {
+      try Task.checkCancellation()
+      let remainingLoadDuration = deadline - monotonicTime()
+      guard remainingLoadDuration > 0 else { break }
+      let candidates = concurrentCandidates(
+        html.remoteImageReferences,
+        nextReferenceIndex: &nextReferenceIndex,
+        occurrenceCounts: occurrenceCounts,
+        progress: progress
+      )
+      guard !candidates.isEmpty else { continue }
+      progress.attemptedImageCount += candidates.count
+      progress.attemptedIdentifiers.formUnion(candidates.map(\.reference.identifier))
+
+      let attempts = try await withThrowingTaskGroup(of: ConcurrentAttempt.self) { group in
+        for candidate in candidates {
+          group.addTask {
+            let attempt = try await admission(
+              for: candidate.reference,
+              deadline: deadline,
+              remainingLoadDuration: remainingLoadDuration,
+              maximumByteCount: candidate.maximumByteCount,
+              remainingPixelCount: candidate.maximumPixelCount
+            )
+            return ConcurrentAttempt(
+              admission: attempt?.admission,
+              candidate: candidate,
+              receivedByteCount: attempt?.receivedByteCount ?? 0
+            )
+          }
+        }
+        var attempts: [ConcurrentAttempt] = []
+        for try await attempt in group {
+          attempts.append(attempt)
+        }
+        return attempts.sorted { $0.candidate.order < $1.candidate.order }
+      }
+
+      for concurrentAttempt in attempts {
+        progress.receivedByteCount += concurrentAttempt.receivedByteCount
+        guard let admission = concurrentAttempt.admission else { continue }
+        let occurrenceCount = concurrentAttempt.candidate.occurrenceCount
+        progress.images.append(admission.image)
+        progress.loadedByteCount += admission.image.data.count * occurrenceCount
+        progress.loadedPixelCount += admission.pixelCount * occurrenceCount
+      }
+    }
+
+    return RemoteMessageContentLoadResult(
+      failedImageCount: html.remoteImageReferences.count - progress.images.count,
+      html: RemoteMessageImageResolver.resolve(html, images: progress.images)
+        .prioritizingUnattemptedRemoteImages(progress.attemptedIdentifiers),
+      loadedByteCount: progress.loadedByteCount,
+      loadedImageCount: progress.images.count,
+      loadedPixelCount: progress.loadedPixelCount
+    )
+  }
+
+  private func concurrentCandidates(
+    _ references: [RemoteMessageImageReference],
+    nextReferenceIndex: inout Int,
+    occurrenceCounts: [String: Int],
+    progress: RemoteMessageContentLoadProgress
+  ) -> [ConcurrentCandidate] {
+    var remainingReceivedByteCount = maximumTotalByteCount - progress.receivedByteCount
+    var remainingLoadedByteCount = maximumTotalByteCount - progress.loadedByteCount
+    var remainingPixelCount = maximumTotalPixelCount - progress.loadedPixelCount
+    var candidates: [ConcurrentCandidate] = []
+    while nextReferenceIndex < references.count,
+      candidates.count < maximumConcurrentRequestCount,
+      progress.attemptedImageCount + candidates.count
+        < MailboxMessageImagePolicy.maximumImageAttemptCount
+    {
+      let order = nextReferenceIndex
+      let reference = references[nextReferenceIndex]
+      guard RemoteMessageContentPolicy.isLoadableHTTPSURL(reference.url),
+        let occurrenceCount = occurrenceCounts[reference.identifier], occurrenceCount > 0
+      else {
+        nextReferenceIndex += 1
+        continue
+      }
+      let maximumByteCount = min(
+        MailboxMessageImagePolicy.maximumImageByteCount,
+        remainingReceivedByteCount,
+        remainingLoadedByteCount / occurrenceCount
+      )
+      let maximumPixelCount = min(
+        MailboxMessageImagePolicy.maximumImagePixelCount,
+        remainingPixelCount / occurrenceCount
+      )
+      guard maximumByteCount > 0, maximumPixelCount > 0 else { break }
+      nextReferenceIndex += 1
+      candidates.append(
+        ConcurrentCandidate(
+          maximumByteCount: maximumByteCount,
+          maximumPixelCount: maximumPixelCount,
+          occurrenceCount: occurrenceCount,
+          order: order,
+          reference: reference
+        ))
+      remainingReceivedByteCount -= maximumByteCount
+      remainingLoadedByteCount -= maximumByteCount * occurrenceCount
+      remainingPixelCount -= maximumPixelCount * occurrenceCount
+    }
+    return candidates
+  }
+
   private func admission(
     for reference: RemoteMessageImageReference,
+    deadline: TimeInterval,
     remainingLoadDuration: TimeInterval,
     maximumByteCount: Int,
     remainingPixelCount: Int
@@ -310,8 +465,9 @@ struct RemoteMessageContentLoader {
     let maximumByteCount = min(MailboxMessageImagePolicy.maximumImageByteCount, maximumByteCount)
     guard maximumByteCount > 0, remainingPixelCount > 0 else { return nil }
     do {
-      let load = try await response(
+      let load = try await admittedResponse(
         for: request(url: reference.url, timeoutInterval: remainingLoadDuration),
+        deadline: deadline,
         maximumByteCount: maximumByteCount
       )
       return (
@@ -335,6 +491,31 @@ struct RemoteMessageContentLoader {
         throw CancellationError()
       }
       return (nil, 0)
+    }
+  }
+
+  private func admittedResponse(
+    for request: URLRequest,
+    deadline: TimeInterval,
+    maximumByteCount: Int
+  ) async throws -> RemoteMessageContentNetworkLoad {
+    guard let requestGate, let messageId else {
+      return try await response(for: request, maximumByteCount: maximumByteCount)
+    }
+    return try await requestGate.loadResource(
+      for: request,
+      messageId: messageId,
+      deadline: deadline,
+      monotonicTime: monotonicTime
+    ) {
+      let remainingLoadDuration = deadline - monotonicTime()
+      guard remainingLoadDuration > 0, let url = request.url else {
+        throw URLError(.timedOut)
+      }
+      return try await response(
+        for: self.request(url: url, timeoutInterval: remainingLoadDuration),
+        maximumByteCount: maximumByteCount
+      )
     }
   }
 

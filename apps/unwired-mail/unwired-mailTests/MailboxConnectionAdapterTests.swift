@@ -5,6 +5,7 @@ import SwiftData
 import SwiftUI
 import Testing
 import UIKit
+import WebKit
 
 @testable import unwired_mail
 
