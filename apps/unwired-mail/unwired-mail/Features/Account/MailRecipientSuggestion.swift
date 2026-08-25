@@ -76,7 +76,7 @@ struct MailRecipientEditor: Equatable, Sendable {
         tokens = []
         return
       }
-      guard let mailboxes = RFCMailboxHeaderParser.mailboxes(in: trimmed) else {
+      guard let mailboxes = RFCMailboxHeaderParser.recipientMailboxes(in: trimmed) else {
         issue = .invalidAddress
         pendingText = headerValue
         tokens = []
@@ -139,7 +139,7 @@ struct MailRecipientEditor: Equatable, Sendable {
     entry.issue = nil
     entry.pendingText = value
     setEntry(entry, for: field)
-    guard value.last == "," || value.last == ";" else { return }
+    guard Self.normalizingStructuralDelimiters(in: value).hasTrailingDelimiter else { return }
     entry.pendingText.removeLast()
     setEntry(entry, for: field)
     commitPendingText(in: field)
@@ -154,8 +154,8 @@ struct MailRecipientEditor: Equatable, Sendable {
       setEntry(entry, for: field)
       return
     }
-    let normalized = pendingText.replacing(";", with: ",")
-    guard let mailboxes = RFCMailboxHeaderParser.mailboxes(in: normalized) else {
+    let normalized = Self.normalizingStructuralDelimiters(in: pendingText).value
+    guard let mailboxes = RFCMailboxHeaderParser.recipientMailboxes(in: normalized) else {
       entry.issue = .invalidAddress
       setEntry(entry, for: field)
       return
@@ -164,8 +164,8 @@ struct MailRecipientEditor: Equatable, Sendable {
     var knownAddresses = allEmailAddresses
     var foundDuplicate = false
     for mailbox in mailboxes {
-      let address = mailbox.emailAddress.lowercased()
-      guard knownAddresses.insert(address).inserted else {
+      let comparisonKey = mailbox.emailAddress.lowercased()
+      guard knownAddresses.insert(comparisonKey).inserted else {
         foundDuplicate = true
         continue
       }
@@ -185,7 +185,8 @@ struct MailRecipientEditor: Equatable, Sendable {
       setEntry(entry, for: field)
       return
     }
-    guard let mailbox = RFCMailboxHeaderParser.singleMailbox(in: suggestion.headerValue) else {
+    guard let mailbox = RFCMailboxHeaderParser.singleRecipientMailbox(in: suggestion.headerValue)
+    else {
       entry.issue = .invalidAddress
       setEntry(entry, for: field)
       return
@@ -205,6 +206,44 @@ struct MailRecipientEditor: Equatable, Sendable {
 
   private var allEmailAddresses: Set<String> {
     Set((to.tokens + cc.tokens + bcc.tokens).map(\.id))
+  }
+
+  private static func normalizingStructuralDelimiters(
+    in value: String
+  ) -> (value: String, hasTrailingDelimiter: Bool) {
+    var angleDepth = 0
+    var commentDepth = 0
+    var isEscaped = false
+    var isQuoted = false
+    var normalized = ""
+    var trailingDelimiter = false
+    for character in value {
+      var isStructuralDelimiter = false
+      if isEscaped {
+        isEscaped = false
+      } else if character == "\\", isQuoted || commentDepth > 0 {
+        isEscaped = true
+      } else if character == "\"", commentDepth == 0 {
+        isQuoted.toggle()
+      } else if !isQuoted {
+        if character == "(" {
+          commentDepth += 1
+        } else if character == ")", commentDepth > 0 {
+          commentDepth -= 1
+        } else if commentDepth == 0, character == "<" {
+          angleDepth += 1
+        } else if commentDepth == 0, character == ">", angleDepth > 0 {
+          angleDepth -= 1
+        } else if commentDepth == 0, angleDepth == 0,
+          (character == "," || character == ";")
+        {
+          isStructuralDelimiter = true
+        }
+      }
+      normalized.append(isStructuralDelimiter && character == ";" ? "," : character)
+      trailingDelimiter = isStructuralDelimiter
+    }
+    return (normalized, trailingDelimiter)
   }
 
   private func entry(for field: Field) -> Entry {

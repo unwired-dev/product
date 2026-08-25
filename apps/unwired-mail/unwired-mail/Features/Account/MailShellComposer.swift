@@ -791,21 +791,20 @@ struct MailShellComposer: View {
   }
 
   private var selectedSuggestion: MailRecipientSuggestion? {
-    if let selectedSuggestionId,
-      let selected = suggestions.first(where: { $0.id == selectedSuggestionId })
-    {
-      return selected
-    }
-    return suggestions.first
+    guard let selectedSuggestionId else { return nil }
+    return suggestions.first(where: { $0.id == selectedSuggestionId })
   }
 
   private func moveSuggestionSelection(by offset: Int) -> KeyPress.Result {
     guard !suggestions.isEmpty else { return .ignored }
-    let currentIndex =
-      selectedSuggestion.flatMap { selected in
-        suggestions.firstIndex(where: { $0.id == selected.id })
-      } ?? 0
-    let nextIndex = (currentIndex + offset + suggestions.count) % suggestions.count
+    let nextIndex: Int
+    if let selectedSuggestion,
+      let currentIndex = suggestions.firstIndex(where: { $0.id == selectedSuggestion.id })
+    {
+      nextIndex = (currentIndex + offset + suggestions.count) % suggestions.count
+    } else {
+      nextIndex = offset > 0 ? 0 : suggestions.count - 1
+    }
     selectedSuggestionId = suggestions[nextIndex].id
     return .handled
   }
@@ -856,6 +855,8 @@ struct MailShellComposer: View {
       selectedSuggestionId = nil
       return
     }
+    suggestions = []
+    selectedSuggestionId = nil
     do {
       try await Task.sleep(for: .milliseconds(150))
     } catch is CancellationError {
@@ -869,7 +870,7 @@ struct MailShellComposer: View {
     )
     guard !Task.isCancelled, request == suggestionRequest else { return }
     suggestions = loaded.filter { !recipientEditor.contains(emailAddress: $0.emailAddress) }
-    selectedSuggestionId = suggestions.first?.id
+    selectedSuggestionId = nil
     if focusedField != focus(for: field) {
       suggestions = []
       selectedSuggestionId = nil

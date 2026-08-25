@@ -914,6 +914,25 @@ final class MailCompositionDraftTests {
   }
 
   @Test(.bug(id: 555))
+  func recipientEditorPreservesAddressCaseAndQuotedSemicolons() {
+    var editor = MailRecipientEditor(to: "", cc: "", bcc: "")
+
+    editor.updatePendingText(
+      #""Team; West" <CaseSensitive@Example.COM>;"semi;colon"@Example.COM;"#,
+      in: .to
+    )
+
+    #expect(
+      editor.tokens(in: .to).map(\.emailAddress)
+        == ["CaseSensitive@Example.COM", #""semi;colon"@Example.COM"#]
+    )
+    #expect(
+      editor.headers.to
+        == #""Team; West" <CaseSensitive@Example.COM>, "semi;colon"@Example.COM"#
+    )
+  }
+
+  @Test(.bug(id: 555))
   func recipientEditorRestoresOptionalRecipientTokensFromDraftHeaders() {
     let editor = MailRecipientEditor(
       to: "to@example.com",
