@@ -7772,7 +7772,10 @@ final class MailboxConnectionAdapterTests {
     let viewModel = GmailMailActionViewModel(
       service: RestoredBlockedActionService(),
       session: session,
-      outboxService: OutboxDeliveryService(store: AdapterOutboxStore())
+      outboxService: OutboxDeliveryService(store: AdapterOutboxStore()),
+      scheduledSendService: ScheduledSendService(
+        payloadSync: InMemoryScheduledSendPayloadSync(snapshots: [])
+      )
     )
 
     await viewModel.resume(connections: [connection])
@@ -7802,7 +7805,10 @@ final class MailboxConnectionAdapterTests {
     let viewModel = GmailMailActionViewModel(
       service: service,
       session: session,
-      outboxService: OutboxDeliveryService(store: AdapterOutboxStore())
+      outboxService: OutboxDeliveryService(store: AdapterOutboxStore()),
+      scheduledSendService: ScheduledSendService(
+        payloadSync: InMemoryScheduledSendPayloadSync(snapshots: [])
+      )
     )
     await viewModel.resume(connections: [firstConnection, secondConnection])
 
@@ -9155,7 +9161,13 @@ final class MailboxConnectionAdapterTests {
       productAccountId: session.productAccountId
     )
     let service = RetryableBulkMailActionService(blockedConnectionId: secondConnection.id)
-    let viewModel = GmailMailActionViewModel(service: service, session: session)
+    let viewModel = GmailMailActionViewModel(
+      service: service,
+      session: session,
+      scheduledSendService: ScheduledSendService(
+        payloadSync: InMemoryScheduledSendPayloadSync(snapshots: [])
+      )
+    )
 
     let result = await viewModel.performBulk(
       .archive,

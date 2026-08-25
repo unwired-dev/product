@@ -3571,7 +3571,7 @@ private actor ScheduledSendClaimTransportSpy: ScheduledSendOperationalTransport 
   }
 }
 
-private actor InMemoryScheduledSendPayloadSync: ScheduledSendPayloadSyncing {
+actor InMemoryScheduledSendPayloadSync: ScheduledSendPayloadSyncing {
   private var snapshots: [ScheduledSendPayloadSnapshot]
 
   init(snapshots: [ScheduledSendPayloadSnapshot]) {

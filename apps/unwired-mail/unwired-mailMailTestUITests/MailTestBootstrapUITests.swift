@@ -178,6 +178,7 @@ final class MailTestBootstrapUITests: XCTestCase {
 
     let keyboard = app.keyboards.firstMatch
     element.tap()
+    dismissKeyboardIntroductionIfNeeded()
     if keyboard.waitForExistence(timeout: 2) {
       element.typeText(text)
       return
@@ -188,6 +189,7 @@ final class MailTestBootstrapUITests: XCTestCase {
       element.coordinate(
         withNormalizedOffset: CGVector(dx: horizontalOffset, dy: 0.5)
       ).tap()
+      dismissKeyboardIntroductionIfNeeded()
       if keyboard.waitForExistence(timeout: 2) {
         element.typeText(text)
         return
@@ -196,6 +198,14 @@ final class MailTestBootstrapUITests: XCTestCase {
 
     XCTFail(failure)
     throw NSError(domain: "MailTestBootstrapUITests", code: 1)
+  }
+
+  private func dismissKeyboardIntroductionIfNeeded() {
+    let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+    let continueButton = springboard.buttons["Continue"]
+    if continueButton.waitForExistence(timeout: 1) {
+      continueButton.tap()
+    }
   }
 
   private func requireComposeAction(in app: XCUIApplication) throws -> XCUIElement {
