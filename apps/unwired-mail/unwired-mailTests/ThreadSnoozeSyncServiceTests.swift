@@ -1040,11 +1040,10 @@ final class ThreadSnoozeSyncServiceTests {
     )
     await viewModel.load()
     await scheduler.waitUntilSleeping()
+    let wakeTask = try #require(viewModel.scheduledWakeTaskForTesting(Self.thread.id))
 
     await scheduler.release()
-    for _ in 0..<20 where !viewModel.snoozedThreadIds.isEmpty {
-      await Task.yield()
-    }
+    await wakeTask.value
 
     #expect(await delivery.deliveryCount == 0)
     #expect(viewModel.snoozedThreadIds.isEmpty)
