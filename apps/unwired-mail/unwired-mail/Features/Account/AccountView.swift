@@ -10742,7 +10742,6 @@ private struct MailShellConversationMessageBody: View {
   var body: some View {
     MailShellMessageBody(
       authorizeLinkOpening: authorizeLinkOpening,
-      cachedBodyText: cachedBodyText,
       clearSignal: clearBodySignal,
       connectionId: message.connectionId,
       messageId: message.id,
@@ -10814,7 +10813,6 @@ private struct MailShellConversationMessageBody: View {
 
 struct MailShellMessageBody: View {
   let authorizeLinkOpening: () async -> Bool
-  let cachedBodyText: String?
   let clearSignal: UUID?
   let connectionId: MailboxConnectionId?
   let messageId: StableProviderMessageIdentity?
@@ -10829,20 +10827,15 @@ struct MailShellMessageBody: View {
   let onRelease: () -> Void
   let onReleaseRemoteContent: () -> Void
   let removesQuotedReplies: Bool
-  let showsLoadingIndicator: Bool
   let loadRemoteContent: (SanitizedMessageHTML) async throws -> RemoteMessageContentLoadResult
   @State private var loadedContent: MailShellLoadedMessageContent?
-  @State private var errorMessage: String?
-  @State private var isCleared = false
-  @State private var isLoading = false
-  @State private var isLoadingIndicatorVisible = false
   @State private var isPresentationRetained = false
   @State private var loadAttempt = 0
   @State private var loadGeneration = UUID()
+  @State private var presentationState = MailShellMessageBodyPresentationState.placeholder
 
   init(
     authorizeLinkOpening: @escaping () async -> Bool = { true },
-    cachedBodyText: String? = nil,
     clearSignal: UUID? = nil,
     connectionId: MailboxConnectionId? = nil,
     messageId: StableProviderMessageIdentity? = nil,
@@ -10855,7 +10848,6 @@ struct MailShellMessageBody: View {
     onRelease: @escaping () -> Void = {},
     onReleaseRemoteContent: @escaping () -> Void = {},
     removesQuotedReplies: Bool = false,
-    showsLoadingIndicator: Bool = true,
     loadAttachment: @escaping (MailboxMessageAttachment) async throws -> Data = { _ in
       throw MailboxMessageAttachmentError.unsupportedProvider
     },
@@ -10867,7 +10859,6 @@ struct MailShellMessageBody: View {
     load: @escaping () async throws -> MailboxMessageBody
   ) {
     self.authorizeLinkOpening = authorizeLinkOpening
-    self.cachedBodyText = cachedBodyText
     self.clearSignal = clearSignal
     self.connectionId = connectionId
     self.messageId = messageId
@@ -10882,7 +10873,6 @@ struct MailShellMessageBody: View {
     self.onRelease = onRelease
     self.onReleaseRemoteContent = onReleaseRemoteContent
     self.removesQuotedReplies = removesQuotedReplies
-    self.showsLoadingIndicator = showsLoadingIndicator
     self.loadRemoteContent = loadRemoteContent
   }
 
@@ -10896,23 +10886,32 @@ struct MailShellMessageBody: View {
           loadAttachment: loadAttachment,
           loadRemoteContent: loadRemoteContent,
           onResetRemoteContent: onReleaseRemoteContent,
+          onInitialHTMLDocumentReady: revealPreparedContent,
           onRenderingFailure: {
+            let wasRevealed = presentationState.revealsContent
             self.loadedContent = MailShellLoadedMessageContent(
               attachments: loadedContent.attachments,
               fallbackText: loadedContent.fallbackText,
               hasInlineContent: loadedContent.hasInlineContent,
               presentation: .plainText(loadedContent.fallbackText)
             )
+            presentationState.didPrepare(.plainText(loadedContent.fallbackText))
+            if !wasRevealed {
+              onLoaded()
+            }
           }
         )
-      } else if isCleared {
+        .opacity(presentationState.revealsContent ? 1 : 0)
+        .accessibilityHidden(!presentationState.revealsContent)
+        .overlay(alignment: .topLeading) {
+          if presentationState == .placeholder {
+            MailShellMessageBodyPlaceholder()
+          }
+        }
+      } else if presentationState == .cleared {
         Text("Cached body removed.")
           .foregroundStyle(.secondary)
-      } else if let cachedPresentationText {
-        MailShellPlainMessageText(text: cachedPresentationText)
-      } else if isLoading && isLoadingIndicatorVisible {
-        ProgressView("Loading message…")
-      } else if let errorMessage {
+      } else if case .failed(let errorMessage) = presentationState {
         ContentUnavailableView {
           Label("Message unavailable", systemImage: "exclamationmark.triangle")
         } description: {
@@ -10922,7 +10921,7 @@ struct MailShellMessageBody: View {
             .accessibilityIdentifier("mail-message-body-retry")
         }
       } else {
-        Color.clear.frame(height: 44)
+        MailShellMessageBodyPlaceholder()
       }
     }
     .handlingSuspiciousLinks(
@@ -10931,20 +10930,6 @@ struct MailShellMessageBody: View {
     )
     .task(id: loadAttempt) {
       let generation = loadGeneration
-      isLoading = true
-      let loadingIndicatorTask = Task { @MainActor in
-        try? await Task.sleep(for: .milliseconds(300))
-        guard showsLoadingIndicator, !Task.isCancelled, generation == loadGeneration, isLoading
-        else { return }
-        isLoadingIndicatorVisible = true
-      }
-      defer {
-        loadingIndicatorTask.cancel()
-        if generation == loadGeneration {
-          isLoading = false
-          isLoadingIndicatorVisible = false
-        }
-      }
       do {
         let loadedMessageBody = try await load()
         isPresentationRetained = true
@@ -10976,39 +10961,36 @@ struct MailShellMessageBody: View {
           presentation: presentation
         )
         onBodyLoaded(loadedMessageBody)
-        errorMessage = nil
-        isCleared = false
-        onLoaded()
+        presentationState.didPrepare(presentation)
+        if presentationState.revealsContent {
+          onLoaded()
+        }
       } catch is CancellationError {
         releasePresentation()
       } catch {
         releasePresentation()
         guard generation == loadGeneration else { return }
-        errorMessage = error.localizedDescription
+        presentationState.didFail(error.localizedDescription)
       }
     }
     .onAppear {
       onDisplay()
     }
     .onChange(of: retrySignal) {
-      guard errorMessage != nil else { return }
+      guard presentationState.isFailed else { return }
       retryLoad()
     }
     .onChange(of: clearSignal) {
       releasePresentation()
       loadGeneration = UUID()
       loadedContent = nil
-      errorMessage = nil
-      isCleared = true
-      isLoading = false
-      isLoadingIndicatorVisible = false
+      presentationState.didClear()
     }
     .onDisappear {
       onDismiss()
       loadGeneration = UUID()
       loadedContent = nil
-      isLoading = false
-      isLoadingIndicatorVisible = false
+      presentationState.retry()
       releasePresentation()
     }
   }
@@ -11020,18 +11002,73 @@ struct MailShellMessageBody: View {
   }
 
   private func retryLoad() {
-    errorMessage = nil
-    isLoadingIndicatorVisible = false
+    presentationState.retry()
     loadGeneration = UUID()
     loadAttempt += 1
   }
 
-  private var cachedPresentationText: String? {
-    guard let cachedBodyText else { return nil }
-    let text =
-      removesQuotedReplies
-      ? MessagePlainTextPresentation.withoutQuotedReply(cachedBodyText) : cachedBodyText
-    return text.isEmpty ? nil : text
+  private func revealPreparedContent() {
+    guard presentationState == .placeholder else { return }
+    presentationState.didRenderHTML()
+    onLoaded()
+  }
+}
+
+enum MailShellMessageBodyPresentationState: Equatable {
+  case cleared
+  case failed(String)
+  case placeholder
+  case revealed
+
+  var isFailed: Bool {
+    if case .failed = self { true } else { false }
+  }
+
+  var revealsContent: Bool {
+    self == .revealed
+  }
+
+  mutating func didPrepare(_ presentation: MessageHTMLPresentation) {
+    switch presentation {
+    case .html:
+      self = .placeholder
+    case .plainText:
+      self = .revealed
+    }
+  }
+
+  mutating func didRenderHTML() {
+    guard self == .placeholder else { return }
+    self = .revealed
+  }
+
+  mutating func didFail(_ message: String) {
+    self = .failed(message)
+  }
+
+  mutating func didClear() {
+    self = .cleared
+  }
+
+  mutating func retry() {
+    self = .placeholder
+  }
+}
+
+private struct MailShellMessageBodyPlaceholder: View {
+  var body: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      Text("Message body loading placeholder")
+      Text("Message body loading placeholder")
+      Text("Message body")
+        .frame(maxWidth: 220, alignment: .leading)
+    }
+    .font(.body)
+    .foregroundStyle(.secondary)
+    .redacted(reason: .placeholder)
+    .accessibilityElement(children: .ignore)
+    .accessibilityLabel("Loading message")
+    .frame(maxWidth: .infinity, alignment: .leading)
   }
 }
 
@@ -11098,6 +11135,7 @@ private struct MailShellMessageContent: View {
   let loadAttachment: (MailboxMessageAttachment) async throws -> Data
   let loadRemoteContent: (SanitizedMessageHTML) async throws -> RemoteMessageContentLoadResult
   let onResetRemoteContent: () -> Void
+  let onInitialHTMLDocumentReady: () -> Void
   let onRenderingFailure: () -> Void
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
@@ -11106,6 +11144,7 @@ private struct MailShellMessageContent: View {
         MessageHTMLView(
           connectionId: connectionId,
           html: html,
+          onInitialDocumentReady: onInitialHTMLDocumentReady,
           onRenderingFailure: onRenderingFailure,
           onResetRemoteContent: onResetRemoteContent,
           loadRemoteContent: loadRemoteContent

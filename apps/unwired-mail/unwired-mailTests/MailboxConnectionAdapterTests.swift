@@ -5639,6 +5639,31 @@ final class MailboxConnectionAdapterTests {
     withExtendedLifetime(window) {}
   }
 
+  @Test(.bug(id: 552))
+  func testMessageBodyPresentationRevealsOnlyPreparedContent() {
+    let html = SanitizedMessageHTML(documentHTML: "styled-document")
+    var state = MailShellMessageBodyPresentationState.placeholder
+
+    state.didPrepare(.html(html))
+    #expect(state == .placeholder)
+
+    state.didRenderHTML()
+    #expect(state == .revealed)
+
+    state.didClear()
+    #expect(state == .cleared)
+
+    state.retry()
+    #expect(state == .placeholder)
+
+    state.didFail("Unavailable")
+    #expect(state == .failed("Unavailable"))
+
+    state.retry()
+    state.didPrepare(.plainText("Readable fallback"))
+    #expect(state == .revealed)
+  }
+
   @Test
   func testMailShellMessageBodyReleasesLoadedPresentationAfterClear() async throws {
     let bodyLoaded = expectation(description: "Message body loaded")

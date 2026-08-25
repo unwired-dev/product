@@ -2140,6 +2140,11 @@ extension MessageHTMLPresentationTests {
     let originalHTML = try remoteContentTestPresentation()
     let presentation = RemoteMessageContentPresentation()
     var receivedHTML: [SanitizedMessageHTML] = []
+    let loadedImage = RemoteMessageImage(
+      data: Data([0]),
+      identifier: "remote-image-0",
+      mimeType: "image/png"
+    )
     let partiallyLoadedHTML = SanitizedMessageHTML(
       documentHTML: originalHTML.documentHTML.replacingOccurrences(
         of: #"data-unwired-remote-image="remote-image-0""#,
@@ -2152,7 +2157,8 @@ extension MessageHTMLPresentationTests {
       return RemoteMessageContentLoadResult(
         failedImageCount: partiallyLoadedHTML.remoteImageReferences.count,
         html: partiallyLoadedHTML,
-        loadedImageCount: 1
+        loadedImageCount: 1,
+        loadedImages: [loadedImage]
       )
     }
 
@@ -2170,11 +2176,13 @@ extension MessageHTMLPresentationTests {
 
     #expect(receivedHTML == [originalHTML, partiallyLoadedHTML])
     #expect(presentation.displayedHTML(originalHTML: originalHTML) == partiallyLoadedHTML)
+    #expect(presentation.loadedImages == [loadedImage])
     #expect(presentation.state == .failed(partiallyLoadedHTML.remoteImageReferences.count))
 
     presentation.reset()
 
     #expect(presentation.loadRequest == nil)
+    #expect(presentation.loadedImages.isEmpty)
     #expect(presentation.state == .blocked)
     #expect(presentation.displayedHTML(originalHTML: originalHTML) == originalHTML)
   }
@@ -2678,6 +2686,50 @@ extension MessageHTMLPresentationTests {
     #expect(!(configuration.defaultWebpagePreferences.allowsContentJavaScript))
     #expect(!(configuration.websiteDataStore.isPersistent))
     #expect(!(webView.allowsLinkPreview))
+  }
+
+  @MainActor
+  @Test(.bug(id: 552))
+  func testRemoteImagesPatchTheInitialWebDocumentWithoutAnotherNavigation() {
+    let coordinator = MessageHTMLWebView.Coordinator(
+      onHeightChange: { _ in },
+      onOpenURL: { _ in },
+      onRenderingFailure: {}
+    )
+    let firstImage = RemoteMessageImage(
+      data: Data([1]),
+      identifier: "remote-image-0",
+      mimeType: "image/png"
+    )
+    let secondImage = RemoteMessageImage(
+      data: Data([2]),
+      identifier: "remote-image-1",
+      mimeType: "image/png"
+    )
+
+    #expect(
+      coordinator.nextUpdate(documentHTML: "styled-document", remoteImages: [])
+        == .loadDocument("styled-document")
+    )
+    #expect(
+      coordinator.nextUpdate(documentHTML: "styled-document", remoteImages: [firstImage])
+        == .none
+    )
+    #expect(coordinator.documentDidFinish() == .patchRemoteImages([firstImage]))
+    #expect(
+      coordinator.nextUpdate(documentHTML: "styled-document", remoteImages: [firstImage])
+        == .none
+    )
+    #expect(
+      coordinator.nextUpdate(
+        documentHTML: "styled-document",
+        remoteImages: [firstImage, secondImage]
+      ) == .patchRemoteImages([firstImage, secondImage])
+    )
+    #expect(
+      coordinator.nextUpdate(documentHTML: "styled-document", remoteImages: [])
+        == .patchRemoteImages([])
+    )
   }
 
   @MainActor

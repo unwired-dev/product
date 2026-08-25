@@ -344,7 +344,22 @@ struct RemoteMessageContentLoadResult: Equatable, Sendable {
   let html: SanitizedMessageHTML
   var loadedByteCount = 0
   let loadedImageCount: Int
+  var loadedImages: [RemoteMessageImage] = []
   var loadedPixelCount = 0
+}
+
+extension RemoteMessageContentLoadProgress {
+  func loadResult(for html: SanitizedMessageHTML) -> RemoteMessageContentLoadResult {
+    RemoteMessageContentLoadResult(
+      failedImageCount: html.remoteImageReferences.count - images.count,
+      html: RemoteMessageImageResolver.resolve(html, images: images)
+        .prioritizingUnattemptedRemoteImages(attemptedIdentifiers),
+      loadedByteCount: loadedByteCount,
+      loadedImageCount: images.count,
+      loadedImages: images,
+      loadedPixelCount: loadedPixelCount
+    )
+  }
 }
 
 enum RemoteMessageContentState: Equatable {
@@ -363,6 +378,7 @@ enum RemoteMessageContentState: Equatable {
 final class RemoteMessageContentPresentation {
   private(set) var loadRequest: UUID?
   private(set) var loadedHTML: SanitizedMessageHTML?
+  private(set) var loadedImages: [RemoteMessageImage] = []
   private(set) var state = RemoteMessageContentState.blocked
 
   func displayedHTML(originalHTML: SanitizedMessageHTML) -> SanitizedMessageHTML {
@@ -391,6 +407,10 @@ final class RemoteMessageContentPresentation {
       let result = try await loader(requestedHTML)
       try Task.checkCancellation()
       loadedHTML = result.html
+      loadedImages = Dictionary(
+        (loadedImages + result.loadedImages).map { ($0.identifier, $0) },
+        uniquingKeysWith: { _, latest in latest }
+      ).values.sorted { $0.identifier < $1.identifier }
       state =
         result.failedImageCount == 0
         ? .blocked
@@ -404,6 +424,7 @@ final class RemoteMessageContentPresentation {
   func reset() {
     loadRequest = nil
     loadedHTML = nil
+    loadedImages = []
     state = .blocked
   }
 }
