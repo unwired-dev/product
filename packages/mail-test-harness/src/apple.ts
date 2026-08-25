@@ -40,6 +40,22 @@ interface SimulatorDevice {
 export type MailTestSendStep = 'compose-send' | 'reply';
 export type MailTestSendStepOutcome = 'performed' | 'unavailable';
 
+const SCHEDULED_SEND_DETERMINISTIC_TESTS = [
+  'unwired-mailTests/OutboxDeliveryServiceTests/testScheduledSendNeverHandsOffEarlyAndResumesAfterRestart',
+  'unwired-mailTests/OutboxDeliveryServiceTests/testScheduledSendBecomesNeedsAttentionAfterTwentyFourHoursWithoutHandoff',
+  'unwired-mailTests/OutboxDeliveryServiceTests/testEditAndCancelLoseRaceOnceProviderHandoffStarts',
+  'unwired-mailTests/OutboxDeliveryServiceTests/dueScheduledSendRetainsRetryCleanupAfterATransientFailure',
+  'unwired-mailTests/OutboxDeliveryServiceTests/testPermanentGraphFailureDeletesProviderDraftWithoutChangingFailureOutcome',
+  'unwired-mailTests/SendReminderSyncServiceTests/reminderAndDraftSynchronizeWithinOneProfileAndTransferOwnership',
+  'unwired-mailTests/SwiftMailEngineTests/testSMTPAmbiguousPostContentFailureIsNeverRetryable',
+  'unwired-mailTests/OutboxDeliveryServiceTests/microsoftGraphScheduledSendAdmissionPreservesItsPayloadAndConnection',
+  'unwired-mailTests/OutboxDeliveryServiceTests/exchangeWebServicesScheduledSendAdmissionPreservesItsPayloadAndConnection',
+  'unwired-mailTests/OutboxDeliveryServiceTests/standardsMailScheduledSendAdmissionPreservesItsPayloadAndConnection',
+  'unwired-mailTests/ScheduledSendReleasePolicyTests/newSchedulingIsReleaseGatedWhileExistingCommitmentsRemainEditable',
+] as const;
+const INVALID_SCHEDULED_SEND_DETERMINISTIC_SUMMARY =
+  'Scheduled Send deterministic evidence returned an invalid XCTest summary.';
+
 const REPOSITORY_ROOT = fileURLToPath(new URL('../../../', import.meta.url));
 const DEVICE_NAME = 'iPhone 17';
 const MANUAL_APP_RELATIVE_PATH =
@@ -216,6 +232,114 @@ export async function runMailTestApplication(
     `${result.stdout}\n${result.stderr}`.includes(unavailableMarker)
     ? 'unavailable'
     : 'performed';
+}
+
+export async function runScheduledSendDeterministicTests(
+  options: {
+    resultBundleDirectory?: string;
+    root: string;
+    signal?: AbortSignal;
+    simulator: Readonly<OwnedSimulator>;
+  },
+  run: CommandRunner = runCommand,
+): Promise<number> {
+  const resultBundlePath = path.join(
+    options.resultBundleDirectory ?? options.root,
+    'scheduled-send-deterministic.xcresult',
+  );
+  await mkdir(path.dirname(resultBundlePath), { recursive: true });
+  await run(
+    'xcodebuild',
+    [
+      'test',
+      '-project',
+      path.join(REPOSITORY_ROOT, 'apps/unwired-mail/unwired-mail.xcodeproj'),
+      '-scheme',
+      'unwired-mail',
+      '-destination',
+      `id=${options.simulator.udid}`,
+      '-derivedDataPath',
+      path.join(options.root, 'DerivedData'),
+      '-clonedSourcePackagesDirPath',
+      path.join(options.root, 'SourcePackages'),
+      '-parallel-testing-enabled',
+      'NO',
+      '-resultBundlePath',
+      resultBundlePath,
+      ...SCHEDULED_SEND_DETERMINISTIC_TESTS.map(
+        (test) => `-only-testing:${test}`,
+      ),
+    ],
+    { signal: options.signal },
+  );
+  const summaryResult = await run(
+    'xcrun',
+    [
+      'xcresulttool',
+      'get',
+      'test-results',
+      'summary',
+      '--path',
+      resultBundlePath,
+      '--compact',
+    ],
+    { signal: options.signal },
+  );
+  const summary = parseScheduledSendDeterministicSummary(summaryResult.stdout);
+  if (
+    summary.result !== 'Passed' ||
+    summary.totalTestCount !== SCHEDULED_SEND_DETERMINISTIC_TESTS.length ||
+    summary.passedTests !== SCHEDULED_SEND_DETERMINISTIC_TESTS.length ||
+    summary.failedTests !== 0 ||
+    summary.skippedTests !== 0
+  ) {
+    throw new Error(
+      `Scheduled Send deterministic evidence selected ${summary.totalTestCount} tests; expected ${SCHEDULED_SEND_DETERMINISTIC_TESTS.length} passing tests with none failed or skipped.`,
+    );
+  }
+  return summary.totalTestCount;
+}
+
+function parseScheduledSendDeterministicSummary(value: string): {
+  failedTests: number;
+  passedTests: number;
+  result: string;
+  skippedTests: number;
+  totalTestCount: number;
+} {
+  const parsed: unknown = JSON.parse(value);
+  if (!isRecord(parsed)) {
+    throw new TypeError(INVALID_SCHEDULED_SEND_DETERMINISTIC_SUMMARY);
+  }
+  return {
+    failedTests: requiredSummaryNumber(parsed, 'failedTests'),
+    passedTests: requiredSummaryNumber(parsed, 'passedTests'),
+    result: requiredSummaryString(parsed, 'result'),
+    skippedTests: requiredSummaryNumber(parsed, 'skippedTests'),
+    totalTestCount: requiredSummaryNumber(parsed, 'totalTestCount'),
+  };
+}
+
+function requiredSummaryNumber(
+  summary: Readonly<Record<string, unknown>>,
+  field: string,
+): number {
+  const value = summary[field];
+  if (typeof value !== 'number') {
+    throw new TypeError(INVALID_SCHEDULED_SEND_DETERMINISTIC_SUMMARY);
+  }
+  return value;
+}
+
+function requiredSummaryString(
+  summary: Readonly<Record<string, unknown>>,
+  field: string,
+): string {
+  const value = summary[field];
+  if (typeof value !== 'string') {
+    throw new TypeError(INVALID_SCHEDULED_SEND_DETERMINISTIC_SUMMARY);
+  }
+  return value;
 }
 
 function semanticUIState(

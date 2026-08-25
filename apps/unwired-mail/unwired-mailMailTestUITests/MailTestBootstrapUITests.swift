@@ -68,9 +68,88 @@ final class MailTestBootstrapUITests: XCTestCase {
 
   func testComposeAndSendThroughVisibleClient() throws {
     let app = launchApplication()
+    let body = try openVisibleDraft(
+      recipient: "recipient@synthetic.invalid",
+      subject: composeSubject,
+      in: app
+    )
+    try verifyNativeSemanticEditing(in: body, app: app)
+
+    try sendVisibleDraft(step: "compose-send", in: app)
+    waitForOutboxToDrain(in: app)
+  }
+
+  func testSendLaterPresentsAutomaticAndReminderModes() throws {
+    let app = launchApplication()
+    let body = try openVisibleDraft(
+      recipient: "recipient@synthetic.invalid",
+      subject: "Mail Test Send Later",
+      in: app
+    )
+    try focusAndType(
+      "Synthetic scheduled delivery",
+      into: body,
+      in: app,
+      failure: "MAIL_TEST_FAILURE:ui: The message body did not receive keyboard focus."
+    )
+    try assertSendLaterModes(in: app)
+  }
+
+  private func assertSendLaterModes(in app: XCUIApplication) throws {
+    app.typeKey("l", modifierFlags: [.command, .shift])
+    XCTAssertTrue(
+      app.navigationBars["Send Later"].waitForExistence(timeout: 5),
+      "MAIL_TEST_FAILURE:ui: The Send Later sheet did not open from its keyboard shortcut."
+    )
+
+    let automatic = app.buttons["Send Automatically"]
+    let reminder = app.buttons["Remind Me"]
+    XCTAssertTrue(
+      automatic.waitForExistence(timeout: 5),
+      "MAIL_TEST_FAILURE:ui: Send Automatically was not visible."
+    )
+    XCTAssertTrue(
+      reminder.waitForExistence(timeout: 5),
+      "MAIL_TEST_FAILURE:ui: Remind Me was not visible."
+    )
+
+    automatic.tap()
+    XCTAssertTrue(
+      app.buttons["mail-compose-schedule-send"].waitForExistence(timeout: 2),
+      "MAIL_TEST_FAILURE:ui: The automatic scheduling confirmation was not visible."
+    )
+    XCTAssertTrue(
+      app.staticTexts[
+        "An eligible trusted device will send at or after the selected time. Delivery may wait until the app can run."
+      ].exists,
+      "MAIL_TEST_FAILURE:ui: The automatic timing promise was not provider-neutral."
+    )
+
+    reminder.tap()
+    XCTAssertTrue(
+      app.buttons["mail-compose-remind-to-send"].waitForExistence(timeout: 2),
+      "MAIL_TEST_FAILURE:ui: The reminder confirmation was not visible."
+    )
+    XCTAssertTrue(
+      app.staticTexts[
+        "This keeps the message as a Draft. It will not be sent automatically."
+      ].exists,
+      "MAIL_TEST_FAILURE:ui: The reminder behavior was not explained."
+    )
+    app.buttons["Cancel"].tap()
+    XCTAssertTrue(
+      app.navigationBars["Send Later"].waitForNonExistence(timeout: 2),
+      "MAIL_TEST_FAILURE:ui: The Send Later sheet did not close."
+    )
+  }
+
+  private func openVisibleDraft(
+    recipient recipientValue: String,
+    subject subjectValue: String,
+    in app: XCUIApplication
+  ) throws -> XCUIElement {
     let compose = try requireComposeAction(in: app)
     compose.tap()
-
     let recipient = try requireElement(
       identifier: "mail-compose-to",
       matching: .textField,
@@ -78,7 +157,7 @@ final class MailTestBootstrapUITests: XCTestCase {
       failure: "MAIL_TEST_FAILURE:ui: The recipient field was not visible."
     )
     try focusAndType(
-      "recipient@synthetic.invalid",
+      recipientValue,
       into: recipient,
       in: app,
       failure: "MAIL_TEST_FAILURE:ui: The recipient field did not receive keyboard focus."
@@ -90,21 +169,17 @@ final class MailTestBootstrapUITests: XCTestCase {
       failure: "MAIL_TEST_FAILURE:ui: The subject field was not visible."
     )
     try focusAndType(
-      composeSubject,
+      subjectValue,
       into: subject,
       in: app,
       failure: "MAIL_TEST_FAILURE:ui: The subject field did not receive keyboard focus."
     )
-    let body = try requireElement(
+    return try requireElement(
       identifier: "mail-compose-body",
       matching: .textView,
       in: app,
       failure: "MAIL_TEST_FAILURE:ui: The message body was not visible."
     )
-    try verifyNativeSemanticEditing(in: body, app: app)
-
-    try sendVisibleDraft(step: "compose-send", in: app)
-    waitForOutboxToDrain(in: app)
   }
 
   private func verifyNativeSemanticEditing(
