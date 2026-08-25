@@ -224,7 +224,7 @@ final class MailComposerViewModel {
   }
 
   func remind(at dueAt: Date, timeZoneIdentifier: String) async -> Bool {
-    guard canCreateSendReminder,
+    guard (draft.kind != .editing || allowsEditingTransitions), draft.hasUserState,
       SendReminderSchedule.isValid(dueAt: dueAt, now: now(), calendar: calendar)
     else { return false }
 
