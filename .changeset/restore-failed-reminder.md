@@ -2,4 +2,4 @@
 'unwired-mail': patch
 ---
 
-Persist the original draft when synchronized reminder scheduling is rejected.
+Wait for in-flight autosaves and persist the original draft when reminder scheduling fails.
