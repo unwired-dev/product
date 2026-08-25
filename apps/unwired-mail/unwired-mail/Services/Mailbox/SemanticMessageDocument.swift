@@ -116,8 +116,14 @@ struct SemanticMessageDocument: Codable, Equatable, Sendable {
 
   /// Returns a document after converting complete Markdown-style input shortcuts.
   func convertingInputShortcuts() -> SemanticMessageDocument {
+    convertingInputShortcuts(in: blocks.indices)
+  }
+
+  /// Returns a document after converting shortcuts only in the specified blocks.
+  func convertingInputShortcuts(in blockRange: Range<Int>) -> SemanticMessageDocument {
     SemanticMessageDocument(
       blocks: blocks.enumerated().map { index, block in
+        guard blockRange.contains(index) else { return block }
         var converted = block
         let blockShortcut = Self.blockShortcut(in: converted.text, fallbackOrdinal: index + 1)
         if converted.kind == .paragraph, let blockShortcut {
@@ -222,6 +228,7 @@ struct SemanticMessageDocument: Codable, Equatable, Sendable {
     in text: String,
     fallbackOrdinal: Int
   ) -> (kind: Block.Kind, text: String)? {
+    if text == "```" { return (.codeBlock, "") }
     let shortcuts: [(String, Block.Kind)] = [
       ("### ", .heading(level: 3)),
       ("## ", .heading(level: 2)),

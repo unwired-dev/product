@@ -101,15 +101,46 @@ final class MailTestBootstrapUITests: XCTestCase {
       in: app,
       failure: "MAIL_TEST_FAILURE:ui: The message body was not visible."
     )
+    try verifyNativeSemanticEditing(in: body, app: app)
+
+    try sendVisibleDraft(step: "compose-send", in: app)
+    waitForOutboxToDrain(in: app)
+  }
+
+  private func verifyNativeSemanticEditing(
+    in body: XCUIElement,
+    app: XCUIApplication
+  ) throws {
     try focusAndType(
-      "Synthetic compose delivery",
+      "# ",
       into: body,
       in: app,
       failure: "MAIL_TEST_FAILURE:ui: The message body did not receive keyboard focus."
     )
+    XCTAssertEqual(
+      body.value as? String,
+      "",
+      "A typed heading marker remained visible instead of becoming semantic formatting."
+    )
+    body.typeKey("z", modifierFlags: .command)
+    XCTAssertEqual(
+      body.value as? String,
+      "# ",
+      "One Undo did not restore the literal Markdown marker."
+    )
 
-    try sendVisibleDraft(step: "compose-send", in: app)
-    waitForOutboxToDrain(in: app)
+    body.typeKey("a", modifierFlags: .command)
+    body.typeKey(.delete, modifierFlags: [])
+    let initialBodyHeight = body.frame.height
+    body.typeText(Array(repeating: "Growing native editor", count: 12).joined(separator: "\n"))
+    XCTAssertGreaterThan(
+      body.frame.height,
+      initialBodyHeight,
+      "The native body editor did not grow with its document."
+    )
+    body.typeKey("a", modifierFlags: .command)
+    body.typeKey(.delete, modifierFlags: [])
+    body.typeText("Synthetic compose delivery")
   }
 
   func testReplyThroughVisibleClient() throws {
