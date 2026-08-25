@@ -5,6 +5,7 @@ import SwiftData
 import SwiftUI
 import Testing
 import UIKit
+import WebKit
 
 @testable import unwired_mail
 
@@ -5219,6 +5220,65 @@ final class MailboxConnectionAdapterTests {
     navigation.toggleExpansion()
     #expect(navigation.isExpanded == false)
     #expect(navigation.draft?.id == draft.id)
+  }
+
+  @Test(
+    .bug(id: 561),
+    arguments: [MailCompositionKind.reply, .replyAll, .forward]
+  )
+  func testReplyAndForwardEntryPointsUseMailShellComposerNavigation(
+    kind: MailCompositionKind
+  ) {
+    let message = mailShellMessage(
+      providerMessageId: "composer-source",
+      providerThreadId: "composer-thread",
+      receivedAt: 100
+    )
+    let draft =
+      switch kind {
+      case .reply:
+        MailShellCompositionDraft.reply(to: message, quotedText: "Quoted reply")
+      case .replyAll:
+        MailShellCompositionDraft.replyAll(
+          to: message,
+          senderAddress: "reader@example.com",
+          quotedText: "Quoted reply"
+        )
+      case .forward:
+        MailShellCompositionDraft.forward(message, body: "Forwarded body")
+      case .editing, .newMessage:
+        preconditionFailure("Only reply and forward entry points belong in this regression")
+      }
+    var navigation = MailShellComposerNavigationState()
+
+    navigation.present(draft)
+    let regular = MailShellComposerPresentationLayout(
+      containerFrame: CGRect(x: 0, y: 0, width: 1_400, height: 1_000),
+      detailColumnFrame: CGRect(x: 600, y: 0, width: 800, height: 1_000),
+      isCompact: false,
+      isExpanded: navigation.isExpanded
+    )
+    let compact = MailShellComposerPresentationLayout(
+      containerFrame: CGRect(x: 0, y: 0, width: 390, height: 844),
+      detailColumnFrame: nil,
+      isCompact: true,
+      isExpanded: navigation.isExpanded
+    )
+
+    #expect(navigation.draft == draft)
+    #expect(regular.mode == .detailOverlay)
+    #expect(compact.mode == .compactDestination)
+
+    navigation.toggleExpansion()
+    let expanded = MailShellComposerPresentationLayout(
+      containerFrame: CGRect(x: 0, y: 0, width: 1_400, height: 1_000),
+      detailColumnFrame: CGRect(x: 600, y: 0, width: 800, height: 1_000),
+      isCompact: false,
+      isExpanded: navigation.isExpanded
+    )
+
+    #expect(navigation.draft == draft)
+    #expect(expanded.mode == .expanded)
   }
 
   @Test(.bug(id: 553))

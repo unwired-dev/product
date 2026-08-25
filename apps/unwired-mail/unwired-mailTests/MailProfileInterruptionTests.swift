@@ -58,28 +58,22 @@ struct MailProfileInterruptionTests {
   @Test
   func profileLockDismissesEveryContentBearingPresentationPath() {
     var showsSettings = true
-    var rootComposition: String? = "draft"
     var showsRootMessageActionAlert = true
     MailProfileContentPresentationDismissal.dismissRoot(
       showsSettings: &showsSettings,
-      compositionDraft: &rootComposition,
       showsMessageActionAlert: &showsRootMessageActionAlert
     )
 
     var categorySelection: String? = "category"
-    var readerComposition: String? = "reply"
     var readerMessageActionError: String? = "failed"
     MailProfileContentPresentationDismissal.dismissReader(
       categorySelection: &categorySelection,
-      compositionDraft: &readerComposition,
       messageActionError: &readerMessageActionError
     )
 
     #expect(showsSettings == false)
-    #expect(rootComposition == nil)
     #expect(!showsRootMessageActionAlert)
     #expect(categorySelection == nil)
-    #expect(readerComposition == nil)
     #expect(readerMessageActionError == nil)
   }
 

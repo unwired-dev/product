@@ -6,7 +6,6 @@ import UniformTypeIdentifiers
 
 private enum MailComposerFocus: Hashable {
   case bcc
-  case body
   case cc  // swiftlint:disable:this identifier_name
   case subject
   case to  // swiftlint:disable:this identifier_name
@@ -45,6 +44,7 @@ struct MailShellComposer: View {
 
   @Environment(\.dismiss) private var dismiss
   @FocusState private var focusedField: MailComposerFocus?
+  @State private var bodyIsFocused = false
   @State private var editorModel: SemanticMessageEditorModel
   @State private var assetErrorMessage: String?
   @State private var composeAssistancePresentation: ComposeAssistancePresentation?
@@ -197,7 +197,7 @@ struct MailShellComposer: View {
     @Bindable var viewModel = viewModel
     return NavigationStack {
       VStack(spacing: 0) {
-        MailComposerBodyField(editorModel: editorModel, focusedField: $focusedField)
+        MailComposerBodyField(editorModel: editorModel, isFocused: $bodyIsFocused)
           .dropDestination(for: Data.self) { items, _ in
             addDroppedImages(items)
             return !items.isEmpty
@@ -278,8 +278,12 @@ struct MailShellComposer: View {
       .task {
         viewModel.draftChanged()
         await Task.yield()
-        guard focusedField == nil else { return }
-        focusedField = viewModel.draft.recipient.isEmpty ? .to : .body
+        guard focusedField == nil, bodyIsFocused == false else { return }
+        if viewModel.draft.recipient.isEmpty {
+          focusedField = .to
+        } else {
+          bodyIsFocused = true
+        }
       }
       .task(id: suggestionRequest) {
         await updateSuggestions()
@@ -720,7 +724,7 @@ struct MailShellComposer: View {
     case .bcc: viewModel.draft.bccRecipients
     case .cc: viewModel.draft.ccRecipients
     case .to: viewModel.draft.recipient
-    case .body, .subject: ""
+    case .subject: ""
     }
   }
 
@@ -729,7 +733,7 @@ struct MailShellComposer: View {
     case .bcc: viewModel.draft.bccRecipients = value
     case .cc: viewModel.draft.ccRecipients = value
     case .to: viewModel.draft.recipient = value
-    case .body, .subject: break
+    case .subject: break
     }
   }
 
@@ -996,10 +1000,10 @@ private struct MailComposerAssetStatus: View {
 
 private struct MailComposerBodyField: View {
   @Bindable var editorModel: SemanticMessageEditorModel
-  let focusedField: FocusState<MailComposerFocus?>.Binding
+  @Binding var isFocused: Bool
 
   var body: some View {
-    SemanticMessageTextView(editorModel: editorModel, isFocused: bodyIsFocused)
+    SemanticMessageTextView(editorModel: editorModel, isFocused: $isFocused)
       .frame(maxWidth: .infinity, minHeight: 160, alignment: .topLeading)
       .contextMenu {
         ForEach(SemanticMessageBlockCommand.allCases) { command in
@@ -1010,18 +1014,6 @@ private struct MailComposerBodyField: View {
       }
   }
 
-  private var bodyIsFocused: Binding<Bool> {
-    Binding(
-      get: { focusedField.wrappedValue == .body },
-      set: { isFocused in
-        if isFocused {
-          focusedField.wrappedValue = .body
-        } else if focusedField.wrappedValue == .body {
-          focusedField.wrappedValue = nil
-        }
-      }
-    )
-  }
 }
 
 private struct MailComposerActionBar: View {
