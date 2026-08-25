@@ -50,8 +50,10 @@ struct MailShellComposer: View {
   @State private var composeAssistancePresentation: ComposeAssistancePresentation?
   @State private var responseAssistancePresentation: ResponseAssistancePresentation?
   @State private var linkDestination = "https://"
+  @State private var recipientEditor: MailRecipientEditor
   @State private var sendLaterRequest: SendLaterRequest?
   @State private var selectedPhoto: PhotosPickerItem?
+  @State private var selectedSuggestionId: String?
   @State private var suggestions: [MailRecipientSuggestion] = []
   @State private var showsDiscardConfirmation = false
   @State private var showsExpandedRecipients = false
@@ -112,6 +114,13 @@ struct MailShellComposer: View {
     self.templates = templates
     self.scheduledSendDueAt = scheduledSendDueAt
     self.sendNow = sendNow
+    _recipientEditor = State(
+      initialValue: MailRecipientEditor(
+        to: initialDraft.recipient,
+        cc: initialDraft.ccRecipients,
+        bcc: initialDraft.bccRecipients
+      )
+    )
     _suggestionService = State(initialValue: suggestionService)
     _editorModel = State(
       initialValue: SemanticMessageEditorModel(document: initialDraft.document)
@@ -165,6 +174,13 @@ struct MailShellComposer: View {
     self.templates = templates
     scheduledSendDueAt = nil
     sendNow = nil
+    _recipientEditor = State(
+      initialValue: MailRecipientEditor(
+        to: viewModel.draft.recipient,
+        cc: viewModel.draft.ccRecipients,
+        bcc: viewModel.draft.bccRecipients
+      )
+    )
     _suggestionService = State(initialValue: suggestionService)
     _editorModel = State(
       initialValue: SemanticMessageEditorModel(document: viewModel.draft.document)
@@ -274,6 +290,13 @@ struct MailShellComposer: View {
       .onChange(of: selectedPhoto) { _, item in
         guard let item else { return }
         Task { await importPhoto(item) }
+      }
+      .onChange(of: focusedField) { previousField, _ in
+        guard let recipientField = recipientField(for: previousField) else { return }
+        recipientEditor.commitPendingText(in: recipientField)
+      }
+      .onChange(of: recipientEditor.headers) { _, headers in
+        synchronizeRecipientHeaders(headers)
       }
       .task {
         viewModel.draftChanged()
@@ -436,59 +459,60 @@ struct MailShellComposer: View {
     VStack(spacing: 8) {
       MailComposerRecipientField(
         label: "To",
-        text: recipientBinding(for: .to),
+        tokens: recipientEditor.tokens(in: .to),
+        pendingText: pendingRecipientBinding(for: .to),
+        issue: recipientEditor.issue(in: .to),
         focus: .to,
-        focusedField: $focusedField
+        focusedField: $focusedField,
+        remove: { recipientEditor.remove($0, from: .to) },
+        submit: { submitRecipientField(.to) },
+        handleKeyPress: { handleRecipientKeyPress($0, in: .to) }
       )
-      if showsExpandedRecipients {
+      if focusedField == .to {
+        MailRecipientSuggestionList(
+          suggestions: suggestions,
+          selectedSuggestionId: selectedSuggestionId,
+          select: applySuggestion
+        )
+      }
+      if showsOptionalRecipientFields {
         Divider()
         MailComposerRecipientField(
           label: "Cc",
-          text: recipientBinding(for: .cc),
+          tokens: recipientEditor.tokens(in: .cc),
+          pendingText: pendingRecipientBinding(for: .cc),
+          issue: recipientEditor.issue(in: .cc),
           focus: .cc,
-          focusedField: $focusedField
+          focusedField: $focusedField,
+          remove: { recipientEditor.remove($0, from: .cc) },
+          submit: { submitRecipientField(.cc) },
+          handleKeyPress: { handleRecipientKeyPress($0, in: .cc) }
         )
+        if focusedField == .cc {
+          MailRecipientSuggestionList(
+            suggestions: suggestions,
+            selectedSuggestionId: selectedSuggestionId,
+            select: applySuggestion
+          )
+        }
         Divider()
         MailComposerRecipientField(
           label: "Bcc",
-          text: recipientBinding(for: .bcc),
+          tokens: recipientEditor.tokens(in: .bcc),
+          pendingText: pendingRecipientBinding(for: .bcc),
+          issue: recipientEditor.issue(in: .bcc),
           focus: .bcc,
-          focusedField: $focusedField
+          focusedField: $focusedField,
+          remove: { recipientEditor.remove($0, from: .bcc) },
+          submit: { submitRecipientField(.bcc) },
+          handleKeyPress: { handleRecipientKeyPress($0, in: .bcc) }
         )
-      }
-      if !viewModel.draft.deliveryRecipientHeader.isEmpty,
-        !viewModel.draft.recipientsAreValid
-      {
-        Text("Enter complete, valid email addresses before sending.")
-          .font(.footnote)
-          .foregroundStyle(.red)
-          .frame(maxWidth: .infinity, alignment: .leading)
-      }
-      if !suggestions.isEmpty {
-        Divider()
-        ForEach(suggestions) { suggestion in
-          Button(
-            action: { applySuggestion(suggestion) },
-            label: {
-              HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                  if let displayName = suggestion.displayName {
-                    Text(displayName)
-                      .foregroundStyle(.primary)
-                  }
-                  Text(suggestion.emailAddress)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                }
-                Spacer()
-                Image(systemName: "plus.circle")
-                  .accessibilityHidden(true)
-              }
-              .contentShape(.rect)
-            }
+        if focusedField == .bcc {
+          MailRecipientSuggestionList(
+            suggestions: suggestions,
+            selectedSuggestionId: selectedSuggestionId,
+            select: applySuggestion
           )
-          .buttonStyle(.plain)
-          .accessibilityLabel("Add \(suggestion.headerValue)")
         }
       }
     }
@@ -700,36 +724,96 @@ struct MailShellComposer: View {
   }
 
   private var activeRecipientQuery: String {
-    guard let focusedField else { return "" }
-    return recipientText(for: focusedField)
-      .split(separator: ",", omittingEmptySubsequences: false)
-      .last
-      .map(String.init)?
-      .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    guard let field = recipientField(for: focusedField) else { return "" }
+    return recipientEditor.pendingText(in: field)
+      .trimmingCharacters(in: .whitespacesAndNewlines)
   }
 
-  private func recipientBinding(for field: MailComposerFocus) -> Binding<String> {
+  private var showsOptionalRecipientFields: Bool {
+    showsExpandedRecipients || recipientEditor.hasPopulatedOptionalRecipients
+  }
+
+  private func pendingRecipientBinding(for field: MailRecipientEditor.Field) -> Binding<String> {
     Binding(
-      get: { recipientText(for: field) },
-      set: { setRecipientText($0, for: field) }
+      get: { recipientEditor.pendingText(in: field) },
+      set: { recipientEditor.updatePendingText($0, in: field) }
     )
   }
 
-  private func recipientText(for field: MailComposerFocus) -> String {
-    switch field {
-    case .bcc: viewModel.draft.bccRecipients
-    case .cc: viewModel.draft.ccRecipients
-    case .to: viewModel.draft.recipient
-    case .body, .subject: ""
+  private func recipientField(for focus: MailComposerFocus?) -> MailRecipientEditor.Field? {
+    guard let focus else { return nil }
+    return switch focus {
+    case .bcc: .bcc
+    case .cc: .cc
+    case .to: .to
+    case .body, .subject: nil
     }
   }
 
-  private func setRecipientText(_ value: String, for field: MailComposerFocus) {
+  private func synchronizeRecipientHeaders(_ headers: MailRecipientEditor.Headers) {
+    guard
+      viewModel.draft.recipient != headers.to
+        || viewModel.draft.ccRecipients != headers.cc
+        || viewModel.draft.bccRecipients != headers.bcc
+    else { return }
+    viewModel.draft.recipient = headers.to
+    viewModel.draft.ccRecipients = headers.cc
+    viewModel.draft.bccRecipients = headers.bcc
+  }
+
+  private func submitRecipientField(_ field: MailRecipientEditor.Field) {
+    if let suggestion = selectedSuggestion {
+      applySuggestion(suggestion)
+    } else {
+      recipientEditor.commitPendingText(in: field)
+    }
+  }
+
+  private func handleRecipientKeyPress(
+    _ key: KeyEquivalent,
+    in field: MailRecipientEditor.Field
+  ) -> KeyPress.Result {
+    switch key {
+    case .upArrow:
+      return moveSuggestionSelection(by: -1)
+    case .downArrow:
+      return moveSuggestionSelection(by: 1)
+    case .tab:
+      guard let suggestion = selectedSuggestion else {
+        recipientEditor.commitPendingText(in: field)
+        return .ignored
+      }
+      applySuggestion(suggestion)
+      return .handled
+    default:
+      return .ignored
+    }
+  }
+
+  private var selectedSuggestion: MailRecipientSuggestion? {
+    guard let selectedSuggestionId else { return nil }
+    return suggestions.first(where: { $0.id == selectedSuggestionId })
+  }
+
+  private func moveSuggestionSelection(by offset: Int) -> KeyPress.Result {
+    guard !suggestions.isEmpty else { return .ignored }
+    let nextIndex: Int
+    if let selectedSuggestion,
+      let currentIndex = suggestions.firstIndex(where: { $0.id == selectedSuggestion.id })
+    {
+      nextIndex = (currentIndex + offset + suggestions.count) % suggestions.count
+    } else {
+      nextIndex = offset > 0 ? 0 : suggestions.count - 1
+    }
+    selectedSuggestionId = suggestions[nextIndex].id
+    return .handled
+  }
+
+  private func focus(for field: MailRecipientEditor.Field) -> MailComposerFocus {
     switch field {
-    case .bcc: viewModel.draft.bccRecipients = value
-    case .cc: viewModel.draft.ccRecipients = value
-    case .to: viewModel.draft.recipient = value
-    case .body, .subject: break
+    case .bcc: .bcc
+    case .cc: .cc
+    case .to: .to
     }
   }
 
@@ -764,26 +848,40 @@ struct MailShellComposer: View {
   }
 
   private func updateSuggestions() async {
-    guard let focusedField,
-      [.bcc, .cc, .to].contains(focusedField),
-      !activeRecipientQuery.isEmpty
+    let request = suggestionRequest
+    guard let field = recipientField(for: request.field), !request.query.isEmpty
     else {
       suggestions = []
+      selectedSuggestionId = nil
       return
     }
-    suggestions = await suggestionService.suggestions(
-      matching: activeRecipientQuery,
+    suggestions = []
+    selectedSuggestionId = nil
+    do {
+      try await Task.sleep(for: .milliseconds(150))
+    } catch is CancellationError {
+      return
+    } catch {
+      return
+    }
+    let loaded = await suggestionService.suggestions(
+      matching: request.query,
       messages: recipientMessages
     )
+    guard !Task.isCancelled, request == suggestionRequest else { return }
+    suggestions = loaded.filter { !recipientEditor.contains(emailAddress: $0.emailAddress) }
+    selectedSuggestionId = nil
+    if focusedField != focus(for: field) {
+      suggestions = []
+      selectedSuggestionId = nil
+    }
   }
 
   private func applySuggestion(_ suggestion: MailRecipientSuggestion) {
-    guard let focusedField else { return }
-    setRecipientText(
-      MailRecipientText.applying(suggestion, to: recipientText(for: focusedField)),
-      for: focusedField
-    )
+    guard let field = recipientField(for: focusedField) else { return }
+    recipientEditor.accept(suggestion, in: field)
     suggestions = []
+    selectedSuggestionId = nil
   }
 
   private func closeComposer() {
@@ -903,7 +1001,7 @@ struct MailShellComposer: View {
   }
 
   private var recipientDisplayNames: [String] {
-    [viewModel.draft.recipient, viewModel.draft.ccRecipients]
+    [recipientEditor.headers.to, recipientEditor.headers.cc]
       .flatMap { RFCMailboxHeaderParser.mailboxes(in: $0) ?? [] }
       .compactMap(\.displayName)
   }
@@ -1262,17 +1360,104 @@ private struct MailComposerSubjectField: View {
 
 private struct MailComposerRecipientField: View {
   let label: String
-  @Binding var text: String
+  let tokens: [MailRecipientEditor.Token]
+  @Binding var pendingText: String
+  let issue: MailRecipientEditor.Issue?
   let focus: MailComposerFocus
   let focusedField: FocusState<MailComposerFocus?>.Binding
+  let remove: (MailRecipientEditor.Token) -> Void
+  let submit: () -> Void
+  let handleKeyPress: (KeyEquivalent) -> KeyPress.Result
 
   var body: some View {
-    LabeledContent(label) {
-      TextField(label, text: $text)
-        .multilineTextAlignment(.leading)
-        .textInputAutocapitalization(.never)
-        .focused(focusedField, equals: focus)
-        .accessibilityIdentifier("mail-compose-\(label.lowercased())")
+    VStack(alignment: .leading, spacing: 4) {
+      HStack(alignment: .center, spacing: 8) {
+        Text(label)
+          .foregroundStyle(.secondary)
+          .frame(minWidth: 32, alignment: .leading)
+        ScrollView(.horizontal) {
+          HStack(spacing: 4) {
+            ForEach(tokens) { token in
+              Button(
+                action: { remove(token) },
+                label: {
+                  HStack(spacing: 4) {
+                    Text(token.title)
+                      .lineLimit(1)
+                    Image(systemName: "xmark")
+                      .accessibilityHidden(true)
+                  }
+                }
+              )
+              .buttonStyle(.bordered)
+              .accessibilityLabel("Remove \(token.title)")
+            }
+            TextField(label, text: $pendingText)
+              .frame(minWidth: 160)
+              .textInputAutocapitalization(.never)
+              .autocorrectionDisabled()
+              .focused(focusedField, equals: focus)
+              .onSubmit(submit)
+              .onKeyPress(keys: [.upArrow, .downArrow, .tab]) {
+                handleKeyPress($0.key)
+              }
+              .accessibilityIdentifier("mail-compose-\(label.lowercased())")
+          }
+        }
+        .scrollIndicators(.hidden)
+      }
+      if let issue {
+        Label(issue.message, systemImage: "exclamationmark.circle")
+          .font(.footnote)
+          .foregroundStyle(.red)
+          .padding(.leading, 40)
+          .accessibilityIdentifier("mail-compose-\(label.lowercased())-error")
+      }
+    }
+  }
+}
+
+private struct MailRecipientSuggestionList: View {
+  let suggestions: [MailRecipientSuggestion]
+  let selectedSuggestionId: String?
+  let select: (MailRecipientSuggestion) -> Void
+
+  var body: some View {
+    if !suggestions.isEmpty {
+      Divider()
+      VStack(spacing: 0) {
+        ForEach(suggestions) { suggestion in
+          let isSelected = suggestion.id == selectedSuggestionId
+          Button(
+            action: { select(suggestion) },
+            label: {
+              HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                  if let displayName = suggestion.displayName {
+                    Text(displayName)
+                      .foregroundStyle(.primary)
+                  }
+                  Text(suggestion.emailAddress)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "plus.circle")
+                  .accessibilityHidden(true)
+              }
+              .contentShape(.rect)
+              .padding(.vertical, 8)
+              .padding(.horizontal, 4)
+              .background(
+                isSelected ? Color.accentColor.opacity(0.12) : .clear,
+                in: .rect(cornerRadius: 8)
+              )
+            }
+          )
+          .buttonStyle(.plain)
+          .accessibilityLabel("Add \(suggestion.headerValue)")
+        }
+      }
     }
   }
 }
