@@ -1408,6 +1408,33 @@ final class MailShellReleaseBudgetDriver {
   }
 }
 
+/// Coordinates presentation cleanup without invalidating the mail shell's root view.
+@MainActor
+@Observable
+final class MailContentPresentationDismissalCoordinator {
+  private(set) var revision = 0
+
+  /// Requests that presented mail content be dismissed.
+  func dismissPresentations() {
+    revision &+= 1
+  }
+}
+
+/// Observes presentation cleanup requests at a leaf view boundary.
+private struct MailContentPresentationDismissalObserver: View {
+  let coordinator: MailContentPresentationDismissalCoordinator
+  let dismissPresentations: () -> Void
+
+  var body: some View {
+    Color.clear
+      .frame(width: 0, height: 0)
+      .accessibilityHidden(true)
+      .onChange(of: coordinator.revision) { _, _ in
+        dismissPresentations()
+      }
+  }
+}
+
 enum MailProfileContentPresentationDismissal {
   static func dismissRoot<Draft>(
     showsSettings: inout Bool,
@@ -1628,7 +1655,8 @@ struct AccountView: View {
   @State private var compositionDraftLoadGate = MailCompositionDraftLoadGate()
   @State private var isReaderComposerPresented = false
   @State private var savedCompositionDrafts: [MailShellCompositionDraft] = []
-  @State private var contentPresentationDismissalSignal = 0
+  @State private var contentPresentationDismissal =
+    MailContentPresentationDismissalCoordinator()
   @State private var ewsSetupViewModel: EWSSetupViewModel
   @State private var genericMailSetupViewModel: GenericMailSetupViewModel
   @State private var gmailViewModel: MailboxProviderConnectionViewModel
@@ -2048,7 +2076,7 @@ struct AccountView: View {
         showsMessageActionAlert: &showsBlockedActionAlert
       )
       composerNavigation.dismissAll()
-      contentPresentationDismissalSignal &+= 1
+      contentPresentationDismissal.dismissPresentations()
     }
     .onChange(of: profileViewModel.activeProfileId) { _, profileId in
       guard let profileId else {
@@ -2594,7 +2622,7 @@ struct AccountView: View {
             using: messageReader
           )
         },
-        contentPresentationDismissalSignal: contentPresentationDismissalSignal
+        contentPresentationDismissal: contentPresentationDismissal
       )
       .mailShellBottomInset(isEnabled: horizontalSizeClass == .compact) {
         mailShellBottomBar
@@ -2630,7 +2658,7 @@ struct AccountView: View {
         allowsProactiveSuggestions:
           profileInterruptionViewModel.policy.allowsProactiveSuggestions,
         allowsContentReveal: profileInterruptionViewModel.policy.allowsContentReveal,
-        contentPresentationDismissalSignal: contentPresentationDismissalSignal,
+        contentPresentationDismissal: contentPresentationDismissal,
         categoryChoices: MessageCategoryChoice.available(
           customCategories: categoryViewModel.categories
         ),
@@ -3469,7 +3497,7 @@ struct AccountView: View {
     from sourceProfileId: MailProfileId,
     switchGeneration: Int
   ) async -> Bool {
-    contentPresentationDismissalSignal &+= 1
+    contentPresentationDismissal.dismissPresentations()
     mailShellSelection.clearThreadSelection()
     mailShellSelection.selectUnifiedInbox()
     await waitForNextMainRunLoopCycle()
@@ -6197,7 +6225,7 @@ struct MailShellThreadList: View {
   var cancelReminder: MailComposerViewModel.CancelReminder = { _, _ in }
   var scheduleReminder: MailComposerViewModel.ScheduleReminder = { _ in .unavailable }
   var itemDidRender: (MailShellThreadListItem) -> Void = { _ in }
-  var contentPresentationDismissalSignal = 0
+  var contentPresentationDismissal = MailContentPresentationDismissalCoordinator()
   @State private var editingAttempt: OutgoingDeliveryAttempt?
   @State private var scheduledEditSession: ScheduledSendEditSession?
   @State private var cleanupOutcome: InboxCleanupExecutionOutcome?
@@ -6542,11 +6570,15 @@ struct MailShellThreadList: View {
         pendingMoveItem = nil
       }
     }
-    .onChange(of: contentPresentationDismissalSignal) { _, _ in
-      editingAttempt = nil
-      cleanupReviewModel = nil
-      pendingMoveItem = nil
-      showsMailboxTools = false
+    .background {
+      MailContentPresentationDismissalObserver(
+        coordinator: contentPresentationDismissal
+      ) {
+        editingAttempt = nil
+        cleanupReviewModel = nil
+        pendingMoveItem = nil
+        showsMailboxTools = false
+      }
     }
     .task {
       refreshCleanupProposal()
@@ -7982,7 +8014,7 @@ struct MailShellConversationReader: View {
   var revalidateTrustedDevice: () async -> Bool = { true }
   var allowsProactiveSuggestions = true
   var allowsContentReveal = true
-  var contentPresentationDismissalSignal = 0
+  var contentPresentationDismissal = MailContentPresentationDismissalCoordinator()
   var categoryChoices: [MessageCategoryChoice] = []
   var createCustomCategory: (CustomCategoryEditorDraft) async throws -> CustomCategory = { _ in
     throw CustomCategorySyncError.invalidPayload
@@ -8572,25 +8604,29 @@ struct MailShellConversationReader: View {
       snoozeViewModel.clearError()
       followUpNudgeViewModel?.clearError()
     }
-    .onChange(of: contentPresentationDismissalSignal) { _, _ in
-      calendarReview = nil
-      calendarReviewDismissalIdentifier = nil
-      contactReview = nil
-      contactReviewDismissalIdentifier = nil
-      MailProfileContentPresentationDismissal.dismissReader(
-        categorySelection: &categorySelection,
-        compositionDraft: &compositionDraft,
-        messageActionError: &readerErrorMessage
-      )
-      for task in readTasks.values { task.cancel() }
-      readTasks.removeAll()
-      readTaskOwners.removeAll()
-      readerErrorConnectionId = nil
-      readerErrorSource = nil
-      sourceInspectionMessage = nil
-      showsUnderstandingAssistance = false
-      understandingErrorMessage = nil
-      mailAssistanceViewModel.discardPreview()
+    .background {
+      MailContentPresentationDismissalObserver(
+        coordinator: contentPresentationDismissal
+      ) {
+        calendarReview = nil
+        calendarReviewDismissalIdentifier = nil
+        contactReview = nil
+        contactReviewDismissalIdentifier = nil
+        MailProfileContentPresentationDismissal.dismissReader(
+          categorySelection: &categorySelection,
+          compositionDraft: &compositionDraft,
+          messageActionError: &readerErrorMessage
+        )
+        for task in readTasks.values { task.cancel() }
+        readTasks.removeAll()
+        readTaskOwners.removeAll()
+        readerErrorConnectionId = nil
+        readerErrorSource = nil
+        sourceInspectionMessage = nil
+        showsUnderstandingAssistance = false
+        understandingErrorMessage = nil
+        mailAssistanceViewModel.discardPreview()
+      }
     }
   }
 
