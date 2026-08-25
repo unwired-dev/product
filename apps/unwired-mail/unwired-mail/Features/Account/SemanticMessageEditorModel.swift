@@ -92,6 +92,11 @@ enum SemanticMessageInlineCommand: String, CaseIterable, Identifiable {
 final class SemanticMessageEditorModel {
   private static let historyLimit = 100
 
+  private struct InputShortcutConversion {
+    let converted: SemanticMessageDocument
+    let source: SemanticMessageDocument
+  }
+
   var attributedText: AttributedString
   private(set) var document: SemanticMessageDocument
   var selection: AttributedTextSelection
@@ -197,23 +202,87 @@ final class SemanticMessageEditorModel {
       ignoredTextSnapshot = nil
       return
     }
-    let source = SemanticMessageDocument(attributedText: attributedText)
-    let converted = source.convertingInputShortcuts()
-    guard converted != document else { return }
-    recordUndo(document)
-    redoDocuments.removeAll()
-    document = converted
-    if source != converted {
-      let oldCount = attributedText.characters.count
-      let newCount = converted.attributedText.characters.count
-      let mappedOffsets = selectionOffsets.map { offsets in
-        (
-          Self.mapSelectionOffset(offsets.0, oldCount: oldCount, newCount: newCount),
-          Self.mapSelectionOffset(offsets.1, oldCount: oldCount, newCount: newCount)
+    let offsets =
+      selectionOffsets ?? (attributedText.characters.count, attributedText.characters.count)
+    _ = replaceUserText(
+      with: attributedText,
+      selectionOffsets: offsets.0..<offsets.1,
+      convertsInputShortcuts: true
+    )
+  }
+
+  /// Replaces text from one native editing transaction.
+  ///
+  /// - Returns: `true` when this edit completed an input shortcut.
+  @discardableResult
+  func replaceUserText(
+    with replacement: AttributedString,
+    selectionOffsets: Range<Int>,
+    convertsInputShortcuts: Bool,
+    recordsUndo: Bool = true
+  ) -> Bool {
+    let source = semanticDocument(for: replacement)
+    var updatedDocument = source
+    var updatedSelection = (selectionOffsets.lowerBound, selectionOffsets.upperBound)
+    var undoDocument = document
+    var convertedInputShortcut = false
+
+    if convertsInputShortcuts,
+      let conversion = inputShortcutConversion(for: replacement, source: source)
+    {
+      updatedDocument = conversion.converted
+      undoDocument = conversion.source
+      convertedInputShortcut = true
+      let convertedCount = conversion.converted.attributedText.characters.count
+      updatedSelection = (
+        Self.mapSelectionOffset(
+          selectionOffsets.lowerBound,
+          oldCount: replacement.characters.count,
+          newCount: convertedCount
+        ),
+        Self.mapSelectionOffset(
+          selectionOffsets.upperBound,
+          oldCount: replacement.characters.count,
+          newCount: convertedCount
         )
-      }
-      replaceAttributedText(with: converted, selectionOffsets: mappedOffsets)
+      )
     }
+
+    guard updatedDocument != document else {
+      replaceAttributedText(with: updatedDocument, selectionOffsets: updatedSelection)
+      return convertedInputShortcut
+    }
+    if recordsUndo { recordUndo(undoDocument) }
+    redoDocuments.removeAll()
+    document = updatedDocument
+    replaceAttributedText(with: updatedDocument, selectionOffsets: updatedSelection)
+    return convertedInputShortcut
+  }
+
+  /// Reports whether one proposed native edit completes an input shortcut.
+  func completesInputShortcut(with replacement: AttributedString) -> Bool {
+    let source = semanticDocument(for: replacement)
+    return inputShortcutConversion(for: replacement, source: source) != nil
+  }
+
+  /// Synchronizes the native selection without adding an undo entry.
+  func updateSelection(offsets: Range<Int>) {
+    let lowerOffset = min(max(offsets.lowerBound, 0), attributedText.characters.count)
+    let upperOffset = min(
+      max(offsets.upperBound, lowerOffset),
+      attributedText.characters.count
+    )
+    if let currentOffsets = selectionOffsets,
+      currentOffsets == (lowerOffset, upperOffset)
+    {
+      return
+    }
+    let lower = attributedText.characters.index(attributedText.startIndex, offsetBy: lowerOffset)
+    let upper = attributedText.characters.index(attributedText.startIndex, offsetBy: upperOffset)
+    selection =
+      lower == upper
+      ? AttributedTextSelection(insertionPoint: lower)
+      : AttributedTextSelection(range: lower..<upper)
   }
 
   /// Toggles one inline style across the current selection or typing attributes.
@@ -373,6 +442,68 @@ final class SemanticMessageEditorModel {
     document = updated
   }
 
+  private func semanticDocument(for replacement: AttributedString) -> SemanticMessageDocument {
+    var source = SemanticMessageDocument(attributedText: replacement)
+    let oldText = String(document.attributedText.characters)
+    let newText = String(replacement.characters)
+    let changedRanges = Self.changedCharacterRanges(from: oldText, to: newText)
+    let oldBlockRange = Self.blockRange(
+      containing: changedRanges.old,
+      in: oldText,
+      blockCount: document.blocks.count
+    )
+    let newBlockRange = Self.blockRange(
+      containing: changedRanges.new,
+      in: newText,
+      blockCount: source.blocks.count
+    )
+
+    let unchangedPrefixCount = min(oldBlockRange.lowerBound, newBlockRange.lowerBound)
+    for index in 0..<unchangedPrefixCount where source.blocks[index].kind == .paragraph {
+      source.blocks[index].kind = document.blocks[index].kind
+    }
+    if oldBlockRange.isEmpty == false, newBlockRange.isEmpty == false,
+      source.blocks[newBlockRange.lowerBound].kind == .paragraph
+    {
+      source.blocks[newBlockRange.lowerBound].kind = document.blocks[oldBlockRange.lowerBound].kind
+    }
+    let unchangedSuffixCount = min(
+      document.blocks.count - oldBlockRange.upperBound,
+      source.blocks.count - newBlockRange.upperBound
+    )
+    for offset in 0..<unchangedSuffixCount {
+      let oldIndex = document.blocks.count - offset - 1
+      let newIndex = source.blocks.count - offset - 1
+      if source.blocks[newIndex].kind == .paragraph {
+        source.blocks[newIndex].kind = document.blocks[oldIndex].kind
+      }
+    }
+    return source
+  }
+
+  private func inputShortcutConversion(
+    for replacement: AttributedString,
+    source: SemanticMessageDocument
+  ) -> InputShortcutConversion? {
+    let oldText = String(document.attributedText.characters)
+    let newText = String(replacement.characters)
+    let changedRanges = Self.changedCharacterRanges(from: oldText, to: newText)
+    let oldBlockRange = Self.blockRange(
+      containing: changedRanges.old,
+      in: oldText,
+      blockCount: document.blocks.count
+    )
+    let newBlockRange = Self.blockRange(
+      containing: changedRanges.new,
+      in: newText,
+      blockCount: source.blocks.count
+    )
+    let oldConverted = document.convertingInputShortcuts(in: oldBlockRange)
+    let newConverted = source.convertingInputShortcuts(in: newBlockRange)
+    guard oldConverted == document, newConverted != source else { return nil }
+    return InputShortcutConversion(converted: newConverted, source: source)
+  }
+
   private func recordUndo(_ value: SemanticMessageDocument) {
     undoDocuments.append(value)
     if undoDocuments.count > Self.historyLimit {
@@ -442,6 +573,40 @@ final class SemanticMessageEditorModel {
     newCount: Int
   ) -> Int {
     max(0, newCount - max(0, oldCount - offset))
+  }
+
+  private static func changedCharacterRanges(
+    from oldText: String,
+    to newText: String
+  ) -> (old: Range<Int>, new: Range<Int>) {
+    let oldCharacters = Array(oldText)
+    let newCharacters = Array(newText)
+    let sharedPrefixCount = zip(oldCharacters, newCharacters).prefix { $0 == $1 }.count
+    let remainingOldCount = oldCharacters.count - sharedPrefixCount
+    let remainingNewCount = newCharacters.count - sharedPrefixCount
+    let sharedSuffixCount = zip(
+      oldCharacters.suffix(remainingOldCount).reversed(),
+      newCharacters.suffix(remainingNewCount).reversed()
+    ).prefix { $0 == $1 }.count
+    return (
+      sharedPrefixCount..<(oldCharacters.count - sharedSuffixCount),
+      sharedPrefixCount..<(newCharacters.count - sharedSuffixCount)
+    )
+  }
+
+  private static func blockRange(
+    containing characterRange: Range<Int>,
+    in text: String,
+    blockCount: Int
+  ) -> Range<Int> {
+    let characters = Array(text)
+    let lowerOffset = min(characterRange.lowerBound, characters.count)
+    let upperOffset = min(characterRange.upperBound, characters.count)
+    let lowerBlock = characters.prefix(lowerOffset).count(where: { $0 == "\n" })
+    let lastChangedOffset = upperOffset > lowerOffset ? upperOffset - 1 : upperOffset
+    let upperBlock = characters.prefix(lastChangedOffset).count(where: { $0 == "\n" }) + 1
+    let lowerBound = min(lowerBlock, blockCount)
+    return lowerBound..<min(max(upperBlock, lowerBound), blockCount)
   }
 
   private static func setInline(
