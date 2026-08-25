@@ -5274,7 +5274,7 @@ final class MailboxConnectionAdapterTests {
     arguments: [MailCompositionKind.reply, .replyAll, .forward]
   )
   // swiftlint:disable:next function_body_length
-  func testReplyAndForwardEntryPointsUseMailShellComposerNavigation(
+  func testReplyAndForwardEntryPointsUseAccountViewComposerNavigation(
     kind: MailCompositionKind
   ) throws {
     let message = mailShellMessage(
@@ -5293,7 +5293,9 @@ final class MailboxConnectionAdapterTests {
         quotedText: "Quoted reply",
         sendingIdentityId: nil,
         signatures: .empty,
-        present: { navigation.present($0) }
+        present: { draft in
+          AccountView.presentCompositionDraft(draft, in: &navigation)
+        }
       )
     case .replyAll:
       MailShellConversationReader.presentReply(
@@ -5303,7 +5305,9 @@ final class MailboxConnectionAdapterTests {
         quotedText: "Quoted reply",
         sendingIdentityId: nil,
         signatures: .empty,
-        present: { navigation.present($0) }
+        present: { draft in
+          AccountView.presentCompositionDraft(draft, in: &navigation)
+        }
       )
     case .forward:
       MailShellConversationReader.presentForward(
@@ -5311,7 +5315,9 @@ final class MailboxConnectionAdapterTests {
         body: MailboxMessageBody(text: "Forwarded body"),
         sendingIdentityId: nil,
         signatures: .empty,
-        present: { navigation.present($0) }
+        present: { draft in
+          AccountView.presentCompositionDraft(draft, in: &navigation)
+        }
       )
     case .editing, .newMessage:
       preconditionFailure("Only reply and forward entry points belong in this regression")

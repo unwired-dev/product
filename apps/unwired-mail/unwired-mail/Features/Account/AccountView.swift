@@ -1411,10 +1411,16 @@ final class MailShellReleaseBudgetDriver {
 enum MailProfileContentPresentationDismissal {
   static func dismissRoot(
     showsSettings: inout Bool,
-    showsMessageActionAlert: inout Bool
+    showsMessageActionAlert: inout Bool,
+    composerNavigation: inout MailShellComposerNavigationState,
+    composerSendErrorMessage: inout String,
+    showsComposerSendError: inout Bool
   ) {
     showsSettings = false
     showsMessageActionAlert = false
+    composerNavigation.dismissAll()
+    composerSendErrorMessage = ""
+    showsComposerSendError = false
   }
 
   static func dismissReader<CategorySelection>(
@@ -2040,9 +2046,11 @@ struct AccountView: View {
       mailAssistanceViewModel.profileDidLock()
       MailProfileContentPresentationDismissal.dismissRoot(
         showsSettings: &showsSettings,
-        showsMessageActionAlert: &showsBlockedActionAlert
+        showsMessageActionAlert: &showsBlockedActionAlert,
+        composerNavigation: &composerNavigation,
+        composerSendErrorMessage: &composerSendErrorMessage,
+        showsComposerSendError: &showsComposerSendError
       )
-      composerNavigation.dismissAll()
       contentPresentationDismissalSignal &+= 1
     }
     .onChange(of: profileViewModel.activeProfileId) { _, profileId in
@@ -2632,7 +2640,9 @@ struct AccountView: View {
         createCustomCategory: { draft in
           try await categoryViewModel.create(draft)
         },
-        presentCompositionDraft: { composerNavigation.present($0) },
+        presentCompositionDraft: { draft in
+          Self.presentCompositionDraft(draft, in: &composerNavigation)
+        },
         signatures: signatureStore.preferences,
         sendingIdentities: profileSendingIdentities
       )
@@ -4157,6 +4167,14 @@ extension AccountView {
     guard !didSend else { return nil }
     return actionErrorMessage
       ?? "The message could not be added to Outbox. Keep editing and try again."
+  }
+
+  /// Presents a draft in the Mail Shell host's navigation state.
+  static func presentCompositionDraft(
+    _ draft: MailShellCompositionDraft,
+    in navigation: inout MailShellComposerNavigationState
+  ) {
+    navigation.present(draft)
   }
 
   private func scheduleNewMessage(
