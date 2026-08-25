@@ -13872,18 +13872,36 @@ final class GmailInboxViewModel {
       prefetch.task.cancel()
     }
     visibleMessageBodyPrefetchTasks = [:]
-    currentConnectionId = nil
-    displayedMessageBodyIds = []
-    unifiedConnectionIds = []
+    if currentConnectionId != nil {
+      currentConnectionId = nil
+    }
+    if !displayedMessageBodyIds.isEmpty {
+      displayedMessageBodyIds = []
+    }
+    if !unifiedConnectionIds.isEmpty {
+      unifiedConnectionIds = []
+    }
     unifiedLoadId = nil
     navigationLoadId = nil
-    isLoading = false
-    navigationSnapshot = .empty
-    visibleMessageBodyPrefetches = [:]
+    if isLoading {
+      isLoading = false
+    }
+    if navigationSnapshot != .empty {
+      navigationSnapshot = .empty
+    }
+    if !visibleMessageBodyPrefetches.isEmpty {
+      visibleMessageBodyPrefetches = [:]
+    }
     clearVisibleThreadsForProfileSwitch()
-    searchQuery = ""
-    searchResult = nil
-    errorMessage = nil
+    if !searchQuery.isEmpty {
+      searchQuery = ""
+    }
+    if searchResult != nil {
+      searchResult = nil
+    }
+    if errorMessage != nil {
+      errorMessage = nil
+    }
   }
 
   func clearVisibleThreadsForProfileSwitch() {
@@ -14258,7 +14276,7 @@ final class GmailInboxViewModel {
     connectionIds: Set<MailboxConnectionId>
   ) async -> Bool {
     let firstBatchSize = 1
-    let batchSize = 4
+    let batchSize = 2
     guard threads.isEmpty, initialProjectedThreads.count > firstBatchSize else {
       threads = initialProjectedThreads
       return true
@@ -14284,6 +14302,10 @@ final class GmailInboxViewModel {
         publishedCount = 0
         threads.removeAll(keepingCapacity: true)
       }
+      await waitForNextMainRunLoopCycle()
+      guard isCurrentUnifiedLoad(loadId: loadId, connectionIds: connectionIds) else {
+        return false
+      }
       let nextBatchSize = publishedCount == 0 ? firstBatchSize : batchSize
       let endIndex = min(publishedCount + nextBatchSize, projectedThreads.count)
       threads.append(contentsOf: projectedThreads[publishedCount..<endIndex])
@@ -14292,7 +14314,6 @@ final class GmailInboxViewModel {
       #if DEBUG
         await initialThreadBatchDidPublish?()
       #endif
-      await waitForNextMainRunLoopCycle()
     }
   }
 
@@ -15891,6 +15912,7 @@ struct MicrosoftGraphConnectionPanel: View {
   }
 }
 
+// swiftlint:disable:next type_body_length
 struct MailboxProviderConnectionPanel: View {
   struct Configuration {
     let allowsDefaultSender: Bool
@@ -15943,6 +15965,7 @@ struct MailboxProviderConnectionPanel: View {
   let selectMailbox: (MailboxConnection) -> Void
   @Bindable var viewModel: MailboxProviderConnectionViewModel
   @State private var connectTask: Task<Void, Never>?
+  @State private var connectionPendingEverywhereRemoval: MailboxConnection?
 
   private var connections: [MailboxConnection] {
     viewModel.connections.filter { $0.id.providerId == configuration.providerId }
@@ -16060,13 +16083,7 @@ struct MailboxProviderConnectionPanel: View {
             }
             Divider()
             Button("Remove Mailbox Connection Everywhere", role: .destructive) {
-              Task {
-                await Self.performDestructiveAction(
-                  cancelMailboxWork: cancelBodyPrefetch,
-                  action: { await viewModel.removeEverywhere(connection) },
-                  connectionsDidChange: connectionsDidChange
-                )
-              }
+              connectionPendingEverywhereRemoval = connection
             }
           } label: {
             Label("Manage", systemImage: "ellipsis.circle")
@@ -16121,6 +16138,37 @@ struct MailboxProviderConnectionPanel: View {
           .foregroundStyle(.orange)
           .font(.footnote)
       }
+    }
+    .confirmationDialog(
+      "Remove this Mailbox Connection everywhere?",
+      isPresented: Binding(
+        get: { connectionPendingEverywhereRemoval != nil },
+        set: { isPresented in
+          if !isPresented { connectionPendingEverywhereRemoval = nil }
+        }
+      ),
+      titleVisibility: .visible
+    ) {
+      Button("Cancel Scheduled Sends and Remove Connection", role: .destructive) {
+        guard let connection = connectionPendingEverywhereRemoval else { return }
+        connectionPendingEverywhereRemoval = nil
+        Task {
+          await Self.performDestructiveAction(
+            cancelMailboxWork: cancelBodyPrefetch,
+            action: { await viewModel.removeEverywhere(connection) },
+            connectionsDidChange: connectionsDidChange
+          )
+        }
+      }
+      Button("Keep Mailbox Connection", role: .cancel) {
+        connectionPendingEverywhereRemoval = nil
+      }
+    } message: {
+      Text(
+        "This cancels every Scheduled Send for this Mailbox Connection, then removes "
+          + "the connection and its authorization from every trusted device. "
+          + "Provider mail remains at the provider."
+      )
     }
     .task {
       guard configuration.loadsOnAppear else { return }

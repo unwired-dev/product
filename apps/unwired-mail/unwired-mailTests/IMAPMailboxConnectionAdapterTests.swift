@@ -762,7 +762,8 @@ final class IMAPMailboxConnectionAdapterTests {
       exchangeWebServices: RouterTestAdapter(),
       gmail: RouterTestAdapter(),
       imap: RouterTestAdapter(),
-      microsoftGraph: RouterTestAdapter()
+      microsoftGraph: RouterTestAdapter(),
+      scheduledSendLifecycle: RouterScheduledSendLifecycleSpy()
     )
 
     _ = try attachmentStore.save(
@@ -797,7 +798,8 @@ final class IMAPMailboxConnectionAdapterTests {
       exchangeWebServices: RouterTestAdapter(),
       gmail: RouterTestAdapter(),
       imap: RouterTestAdapter(removalError: IMAPAdapterTestError.unavailable),
-      microsoftGraph: RouterTestAdapter()
+      microsoftGraph: RouterTestAdapter(),
+      scheduledSendLifecycle: RouterScheduledSendLifecycleSpy()
     )
 
     _ = try attachmentStore.save(
@@ -812,6 +814,49 @@ final class IMAPMailboxConnectionAdapterTests {
     } catch IMAPAdapterTestError.unavailable {}
 
     #expect(attachmentStore.existingURL(attachment: attachment, messageId: messageId) == nil)
+  }
+
+  @Test(.bug(id: 385))
+  func testRouterCancelsScheduledSendsBeforeRemovingEligibleConnectionEverywhere() async throws {
+    let connection = routerConnection(providerId: .gmail, displayName: "Gmail")
+    let operations = RouterOperationRecorder()
+    let lifecycle = RouterScheduledSendLifecycleSpy(operations: operations)
+    let router = MailboxConnectionRouter(
+      exchangeWebServices: RouterTestAdapter(),
+      gmail: RouterTestAdapter(
+        operations: operations,
+        removalError: IMAPAdapterTestError.unavailable
+      ),
+      imap: RouterTestAdapter(),
+      microsoftGraph: RouterTestAdapter(),
+      scheduledSendLifecycle: lifecycle
+    )
+
+    await #expect(throws: IMAPAdapterTestError.unavailable) {
+      try await router.removeMailboxConnectionEverywhere(connection, session: session)
+    }
+
+    #expect(await lifecycle.cancelledConnectionIds() == [connection.id])
+    #expect(await operations.values() == ["cancel", "remove"])
+  }
+
+  @Test(.bug(id: 385))
+  func testRouterPreservesConnectionWhenScheduledSendCancellationFails() async {
+    let connection = routerConnection(providerId: .gmail, displayName: "Gmail")
+    let gmail = RouterTestAdapter()
+    let lifecycle = RouterScheduledSendLifecycleSpy(error: IMAPAdapterTestError.unavailable)
+    let router = MailboxConnectionRouter(
+      exchangeWebServices: RouterTestAdapter(),
+      gmail: gmail,
+      imap: RouterTestAdapter(),
+      microsoftGraph: RouterTestAdapter(),
+      scheduledSendLifecycle: lifecycle
+    )
+
+    await #expect(throws: IMAPAdapterTestError.unavailable) {
+      try await router.removeMailboxConnectionEverywhere(connection, session: session)
+    }
+    #expect(await gmail.removalCallCount() == 0)
   }
 
   @Test
@@ -2815,7 +2860,7 @@ final class IMAPMailboxConnectionAdapterTests {
   }
 }
 
-private enum IMAPAdapterTestError: Error {
+private enum IMAPAdapterTestError: Error, Equatable {
   case unavailable
 }
 
@@ -3680,6 +3725,54 @@ private actor RouterOperationGate {
   }
 }
 
+private actor RouterScheduledSendLifecycleSpy: ScheduledSendLifecycleManaging {
+  private var connectionIds: [MailboxConnectionId] = []
+  private let error: Error?
+  private let operations: RouterOperationRecorder?
+
+  init(error: Error? = nil, operations: RouterOperationRecorder? = nil) {
+    self.error = error
+    self.operations = operations
+  }
+
+  func cancelScheduledSends(
+    for connectionId: MailboxConnectionId,
+    session _: ProductAccountSessionSnapshot
+  ) async throws {
+    await operations?.append("cancel")
+    connectionIds.append(connectionId)
+    if let error { throw error }
+  }
+
+  func cancelledConnectionIds() -> [MailboxConnectionId] {
+    connectionIds
+  }
+}
+
+private actor RouterOperationRecorder {
+  private var events: [String] = []
+
+  func append(_ event: String) {
+    events.append(event)
+  }
+
+  func values() -> [String] {
+    events
+  }
+}
+
+private actor RouterRemovalCallSpy {
+  private var count = 0
+
+  func record() {
+    count += 1
+  }
+
+  func value() -> Int {
+    count
+  }
+}
+
 private final class RouterTestAdapter: MailboxConnectionAdapter, @unchecked Sendable {
   private let blockedConnectionIds: [MailboxConnectionId]
   private let connections: [MailboxConnection]
@@ -3687,13 +3780,16 @@ private final class RouterTestAdapter: MailboxConnectionAdapter, @unchecked Send
   private let loadGate: RouterOperationGate?
   private let pendingActionError: String?
   private let pendingActionGate: RouterOperationGate?
+  private let removalCalls = RouterRemovalCallSpy()
   private let removalError: Error?
+  private let operations: RouterOperationRecorder?
 
   init(
     blockedConnectionIds: [MailboxConnectionId] = [],
     connections: [MailboxConnection] = [],
     loadError: Error? = nil,
     loadGate: RouterOperationGate? = nil,
+    operations: RouterOperationRecorder? = nil,
     pendingActionError: String? = nil,
     pendingActionGate: RouterOperationGate? = nil,
     removalError: Error? = nil
@@ -3702,6 +3798,7 @@ private final class RouterTestAdapter: MailboxConnectionAdapter, @unchecked Send
     self.connections = connections
     self.loadError = loadError
     self.loadGate = loadGate
+    self.operations = operations
     self.pendingActionError = pendingActionError
     self.pendingActionGate = pendingActionGate
     self.removalError = removalError
@@ -3742,7 +3839,13 @@ private final class RouterTestAdapter: MailboxConnectionAdapter, @unchecked Send
     _: MailboxConnection,
     session _: ProductAccountSessionSnapshot
   ) async throws {
+    await operations?.append("remove")
+    await removalCalls.record()
     if let removalError { throw removalError }
+  }
+
+  func removalCallCount() async -> Int {
+    await removalCalls.value()
   }
 
   func setDefaultSendingConnection(
