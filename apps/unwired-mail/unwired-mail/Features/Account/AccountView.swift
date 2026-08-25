@@ -2913,7 +2913,7 @@ struct AccountView: View {
                 dismiss: dismissCompositionDraft,
                 toggleExpansion: toggleCompositionDraftExpansion
               ),
-              draftDidChange: { composerNavigation.draft = $0 },
+              draftDidChange: { composerNavigation.updatePresentedDraft($0) },
               saveDraft: { [profileId = activeDraftProfileId] draft in
                 try await saveCompositionDraft(draft, profileId: profileId)
               },
@@ -3414,7 +3414,7 @@ struct AccountView: View {
       try profileViewModel.activate(profileId) {
         if let compositionDraft = composerNavigation.draft {
           parkedCompositionDrafts[sourceProfileId] = compositionDraft
-          composerNavigation.draft = nil
+          composerNavigation.park()
         }
       }
       await waitForNextMainRunLoopCycle()
@@ -3497,7 +3497,11 @@ struct AccountView: View {
   private func finishProfileSwitch(to profileId: MailProfileId) {
     restoredProfileIdRawValue = profileId.rawValue
     gmailViewModel.selectedConnectionId = profileConnections.first?.id
-    composerNavigation.draft = parkedCompositionDrafts.removeValue(forKey: profileId)
+    if let compositionDraft = parkedCompositionDrafts.removeValue(forKey: profileId) {
+      composerNavigation.present(compositionDraft)
+    } else {
+      composerNavigation.park()
+    }
     loadUnifiedMailbox(synchronizes: false)
     Task {
       await waitForCurrentMailboxLoad {

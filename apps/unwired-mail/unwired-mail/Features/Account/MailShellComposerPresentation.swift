@@ -73,7 +73,7 @@ struct MailShellComposerPresentationLayout: Equatable {
 }
 
 struct MailShellComposerNavigationState {
-  var draft: MailShellCompositionDraft?
+  private(set) var draft: MailShellCompositionDraft?
   private var expandedDraftIds: Set<UUID> = []
 
   var isExpanded: Bool {
@@ -92,7 +92,15 @@ struct MailShellComposerNavigationState {
     expandedDraftIds.removeAll()
   }
 
+  mutating func park() {
+    draft = nil
+  }
+
   mutating func present(_ draft: MailShellCompositionDraft) {
+    self.draft = draft
+  }
+
+  mutating func updatePresentedDraft(_ draft: MailShellCompositionDraft) {
     self.draft = draft
   }
 
