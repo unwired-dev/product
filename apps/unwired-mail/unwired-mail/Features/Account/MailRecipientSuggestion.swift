@@ -235,7 +235,7 @@ struct MailRecipientEditor: Equatable, Sendable {
         } else if commentDepth == 0, character == ">", angleDepth > 0 {
           angleDepth -= 1
         } else if commentDepth == 0, angleDepth == 0,
-          (character == "," || character == ";")
+          character == "," || character == ";"
         {
           isStructuralDelimiter = true
         }
