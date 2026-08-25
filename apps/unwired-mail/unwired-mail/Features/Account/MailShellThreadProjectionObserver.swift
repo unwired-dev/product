@@ -39,6 +39,7 @@ struct MailShellThreadProjectionObserver: View {
       withObservationTracking {
         _ = TaskIdentity(
           revision: inboxViewModel.threadProjectionRevision,
+          inboxConnectionId: inboxViewModel.currentConnectionId,
           mailbox: mailShellSelection.selectedMailbox,
           connectionId: mailShellSelection.selectedConnectionId,
           connectionIds: connectionIds
@@ -89,6 +90,7 @@ struct MailShellThreadProjectionObserver: View {
       guard let inboxViewModel, let mailShellSelection else { return nil }
       return TaskIdentity(
         revision: inboxViewModel.threadProjectionRevision,
+        inboxConnectionId: inboxViewModel.currentConnectionId,
         mailbox: mailShellSelection.selectedMailbox,
         connectionId: mailShellSelection.selectedConnectionId,
         connectionIds: connectionIds
@@ -112,6 +114,7 @@ struct MailShellThreadProjectionObserver: View {
 
   private struct TaskIdentity: Equatable {
     let revision: Int
+    let inboxConnectionId: MailboxConnectionId?
     let mailbox: MailShellMailboxSelection?
     let connectionId: MailboxConnectionId?
     let connectionIds: Set<MailboxConnectionId>

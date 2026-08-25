@@ -2015,6 +2015,39 @@ final class MailboxConnectionAdapterTests {
   }
 
   @Test
+  func testProfileSwitchClearsConnectionIdentityWithoutChangingEmptyProjectionRevision() async {
+    let connection = RecordingAdapterConnectionService.status.mailboxConnection(
+      productAccountId: session.productAccountId,
+      authorizationState: .authorized
+    )
+    let adapter = GmailMailboxConnectionAdapter(
+      connectionService: RecordingAdapterConnectionService(),
+      definitionSyncService: RecordingAdapterDefinitionSyncService(
+        snapshot: MailboxConnectionSyncSnapshot(
+          connections: [connection.definition],
+          defaultSendingConnectionId: connection.id,
+          removedConnectionIds: [],
+          updatedAt: connection.updatedAt
+        )
+      )
+    )
+    let viewModel = GmailInboxViewModel(
+      service: adapter,
+      searchService: adapter,
+      session: session
+    )
+    await viewModel.loadAfterConnectionChange(connection: connection, synchronizes: false)
+    let projectionRevision = viewModel.threadProjectionRevision
+    #expect(viewModel.currentConnectionId == connection.id)
+    #expect(viewModel.threads.isEmpty)
+
+    viewModel.prepareForProfileSwitch()
+
+    #expect(viewModel.currentConnectionId == nil)
+    #expect(viewModel.threadProjectionRevision == projectionRevision)
+  }
+
+  @Test
   func testProfileSwitchRejectsInFlightNavigationFromPreviousProfile() async {
     let connection = RecordingAdapterConnectionService.status.mailboxConnection(
       productAccountId: session.productAccountId,
