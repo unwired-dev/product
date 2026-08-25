@@ -316,14 +316,7 @@ struct RemoteMessageContentLoader {
       progress.loadedByteCount += admission.image.data.count * occurrenceCount
       progress.loadedPixelCount += admission.pixelCount * occurrenceCount
     }
-    return RemoteMessageContentLoadResult(
-      failedImageCount: html.remoteImageReferences.count - progress.images.count,
-      html: RemoteMessageImageResolver.resolve(html, images: progress.images)
-        .prioritizingUnattemptedRemoteImages(progress.attemptedIdentifiers),
-      loadedByteCount: progress.loadedByteCount,
-      loadedImageCount: progress.images.count,
-      loadedPixelCount: progress.loadedPixelCount
-    )
+    return progress.loadResult(for: html)
   }
 
   private struct ConcurrentCandidate: Sendable {

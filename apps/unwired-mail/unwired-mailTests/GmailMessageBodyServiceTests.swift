@@ -242,7 +242,7 @@ final class GmailMessageBodyServiceTests {
     #expect(plan.recentMessages.map(\.providerMessageId) == ["missing-labels"])
   }
 
-  @Test
+  @Test(.bug(id: 552))
   func testReadFetchesBodyOnDemandAndCachesOnlyEncryptedPayload() async throws {
     let fixture = try makeFixture()
 
@@ -255,9 +255,11 @@ final class GmailMessageBodyServiceTests {
     #expect(fixture.cache.payload != nil)
     #expect(!(fixture.cache.serializedPayload.contains("Private trip details")))
 
+    let requestCountBeforeCachedRead = fixture.requestPaths.count
     let cachedBody = try await fixture.service.loadMessageBody(message: message, session: session)
 
     #expect(cachedBody == body)
+    #expect(fixture.requestPaths.count == requestCountBeforeCachedRead)
     #expect(
       fixture.requestPaths == ["/token", "/tokeninfo", "/gmail/v1/users/me/messages/message-001"])
   }
