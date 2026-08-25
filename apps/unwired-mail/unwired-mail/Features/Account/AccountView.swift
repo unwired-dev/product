@@ -14623,14 +14623,7 @@ final class GmailInboxViewModel {
         }
       }
       do {
-        try await loadScheduler.performSpeculativeWork(
-          connectionId: connection.id,
-          maximumConcurrentPipelines: MailLoadConcurrencyPolicy.maximumConcurrentBodyPipelines(
-            for: connection.providerId
-          )
-        ) {
-          _ = try await self.continueHistoricalBackfill(connection: connection)
-        }
+        _ = try await continueHistoricalBackfill(connection: connection)
         let backfill = try await loadProjectedMailbox(
           currentCollection,
           connection: connection

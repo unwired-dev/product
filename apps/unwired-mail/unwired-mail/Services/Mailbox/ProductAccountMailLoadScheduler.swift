@@ -23,14 +23,16 @@ final class ProductAccountMailLoadScheduler {
 
   private struct BodyPermitWaiter {
     let connectionId: MailboxConnectionId
-    let continuation: CheckedContinuation<Bool, Never>
+    let continuation: CheckedContinuation<MailLoadPriority?, Never>
     let id: UUID
+    let loadId: UUID?
     let maximumConcurrentPipelines: Int
     let priority: MailLoadPriority
   }
 
   private struct SharedBodyLoad {
     let id: UUID
+    var priority: MailLoadPriority
     let task: Task<Void, Never>
     var waiters: [UUID: CheckedContinuation<MailboxMessageBody, any Error>]
   }
@@ -63,6 +65,13 @@ final class ProductAccountMailLoadScheduler {
         priority: priority,
         operation: operation
       )
+    } else if priority == .interactive,
+      var load = sharedBodyLoads[messageId],
+      load.priority == .speculative
+    {
+      load.priority = .interactive
+      sharedBodyLoads[messageId] = load
+      promoteBodyPermitWaiter(loadId: load.id)
     }
 
     return try await withTaskCancellationHandler {
@@ -125,11 +134,16 @@ final class ProductAccountMailLoadScheduler {
       guard let self else { return }
       let result: Result<MailboxMessageBody, any Error>
       do {
+        let effectivePriority =
+          sharedBodyLoads[messageId]?.id == loadId
+          ? sharedBodyLoads[messageId]?.priority ?? priority
+          : priority
         result = .success(
           try await performWork(
             connectionId: messageId.connectionId,
+            loadId: loadId,
             maximumConcurrentPipelines: maximumConcurrentPipelines,
-            priority: priority,
+            priority: effectivePriority,
             operation: operation
           ))
       } catch {
@@ -137,7 +151,12 @@ final class ProductAccountMailLoadScheduler {
       }
       completeSharedBodyLoad(messageId, loadId: loadId, result: result)
     }
-    sharedBodyLoads[messageId] = SharedBodyLoad(id: loadId, task: task, waiters: [:])
+    sharedBodyLoads[messageId] = SharedBodyLoad(
+      id: loadId,
+      priority: priority,
+      task: task,
+      waiters: [:]
+    )
   }
 
   private func completeSharedBodyLoad(
@@ -178,34 +197,36 @@ final class ProductAccountMailLoadScheduler {
 
   private func performWork<Result>(
     connectionId: MailboxConnectionId,
+    loadId: UUID? = nil,
     maximumConcurrentPipelines: Int,
     priority: MailLoadPriority,
     operation: () async throws -> Result
   ) async throws -> Result {
-    guard
-      await acquireBodyPermit(
-        connectionId: connectionId,
-        maximumConcurrentPipelines: maximumConcurrentPipelines,
-        priority: priority
-      )
+    guard let acquiredPriority = await acquireBodyPermit(
+      connectionId: connectionId,
+      loadId: loadId,
+      maximumConcurrentPipelines: maximumConcurrentPipelines,
+      priority: priority
+    )
     else { throw CancellationError() }
     do {
       try Task.checkCancellation()
       let result = try await operation()
       try Task.checkCancellation()
-      releaseBodyPermit(connectionId: connectionId, priority: priority)
+      releaseBodyPermit(connectionId: connectionId, priority: acquiredPriority)
       return result
     } catch {
-      releaseBodyPermit(connectionId: connectionId, priority: priority)
+      releaseBodyPermit(connectionId: connectionId, priority: acquiredPriority)
       throw error
     }
   }
 
   private func acquireBodyPermit(
     connectionId: MailboxConnectionId,
+    loadId: UUID?,
     maximumConcurrentPipelines: Int,
     priority: MailLoadPriority
-  ) async -> Bool {
+  ) async -> MailLoadPriority? {
     let maximumConcurrentPipelines = effectiveConnectionLimit(maximumConcurrentPipelines)
     if canStart(
       connectionId: connectionId,
@@ -213,14 +234,14 @@ final class ProductAccountMailLoadScheduler {
       priority: priority
     ) {
       beginBodyPipeline(connectionId: connectionId, priority: priority)
-      return true
+      return priority
     }
 
     let waiterId = UUID()
     return await withTaskCancellationHandler {
       await withCheckedContinuation { continuation in
         guard !Task.isCancelled else {
-          continuation.resume(returning: false)
+          continuation.resume(returning: nil)
           return
         }
         bodyPermitWaiters.append(
@@ -228,6 +249,7 @@ final class ProductAccountMailLoadScheduler {
             connectionId: connectionId,
             continuation: continuation,
             id: waiterId,
+            loadId: loadId,
             maximumConcurrentPipelines: maximumConcurrentPipelines,
             priority: priority
           ))
@@ -271,7 +293,7 @@ final class ProductAccountMailLoadScheduler {
       guard let nextIndex else { return }
       let waiter = bodyPermitWaiters.remove(at: nextIndex)
       beginBodyPipeline(connectionId: waiter.connectionId, priority: waiter.priority)
-      waiter.continuation.resume(returning: true)
+      waiter.continuation.resume(returning: waiter.priority)
     }
   }
 
@@ -300,7 +322,23 @@ final class ProductAccountMailLoadScheduler {
 
   private func cancelBodyPermitWaiter(_ waiterId: UUID) {
     guard let index = bodyPermitWaiters.firstIndex(where: { $0.id == waiterId }) else { return }
-    bodyPermitWaiters.remove(at: index).continuation.resume(returning: false)
+    bodyPermitWaiters.remove(at: index).continuation.resume(returning: nil)
+  }
+
+  private func promoteBodyPermitWaiter(loadId: UUID) {
+    guard let index = bodyPermitWaiters.firstIndex(where: { $0.loadId == loadId }),
+      bodyPermitWaiters[index].priority == .speculative
+    else { return }
+    let waiter = bodyPermitWaiters[index]
+    bodyPermitWaiters[index] = BodyPermitWaiter(
+      connectionId: waiter.connectionId,
+      continuation: waiter.continuation,
+      id: waiter.id,
+      loadId: waiter.loadId,
+      maximumConcurrentPipelines: waiter.maximumConcurrentPipelines,
+      priority: .interactive
+    )
+    resumeBodyPermitWaiters()
   }
 
   private func effectiveConnectionLimit(_ requestedLimit: Int) -> Int {
@@ -323,7 +361,9 @@ actor ProductAccountRemoteImageRequestGate {
   }
 
   private struct SharedRequest {
+    var consumerIds: Set<UUID>
     let id: UUID
+    let messageId: StableProviderMessageIdentity
     let task: Task<RemoteMessageContentNetworkLoad, Error>
   }
 
@@ -339,32 +379,28 @@ actor ProductAccountRemoteImageRequestGate {
     operation: @Sendable @escaping () async throws -> RemoteMessageContentNetworkLoad
   ) async throws -> RemoteMessageContentNetworkLoad {
     guard let url = request.url else { return try await operation() }
-    if let sharedRequest = sharedRequests[url] {
-      let result = try await sharedRequest.task.value
-      try Task.checkCancellation()
-      return result
+    if let request = joinSharedRequest(url) {
+      return try await awaitSharedRequest(request, url: url)
     }
     guard await acquire(for: messageId) else { throw CancellationError() }
-    if let sharedRequest = sharedRequests[url] {
+    if let request = joinSharedRequest(url) {
       release(for: messageId)
-      let result = try await sharedRequest.task.value
-      try Task.checkCancellation()
-      return result
+      return try await awaitSharedRequest(request, url: url)
     }
 
     let requestId = UUID()
+    let consumerId = UUID()
     let task = Task { try await operation() }
-    sharedRequests[url] = SharedRequest(id: requestId, task: task)
-    let result: RemoteMessageContentNetworkLoad
-    do {
-      result = try await task.value
-    } catch {
-      finishSharedRequest(url, requestId: requestId, messageId: messageId)
-      throw error
-    }
-    finishSharedRequest(url, requestId: requestId, messageId: messageId)
-    try Task.checkCancellation()
-    return result
+    sharedRequests[url] = SharedRequest(
+      consumerIds: [consumerId],
+      id: requestId,
+      messageId: messageId,
+      task: task
+    )
+    return try await awaitSharedRequest(
+      (consumerId: consumerId, requestId: requestId, task: task),
+      url: url
+    )
   }
 
   /// Acquires one request slot, returning `false` when the waiting task is cancelled.
@@ -389,7 +425,8 @@ actor ProductAccountRemoteImageRequestGate {
 
   /// Releases one request slot and resumes queued requests in FIFO order.
   func release(for messageId: StableProviderMessageIdentity) {
-    activeRequestCount -= 1
+    guard activeRequestCounts[messageId] != nil else { return }
+    activeRequestCount = max(0, activeRequestCount - 1)
     let remainingCount = activeRequestCounts[messageId, default: 1] - 1
     activeRequestCounts[messageId] = remainingCount > 0 ? remainingCount : nil
     resumeWaiters()
@@ -420,15 +457,72 @@ actor ProductAccountRemoteImageRequestGate {
     waiters.remove(at: index).continuation.resume(returning: false)
   }
 
-  private func finishSharedRequest(
+  private func joinSharedRequest(
+    _ url: URL
+  ) -> (
+    consumerId: UUID,
+    requestId: UUID,
+    task: Task<RemoteMessageContentNetworkLoad, Error>
+  )? {
+    guard var request = sharedRequests[url] else { return nil }
+    let consumerId = UUID()
+    request.consumerIds.insert(consumerId)
+    sharedRequests[url] = request
+    return (consumerId, request.id, request.task)
+  }
+
+  private func awaitSharedRequest(
+    _ request: (
+      consumerId: UUID,
+      requestId: UUID,
+      task: Task<RemoteMessageContentNetworkLoad, Error>
+    ),
+    url: URL
+  ) async throws -> RemoteMessageContentNetworkLoad {
+    try await withTaskCancellationHandler {
+      do {
+        let result = try await request.task.value
+        finishSharedRequestConsumer(
+          url,
+          requestId: request.requestId,
+          consumerId: request.consumerId
+        )
+        try Task.checkCancellation()
+        return result
+      } catch {
+        finishSharedRequestConsumer(
+          url,
+          requestId: request.requestId,
+          consumerId: request.consumerId
+        )
+        throw error
+      }
+    } onCancel: {
+      Task {
+        await self.finishSharedRequestConsumer(
+          url,
+          requestId: request.requestId,
+          consumerId: request.consumerId
+        )
+      }
+    }
+  }
+
+  private func finishSharedRequestConsumer(
     _ url: URL,
     requestId: UUID,
-    messageId: StableProviderMessageIdentity
+    consumerId: UUID
   ) {
-    if sharedRequests[url]?.id == requestId {
-      sharedRequests[url] = nil
+    guard var request = sharedRequests[url], request.id == requestId,
+      request.consumerIds.remove(consumerId) != nil
+    else { return }
+    guard request.consumerIds.isEmpty else {
+      sharedRequests[url] = request
+      return
     }
-    release(for: messageId)
+    request.task.cancel()
+    sharedRequests[url] = nil
+    release(for: request.messageId)
   }
 }
 

@@ -418,10 +418,12 @@ struct RemoteMessageContentLoader {
     {
       let order = nextReferenceIndex
       let reference = references[nextReferenceIndex]
-      nextReferenceIndex += 1
       guard RemoteMessageContentPolicy.isLoadableHTTPSURL(reference.url),
         let occurrenceCount = occurrenceCounts[reference.identifier], occurrenceCount > 0
-      else { continue }
+      else {
+        nextReferenceIndex += 1
+        continue
+      }
       let maximumByteCount = min(
         MailboxMessageImagePolicy.maximumImageByteCount,
         remainingReceivedByteCount,
@@ -431,7 +433,8 @@ struct RemoteMessageContentLoader {
         MailboxMessageImagePolicy.maximumImagePixelCount,
         remainingPixelCount / occurrenceCount
       )
-      guard maximumByteCount > 0, maximumPixelCount > 0 else { continue }
+      guard maximumByteCount > 0, maximumPixelCount > 0 else { break }
+      nextReferenceIndex += 1
       candidates.append(
         ConcurrentCandidate(
           maximumByteCount: maximumByteCount,
