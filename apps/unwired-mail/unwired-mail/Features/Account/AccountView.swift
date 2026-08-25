@@ -5207,9 +5207,15 @@ final class MailShellSelectionModel {
   }
 
   func clearThreadSelection() {
-    selectedMessageScrollTarget = nil
-    selectedThreadIds = []
-    retainedSearchResultThread = nil
+    if selectedMessageScrollTarget != nil {
+      selectedMessageScrollTarget = nil
+    }
+    if !selectedThreadIds.isEmpty {
+      selectedThreadIds = []
+    }
+    if retainedSearchResultThread != nil {
+      retainedSearchResultThread = nil
+    }
   }
 
   func selectMailbox(
