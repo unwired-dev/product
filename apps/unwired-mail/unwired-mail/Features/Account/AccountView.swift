@@ -13911,18 +13911,36 @@ final class GmailInboxViewModel {
       prefetch.task.cancel()
     }
     visibleMessageBodyPrefetchTasks = [:]
-    currentConnectionId = nil
-    displayedMessageBodyIds = []
-    unifiedConnectionIds = []
+    if currentConnectionId != nil {
+      currentConnectionId = nil
+    }
+    if !displayedMessageBodyIds.isEmpty {
+      displayedMessageBodyIds = []
+    }
+    if !unifiedConnectionIds.isEmpty {
+      unifiedConnectionIds = []
+    }
     unifiedLoadId = nil
     navigationLoadId = nil
-    isLoading = false
-    navigationSnapshot = .empty
-    visibleMessageBodyPrefetches = [:]
+    if isLoading {
+      isLoading = false
+    }
+    if navigationSnapshot != .empty {
+      navigationSnapshot = .empty
+    }
+    if !visibleMessageBodyPrefetches.isEmpty {
+      visibleMessageBodyPrefetches = [:]
+    }
     clearVisibleThreadsForProfileSwitch()
-    searchQuery = ""
-    searchResult = nil
-    errorMessage = nil
+    if !searchQuery.isEmpty {
+      searchQuery = ""
+    }
+    if searchResult != nil {
+      searchResult = nil
+    }
+    if errorMessage != nil {
+      errorMessage = nil
+    }
   }
 
   func clearVisibleThreadsForProfileSwitch() {
@@ -14297,7 +14315,7 @@ final class GmailInboxViewModel {
     connectionIds: Set<MailboxConnectionId>
   ) async -> Bool {
     let firstBatchSize = 1
-    let batchSize = 4
+    let batchSize = 2
     guard threads.isEmpty, initialProjectedThreads.count > firstBatchSize else {
       threads = initialProjectedThreads
       return true
