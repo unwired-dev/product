@@ -43,16 +43,14 @@ final class ProductAccountMailLoadScheduler {
   private var bodyPermitWaiters: [BodyPermitWaiter] = []
   private var sharedBodyLoads: [StableProviderMessageIdentity: SharedBodyLoad] = [:]
   #if DEBUG || TESTING
-    private var bodyPermitCountWaiters: [
-      (count: Int, continuation: CheckedContinuation<Void, Never>)
-    ] = []
-    private var sharedBodyConsumerWaiters: [
-      (
+    private var bodyPermitCountWaiters:
+      [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
+    private var sharedBodyConsumerWaiters:
+      [(
         messageId: StableProviderMessageIdentity,
         count: Int,
         continuation: CheckedContinuation<Void, Never>
-      )
-    ] = []
+      )] = []
   #endif
 
   /// Loads one message body, sharing the provider task with duplicate consumers.
@@ -443,12 +441,10 @@ actor ProductAccountRemoteImageRequestGate {
   private var sharedRequests: [URL: SharedRequest] = [:]
   private var waiters: [Waiter] = []
   #if DEBUG || TESTING
-    private var sharedConsumerWaiters: [
-      (url: URL, count: Int, continuation: CheckedContinuation<Void, Never>)
-    ] = []
-    private var waiterCountWaiters: [
-      (count: Int, continuation: CheckedContinuation<Void, Never>)
-    ] = []
+    private var sharedConsumerWaiters:
+      [(url: URL, count: Int, continuation: CheckedContinuation<Void, Never>)] = []
+    private var waiterCountWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] =
+      []
   #endif
 
   /// Loads one remote resource once while allowing every consumer to await the result.
