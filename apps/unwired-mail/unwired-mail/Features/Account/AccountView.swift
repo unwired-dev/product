@@ -13951,6 +13951,13 @@ final class GmailInboxViewModel {
 
   func prepareForProfileSwitch() {
     cancelBackfill()
+    cancelProfileSwitchTasks()
+    resetProfileSwitchNavigationState()
+    clearVisibleThreadsForProfileSwitch()
+    resetProfileSwitchTransientState()
+  }
+
+  private func cancelProfileSwitchTasks() {
     if let bodyPrefetchTask {
       bodyPrefetchTask.cancel()
       self.bodyPrefetchTask = nil
@@ -13961,6 +13968,9 @@ final class GmailInboxViewModel {
       }
       visibleMessageBodyPrefetchTasks = [:]
     }
+  }
+
+  private func resetProfileSwitchNavigationState() {
     if currentConnectionId != nil {
       currentConnectionId = nil
     }
@@ -13985,7 +13995,9 @@ final class GmailInboxViewModel {
     if !visibleMessageBodyPrefetches.isEmpty {
       visibleMessageBodyPrefetches = [:]
     }
-    clearVisibleThreadsForProfileSwitch()
+  }
+
+  private func resetProfileSwitchTransientState() {
     if !searchQuery.isEmpty {
       searchQuery = ""
     }
