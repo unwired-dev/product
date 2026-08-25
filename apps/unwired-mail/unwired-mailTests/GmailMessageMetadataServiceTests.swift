@@ -3872,7 +3872,7 @@ final class GmailMessageMetadataServiceTests {
 
   @MainActor
   @Test
-  func testInboxViewModelIsBusyWhileForwardBodyLoads() async throws {
+  func testInboxViewModelDoesNotSetGlobalBusyWhileForwardBodyLoads() async throws {
     let service = DelayedMailboxSwitchingService(messagesByProviderAccountIdentifier: [:])
     let reader = DelayedMailboxMessageReader()
     let viewModel = GmailInboxViewModel(
@@ -3895,7 +3895,8 @@ final class GmailMessageMetadataServiceTests {
     }
     await reader.waitUntilLoadStarts()
 
-    #expect(viewModel.isBusy)
+    #expect(!(viewModel.isBusy))
+    #expect(viewModel.isLoadingMessageBody(message.id))
     #expect(!(viewModel.hasLoadedMessageBodyText(for: message.id)))
     await reader.releaseLoad()
     let body = try await loadTask.value
@@ -3908,7 +3909,7 @@ final class GmailMessageMetadataServiceTests {
 
   @MainActor
   @Test
-  func testInboxViewModelSerializesBodyDecodingBeforePresentationAdmission() async throws {
+  func testInboxViewModelLoadsDistinctBodiesConcurrentlyWithinConnectionLimit() async throws {
     let service = DelayedMailboxSwitchingService(messagesByProviderAccountIdentifier: [:])
     let reader = DelayedMailboxMessageReader()
     let viewModel = GmailInboxViewModel(
@@ -3939,14 +3940,10 @@ final class GmailMessageMetadataServiceTests {
       await Task.yield()
     }
 
-    #expect(reader.loadBodyCallCount == 1)
+    #expect(reader.loadBodyCallCount == 2)
 
     await reader.releaseLoad()
     _ = try await firstLoad.value
-    while reader.loadBodyCallCount < 2 {
-      await Task.yield()
-    }
-    await reader.releaseLoad()
     _ = try await secondLoad.value
     #expect(reader.loadBodyCallCount == 2)
   }
@@ -4192,11 +4189,22 @@ final class GmailMessageMetadataServiceTests {
       threadId: "thread-002",
       internalDateMilliseconds: 20
     ).mailboxMetadata(connectionId: firstMessage.connectionId)
-    let blockingLoad = Task {
+    let thirdMessage = metadata(
+      messageId: "message-003",
+      threadId: "thread-003",
+      internalDateMilliseconds: 30
+    ).mailboxMetadata(connectionId: firstMessage.connectionId)
+    let firstBlockingLoad = Task {
       try await viewModel.loadMessageBody(firstMessage, using: blockingReader)
     }
     await blockingReader.waitUntilLoadStarts()
-    let thread = try requireValue(MailboxThread.group([secondMessage]).first)
+    let secondBlockingLoad = Task {
+      try await viewModel.loadMessageBody(secondMessage, using: blockingReader)
+    }
+    while blockingReader.loadBodyCallCount < 2 {
+      await Task.yield()
+    }
+    let thread = try requireValue(MailboxThread.group([thirdMessage]).first)
     let prefetch = Task {
       await viewModel.prefetchVisibleMessageBodies(
         in: thread,
@@ -4210,7 +4218,8 @@ final class GmailMessageMetadataServiceTests {
 
     prefetch.cancel()
     await blockingReader.releaseLoad()
-    _ = try await blockingLoad.value
+    _ = try await firstBlockingLoad.value
+    _ = try await secondBlockingLoad.value
     await prefetch.value
 
     #expect(cancelledReader.loadedBodyMessageIds.isEmpty)
@@ -4632,7 +4641,7 @@ final class GmailMessageMetadataServiceTests {
 
   @MainActor
   @Test
-  func testInboxViewModelSerializesConcurrentRemoteImageBudgetAdmission() async throws {
+  func testInboxViewModelRevalidatesConcurrentRemoteImageBudgetAdmission() async throws {
     let service = DelayedMailboxSwitchingService(messagesByProviderAccountIdentifier: [:])
     let firstMessage = metadata(
       messageId: "message-001",
@@ -4696,21 +4705,21 @@ final class GmailMessageMetadataServiceTests {
       await Task.yield()
     }
     let requestCountWhileFirstLoadIsSuspended = await probe.requestCount
-    #expect(requestCountWhileFirstLoadIsSuspended == 1)
+    #expect(requestCountWhileFirstLoadIsSuspended == 2)
 
     await probe.releaseFirstLoad()
     let firstResult = try await firstLoad.value
     let secondResult = try await secondLoad.value
     let requestedMaximumByteCounts = await probe.requestedMaximumByteCounts
 
-    #expect(requestedMaximumByteCounts == [20 * 1_024 * 1_024, 8 * 1_024 * 1_024])
+    #expect(requestedMaximumByteCounts == [20 * 1_024 * 1_024, 20 * 1_024 * 1_024])
     #expect(firstResult.html == resolvedHTML)
     #expect(secondResult.html == resolvedHTML)
   }
 
   @MainActor
   @Test
-  func testInboxViewModelSerializesInlineImageAdmissionWithRemoteLoads() async throws {
+  func testInboxViewModelRevalidatesInlineImageAdmissionWithRemoteLoads() async throws {
     let service = DelayedMailboxSwitchingService(messagesByProviderAccountIdentifier: [:])
     let remoteMessage = metadata(
       messageId: "message-001",
@@ -4784,13 +4793,14 @@ final class GmailMessageMetadataServiceTests {
     let remoteResult = try await remoteLoad.value
     let inlineBody = try await inlineLoad.value
 
-    #expect(remoteResult.html == resolvedHTML)
-    #expect(inlineBody.inlineImages == [])
+    #expect(remoteResult.html == originalHTML)
+    #expect(remoteResult.loadedImageCount == 0)
+    #expect(inlineBody.inlineImages.count == 1)
   }
 
   @MainActor
   @Test
-  func testInboxViewModelRemoteLoadDeadlineIncludesGateWait() async throws {
+  func testInboxViewModelAllowsIndependentRemoteLoads() async throws {
     let service = DelayedMailboxSwitchingService(messagesByProviderAccountIdentifier: [:])
     let firstMessage = metadata(
       messageId: "message-001",
@@ -4855,15 +4865,15 @@ final class GmailMessageMetadataServiceTests {
     await probe.releaseFirstLoad()
     _ = try await firstLoad.value
 
-    #expect(!(didStartSecondLoader))
-    #expect(secondResult.failedImageCount == 1)
-    #expect(secondResult.loadedImageCount == 0)
+    #expect(didStartSecondLoader)
+    #expect(secondResult.failedImageCount == 0)
+    #expect(secondResult.loadedImageCount == 1)
     #expect(secondResult.html == originalHTML)
   }
 
   @MainActor
   @Test
-  func testInboxViewModelRemoteLoadCancellationReleasesGate() async throws {
+  func testInboxViewModelRemoteLoadCancellationDoesNotBlockLaterLoads() async throws {
     let service = DelayedMailboxSwitchingService(messagesByProviderAccountIdentifier: [:])
     let firstMessage = metadata(
       messageId: "message-001",
@@ -4933,7 +4943,7 @@ final class GmailMessageMetadataServiceTests {
 
   @MainActor
   @Test
-  func testInboxViewModelLoadsBodyWithoutInlineImagesWhileRemoteGateIsAcquired() async throws {
+  func testInboxViewModelLoadsBodyWithoutInlineImagesDuringRemoteLoad() async throws {
     let service = DelayedMailboxSwitchingService(messagesByProviderAccountIdentifier: [:])
     let remoteMessage = metadata(
       messageId: "message-001",
@@ -7945,7 +7955,7 @@ extension MailboxMetadataSyncResult {
 
 private actor OverrideGate {
   private var hasStarted = false
-  private var releaseContinuation: CheckedContinuation<Void, Never>?
+  private var releaseContinuations: [CheckedContinuation<Void, Never>] = []
   private var startContinuations: [CheckedContinuation<Void, Never>] = []
 
   func waitForRelease() async {
@@ -7956,7 +7966,7 @@ private actor OverrideGate {
       continuation.resume()
     }
     await withCheckedContinuation { continuation in
-      releaseContinuation = continuation
+      releaseContinuations.append(continuation)
     }
   }
 
@@ -7968,8 +7978,11 @@ private actor OverrideGate {
   }
 
   func release() {
-    releaseContinuation?.resume()
-    releaseContinuation = nil
+    let continuations = releaseContinuations
+    releaseContinuations.removeAll()
+    for continuation in continuations {
+      continuation.resume()
+    }
   }
 }
 

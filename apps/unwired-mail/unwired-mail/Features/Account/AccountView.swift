@@ -11876,6 +11876,14 @@ final class ThreadSnoozeViewModel {
     errorMessage = nil
   }
 
+  #if DEBUG || TESTING
+    func scheduledWakeTaskForTesting(
+      _ threadId: StableThreadIdentity
+    ) -> Task<Void, Never>? {
+      wakeTasks[threadId]
+    }
+  #endif
+
   // swiftlint:disable:next function_body_length
   private func apply(_ snapshot: ThreadSnoozeSnapshot) throws {
     try Task.checkCancellation()
@@ -13333,6 +13341,7 @@ final class GmailInboxViewModel {
   }
 
   private static var loadedImageBudgets: [String: LoadedMessageImageBudget] = [:]
+  private static var loadSchedulers: [String: ProductAccountMailLoadScheduler] = [:]
   private static let maximumLoadedAttachmentByteCount = 25 * 1_024 * 1_024
   private static let maximumLoadedInlineImageByteCount = 20 * 1_024 * 1_024
   private static let maximumLoadedInlineImagePixelCount = 32 * 1_024 * 1_024
@@ -13355,6 +13364,7 @@ final class GmailInboxViewModel {
   #endif
   private var loadedRemoteImagePixelCounts: [StableProviderMessageIdentity: Int] = [:]
   private let loadedImageBudget: LoadedMessageImageBudget
+  private let loadScheduler: ProductAccountMailLoadScheduler
   private var loadedMessageBodyClearSignals: [StableProviderMessageIdentity: UUID] = [:]
   private var loadedMessageBodyTextByteCount = 0
   private var loadedMessageBodyTextOrder: [StableProviderMessageIdentity] = []
@@ -13409,6 +13419,10 @@ final class GmailInboxViewModel {
       Self.loadedImageBudgets[session.productAccountId] ?? LoadedMessageImageBudget()
     Self.loadedImageBudgets[session.productAccountId] = loadedImageBudget
     self.loadedImageBudget = loadedImageBudget
+    let loadScheduler =
+      Self.loadSchedulers[session.productAccountId] ?? ProductAccountMailLoadScheduler()
+    Self.loadSchedulers[session.productAccountId] = loadScheduler
+    self.loadScheduler = loadScheduler
     self.bodyPrefetcher = bodyPrefetcher
     navigationSnapshot = MailboxNavigationSnapshot(
       messagesByConnection: [:],
@@ -13470,8 +13484,7 @@ final class GmailInboxViewModel {
   }
 
   var isBusy: Bool {
-    isAssigningCategory || isCategorizingHistorical || isLoading || isLoadingMessageBody
-      || isSearching || isSyncing || backfillTask != nil
+    isAssigningCategory || isCategorizingHistorical || isLoading || isSearching || isSyncing
   }
 
   func loadMessageBody(
@@ -13483,8 +13496,13 @@ final class GmailInboxViewModel {
       let remainingCount = loadingMessageBodyCounts[message.id, default: 1] - 1
       loadingMessageBodyCounts[message.id] = remainingCount > 0 ? remainingCount : nil
     }
-    let loadedBody = try await withLoadGate(loadedImageBudget.bodyLoadGate) {
-      try await reader.loadMessageBody(message: message, session: session)
+    let loadedBody = try await loadScheduler.loadMessageBody(
+      for: message.id,
+      maximumConcurrentPipelines: MailLoadConcurrencyPolicy.maximumConcurrentBodyPipelines(
+        for: message.connectionId.providerId
+      )
+    ) {
+      try await reader.loadMessageBody(message: message, session: self.session)
     }
     try Task.checkCancellation()
     let hasPresentationResources =
@@ -13492,10 +13510,8 @@ final class GmailInboxViewModel {
       || loadedBody.attachments.contains { $0.presentationData != nil }
     let body: MailboxMessageBody
     if hasPresentationResources {
-      body = try await withRemoteImageAdmissionGate {
-        try Task.checkCancellation()
-        return try retainLoadedBodyPresentation(loadedBody, for: message.id)
-      }
+      try Task.checkCancellation()
+      body = try retainLoadedBodyPresentation(loadedBody, for: message.id)
     } else {
       discardLoadedMessageBodyPresentation(for: message.id, discardsRemoteContent: false)
       body = loadedBody
@@ -13516,9 +13532,17 @@ final class GmailInboxViewModel {
       let remainingCount = loadingMessageBodyCounts[message.id, default: 1] - 1
       loadingMessageBodyCounts[message.id] = remainingCount > 0 ? remainingCount : nil
     }
-    return try await reader.loadMessageBodyText(message: message, session: session)
+    return try await loadScheduler.performInteractiveWork(
+      connectionId: message.connectionId,
+      maximumConcurrentPipelines: MailLoadConcurrencyPolicy.maximumConcurrentBodyPipelines(
+        for: message.connectionId.providerId
+      )
+    ) {
+      try await reader.loadMessageBodyText(message: message, session: session)
+    }
   }
 
+  // swiftlint:disable:next function_body_length
   func prefetchVisibleMessageBodies(
     in thread: MailboxThread,
     loadsRemoteImages: Bool,
@@ -13537,9 +13561,15 @@ final class GmailInboxViewModel {
       let previousPrefetch = visibleMessageBodyPrefetches[message.id]
       visibleMessageBodyPrefetches[message.id] = loadsRemoteImages
       do {
-        let body = try await withLoadGate(loadedImageBudget.bodyLoadGate) {
+        let body = try await loadScheduler.loadMessageBody(
+          for: message.id,
+          maximumConcurrentPipelines: MailLoadConcurrencyPolicy.maximumConcurrentBodyPipelines(
+            for: message.connectionId.providerId
+          ),
+          priority: .speculative
+        ) {
           try Task.checkCancellation()
-          return try await reader.loadMessageBody(message: message, session: session)
+          return try await reader.loadMessageBody(message: message, session: self.session)
         }
         try Task.checkCancellation()
         if loadsRemoteImages,
@@ -13612,7 +13642,6 @@ final class GmailInboxViewModel {
     visibleMessageBodyPrefetchTasks[thread.id] = (taskId, task)
   }
 
-  // swiftlint:disable:next function_body_length
   func loadRemoteMessageContent(
     _ html: SanitizedMessageHTML,
     for messageId: StableProviderMessageIdentity,
@@ -13626,113 +13655,52 @@ final class GmailInboxViewModel {
       loadedRemoteMessageContents[messageId] = nil
       return cached.result
     }
-    let clock = ContinuousClock()
-    let deadline = clock.now.advanced(by: .seconds(maximumLoadDuration))
-    let maximumWaitDuration = clock.now.duration(to: deadline)
-    guard
-      await loadedImageBudget.loadGate.acquire(
-        maximumWaitDuration: maximumWaitDuration
+    try Task.checkCancellation()
+    let requestedMaximumByteCount =
+      Self.maximumLoadedInlineImageByteCount - loadedImageBudget.inlineByteCount
+      - loadedImageBudget.remoteByteCount
+    let requestedMaximumPixelCount =
+      Self.maximumLoadedInlineImagePixelCount - loadedImageBudget.inlinePixelCount
+      - loadedImageBudget.remotePixelCount
+    let result: RemoteMessageContentLoadResult
+    if let loader {
+      result = try await loader(
+        html,
+        requestedMaximumByteCount,
+        requestedMaximumPixelCount
       )
+    } else {
+      result = try await RemoteMessageContentLoader(
+        maximumConcurrentRequestCount:
+          ProductAccountRemoteImageRequestGate.maximumConcurrentRequestsPerMessage,
+        maximumLoadDuration: maximumLoadDuration,
+        maximumTotalByteCount: requestedMaximumByteCount,
+        maximumTotalPixelCount: requestedMaximumPixelCount,
+        messageId: messageId,
+        requestGate: loadScheduler.remoteImageRequests
+      ).load(html)
+    }
+    try Task.checkCancellation()
+    let remainingByteCount =
+      Self.maximumLoadedInlineImageByteCount - loadedImageBudget.inlineByteCount
+      - loadedImageBudget.remoteByteCount
+    let remainingPixelCount =
+      Self.maximumLoadedInlineImagePixelCount - loadedImageBudget.inlinePixelCount
+      - loadedImageBudget.remotePixelCount
+    guard result.loadedByteCount <= remainingByteCount,
+      result.loadedPixelCount <= remainingPixelCount
     else {
-      try Task.checkCancellation()
       return RemoteMessageContentLoadResult(
         failedImageCount: html.remoteImageReferences.count,
         html: html,
         loadedImageCount: 0
       )
     }
-    do {
-      try Task.checkCancellation()
-      if let cached = loadedRemoteMessageContents[messageId], cached.source == html {
-        loadedRemoteMessageContents[messageId] = nil
-        await loadedImageBudget.loadGate.release()
-        return cached.result
-      }
-      let remainingDuration = clock.now.duration(to: deadline)
-      guard remainingDuration > .zero else {
-        await loadedImageBudget.loadGate.release()
-        return RemoteMessageContentLoadResult(
-          failedImageCount: html.remoteImageReferences.count,
-          html: html,
-          loadedImageCount: 0
-        )
-      }
-      let durationComponents = remainingDuration.components
-      let remainingLoadDuration =
-        Double(durationComponents.seconds)
-        + Double(durationComponents.attoseconds) / 1_000_000_000_000_000_000
-      let requestedMaximumByteCount =
-        Self.maximumLoadedInlineImageByteCount - loadedImageBudget.inlineByteCount
-        - loadedImageBudget.remoteByteCount
-      let requestedMaximumPixelCount =
-        Self.maximumLoadedInlineImagePixelCount - loadedImageBudget.inlinePixelCount
-        - loadedImageBudget.remotePixelCount
-      let result: RemoteMessageContentLoadResult
-      if let loader {
-        result = try await loader(
-          html,
-          requestedMaximumByteCount,
-          requestedMaximumPixelCount
-        )
-      } else {
-        result = try await RemoteMessageContentLoader(
-          maximumLoadDuration: remainingLoadDuration,
-          maximumTotalByteCount: requestedMaximumByteCount,
-          maximumTotalPixelCount: requestedMaximumPixelCount
-        ).load(html)
-      }
-      try Task.checkCancellation()
-      let remainingByteCount =
-        Self.maximumLoadedInlineImageByteCount - loadedImageBudget.inlineByteCount
-        - loadedImageBudget.remoteByteCount
-      let remainingPixelCount =
-        Self.maximumLoadedInlineImagePixelCount - loadedImageBudget.inlinePixelCount
-        - loadedImageBudget.remotePixelCount
-      let retainedResult: RemoteMessageContentLoadResult
-      if result.loadedByteCount <= remainingByteCount,
-        result.loadedPixelCount <= remainingPixelCount
-      {
-        loadedRemoteImageByteCounts[messageId, default: 0] += result.loadedByteCount
-        loadedImageBudget.remoteByteCount += result.loadedByteCount
-        loadedRemoteImagePixelCounts[messageId, default: 0] += result.loadedPixelCount
-        loadedImageBudget.remotePixelCount += result.loadedPixelCount
-        retainedResult = result
-      } else {
-        retainedResult = RemoteMessageContentLoadResult(
-          failedImageCount: html.remoteImageReferences.count,
-          html: html,
-          loadedImageCount: 0
-        )
-      }
-      await loadedImageBudget.loadGate.release()
-      return retainedResult
-    } catch {
-      await loadedImageBudget.loadGate.release()
-      throw error
-    }
-  }
-
-  private func withRemoteImageAdmissionGate<Result>(
-    _ operation: () async throws -> Result
-  ) async throws -> Result {
-    try await withLoadGate(loadedImageBudget.loadGate, operation)
-  }
-
-  private func withLoadGate<Result>(
-    _ gate: RemoteMessageContentLoadGate,
-    _ operation: () async throws -> Result
-  ) async throws -> Result {
-    guard await gate.acquire() else {
-      throw CancellationError()
-    }
-    do {
-      let result = try await operation()
-      await gate.release()
-      return result
-    } catch {
-      await gate.release()
-      throw error
-    }
+    loadedRemoteImageByteCounts[messageId, default: 0] += result.loadedByteCount
+    loadedImageBudget.remoteByteCount += result.loadedByteCount
+    loadedRemoteImagePixelCounts[messageId, default: 0] += result.loadedPixelCount
+    loadedImageBudget.remotePixelCount += result.loadedPixelCount
+    return result
   }
 
   func isLoadedMessageBodyTextUnavailable(
@@ -14701,12 +14669,19 @@ final class GmailInboxViewModel {
       guard let self else { return }
       for connection in connections {
         do {
-          try await bodyPrefetcher.prefetchMessageBodies(
-            connection: connection,
-            pinnedThreadIds: navigationSnapshot.pinnedThreadIds,
-            referenceDate: Date(),
-            session: self.session
-          )
+          try await loadScheduler.performSpeculativeWork(
+            connectionId: connection.id,
+            maximumConcurrentPipelines: MailLoadConcurrencyPolicy.maximumConcurrentBodyPipelines(
+              for: connection.providerId
+            )
+          ) {
+            try await bodyPrefetcher.prefetchMessageBodies(
+              connection: connection,
+              pinnedThreadIds: self.navigationSnapshot.pinnedThreadIds,
+              referenceDate: Date(),
+              session: self.session
+            )
+          }
         } catch {
           // Prefetch is best effort and must not block cached mailbox use.
         }
