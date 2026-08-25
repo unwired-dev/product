@@ -368,6 +368,12 @@ actor ProductAccountRemoteImageRequestGate {
     let task: Task<RemoteMessageContentNetworkLoad, Error>
   }
 
+  private struct SharedRequestConsumer {
+    let consumerId: UUID
+    let requestId: UUID
+    let task: Task<RemoteMessageContentNetworkLoad, Error>
+  }
+
   private var activeRequestCount = 0
   private var activeRequestCounts: [StableProviderMessageIdentity: Int] = [:]
   private var sharedRequests: [URL: SharedRequest] = [:]
@@ -399,7 +405,7 @@ actor ProductAccountRemoteImageRequestGate {
       task: task
     )
     return try await awaitSharedRequest(
-      (consumerId: consumerId, requestId: requestId, task: task),
+      SharedRequestConsumer(consumerId: consumerId, requestId: requestId, task: task),
       url: url
     )
   }
@@ -460,24 +466,20 @@ actor ProductAccountRemoteImageRequestGate {
 
   private func joinSharedRequest(
     _ url: URL
-  ) -> (
-    consumerId: UUID,
-    requestId: UUID,
-    task: Task<RemoteMessageContentNetworkLoad, Error>
-  )? {
+  ) -> SharedRequestConsumer? {
     guard var request = sharedRequests[url] else { return nil }
     let consumerId = UUID()
     request.consumerIds.insert(consumerId)
     sharedRequests[url] = request
-    return (consumerId, request.id, request.task)
+    return SharedRequestConsumer(
+      consumerId: consumerId,
+      requestId: request.id,
+      task: request.task
+    )
   }
 
   private func awaitSharedRequest(
-    _ request: (
-      consumerId: UUID,
-      requestId: UUID,
-      task: Task<RemoteMessageContentNetworkLoad, Error>
-    ),
+    _ request: SharedRequestConsumer,
     url: URL
   ) async throws -> RemoteMessageContentNetworkLoad {
     try await withTaskCancellationHandler {
