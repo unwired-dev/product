@@ -13957,12 +13957,26 @@ final class GmailInboxViewModel {
 
   func prepareForProfileSwitch() {
     cancelBackfill()
-    bodyPrefetchTask?.cancel()
-    bodyPrefetchTask = nil
-    for prefetch in visibleMessageBodyPrefetchTasks.values {
-      prefetch.task.cancel()
+    cancelProfileSwitchTasks()
+    resetProfileSwitchNavigationState()
+    clearVisibleThreadsForProfileSwitch()
+    resetProfileSwitchTransientState()
+  }
+
+  private func cancelProfileSwitchTasks() {
+    if let bodyPrefetchTask {
+      bodyPrefetchTask.cancel()
+      self.bodyPrefetchTask = nil
     }
-    visibleMessageBodyPrefetchTasks = [:]
+    if !visibleMessageBodyPrefetchTasks.isEmpty {
+      for prefetch in visibleMessageBodyPrefetchTasks.values {
+        prefetch.task.cancel()
+      }
+      visibleMessageBodyPrefetchTasks = [:]
+    }
+  }
+
+  private func resetProfileSwitchNavigationState() {
     if currentConnectionId != nil {
       currentConnectionId = nil
     }
@@ -13972,8 +13986,12 @@ final class GmailInboxViewModel {
     if !unifiedConnectionIds.isEmpty {
       unifiedConnectionIds = []
     }
-    unifiedLoadId = nil
-    navigationLoadId = nil
+    if unifiedLoadId != nil {
+      unifiedLoadId = nil
+    }
+    if navigationLoadId != nil {
+      navigationLoadId = nil
+    }
     if isLoading {
       isLoading = false
     }
@@ -13983,7 +14001,9 @@ final class GmailInboxViewModel {
     if !visibleMessageBodyPrefetches.isEmpty {
       visibleMessageBodyPrefetches = [:]
     }
-    clearVisibleThreadsForProfileSwitch()
+  }
+
+  private func resetProfileSwitchTransientState() {
     if !searchQuery.isEmpty {
       searchQuery = ""
     }
@@ -14877,6 +14897,7 @@ final class GmailInboxViewModel {
   }
 
   private func cancelBackfill() {
+    guard backfillTask != nil || backfillTaskId != nil else { return }
     backfillTask?.cancel()
     backfillTask = nil
     backfillTaskId = nil
