@@ -12365,14 +12365,28 @@ private final class DelayedAdapterPushService: GmailPushWatchRegistering {
   }
 }
 
-private final class RecordingAdapterMailActionService: GmailProviderMailActing {
+private final class RecordingAdapterMailActionService:
+  GmailProviderMailActing, @unchecked Sendable
+{
   private let eventLog: RecordingAdapterEventLog?
-  var action: GmailProviderMailAction?
-  var messageIds: [String] = []
-  var outgoingMessage: GmailOutgoingMessage?
-  var performedActions: [PerformedAdapterAction] = []
-  var performedProviderAccountIdentifiers: [String] = []
-  var sentProviderAccountIdentifiers: [String] = []
+  private let lock = NSLock()
+  private var recordedAction: GmailProviderMailAction?
+  private var recordedMessageIds: [String] = []
+  private var recordedOutgoingMessage: GmailOutgoingMessage?
+  private var recordedPerformedActions: [PerformedAdapterAction] = []
+  private var recordedPerformedProviderAccountIdentifiers: [String] = []
+  private var recordedSentProviderAccountIdentifiers: [String] = []
+
+  var action: GmailProviderMailAction? { lock.withLock { recordedAction } }
+  var messageIds: [String] { lock.withLock { recordedMessageIds } }
+  var outgoingMessage: GmailOutgoingMessage? { lock.withLock { recordedOutgoingMessage } }
+  var performedActions: [PerformedAdapterAction] { lock.withLock { recordedPerformedActions } }
+  var performedProviderAccountIdentifiers: [String] {
+    lock.withLock { recordedPerformedProviderAccountIdentifiers }
+  }
+  var sentProviderAccountIdentifiers: [String] {
+    lock.withLock { recordedSentProviderAccountIdentifiers }
+  }
 
   init(eventLog: RecordingAdapterEventLog? = nil) {
     self.eventLog = eventLog
@@ -12384,15 +12398,17 @@ private final class RecordingAdapterMailActionService: GmailProviderMailActing {
     connection: GmailProviderConnectionStatus,
     session _: ProductAccountSessionSnapshot
   ) async throws {
-    self.action = action
-    self.messageIds = messageIds
-    performedActions.append(
-      PerformedAdapterAction(
-        action: action,
-        providerAccountIdentifier: connection.providerAccountIdentifier
-      ))
-    performedProviderAccountIdentifiers.append(connection.providerAccountIdentifier)
-    eventLog?.events.append("resume")
+    lock.withLock {
+      recordedAction = action
+      recordedMessageIds = messageIds
+      recordedPerformedActions.append(
+        PerformedAdapterAction(
+          action: action,
+          providerAccountIdentifier: connection.providerAccountIdentifier
+        ))
+      recordedPerformedProviderAccountIdentifiers.append(connection.providerAccountIdentifier)
+      eventLog?.events.append("resume")
+    }
   }
 
   func send(
@@ -12400,8 +12416,10 @@ private final class RecordingAdapterMailActionService: GmailProviderMailActing {
     connection: GmailProviderConnectionStatus,
     session _: ProductAccountSessionSnapshot
   ) async throws {
-    outgoingMessage = message
-    sentProviderAccountIdentifiers.append(connection.providerAccountIdentifier)
+    lock.withLock {
+      recordedOutgoingMessage = message
+      recordedSentProviderAccountIdentifiers.append(connection.providerAccountIdentifier)
+    }
   }
 }
 
