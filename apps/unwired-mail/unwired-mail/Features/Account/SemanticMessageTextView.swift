@@ -29,7 +29,7 @@ struct SemanticMessageTextView: UIViewRepresentable {
       coordinator?.focusIfNeeded()
     }
     textView.handleSlashCommandKey = { [weak coordinator = context.coordinator] key in
-      coordinator?.handleSlashCommandKey(key)
+      coordinator?.handleSlashCommandKey(key) ?? false
     }
     textView.layoutSubviewsAction = { [weak coordinator = context.coordinator] in
       coordinator?.refreshSlashCommandMenuAfterLayout()

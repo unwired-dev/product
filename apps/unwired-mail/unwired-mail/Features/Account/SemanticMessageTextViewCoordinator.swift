@@ -1,6 +1,8 @@
 import SwiftUI
 import UIKit
 
+// swiftlint:disable file_length
+
 @MainActor
 final class SemanticMessageTextViewCoordinator: NSObject, UITextViewDelegate {
   var parent: SemanticMessageTextView
