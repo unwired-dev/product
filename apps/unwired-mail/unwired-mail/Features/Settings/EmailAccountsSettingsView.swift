@@ -75,6 +75,20 @@ struct EmailAccountsSettingsView: View {
           .id(NavigationAnchor.gmail)
           .settingsHighlight(highlightedAnchor == .gmail)
 
+          if let errorMessage = gmailViewModel.errorMessage {
+            SettingsInlineErrorView(
+              message: errorMessage,
+              isRetrying: gmailViewModel.isLoading
+            ) {
+              Task {
+                await MailboxProviderConnectionPanel.performManualRefresh(
+                  load: { _ = await gmailViewModel.load() },
+                  connectionsDidChange: gmailRetryDidComplete
+                )
+              }
+            }
+          }
+
           MicrosoftGraphConnectionPanel(
             cancelBodyPrefetch: cancelBodyPrefetch,
             connectionsDidChange: providerConnectionsDidChange,
@@ -89,6 +103,20 @@ struct EmailAccountsSettingsView: View {
           .disabled(providerMutationsAreDisabled)
           .id(NavigationAnchor.microsoftGraph)
           .settingsHighlight(highlightedAnchor == .microsoftGraph)
+
+          if let errorMessage = microsoftGraphViewModel.errorMessage {
+            SettingsInlineErrorView(
+              message: errorMessage,
+              isRetrying: microsoftGraphViewModel.isLoading
+            ) {
+              Task {
+                await MailboxProviderConnectionPanel.performManualRefresh(
+                  load: { _ = await microsoftGraphViewModel.load() },
+                  connectionsDidChange: {}
+                )
+              }
+            }
+          }
 
           EWSSetupPanel(
             viewModel: ewsViewModel,
@@ -520,6 +548,16 @@ struct EmailAccountsSettingsView: View {
         connectionsDidChange: gmailConnectionsDidChange
       )
     }
+  }
+
+  private func gmailRetryDidComplete() {
+    connectionsAreAuthoritative = gmailViewModel.connectionsSnapshotIsAuthoritative
+    Self.updateFreshnessConnections(
+      gmailViewModel.connections,
+      connectionsAreAuthoritative: connectionsAreAuthoritative,
+      freshnessViewModel: freshnessViewModel
+    )
+    gmailConnectionsDidChange()
   }
 
   private func microsoftManualRefreshDidComplete() {

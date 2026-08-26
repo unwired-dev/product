@@ -69,7 +69,7 @@ final class SettingsDestinationRegistryTests {
   }
 
   @MainActor
-  @Test
+  @Test(.bug(id: 557))
   func testSharedMailboxManualRefreshLoadsOnlyOnce() async {
     var loadCount = 0
 
@@ -79,6 +79,21 @@ final class SettingsDestinationRegistryTests {
     )
 
     #expect(loadCount == 1)
+  }
+
+  @MainActor
+  @Test(.bug(id: 557))
+  func retryRunsOnlyForTheFailedSettingsStore() async {
+    var events: [String] = []
+
+    await InboxSettingsView.retryFailedSynchronizations(
+      inboxFailed: true,
+      featureSuggestionsFailed: false,
+      synchronizeInbox: { events.append("inbox") },
+      synchronizeFeatureSuggestions: { events.append("feature suggestions") }
+    )
+
+    #expect(events == ["inbox"])
   }
 
   @MainActor
@@ -1469,7 +1484,7 @@ final class SettingsDestinationRegistryTests {
   }
 
   @MainActor
-  @Test(.bug(id: 556))
+  @Test(.bug(id: 556), .bug(id: 557))
   func contextualSettingsRequestCanClaimPresentationAfterAnEarlierRequest() throws {
     let router = SettingsRouter()
     let owner = UUID()
