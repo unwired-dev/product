@@ -282,6 +282,7 @@ jobs:
         run: |
           zsh scripts/measure-ci-command.zsh setup .ci-metrics/apple-debug.tsv -- zsh -c '
             set -e
+            brew untap aws/tap 2>/dev/null || true
             brew install mise swift-format
             mise trust .mise.toml
             mise install swiftlint
@@ -492,6 +493,7 @@ jobs:
           zsh scripts/measure-ci-command.zsh setup .ci-metrics/core-mail-loop.tsv -- zsh -c '
             set -e
             pnpm install --frozen-lockfile
+            brew untap aws/tap 2>/dev/null || true
             brew install mise
             mise trust .mise.toml
             mise install
