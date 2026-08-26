@@ -44,7 +44,7 @@ struct MailShellComposer: View {
 
   @Environment(\.dismiss) private var dismiss
   @FocusState private var focusedField: MailComposerFocus?
-  @State private var bodyIsFocused = false
+  @State private var isBodyFocused = false
   @State private var editorModel: SemanticMessageEditorModel
   @State private var assetErrorMessage: String?
   @State private var composeAssistancePresentation: ComposeAssistancePresentation?
@@ -213,38 +213,79 @@ struct MailShellComposer: View {
     @Bindable var viewModel = viewModel
     return NavigationStack {
       VStack(spacing: 0) {
-        MailComposerBodyField(editorModel: editorModel, isFocused: $bodyIsFocused)
-          .dropDestination(for: Data.self) { items, _ in
-            addDroppedImages(items)
-            return !items.isEmpty
-          }
-          .dropDestination(for: URL.self) { urls, _ in
-            importFiles(.success(urls))
-            return !urls.isEmpty
-          }
-        MailComposerActionBar(
-          editorModel: editorModel,
-          hasQuotedText: viewModel.draft.quotedText?.isEmpty == false,
-          requestFile: { showsFileImporter = true },
-          requestLink: requestLink,
-          showsFormattingToolbar: preferences.showsFormattingToolbar,
-          showsExpandedRecipients: $showsExpandedRecipients,
-          showsQuotedText: $showsQuotedText,
-          signatures: signatures,
-          selectedSignatureId: selectedSignatureId,
-          templates: templates,
-          applyTemplate: applyTemplate,
-          requestAssistance: mailAssistanceViewModel == nil ? nil : requestComposeAssistance,
-          requestResponseAssistance: responseAssistanceAction
+        MailComposerHeader(
+          title: viewModel.draft.title,
+          close: closeComposer,
+          closeIsDisabled: viewModel.saveState == .saving,
+          expansion: headerExpansion,
+          canSendLater: viewModel.canCreateSendReminder,
+          isSendEnabled: isSendEnabled,
+          sendTitle: scheduledSendDueAt == nil ? "Send" : "Save Changes",
+          send: sendDraft,
+          sendLater: openSendLater,
+          sendNow: scheduledSendDueAt != nil && sendNow != nil ? sendScheduledNow : nil,
+          selectedPhoto: $selectedPhoto,
+          discard: requestDiscard
         )
         Divider()
         ScrollView {
-          composerDetails
+          VStack(spacing: 0) {
+            MailComposerIdentityRow(
+              connections: connections,
+              identities: sendingIdentities,
+              profileName: profileName,
+              selectedIdentityId: $viewModel.draft.sendingIdentityId
+            )
+            Divider()
+            recipientFields
+            Divider()
+            MailComposerSubjectField(
+              subject: $viewModel.draft.subject,
+              focusedField: $focusedField,
+              focusBody: {
+                focusedField = nil
+                isBodyFocused = true
+              }
+            )
+            Divider()
+            MailComposerActionBar(
+              editorModel: editorModel,
+              hasQuotedText: viewModel.draft.quotedText?.isEmpty == false,
+              requestFile: { showsFileImporter = true },
+              requestLink: requestLink,
+              showsFormattingToolbar: preferences.showsFormattingToolbar,
+              showsExpandedRecipients: $showsExpandedRecipients,
+              showsQuotedText: $showsQuotedText,
+              signatures: signatures,
+              selectedSignatureId: selectedSignatureId,
+              templates: templates,
+              applyTemplate: applyTemplate,
+              requestAssistance: mailAssistanceViewModel == nil ? nil : requestComposeAssistance,
+              requestResponseAssistance: responseAssistanceAction
+            )
+            Divider()
+            MailComposerBodyField(editorModel: editorModel, isFocused: $isBodyFocused)
+              .simultaneousGesture(
+                TapGesture().onEnded {
+                  focusedField = nil
+                  isBodyFocused = true
+                }
+              )
+              .dropDestination(for: Data.self) { items, _ in
+                addDroppedImages(items)
+                return !items.isEmpty
+              }
+              .dropDestination(for: URL.self) { urls, _ in
+                importFiles(.success(urls))
+                return !urls.isEmpty
+              }
+            Divider()
+            composerSupplementalDetails
+          }
         }
+        .scrollDismissesKeyboard(.interactively)
+        .accessibilityIdentifier("mail-compose-document-scroll")
       }
-      .navigationTitle(viewModel.draft.title)
-      .navigationBarTitleDisplayMode(.inline)
-      .toolbar { composerToolbar }
       .fileImporter(
         isPresented: $showsFileImporter,
         allowedContentTypes: [.data],
@@ -301,11 +342,11 @@ struct MailShellComposer: View {
       .task {
         viewModel.draftChanged()
         await Task.yield()
-        guard focusedField == nil, bodyIsFocused == false else { return }
+        guard focusedField == nil, isBodyFocused == false else { return }
         if viewModel.draft.recipient.isEmpty {
           focusedField = .to
         } else {
-          bodyIsFocused = true
+          isBodyFocused = true
         }
       }
       .task(id: suggestionRequest) {
@@ -373,20 +414,9 @@ struct MailShellComposer: View {
     }
   }
 
-  private var composerDetails: some View {
+  private var composerSupplementalDetails: some View {
     @Bindable var viewModel = viewModel
     return VStack(spacing: 12) {
-      MailComposerSubjectField(
-        subject: $viewModel.draft.subject,
-        focusedField: $focusedField
-      )
-      recipientFields
-      MailComposerIdentityRow(
-        connections: connections,
-        identities: sendingIdentities,
-        profileName: profileName,
-        selectedIdentityId: $viewModel.draft.sendingIdentityId
-      )
       if let signature = viewModel.draft.signature {
         MailComposerSignatureSummary(signature: signature)
       }
@@ -433,6 +463,14 @@ struct MailShellComposer: View {
       saveStatus
     }
     .padding(16)
+  }
+
+  private var headerExpansion: MailComposerHeader.Expansion? {
+    guard let navigation, navigation.showsExpansionControl else { return nil }
+    return MailComposerHeader.Expansion(
+      isExpanded: navigation.isExpanded,
+      toggle: navigation.toggleExpansion
+    )
   }
 
   private func updateSendingIdentity(_ identityId: SendingIdentityId?) {
@@ -520,8 +558,8 @@ struct MailShellComposer: View {
         }
       }
     }
-    .padding(12)
-    .background(.regularMaterial, in: .rect(cornerRadius: 10))
+    .padding(.horizontal, 16)
+    .padding(.vertical, 12)
   }
 
   @ViewBuilder
@@ -569,72 +607,6 @@ struct MailShellComposer: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     case .idle:
       EmptyView()
-    }
-  }
-
-  @ToolbarContentBuilder
-  private var composerToolbar: some ToolbarContent {
-    ToolbarItem(placement: .cancellationAction) {
-      Button("Close", action: closeComposer)
-        .disabled(viewModel.saveState == .saving)
-    }
-    ToolbarItem(placement: .principal) {
-      VStack(spacing: 0) {
-        Text(viewModel.draft.title)
-        Text("\(profileName) · \(selectedIdentity?.title ?? "Choose From address")")
-          .font(.caption)
-          .foregroundStyle(.secondary)
-      }
-    }
-    ToolbarItem(placement: .confirmationAction) {
-      MailComposerSendButton(
-        title: scheduledSendDueAt == nil ? "Send" : "Save Changes",
-        canSendLater: viewModel.canCreateSendReminder,
-        isSendEnabled: isSendEnabled,
-        send: sendDraft,
-        sendLater: openSendLater
-      )
-    }
-    if let navigation, navigation.showsExpansionControl {
-      ToolbarItem(placement: .primaryAction) {
-        Button(
-          navigation.isExpanded ? "Collapse Composer" : "Expand Composer",
-          systemImage: navigation.isExpanded
-            ? "arrow.down.right.and.arrow.up.left"
-            : "arrow.up.left.and.arrow.down.right",
-          action: navigation.toggleExpansion
-        )
-      }
-    }
-    ToolbarItem(placement: .secondaryAction) {
-      if scheduledSendDueAt != nil, sendNow != nil {
-        Button("Send Now", systemImage: "paperplane.fill", action: sendScheduledNow)
-          .disabled(!isSendEnabled)
-      }
-    }
-    ToolbarItem(placement: .secondaryAction) {
-      Button("Send Later", systemImage: "clock", action: openSendLater)
-        .disabled(!viewModel.canCreateSendReminder)
-        .keyboardShortcut("l", modifiers: [.command, .shift])
-    }
-    ToolbarItem(placement: .secondaryAction) {
-      PhotosPicker(selection: $selectedPhoto, matching: .images) {
-        Label("Attach Photo", systemImage: "photo")
-      }
-    }
-    ToolbarItem(placement: .secondaryAction) {
-      if navigation == nil {
-        Button(
-          viewModel.presentation == .partial ? "Expand Composer" : "Use Partial Composer",
-          systemImage: viewModel.presentation == .partial
-            ? "arrow.up.left.and.arrow.down.right"
-            : "arrow.down.right.and.arrow.up.left",
-          action: viewModel.togglePresentation
-        )
-      }
-    }
-    ToolbarItem(placement: .secondaryAction) {
-      Button("Discard Draft", systemImage: "trash", action: requestDiscard)
     }
   }
 
@@ -1096,22 +1068,98 @@ private struct MailComposerAssetStatus: View {
   }
 }
 
+private struct MailComposerHeader: View {
+  struct Expansion {
+    let isExpanded: Bool
+    let toggle: () -> Void
+  }
+
+  let title: String
+  let close: () -> Void
+  let closeIsDisabled: Bool
+  let expansion: Expansion?
+  let canSendLater: Bool
+  let isSendEnabled: Bool
+  let sendTitle: String
+  let send: () -> Void
+  let sendLater: () -> Void
+  let sendNow: (() -> Void)?
+  @Binding var selectedPhoto: PhotosPickerItem?
+  let discard: () -> Void
+
+  var body: some View {
+    HStack(spacing: 8) {
+      Button("Close Composer", systemImage: "xmark", action: close)
+        .labelStyle(.iconOnly)
+        .frame(minWidth: 44, minHeight: 44)
+        .disabled(closeIsDisabled)
+        .accessibilityIdentifier("mail-compose-close")
+      Text(title)
+        .font(.headline)
+        .lineLimit(1)
+        .frame(maxWidth: .infinity, alignment: .leading)
+      if let expansion {
+        Button(
+          expansion.isExpanded ? "Collapse Composer" : "Expand Composer",
+          systemImage: expansion.isExpanded
+            ? "arrow.down.right.and.arrow.up.left"
+            : "arrow.up.left.and.arrow.down.right",
+          action: expansion.toggle
+        )
+        .labelStyle(.iconOnly)
+        .frame(minWidth: 44, minHeight: 44)
+        .accessibilityIdentifier("mail-compose-expansion")
+      }
+      Menu("More", systemImage: "ellipsis") {
+        if let sendNow {
+          Button("Send Now", systemImage: "paperplane.fill", action: sendNow)
+            .disabled(!isSendEnabled)
+        }
+        Button("Send Later", systemImage: "clock", action: sendLater)
+          .disabled(!canSendLater)
+          .keyboardShortcut("l", modifiers: [.command, .shift])
+        PhotosPicker(selection: $selectedPhoto, matching: .images) {
+          Label("Attach Photo", systemImage: "photo")
+        }
+        Divider()
+        Button("Discard Draft", systemImage: "trash", role: .destructive, action: discard)
+      }
+      .labelStyle(.iconOnly)
+      .frame(minWidth: 44, minHeight: 44)
+      .accessibilityIdentifier("mail-compose-more")
+      MailComposerSendButton(
+        title: sendTitle,
+        canSendLater: canSendLater,
+        isSendEnabled: isSendEnabled,
+        send: send,
+        sendLater: sendLater
+      )
+      .buttonStyle(.borderedProminent)
+    }
+    .padding(.horizontal, 8)
+    .padding(.vertical, 4)
+  }
+}
+
 private struct MailComposerBodyField: View {
   @Bindable var editorModel: SemanticMessageEditorModel
   @Binding var isFocused: Bool
 
   var body: some View {
-    SemanticMessageTextView(editorModel: editorModel, isFocused: $isFocused)
-      .frame(maxWidth: .infinity, minHeight: 160, alignment: .topLeading)
-      .contextMenu {
-        ForEach(SemanticMessageBlockCommand.allCases) { command in
-          Button(command.title, systemImage: command.systemImage) {
-            editorModel.applyBlock(command)
-          }
+    SemanticMessageTextView(
+      editorModel: editorModel,
+      isFocused: $isFocused,
+      minimumHeight: 160
+    )
+    .frame(maxWidth: .infinity, alignment: .topLeading)
+    .contextMenu {
+      ForEach(SemanticMessageBlockCommand.allCases) { command in
+        Button(command.title, systemImage: command.systemImage) {
+          editorModel.applyBlock(command)
         }
       }
+    }
   }
-
 }
 
 private struct MailComposerActionBar: View {
@@ -1188,7 +1236,6 @@ private struct MailComposerActionBar: View {
     }
     .padding(.horizontal, 16)
     .padding(.vertical, 8)
-    .background(.bar)
   }
 
   private func toggleRecipients() {
@@ -1332,20 +1379,23 @@ private struct MailComposerIdentityRow: View {
         }
       }
     }
-    .padding(12)
-    .background(.regularMaterial, in: .rect(cornerRadius: 10))
+    .padding(.horizontal, 16)
+    .padding(.vertical, 12)
   }
 }
 
 private struct MailComposerSubjectField: View {
   @Binding var subject: String
   let focusedField: FocusState<MailComposerFocus?>.Binding
+  let focusBody: () -> Void
 
   var body: some View {
     TextField("Subject", text: $subject)
       .focused(focusedField, equals: .subject)
-      .padding(12)
-      .background(.regularMaterial, in: .rect(cornerRadius: 10))
+      .submitLabel(.next)
+      .onSubmit(focusBody)
+      .padding(.horizontal, 16)
+      .padding(.vertical, 12)
       .accessibilityIdentifier("mail-compose-subject")
   }
 }
