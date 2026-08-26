@@ -2486,7 +2486,8 @@ struct AccountView: View {
         setStartupProfile: profileViewModel.setStartupProfile,
         errorMessage: profileViewModel.errorMessage ?? gmailViewModel.errorMessage
           ?? muteViewModel.errorMessage,
-        generalErrorMessage: profileViewModel.errorMessage ?? muteViewModel.errorMessage
+        generalErrorMessage: profileViewModel.errorMessage ?? gmailViewModel.errorMessage
+          ?? muteViewModel.errorMessage
           ?? pinViewModel.errorMessage
           ?? snoozeViewModel.errorMessage
           ?? followUpNudgeViewModel.errorMessage
@@ -2669,7 +2670,7 @@ struct AccountView: View {
       mailShellBottomBar
     }
     .overlay(alignment: .bottomTrailing) {
-      if showsComposeButton, horizontalSizeClass == .compact {
+      if showsComposeButton {
         VStack(alignment: .trailing, spacing: 8) {
           if !savedCompositionDrafts.isEmpty {
             MailShellSavedDraftsButton(
@@ -2683,7 +2684,9 @@ struct AccountView: View {
               open: { beginNewMessage(using: $0) }
             )
           }
-          MailShellComposeButton(action: beginNewMessage)
+          if horizontalSizeClass == .compact {
+            MailShellComposeButton(action: beginNewMessage)
+          }
         }
         .padding(16)
         .padding(.bottom, horizontalSizeClass == .compact ? 48 : 0)
@@ -5610,7 +5613,7 @@ private struct MailShellConnectionDisclosure: View {
       }
       ForEach(
         navigationSnapshot.providerMailboxes(for: connection.id),
-        id: \.self
+        id: \.id
       ) { providerMailbox in
         NavigationLink(
           value: MailShellMailboxSelection.connection(
@@ -5632,7 +5635,9 @@ private struct MailShellConnectionDisclosure: View {
         for: status,
         connectionId: connection.id
       ) {
-        Button(status.summary) {
+        Button(
+          status.phase == .authorizationRequired ? "Fix Authorization" : "Review Sync Settings"
+        ) {
           openSettings(route)
         }
         .buttonStyle(.plain)
@@ -7318,6 +7323,8 @@ private struct MailShellMailboxTools: View {
 }
 
 private struct MailShellThreadRow: View {
+  @ScaledMetric(relativeTo: .subheadline) private var unreadIndicatorSize: CGFloat = 7
+
   let categoryNamesById: [String: String]
   let isPinned: Bool
   let item: MailShellThreadListItem
@@ -7330,11 +7337,19 @@ private struct MailShellThreadRow: View {
 
   var body: some View {
     HStack(alignment: .top, spacing: 8) {
-      Image(systemName: isUnread ? "circle.fill" : "circle")
-        .font(.system(size: 7))
-        .foregroundStyle(isUnread ? MailTheme.accent : .clear)
-        .frame(width: 8, height: 20)
-        .accessibilityHidden(true)
+      ZStack {
+        if isUnread {
+          Circle()
+            .fill(MailTheme.accent)
+            .frame(width: unreadIndicatorSize, height: unreadIndicatorSize)
+        }
+      }
+      .frame(width: unreadIndicatorSize, height: unreadIndicatorSize * 2.5)
+      .accessibilityHidden(true)
+
+      if preferences.showsContactImages {
+        contactImage
+      }
 
       VStack(alignment: .leading, spacing: rowSpacing) {
         HStack(alignment: .firstTextBaseline) {
@@ -7411,6 +7426,29 @@ private struct MailShellThreadRow: View {
     return categoryNamesById[categoryId]
   }
 
+  private var contactImage: some View {
+    Circle()
+      .fill(Color.primary.opacity(0.14))
+      .frame(width: contactImageSize, height: contactImageSize)
+      .overlay {
+        Text(senderInitial)
+          .font(.caption.weight(.semibold))
+          .foregroundStyle(.primary)
+      }
+      .accessibilityHidden(true)
+  }
+
+  private var contactImageSize: CGFloat {
+    switch preferences.threadDensity {
+    case .compact:
+      return 26
+    case .comfortable:
+      return 32
+    case .spacious:
+      return 38
+    }
+  }
+
   private var isUnread: Bool {
     MailViewFilter.isUnread(thread)
   }
@@ -7432,6 +7470,11 @@ private struct MailShellThreadRow: View {
 
   private var showsAttachmentState: Bool {
     preferences.showsAttachmentIndicators && thread.latestMessage.hasAttachments
+  }
+
+  private var senderInitial: String {
+    let sender = thread.latestMessage.from?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    return sender.first.map { String($0).uppercased() } ?? "?"
   }
 
   private var verticalPadding: CGFloat {
