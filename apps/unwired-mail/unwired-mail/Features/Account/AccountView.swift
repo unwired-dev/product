@@ -7828,21 +7828,7 @@ struct MailShellConversationReader: View {
     readerSelectionContent
       .background(MailTheme.canvas)
       .overlay {
-        if let progress = mailActionViewModel.bulkActionProgress {
-          VStack(spacing: 8) {
-            ProgressView(
-              value: Double(progress.completedConnectionCount),
-              total: Double(progress.totalConnectionCount)
-            )
-            Text(
-              "\(progress.completedConnectionCount) of \(progress.totalConnectionCount) Mailbox Connections"
-            )
-            .font(.caption)
-            .foregroundStyle(.secondary)
-          }
-          .padding()
-          .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-        }
+        bulkActionProgressOverlay
       }
       .sheet(item: $categorySelection) { selection in
         MessageCategorySelector(
@@ -7855,88 +7841,120 @@ struct MailShellConversationReader: View {
         )
       }
       .alert("Message action failed", isPresented: readerErrorBinding) {
-        if let readerErrorConnectionId,
-          let connection = connections.first(where: { $0.id == readerErrorConnectionId })
-        {
-          if mailActionViewModel.blockedConnectionId == connection.id {
-            Button("Retry") {
-              resolveBlockedAction(connection: connection, discard: false)
-            }
-            Button("Discard", role: .destructive) {
-              resolveBlockedAction(connection: connection, discard: true)
-            }
-          } else if mailActionViewModel.failedConnectionId == connection.id {
-            Button("Acknowledge") {
-              acknowledgePendingActionFailure(connection: connection)
-            }
-          }
-        }
-        Button("OK", role: .cancel) {}
+        readerErrorActions
       } message: {
         Text(readerErrorMessage ?? "The message action could not be completed.")
       }
       .onChange(of: selection.selectedThreadIds) { _, _ in
-        categorySelection = nil
-        completedUnsubscribeIdentifiers = []
-        contactReview = nil
-        contactReviewDismissalIdentifier = nil
-        proseCalendarCandidates = [:]
-        proseCalendarDetectionGenerations = [:]
-        for task in proseCalendarDetectionTasks.values { task.cancel() }
-        proseCalendarDetectionTasks.removeAll()
-        proseDuplicateReview = nil
-        sourceInspectionMessage = nil
-        showsUnderstandingAssistance = false
-        understandingErrorMessage = nil
-        mailAssistanceViewModel.discardPreview()
-        for task in readTasks.values { task.cancel() }
-        readBatchTask?.cancel()
-        readBatchTask = nil
-        readBatchTaskOwner.cancel()
-        readTasks.removeAll()
-        readTaskOwners.removeAll()
-        pendingReadBatch.removeAll()
-        visibleReadMessageIds.removeAll()
-        readerErrorConnectionId = nil
-        readerErrorMessage = nil
-        readerErrorSource = nil
-        mailActionViewModel.clearError()
-        pinViewModel.clearError()
-        snoozeViewModel.clearError()
-        followUpNudgeViewModel?.clearError()
+        resetSelectionState()
       }
       .background {
-        MailContentPresentationDismissalObserver(
-          coordinator: contentPresentationDismissal
-        ) {
-          guard
-            calendarReview != nil || calendarReviewDismissalIdentifier != nil
-              || contactReview != nil || contactReviewDismissalIdentifier != nil
-              || categorySelection != nil || readerErrorMessage != nil || !readTasks.isEmpty
-              || !readTaskOwners.isEmpty || readerErrorConnectionId != nil
-              || readerErrorSource != nil || sourceInspectionMessage != nil
-              || showsUnderstandingAssistance || understandingErrorMessage != nil
-              || mailAssistanceViewModel.preview != nil
-          else { return }
-          calendarReview = nil
-          calendarReviewDismissalIdentifier = nil
-          contactReview = nil
-          contactReviewDismissalIdentifier = nil
-          MailProfileContentPresentationDismissal.dismissReader(
-            categorySelection: &categorySelection,
-            messageActionError: &readerErrorMessage
-          )
-          for task in readTasks.values { task.cancel() }
-          readTasks.removeAll()
-          readTaskOwners.removeAll()
-          readerErrorConnectionId = nil
-          readerErrorSource = nil
-          sourceInspectionMessage = nil
-          showsUnderstandingAssistance = false
-          understandingErrorMessage = nil
-          mailAssistanceViewModel.discardPreview()
+        contentPresentationDismissalObserver
+      }
+  }
+
+  @ViewBuilder
+  private var bulkActionProgressOverlay: some View {
+    if let progress = mailActionViewModel.bulkActionProgress {
+      VStack(spacing: 8) {
+        ProgressView(
+          value: Double(progress.completedConnectionCount),
+          total: Double(progress.totalConnectionCount)
+        )
+        Text(
+          "\(progress.completedConnectionCount) of \(progress.totalConnectionCount) Mailbox Connections"
+        )
+        .font(.caption)
+        .foregroundStyle(.secondary)
+      }
+      .padding()
+      .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+    }
+  }
+
+  private var contentPresentationDismissalObserver: some View {
+    MailContentPresentationDismissalObserver(
+      coordinator: contentPresentationDismissal
+    ) {
+      guard
+        calendarReview != nil || calendarReviewDismissalIdentifier != nil
+          || contactReview != nil || contactReviewDismissalIdentifier != nil
+          || categorySelection != nil || readerErrorMessage != nil || !readTasks.isEmpty
+          || !readTaskOwners.isEmpty || readerErrorConnectionId != nil
+          || readerErrorSource != nil || sourceInspectionMessage != nil
+          || showsUnderstandingAssistance || understandingErrorMessage != nil
+          || mailAssistanceViewModel.preview != nil
+      else { return }
+      calendarReview = nil
+      calendarReviewDismissalIdentifier = nil
+      contactReview = nil
+      contactReviewDismissalIdentifier = nil
+      MailProfileContentPresentationDismissal.dismissReader(
+        categorySelection: &categorySelection,
+        messageActionError: &readerErrorMessage
+      )
+      for task in readTasks.values { task.cancel() }
+      readTasks.removeAll()
+      readTaskOwners.removeAll()
+      readerErrorConnectionId = nil
+      readerErrorSource = nil
+      sourceInspectionMessage = nil
+      showsUnderstandingAssistance = false
+      understandingErrorMessage = nil
+      mailAssistanceViewModel.discardPreview()
+    }
+  }
+
+  private func resetSelectionState() {
+    categorySelection = nil
+    completedUnsubscribeIdentifiers = []
+    contactReview = nil
+    contactReviewDismissalIdentifier = nil
+    proseCalendarCandidates = [:]
+    proseCalendarDetectionGenerations = [:]
+    for task in proseCalendarDetectionTasks.values { task.cancel() }
+    proseCalendarDetectionTasks.removeAll()
+    proseDuplicateReview = nil
+    sourceInspectionMessage = nil
+    showsUnderstandingAssistance = false
+    understandingErrorMessage = nil
+    mailAssistanceViewModel.discardPreview()
+    for task in readTasks.values { task.cancel() }
+    readBatchTask?.cancel()
+    readBatchTask = nil
+    readBatchTaskOwner.cancel()
+    readTasks.removeAll()
+    readTaskOwners.removeAll()
+    pendingReadBatch.removeAll()
+    visibleReadMessageIds.removeAll()
+    readerErrorConnectionId = nil
+    readerErrorMessage = nil
+    readerErrorSource = nil
+    mailActionViewModel.clearError()
+    pinViewModel.clearError()
+    snoozeViewModel.clearError()
+    followUpNudgeViewModel?.clearError()
+  }
+
+  @ViewBuilder
+  private var readerErrorActions: some View {
+    if let readerErrorConnectionId,
+      let connection = connections.first(where: { $0.id == readerErrorConnectionId })
+    {
+      if mailActionViewModel.blockedConnectionId == connection.id {
+        Button("Retry") {
+          resolveBlockedAction(connection: connection, discard: false)
+        }
+        Button("Discard", role: .destructive) {
+          resolveBlockedAction(connection: connection, discard: true)
+        }
+      } else if mailActionViewModel.failedConnectionId == connection.id {
+        Button("Acknowledge") {
+          acknowledgePendingActionFailure(connection: connection)
         }
       }
+    }
+    Button("OK", role: .cancel) {}
   }
 
   @ViewBuilder
