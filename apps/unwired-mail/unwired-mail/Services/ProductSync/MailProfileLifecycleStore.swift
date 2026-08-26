@@ -242,9 +242,10 @@ final class MailProfileLifecycleStore {
 
   func finishPendingRemoteContentCleanup(profileId: MailProfileId) throws {
     try requireLocalStateAvailable()
-    localState.pendingRemoteContentCleanupProfileIds = pendingRemoteContentCleanupProfileIds.filter {
-      $0 != profileId
-    }
+    localState.pendingRemoteContentCleanupProfileIds =
+      pendingRemoteContentCleanupProfileIds.filter {
+        $0 != profileId
+      }
     try persist()
   }
 
