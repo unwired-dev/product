@@ -1440,7 +1440,7 @@ final class SettingsDestinationRegistryTests {
   }
 
   @MainActor
-  @Test
+  @Test(.bug(id: 556))
   func testRouterPublishesRepeatedRequestsForTheSameRoute() {
     let router = SettingsRouter()
 
@@ -1451,6 +1451,38 @@ final class SettingsDestinationRegistryTests {
     #expect(firstRequest?.route == .emailAccounts)
     #expect(router.request?.route == .emailAccounts)
     #expect(firstRequest?.id != router.request?.id)
+  }
+
+  @MainActor
+  @Test(.bug(id: 556))
+  func settingsRequestHasOnlyOnePresentationOwner() throws {
+    let router = SettingsRouter()
+    let firstOwner = UUID()
+    let duplicateOwner = UUID()
+
+    router.open(.emailAccounts)
+    let request = try #require(router.request)
+
+    #expect(router.claimPresentation(request.id, ownerID: firstOwner))
+    #expect(router.claimPresentation(request.id, ownerID: duplicateOwner) == false)
+    #expect(router.presentationOwnerID == firstOwner)
+  }
+
+  @MainActor
+  @Test(.bug(id: 556))
+  func contextualSettingsRequestCanClaimPresentationAfterAnEarlierRequest() throws {
+    let router = SettingsRouter()
+    let owner = UUID()
+
+    router.open(nil)
+    let normalRequest = try #require(router.request)
+    #expect(router.claimPresentation(normalRequest.id, ownerID: owner))
+
+    router.open(.notificationPermission)
+    let contextualRequest = try #require(router.request)
+
+    #expect(contextualRequest.route == .notificationPermission)
+    #expect(router.claimPresentation(contextualRequest.id, ownerID: owner))
   }
 
   @Test
