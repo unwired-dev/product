@@ -3015,8 +3015,9 @@ struct AccountView: View {
   }
 
   private func updateSettingsMailProfileContext() {
-    settingsMailProfileContext.update(activeProfile: profileViewModel.activeProfile) {
-      preferredProfileId in
+    settingsMailProfileContext.update(
+      activeProfile: profileViewModel.activeProfile
+    ) { preferredProfileId in
       await reloadSyncedMailState(targetedProfileId: preferredProfileId)
       updateSettingsMailProfileContext()
     }
@@ -3303,8 +3304,6 @@ struct AccountView: View {
     gmailViewModel.selectedConnectionId = profileConnections.first?.id
     if let compositionDraft = parkedCompositionDrafts.removeValue(forKey: profileId) {
       presentComposerDraft(compositionDraft)
-    } else {
-      composerNavigation.park()
     }
     loadUnifiedMailbox(synchronizes: false)
     Task {
