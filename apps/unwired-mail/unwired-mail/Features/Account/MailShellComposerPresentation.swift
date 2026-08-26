@@ -88,11 +88,13 @@ struct MailShellComposerNavigationState {
   }
 
   mutating func dismissAll() {
+    guard draft != nil || !expandedDraftIds.isEmpty else { return }
     draft = nil
     expandedDraftIds.removeAll()
   }
 
   mutating func park() {
+    guard draft != nil else { return }
     draft = nil
   }
 
