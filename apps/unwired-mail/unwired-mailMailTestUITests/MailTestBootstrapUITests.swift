@@ -67,13 +67,21 @@ final class MailTestBootstrapUITests: XCTestCase {
   }
 
   func testComposeAndSendThroughVisibleClient() throws {
-    let app = launchApplication()
-    let body = try openVisibleDraft(
-      recipient: "recipient@synthetic.invalid",
-      subject: composeSubject,
+    let app = launchApplication(
+      composerLayout: "regular",
+      preferredContentSizeCategory: "UICTContentSizeCategoryAccessibilityExtraExtraExtraLarge"
+    )
+    let header = try openRegularComposer(in: app)
+    let initialCloseFrame = header.close.frame
+    let draft = try populateVisibleDraft(in: app)
+    try verifyNativeSemanticEditing(in: draft.body, document: draft.document, app: app)
+    assertFixedHeaderAndExpansion(
+      close: header.close,
+      initialCloseFrame: initialCloseFrame,
+      expansion: header.expansion,
+      body: draft.body,
       in: app
     )
-    try verifyNativeSemanticEditing(in: body, app: app)
 
     try sendVisibleDraft(step: "compose-send", in: app)
     waitForOutboxToDrain(in: app)
@@ -82,17 +90,10 @@ final class MailTestBootstrapUITests: XCTestCase {
   // XCUITest is required to verify accessibility and keyboard interaction across the app boundary.
   func testSendLaterPresentsAutomaticAndReminderModes() throws {
     let app = launchApplication()
-    let body = try openVisibleDraft(
-      recipient: "recipient@synthetic.invalid",
-      subject: "Mail Test Send Later",
-      in: app
-    )
-    try focusAndType(
-      "Synthetic scheduled delivery",
-      into: body,
-      in: app,
-      failure: "MAIL_TEST_FAILURE:ui: The message body did not receive keyboard focus."
-    )
+    try requireComposeAction(in: app).tap()
+    let draft = try populateVisibleDraft(in: app)
+    draft.body.typeText("Synthetic scheduled delivery")
+
     try assertSendLaterModes(in: app)
   }
 
@@ -149,13 +150,35 @@ final class MailTestBootstrapUITests: XCTestCase {
     )
   }
 
-  private func openVisibleDraft(
-    recipient recipientValue: String,
-    subject subjectValue: String,
+  private func openRegularComposer(
     in app: XCUIApplication
-  ) throws -> XCUIElement {
-    let compose = try requireComposeAction(in: app)
-    compose.tap()
+  ) throws -> (close: XCUIElement, expansion: XCUIElement) {
+    try requireComposeAction(in: app).tap()
+
+    let close = try requireElement(
+      identifier: "mail-compose-close",
+      matching: .button,
+      in: app,
+      failure: "MAIL_TEST_FAILURE:ui: The fixed Close Composer action was not visible."
+    )
+    let expansion = try requireElement(
+      identifier: "mail-compose-expansion",
+      matching: .button,
+      in: app,
+      failure: "MAIL_TEST_FAILURE:ui: The regular-width expansion action was not visible."
+    )
+    _ = try requireElement(
+      identifier: "mail-compose-more",
+      matching: .button,
+      in: app,
+      failure: "MAIL_TEST_FAILURE:ui: The composer overflow action was not visible."
+    )
+    return (close, expansion)
+  }
+
+  private func populateVisibleDraft(
+    in app: XCUIApplication
+  ) throws -> (body: XCUIElement, document: XCUIElement) {
     let recipient = try requireElement(
       identifier: "mail-compose-to",
       matching: .textField,
@@ -163,11 +186,15 @@ final class MailTestBootstrapUITests: XCTestCase {
       failure: "MAIL_TEST_FAILURE:ui: The recipient field was not visible."
     )
     try focusAndType(
-      recipientValue,
+      (0..<12).map { "recipient\($0)@synthetic.invalid" }.joined(separator: ", "),
       into: recipient,
       in: app,
       failure: "MAIL_TEST_FAILURE:ui: The recipient field did not receive keyboard focus."
     )
+    recipient.typeKey("a", modifierFlags: .command)
+    recipient.typeText("recipient@synthetic.invalid")
+    recipient.typeKey(.return, modifierFlags: [])
+    assertRecipientReplacement(in: app)
     let subject = try requireElement(
       identifier: "mail-compose-subject",
       matching: .textField,
@@ -175,21 +202,83 @@ final class MailTestBootstrapUITests: XCTestCase {
       failure: "MAIL_TEST_FAILURE:ui: The subject field was not visible."
     )
     try focusAndType(
-      subjectValue,
+      composeSubject,
       into: subject,
       in: app,
       failure: "MAIL_TEST_FAILURE:ui: The subject field did not receive keyboard focus."
     )
-    return try requireElement(
+    subject.typeKey(.return, modifierFlags: [])
+    let document = try requireElement(
+      identifier: "mail-compose-document-scroll",
+      matching: .scrollView,
+      in: app,
+      failure: "MAIL_TEST_FAILURE:ui: The composer document scroll was not visible."
+    )
+    let body = try requireElement(
       identifier: "mail-compose-body",
       matching: .textView,
       in: app,
       failure: "MAIL_TEST_FAILURE:ui: The message body was not visible."
     )
+    try requireAutomaticKeyboardFocus(
+      on: body,
+      failure: "MAIL_TEST_FAILURE:ui: Subject submission did not focus the message body."
+    )
+    return (body, document)
+  }
+
+  private func assertRecipientReplacement(in app: XCUIApplication) {
+    let recipientTokens = app.buttons.matching(
+      NSPredicate(format: "label BEGINSWITH %@", "Remove recipient")
+    )
+    XCTAssertEqual(
+      recipientTokens.count,
+      1,
+      "The recipient replacement did not remove every previous recipient."
+    )
+    XCTAssertEqual(
+      recipientTokens.firstMatch.label,
+      "Remove recipient@synthetic.invalid",
+      "The recipient replacement did not keep the expected recipient."
+    )
+  }
+
+  private func assertFixedHeaderAndExpansion(
+    close: XCUIElement,
+    initialCloseFrame: CGRect,
+    expansion: XCUIElement,
+    body: XCUIElement,
+    in app: XCUIApplication
+  ) {
+    XCTAssertEqual(
+      close.frame.minY,
+      initialCloseFrame.minY,
+      accuracy: 1,
+      "The Close Composer action scrolled away with the Draft document."
+    )
+
+    expansion.tap()
+    XCTAssertTrue(
+      element(identifier: "mail-shell-composer-expanded", in: app)
+        .waitForExistence(timeout: 5),
+      "The regular-width composer did not expand."
+    )
+    XCTAssertEqual(
+      body.value as? String,
+      "Synthetic compose delivery",
+      "Expansion replaced or reset the authored document."
+    )
+    expansion.tap()
+    XCTAssertTrue(
+      element(identifier: "mail-shell-composer-detailOverlay", in: app)
+        .waitForExistence(timeout: 5),
+      "The expanded composer did not collapse to its detail overlay."
+    )
   }
 
   private func verifyNativeSemanticEditing(
     in body: XCUIElement,
+    document: XCUIElement,
     app: XCUIApplication
   ) throws {
     try focusAndType(
@@ -222,10 +311,48 @@ final class MailTestBootstrapUITests: XCTestCase {
     body.typeKey("a", modifierFlags: .command)
     body.typeKey(.delete, modifierFlags: [])
     body.typeText("Synthetic compose delivery")
+    document.swipeUp()
   }
 
   func testReplyThroughVisibleClient() throws {
     let app = launchApplication()
+    try openReplySource(in: app)
+
+    let reply = element(identifier: "mail-reply", in: app)
+    guard reply.waitForExistence(timeout: 3) else {
+      throw XCTSkip("MAIL_TEST_CAPABILITY_UNAVAILABLE:reply")
+    }
+    reply.tap()
+    let composer = element(identifier: "mail-shell-composer-compactDestination", in: app)
+    XCTAssertTrue(
+      composer.waitForExistence(timeout: 15),
+      "MAIL_TEST_FAILURE:ui: The reply composer host did not open."
+    )
+    XCTAssertTrue(
+      app.buttons["mail-compose-close"].waitForExistence(timeout: 5),
+      "MAIL_TEST_FAILURE:ui: The compact composer did not show Close Composer."
+    )
+    XCTAssertFalse(
+      app.buttons["mail-compose-expansion"].exists,
+      "MAIL_TEST_FAILURE:ui: Compact composing exposed an unnecessary expansion action."
+    )
+    let body = composer.descendants(matching: .textView)
+      .matching(identifier: "mail-compose-body").firstMatch
+    XCTAssertTrue(
+      body.waitForExistence(timeout: 15),
+      "MAIL_TEST_FAILURE:ui: The reply composer body did not open."
+    )
+    try requireAutomaticKeyboardFocus(
+      on: body,
+      failure: "MAIL_TEST_FAILURE:ui: The reply body did not receive automatic keyboard focus."
+    )
+    body.typeText("Synthetic visible reply")
+
+    try sendVisibleDraft(step: "reply", in: app)
+    try verifyReplyConversation(in: app)
+  }
+
+  private func openReplySource(in app: XCUIApplication) throws {
     let inbox = element(identifier: "mail-mailbox-inbox", in: app)
     if !inbox.exists {
       let sidebar = app.navigationBars.buttons.firstMatch
@@ -246,36 +373,22 @@ final class MailTestBootstrapUITests: XCTestCase {
       element(identifier: "mail-conversation-reader", in: app).waitForExistence(timeout: 15),
       "MAIL_TEST_FAILURE:ui: The seeded reply source did not open."
     )
-
-    let reply = element(identifier: "mail-reply", in: app)
-    guard reply.waitForExistence(timeout: 3) else {
-      throw XCTSkip("MAIL_TEST_CAPABILITY_UNAVAILABLE:reply")
-    }
-    reply.tap()
-    let composer = element(identifier: "mail-shell-composer-compactDestination", in: app)
-    XCTAssertTrue(
-      composer.waitForExistence(timeout: 15),
-      "MAIL_TEST_FAILURE:ui: The reply composer host did not open."
-    )
-    let body = composer.descendants(matching: .textView)
-      .matching(identifier: "mail-compose-body").firstMatch
-    XCTAssertTrue(
-      body.waitForExistence(timeout: 15),
-      "MAIL_TEST_FAILURE:ui: The reply composer body did not open."
-    )
-    try focusAndType(
-      "Synthetic visible reply",
-      into: body,
-      in: app,
-      failure: "MAIL_TEST_FAILURE:ui: The reply body did not receive keyboard focus."
-    )
-
-    try sendVisibleDraft(step: "reply", in: app)
-    try verifyReplyConversation(in: app)
   }
 
-  private func launchApplication() -> XCUIApplication {
+  private func launchApplication(
+    composerLayout: String? = nil,
+    preferredContentSizeCategory: String? = nil
+  ) -> XCUIApplication {
     let app = XCUIApplication()
+    if let composerLayout {
+      app.launchEnvironment["COMPOSER_UI_TEST_LAYOUT"] = composerLayout
+    }
+    if let preferredContentSizeCategory {
+      app.launchArguments += [
+        "-UIPreferredContentSizeCategoryName",
+        preferredContentSizeCategory,
+      ]
+    }
     app.launch()
     return app
   }
@@ -288,6 +401,12 @@ final class MailTestBootstrapUITests: XCTestCase {
   ) throws {
     let keyboard = app.keyboards.firstMatch
     dismissKeyboardIntroductionIfNeeded()
+    if !element.isHittable {
+      let document = app.scrollViews["mail-compose-document-scroll"]
+      for _ in 0..<3 where document.exists && !element.isHittable {
+        document.swipeUp()
+      }
+    }
     if element.isHittable {
       element.tap()
       dismissKeyboardIntroductionIfNeeded()
@@ -295,6 +414,11 @@ final class MailTestBootstrapUITests: XCTestCase {
         element.typeText(text)
         return
       }
+    }
+
+    if scrollToKeyboardFocus(on: element, in: app) {
+      element.typeText(text)
+      return
     }
 
     let tapOffsets: [CGFloat] = [0.5, 0.85, 0.15]
@@ -312,6 +436,31 @@ final class MailTestBootstrapUITests: XCTestCase {
 
     XCTFail(failure)
     throw NSError(domain: "MailTestBootstrapUITests", code: 1)
+  }
+
+  private func requireAutomaticKeyboardFocus(
+    on element: XCUIElement,
+    failure: String
+  ) throws {
+    guard waitForKeyboardFocus(on: element) else {
+      XCTFail(failure)
+      throw NSError(domain: "MailTestBootstrapUITests", code: 1)
+    }
+  }
+
+  private func scrollToKeyboardFocus(on element: XCUIElement, in app: XCUIApplication) -> Bool {
+    let document = app.scrollViews["mail-compose-document-scroll"]
+    let keyboard = app.keyboards.firstMatch
+    for _ in 0..<3 where document.exists {
+      document.swipeUp()
+      guard element.isHittable else { continue }
+      element.tap()
+      dismissKeyboardIntroductionIfNeeded()
+      if keyboard.waitForExistence(timeout: 2), waitForKeyboardFocus(on: element) {
+        return true
+      }
+    }
+    return false
   }
 
   private func waitForKeyboardFocus(on element: XCUIElement) -> Bool {
