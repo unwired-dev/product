@@ -247,6 +247,11 @@ final class MailTestBootstrapUITests: XCTestCase {
   }
 
   private func assertRecipientReplacement(in app: XCUIApplication) {
+    let replacement = app.buttons["Remove recipient@synthetic.invalid"]
+    XCTAssertTrue(
+      replacement.waitForExistence(timeout: 2),
+      "The expected recipient replacement did not appear."
+    )
     let recipientTokens = app.buttons.matching(
       NSPredicate(format: "label BEGINSWITH %@", "Remove recipient")
     )
@@ -256,7 +261,7 @@ final class MailTestBootstrapUITests: XCTestCase {
       "The recipient replacement did not remove every previous recipient."
     )
     XCTAssertEqual(
-      recipientTokens.firstMatch.label,
+      replacement.label,
       "Remove recipient@synthetic.invalid",
       "The recipient replacement did not keep the expected recipient."
     )
