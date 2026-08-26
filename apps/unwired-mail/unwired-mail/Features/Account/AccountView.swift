@@ -7948,15 +7948,7 @@ struct MailShellConversationReader: View {
               currentInputVersion: understandingCurrentInputVersion,
               localErrorMessage: understandingErrorMessage,
               regenerate: { startUnderstanding(thread) },
-              showSource: { sourceMessageId in
-                guard
-                  let message = thread.messages.first(where: {
-                    $0.id.rawValue == sourceMessageId
-                  })
-                else { return }
-                showsUnderstandingAssistance = false
-                selection.scrollToMessage(message.id)
-              }
+              showSource: { showUnderstandingSource($0, in: thread) }
             )
             .presentationDetents([.medium, .large])
           }
@@ -8145,6 +8137,19 @@ struct MailShellConversationReader: View {
       )
       .id(thread.id)
     }
+  }
+
+  private func showUnderstandingSource(
+    _ sourceMessageId: String,
+    in thread: MailboxThread
+  ) {
+    guard
+      let message = thread.messages.first(where: {
+        $0.id.rawValue == sourceMessageId
+      })
+    else { return }
+    showsUnderstandingAssistance = false
+    selection.scrollToMessage(message.id)
   }
 
   private func conversationMessage(
