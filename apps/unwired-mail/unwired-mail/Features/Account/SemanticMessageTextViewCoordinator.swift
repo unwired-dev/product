@@ -12,11 +12,9 @@ final class SemanticMessageTextViewCoordinator: NSObject, UITextViewDelegate {
     self.parent = parent
   }
 
-  func focusOnNextRunLoop() {
-    DispatchQueue.main.async { [weak self] in
-      guard let self, parent.isFocused, let textView else { return }
-      textView.becomeFirstResponder()
-    }
+  func focusIfNeeded() {
+    guard parent.isFocused, let textView, textView.window != nil else { return }
+    textView.becomeFirstResponder()
   }
 
   func textView(

@@ -25,6 +25,9 @@ struct SemanticMessageTextView: UIViewRepresentable {
     textView.accessibilityLabel = "Message"
     textView.setContentCompressionResistancePriority(.required, for: .vertical)
     context.coordinator.textView = textView
+    textView.didMoveToWindowAction = { [weak coordinator = context.coordinator] in
+      coordinator?.focusIfNeeded()
+    }
     context.coordinator.synchronizeTextView()
     return textView
   }
@@ -33,7 +36,7 @@ struct SemanticMessageTextView: UIViewRepresentable {
     context.coordinator.parent = self
     context.coordinator.synchronizeTextView()
     if isFocused, textView.isFirstResponder == false {
-      context.coordinator.focusOnNextRunLoop()
+      context.coordinator.focusIfNeeded()
     }
   }
 

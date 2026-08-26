@@ -460,16 +460,10 @@ struct MailShellComposer: View {
   }
 
   private var headerExpansion: MailComposerHeader.Expansion? {
-    if let navigation {
-      guard navigation.showsExpansionControl else { return nil }
-      return MailComposerHeader.Expansion(
-        isExpanded: navigation.isExpanded,
-        toggle: navigation.toggleExpansion
-      )
-    }
+    guard let navigation, navigation.showsExpansionControl else { return nil }
     return MailComposerHeader.Expansion(
-      isExpanded: viewModel.presentation == .fullScreen,
-      toggle: viewModel.togglePresentation
+      isExpanded: navigation.isExpanded,
+      toggle: navigation.toggleExpansion
     )
   }
 
