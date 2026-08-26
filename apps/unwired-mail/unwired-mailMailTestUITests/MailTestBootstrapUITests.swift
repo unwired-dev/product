@@ -257,6 +257,11 @@ final class MailTestBootstrapUITests: XCTestCase {
       throw XCTSkip("MAIL_TEST_CAPABILITY_UNAVAILABLE:reply")
     }
     reply.tap()
+    let composer = element(identifier: "mail-shell-composer-compactDestination", in: app)
+    XCTAssertTrue(
+      composer.waitForExistence(timeout: 15),
+      "MAIL_TEST_FAILURE:ui: The reply composer host did not open."
+    )
     XCTAssertTrue(
       app.buttons["mail-compose-close"].waitForExistence(timeout: 5),
       "MAIL_TEST_FAILURE:ui: The compact composer did not show Close Composer."
@@ -265,18 +270,18 @@ final class MailTestBootstrapUITests: XCTestCase {
       app.buttons["mail-compose-expansion"].exists,
       "MAIL_TEST_FAILURE:ui: Compact composing exposed an unnecessary expansion action."
     )
-    let body = try requireElement(
-      identifier: "mail-compose-body",
-      matching: .textView,
-      in: app,
-      failure: "MAIL_TEST_FAILURE:ui: The reply composer did not open."
+    let body = composer.descendants(matching: .textView)
+      .matching(identifier: "mail-compose-body").firstMatch
+    XCTAssertTrue(
+      body.waitForExistence(timeout: 15),
+      "MAIL_TEST_FAILURE:ui: The reply composer body did not open."
     )
-    let keyboard = app.keyboards.firstMatch
-    guard keyboard.waitForExistence(timeout: 5) else {
-      XCTFail("MAIL_TEST_FAILURE:ui: The reply body did not receive keyboard focus.")
-      throw NSError(domain: "MailTestBootstrapUITests", code: 1)
-    }
-    body.typeText("Synthetic visible reply")
+    try focusAndType(
+      "Synthetic visible reply",
+      into: body,
+      in: app,
+      failure: "MAIL_TEST_FAILURE:ui: The reply body did not receive keyboard focus."
+    )
 
     try sendVisibleDraft(step: "reply", in: app)
     try verifyReplyConversation(in: app)
