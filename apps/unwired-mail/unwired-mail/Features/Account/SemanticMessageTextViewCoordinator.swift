@@ -178,17 +178,20 @@ final class SemanticMessageTextViewCoordinator: NSObject, UITextViewDelegate {
 }
 
 extension SemanticMessageTextViewCoordinator {
-  func handleSlashCommandKey(_ key: SemanticMessageUITextView.SlashCommandKey) {
+  func handleSlashCommandKey(_ key: SemanticMessageUITextView.SlashCommandKey) -> Bool {
     switch key {
     case .apply:
-      _ = applySelectedSlashCommand()
+      return applySelectedSlashCommand()
     case .dismiss:
       dismissedSlashCommandContext = slashCommandPresentation?.context
       dismissSlashCommandMenu()
+      return true
     case .moveDown:
       moveSlashCommandSelection(by: 1)
+      return true
     case .moveUp:
       moveSlashCommandSelection(by: -1)
+      return true
     }
   }
 
@@ -209,26 +212,37 @@ extension SemanticMessageTextViewCoordinator {
     slashMenuHost = nil
   }
 
-  private func performNativeSlashCommandUndo() {
+  private func performNativeSlashCommandUndo(undoSelection: Int, redoSelection: Int) {
     parent.editorModel.undo()
+    parent.editorModel.updateSelection(offsets: undoSelection..<undoSelection)
     renderedDocument = nil
     synchronizeTextView()
     textView?.undoManager?.registerUndo(withTarget: self) { coordinator in
-      coordinator.performNativeSlashCommandRedo()
+      coordinator.performNativeSlashCommandRedo(
+        undoSelection: undoSelection,
+        redoSelection: redoSelection
+      )
     }
     textView?.undoManager?.setActionName("Block Command")
   }
 
-  private func performNativeSlashCommandRedo() {
+  private func performNativeSlashCommandRedo(undoSelection: Int, redoSelection: Int) {
     parent.editorModel.redo()
+    parent.editorModel.updateSelection(offsets: redoSelection..<redoSelection)
     renderedDocument = nil
     synchronizeTextView()
-    registerNativeSlashCommandUndo()
+    registerNativeSlashCommandUndo(
+      undoSelection: undoSelection,
+      redoSelection: redoSelection
+    )
   }
 
-  private func registerNativeSlashCommandUndo() {
+  private func registerNativeSlashCommandUndo(undoSelection: Int, redoSelection: Int) {
     textView?.undoManager?.registerUndo(withTarget: self) { coordinator in
-      coordinator.performNativeSlashCommandUndo()
+      coordinator.performNativeSlashCommandUndo(
+        undoSelection: undoSelection,
+        redoSelection: redoSelection
+      )
     }
     textView?.undoManager?.setActionName("Block Command")
   }
@@ -243,7 +257,10 @@ extension SemanticMessageTextViewCoordinator {
     isSynchronizing = true
     renderedDocument = nil
     synchronizeTextView()
-    registerNativeSlashCommandUndo()
+    registerNativeSlashCommandUndo(
+      undoSelection: presentation.context.replacementRange.upperBound,
+      redoSelection: presentation.context.replacementRange.lowerBound
+    )
     isSynchronizing = false
     _ = textView?.becomeFirstResponder()
     return true
@@ -260,6 +277,7 @@ extension SemanticMessageTextViewCoordinator {
     guard isSynchronizing == false,
       let textView,
       textView.isFirstResponder,
+      textView.markedTextRange == nil,
       let context = parent.editorModel.slashCommandContext
     else {
       dismissedSlashCommandContext = nil
@@ -288,6 +306,10 @@ extension SemanticMessageTextViewCoordinator {
       textView.caretRect(for: selectedTextRange.start),
       to: containerViewController.view
     )
+    guard visibleBounds.intersects(caretRect) else {
+      dismissSlashCommandMenu()
+      return
+    }
     let presentation = SemanticMessageSlashCommand.Presentation(
       context: context,
       caretRect: caretRect,
@@ -365,16 +387,16 @@ extension SemanticMessageTextViewCoordinator {
     {
       visibleWindowBounds.size.height = keyboardFrame.minY - visibleWindowBounds.minY
     }
-    let visibleContainerBounds = window.convert(visibleWindowBounds, to: containerView)
-    let editorFrame = textView.convert(textView.bounds, to: containerView)
-    let minimumX = max(visibleContainerBounds.minX, editorFrame.minX)
-    let maximumX = min(visibleContainerBounds.maxX, editorFrame.maxX)
-    guard maximumX > minimumX, visibleContainerBounds.height > 0 else { return nil }
-    return CGRect(
-      x: minimumX,
-      y: visibleContainerBounds.minY,
-      width: maximumX - minimumX,
-      height: visibleContainerBounds.height
-    )
+    var visibleBounds = window.convert(visibleWindowBounds, to: containerView)
+      .intersection(textView.convert(textView.bounds, to: containerView))
+    var ancestor = textView.superview
+    while let view = ancestor, view !== containerView {
+      if view.clipsToBounds || view is UIScrollView {
+        visibleBounds = visibleBounds.intersection(view.convert(view.bounds, to: containerView))
+      }
+      ancestor = view.superview
+    }
+    guard visibleBounds.isNull == false, visibleBounds.isEmpty == false else { return nil }
+    return visibleBounds
   }
 }

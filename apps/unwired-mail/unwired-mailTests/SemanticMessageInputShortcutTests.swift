@@ -197,6 +197,24 @@ struct SemanticMessageInputShortcutTests {
     #expect(model.document.blocks[1].kind == .blockquote)
   }
 
+  @MainActor
+  @Test("Slash command Undo restores its query caret", .bug(id: 563))
+  func slashCommandUndoRestoresQueryCaret() throws {
+    let source = SemanticMessageDocument(plainText: "Intro\n/quo\nOutro")
+    let model = SemanticMessageEditorModel(document: source)
+    model.updateSelection(offsets: 10..<10)
+    let context = try #require(model.slashCommandContext)
+
+    #expect(model.applySlashCommand(.blockquote, context: context))
+    model.undo()
+    model.updateSelection(
+      offsets: context.replacementRange.upperBound..<context.replacementRange.upperBound
+    )
+
+    #expect(model.document == source)
+    #expect(model.slashCommandContext == context)
+  }
+
   @Test("Slash command catalog contains only interoperable blocks", .bug(id: 563))
   func slashCommandCatalogIsBounded() {
     #expect(

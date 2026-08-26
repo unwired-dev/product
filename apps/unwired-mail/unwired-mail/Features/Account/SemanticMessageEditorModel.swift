@@ -128,9 +128,10 @@ final class SemanticMessageEditorModel {
       blockPrefix[slashIndex] == "/"
     else { return nil }
     let queryStart = slashIndex + 1
+    let replacementStart = blockStart + slashIndex
     return SemanticMessageSlashCommand.Context(
       query: String(blockPrefix[queryStart...]),
-      replacementRange: slashIndex..<caretOffset
+      replacementRange: replacementStart..<caretOffset
     )
   }
 

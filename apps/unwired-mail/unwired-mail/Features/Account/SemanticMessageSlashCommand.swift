@@ -105,56 +105,55 @@ enum SemanticMessageSlashCommand {
   struct Menu: View {
     let presentation: Presentation
     let select: (SemanticMessageBlockCommand) -> Void
+    @State private var scrollPosition = ScrollPosition(idType: String.self)
 
     var body: some View {
-      ScrollViewReader { proxy in
-        ScrollView {
-          LazyVStack(spacing: 0) {
-            if presentation.commands.isEmpty {
-              Text("No matching blocks")
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, minHeight: Presentation.rowHeight)
-                .padding(.horizontal, 16)
-            } else {
-              ForEach(presentation.commands) { command in
-                Button(
-                  action: { select(command) },
-                  label: {
-                    HStack(spacing: 12) {
-                      Label(command.slashTitle, systemImage: command.systemImage)
-                      Spacer(minLength: 8)
-                      if command == presentation.selectedCommand {
-                        Image(systemName: "checkmark")
-                          .accessibilityHidden(true)
-                      }
+      ScrollView {
+        LazyVStack(spacing: 0) {
+          if presentation.commands.isEmpty {
+            Text("No matching blocks")
+              .foregroundStyle(.secondary)
+              .frame(maxWidth: .infinity, minHeight: Presentation.rowHeight)
+              .padding(.horizontal, 16)
+          } else {
+            ForEach(presentation.commands) { command in
+              Button(
+                action: { select(command) },
+                label: {
+                  HStack(spacing: 12) {
+                    Label(command.slashTitle, systemImage: command.systemImage)
+                    Spacer(minLength: 8)
+                    if command == presentation.selectedCommand {
+                      Image(systemName: "checkmark")
+                        .accessibilityHidden(true)
                     }
-                    .contentShape(.rect)
-                    .padding(.horizontal, 16)
-                    .frame(minHeight: Presentation.rowHeight)
-                    .background(
-                      command == presentation.selectedCommand
-                        ? Color.accentColor.opacity(0.15) : .clear
-                    )
                   }
-                )
-                .buttonStyle(.plain)
-                .hoverEffect(.highlight)
-                .accessibilityAddTraits(
-                  command == presentation.selectedCommand ? .isSelected : []
-                )
-                .accessibilityIdentifier("mail-compose-slash-command-\(command.rawValue)")
-                .id(command)
-              }
+                  .contentShape(.rect)
+                  .padding(.horizontal, 16)
+                  .frame(minHeight: Presentation.rowHeight)
+                  .background(
+                    command == presentation.selectedCommand
+                      ? Color.accentColor.opacity(0.15) : .clear
+                  )
+                }
+              )
+              .buttonStyle(.plain)
+              .hoverEffect(.highlight)
+              .accessibilityAddTraits(
+                command == presentation.selectedCommand ? .isSelected : []
+              )
+              .accessibilityIdentifier("mail-compose-slash-command-\(command.rawValue)")
+              .id(command.id)
             }
           }
         }
-        .scrollIndicators(.visible)
-        .accessibilityIdentifier("mail-compose-slash-menu-scroll")
-        .onAppear { scrollToSelection(using: proxy) }
-        .onChange(of: presentation.selectedCommand) { _, _ in
-          scrollToSelection(using: proxy)
-        }
+        .scrollTargetLayout()
       }
+      .scrollPosition($scrollPosition)
+      .scrollIndicators(.visible)
+      .accessibilityIdentifier("mail-compose-slash-menu-scroll")
+      .onAppear(perform: scrollToSelection)
+      .onChange(of: presentation.selectedCommand) { _, _ in scrollToSelection() }
       .background(.regularMaterial)
       .clipShape(.rect(cornerRadius: 12))
       .shadow(radius: 8, y: 4)
@@ -163,9 +162,9 @@ enum SemanticMessageSlashCommand {
       .accessibilityIdentifier("mail-compose-slash-menu")
     }
 
-    private func scrollToSelection(using proxy: ScrollViewProxy) {
+    private func scrollToSelection() {
       guard let selectedCommand = presentation.selectedCommand else { return }
-      proxy.scrollTo(selectedCommand, anchor: .center)
+      scrollPosition.scrollTo(id: selectedCommand.id, anchor: .center)
     }
   }
 }

@@ -10,7 +10,7 @@ final class SemanticMessageUITextView: UITextView {
 
   var semanticBlockKinds: [SemanticMessageDocument.Block.Kind] = []
   var didMoveToWindowAction: (() -> Void)?
-  var handleSlashCommandKey: ((SlashCommandKey) -> Void)?
+  var handleSlashCommandKey: ((SlashCommandKey) -> Bool)?
   var isSlashCommandMenuActive = false
   var layoutSubviewsAction: (() -> Void)?
   private(set) var isPasting = false
@@ -33,13 +33,16 @@ final class SemanticMessageUITextView: UITextView {
 
   override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
     guard isSlashCommandMenuActive,
+      markedTextRange == nil,
       let keyCode = presses.compactMap({ $0.key?.keyCode }).first,
       let command = slashCommandKey(for: keyCode)
     else {
       super.pressesBegan(presses, with: event)
       return
     }
-    handleSlashCommandKey?(command)
+    if handleSlashCommandKey?(command) != true {
+      super.pressesBegan(presses, with: event)
+    }
   }
 
   override func draw(_ rect: CGRect) {
