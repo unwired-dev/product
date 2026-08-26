@@ -6,6 +6,8 @@ import Testing
 struct ScheduledSendReleasePolicyTests {
   @Test(.bug(id: 386))
   func newSchedulingIsEnabledAfterProtectedProviderCompatibilityCompletes() {
+    #expect(ScheduledSendReleasePolicy.protectedProviderCompatibilityComplete)
+
     let releaseGateIsEnabled = ScheduledSendReleasePolicy.releaseGateIsEnabled(
       isDebugBuild: false,
       protectedProviderCompatibilityComplete: true
@@ -27,13 +29,12 @@ struct ScheduledSendReleasePolicyTests {
       protectedProviderCompatibilityComplete: false
     )
 
-    #expect(!ScheduledSendReleasePolicy.protectedProviderCompatibilityComplete)
-    #expect(!releaseGateIsEnabled)
+    #expect(releaseGateIsEnabled == false)
     #expect(
-      !ScheduledSendReleasePolicy.allowsAutomaticScheduling(
+      ScheduledSendReleasePolicy.allowsAutomaticScheduling(
         existingSchedule: false,
         releaseGateIsEnabled: releaseGateIsEnabled
-      )
+      ) == false
     )
     #expect(
       ScheduledSendReleasePolicy.allowsAutomaticScheduling(

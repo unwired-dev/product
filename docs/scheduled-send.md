@@ -1,6 +1,6 @@
 # Scheduled Send and Send Reminder implementation plan
 
-Status: cross-device Send Reminder plus Gmail, Microsoft Graph, EWS, and standards-based SMTP connections, Scheduled Send delivery, revision-fenced Outbox management, lifecycle hardening, and deterministic local evidence implemented; protected provider compatibility evidence remains required before release
+Status: cross-device Send Reminder plus Gmail, Microsoft Graph, EWS, and standards-based SMTP connections, Scheduled Send delivery, revision-fenced Outbox management, lifecycle hardening, deterministic local evidence, and protected provider compatibility evidence implemented; Scheduled Send is enabled for release
 
 The automatic-delivery slice admits a scheduled message on a selected, authorized Gmail, Microsoft 365, On-Premises Exchange, or Standards-Based Mailbox Connection on the originating device. It synchronizes the exact outgoing commitment through encrypted Product Sync, requires an opaque backend acknowledgement for the same identity, due instant, and revision, persists the delayed Outbox attempt before dismissing the Draft, and routes an opaque APNs wake to eligible trusted devices. A device with the encrypted payload, selected Mailbox Authorization, and separate revocable Scheduled Delivery Authorization may acquire the one revision-bound claim. The client durably fences provider handoff, reuses provider reconciliation, removes completed operational records, and moves work that cannot start within 24 hours to Needs Attention. Issues #381–#385 add the implemented management, provider parity, and lifecycle compatibility; Issue #386 plans release evidence without weakening this privacy boundary.
 
@@ -212,7 +212,7 @@ Draft admission and cancellation tombstones remain authoritative to older client
 - Verify additional old-client fixtures and stale-revision/replayed-claim attacks.
 - Implemented: extend the Local Mail Test Environment with a fail-closed selection of scheduled success, late wake, cancellation race, transient retry, permanent failure, reminder behavior, ambiguous SMTP, and provider-admission tests, plus a visible two-mode Send Later assertion.
 - Implemented: keep new automatic scheduling behind `ScheduledSendReleasePolicy` in Release builds while Debug and Mail Test builds exercise the complete local path. Existing commitments remain editable independently of the release gate. Issue #386 owns the single protected-provider release decision.
-- Complete protected provider compatibility checks for every send-capable adapter before setting `protectedProviderCompatibilityComplete` to `true` and enabling Scheduled Send in Release builds.
+- Implemented: complete protected provider compatibility checks for every send-capable adapter and set `protectedProviderCompatibilityComplete` to `true`, enabling Scheduled Send in Release builds.
 
 ## Acceptance criteria
 
