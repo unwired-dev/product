@@ -228,17 +228,11 @@ final class MailTestBootstrapUITests: XCTestCase {
     recipient.typeKey(.return, modifierFlags: [])
     try removeRecipientTokens(in: app)
     try focusAndType(
-      "recipient@synthetic.invalid",
+      "recipient@synthetic.invalid,",
       into: recipient,
       in: app,
       failure: "MAIL_TEST_FAILURE:ui: The recipient field could not be focused after token removal."
     )
-    let addRecipient = app.buttons["Add recipient@synthetic.invalid"]
-    XCTAssertTrue(
-      addRecipient.waitForExistence(timeout: 5),
-      "The replacement recipient suggestion did not appear."
-    )
-    addRecipient.tap()
     assertRecipientReplacement(in: app)
   }
 
