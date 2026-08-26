@@ -332,6 +332,11 @@ final class MailTestBootstrapUITests: XCTestCase {
       }
     }
 
+    if scrollToKeyboardFocus(on: element, in: app) {
+      element.typeText(text)
+      return
+    }
+
     let tapOffsets: [CGFloat] = [0.5, 0.85, 0.15]
     for horizontalOffset in tapOffsets {
       dismissKeyboardIntroductionIfNeeded()
@@ -347,6 +352,21 @@ final class MailTestBootstrapUITests: XCTestCase {
 
     XCTFail(failure)
     throw NSError(domain: "MailTestBootstrapUITests", code: 1)
+  }
+
+  private func scrollToKeyboardFocus(on element: XCUIElement, in app: XCUIApplication) -> Bool {
+    let document = app.scrollViews["mail-compose-document-scroll"]
+    let keyboard = app.keyboards.firstMatch
+    for _ in 0..<3 where document.exists {
+      document.swipeUp()
+      guard element.isHittable else { continue }
+      element.tap()
+      dismissKeyboardIntroductionIfNeeded()
+      if keyboard.waitForExistence(timeout: 2), waitForKeyboardFocus(on: element) {
+        return true
+      }
+    }
+    return false
   }
 
   private func waitForKeyboardFocus(on element: XCUIElement) -> Bool {
