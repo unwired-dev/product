@@ -7854,9 +7854,7 @@ struct MailShellConversationReader: View {
             ScrollView {
               LazyVStack(alignment: .leading, spacing: 16) {
                 followUpNudge(for: thread, connection: connection)
-                ForEach(thread.messages) { message in
-                  conversationMessage(message, in: thread, connection: connection)
-                }
+                conversationMessages(in: thread, connection: connection)
               }
               .padding()
               .frame(maxWidth: .infinity, alignment: .top)
@@ -8120,6 +8118,15 @@ struct MailShellConversationReader: View {
         contactReview = nil
       }
     )
+  }
+
+  private func conversationMessages(
+    in thread: MailboxThread,
+    connection: MailboxConnection
+  ) -> some View {
+    ForEach(thread.messages) { message in
+      conversationMessage(message, in: thread, connection: connection)
+    }
   }
 
   @ViewBuilder
