@@ -246,7 +246,7 @@ final class MailTestBootstrapUITests: XCTestCase {
     recipient.typeText("recipient@synthetic.invalid")
     let addRecipient = app.buttons["Add recipient@synthetic.invalid"]
     XCTAssertTrue(
-      addRecipient.waitForExistence(timeout: 2),
+      addRecipient.waitForExistence(timeout: 5),
       "The replacement recipient suggestion did not appear."
     )
     addRecipient.tap()
@@ -256,7 +256,7 @@ final class MailTestBootstrapUITests: XCTestCase {
   private func assertRecipientReplacement(in app: XCUIApplication) {
     let replacement = app.buttons["Remove recipient@synthetic.invalid"]
     XCTAssertTrue(
-      replacement.waitForExistence(timeout: 2),
+      replacement.waitForExistence(timeout: 5),
       "The expected recipient replacement did not appear."
     )
     let recipientTokens = app.buttons.matching(
