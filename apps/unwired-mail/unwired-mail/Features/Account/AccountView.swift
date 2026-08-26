@@ -7838,29 +7838,7 @@ struct MailShellConversationReader: View {
           ScrollViewReader { scrollProxy in
             ScrollView {
               LazyVStack(alignment: .leading, spacing: 16) {
-                if let followUpNudgeViewModel,
-                  followUpNudgeViewModel.overdueThreadIds.contains(thread.id)
-                {
-                  FollowUpNudgeStatusCard(
-                    thread: thread,
-                    viewModel: followUpNudgeViewModel
-                  )
-                } else if let followUpNudgeViewModel,
-                  allowsProactiveSuggestions,
-                  followUpNudgeViewModel.suggestedThreadIds.contains(thread.id)
-                {
-                  FollowUpNudgeSuggestionCard(
-                    accept: {
-                      Task {
-                        await followUpNudgeViewModel.acceptSuggestion(
-                          thread,
-                          connection: connection
-                        )
-                      }
-                    }
-                  )
-                  .id(thread.id)
-                }
+                followUpNudge(for: thread, connection: connection)
                 ForEach(thread.messages) { message in
                   conversationMessage(message, in: thread, connection: connection)
                 }
@@ -8124,6 +8102,36 @@ struct MailShellConversationReader: View {
         understandingErrorMessage = nil
         mailAssistanceViewModel.discardPreview()
       }
+    }
+  }
+
+  @ViewBuilder
+  private func followUpNudge(
+    for thread: MailboxThread,
+    connection: MailboxConnection
+  ) -> some View {
+    if let followUpNudgeViewModel,
+      followUpNudgeViewModel.overdueThreadIds.contains(thread.id)
+    {
+      FollowUpNudgeStatusCard(
+        thread: thread,
+        viewModel: followUpNudgeViewModel
+      )
+    } else if let followUpNudgeViewModel,
+      allowsProactiveSuggestions,
+      followUpNudgeViewModel.suggestedThreadIds.contains(thread.id)
+    {
+      FollowUpNudgeSuggestionCard(
+        accept: {
+          Task {
+            await followUpNudgeViewModel.acceptSuggestion(
+              thread,
+              connection: connection
+            )
+          }
+        }
+      )
+      .id(thread.id)
     }
   }
 
