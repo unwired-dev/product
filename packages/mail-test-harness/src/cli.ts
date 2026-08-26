@@ -93,13 +93,14 @@ function writeResult(value: unknown): void {
 try {
   await main();
 } catch (error: unknown) {
+  const [, scenario] = process.argv.slice(2);
   const message =
     error instanceof Error
       ? error.message
       : 'Unknown Mail Test Harness failure.';
   process.stderr.write(`Mail Test Harness failed: ${message}\n`);
   process.stdout.write(
-    `${JSON.stringify({ error: 'mail-test-failed', fixture: error instanceof MessageContentFixtureError ? error.fixtureId : undefined, kind: 'mail-test-evidence', ...visibleStepFailureContext(error), schemaVersion: 2, status: 'failed' })}\n`,
+    `${JSON.stringify({ error: 'mail-test-failed', fixture: error instanceof MessageContentFixtureError ? error.fixtureId : undefined, kind: 'mail-test-evidence', ...visibleStepFailureContext(error), schemaVersion: scenario === 'core-mail-loop' ? 3 : 1, status: 'failed' })}\n`,
   );
   process.exitCode = 1;
 }

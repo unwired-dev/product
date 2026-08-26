@@ -19,10 +19,12 @@ final class SemanticMessageTextViewCoordinator: NSObject, UITextViewDelegate {
     Task { @MainActor [weak self] in
       guard let self else { return }
       defer { isFocusScheduled = false }
-      for _ in 0..<3 {
+      for _ in 0..<5 {
         await Task.yield()
         guard parent.isFocused, let textView, textView.window != nil else { return }
-        if textView.becomeFirstResponder() { return }
+        _ = textView.becomeFirstResponder()
+        try? await Task.sleep(for: .milliseconds(50))
+        if textView.isFirstResponder { return }
       }
     }
   }
