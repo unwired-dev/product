@@ -7588,6 +7588,8 @@ private struct UnsubscribeActionExecutionError: LocalizedError {
 struct MailShellReadTaskOwners {
   private var owners: [StableProviderMessageIdentity: UUID] = [:]
 
+  var isEmpty: Bool { owners.isEmpty }
+
   mutating func begin(_ messageId: StableProviderMessageIdentity) -> UUID {
     let owner = UUID()
     owners[messageId] = owner
