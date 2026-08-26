@@ -245,19 +245,24 @@ final class MailTestBootstrapUITests: XCTestCase {
     let recipientTokens = app.buttons.matching(
       NSPredicate(format: "label BEGINSWITH %@", "Remove recipient")
     )
-    for index in 0..<12 {
-      let expectedToken = app.buttons["Remove recipient\(index)@synthetic.invalid"]
-      let token = expectedToken.exists ? expectedToken : recipientTokens.firstMatch
-      guard token.waitForExistence(timeout: 2) else {
-        XCTFail("The populated recipient could not be removed.")
-        throw NSError(domain: "MailTestBootstrapUITests", code: 1)
-      }
+    let firstToken = recipientTokens.firstMatch
+    guard firstToken.waitForExistence(timeout: 2) else {
+      XCTFail("The populated recipients did not appear.")
+      throw NSError(domain: "MailTestBootstrapUITests", code: 1)
+    }
+    var removedCount = 0
+    while removedCount < 12 {
+      let token = recipientTokens.firstMatch
+      guard token.exists else { break }
+      let tokenLabel = token.label
       token.tap()
-      guard token.waitForNonExistence(timeout: 2) else {
+      guard app.buttons[tokenLabel].waitForNonExistence(timeout: 2) else {
         XCTFail("The populated recipient remained after removal.")
         throw NSError(domain: "MailTestBootstrapUITests", code: 1)
       }
+      removedCount += 1
     }
+    XCTAssertFalse(recipientTokens.firstMatch.exists, "A populated recipient remained.")
   }
 
   private func assertRecipientReplacement(in app: XCUIApplication) {

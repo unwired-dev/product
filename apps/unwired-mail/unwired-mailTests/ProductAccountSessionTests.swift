@@ -4359,6 +4359,7 @@ final class ProductAccountSessionTests {
     try store.save(oldSnapshot)
     let gmailConnectionService = RecordingGmailProviderConnecting()
     let outboxCleaner = RecordingOutboxDeliveryCleaner()
+    let remoteContentCleaner = RecordingAuthorizedRemoteContentCleaner()
     let session = ProductAccountSession(
       appleSignInService: PreviewAppleSignInService(
         credential: AppleSignInCredential(
@@ -4366,6 +4367,7 @@ final class ProductAccountSessionTests {
           identityToken: "token-001"
         )
       ),
+      authorizedRemoteContentCache: remoteContentCleaner,
       devicePushUnregistrationService: pushUnregisterer,
       productAccountService: PreviewProductAccountService(response: .preview),
       sessionStore: store,
@@ -4384,6 +4386,7 @@ final class ProductAccountSessionTests {
     #expect(try store.load() == snapshot)
     #expect(gmailConnectionService.clearedSessions == [oldSnapshot])
     #expect(outboxCleaner.clearedSessions == [oldSnapshot])
+    #expect(remoteContentCleaner.clearedProductAccountIds == [oldSnapshot.productAccountId])
     #expect(pushUnregisterer.sessions == [oldSnapshot])
   }
 

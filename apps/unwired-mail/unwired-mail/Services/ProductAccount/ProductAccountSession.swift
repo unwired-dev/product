@@ -1017,6 +1017,7 @@ extension ProductAccountSession {
 
     await outboxDeliveryService.suspend(productAccountId: existingSnapshot.productAccountId)
     try await mailboxConnectionService.clearLocalConnection(session: existingSnapshot)
+    try authorizedRemoteContentCache.clear(productAccountId: existingSnapshot.productAccountId)
   }
 
   fileprivate func clearOutboxIfProductAccountChanged(
