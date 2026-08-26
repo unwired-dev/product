@@ -7,9 +7,7 @@ struct UnwiredMailApp: App {
   @State private var messageContentPreferences: MessageContentPreferences
   @State private var session: ProductAccountSession
   @State private var settingsRouter = SettingsRouter()
-  #if targetEnvironment(macCatalyst)
-    @State private var showsSettings = false
-  #endif
+  @State private var settingsMailProfileContext = SettingsMailProfileContext()
   #if MAIL_TEST_BOOTSTRAP
     private let mailTestRuntime: MailTestBootstrapRuntime?
   #endif
@@ -64,16 +62,9 @@ struct UnwiredMailApp: App {
       WindowGroup {
         MailProfileSceneRoot { profileDeepLinkRouter in
           rootView(profileDeepLinkRouter: profileDeepLinkRouter)
-            .onChange(of: settingsRouter.request?.id) { _, requestId in
-              if requestId != nil {
-                showsSettings = true
-              }
-            }
-            .sheet(isPresented: $showsSettings) {
-              catalystSettings
-            }
         }
         .environment(settingsRouter)
+        .environment(settingsMailProfileContext)
         .deviceAppearance(appearancePreferences)
         .environment(appearancePreferences)
         .environment(attachmentNetworkMonitor)
@@ -82,24 +73,34 @@ struct UnwiredMailApp: App {
       .commands {
         CatalystSettingsCommands(settingsRouter: settingsRouter)
       }
+
+      Window("Settings", id: SettingsRouter.catalystWindowID) {
+        SettingsRootView(session: session)
+          .tint(MailTheme.accent)
+          .background(MailTheme.canvas)
+          .environment(settingsRouter)
+          .deviceAppearance(appearancePreferences)
+          .environment(appearancePreferences)
+          .environment(attachmentNetworkMonitor)
+          .environment(messageContentPreferences)
+          .environment(settingsMailProfileContext)
+          .frame(minWidth: 640, idealWidth: 920, minHeight: 480, idealHeight: 720)
+      }
+      .defaultSize(width: 920, height: 720)
+      .windowResizability(.contentMinSize)
     #else
       WindowGroup {
         MailProfileSceneRoot { profileDeepLinkRouter in
           rootView(profileDeepLinkRouter: profileDeepLinkRouter)
         }
         .environment(settingsRouter)
+        .environment(settingsMailProfileContext)
         .deviceAppearance(appearancePreferences)
         .environment(appearancePreferences)
         .environment(attachmentNetworkMonitor)
         .environment(messageContentPreferences)
       }
     #endif
-  }
-
-  @ViewBuilder
-  private var catalystSettings: some View {
-    SettingsRootView(session: session)
-      .frame(minWidth: 640, idealWidth: 920, minHeight: 480, idealHeight: 720)
   }
 
   @ViewBuilder
@@ -129,6 +130,11 @@ struct UnwiredMailApp: App {
 
 private struct MailProfileSceneRoot<Content: View>: View {
   @State private var profileDeepLinkRouter = MailProfileDeepLinkRouter()
+  #if targetEnvironment(macCatalyst)
+    @Environment(\.openWindow) private var openWindow
+    @Environment(SettingsRouter.self) private var settingsRouter
+    @State private var settingsPresentationOwnerID = UUID()
+  #endif
   let content: (MailProfileDeepLinkRouter) -> Content
 
   var body: some View {
@@ -136,7 +142,23 @@ private struct MailProfileSceneRoot<Content: View>: View {
       .tint(MailTheme.accent)
       .background(MailTheme.canvas)
       .onOpenURL { profileDeepLinkRouter.route($0) }
+      #if targetEnvironment(macCatalyst)
+        .onAppear(perform: presentPendingSettingsRequest)
+        .onChange(of: settingsRouter.request?.id) { _, _ in
+          presentPendingSettingsRequest()
+        }
+      #endif
   }
+
+  #if targetEnvironment(macCatalyst)
+    private func presentPendingSettingsRequest() {
+      guard
+        let request = settingsRouter.request,
+        settingsRouter.claimPresentation(request.id, ownerID: settingsPresentationOwnerID)
+      else { return }
+      openWindow(id: SettingsRouter.catalystWindowID)
+    }
+  #endif
 }
 
 #if targetEnvironment(macCatalyst)
