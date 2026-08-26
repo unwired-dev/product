@@ -1417,15 +1417,12 @@ final class MailShellReleaseBudgetDriver {
 
 enum MailProfileContentPresentationDismissal {
   static func dismissRoot(
-    showsSettings: inout Bool,
     showsMessageActionAlert: inout Bool,
     composerNavigation: inout MailShellComposerNavigationState,
     composerSendErrorMessage: inout String,
-    showsComposerSendError: inout Bool
+    showsComposerSendError: inout Bool,
+    compactSettingsIsPresented: inout Bool
   ) {
-    if showsSettings {
-      showsSettings = false
-    }
     if showsMessageActionAlert {
       showsMessageActionAlert = false
     }
@@ -1435,6 +1432,9 @@ enum MailProfileContentPresentationDismissal {
     }
     if showsComposerSendError {
       showsComposerSendError = false
+    }
+    if compactSettingsIsPresented {
+      compactSettingsIsPresented = false
     }
   }
 
@@ -1626,6 +1626,7 @@ struct AccountView: View {
   @Environment(MessageContentPreferences.self) private var messageContentPreferences:
     MessageContentPreferences?
   @Environment(SettingsRouter.self) private var settingsRouter
+  @Environment(SettingsMailProfileContext.self) private var settingsMailProfileContext
 
   #if CI_PERFORMANCE_BUDGET
     // The Release fixture uses UIHostingController outside the SwiftUI App lifecycle.
@@ -1647,7 +1648,6 @@ struct AccountView: View {
   @State private var composerNavigation = MailShellComposerNavigationState()
   @State private var composerSendErrorMessage = ""
   @State private var showsComposerSendError = false
-  @State private var storageDataSettingsViewModel: StorageDataSettingsViewModel
   @State private var compositionDraftLoadGate = MailCompositionDraftLoadGate()
   @State private var savedCompositionDrafts: [MailShellCompositionDraft] = []
   @State private var contentPresentationDismissal =
@@ -1691,7 +1691,8 @@ struct AccountView: View {
   @State private var sendingIdentityStore: SendingIdentityStore
   @State private var preferredCompactColumn: NavigationSplitViewColumn = .content
   @State private var showsBlockedActionAlert = false
-  @State private var showsSettings = false
+  @State private var compactSettingsIsPresented = false
+  @State private var settingsPresentationOwnerID = UUID()
   @State private var mailboxWorkCoordinator = MailboxWorkCoordinator.shared
 
   @MainActor
@@ -2025,14 +2026,6 @@ struct AccountView: View {
         syncService: readingPreferenceSync
       )
     )
-    _storageDataSettingsViewModel = State(
-      initialValue: StorageDataSettingsViewModel.live(
-        session: snapshot,
-        profileIds: [defaultProfileId],
-        readingPreferences: .defaults,
-        draftRepository: compositionDraftRepository
-      )
-    )
   }
 
   var body: some View {
@@ -2054,6 +2047,11 @@ struct AccountView: View {
     .task {
       await profileInterruptionViewModel.load()
     }
+    .onAppear(perform: presentPendingCompactSettingsRequest)
+    .onAppear(perform: updateSettingsMailProfileContext)
+    .onChange(of: settingsRouter.request?.id) { _, _ in
+      presentPendingCompactSettingsRequest()
+    }
     .onChange(of: profileInterruptionViewModel.policy.allowsContentReveal) { _, allowsReveal in
       if allowsReveal {
         mailAssistanceViewModel.profileDidUnlock()
@@ -2065,15 +2063,16 @@ struct AccountView: View {
       }
       mailAssistanceViewModel.profileDidLock()
       MailProfileContentPresentationDismissal.dismissRoot(
-        showsSettings: &showsSettings,
         showsMessageActionAlert: &showsBlockedActionAlert,
         composerNavigation: &composerNavigation,
         composerSendErrorMessage: &composerSendErrorMessage,
-        showsComposerSendError: &showsComposerSendError
+        showsComposerSendError: &showsComposerSendError,
+        compactSettingsIsPresented: &compactSettingsIsPresented
       )
       contentPresentationDismissal.dismissPresentations()
     }
     .onChange(of: profileViewModel.activeProfileId) { _, profileId in
+      updateSettingsMailProfileContext()
       guard let profileId else {
         mailAssistanceViewModel.profileDidLock()
         return
@@ -2188,61 +2187,6 @@ struct AccountView: View {
     }?.id
   }
 
-  private var mutedThreadSettingsItems: [MutedThreadSettingsItem] {
-    let threadsById = Dictionary(
-      MailboxThread.group(
-        inboxViewModel.navigationSnapshot.messagesByConnection.values.flatMap { $0 }
-      ).map { ($0.id, $0) },
-      uniquingKeysWith: { first, _ in first }
-    )
-    return muteViewModel.mutedThreadIds.map { threadId in
-      let thread = threadsById[threadId]
-      let connectionName =
-        profileConnections.first { $0.id == threadId.connectionId }?.displayName
-        ?? "Mailbox Connection"
-      let subject: String
-      if let loadedSubject = thread?.latestMessage.subject {
-        subject = loadedSubject.isEmpty ? "(No subject)" : loadedSubject
-      } else {
-        subject = "Muted Thread"
-      }
-      return MutedThreadSettingsItem(
-        id: threadId,
-        source: connectionName,
-        subject: subject
-      )
-    }.sorted {
-      $0.subject.localizedCaseInsensitiveCompare($1.subject) == .orderedAscending
-    }
-  }
-
-  private var adaptiveSettingsAttentions: [SettingsAttention] {
-    let connections = EmailAccountsSettingsView.makeSummaryConnections(
-      routedConnections: gmailViewModel.connections,
-      genericDefinitions: genericMailSetupViewModel.syncedDefinitions,
-      authorizedGenericConnectionIds: genericMailSetupViewModel.authorizedSyncedConnectionIds,
-      session: snapshot
-    )
-    let syncFailure = connections.lazy.compactMap { connection -> String? in
-      guard case .failed(let message) = mailboxFreshnessViewModel.status(for: connection).phase
-      else {
-        return nil
-      }
-      return message
-    }.first
-    guard
-      let attention = SettingsAttention.emailAccounts(
-        authorizationRequired: connections.contains {
-          $0.authorizationState == .required
-        },
-        syncFailureMessage: syncFailure
-      )
-    else {
-      return []
-    }
-    return [attention]
-  }
-
   private var mailShell: some View {
     mailShellWithPreferenceObservers
       .onChange(of: mailActionViewModel.failedConnectionIds) { oldIds, newIds in
@@ -2327,7 +2271,6 @@ struct AccountView: View {
         }
       }
       .onChange(of: genericMailSetupViewModel.connectionReloadKey) { _, _ in
-        guard !showsSettings else { return }
         Task {
           _ = await gmailViewModel.load()
         }
@@ -2347,12 +2290,6 @@ struct AccountView: View {
       }
       .onChange(of: horizontalSizeClass) { _, _ in
         updatePreferredCompactColumn()
-      }
-      .onChange(of: settingsRouter.request?.id) { _, requestId in
-        guard requestId != nil else { return }
-        #if !targetEnvironment(macCatalyst)
-          showsSettings = true
-        #endif
       }
       .onChange(of: editMode?.wrappedValue) { _, _ in
         updatePreferredCompactColumn()
@@ -2407,13 +2344,6 @@ struct AccountView: View {
         profileInterruptionViewModel.updateSession(refreshedSnapshot)
         profileViewModel.updateSession(refreshedSnapshot)
         readingPreferenceStore.updateSession(refreshedSnapshot)
-        updateStorageDataSettingsViewModel()
-      }
-      .onChange(of: profileViewModel.profiles) { _, _ in
-        updateStorageDataSettingsViewModel()
-      }
-      .onChange(of: readingPreferenceStore.preferences) { _, _ in
-        updateStorageDataSettingsViewModel()
       }
       .onChange(of: inboxPreferenceStore.preferences.mailViewConfiguration) { _, _ in
         updateMailViews()
@@ -2675,6 +2605,12 @@ struct AccountView: View {
       ) { $0 }
     }
     .navigationSplitViewStyle(.balanced)
+    .navigationDestination(isPresented: $compactSettingsIsPresented) {
+      SettingsRootView(
+        session: session,
+        usesParentCompactNavigation: true
+      )
+    }
     .overlayPreferenceValue(MailShellThreadColumnBoundsPreferenceKey.self) { bounds in
       GeometryReader { proxy in
         if let bounds {
@@ -2721,163 +2657,6 @@ struct AccountView: View {
         .padding(.bottom, horizontalSizeClass == .compact ? 48 : 0)
       }
     }
-    #if !targetEnvironment(macCatalyst)
-      .sheet(isPresented: $showsSettings) {
-        Group {
-          AdaptiveSettingsScene(
-            activeProfile: profileViewModel.activeProfile,
-            isSignedIn: true,
-            showsDismissButton: true,
-            attentions: adaptiveSettingsAttentions,
-            hasUnsavedChanges: {
-              ewsSetupViewModel.hasUnsavedChanges
-                || genericMailSetupViewModel.hasUnsavedChanges
-                || notificationRuleViewModel.hasUnsavedChanges
-            },
-            canDiscardChanges: {
-              SettingsNavigationPolicy.canDiscardChanges(
-                isSetupWorking: ewsSetupViewModel.isWorking
-                  || genericMailSetupViewModel.isConnecting
-                  || notificationRuleViewModel.isSaving
-              )
-            },
-            discardChanges: {
-              ewsSetupViewModel.discardUnsavedChanges()
-              genericMailSetupViewModel.discardUnsavedChanges()
-              notificationRuleViewModel.discardUnsavedChanges()
-            },
-            destinationContent: { destination, request in
-              switch destination {
-              case .accountAndDevices:
-                AccountAndDevicesSettingsView(
-                  session: session,
-                  snapshot: snapshot,
-                  signOut: signOut
-                )
-              case .advanced:
-                advancedSettings
-              case .categories:
-                CategoriesSettingsView(
-                  viewModel: categoryViewModel,
-                  connections: profileConnections,
-                  loadProviderMailboxes: { connection in
-                    try await mailboxConnection.loadProviderMailboxes(
-                      connection: connection,
-                      session: snapshot
-                    )
-                  },
-                  categorizeHistorical: { scope, connection in
-                    let result = try await mailboxConnection.categorizeHistorical(
-                      scope: scope,
-                      connection: connection,
-                      session: snapshot
-                    )
-                    _ = await inboxViewModel.reloadLocal(connection: connection)
-                    return result.categorizedMessageCount
-                  }
-                )
-              case .emailAccounts:
-                EmailAccountsSettingsView(
-                  ewsViewModel: ewsSetupViewModel,
-                  genericMailViewModel: genericMailSetupViewModel,
-                  gmailViewModel: gmailViewModel,
-                  microsoftGraphViewModel: microsoftGraphViewModel,
-                  freshnessViewModel: mailboxFreshnessViewModel,
-                  sendingIdentityDependencies: SendingIdentitySettingsDependencies(
-                    sendVerification: { message, connection in
-                      guard await session.revalidateTrustedDeviceAfterForegrounding() else {
-                        throw MailboxConnectionAdapterError.authorizationRequired
-                      }
-                      guard session.isCurrentSessionIdentity(snapshot) else {
-                        throw MailboxConnectionAdapterError.authorizationRequired
-                      }
-                      try await mailboxConnection.send(
-                        message,
-                        connection: connection,
-                        session: snapshot
-                      )
-                    },
-                    store: sendingIdentityStore
-                  ),
-                  cancelBodyPrefetch: {
-                    await mailboxWorkCoordinator.cancelBodyPrefetch(
-                      productAccountId: snapshot.productAccountId
-                    )
-                  },
-                  connectionsDidChange: {},
-                  gmailConnectionsDidChange: {},
-                  isMailboxBusy: mailboxWorkCoordinator.isBusy(
-                    productAccountId: snapshot.productAccountId
-                  ),
-                  navigationRequest: request
-                )
-              case .inbox:
-                InboxSettingsView(
-                  store: inboxPreferenceStore,
-                  featureSuggestionStore: featureSuggestionPreferenceStore,
-                  categoryChoices: availableCategoryChoices,
-                  mutedThreads: mutedThreadSettingsItems,
-                  unmute: { await muteViewModel.unmute($0) },
-                  navigationRequest: request
-                )
-              case .mailProfiles:
-                MailProfilesSettingsView(
-                  viewModel: MailProfileSettingsViewModel(session: snapshot),
-                  connectionName: settingsConnectionName,
-                  profilesDidChange: { profileId in
-                    await reloadSyncedMailState(targetedProfileId: profileId)
-                  }
-                )
-              case .notifications:
-                NotificationsSettingsView(
-                  categoryChoices: availableCategoryChoices,
-                  connections: gmailViewModel.connections,
-                  hasLoadedCategory: categoryViewModel.hasLoadedCategory,
-                  interruptionViewModel: profileInterruptionViewModel,
-                  navigationRequest: request,
-                  viewModel: notificationRuleViewModel
-                )
-              case .compose:
-                ComposeSettingsView(
-                  store: composePreferenceStore,
-                  navigationRequest: request
-                )
-              case .signatures:
-                SignatureSettingsView(
-                  connections: profileConnections,
-                  store: signatureStore,
-                  navigationRequest: request
-                )
-              case .templates:
-                TemplateSettingsView(
-                  store: templateStore,
-                  navigationRequest: request
-                )
-              case .reading:
-                ReadingSettingsView(
-                  connections: profileConnections,
-                  store: readingPreferenceStore,
-                  navigationRequest: request
-                )
-              case .swipes:
-                SwipeSettingsView(store: swipePreferenceStore)
-              case .about:
-                AboutSettingsView()
-              case .appearance:
-                AppearanceSettingsView()
-              case .privacyAndData:
-                AccountPrivacyAndDataSettingsDestination(
-                  connections: profileConnections,
-                  request: request,
-                  session: snapshot,
-                  viewModel: storageDataSettingsViewModel
-                )
-              }
-            }
-          )
-        }
-      }
-    #endif
     .overlayPreferenceValue(MailShellDetailColumnBoundsPreferenceKey.self) { bounds in
       GeometryReader { proxy in
         if let draft = composerNavigation.draft {
@@ -3248,8 +3027,25 @@ struct AccountView: View {
 
   private func openSettings(_ route: SettingsRoute?) {
     settingsRouter.open(route)
+  }
+
+  private func updateSettingsMailProfileContext() {
+    settingsMailProfileContext.update(
+      activeProfile: profileViewModel.activeProfile
+    ) { preferredProfileId in
+      await reloadSyncedMailState(targetedProfileId: preferredProfileId)
+      updateSettingsMailProfileContext()
+    }
+  }
+
+  private func presentPendingCompactSettingsRequest() {
     #if !targetEnvironment(macCatalyst)
-      showsSettings = true
+      guard
+        SettingsNavigationLayout.resolve(horizontalSizeClass) == .compact,
+        let request = settingsRouter.request,
+        settingsRouter.claimPresentation(request.id, ownerID: settingsPresentationOwnerID)
+      else { return }
+      compactSettingsIsPresented = true
     #endif
   }
 
@@ -3841,29 +3637,6 @@ struct AccountView: View {
         productAccountId: snapshot.productAccountId
       ) ?? deepLink
     )
-  }
-}
-
-private struct AccountPrivacyAndDataSettingsDestination: View {
-  let connections: [MailboxConnection]
-  let request: SettingsRouteRequest?
-  let session: ProductAccountSessionSnapshot
-  let viewModel: StorageDataSettingsViewModel
-
-  @ViewBuilder
-  var body: some View {
-    if request?.route?.context == .storage {
-      StorageDataSettingsView(
-        session: session,
-        viewModel: viewModel
-      )
-    } else {
-      PrivacyDataSettingsView(
-        connections: connections,
-        storageSession: session,
-        storageViewModel: viewModel
-      )
-    }
   }
 }
 
@@ -4600,115 +4373,6 @@ extension AccountView {
     )
   }
 
-  private func settingsConnectionName(_ connectionId: MailboxConnectionId) -> String {
-    gmailViewModel.connections.first(where: { $0.id == connectionId })?.displayName
-      ?? "Mailbox Connection"
-  }
-
-  private var advancedSettings: some View {
-    AdvancedSettingsView(
-      connections: gmailViewModel.connections,
-      productSyncHealth: .current(session: snapshot),
-      status: mailboxFreshnessViewModel.status,
-      backendHealth: { try await ConvexBackendHealthService().health() },
-      rebuildIndexes: {
-        try await performAdvancedMaintenance(.rebuildIndexes)
-      },
-      clearAndResynchronize: {
-        try await performAdvancedMaintenance(.clearAndResynchronize)
-      }
-    )
-    .task {
-      let isAuthoritative = await gmailViewModel.load()
-      mailboxFreshnessViewModel.updateConnections(
-        gmailViewModel.connections,
-        snapshotIsAuthoritative: isAuthoritative
-      )
-    }
-  }
-
-  private func performAdvancedMaintenance(
-    _ operation: AdvancedMaintenanceOperation
-  ) async throws -> AdvancedMaintenanceOutcome {
-    mailboxFreshnessViewModel.cancelAll()
-    await mailboxWorkCoordinator.cancelBodyPrefetch(
-      productAccountId: snapshot.productAccountId
-    )
-    switch operation {
-    case .clearAndResynchronize:
-      try await mailboxConnection.clearLocalMailboxData(session: snapshot)
-    case .rebuildIndexes:
-      try await mailboxConnection.rebuildLocalIndexes(session: snapshot)
-    }
-    try Task.checkCancellation()
-    guard session.isCurrent(snapshot) else { throw CancellationError() }
-
-    let connectionsAreAuthoritative = await gmailViewModel.load()
-    let connections = gmailViewModel.connections
-    mailboxFreshnessViewModel.clearPersistedState()
-    mailboxFreshnessViewModel.updateConnections(
-      connections,
-      snapshotIsAuthoritative: connectionsAreAuthoritative
-    )
-    guard connectionsAreAuthoritative else {
-      return .pending(
-        "Local maintenance completed. Connection status could not be confirmed, so resynchronization is pending."
-      )
-    }
-    await mailboxFreshnessViewModel.synchronizeFully(connections: connections)
-    return advancedMaintenanceOutcome(for: connections)
-  }
-
-  private func advancedMaintenanceOutcome(
-    for connections: [MailboxConnection]
-  ) -> AdvancedMaintenanceOutcome {
-    let phases = connections.map { mailboxFreshnessViewModel.status(for: $0).phase }
-    if phases.contains(where: { if case .offline = $0 { true } else { false } }) {
-      return .pending(
-        "Local maintenance completed. Resynchronization will resume when this device is online."
-      )
-    }
-    if phases.contains(where: { if case .authorizationRequired = $0 { true } else { false } }) {
-      return .pending(
-        "Local maintenance completed. Authorize the affected Mailbox Connection to resynchronize it."
-      )
-    }
-    if phases.contains(where: { if case .failed = $0 { true } else { false } }) {
-      return .pending(
-        "Local maintenance completed. One or more Mailbox Connections need attention "
-          + "before resynchronization can finish."
-      )
-    }
-    if phases.contains(where: { if case .backfillPending = $0 { true } else { false } }) {
-      return .pending(
-        "Recent mail is available. Historical metadata rebuilding will continue in the background."
-      )
-    }
-    return .completed("Local maintenance and resynchronization completed.")
-  }
-
-  private func signOut() {
-    coordinateProductAccountSignOut(
-      session: session,
-      mailActionViewModel: mailActionViewModel
-    ) {
-      ewsSetupViewModel.invalidate()
-      genericMailSetupViewModel.invalidate()
-      mailboxFreshnessViewModel.cancelAll()
-      mailboxFreshnessViewModel.clearPersistedState()
-      await inboxViewModel.prepareForSignOut()
-    }
-  }
-
-  @MainActor
-  private func updateStorageDataSettingsViewModel() {
-    storageDataSettingsViewModel.updateConfiguration(
-      session: snapshot,
-      profileIds: profileViewModel.profiles.map(\.id),
-      readingPreferences: readingPreferenceStore.preferences,
-      draftRepository: compositionDraftRepository
-    )
-  }
 }
 
 enum GmailSearchSource: Equatable {
@@ -8274,135 +7938,11 @@ struct MailShellConversationReader: View {
                         },
                         visibleViewportFrame: readerViewportFrame
                       )
-                      if !muteViewModel.mutedThreadIds.contains(thread.id),
-                        let invitation = message.calendarInvitation,
-                        shouldPresentCalendarInvitation(invitation)
-                      {
-                        CalendarInvitationCard(
-                          loadReview: {
-                            try await loadCalendarReview(
-                              invitation,
-                              message: message,
-                              connection: connection
-                            )
-                          },
-                          dismiss: {
-                            featureSuggestionStore.dismiss(
-                              invitation.dismissalIdentifier,
-                              feature: .addToCalendar
-                            )
-                          },
-                          disable: {
-                            featureSuggestionStore.setEnabled(false, feature: .addToCalendar)
-                          },
-                          review: {
-                            calendarReviewDismissalIdentifier = invitation.dismissalIdentifier
-                            calendarReview = $0
-                          }
-                        )
-                        .id(invitation.dismissalIdentifier)
-                        .padding(.horizontal, 14)
-                        .padding(.bottom, 12)
-                      } else if !muteViewModel.mutedThreadIds.contains(thread.id),
-                        let candidate = proseCalendarCandidates[message.id],
-                        shouldPresentProseCalendarEvent(candidate)
-                      {
-                        CalendarInvitationCard(
-                          title: "Calendar Event",
-                          message:
-                            "A date and time were found on this device. Review the time zone, "
-                            + "duration, and location in Calendar.",
-                          progressTitle: "Preparing Calendar review…",
-                          accessibilityIdentifier: "calendar-event-candidate-card",
-                          loadReview: {
-                            try await loadCalendarReview(
-                              candidate,
-                              connection: connection
-                            )
-                          },
-                          dismiss: {
-                            featureSuggestionStore.dismiss(
-                              candidate.dismissalIdentifier,
-                              feature: .addToCalendar
-                            )
-                          },
-                          disable: {
-                            featureSuggestionStore.setEnabled(false, feature: .addToCalendar)
-                          },
-                          review: {
-                            calendarReviewDismissalIdentifier = candidate.dismissalIdentifier
-                            if $0.origin.warnsAboutDuplicate {
-                              proseDuplicateReview = $0
-                            } else {
-                              calendarReview = $0
-                            }
-                          }
-                        )
-                        .id(candidate.dismissalIdentifier)
-                        .padding(.horizontal, 14)
-                        .padding(.bottom, 12)
-                      } else if !muteViewModel.mutedThreadIds.contains(thread.id),
-                        let suggestion = message.unsubscribeSuggestion,
-                        shouldPresentUnsubscribeSuggestion(suggestion)
-                      {
-                        UnsubscribeSuggestionCard(
-                          suggestion: suggestion,
-                          perform: { action in
-                            try await performUnsubscribe(action, connection: connection)
-                          },
-                          dismiss: {
-                            featureSuggestionStore.dismiss(
-                              suggestion.mailingListIdentity.opaqueDismissalIdentifier,
-                              feature: .unsubscribe
-                            )
-                          },
-                          disable: {
-                            featureSuggestionStore.setEnabled(false, feature: .unsubscribe)
-                          },
-                          didSendRequest: {
-                            completedUnsubscribeIdentifiers.insert(
-                              suggestion.mailingListIdentity.opaqueDismissalIdentifier
-                            )
-                            featureSuggestionStore.dismiss(
-                              suggestion.mailingListIdentity.opaqueDismissalIdentifier,
-                              feature: .unsubscribe
-                            )
-                          }
-                        )
-                        .padding(.horizontal, 14)
-                        .padding(.bottom, 12)
-                      } else if !muteViewModel.mutedThreadIds.contains(thread.id),
-                        let candidate = ContactCandidateDetector.candidate(
-                          for: message,
-                          threadMessages: thread.messages,
-                          mailboxAddress: connection.mailboxAddress,
-                          cachedBodyText: inboxViewModel.loadedMessageBodyText(for: message.id)
-                        ),
-                        shouldPresentContactCandidate(candidate)
-                      {
-                        ContactCandidateCard(
-                          candidate: candidate,
-                          loadReview: {
-                            try await loadContactReview(candidate)
-                          },
-                          dismiss: {
-                            featureSuggestionStore.dismiss(
-                              candidate.opaqueDismissalIdentifier,
-                              feature: .addToContacts
-                            )
-                          },
-                          disable: {
-                            featureSuggestionStore.setEnabled(false, feature: .addToContacts)
-                          },
-                          review: {
-                            contactReviewDismissalIdentifier = candidate.opaqueDismissalIdentifier
-                            contactReview = $0
-                          }
-                        )
-                        .id(candidate.opaqueDismissalIdentifier)
-                        .padding(.horizontal, 14)
-                        .padding(.bottom, 12)
-                      }
+                      messageSuggestion(
+                        for: message,
+                        in: thread,
+                        connection: connection
+                      )
                     }
                   }
                   .background(MailTheme.elevated)
@@ -8684,6 +8224,166 @@ struct MailShellConversationReader: View {
         mailAssistanceViewModel.discardPreview()
       }
     }
+  }
+
+  @ViewBuilder
+  private func messageSuggestion(
+    for message: MailboxMessageMetadata,
+    in thread: MailboxThread,
+    connection: MailboxConnection
+  ) -> some View {
+    if !muteViewModel.mutedThreadIds.contains(thread.id),
+      let invitation = message.calendarInvitation,
+      shouldPresentCalendarInvitation(invitation)
+    {
+      calendarInvitationSuggestion(invitation, message: message, connection: connection)
+    } else if !muteViewModel.mutedThreadIds.contains(thread.id),
+      let candidate = proseCalendarCandidates[message.id],
+      shouldPresentProseCalendarEvent(candidate)
+    {
+      proseCalendarSuggestion(candidate, connection: connection)
+    } else if !muteViewModel.mutedThreadIds.contains(thread.id),
+      let suggestion = message.unsubscribeSuggestion,
+      shouldPresentUnsubscribeSuggestion(suggestion)
+    {
+      unsubscribeSuggestion(suggestion, connection: connection)
+    } else if !muteViewModel.mutedThreadIds.contains(thread.id),
+      let candidate = ContactCandidateDetector.candidate(
+        for: message,
+        threadMessages: thread.messages,
+        mailboxAddress: connection.mailboxAddress,
+        cachedBodyText: inboxViewModel.loadedMessageBodyText(for: message.id)
+      ),
+      shouldPresentContactCandidate(candidate)
+    {
+      contactSuggestion(candidate)
+    }
+  }
+
+  private func calendarInvitationSuggestion(
+    _ invitation: CalendarInvitationDescriptor,
+    message: MailboxMessageMetadata,
+    connection: MailboxConnection
+  ) -> some View {
+    CalendarInvitationCard(
+      loadReview: {
+        try await loadCalendarReview(
+          invitation,
+          message: message,
+          connection: connection
+        )
+      },
+      dismiss: {
+        featureSuggestionStore.dismiss(
+          invitation.dismissalIdentifier,
+          feature: .addToCalendar
+        )
+      },
+      disable: {
+        featureSuggestionStore.setEnabled(false, feature: .addToCalendar)
+      },
+      review: {
+        calendarReviewDismissalIdentifier = invitation.dismissalIdentifier
+        calendarReview = $0
+      }
+    )
+    .id(invitation.dismissalIdentifier)
+    .padding(.horizontal, 14)
+    .padding(.bottom, 12)
+  }
+
+  private func proseCalendarSuggestion(
+    _ candidate: ProseCalendarEventCandidate,
+    connection: MailboxConnection
+  ) -> some View {
+    CalendarInvitationCard(
+      title: "Calendar Event",
+      message:
+        "A date and time were found on this device. Review the time zone, "
+        + "duration, and location in Calendar.",
+      progressTitle: "Preparing Calendar review…",
+      accessibilityIdentifier: "calendar-event-candidate-card",
+      loadReview: {
+        try await loadCalendarReview(candidate, connection: connection)
+      },
+      dismiss: {
+        featureSuggestionStore.dismiss(
+          candidate.dismissalIdentifier,
+          feature: .addToCalendar
+        )
+      },
+      disable: {
+        featureSuggestionStore.setEnabled(false, feature: .addToCalendar)
+      },
+      review: {
+        calendarReviewDismissalIdentifier = candidate.dismissalIdentifier
+        if $0.origin.warnsAboutDuplicate {
+          proseDuplicateReview = $0
+        } else {
+          calendarReview = $0
+        }
+      }
+    )
+    .id(candidate.dismissalIdentifier)
+    .padding(.horizontal, 14)
+    .padding(.bottom, 12)
+  }
+
+  private func unsubscribeSuggestion(
+    _ suggestion: UnsubscribeSuggestion,
+    connection: MailboxConnection
+  ) -> some View {
+    UnsubscribeSuggestionCard(
+      suggestion: suggestion,
+      perform: { action in
+        try await performUnsubscribe(action, connection: connection)
+      },
+      dismiss: {
+        featureSuggestionStore.dismiss(
+          suggestion.mailingListIdentity.opaqueDismissalIdentifier,
+          feature: .unsubscribe
+        )
+      },
+      disable: {
+        featureSuggestionStore.setEnabled(false, feature: .unsubscribe)
+      },
+      didSendRequest: {
+        completedUnsubscribeIdentifiers.insert(
+          suggestion.mailingListIdentity.opaqueDismissalIdentifier
+        )
+        featureSuggestionStore.dismiss(
+          suggestion.mailingListIdentity.opaqueDismissalIdentifier,
+          feature: .unsubscribe
+        )
+      }
+    )
+    .padding(.horizontal, 14)
+    .padding(.bottom, 12)
+  }
+
+  private func contactSuggestion(_ candidate: ContactCandidate) -> some View {
+    ContactCandidateCard(
+      candidate: candidate,
+      loadReview: {
+        try await loadContactReview(candidate)
+      },
+      dismiss: {
+        featureSuggestionStore.dismiss(
+          candidate.opaqueDismissalIdentifier,
+          feature: .addToContacts
+        )
+      },
+      disable: {
+        featureSuggestionStore.setEnabled(false, feature: .addToContacts)
+      },
+      review: {
+        contactReviewDismissalIdentifier = candidate.opaqueDismissalIdentifier
+        contactReview = $0
+      }
+    )
+    .id(candidate.opaqueDismissalIdentifier)
+    .padding(.horizontal, 14)
+    .padding(.bottom, 12)
   }
 
   func loadAttachmentAfterRevalidation(
@@ -16652,5 +16352,6 @@ private struct CustomCategoryCreationView: View {
     )
   )
   .environment(SettingsRouter())
+  .environment(SettingsMailProfileContext())
   .environment(MessageContentPreferences())
 }

@@ -2,9 +2,9 @@ import SwiftUI
 
 struct SignInView: View {
   let session: ProductAccountSession
+  @Environment(SettingsRouter.self) private var settingsRouter
   @State private var isRestoringRecovery = false
   @State private var recoveryKey = ""
-  @State private var showsSettings = false
 
   var body: some View {
     VStack(alignment: .leading, spacing: 20) {
@@ -59,7 +59,7 @@ struct SignInView: View {
       }
 
       Button("Settings", systemImage: "gearshape") {
-        showsSettings = true
+        settingsRouter.open(nil)
       }
       .frame(maxWidth: 320, minHeight: 44)
       .buttonStyle(.bordered)
@@ -71,9 +71,6 @@ struct SignInView: View {
     }
     .padding(32)
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    .sheet(isPresented: $showsSettings) {
-      SignedOutSettingsView()
-    }
   }
 }
 
