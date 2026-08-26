@@ -478,7 +478,7 @@ describe('mail test device lifecycle', () => {
           },
           run,
         ),
-      ).resolves.toBe(11);
+      ).resolves.toBe(12);
       expect(run.mock.calls[0]?.[1]).toStrictEqual(
         expect.arrayContaining([
           '-scheme',
@@ -544,7 +544,7 @@ describe('mail test device lifecycle', () => {
         },
         run,
       ),
-    ).rejects.toThrow('selected 9 tests; expected at least 11 passing tests');
+    ).rejects.toThrow('selected 9 tests; expected at least 12 passing tests');
   });
 
   it('rejects Scheduled Send deterministic evidence missing a required identifier', async () => {
@@ -556,10 +556,10 @@ describe('mail test device lifecycle', () => {
         result(
           JSON.stringify({
             failedTests: 0,
-            passedTests: 11,
+            passedTests: 12,
             result: 'Passed',
             skippedTests: 0,
-            totalTestCount: 11,
+            totalTestCount: 12,
           }),
         ),
       )
