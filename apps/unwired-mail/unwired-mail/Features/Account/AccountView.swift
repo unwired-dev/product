@@ -1612,6 +1612,7 @@ struct AccountView: View {
   @Environment(MessageContentPreferences.self) private var messageContentPreferences:
     MessageContentPreferences?
   @Environment(SettingsRouter.self) private var settingsRouter
+  @Environment(SettingsMailProfileContext.self) private var settingsMailProfileContext
 
   #if CI_PERFORMANCE_BUDGET
     // The Release fixture uses UIHostingController outside the SwiftUI App lifecycle.
@@ -2033,6 +2034,7 @@ struct AccountView: View {
       await profileInterruptionViewModel.load()
     }
     .onAppear(perform: presentPendingCompactSettingsRequest)
+    .onAppear(perform: updateSettingsMailProfileContext)
     .onChange(of: settingsRouter.request?.id) { _, _ in
       presentPendingCompactSettingsRequest()
     }
@@ -2055,6 +2057,7 @@ struct AccountView: View {
       contentPresentationDismissal.dismissPresentations()
     }
     .onChange(of: profileViewModel.activeProfileId) { _, profileId in
+      updateSettingsMailProfileContext()
       guard let profileId else {
         mailAssistanceViewModel.profileDidLock()
         return
@@ -3009,6 +3012,14 @@ struct AccountView: View {
 
   private func openSettings(_ route: SettingsRoute?) {
     settingsRouter.open(route)
+  }
+
+  private func updateSettingsMailProfileContext() {
+    settingsMailProfileContext.update(activeProfile: profileViewModel.activeProfile) {
+      preferredProfileId in
+      await reloadSyncedMailState(targetedProfileId: preferredProfileId)
+      updateSettingsMailProfileContext()
+    }
   }
 
   private func presentPendingCompactSettingsRequest() {

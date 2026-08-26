@@ -8,6 +8,7 @@ struct RootView<SignedInContent: View>: View {
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   @State private var navigationPath = NavigationPath()
   @State private var regularSettingsRequest: SettingsRouteRequest?
+  @State private var settingsMailProfileContext = SettingsMailProfileContext()
   @State private var settingsPresentationOwnerID = UUID()
 
   init(
@@ -47,6 +48,7 @@ struct RootView<SignedInContent: View>: View {
       .onChange(of: settingsRouter.request?.id) { _, _ in
         presentPendingSettingsRequest()
       }
+      .environment(settingsMailProfileContext)
     #endif
   }
 
@@ -89,14 +91,6 @@ struct RootView<SignedInContent: View>: View {
   }
 
   private var usesCompactSettingsNavigation: Bool {
-    #if DEBUG
-      if ProcessInfo.processInfo.environment["SETTINGS_UI_TEST_LAYOUT"] == "compact" {
-        return true
-      }
-      if ProcessInfo.processInfo.environment["SETTINGS_UI_TEST_LAYOUT"] == "split" {
-        return false
-      }
-    #endif
     return SettingsNavigationLayout.resolve(horizontalSizeClass) == .compact
   }
 }

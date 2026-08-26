@@ -695,7 +695,34 @@ enum SettingsNavigationLayout: Equatable {
   case split
 
   static func resolve(_ horizontalSizeClass: UserInterfaceSizeClass?) -> Self {
+    #if DEBUG
+      if ProcessInfo.processInfo.environment["SETTINGS_UI_TEST_LAYOUT"] == "compact" {
+        return .compact
+      }
+      if ProcessInfo.processInfo.environment["SETTINGS_UI_TEST_LAYOUT"] == "split" {
+        return .split
+      }
+    #endif
     horizontalSizeClass == .compact ? .compact : .split
+  }
+}
+
+@MainActor
+@Observable
+final class SettingsMailProfileContext {
+  private(set) var activeProfile: MailProfileDefinition?
+  private var profilesDidChangeAction: ((MailProfileId?) async -> Void)?
+
+  func update(
+    activeProfile: MailProfileDefinition?,
+    profilesDidChange: @escaping (MailProfileId?) async -> Void
+  ) {
+    self.activeProfile = activeProfile
+    profilesDidChangeAction = profilesDidChange
+  }
+
+  func profilesDidChange(preferredProfileId: MailProfileId?) async {
+    await profilesDidChangeAction?(preferredProfileId)
   }
 }
 
@@ -975,14 +1002,6 @@ struct AdaptiveSettingsScene<DestinationContent: View>: View {
   }
 
   private var navigationLayout: SettingsNavigationLayout {
-    #if DEBUG
-      if ProcessInfo.processInfo.environment["SETTINGS_UI_TEST_LAYOUT"] == "compact" {
-        return .compact
-      }
-      if ProcessInfo.processInfo.environment["SETTINGS_UI_TEST_LAYOUT"] == "split" {
-        return .split
-      }
-    #endif
     return SettingsNavigationLayout.resolve(horizontalSizeClass)
   }
 
@@ -1009,7 +1028,7 @@ struct AdaptiveSettingsScene<DestinationContent: View>: View {
       .accessibilityHint(unavailableHint(for: destination))
     }
     .navigationTitle("Settings")
-    .navigationDestination(item: $selection) { destination in
+    .navigationDestination(item: compactSelection) { destination in
       detail(destination)
     }
     .toolbar { dismissToolbar }
@@ -1257,8 +1276,21 @@ extension AdaptiveSettingsScene {
     if hasUnsavedChanges() {
       pendingAction = .dismiss
     } else {
-      dismiss()
+      perform(.dismiss)
     }
+  }
+
+  private var compactSelection: Binding<SettingsDestination?> {
+    Binding(
+      get: { selection },
+      set: { destination in
+        if let destination {
+          selection = destination
+        } else {
+          requestShowList()
+        }
+      }
+    )
   }
 
   private func perform(_ action: PendingAction) {
@@ -2514,6 +2546,7 @@ struct SettingsRootView: View {
   let showsDismissButton: Bool
   let usesParentCompactNavigation: Bool
   let dismissAction: (() -> Void)?
+  @Environment(SettingsMailProfileContext.self) private var mailProfileContext
 
   init(
     session: ProductAccountSession,
@@ -2531,11 +2564,8 @@ struct SettingsRootView: View {
     Group {
       switch session.state {
       case .loading:
-        SignedOutSettingsView(
-          showsDismissButton: showsDismissButton,
-          usesParentCompactNavigation: usesParentCompactNavigation,
-          dismissAction: dismissAction
-        )
+        ProgressView("Loading settings…")
+          .frame(maxWidth: .infinity, maxHeight: .infinity)
       case .signedOut:
         SignedOutSettingsView(
           showsDismissButton: showsDismissButton,
@@ -2559,9 +2589,11 @@ struct SettingsRootView: View {
         SettingsSessionHost(
           session: session,
           snapshot: snapshot,
+          activeProfile: mailProfileContext.activeProfile,
           showsDismissButton: showsDismissButton,
           usesParentCompactNavigation: usesParentCompactNavigation,
-          dismissAction: dismissAction
+          dismissAction: dismissAction,
+          profilesDidChange: mailProfileContext.profilesDidChange
         )
       }
     }
@@ -2573,9 +2605,11 @@ struct SettingsRootView: View {
 private struct SettingsSessionHost: View {
   let session: ProductAccountSession
   let snapshot: ProductAccountSessionSnapshot
+  let activeProfile: MailProfileDefinition
   let showsDismissButton: Bool
   let usesParentCompactNavigation: Bool
   let dismissAction: (() -> Void)?
+  let profilesDidChange: (MailProfileId?) async -> Void
   private let mailboxConnection: MailboxConnectionRouter
 
   @State private var categoryViewModel: CustomCategoryViewModel
@@ -2600,26 +2634,29 @@ private struct SettingsSessionHost: View {
   init(
     session: ProductAccountSession,
     snapshot: ProductAccountSessionSnapshot,
+    activeProfile: MailProfileDefinition?,
     showsDismissButton: Bool,
     usesParentCompactNavigation: Bool,
-    dismissAction: (() -> Void)?
+    dismissAction: (() -> Void)?,
+    profilesDidChange: @escaping (MailProfileId?) async -> Void
   ) {
     self.session = session
     self.snapshot = snapshot
+    let activeProfile = activeProfile
+      ?? MailProfileDefinition.defaultProfile(productAccountId: snapshot.productAccountId)
+    self.activeProfile = activeProfile
     self.showsDismissButton = showsDismissButton
     self.usesParentCompactNavigation = usesParentCompactNavigation
     self.dismissAction = dismissAction
+    self.profilesDidChange = profilesDidChange
     let mailboxConnection = MailboxConnectionRouter()
     self.mailboxConnection = mailboxConnection
-    let defaultProfile = MailProfileDefinition.defaultProfile(
-      productAccountId: snapshot.productAccountId
-    )
     let revalidateTrustedDevice = {
       await session.revalidateTrustedDeviceAfterForegrounding()
     }
     _categoryViewModel = State(
       initialValue: CustomCategoryViewModel(
-        service: CustomCategorySyncService(recordScope: defaultProfile.recordScope),
+        service: CustomCategorySyncService(recordScope: activeProfile.recordScope),
         session: snapshot
       )
     )
@@ -2631,18 +2668,27 @@ private struct SettingsSessionHost: View {
       )
     )
     _composePreferenceStore = State(
-      initialValue: session.sharedComposePreferenceStore(for: snapshot)
+      initialValue: session.sharedComposePreferenceStore(
+        for: snapshot,
+        recordScope: activeProfile.recordScope
+      )
     )
     _featureSuggestionPreferenceStore = State(
-      initialValue: session.sharedFeatureSuggestionPreferenceStore(for: snapshot)
+      initialValue: session.sharedFeatureSuggestionPreferenceStore(
+        for: snapshot,
+        recordScope: activeProfile.recordScope
+      )
     )
     _signatureStore = State(
-      initialValue: session.sharedSignatureStore(for: snapshot)
+      initialValue: session.sharedSignatureStore(
+        for: snapshot,
+        recordScope: activeProfile.recordScope
+      )
     )
     _templateStore = State(
       initialValue: session.sharedTemplateStore(
         for: snapshot,
-        recordScope: defaultProfile.recordScope
+        recordScope: activeProfile.recordScope
       )
     )
     _freshnessViewModel = State(
@@ -2678,7 +2724,10 @@ private struct SettingsSessionHost: View {
       )
     )
     _inboxPreferenceStore = State(
-      initialValue: session.sharedInboxPreferenceStore(for: snapshot)
+      initialValue: session.sharedInboxPreferenceStore(
+        for: snapshot,
+        recordScope: activeProfile.recordScope
+      )
     )
     _swipePreferenceStore = State(
       initialValue: SwipePreferenceStore(session: snapshot)
@@ -2727,9 +2776,7 @@ private struct SettingsSessionHost: View {
 
   var body: some View {
     AdaptiveSettingsScene(
-      activeProfile: MailProfileDefinition.defaultProfile(
-        productAccountId: snapshot.productAccountId
-      ),
+      activeProfile: activeProfile,
       isSignedIn: true,
       showsDismissButton: showsDismissButton,
       attentions: settingsAttentions,
@@ -2831,7 +2878,7 @@ private struct SettingsSessionHost: View {
               gmailViewModel.connections.first(where: { $0.id == connectionId })?.displayName
                 ?? "Mailbox Connection"
             },
-            profilesDidChange: { _ in }
+            profilesDidChange: profilesDidChange
           )
         case .notifications:
           NotificationsSettingsView(
@@ -2880,8 +2927,7 @@ private struct SettingsSessionHost: View {
           let storageViewModel = StorageDataSettingsViewModel.live(
             session: snapshot,
             profileIds: [
-              MailProfileDefinition.defaultProfile(productAccountId: snapshot.productAccountId)
-                .id
+              activeProfile.id
             ],
             readingPreferences: readingPreferenceStore.preferences
           )

@@ -7,6 +7,7 @@ struct UnwiredMailApp: App {
   @State private var messageContentPreferences: MessageContentPreferences
   @State private var session: ProductAccountSession
   @State private var settingsRouter = SettingsRouter()
+  @State private var settingsMailProfileContext = SettingsMailProfileContext()
   #if MAIL_TEST_BOOTSTRAP
     private let mailTestRuntime: MailTestBootstrapRuntime?
   #endif
@@ -63,6 +64,7 @@ struct UnwiredMailApp: App {
           rootView(profileDeepLinkRouter: profileDeepLinkRouter)
         }
         .environment(settingsRouter)
+        .environment(settingsMailProfileContext)
         .deviceAppearance(appearancePreferences)
         .environment(appearancePreferences)
         .environment(attachmentNetworkMonitor)
@@ -72,7 +74,7 @@ struct UnwiredMailApp: App {
         CatalystSettingsCommands(settingsRouter: settingsRouter)
       }
 
-      WindowGroup("Settings", id: SettingsRouter.catalystWindowID) {
+      Window("Settings", id: SettingsRouter.catalystWindowID) {
         SettingsRootView(session: session)
           .tint(MailTheme.accent)
           .background(MailTheme.canvas)
@@ -81,6 +83,7 @@ struct UnwiredMailApp: App {
           .environment(appearancePreferences)
           .environment(attachmentNetworkMonitor)
           .environment(messageContentPreferences)
+          .environment(settingsMailProfileContext)
           .frame(minWidth: 640, idealWidth: 920, minHeight: 480, idealHeight: 720)
       }
       .defaultSize(width: 920, height: 720)
@@ -91,6 +94,7 @@ struct UnwiredMailApp: App {
           rootView(profileDeepLinkRouter: profileDeepLinkRouter)
         }
         .environment(settingsRouter)
+        .environment(settingsMailProfileContext)
         .deviceAppearance(appearancePreferences)
         .environment(appearancePreferences)
         .environment(attachmentNetworkMonitor)
