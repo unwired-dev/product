@@ -234,6 +234,10 @@ final class MailTestBootstrapUITests: XCTestCase {
       failure: "MAIL_TEST_FAILURE:ui: The replacement recipient did not receive keyboard focus."
     )
     recipient.typeKey(.return, modifierFlags: [])
+    XCTAssertTrue(
+      app.buttons["Remove recipient@synthetic.invalid"].waitForExistence(timeout: 2),
+      "The replacement recipient token did not appear."
+    )
     assertRecipientReplacement(in: app)
   }
 
@@ -249,6 +253,10 @@ final class MailTestBootstrapUITests: XCTestCase {
         throw NSError(domain: "MailTestBootstrapUITests", code: 1)
       }
       token.tap()
+      guard token.waitForNonExistence(timeout: 2) else {
+        XCTFail("The populated recipient remained after removal.")
+        throw NSError(domain: "MailTestBootstrapUITests", code: 1)
+      }
     }
   }
 
