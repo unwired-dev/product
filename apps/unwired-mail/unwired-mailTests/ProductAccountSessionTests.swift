@@ -1417,7 +1417,9 @@ final class ProductAccountSessionTests {
   )
 
   @Test
+  // swiftlint:disable:next function_body_length
   func testSignOutClearsStoredSession() async throws {
+    let remoteContentCleaner = RecordingAuthorizedRemoteContentCleaner()
     let gmailConnectionService = RecordingGmailProviderConnecting()
     let outboxCleaner = RecordingOutboxDeliveryCleaner()
     let productAccountService = RecordingProductAccountService(response: .preview)
@@ -1428,6 +1430,7 @@ final class ProductAccountSessionTests {
           identityToken: "token-001"
         )
       ),
+      authorizedRemoteContentCache: remoteContentCleaner,
       devicePushUnregistrationService: pushUnregisterer,
       productAccountService: productAccountService,
       sessionStore: store,
@@ -1457,6 +1460,11 @@ final class ProductAccountSessionTests {
       outboxCleaner.clearedSessions.map(\.productAccountId) == [
         ProductAccountConnectResponse.preview.productAccountId
       ])
+    #expect(
+      remoteContentCleaner.clearedProductAccountIds == [
+        ProductAccountConnectResponse.preview.productAccountId
+      ]
+    )
     #expect(
       try keyMaterialStore.load(
         productAccountId: ProductAccountConnectResponse.preview.productAccountId
@@ -5268,6 +5276,20 @@ final class ProductAccountSessionTests {
     #expect(message == ProductSyncKeyMaterialStoreError.recoveryRequired.localizedDescription)
     #expect(try keyMaterialStore.load(productAccountId: response.productAccountId) == nil)
   }
+}
+
+private final class RecordingAuthorizedRemoteContentCleaner:
+  AuthorizedRemoteContentCacheClearing
+{
+  private(set) var clearedProductAccountIds: [String] = []
+
+  func clear(productAccountId: String) throws {
+    clearedProductAccountIds.append(productAccountId)
+  }
+
+  func clear(productAccountId _: String, profileId _: MailProfileId) throws {}
+
+  func clear(productAccountId _: String, connectionId _: MailboxConnectionId) throws {}
 }
 
 private struct StubAuthorizationChecker:

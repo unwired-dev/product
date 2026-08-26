@@ -40,12 +40,14 @@ struct MailProfileLifecycleLocalState: Codable, Equatable, Sendable {
   var knownProfiles: [MailProfileDefinition]
   var nextRevision: Int
   var pendingCreates: [MailProfilePendingCreate]
+  var pendingRemoteContentCleanupProfileIds: [MailProfileId]? = nil
   var pendingUpdates: [MailProfilePendingUpdate]
 
   static let empty = MailProfileLifecycleLocalState(
     knownProfiles: [],
     nextRevision: 1,
     pendingCreates: [],
+    pendingRemoteContentCleanupProfileIds: nil,
     pendingUpdates: []
   )
 }
@@ -103,6 +105,10 @@ final class MailProfileLifecycleStore {
 
   var hasPendingChanges: Bool {
     !localState.pendingCreates.isEmpty || !localState.pendingUpdates.isEmpty
+  }
+
+  var pendingRemoteContentCleanupProfileIds: [MailProfileId] {
+    localState.pendingRemoteContentCleanupProfileIds ?? []
   }
 
   var profiles: [MailProfileDefinition] {
@@ -224,6 +230,22 @@ final class MailProfileLifecycleStore {
       errorMessage = error.localizedDescription
       throw error
     }
+  }
+
+  func recordPendingRemoteContentCleanup(profileId: MailProfileId) throws {
+    try requireLocalStateAvailable()
+    guard pendingRemoteContentCleanupProfileIds.contains(profileId) == false else { return }
+    localState.pendingRemoteContentCleanupProfileIds =
+      pendingRemoteContentCleanupProfileIds + [profileId]
+    try persist()
+  }
+
+  func finishPendingRemoteContentCleanup(profileId: MailProfileId) throws {
+    try requireLocalStateAvailable()
+    localState.pendingRemoteContentCleanupProfileIds = pendingRemoteContentCleanupProfileIds.filter {
+      $0 != profileId
+    }
+    try persist()
   }
 
   private func editProfile(

@@ -3805,14 +3805,16 @@ extension MessageHTMLPresentationTests {
     defer { try? FileManager.default.removeItem(at: fixture.root) }
     let reference = try requireValue(fixture.html.remoteImageReferences.first)
     let key = fixture.context.key(for: reference)
-    try fixture.cache.save(
-      RemoteMessageImage(
-        data: fixture.png,
-        identifier: reference.identifier,
-        mimeType: "image/png"
-      ),
-      for: key,
-      writePermit: fixture.cache.makeWritePermit(for: key)
+    #expect(
+      try fixture.cache.save(
+        RemoteMessageImage(
+          data: fixture.png,
+          identifier: reference.identifier,
+          mimeType: "image/png"
+        ),
+        for: key,
+        writePermit: fixture.cache.makeWritePermit(for: key)
+      )
     )
     let enumerator = try #require(
       FileManager.default.enumerator(at: fixture.root, includingPropertiesForKeys: nil)
@@ -3823,6 +3825,8 @@ extension MessageHTMLPresentationTests {
     let storedData = try storedFiles.reduce(into: Data()) { result, file in
       result.append(try Data(contentsOf: file))
     }
+    #expect(storedFiles.count == 1)
+    #expect(storedData.isEmpty == false)
 
     #expect(storedData.range(of: fixture.png) == nil)
     #expect(storedData.range(of: Data(reference.url.absoluteString.utf8)) == nil)
@@ -3891,6 +3895,23 @@ extension MessageHTMLPresentationTests {
       )
     )
     #expect(constrainedCache.image(for: firstKey, identifier: firstReference.identifier) == nil)
+
+    constrainedCache.protect([secondKey])
+    try constrainedCache.clearAll()
+    #expect(
+      try constrainedCache.save(
+        image,
+        for: secondKey,
+        writePermit: constrainedCache.makeWritePermit(for: secondKey)
+      )
+    )
+    #expect(
+      try constrainedCache.save(
+        image,
+        for: firstKey,
+        writePermit: constrainedCache.makeWritePermit(for: firstKey)
+      )
+    )
   }
 }
 

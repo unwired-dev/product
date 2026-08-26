@@ -135,7 +135,9 @@ actor LocalMailStorageService: LocalMailStorageManaging {
       metadataByteCount: paths.metadataLocations.reduce(0) {
         $0 + fileByteCount(at: $1)
       },
-      remoteContentByteCount: remoteContentCache.storedByteCount(),
+      remoteContentByteCount: remoteContentCache.storedByteCount(
+        productAccountId: productAccountId
+      ),
       pendingDraftAssetByteCount: pendingAssets.reduce(0) {
         $0 + Int64($1.byteCount)
       },

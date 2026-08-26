@@ -3,6 +3,12 @@ import Foundation
 
 // swiftlint:disable file_length type_body_length
 
+protocol AuthorizedRemoteContentCacheClearing {
+  func clear(productAccountId: String) throws
+  func clear(productAccountId: String, profileId: MailProfileId) throws
+  func clear(productAccountId: String, connectionId: MailboxConnectionId) throws
+}
+
 /// Identifies one authorized remote resource without exposing message or resource data on disk.
 struct AuthorizedRemoteContentCacheKey: Hashable, Sendable {
   let messageId: StableProviderMessageIdentity
@@ -92,7 +98,7 @@ struct AuthorizedRemoteContentCacheContext: Sendable {
 }
 
 /// Stores authorized remote content encrypted under the Product Account key.
-struct AuthorizedRemoteContentCache: @unchecked Sendable {
+struct AuthorizedRemoteContentCache: @unchecked Sendable, AuthorizedRemoteContentCacheClearing {
   struct WritePermit: Sendable {
     fileprivate let accountGeneration: Int
     fileprivate let accountKey: String
@@ -157,17 +163,15 @@ struct AuthorizedRemoteContentCache: @unchecked Sendable {
     defer { Self.mutationLock.unlock() }
     let location = key.fileURL(rootDirectory: rootDirectory)
     guard fileManager.fileExists(atPath: location.path) else { return nil }
+    guard
+      let material = try? keyMaterialStore.load(productAccountId: key.productAccountId),
+      let storedData = try? Data(contentsOf: location)
+    else { return nil }
     do {
-      guard let material = try keyMaterialStore.load(productAccountId: key.productAccountId) else {
-        return nil
-      }
-      let encrypted = try JSONDecoder().decode(
-        ProductSyncEncryptedPayload.self,
-        from: Data(contentsOf: location)
-      )
+      let encrypted = try JSONDecoder().decode(ProductSyncEncryptedPayload.self, from: storedData)
       let decrypted = try material.decryptPayload(encrypted, associatedData: key.associatedData)
       let payload = try JSONDecoder().decode(Payload.self, from: decrypted)
-      try fileManager.setAttributes(
+      try? fileManager.setAttributes(
         [.modificationDate: accessedAt],
         ofItemAtPath: location.path
       )
@@ -290,11 +294,21 @@ struct AuthorizedRemoteContentCache: @unchecked Sendable {
     }
   }
 
+  /// Returns the encrypted remote-content usage owned by one Product Account.
+  func storedByteCount(productAccountId: String) -> Int64 {
+    Self.mutationLock.lock()
+    defer { Self.mutationLock.unlock() }
+    return storedFiles(in: accountDirectory(productAccountId)).reduce(into: Int64.zero) {
+      $0 += Int64($1.byteCount)
+    }
+  }
+
   /// Removes every device-local authorized remote-content entry.
   func clearAll() throws {
     Self.mutationLock.lock()
     defer { Self.mutationLock.unlock() }
     Self.rootGenerations[rootKey, default: 0] += 1
+    removeProtectionClaims(in: rootDirectory)
     guard fileManager.fileExists(atPath: rootDirectory.path) else { return }
     try fileManager.removeItem(at: rootDirectory)
   }
@@ -306,6 +320,7 @@ struct AuthorizedRemoteContentCache: @unchecked Sendable {
     let key = generationAccountKey(productAccountId)
     Self.accountGenerations[key, default: 0] += 1
     let directory = accountDirectory(productAccountId)
+    removeProtectionClaims(in: directory)
     guard fileManager.fileExists(atPath: directory.path) else { return }
     try fileManager.removeItem(at: directory)
   }
@@ -317,6 +332,7 @@ struct AuthorizedRemoteContentCache: @unchecked Sendable {
     let key = generationProfileKey(productAccountId: productAccountId, profileId: profileId)
     Self.profileGenerations[key, default: 0] += 1
     let directory = profileDirectory(productAccountId: productAccountId, profileId: profileId)
+    removeProtectionClaims(in: directory)
     guard fileManager.fileExists(atPath: directory.path) else { return }
     try fileManager.removeItem(at: directory)
   }
@@ -331,6 +347,10 @@ struct AuthorizedRemoteContentCache: @unchecked Sendable {
     )
     Self.connectionGenerations[key, default: 0] += 1
     let accountDirectory = accountDirectory(productAccountId)
+    removeProtectionClaims(
+      productAccountId: productAccountId,
+      connectionId: connectionId
+    )
     guard
       let profileDirectories = try? fileManager.contentsOfDirectory(
         at: accountDirectory,
@@ -355,6 +375,29 @@ struct AuthorizedRemoteContentCache: @unchecked Sendable {
 
   private func protectedPath(for key: AuthorizedRemoteContentCacheKey) -> String {
     key.fileURL(rootDirectory: rootDirectory).standardizedFileURL.path
+  }
+
+  private func removeProtectionClaims(in directory: URL) {
+    let directoryPath = directory.standardizedFileURL.path
+    let descendantPrefix = directoryPath.hasSuffix("/") ? directoryPath : "\(directoryPath)/"
+    Self.protectedFileCounts = Self.protectedFileCounts.filter { path, _ in
+      path != directoryPath && !path.hasPrefix(descendantPrefix)
+    }
+  }
+
+  private func removeProtectionClaims(
+    productAccountId: String,
+    connectionId: MailboxConnectionId
+  ) {
+    let accountPath = accountDirectory(productAccountId).standardizedFileURL.path
+    let accountPrefix = accountPath.hasSuffix("/") ? accountPath : "\(accountPath)/"
+    let connectionName = AuthorizedRemoteContentCacheKey.digest(connectionId.rawValue)
+    Self.protectedFileCounts = Self.protectedFileCounts.filter { path, _ in
+      guard path.hasPrefix(accountPrefix) else { return true }
+      let relativePath = path.dropFirst(accountPrefix.count)
+      let components = relativePath.split(separator: "/", omittingEmptySubsequences: true)
+      return components.count < 2 || components[1] != Substring(connectionName)
+    }
   }
 
   private func accountDirectory(_ productAccountId: String) -> URL {
@@ -413,9 +456,17 @@ struct AuthorizedRemoteContentCache: @unchecked Sendable {
   }
 
   private func storedFiles(excluding excludedURL: URL?) -> [StoredFile] {
-    guard fileManager.fileExists(atPath: rootDirectory.path),
+    storedFiles(in: rootDirectory, excluding: excludedURL)
+  }
+
+  private func storedFiles(in directory: URL) -> [StoredFile] {
+    storedFiles(in: directory, excluding: nil)
+  }
+
+  private func storedFiles(in directory: URL, excluding excludedURL: URL?) -> [StoredFile] {
+    guard fileManager.fileExists(atPath: directory.path),
       let enumerator = fileManager.enumerator(
-        at: rootDirectory,
+        at: directory,
         includingPropertiesForKeys: [
           .contentModificationDateKey, .fileSizeKey, .isRegularFileKey,
         ]

@@ -40,7 +40,7 @@ final class MailProfileSettingsViewModel {
   private let service: MailProfileSettingsSyncing
   private let session: ProductAccountSessionSnapshot
   private let startupStore: MailProfileStartupSelectionPersisting
-  private let authorizedRemoteContentCache: AuthorizedRemoteContentCache
+  private let authorizedRemoteContentCache: any AuthorizedRemoteContentCacheClearing
 
   var hasPendingChanges: Bool { lifecycleStore.hasPendingChanges }
 
@@ -61,7 +61,8 @@ final class MailProfileSettingsViewModel {
       KeychainMailProfileStateStore(),
     startupStore: MailProfileStartupSelectionPersisting =
       UserDefaultsMailProfileStartupStore(),
-    authorizedRemoteContentCache: AuthorizedRemoteContentCache = AuthorizedRemoteContentCache(),
+    authorizedRemoteContentCache: any AuthorizedRemoteContentCacheClearing =
+      AuthorizedRemoteContentCache(),
     deletionReviewProvider:
       (
         (MailProfileId, MailProfileSyncSnapshot, ProductAccountSessionSnapshot) async throws
@@ -86,6 +87,7 @@ final class MailProfileSettingsViewModel {
     isWorking = true
     defer { isWorking = false }
     do {
+      try retryPendingRemoteContentCleanup()
       try await refreshSnapshot()
       if lifecycleStore.hasPendingChanges {
         try await lifecycleStore.synchronize()
@@ -212,12 +214,31 @@ final class MailProfileSettingsViewModel {
       )
     }
     if deleted {
-      try? authorizedRemoteContentCache.clear(
-        productAccountId: session.productAccountId,
-        profileId: profileId
-      )
+      do {
+        try lifecycleStore.recordPendingRemoteContentCleanup(profileId: profileId)
+        try clearRemoteContent(profileId: profileId)
+        try lifecycleStore.finishPendingRemoteContentCleanup(profileId: profileId)
+      } catch {
+        errorMessage =
+          "Profile deleted. Local Remote Message Content will retry cleanup when you reopen Mail Profiles."
+        return false
+      }
     }
     return deleted
+  }
+
+  private func retryPendingRemoteContentCleanup() throws {
+    for profileId in lifecycleStore.pendingRemoteContentCleanupProfileIds {
+      try clearRemoteContent(profileId: profileId)
+      try lifecycleStore.finishPendingRemoteContentCleanup(profileId: profileId)
+    }
+  }
+
+  private func clearRemoteContent(profileId: MailProfileId) throws {
+    try authorizedRemoteContentCache.clear(
+      productAccountId: session.productAccountId,
+      profileId: profileId
+    )
   }
 
   func connections(in profileId: MailProfileId) -> [MailboxConnectionId] {
