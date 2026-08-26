@@ -4228,6 +4228,42 @@ final class ProductAccountSessionTests {
   }
 
   @Test
+  func testBootstrapRetriesPendingSignOutWhenRemoteContentCleanupFails() async throws {
+    let productAccountId = "retiredProductAccountId"
+    try store.savePendingSignOutProductAccountId(productAccountId)
+    let remoteContentCleaner = RecordingAuthorizedRemoteContentCleaner()
+    remoteContentCleaner.clearError =
+      ProductAccountSessionTestError.authorizedRemoteContentCleanupFailed
+    let session = ProductAccountSession(
+      authorizedRemoteContentCache: remoteContentCleaner,
+      sessionStore: store,
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+
+    await session.bootstrap()
+
+    #expect(
+      session.state
+        == .failed(
+          ProductAccountSessionTestError.authorizedRemoteContentCleanupFailed
+            .localizedDescription))
+    #expect(try store.loadPendingSignOutProductAccountId() == productAccountId)
+    #expect(remoteContentCleaner.clearedProductAccountIds == [productAccountId])
+
+    remoteContentCleaner.clearError = nil
+    let retryingSession = ProductAccountSession(
+      authorizedRemoteContentCache: remoteContentCleaner,
+      sessionStore: store,
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+    await retryingSession.bootstrap()
+
+    #expect(retryingSession.state == .signedOut)
+    #expect(try store.loadPendingSignOutProductAccountId() == nil)
+    #expect(remoteContentCleaner.clearedProductAccountIds == [productAccountId, productAccountId])
+  }
+
+  @Test
   func testBootstrapRunsOnlyOnceForSharedMultiWindowSession() async {
     let countingStore = ControllableProductAccountSessionStore()
     let session = ProductAccountSession(
@@ -4388,6 +4424,47 @@ final class ProductAccountSessionTests {
     #expect(outboxCleaner.clearedSessions == [oldSnapshot])
     #expect(remoteContentCleaner.clearedProductAccountIds == [oldSnapshot.productAccountId])
     #expect(pushUnregisterer.sessions == [oldSnapshot])
+  }
+
+  @Test
+  // swiftlint:disable:next function_body_length
+  func testBootstrapPreservesPreviousSessionWhenRemoteContentCleanupFails() async throws {
+    let oldSnapshot = ProductAccountSessionSnapshot(
+      appleUserIdentifier: "apple-user-001",
+      identityToken: "old-token",
+      productAccountId: "oldProductAccountId",
+      trustedDeviceId: "oldTrustedDeviceId"
+    )
+    try store.save(oldSnapshot)
+    let gmailConnectionService = RecordingGmailProviderConnecting()
+    let outboxCleaner = RecordingOutboxDeliveryCleaner()
+    let remoteContentCleaner = RecordingAuthorizedRemoteContentCleaner()
+    remoteContentCleaner.clearError =
+      ProductAccountSessionTestError.authorizedRemoteContentCleanupFailed
+    let session = ProductAccountSession(
+      appleSignInService: PreviewAppleSignInService(
+        credential: AppleSignInCredential(
+          appleUserIdentifier: "apple-user-001",
+          identityToken: "token-001"
+        )
+      ),
+      authorizedRemoteContentCache: remoteContentCleaner,
+      devicePushUnregistrationService: pushUnregisterer,
+      productAccountService: PreviewProductAccountService(response: .preview),
+      sessionStore: store,
+      mailboxConnectionService: gmailConnectionService,
+      outboxDeliveryService: outboxCleaner,
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+
+    await session.bootstrap()
+
+    #expect(session.state == .signedIn(oldSnapshot))
+    #expect(try store.load() == oldSnapshot)
+    #expect(gmailConnectionService.clearedSessions == [oldSnapshot])
+    #expect(outboxCleaner.clearedSessions == [oldSnapshot])
+    #expect(remoteContentCleaner.clearedProductAccountIds == [oldSnapshot.productAccountId])
+    #expect(pushUnregisterer.sessions.isEmpty)
   }
 
   @Test
@@ -5283,10 +5360,12 @@ final class ProductAccountSessionTests {
 private final class RecordingAuthorizedRemoteContentCleaner:
   AuthorizedRemoteContentCacheClearing
 {
+  var clearError: Error?
   private(set) var clearedProductAccountIds: [String] = []
 
   func clear(productAccountId: String) throws {
     clearedProductAccountIds.append(productAccountId)
+    if let clearError { throw clearError }
   }
 
   func clear(productAccountId _: String, profileId _: MailProfileId) throws {}
@@ -5777,6 +5856,7 @@ private actor SequencedSuspendingAppleSignInService: AppleSignInPerforming {
 }
 
 private enum ProductAccountSessionTestError: Error {
+  case authorizedRemoteContentCleanupFailed
   case gmailCleanupFailed
   case keyCleanupFailed
   case outboxCleanupFailed
