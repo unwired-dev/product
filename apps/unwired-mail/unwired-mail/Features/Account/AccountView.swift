@@ -7866,41 +7866,7 @@ struct MailShellConversationReader: View {
           providerActions: providerActions
         )
 
-        VStack(spacing: 0) {
-          ScrollViewReader { scrollProxy in
-            ScrollView {
-              LazyVStack(alignment: .leading, spacing: 16) {
-                followUpNudge(for: thread, connection: connection)
-                conversationMessages(in: thread, connection: connection)
-              }
-              .padding()
-              .frame(maxWidth: .infinity, alignment: .top)
-            }
-            .accessibilityIdentifier("mail-conversation-reader")
-            .contentMargins(.bottom, bottomScrollContentMargin, for: .scrollContent)
-            .mailShellTopScrollEdgeEffectHidden()
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            .onGeometryChange(for: CGRect.self) { geometry in
-              geometry.frame(in: .global)
-            } action: { newViewportFrame in
-              readerViewportFrame = newViewportFrame
-              readerAvailableWidth = newViewportFrame.width
-            }
-            .overlay(alignment: .top) {
-              Rectangle()
-                .fill(MailTheme.separator)
-                .frame(height: 1)
-                .allowsHitTesting(false)
-            }
-            .task(id: selection.selectedMessageScrollTarget) {
-              guard let target = selection.selectedMessageScrollTarget else { return }
-              await Task.yield()
-              scrollProxy.scrollTo(target.messageId, anchor: .top)
-              selection.clearMessageScrollTarget(target)
-            }
-          }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        conversationScrollContent(for: thread, connection: connection)
         .navigationTitle("")
         .toolbarTitleDisplayMode(.inline)
         .toolbarBackground(.thinMaterial, for: .navigationBar)
@@ -8065,6 +8031,47 @@ struct MailShellConversationReader: View {
         mailAssistanceViewModel.discardPreview()
       }
     }
+  }
+
+  private func conversationScrollContent(
+    for thread: MailboxThread,
+    connection: MailboxConnection
+  ) -> some View {
+    VStack(spacing: 0) {
+      ScrollViewReader { scrollProxy in
+        ScrollView {
+          LazyVStack(alignment: .leading, spacing: 16) {
+            followUpNudge(for: thread, connection: connection)
+            conversationMessages(in: thread, connection: connection)
+          }
+          .padding()
+          .frame(maxWidth: .infinity, alignment: .top)
+        }
+        .accessibilityIdentifier("mail-conversation-reader")
+        .contentMargins(.bottom, bottomScrollContentMargin, for: .scrollContent)
+        .mailShellTopScrollEdgeEffectHidden()
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .onGeometryChange(for: CGRect.self) { geometry in
+          geometry.frame(in: .global)
+        } action: { newViewportFrame in
+          readerViewportFrame = newViewportFrame
+          readerAvailableWidth = newViewportFrame.width
+        }
+        .overlay(alignment: .top) {
+          Rectangle()
+            .fill(MailTheme.separator)
+            .frame(height: 1)
+            .allowsHitTesting(false)
+        }
+        .task(id: selection.selectedMessageScrollTarget) {
+          guard let target = selection.selectedMessageScrollTarget else { return }
+          await Task.yield()
+          scrollProxy.scrollTo(target.messageId, anchor: .top)
+          selection.clearMessageScrollTarget(target)
+        }
+      }
+    }
+    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
   }
 
   @ViewBuilder
