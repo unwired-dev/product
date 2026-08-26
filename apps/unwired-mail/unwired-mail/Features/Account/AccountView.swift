@@ -14432,11 +14432,9 @@ final class GmailInboxViewModel {
       #if DEBUG
         await initialThreadBatchDidPublish?()
       #endif
-      if publishedCount == firstBatchSize {
-        // The projection observer also crosses a run-loop boundary. Give it time to publish the
-        // first row before adding the next batch, or both revisions can collapse into one frame.
-        await waitForNextMainRunLoopCycle()
-      }
+      // The projection observer also crosses a run-loop boundary. Give every batch time to render
+      // before adding the next one, or consecutive revisions can collapse into one frame.
+      await waitForNextMainRunLoopCycle()
     }
   }
 
