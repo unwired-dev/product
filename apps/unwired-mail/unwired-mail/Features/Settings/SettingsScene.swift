@@ -703,7 +703,7 @@ enum SettingsNavigationLayout: Equatable {
         return .split
       }
     #endif
-    horizontalSizeClass == .compact ? .compact : .split
+    return horizontalSizeClass == .compact ? .compact : .split
   }
 }
 
