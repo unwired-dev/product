@@ -7899,34 +7899,7 @@ struct MailShellConversationReader: View {
           )
         }
         .sheet(item: $calendarReview) { review in
-          if review.origin.isProse {
-            CalendarProseEventEditSheet(
-              review: review,
-              reviewService: calendarReviewService,
-              complete: { didSave in
-                if didSave, let calendarReviewDismissalIdentifier {
-                  featureSuggestionStore.dismiss(
-                    calendarReviewDismissalIdentifier,
-                    feature: .addToCalendar
-                  )
-                }
-                calendarReview = nil
-              }
-            )
-          } else {
-            CalendarEventReviewSheet(
-              review: review,
-              apply: {
-                try calendarReviewService.apply(review)
-                if let calendarReviewDismissalIdentifier {
-                  featureSuggestionStore.dismiss(
-                    calendarReviewDismissalIdentifier,
-                    feature: .addToCalendar
-                  )
-                }
-              }
-            )
-          }
+          calendarReviewSheet(for: review)
         }
         .sheet(item: $sourceInspectionMessage) { message in
           MailboxMessageSourceInspector(
@@ -7943,14 +7916,7 @@ struct MailShellConversationReader: View {
             mailAssistanceViewModel.discardPreview()
           },
           content: {
-            UnderstandingAssistanceView(
-              viewModel: mailAssistanceViewModel,
-              currentInputVersion: understandingCurrentInputVersion,
-              localErrorMessage: understandingErrorMessage,
-              regenerate: { startUnderstanding(thread) },
-              showSource: { showUnderstandingSource($0, in: thread) }
-            )
-            .presentationDetents([.medium, .large])
+            understandingAssistanceSheet(for: thread)
           }
         )
         .onChange(of: thread.messages) { _, _ in
@@ -7972,21 +7938,7 @@ struct MailShellConversationReader: View {
           Text(Self.possibleDuplicateEventMessage)
         }
         .sheet(item: $contactReview) { review in
-          ContactNativeReviewSheet(
-            review: review,
-            didComplete: {
-              if let contactReviewDismissalIdentifier {
-                featureSuggestionStore.dismiss(
-                  contactReviewDismissalIdentifier,
-                  feature: .addToContacts
-                )
-              }
-              contactReview = nil
-            },
-            didCancel: {
-              contactReview = nil
-            }
-          )
+          contactReviewSheet(for: review)
         }
       } else {
         ContentUnavailableView(
@@ -8107,6 +8059,67 @@ struct MailShellConversationReader: View {
         mailAssistanceViewModel.discardPreview()
       }
     }
+  }
+
+  @ViewBuilder
+  private func calendarReviewSheet(for review: CalendarEventReview) -> some View {
+    if review.origin.isProse {
+      CalendarProseEventEditSheet(
+        review: review,
+        reviewService: calendarReviewService,
+        complete: { didSave in
+          if didSave, let calendarReviewDismissalIdentifier {
+            featureSuggestionStore.dismiss(
+              calendarReviewDismissalIdentifier,
+              feature: .addToCalendar
+            )
+          }
+          calendarReview = nil
+        }
+      )
+    } else {
+      CalendarEventReviewSheet(
+        review: review,
+        apply: {
+          try calendarReviewService.apply(review)
+          if let calendarReviewDismissalIdentifier {
+            featureSuggestionStore.dismiss(
+              calendarReviewDismissalIdentifier,
+              feature: .addToCalendar
+            )
+          }
+        }
+      )
+    }
+  }
+
+  private func understandingAssistanceSheet(for thread: MailboxThread) -> some View {
+    UnderstandingAssistanceView(
+      viewModel: mailAssistanceViewModel,
+      currentInputVersion: understandingCurrentInputVersion,
+      localErrorMessage: understandingErrorMessage,
+      regenerate: { startUnderstanding(thread) },
+      showSource: { showUnderstandingSource($0, in: thread) }
+    )
+    .presentationDetents([.medium, .large])
+  }
+
+  private func contactReviewSheet(for review: ContactReview) -> some View {
+    ContactNativeReviewSheet(
+      review: review,
+      didComplete: {
+        if let contactReviewDismissalIdentifier {
+          featureSuggestionStore.dismiss(
+            contactReviewDismissalIdentifier,
+            feature: .addToContacts
+          )
+        }
+        contactReview = nil
+      },
+      didCancel: {
+        contactReview = nil
+      }
+    )
   }
 
   @ViewBuilder
