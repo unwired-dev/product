@@ -119,10 +119,15 @@ final class MailTestBootstrapUITests: XCTestCase {
       app.buttons["mail-compose-schedule-send"].waitForExistence(timeout: 2),
       "MAIL_TEST_FAILURE:ui: The automatic scheduling confirmation was not visible."
     )
+    let automaticTimingExplanation = app.staticTexts.matching(
+      NSPredicate(
+        format: "label == %@",
+        "An eligible trusted device will attempt delivery at or after the selected time. "
+          + "Delivery may wait up to 24 hours for the app to run."
+      )
+    ).firstMatch
     XCTAssertTrue(
-      app.staticTexts[
-        "An eligible trusted device will attempt delivery at or after the selected time. Delivery may wait up to 24 hours for the app to run."
-      ].exists,
+      automaticTimingExplanation.exists,
       "MAIL_TEST_FAILURE:ui: The automatic timing promise was not provider-neutral."
     )
 
