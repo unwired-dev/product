@@ -228,12 +228,12 @@ final class MailTestBootstrapUITests: XCTestCase {
     recipient.typeKey(.return, modifierFlags: [])
     try removeRecipientTokens(in: app)
     try focusAndType(
-      "recipient@synthetic.invalid,",
+      "recipient@synthetic.invalid",
       into: recipient,
       in: app,
       failure: "MAIL_TEST_FAILURE:ui: The recipient field could not be focused after token removal."
     )
-    recipient.typeKey(.return, modifierFlags: [])
+    app.keyboards.buttons["return"].tap()
     assertRecipientReplacement(in: app)
   }
 
