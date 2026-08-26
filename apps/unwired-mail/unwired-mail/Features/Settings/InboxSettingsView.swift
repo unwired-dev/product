@@ -208,17 +208,36 @@ struct InboxSettingsView: View {
           Label("Changes are saved on this device and waiting to sync.", systemImage: "clock")
         }
         if let errorMessage = store.errorMessage ?? featureSuggestionStore.errorMessage {
-          Text(errorMessage)
-            .foregroundStyle(.red)
-          Button("Try Again") {
+          SettingsInlineErrorView(
+            message: errorMessage,
+            isRetrying: store.isSynchronizing || featureSuggestionStore.isSynchronizing
+          ) {
             Task {
-              await store.synchronize()
-              await featureSuggestionStore.synchronize()
+              await Self.retryFailedSynchronizations(
+                inboxFailed: store.errorMessage != nil,
+                featureSuggestionsFailed: featureSuggestionStore.errorMessage != nil,
+                synchronizeInbox: { await store.synchronize() },
+                synchronizeFeatureSuggestions: { await featureSuggestionStore.synchronize() }
+              )
             }
           }
-          .disabled(store.isSynchronizing || featureSuggestionStore.isSynchronizing)
         }
       }
+    }
+  }
+
+  @MainActor
+  static func retryFailedSynchronizations(
+    inboxFailed: Bool,
+    featureSuggestionsFailed: Bool,
+    synchronizeInbox: () async -> Void,
+    synchronizeFeatureSuggestions: () async -> Void
+  ) async {
+    if inboxFailed {
+      await synchronizeInbox()
+    }
+    if featureSuggestionsFailed {
+      await synchronizeFeatureSuggestions()
     }
   }
 

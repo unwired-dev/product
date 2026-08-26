@@ -243,10 +243,7 @@ struct MailShellComposer: View {
             MailComposerSubjectField(
               subject: $viewModel.draft.subject,
               focusedField: $focusedField,
-              focusBody: {
-                focusedField = nil
-                isBodyFocused = true
-              }
+              focusBody: focusBody
             )
             Divider()
             MailComposerActionBar(
@@ -472,6 +469,15 @@ struct MailShellComposer: View {
       isExpanded: navigation.isExpanded,
       toggle: navigation.toggleExpansion
     )
+  }
+
+  private func focusBody() {
+    focusedField = nil
+    Task { @MainActor in
+      await Task.yield()
+      guard focusedField == nil else { return }
+      isBodyFocused = true
+    }
   }
 
   private func updateSendingIdentity(_ identityId: SendingIdentityId?) {

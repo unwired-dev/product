@@ -338,8 +338,9 @@ struct MailProfilesSettingsView: View {
     List {
       if let errorMessage = viewModel.errorMessage {
         Section {
-          Label(errorMessage, systemImage: "exclamationmark.triangle")
-            .foregroundStyle(.orange)
+          SettingsInlineErrorView(message: errorMessage, isRetrying: viewModel.isWorking) {
+            Task { await viewModel.load() }
+          }
         }
       }
 

@@ -225,25 +225,49 @@ final class MailTestBootstrapUITests: XCTestCase {
   }
 
   private func replaceRecipientTokens(in recipient: XCUIElement, app: XCUIApplication) throws {
-    for index in 0..<12 {
-      let token = app.buttons["Remove recipient\(index)@synthetic.invalid"]
-      XCTAssertTrue(
-        token.waitForExistence(timeout: 2),
-        "The recipient token at index \(index) was not removable."
-      )
-      token.tap()
-    }
+    recipient.typeKey(.return, modifierFlags: [])
+    try removeRecipientTokens(in: app)
     try focusAndType(
       "recipient@synthetic.invalid",
       into: recipient,
       in: app,
       failure: "MAIL_TEST_FAILURE:ui: The recipient field could not be focused after token removal."
     )
-    recipient.typeKey(.return, modifierFlags: [])
+    app.keyboards.buttons["return"].tap()
     assertRecipientReplacement(in: app)
   }
 
+  private func removeRecipientTokens(in app: XCUIApplication) throws {
+    let recipientTokens = app.buttons.matching(
+      NSPredicate(format: "label BEGINSWITH %@", "Remove recipient")
+    )
+    let firstToken = recipientTokens.firstMatch
+    guard firstToken.waitForExistence(timeout: 5) else {
+      XCTFail("The populated recipients did not appear.")
+      throw NSError(domain: "MailTestBootstrapUITests", code: 1)
+    }
+    var removedCount = 0
+    while removedCount < 12 {
+      let token = recipientTokens.firstMatch
+      guard token.exists else { break }
+      let tokenLabel = token.label
+      token.tap()
+      guard app.buttons[tokenLabel].waitForNonExistence(timeout: 5) else {
+        XCTFail("The populated recipient remained after removal.")
+        throw NSError(domain: "MailTestBootstrapUITests", code: 1)
+      }
+      removedCount += 1
+    }
+    XCTAssertEqual(removedCount, 12, "Not every populated recipient was removed.")
+    XCTAssertFalse(recipientTokens.firstMatch.exists, "A populated recipient remained.")
+  }
+
   private func assertRecipientReplacement(in app: XCUIApplication) {
+    let replacement = app.buttons["Remove recipient@synthetic.invalid"]
+    XCTAssertTrue(
+      replacement.waitForExistence(timeout: 2),
+      "The expected recipient replacement did not appear."
+    )
     let recipientTokens = app.buttons.matching(
       NSPredicate(format: "label BEGINSWITH %@", "Remove recipient")
     )
@@ -253,7 +277,7 @@ final class MailTestBootstrapUITests: XCTestCase {
       "The recipient replacement did not remove every previous recipient."
     )
     XCTAssertEqual(
-      recipientTokens.firstMatch.label,
+      replacement.label,
       "Remove recipient@synthetic.invalid",
       "The recipient replacement did not keep the expected recipient."
     )
