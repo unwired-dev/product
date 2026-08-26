@@ -128,8 +128,20 @@ final class MailTestBootstrapUITests: XCTestCase {
       in: app,
       failure: "MAIL_TEST_FAILURE:ui: The recipient field did not receive keyboard focus."
     )
-    recipient.typeKey("a", modifierFlags: .command)
-    recipient.typeText("recipient@synthetic.invalid")
+    for index in 0..<12 {
+      let token = app.buttons["Remove recipient\(index)@synthetic.invalid"]
+      XCTAssertTrue(
+        token.waitForExistence(timeout: 2),
+        "The recipient token at index \(index) was not removable."
+      )
+      token.tap()
+    }
+    try focusAndType(
+      "recipient@synthetic.invalid",
+      into: recipient,
+      in: app,
+      failure: "MAIL_TEST_FAILURE:ui: The recipient field could not be focused after token removal."
+    )
     recipient.typeKey(.return, modifierFlags: [])
     assertRecipientReplacement(in: app)
     let subject = try requireElement(
