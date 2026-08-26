@@ -23,6 +23,20 @@ type TestCommandRunner = (
   arguments_: readonly string[],
 ) => Promise<{ stderr: string; stdout: string }>;
 
+const scheduledSendTestIdentifiers = [
+  'OutboxDeliveryServiceTests/testScheduledSendNeverHandsOffEarlyAndResumesAfterRestart()',
+  'OutboxDeliveryServiceTests/testScheduledSendBecomesNeedsAttentionAfterTwentyFourHoursWithoutHandoff()',
+  'OutboxDeliveryServiceTests/testEditAndCancelLoseRaceOnceProviderHandoffStarts()',
+  'OutboxDeliveryServiceTests/dueScheduledSendRetainsRetryCleanupAfterATransientFailure()',
+  'OutboxDeliveryServiceTests/testPermanentGraphFailureDeletesProviderDraftWithoutChangingFailureOutcome()',
+  'SendReminderSyncServiceTests/reminderAndDraftSynchronizeWithinOneProfileAndTransferOwnership()',
+  'SwiftMailEngineTests/testSMTPAmbiguousPostContentFailureIsNeverRetryable()',
+  'OutboxDeliveryServiceTests/microsoftGraphScheduledSendAdmissionPreservesItsPayloadAndConnection()',
+  'OutboxDeliveryServiceTests/exchangeWebServicesScheduledSendAdmissionPreservesItsPayloadAndConnection()',
+  'OutboxDeliveryServiceTests/standardsMailScheduledSendAdmissionPreservesItsPayloadAndConnection()',
+  'ScheduledSendReleasePolicyTests/newSchedulingIsReleaseGatedWhileExistingCommitmentsRemainEditable()',
+];
+
 describe('mail test device lifecycle', () => {
   it('creates a persistent simulator with the requested sandbox name', async () => {
     expect.assertions(2);
@@ -433,19 +447,7 @@ describe('mail test device lifecycle', () => {
         {
           children: [
             {
-              children: [
-                'OutboxDeliveryServiceTests/testScheduledSendNeverHandsOffEarlyAndResumesAfterRestart()',
-                'OutboxDeliveryServiceTests/testScheduledSendBecomesNeedsAttentionAfterTwentyFourHoursWithoutHandoff()',
-                'OutboxDeliveryServiceTests/testEditAndCancelLoseRaceOnceProviderHandoffStarts()',
-                'OutboxDeliveryServiceTests/dueScheduledSendRetainsRetryCleanupAfterATransientFailure()',
-                'OutboxDeliveryServiceTests/testPermanentGraphFailureDeletesProviderDraftWithoutChangingFailureOutcome()',
-                'SendReminderSyncServiceTests/reminderAndDraftSynchronizeWithinOneProfileAndTransferOwnership()',
-                'SwiftMailEngineTests/testSMTPAmbiguousPostContentFailureIsNeverRetryable()',
-                'OutboxDeliveryServiceTests/microsoftGraphScheduledSendAdmissionPreservesItsPayloadAndConnection()',
-                'OutboxDeliveryServiceTests/exchangeWebServicesScheduledSendAdmissionPreservesItsPayloadAndConnection()',
-                'OutboxDeliveryServiceTests/standardsMailScheduledSendAdmissionPreservesItsPayloadAndConnection()',
-                'ScheduledSendReleasePolicyTests/newSchedulingIsReleaseGatedWhileExistingCommitmentsRemainEditable()',
-              ].map((nodeIdentifier) => ({
+              children: scheduledSendTestIdentifiers.map((nodeIdentifier) => ({
                 nodeIdentifier,
                 nodeType: 'Test Case',
                 result: 'Passed',
@@ -542,6 +544,59 @@ describe('mail test device lifecycle', () => {
         run,
       ),
     ).rejects.toThrow('selected 9 tests; expected at least 11 passing tests');
+  });
+
+  it('rejects Scheduled Send deterministic evidence missing a required identifier', async () => {
+    expect.assertions(1);
+    const run = vi.fn<TestCommandRunner>();
+    run
+      .mockResolvedValueOnce(result())
+      .mockResolvedValueOnce(
+        result(
+          JSON.stringify({
+            failedTests: 0,
+            passedTests: 11,
+            result: 'Passed',
+            skippedTests: 0,
+            totalTestCount: 11,
+          }),
+        ),
+      )
+      .mockResolvedValueOnce(
+        result(
+          JSON.stringify({
+            testNodes: [
+              {
+                children: [
+                  {
+                    children: scheduledSendTestIdentifiers
+                      .slice(1)
+                      .map((nodeIdentifier) => ({
+                        nodeIdentifier,
+                        nodeType: 'Test Case',
+                        result: 'Passed',
+                      })),
+                  },
+                ],
+              },
+            ],
+          }),
+        ),
+      );
+
+    await expect(
+      runScheduledSendDeterministicTests(
+        {
+          root: '/tmp/run',
+          simulator: {
+            name: 'Unwired Mail Test run',
+            runtime: 'iOS 26.5',
+            udid: 'AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE',
+          },
+        },
+        run,
+      ),
+    ).rejects.toThrow(scheduledSendTestIdentifiers[0]);
   });
 
   it('runs the requested UI step on the exact owned simulator', async () => {

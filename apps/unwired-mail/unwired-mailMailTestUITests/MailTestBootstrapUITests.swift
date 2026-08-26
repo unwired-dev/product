@@ -79,6 +79,7 @@ final class MailTestBootstrapUITests: XCTestCase {
     waitForOutboxToDrain(in: app)
   }
 
+  // XCUITest is required to verify accessibility and keyboard interaction across the app boundary.
   func testSendLaterPresentsAutomaticAndReminderModes() throws {
     let app = launchApplication()
     let body = try openVisibleDraft(
@@ -120,7 +121,7 @@ final class MailTestBootstrapUITests: XCTestCase {
     )
     XCTAssertTrue(
       app.staticTexts[
-        "An eligible trusted device will send at or after the selected time. Delivery may wait until the app can run."
+        "An eligible trusted device will attempt delivery at or after the selected time. Delivery may wait up to 24 hours for the app to run."
       ].exists,
       "MAIL_TEST_FAILURE:ui: The automatic timing promise was not provider-neutral."
     )

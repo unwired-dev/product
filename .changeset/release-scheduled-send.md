@@ -1,4 +1,5 @@
 ---
+'@private-email/mail-test-harness': minor
 'unwired-mail': patch
 ---
 

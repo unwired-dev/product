@@ -589,6 +589,7 @@ struct MailShellComposer: View {
     ToolbarItem(placement: .confirmationAction) {
       MailComposerSendButton(
         title: scheduledSendDueAt == nil ? "Send" : "Save Changes",
+        canAutomaticallySend: canScheduleSend,
         canSendLater: viewModel.canCreateSendReminder,
         isSendEnabled: isSendEnabled,
         send: sendDraft,
