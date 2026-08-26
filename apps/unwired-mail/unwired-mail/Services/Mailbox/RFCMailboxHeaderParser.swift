@@ -1,8 +1,17 @@
 import Foundation
 
-struct RFCMailbox {
+struct RFCMailbox: Equatable, Sendable {
   let displayName: String?
   let emailAddress: String
+
+  var headerValue: String {
+    guard let displayName, !displayName.isEmpty else { return emailAddress }
+    let escapedName =
+      displayName
+      .replacing("\\", with: "\\\\")
+      .replacing("\"", with: "\\\"")
+    return "\"\(escapedName)\" <\(emailAddress)>"
+  }
 }
 
 // The parser stays centralized so incoming-header and outgoing-recipient validation share rules.
@@ -17,6 +26,17 @@ enum RFCMailboxHeaderParser {
 
   static func mailboxes(in value: String) -> [RFCMailbox]? {
     parsedMailboxes(in: value, allowsGroups: false, preservesAddressCase: false)
+  }
+
+  /// Parses one recipient mailbox without altering the address spelling.
+  static func singleRecipientMailbox(in value: String) -> RFCMailbox? {
+    guard let mailboxes = recipientMailboxes(in: value), mailboxes.count == 1 else { return nil }
+    return mailboxes[0]
+  }
+
+  /// Parses recipient mailboxes without altering their address spelling.
+  static func recipientMailboxes(in value: String) -> [RFCMailbox]? {
+    parsedMailboxes(in: value, allowsGroups: false, preservesAddressCase: true)
   }
 
   static func recipientAddresses(in value: String) -> [String]? {
