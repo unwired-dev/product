@@ -12374,7 +12374,7 @@ private final class RecordingAdapterMailActionService:
   private var recordedMessageIds: [String] = []
   private var recordedOutgoingMessage: GmailOutgoingMessage?
   private var recordedPerformedActions: [PerformedAdapterAction] = []
-  private var recordedPerformedProviderAccountIdentifiers: [String] = []
+  private var recordedPerformedAccountIds: [String] = []
   private var recordedSentProviderAccountIdentifiers: [String] = []
 
   var action: GmailProviderMailAction? { lock.withLock { recordedAction } }
@@ -12382,7 +12382,7 @@ private final class RecordingAdapterMailActionService:
   var outgoingMessage: GmailOutgoingMessage? { lock.withLock { recordedOutgoingMessage } }
   var performedActions: [PerformedAdapterAction] { lock.withLock { recordedPerformedActions } }
   var performedProviderAccountIdentifiers: [String] {
-    lock.withLock { recordedPerformedProviderAccountIdentifiers }
+    lock.withLock { recordedPerformedAccountIds }
   }
   var sentProviderAccountIdentifiers: [String] {
     lock.withLock { recordedSentProviderAccountIdentifiers }
@@ -12406,7 +12406,7 @@ private final class RecordingAdapterMailActionService:
           action: action,
           providerAccountIdentifier: connection.providerAccountIdentifier
         ))
-      recordedPerformedProviderAccountIdentifiers.append(connection.providerAccountIdentifier)
+      recordedPerformedAccountIds.append(connection.providerAccountIdentifier)
       eventLog?.events.append("resume")
     }
   }
