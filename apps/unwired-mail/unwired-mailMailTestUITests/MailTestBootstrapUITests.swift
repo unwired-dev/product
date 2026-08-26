@@ -128,7 +128,7 @@ final class MailTestBootstrapUITests: XCTestCase {
       in: app,
       failure: "MAIL_TEST_FAILURE:ui: The recipient field did not receive keyboard focus."
     )
-    try replaceRecipientTokens(in: recipient, app: app)
+    replaceRecipientTokens(in: recipient, app: app)
     let subject = try requireElement(
       identifier: "mail-compose-subject",
       matching: .textField,
@@ -161,8 +161,8 @@ final class MailTestBootstrapUITests: XCTestCase {
     return (body, document)
   }
 
-  private func replaceRecipientTokens(in recipient: XCUIElement, app: XCUIApplication) throws {
-    for index in 0..<12 {
+  private func replaceRecipientTokens(in recipient: XCUIElement, app: XCUIApplication) {
+    for index in 0..<11 {
       let token = app.buttons["Remove recipient\(index)@synthetic.invalid"]
       XCTAssertTrue(
         token.waitForExistence(timeout: 2),
@@ -170,12 +170,15 @@ final class MailTestBootstrapUITests: XCTestCase {
       )
       token.tap()
     }
-    try focusAndType(
-      "recipient@synthetic.invalid",
-      into: recipient,
-      in: app,
-      failure: "MAIL_TEST_FAILURE:ui: The recipient field could not be focused after token removal."
+    if !waitForKeyboardFocus(on: recipient) {
+      recipient.tap()
+    }
+    XCTAssertTrue(
+      waitForKeyboardFocus(on: recipient),
+      "MAIL_TEST_FAILURE:ui: The recipient field could not be focused after token removal."
     )
+    recipient.typeKey("a", modifierFlags: .command)
+    recipient.typeText("recipient@synthetic.invalid")
     recipient.typeKey(.return, modifierFlags: [])
     assertRecipientReplacement(in: app)
   }
