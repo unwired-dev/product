@@ -3,4 +3,4 @@
 'unwired-mail': patch
 ---
 
-Enable two-mode Scheduled Send after protected provider compatibility evidence and add deterministic local release coverage.
+Gate two-mode Scheduled Send on protected provider evidence and add deterministic local release coverage.

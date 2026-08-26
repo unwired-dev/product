@@ -35,6 +35,7 @@ const scheduledSendTestIdentifiers = [
   'OutboxDeliveryServiceTests/exchangeWebServicesScheduledSendAdmissionPreservesItsPayloadAndConnection()',
   'OutboxDeliveryServiceTests/standardsMailScheduledSendAdmissionPreservesItsPayloadAndConnection()',
   'ScheduledSendReleasePolicyTests/newSchedulingIsEnabledAfterProtectedProviderCompatibilityCompletes()',
+  'ScheduledSendReleasePolicyTests/newSchedulingIsReleaseGatedWhileExistingCommitmentsRemainEditable()',
 ];
 
 describe('mail test device lifecycle', () => {
