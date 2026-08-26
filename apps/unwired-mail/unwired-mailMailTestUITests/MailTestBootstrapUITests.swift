@@ -130,6 +130,20 @@ final class MailTestBootstrapUITests: XCTestCase {
     )
     recipient.typeKey("a", modifierFlags: .command)
     recipient.typeText("recipient@synthetic.invalid")
+    recipient.typeKey(.return, modifierFlags: [])
+    let recipientTokens = app.buttons.matching(
+      NSPredicate(format: "label BEGINSWITH %@", "Remove recipient")
+    )
+    XCTAssertEqual(
+      recipientTokens.count,
+      1,
+      "The recipient replacement did not remove every previous recipient."
+    )
+    XCTAssertEqual(
+      recipientTokens.firstMatch.label,
+      "Remove recipient@synthetic.invalid",
+      "The recipient replacement did not keep the expected recipient."
+    )
     let subject = try requireElement(
       identifier: "mail-compose-subject",
       matching: .textField,
