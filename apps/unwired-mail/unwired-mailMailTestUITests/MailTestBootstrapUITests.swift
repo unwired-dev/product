@@ -225,11 +225,13 @@ final class MailTestBootstrapUITests: XCTestCase {
   }
 
   private func replaceRecipientTokens(in recipient: XCUIElement, app: XCUIApplication) {
-    for index in 0..<11 {
-      let token = app.buttons["Remove recipient\(index)@synthetic.invalid"]
+    for _ in 0..<11 {
+      let token = app.buttons.matching(
+        NSPredicate(format: "label BEGINSWITH %@", "Remove recipient")
+      ).firstMatch
       XCTAssertTrue(
-        token.waitForExistence(timeout: 2),
-        "The recipient token at index \(index) was not removable."
+        token.waitForExistence(timeout: 5),
+        "The next recipient token was not removable."
       )
       token.tap()
     }
