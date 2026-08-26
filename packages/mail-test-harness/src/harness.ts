@@ -28,6 +28,7 @@ import {
   mailTestSimulatorIntent,
   prepareMailTestSimulator,
   runMailTestApplication,
+  runScheduledSendDeterministicTests,
 } from './apple.ts';
 import { resolveGreenMailArtifact } from './artifact.ts';
 import { startMailTestCoordinator } from './coordination.ts';
@@ -121,6 +122,7 @@ export interface SmokeEvidence {
     smtpDelivery: true;
     visibleSeed: true;
     visibleSendAndReply: true;
+    scheduledSendLocalEvidence: true;
   };
   cleanup: CleanupResult;
   endpoints: {
@@ -130,7 +132,14 @@ export interface SmokeEvidence {
   kind: 'mail-test-evidence';
   runId: string;
   scenario: 'core-mail-loop';
-  schemaVersion: 2;
+  scheduledSend: {
+    automaticAndReminderModes: 'verified';
+    sharedDeliveryComponents: 'verified';
+    protectedProviderCompatibility: 'required';
+    providerAdmission: 'verified';
+    selectedSwiftTests: number;
+  };
+  schemaVersion: 3;
   status: 'passed';
   visibleClient: Record<MailTestVisibleStep, VisibleStepEvidence> &
     Record<MailTestSendStep, VisibleSendStepEvidence>;
@@ -292,6 +301,19 @@ export async function runCoreMailLoopSmoke(
       signal,
       state: context.state,
     });
+    const selectedSwiftTests = await runScheduledSendDeterministicTests({
+      resultBundleDirectory: options.resultBundleDirectory,
+      root: context.root,
+      signal,
+      simulator,
+    });
+    await runMailTestApplication({
+      resultBundleDirectory: options.resultBundleDirectory,
+      root: context.root,
+      signal,
+      simulator,
+      testName: 'testSendLaterPresentsAutomaticAndReminderModes',
+    });
     const visibleSteps = await exerciseVisibleStepsClient({
       certificatePath: path.join(context.root, 'greenmail-ca.pem'),
       endpoints: context.endpoints,
@@ -312,7 +334,11 @@ export async function runCoreMailLoopSmoke(
       simulator,
       state: context.state,
     });
-    return { ...mail, visibleClient: { ...visibleSteps, ...visibleSend } };
+    return {
+      ...mail,
+      selectedSwiftTests,
+      visibleClient: { ...visibleSteps, ...visibleSend },
+    };
   });
   return {
     artifact: { checksum: 'verified', version: '2.1.12' },
@@ -323,13 +349,21 @@ export async function runCoreMailLoopSmoke(
       smtpDelivery: true,
       visibleSeed: true,
       visibleSendAndReply: true,
+      scheduledSendLocalEvidence: true,
     },
     cleanup: result.cleanup,
     endpoints: evidenceEndpoints(result.context.endpoints, result.value),
     kind: 'mail-test-evidence',
     runId: result.context.state.ownership.runId,
     scenario: 'core-mail-loop',
-    schemaVersion: 2,
+    scheduledSend: {
+      automaticAndReminderModes: 'verified',
+      sharedDeliveryComponents: 'verified',
+      protectedProviderCompatibility: 'required',
+      providerAdmission: 'verified',
+      selectedSwiftTests: result.value.selectedSwiftTests,
+    },
+    schemaVersion: 3,
     status: 'passed',
     visibleClient: result.value.visibleClient,
   };

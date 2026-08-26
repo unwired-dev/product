@@ -1222,6 +1222,9 @@ actor ScheduledSendService {
     provider: @escaping OutboxDeliveryPerformer,
     reconcile: @escaping OutboxDeliveryReconciler
   ) async throws -> OutgoingDeliveryAttempt {
+    guard ScheduledSendReleasePolicy.isEnabled else {
+      throw ScheduledSendAdmissionError.providerUnavailable
+    }
     try validate(message: message, connection: connection, dueAt: dueAt)
     let scheduleId = UUID()
     let dueAtMilliseconds = Int64(dueAt.timeIntervalSince1970 * 1_000)

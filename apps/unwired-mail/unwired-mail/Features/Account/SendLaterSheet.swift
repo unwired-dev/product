@@ -13,6 +13,7 @@ private enum SendLaterMode: String, CaseIterable, Identifiable {
 
 struct MailComposerSendButton: View {
   var title = "Send"
+  let canAutomaticallySend: Bool
   let canSendLater: Bool
   let isSendEnabled: Bool
   let send: () -> Void
@@ -42,7 +43,9 @@ struct MailComposerSendButton: View {
 
   private var accessibilityHint: String {
     if isSendEnabled {
-      "Sends now. Press and hold to schedule Gmail delivery or set a reminder."
+      canAutomaticallySend
+        ? "Sends now. Press and hold to schedule delivery or set a reminder."
+        : "Sends now. Press and hold to set a reminder."
     } else if canSendLater {
       "Send now is unavailable. Use Send Later to set a reminder."
     } else {
@@ -113,6 +116,7 @@ struct SendLaterSheet: View {
             }
           }
           .pickerStyle(.segmented)
+          .accessibilityIdentifier("mail-compose-send-later-mode")
         }
 
         if !presets.isEmpty {
@@ -172,7 +176,10 @@ struct SendLaterSheet: View {
         ToolbarItem(placement: .confirmationAction) {
           Button(mode == .automatically ? "Schedule Send" : "Remind Me to Send", action: save)
             .disabled(resolvedDate == nil || isSaving)
-            .accessibilityIdentifier("mail-compose-remind-to-send")
+            .accessibilityIdentifier(
+              mode == .automatically
+                ? "mail-compose-schedule-send" : "mail-compose-remind-to-send"
+            )
         }
       }
     }
@@ -227,7 +234,8 @@ struct SendLaterSheet: View {
   private var explanation: String {
     switch mode {
     case .automatically:
-      "This device will send through Gmail at or after the selected time. Delivery may wait until the app can run."
+      "An eligible trusted device will attempt delivery at or after the selected time. "
+        + "Delivery may wait up to 24 hours for the app to run."
     case .reminder:
       "This keeps the message as a Draft. It will not be sent automatically."
     }
