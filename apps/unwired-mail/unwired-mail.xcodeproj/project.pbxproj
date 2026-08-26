@@ -24,6 +24,8 @@
 		71A6A0602C0B000100000001 /* Services/ProductAccount/ProductAccountSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A0612C0B000100000001 /* Services/ProductAccount/ProductAccountSession.swift */; };
 		71A6A0622C0B000100000001 /* Features/Account/SignInView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A0632C0B000100000001 /* Features/Account/SignInView.swift */; };
 		71A6A0642C0B000100000001 /* Features/Account/AccountView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A0652C0B000100000001 /* Features/Account/AccountView.swift */; };
+		C0DEC0DE5780000000000001 /* Features/Account/MailPresentationDismissalCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE5780000000000002 /* Features/Account/MailPresentationDismissalCoordinator.swift */; };
+		C0DEC0DE5780000000000003 /* Features/Account/MailContentPresentationDismissalObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE5780000000000004 /* Features/Account/MailContentPresentationDismissalObserver.swift */; };
 		551000000000000000000001 /* Services/Mailbox/ProductAccountMailLoadScheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 551000000000000000000002 /* Services/Mailbox/ProductAccountMailLoadScheduler.swift */; };
 		551000000000000000000003 /* MailLoadSchedulerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 551000000000000000000004 /* MailLoadSchedulerTests.swift */; };
 		A539A539A539A539A539A539 /* Features/Account/MailShellThreadProjectionObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = B539B539B539B539B539B539 /* Features/Account/MailShellThreadProjectionObserver.swift */; };
@@ -324,6 +326,8 @@
 		71A6A0612C0B000100000001 /* Services/ProductAccount/ProductAccountSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/ProductAccount/ProductAccountSession.swift; sourceTree = "<group>"; };
 		71A6A0632C0B000100000001 /* Features/Account/SignInView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Account/SignInView.swift; sourceTree = "<group>"; };
 		71A6A0652C0B000100000001 /* Features/Account/AccountView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Account/AccountView.swift; sourceTree = "<group>"; };
+		C0DEC0DE5780000000000002 /* Features/Account/MailPresentationDismissalCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Account/MailPresentationDismissalCoordinator.swift; sourceTree = "<group>"; };
+		C0DEC0DE5780000000000004 /* Features/Account/MailContentPresentationDismissalObserver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Account/MailContentPresentationDismissalObserver.swift; sourceTree = "<group>"; };
 		551000000000000000000002 /* Services/Mailbox/ProductAccountMailLoadScheduler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/Mailbox/ProductAccountMailLoadScheduler.swift; sourceTree = "<group>"; };
 		551000000000000000000004 /* MailLoadSchedulerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MailLoadSchedulerTests.swift; sourceTree = "<group>"; };
 		B539B539B539B539B539B539 /* Features/Account/MailShellThreadProjectionObserver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Account/MailShellThreadProjectionObserver.swift; sourceTree = "<group>"; };
@@ -627,6 +631,8 @@
 				71A6A2102C0B000100000001 /* App/MailTestBootstrap.swift */,
 				71A6A0672C0B000100000001 /* Features/Account/RootView.swift */,
 				71A6A0652C0B000100000001 /* Features/Account/AccountView.swift */,
+				C0DEC0DE5780000000000002 /* Features/Account/MailPresentationDismissalCoordinator.swift */,
+				C0DEC0DE5780000000000004 /* Features/Account/MailContentPresentationDismissalObserver.swift */,
 				B539B539B539B539B539B539 /* Features/Account/MailShellThreadProjectionObserver.swift */,
 				C0DEC0DE412000000000004 /* Features/Account/ComposeAssistanceView.swift */,
 				C0DEC0DE413000000000004 /* Features/Account/ResponseAssistanceView.swift */,
@@ -1084,6 +1090,8 @@
 				71A6A2002C0B000100000001 /* App/MailTestBootstrap.swift in Sources */,
 				71A6A0662C0B000100000001 /* Features/Account/RootView.swift in Sources */,
 				71A6A0642C0B000100000001 /* Features/Account/AccountView.swift in Sources */,
+				C0DEC0DE5780000000000001 /* Features/Account/MailPresentationDismissalCoordinator.swift in Sources */,
+				C0DEC0DE5780000000000003 /* Features/Account/MailContentPresentationDismissalObserver.swift in Sources */,
 				551000000000000000000001 /* Services/Mailbox/ProductAccountMailLoadScheduler.swift in Sources */,
 				A539A539A539A539A539A539 /* Features/Account/MailShellThreadProjectionObserver.swift in Sources */,
 				C0DEC0DE412000000000003 /* Features/Account/ComposeAssistanceView.swift in Sources */,
