@@ -233,6 +233,7 @@ final class MailTestBootstrapUITests: XCTestCase {
       in: app,
       failure: "MAIL_TEST_FAILURE:ui: The recipient field could not be focused after token removal."
     )
+    recipient.typeKey(.return, modifierFlags: [])
     assertRecipientReplacement(in: app)
   }
 
