@@ -171,11 +171,16 @@ final class MailTestBootstrapUITests: XCTestCase {
       throw XCTSkip("MAIL_TEST_CAPABILITY_UNAVAILABLE:reply")
     }
     reply.tap()
-    let body = try requireElement(
-      identifier: "mail-compose-body",
-      matching: .textView,
-      in: app,
-      failure: "MAIL_TEST_FAILURE:ui: The reply composer did not open."
+    let composer = element(identifier: "mail-shell-composer-compactDestination", in: app)
+    XCTAssertTrue(
+      composer.waitForExistence(timeout: 15),
+      "MAIL_TEST_FAILURE:ui: The reply composer host did not open."
+    )
+    let body = composer.descendants(matching: .textView)
+      .matching(identifier: "mail-compose-body").firstMatch
+    XCTAssertTrue(
+      body.waitForExistence(timeout: 15),
+      "MAIL_TEST_FAILURE:ui: The reply composer body did not open."
     )
     try focusAndType(
       "Synthetic visible reply",

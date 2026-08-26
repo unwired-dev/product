@@ -1369,6 +1369,24 @@ final class MailboxConnectionSyncServiceTests {
   }
 
   @Test @MainActor
+  func testCompositionDraftPresentationRequiresMatchingActiveProfile() {
+    let originatingProfileId = MailProfileId(rawValue: "originating-profile")
+
+    #expect(
+      compositionDraftCanBePresented(
+        originatingProfileId: originatingProfileId,
+        activeProfileId: originatingProfileId
+      )
+    )
+    #expect(
+      !compositionDraftCanBePresented(
+        originatingProfileId: originatingProfileId,
+        activeProfileId: MailProfileId(rawValue: "new-active-profile")
+      )
+    )
+  }
+
+  @Test @MainActor
   func testNotificationConnectionSelectionWaitsForProfileActivation() async {
     let activationGate = ControlledProfileActivationGate()
     var didInspectProfileConnections = false

@@ -2,7 +2,7 @@
 
 Apple-first private email client and Convex backend.
 
-New-message composing stays inside the adaptive mail shell. Compact layouts present the composer as the navigation destination, wide layouts overlay only the detail column, and Expand temporarily gives the draft the full shell.
+New-message, Reply, Reply All, and Forward composing stay inside one adaptive Mail Shell composer session. Compact layouts present the composer as the navigation destination, wide layouts overlay only the detail column, and Expand temporarily gives the same Draft the full shell.
 
 The adaptive composer accepts files and photos as attachments, places dropped image data inline at the editor cursor, preserves asset bytes as bounded verified chunks inside encrypted Product Sync Draft storage, blocks Send while an asset is incomplete or a known provider size limit is exceeded, and delivers provider-compatible attachments and Content-ID inline images through Gmail, Microsoft Graph, EWS, and SMTP.
 
