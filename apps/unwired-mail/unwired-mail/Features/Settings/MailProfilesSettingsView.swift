@@ -40,6 +40,7 @@ final class MailProfileSettingsViewModel {
   private let service: MailProfileSettingsSyncing
   private let session: ProductAccountSessionSnapshot
   private let startupStore: MailProfileStartupSelectionPersisting
+  private let authorizedRemoteContentCache: AuthorizedRemoteContentCache
 
   var hasPendingChanges: Bool { lifecycleStore.hasPendingChanges }
 
@@ -60,6 +61,7 @@ final class MailProfileSettingsViewModel {
       KeychainMailProfileStateStore(),
     startupStore: MailProfileStartupSelectionPersisting =
       UserDefaultsMailProfileStartupStore(),
+    authorizedRemoteContentCache: AuthorizedRemoteContentCache = AuthorizedRemoteContentCache(),
     deletionReviewProvider:
       (
         (MailProfileId, MailProfileSyncSnapshot, ProductAccountSessionSnapshot) async throws
@@ -69,6 +71,7 @@ final class MailProfileSettingsViewModel {
     self.session = session
     self.service = service
     self.startupStore = startupStore
+    self.authorizedRemoteContentCache = authorizedRemoteContentCache
     self.deletionReviewProvider =
       deletionReviewProvider ?? Self.liveDeletionReview
     lifecycleStore = MailProfileLifecycleStore(
@@ -202,12 +205,19 @@ final class MailProfileSettingsViewModel {
       errorMessage = MailProfileSyncError.invalidLifecycleReview.localizedDescription
       return false
     }
-    return await performAuthoritativeChange(preferredProfileId: snapshot.defaultProfileId) {
+    let deleted = await performAuthoritativeChange(preferredProfileId: snapshot.defaultProfileId) {
       try await service.deleteProfile(
         review,
         session: session
       )
     }
+    if deleted {
+      try? authorizedRemoteContentCache.clear(
+        productAccountId: session.productAccountId,
+        profileId: profileId
+      )
+    }
+    return deleted
   }
 
   func connections(in profileId: MailProfileId) -> [MailboxConnectionId] {

@@ -245,6 +245,10 @@ struct StorageDataSettingsTests {
     let bodyDirectory = root.appending(path: "Bodies", directoryHint: .isDirectory)
     let attachmentDirectory = root.appending(path: "Attachments", directoryHint: .isDirectory)
     let draftDirectory = root.appending(path: "Drafts", directoryHint: .isDirectory)
+    let remoteContentDirectory = root.appending(
+      path: "RemoteContent",
+      directoryHint: .isDirectory
+    )
     let metadataFile = root.appending(path: "Metadata.store")
     for directory in [bodyDirectory, attachmentDirectory, draftDirectory] {
       try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -265,7 +269,8 @@ struct StorageDataSettingsTests {
         attachmentDirectory: attachmentDirectory,
         bodyCacheDirectory: bodyDirectory,
         draftDirectory: draftDirectory,
-        metadataLocations: [metadataFile]
+        metadataLocations: [metadataFile],
+        remoteContentDirectory: remoteContentDirectory
       )
     )
 
@@ -414,6 +419,7 @@ struct StorageDataSettingsTests {
       downloadedAttachmentByteCount: 0,
       draftByteCount: 0,
       metadataByteCount: 0,
+      remoteContentByteCount: 0,
       pendingDraftAssetByteCount: 0,
       pendingDraftAssetCount: 0
     )
@@ -489,6 +495,10 @@ struct StorageDataSettingsTests {
     let attachmentDirectory = root.appending(path: "Attachments", directoryHint: .isDirectory)
     let draftDirectory = root.appending(path: "Drafts", directoryHint: .isDirectory)
     let metadataFile = root.appending(path: "Metadata.store")
+    let remoteContentDirectory = root.appending(
+      path: "RemoteContent",
+      directoryHint: .isDirectory
+    )
     try fileManager.createDirectory(at: bodyDirectory, withIntermediateDirectories: true)
     try fileManager.createDirectory(at: attachmentDirectory, withIntermediateDirectories: true)
     try Data(repeating: 0x01, count: 5).write(to: metadataFile)
@@ -511,7 +521,8 @@ struct StorageDataSettingsTests {
         attachmentDirectory: attachmentDirectory,
         bodyCacheDirectory: bodyDirectory,
         draftDirectory: draftDirectory,
-        metadataLocations: [metadataFile]
+        metadataLocations: [metadataFile],
+        remoteContentDirectory: remoteContentDirectory
       )
     )
     return StorageFixture(metadataFile: metadataFile, service: service)
@@ -595,6 +606,7 @@ private actor SuspendingProductSyncExporter: ProductSyncExporting {
 
 private actor EmptyLocalMailStorageManager: LocalMailStorageManaging {
   func clearEvictableContent() async throws {}
+  func clearAuthorizedRemoteContent() async throws {}
 
   func snapshot() async throws -> LocalMailStorageSnapshot {
     LocalMailStorageSnapshot(
@@ -602,6 +614,7 @@ private actor EmptyLocalMailStorageManager: LocalMailStorageManaging {
       downloadedAttachmentByteCount: 0,
       draftByteCount: 0,
       metadataByteCount: 0,
+      remoteContentByteCount: 0,
       pendingDraftAssetByteCount: 0,
       pendingDraftAssetCount: 0
     )
@@ -648,6 +661,10 @@ private actor ControlledLocalMailStorageManager: LocalMailStorageManaging {
     if let clearError {
       throw clearError
     }
+  }
+
+  func clearAuthorizedRemoteContent() async throws {
+    try await clearEvictableContent()
   }
 
   func snapshot() async throws -> LocalMailStorageSnapshot {

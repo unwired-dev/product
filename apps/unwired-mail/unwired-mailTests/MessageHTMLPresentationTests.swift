@@ -3718,6 +3718,242 @@ extension MessageHTMLPresentationTests {
     #expect(result.loadedImageCount == 0)
     #expect(result.failedImageCount == 1)
   }
+
+  @Test(.bug(id: 558))
+  func testAuthorizedRemoteContentCacheReopensWithoutNetworkRequest() async throws {
+    let fixture = try authorizedRemoteContentCacheFixture()
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    let firstLoader = RemoteMessageContentLoader(
+      cache: fixture.cache,
+      cacheContext: fixture.context,
+      fetch: { request, _ in
+        (
+          fixture.png,
+          try requireValue(
+            HTTPURLResponse(
+              url: try requireValue(request.url),
+              statusCode: 200,
+              httpVersion: nil,
+              headerFields: ["Content-Type": "image/png"]
+            )
+          )
+        )
+      }
+    )
+
+    let firstResult = try await firstLoader.load(fixture.html)
+    #expect(firstResult.loadedImageCount == 1)
+    #expect(firstResult.cachedKeys.count == 1)
+
+    let reopenedCache = AuthorizedRemoteContentCache(
+      keyMaterialStore: fixture.keyStore,
+      rootDirectory: fixture.root
+    )
+    let reopenedResult = try await RemoteMessageContentLoader(
+      cache: reopenedCache,
+      cacheContext: fixture.context,
+      fetch: { _, _ in
+        Issue.record("Reopened authorized content must not make a remote request")
+        throw TestError.sanitizationFailed
+      }
+    ).load(fixture.html)
+
+    #expect(reopenedResult.loadedImageCount == 1)
+  }
+
+  @Test(.bug(id: 558))
+  func testAuthorizedRemoteContentCacheSeparatesAndClearsProfiles() throws {
+    let fixture = try authorizedRemoteContentCacheFixture()
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    let reference = try requireValue(fixture.html.remoteImageReferences.first)
+    let firstKey = fixture.context.key(for: reference)
+    let secondProfile = MailProfileId(rawValue: "profile-b")
+    let secondKey = AuthorizedRemoteContentCacheContext(
+      productAccountId: "product-account",
+      profileId: secondProfile,
+      messageId: fixture.messageId,
+      html: fixture.html
+    ).key(for: reference)
+    let image = RemoteMessageImage(
+      data: fixture.png,
+      identifier: reference.identifier,
+      mimeType: "image/png"
+    )
+    try fixture.cache.save(
+      image,
+      for: firstKey,
+      writePermit: fixture.cache.makeWritePermit(for: firstKey)
+    )
+    try fixture.cache.save(
+      image,
+      for: secondKey,
+      writePermit: fixture.cache.makeWritePermit(for: secondKey)
+    )
+
+    try fixture.cache.clear(
+      productAccountId: "product-account",
+      profileId: MailProfileId(rawValue: "profile-a")
+    )
+
+    #expect(fixture.cache.image(for: firstKey, identifier: reference.identifier) == nil)
+    #expect(fixture.cache.image(for: secondKey, identifier: reference.identifier) != nil)
+  }
+
+  @Test(.bug(id: 558))
+  func testAuthorizedRemoteContentCacheDoesNotStorePlaintext() throws {
+    let fixture = try authorizedRemoteContentCacheFixture()
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    let reference = try requireValue(fixture.html.remoteImageReferences.first)
+    let key = fixture.context.key(for: reference)
+    try fixture.cache.save(
+      RemoteMessageImage(
+        data: fixture.png,
+        identifier: reference.identifier,
+        mimeType: "image/png"
+      ),
+      for: key,
+      writePermit: fixture.cache.makeWritePermit(for: key)
+    )
+    let enumerator = try #require(
+      FileManager.default.enumerator(at: fixture.root, includingPropertiesForKeys: nil)
+    )
+    let storedFiles = enumerator.compactMap { $0 as? URL }.filter {
+      (try? $0.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true
+    }
+    let storedData = try storedFiles.reduce(into: Data()) { result, file in
+      result.append(try Data(contentsOf: file))
+    }
+
+    #expect(storedData.range(of: fixture.png) == nil)
+    #expect(storedData.range(of: Data(reference.url.absoluteString.utf8)) == nil)
+  }
+
+  @Test(.bug(id: 558))
+  // swiftlint:disable:next function_body_length
+  func testAuthorizedRemoteContentCacheProtectsDisplayedEntryFromLRUEviction() throws {
+    let fixture = try authorizedRemoteContentCacheFixture()
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    let firstReference = try requireValue(fixture.html.remoteImageReferences.first)
+    let secondReference = RemoteMessageImageReference(
+      identifier: "remote-image-1",
+      url: try requireValue(URL(string: "https://images.example.com/second.png"))
+    )
+    let firstKey = fixture.context.key(for: firstReference)
+    let secondKey = fixture.context.key(for: secondReference)
+    let image = RemoteMessageImage(
+      data: fixture.png,
+      identifier: firstReference.identifier,
+      mimeType: "image/png"
+    )
+    try fixture.cache.save(
+      image,
+      for: firstKey,
+      writePermit: fixture.cache.makeWritePermit(for: firstKey)
+    )
+    let oneEntryByteCount = Int(fixture.cache.storedByteCount())
+    try fixture.cache.save(
+      image,
+      for: secondKey,
+      writePermit: fixture.cache.makeWritePermit(for: secondKey)
+    )
+    let secondEntryByteCount = Int(fixture.cache.storedByteCount()) - oneEntryByteCount
+    try fixture.cache.clearAll()
+    let constrainedCache = AuthorizedRemoteContentCache(
+      keyMaterialStore: fixture.keyStore,
+      maximumStoredByteCount:
+        max(oneEntryByteCount, secondEntryByteCount)
+        + min(oneEntryByteCount, secondEntryByteCount) / 2,
+      rootDirectory: fixture.root
+    )
+    #expect(
+      try constrainedCache.save(
+        image,
+        for: firstKey,
+        writePermit: constrainedCache.makeWritePermit(for: firstKey)
+      )
+    )
+    constrainedCache.protect([firstKey])
+    #expect(
+      try constrainedCache.save(
+        image,
+        for: secondKey,
+        writePermit: constrainedCache.makeWritePermit(for: secondKey)
+      ) == false
+    )
+    #expect(constrainedCache.image(for: firstKey, identifier: firstReference.identifier) != nil)
+
+    constrainedCache.release([firstKey])
+    #expect(
+      try constrainedCache.save(
+        image,
+        for: secondKey,
+        writePermit: constrainedCache.makeWritePermit(for: secondKey)
+      )
+    )
+    #expect(constrainedCache.image(for: firstKey, identifier: firstReference.identifier) == nil)
+  }
+}
+
+private struct AuthorizedRemoteContentCacheFixture {
+  let cache: AuthorizedRemoteContentCache
+  let context: AuthorizedRemoteContentCacheContext
+  let html: SanitizedMessageHTML
+  let keyStore: InMemoryProductSyncKeyMaterialStore
+  let messageId: StableProviderMessageIdentity
+  let png: Data
+  let root: URL
+}
+
+private func authorizedRemoteContentCacheFixture() throws
+  -> AuthorizedRemoteContentCacheFixture
+{
+  let root = FileManager.default.temporaryDirectory.appending(
+    path: "AuthorizedRemoteContentCacheTests-\(UUID().uuidString)",
+    directoryHint: .isDirectory
+  )
+  let keyStore = InMemoryProductSyncKeyMaterialStore()
+  _ = try keyStore.ensureMaterial(productAccountId: "product-account", allowCreation: true)
+  let html = SanitizedMessageHTML(
+    documentHTML: #"<img data-unwired-remote-image="remote-image-0">"#,
+    remoteImageReferences: [
+      RemoteMessageImageReference(
+        identifier: "remote-image-0",
+        url: try requireValue(URL(string: "https://images.example.com/hero.png"))
+      )
+    ]
+  )
+  let messageId = StableProviderMessageIdentity(
+    connectionId: MailboxConnectionId(
+      providerMailboxIdentity: StableProviderMailboxIdentity(
+        providerId: .gmail,
+        value: "mailbox"
+      )
+    ),
+    providerMessageId: "message"
+  )
+  let png = try requireValue(
+    Data(
+      base64Encoded:
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+    )
+  )
+  return AuthorizedRemoteContentCacheFixture(
+    cache: AuthorizedRemoteContentCache(
+      keyMaterialStore: keyStore,
+      rootDirectory: root
+    ),
+    context: AuthorizedRemoteContentCacheContext(
+      productAccountId: "product-account",
+      profileId: MailProfileId(rawValue: "profile-a"),
+      messageId: messageId,
+      html: html
+    ),
+    html: html,
+    keyStore: keyStore,
+    messageId: messageId,
+    png: png,
+    root: root
+  )
 }
 
 private func remoteContentTestPresentation() throws -> SanitizedMessageHTML {
