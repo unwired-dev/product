@@ -231,26 +231,7 @@ final class MailTestBootstrapUITests: XCTestCase {
 
   func testReplyThroughVisibleClient() throws {
     let app = launchApplication()
-    let inbox = element(identifier: "mail-mailbox-inbox", in: app)
-    if !inbox.exists {
-      let sidebar = app.navigationBars.buttons.firstMatch
-      XCTAssertTrue(
-        sidebar.waitForExistence(timeout: 5),
-        "MAIL_TEST_FAILURE:ui: The mailbox sidebar could not be opened."
-      )
-      sidebar.tap()
-    }
-    XCTAssertTrue(
-      inbox.waitForExistence(timeout: 5),
-      "MAIL_TEST_FAILURE:ui: Inbox was not available for the reply source."
-    )
-    inbox.tap()
-    let source = try requireThread(replySourceSubject, in: app)
-    source.tap()
-    XCTAssertTrue(
-      element(identifier: "mail-conversation-reader", in: app).waitForExistence(timeout: 15),
-      "MAIL_TEST_FAILURE:ui: The seeded reply source did not open."
-    )
+    try openReplySource(in: app)
 
     let reply = element(identifier: "mail-reply", in: app)
     guard reply.waitForExistence(timeout: 3) else {
@@ -285,6 +266,29 @@ final class MailTestBootstrapUITests: XCTestCase {
 
     try sendVisibleDraft(step: "reply", in: app)
     try verifyReplyConversation(in: app)
+  }
+
+  private func openReplySource(in app: XCUIApplication) throws {
+    let inbox = element(identifier: "mail-mailbox-inbox", in: app)
+    if !inbox.exists {
+      let sidebar = app.navigationBars.buttons.firstMatch
+      XCTAssertTrue(
+        sidebar.waitForExistence(timeout: 5),
+        "MAIL_TEST_FAILURE:ui: The mailbox sidebar could not be opened."
+      )
+      sidebar.tap()
+    }
+    XCTAssertTrue(
+      inbox.waitForExistence(timeout: 5),
+      "MAIL_TEST_FAILURE:ui: Inbox was not available for the reply source."
+    )
+    inbox.tap()
+    let source = try requireThread(replySourceSubject, in: app)
+    source.tap()
+    XCTAssertTrue(
+      element(identifier: "mail-conversation-reader", in: app).waitForExistence(timeout: 15),
+      "MAIL_TEST_FAILURE:ui: The seeded reply source did not open."
+    )
   }
 
   private func launchApplication(

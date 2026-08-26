@@ -265,6 +265,12 @@ struct MailShellComposer: View {
             )
             Divider()
             MailComposerBodyField(editorModel: editorModel, isFocused: $isBodyFocused)
+              .simultaneousGesture(
+                TapGesture().onEnded {
+                  focusedField = nil
+                  isBodyFocused = true
+                }
+              )
               .dropDestination(for: Data.self) { items, _ in
                 addDroppedImages(items)
                 return !items.isEmpty
