@@ -3,4 +3,4 @@
 'unwired-mail': patch
 ---
 
-Keep Send Reminder available and gate new automatic Scheduled Send commitments in Release builds on protected-provider evidence; add deterministic local release coverage.
+Enable two-mode Scheduled Send after protected provider compatibility evidence and add deterministic local release coverage.
