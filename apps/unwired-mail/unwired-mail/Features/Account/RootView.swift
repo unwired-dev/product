@@ -5,10 +5,10 @@ struct RootView<SignedInContent: View>: View {
   private let signedInContent: (ProductAccountSessionSnapshot) -> SignedInContent
 
   @Environment(SettingsRouter.self) private var settingsRouter
+  @Environment(SettingsMailProfileContext.self) private var settingsMailProfileContext
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   @State private var navigationPath = NavigationPath()
   @State private var regularSettingsRequest: SettingsRouteRequest?
-  @State private var settingsMailProfileContext = SettingsMailProfileContext()
   @State private var settingsPresentationOwnerID = UUID()
 
   init(
@@ -48,7 +48,6 @@ struct RootView<SignedInContent: View>: View {
       .onChange(of: settingsRouter.request?.id) { _, _ in
         presentPendingSettingsRequest()
       }
-      .environment(settingsMailProfileContext)
     #endif
   }
 

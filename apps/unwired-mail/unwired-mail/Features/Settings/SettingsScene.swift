@@ -2595,6 +2595,7 @@ struct SettingsRootView: View {
           dismissAction: dismissAction,
           profilesDidChange: mailProfileContext.profilesDidChange
         )
+        .id(mailProfileContext.activeProfile?.id)
       }
     }
   }

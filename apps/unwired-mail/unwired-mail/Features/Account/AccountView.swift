@@ -1420,12 +1420,14 @@ enum MailProfileContentPresentationDismissal {
     showsMessageActionAlert: inout Bool,
     composerNavigation: inout MailShellComposerNavigationState,
     composerSendErrorMessage: inout String,
-    showsComposerSendError: inout Bool
+    showsComposerSendError: inout Bool,
+    compactSettingsIsPresented: inout Bool
   ) {
     showsMessageActionAlert = false
     composerNavigation.dismissAll()
     composerSendErrorMessage = ""
     showsComposerSendError = false
+    compactSettingsIsPresented = false
   }
 
   static func dismissReader<CategorySelection>(
@@ -2052,7 +2054,8 @@ struct AccountView: View {
         showsMessageActionAlert: &showsBlockedActionAlert,
         composerNavigation: &composerNavigation,
         composerSendErrorMessage: &composerSendErrorMessage,
-        showsComposerSendError: &showsComposerSendError
+        showsComposerSendError: &showsComposerSendError,
+        compactSettingsIsPresented: &compactSettingsIsPresented
       )
       contentPresentationDismissal.dismissPresentations()
     }
@@ -16277,5 +16280,6 @@ private struct CustomCategoryCreationView: View {
     )
   )
   .environment(SettingsRouter())
+  .environment(SettingsMailProfileContext())
   .environment(MessageContentPreferences())
 }

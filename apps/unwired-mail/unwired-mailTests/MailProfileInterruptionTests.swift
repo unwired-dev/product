@@ -56,17 +56,19 @@ struct MailProfileInterruptionTests {
   }
 
   @Test
-  func profileLockDismissesEveryContentBearingPresentationPath() {
+  func profileLockDismissesAccountContentPresentations() {
     var showsRootMessageActionAlert = true
     var composerNavigation = MailShellComposerNavigationState()
     composerNavigation.present(.new(defaultSendingConnectionId: nil))
     var composerSendErrorMessage = "Previous send failed."
     var showsComposerSendError = true
+    var compactSettingsIsPresented = true
     MailProfileContentPresentationDismissal.dismissRoot(
       showsMessageActionAlert: &showsRootMessageActionAlert,
       composerNavigation: &composerNavigation,
       composerSendErrorMessage: &composerSendErrorMessage,
-      showsComposerSendError: &showsComposerSendError
+      showsComposerSendError: &showsComposerSendError,
+      compactSettingsIsPresented: &compactSettingsIsPresented
     )
 
     var categorySelection: String? = "category"
@@ -80,6 +82,7 @@ struct MailProfileInterruptionTests {
     #expect(composerNavigation.draft == nil)
     #expect(composerSendErrorMessage.isEmpty)
     #expect(showsComposerSendError == false)
+    #expect(compactSettingsIsPresented == false)
     #expect(categorySelection == nil)
     #expect(readerMessageActionError == nil)
   }
