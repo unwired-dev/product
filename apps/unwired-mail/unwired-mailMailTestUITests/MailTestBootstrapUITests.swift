@@ -225,14 +225,8 @@ final class MailTestBootstrapUITests: XCTestCase {
   }
 
   private func replaceRecipientTokens(in recipient: XCUIElement, app: XCUIApplication) throws {
-    for index in 0..<12 {
-      let token = app.buttons["Remove recipient\(index)@synthetic.invalid"]
-      XCTAssertTrue(
-        token.waitForExistence(timeout: 2),
-        "The recipient token at index \(index) was not removable."
-      )
-      token.tap()
-    }
+    recipient.typeKey(.return, modifierFlags: [])
+    try removeRecipientTokens(in: app)
     try focusAndType(
       "recipient@synthetic.invalid",
       into: recipient,
@@ -240,7 +234,30 @@ final class MailTestBootstrapUITests: XCTestCase {
       failure: "MAIL_TEST_FAILURE:ui: The recipient field could not be focused after token removal."
     )
     recipient.typeKey(.return, modifierFlags: [])
+    XCTAssertTrue(
+      app.buttons["Remove recipient@synthetic.invalid"].waitForExistence(timeout: 2),
+      "The replacement recipient token did not appear."
+    )
     assertRecipientReplacement(in: app)
+  }
+
+  private func removeRecipientTokens(in app: XCUIApplication) throws {
+    let recipientTokens = app.buttons.matching(
+      NSPredicate(format: "label BEGINSWITH %@", "Remove recipient")
+    )
+    for index in 0..<12 {
+      let expectedToken = app.buttons["Remove recipient\(index)@synthetic.invalid"]
+      let token = expectedToken.exists ? expectedToken : recipientTokens.firstMatch
+      guard token.waitForExistence(timeout: 2) else {
+        XCTFail("The populated recipient could not be removed.")
+        throw NSError(domain: "MailTestBootstrapUITests", code: 1)
+      }
+      token.tap()
+      guard token.waitForNonExistence(timeout: 2) else {
+        XCTFail("The populated recipient remained after removal.")
+        throw NSError(domain: "MailTestBootstrapUITests", code: 1)
+      }
+    }
   }
 
   private func assertRecipientReplacement(in app: XCUIApplication) {

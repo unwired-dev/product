@@ -1417,7 +1417,6 @@ final class ProductAccountSessionTests {
   )
 
   @Test
-  // swiftlint:disable:next function_body_length
   func testSignOutClearsStoredSession() async throws {
     let remoteContentCleaner = RecordingAuthorizedRemoteContentCleaner()
     let gmailConnectionService = RecordingGmailProviderConnecting()

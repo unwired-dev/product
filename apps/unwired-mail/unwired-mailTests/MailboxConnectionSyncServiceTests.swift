@@ -2305,7 +2305,6 @@ final class MailboxConnectionSyncServiceTests {
     )
   }
 
-  // swiftlint:disable:next function_body_length
   private func makeServices(
     clock: @escaping () -> Int64 = {
       Int64(Date().timeIntervalSince1970 * 1_000)
@@ -2321,8 +2320,8 @@ final class MailboxConnectionSyncServiceTests {
     try secondStore.save(keyMaterial, productAccountId: secondDeviceSession.productAccountId)
     let transport = RecordingMailboxConnectionSyncTransport()
     let keyRotationReconciler = RecordingKeyRotationReconciler()
-    let firstRemoteContentCleaner = RecordingMailboxConnectionRemoteContentCleaner()
-    let secondRemoteContentCleaner = RecordingMailboxConnectionRemoteContentCleaner()
+    let firstRemoteContentCleaner = RecordingConnectionContentCleaner()
+    let secondRemoteContentCleaner = RecordingConnectionContentCleaner()
     return Services(
       firstDevice: MailboxConnectionSyncService(
         authorizedRemoteContentCache: firstRemoteContentCleaner,
@@ -2353,7 +2352,7 @@ final class MailboxConnectionSyncServiceTests {
     let firstKeyMaterialStore: InMemoryProductSyncKeyMaterialStore
     let keyMaterial: ProductSyncKeyMaterial
     let keyRotationReconciler: RecordingKeyRotationReconciler
-    let firstRemoteContentCleaner: RecordingMailboxConnectionRemoteContentCleaner
+    let firstRemoteContentCleaner: RecordingConnectionContentCleaner
     let secondDevice: MailboxConnectionSyncService
     let transport: RecordingMailboxConnectionSyncTransport
   }
@@ -2575,9 +2574,7 @@ final class MailboxConnectionSyncServiceTests {
   }
 }
 
-private final class RecordingMailboxConnectionRemoteContentCleaner:
-  AuthorizedRemoteContentCacheClearing
-{
+private final class RecordingConnectionContentCleaner: AuthorizedRemoteContentCacheClearing {
   private(set) var clearedConnectionIds: [MailboxConnectionId] = []
 
   func clear(productAccountId _: String) throws {}

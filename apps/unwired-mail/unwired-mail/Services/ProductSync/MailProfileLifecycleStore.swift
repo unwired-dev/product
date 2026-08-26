@@ -40,7 +40,7 @@ struct MailProfileLifecycleLocalState: Codable, Equatable, Sendable {
   var knownProfiles: [MailProfileDefinition]
   var nextRevision: Int
   var pendingCreates: [MailProfilePendingCreate]
-  var pendingRemoteContentCleanupProfileIds: [MailProfileId]? = nil
+  var pendingRemoteContentCleanupProfileIds: [MailProfileId]?
   var pendingUpdates: [MailProfilePendingUpdate]
 
   static let empty = MailProfileLifecycleLocalState(
