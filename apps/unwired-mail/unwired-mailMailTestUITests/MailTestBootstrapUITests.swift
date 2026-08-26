@@ -116,28 +116,7 @@ final class MailTestBootstrapUITests: XCTestCase {
   private func populateVisibleDraft(
     in app: XCUIApplication
   ) throws -> (body: XCUIElement, document: XCUIElement) {
-    let recipient = try requireElement(
-      identifier: "mail-compose-to",
-      matching: .textField,
-      in: app,
-      failure: "MAIL_TEST_FAILURE:ui: The recipient field was not visible."
-    )
-    try focusAndType(
-      (0..<12).map { "recipient\($0)@synthetic.invalid" }.joined(separator: ", "),
-      into: recipient,
-      in: app,
-      failure: "MAIL_TEST_FAILURE:ui: The recipient field did not receive keyboard focus."
-    )
-    recipient.typeKey(.return, modifierFlags: [])
-    try removePopulatedRecipients(in: app)
-    try focusAndType(
-      "recipient@synthetic.invalid",
-      into: recipient,
-      in: app,
-      failure: "MAIL_TEST_FAILURE:ui: The replacement recipient did not receive keyboard focus."
-    )
-    recipient.typeKey(.return, modifierFlags: [])
-    assertRecipientReplacement(in: app)
+    try replacePopulatedRecipients(in: app)
     let subject = try requireElement(
       identifier: "mail-compose-subject",
       matching: .textField,
@@ -168,6 +147,31 @@ final class MailTestBootstrapUITests: XCTestCase {
       failure: "MAIL_TEST_FAILURE:ui: Subject submission did not focus the message body."
     )
     return (body, document)
+  }
+
+  private func replacePopulatedRecipients(in app: XCUIApplication) throws {
+    let recipient = try requireElement(
+      identifier: "mail-compose-to",
+      matching: .textField,
+      in: app,
+      failure: "MAIL_TEST_FAILURE:ui: The recipient field was not visible."
+    )
+    try focusAndType(
+      (0..<12).map { "recipient\($0)@synthetic.invalid" }.joined(separator: ", "),
+      into: recipient,
+      in: app,
+      failure: "MAIL_TEST_FAILURE:ui: The recipient field did not receive keyboard focus."
+    )
+    recipient.typeKey(.return, modifierFlags: [])
+    try removePopulatedRecipients(in: app)
+    try focusAndType(
+      "recipient@synthetic.invalid",
+      into: recipient,
+      in: app,
+      failure: "MAIL_TEST_FAILURE:ui: The replacement recipient did not receive keyboard focus."
+    )
+    recipient.typeKey(.return, modifierFlags: [])
+    assertRecipientReplacement(in: app)
   }
 
   private func removePopulatedRecipients(in app: XCUIApplication) throws {
