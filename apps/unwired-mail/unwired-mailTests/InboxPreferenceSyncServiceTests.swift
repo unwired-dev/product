@@ -215,7 +215,7 @@ final class InboxPreferenceSyncServiceTests {
     )
     store.setPreviewLength(.three)
     syncService.snapshot = InboxPreferenceSyncSnapshot(
-      preferences: InboxPreferences(previewLength: .one),
+      preferences: InboxPreferences(previewLength: .two),
       updatedAt: 9
     )
 
@@ -225,7 +225,7 @@ final class InboxPreferenceSyncServiceTests {
     #expect(store.preferences.previewLength == .three)
     #expect(conflict?.field == .previewLength)
     #expect(conflict?.localValue == .previewLength(.three))
-    #expect(conflict?.remoteValue == .previewLength(.one))
+    #expect(conflict?.remoteValue == .previewLength(.two))
     #expect(syncService.saveCount == 0)
 
     store.resolveConflict(.previewLength, useLocalValue: true)
