@@ -7872,51 +7872,51 @@ struct MailShellConversationReader: View {
         )
 
         conversationScrollContent(for: thread, connection: connection)
-        .navigationTitle("")
-        .toolbarTitleDisplayMode(.inline)
-        .toolbarBackground(.thinMaterial, for: .navigationBar)
-        .toolbarBackground(.visible, for: .navigationBar)
-        .toolbar {
-          readerToolbarContent(
-            toolbarActions,
-            thread: thread,
-            connection: connection,
-            providerActions: providerActions
-          )
-        }
-        .sheet(item: $calendarReview) { review in
-          calendarReviewSheet(for: review)
-        }
-        .sheet(item: $sourceInspectionMessage) { message in
-          MailboxMessageSourceInspector(
-            message: message,
-            messageReader: messageReader,
-            revalidateTrustedDevice: revalidateTrustedDevice,
-            session: session
-          )
-        }
-        .sheet(
-          isPresented: $showsUnderstandingAssistance,
-          onDismiss: {
-            understandingErrorMessage = nil
-            mailAssistanceViewModel.discardPreview()
-          },
-          content: {
-            understandingAssistanceSheet(for: thread)
+          .navigationTitle("")
+          .toolbarTitleDisplayMode(.inline)
+          .toolbarBackground(.thinMaterial, for: .navigationBar)
+          .toolbarBackground(.visible, for: .navigationBar)
+          .toolbar {
+            readerToolbarContent(
+              toolbarActions,
+              thread: thread,
+              connection: connection,
+              providerActions: providerActions
+            )
           }
-        )
-        .onChange(of: thread.messages) { _, _ in
-          updateUnderstandingInputVersion(for: thread)
-        }
-        .modifier(
-          DuplicateProseEventAlertModifier(
-            calendarReview: $calendarReview,
-            proseDuplicateReview: $proseDuplicateReview
+          .sheet(item: $calendarReview) { review in
+            calendarReviewSheet(for: review)
+          }
+          .sheet(item: $sourceInspectionMessage) { message in
+            MailboxMessageSourceInspector(
+              message: message,
+              messageReader: messageReader,
+              revalidateTrustedDevice: revalidateTrustedDevice,
+              session: session
+            )
+          }
+          .sheet(
+            isPresented: $showsUnderstandingAssistance,
+            onDismiss: {
+              understandingErrorMessage = nil
+              mailAssistanceViewModel.discardPreview()
+            },
+            content: {
+              understandingAssistanceSheet(for: thread)
+            }
           )
-        )
-        .sheet(item: $contactReview) { review in
-          contactReviewSheet(for: review)
-        }
+          .onChange(of: thread.messages) { _, _ in
+            updateUnderstandingInputVersion(for: thread)
+          }
+          .modifier(
+            DuplicateProseEventAlertModifier(
+              calendarReview: $calendarReview,
+              proseDuplicateReview: $proseDuplicateReview
+            )
+          )
+          .sheet(item: $contactReview) { review in
+            contactReviewSheet(for: review)
+          }
       } else {
         ContentUnavailableView(
           "Select a thread",
