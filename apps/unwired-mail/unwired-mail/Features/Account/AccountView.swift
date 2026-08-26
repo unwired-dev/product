@@ -1328,6 +1328,13 @@ func profileScopedCacheClearConnections(
   selectedConnection.map { [$0] } ?? profileConnections
 }
 
+func compositionDraftCanBePresented(
+  originatingProfileId: MailProfileId,
+  activeProfileId: MailProfileId?
+) -> Bool {
+  originatingProfileId == activeProfileId
+}
+
 @MainActor
 func profileConnectionAfterActivation(
   _ connectionId: MailboxConnectionId,
@@ -3784,6 +3791,12 @@ struct AccountView: View {
           profileId: deepLink.profileId,
           session: snapshot
         )
+        guard
+          compositionDraftCanBePresented(
+            originatingProfileId: deepLink.profileId,
+            activeProfileId: profileViewModel.activeProfileId
+          )
+        else { return }
         guard var draft = drafts.first(where: { $0.id == deepLink.draftId }) else { return }
         if let reminder = draft.sendReminder,
           reminder.id == deepLink.reminderId,
@@ -3792,6 +3805,12 @@ struct AccountView: View {
           draft.sendReminder = nil
           draft.markEdited()
           try await saveCompositionDraft(draft, profileId: deepLink.profileId)
+          guard
+            compositionDraftCanBePresented(
+              originatingProfileId: deepLink.profileId,
+              activeProfileId: profileViewModel.activeProfileId
+            )
+          else { return }
           cancelSendReminder(reminder, draftId: draft.id, profileId: deepLink.profileId)
         }
         presentComposerDraft(draft)
@@ -4422,6 +4441,12 @@ extension AccountView {
       candidate.markEdited()
       do {
         try await saveCompositionDraft(candidate, profileId: profileId)
+        guard
+          compositionDraftCanBePresented(
+            originatingProfileId: profileId,
+            activeProfileId: profileViewModel.activeProfileId
+          )
+        else { return }
         cancelSendReminder(reminder, draftId: draft.id, profileId: profileId)
         presentComposerDraft(candidate)
       } catch {
