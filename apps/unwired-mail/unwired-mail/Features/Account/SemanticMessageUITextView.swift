@@ -2,7 +2,13 @@ import UIKit
 
 final class SemanticMessageUITextView: UITextView {
   var semanticBlockKinds: [SemanticMessageDocument.Block.Kind] = []
+  var didMoveToWindowAction: (() -> Void)?
   private(set) var isPasting = false
+
+  override func didMoveToWindow() {
+    super.didMoveToWindow()
+    didMoveToWindowAction?()
+  }
 
   override func paste(_ sender: Any?) {
     isPasting = true
