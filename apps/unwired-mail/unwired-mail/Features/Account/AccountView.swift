@@ -7347,10 +7347,6 @@ private struct MailShellThreadRow: View {
       .frame(width: unreadIndicatorSize, height: unreadIndicatorSize * 2.5)
       .accessibilityHidden(true)
 
-      if preferences.showsContactImages {
-        contactImage
-      }
-
       VStack(alignment: .leading, spacing: rowSpacing) {
         HStack(alignment: .firstTextBaseline) {
           Text(thread.latestMessage.from ?? "Unknown sender")
@@ -7426,29 +7422,6 @@ private struct MailShellThreadRow: View {
     return categoryNamesById[categoryId]
   }
 
-  private var contactImage: some View {
-    Circle()
-      .fill(Color.primary.opacity(0.14))
-      .frame(width: contactImageSize, height: contactImageSize)
-      .overlay {
-        Text(senderInitial)
-          .font(.caption.weight(.semibold))
-          .foregroundStyle(.primary)
-      }
-      .accessibilityHidden(true)
-  }
-
-  private var contactImageSize: CGFloat {
-    switch preferences.threadDensity {
-    case .compact:
-      return 26
-    case .comfortable:
-      return 32
-    case .spacious:
-      return 38
-    }
-  }
-
   private var isUnread: Bool {
     MailViewFilter.isUnread(thread)
   }
@@ -7470,11 +7443,6 @@ private struct MailShellThreadRow: View {
 
   private var showsAttachmentState: Bool {
     preferences.showsAttachmentIndicators && thread.latestMessage.hasAttachments
-  }
-
-  private var senderInitial: String {
-    let sender = thread.latestMessage.from?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-    return sender.first.map { String($0).uppercased() } ?? "?"
   }
 
   private var verticalPadding: CGFloat {
