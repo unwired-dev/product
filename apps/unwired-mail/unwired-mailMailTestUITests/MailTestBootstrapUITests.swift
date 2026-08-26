@@ -244,7 +244,12 @@ final class MailTestBootstrapUITests: XCTestCase {
     )
     recipient.typeKey("a", modifierFlags: .command)
     recipient.typeText("recipient@synthetic.invalid")
-    recipient.typeKey(.return, modifierFlags: [])
+    let addRecipient = app.buttons["Add recipient@synthetic.invalid"]
+    XCTAssertTrue(
+      addRecipient.waitForExistence(timeout: 2),
+      "The replacement recipient suggestion did not appear."
+    )
+    addRecipient.tap()
     assertRecipientReplacement(in: app)
   }
 
