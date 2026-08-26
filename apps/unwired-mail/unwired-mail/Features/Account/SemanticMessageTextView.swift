@@ -28,6 +28,12 @@ struct SemanticMessageTextView: UIViewRepresentable {
     textView.didMoveToWindowAction = { [weak coordinator = context.coordinator] in
       coordinator?.focusIfNeeded()
     }
+    textView.handleSlashCommandKey = { [weak coordinator = context.coordinator] key in
+      coordinator?.handleSlashCommandKey(key)
+    }
+    textView.layoutSubviewsAction = { [weak coordinator = context.coordinator] in
+      coordinator?.refreshSlashCommandMenuAfterLayout()
+    }
     context.coordinator.synchronizeTextView()
     return textView
   }
@@ -38,6 +44,16 @@ struct SemanticMessageTextView: UIViewRepresentable {
     if isFocused, textView.isFirstResponder == false {
       context.coordinator.focusIfNeeded()
     }
+  }
+
+  static func dismantleUIView(
+    _ textView: SemanticMessageUITextView,
+    coordinator: SemanticMessageTextViewCoordinator
+  ) {
+    textView.didMoveToWindowAction = nil
+    textView.handleSlashCommandKey = nil
+    textView.layoutSubviewsAction = nil
+    coordinator.dismissSlashCommandMenu()
   }
 
   func sizeThatFits(

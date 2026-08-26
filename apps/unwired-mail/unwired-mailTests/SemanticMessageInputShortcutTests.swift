@@ -139,4 +139,100 @@ struct SemanticMessageInputShortcutTests {
       ]
     )
   }
+
+  @MainActor
+  @Test("Slash queries begin at the first authored character", .bug(id: 563))
+  func slashQueryBeginsAtFirstAuthoredCharacter() {
+    let model = SemanticMessageEditorModel(
+      document: SemanticMessageDocument(plainText: "Intro\n  /hea")
+    )
+
+    #expect(
+      model.slashCommandContext
+        == SemanticMessageSlashCommand.Context(query: "hea", replacementRange: 8..<12)
+    )
+    #expect(
+      SemanticMessageSlashCommand.Presentation.commands(matching: "hea")
+        == [.heading1, .heading2, .heading3]
+    )
+  }
+
+  @MainActor
+  @Test(
+    "Slashes in prose, dates, and URLs do not open block commands",
+    .bug(id: 563),
+    arguments: [
+      "Read / later",
+      "2026/08/26",
+      "https://example.com",
+    ]
+  )
+  func embeddedSlashDoesNotOpenCommands(_ text: String) {
+    let model = SemanticMessageEditorModel(
+      document: SemanticMessageDocument(plainText: text)
+    )
+
+    #expect(model.slashCommandContext == nil)
+  }
+
+  @MainActor
+  @Test("Applying a slash command is one reversible document edit", .bug(id: 563))
+  func slashCommandIsAtomic() throws {
+    let source = SemanticMessageDocument(plainText: "Intro\n  /quo")
+    let model = SemanticMessageEditorModel(document: source)
+    let context = try #require(model.slashCommandContext)
+
+    #expect(model.applySlashCommand(.blockquote, context: context))
+    #expect(
+      model.document.blocks == [
+        .init(runs: [.init("Intro")]),
+        .init(kind: .blockquote, runs: [.init("  ")]),
+      ]
+    )
+
+    model.undo()
+    #expect(model.document == source)
+
+    model.redo()
+    #expect(model.document.blocks[1].kind == .blockquote)
+  }
+
+  @Test("Slash command catalog contains only interoperable blocks", .bug(id: 563))
+  func slashCommandCatalogIsBounded() {
+    #expect(
+      SemanticMessageSlashCommand.Presentation.commands(matching: "")
+        == [
+          .paragraph,
+          .heading1,
+          .heading2,
+          .heading3,
+          .bulletedList,
+          .numberedList,
+          .blockquote,
+          .codeBlock,
+        ]
+    )
+  }
+
+  @Test("Slash menu clamps on compact width and flips above the caret", .bug(id: 563))
+  func slashMenuUsesAdaptiveGeometry() {
+    let compactFrame = SemanticMessageSlashCommand.Presentation.menuFrame(
+      caretRect: CGRect(x: 250, y: 500, width: 2, height: 24),
+      visibleBounds: CGRect(x: 0, y: 0, width: 280, height: 560),
+      isCompactWidth: true,
+      commandCount: 8
+    )
+    let regularFrame = SemanticMessageSlashCommand.Presentation.menuFrame(
+      caretRect: CGRect(x: 500, y: 620, width: 2, height: 24),
+      visibleBounds: CGRect(x: 0, y: 0, width: 700, height: 680),
+      isCompactWidth: false,
+      commandCount: 8
+    )
+
+    #expect(compactFrame.width == 264)
+    #expect(compactFrame.maxX <= 272)
+    #expect(compactFrame.height == 264)
+    #expect(regularFrame.width == 320)
+    #expect(regularFrame.maxY < 620)
+  }
 }
