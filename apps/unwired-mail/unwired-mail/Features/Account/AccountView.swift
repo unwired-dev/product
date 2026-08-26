@@ -7873,95 +7873,7 @@ struct MailShellConversationReader: View {
                   .id(thread.id)
                 }
                 ForEach(thread.messages) { message in
-                  VStack(alignment: .leading, spacing: 0) {
-                    MailShellConversationMessageHeader(
-                      blockSender: { blockedSenderStore.block($0) },
-                      isSenderBlocked: blockedSenderStore.isBlocked(message.from),
-                      isLatest: message.id == thread.latestMessage.id,
-                      isOwnMessage: Self.messageHorizontalPlacement(
-                        providerStateIds: message.providerStateIds
-                      ) == .trailing,
-                      message: message,
-                      showSource: { sourceInspectionMessage = message }
-                    )
-                    Divider()
-                      .overlay(Color.white.opacity(0.08))
-                    VStack(alignment: .leading, spacing: 12) {
-                      MailShellConversationMessageBody(
-                        authorizeLinkOpening: {
-                          guard allowsContentReveal else { return false }
-                          return await revalidateTrustedDevice()
-                        },
-                        clearBodySignal: inboxViewModel.loadedMessageBodyClearSignal(
-                          for: message.id),
-                        removesQuotedReplies: Self.removesQuotedReplies(
-                          from: message,
-                          in: thread
-                        ),
-                        loadBody: {
-                          guard await revalidateTrustedDevice() else { throw CancellationError() }
-                          return try await inboxViewModel.loadMessageBody(
-                            message,
-                            using: messageReader
-                          )
-                        },
-                        loadAttachment: { attachment in
-                          try await loadAttachmentAfterRevalidation {
-                            try await messageReader.loadMessageAttachment(
-                              attachment,
-                              message: message,
-                              session: session
-                            )
-                          }
-                        },
-                        loadRemoteContent: {
-                          try await inboxViewModel.loadRemoteMessageContent($0, for: message.id)
-                        },
-                        markBodyDisplayed: {
-                          inboxViewModel.markMessageBodyDisplayed(message.id)
-                          scheduleMarkRead(message, connection: connection)
-                        },
-                        markBodyHidden: {
-                          inboxViewModel.markMessageBodyHidden(message.id)
-                          cancelMarkRead(message.id)
-                        },
-                        message: message,
-                        onBodyLoaded: { body in
-                          detectProseCalendarEvent(in: body, for: message)
-                          updateUnderstandingInputVersion(for: thread)
-                        },
-                        releaseBodyPresentation: {
-                          inboxViewModel.discardLoadedMessageBodyPresentation(for: message.id)
-                        },
-                        releaseRemoteContent: {
-                          inboxViewModel.discardLoadedRemoteImages(for: message.id)
-                        },
-                        visibleViewportFrame: readerViewportFrame
-                      )
-                      messageSuggestion(
-                        for: message,
-                        in: thread,
-                        connection: connection
-                      )
-                    }
-                  }
-                  .background(MailTheme.elevated)
-                  .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                  .overlay {
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                      .stroke(Color.white.opacity(0.12), lineWidth: 1)
-                  }
-                  .environment(\.colorScheme, .dark)
-                  .accessibilityElement(children: .contain)
-                  .accessibilityIdentifier("mail-conversation-message")
-                  .containerRelativeFrame(.horizontal) { length, _ in length * 0.9 }
-                  .frame(
-                    maxWidth: .infinity,
-                    alignment: Self.messageHorizontalPlacement(
-                      providerStateIds: message.providerStateIds
-                    ) == .trailing ? .trailing : .leading
-                  )
-                  .id(message.id)
+                  conversationMessage(message, in: thread, connection: connection)
                 }
               }
               .padding()
@@ -8224,6 +8136,91 @@ struct MailShellConversationReader: View {
         mailAssistanceViewModel.discardPreview()
       }
     }
+  }
+
+  private func conversationMessage(
+    _ message: MailboxMessageMetadata,
+    in thread: MailboxThread,
+    connection: MailboxConnection
+  ) -> some View {
+    VStack(alignment: .leading, spacing: 0) {
+      MailShellConversationMessageHeader(
+        blockSender: { blockedSenderStore.block($0) },
+        isSenderBlocked: blockedSenderStore.isBlocked(message.from),
+        isLatest: message.id == thread.latestMessage.id,
+        isOwnMessage: Self.messageHorizontalPlacement(
+          providerStateIds: message.providerStateIds
+        ) == .trailing,
+        message: message,
+        showSource: { sourceInspectionMessage = message }
+      )
+      Divider()
+        .overlay(Color.white.opacity(0.08))
+      VStack(alignment: .leading, spacing: 12) {
+        MailShellConversationMessageBody(
+          authorizeLinkOpening: {
+            guard allowsContentReveal else { return false }
+            return await revalidateTrustedDevice()
+          },
+          clearBodySignal: inboxViewModel.loadedMessageBodyClearSignal(for: message.id),
+          removesQuotedReplies: Self.removesQuotedReplies(from: message, in: thread),
+          loadBody: {
+            guard await revalidateTrustedDevice() else { throw CancellationError() }
+            return try await inboxViewModel.loadMessageBody(message, using: messageReader)
+          },
+          loadAttachment: { attachment in
+            try await loadAttachmentAfterRevalidation {
+              try await messageReader.loadMessageAttachment(
+                attachment,
+                message: message,
+                session: session
+              )
+            }
+          },
+          loadRemoteContent: {
+            try await inboxViewModel.loadRemoteMessageContent($0, for: message.id)
+          },
+          markBodyDisplayed: {
+            inboxViewModel.markMessageBodyDisplayed(message.id)
+            scheduleMarkRead(message, connection: connection)
+          },
+          markBodyHidden: {
+            inboxViewModel.markMessageBodyHidden(message.id)
+            cancelMarkRead(message.id)
+          },
+          message: message,
+          onBodyLoaded: { body in
+            detectProseCalendarEvent(in: body, for: message)
+            updateUnderstandingInputVersion(for: thread)
+          },
+          releaseBodyPresentation: {
+            inboxViewModel.discardLoadedMessageBodyPresentation(for: message.id)
+          },
+          releaseRemoteContent: {
+            inboxViewModel.discardLoadedRemoteImages(for: message.id)
+          },
+          visibleViewportFrame: readerViewportFrame
+        )
+        messageSuggestion(for: message, in: thread, connection: connection)
+      }
+    }
+    .background(MailTheme.elevated)
+    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+    .overlay {
+      RoundedRectangle(cornerRadius: 14, style: .continuous)
+        .stroke(Color.white.opacity(0.12), lineWidth: 1)
+    }
+    .environment(\.colorScheme, .dark)
+    .accessibilityElement(children: .contain)
+    .accessibilityIdentifier("mail-conversation-message")
+    .containerRelativeFrame(.horizontal) { length, _ in length * 0.9 }
+    .frame(
+      maxWidth: .infinity,
+      alignment: Self.messageHorizontalPlacement(
+        providerStateIds: message.providerStateIds
+      ) == .trailing ? .trailing : .leading
+    )
+    .id(message.id)
   }
 
   @ViewBuilder
