@@ -6,6 +6,7 @@ final class SemanticMessageTextViewCoordinator: NSObject, UITextViewDelegate {
   weak var textView: SemanticMessageUITextView?
 
   private var isSynchronizing = false
+  private var isFocusScheduled = false
   private var renderedDocument: SemanticMessageDocument?
 
   init(parent: SemanticMessageTextView) {
@@ -13,8 +14,15 @@ final class SemanticMessageTextViewCoordinator: NSObject, UITextViewDelegate {
   }
 
   func focusIfNeeded() {
-    guard parent.isFocused, let textView, textView.window != nil else { return }
-    textView.becomeFirstResponder()
+    guard parent.isFocused, isFocusScheduled == false else { return }
+    isFocusScheduled = true
+    Task { @MainActor [weak self] in
+      await Task.yield()
+      guard let self else { return }
+      isFocusScheduled = false
+      guard parent.isFocused, let textView, textView.window != nil else { return }
+      textView.becomeFirstResponder()
+    }
   }
 
   func textView(

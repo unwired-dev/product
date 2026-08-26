@@ -155,6 +155,10 @@ final class MailTestBootstrapUITests: XCTestCase {
       in: app,
       failure: "MAIL_TEST_FAILURE:ui: The message body was not visible."
     )
+    try requireAutomaticKeyboardFocus(
+      on: body,
+      failure: "MAIL_TEST_FAILURE:ui: Subject submission did not focus the message body."
+    )
     return (body, document)
   }
 
@@ -257,12 +261,11 @@ final class MailTestBootstrapUITests: XCTestCase {
       body.waitForExistence(timeout: 15),
       "MAIL_TEST_FAILURE:ui: The reply composer body did not open."
     )
-    try focusAndType(
-      "Synthetic visible reply",
-      into: body,
-      in: app,
-      failure: "MAIL_TEST_FAILURE:ui: The reply body did not receive keyboard focus."
+    try requireAutomaticKeyboardFocus(
+      on: body,
+      failure: "MAIL_TEST_FAILURE:ui: The reply body did not receive automatic keyboard focus."
     )
+    body.typeText("Synthetic visible reply")
 
     try sendVisibleDraft(step: "reply", in: app)
     try verifyReplyConversation(in: app)
@@ -352,6 +355,16 @@ final class MailTestBootstrapUITests: XCTestCase {
 
     XCTFail(failure)
     throw NSError(domain: "MailTestBootstrapUITests", code: 1)
+  }
+
+  private func requireAutomaticKeyboardFocus(
+    on element: XCUIElement,
+    failure: String
+  ) throws {
+    guard waitForKeyboardFocus(on: element) else {
+      XCTFail(failure)
+      throw NSError(domain: "MailTestBootstrapUITests", code: 1)
+    }
   }
 
   private func scrollToKeyboardFocus(on element: XCUIElement, in app: XCUIApplication) -> Bool {
