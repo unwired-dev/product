@@ -131,19 +131,7 @@ final class MailTestBootstrapUITests: XCTestCase {
     recipient.typeKey("a", modifierFlags: .command)
     recipient.typeText("recipient@synthetic.invalid")
     recipient.typeKey(.return, modifierFlags: [])
-    let recipientTokens = app.buttons.matching(
-      NSPredicate(format: "label BEGINSWITH %@", "Remove recipient")
-    )
-    XCTAssertEqual(
-      recipientTokens.count,
-      1,
-      "The recipient replacement did not remove every previous recipient."
-    )
-    XCTAssertEqual(
-      recipientTokens.firstMatch.label,
-      "Remove recipient@synthetic.invalid",
-      "The recipient replacement did not keep the expected recipient."
-    )
+    assertRecipientReplacement(in: app)
     let subject = try requireElement(
       identifier: "mail-compose-subject",
       matching: .textField,
@@ -174,6 +162,22 @@ final class MailTestBootstrapUITests: XCTestCase {
       failure: "MAIL_TEST_FAILURE:ui: Subject submission did not focus the message body."
     )
     return (body, document)
+  }
+
+  private func assertRecipientReplacement(in app: XCUIApplication) {
+    let recipientTokens = app.buttons.matching(
+      NSPredicate(format: "label BEGINSWITH %@", "Remove recipient")
+    )
+    XCTAssertEqual(
+      recipientTokens.count,
+      1,
+      "The recipient replacement did not remove every previous recipient."
+    )
+    XCTAssertEqual(
+      recipientTokens.firstMatch.label,
+      "Remove recipient@synthetic.invalid",
+      "The recipient replacement did not keep the expected recipient."
+    )
   }
 
   private func assertFixedHeaderAndExpansion(
