@@ -7927,135 +7927,11 @@ struct MailShellConversationReader: View {
                         },
                         visibleViewportFrame: readerViewportFrame
                       )
-                      if !muteViewModel.mutedThreadIds.contains(thread.id),
-                        let invitation = message.calendarInvitation,
-                        shouldPresentCalendarInvitation(invitation)
-                      {
-                        CalendarInvitationCard(
-                          loadReview: {
-                            try await loadCalendarReview(
-                              invitation,
-                              message: message,
-                              connection: connection
-                            )
-                          },
-                          dismiss: {
-                            featureSuggestionStore.dismiss(
-                              invitation.dismissalIdentifier,
-                              feature: .addToCalendar
-                            )
-                          },
-                          disable: {
-                            featureSuggestionStore.setEnabled(false, feature: .addToCalendar)
-                          },
-                          review: {
-                            calendarReviewDismissalIdentifier = invitation.dismissalIdentifier
-                            calendarReview = $0
-                          }
-                        )
-                        .id(invitation.dismissalIdentifier)
-                        .padding(.horizontal, 14)
-                        .padding(.bottom, 12)
-                      } else if !muteViewModel.mutedThreadIds.contains(thread.id),
-                        let candidate = proseCalendarCandidates[message.id],
-                        shouldPresentProseCalendarEvent(candidate)
-                      {
-                        CalendarInvitationCard(
-                          title: "Calendar Event",
-                          message:
-                            "A date and time were found on this device. Review the time zone, "
-                            + "duration, and location in Calendar.",
-                          progressTitle: "Preparing Calendar review…",
-                          accessibilityIdentifier: "calendar-event-candidate-card",
-                          loadReview: {
-                            try await loadCalendarReview(
-                              candidate,
-                              connection: connection
-                            )
-                          },
-                          dismiss: {
-                            featureSuggestionStore.dismiss(
-                              candidate.dismissalIdentifier,
-                              feature: .addToCalendar
-                            )
-                          },
-                          disable: {
-                            featureSuggestionStore.setEnabled(false, feature: .addToCalendar)
-                          },
-                          review: {
-                            calendarReviewDismissalIdentifier = candidate.dismissalIdentifier
-                            if $0.origin.warnsAboutDuplicate {
-                              proseDuplicateReview = $0
-                            } else {
-                              calendarReview = $0
-                            }
-                          }
-                        )
-                        .id(candidate.dismissalIdentifier)
-                        .padding(.horizontal, 14)
-                        .padding(.bottom, 12)
-                      } else if !muteViewModel.mutedThreadIds.contains(thread.id),
-                        let suggestion = message.unsubscribeSuggestion,
-                        shouldPresentUnsubscribeSuggestion(suggestion)
-                      {
-                        UnsubscribeSuggestionCard(
-                          suggestion: suggestion,
-                          perform: { action in
-                            try await performUnsubscribe(action, connection: connection)
-                          },
-                          dismiss: {
-                            featureSuggestionStore.dismiss(
-                              suggestion.mailingListIdentity.opaqueDismissalIdentifier,
-                              feature: .unsubscribe
-                            )
-                          },
-                          disable: {
-                            featureSuggestionStore.setEnabled(false, feature: .unsubscribe)
-                          },
-                          didSendRequest: {
-                            completedUnsubscribeIdentifiers.insert(
-                              suggestion.mailingListIdentity.opaqueDismissalIdentifier
-                            )
-                            featureSuggestionStore.dismiss(
-                              suggestion.mailingListIdentity.opaqueDismissalIdentifier,
-                              feature: .unsubscribe
-                            )
-                          }
-                        )
-                        .padding(.horizontal, 14)
-                        .padding(.bottom, 12)
-                      } else if !muteViewModel.mutedThreadIds.contains(thread.id),
-                        let candidate = ContactCandidateDetector.candidate(
-                          for: message,
-                          threadMessages: thread.messages,
-                          mailboxAddress: connection.mailboxAddress,
-                          cachedBodyText: inboxViewModel.loadedMessageBodyText(for: message.id)
-                        ),
-                        shouldPresentContactCandidate(candidate)
-                      {
-                        ContactCandidateCard(
-                          candidate: candidate,
-                          loadReview: {
-                            try await loadContactReview(candidate)
-                          },
-                          dismiss: {
-                            featureSuggestionStore.dismiss(
-                              candidate.opaqueDismissalIdentifier,
-                              feature: .addToContacts
-                            )
-                          },
-                          disable: {
-                            featureSuggestionStore.setEnabled(false, feature: .addToContacts)
-                          },
-                          review: {
-                            contactReviewDismissalIdentifier = candidate.opaqueDismissalIdentifier
-                            contactReview = $0
-                          }
-                        )
-                        .id(candidate.opaqueDismissalIdentifier)
-                        .padding(.horizontal, 14)
-                        .padding(.bottom, 12)
-                      }
+                      messageSuggestion(
+                        for: message,
+                        in: thread,
+                        connection: connection
+                      )
                     }
                   }
                   .background(MailTheme.elevated)
@@ -8336,6 +8212,143 @@ struct MailShellConversationReader: View {
         understandingErrorMessage = nil
         mailAssistanceViewModel.discardPreview()
       }
+    }
+  }
+
+  @ViewBuilder
+  private func messageSuggestion(
+    for message: MailboxMessageMetadata,
+    in thread: MailboxThread,
+    connection: MailboxConnection
+  ) -> some View {
+    if !muteViewModel.mutedThreadIds.contains(thread.id),
+      let invitation = message.calendarInvitation,
+      shouldPresentCalendarInvitation(invitation)
+    {
+      CalendarInvitationCard(
+        loadReview: {
+          try await loadCalendarReview(
+            invitation,
+            message: message,
+            connection: connection
+          )
+        },
+        dismiss: {
+          featureSuggestionStore.dismiss(
+            invitation.dismissalIdentifier,
+            feature: .addToCalendar
+          )
+        },
+        disable: {
+          featureSuggestionStore.setEnabled(false, feature: .addToCalendar)
+        },
+        review: {
+          calendarReviewDismissalIdentifier = invitation.dismissalIdentifier
+          calendarReview = $0
+        }
+      )
+      .id(invitation.dismissalIdentifier)
+      .padding(.horizontal, 14)
+      .padding(.bottom, 12)
+    } else if !muteViewModel.mutedThreadIds.contains(thread.id),
+      let candidate = proseCalendarCandidates[message.id],
+      shouldPresentProseCalendarEvent(candidate)
+    {
+      CalendarInvitationCard(
+        title: "Calendar Event",
+        message:
+          "A date and time were found on this device. Review the time zone, "
+          + "duration, and location in Calendar.",
+        progressTitle: "Preparing Calendar review…",
+        accessibilityIdentifier: "calendar-event-candidate-card",
+        loadReview: {
+          try await loadCalendarReview(
+            candidate,
+            connection: connection
+          )
+        },
+        dismiss: {
+          featureSuggestionStore.dismiss(
+            candidate.dismissalIdentifier,
+            feature: .addToCalendar
+          )
+        },
+        disable: {
+          featureSuggestionStore.setEnabled(false, feature: .addToCalendar)
+        },
+        review: {
+          calendarReviewDismissalIdentifier = candidate.dismissalIdentifier
+          if $0.origin.warnsAboutDuplicate {
+            proseDuplicateReview = $0
+          } else {
+            calendarReview = $0
+          }
+        }
+      )
+      .id(candidate.dismissalIdentifier)
+      .padding(.horizontal, 14)
+      .padding(.bottom, 12)
+    } else if !muteViewModel.mutedThreadIds.contains(thread.id),
+      let suggestion = message.unsubscribeSuggestion,
+      shouldPresentUnsubscribeSuggestion(suggestion)
+    {
+      UnsubscribeSuggestionCard(
+        suggestion: suggestion,
+        perform: { action in
+          try await performUnsubscribe(action, connection: connection)
+        },
+        dismiss: {
+          featureSuggestionStore.dismiss(
+            suggestion.mailingListIdentity.opaqueDismissalIdentifier,
+            feature: .unsubscribe
+          )
+        },
+        disable: {
+          featureSuggestionStore.setEnabled(false, feature: .unsubscribe)
+        },
+        didSendRequest: {
+          completedUnsubscribeIdentifiers.insert(
+            suggestion.mailingListIdentity.opaqueDismissalIdentifier
+          )
+          featureSuggestionStore.dismiss(
+            suggestion.mailingListIdentity.opaqueDismissalIdentifier,
+            feature: .unsubscribe
+          )
+        }
+      )
+      .padding(.horizontal, 14)
+      .padding(.bottom, 12)
+    } else if !muteViewModel.mutedThreadIds.contains(thread.id),
+      let candidate = ContactCandidateDetector.candidate(
+        for: message,
+        threadMessages: thread.messages,
+        mailboxAddress: connection.mailboxAddress,
+        cachedBodyText: inboxViewModel.loadedMessageBodyText(for: message.id)
+      ),
+      shouldPresentContactCandidate(candidate)
+    {
+      ContactCandidateCard(
+        candidate: candidate,
+        loadReview: {
+          try await loadContactReview(candidate)
+        },
+        dismiss: {
+          featureSuggestionStore.dismiss(
+            candidate.opaqueDismissalIdentifier,
+            feature: .addToContacts
+          )
+        },
+        disable: {
+          featureSuggestionStore.setEnabled(false, feature: .addToContacts)
+        },
+        review: {
+          contactReviewDismissalIdentifier = candidate.opaqueDismissalIdentifier
+          contactReview = $0
+        }
+      )
+      .id(candidate.opaqueDismissalIdentifier)
+      .padding(.horizontal, 14)
+      .padding(.bottom, 12)
     }
   }
 
