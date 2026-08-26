@@ -2642,7 +2642,8 @@ private struct SettingsSessionHost: View {
   ) {
     self.session = session
     self.snapshot = snapshot
-    let activeProfile = activeProfile
+    let activeProfile =
+      activeProfile
       ?? MailProfileDefinition.defaultProfile(productAccountId: snapshot.productAccountId)
     self.activeProfile = activeProfile
     self.showsDismissButton = showsDismissButton
