@@ -128,8 +128,14 @@ final class MailTestBootstrapUITests: XCTestCase {
       in: app,
       failure: "MAIL_TEST_FAILURE:ui: The recipient field did not receive keyboard focus."
     )
-    recipient.typeKey("a", modifierFlags: .command)
-    recipient.typeText("recipient@synthetic.invalid")
+    recipient.typeKey(.return, modifierFlags: [])
+    try removePopulatedRecipients(in: app)
+    try focusAndType(
+      "recipient@synthetic.invalid",
+      into: recipient,
+      in: app,
+      failure: "MAIL_TEST_FAILURE:ui: The replacement recipient did not receive keyboard focus."
+    )
     recipient.typeKey(.return, modifierFlags: [])
     assertRecipientReplacement(in: app)
     let subject = try requireElement(
@@ -162,6 +168,19 @@ final class MailTestBootstrapUITests: XCTestCase {
       failure: "MAIL_TEST_FAILURE:ui: Subject submission did not focus the message body."
     )
     return (body, document)
+  }
+
+  private func removePopulatedRecipients(in app: XCUIApplication) throws {
+    let recipientTokens = app.buttons.matching(
+      NSPredicate(format: "label BEGINSWITH %@", "Remove recipient")
+    )
+    for _ in 0..<12 {
+      guard recipientTokens.firstMatch.waitForExistence(timeout: 2) else {
+        XCTFail("The populated recipient could not be removed.")
+        throw NSError(domain: "MailTestBootstrapUITests", code: 1)
+      }
+      recipientTokens.firstMatch.tap()
+    }
   }
 
   private func assertRecipientReplacement(in app: XCUIApplication) {

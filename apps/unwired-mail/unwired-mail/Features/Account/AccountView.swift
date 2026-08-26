@@ -15260,16 +15260,16 @@ final class MailboxProviderConnectionViewModel {
       .sorted {
         $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
       }
-    connectionsSnapshotIsAuthoritative = snapshot.isAuthoritative
-    connections = loadedConnections
-    hasLoadedConnectionSnapshot = true
-    let loadedDefaultSendingConnectionId = try await service.loadDefaultSendingConnectionId(
-      session: session
-    )
-    defaultSendingConnectionId = loadedDefaultSendingConnectionId
     if let loadErrorDescription = snapshot.loadErrorDescription {
       throw MailboxConnectionLoadError.partialProviderLoad(loadErrorDescription)
     }
+    let loadedDefaultSendingConnectionId = try await service.loadDefaultSendingConnectionId(
+      session: session
+    )
+    connectionsSnapshotIsAuthoritative = snapshot.isAuthoritative
+    connections = loadedConnections
+    hasLoadedConnectionSnapshot = true
+    defaultSendingConnectionId = loadedDefaultSendingConnectionId
     return snapshot.isAuthoritative
   }
 
