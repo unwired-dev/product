@@ -1423,19 +1423,31 @@ enum MailProfileContentPresentationDismissal {
     composerSendErrorMessage: inout String,
     showsComposerSendError: inout Bool
   ) {
-    showsSettings = false
-    showsMessageActionAlert = false
+    if showsSettings {
+      showsSettings = false
+    }
+    if showsMessageActionAlert {
+      showsMessageActionAlert = false
+    }
     composerNavigation.dismissAll()
-    composerSendErrorMessage = ""
-    showsComposerSendError = false
+    if !composerSendErrorMessage.isEmpty {
+      composerSendErrorMessage = ""
+    }
+    if showsComposerSendError {
+      showsComposerSendError = false
+    }
   }
 
   static func dismissReader<CategorySelection>(
     categorySelection: inout CategorySelection?,
     messageActionError: inout String?
   ) {
-    categorySelection = nil
-    messageActionError = nil
+    if categorySelection != nil {
+      categorySelection = nil
+    }
+    if messageActionError != nil {
+      messageActionError = nil
+    }
   }
 }
 
@@ -6637,6 +6649,10 @@ struct MailShellThreadList: View {
       MailContentPresentationDismissalObserver(
         coordinator: contentPresentationDismissal
       ) {
+        guard
+          editingAttempt != nil || cleanupReviewModel != nil || pendingMoveItem != nil
+            || showsMailboxTools
+        else { return }
         editingAttempt = nil
         cleanupReviewModel = nil
         pendingMoveItem = nil
@@ -8629,6 +8645,15 @@ struct MailShellConversationReader: View {
       MailContentPresentationDismissalObserver(
         coordinator: contentPresentationDismissal
       ) {
+        guard
+          calendarReview != nil || calendarReviewDismissalIdentifier != nil
+            || contactReview != nil || contactReviewDismissalIdentifier != nil
+            || categorySelection != nil || readerErrorMessage != nil || !readTasks.isEmpty
+            || !readTaskOwners.isEmpty || readerErrorConnectionId != nil
+            || readerErrorSource != nil || sourceInspectionMessage != nil
+            || showsUnderstandingAssistance || understandingErrorMessage != nil
+            || mailAssistanceViewModel.preview != nil
+        else { return }
         calendarReview = nil
         calendarReviewDismissalIdentifier = nil
         contactReview = nil
