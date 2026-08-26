@@ -353,6 +353,7 @@ final class StorageDataSettingsViewModel {
       try Task.checkCancellation()
       guard generation == storageGeneration else { return }
       self.snapshot = snapshot
+      loadErrorMessage = nil
       statusMessage = "Cached bodies and downloaded attachments cleared."
     } catch is CancellationError {
     } catch {

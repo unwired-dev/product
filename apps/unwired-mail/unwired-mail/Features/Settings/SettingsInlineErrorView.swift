@@ -4,15 +4,23 @@ import SwiftUI
 struct SettingsInlineErrorView: View {
   let message: String
   let isRetrying: Bool
-  let retry: () -> Void
+  let retry: (() -> Void)?
+
+  init(message: String, isRetrying: Bool, retry: (() -> Void)? = nil) {
+    self.message = message
+    self.isRetrying = isRetrying
+    self.retry = retry
+  }
 
   var body: some View {
     VStack(alignment: .leading, spacing: 8) {
       Label(message, systemImage: "exclamationmark.triangle")
         .foregroundStyle(.red)
 
-      Button("Retry", systemImage: "arrow.clockwise", action: retry)
-        .disabled(isRetrying)
+      if let retry {
+        Button("Retry", systemImage: "arrow.clockwise", action: retry)
+          .disabled(isRetrying)
+      }
     }
     .font(.footnote)
   }

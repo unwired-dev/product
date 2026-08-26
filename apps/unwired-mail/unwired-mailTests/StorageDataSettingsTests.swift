@@ -363,6 +363,29 @@ struct StorageDataSettingsTests {
   }
 
   @MainActor
+  @Test(.bug(id: 557))
+  func successfulCacheClearRemovesStaleRefreshError() async {
+    let initialSnapshot = makeSnapshot(cachedBodyByteCount: 1)
+    let recoveredSnapshot = makeSnapshot(cachedBodyByteCount: 0)
+    let storage = RetryingLocalMailStorageManager(snapshot: initialSnapshot)
+    let viewModel = StorageDataSettingsViewModel(
+      exporter: SuspendingProductSyncExporter(),
+      readReceiptSummary: "Incoming: Ask Every Time. Outgoing: Never.",
+      storage: storage
+    )
+    await viewModel.refresh()
+    await storage.failSnapshots()
+    await viewModel.refresh()
+    await storage.resumeSnapshots(with: recoveredSnapshot)
+
+    await viewModel.clearCaches()
+
+    #expect(viewModel.snapshot == recoveredSnapshot)
+    #expect(viewModel.loadErrorMessage == nil)
+    #expect(viewModel.statusMessage != nil)
+  }
+
+  @MainActor
   @Test
   func reconfigurationDiscardsStaleClearSuccess() async {
     let oldStorage = ControlledLocalMailStorageManager(

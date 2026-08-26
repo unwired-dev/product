@@ -199,18 +199,9 @@ struct NotificationsSettingsView: View {
         if let errorMessage = viewModel.errorMessage {
           SettingsInlineErrorView(
             message: errorMessage,
-            isRetrying: viewModel.isSyncing || viewModel.isSaving
-          ) {
-            Task {
-              if viewModel.hasUnsavedChanges {
-                await viewModel.save()
-              } else {
-                await viewModel.loadProfiles(
-                  categoryIds: hasLoadedCategory ? Set(categoryChoices.map(\.id)) : nil
-                )
-              }
-            }
-          }
+            isRetrying: viewModel.isSyncing || viewModel.isSaving,
+            retry: retryFailedOperation
+          )
         }
         if let fallbackErrorMessage = viewModel.fallbackErrorMessage {
           Text(fallbackErrorMessage)
@@ -251,6 +242,17 @@ struct NotificationsSettingsView: View {
       return "Denied"
     case .notDetermined:
       return "Not Requested"
+    }
+  }
+
+  private var retryFailedOperation: (() -> Void)? {
+    guard viewModel.canRetryFailedOperation else { return nil }
+    return {
+      Task {
+        await viewModel.retryFailedOperation(
+          categoryIds: hasLoadedCategory ? Set(categoryChoices.map(\.id)) : nil
+        )
+      }
     }
   }
 

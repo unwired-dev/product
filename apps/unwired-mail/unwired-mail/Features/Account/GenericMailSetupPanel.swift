@@ -79,6 +79,7 @@ final class GenericMailSetupViewModel {
   var discoverySource: String?
   var emailAddress = ""
   var errorMessage: String?
+  private(set) var syncedDefinitionsLoadErrorMessage: String?
   var incomingHostname = ""
   var incomingPort = "993"
   var incomingProtocol = GenericMailProtocol.imap
@@ -540,9 +541,10 @@ extension GenericMailSetupViewModel {
         selectSyncedDefinition(selected)
       }
       hasLoadedSyncedDefinitions = true
+      syncedDefinitionsLoadErrorMessage = nil
       errorMessage = nil
     } catch {
-      errorMessage = error.localizedDescription
+      syncedDefinitionsLoadErrorMessage = error.localizedDescription
     }
   }
 
@@ -867,13 +869,16 @@ struct GenericMailSetupPanel: View {
         .font(.subheadline)
       }
 
-      if let errorMessage = viewModel.errorMessage {
+      if let loadErrorMessage = viewModel.syncedDefinitionsLoadErrorMessage {
         SettingsInlineErrorView(
-          message: errorMessage,
+          message: loadErrorMessage,
           isRetrying: viewModel.isEditingDisabled
         ) {
           Task { await viewModel.loadSyncedDefinitions() }
         }
+      } else if let errorMessage = viewModel.errorMessage {
+        Text(errorMessage)
+          .foregroundStyle(.red)
       }
     }
     .disabled(viewModel.isEditingDisabled)

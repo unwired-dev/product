@@ -83,7 +83,7 @@ struct EmailAccountsSettingsView: View {
               Task {
                 await MailboxProviderConnectionPanel.performManualRefresh(
                   load: { _ = await gmailViewModel.load() },
-                  connectionsDidChange: gmailProviderConnectionsDidChange
+                  connectionsDidChange: gmailRetryDidComplete
                 )
               }
             }
@@ -112,7 +112,7 @@ struct EmailAccountsSettingsView: View {
               Task {
                 await MailboxProviderConnectionPanel.performManualRefresh(
                   load: { _ = await microsoftGraphViewModel.load() },
-                  connectionsDidChange: microsoftManualRefreshDidComplete
+                  connectionsDidChange: {}
                 )
               }
             }
@@ -548,6 +548,16 @@ struct EmailAccountsSettingsView: View {
         connectionsDidChange: gmailConnectionsDidChange
       )
     }
+  }
+
+  private func gmailRetryDidComplete() {
+    connectionsAreAuthoritative = gmailViewModel.connectionsSnapshotIsAuthoritative
+    Self.updateFreshnessConnections(
+      gmailViewModel.connections,
+      connectionsAreAuthoritative: connectionsAreAuthoritative,
+      freshnessViewModel: freshnessViewModel
+    )
+    gmailConnectionsDidChange()
   }
 
   private func microsoftManualRefreshDidComplete() {

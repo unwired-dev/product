@@ -540,6 +540,30 @@ final class NotificationRuleViewModelTests {
     #expect(viewModel.errorMessage != nil)
   }
 
+  @Test(.bug(id: 557))
+  func retryAfterFailedRefreshDoesNotSaveUnsavedEdits() async {
+    let service = RetryingNotificationRuleSync(
+      rules: NotificationRules(categoryIds: ["system:flights"])
+    )
+    let viewModel = NotificationRuleViewModel(
+      authorization: StubNotificationAuthorization(),
+      service: service,
+      session: session
+    )
+    await viewModel.load()
+    await service.setLoadFailure(true)
+    await viewModel.load()
+    viewModel.setEnabled(false, categoryId: "system:flights")
+    await service.setLoadFailure(false)
+
+    await viewModel.retryFailedOperation()
+
+    #expect(await service.loadCount == 3)
+    #expect(await service.saveCount == 0)
+    #expect(viewModel.isEnabled(categoryId: "system:flights"))
+    #expect(viewModel.errorMessage == nil)
+  }
+
   @Test
   func testPreviewUsesSelectedMailProfileContext() async {
     let defaultProfile = MailProfileDefinition.defaultProfile(
@@ -883,5 +907,37 @@ private actor FailingNotificationRuleSync: NotificationRuleSyncing {
     session _: ProductAccountSessionSnapshot
   ) async throws -> NotificationRuleSyncSnapshot {
     throw URLError(.cannotConnectToHost)
+  }
+}
+
+private actor RetryingNotificationRuleSync: NotificationRuleSyncing {
+  private let rules: NotificationRules
+  private var loadsFail = false
+  private(set) var loadCount = 0
+  private(set) var saveCount = 0
+
+  init(rules: NotificationRules) {
+    self.rules = rules
+  }
+
+  func loadRules(
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> NotificationRuleSyncSnapshot {
+    loadCount += 1
+    if loadsFail { throw URLError(.cannotConnectToHost) }
+    return NotificationRuleSyncSnapshot(rules: rules, updatedAt: 1)
+  }
+
+  func saveRules(
+    _ rules: NotificationRules,
+    expectedUpdatedAt _: Int64?,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> NotificationRuleSyncSnapshot {
+    saveCount += 1
+    return NotificationRuleSyncSnapshot(rules: rules, updatedAt: 2)
+  }
+
+  func setLoadFailure(_ shouldFail: Bool) {
+    loadsFail = shouldFail
   }
 }
