@@ -7005,6 +7005,24 @@ final class MailboxConnectionAdapterTests {
     #expect(!UnifiedMailbox.trash.showsSidebarMessageCount)
   }
 
+  @Test("Sidebar keeps primary Unified Mailboxes ahead of secondary destinations", .bug(id: 565))
+  func sidebarMailboxHierarchyMatchesProductDecision() {
+    #expect(
+      UnifiedMailbox.primarySidebarMailboxes == [.inbox, .snoozed, .pins, .drafts, .sent]
+    )
+    #expect(
+      UnifiedMailbox.secondarySidebarMailboxes == [.archive, .allMail, .spam, .trash]
+    )
+    #expect(
+      Set(UnifiedMailbox.primarySidebarMailboxes)
+        .isDisjoint(with: UnifiedMailbox.secondarySidebarMailboxes)
+    )
+    #expect(
+      Set(UnifiedMailbox.primarySidebarMailboxes + UnifiedMailbox.secondarySidebarMailboxes)
+        == Set(UnifiedMailbox.allCases)
+    )
+  }
+
   @Test
   func testCanonicalMailboxProjectionUsesNativeGmailStatesWithoutMutatingThem() {
     let message = mailShellMessage(
