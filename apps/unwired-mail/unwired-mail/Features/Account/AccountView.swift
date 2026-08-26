@@ -14999,6 +14999,7 @@ final class MailboxProviderConnectionViewModel {
   private var removalObservation: MailboxConnectionRemovalObservation?
   private let service: MailboxConnectionAdapter
   private var session: ProductAccountSessionSnapshot
+  private var hasLoadedConnectionSnapshot = false
   private var pushStatusMessages: [MailboxConnectionId: String] = [:]
 
   init(
@@ -15038,7 +15039,9 @@ final class MailboxProviderConnectionViewModel {
       isLoading = false
     }
     let prefersAuthoritativeDefault = selectedConnectionId == nil
-    await loadCachedConnections()
+    if !hasLoadedConnectionSnapshot {
+      await loadCachedConnections()
+    }
     guard await revalidateTrustedDevice(), isSessionCurrent(session) else { return false }
 
     do {
@@ -15073,6 +15076,7 @@ final class MailboxProviderConnectionViewModel {
       defaultSendingConnectionId =
         try await cacheLoader.loadCachedDefaultSendingConnectionId(session: session)
       connectionsSnapshotIsAuthoritative = false
+      hasLoadedConnectionSnapshot = true
       clearUnavailableDefaultSendingConnection()
       if selectedConnectionId == nil { restoreSelection() }
     } catch is CancellationError {
@@ -15262,16 +15266,27 @@ final class MailboxProviderConnectionViewModel {
       .sorted {
         $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
       }
-    connectionsSnapshotIsAuthoritative = snapshot.isAuthoritative
-    connections = loadedConnections
-    let loadedDefaultSendingConnectionId = try await service.loadDefaultSendingConnectionId(
-      session: session
-    )
-    defaultSendingConnectionId = loadedDefaultSendingConnectionId
-    if let loadErrorDescription = snapshot.loadErrorDescription {
-      throw MailboxConnectionLoadError.partialProviderLoad(loadErrorDescription)
+    let hadAuthoritativeSnapshot = connectionsSnapshotIsAuthoritative
+    do {
+      if let loadErrorDescription = snapshot.loadErrorDescription {
+        throw MailboxConnectionLoadError.partialProviderLoad(loadErrorDescription)
+      }
+      let loadedDefaultSendingConnectionId = try await service.loadDefaultSendingConnectionId(
+        session: session
+      )
+      connectionsSnapshotIsAuthoritative = snapshot.isAuthoritative
+      connections = loadedConnections
+      hasLoadedConnectionSnapshot = true
+      defaultSendingConnectionId = loadedDefaultSendingConnectionId
+      return snapshot.isAuthoritative
+    } catch {
+      if !hadAuthoritativeSnapshot && !connectionsSnapshotIsAuthoritative {
+        connectionsSnapshotIsAuthoritative = false
+        connections = loadedConnections
+        hasLoadedConnectionSnapshot = true
+      }
+      throw error
     }
-    return snapshot.isAuthoritative
   }
 
   private func refreshPushWatch(connection: MailboxConnection) async {
@@ -16079,12 +16094,6 @@ struct MailboxProviderConnectionPanel: View {
               : (viewModel.isRenewingPushWatch
                 ? "Renewing Gmail push..." : configuration.loadingTitle))
         )
-      }
-
-      if let errorMessage = viewModel.errorMessage {
-        Text(errorMessage)
-          .foregroundStyle(.red)
-          .font(.footnote)
       }
 
       if configuration.showsPushStatus, let pushStatusMessage = viewModel.pushStatusMessage {

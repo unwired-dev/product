@@ -6,6 +6,11 @@ import Observation
 @MainActor
 @Observable
 final class NotificationRuleViewModel {
+  private enum FailedOperation {
+    case load
+    case save
+  }
+
   var authorizationState: NotificationAuthorizationState = .notDetermined
   var connectionPolicies: [String: NotificationConnectionPolicy] = [:]
   var devicePreferences: NotificationDevicePreferences
@@ -13,6 +18,7 @@ final class NotificationRuleViewModel {
   var errorMessage: String?
   var fallbackErrorMessage: String?
   private var fallbackChangeGeneration = 0
+  private var failedOperation: FailedOperation?
   var isGenericNotificationFallbackEnabled: Bool
   var isNotificationEnabled = false
   var isSaving = false
@@ -103,6 +109,7 @@ final class NotificationRuleViewModel {
       await load(categoryIds: categoryIds)
     } catch {
       isSyncing = false
+      failedOperation = .load
       errorMessage = error.localizedDescription
     }
   }
@@ -140,6 +147,22 @@ final class NotificationRuleViewModel {
 
   var hasUnsavedChanges: Bool {
     editedRules != syncedRules
+  }
+
+  var canRetryFailedOperation: Bool {
+    failedOperation != nil
+  }
+
+  /// Repeats the synchronization operation that produced the current inline error.
+  func retryFailedOperation(categoryIds: Set<String>? = nil) async {
+    switch failedOperation {
+    case .load:
+      await loadProfiles(categoryIds: categoryIds)
+    case .save:
+      await save()
+    case nil:
+      break
+    }
   }
 
   func isEnabled(categoryId: String) -> Bool {
@@ -181,8 +204,10 @@ final class NotificationRuleViewModel {
       )
       syncedRules = snapshot.rules
       rulesUpdatedAt = snapshot.updatedAt
+      failedOperation = nil
       errorMessage = nil
     } catch {
+      failedOperation = .save
       errorMessage = error.localizedDescription
     }
   }
@@ -210,6 +235,7 @@ final class NotificationRuleViewModel {
       syncedRules = snapshot.rules
       hasLoadedRules = true
       await refreshAuthorizationState()
+      failedOperation = nil
       if authorizationState == .denied, snapshot.rules.isEnabled {
         errorMessage =
           "Rules are enabled, but visible notifications are disabled in system settings."
@@ -217,6 +243,7 @@ final class NotificationRuleViewModel {
         errorMessage = nil
       }
     } catch {
+      failedOperation = .load
       errorMessage = error.localizedDescription
     }
     isSyncing = false
@@ -237,6 +264,7 @@ final class NotificationRuleViewModel {
       apply(snapshot.rules)
       syncedRules = snapshot.rules
       rulesUpdatedAt = snapshot.updatedAt
+      failedOperation = nil
       if requestingNotificationAuthorization,
         snapshot.rules.isEnabled,
         try await !authorization.requestAuthorization()
@@ -249,6 +277,7 @@ final class NotificationRuleViewModel {
         errorMessage = nil
       }
     } catch {
+      failedOperation = .save
       errorMessage = error.localizedDescription
     }
   }
@@ -267,6 +296,7 @@ final class NotificationRuleViewModel {
 
   func discardUnsavedChanges() {
     apply(syncedRules)
+    failedOperation = nil
     errorMessage = nil
   }
 
@@ -329,6 +359,7 @@ final class NotificationRuleViewModel {
   }
 
   func requestNotificationAuthorization() async {
+    failedOperation = nil
     do {
       authorizationState = try await authorization.requestAuthorization() ? .authorized : .denied
     } catch {

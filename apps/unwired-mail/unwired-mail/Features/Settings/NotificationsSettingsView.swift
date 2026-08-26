@@ -197,8 +197,11 @@ struct NotificationsSettingsView: View {
             .foregroundStyle(.secondary)
         }
         if let errorMessage = viewModel.errorMessage {
-          Text(errorMessage)
-            .foregroundStyle(.red)
+          SettingsInlineErrorView(
+            message: errorMessage,
+            isRetrying: viewModel.isSyncing || viewModel.isSaving,
+            retry: retryFailedOperation
+          )
         }
         if let fallbackErrorMessage = viewModel.fallbackErrorMessage {
           Text(fallbackErrorMessage)
@@ -239,6 +242,17 @@ struct NotificationsSettingsView: View {
       return "Denied"
     case .notDetermined:
       return "Not Requested"
+    }
+  }
+
+  private var retryFailedOperation: (() -> Void)? {
+    guard viewModel.canRetryFailedOperation else { return nil }
+    return {
+      Task {
+        await viewModel.retryFailedOperation(
+          categoryIds: hasLoadedCategory ? Set(categoryChoices.map(\.id)) : nil
+        )
+      }
     }
   }
 

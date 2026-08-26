@@ -49,12 +49,9 @@ struct TemplateSettingsView: View {
             Label("Changes are saved on this device and waiting to sync.", systemImage: "clock")
           }
           if let errorMessage = store.errorMessage {
-            Text(errorMessage)
-              .foregroundStyle(.red)
-            Button("Try Again") {
+            SettingsInlineErrorView(message: errorMessage, isRetrying: store.isSynchronizing) {
               Task { await store.synchronize() }
             }
-            .disabled(store.isSynchronizing)
           }
         }
       }
