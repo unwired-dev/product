@@ -6313,6 +6313,7 @@ final class MailboxConnectionAdapterTests {
           )
         }
         .environment(SettingsRouter())
+        .environment(SettingsMailProfileContext())
       )
       let launchWindow = try releaseFixtureWindow(hosting: launchHost)
       await fulfillment(of: [launchFinished], timeout: 2 * presentationBudgetScale)
