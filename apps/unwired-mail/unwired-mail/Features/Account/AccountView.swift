@@ -7968,10 +7968,7 @@ struct MailShellConversationReader: View {
             proseDuplicateReview = nil
           }
         } message: {
-          Text(
-            "This prose event matches one previously added on this device. "
-              + "Review it as a new event; no invitation or existing Calendar event will be replaced."
-          )
+          Text(Self.duplicateProseEventAlertMessage)
         }
         .sheet(item: $contactReview) { review in
           ContactNativeReviewSheet(
@@ -8140,6 +8137,10 @@ struct MailShellConversationReader: View {
       .id(thread.id)
     }
   }
+
+  private static let duplicateProseEventAlertMessage =
+    "This prose event matches one previously added on this device. "
+    + "Review it as a new event; no invitation or existing Calendar event will be replaced."
 
   private func conversationMessage(
     _ message: MailboxMessageMetadata,
