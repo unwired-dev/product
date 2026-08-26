@@ -218,6 +218,7 @@ struct MailShellComposer: View {
           close: closeComposer,
           closeIsDisabled: viewModel.saveState == .saving,
           expansion: headerExpansion,
+          canAutomaticallySend: canScheduleSend,
           canSendLater: viewModel.canCreateSendReminder,
           isSendEnabled: isSendEnabled,
           sendTitle: scheduledSendDueAt == nil ? "Send" : "Save Changes",
@@ -1081,6 +1082,7 @@ private struct MailComposerHeader: View {
   let close: () -> Void
   let closeIsDisabled: Bool
   let expansion: Expansion?
+  let canAutomaticallySend: Bool
   let canSendLater: Bool
   let isSendEnabled: Bool
   let sendTitle: String
@@ -1132,6 +1134,7 @@ private struct MailComposerHeader: View {
       .accessibilityIdentifier("mail-compose-more")
       MailComposerSendButton(
         title: sendTitle,
+        canAutomaticallySend: canAutomaticallySend,
         canSendLater: canSendLater,
         isSendEnabled: isSendEnabled,
         send: send,
