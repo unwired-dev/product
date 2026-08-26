@@ -15260,17 +15260,27 @@ final class MailboxProviderConnectionViewModel {
       .sorted {
         $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
       }
-    if let loadErrorDescription = snapshot.loadErrorDescription {
-      throw MailboxConnectionLoadError.partialProviderLoad(loadErrorDescription)
+    let hadAuthoritativeSnapshot = connectionsSnapshotIsAuthoritative
+    do {
+      if let loadErrorDescription = snapshot.loadErrorDescription {
+        throw MailboxConnectionLoadError.partialProviderLoad(loadErrorDescription)
+      }
+      let loadedDefaultSendingConnectionId = try await service.loadDefaultSendingConnectionId(
+        session: session
+      )
+      connectionsSnapshotIsAuthoritative = snapshot.isAuthoritative
+      connections = loadedConnections
+      hasLoadedConnectionSnapshot = true
+      defaultSendingConnectionId = loadedDefaultSendingConnectionId
+      return snapshot.isAuthoritative
+    } catch {
+      if !hadAuthoritativeSnapshot && !connectionsSnapshotIsAuthoritative {
+        connectionsSnapshotIsAuthoritative = false
+        connections = loadedConnections
+        hasLoadedConnectionSnapshot = true
+      }
+      throw error
     }
-    let loadedDefaultSendingConnectionId = try await service.loadDefaultSendingConnectionId(
-      session: session
-    )
-    connectionsSnapshotIsAuthoritative = snapshot.isAuthoritative
-    connections = loadedConnections
-    hasLoadedConnectionSnapshot = true
-    defaultSendingConnectionId = loadedDefaultSendingConnectionId
-    return snapshot.isAuthoritative
   }
 
   private func refreshPushWatch(connection: MailboxConnection) async {
