@@ -1595,6 +1595,32 @@ final class MailProfileWorkspaceViewModel {
   }
 }
 
+private struct DuplicateProseEventAlertModifier: ViewModifier {
+  @Binding var calendarReview: CalendarEventReview?
+  @Binding var proseDuplicateReview: CalendarEventReview?
+
+  func body(content: Content) -> some View {
+    content.alert(
+      "Possible Duplicate Event",
+      isPresented: Binding(
+        get: { proseDuplicateReview != nil },
+        set: { if !$0 { proseDuplicateReview = nil } }
+      )
+    ) {
+      Button("Cancel", role: .cancel) { proseDuplicateReview = nil }
+      Button("Review Anyway") {
+        calendarReview = proseDuplicateReview
+        proseDuplicateReview = nil
+      }
+    } message: {
+      Text(
+        "This prose event matches one previously added on this device. "
+          + "Review it as a new event; no invitation or existing Calendar event will be replaced."
+      )
+    }
+  }
+}
+
 // swiftlint:disable:next type_body_length
 struct AccountView: View {
   let session: ProductAccountSession
@@ -7911,21 +7937,12 @@ struct MailShellConversationReader: View {
         .onChange(of: thread.messages) { _, _ in
           updateUnderstandingInputVersion(for: thread)
         }
-        .alert(
-          "Possible Duplicate Event",
-          isPresented: Binding(
-            get: { proseDuplicateReview != nil },
-            set: { if !$0 { proseDuplicateReview = nil } }
+        .modifier(
+          DuplicateProseEventAlertModifier(
+            calendarReview: $calendarReview,
+            proseDuplicateReview: $proseDuplicateReview
           )
-        ) {
-          Button("Cancel", role: .cancel) { proseDuplicateReview = nil }
-          Button("Review Anyway") {
-            calendarReview = proseDuplicateReview
-            proseDuplicateReview = nil
-          }
-        } message: {
-          Text(Self.duplicateProseEventAlertMessage)
-        }
+        )
         .sheet(item: $contactReview) { review in
           contactReviewSheet(for: review)
         }
@@ -8162,10 +8179,6 @@ struct MailShellConversationReader: View {
     showsUnderstandingAssistance = false
     selection.scrollToMessage(message.id)
   }
-
-  private static let duplicateProseEventAlertMessage =
-    "This prose event matches one previously added on this device. "
-    + "Review it as a new event; no invitation or existing Calendar event will be replaced."
 
   private func conversationMessage(
     _ message: MailboxMessageMetadata,
