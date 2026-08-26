@@ -57,7 +57,7 @@ const REQUIRED_SCHEDULED_SEND_TESTS = [
   'OutboxDeliveryServiceTests/microsoftGraphScheduledSendAdmissionPreservesItsPayloadAndConnection()',
   'OutboxDeliveryServiceTests/exchangeWebServicesScheduledSendAdmissionPreservesItsPayloadAndConnection()',
   'OutboxDeliveryServiceTests/standardsMailScheduledSendAdmissionPreservesItsPayloadAndConnection()',
-  'ScheduledSendReleasePolicyTests/newSchedulingIsReleaseGatedWhileExistingCommitmentsRemainEditable()',
+  'ScheduledSendReleasePolicyTests/newSchedulingIsEnabledAfterProtectedProviderCompatibilityCompletes()',
 ] as const;
 const INVALID_SCHEDULED_SEND_DETERMINISTIC_SUMMARY =
   'Scheduled Send deterministic evidence returned an invalid XCTest summary.';

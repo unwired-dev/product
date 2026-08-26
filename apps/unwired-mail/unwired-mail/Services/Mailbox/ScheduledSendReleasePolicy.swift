@@ -1,5 +1,5 @@
 enum ScheduledSendReleasePolicy {
-  static let protectedProviderCompatibilityComplete = false
+  static let protectedProviderCompatibilityComplete = true
 
   static var isEnabled: Bool {
     #if DEBUG
