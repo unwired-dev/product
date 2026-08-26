@@ -7748,6 +7748,10 @@ struct MailShellConversationReader: View {
     case trailing
   }
 
+  private static let possibleDuplicateEventMessage =
+    "This prose event matches one previously added on this device. "
+    + "Review it as a new event; no invitation or existing Calendar event will be replaced."
+
   @Bindable var blockedSenderStore: BlockedSenderStore
   var bottomScrollContentMargin: CGFloat = 0
   let connections: [MailboxConnection]
@@ -7973,10 +7977,7 @@ struct MailShellConversationReader: View {
             proseDuplicateReview = nil
           }
         } message: {
-          Text(
-            "This prose event matches one previously added on this device. "
-              + "Review it as a new event; no invitation or existing Calendar event will be replaced."
-          )
+          Text(Self.possibleDuplicateEventMessage)
         }
         .sheet(item: $contactReview) { review in
           ContactNativeReviewSheet(
