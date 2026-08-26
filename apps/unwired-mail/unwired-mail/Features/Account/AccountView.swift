@@ -7825,205 +7825,208 @@ struct MailShellConversationReader: View {
   @State private var visibleReadMessageIds: Set<StableProviderMessageIdentity> = []
 
   var body: some View {
-    Group {
-      if selection.selectedThreadIds.count > 1 {
-        ContentUnavailableView(
-          "\(selection.selectedThreadIds.count) Threads Selected",
-          systemImage: "checklist",
-          description: Text(
-            "Actions apply in separate Mailbox Connection batches. "
-              + "Successful batches remain applied if another connection fails."
-          )
-        )
-        .navigationTitle("Bulk Actions")
-        .toolbar {
-          ToolbarItem(placement: .primaryAction) {
-            bulkProviderActionMenu(
-              batches: selection.bulkActionBatches(
-                connections: connections,
-                pinnedThreadIds: inboxViewModel.navigationSnapshot.pinnedThreadIds,
-                snoozedThreadIds: inboxViewModel.navigationSnapshot.snoozedThreadIds
-              )
+    readerSelectionContent
+      .background(MailTheme.canvas)
+      .overlay {
+        if let progress = mailActionViewModel.bulkActionProgress {
+          VStack(spacing: 8) {
+            ProgressView(
+              value: Double(progress.completedConnectionCount),
+              total: Double(progress.totalConnectionCount)
             )
+            Text(
+              "\(progress.completedConnectionCount) of \(progress.totalConnectionCount) Mailbox Connections"
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
           }
+          .padding()
+          .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
         }
-      } else if let thread = selection.selectedThread,
-        let connection = connection(for: thread)
-      {
-        let providerActions = contextualProviderActions(
-          thread: thread,
-          connection: connection
+      }
+      .sheet(item: $categorySelection) { selection in
+        MessageCategorySelector(
+          categoryChoices: categoryChoices,
+          createCustomCategory: createCustomCategory,
+          selection: selection,
+          apply: { categoryIds in
+            await applyCategories(categoryIds, to: selection.message)
+          }
         )
-        let toolbarActions = readerToolbarActions(
-          thread: thread,
-          connection: connection,
-          providerActions: providerActions
-        )
-
-        conversationScrollContent(for: thread, connection: connection)
-          .navigationTitle("")
-          .toolbarTitleDisplayMode(.inline)
-          .toolbarBackground(.thinMaterial, for: .navigationBar)
-          .toolbarBackground(.visible, for: .navigationBar)
-          .toolbar {
-            readerToolbarContent(
-              toolbarActions,
-              thread: thread,
-              connection: connection,
-              providerActions: providerActions
-            )
-          }
-          .sheet(item: $calendarReview) { review in
-            calendarReviewSheet(for: review)
-          }
-          .sheet(item: $sourceInspectionMessage) { message in
-            MailboxMessageSourceInspector(
-              message: message,
-              messageReader: messageReader,
-              revalidateTrustedDevice: revalidateTrustedDevice,
-              session: session
-            )
-          }
-          .sheet(
-            isPresented: $showsUnderstandingAssistance,
-            onDismiss: {
-              understandingErrorMessage = nil
-              mailAssistanceViewModel.discardPreview()
-            },
-            content: {
-              understandingAssistanceSheet(for: thread)
+      }
+      .alert("Message action failed", isPresented: readerErrorBinding) {
+        if let readerErrorConnectionId,
+          let connection = connections.first(where: { $0.id == readerErrorConnectionId })
+        {
+          if mailActionViewModel.blockedConnectionId == connection.id {
+            Button("Retry") {
+              resolveBlockedAction(connection: connection, discard: false)
             }
-          )
-          .onChange(of: thread.messages) { _, _ in
-            updateUnderstandingInputVersion(for: thread)
-          }
-          .modifier(
-            DuplicateProseEventAlertModifier(
-              calendarReview: $calendarReview,
-              proseDuplicateReview: $proseDuplicateReview
-            )
-          )
-          .sheet(item: $contactReview) { review in
-            contactReviewSheet(for: review)
-          }
-      } else {
-        ContentUnavailableView(
-          "Select a thread",
-          systemImage: "envelope.open",
-          description: Text("Choose a thread to read its complete conversation.")
-        )
-      }
-    }
-    .background(MailTheme.canvas)
-    .overlay {
-      if let progress = mailActionViewModel.bulkActionProgress {
-        VStack(spacing: 8) {
-          ProgressView(
-            value: Double(progress.completedConnectionCount),
-            total: Double(progress.totalConnectionCount)
-          )
-          Text(
-            "\(progress.completedConnectionCount) of \(progress.totalConnectionCount) Mailbox Connections"
-          )
-          .font(.caption)
-          .foregroundStyle(.secondary)
-        }
-        .padding()
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-      }
-    }
-    .sheet(item: $categorySelection) { selection in
-      MessageCategorySelector(
-        categoryChoices: categoryChoices,
-        createCustomCategory: createCustomCategory,
-        selection: selection,
-        apply: { categoryIds in
-          await applyCategories(categoryIds, to: selection.message)
-        }
-      )
-    }
-    .alert("Message action failed", isPresented: readerErrorBinding) {
-      if let readerErrorConnectionId,
-        let connection = connections.first(where: { $0.id == readerErrorConnectionId })
-      {
-        if mailActionViewModel.blockedConnectionId == connection.id {
-          Button("Retry") {
-            resolveBlockedAction(connection: connection, discard: false)
-          }
-          Button("Discard", role: .destructive) {
-            resolveBlockedAction(connection: connection, discard: true)
-          }
-        } else if mailActionViewModel.failedConnectionId == connection.id {
-          Button("Acknowledge") {
-            acknowledgePendingActionFailure(connection: connection)
+            Button("Discard", role: .destructive) {
+              resolveBlockedAction(connection: connection, discard: true)
+            }
+          } else if mailActionViewModel.failedConnectionId == connection.id {
+            Button("Acknowledge") {
+              acknowledgePendingActionFailure(connection: connection)
+            }
           }
         }
+        Button("OK", role: .cancel) {}
+      } message: {
+        Text(readerErrorMessage ?? "The message action could not be completed.")
       }
-      Button("OK", role: .cancel) {}
-    } message: {
-      Text(readerErrorMessage ?? "The message action could not be completed.")
-    }
-    .onChange(of: selection.selectedThreadIds) { _, _ in
-      categorySelection = nil
-      completedUnsubscribeIdentifiers = []
-      contactReview = nil
-      contactReviewDismissalIdentifier = nil
-      proseCalendarCandidates = [:]
-      proseCalendarDetectionGenerations = [:]
-      for task in proseCalendarDetectionTasks.values { task.cancel() }
-      proseCalendarDetectionTasks.removeAll()
-      proseDuplicateReview = nil
-      sourceInspectionMessage = nil
-      showsUnderstandingAssistance = false
-      understandingErrorMessage = nil
-      mailAssistanceViewModel.discardPreview()
-      for task in readTasks.values { task.cancel() }
-      readBatchTask?.cancel()
-      readBatchTask = nil
-      readBatchTaskOwner.cancel()
-      readTasks.removeAll()
-      readTaskOwners.removeAll()
-      pendingReadBatch.removeAll()
-      visibleReadMessageIds.removeAll()
-      readerErrorConnectionId = nil
-      readerErrorMessage = nil
-      readerErrorSource = nil
-      mailActionViewModel.clearError()
-      pinViewModel.clearError()
-      snoozeViewModel.clearError()
-      followUpNudgeViewModel?.clearError()
-    }
-    .background {
-      MailContentPresentationDismissalObserver(
-        coordinator: contentPresentationDismissal
-      ) {
-        guard
-          calendarReview != nil || calendarReviewDismissalIdentifier != nil
-            || contactReview != nil || contactReviewDismissalIdentifier != nil
-            || categorySelection != nil || readerErrorMessage != nil || !readTasks.isEmpty
-            || !readTaskOwners.isEmpty || readerErrorConnectionId != nil
-            || readerErrorSource != nil || sourceInspectionMessage != nil
-            || showsUnderstandingAssistance || understandingErrorMessage != nil
-            || mailAssistanceViewModel.preview != nil
-        else { return }
-        calendarReview = nil
-        calendarReviewDismissalIdentifier = nil
+      .onChange(of: selection.selectedThreadIds) { _, _ in
+        categorySelection = nil
+        completedUnsubscribeIdentifiers = []
         contactReview = nil
         contactReviewDismissalIdentifier = nil
-        MailProfileContentPresentationDismissal.dismissReader(
-          categorySelection: &categorySelection,
-          messageActionError: &readerErrorMessage
-        )
-        for task in readTasks.values { task.cancel() }
-        readTasks.removeAll()
-        readTaskOwners.removeAll()
-        readerErrorConnectionId = nil
-        readerErrorSource = nil
+        proseCalendarCandidates = [:]
+        proseCalendarDetectionGenerations = [:]
+        for task in proseCalendarDetectionTasks.values { task.cancel() }
+        proseCalendarDetectionTasks.removeAll()
+        proseDuplicateReview = nil
         sourceInspectionMessage = nil
         showsUnderstandingAssistance = false
         understandingErrorMessage = nil
         mailAssistanceViewModel.discardPreview()
+        for task in readTasks.values { task.cancel() }
+        readBatchTask?.cancel()
+        readBatchTask = nil
+        readBatchTaskOwner.cancel()
+        readTasks.removeAll()
+        readTaskOwners.removeAll()
+        pendingReadBatch.removeAll()
+        visibleReadMessageIds.removeAll()
+        readerErrorConnectionId = nil
+        readerErrorMessage = nil
+        readerErrorSource = nil
+        mailActionViewModel.clearError()
+        pinViewModel.clearError()
+        snoozeViewModel.clearError()
+        followUpNudgeViewModel?.clearError()
       }
+      .background {
+        MailContentPresentationDismissalObserver(
+          coordinator: contentPresentationDismissal
+        ) {
+          guard
+            calendarReview != nil || calendarReviewDismissalIdentifier != nil
+              || contactReview != nil || contactReviewDismissalIdentifier != nil
+              || categorySelection != nil || readerErrorMessage != nil || !readTasks.isEmpty
+              || !readTaskOwners.isEmpty || readerErrorConnectionId != nil
+              || readerErrorSource != nil || sourceInspectionMessage != nil
+              || showsUnderstandingAssistance || understandingErrorMessage != nil
+              || mailAssistanceViewModel.preview != nil
+          else { return }
+          calendarReview = nil
+          calendarReviewDismissalIdentifier = nil
+          contactReview = nil
+          contactReviewDismissalIdentifier = nil
+          MailProfileContentPresentationDismissal.dismissReader(
+            categorySelection: &categorySelection,
+            messageActionError: &readerErrorMessage
+          )
+          for task in readTasks.values { task.cancel() }
+          readTasks.removeAll()
+          readTaskOwners.removeAll()
+          readerErrorConnectionId = nil
+          readerErrorSource = nil
+          sourceInspectionMessage = nil
+          showsUnderstandingAssistance = false
+          understandingErrorMessage = nil
+          mailAssistanceViewModel.discardPreview()
+        }
+      }
+  }
+
+  @ViewBuilder
+  private var readerSelectionContent: some View {
+    if selection.selectedThreadIds.count > 1 {
+      ContentUnavailableView(
+        "\(selection.selectedThreadIds.count) Threads Selected",
+        systemImage: "checklist",
+        description: Text(
+          "Actions apply in separate Mailbox Connection batches. "
+            + "Successful batches remain applied if another connection fails."
+        )
+      )
+      .navigationTitle("Bulk Actions")
+      .toolbar {
+        ToolbarItem(placement: .primaryAction) {
+          bulkProviderActionMenu(
+            batches: selection.bulkActionBatches(
+              connections: connections,
+              pinnedThreadIds: inboxViewModel.navigationSnapshot.pinnedThreadIds,
+              snoozedThreadIds: inboxViewModel.navigationSnapshot.snoozedThreadIds
+            )
+          )
+        }
+      }
+    } else if let thread = selection.selectedThread,
+      let connection = connection(for: thread)
+    {
+      let providerActions = contextualProviderActions(
+        thread: thread,
+        connection: connection
+      )
+      let toolbarActions = readerToolbarActions(
+        thread: thread,
+        connection: connection,
+        providerActions: providerActions
+      )
+
+      conversationScrollContent(for: thread, connection: connection)
+        .navigationTitle("")
+        .toolbarTitleDisplayMode(.inline)
+        .toolbarBackground(.thinMaterial, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
+        .toolbar {
+          readerToolbarContent(
+            toolbarActions,
+            thread: thread,
+            connection: connection,
+            providerActions: providerActions
+          )
+        }
+        .sheet(item: $calendarReview) { review in
+          calendarReviewSheet(for: review)
+        }
+        .sheet(item: $sourceInspectionMessage) { message in
+          MailboxMessageSourceInspector(
+            message: message,
+            messageReader: messageReader,
+            revalidateTrustedDevice: revalidateTrustedDevice,
+            session: session
+          )
+        }
+        .sheet(
+          isPresented: $showsUnderstandingAssistance,
+          onDismiss: {
+            understandingErrorMessage = nil
+            mailAssistanceViewModel.discardPreview()
+          },
+          content: {
+            understandingAssistanceSheet(for: thread)
+          }
+        )
+        .onChange(of: thread.messages) { _, _ in
+          updateUnderstandingInputVersion(for: thread)
+        }
+        .modifier(
+          DuplicateProseEventAlertModifier(
+            calendarReview: $calendarReview,
+            proseDuplicateReview: $proseDuplicateReview
+          )
+        )
+        .sheet(item: $contactReview) { review in
+          contactReviewSheet(for: review)
+        }
+    } else {
+      ContentUnavailableView(
+        "Select a thread",
+        systemImage: "envelope.open",
+        description: Text("Choose a thread to read its complete conversation.")
+      )
     }
   }
 
