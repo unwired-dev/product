@@ -4427,7 +4427,6 @@ final class ProductAccountSessionTests {
   }
 
   @Test
-  // swiftlint:disable:next function_body_length
   func testBootstrapPreservesPreviousSessionWhenRemoteContentCleanupFails() async throws {
     let oldSnapshot = ProductAccountSessionSnapshot(
       appleUserIdentifier: "apple-user-001",
