@@ -234,7 +234,8 @@ struct SendLaterSheet: View {
   private var explanation: String {
     switch mode {
     case .automatically:
-      "An eligible trusted device will attempt delivery at or after the selected time. Delivery may wait up to 24 hours for the app to run."
+      "An eligible trusted device will attempt delivery at or after the selected time. "
+        + "Delivery may wait up to 24 hours for the app to run."
     case .reminder:
       "This keeps the message as a Draft. It will not be sent automatically."
     }
