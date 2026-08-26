@@ -776,6 +776,8 @@ private actor RetryingLocalMailStorageManager: LocalMailStorageManaging {
 
   func clearEvictableContent() async throws {}
 
+  func clearAuthorizedRemoteContent() async throws {}
+
   func snapshot() async throws -> LocalMailStorageSnapshot {
     if snapshotsFail { throw StorageTestError.snapshotFailed }
     return snapshotValue
