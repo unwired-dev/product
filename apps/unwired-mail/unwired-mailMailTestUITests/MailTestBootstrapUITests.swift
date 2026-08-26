@@ -573,9 +573,15 @@ final class MailTestBootstrapUITests: XCTestCase {
     for _ in 0..<8 where !row.exists {
       app.swipeDown()
     }
+    let connectionRetry = app.buttons["mailbox-sync-overlay"]
+    var retriedConnection = false
     while Date() < deadline {
       if row.waitForExistence(timeout: 2), row.isHittable {
         return row
+      }
+      if !retriedConnection, connectionRetry.isHittable {
+        connectionRetry.tap()
+        retriedConnection = true
       }
       app.swipeUp()
     }
