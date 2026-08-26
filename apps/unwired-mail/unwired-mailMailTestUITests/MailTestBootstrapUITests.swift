@@ -317,6 +317,12 @@ final class MailTestBootstrapUITests: XCTestCase {
   ) throws {
     let keyboard = app.keyboards.firstMatch
     dismissKeyboardIntroductionIfNeeded()
+    if !element.isHittable {
+      let document = app.scrollViews["mail-compose-document-scroll"]
+      for _ in 0..<3 where document.exists && !element.isHittable {
+        document.swipeUp()
+      }
+    }
     if element.isHittable {
       element.tap()
       dismissKeyboardIntroductionIfNeeded()

@@ -3511,8 +3511,6 @@ struct AccountView: View {
     gmailViewModel.selectedConnectionId = profileConnections.first?.id
     if let compositionDraft = parkedCompositionDrafts.removeValue(forKey: profileId) {
       presentComposerDraft(compositionDraft)
-    } else {
-      composerNavigation.park()
     }
     loadUnifiedMailbox(synchronizes: false)
     Task {
