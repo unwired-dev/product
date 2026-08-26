@@ -935,6 +935,26 @@ final class GenericMailSetupServiceTests {
     #expect(viewModel.incomingHostname == "draft.imap.example.com")
   }
 
+  @MainActor
+  @Test(.bug(id: 557))
+  func nonDefinitionFailureDoesNotOfferDefinitionLoadRetry() {
+    let viewModel = GenericMailSetupViewModel(
+      productAccountId: ProductAccountId("product-account-001"),
+      isSessionCurrent: { true },
+      service: GenericMailSetupService(
+        authorizationStore: RecordingGenericMailAuthorizationStore(),
+        definitionSyncService: RecordingGenericSyncService(),
+        verifier: RecordingGenericMailEndpointVerifier()
+      )
+    )
+    viewModel.emailAddress = "reader@example.com"
+
+    viewModel.loadSaved()
+
+    #expect(viewModel.errorMessage != nil)
+    #expect(viewModel.syncedDefinitionsLoadErrorMessage == nil)
+  }
+
   @Test
   // swiftlint:disable:next function_body_length
   func testSyncedRemovalRetriesCompleteLocalCleanupUntilReceiptPersists() async throws {

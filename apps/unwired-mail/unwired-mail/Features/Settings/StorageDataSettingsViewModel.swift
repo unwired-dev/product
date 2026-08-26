@@ -248,6 +248,7 @@ actor DeviceLocalMailStorageService: LocalMailStorageManaging {
 @Observable
 final class StorageDataSettingsViewModel {
   private(set) var alertMessage: String?
+  private(set) var loadErrorMessage: String?
   private(set) var exportData: Data?
   private(set) var isClearing = false
   private(set) var isExporting = false
@@ -293,6 +294,7 @@ final class StorageDataSettingsViewModel {
     snapshot = nil
     statusMessage = nil
     alertMessage = nil
+    loadErrorMessage = nil
     storage =
       replacementStorage
       ?? LocalMailStorageService(
@@ -325,10 +327,11 @@ final class StorageDataSettingsViewModel {
       try Task.checkCancellation()
       guard generation == storageGeneration else { return }
       self.snapshot = snapshot
+      loadErrorMessage = nil
     } catch is CancellationError {
     } catch {
       guard generation == storageGeneration else { return }
-      alertMessage = error.localizedDescription
+      loadErrorMessage = error.localizedDescription
     }
   }
 
@@ -350,6 +353,7 @@ final class StorageDataSettingsViewModel {
       try Task.checkCancellation()
       guard generation == storageGeneration else { return }
       self.snapshot = snapshot
+      loadErrorMessage = nil
       statusMessage = "Cached bodies and downloaded attachments cleared."
     } catch is CancellationError {
     } catch {

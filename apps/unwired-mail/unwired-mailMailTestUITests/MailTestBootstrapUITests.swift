@@ -87,6 +87,69 @@ final class MailTestBootstrapUITests: XCTestCase {
     waitForOutboxToDrain(in: app)
   }
 
+  // XCUITest is required to verify accessibility and keyboard interaction across the app boundary.
+  func testSendLaterPresentsAutomaticAndReminderModes() throws {
+    let app = launchApplication()
+    try requireComposeAction(in: app).tap()
+    let draft = try populateVisibleDraft(in: app)
+    draft.body.typeText("Synthetic scheduled delivery")
+
+    try assertSendLaterModes(in: app)
+  }
+
+  private func assertSendLaterModes(in app: XCUIApplication) throws {
+    app.typeKey("l", modifierFlags: [.command, .shift])
+    XCTAssertTrue(
+      app.navigationBars["Send Later"].waitForExistence(timeout: 5),
+      "MAIL_TEST_FAILURE:ui: The Send Later sheet did not open from its keyboard shortcut."
+    )
+
+    let automatic = app.buttons["Send Automatically"]
+    let reminder = app.buttons["Remind Me"]
+    XCTAssertTrue(
+      automatic.waitForExistence(timeout: 5),
+      "MAIL_TEST_FAILURE:ui: Send Automatically was not visible."
+    )
+    XCTAssertTrue(
+      reminder.waitForExistence(timeout: 5),
+      "MAIL_TEST_FAILURE:ui: Remind Me was not visible."
+    )
+
+    automatic.tap()
+    XCTAssertTrue(
+      app.buttons["mail-compose-schedule-send"].waitForExistence(timeout: 2),
+      "MAIL_TEST_FAILURE:ui: The automatic scheduling confirmation was not visible."
+    )
+    let automaticTimingExplanation = app.staticTexts.matching(
+      NSPredicate(
+        format: "label == %@",
+        "An eligible trusted device will attempt delivery at or after the selected time. "
+          + "Delivery may wait up to 24 hours for the app to run."
+      )
+    ).firstMatch
+    XCTAssertTrue(
+      automaticTimingExplanation.exists,
+      "MAIL_TEST_FAILURE:ui: The automatic timing promise was not provider-neutral."
+    )
+
+    reminder.tap()
+    XCTAssertTrue(
+      app.buttons["mail-compose-remind-to-send"].waitForExistence(timeout: 2),
+      "MAIL_TEST_FAILURE:ui: The reminder confirmation was not visible."
+    )
+    XCTAssertTrue(
+      app.staticTexts[
+        "This keeps the message as a Draft. It will not be sent automatically."
+      ].exists,
+      "MAIL_TEST_FAILURE:ui: The reminder behavior was not explained."
+    )
+    app.buttons["Cancel"].tap()
+    XCTAssertTrue(
+      app.navigationBars["Send Later"].waitForNonExistence(timeout: 2),
+      "MAIL_TEST_FAILURE:ui: The Send Later sheet did not close."
+    )
+  }
+
   private func openRegularComposer(
     in app: XCUIApplication
   ) throws -> (close: XCUIElement, expansion: XCUIElement) {
@@ -128,10 +191,7 @@ final class MailTestBootstrapUITests: XCTestCase {
       in: app,
       failure: "MAIL_TEST_FAILURE:ui: The recipient field did not receive keyboard focus."
     )
-    recipient.typeKey("a", modifierFlags: .command)
-    recipient.typeText("recipient@synthetic.invalid")
-    recipient.typeKey(.return, modifierFlags: [])
-    assertRecipientReplacement(in: app)
+    try replaceRecipientTokens(in: recipient, app: app)
     let subject = try requireElement(
       identifier: "mail-compose-subject",
       matching: .textField,
@@ -164,7 +224,50 @@ final class MailTestBootstrapUITests: XCTestCase {
     return (body, document)
   }
 
+  private func replaceRecipientTokens(in recipient: XCUIElement, app: XCUIApplication) throws {
+    recipient.typeKey(.return, modifierFlags: [])
+    try removeRecipientTokens(in: app)
+    try focusAndType(
+      "recipient@synthetic.invalid",
+      into: recipient,
+      in: app,
+      failure: "MAIL_TEST_FAILURE:ui: The recipient field could not be focused after token removal."
+    )
+    app.keyboards.buttons["return"].tap()
+    assertRecipientReplacement(in: app)
+  }
+
+  private func removeRecipientTokens(in app: XCUIApplication) throws {
+    let recipientTokens = app.buttons.matching(
+      NSPredicate(format: "label BEGINSWITH %@", "Remove recipient")
+    )
+    let firstToken = recipientTokens.firstMatch
+    guard firstToken.waitForExistence(timeout: 5) else {
+      XCTFail("The populated recipients did not appear.")
+      throw NSError(domain: "MailTestBootstrapUITests", code: 1)
+    }
+    var removedCount = 0
+    while removedCount < 12 {
+      let token = recipientTokens.firstMatch
+      guard token.exists else { break }
+      let tokenLabel = token.label
+      token.tap()
+      guard app.buttons[tokenLabel].waitForNonExistence(timeout: 5) else {
+        XCTFail("The populated recipient remained after removal.")
+        throw NSError(domain: "MailTestBootstrapUITests", code: 1)
+      }
+      removedCount += 1
+    }
+    XCTAssertEqual(removedCount, 12, "Not every populated recipient was removed.")
+    XCTAssertFalse(recipientTokens.firstMatch.exists, "A populated recipient remained.")
+  }
+
   private func assertRecipientReplacement(in app: XCUIApplication) {
+    let replacement = app.buttons["Remove recipient@synthetic.invalid"]
+    XCTAssertTrue(
+      replacement.waitForExistence(timeout: 2),
+      "The expected recipient replacement did not appear."
+    )
     let recipientTokens = app.buttons.matching(
       NSPredicate(format: "label BEGINSWITH %@", "Remove recipient")
     )
@@ -174,7 +277,7 @@ final class MailTestBootstrapUITests: XCTestCase {
       "The recipient replacement did not remove every previous recipient."
     )
     XCTAssertEqual(
-      recipientTokens.firstMatch.label,
+      replacement.label,
       "Remove recipient@synthetic.invalid",
       "The recipient replacement did not keep the expected recipient."
     )

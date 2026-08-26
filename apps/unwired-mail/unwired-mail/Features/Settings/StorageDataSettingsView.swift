@@ -10,6 +10,17 @@ struct StorageDataSettingsView: View {
 
   var body: some View {
     Form {
+      if let loadErrorMessage = viewModel.loadErrorMessage {
+        Section {
+          SettingsInlineErrorView(
+            message: loadErrorMessage,
+            isRetrying: viewModel.isLoading
+          ) {
+            Task { await viewModel.refresh() }
+          }
+        }
+      }
+
       StorageOverviewSection(viewModel: viewModel)
       DraftStorageSection(snapshot: viewModel.snapshot)
       ClearStorageSection(confirmsClear: $confirmsClear, viewModel: viewModel)

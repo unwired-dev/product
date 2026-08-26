@@ -218,6 +218,7 @@ struct MailShellComposer: View {
           close: closeComposer,
           closeIsDisabled: viewModel.saveState == .saving,
           expansion: headerExpansion,
+          canAutomaticallySend: canScheduleSend,
           canSendLater: viewModel.canCreateSendReminder,
           isSendEnabled: isSendEnabled,
           sendTitle: scheduledSendDueAt == nil ? "Send" : "Save Changes",
@@ -242,10 +243,7 @@ struct MailShellComposer: View {
             MailComposerSubjectField(
               subject: $viewModel.draft.subject,
               focusedField: $focusedField,
-              focusBody: {
-                focusedField = nil
-                isBodyFocused = true
-              }
+              focusBody: focusBody
             )
             Divider()
             MailComposerActionBar(
@@ -473,6 +471,15 @@ struct MailShellComposer: View {
     )
   }
 
+  private func focusBody() {
+    focusedField = nil
+    Task { @MainActor in
+      await Task.yield()
+      guard focusedField == nil else { return }
+      isBodyFocused = true
+    }
+  }
+
   private func updateSendingIdentity(_ identityId: SendingIdentityId?) {
     guard let identity = sendingIdentities.first(where: { $0.id == identityId }) else { return }
     viewModel.draft.connectionId = identity.connectionId
@@ -621,7 +628,10 @@ struct MailShellComposer: View {
   }
 
   private var canScheduleSend: Bool {
-    isSendEnabled && selectedConnection?.providerId.supportsProductOwnedScheduledSend == true
+    ScheduledSendReleasePolicy.allowsAutomaticScheduling(
+      existingSchedule: scheduledSendDueAt != nil
+    ) && isSendEnabled
+      && selectedConnection?.providerId.supportsProductOwnedScheduledSend == true
       && (viewModel.draft.kind != .editing || scheduledSendDueAt != nil)
   }
 
@@ -1078,6 +1088,7 @@ private struct MailComposerHeader: View {
   let close: () -> Void
   let closeIsDisabled: Bool
   let expansion: Expansion?
+  let canAutomaticallySend: Bool
   let canSendLater: Bool
   let isSendEnabled: Bool
   let sendTitle: String
@@ -1129,6 +1140,7 @@ private struct MailComposerHeader: View {
       .accessibilityIdentifier("mail-compose-more")
       MailComposerSendButton(
         title: sendTitle,
+        canAutomaticallySend: canAutomaticallySend,
         canSendLater: canSendLater,
         isSendEnabled: isSendEnabled,
         send: send,

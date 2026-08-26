@@ -1200,6 +1200,49 @@ final class MailboxConnectionAdapterTests {
     #expect(viewModel.errorMessage != nil)
   }
 
+  @Test(.bug(id: 557))
+  func testRetryPreservesTheLastProviderSnapshotUntilRefreshRecovers() async {
+    let connectionService = RecordingAdapterConnectionService()
+    let connection = RecordingAdapterConnectionService.status.mailboxConnection(
+      productAccountId: session.productAccountId,
+      authorizationState: .authorized
+    )
+    let definitionSyncService = RecordingAdapterDefinitionSyncService(
+      snapshot: MailboxConnectionSyncSnapshot(
+        connections: [connection.definition],
+        defaultSendingConnectionId: connection.id,
+        removedConnectionIds: [],
+        updatedAt: 1_781_200_000_300
+      )
+    )
+    let viewModel = MailboxProviderConnectionViewModel(
+      service: GmailMailboxConnectionAdapter(
+        connectionService: connectionService,
+        definitionSyncService: definitionSyncService
+      ),
+      isSessionCurrent: { $0 == self.session },
+      session: session
+    )
+    _ = await viewModel.load()
+    definitionSyncService.cachedSnapshot = .empty
+    definitionSyncService.loadError = AdapterTestError.unavailable
+
+    let failedRetry = await viewModel.load()
+
+    #expect(!failedRetry)
+    #expect(viewModel.connections == [connection])
+    #expect(viewModel.defaultSendingConnectionId == connection.id)
+    #expect(viewModel.errorMessage != nil)
+
+    definitionSyncService.loadError = nil
+    let successfulRetry = await viewModel.load()
+
+    #expect(successfulRetry)
+    #expect(viewModel.connections == [connection])
+    #expect(viewModel.defaultSendingConnectionId == connection.id)
+    #expect(viewModel.errorMessage == nil)
+  }
+
   @Test
   func testViewModelClearsExistingDefaultSenderWhenCachedSnapshotHasNoDefault() async {
     let connection = RecordingAdapterConnectionService.status.mailboxConnection(
@@ -6313,6 +6356,7 @@ final class MailboxConnectionAdapterTests {
           )
         }
         .environment(SettingsRouter())
+        .environment(SettingsMailProfileContext())
       )
       let launchWindow = try releaseFixtureWindow(hosting: launchHost)
       await fulfillment(of: [launchFinished], timeout: 2 * presentationBudgetScale)
