@@ -22,7 +22,10 @@ final class SemanticMessageTextViewCoordinator: NSObject, UITextViewDelegate {
       for attempt in 0..<10 {
         await Task.yield()
         guard parent.isFocused, let textView else { return }
-        if textView.window != nil, textView.becomeFirstResponder() { return }
+        if textView.window != nil {
+          _ = textView.becomeFirstResponder()
+          if textView.isFirstResponder { return }
+        }
         if attempt < 9 {
           try? await Task.sleep(for: .milliseconds(50))
         }

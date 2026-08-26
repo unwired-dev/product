@@ -1,6 +1,6 @@
 # Mail test environment implementation plan
 
-Status: the secure GreenMail smoke foundation, disposable Mail Test Device, Apple app bootstrap, Synthetic Test Message visibility assertions, visible compose, reply, read, and organize coverage, on-demand message-content, System Categorization, and incremental-arrival scenarios, a persistent Manual Mail Sandbox, and the affected-path pull-request gate are available. Paid Gmail provider infrastructure and compatibility runs are intentionally deferred until release validation is scheduled.
+Status: the secure GreenMail smoke foundation, disposable Mail Test Device, Apple app bootstrap, Synthetic Test Message visibility assertions, visible compose, reply, read, organize, and two-mode Send Later coverage, deterministic Scheduled Send release scenarios, on-demand message-content, System Categorization, and incremental-arrival scenarios, a persistent Manual Mail Sandbox, and the affected-path pull-request gate are available. Protected production-provider compatibility runs remain required before Scheduled Send release.
 
 ## Goal
 
@@ -80,6 +80,17 @@ to the production Outbox, and wait for its SMTP delivery state. The harness then
 independently verifies exactly one recipient delivery, exactly one Sent copy,
 matching message identities, and reply headers in the independent recipient
 mailbox.
+The same owned Simulator runs a fail-closed Scheduled Send deterministic selection.
+It requires eleven named Swift tests to pass with none skipped. The release-policy test
+proves that existing commitments remain editable while new Release scheduling is gated. Scheduled-path tests
+cover timing, late wake, and transient retry; shared Outbox and provider-component
+tests cover handoff cancellation fencing, permanent Graph failure cleanup,
+cross-device reminder ownership, SMTP ambiguity classification, and Gmail,
+Microsoft Graph, EWS, and Standards-Based admission. The result bundle rejects a
+successful `xcodebuild` invocation that selected fewer tests than expected. A
+focused XCUITest opens Send Later with Shift-Command-L and verifies that Send
+Automatically and Remind Me appear together with the provider-neutral timing
+promise. These deterministic tests do not claim live provider compatibility.
 The command then emits redacted JSON evidence and removes only its
 ownership-verified process, simulator, and run directory.
 `run categorization` sends six source-controlled Synthetic Test Messages
@@ -262,6 +273,7 @@ The automated push test proves real Gmail watch registration, Pub/Sub delivery, 
 
 - Available: the test-only Product Account and Mailbox Connection bootstrap.
 - Available: the `core-mail-loop` scenario, stable compose/reply accessibility identifiers, focused XCUITest steps, and independent recipient-mailbox, Sent Mailbox, duplicate, and Stable Thread Identity assertions.
+- Available: the Core Mail Loop Scheduled Send deterministic selection and visible two-mode Send Later assertion. Release remains gated on protected provider compatibility evidence.
 - Standards-Based Mailbox Connections derive send, reply, and Provider Mail Actions from each connection's advertised capabilities. Unsupported connections report those steps as `unavailable`; evidence verifies that the visible client creates no Outbox handoff, recipient delivery, or Sent Mailbox copy and leaves IMAP state unchanged.
 - Available: the `core-mail-loop` scenario, stable accessibility identifiers, focused XCUITest steps, and independent server assertions for opening, read state, archive, move, and trash.
 - Available: issue #280 records passing iCloud Mail and Fastmail certification, so Standards-Based Mailbox Connections are enabled for externally distributed Release builds with the accepted SwiftMail 1.11.0 pin.

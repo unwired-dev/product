@@ -49,6 +49,7 @@
 		C0DEC0DE163000000000003 /* Services/Mailbox/MailDraftAsset.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE163000000000004 /* Services/Mailbox/MailDraftAsset.swift */; };
 		C0DEC0DE163000000000005 /* Services/ProductSync/MailCompositionDraftSyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE163000000000006 /* Services/ProductSync/MailCompositionDraftSyncService.swift */; };
 		D16100000000000000000006 /* MailCompositionDraftTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D16100000000000000000016 /* MailCompositionDraftTests.swift */; };
+		C0DEC0DE3860000000000003 /* ScheduledSendReleasePolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE3860000000000004 /* ScheduledSendReleasePolicyTests.swift */; };
 		C0DEC0DE162000000000005 /* SemanticMessageDocumentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE162000000000006 /* SemanticMessageDocumentTests.swift */; };
 		C0DEC0DE554000000000009 /* SemanticMessageInputShortcutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE55400000000000A /* SemanticMessageInputShortcutTests.swift */; };
 		71A6A0662C0B000100000001 /* Features/Account/RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A0672C0B000100000001 /* Features/Account/RootView.swift */; };
@@ -213,6 +214,7 @@
 		71A6A1242C0B000100000001 /* Services/MicrosoftGraph/MicrosoftGraphPushRelayService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1252C0B000100000001 /* Services/MicrosoftGraph/MicrosoftGraphPushRelayService.swift */; };
 		71A6A1002C0B000100000001 /* Services/Mailbox/PendingProviderActionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1012C0B000100000001 /* Services/Mailbox/PendingProviderActionService.swift */; };
 		71A6A1102C0B000100000001 /* Services/Mailbox/OutboxDeliveryService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1112C0B000100000001 /* Services/Mailbox/OutboxDeliveryService.swift */; };
+		C0DEC0DE3860000000000001 /* Services/Mailbox/ScheduledSendReleasePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE3860000000000002 /* Services/Mailbox/ScheduledSendReleasePolicy.swift */; };
 		71A6A1022C0B000100000001 /* PendingProviderActionServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1032C0B000100000001 /* PendingProviderActionServiceTests.swift */; };
 		71A6A1122C0B000100000001 /* OutboxDeliveryServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1132C0B000100000001 /* OutboxDeliveryServiceTests.swift */; };
 		71A6A2002C0B000100000001 /* App/MailTestBootstrap.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A2102C0B000100000001 /* App/MailTestBootstrap.swift */; };
@@ -348,6 +350,7 @@
 		C0DEC0DE163000000000004 /* Services/Mailbox/MailDraftAsset.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/Mailbox/MailDraftAsset.swift; sourceTree = "<group>"; };
 		C0DEC0DE163000000000006 /* Services/ProductSync/MailCompositionDraftSyncService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/ProductSync/MailCompositionDraftSyncService.swift; sourceTree = "<group>"; };
 		D16100000000000000000016 /* MailCompositionDraftTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MailCompositionDraftTests.swift; sourceTree = "<group>"; };
+		C0DEC0DE3860000000000004 /* ScheduledSendReleasePolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScheduledSendReleasePolicyTests.swift; sourceTree = "<group>"; };
 		C0DEC0DE162000000000006 /* SemanticMessageDocumentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SemanticMessageDocumentTests.swift; sourceTree = "<group>"; };
 		C0DEC0DE55400000000000A /* SemanticMessageInputShortcutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SemanticMessageInputShortcutTests.swift; sourceTree = "<group>"; };
 		71A6A0672C0B000100000001 /* Features/Account/RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Account/RootView.swift; sourceTree = "<group>"; };
@@ -509,6 +512,7 @@
 		71A6A1252C0B000100000001 /* Services/MicrosoftGraph/MicrosoftGraphPushRelayService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/MicrosoftGraph/MicrosoftGraphPushRelayService.swift; sourceTree = "<group>"; };
 		71A6A1012C0B000100000001 /* Services/Mailbox/PendingProviderActionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/Mailbox/PendingProviderActionService.swift; sourceTree = "<group>"; };
 		71A6A1112C0B000100000001 /* Services/Mailbox/OutboxDeliveryService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/Mailbox/OutboxDeliveryService.swift; sourceTree = "<group>"; };
+		C0DEC0DE3860000000000002 /* Services/Mailbox/ScheduledSendReleasePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/Mailbox/ScheduledSendReleasePolicy.swift; sourceTree = "<group>"; };
 		71A6A1032C0B000100000001 /* PendingProviderActionServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PendingProviderActionServiceTests.swift; sourceTree = "<group>"; };
 		71A6A1132C0B000100000001 /* OutboxDeliveryServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OutboxDeliveryServiceTests.swift; sourceTree = "<group>"; };
 		71A6A1312C0B000100000001 /* EWSMailboxConnectionAdapterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EWSMailboxConnectionAdapterTests.swift; sourceTree = "<group>"; };
@@ -707,6 +711,7 @@
 				C0DEC0DE163000000000006 /* Services/ProductSync/MailCompositionDraftSyncService.swift */,
 				71A6A1012C0B000100000001 /* Services/Mailbox/PendingProviderActionService.swift */,
 				71A6A1112C0B000100000001 /* Services/Mailbox/OutboxDeliveryService.swift */,
+				C0DEC0DE3860000000000002 /* Services/Mailbox/ScheduledSendReleasePolicy.swift */,
 				71A6A0D32C0B000100000001 /* Services/Mailbox/GenericMailSetupService.swift */,
 				71A6A0D92C0B000100000001 /* Services/Mailbox/GenericMailProviderCatalog.swift */,
 				71A6A1072C0B000100000001 /* Services/Mailbox/IMAPMailboxConnectionAdapter.swift */,
@@ -796,6 +801,7 @@
 			children = (
 				C0DEC0DE4060F00000000011 /* ShareExtensionTests.swift */,
 				D16100000000000000000016 /* MailCompositionDraftTests.swift */,
+				C0DEC0DE3860000000000004 /* ScheduledSendReleasePolicyTests.swift */,
 				C0DEC0DE162000000000006 /* SemanticMessageDocumentTests.swift */,
 				C0DEC0DE55400000000000A /* SemanticMessageInputShortcutTests.swift */,
 				71A6A1D32C0B000100000001 /* AdvancedSettingsTests.swift */,
@@ -1159,6 +1165,7 @@
 				C0DEC0DE163000000000005 /* Services/ProductSync/MailCompositionDraftSyncService.swift in Sources */,
 				71A6A1002C0B000100000001 /* Services/Mailbox/PendingProviderActionService.swift in Sources */,
 				71A6A1102C0B000100000001 /* Services/Mailbox/OutboxDeliveryService.swift in Sources */,
+				C0DEC0DE3860000000000001 /* Services/Mailbox/ScheduledSendReleasePolicy.swift in Sources */,
 				71A6A0D22C0B000100000001 /* Services/Mailbox/GenericMailSetupService.swift in Sources */,
 				71A6A0D82C0B000100000001 /* Services/Mailbox/GenericMailProviderCatalog.swift in Sources */,
 				71A6A1062C0B000100000001 /* Services/Mailbox/IMAPMailboxConnectionAdapter.swift in Sources */,
@@ -1246,6 +1253,7 @@
 			files = (
 				C0DEC0DE4060A0000000000B /* ShareExtensionTests.swift in Sources */,
 				D16100000000000000000006 /* MailCompositionDraftTests.swift in Sources */,
+				C0DEC0DE3860000000000003 /* ScheduledSendReleasePolicyTests.swift in Sources */,
 				C0DEC0DE162000000000005 /* SemanticMessageDocumentTests.swift in Sources */,
 				C0DEC0DE554000000000009 /* SemanticMessageInputShortcutTests.swift in Sources */,
 				71A6A1D22C0B000100000001 /* AdvancedSettingsTests.swift in Sources */,

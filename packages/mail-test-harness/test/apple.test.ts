@@ -11,6 +11,7 @@ import {
   prepareMailTestSimulator,
   resetManualMailTestApplication,
   runMailTestApplication,
+  runScheduledSendDeterministicTests,
 } from '../src/apple.ts';
 
 function result(stdout = ''): { stderr: string; stdout: string } {
@@ -21,6 +22,21 @@ type TestCommandRunner = (
   command: string,
   arguments_: readonly string[],
 ) => Promise<{ stderr: string; stdout: string }>;
+
+const scheduledSendTestIdentifiers = [
+  'OutboxDeliveryServiceTests/testScheduledSendNeverHandsOffEarlyAndResumesAfterRestart()',
+  'OutboxDeliveryServiceTests/testScheduledSendBecomesNeedsAttentionAfterTwentyFourHoursWithoutHandoff()',
+  'OutboxDeliveryServiceTests/testEditAndCancelLoseRaceOnceProviderHandoffStarts()',
+  'OutboxDeliveryServiceTests/dueScheduledSendRetainsRetryCleanupAfterATransientFailure()',
+  'OutboxDeliveryServiceTests/testPermanentGraphFailureDeletesProviderDraftWithoutChangingFailureOutcome()',
+  'SendReminderSyncServiceTests/reminderAndDraftSynchronizeWithinOneProfileAndTransferOwnership()',
+  'SwiftMailEngineTests/testSMTPAmbiguousPostContentFailureIsNeverRetryable()',
+  'OutboxDeliveryServiceTests/microsoftGraphScheduledSendAdmissionPreservesItsPayloadAndConnection()',
+  'OutboxDeliveryServiceTests/exchangeWebServicesScheduledSendAdmissionPreservesItsPayloadAndConnection()',
+  'OutboxDeliveryServiceTests/standardsMailScheduledSendAdmissionPreservesItsPayloadAndConnection()',
+  'ScheduledSendReleasePolicyTests/newSchedulingIsEnabledAfterProtectedProviderCompatibilityCompletes()',
+  'ScheduledSendReleasePolicyTests/newSchedulingIsReleaseGatedWhileExistingCommitmentsRemainEditable()',
+];
 
 describe('mail test device lifecycle', () => {
   it('creates a persistent simulator with the requested sandbox name', async () => {
@@ -413,6 +429,175 @@ describe('mail test device lifecycle', () => {
     expect(run.mock.calls[0]?.[1]).toContain(
       '-only-testing:unwired-mailMailTestUITests/MailTestBootstrapUITests/testCategorizedFixturesAppearInVisibleMailbox',
     );
+  });
+
+  it('requires every selected Scheduled Send deterministic test to execute', async () => {
+    expect.assertions(4);
+    const evidenceDirectory = await mkdtemp(
+      path.join(tmpdir(), 'scheduled-send-evidence-'),
+    );
+    const summary = JSON.stringify({
+      failedTests: 0,
+      passedTests: 184,
+      result: 'Passed',
+      skippedTests: 0,
+      totalTestCount: 184,
+    });
+    const tests = JSON.stringify({
+      testNodes: [
+        {
+          children: [
+            {
+              children: scheduledSendTestIdentifiers.map((nodeIdentifier) => ({
+                nodeIdentifier,
+                nodeType: 'Test Case',
+                result: 'Passed',
+              })),
+            },
+          ],
+        },
+      ],
+    });
+    const run = vi.fn<TestCommandRunner>();
+    run
+      .mockResolvedValueOnce(result())
+      .mockResolvedValueOnce(result(summary))
+      .mockResolvedValueOnce(result(tests));
+
+    try {
+      await expect(
+        runScheduledSendDeterministicTests(
+          {
+            resultBundleDirectory: evidenceDirectory,
+            root: '/tmp/run',
+            simulator: {
+              name: 'Unwired Mail Test run',
+              runtime: 'iOS 26.5',
+              udid: 'AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE',
+            },
+          },
+          run,
+        ),
+      ).resolves.toBe(12);
+      expect(run.mock.calls[0]?.[1]).toStrictEqual(
+        expect.arrayContaining([
+          '-scheme',
+          'unwired-mail',
+          '-destination',
+          'id=AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE',
+          '-resultBundlePath',
+          path.join(evidenceDirectory, 'scheduled-send-deterministic.xcresult'),
+          '-only-testing:unwired-mailTests/SwiftMailEngineTests',
+        ]),
+      );
+      expect(run.mock.calls[1]).toStrictEqual([
+        'xcrun',
+        [
+          'xcresulttool',
+          'get',
+          'test-results',
+          'summary',
+          '--path',
+          path.join(evidenceDirectory, 'scheduled-send-deterministic.xcresult'),
+          '--compact',
+        ],
+        { signal: undefined },
+      ]);
+      expect(run.mock.calls[2]?.[1]).toStrictEqual([
+        'xcresulttool',
+        'get',
+        'test-results',
+        'tests',
+        '--path',
+        path.join(evidenceDirectory, 'scheduled-send-deterministic.xcresult'),
+        '--compact',
+      ]);
+    } finally {
+      await rm(evidenceDirectory, { force: true, recursive: true });
+    }
+  });
+
+  it('rejects Scheduled Send deterministic evidence when a selected test did not execute', async () => {
+    expect.assertions(1);
+    const run = vi.fn<TestCommandRunner>();
+    run.mockResolvedValueOnce(result()).mockResolvedValueOnce(
+      result(
+        JSON.stringify({
+          failedTests: 0,
+          passedTests: 9,
+          result: 'Passed',
+          skippedTests: 0,
+          totalTestCount: 9,
+        }),
+      ),
+    );
+
+    await expect(
+      runScheduledSendDeterministicTests(
+        {
+          root: '/tmp/run',
+          simulator: {
+            name: 'Unwired Mail Test run',
+            runtime: 'iOS 26.5',
+            udid: 'AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE',
+          },
+        },
+        run,
+      ),
+    ).rejects.toThrow('selected 9 tests; expected at least 12 passing tests');
+  });
+
+  it('rejects Scheduled Send deterministic evidence missing a required identifier', async () => {
+    expect.assertions(1);
+    const run = vi.fn<TestCommandRunner>();
+    run
+      .mockResolvedValueOnce(result())
+      .mockResolvedValueOnce(
+        result(
+          JSON.stringify({
+            failedTests: 0,
+            passedTests: 12,
+            result: 'Passed',
+            skippedTests: 0,
+            totalTestCount: 12,
+          }),
+        ),
+      )
+      .mockResolvedValueOnce(
+        result(
+          JSON.stringify({
+            testNodes: [
+              {
+                children: [
+                  {
+                    children: scheduledSendTestIdentifiers
+                      .slice(1)
+                      .map((nodeIdentifier) => ({
+                        nodeIdentifier,
+                        nodeType: 'Test Case',
+                        result: 'Passed',
+                      })),
+                  },
+                ],
+              },
+            ],
+          }),
+        ),
+      );
+
+    await expect(
+      runScheduledSendDeterministicTests(
+        {
+          root: '/tmp/run',
+          simulator: {
+            name: 'Unwired Mail Test run',
+            runtime: 'iOS 26.5',
+            udid: 'AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE',
+          },
+        },
+        run,
+      ),
+    ).rejects.toThrow(scheduledSendTestIdentifiers[0]);
   });
 
   it('runs the requested UI step on the exact owned simulator', async () => {
