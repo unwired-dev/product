@@ -454,7 +454,7 @@ enum InlineImageDimensionPolicy {
 
 }
 
-struct RemoteMessageContentAdmission {
+struct RemoteMessageContentAdmission: Sendable {
   let image: RemoteMessageImage
   let pixelCount: Int
 }

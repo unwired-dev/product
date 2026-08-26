@@ -5,6 +5,7 @@ import SwiftData
 import SwiftUI
 import Testing
 import UIKit
+import WebKit
 
 @testable import unwired_mail
 
@@ -5176,6 +5177,70 @@ final class MailboxConnectionAdapterTests {
   }
 
   @Test
+  func testMailboxNavigationSnapshotResolvesCachedThreadOutsideCurrentSelection() throws {
+    let source = mailShellMessage(
+      providerMessageId: "reply-source",
+      providerThreadId: "reply-thread",
+      receivedAt: 100
+    )
+    let other = mailShellMessage(
+      providerMessageId: "other-message",
+      providerThreadId: "other-thread",
+      receivedAt: 200
+    )
+    let snapshot = MailboxNavigationSnapshot(
+      messagesByConnection: [source.connectionId: [source, other]],
+      pinnedThreadIds: [],
+      snoozedThreadIds: [],
+      outboxStates: []
+    )
+
+    let thread = try #require(snapshot.thread(source.threadIdentity))
+
+    #expect(thread.id == source.threadIdentity)
+    #expect(thread.messages == [source])
+  }
+
+  @Test
+  func testMailShellComposerSendFailurePresentsActionErrorOrFallback() {
+    let activeDraftId = UUID()
+    #expect(
+      AccountView.composerSendErrorMessage(
+        didSend: true,
+        actionErrorMessage: "Ignored"
+      ) == nil
+    )
+    #expect(
+      AccountView.composerSendErrorMessage(
+        didSend: false,
+        actionErrorMessage: "Provider rejected the message."
+      ) == "Provider rejected the message."
+    )
+    #expect(
+      AccountView.composerSendErrorMessage(
+        didSend: false,
+        actionErrorMessage: nil
+      ) == "The message could not be added to Outbox. Keep editing and try again."
+    )
+    #expect(
+      AccountView.composerSendErrorMessage(
+        didSend: false,
+        actionErrorMessage: "Late failure",
+        attemptedDraftId: UUID(),
+        presentedDraftId: activeDraftId
+      ) == nil
+    )
+    #expect(
+      AccountView.composerSendErrorMessage(
+        didSend: false,
+        actionErrorMessage: "Current failure",
+        attemptedDraftId: activeDraftId,
+        presentedDraftId: activeDraftId
+      ) == "Current failure"
+    )
+  }
+
+  @Test
   func testMailShellComposerNavigationPreservesDraftAcrossAdaptivePresentation() {
     let draft = MailShellCompositionDraft.new(defaultSendingConnectionId: nil)
     var navigation = MailShellComposerNavigationState()
@@ -5219,6 +5284,111 @@ final class MailboxConnectionAdapterTests {
     navigation.toggleExpansion()
     #expect(navigation.isExpanded == false)
     #expect(navigation.draft?.id == draft.id)
+  }
+
+  @Test(
+    .bug(id: 561),
+    arguments: [MailCompositionKind.reply, .replyAll, .forward]
+  )
+  // swiftlint:disable:next function_body_length
+  func testReplyAndForwardEntryPointsUseAccountViewComposerNavigation(
+    kind: MailCompositionKind
+  ) throws {
+    let message = mailShellMessage(
+      providerMessageId: "composer-source",
+      providerThreadId: "composer-thread",
+      receivedAt: 100
+    )
+    var navigation = MailShellComposerNavigationState()
+
+    switch kind {
+    case .reply:
+      MailShellConversationReader.presentReply(
+        to: message,
+        replyAll: false,
+        senderAddress: "reader@example.com",
+        quotedText: "Quoted reply",
+        sendingIdentityId: nil,
+        signatures: .empty,
+        present: { draft in
+          AccountView.presentCompositionDraft(draft, in: &navigation)
+        }
+      )
+    case .replyAll:
+      MailShellConversationReader.presentReply(
+        to: message,
+        replyAll: true,
+        senderAddress: "reader@example.com",
+        quotedText: "Quoted reply",
+        sendingIdentityId: nil,
+        signatures: .empty,
+        present: { draft in
+          AccountView.presentCompositionDraft(draft, in: &navigation)
+        }
+      )
+    case .forward:
+      MailShellConversationReader.presentForward(
+        message,
+        body: MailboxMessageBody(text: "Forwarded body"),
+        sendingIdentityId: nil,
+        signatures: .empty,
+        present: { draft in
+          AccountView.presentCompositionDraft(draft, in: &navigation)
+        }
+      )
+    case .editing, .newMessage:
+      preconditionFailure("Only reply and forward entry points belong in this regression")
+    }
+    let draft = try #require(navigation.draft)
+
+    switch kind {
+    case .reply, .replyAll:
+      #expect(draft.kind == kind)
+      #expect(draft.replyToMessage == message)
+      #expect(draft.sourceMessage == message)
+      #expect(draft.forwardSourceMessage == nil)
+      #expect(draft.recipient == "sender@example.com")
+      #expect(draft.quotedText == "Quoted reply")
+      #expect(draft.deliveryBody.contains("Quoted reply"))
+    case .forward:
+      #expect(draft.kind == .forward)
+      #expect(draft.replyToMessage == nil)
+      #expect(draft.sourceMessage == message)
+      #expect(draft.forwardSourceMessage == message)
+      #expect(draft.recipient.isEmpty)
+      #expect(draft.quotedText?.contains("Forwarded body") == true)
+      #expect(draft.deliveryBody.contains("Forwarded body"))
+    case .editing, .newMessage:
+      preconditionFailure("Only reply and forward entry points belong in this regression")
+    }
+
+    let regular = MailShellComposerPresentationLayout(
+      containerFrame: CGRect(x: 0, y: 0, width: 1_400, height: 1_000),
+      detailColumnFrame: CGRect(x: 600, y: 0, width: 800, height: 1_000),
+      isCompact: false,
+      isExpanded: navigation.isExpanded
+    )
+    let compact = MailShellComposerPresentationLayout(
+      containerFrame: CGRect(x: 0, y: 0, width: 390, height: 844),
+      detailColumnFrame: nil,
+      isCompact: true,
+      isExpanded: navigation.isExpanded
+    )
+
+    #expect(navigation.draft == draft)
+    #expect(regular.mode == .detailOverlay)
+    #expect(compact.mode == .compactDestination)
+
+    navigation.toggleExpansion()
+    let expanded = MailShellComposerPresentationLayout(
+      containerFrame: CGRect(x: 0, y: 0, width: 1_400, height: 1_000),
+      detailColumnFrame: CGRect(x: 600, y: 0, width: 800, height: 1_000),
+      isCompact: false,
+      isExpanded: navigation.isExpanded
+    )
+
+    #expect(navigation.draft == draft)
+    #expect(expanded.mode == .expanded)
   }
 
   @Test(.bug(id: 553))
