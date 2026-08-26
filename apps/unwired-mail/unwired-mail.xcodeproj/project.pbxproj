@@ -123,6 +123,7 @@
 		C0DEC0DE132000000000000B /* Features/Settings/SignedOutSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE132000000000000C /* Features/Settings/SignedOutSettingsView.swift */; };
 		71A6A1882C0B000100000001 /* Features/Settings/PrivacyDataSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1892C0B000100000001 /* Features/Settings/PrivacyDataSettingsView.swift */; };
 		9809FCB28E1A4D7684FA57F8 /* Features/Settings/StorageDataSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8AA1032F9EE448E1B6E5B977 /* Features/Settings/StorageDataSettingsView.swift */; };
+		C0DEC0DE5570000000000001 /* Features/Settings/SettingsInlineErrorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE5570000000000002 /* Features/Settings/SettingsInlineErrorView.swift */; };
 		D8E2729F42264382AD3DADA8 /* Features/Settings/StorageDataSettingsViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A8E1950634146CA9C79DB71 /* Features/Settings/StorageDataSettingsViewModel.swift */; };
 		1F619911B0EB4670BC4F1A31 /* Services/ProductSync/ProductSyncExportService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11015CE4C06C4FCDA97AE9A8 /* Services/ProductSync/ProductSyncExportService.swift */; };
 		3EF862AA0C9E479D92B41978 /* StorageDataSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD0716B734C1453D987D8B21 /* StorageDataSettingsTests.swift */; };
@@ -425,6 +426,7 @@
 		C0DEC0DE132000000000000C /* Features/Settings/SignedOutSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Settings/SignedOutSettingsView.swift; sourceTree = "<group>"; };
 		71A6A1892C0B000100000001 /* Features/Settings/PrivacyDataSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Settings/PrivacyDataSettingsView.swift; sourceTree = "<group>"; };
 		8AA1032F9EE448E1B6E5B977 /* Features/Settings/StorageDataSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Settings/StorageDataSettingsView.swift; sourceTree = "<group>"; };
+		C0DEC0DE5570000000000002 /* Features/Settings/SettingsInlineErrorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Settings/SettingsInlineErrorView.swift; sourceTree = "<group>"; };
 		2A8E1950634146CA9C79DB71 /* Features/Settings/StorageDataSettingsViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Settings/StorageDataSettingsViewModel.swift; sourceTree = "<group>"; };
 		11015CE4C06C4FCDA97AE9A8 /* Services/ProductSync/ProductSyncExportService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/ProductSync/ProductSyncExportService.swift; sourceTree = "<group>"; };
 		DD0716B734C1453D987D8B21 /* StorageDataSettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StorageDataSettingsTests.swift; sourceTree = "<group>"; };
@@ -667,6 +669,7 @@
 				C0DEC0DE1320000000000004 /* Features/Settings/OpenSourcePackage.swift */,
 				C0DEC0DE132000000000000C /* Features/Settings/SignedOutSettingsView.swift */,
 				8AA1032F9EE448E1B6E5B977 /* Features/Settings/StorageDataSettingsView.swift */,
+				C0DEC0DE5570000000000002 /* Features/Settings/SettingsInlineErrorView.swift */,
 				2A8E1950634146CA9C79DB71 /* Features/Settings/StorageDataSettingsViewModel.swift */,
 				71A6A1612C0B000100000001 /* Features/Settings/SettingsScene.swift */,
 				C0DEC0DE3940000000000002 /* Features/Settings/MailProfilesSettingsView.swift */,
@@ -1119,6 +1122,7 @@
 				C0DEC0DE1320000000000003 /* Features/Settings/OpenSourcePackage.swift in Sources */,
 				C0DEC0DE132000000000000B /* Features/Settings/SignedOutSettingsView.swift in Sources */,
 				9809FCB28E1A4D7684FA57F8 /* Features/Settings/StorageDataSettingsView.swift in Sources */,
+				C0DEC0DE5570000000000001 /* Features/Settings/SettingsInlineErrorView.swift in Sources */,
 				D8E2729F42264382AD3DADA8 /* Features/Settings/StorageDataSettingsViewModel.swift in Sources */,
 				71A6A1602C0B000100000001 /* Features/Settings/SettingsScene.swift in Sources */,
 				C0DEC0DE3940000000000001 /* Features/Settings/MailProfilesSettingsView.swift in Sources */,

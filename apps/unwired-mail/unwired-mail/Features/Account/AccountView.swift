@@ -14892,6 +14892,7 @@ final class MailboxProviderConnectionViewModel {
   private var removalObservation: MailboxConnectionRemovalObservation?
   private let service: MailboxConnectionAdapter
   private var session: ProductAccountSessionSnapshot
+  private var hasLoadedConnectionSnapshot = false
   private var pushStatusMessages: [MailboxConnectionId: String] = [:]
 
   init(
@@ -14931,7 +14932,9 @@ final class MailboxProviderConnectionViewModel {
       isLoading = false
     }
     let prefersAuthoritativeDefault = selectedConnectionId == nil
-    await loadCachedConnections()
+    if !hasLoadedConnectionSnapshot {
+      await loadCachedConnections()
+    }
     guard await revalidateTrustedDevice(), isSessionCurrent(session) else { return false }
 
     do {
@@ -14966,6 +14969,7 @@ final class MailboxProviderConnectionViewModel {
       defaultSendingConnectionId =
         try await cacheLoader.loadCachedDefaultSendingConnectionId(session: session)
       connectionsSnapshotIsAuthoritative = false
+      hasLoadedConnectionSnapshot = true
       clearUnavailableDefaultSendingConnection()
       if selectedConnectionId == nil { restoreSelection() }
     } catch is CancellationError {
@@ -15157,6 +15161,7 @@ final class MailboxProviderConnectionViewModel {
       }
     connectionsSnapshotIsAuthoritative = snapshot.isAuthoritative
     connections = loadedConnections
+    hasLoadedConnectionSnapshot = true
     let loadedDefaultSendingConnectionId = try await service.loadDefaultSendingConnectionId(
       session: session
     )
@@ -15972,12 +15977,6 @@ struct MailboxProviderConnectionPanel: View {
               : (viewModel.isRenewingPushWatch
                 ? "Renewing Gmail push..." : configuration.loadingTitle))
         )
-      }
-
-      if let errorMessage = viewModel.errorMessage {
-        Text(errorMessage)
-          .foregroundStyle(.red)
-          .font(.footnote)
       }
 
       if configuration.showsPushStatus, let pushStatusMessage = viewModel.pushStatusMessage {

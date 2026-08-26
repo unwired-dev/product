@@ -868,9 +868,12 @@ struct GenericMailSetupPanel: View {
       }
 
       if let errorMessage = viewModel.errorMessage {
-        Text(errorMessage)
-          .foregroundStyle(.red)
-          .font(.footnote)
+        SettingsInlineErrorView(
+          message: errorMessage,
+          isRetrying: viewModel.isEditingDisabled
+        ) {
+          Task { await viewModel.loadSyncedDefinitions() }
+        }
       }
     }
     .disabled(viewModel.isEditingDisabled)

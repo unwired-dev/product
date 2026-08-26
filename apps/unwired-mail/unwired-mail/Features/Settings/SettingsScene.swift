@@ -1596,6 +1596,17 @@ struct AccountAndDevicesSettingsView: View {
 
   var body: some View {
     Form {
+      if let errorMessage = viewModel.errorMessage {
+        Section {
+          SettingsInlineErrorView(
+            message: errorMessage,
+            isRetrying: viewModel.isLoading || viewModel.isWorking
+          ) {
+            Task { await loadDestination() }
+          }
+        }
+      }
+
       Section("Product Account") {
         Label("Signed in with Apple", systemImage: "person.crop.circle.badge.checkmark")
         LabeledContent("Product Account") {
@@ -1650,43 +1661,14 @@ struct AccountAndDevicesSettingsView: View {
     }
     .navigationTitle("Account & Devices")
     .task(id: snapshot.trustedDeviceId) {
-      await viewModel.load(
-        session: snapshot,
-        recentIdentityToken: {
-          try await session.recentIdentityToken(for: snapshot)
-        },
-        trustedDeviceRevoked: {
-          await session.handleTrustedDeviceRevocation(snapshot)
-        }
-      )
+      await loadDestination()
       viewModel.presentPreservedRecoveryKey(session.unacknowledgedRecoveryKey)
     }
     .onDisappear {
       viewModel.hideRecoveryKey()
     }
     .refreshable {
-      await viewModel.load(
-        session: snapshot,
-        recentIdentityToken: {
-          try await session.recentIdentityToken(for: snapshot)
-        },
-        trustedDeviceRevoked: {
-          await session.handleTrustedDeviceRevocation(snapshot)
-        }
-      )
-    }
-    .alert(
-      "Account & Devices unavailable",
-      isPresented: Binding(
-        get: { viewModel.errorMessage != nil },
-        set: { isPresented in
-          if !isPresented { viewModel.clearError() }
-        }
-      )
-    ) {
-      Button("OK") { viewModel.clearError() }
-    } message: {
-      Text(viewModel.errorMessage ?? "")
+      await loadDestination()
     }
     .alert(
       "Rename Trusted Device",
@@ -1866,6 +1848,18 @@ struct AccountAndDevicesSettingsView: View {
       )
       .interactiveDismissDisabled()
     }
+  }
+
+  private func loadDestination() async {
+    await viewModel.load(
+      session: snapshot,
+      recentIdentityToken: {
+        try await session.recentIdentityToken(for: snapshot)
+      },
+      trustedDeviceRevoked: {
+        await session.handleTrustedDeviceRevocation(snapshot)
+      }
+    )
   }
 }
 
@@ -2164,8 +2158,12 @@ struct CategoriesSettingsView: View {
 
       if let errorMessage = viewModel.errorMessage {
         Section {
-          Text(errorMessage)
-            .foregroundStyle(.red)
+          SettingsInlineErrorView(
+            message: errorMessage,
+            isRetrying: viewModel.isSyncing || viewModel.isSaving
+          ) {
+            Task { await viewModel.load() }
+          }
         }
       }
     }

@@ -197,8 +197,20 @@ struct NotificationsSettingsView: View {
             .foregroundStyle(.secondary)
         }
         if let errorMessage = viewModel.errorMessage {
-          Text(errorMessage)
-            .foregroundStyle(.red)
+          SettingsInlineErrorView(
+            message: errorMessage,
+            isRetrying: viewModel.isSyncing || viewModel.isSaving
+          ) {
+            Task {
+              if viewModel.hasUnsavedChanges {
+                await viewModel.save()
+              } else {
+                await viewModel.loadProfiles(
+                  categoryIds: hasLoadedCategory ? Set(categoryChoices.map(\.id)) : nil
+                )
+              }
+            }
+          }
         }
         if let fallbackErrorMessage = viewModel.fallbackErrorMessage {
           Text(fallbackErrorMessage)

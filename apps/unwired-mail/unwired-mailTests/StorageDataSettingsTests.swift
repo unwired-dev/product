@@ -336,6 +336,33 @@ struct StorageDataSettingsTests {
   }
 
   @MainActor
+  @Test(.bug(id: 557))
+  func failedRefreshRetainsStorageSnapshotUntilRetrySucceeds() async {
+    let initialSnapshot = makeSnapshot(cachedBodyByteCount: 1)
+    let recoveredSnapshot = makeSnapshot(cachedBodyByteCount: 2)
+    let storage = RetryingLocalMailStorageManager(snapshot: initialSnapshot)
+    let viewModel = StorageDataSettingsViewModel(
+      exporter: SuspendingProductSyncExporter(),
+      readReceiptSummary: "Incoming: Ask Every Time. Outgoing: Never.",
+      storage: storage
+    )
+    await viewModel.refresh()
+    await storage.failSnapshots()
+
+    await viewModel.refresh()
+
+    #expect(viewModel.snapshot == initialSnapshot)
+    #expect(viewModel.loadErrorMessage != nil)
+    #expect(viewModel.alertMessage == nil)
+
+    await storage.resumeSnapshots(with: recoveredSnapshot)
+    await viewModel.refresh()
+
+    #expect(viewModel.snapshot == recoveredSnapshot)
+    #expect(viewModel.loadErrorMessage == nil)
+  }
+
+  @MainActor
   @Test
   func reconfigurationDiscardsStaleClearSuccess() async {
     let oldStorage = ControlledLocalMailStorageManager(
@@ -610,6 +637,32 @@ private actor EmptyLocalMailStorageManager: LocalMailStorageManaging {
 
 private enum StorageTestError: Error, Sendable {
   case clearFailed
+  case snapshotFailed
+}
+
+private actor RetryingLocalMailStorageManager: LocalMailStorageManaging {
+  private var snapshotValue: LocalMailStorageSnapshot
+  private var snapshotsFail = false
+
+  init(snapshot: LocalMailStorageSnapshot) {
+    snapshotValue = snapshot
+  }
+
+  func clearEvictableContent() async throws {}
+
+  func snapshot() async throws -> LocalMailStorageSnapshot {
+    if snapshotsFail { throw StorageTestError.snapshotFailed }
+    return snapshotValue
+  }
+
+  func failSnapshots() {
+    snapshotsFail = true
+  }
+
+  func resumeSnapshots(with snapshot: LocalMailStorageSnapshot) {
+    snapshotValue = snapshot
+    snapshotsFail = false
+  }
 }
 
 private actor ControlledLocalMailStorageManager: LocalMailStorageManaging {

@@ -404,9 +404,9 @@ struct EWSSetupPanel: View {
         ProgressView("Contacting Exchange securely...")
       }
       if let errorMessage = viewModel.errorMessage {
-        Text(errorMessage)
-          .font(.footnote)
-          .foregroundStyle(.red)
+        SettingsInlineErrorView(message: errorMessage, isRetrying: viewModel.isWorking) {
+          Task { await viewModel.load() }
+        }
       }
     }
     .task { await viewModel.load() }
