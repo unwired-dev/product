@@ -4235,6 +4235,7 @@ final class ProductAccountSessionTests {
     remoteContentCleaner.clearError =
       ProductAccountSessionTestError.authorizedRemoteContentCleanupFailed
     let session = ProductAccountSession(
+      appleSignInService: RevokedAppleSignInService(),
       authorizedRemoteContentCache: remoteContentCleaner,
       sessionStore: store,
       productSyncKeyMaterialStore: keyMaterialStore
@@ -4252,6 +4253,7 @@ final class ProductAccountSessionTests {
 
     remoteContentCleaner.clearError = nil
     let retryingSession = ProductAccountSession(
+      appleSignInService: RevokedAppleSignInService(),
       authorizedRemoteContentCache: remoteContentCleaner,
       sessionStore: store,
       productSyncKeyMaterialStore: keyMaterialStore
