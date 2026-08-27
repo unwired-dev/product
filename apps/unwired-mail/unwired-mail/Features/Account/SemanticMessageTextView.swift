@@ -15,6 +15,7 @@ struct SemanticMessageTextView: UIViewRepresentable {
   let composeAssistanceContext: ComposeAssistanceContext?
   @Binding var isFocused: Bool
   let focusRequest: Int
+  let focusDidBegin: () -> Void
   let minimumHeight: CGFloat
 
   func makeCoordinator() -> SemanticMessageTextViewCoordinator {
