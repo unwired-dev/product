@@ -1,9 +1,6 @@
 import PhotosUI
 import SwiftUI
 import UniformTypeIdentifiers
-#if canImport(UIKit)
-  import UIKit
-#endif
 
 // swiftlint:disable file_length
 
@@ -50,7 +47,8 @@ struct MailShellComposer: View {
   @State private var isBodyFocused = false
   @State private var isBodyFocusPending = false
   @State private var bodyFocusRequest = 0
-  @State private var subjectFieldGeneration = 0
+  @State private var bodyFocusHandoff = 0
+  @State private var presentsSubjectField = true
   @State private var editorModel: SemanticMessageEditorModel
   @State private var assetErrorMessage: String?
   @State private var translationErrorMessage: String?
@@ -248,12 +246,21 @@ struct MailShellComposer: View {
             Divider()
             recipientFields
             Divider()
-            MailComposerSubjectField(
-              subject: $viewModel.draft.subject,
-              focusedField: $focusedField,
-              focusBody: focusBody
-            )
-            .id(subjectFieldGeneration)
+            Group {
+              if presentsSubjectField {
+                MailComposerSubjectField(
+                  subject: $viewModel.draft.subject,
+                  focusedField: $focusedField,
+                  focusBody: focusBody
+                )
+              } else {
+                Text(viewModel.draft.subject.isEmpty ? "Subject" : viewModel.draft.subject)
+                  .padding(.horizontal, 16)
+                  .padding(.vertical, 12)
+                  .hidden()
+                  .accessibilityHidden(true)
+              }
+            }
             Divider()
             MailComposerActionBar(
               editorModel: editorModel,
@@ -275,7 +282,8 @@ struct MailShellComposer: View {
             MailComposerBodyField(
               editorModel: editorModel,
               isFocused: $isBodyFocused,
-              focusRequest: bodyFocusRequest
+              focusRequest: bodyFocusRequest,
+              focusDidBegin: bodyFocusDidBegin
             )
             .simultaneousGesture(
               TapGesture().onEnded {
@@ -372,9 +380,10 @@ struct MailShellComposer: View {
       }
       .onChange(of: focusedField) { previousField, focusedField in
         if focusedField != nil {
+          bodyFocusHandoff &+= 1
+          isBodyFocusPending = false
+          presentsSubjectField = true
           isBodyFocused = false
-        } else if isBodyFocusPending {
-          scheduleBodyFocus()
         }
         guard let recipientField = recipientField(for: previousField) else { return }
         recipientEditor.commitPendingText(in: recipientField)
@@ -520,33 +529,29 @@ struct MailShellComposer: View {
   }
 
   private func focusBody() {
+    bodyFocusHandoff &+= 1
+    let handoff = bodyFocusHandoff
     isBodyFocusPending = true
+    presentsSubjectField = false
     focusedField = nil
-    scheduleBodyFocus()
-  }
-
-  private func scheduleBodyFocus() {
     Task { @MainActor in
-      try? await Task.sleep(for: .milliseconds(100))
-      guard isBodyFocusPending, focusedField == nil else { return }
-      subjectFieldGeneration &+= 1
-      try? await Task.sleep(for: .milliseconds(50))
-      guard isBodyFocusPending, focusedField == nil else { return }
-      #if canImport(UIKit)
-        UIApplication.shared.connectedScenes
-          .compactMap { $0 as? UIWindowScene }
-          .flatMap(\.windows)
-          .first(where: \.isKeyWindow)?
-          .endEditing(true)
-        try? await Task.sleep(for: .milliseconds(50))
-        guard isBodyFocusPending, focusedField == nil else { return }
-      #endif
-      requestBodyFocus()
+      await Task.yield()
+      guard handoff == bodyFocusHandoff, isBodyFocusPending, focusedField == nil else { return }
+      isBodyFocused = true
+      bodyFocusRequest &+= 1
     }
   }
 
-  private func requestBodyFocus() {
+  private func bodyFocusDidBegin() {
+    guard isBodyFocusPending else { return }
     isBodyFocusPending = false
+    presentsSubjectField = true
+  }
+
+  private func requestBodyFocus() {
+    bodyFocusHandoff &+= 1
+    isBodyFocusPending = false
+    presentsSubjectField = true
     focusedField = nil
     isBodyFocused = true
     bodyFocusRequest &+= 1
@@ -1252,12 +1257,14 @@ private struct MailComposerBodyField: View {
   @Bindable var editorModel: SemanticMessageEditorModel
   @Binding var isFocused: Bool
   let focusRequest: Int
+  let focusDidBegin: () -> Void
 
   var body: some View {
     SemanticMessageTextView(
       editorModel: editorModel,
       isFocused: $isFocused,
       focusRequest: focusRequest,
+      focusDidBegin: focusDidBegin,
       minimumHeight: 160
     )
     .frame(maxWidth: .infinity, alignment: .topLeading)

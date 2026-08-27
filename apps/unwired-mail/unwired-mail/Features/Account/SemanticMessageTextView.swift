@@ -6,6 +6,7 @@ struct SemanticMessageTextView: UIViewRepresentable {
   let editorModel: SemanticMessageEditorModel
   @Binding var isFocused: Bool
   let focusRequest: Int
+  let focusDidBegin: () -> Void
   let minimumHeight: CGFloat
 
   func makeCoordinator() -> SemanticMessageTextViewCoordinator {
