@@ -150,9 +150,7 @@ final class MailShellThreadBodyLoadCoordinator {
         && registrations[messageId]?.loadPriority == .speculative
     }
     for messageId in promotedMessageIds {
-      activeRequests[messageId] = nil
-      registrations[messageId]?.cancelLoad()
-      queuedMessageIds.insert(messageId)
+      registrations[messageId]?.promoteLoad()
     }
   }
 

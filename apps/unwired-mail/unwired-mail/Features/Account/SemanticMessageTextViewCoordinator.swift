@@ -115,6 +115,7 @@ final class SemanticMessageTextViewCoordinator: NSObject, UITextViewDelegate {
   func textViewDidBeginEditing(_ textView: UITextView) {
     activeFocusRequest = parent.focusRequest
     if parent.isFocused == false { parent.isFocused = true }
+    parent.focusDidBegin()
     dismissedSlashCommandContext = nil
     refreshSlashCommandMenu()
   }

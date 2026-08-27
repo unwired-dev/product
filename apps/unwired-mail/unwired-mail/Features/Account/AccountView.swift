@@ -3401,49 +3401,61 @@ struct AccountView: View {
       recordScope != profilePreferenceRecordScope
     else { return nil }
 
+    let pacesPreparation = profilePreferenceRecordScope != nil
+    func shouldContinuePreparation() async -> Bool {
+      if pacesPreparation {
+        await waitForNextMainRunLoopCycle()
+      }
+      return profileViewModel.activeProfile?.recordScope == recordScope
+    }
+
     let blockedSenderStore = BlockedSenderStore(
       session: snapshot,
       recordScope: recordScope,
       syncService: blockedSenderSyncServiceFactory(recordScope)
     )
+    guard await shouldContinuePreparation() else { return nil }
     let categoryViewModel = CustomCategoryViewModel(
       service: categorySyncServiceFactory(recordScope),
       session: snapshot
     )
+    guard await shouldContinuePreparation() else { return nil }
     let composePreferenceStore = session.sharedComposePreferenceStore(
       for: snapshot,
       recordScope: recordScope,
       syncService: composePreferenceSyncFactory(recordScope)
     )
+    guard await shouldContinuePreparation() else { return nil }
     let featureSuggestionPreferenceStore = session.sharedFeatureSuggestionPreferenceStore(
       for: snapshot,
       recordScope: recordScope,
       syncService: featureSuggestionPreferenceSyncFactory(recordScope)
     )
-    await waitForNextMainRunLoopCycle()
-    guard profileViewModel.activeProfile?.recordScope == recordScope else { return nil }
+    guard await shouldContinuePreparation() else { return nil }
     let inboxPreferenceStore = session.sharedInboxPreferenceStore(
       for: snapshot,
       recordScope: recordScope,
       syncService: inboxPreferenceSyncFactory(recordScope)
     )
+    guard await shouldContinuePreparation() else { return nil }
     let sendingIdentityStore = SendingIdentityStore(
       session: snapshot,
       recordScope: recordScope,
       syncService: sendingIdentitySyncFactory(recordScope)
     )
+    guard await shouldContinuePreparation() else { return nil }
     let signatureStore = session.sharedSignatureStore(
       for: snapshot,
       recordScope: recordScope,
       syncService: signaturePreferenceSyncFactory(recordScope)
     )
+    guard await shouldContinuePreparation() else { return nil }
     let templateStore = session.sharedTemplateStore(
       for: snapshot,
       recordScope: recordScope,
       syncService: templatePreferenceSyncFactory(recordScope)
     )
-    await waitForNextMainRunLoopCycle()
-    guard profileViewModel.activeProfile?.recordScope == recordScope else { return nil }
+    guard await shouldContinuePreparation() else { return nil }
     self.blockedSenderStore.retire()
     self.blockedSenderStore = blockedSenderStore
     self.categoryViewModel = categoryViewModel
@@ -8226,6 +8238,7 @@ struct MailShellConversationReader: View {
         .allowsHitTesting(false)
     }
     .task(id: thread.id) {
+      bodyLoadCoordinator.updateViewport(readerViewportFrame)
       bodyLoadCoordinator.synchronize(thread.messages.map(\.id))
       bodyLoadCoordinator.activate()
     }
@@ -8440,6 +8453,9 @@ struct MailShellConversationReader: View {
           priority: priority,
           using: messageReader
         )
+      },
+      promoteBodyLoad: {
+        inboxViewModel.promoteMessageBodyLoad(message.id)
       },
       loadAttachment: { attachment in
         try await loadAttachmentAfterRevalidation {
@@ -10842,7 +10858,7 @@ private struct MailShellConversationMessageHeader: View {
   private var recipientLines: [(label: String, value: String)] {
     var lines: [(label: String, value: String)] = []
     if let recipients = message.recipientHeaders, !recipients.isEmpty {
-      lines.append(("To", recipients.joined(separator: ", ")))
+      lines.append(("To/Cc", recipients.joined(separator: ", ")))
     }
     if let recipients = message.bccRecipients, !recipients.isEmpty {
       lines.append(("Bcc", recipients.joined(separator: ", ")))
@@ -10855,7 +10871,7 @@ private struct MailShellConversationMessageHeader: View {
       return "Recipients"
     }
     let additionalCount = recipients.count - 1 + (message.bccRecipients?.count ?? 0)
-    return additionalCount == 0 ? "To: \(first)" : "To: \(first) +\(additionalCount)"
+    return additionalCount == 0 ? "To/Cc: \(first)" : "To/Cc: \(first) +\(additionalCount)"
   }
 
   private var receivedDate: String {
@@ -10872,6 +10888,7 @@ private struct MailShellConversationMessageBody: View {
   let loadBody: (MailLoadPriority) async throws -> MailboxMessageBody
   let loadAttachment: (MailboxMessageAttachment) async throws -> Data
   let loadRemoteContent: (SanitizedMessageHTML) async throws -> RemoteMessageContentLoadResult
+  let promoteBodyLoad: () -> Void
   let markBodyDisplayed: () -> Void
   let markBodyHidden: () -> Void
   let message: MailboxMessageMetadata
@@ -10923,6 +10940,10 @@ private struct MailShellConversationMessageBody: View {
         try await loadBody(loadRegistration.loadPriority)
       }
     )
+    .onChange(of: loadRegistration.loadPriority) { _, priority in
+      guard priority == .interactive else { return }
+      promoteBodyLoad()
+    }
     .padding(.horizontal, 14)
     .padding(.vertical, 8)
     .onGeometryChange(for: CGRect.self) { geometry in
@@ -11148,6 +11169,7 @@ struct MailShellMessageBody: View {
         shouldRetry = false
       } catch is CancellationError {
         releasePresentation()
+        shouldRetry = Task.isCancelled
       } catch {
         releasePresentation()
         guard generation == loadGeneration else { return }
@@ -13675,6 +13697,10 @@ final class GmailInboxViewModel {
     }
     retainLoadedMessageBodyText(body.text, for: message.id)
     return body
+  }
+
+  func promoteMessageBodyLoad(_ messageId: StableProviderMessageIdentity) {
+    loadScheduler.promoteMessageBodyLoad(for: messageId)
   }
 
   func loadMessageBodyText(

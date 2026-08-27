@@ -45,7 +45,10 @@ struct MailShellComposer: View {
   @Environment(\.dismiss) private var dismiss
   @FocusState private var focusedField: MailComposerFocus?
   @State private var isBodyFocused = false
+  @State private var isBodyFocusPending = false
   @State private var bodyFocusRequest = 0
+  @State private var bodyFocusHandoff = 0
+  @State private var presentsSubjectField = true
   @State private var editorModel: SemanticMessageEditorModel
   @State private var assetErrorMessage: String?
   @State private var translationErrorMessage: String?
@@ -243,11 +246,21 @@ struct MailShellComposer: View {
             Divider()
             recipientFields
             Divider()
-            MailComposerSubjectField(
-              subject: $viewModel.draft.subject,
-              focusedField: $focusedField,
-              focusBody: focusBody
-            )
+            Group {
+              if presentsSubjectField {
+                MailComposerSubjectField(
+                  subject: $viewModel.draft.subject,
+                  focusedField: $focusedField,
+                  focusBody: focusBody
+                )
+              } else {
+                Text(viewModel.draft.subject.isEmpty ? "Subject" : viewModel.draft.subject)
+                  .padding(.horizontal, 16)
+                  .padding(.vertical, 12)
+                  .hidden()
+                  .accessibilityHidden(true)
+              }
+            }
             Divider()
             MailComposerActionBar(
               editorModel: editorModel,
@@ -269,7 +282,8 @@ struct MailShellComposer: View {
             MailComposerBodyField(
               editorModel: editorModel,
               isFocused: $isBodyFocused,
-              focusRequest: bodyFocusRequest
+              focusRequest: bodyFocusRequest,
+              focusDidBegin: bodyFocusDidBegin
             )
             .simultaneousGesture(
               TapGesture().onEnded {
@@ -366,6 +380,9 @@ struct MailShellComposer: View {
       }
       .onChange(of: focusedField) { previousField, focusedField in
         if focusedField != nil {
+          bodyFocusHandoff &+= 1
+          isBodyFocusPending = false
+          presentsSubjectField = true
           isBodyFocused = false
         }
         guard let recipientField = recipientField(for: previousField) else { return }
@@ -512,10 +529,29 @@ struct MailShellComposer: View {
   }
 
   private func focusBody() {
-    requestBodyFocus()
+    bodyFocusHandoff &+= 1
+    let handoff = bodyFocusHandoff
+    isBodyFocusPending = true
+    presentsSubjectField = false
+    focusedField = nil
+    Task { @MainActor in
+      await Task.yield()
+      guard handoff == bodyFocusHandoff, isBodyFocusPending, focusedField == nil else { return }
+      isBodyFocused = true
+      bodyFocusRequest &+= 1
+    }
+  }
+
+  private func bodyFocusDidBegin() {
+    guard isBodyFocusPending else { return }
+    isBodyFocusPending = false
+    presentsSubjectField = true
   }
 
   private func requestBodyFocus() {
+    bodyFocusHandoff &+= 1
+    isBodyFocusPending = false
+    presentsSubjectField = true
     focusedField = nil
     isBodyFocused = true
     bodyFocusRequest &+= 1
@@ -1221,12 +1257,14 @@ private struct MailComposerBodyField: View {
   @Bindable var editorModel: SemanticMessageEditorModel
   @Binding var isFocused: Bool
   let focusRequest: Int
+  let focusDidBegin: () -> Void
 
   var body: some View {
     SemanticMessageTextView(
       editorModel: editorModel,
       isFocused: $isFocused,
       focusRequest: focusRequest,
+      focusDidBegin: focusDidBegin,
       minimumHeight: 160
     )
     .frame(maxWidth: .infinity, alignment: .topLeading)

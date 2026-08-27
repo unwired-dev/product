@@ -82,13 +82,8 @@ final class ProductAccountMailLoadScheduler {
         priority: priority,
         operation: operation
       )
-    } else if priority == .interactive,
-      var load = sharedBodyLoads[messageId],
-      load.priority == .speculative
-    {
-      load.priority = .interactive
-      sharedBodyLoads[messageId] = load
-      promoteBodyPermitWaiter(loadId: load.id)
+    } else if priority == .interactive {
+      promoteMessageBodyLoad(for: messageId)
     }
 
     return try await withTaskCancellationHandler {
@@ -113,6 +108,14 @@ final class ProductAccountMailLoadScheduler {
         self?.cancelBodyWaiter(waiterId, messageId: messageId)
       }
     }
+  }
+
+  /// Promotes an existing speculative body load without replacing its provider task.
+  func promoteMessageBodyLoad(for messageId: StableProviderMessageIdentity) {
+    guard var load = sharedBodyLoads[messageId], load.priority == .speculative else { return }
+    load.priority = .interactive
+    sharedBodyLoads[messageId] = load
+    promoteBodyPermitWaiter(loadId: load.id)
   }
 
   /// Performs user-visible body work within the Product Account and connection limits.

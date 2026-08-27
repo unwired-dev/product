@@ -74,7 +74,8 @@ struct MailShellThreadBodyLoadCoordinatorTests {
     coordinator.updateFrame(CGRect(x: 0, y: 1_300, width: 600, height: 200), for: fourth)
     coordinator.updateViewport(CGRect(x: 0, y: 1_250, width: 600, height: 500))
 
-    #expect(coordinator.registration(for: fixture.second).loadRequestId != secondRequest)
+    #expect(coordinator.registration(for: fixture.second).loadRequestId == nil)
+    #expect(coordinator.registration(for: fixture.second).loadPriority == .speculative)
     #expect(coordinator.registration(for: fixture.third).loadRequestId == offscreenRequest)
     #expect(coordinator.registration(for: fourth).loadRequestId != nil)
     #expect(coordinator.registration(for: fourth).loadPriority == .interactive)
@@ -95,6 +96,81 @@ struct MailShellThreadBodyLoadCoordinatorTests {
     #expect(coordinator.registration(for: fixture.second).allowsAutomaticRemoteContent)
   }
 
+  @Test("Visible speculative loads are promoted without replacing their request", .bug(id: 559))
+  func visibleSpeculativeLoadPromotesInPlace() throws {
+    let fixture = Fixture()
+    let coordinator = MailShellThreadBodyLoadCoordinator()
+    coordinator.synchronize([fixture.first])
+    coordinator.updateViewport(CGRect(x: 0, y: 0, width: 600, height: 500))
+    coordinator.updateFrame(CGRect(x: 0, y: 700, width: 600, height: 200), for: fixture.first)
+    coordinator.activate()
+    let speculativeRequest = try #require(
+      coordinator.registration(for: fixture.first).loadRequestId
+    )
+
+    coordinator.updateViewport(CGRect(x: 0, y: 600, width: 600, height: 500))
+
+    #expect(coordinator.registration(for: fixture.first).loadRequestId == speculativeRequest)
+    #expect(coordinator.registration(for: fixture.first).loadPriority == .interactive)
+  }
+
+  @Test("Restoring an unchanged viewport activates a replacement Thread", .bug(id: 559))
+  func restoredViewportActivatesReplacementThread() {
+    let fixture = Fixture()
+    let replacement = fixture.messageId("replacement")
+    let viewport = CGRect(x: 0, y: 0, width: 600, height: 500)
+    let coordinator = MailShellThreadBodyLoadCoordinator()
+    coordinator.synchronize([fixture.first])
+    coordinator.updateViewport(viewport)
+    coordinator.updateFrame(CGRect(x: 0, y: 100, width: 600, height: 200), for: fixture.first)
+    coordinator.activate()
+
+    coordinator.reset()
+    coordinator.updateViewport(viewport)
+    coordinator.synchronize([replacement])
+    coordinator.updateFrame(CGRect(x: 0, y: 100, width: 600, height: 200), for: replacement)
+    coordinator.activate()
+
+    #expect(coordinator.registration(for: replacement).loadRequestId != nil)
+    #expect(coordinator.registration(for: replacement).loadPriority == .interactive)
+  }
+
+  @Test("A retryable finish immediately schedules a replacement request", .bug(id: 559))
+  func retryableFinishSchedulesReplacementRequest() throws {
+    let (coordinator, fixture) = activeSingleMessageCoordinator()
+    let request = try #require(coordinator.registration(for: fixture.first).loadRequestId)
+
+    coordinator.finishLoad(for: fixture.first, requestId: request, shouldRetry: true)
+
+    let replacement = try #require(coordinator.registration(for: fixture.first).loadRequestId)
+    #expect(replacement != request)
+  }
+
+  @Test("Manual retry schedules a completed message again", .bug(id: 559))
+  func manualRetrySchedulesCompletedMessage() throws {
+    let (coordinator, fixture) = activeSingleMessageCoordinator()
+    let request = try #require(coordinator.registration(for: fixture.first).loadRequestId)
+    coordinator.finishLoad(for: fixture.first, requestId: request, shouldRetry: false)
+    #expect(coordinator.registration(for: fixture.first).loadRequestId == nil)
+
+    coordinator.retry(fixture.first)
+
+    #expect(coordinator.registration(for: fixture.first).loadRequestId != nil)
+  }
+
+  @Test("Reset cancels loads and revokes automatic remote content", .bug(id: 559))
+  func resetRevokesLoadingAndRemoteContent() {
+    let (coordinator, fixture) = activeSingleMessageCoordinator()
+    let registration = coordinator.registration(for: fixture.first)
+    #expect(registration.loadRequestId != nil)
+    #expect(registration.allowsAutomaticRemoteContent)
+
+    coordinator.reset()
+
+    #expect(registration.loadRequestId == nil)
+    #expect(registration.allowsAutomaticRemoteContent == false)
+  }
+
   @Test("Growth above the viewport preserves the visible offset", .bug(id: 559))
   func growthAboveViewportProducesScrollCompensation() {
     let adjustment = MailShellThreadBodyLoadCoordinator.scrollOffsetAdjustment(
@@ -110,6 +186,19 @@ struct MailShellThreadBodyLoadCoordinatorTests {
 
     #expect(adjustment == 160)
     #expect(visibleAdjustment == 0)
+  }
+
+  private func activeSingleMessageCoordinator() -> (
+    MailShellThreadBodyLoadCoordinator,
+    Fixture
+  ) {
+    let fixture = Fixture()
+    let coordinator = MailShellThreadBodyLoadCoordinator()
+    coordinator.synchronize([fixture.first])
+    coordinator.updateViewport(CGRect(x: 0, y: 0, width: 600, height: 500))
+    coordinator.updateFrame(CGRect(x: 0, y: 100, width: 600, height: 200), for: fixture.first)
+    coordinator.activate()
+    return (coordinator, fixture)
   }
 
   private struct Fixture {

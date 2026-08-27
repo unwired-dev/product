@@ -27,6 +27,11 @@ final class MailShellThreadBodyLoadRegistration {
     loadRequestId = nil
   }
 
+  func promoteLoad() {
+    guard loadRequestId != nil else { return }
+    loadPriority = .interactive
+  }
+
   func cancelLoad() {
     loadRequestId = nil
   }
