@@ -8454,9 +8454,6 @@ struct MailShellConversationReader: View {
           using: messageReader
         )
       },
-      promoteBodyLoad: {
-        inboxViewModel.promoteMessageBodyLoad(message.id)
-      },
       loadAttachment: { attachment in
         try await loadAttachmentAfterRevalidation {
           try await messageReader.loadMessageAttachment(
@@ -8475,6 +8472,9 @@ struct MailShellConversationReader: View {
           for: message.id,
           profileId: profileId
         )
+      },
+      promoteBodyLoad: {
+        inboxViewModel.promoteMessageBodyLoad(message.id)
       },
       markBodyDisplayed: {
         inboxViewModel.markMessageBodyDisplayed(message.id)
