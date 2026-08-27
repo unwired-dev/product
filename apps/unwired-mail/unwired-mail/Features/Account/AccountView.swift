@@ -3411,7 +3411,7 @@ struct AccountView: View {
       recordScope != profilePreferenceRecordScope
     else { return nil }
 
-    let pacesPreparation = profilePreferenceRecordScope != nil
+    let pacesPreparation = profilePreferenceRecordScope != .legacyProductAccount
     func shouldContinuePreparation() async -> Bool {
       if pacesPreparation {
         await waitForNextMainRunLoopCycle()
