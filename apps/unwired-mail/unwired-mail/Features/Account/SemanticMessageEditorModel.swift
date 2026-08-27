@@ -116,6 +116,24 @@ final class SemanticMessageEditorModel {
   var canRedo: Bool { !redoDocuments.isEmpty }
   var canUndo: Bool { !undoDocuments.isEmpty }
 
+  /// Returns the slash query at the insertion point when it begins the current block.
+  var slashCommandContext: SemanticMessageSlashCommand.Context? {
+    guard let offsets = selectionOffsets, offsets.0 == offsets.1 else { return nil }
+    let characters = Array(String(attributedText.characters))
+    let caretOffset = min(offsets.0, characters.count)
+    let blockStart =
+      characters[..<caretOffset].lastIndex(of: "\n").map { $0 + 1 } ?? 0
+    let blockPrefix = characters[blockStart..<caretOffset]
+    guard let slashIndex = blockPrefix.firstIndex(where: { !$0.isWhitespace }),
+      blockPrefix[slashIndex] == "/"
+    else { return nil }
+    let queryStart = slashIndex + 1
+    return SemanticMessageSlashCommand.Context(
+      query: String(blockPrefix[queryStart...]),
+      replacementRange: slashIndex..<caretOffset
+    )
+  }
+
   /// Captures the current selection, or the full authored body when no text is selected.
   func composeAssistanceTarget() -> ComposeAssistanceTarget {
     let offsets =
@@ -314,6 +332,43 @@ final class SemanticMessageEditorModel {
     redoDocuments.removeAll()
     document = updated
     replaceAttributedText(with: updated, selectionOffsets: offsets)
+  }
+
+  /// Replaces a live slash query with one semantic block command.
+  @discardableResult
+  func applySlashCommand(
+    _ command: SemanticMessageBlockCommand,
+    context: SemanticMessageSlashCommand.Context
+  ) -> Bool {
+    guard slashCommandContext == context else { return false }
+    let previousDocument = document
+    var updatedText = attributedText
+    let lower = updatedText.characters.index(
+      updatedText.startIndex,
+      offsetBy: context.replacementRange.lowerBound
+    )
+    let upper = updatedText.characters.index(
+      updatedText.startIndex,
+      offsetBy: context.replacementRange.upperBound
+    )
+    updatedText.replaceSubrange(lower..<upper, with: AttributedString())
+    var updatedDocument = semanticDocument(for: updatedText)
+    let updatedPlainText = String(updatedText.characters)
+    let blockIndex = updatedPlainText.prefix(context.replacementRange.lowerBound)
+      .count(where: { $0 == "\n" })
+    guard updatedDocument.blocks.indices.contains(blockIndex) else { return false }
+    updatedDocument.blocks[blockIndex].kind = command.kind(ordinal: 1)
+    recordUndo(previousDocument)
+    redoDocuments.removeAll()
+    document = updatedDocument
+    replaceAttributedText(
+      with: updatedDocument,
+      selectionOffsets: (
+        context.replacementRange.lowerBound,
+        context.replacementRange.lowerBound
+      )
+    )
+    return true
   }
 
   /// Applies a validated HTTP, HTTPS, or mail link to the current selection.
