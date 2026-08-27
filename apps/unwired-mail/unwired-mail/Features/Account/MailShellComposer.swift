@@ -1503,6 +1503,10 @@ private struct MailComposerSubjectField: View {
       .focused(focusedField, equals: .subject)
       .submitLabel(.next)
       .onSubmit(focusBody)
+      .onKeyPress(.return) {
+        focusBody()
+        return .handled
+      }
       .padding(.horizontal, 16)
       .padding(.vertical, 12)
       .accessibilityIdentifier("mail-compose-subject")
