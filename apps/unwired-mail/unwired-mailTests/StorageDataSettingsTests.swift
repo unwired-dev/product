@@ -22,6 +22,7 @@ struct StorageDataSettingsTests {
 
   private struct StorageFixture {
     let metadataFile: URL
+    let remoteContentCache: AuthorizedRemoteContentCache
     let service: LocalMailStorageService
   }
 
@@ -220,6 +221,7 @@ struct StorageDataSettingsTests {
     #expect(before.downloadedAttachmentByteCount == 11)
     #expect(before.draftByteCount > 0)
     #expect(before.metadataByteCount == 5)
+    #expect(before.remoteContentByteCount > 0)
     #expect(before.pendingDraftAssetByteCount == 13)
     #expect(before.pendingDraftAssetCount == 1)
 
@@ -229,12 +231,19 @@ struct StorageDataSettingsTests {
     #expect(after.downloadedAttachmentByteCount == 0)
     #expect(after.draftByteCount == before.draftByteCount)
     #expect(after.metadataByteCount == 5)
+    #expect(after.remoteContentByteCount == before.remoteContentByteCount)
     #expect(after.pendingDraftAssetByteCount == before.pendingDraftAssetByteCount)
     #expect(after.pendingDraftAssetCount == before.pendingDraftAssetCount)
     #expect(fileManager.fileExists(atPath: fixture.metadataFile.path))
+
+    try await fixture.service.clearAuthorizedRemoteContent()
+    let afterRemoteContentClear = try await fixture.service.snapshot()
+    #expect(afterRemoteContentClear.remoteContentByteCount == 0)
+    #expect(fixture.remoteContentCache.storedByteCount() > 0)
   }
 
   @Test(.bug(id: 132))
+  // swiftlint:disable:next function_body_length
   func signedOutStorageInspectionClearsOnlyDeviceCaches() async throws {
     let fileManager = FileManager.default
     let root = fileManager.temporaryDirectory.appending(
@@ -245,6 +254,10 @@ struct StorageDataSettingsTests {
     let bodyDirectory = root.appending(path: "Bodies", directoryHint: .isDirectory)
     let attachmentDirectory = root.appending(path: "Attachments", directoryHint: .isDirectory)
     let draftDirectory = root.appending(path: "Drafts", directoryHint: .isDirectory)
+    let remoteContentDirectory = root.appending(
+      path: "RemoteContent",
+      directoryHint: .isDirectory
+    )
     let metadataFile = root.appending(path: "Metadata.store")
     for directory in [bodyDirectory, attachmentDirectory, draftDirectory] {
       try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -259,14 +272,29 @@ struct StorageDataSettingsTests {
       to: draftDirectory.appending(path: "draft")
     )
     try Data(repeating: 0x04, count: 5).write(to: metadataFile)
+    let keyStore = InMemoryProductSyncKeyMaterialStore()
+    _ = try keyStore.ensureMaterial(
+      productAccountId: session.productAccountId,
+      allowCreation: true
+    )
+    let remoteContentCache = AuthorizedRemoteContentCache(
+      keyMaterialStore: keyStore,
+      rootDirectory: remoteContentDirectory
+    )
+    try saveRemoteContent(
+      in: remoteContentCache,
+      productAccountId: session.productAccountId
+    )
     let service = DeviceLocalMailStorageService(
       fileManager: fileManager,
       paths: LocalMailStoragePaths(
         attachmentDirectory: attachmentDirectory,
         bodyCacheDirectory: bodyDirectory,
         draftDirectory: draftDirectory,
-        metadataLocations: [metadataFile]
-      )
+        metadataLocations: [metadataFile],
+        remoteContentDirectory: remoteContentDirectory
+      ),
+      remoteContentCache: remoteContentCache
     )
 
     let before = try await service.snapshot()
@@ -274,6 +302,7 @@ struct StorageDataSettingsTests {
     #expect(before.downloadedAttachmentByteCount == 11)
     #expect(before.draftByteCount == 13)
     #expect(before.metadataByteCount == 5)
+    #expect(before.remoteContentByteCount > 0)
 
     try await service.clearEvictableContent()
     let after = try await service.snapshot()
@@ -281,6 +310,11 @@ struct StorageDataSettingsTests {
     #expect(after.downloadedAttachmentByteCount == 0)
     #expect(after.draftByteCount == 13)
     #expect(after.metadataByteCount == 5)
+    #expect(after.remoteContentByteCount == before.remoteContentByteCount)
+
+    try await service.clearAuthorizedRemoteContent()
+    let afterRemoteContentClear = try await service.snapshot()
+    #expect(afterRemoteContentClear.remoteContentByteCount == 0)
   }
 
   @MainActor
@@ -464,6 +498,7 @@ struct StorageDataSettingsTests {
       downloadedAttachmentByteCount: 0,
       draftByteCount: 0,
       metadataByteCount: 0,
+      remoteContentByteCount: 0,
       pendingDraftAssetByteCount: 0,
       pendingDraftAssetCount: 0
     )
@@ -533,15 +568,35 @@ struct StorageDataSettingsTests {
     return try JSONDecoder.productSyncExport.decode(ProductSyncExportDocument.self, from: data)
   }
 
+  // swiftlint:disable:next function_body_length
   private func makeStorageFixture(root: URL) throws -> StorageFixture {
     let fileManager = FileManager.default
     let bodyDirectory = root.appending(path: "Bodies", directoryHint: .isDirectory)
     let attachmentDirectory = root.appending(path: "Attachments", directoryHint: .isDirectory)
     let draftDirectory = root.appending(path: "Drafts", directoryHint: .isDirectory)
     let metadataFile = root.appending(path: "Metadata.store")
+    let remoteContentDirectory = root.appending(
+      path: "RemoteContent",
+      directoryHint: .isDirectory
+    )
     try fileManager.createDirectory(at: bodyDirectory, withIntermediateDirectories: true)
     try fileManager.createDirectory(at: attachmentDirectory, withIntermediateDirectories: true)
     try Data(repeating: 0x01, count: 5).write(to: metadataFile)
+    let keyStore = InMemoryProductSyncKeyMaterialStore()
+    _ = try keyStore.ensureMaterial(
+      productAccountId: session.productAccountId,
+      allowCreation: true
+    )
+    _ = try keyStore.ensureMaterial(productAccountId: "other-account", allowCreation: true)
+    let remoteContentCache = AuthorizedRemoteContentCache(
+      keyMaterialStore: keyStore,
+      rootDirectory: remoteContentDirectory
+    )
+    try saveRemoteContent(
+      in: remoteContentCache,
+      productAccountId: session.productAccountId
+    )
+    try saveRemoteContent(in: remoteContentCache, productAccountId: "other-account")
     let bodyFile = bodyDirectory.appending(
       path: "\(gmailSafeFileComponent(session.productAccountId))-body.json"
     )
@@ -561,10 +616,55 @@ struct StorageDataSettingsTests {
         attachmentDirectory: attachmentDirectory,
         bodyCacheDirectory: bodyDirectory,
         draftDirectory: draftDirectory,
-        metadataLocations: [metadataFile]
-      )
+        metadataLocations: [metadataFile],
+        remoteContentDirectory: remoteContentDirectory
+      ),
+      remoteContentCache: remoteContentCache
     )
-    return StorageFixture(metadataFile: metadataFile, service: service)
+    return StorageFixture(
+      metadataFile: metadataFile,
+      remoteContentCache: remoteContentCache,
+      service: service
+    )
+  }
+
+  private func saveRemoteContent(
+    in cache: AuthorizedRemoteContentCache,
+    productAccountId: String
+  ) throws {
+    let reference = RemoteMessageImageReference(
+      identifier: "remote-image",
+      url: try #require(URL(string: "https://images.example.com/\(productAccountId).png"))
+    )
+    let html = SanitizedMessageHTML(
+      documentHTML: #"<img data-unwired-remote-image="remote-image">"#,
+      remoteImageReferences: [reference]
+    )
+    let key = AuthorizedRemoteContentCacheContext(
+      productAccountId: productAccountId,
+      profileId: MailProfileId(rawValue: "profile-a"),
+      messageId: StableProviderMessageIdentity(
+        connectionId: MailboxConnectionId(
+          providerMailboxIdentity: StableProviderMailboxIdentity(
+            providerId: .gmail,
+            value: productAccountId
+          )
+        ),
+        providerMessageId: "message"
+      ),
+      html: html
+    ).key(for: reference)
+    guard
+      try cache.save(
+        RemoteMessageImage(
+          data: Data(repeating: 0x05, count: 16),
+          identifier: reference.identifier,
+          mimeType: "image/png"
+        ),
+        for: key,
+        writePermit: cache.makeWritePermit(for: key)
+      )
+    else { throw StorageTestError.cacheWriteRejected }
   }
 
   private func makeDraftRepository(root: URL) throws -> MailCompositionDraftRepository {
@@ -645,6 +745,7 @@ private actor SuspendingProductSyncExporter: ProductSyncExporting {
 
 private actor EmptyLocalMailStorageManager: LocalMailStorageManaging {
   func clearEvictableContent() async throws {}
+  func clearAuthorizedRemoteContent() async throws {}
 
   func snapshot() async throws -> LocalMailStorageSnapshot {
     LocalMailStorageSnapshot(
@@ -652,6 +753,7 @@ private actor EmptyLocalMailStorageManager: LocalMailStorageManaging {
       downloadedAttachmentByteCount: 0,
       draftByteCount: 0,
       metadataByteCount: 0,
+      remoteContentByteCount: 0,
       pendingDraftAssetByteCount: 0,
       pendingDraftAssetCount: 0
     )
@@ -659,6 +761,7 @@ private actor EmptyLocalMailStorageManager: LocalMailStorageManaging {
 }
 
 private enum StorageTestError: Error, Sendable {
+  case cacheWriteRejected
   case clearFailed
   case snapshotFailed
 }
@@ -672,6 +775,8 @@ private actor RetryingLocalMailStorageManager: LocalMailStorageManaging {
   }
 
   func clearEvictableContent() async throws {}
+
+  func clearAuthorizedRemoteContent() async throws {}
 
   func snapshot() async throws -> LocalMailStorageSnapshot {
     if snapshotsFail { throw StorageTestError.snapshotFailed }
@@ -724,6 +829,10 @@ private actor ControlledLocalMailStorageManager: LocalMailStorageManaging {
     if let clearError {
       throw clearError
     }
+  }
+
+  func clearAuthorizedRemoteContent() async throws {
+    try await clearEvictableContent()
   }
 
   func snapshot() async throws -> LocalMailStorageSnapshot {

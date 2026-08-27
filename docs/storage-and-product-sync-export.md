@@ -9,9 +9,12 @@ The screen reports these device-local categories:
 - durable provider message metadata;
 - cached message bodies;
 - complete encrypted Draft documents and Draft Assets;
-- downloaded incoming attachments.
+- downloaded incoming attachments;
+- encrypted authorized remote message content.
 
-The non-evicting Outgoing Content Store has a device-wide 100 MB limit; Draft Assets are tracked separately. When synchronized Draft Asset content is not yet available locally, the screen reports the pending asset count and size. Clearing cached bodies and attachments preserves provider mail, metadata, Product-owned Categories, Thread Pins, Draft documents, Draft Assets, and Product Sync records.
+The non-evicting Outgoing Content Store has a device-wide 100 MB limit; Draft Assets are tracked separately. When synchronized Draft Asset content is not yet available locally, the screen reports the pending asset count and size. The Authorized Remote Content Cache has its own device-wide 250 MB least-recently-used limit and preserves content currently displayed in the reader. Its entries remain separated by Product Account, Mail Profile, Mailbox Connection, Stable Provider Message Identity, and resource revision.
+
+Clearing cached bodies and attachments preserves provider mail, metadata, Product-owned Categories, Thread Pins, Draft documents, Draft Assets, Product Sync records, and authorized remote content. Clear Remote Content removes only the encrypted remote resources stored on the device; it does not delete provider mail. A later authorized presentation downloads missing resources again. Removing a Mail Profile removes its remote-content entries.
 
 ## Product Sync export
 

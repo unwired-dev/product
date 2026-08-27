@@ -340,6 +340,7 @@ final class RemoteMessageContentDataDelegate: RemoteMessageContentRedirectDelega
 }
 
 struct RemoteMessageContentLoadResult: Equatable, Sendable {
+  var cachedKeys = Set<AuthorizedRemoteContentCacheKey>()
   let failedImageCount: Int
   let html: SanitizedMessageHTML
   var loadedByteCount = 0
@@ -359,6 +360,7 @@ extension RemoteMessageContentLoadProgress {
       }
     )
     return RemoteMessageContentLoadResult(
+      cachedKeys: cachedKeys,
       failedImageCount: html.remoteImageReferences.count - images.count,
       html:
         unresolvedHTML

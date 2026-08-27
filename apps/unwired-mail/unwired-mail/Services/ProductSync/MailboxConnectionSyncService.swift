@@ -67,6 +67,7 @@ final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
     await providerAccessGate.waiterCount(productAccountId: productAccountId)
   }
 
+  private let authorizedRemoteContentCache: any AuthorizedRemoteContentCacheClearing
   private let cleanupReceiptStore: MailboxCleanupReceiptPersisting
   private let clock: () -> Int64
   private let connectionRecord: ProductSyncSingletonHandle<MailboxConnectionSyncPayload>
@@ -77,6 +78,8 @@ final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
   private let productSyncKeyRotationReconciler: ProductSyncKeyRotationReconciling
 
   init(
+    authorizedRemoteContentCache: any AuthorizedRemoteContentCacheClearing =
+      AuthorizedRemoteContentCache(),
     cacheStore: MailboxConnectionSyncCachePersisting =
       KeychainMailboxConnectionSyncCacheStore(),
     cleanupReceiptStore: MailboxCleanupReceiptPersisting =
@@ -88,6 +91,7 @@ final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
     productSyncKeyRotationReconciler: ProductSyncKeyRotationReconciling =
       ConvexProductAccountService()
   ) {
+    self.authorizedRemoteContentCache = authorizedRemoteContentCache
     self.cleanupReceiptStore = cleanupReceiptStore
     self.clock = clock
     profileRecordBoundary = recordBoundary
@@ -261,6 +265,10 @@ final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
           session: session
         )
       }
+      try authorizedRemoteContentCache.clear(
+        productAccountId: session.productAccountId,
+        connectionId: connectionId
+      )
       return current
     }
     let currentGeneration =
@@ -316,6 +324,10 @@ final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
       isCommitted: true,
       commitsOnlyMinimumGeneration: true,
       session: session
+    )
+    try authorizedRemoteContentCache.clear(
+      productAccountId: session.productAccountId,
+      connectionId: connectionId
     )
     return snapshot
   }
