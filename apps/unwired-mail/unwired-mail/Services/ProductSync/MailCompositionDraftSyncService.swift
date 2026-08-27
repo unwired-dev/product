@@ -35,7 +35,7 @@ struct MailCompositionDraftSyncSnapshot: Sendable {
   ) {
     self.drafts = drafts
     removedDraftUpdatedAtMilliseconds = Dictionary(
-      uniqueKeysWithValues: removedDraftIds.map { ($0, .min) }
+      uniqueKeysWithValues: removedDraftIds.map { ($0, .max) }
     )
   }
 

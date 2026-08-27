@@ -47,6 +47,7 @@ final class MailComposerViewModel {
   private(set) var editorModel: SemanticMessageEditorModel
   private(set) var isFinished = false
   private(set) var isSwitchingDraft = false
+  private(set) var noticeMessage: String?
   var presentation: ComposePresentationPreference
   private(set) var reminderState: MailComposerReminderState = .idle
   private(set) var saveState: MailComposerSaveState = .idle
@@ -148,11 +149,15 @@ final class MailComposerViewModel {
 
   func switchDraft(to nextDraft: MailShellCompositionDraft) async -> Bool {
     guard !isSwitchingDraft else { return false }
-    guard nextDraft.id != draft.id else { return true }
+    guard nextDraft != draft else { return true }
     isSwitchingDraft = true
     defer { isSwitchingDraft = false }
 
-    guard await close() else { return false }
+    if nextDraft.id == draft.id {
+      await cancelPendingAutosave()
+    } else {
+      guard await close() else { return false }
+    }
     editorModelsByDraftId[draft.id] = editorModel
     draft = nextDraft
     if let cached = editorModelsByDraftId[nextDraft.id], cached.document == nextDraft.document {
@@ -166,6 +171,7 @@ final class MailComposerViewModel {
     hasConfirmedMissingSubject = false
     isFinished = false
     lastSavedDraft = nextDraft
+    noticeMessage = nil
     reminderState = .idle
     saveState = nextDraft.hasUserState ? .saved : .idle
     return true
@@ -370,7 +376,16 @@ final class MailComposerViewModel {
       return true
     } catch let conflict as MailCompositionDraftSaveConflict {
       guard revision == editRevision else { return false }
+      let originalDraft = draft
       adoptConflictCopy(conflict.copy)
+      if let reminder = originalDraft.sendReminder {
+        await cancelReminder(reminder, originalDraft.id)
+        do {
+          reminderState = .saved(try await scheduleReminder(conflict.copy))
+        } catch {
+          reminderState = .failed(error.localizedDescription)
+        }
+      }
       return true
     } catch is CancellationError {
       guard revision == editRevision else { return false }
@@ -388,6 +403,7 @@ final class MailComposerViewModel {
     draft = copy
     editorModelsByDraftId[copy.id] = editorModel
     lastSavedDraft = copy
+    noticeMessage = MailCompositionDraftSaveConflict(copy: copy).errorDescription
     saveState = .saved
   }
 }

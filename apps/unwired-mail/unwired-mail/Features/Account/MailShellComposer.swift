@@ -533,6 +533,11 @@ struct MailShellComposer: View {
   }
 
   private func resetDraftPresentation() {
+    sendLaterRequest = nil
+    selectedPhoto = nil
+    showsDiscardConfirmation = false
+    showsFileImporter = false
+    showsMissingSubjectConfirmation = false
     recipientEditor = MailRecipientEditor(
       to: viewModel.draft.recipient,
       cc: viewModel.draft.ccRecipients,
@@ -663,29 +668,36 @@ struct MailShellComposer: View {
 
   @ViewBuilder
   private var saveStatus: some View {
-    switch viewModel.saveState {
-    case .failed(let message):
-      VStack(alignment: .leading, spacing: 8) {
-        Label("Draft not saved", systemImage: "exclamationmark.triangle")
-          .foregroundStyle(.red)
-        Text(message)
+    if let noticeMessage = viewModel.noticeMessage {
+      Label(noticeMessage, systemImage: "exclamationmark.triangle")
+        .font(.footnote)
+        .foregroundStyle(.secondary)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    } else {
+      switch viewModel.saveState {
+      case .failed(let message):
+        VStack(alignment: .leading, spacing: 8) {
+          Label("Draft not saved", systemImage: "exclamationmark.triangle")
+            .foregroundStyle(.red)
+          Text(message)
+            .font(.footnote)
+            .foregroundStyle(.secondary)
+          Button("Try Saving Again", action: viewModel.retryAutosave)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+      case .pending, .saving:
+        Label("Saving Draft…", systemImage: "arrow.triangle.2.circlepath")
           .font(.footnote)
           .foregroundStyle(.secondary)
-        Button("Try Saving Again", action: viewModel.retryAutosave)
+          .frame(maxWidth: .infinity, alignment: .leading)
+      case .saved:
+        Label("Draft saved", systemImage: "checkmark.circle")
+          .font(.footnote)
+          .foregroundStyle(.secondary)
+          .frame(maxWidth: .infinity, alignment: .leading)
+      case .idle:
+        EmptyView()
       }
-      .frame(maxWidth: .infinity, alignment: .leading)
-    case .pending, .saving:
-      Label("Saving Draft…", systemImage: "arrow.triangle.2.circlepath")
-        .font(.footnote)
-        .foregroundStyle(.secondary)
-        .frame(maxWidth: .infinity, alignment: .leading)
-    case .saved:
-      Label("Draft saved", systemImage: "checkmark.circle")
-        .font(.footnote)
-        .foregroundStyle(.secondary)
-        .frame(maxWidth: .infinity, alignment: .leading)
-    case .idle:
-      EmptyView()
     }
   }
 

@@ -360,12 +360,16 @@ actor MailCompositionDraftRepository {
         continue
       }
       if draft.updatedAtMilliseconds > removedAt {
-        let copy = try replaceWithConflictCopy(
-          draft,
-          productAccountId: productAccountId,
-          profileId: profileId
-        )
-        retained.append(copy)
+        do {
+          let copy = try replaceWithConflictCopy(
+            draft,
+            productAccountId: productAccountId,
+            profileId: profileId
+          )
+          retained.append(copy)
+        } catch {
+          retained.append(draft)
+        }
       } else {
         try? store.remove(draft.id, productAccountId: productAccountId, profileId: profileId)
       }

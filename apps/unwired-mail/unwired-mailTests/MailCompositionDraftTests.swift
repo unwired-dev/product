@@ -662,6 +662,61 @@ final class MailCompositionDraftTests {
   }
 
   @Test(.bug(id: 562))
+  func switchingToNewerRevisionOfVisibleDraftReplacesItsEditorWithoutSavingStaleContent() async {
+    var savedDrafts: [MailShellCompositionDraft] = []
+    var visible = draft(recipient: "recipient@example.com")
+    visible.document = SemanticMessageDocument(plainText: "Stale body")
+    let viewModel = MailComposerViewModel(
+      draft: visible,
+      presentation: .partial,
+      saveDraft: { savedDrafts.append($0) },
+      sendDraft: { _ in false }
+    )
+    let staleEditor = viewModel.editorModel
+    var incoming = visible
+    incoming.document = SemanticMessageDocument(plainText: "Newer body")
+    incoming.markEdited(now: Date.now.addingTimeInterval(1))
+
+    #expect(await viewModel.switchDraft(to: incoming))
+    #expect(savedDrafts.isEmpty)
+    #expect(viewModel.draft == incoming)
+    #expect(viewModel.editorModel !== staleEditor)
+    #expect(viewModel.editorModel.document == incoming.document)
+  }
+
+  @Test(.bug(id: 562))
+  func conflictCopyReportsRecoveryAndMovesItsReminderNotification() async {
+    let now = Date(timeIntervalSince1970: 2_000_000_000)
+    var source = draft(recipient: "recipient@example.com")
+    source.sendReminder = SendReminder(
+      dueAt: now.addingTimeInterval(3_600),
+      originatingDeviceId: "device-a",
+      originalTimeZoneIdentifier: "UTC"
+    )
+    let copy = source.preservingAsConflictCopy(now: now)
+    var cancelledDraftIds: [UUID] = []
+    var scheduledDraftIds: [UUID] = []
+    let viewModel = MailComposerViewModel(
+      draft: source,
+      presentation: .partial,
+      saveDraft: { _ in throw MailCompositionDraftSaveConflict(copy: copy) },
+      cancelReminder: { _, draftId in cancelledDraftIds.append(draftId) },
+      scheduleReminder: {
+        scheduledDraftIds.append($0.id)
+        return .scheduled
+      },
+      sendDraft: { _ in false }
+    )
+
+    #expect(await viewModel.close())
+    #expect(viewModel.draft == copy)
+    #expect(viewModel.noticeMessage == MailCompositionDraftSaveConflict(copy: copy).errorDescription)
+    #expect(cancelledDraftIds == [source.id])
+    #expect(scheduledDraftIds == [copy.id])
+    #expect(viewModel.reminderState == .saved(.scheduled))
+  }
+
+  @Test(.bug(id: 562))
   func failedAutosaveBlocksDraftSwitchAndKeepsCurrentEditor() async {
     var first = draft(recipient: "first@example.com")
     first.document = SemanticMessageDocument(plainText: "Unsaved edit")
@@ -1164,6 +1219,46 @@ final class MailCompositionDraftTests {
     #expect(remote.removedDraftIds == [source.id])
   }
 
+  @Test(.bug(id: 562))
+  func idOnlyRemovedDraftSnapshotTreatsTheTombstoneAsAuthoritative() {
+    let draftId = UUID()
+    let snapshot = MailCompositionDraftSyncSnapshot(
+      drafts: [],
+      removedDraftIds: [draftId]
+    )
+
+    #expect(snapshot.removedDraftUpdatedAtMilliseconds[draftId] == .max)
+  }
+
+  @Test(.bug(id: 562))
+  func conflictCopyStorageFailureRetainsTheAuthoredDraft() async throws {
+    var source = draft(recipient: "recipient@example.com")
+    source.document = SemanticMessageDocument(plainText: "Keep this edit")
+    source.markEdited(now: Date(timeIntervalSince1970: 2_000_000_000))
+    let repository = MailCompositionDraftRepository(
+      store: ReadOnlyDraftStore(drafts: [source]),
+      syncService: RemovedDraftSyncService(
+        draftId: source.id,
+        removedAt: source.updatedAtMilliseconds - 1
+      ),
+      reminderSyncService: OfflineSendReminderSyncService()
+    )
+    let session = ProductAccountSessionSnapshot(
+      appleUserIdentifier: "apple-user",
+      identityToken: "token",
+      productAccountId: "account",
+      trustedDeviceId: "device"
+    )
+
+    let drafts = try await repository.drafts(
+      productAccountId: "account",
+      profileId: MailProfileId(rawValue: "profile"),
+      session: session
+    )
+
+    #expect(drafts == [source])
+  }
+
   @Test(.bug(id: 163))
   func offlineDraftAssetSaveRemainsLocalAndFailedCleanupDoesNotResurrectData() async throws {
     let rootDirectory = temporaryDirectory()
@@ -1482,6 +1577,67 @@ private enum DraftFixtureError: Error {
   case deleteFailed
   case offline
   case saveFailed
+}
+
+private struct ReadOnlyDraftStore: MailCompositionDraftPersisting {
+  let drafts: [MailShellCompositionDraft]
+
+  func clear(productAccountId _: String) throws {}
+
+  func load(
+    productAccountId _: String,
+    profileId _: MailProfileId
+  ) throws -> [MailShellCompositionDraft] {
+    drafts
+  }
+
+  func remove(
+    _: UUID,
+    productAccountId _: String,
+    profileId _: MailProfileId
+  ) throws {}
+
+  func save(
+    _: MailShellCompositionDraft,
+    productAccountId _: String,
+    profileId _: MailProfileId
+  ) throws {
+    throw MailCompositionDraftStoreError.storageLimitExceeded
+  }
+}
+
+private actor RemovedDraftSyncService: MailCompositionDraftSyncing {
+  let draftId: UUID
+  let removedAt: Int64
+
+  init(draftId: UUID, removedAt: Int64) {
+    self.draftId = draftId
+    self.removedAt = removedAt
+  }
+
+  func snapshot(
+    profileId _: MailProfileId,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> MailCompositionDraftSyncSnapshot {
+    MailCompositionDraftSyncSnapshot(
+      drafts: [],
+      removedDraftUpdatedAtMilliseconds: [draftId: removedAt]
+    )
+  }
+
+  func remove(
+    _: UUID,
+    profileId _: MailProfileId,
+    session _: ProductAccountSessionSnapshot
+  ) async throws {}
+
+  func save(
+    _: MailShellCompositionDraft,
+    profileId _: MailProfileId,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> MailCompositionDraftSyncSaveResult {
+    .saved
+  }
 }
 
 private struct OfflineDraftSyncService: MailCompositionDraftSyncing {
