@@ -221,7 +221,28 @@ final class MailTestBootstrapUITests: XCTestCase {
       on: body,
       failure: "MAIL_TEST_FAILURE:ui: Subject submission did not focus the message body."
     )
+    try verifyRepeatedSubjectToBodyFocus(subject: subject, body: body)
     return (body, document)
+  }
+
+  private func verifyRepeatedSubjectToBodyFocus(
+    subject: XCUIElement,
+    body: XCUIElement
+  ) throws {
+    subject.tap()
+    try requireAutomaticKeyboardFocus(
+      on: subject,
+      failure: "MAIL_TEST_FAILURE:ui: The subject field did not regain keyboard focus."
+    )
+    try requireKeyboardFocusLoss(
+      on: body,
+      failure: "MAIL_TEST_FAILURE:ui: Subject focus did not release the message body."
+    )
+    subject.typeKey(.return, modifierFlags: [])
+    try requireAutomaticKeyboardFocus(
+      on: body,
+      failure: "MAIL_TEST_FAILURE:ui: Repeated subject submission did not focus the message body."
+    )
   }
 
   private func replaceRecipientTokens(in recipient: XCUIElement, app: XCUIApplication) throws {
@@ -482,6 +503,20 @@ final class MailTestBootstrapUITests: XCTestCase {
     failure: String
   ) throws {
     guard waitForKeyboardFocus(on: element) else {
+      XCTFail(failure)
+      throw NSError(domain: "MailTestBootstrapUITests", code: 1)
+    }
+  }
+
+  private func requireKeyboardFocusLoss(
+    on element: XCUIElement,
+    failure: String
+  ) throws {
+    let unfocused = XCTNSPredicateExpectation(
+      predicate: NSPredicate(format: "hasKeyboardFocus == false"),
+      object: element
+    )
+    guard XCTWaiter.wait(for: [unfocused], timeout: 2) == .completed else {
       XCTFail(failure)
       throw NSError(domain: "MailTestBootstrapUITests", code: 1)
     }

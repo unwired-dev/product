@@ -49,7 +49,7 @@ final class InboxPreferenceSyncServiceTests {
   @Test
   func testDefaultsMatchInboxProductDecisions() {
     #expect(InboxPreferences.defaults.threadDensity == .comfortable)
-    #expect(InboxPreferences.defaults.previewLength == .two)
+    #expect(InboxPreferences.defaults.previewLength == .one)
     #expect(InboxPreferences.defaults.showsContactImages)
     #expect(InboxPreferences.defaults.showsCategoryBadges)
     #expect(InboxPreferences.defaults.showsAttachmentIndicators)
@@ -80,6 +80,7 @@ final class InboxPreferenceSyncServiceTests {
 
     #expect(preferences.threadDensity == .compact)
     #expect(!(preferences.showsContactImages))
+    // Payloads that predate the saved preview choice keep the former two-line behavior.
     #expect(preferences.previewLength == .two)
     #expect(preferences.showsCategoryBadges)
     #expect(preferences.showsAttachmentIndicators)
@@ -214,7 +215,7 @@ final class InboxPreferenceSyncServiceTests {
     )
     store.setPreviewLength(.three)
     syncService.snapshot = InboxPreferenceSyncSnapshot(
-      preferences: InboxPreferences(previewLength: .one),
+      preferences: InboxPreferences(previewLength: .two),
       updatedAt: 9
     )
 
@@ -224,7 +225,7 @@ final class InboxPreferenceSyncServiceTests {
     #expect(store.preferences.previewLength == .three)
     #expect(conflict?.field == .previewLength)
     #expect(conflict?.localValue == .previewLength(.three))
-    #expect(conflict?.remoteValue == .previewLength(.one))
+    #expect(conflict?.remoteValue == .previewLength(.two))
     #expect(syncService.saveCount == 0)
 
     store.resolveConflict(.previewLength, useLocalValue: true)
