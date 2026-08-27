@@ -3271,7 +3271,7 @@ struct AccountView: View {
         profileSwitchGate.isCurrent(switchGeneration),
         profileViewModel.activeProfileId == profileId
       else { return false }
-      let preparedProfileRecordScope = prepareProfileScopedStoresIfNeeded()
+      let preparedProfileRecordScope = await prepareProfileScopedStoresIfNeeded()
       await waitForNextMainRunLoopCycle()
       guard
         !Task.isCancelled,
@@ -3392,12 +3392,12 @@ struct AccountView: View {
   }
 
   private func reloadProfileScopedStoresIfNeeded() async {
-    guard let recordScope = prepareProfileScopedStoresIfNeeded() else { return }
+    guard let recordScope = await prepareProfileScopedStoresIfNeeded() else { return }
     await synchronizePreparedProfileScopedStores(for: recordScope)
   }
 
   // swiftlint:disable:next function_body_length
-  private func prepareProfileScopedStoresIfNeeded() -> MailProfileRecordScope? {
+  private func prepareProfileScopedStoresIfNeeded() async -> MailProfileRecordScope? {
     guard let recordScope = profileViewModel.activeProfile?.recordScope,
       recordScope != profilePreferenceRecordScope
     else { return nil }
@@ -3421,6 +3421,8 @@ struct AccountView: View {
       recordScope: recordScope,
       syncService: featureSuggestionPreferenceSyncFactory(recordScope)
     )
+    await waitForNextMainRunLoopCycle()
+    guard profileViewModel.activeProfile?.recordScope == recordScope else { return nil }
     let inboxPreferenceStore = session.sharedInboxPreferenceStore(
       for: snapshot,
       recordScope: recordScope,
@@ -3441,6 +3443,8 @@ struct AccountView: View {
       recordScope: recordScope,
       syncService: templatePreferenceSyncFactory(recordScope)
     )
+    await waitForNextMainRunLoopCycle()
+    guard profileViewModel.activeProfile?.recordScope == recordScope else { return nil }
     self.blockedSenderStore.retire()
     self.blockedSenderStore = blockedSenderStore
     self.categoryViewModel = categoryViewModel
