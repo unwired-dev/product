@@ -221,6 +221,14 @@ final class MailTestBootstrapUITests: XCTestCase {
       on: body,
       failure: "MAIL_TEST_FAILURE:ui: Subject submission did not focus the message body."
     )
+    try verifyRepeatedSubjectToBodyFocus(subject: subject, body: body)
+    return (body, document)
+  }
+
+  private func verifyRepeatedSubjectToBodyFocus(
+    subject: XCUIElement,
+    body: XCUIElement
+  ) throws {
     subject.tap()
     try requireAutomaticKeyboardFocus(
       on: subject,
@@ -235,7 +243,6 @@ final class MailTestBootstrapUITests: XCTestCase {
       on: body,
       failure: "MAIL_TEST_FAILURE:ui: Repeated subject submission did not focus the message body."
     )
-    return (body, document)
   }
 
   private func replaceRecipientTokens(in recipient: XCUIElement, app: XCUIApplication) throws {
