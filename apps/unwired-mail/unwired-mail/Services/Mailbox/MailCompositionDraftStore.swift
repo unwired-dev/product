@@ -22,6 +22,12 @@ protocol MailCompositionDraftPersisting: Sendable {
     productAccountId: String,
     profileId: MailProfileId
   ) throws
+  func replace(
+    _ draftId: UUID,
+    with draft: MailShellCompositionDraft,
+    productAccountId: String,
+    profileId: MailProfileId
+  ) throws
   func save(
     _ draft: MailShellCompositionDraft,
     productAccountId: String,
@@ -146,6 +152,25 @@ struct FileMailCompositionDraftStore: MailCompositionDraftPersisting, @unchecked
       } else {
         drafts.append(draft)
       }
+      try write(
+        drafts.sorted { $0.updatedAtMilliseconds > $1.updatedAtMilliseconds },
+        productAccountId: productAccountId,
+        profileId: profileId
+      )
+    }
+  }
+
+  func replace(
+    _ draftId: UUID,
+    with draft: MailShellCompositionDraft,
+    productAccountId: String,
+    profileId: MailProfileId
+  ) throws {
+    try Self.mutationLock.withLock {
+      try migrateLegacyRootIfNeeded()
+      var drafts = try loadForMutation(productAccountId: productAccountId, profileId: profileId)
+      drafts.removeAll { $0.id == draftId || $0.id == draft.id }
+      drafts.append(draft)
       try write(
         drafts.sorted { $0.updatedAtMilliseconds > $1.updatedAtMilliseconds },
         productAccountId: productAccountId,
@@ -383,8 +408,12 @@ actor MailCompositionDraftRepository {
     profileId: MailProfileId
   ) throws -> MailShellCompositionDraft {
     let copy = draft.preservingAsConflictCopy()
-    try store.save(copy, productAccountId: productAccountId, profileId: profileId)
-    try store.remove(draft.id, productAccountId: productAccountId, profileId: profileId)
+    try store.replace(
+      draft.id,
+      with: copy,
+      productAccountId: productAccountId,
+      profileId: profileId
+    )
     return copy
   }
 

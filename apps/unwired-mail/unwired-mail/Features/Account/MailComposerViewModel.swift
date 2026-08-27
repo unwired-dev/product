@@ -117,6 +117,7 @@ final class MailComposerViewModel {
     guard lastSavedDraft != draft else { return }
     editRevision += 1
     hasConfirmedMissingSubject = false
+    noticeMessage = nil
     let previousAutosaveTask = autosaveTask
     autosaveTask?.cancel()
     guard draft.hasUserState else {

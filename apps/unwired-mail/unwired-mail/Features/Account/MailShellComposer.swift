@@ -537,6 +537,7 @@ struct MailShellComposer: View {
     selectedPhoto = nil
     showsDiscardConfirmation = false
     showsFileImporter = false
+    showsLinkEditor = false
     showsMissingSubjectConfirmation = false
     recipientEditor = MailRecipientEditor(
       to: viewModel.draft.recipient,

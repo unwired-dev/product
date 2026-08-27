@@ -719,6 +719,36 @@ final class MailCompositionDraftTests {
   }
 
   @Test(.bug(id: 562))
+  func editingConflictCopyClearsNoticeAndExposesSaveFailure() async {
+    var source = draft(recipient: "recipient@example.com")
+    source.subject = "Concurrent edits"
+    let copy = source.preservingAsConflictCopy()
+    var saveAttempt = 0
+    let viewModel = MailComposerViewModel(
+      draft: source,
+      presentation: .partial,
+      saveDraft: { _ in
+        saveAttempt += 1
+        if saveAttempt == 1 {
+          throw MailCompositionDraftSaveConflict(copy: copy)
+        }
+        throw DraftFixtureError.saveFailed
+      },
+      sendDraft: { _ in false }
+    )
+
+    #expect(await viewModel.close())
+    #expect(
+      viewModel.noticeMessage == MailCompositionDraftSaveConflict(copy: copy).errorDescription
+    )
+    viewModel.draft.subject = "Retry"
+    viewModel.draftChanged()
+    #expect(viewModel.noticeMessage == nil)
+    #expect(await viewModel.close() == false)
+    #expect(viewModel.saveState == .failed(DraftFixtureError.saveFailed.localizedDescription))
+  }
+
+  @Test(.bug(id: 562))
   func failedAutosaveBlocksDraftSwitchAndKeepsCurrentEditor() async {
     var first = draft(recipient: "first@example.com")
     first.document = SemanticMessageDocument(plainText: "Unsaved edit")
@@ -1261,6 +1291,41 @@ final class MailCompositionDraftTests {
     #expect(drafts == [source])
   }
 
+  @Test(.bug(id: 562))
+  func conflictCopyReplacementFailureLeavesOriginalDraftIntact() throws {
+    let rootDirectory = temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: rootDirectory) }
+    let accountId = "draft-conflict-replacement-account"
+    let profileId = MailProfileId(rawValue: "profile")
+    let keyMaterialStore = try keyedStore(productAccountId: accountId)
+    let initialStore = FileMailCompositionDraftStore(
+      keyMaterialStore: keyMaterialStore,
+      rootDirectory: rootDirectory
+    )
+    let source = draft(recipient: "recipient@example.com")
+    try initialStore.save(source, productAccountId: accountId, profileId: profileId)
+    let originalSize = try #require(
+      draftFiles(in: rootDirectory).first { $0.pathExtension == "json" }
+    ).resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+    var copy = source.preservingAsConflictCopy()
+    copy.document = SemanticMessageDocument(plainText: String(repeating: "x", count: 4_096))
+    let constrainedStore = FileMailCompositionDraftStore(
+      keyMaterialStore: keyMaterialStore,
+      rootDirectory: rootDirectory,
+      storageLimit: originalSize
+    )
+
+    #expect(throws: MailCompositionDraftStoreError.storageLimitExceeded) {
+      try constrainedStore.replace(
+        source.id,
+        with: copy,
+        productAccountId: accountId,
+        profileId: profileId
+      )
+    }
+    #expect(try initialStore.load(productAccountId: accountId, profileId: profileId) == [source])
+  }
+
   @Test(.bug(id: 163))
   func offlineDraftAssetSaveRemainsLocalAndFailedCleanupDoesNotResurrectData() async throws {
     let rootDirectory = temporaryDirectory()
@@ -1598,6 +1663,15 @@ private struct ReadOnlyDraftStore: MailCompositionDraftPersisting {
     productAccountId _: String,
     profileId _: MailProfileId
   ) throws {}
+
+  func replace(
+    _: UUID,
+    with _: MailShellCompositionDraft,
+    productAccountId _: String,
+    profileId _: MailProfileId
+  ) throws {
+    throw MailCompositionDraftStoreError.storageLimitExceeded
+  }
 
   func save(
     _: MailShellCompositionDraft,
