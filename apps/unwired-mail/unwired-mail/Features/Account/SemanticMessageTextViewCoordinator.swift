@@ -6,6 +6,7 @@ final class SemanticMessageTextViewCoordinator: NSObject, UITextViewDelegate {
   weak var textView: SemanticMessageUITextView?
 
   private var isSynchronizing = false
+  private var activeFocusRequest: Int?
   private var scheduledFocusRequest: Int?
   private var renderedDocument: SemanticMessageDocument?
 
@@ -94,11 +95,15 @@ final class SemanticMessageTextViewCoordinator: NSObject, UITextViewDelegate {
   }
 
   func textViewDidBeginEditing(_ textView: UITextView) {
+    activeFocusRequest = parent.focusRequest
     if parent.isFocused == false { parent.isFocused = true }
   }
 
   func textViewDidEndEditing(_ textView: UITextView) {
-    if parent.isFocused { parent.isFocused = false }
+    if activeFocusRequest == parent.focusRequest, parent.isFocused {
+      parent.isFocused = false
+    }
+    activeFocusRequest = nil
   }
 
   func synchronizeTextView() {
