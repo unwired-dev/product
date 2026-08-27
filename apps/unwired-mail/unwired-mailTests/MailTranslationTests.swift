@@ -241,18 +241,6 @@ struct MailTranslationTests {
     )
   }
 
-  private func messageId() -> StableProviderMessageIdentity {
-    StableProviderMessageIdentity(
-      connectionId: MailboxConnectionId(
-        providerMailboxIdentity: StableProviderMailboxIdentity(
-          providerId: .gmail,
-          value: "connection"
-        )
-      ),
-      providerMessageId: "message"
-    )
-  }
-
   private func readyViewModel(
     for presentation: MailTranslationPresentation,
     status: MailTranslationAvailability = .installed
@@ -292,6 +280,18 @@ struct MailTranslationTests {
       profileId: profileId
     )
   }
+}
+
+private func messageId() -> StableProviderMessageIdentity {
+  StableProviderMessageIdentity(
+    connectionId: MailboxConnectionId(
+      providerMailboxIdentity: StableProviderMailboxIdentity(
+        providerId: .gmail,
+        value: "connection"
+      )
+    ),
+    providerMessageId: "message"
+  )
 }
 
 private enum TranslationTestError: Error {
