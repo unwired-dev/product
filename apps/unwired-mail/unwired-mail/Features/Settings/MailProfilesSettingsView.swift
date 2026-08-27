@@ -40,6 +40,7 @@ final class MailProfileSettingsViewModel {
   private let service: MailProfileSettingsSyncing
   private let session: ProductAccountSessionSnapshot
   private let startupStore: MailProfileStartupSelectionPersisting
+  private let authorizedRemoteContentCache: any AuthorizedRemoteContentCacheClearing
 
   var hasPendingChanges: Bool { lifecycleStore.hasPendingChanges }
 
@@ -60,6 +61,8 @@ final class MailProfileSettingsViewModel {
       KeychainMailProfileStateStore(),
     startupStore: MailProfileStartupSelectionPersisting =
       UserDefaultsMailProfileStartupStore(),
+    authorizedRemoteContentCache: any AuthorizedRemoteContentCacheClearing =
+      AuthorizedRemoteContentCache(),
     deletionReviewProvider:
       (
         (MailProfileId, MailProfileSyncSnapshot, ProductAccountSessionSnapshot) async throws
@@ -69,6 +72,7 @@ final class MailProfileSettingsViewModel {
     self.session = session
     self.service = service
     self.startupStore = startupStore
+    self.authorizedRemoteContentCache = authorizedRemoteContentCache
     self.deletionReviewProvider =
       deletionReviewProvider ?? Self.liveDeletionReview
     lifecycleStore = MailProfileLifecycleStore(
@@ -83,6 +87,7 @@ final class MailProfileSettingsViewModel {
     isWorking = true
     defer { isWorking = false }
     do {
+      try retryPendingRemoteContentCleanup()
       try await refreshSnapshot()
       if lifecycleStore.hasPendingChanges {
         try await lifecycleStore.synchronize()
@@ -202,12 +207,38 @@ final class MailProfileSettingsViewModel {
       errorMessage = MailProfileSyncError.invalidLifecycleReview.localizedDescription
       return false
     }
-    return await performAuthoritativeChange(preferredProfileId: snapshot.defaultProfileId) {
+    let deleted = await performAuthoritativeChange(preferredProfileId: snapshot.defaultProfileId) {
       try await service.deleteProfile(
         review,
         session: session
       )
     }
+    if deleted {
+      do {
+        try lifecycleStore.recordPendingRemoteContentCleanup(profileId: profileId)
+        try clearRemoteContent(profileId: profileId)
+        try lifecycleStore.finishPendingRemoteContentCleanup(profileId: profileId)
+      } catch {
+        errorMessage =
+          "Profile deleted. Local Remote Message Content will retry cleanup when you reopen Mail Profiles."
+        return false
+      }
+    }
+    return deleted
+  }
+
+  private func retryPendingRemoteContentCleanup() throws {
+    for profileId in lifecycleStore.pendingRemoteContentCleanupProfileIds {
+      try clearRemoteContent(profileId: profileId)
+      try lifecycleStore.finishPendingRemoteContentCleanup(profileId: profileId)
+    }
+  }
+
+  private func clearRemoteContent(profileId: MailProfileId) throws {
+    try authorizedRemoteContentCache.clear(
+      productAccountId: session.productAccountId,
+      profileId: profileId
+    )
   }
 
   func connections(in profileId: MailProfileId) -> [MailboxConnectionId] {

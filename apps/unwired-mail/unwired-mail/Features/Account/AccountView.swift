@@ -2570,6 +2570,7 @@ struct AccountView: View {
           inboxViewModel.startVisibleMessageBodyPrefetch(
             in: item.thread,
             loadsRemoteImages: loadsRemoteImages,
+            profileId: activeDraftProfileId,
             using: messageReader
           )
         },
@@ -2601,6 +2602,7 @@ struct AccountView: View {
         snoozeViewModel: snoozeViewModel,
         selection: mailShellSelection,
         session: snapshot,
+        profileId: activeDraftProfileId,
         readingPreferences: readingPreferenceStore.preferences,
         revalidateTrustedDevice: {
           guard await session.revalidateTrustedDeviceAfterForegrounding() else { return false }
@@ -3269,7 +3271,7 @@ struct AccountView: View {
         profileSwitchGate.isCurrent(switchGeneration),
         profileViewModel.activeProfileId == profileId
       else { return false }
-      let preparedProfileRecordScope = prepareProfileScopedStoresIfNeeded()
+      let preparedProfileRecordScope = await prepareProfileScopedStoresIfNeeded()
       await waitForNextMainRunLoopCycle()
       guard
         !Task.isCancelled,
@@ -3390,12 +3392,12 @@ struct AccountView: View {
   }
 
   private func reloadProfileScopedStoresIfNeeded() async {
-    guard let recordScope = prepareProfileScopedStoresIfNeeded() else { return }
+    guard let recordScope = await prepareProfileScopedStoresIfNeeded() else { return }
     await synchronizePreparedProfileScopedStores(for: recordScope)
   }
 
   // swiftlint:disable:next function_body_length
-  private func prepareProfileScopedStoresIfNeeded() -> MailProfileRecordScope? {
+  private func prepareProfileScopedStoresIfNeeded() async -> MailProfileRecordScope? {
     guard let recordScope = profileViewModel.activeProfile?.recordScope,
       recordScope != profilePreferenceRecordScope
     else { return nil }
@@ -3419,6 +3421,8 @@ struct AccountView: View {
       recordScope: recordScope,
       syncService: featureSuggestionPreferenceSyncFactory(recordScope)
     )
+    await waitForNextMainRunLoopCycle()
+    guard profileViewModel.activeProfile?.recordScope == recordScope else { return nil }
     let inboxPreferenceStore = session.sharedInboxPreferenceStore(
       for: snapshot,
       recordScope: recordScope,
@@ -3439,6 +3443,8 @@ struct AccountView: View {
       recordScope: recordScope,
       syncService: templatePreferenceSyncFactory(recordScope)
     )
+    await waitForNextMainRunLoopCycle()
+    guard profileViewModel.activeProfile?.recordScope == recordScope else { return nil }
     self.blockedSenderStore.retire()
     self.blockedSenderStore = blockedSenderStore
     self.categoryViewModel = categoryViewModel
@@ -7792,6 +7798,7 @@ struct MailShellConversationReader: View {
   @Bindable var snoozeViewModel: ThreadSnoozeViewModel
   @Bindable var selection: MailShellSelectionModel
   let session: ProductAccountSessionSnapshot
+  var profileId: MailProfileId?
   var readingPreferences: ReadingPreferences = .defaults
   var revalidateTrustedDevice: () async -> Bool = { true }
   var allowsProactiveSuggestions = true
@@ -8285,6 +8292,7 @@ struct MailShellConversationReader: View {
     }
   }
 
+  // swiftlint:disable:next function_body_length
   private func conversationMessageBody(
     _ message: MailboxMessageMetadata,
     in thread: MailboxThread,
@@ -8311,7 +8319,14 @@ struct MailShellConversationReader: View {
         }
       },
       loadRemoteContent: {
-        try await inboxViewModel.loadRemoteMessageContent($0, for: message.id)
+        guard allowsContentReveal, await revalidateTrustedDevice() else {
+          throw CancellationError()
+        }
+        return try await inboxViewModel.loadRemoteMessageContent(
+          $0,
+          for: message.id,
+          profileId: profileId
+        )
       },
       markBodyDisplayed: {
         inboxViewModel.markMessageBodyDisplayed(message.id)
@@ -13249,6 +13264,7 @@ final class GmailInboxViewModel {
   private var backfillTask: Task<Void, Never>?
   private var backfillTaskId: UUID?
   private let bodyPrefetcher: MailboxMessageBodyPrefetching?
+  private let authorizedRemoteContentCache: AuthorizedRemoteContentCache
   private var bodyPrefetchTask: Task<Void, Never>?
   private var hasSignedOut = false
   private var displayedMessageBodyIds: Set<StableProviderMessageIdentity> = []
@@ -13258,6 +13274,8 @@ final class GmailInboxViewModel {
   private var loadedRemoteImageByteCounts: [StableProviderMessageIdentity: Int] = [:]
   private var loadedRemoteMessageContents:
     [StableProviderMessageIdentity: LoadedRemoteMessageContentCacheEntry] = [:]
+  private var protectedRemoteContentKeys:
+    [StableProviderMessageIdentity: Set<AuthorizedRemoteContentCacheKey>] = [:]
   private var productMailboxStateRevision = 0
   #if DEBUG
     @ObservationIgnored var initialThreadBatchDidPublish: (() async -> Void)?
@@ -13308,6 +13326,7 @@ final class GmailInboxViewModel {
   private let syncCoordinator: MailboxFreshnessViewModel?
 
   init(
+    authorizedRemoteContentCache: AuthorizedRemoteContentCache = AuthorizedRemoteContentCache(),
     bodyPrefetcher: MailboxMessageBodyPrefetching? = nil,
     service: MailboxMetadataSyncing,
     searchService: MailboxMessageSearching,
@@ -13315,6 +13334,7 @@ final class GmailInboxViewModel {
     session: ProductAccountSessionSnapshot,
     productMailboxState: MailShellProductMailboxState = .empty
   ) {
+    self.authorizedRemoteContentCache = authorizedRemoteContentCache
     let loadedImageBudget =
       Self.loadedImageBudgets[session.productAccountId] ?? LoadedMessageImageBudget()
     Self.loadedImageBudgets[session.productAccountId] = loadedImageBudget
@@ -13342,6 +13362,9 @@ final class GmailInboxViewModel {
     loadedImageBudget.inlinePixelCount -= loadedInlineImagePixelCounts.values.reduce(0, +)
     loadedImageBudget.remoteByteCount -= loadedRemoteImageByteCounts.values.reduce(0, +)
     loadedImageBudget.remotePixelCount -= loadedRemoteImagePixelCounts.values.reduce(0, +)
+    for keys in protectedRemoteContentKeys.values {
+      authorizedRemoteContentCache.release(keys)
+    }
   }
 
   var isRefreshDisabled: Bool {
@@ -13446,6 +13469,7 @@ final class GmailInboxViewModel {
   func prefetchVisibleMessageBodies(
     in thread: MailboxThread,
     loadsRemoteImages: Bool,
+    profileId: MailProfileId? = nil,
     using reader: MailboxMessageReading,
     remoteLoader: (
       (SanitizedMessageHTML, Int, Int) async throws
@@ -13492,6 +13516,8 @@ final class GmailInboxViewModel {
           let result = try await loadRemoteMessageContent(
             html,
             for: message.id,
+            profileId: profileId,
+            protectsCachedContent: false,
             using: remoteLoader
           )
           loadedRemoteMessageContents[message.id] = LoadedRemoteMessageContentCacheEntry(
@@ -13522,6 +13548,7 @@ final class GmailInboxViewModel {
   func startVisibleMessageBodyPrefetch(
     in thread: MailboxThread,
     loadsRemoteImages: Bool,
+    profileId: MailProfileId? = nil,
     using reader: MailboxMessageReading
   ) {
     visibleMessageBodyPrefetchTasks[thread.id]?.task.cancel()
@@ -13533,6 +13560,7 @@ final class GmailInboxViewModel {
       await prefetchVisibleMessageBodies(
         in: thread,
         loadsRemoteImages: loadsRemoteImages,
+        profileId: profileId,
         using: reader
       )
       if visibleMessageBodyPrefetchTasks[thread.id]?.id == taskId {
@@ -13542,9 +13570,12 @@ final class GmailInboxViewModel {
     visibleMessageBodyPrefetchTasks[thread.id] = (taskId, task)
   }
 
+  // swiftlint:disable:next function_body_length
   func loadRemoteMessageContent(
     _ html: SanitizedMessageHTML,
     for messageId: StableProviderMessageIdentity,
+    profileId: MailProfileId? = nil,
+    protectsCachedContent: Bool = true,
     maximumLoadDuration: TimeInterval = 30,
     using loader: (
       (SanitizedMessageHTML, Int, Int) async throws
@@ -13553,6 +13584,9 @@ final class GmailInboxViewModel {
   ) async throws -> RemoteMessageContentLoadResult {
     if let cached = loadedRemoteMessageContents[messageId], cached.source == html {
       loadedRemoteMessageContents[messageId] = nil
+      if protectsCachedContent {
+        replaceProtectedRemoteContentKeys(cached.result.cachedKeys, for: messageId)
+      }
       return cached.result
     }
     try Task.checkCancellation()
@@ -13571,6 +13605,15 @@ final class GmailInboxViewModel {
       )
     } else {
       result = try await RemoteMessageContentLoader(
+        cache: authorizedRemoteContentCache,
+        cacheContext: profileId.map {
+          AuthorizedRemoteContentCacheContext(
+            productAccountId: session.productAccountId,
+            profileId: $0,
+            messageId: messageId,
+            html: html
+          )
+        },
         maximumConcurrentRequestCount:
           ProductAccountRemoteImageRequestGate.maximumConcurrentRequestsPerMessage,
         maximumLoadDuration: maximumLoadDuration,
@@ -13600,7 +13643,22 @@ final class GmailInboxViewModel {
     loadedImageBudget.remoteByteCount += result.loadedByteCount
     loadedRemoteImagePixelCounts[messageId, default: 0] += result.loadedPixelCount
     loadedImageBudget.remotePixelCount += result.loadedPixelCount
+    if protectsCachedContent {
+      replaceProtectedRemoteContentKeys(result.cachedKeys, for: messageId)
+    }
     return result
+  }
+
+  private func replaceProtectedRemoteContentKeys(
+    _ keys: Set<AuthorizedRemoteContentCacheKey>,
+    for messageId: StableProviderMessageIdentity
+  ) {
+    if let previousKeys = protectedRemoteContentKeys.removeValue(forKey: messageId) {
+      authorizedRemoteContentCache.release(previousKeys)
+    }
+    guard !keys.isEmpty else { return }
+    authorizedRemoteContentCache.protect(keys)
+    protectedRemoteContentKeys[messageId] = keys
   }
 
   func isLoadedMessageBodyTextUnavailable(
@@ -13684,6 +13742,7 @@ final class GmailInboxViewModel {
     loadedImageBudget.remotePixelCount -=
       loadedRemoteImagePixelCounts.removeValue(forKey: messageId) ?? 0
     loadedRemoteMessageContents[messageId] = nil
+    replaceProtectedRemoteContentKeys([], for: messageId)
     if visibleMessageBodyPrefetches[messageId] == true {
       visibleMessageBodyPrefetches[messageId] = false
     }
@@ -13898,6 +13957,10 @@ final class GmailInboxViewModel {
     loadedImageBudget.remotePixelCount -= loadedRemoteImagePixelCounts.values.reduce(0, +)
     loadedRemoteImagePixelCounts = [:]
     loadedRemoteMessageContents = [:]
+    for keys in protectedRemoteContentKeys.values {
+      authorizedRemoteContentCache.release(keys)
+    }
+    protectedRemoteContentKeys = [:]
     loadedMessageBodyClearSignals = [:]
     loadedMessageBodyTextByteCount = 0
     loadedMessageBodyTextOrder = []

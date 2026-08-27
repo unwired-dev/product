@@ -9,17 +9,22 @@ struct LocalMailStorageSnapshot: Equatable, Sendable {
   let downloadedAttachmentByteCount: Int64
   let draftByteCount: Int64
   let metadataByteCount: Int64
+  let remoteContentByteCount: Int64
   let pendingDraftAssetByteCount: Int64
   let pendingDraftAssetCount: Int
 
   var totalByteCount: Int64 {
     cachedBodyByteCount + downloadedAttachmentByteCount + draftByteCount + metadataByteCount
+      + remoteContentByteCount
   }
 }
 
 protocol LocalMailStorageManaging: Sendable {
   /// Removes only device-local message bodies and downloaded incoming attachments.
   func clearEvictableContent() async throws
+
+  /// Removes only authorized remote message content cached on this device.
+  func clearAuthorizedRemoteContent() async throws
 
   /// Returns current device-local mail storage usage and pending Draft-asset state.
   func snapshot() async throws -> LocalMailStorageSnapshot
@@ -30,6 +35,7 @@ struct LocalMailStoragePaths: Sendable {
   let bodyCacheDirectory: URL
   let draftDirectory: URL
   let metadataLocations: [URL]
+  let remoteContentDirectory: URL
 
   static func live(fileManager: FileManager = .default) -> Self {
     let applicationSupport = fileManager.urls(
@@ -62,7 +68,11 @@ struct LocalMailStoragePaths: Sendable {
       draftDirectory: unwiredMail.appending(path: "Drafts", directoryHint: .isDirectory),
       metadataLocations: swiftDataLocations + [
         unwiredMail.appending(path: "GmailMetadata", directoryHint: .isDirectory)
-      ]
+      ],
+      remoteContentDirectory: unwiredMail.appending(
+        path: "AuthorizedRemoteContent",
+        directoryHint: .isDirectory
+      )
     )
   }
 }
@@ -76,6 +86,7 @@ actor LocalMailStorageService: LocalMailStorageManaging {
   private let paths: LocalMailStoragePaths
   private let productAccountId: String
   private let profileIds: [MailProfileId]
+  private let remoteContentCache: AuthorizedRemoteContentCache
   private let session: ProductAccountSessionSnapshot
 
   init(
@@ -86,16 +97,24 @@ actor LocalMailStorageService: LocalMailStorageManaging {
     bodyCache: GmailMessageBodyCaching = FileGmailMessageBodyCache(),
     draftRepository: MailCompositionDraftRepository = MailCompositionDraftRepository(),
     fileManager: FileManager = .default,
-    paths: LocalMailStoragePaths? = nil
+    paths: LocalMailStoragePaths? = nil,
+    remoteContentCache: AuthorizedRemoteContentCache? = nil
   ) {
+    let resolvedPaths = paths ?? .live(fileManager: fileManager)
     self.attachmentStore = attachmentStore
     self.bodyCache = bodyCache
     self.draftRepository = draftRepository
     self.fileManager = fileManager
-    self.paths = paths ?? .live(fileManager: fileManager)
+    self.paths = resolvedPaths
     self.productAccountId = productAccountId
     self.profileIds = profileIds
     self.session = session
+    self.remoteContentCache =
+      remoteContentCache
+      ?? AuthorizedRemoteContentCache(
+        fileManager: fileManager,
+        rootDirectory: resolvedPaths.remoteContentDirectory
+      )
   }
 
   func snapshot() async throws -> LocalMailStorageSnapshot {
@@ -116,6 +135,9 @@ actor LocalMailStorageService: LocalMailStorageManaging {
       metadataByteCount: paths.metadataLocations.reduce(0) {
         $0 + fileByteCount(at: $1)
       },
+      remoteContentByteCount: remoteContentCache.storedByteCount(
+        productAccountId: productAccountId
+      ),
       pendingDraftAssetByteCount: pendingAssets.reduce(0) {
         $0 + Int64($1.byteCount)
       },
@@ -128,6 +150,11 @@ actor LocalMailStorageService: LocalMailStorageManaging {
     try bodyCache.clearMessageBodies(productAccountId: productAccountId)
     try Task.checkCancellation()
     try attachmentStore.clearAll()
+  }
+
+  func clearAuthorizedRemoteContent() async throws {
+    try Task.checkCancellation()
+    try remoteContentCache.clear(productAccountId: productAccountId)
   }
 
   private func cachedBodyByteCount() -> Int64 {
@@ -177,14 +204,23 @@ actor LocalMailStorageService: LocalMailStorageManaging {
 actor DeviceLocalMailStorageService: LocalMailStorageManaging {
   private let fileManager: FileManager
   private let paths: LocalMailStoragePaths
+  private let remoteContentCache: AuthorizedRemoteContentCache
 
   /// Creates a device-wide storage service for the app's known local paths.
   init(
     fileManager: FileManager = .default,
-    paths: LocalMailStoragePaths? = nil
+    paths: LocalMailStoragePaths? = nil,
+    remoteContentCache: AuthorizedRemoteContentCache? = nil
   ) {
+    let resolvedPaths = paths ?? .live(fileManager: fileManager)
     self.fileManager = fileManager
-    self.paths = paths ?? .live(fileManager: fileManager)
+    self.paths = resolvedPaths
+    self.remoteContentCache =
+      remoteContentCache
+      ?? AuthorizedRemoteContentCache(
+        fileManager: fileManager,
+        rootDirectory: resolvedPaths.remoteContentDirectory
+      )
   }
 
   func snapshot() async throws -> LocalMailStorageSnapshot {
@@ -196,6 +232,7 @@ actor DeviceLocalMailStorageService: LocalMailStorageManaging {
       metadataByteCount: paths.metadataLocations.reduce(0) {
         $0 + fileByteCount(at: $1)
       },
+      remoteContentByteCount: remoteContentCache.storedByteCount(),
       pendingDraftAssetByteCount: 0,
       pendingDraftAssetCount: 0
     )
@@ -206,6 +243,11 @@ actor DeviceLocalMailStorageService: LocalMailStorageManaging {
     try clearContents(of: paths.bodyCacheDirectory)
     try Task.checkCancellation()
     try clearContents(of: paths.attachmentDirectory)
+  }
+
+  func clearAuthorizedRemoteContent() async throws {
+    try Task.checkCancellation()
+    try remoteContentCache.clearAll()
   }
 
   private func clearContents(of directory: URL) throws {
@@ -251,6 +293,7 @@ final class StorageDataSettingsViewModel {
   private(set) var loadErrorMessage: String?
   private(set) var exportData: Data?
   private(set) var isClearing = false
+  private(set) var isClearingRemoteContent = false
   private(set) var isExporting = false
   private(set) var isLoading = false
   private(set) var snapshot: LocalMailStorageSnapshot?
@@ -291,6 +334,7 @@ final class StorageDataSettingsViewModel {
     exportData = nil
     isLoading = false
     isClearing = false
+    isClearingRemoteContent = false
     snapshot = nil
     statusMessage = nil
     alertMessage = nil
@@ -355,6 +399,32 @@ final class StorageDataSettingsViewModel {
       self.snapshot = snapshot
       loadErrorMessage = nil
       statusMessage = "Cached bodies and downloaded attachments cleared."
+    } catch is CancellationError {
+    } catch {
+      guard generation == storageGeneration else { return }
+      alertMessage = error.localizedDescription
+    }
+  }
+
+  func clearRemoteContent() async {
+    guard !isClearingRemoteContent else { return }
+    let generation = storageGeneration
+    let storage = storage
+    isClearingRemoteContent = true
+    statusMessage = nil
+    defer {
+      if generation == storageGeneration {
+        isClearingRemoteContent = false
+      }
+    }
+    do {
+      try await storage.clearAuthorizedRemoteContent()
+      try Task.checkCancellation()
+      let snapshot = try await storage.snapshot()
+      try Task.checkCancellation()
+      guard generation == storageGeneration else { return }
+      self.snapshot = snapshot
+      statusMessage = "Authorized remote content cleared."
     } catch is CancellationError {
     } catch {
       guard generation == storageGeneration else { return }

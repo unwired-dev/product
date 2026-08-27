@@ -6,7 +6,8 @@ final class SemanticMessageTextViewCoordinator: NSObject, UITextViewDelegate {
   weak var textView: SemanticMessageUITextView?
 
   private var isSynchronizing = false
-  private var isFocusScheduled = false
+  private var activeFocusRequest: Int?
+  private var scheduledFocusRequest: Int?
   private var renderedDocument: SemanticMessageDocument?
 
   init(parent: SemanticMessageTextView) {
@@ -14,17 +15,29 @@ final class SemanticMessageTextViewCoordinator: NSObject, UITextViewDelegate {
   }
 
   func focusIfNeeded() {
-    guard parent.isFocused, isFocusScheduled == false else { return }
-    isFocusScheduled = true
+    focusIfNeeded(for: parent.focusRequest)
+  }
+
+  func focusIfNeeded(for request: Int) {
+    guard parent.isFocused, scheduledFocusRequest != request else { return }
+    scheduledFocusRequest = request
     Task { @MainActor [weak self] in
       guard let self else { return }
-      defer { isFocusScheduled = false }
+      defer {
+        if scheduledFocusRequest == request { scheduledFocusRequest = nil }
+      }
+      var stableFocusObservations = 0
       for attempt in 0..<10 {
         await Task.yield()
-        guard parent.isFocused, let textView else { return }
+        guard parent.isFocused, parent.focusRequest == request, let textView else { return }
         if textView.window != nil {
-          _ = textView.becomeFirstResponder()
-          if textView.isFirstResponder { return }
+          if textView.isFirstResponder {
+            stableFocusObservations += 1
+            if stableFocusObservations == 2 { return }
+          } else {
+            stableFocusObservations = 0
+            _ = textView.becomeFirstResponder()
+          }
         }
         if attempt < 9 {
           try? await Task.sleep(for: .milliseconds(50))
@@ -88,11 +101,16 @@ final class SemanticMessageTextViewCoordinator: NSObject, UITextViewDelegate {
   }
 
   func textViewDidBeginEditing(_ textView: UITextView) {
+    activeFocusRequest = parent.focusRequest
     if parent.isFocused == false { parent.isFocused = true }
   }
 
   func textViewDidEndEditing(_ textView: UITextView) {
-    if parent.isFocused { parent.isFocused = false }
+    guard scheduledFocusRequest != parent.focusRequest else { return }
+    if activeFocusRequest == parent.focusRequest, parent.isFocused {
+      parent.isFocused = false
+    }
+    activeFocusRequest = nil
   }
 
   func synchronizeTextView() {

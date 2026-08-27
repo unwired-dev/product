@@ -45,6 +45,7 @@ struct MailShellComposer: View {
   @Environment(\.dismiss) private var dismiss
   @FocusState private var focusedField: MailComposerFocus?
   @State private var isBodyFocused = false
+  @State private var bodyFocusRequest = 0
   @State private var editorModel: SemanticMessageEditorModel
   @State private var assetErrorMessage: String?
   @State private var composeAssistancePresentation: ComposeAssistancePresentation?
@@ -264,21 +265,24 @@ struct MailShellComposer: View {
               requestTranslation: mailAssistanceViewModel == nil ? nil : requestTranslation
             )
             Divider()
-            MailComposerBodyField(editorModel: editorModel, isFocused: $isBodyFocused)
-              .simultaneousGesture(
-                TapGesture().onEnded {
-                  focusedField = nil
-                  isBodyFocused = true
-                }
-              )
-              .dropDestination(for: Data.self) { items, _ in
-                addDroppedImages(items)
-                return !items.isEmpty
+            MailComposerBodyField(
+              editorModel: editorModel,
+              isFocused: $isBodyFocused,
+              focusRequest: bodyFocusRequest
+            )
+            .simultaneousGesture(
+              TapGesture().onEnded {
+                requestBodyFocus()
               }
-              .dropDestination(for: URL.self) { urls, _ in
-                importFiles(.success(urls))
-                return !urls.isEmpty
-              }
+            )
+            .dropDestination(for: Data.self) { items, _ in
+              addDroppedImages(items)
+              return !items.isEmpty
+            }
+            .dropDestination(for: URL.self) { urls, _ in
+              importFiles(.success(urls))
+              return !urls.isEmpty
+            }
             Divider()
             composerSupplementalDetails
           }
@@ -359,7 +363,10 @@ struct MailShellComposer: View {
         guard let item else { return }
         Task { await importPhoto(item) }
       }
-      .onChange(of: focusedField) { previousField, _ in
+      .onChange(of: focusedField) { previousField, focusedField in
+        if focusedField != nil {
+          isBodyFocused = false
+        }
         guard let recipientField = recipientField(for: previousField) else { return }
         recipientEditor.commitPendingText(in: recipientField)
       }
@@ -501,12 +508,13 @@ struct MailShellComposer: View {
   }
 
   private func focusBody() {
+    requestBodyFocus()
+  }
+
+  private func requestBodyFocus() {
     focusedField = nil
-    Task { @MainActor in
-      await Task.yield()
-      guard focusedField == nil else { return }
-      isBodyFocused = true
-    }
+    isBodyFocused = true
+    bodyFocusRequest &+= 1
   }
 
   private func updateSendingIdentity(_ identityId: SendingIdentityId?) {
@@ -1206,11 +1214,13 @@ private struct MailComposerHeader: View {
 private struct MailComposerBodyField: View {
   @Bindable var editorModel: SemanticMessageEditorModel
   @Binding var isFocused: Bool
+  let focusRequest: Int
 
   var body: some View {
     SemanticMessageTextView(
       editorModel: editorModel,
       isFocused: $isFocused,
+      focusRequest: focusRequest,
       minimumHeight: 160
     )
     .frame(maxWidth: .infinity, alignment: .topLeading)
