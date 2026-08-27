@@ -50,7 +50,7 @@ struct InboxPreferences: Codable, Equatable, Sendable {
   init(
     mailViewConfiguration: MailViewConfiguration = .defaults,
     threadDensity: InboxThreadDensity = .comfortable,
-    previewLength: InboxPreviewLength = .two,
+    previewLength: InboxPreviewLength = .one,
     showsContactImages: Bool = true,
     showsCategoryBadges: Bool = true,
     showsAttachmentIndicators: Bool = true
@@ -95,7 +95,7 @@ struct InboxPreferences: Codable, Equatable, Sendable {
       ) ?? Self.defaults.mailViewConfiguration
     previewLength =
       try container.decodeIfPresent(InboxPreviewLength.self, forKey: .previewLength)
-      ?? Self.defaults.previewLength
+      ?? .two
     showsContactImages =
       try container.decodeIfPresent(Bool.self, forKey: .showsContactImages)
       ?? Self.defaults.showsContactImages

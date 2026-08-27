@@ -1674,6 +1674,7 @@ struct AccountView: View {
   @State private var composerNavigation = MailShellComposerNavigationState()
   @State private var composerSendErrorMessage = ""
   @State private var showsComposerSendError = false
+  @State private var showsMailboxTools = false
   @State private var compositionDraftLoadGate = MailCompositionDraftLoadGate()
   @State private var savedCompositionDrafts: [MailShellCompositionDraft] = []
   @State private var contentPresentationDismissal =
@@ -2475,6 +2476,8 @@ struct AccountView: View {
       preferredCompactColumn: $preferredCompactColumn
     ) {
       MailShellSidebar(
+        beginComposition: beginNewMessage,
+        canCompose: composerNavigation.draft == nil && !profileConnections.isEmpty,
         connections: profileConnections,
         profiles: profileViewModel.profiles,
         activeProfileId: profileViewModel.activeProfileId,
@@ -2482,6 +2485,8 @@ struct AccountView: View {
         selectProfile: switchProfile,
         setStartupProfile: profileViewModel.setStartupProfile,
         errorMessage: profileViewModel.errorMessage ?? gmailViewModel.errorMessage
+          ?? muteViewModel.errorMessage,
+        generalErrorMessage: profileViewModel.errorMessage ?? gmailViewModel.errorMessage
           ?? muteViewModel.errorMessage
           ?? pinViewModel.errorMessage
           ?? snoozeViewModel.errorMessage
@@ -2491,6 +2496,7 @@ struct AccountView: View {
         navigationSnapshot: inboxViewModel.navigationSnapshot,
         openSettings: { openSettings($0) },
         selectedMailbox: selectedMailboxBinding,
+        showSearch: { showsMailboxTools = true },
         showSettings: { openSettings(nil) },
         syncStatus: mailboxFreshnessViewModel.status
       )
@@ -2518,6 +2524,7 @@ struct AccountView: View {
         partialSearchResultThreadId: mailShellSelection.partialSearchResultThreadId,
         snoozeViewModel: snoozeViewModel,
         selectedThreadIds: selectedThreadsBinding,
+        showsMailboxTools: $showsMailboxTools,
         swipePreferences: swipePreferenceStore.preferences,
         viewModel: inboxViewModel,
         selectSearchResult: selectSearchResult,
@@ -2679,7 +2686,9 @@ struct AccountView: View {
               open: { beginNewMessage(using: $0) }
             )
           }
-          MailShellComposeButton(action: beginNewMessage)
+          if horizontalSizeClass == .compact {
+            MailShellComposeButton(action: beginNewMessage)
+          }
         }
         .padding(16)
         .padding(.bottom, horizontalSizeClass == .compact ? 48 : 0)
@@ -5372,12 +5381,20 @@ final class MailShellSelectionModel {
 }
 
 extension UnifiedMailbox {
+  /// Unified mailboxes shown before provider-specific Mailbox Connections.
+  static let primarySidebarMailboxes: [Self] = [.inbox, .snoozed, .pins, .drafts, .sent]
+
+  /// Lower-frequency Unified Mailboxes shown after the primary destinations.
+  static let secondarySidebarMailboxes: [Self] = [.archive, .allMail, .spam, .trash]
+
   var showsSidebarMessageCount: Bool {
     self != .spam && self != .trash
   }
 }
 
 private struct MailShellSidebar: View {
+  let beginComposition: () -> Void
+  let canCompose: Bool
   let connections: [MailboxConnection]
   let profiles: [MailProfileDefinition]
   let activeProfileId: MailProfileId?
@@ -5385,171 +5402,157 @@ private struct MailShellSidebar: View {
   let selectProfile: (MailProfileId) -> Void
   let setStartupProfile: (MailProfileId) -> Void
   let errorMessage: String?
+  let generalErrorMessage: String?
   let isLoading: Bool
   let navigationSnapshot: MailboxNavigationSnapshot
   let openSettings: (SettingsRoute) -> Void
   @Binding var selectedMailbox: MailShellMailboxSelection?
+  let showSearch: () -> Void
   let showSettings: () -> Void
   let syncStatus: (MailboxConnection) -> MailboxSyncStatus
 
   var body: some View {
-    List(selection: $selectedMailbox) {
-      if let activeProfile {
-        Section {
-          Menu {
-            ForEach(profiles) { profile in
+    VStack(spacing: 0) {
+      List(selection: $selectedMailbox) {
+        if let activeProfile {
+          Section {
+            Menu {
+              ForEach(profiles) { profile in
+                Button {
+                  selectProfile(profile.id)
+                } label: {
+                  Label(
+                    profile.name,
+                    systemImage: profile.id == activeProfileId
+                      ? "checkmark.circle.fill" : profile.appearance.symbolName
+                  )
+                }
+                .accessibilityLabel(
+                  "\(profile.name), \(profile.appearance.accessibilityDescription)"
+                )
+              }
+              Divider()
               Button {
-                selectProfile(profile.id)
+                setStartupProfile(activeProfile.id)
               } label: {
                 Label(
-                  profile.name,
-                  systemImage: profile.id == activeProfileId
-                    ? "checkmark.circle.fill" : profile.appearance.symbolName
+                  activeProfile.id == startupProfileId
+                    ? "Startup Profile" : "Use for New Windows",
+                  systemImage: activeProfile.id == startupProfileId
+                    ? "checkmark" : "macwindow.badge.plus"
                 )
               }
-              .accessibilityLabel(
-                "\(profile.name), \(profile.appearance.accessibilityDescription)"
-              )
-            }
-            Divider()
-            Button {
-              setStartupProfile(activeProfile.id)
+              .disabled(activeProfile.id == startupProfileId)
             } label: {
-              Label(
-                activeProfile.id == startupProfileId
-                  ? "Startup Profile" : "Use for New Windows",
-                systemImage: activeProfile.id == startupProfileId
-                  ? "checkmark" : "macwindow.badge.plus"
+              MailProfileSwitcherLabel(profile: activeProfile)
+            }
+            .menuIndicator(.hidden)
+            .buttonStyle(.plain)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityLabel("Mail Profile, \(activeProfile.name)")
+            .accessibilityHint("Choose a Mail Profile")
+            .accessibilityIdentifier("mail-profile-switcher")
+            .listRowInsets(EdgeInsets(top: 6, leading: 8, bottom: 6, trailing: 8))
+            .listRowBackground(Color.clear)
+            .listRowSeparator(.hidden)
+          }
+        }
+
+        Section {
+          Button(action: showSearch) {
+            Label("Search", systemImage: "magnifyingglass")
+          }
+          .accessibilityIdentifier("mail-search")
+
+          Button(action: beginComposition) {
+            Label("New Message", systemImage: "square.and.pencil")
+              .frame(maxWidth: .infinity, alignment: .leading)
+          }
+          .buttonStyle(.borderedProminent)
+          .controlSize(.large)
+          .disabled(!canCompose)
+          .accessibilityIdentifier("mail-compose-sidebar")
+        }
+
+        Section("Mailboxes") {
+          ForEach(UnifiedMailbox.primarySidebarMailboxes, id: \.self) { mailbox in
+            MailShellUnifiedMailboxLink(
+              mailbox: mailbox,
+              navigationSnapshot: navigationSnapshot
+            )
+          }
+          if navigationSnapshot.showsOutbox {
+            NavigationLink(value: MailShellMailboxSelection.outbox) {
+              MailShellMailboxLabel(
+                count: MailboxItemCount(
+                  itemCount: navigationSnapshot.outboxItemCount,
+                  unreadCount: 0
+                ),
+                systemImage: "paperplane.circle",
+                title: "Outbox"
               )
             }
-            .disabled(activeProfile.id == startupProfileId)
-          } label: {
-            MailProfileSwitcherLabel(profile: activeProfile)
+            .accessibilityIdentifier("mail-mailbox-outbox")
           }
-          .menuIndicator(.hidden)
-          .buttonStyle(.plain)
-          .frame(maxWidth: .infinity, alignment: .leading)
-          .accessibilityLabel("Mail Profile, \(activeProfile.name)")
-          .accessibilityHint("Choose a Mail Profile")
-          .accessibilityIdentifier("mail-profile-switcher")
-          .listRowInsets(EdgeInsets(top: 6, leading: 8, bottom: 6, trailing: 8))
-          .listRowBackground(Color.clear)
-          .listRowSeparator(.hidden)
         }
-      }
 
-      Section("Mailboxes") {
-        ForEach(UnifiedMailbox.allCases, id: \.self) { mailbox in
-          NavigationLink(value: MailShellMailboxSelection.unified(mailbox)) {
-            MailShellMailboxLabel(
-              count: mailbox.showsSidebarMessageCount
-                ? navigationSnapshot.count(for: mailbox) : nil,
-              systemImage: mailbox.systemImage,
-              title: mailbox.title
+        Section("More Mailboxes") {
+          ForEach(UnifiedMailbox.secondarySidebarMailboxes, id: \.self) { mailbox in
+            MailShellUnifiedMailboxLink(
+              mailbox: mailbox,
+              navigationSnapshot: navigationSnapshot
             )
           }
-          .accessibilityIdentifier(mailboxAccessibilityIdentifier(mailbox))
         }
-        if navigationSnapshot.showsOutbox {
-          NavigationLink(value: MailShellMailboxSelection.outbox) {
-            MailShellMailboxLabel(
-              count: MailboxItemCount(
-                itemCount: navigationSnapshot.outboxItemCount,
-                unreadCount: 0
-              ),
-              systemImage: "paperplane.circle",
-              title: "Outbox"
-            )
-          }
-          .accessibilityIdentifier("mail-mailbox-outbox")
-        }
+
         if connections.isEmpty {
-          if isLoading {
-            ProgressView("Loading mailboxes...")
-          } else if let errorMessage {
-            ContentUnavailableView(
-              "Mailboxes unavailable",
-              systemImage: "exclamationmark.triangle",
-              description: Text(errorMessage)
-            )
-          } else {
-            Text("No Mailbox Connections")
-              .foregroundStyle(.secondary)
+          Section("Mailbox Connections") {
+            if isLoading {
+              ProgressView("Loading mailboxes...")
+            } else if let errorMessage {
+              ContentUnavailableView(
+                "Mailboxes unavailable",
+                systemImage: "exclamationmark.triangle",
+                description: Text(errorMessage)
+              )
+            } else {
+              Text("No Mailbox Connections")
+                .foregroundStyle(.secondary)
+            }
           }
         } else {
-          ForEach(connections) { connection in
-            Section(connection.displayName) {
-              NavigationLink(
-                value: MailShellMailboxSelection.connection(
-                  connection.id,
-                  .role(.inbox)
-                )
-              ) {
-                MailShellMailboxLabel(
-                  count: navigationSnapshot.count(for: .role(.inbox), in: connection.id),
-                  systemImage: connection.authorizationState == .authorized
-                    ? "tray.full" : "lock.trianglebadge.exclamationmark",
-                  title: "Inbox"
-                )
-              }
-              ForEach(
-                navigationSnapshot.providerMailboxes(for: connection.id),
-                id: \.self
-              ) { providerMailbox in
-                NavigationLink(
-                  value: MailShellMailboxSelection.connection(
-                    connection.id,
-                    .providerMailbox(providerMailbox.id)
-                  )
-                ) {
-                  MailShellMailboxLabel(
-                    count: navigationSnapshot.count(
-                      for: .providerMailbox(providerMailbox.id),
-                      in: connection.id
-                    ),
-                    systemImage: "tag",
-                    title: providerMailbox.title
-                  )
-                }
-              }
-              let status = syncStatus(connection)
-              if let route = MailboxStatusSettingsLink.route(
-                for: status,
-                connectionId: connection.id
-              ) {
-                Button {
-                  openSettings(route)
-                } label: {
-                  Text(status.summary)
-                }
-                .buttonStyle(.plain)
-                .font(.caption2)
-                .foregroundStyle(statusColor(for: status))
-              } else {
-                Text(status.summary)
-                  .font(.caption2)
-                  .foregroundStyle(statusColor(for: status))
-              }
+          Section("Mailbox Connections") {
+            ForEach(connections) { connection in
+              MailShellConnectionDisclosure(
+                connection: connection,
+                navigationSnapshot: navigationSnapshot,
+                openSettings: openSettings,
+                status: syncStatus(connection)
+              )
             }
           }
         }
-      }
 
-      if !connections.isEmpty, let errorMessage {
-        Section {
-          Label(errorMessage, systemImage: "exclamationmark.triangle")
-            .foregroundStyle(.orange)
+        if let generalErrorMessage {
+          Section {
+            Label(generalErrorMessage, systemImage: "exclamationmark.triangle")
+              .foregroundStyle(.orange)
+          }
         }
       }
+      .mailShellTopScrollEdgeEffectHidden()
+      .scrollContentBackground(.hidden)
 
-      Section {
-        Button(action: showSettings) {
-          Label("Settings", systemImage: "gearshape")
-        }
+      Divider()
+      Button(action: showSettings) {
+        Label("Settings", systemImage: "gearshape")
+          .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
       }
+      .buttonStyle(.plain)
+      .padding(.horizontal, 16)
+      .padding(.vertical, 8)
+      .accessibilityIdentifier("mail-settings")
     }
-    .mailShellTopScrollEdgeEffectHidden()
-    .scrollContentBackground(.hidden)
     .background(MailTheme.sidebar)
     .navigationTitle(activeProfile?.name ?? "Unwired Mail")
   }
@@ -5557,19 +5560,25 @@ private struct MailShellSidebar: View {
   private var activeProfile: MailProfileDefinition? {
     profiles.first { $0.id == activeProfileId }
   }
+}
 
-  private func statusColor(for status: MailboxSyncStatus) -> Color {
-    switch status.phase {
-    case .authorizationRequired, .backfillPending, .offline:
-      return .orange
-    case .failed:
-      return .red
-    case .idle, .syncing:
-      return .secondary
+private struct MailShellUnifiedMailboxLink: View {
+  let mailbox: UnifiedMailbox
+  let navigationSnapshot: MailboxNavigationSnapshot
+
+  var body: some View {
+    NavigationLink(value: MailShellMailboxSelection.unified(mailbox)) {
+      MailShellMailboxLabel(
+        count: mailbox.showsSidebarMessageCount
+          ? navigationSnapshot.count(for: mailbox) : nil,
+        systemImage: mailbox.systemImage,
+        title: mailbox.title
+      )
     }
+    .accessibilityIdentifier(accessibilityIdentifier)
   }
 
-  private func mailboxAccessibilityIdentifier(_ mailbox: UnifiedMailbox) -> String {
+  private var accessibilityIdentifier: String {
     switch mailbox {
     case .inbox:
       return "mail-mailbox-inbox"
@@ -5589,6 +5598,101 @@ private struct MailShellSidebar: View {
       return "mail-mailbox-spam"
     case .trash:
       return "mail-mailbox-trash"
+    }
+  }
+}
+
+private struct MailShellConnectionDisclosure: View {
+  let connection: MailboxConnection
+  let navigationSnapshot: MailboxNavigationSnapshot
+  let openSettings: (SettingsRoute) -> Void
+  let status: MailboxSyncStatus
+
+  var body: some View {
+    DisclosureGroup {
+      NavigationLink(
+        value: MailShellMailboxSelection.connection(
+          connection.id,
+          .role(.inbox)
+        )
+      ) {
+        MailShellMailboxLabel(
+          count: navigationSnapshot.count(for: .role(.inbox), in: connection.id),
+          systemImage: connection.authorizationState == .authorized
+            ? "tray.full" : "lock.trianglebadge.exclamationmark",
+          title: "Inbox"
+        )
+      }
+      ForEach(
+        navigationSnapshot.providerMailboxes(for: connection.id),
+        id: \.id
+      ) { providerMailbox in
+        NavigationLink(
+          value: MailShellMailboxSelection.connection(
+            connection.id,
+            .providerMailbox(providerMailbox.id)
+          )
+        ) {
+          MailShellMailboxLabel(
+            count: navigationSnapshot.count(
+              for: .providerMailbox(providerMailbox.id),
+              in: connection.id
+            ),
+            systemImage: "tag",
+            title: providerMailbox.title
+          )
+        }
+      }
+      if let route = MailboxStatusSettingsLink.route(
+        for: status,
+        connectionId: connection.id
+      ) {
+        Button(
+          status.phase == .authorizationRequired ? "Fix Authorization" : "Review Sync Settings"
+        ) {
+          openSettings(route)
+        }
+        .buttonStyle(.plain)
+        .font(.caption)
+        .foregroundStyle(statusColor)
+      }
+    } label: {
+      VStack(alignment: .leading, spacing: 4) {
+        Text(connection.displayName)
+          .font(.headline)
+        if status.phase != .idle {
+          Label(status.summary, systemImage: statusSystemImage)
+            .font(.caption)
+            .foregroundStyle(statusColor)
+            .lineLimit(2)
+        }
+      }
+    }
+  }
+
+  private var statusColor: Color {
+    switch status.phase {
+    case .authorizationRequired, .backfillPending, .offline:
+      return .orange
+    case .failed:
+      return .red
+    case .idle, .syncing:
+      return .secondary
+    }
+  }
+
+  private var statusSystemImage: String {
+    switch status.phase {
+    case .authorizationRequired:
+      return "lock.trianglebadge.exclamationmark"
+    case .backfillPending, .syncing:
+      return "arrow.clockwise"
+    case .failed:
+      return "exclamationmark.triangle"
+    case .offline:
+      return "wifi.slash"
+    case .idle:
+      return "checkmark"
     }
   }
 }
@@ -5979,6 +6083,8 @@ private struct MailboxSynchronizationOverlay: View {
 
 // swiftlint:disable:next type_body_length
 struct MailShellThreadList: View {
+  @ScaledMetric(relativeTo: .subheadline) private var unreadIndicatorSize: CGFloat = 7
+
   let connection: MailboxConnection?
   let connections: [MailboxConnection]
   var composePreferences: ComposePreferences = .defaults
@@ -5998,6 +6104,7 @@ struct MailShellThreadList: View {
   var partialSearchResultThreadId: MailboxThreadIdentity?
   @Bindable var snoozeViewModel: ThreadSnoozeViewModel
   @Binding var selectedThreadIds: Set<MailboxThreadIdentity>
+  @Binding var showsMailboxTools: Bool
   var swipePreferences: SwipePreferences = .defaults
   @Bindable var viewModel: GmailInboxViewModel
   var selectSearchResult: (MailboxMessageMetadata) -> Void = { _ in }
@@ -6022,7 +6129,6 @@ struct MailShellThreadList: View {
   @State private var cleanupReviewModel: InboxCleanupReviewModel?
   @State private var isUndoingCleanup = false
   @State private var pendingMoveItem: MailShellThreadListItem?
-  @State private var showsMailboxTools = false
 
   var body: some View {
     Group {
@@ -6094,15 +6200,18 @@ struct MailShellThreadList: View {
               }
             }
             Section {
+              let pinnedThreadIds = pinViewModel.pinnedThreadIds
               ForEach(items) { item in
                 let leadingActions = resolvedSwipeActions(for: item, edge: .leading)
                 let trailingActions = resolvedSwipeActions(for: item, edge: .trailing)
                 NavigationLink(value: item.thread.id) {
                   MailShellThreadRow(
                     categoryNamesById: categoryNamesById,
+                    isPinned: pinnedThreadIds.contains(item.thread.id),
                     item: item,
                     preferences: inboxPreferences,
-                    showsSourceConnection: mailboxSelection?.isUnified == true
+                    showsSourceConnection: mailboxSelection?.isUnified == true,
+                    unreadIndicatorSize: unreadIndicatorSize
                   )
                   .onAppear { itemDidRender(item) }
                   .onChange(of: item.id) { _, _ in itemDidRender(item) }
@@ -6160,7 +6269,8 @@ struct MailShellThreadList: View {
             }
           }
           .mailShellTopScrollEdgeEffectHidden()
-          .tint(Color.secondary)
+          .listStyle(.plain)
+          .tint(MailTheme.accent)
           .scrollContentBackground(.hidden)
           .background(MailTheme.canvas)
         }
@@ -6448,7 +6558,7 @@ struct MailShellThreadList: View {
 
   private func threadRowBackground(for item: MailShellThreadListItem) -> Color {
     #if targetEnvironment(macCatalyst)
-      selectedThreadIds.contains(item.thread.id) ? MailTheme.selection : .clear
+      selectedThreadIds.contains(item.thread.id) ? MailTheme.accent.opacity(0.12) : .clear
     #else
       .clear
     #endif
@@ -7230,24 +7340,32 @@ private struct MailShellMailboxTools: View {
 
 private struct MailShellThreadRow: View {
   let categoryNamesById: [String: String]
+  let isPinned: Bool
   let item: MailShellThreadListItem
   let preferences: InboxPreferences
   let showsSourceConnection: Bool
+  let unreadIndicatorSize: CGFloat
 
   private var thread: MailboxThread {
     item.thread
   }
 
   var body: some View {
-    HStack(alignment: .top, spacing: 10) {
-      if preferences.showsContactImages {
-        contactImage
+    HStack(alignment: .top, spacing: 8) {
+      ZStack {
+        if isUnread {
+          Circle()
+            .fill(MailTheme.accent)
+            .frame(width: unreadIndicatorSize, height: unreadIndicatorSize)
+        }
       }
+      .frame(width: unreadIndicatorSize, height: unreadIndicatorSize * 2.5)
+      .accessibilityHidden(true)
 
       VStack(alignment: .leading, spacing: rowSpacing) {
         HStack(alignment: .firstTextBaseline) {
           Text(thread.latestMessage.from ?? "Unknown sender")
-            .font(.subheadline.weight(.semibold))
+            .font(.subheadline.weight(isUnread ? .semibold : .regular))
             .lineLimit(1)
           Spacer()
           Text(receivedDate)
@@ -7257,44 +7375,18 @@ private struct MailShellThreadRow: View {
 
         HStack {
           Text(thread.latestMessage.subject)
-            .font(
-              .subheadline.weight(MailViewFilter.isUnread(thread) ? .bold : .regular)
-            )
+            .font(.subheadline.weight(isUnread ? .semibold : .regular))
             .lineLimit(1)
             .accessibilityIdentifier("mail-thread-subject")
-            .accessibilityValue(MailViewFilter.isUnread(thread) ? "Unread" : "Read")
+            .accessibilityValue(isUnread ? "Unread" : "Read")
           if thread.messages.count > 1 {
             Text("\(thread.messages.count)")
-              .font(.caption2.bold())
-              .padding(.horizontal, 6)
-              .padding(.vertical, 2)
+              .font(.caption.bold())
+              .padding(.horizontal, 8)
+              .padding(.vertical, 4)
               .background(.secondary.opacity(0.15), in: Capsule())
               .accessibilityIdentifier("mail-thread-message-count")
           }
-          if showsAttachmentState {
-            Image(systemName: "paperclip")
-              .font(.caption)
-              .foregroundStyle(.secondary)
-              .accessibilityLabel("Has attachments")
-          }
-        }
-
-        if preferences.showsCategoryBadges,
-          let categoryId = thread.latestMessage.categoryId,
-          let categoryName = categoryNamesById[categoryId]
-        {
-          Text(categoryName)
-            .font(.caption2.weight(.medium))
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .background(.tint.opacity(0.12), in: Capsule())
-        }
-
-        if showsSourceConnection {
-          Label(item.sourceConnectionDisplayName, systemImage: "tray")
-            .font(.caption2)
-            .foregroundStyle(.secondary)
-            .lineLimit(1)
         }
 
         if preferences.previewLength != .none {
@@ -7302,6 +7394,32 @@ private struct MailShellThreadRow: View {
             .font(.caption)
             .foregroundStyle(.secondary)
             .lineLimit(preferences.previewLength.rawValue)
+        }
+
+        if showsMetadata {
+          HStack(spacing: 8) {
+            if showsSourceConnection {
+              Label(item.sourceConnectionDisplayName, systemImage: "tray")
+                .lineLimit(1)
+            }
+            if let categoryName {
+              Text(categoryName)
+                .lineLimit(1)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(MailTheme.accent.opacity(0.12), in: Capsule())
+            }
+            if isPinned {
+              Image(systemName: "pin.fill")
+                .accessibilityLabel("Pinned")
+            }
+            if showsAttachmentState {
+              Image(systemName: "paperclip")
+                .accessibilityLabel("Has attachments")
+            }
+          }
+          .font(.caption)
+          .foregroundStyle(.secondary)
         }
       }
     }
@@ -7312,47 +7430,34 @@ private struct MailShellThreadRow: View {
     )
   }
 
-  private var contactImage: some View {
-    Circle()
-      .fill(Color.primary.opacity(0.14))
-      .frame(width: contactImageSize, height: contactImageSize)
-      .overlay {
-        Text(senderInitial)
-          .font(.caption.weight(.semibold))
-          .foregroundStyle(.primary)
-      }
-      .accessibilityHidden(true)
+  private var categoryName: String? {
+    guard preferences.showsCategoryBadges,
+      let categoryId = thread.latestMessage.categoryId
+    else { return nil }
+    return categoryNamesById[categoryId]
   }
 
-  private var contactImageSize: CGFloat {
-    switch preferences.threadDensity {
-    case .compact:
-      return 26
-    case .comfortable:
-      return 32
-    case .spacious:
-      return 38
-    }
+  private var isUnread: Bool {
+    MailViewFilter.isUnread(thread)
   }
 
   private var rowSpacing: CGFloat {
     switch preferences.threadDensity {
     case .compact:
-      return 2
+      return 4
     case .comfortable:
-      return 6
+      return 8
     case .spacious:
-      return 10
+      return 12
     }
+  }
+
+  private var showsMetadata: Bool {
+    showsSourceConnection || categoryName != nil || isPinned || showsAttachmentState
   }
 
   private var showsAttachmentState: Bool {
     preferences.showsAttachmentIndicators && thread.latestMessage.hasAttachments
-  }
-
-  private var senderInitial: String {
-    let sender = thread.latestMessage.from?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-    return sender.first.map { String($0).uppercased() } ?? "?"
   }
 
   private var verticalPadding: CGFloat {
