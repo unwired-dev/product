@@ -521,12 +521,11 @@ struct MailShellComposer: View {
     isBodyFocusPending = true
     focusedField = nil
     #if canImport(UIKit)
-      UIApplication.shared.sendAction(
-        #selector(UIResponder.resignFirstResponder),
-        to: nil,
-        from: nil,
-        for: nil
-      )
+      UIApplication.shared.connectedScenes
+        .compactMap { $0 as? UIWindowScene }
+        .flatMap(\.windows)
+        .first(where: \.isKeyWindow)?
+        .endEditing(true)
     #endif
     scheduleBodyFocus()
   }
