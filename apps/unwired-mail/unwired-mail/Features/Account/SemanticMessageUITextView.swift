@@ -1,8 +1,18 @@
 import UIKit
 
 final class SemanticMessageUITextView: UITextView {
+  enum SlashCommandKey {
+    case apply
+    case dismiss
+    case moveDown
+    case moveUp
+  }
+
   var semanticBlockKinds: [SemanticMessageDocument.Block.Kind] = []
   var didMoveToWindowAction: (() -> Void)?
+  var handleSlashCommandKey: ((SlashCommandKey) -> Bool)?
+  var isSlashCommandMenuActive = false
+  var layoutSubviewsAction: (() -> Void)?
   private(set) var isPasting = false
 
   override func didMoveToWindow() {
@@ -14,6 +24,25 @@ final class SemanticMessageUITextView: UITextView {
     isPasting = true
     defer { isPasting = false }
     super.paste(sender)
+  }
+
+  override func layoutSubviews() {
+    super.layoutSubviews()
+    layoutSubviewsAction?()
+  }
+
+  override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+    guard isSlashCommandMenuActive,
+      markedTextRange == nil,
+      let keyCode = presses.compactMap({ $0.key?.keyCode }).first,
+      let command = slashCommandKey(for: keyCode)
+    else {
+      super.pressesBegan(presses, with: event)
+      return
+    }
+    if handleSlashCommandKey?(command) != true {
+      super.pressesBegan(presses, with: event)
+    }
   }
 
   override func draw(_ rect: CGRect) {
@@ -61,5 +90,15 @@ final class SemanticMessageUITextView: UITextView {
       ),
       withAttributes: attributes
     )
+  }
+
+  private func slashCommandKey(for keyCode: UIKeyboardHIDUsage) -> SlashCommandKey? {
+    switch keyCode {
+    case .keyboardDownArrow: .moveDown
+    case .keyboardEscape: .dismiss
+    case .keyboardReturnOrEnter, .keyboardTab: .apply
+    case .keyboardUpArrow: .moveUp
+    default: nil
+    }
   }
 }

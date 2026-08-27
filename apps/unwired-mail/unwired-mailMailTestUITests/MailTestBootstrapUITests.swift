@@ -221,7 +221,28 @@ final class MailTestBootstrapUITests: XCTestCase {
       on: body,
       failure: "MAIL_TEST_FAILURE:ui: Subject submission did not focus the message body."
     )
+    try verifyRepeatedSubjectToBodyFocus(subject: subject, body: body)
     return (body, document)
+  }
+
+  private func verifyRepeatedSubjectToBodyFocus(
+    subject: XCUIElement,
+    body: XCUIElement
+  ) throws {
+    subject.tap()
+    try requireAutomaticKeyboardFocus(
+      on: subject,
+      failure: "MAIL_TEST_FAILURE:ui: The subject field did not regain keyboard focus."
+    )
+    try requireKeyboardFocusLoss(
+      on: body,
+      failure: "MAIL_TEST_FAILURE:ui: Subject focus did not release the message body."
+    )
+    subject.typeKey(.return, modifierFlags: [])
+    try requireAutomaticKeyboardFocus(
+      on: body,
+      failure: "MAIL_TEST_FAILURE:ui: Repeated subject submission did not focus the message body."
+    )
   }
 
   private func replaceRecipientTokens(in recipient: XCUIElement, app: XCUIApplication) throws {
@@ -340,6 +361,8 @@ final class MailTestBootstrapUITests: XCTestCase {
 
     body.typeKey("a", modifierFlags: .command)
     body.typeKey(.delete, modifierFlags: [])
+    try verifySlashCommandKeyboard(in: body, app: app)
+    try verifySlashCommandTouchAndScrolling(in: body, app: app)
     let initialBodyHeight = body.frame.height
     body.typeText(Array(repeating: "Growing native editor", count: 12).joined(separator: "\n"))
     XCTAssertGreaterThan(
@@ -351,6 +374,68 @@ final class MailTestBootstrapUITests: XCTestCase {
     body.typeKey(.delete, modifierFlags: [])
     body.typeText("Synthetic compose delivery")
     document.swipeUp()
+  }
+
+  private func verifySlashCommandKeyboard(
+    in body: XCUIElement,
+    app: XCUIApplication
+  ) throws {
+    body.typeText("/hea")
+    let menu = try requireElement(
+      identifier: "mail-compose-slash-menu",
+      matching: .any,
+      in: app,
+      failure: "MAIL_TEST_FAILURE:ui: A first-character slash did not open block commands."
+    )
+    body.typeKey(.downArrow, modifierFlags: [])
+    body.typeKey(.return, modifierFlags: [])
+    XCTAssertTrue(
+      menu.waitForNonExistence(timeout: 2),
+      "Return did not apply and close the selected slash command."
+    )
+    XCTAssertEqual(body.value as? String, "", "Applying a command retained its slash query.")
+    try requireAutomaticKeyboardFocus(
+      on: body,
+      failure: "MAIL_TEST_FAILURE:ui: Keyboard slash selection moved focus out of the body."
+    )
+
+    body.typeText("/")
+    XCTAssertTrue(menu.waitForExistence(timeout: 2), "Slash commands did not reopen.")
+    body.typeKey(.escape, modifierFlags: [])
+    XCTAssertTrue(menu.waitForNonExistence(timeout: 2), "Escape did not close slash commands.")
+    body.typeKey(.delete, modifierFlags: [])
+
+    body.typeText("/")
+    XCTAssertTrue(menu.waitForExistence(timeout: 2), "Slash commands did not reopen.")
+    body.typeKey(.delete, modifierFlags: [])
+    XCTAssertTrue(menu.waitForNonExistence(timeout: 2), "Deleting slash did not close commands.")
+  }
+
+  private func verifySlashCommandTouchAndScrolling(
+    in body: XCUIElement,
+    app: XCUIApplication
+  ) throws {
+    body.typeText("/")
+    let menuScroll = try requireElement(
+      identifier: "mail-compose-slash-menu-scroll",
+      matching: .scrollView,
+      in: app,
+      failure: "MAIL_TEST_FAILURE:ui: Slash commands were not internally scrollable."
+    )
+    let codeBlock = try requireElement(
+      identifier: "mail-compose-slash-command-codeBlock",
+      matching: .button,
+      in: app,
+      failure: "MAIL_TEST_FAILURE:ui: Code Block was missing from slash commands."
+    )
+    if !codeBlock.isHittable { menuScroll.swipeUp() }
+    XCTAssertTrue(codeBlock.isHittable, "Internal scrolling did not reveal Code Block.")
+    codeBlock.tap()
+    XCTAssertEqual(body.value as? String, "", "Touch selection retained its slash query.")
+    try requireAutomaticKeyboardFocus(
+      on: body,
+      failure: "MAIL_TEST_FAILURE:ui: Touch slash selection moved focus out of the body."
+    )
   }
 
   func testReplyThroughVisibleClient() throws {
@@ -482,6 +567,20 @@ final class MailTestBootstrapUITests: XCTestCase {
     failure: String
   ) throws {
     guard waitForKeyboardFocus(on: element) else {
+      XCTFail(failure)
+      throw NSError(domain: "MailTestBootstrapUITests", code: 1)
+    }
+  }
+
+  private func requireKeyboardFocusLoss(
+    on element: XCUIElement,
+    failure: String
+  ) throws {
+    let unfocused = XCTNSPredicateExpectation(
+      predicate: NSPredicate(format: "hasKeyboardFocus == false"),
+      object: element
+    )
+    guard XCTWaiter.wait(for: [unfocused], timeout: 2) == .completed else {
       XCTFail(failure)
       throw NSError(domain: "MailTestBootstrapUITests", code: 1)
     }
