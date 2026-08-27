@@ -149,6 +149,7 @@ final class MailboxConnectionSyncServiceTests {
       Self.connection.id,
       session: firstDeviceSession
     )
+    #expect(services.firstRemoteContentCleaner.clearedConnectionIds == [Self.connection.id])
     _ = try await services.secondDevice.reconcileConnections(
       [offlineConnection],
       session: secondDeviceSession
@@ -1812,6 +1813,33 @@ final class MailboxConnectionSyncServiceTests {
   }
 
   @Test @MainActor
+  func testPendingProfileRemoteContentCleanupPersistsUntilFinished() throws {
+    let localStateStore = InMemoryMailProfileStateStore()
+    let profileId = MailProfileId(rawValue: "deleted-profile")
+    var store = MailProfileLifecycleStore(
+      session: firstDeviceSession,
+      syncService: try makeServices().firstDevice,
+      localStateStore: localStateStore
+    )
+
+    try store.recordPendingRemoteContentCleanup(profileId: profileId)
+    store = MailProfileLifecycleStore(
+      session: firstDeviceSession,
+      syncService: try makeServices().firstDevice,
+      localStateStore: localStateStore
+    )
+    #expect(store.pendingRemoteContentCleanupProfileIds == [profileId])
+
+    try store.finishPendingRemoteContentCleanup(profileId: profileId)
+    store = MailProfileLifecycleStore(
+      session: firstDeviceSession,
+      syncService: try makeServices().firstDevice,
+      localStateStore: localStateStore
+    )
+    #expect(store.pendingRemoteContentCleanupProfileIds.isEmpty)
+  }
+
+  @Test @MainActor
   func testCreateRetryPreservesAnOfflineRenameAfterTheCommitResponseIsLost() async throws {
     let services = try makeServices()
     let initial = try await services.firstDevice.loadProfileSnapshot(session: firstDeviceSession)
@@ -2292,8 +2320,11 @@ final class MailboxConnectionSyncServiceTests {
     try secondStore.save(keyMaterial, productAccountId: secondDeviceSession.productAccountId)
     let transport = RecordingMailboxConnectionSyncTransport()
     let keyRotationReconciler = RecordingKeyRotationReconciler()
+    let firstRemoteContentCleaner = RecordingConnectionContentCleaner()
+    let secondRemoteContentCleaner = RecordingConnectionContentCleaner()
     return Services(
       firstDevice: MailboxConnectionSyncService(
+        authorizedRemoteContentCache: firstRemoteContentCleaner,
         cacheStore: InMemoryMailboxConnectionSyncCacheStore(),
         clock: clock,
         recordBoundary: ProductSyncRecordBoundary(
@@ -2303,7 +2334,9 @@ final class MailboxConnectionSyncServiceTests {
       firstKeyMaterialStore: firstStore,
       keyMaterial: keyMaterial,
       keyRotationReconciler: keyRotationReconciler,
+      firstRemoteContentCleaner: firstRemoteContentCleaner,
       secondDevice: MailboxConnectionSyncService(
+        authorizedRemoteContentCache: secondRemoteContentCleaner,
         cacheStore: InMemoryMailboxConnectionSyncCacheStore(),
         clock: clock,
         recordBoundary: ProductSyncRecordBoundary(
@@ -2319,6 +2352,7 @@ final class MailboxConnectionSyncServiceTests {
     let firstKeyMaterialStore: InMemoryProductSyncKeyMaterialStore
     let keyMaterial: ProductSyncKeyMaterial
     let keyRotationReconciler: RecordingKeyRotationReconciler
+    let firstRemoteContentCleaner: RecordingConnectionContentCleaner
     let secondDevice: MailboxConnectionSyncService
     let transport: RecordingMailboxConnectionSyncTransport
   }
@@ -2537,6 +2571,18 @@ final class MailboxConnectionSyncServiceTests {
         session: firstDeviceSession
       )
     }
+  }
+}
+
+private final class RecordingConnectionContentCleaner: AuthorizedRemoteContentCacheClearing {
+  private(set) var clearedConnectionIds: [MailboxConnectionId] = []
+
+  func clear(productAccountId _: String) throws {}
+
+  func clear(productAccountId _: String, profileId _: MailProfileId) throws {}
+
+  func clear(productAccountId _: String, connectionId: MailboxConnectionId) throws {
+    clearedConnectionIds.append(connectionId)
   }
 }
 // swiftlint:enable type_body_length
