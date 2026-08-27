@@ -12,6 +12,9 @@ final class SemanticMessageTextViewCoordinator: NSObject, UITextViewDelegate {
   private var activeFocusRequest: Int?
   private var scheduledFocusRequest: Int?
   private var renderedDocument: SemanticMessageDocument?
+  private var assistancePanelHost: UIHostingController<ComposeAssistanceSlashPanel>?
+  private var assistancePanelInsertionOffset: Int?
+  private var assistancePanelViewModel: MailAssistanceViewModel?
   private var dismissedSlashCommandContext: SemanticMessageSlashCommand.Context?
   private var slashCommandPresentation: SemanticMessageSlashCommand.Presentation?
   private var slashMenuDisplayLink: CADisplayLink?
@@ -116,6 +119,7 @@ final class SemanticMessageTextViewCoordinator: NSObject, UITextViewDelegate {
     activeFocusRequest = parent.focusRequest
     if parent.isFocused == false { parent.isFocused = true }
     dismissedSlashCommandContext = nil
+    guard assistancePanelHost == nil else { return }
     refreshSlashCommandMenu()
   }
 
@@ -215,15 +219,26 @@ extension SemanticMessageTextViewCoordinator {
     }
   }
 
-  func refreshSlashCommandMenuAfterLayout() {
-    refreshSlashCommandMenu()
+  func refreshSlashCommandOverlayAfterLayout() {
+    if assistancePanelHost == nil {
+      refreshSlashCommandMenu()
+    } else {
+      refreshAssistancePanelPlacement()
+    }
+  }
+
+  func dismissSlashCommandOverlay() {
+    dismissSlashCommandMenu()
+    dismissAssistancePanel(restoresFocus: false)
   }
 
   func dismissSlashCommandMenu() {
     slashCommandPresentation = nil
     textView?.isSlashCommandMenuActive = false
-    slashMenuDisplayLink?.invalidate()
-    slashMenuDisplayLink = nil
+    if assistancePanelHost == nil {
+      slashMenuDisplayLink?.invalidate()
+      slashMenuDisplayLink = nil
+    }
     if let slashMenuHost {
       slashMenuHost.willMove(toParent: nil)
       slashMenuHost.view.removeFromSuperview()
@@ -232,7 +247,11 @@ extension SemanticMessageTextViewCoordinator {
     slashMenuHost = nil
   }
 
-  private func performNativeSlashCommandUndo(undoSelection: Int, redoSelection: Int) {
+  private func performNativeSlashCommandUndo(
+    undoSelection: Int,
+    redoSelection: Int,
+    actionName: String
+  ) {
     parent.editorModel.undo()
     parent.editorModel.updateSelection(offsets: undoSelection..<undoSelection)
     renderedDocument = nil
@@ -240,38 +259,56 @@ extension SemanticMessageTextViewCoordinator {
     textView?.undoManager?.registerUndo(withTarget: self) { coordinator in
       coordinator.performNativeSlashCommandRedo(
         undoSelection: undoSelection,
-        redoSelection: redoSelection
+        redoSelection: redoSelection,
+        actionName: actionName
       )
     }
-    textView?.undoManager?.setActionName("Block Command")
+    textView?.undoManager?.setActionName(actionName)
   }
 
-  private func performNativeSlashCommandRedo(undoSelection: Int, redoSelection: Int) {
+  private func performNativeSlashCommandRedo(
+    undoSelection: Int,
+    redoSelection: Int,
+    actionName: String
+  ) {
     parent.editorModel.redo()
     parent.editorModel.updateSelection(offsets: redoSelection..<redoSelection)
     renderedDocument = nil
     synchronizeTextView()
     registerNativeSlashCommandUndo(
       undoSelection: undoSelection,
-      redoSelection: redoSelection
+      redoSelection: redoSelection,
+      actionName: actionName
     )
   }
 
-  private func registerNativeSlashCommandUndo(undoSelection: Int, redoSelection: Int) {
+  private func registerNativeSlashCommandUndo(
+    undoSelection: Int,
+    redoSelection: Int,
+    actionName: String
+  ) {
     textView?.undoManager?.registerUndo(withTarget: self) { coordinator in
       coordinator.performNativeSlashCommandUndo(
         undoSelection: undoSelection,
-        redoSelection: redoSelection
+        redoSelection: redoSelection,
+        actionName: actionName
       )
     }
-    textView?.undoManager?.setActionName("Block Command")
+    textView?.undoManager?.setActionName(actionName)
   }
 
   private func applySelectedSlashCommand() -> Bool {
     guard let presentation = slashCommandPresentation,
-      let selectedCommand = presentation.selectedCommand,
-      parent.editorModel.applySlashCommand(selectedCommand, context: presentation.context)
+      let selectedCommand = presentation.selectedCommand
     else { return false }
+    switch selectedCommand {
+    case .assistance(let command):
+      return presentAssistancePanel(command, from: presentation)
+    case .block(let command):
+      guard parent.editorModel.applySlashCommand(command, context: presentation.context) else {
+        return false
+      }
+    }
     dismissedSlashCommandContext = nil
     dismissSlashCommandMenu()
     isSynchronizing = true
@@ -279,11 +316,121 @@ extension SemanticMessageTextViewCoordinator {
     synchronizeTextView()
     registerNativeSlashCommandUndo(
       undoSelection: presentation.context.replacementRange.upperBound,
-      redoSelection: presentation.context.replacementRange.lowerBound
+      redoSelection: presentation.context.replacementRange.lowerBound,
+      actionName: "Block Command"
     )
     isSynchronizing = false
     _ = textView?.becomeFirstResponder()
     return true
+  }
+
+  private func presentAssistancePanel(
+    _ command: SemanticMessageSlashCommand.AssistanceCommand,
+    from presentation: SemanticMessageSlashCommand.Presentation
+  ) -> Bool {
+    guard let context = parent.composeAssistanceContext,
+      let textView,
+      let containerViewController = containingViewController(for: textView),
+      parent.editorModel.removeSlashCommandQuery(context: presentation.context)
+    else { return false }
+    context.viewModel.discardPreview()
+    dismissedSlashCommandContext = nil
+    dismissSlashCommandMenu()
+    isSynchronizing = true
+    renderedDocument = nil
+    synchronizeTextView()
+    registerNativeSlashCommandUndo(
+      undoSelection: presentation.context.replacementRange.upperBound,
+      redoSelection: presentation.context.replacementRange.lowerBound,
+      actionName: "Assistance Command"
+    )
+    isSynchronizing = false
+
+    assistancePanelInsertionOffset = presentation.context.replacementRange.lowerBound
+    assistancePanelViewModel = context.viewModel
+    let host = UIHostingController(
+      rootView: makeAssistancePanel(command: command, context: context)
+    )
+    host.view.backgroundColor = .clear
+    host.view.accessibilityViewIsModal = false
+    containerViewController.addChild(host)
+    containerViewController.view.addSubview(host.view)
+    host.didMove(toParent: containerViewController)
+    assistancePanelHost = host
+    refreshAssistancePanelPlacement()
+    containerViewController.view.bringSubviewToFront(host.view)
+    startSlashMenuTracking()
+    return true
+  }
+
+  private func makeAssistancePanel(
+    command: SemanticMessageSlashCommand.AssistanceCommand,
+    context: SemanticMessageTextView.ComposeAssistanceContext
+  ) -> ComposeAssistanceSlashPanel {
+    ComposeAssistanceSlashPanel(
+      command: command,
+      insertionOffset: assistancePanelInsertionOffset ?? 0,
+      editorModel: parent.editorModel,
+      assistanceViewModel: context.viewModel,
+      currentSubject: context.currentSubject,
+      recipientDisplayNames: context.recipientDisplayNames,
+      applySubject: context.applySubject,
+      dismiss: { [weak self] in self?.dismissAssistancePanel() }
+    )
+  }
+
+  private func dismissAssistancePanel(restoresFocus: Bool = true) {
+    guard assistancePanelHost != nil else { return }
+    assistancePanelViewModel?.discardPreview()
+    assistancePanelViewModel = nil
+    assistancePanelInsertionOffset = nil
+    if let assistancePanelHost {
+      assistancePanelHost.willMove(toParent: nil)
+      assistancePanelHost.view.removeFromSuperview()
+      assistancePanelHost.removeFromParent()
+    }
+    assistancePanelHost = nil
+    if slashMenuHost == nil {
+      slashMenuDisplayLink?.invalidate()
+      slashMenuDisplayLink = nil
+    }
+    renderedDocument = nil
+    synchronizeTextView()
+    if restoresFocus { _ = textView?.becomeFirstResponder() }
+  }
+
+  private func refreshAssistancePanelPlacement() {
+    guard let textView,
+      let assistancePanelHost,
+      let insertionOffset = assistancePanelInsertionOffset,
+      let containerViewController = assistancePanelHost.parent,
+      let window = textView.window,
+      let visibleBounds = visibleBounds(
+        for: textView,
+        in: containerViewController.view,
+        window: window
+      )
+    else { return }
+    let documentLength = textView.offset(
+      from: textView.beginningOfDocument,
+      to: textView.endOfDocument
+    )
+    let clampedOffset = min(max(insertionOffset, 0), documentLength)
+    guard
+      let anchorPosition = textView.position(
+        from: textView.beginningOfDocument,
+        offset: clampedOffset
+      )
+    else { return }
+    let caretRect = textView.convert(
+      textView.caretRect(for: anchorPosition),
+      to: containerViewController.view
+    )
+    assistancePanelHost.view.frame = SemanticMessageSlashCommand.Presentation.panelFrame(
+      caretRect: caretRect,
+      visibleBounds: visibleBounds,
+      isCompactWidth: textView.traitCollection.horizontalSizeClass == .compact
+    )
   }
 
   private func moveSlashCommandSelection(by offset: Int) {
@@ -294,7 +441,8 @@ extension SemanticMessageTextViewCoordinator {
   }
 
   private func refreshSlashCommandMenu() {
-    guard isSynchronizing == false,
+    guard assistancePanelHost == nil,
+      isSynchronizing == false,
       let textView,
       textView.isFirstResponder,
       textView.markedTextRange == nil,
@@ -335,6 +483,7 @@ extension SemanticMessageTextViewCoordinator {
       caretRect: caretRect,
       visibleBounds: visibleBounds,
       isCompactWidth: textView.traitCollection.horizontalSizeClass == .compact,
+      includesAssistance: parent.composeAssistanceContext != nil,
       selectedCommand: slashCommandPresentation?.selectedCommand
     )
     guard presentation != slashCommandPresentation else { return }
@@ -383,7 +532,11 @@ extension SemanticMessageTextViewCoordinator {
 
   @objc
   private func trackSlashMenuPlacement() {
-    refreshSlashCommandMenu()
+    if assistancePanelHost == nil {
+      refreshSlashCommandMenu()
+    } else {
+      refreshAssistancePanelPlacement()
+    }
   }
 
   private func containingViewController(for view: UIView) -> UIViewController? {

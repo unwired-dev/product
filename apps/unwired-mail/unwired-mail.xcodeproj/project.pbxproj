@@ -45,6 +45,7 @@
 		C0DEC0DE554000000000005 /* Features/Account/SemanticMessageNativeText.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE554000000000006 /* Features/Account/SemanticMessageNativeText.swift */; };
 		C0DEC0DE554000000000007 /* Features/Account/SemanticMessageUITextView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE554000000000008 /* Features/Account/SemanticMessageUITextView.swift */; };
 		C0DEC0DE563000000000001 /* Features/Account/SemanticMessageSlashCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE563000000000002 /* Features/Account/SemanticMessageSlashCommand.swift */; };
+		C0DEC0DE564000000000001 /* Features/Account/ComposeAssistanceSlashPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE564000000000002 /* Features/Account/ComposeAssistanceSlashPanel.swift */; };
 		C0DEC0DE162000000000003 /* Services/Mailbox/SemanticMessageDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE162000000000004 /* Services/Mailbox/SemanticMessageDocument.swift */; };
 		D16100000000000000000005 /* Services/Mailbox/MailCompositionDraftStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D16100000000000000000015 /* Services/Mailbox/MailCompositionDraftStore.swift */; };
 		C0DEC0DE163000000000003 /* Services/Mailbox/MailDraftAsset.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE163000000000004 /* Services/Mailbox/MailDraftAsset.swift */; };
@@ -356,6 +357,7 @@
 		C0DEC0DE554000000000006 /* Features/Account/SemanticMessageNativeText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Account/SemanticMessageNativeText.swift; sourceTree = "<group>"; };
 		C0DEC0DE554000000000008 /* Features/Account/SemanticMessageUITextView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Account/SemanticMessageUITextView.swift; sourceTree = "<group>"; };
 		C0DEC0DE563000000000002 /* Features/Account/SemanticMessageSlashCommand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Account/SemanticMessageSlashCommand.swift; sourceTree = "<group>"; };
+		C0DEC0DE564000000000002 /* Features/Account/ComposeAssistanceSlashPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Account/ComposeAssistanceSlashPanel.swift; sourceTree = "<group>"; };
 		C0DEC0DE162000000000004 /* Services/Mailbox/SemanticMessageDocument.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/Mailbox/SemanticMessageDocument.swift; sourceTree = "<group>"; };
 		D16100000000000000000015 /* Services/Mailbox/MailCompositionDraftStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/Mailbox/MailCompositionDraftStore.swift; sourceTree = "<group>"; };
 		C0DEC0DE163000000000004 /* Services/Mailbox/MailDraftAsset.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/Mailbox/MailDraftAsset.swift; sourceTree = "<group>"; };
@@ -673,6 +675,7 @@
 				C0DEC0DE554000000000006 /* Features/Account/SemanticMessageNativeText.swift */,
 				C0DEC0DE554000000000008 /* Features/Account/SemanticMessageUITextView.swift */,
 				C0DEC0DE563000000000002 /* Features/Account/SemanticMessageSlashCommand.swift */,
+				C0DEC0DE564000000000002 /* Features/Account/ComposeAssistanceSlashPanel.swift */,
 				349C0A000000000000000004 /* Features/Account/InboxCleanupViews.swift */,
 				71A6A1E72C0B000100000001 /* Features/Account/SwipeActions.swift */,
 				71A6A1792C0B000100000001 /* Features/Account/MessageHTMLView.swift */,
@@ -1139,6 +1142,7 @@
 				C0DEC0DE554000000000005 /* Features/Account/SemanticMessageNativeText.swift in Sources */,
 				C0DEC0DE554000000000007 /* Features/Account/SemanticMessageUITextView.swift in Sources */,
 				C0DEC0DE563000000000001 /* Features/Account/SemanticMessageSlashCommand.swift in Sources */,
+				C0DEC0DE564000000000001 /* Features/Account/ComposeAssistanceSlashPanel.swift in Sources */,
 				349C0A000000000000000003 /* Features/Account/InboxCleanupViews.swift in Sources */,
 				71A6A1E62C0B000100000001 /* Features/Account/SwipeActions.swift in Sources */,
 				71A6A1782C0B000100000001 /* Features/Account/MessageHTMLView.swift in Sources */,

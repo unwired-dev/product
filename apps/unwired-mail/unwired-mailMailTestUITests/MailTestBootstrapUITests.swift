@@ -436,6 +436,36 @@ final class MailTestBootstrapUITests: XCTestCase {
       on: body,
       failure: "MAIL_TEST_FAILURE:ui: Touch slash selection moved focus out of the body."
     )
+
+    body.typeText("/")
+    let askAssistance = try requireElement(
+      identifier: "mail-compose-slash-command-ask",
+      matching: .button,
+      in: app,
+      failure: "MAIL_TEST_FAILURE:ui: Ask Compose Assistance was missing from slash commands."
+    )
+    for _ in 0..<3 where !askAssistance.isHittable { menuScroll.swipeUp() }
+    XCTAssertTrue(askAssistance.isHittable, "Internal scrolling did not reveal Assistance.")
+    askAssistance.tap()
+    let assistancePanel = try requireElement(
+      identifier: "mail-compose-assistance-panel",
+      matching: .any,
+      in: app,
+      failure: "MAIL_TEST_FAILURE:ui: Assistance did not replace the slash menu."
+    )
+    XCTAssertTrue(menuScroll.waitForNonExistence(timeout: 2), "The slash menu remained open.")
+    XCTAssertEqual(body.value as? String, "", "Opening Assistance retained its slash query.")
+    body.typeText("Draft stays editable")
+    XCTAssertEqual(
+      body.value as? String,
+      "Draft stays editable",
+      "The anchored Assistance panel blocked Draft editing."
+    )
+    assistancePanel.buttons["Cancel"].tap()
+    XCTAssertTrue(
+      assistancePanel.waitForNonExistence(timeout: 2),
+      "Cancel did not destroy the Assistance panel."
+    )
   }
 
   func testReplyThroughVisibleClient() throws {

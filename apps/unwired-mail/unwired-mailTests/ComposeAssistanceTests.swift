@@ -74,6 +74,76 @@ struct ComposeAssistanceTests {
     #expect(ComposeAssistanceAction.suggestSubject.application == .replaceSubject)
   }
 
+  @Test("Slash assistance actions stay explicit and context-bound", .bug(id: 564))
+  func slashAssistanceActionsMapToExistingOperations() {
+    let commands = SemanticMessageSlashCommand.AssistanceCommand.allCases
+
+    #expect(
+      commands == [
+        .ask,
+        .draftFromPrompt,
+        .rewriteSelection,
+        .proofread,
+        .shorten,
+        .changeTone,
+        .suggestSubject,
+      ]
+    )
+    #expect(
+      commands.filter(\.requiresSelection)
+        == [.rewriteSelection, .proofread, .shorten, .changeTone]
+    )
+    #expect(
+      SemanticMessageSlashCommand.AssistanceCommand.ask.makeAction(
+        instruction: "Keep the request clear",
+        tone: .neutral
+      ) == .refine(instruction: "Keep the request clear")
+    )
+    #expect(
+      SemanticMessageSlashCommand.AssistanceCommand.draftFromPrompt.makeAction(
+        instruction: "Confirm Tuesday",
+        tone: .neutral
+      ) == .generateBody(prompt: "Confirm Tuesday")
+    )
+    #expect(
+      SemanticMessageSlashCommand.AssistanceCommand.shorten.makeAction(
+        instruction: "",
+        tone: .neutral
+      ) == .transform(.shorten)
+    )
+    #expect(
+      SemanticMessageSlashCommand.AssistanceCommand.changeTone.makeAction(
+        instruction: "",
+        tone: .friendly
+      ) == .transform(.friendly)
+    )
+    #expect(
+      SemanticMessageSlashCommand.AssistanceCommand.suggestSubject.makeAction(
+        instruction: "",
+        tone: .neutral
+      ) == .suggestSubject
+    )
+  }
+
+  @Test("Body targets ignore a selection and preserve the requested insertion", .bug(id: 564))
+  func bodyTargetUsesFullAuthoredDocument() {
+    let document = SemanticMessageDocument(plainText: "Alpha Beta")
+    let editor = SemanticMessageEditorModel(document: document)
+    let lower = editor.attributedText.characters.index(
+      editor.attributedText.startIndex,
+      offsetBy: 6
+    )
+    editor.selection = AttributedTextSelection(range: lower..<editor.attributedText.endIndex)
+
+    let target = editor.composeAssistanceBodyTarget(insertionOffset: 3)
+
+    #expect(target.scope == .authoredBody)
+    #expect(target.range == nil)
+    #expect(target.insertionOffset == 3)
+    #expect(target.sourceDocument == document)
+    #expect(target.targetDocument == document)
+  }
+
   @Test
   // swiftlint:disable:next function_body_length
   func inputVersionChangesWithDraftSubjectRecipientsAndSelection() {

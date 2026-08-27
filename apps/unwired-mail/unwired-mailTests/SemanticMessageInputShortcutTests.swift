@@ -4,6 +4,7 @@ import Testing
 
 @testable import unwired_mail
 
+// swiftlint:disable:next type_body_length
 struct SemanticMessageInputShortcutTests {
   struct BlockShortcutExpectation: CustomTestStringConvertible, Sendable {
     let kind: SemanticMessageDocument.Block.Kind
@@ -153,7 +154,7 @@ struct SemanticMessageInputShortcutTests {
     )
     #expect(
       SemanticMessageSlashCommand.Presentation.commands(matching: "hea")
-        == [.heading1, .heading2, .heading3]
+        == [.block(.heading1), .block(.heading2), .block(.heading3)]
     )
   }
 
@@ -220,16 +221,59 @@ struct SemanticMessageInputShortcutTests {
     #expect(
       SemanticMessageSlashCommand.Presentation.commands(matching: "")
         == [
-          .paragraph,
-          .heading1,
-          .heading2,
-          .heading3,
-          .bulletedList,
-          .numberedList,
-          .blockquote,
-          .codeBlock,
+          .block(.paragraph),
+          .block(.heading1),
+          .block(.heading2),
+          .block(.heading3),
+          .block(.bulletedList),
+          .block(.numberedList),
+          .block(.blockquote),
+          .block(.codeBlock),
         ]
     )
+  }
+
+  @Test("Slash command catalog appends every explicit assistance action", .bug(id: 564))
+  func slashCommandCatalogIncludesComposeAssistance() {
+    let commands = SemanticMessageSlashCommand.Presentation.commands(
+      matching: "",
+      includesAssistance: true
+    )
+
+    #expect(
+      Array(commands.suffix(7))
+        == [
+          .assistance(.ask),
+          .assistance(.draftFromPrompt),
+          .assistance(.rewriteSelection),
+          .assistance(.proofread),
+          .assistance(.shorten),
+          .assistance(.changeTone),
+          .assistance(.suggestSubject),
+        ]
+    )
+    #expect(
+      SemanticMessageSlashCommand.Presentation.commands(
+        matching: "tone",
+        includesAssistance: true
+      ) == [.assistance(.changeTone)]
+    )
+  }
+
+  @MainActor
+  @Test("Choosing assistance removes only the slash query and remains undoable", .bug(id: 564))
+  func assistanceCommandConsumptionIsAtomic() throws {
+    let source = SemanticMessageDocument(plainText: "Intro\n  /ask\nOutro")
+    let model = SemanticMessageEditorModel(document: source)
+    model.updateSelection(offsets: 12..<12)
+    let context = try #require(model.slashCommandContext)
+
+    #expect(model.removeSlashCommandQuery(context: context))
+    #expect(model.document.plainText == "Intro\n  \nOutro")
+    #expect(model.composeAssistanceBodyTarget().insertionOffset == 8)
+
+    model.undo()
+    #expect(model.document == source)
   }
 
   @Test("Slash menu clamps on compact width and flips above the caret", .bug(id: 563))
@@ -252,5 +296,14 @@ struct SemanticMessageInputShortcutTests {
     #expect(compactFrame.height == 264)
     #expect(regularFrame.width == 320)
     #expect(regularFrame.maxY < 620)
+
+    let panelFrame = SemanticMessageSlashCommand.Presentation.panelFrame(
+      caretRect: CGRect(x: 250, y: 500, width: 2, height: 24),
+      visibleBounds: CGRect(x: 0, y: 0, width: 280, height: 560),
+      isCompactWidth: true
+    )
+    #expect(panelFrame.width == 264)
+    #expect(panelFrame.height == 360)
+    #expect(panelFrame.maxY < 500)
   }
 }
