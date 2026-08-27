@@ -4193,6 +4193,7 @@ extension AccountView {
       guard load.generation == compositionDraftLoadGate.generation,
         profileId == activeDraftProfileId
       else { return }
+      cancelConflictSourceReminders(in: drafts, profileId: profileId)
       savedCompositionDrafts = drafts
       await reconcileSendReminders(drafts, profileId: profileId)
     } catch {
@@ -4291,6 +4292,18 @@ extension AccountView {
       } else {
         cancelSendReminder(reminder, draftId: draft.id, profileId: profileId)
       }
+    }
+  }
+
+  private func cancelConflictSourceReminders(
+    in drafts: [MailShellCompositionDraft],
+    profileId: MailProfileId
+  ) {
+    for draft in drafts {
+      guard let sourceId = draft.conflictSourceId, let reminder = draft.sendReminder else {
+        continue
+      }
+      cancelSendReminder(reminder, draftId: sourceId, profileId: profileId)
     }
   }
 
