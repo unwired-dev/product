@@ -1,0 +1,216 @@
+name: Mail Assistance qualification
+
+on:
+  workflow_dispatch:
+    inputs:
+      device_udid:
+        description: UDID of the dedicated, connected iOS qualification device
+        required: true
+        type: string
+      hardware_model:
+        description: Public hardware model recorded in the redacted evidence
+        required: true
+        type: string
+      model_version:
+        description: Apple on-device model version recorded in the redacted evidence
+        required: true
+        type: string
+      translation_check_completed:
+        description: Translation passed the physical-device checklist
+        required: true
+        default: false
+        type: boolean
+      accessibility_check_completed:
+        description: Accessibility passed the physical-device checklist
+        required: true
+        default: false
+        type: boolean
+      synthetic_feedback_only:
+        description: Every model-feedback attachment is synthetic or no attachment was created
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mail-assistance-qualification
+  cancel-in-progress: false
+
+jobs:
+  qualify:
+    name: On-device model and interaction qualification
+    environment: mail-assistance-qualification
+    runs-on:
+      group: mail-assistance-qualification
+      labels:
+        - self-hosted
+        - macOS
+        - ARM64
+    timeout-minutes: 180
+    defaults:
+      run:
+        shell: zsh -e -o pipefail {0}
+    env:
+      DEVICE_UDID: ${{ inputs.device_udid }}
+      DEVELOPMENT_TEAM: ${{ vars.MAIL_ASSISTANCE_QUALIFICATION_DEVELOPMENT_TEAM }}
+      QUALIFICATION_ROOT: .mail-assistance-qualification
+    steps:
+      - name: Require protected main and completed manual checks
+        run: |
+          [[ "$GITHUB_REF" == 'refs/heads/main' ]]
+          [[ '${{ inputs.translation_check_completed }}' == 'true' ]]
+          [[ '${{ inputs.accessibility_check_completed }}' == 'true' ]]
+          [[ '${{ inputs.synthetic_feedback_only }}' == 'true' ]]
+          [[ -n "$DEVELOPMENT_TEAM" ]]
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Verify the exact physical device
+        run: |
+          xcrun devicectl device info details --device "$DEVICE_UDID"
+          xcrun devicectl device info lockState --device "$DEVICE_UDID"
+
+      - name: Prepare isolated build paths
+        run: |
+          mkdir -p \
+            "$QUALIFICATION_ROOT/artifacts" \
+            "$QUALIFICATION_ROOT/DerivedData" \
+            "$QUALIFICATION_ROOT/SourcePackages"
+
+      - name: Build the Release qualification bundle
+        id: build
+        continue-on-error: true
+        run: |
+          xcodebuild build-for-testing \
+            -project apps/unwired-mail/unwired-mail.xcodeproj \
+            -scheme unwired-mail \
+            -configuration Release \
+            ENABLE_TESTABILITY=YES \
+            ONLY_ACTIVE_ARCH=YES \
+            DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM" \
+            SWIFT_ACTIVE_COMPILATION_CONDITIONS='TESTING MAIL_ASSISTANCE_PHYSICAL_QUALIFICATION' \
+            -destination "platform=iOS,id=$DEVICE_UDID" \
+            -derivedDataPath "$QUALIFICATION_ROOT/DerivedData" \
+            -clonedSourcePackagesDirPath "$QUALIFICATION_ROOT/SourcePackages" \
+            -parallel-testing-enabled NO \
+            -allowProvisioningUpdates
+
+      - name: Run the live synthetic corpus
+        id: corpus
+        if: steps.build.outcome == 'success'
+        continue-on-error: true
+        run: |
+          xcodebuild test-without-building \
+            -project apps/unwired-mail/unwired-mail.xcodeproj \
+            -scheme unwired-mail \
+            -configuration Release \
+            ENABLE_TESTABILITY=YES \
+            ONLY_ACTIVE_ARCH=YES \
+            DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM" \
+            SWIFT_ACTIVE_COMPILATION_CONDITIONS='TESTING MAIL_ASSISTANCE_PHYSICAL_QUALIFICATION' \
+            -destination "platform=iOS,id=$DEVICE_UDID" \
+            -derivedDataPath "$QUALIFICATION_ROOT/DerivedData" \
+            -clonedSourcePackagesDirPath "$QUALIFICATION_ROOT/SourcePackages" \
+            -parallel-testing-enabled NO \
+            -resultBundlePath "$QUALIFICATION_ROOT/artifacts/corpus.xcresult" \
+            '-only-testing:unwired-mailTests/MailAssistancePhysicalQualificationTests'
+
+      - name: Run the local presentation budgets
+        id: performance
+        if: steps.build.outcome == 'success'
+        continue-on-error: true
+        run: |
+          xcodebuild test-without-building \
+            -project apps/unwired-mail/unwired-mail.xcodeproj \
+            -scheme unwired-mail \
+            -configuration Release \
+            ENABLE_TESTABILITY=YES \
+            ONLY_ACTIVE_ARCH=YES \
+            DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM" \
+            SWIFT_ACTIVE_COMPILATION_CONDITIONS='TESTING MAIL_ASSISTANCE_PHYSICAL_QUALIFICATION' \
+            -destination "platform=iOS,id=$DEVICE_UDID" \
+            -derivedDataPath "$QUALIFICATION_ROOT/DerivedData" \
+            -clonedSourcePackagesDirPath "$QUALIFICATION_ROOT/SourcePackages" \
+            -parallel-testing-enabled NO \
+            -resultBundlePath "$QUALIFICATION_ROOT/artifacts/performance.xcresult" \
+            '-only-testing:unwired-mailTests/MailboxConnectionAdapterTests/testGmailFirstReleaseCachedPresentationMeetsPerformanceBudgets()'
+
+      - name: Write content-free qualification metadata
+        if: always()
+        env:
+          ACCESSIBILITY_OUTCOME: ${{ inputs.accessibility_check_completed }}
+          BUILD_OUTCOME: ${{ steps.build.outcome }}
+          CORPUS_OUTCOME: ${{ steps.corpus.outcome }}
+          HARDWARE_MODEL: ${{ inputs.hardware_model }}
+          MODEL_VERSION: ${{ inputs.model_version }}
+          PERFORMANCE_OUTCOME: ${{ steps.performance.outcome }}
+          SYNTHETIC_FEEDBACK_ONLY: ${{ inputs.synthetic_feedback_only }}
+          TRANSLATION_OUTCOME: ${{ inputs.translation_check_completed }}
+        run: |
+          os_build="$(sw_vers -buildVersion)"
+          jq -n \
+            --arg accessibility "$ACCESSIBILITY_OUTCOME" \
+            --arg build "$BUILD_OUTCOME" \
+            --arg corpus "$CORPUS_OUTCOME" \
+            --arg corpus_version '1' \
+            --arg git_sha "$GITHUB_SHA" \
+            --arg hardware_model "$HARDWARE_MODEL" \
+            --arg model_version "$MODEL_VERSION" \
+            --arg os_build "$os_build" \
+            --arg performance "$PERFORMANCE_OUTCOME" \
+            --arg run_id "$GITHUB_RUN_ID" \
+            --arg synthetic_feedback_only "$SYNTHETIC_FEEDBACK_ONLY" \
+            --arg translation "$TRANSLATION_OUTCOME" \
+            '{
+              schemaVersion: 1,
+              corpusVersion: ($corpus_version | tonumber),
+              gitSha: $git_sha,
+              runId: $run_id,
+              hardwareModel: $hardware_model,
+              osBuild: $os_build,
+              modelVersion: $model_version,
+              checks: {
+                build: $build,
+                corpus: $corpus,
+                performance: $performance,
+                translation: ($translation == "true"),
+                accessibility: ($accessibility == "true"),
+                syntheticFeedbackOnly: ($synthetic_feedback_only == "true")
+              }
+            }' > "$QUALIFICATION_ROOT/artifacts/evidence.json"
+
+      - name: Upload qualification evidence
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: mail-assistance-qualification-${{ github.run_id }}
+          path: .mail-assistance-qualification/artifacts
+          if-no-files-found: error
+          retention-days: 180
+
+      - name: Remove run-owned app and build data
+        if: always()
+        run: |
+          xcrun devicectl device process terminate \
+            --device "$DEVICE_UDID" \
+            --bundle-id dev.unwired.mail || true
+          xcrun devicectl device uninstall app \
+            --device "$DEVICE_UDID" \
+            dev.unwired.mail || true
+          rm -rf "$QUALIFICATION_ROOT"
+
+      - name: Require every qualification gate to pass
+        if: always()
+        env:
+          BUILD_OUTCOME: ${{ steps.build.outcome }}
+          CORPUS_OUTCOME: ${{ steps.corpus.outcome }}
+          PERFORMANCE_OUTCOME: ${{ steps.performance.outcome }}
+        run: |
+          [[ "$BUILD_OUTCOME" == 'success' ]]
+          [[ "$CORPUS_OUTCOME" == 'success' ]]
+          [[ "$PERFORMANCE_OUTCOME" == 'success' ]]
