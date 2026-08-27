@@ -45,7 +45,7 @@ struct MailShellComposer: View {
   @Environment(\.dismiss) private var dismiss
   @FocusState private var focusedField: MailComposerFocus?
   @State private var isBodyFocused = false
-  @State private var isBodyFocusPending = false
+  @State private var bodyFocusRequest = 0
   @State private var editorModel: SemanticMessageEditorModel
   @State private var assetErrorMessage: String?
   @State private var composeAssistancePresentation: ComposeAssistancePresentation?
@@ -263,7 +263,11 @@ struct MailShellComposer: View {
               requestResponseAssistance: responseAssistanceAction
             )
             Divider()
-            MailComposerBodyField(editorModel: editorModel, isFocused: $isBodyFocused)
+            MailComposerBodyField(
+              editorModel: editorModel,
+              isFocused: $isBodyFocused,
+              focusRequest: bodyFocusRequest
+            )
               .simultaneousGesture(
                 TapGesture().onEnded {
                   requestBodyFocus()
@@ -333,17 +337,9 @@ struct MailShellComposer: View {
       .onChange(of: focusedField) { previousField, focusedField in
         if focusedField != nil {
           isBodyFocused = false
-          isBodyFocusPending = false
         }
         guard let recipientField = recipientField(for: previousField) else { return }
         recipientEditor.commitPendingText(in: recipientField)
-      }
-      .task(id: isBodyFocusPending) {
-        guard isBodyFocusPending else { return }
-        await Task.yield()
-        guard isBodyFocusPending, focusedField == nil else { return }
-        isBodyFocusPending = false
-        isBodyFocused = true
       }
       .onChange(of: recipientEditor.headers) { _, headers in
         synchronizeRecipientHeaders(headers)
@@ -487,12 +483,9 @@ struct MailShellComposer: View {
   }
 
   private func requestBodyFocus() {
-    guard focusedField != nil else {
-      isBodyFocused = true
-      return
-    }
-    isBodyFocusPending = true
     focusedField = nil
+    isBodyFocused = true
+    bodyFocusRequest &+= 1
   }
 
   private func updateSendingIdentity(_ identityId: SendingIdentityId?) {
@@ -1171,11 +1164,13 @@ private struct MailComposerHeader: View {
 private struct MailComposerBodyField: View {
   @Bindable var editorModel: SemanticMessageEditorModel
   @Binding var isFocused: Bool
+  let focusRequest: Int
 
   var body: some View {
     SemanticMessageTextView(
       editorModel: editorModel,
       isFocused: $isFocused,
+      focusRequest: focusRequest,
       minimumHeight: 160
     )
     .frame(maxWidth: .infinity, alignment: .topLeading)
