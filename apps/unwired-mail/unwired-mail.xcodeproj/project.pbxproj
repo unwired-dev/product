@@ -241,6 +241,10 @@
 		C0DEC0DE415000000000003 /* Features/Account/MailTranslationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE415000000000004 /* Features/Account/MailTranslationView.swift */; };
 		C0DEC0DE415000000000005 /* Features/Account/MailTranslationComparisonView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE415000000000006 /* Features/Account/MailTranslationComparisonView.swift */; };
 		C0DEC0DE415000000000007 /* MailTranslationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE415000000000008 /* MailTranslationTests.swift */; };
+		C0DEC0DE416000000000001 /* MailAssistanceQualificationCorpus.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE416000000000002 /* MailAssistanceQualificationCorpus.swift */; };
+		C0DEC0DE416000000000003 /* MailAssistanceQualificationEvaluator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE416000000000004 /* MailAssistanceQualificationEvaluator.swift */; };
+		C0DEC0DE416000000000005 /* MailAssistanceQualificationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE416000000000006 /* MailAssistanceQualificationTests.swift */; };
+		C0DEC0DE416000000000007 /* MailAssistancePhysicalQualificationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE416000000000008 /* MailAssistancePhysicalQualificationTests.swift */; };
 		C0DEC0DE413000000000001 /* Services/Assistance/ResponseAssistance.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE413000000000002 /* Services/Assistance/ResponseAssistance.swift */; };
 		C0DEC0DE413000000000003 /* Features/Account/ResponseAssistanceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE413000000000004 /* Features/Account/ResponseAssistanceView.swift */; };
 		C0DEC0DE413000000000005 /* Features/Account/ResponseAssistancePreviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE413000000000006 /* Features/Account/ResponseAssistancePreviewView.swift */; };
@@ -550,6 +554,10 @@
 		C0DEC0DE415000000000004 /* Features/Account/MailTranslationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Account/MailTranslationView.swift; sourceTree = "<group>"; };
 		C0DEC0DE415000000000006 /* Features/Account/MailTranslationComparisonView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Account/MailTranslationComparisonView.swift; sourceTree = "<group>"; };
 		C0DEC0DE415000000000008 /* MailTranslationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MailTranslationTests.swift; sourceTree = "<group>"; };
+		C0DEC0DE416000000000002 /* MailAssistanceQualificationCorpus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MailAssistanceQualificationCorpus.swift; sourceTree = "<group>"; };
+		C0DEC0DE416000000000004 /* MailAssistanceQualificationEvaluator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MailAssistanceQualificationEvaluator.swift; sourceTree = "<group>"; };
+		C0DEC0DE416000000000006 /* MailAssistanceQualificationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MailAssistanceQualificationTests.swift; sourceTree = "<group>"; };
+		C0DEC0DE416000000000008 /* MailAssistancePhysicalQualificationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MailAssistancePhysicalQualificationTests.swift; sourceTree = "<group>"; };
 		C0DEC0DE413000000000002 /* Services/Assistance/ResponseAssistance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/Assistance/ResponseAssistance.swift; sourceTree = "<group>"; };
 		C0DEC0DE413000000000004 /* Features/Account/ResponseAssistanceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Account/ResponseAssistanceView.swift; sourceTree = "<group>"; };
 		C0DEC0DE413000000000006 /* Features/Account/ResponseAssistancePreviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Account/ResponseAssistancePreviewView.swift; sourceTree = "<group>"; };
@@ -865,6 +873,10 @@
 				C0DEC0DE413000000000008 /* ResponseAssistanceTests.swift */,
 				C0DEC0DE414000000000006 /* UnderstandingAssistanceTests.swift */,
 				C0DEC0DE415000000000008 /* MailTranslationTests.swift */,
+				C0DEC0DE416000000000002 /* MailAssistanceQualificationCorpus.swift */,
+				C0DEC0DE416000000000004 /* MailAssistanceQualificationEvaluator.swift */,
+				C0DEC0DE416000000000006 /* MailAssistanceQualificationTests.swift */,
+				C0DEC0DE416000000000008 /* MailAssistancePhysicalQualificationTests.swift */,
 				71A6A0962C0B000100000001 /* NotificationRuleSyncServiceTests.swift */,
 				71A6A09C2C0B000100000001 /* NotificationRuleViewModelTests.swift */,
 				71A6A0F32C0B000100000001 /* PinSyncServiceTests.swift */,
@@ -1323,6 +1335,10 @@
 				C0DEC0DE413000000000007 /* ResponseAssistanceTests.swift in Sources */,
 				C0DEC0DE414000000000005 /* UnderstandingAssistanceTests.swift in Sources */,
 				C0DEC0DE415000000000007 /* MailTranslationTests.swift in Sources */,
+				C0DEC0DE416000000000001 /* MailAssistanceQualificationCorpus.swift in Sources */,
+				C0DEC0DE416000000000003 /* MailAssistanceQualificationEvaluator.swift in Sources */,
+				C0DEC0DE416000000000005 /* MailAssistanceQualificationTests.swift in Sources */,
+				C0DEC0DE416000000000007 /* MailAssistancePhysicalQualificationTests.swift in Sources */,
 				71A6A0952C0B000100000001 /* NotificationRuleSyncServiceTests.swift in Sources */,
 				71A6A09B2C0B000100000001 /* NotificationRuleViewModelTests.swift in Sources */,
 				71A6A0F22C0B000100000001 /* PinSyncServiceTests.swift in Sources */,
