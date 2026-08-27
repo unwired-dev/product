@@ -48,7 +48,9 @@ struct MailShellComposer: View {
   @State private var bodyFocusRequest = 0
   @State private var editorModel: SemanticMessageEditorModel
   @State private var assetErrorMessage: String?
+  @State private var translationErrorMessage: String?
   @State private var composeAssistancePresentation: ComposeAssistancePresentation?
+  @State private var translationPresentation: MailTranslationPresentation?
   @State private var responseAssistancePresentation: ResponseAssistancePresentation?
   @State private var linkDestination = "https://"
   @State private var recipientEditor: MailRecipientEditor
@@ -260,7 +262,8 @@ struct MailShellComposer: View {
               templates: templates,
               applyTemplate: applyTemplate,
               requestAssistance: mailAssistanceViewModel == nil ? nil : requestComposeAssistance,
-              requestResponseAssistance: responseAssistanceAction
+              requestResponseAssistance: responseAssistanceAction,
+              requestTranslation: mailAssistanceViewModel == nil ? nil : requestTranslation
             )
             Divider()
             MailComposerBodyField(
@@ -327,6 +330,33 @@ struct MailShellComposer: View {
             assistanceViewModel: mailAssistanceViewModel,
             draft: currentResponseDraft,
             applyDocument: applyResponseDocument
+          )
+        }
+      }
+      .sheet(item: $translationPresentation) { presentation in
+        if let mailAssistanceViewModel {
+          MailTranslationView(
+            presentation: presentation,
+            assistanceViewModel: mailAssistanceViewModel,
+            currentInputVersion: {
+              guard let target = presentation.draftTarget else {
+                return MailAssistanceInputVersion()
+              }
+              return ComposeAssistanceRequestBuilder.inputVersion(
+                document: editorModel.document,
+                target: target,
+                subject: viewModel.draft.subject,
+                recipientDisplayNames: recipientDisplayNames
+              )
+            },
+            applyDraftTranslation: { translatedText in
+              guard let target = presentation.draftTarget else { return false }
+              return editorModel.applyAssistanceDocument(
+                SemanticMessageDocument(plainText: translatedText),
+                application: .replaceTarget,
+                target: target
+              )
+            }
           )
         }
       }
@@ -444,6 +474,9 @@ struct MailShellComposer: View {
       )
       if let assetStatusMessage {
         MailComposerAssetStatus(message: assetStatusMessage)
+      }
+      if let translationErrorMessage {
+        MailComposerAssetStatus(message: translationErrorMessage)
       }
       if exceedsKnownTransferLimit,
         viewModel.draft.assets.contains(where: {
@@ -949,6 +982,29 @@ struct MailShellComposer: View {
     )
   }
 
+  private func requestTranslation() {
+    guard let mailAssistanceViewModel else { return }
+    let target = editorModel.composeAssistanceTarget()
+    do {
+      let presentation = try MailTranslationRequestBuilder.draftSelection(
+        target: target,
+        inputVersion: ComposeAssistanceRequestBuilder.inputVersion(
+          document: editorModel.document,
+          target: target,
+          subject: viewModel.draft.subject,
+          recipientDisplayNames: recipientDisplayNames
+        ),
+        profileId: mailAssistanceViewModel.activeProfileId
+      )
+      mailAssistanceViewModel.discardPreview()
+      translationErrorMessage = nil
+      translationPresentation = presentation
+    } catch {
+      translationErrorMessage =
+        (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+    }
+  }
+
   private var responseAssistanceAction: (() -> Void)? {
     guard mailAssistanceViewModel != nil,
       responseAssistanceContext != nil,
@@ -1198,6 +1254,7 @@ private struct MailComposerActionBar: View {
   let applyTemplate: (MailTemplate) -> Void
   let requestAssistance: (() -> Void)?
   let requestResponseAssistance: (() -> Void)?
+  let requestTranslation: (() -> Void)?
 
   var body: some View {
     HStack(spacing: 8) {
@@ -1252,6 +1309,10 @@ private struct MailComposerActionBar: View {
           action: requestResponseAssistance
         )
         .labelStyle(.iconOnly)
+      }
+      if let requestTranslation {
+        Button("Translate Selection", systemImage: "character.bubble", action: requestTranslation)
+          .labelStyle(.iconOnly)
       }
       MailComposerKeyboardCommands(editorModel: editorModel, requestLink: requestLink)
       Spacer()

@@ -20,6 +20,8 @@ Every request carries opaque Draft, selection, and Thread revision tokens plus i
 
 Map system availability and generation failures into product-owned states. A deterministic engine provides success, clarification, unavailable, failure, and cancellation behavior without a live model.
 
+Translation remains outside the generative engine. A product-owned Translation boundary admits only one already-local message body or explicit Draft selection, then uses Apple's Translation framework through an explicitly presented system session. It exposes installed, downloadable, and unsupported pair states; preserves the original beside incoming translations; and applies an accepted Draft translation only through the existing one-step semantic editor mutation. Profile and input revision fences make late results unusable, while dismissal or Profile Lock cancels work and destroys retained Translation text.
+
 ## Consequences
 
 - Mail remains usable when assistance is unavailable; child features decide how to explain the specific state.

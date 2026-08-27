@@ -7950,6 +7950,7 @@ struct MailShellConversationReader: View {
   @State private var readerAvailableWidth: CGFloat = 0
   @State private var readerViewportFrame = CGRect.zero
   @State private var sourceInspectionMessage: MailboxMessageMetadata?
+  @State private var translationPresentation: MailTranslationPresentation?
   @State private var showsUnderstandingAssistance = false
   @State private var understandingCurrentInputVersion = MailAssistanceInputVersion()
   @State private var understandingErrorMessage: String?
@@ -8013,7 +8014,8 @@ struct MailShellConversationReader: View {
           || categorySelection != nil || readerErrorMessage != nil || !readTasks.isEmpty
           || !readTaskOwners.isEmpty || readerErrorConnectionId != nil
           || readerErrorSource != nil || sourceInspectionMessage != nil
-          || showsUnderstandingAssistance || understandingErrorMessage != nil
+          || translationPresentation != nil || showsUnderstandingAssistance
+          || understandingErrorMessage != nil
           || mailAssistanceViewModel.preview != nil
       else { return }
       calendarReview = nil
@@ -8030,6 +8032,7 @@ struct MailShellConversationReader: View {
       readerErrorConnectionId = nil
       readerErrorSource = nil
       sourceInspectionMessage = nil
+      translationPresentation = nil
       showsUnderstandingAssistance = false
       understandingErrorMessage = nil
       mailAssistanceViewModel.discardPreview()
@@ -8047,6 +8050,7 @@ struct MailShellConversationReader: View {
     proseCalendarDetectionTasks.removeAll()
     proseDuplicateReview = nil
     sourceInspectionMessage = nil
+    translationPresentation = nil
     showsUnderstandingAssistance = false
     understandingErrorMessage = nil
     mailAssistanceViewModel.discardPreview()
@@ -8146,6 +8150,21 @@ struct MailShellConversationReader: View {
             messageReader: messageReader,
             revalidateTrustedDevice: revalidateTrustedDevice,
             session: session
+          )
+        }
+        .sheet(item: $translationPresentation) { presentation in
+          MailTranslationView(
+            presentation: presentation,
+            assistanceViewModel: mailAssistanceViewModel,
+            currentInputVersion: {
+              guard let messageId = presentation.incomingMessageId else {
+                return MailAssistanceInputVersion()
+              }
+              return MailTranslationRequestBuilder.incomingInputVersion(
+                messageId: messageId,
+                localBodyText: inboxViewModel.loadedMessageBodyText(for: messageId)
+              )
+            }
           )
         }
         .sheet(
@@ -8372,7 +8391,8 @@ struct MailShellConversationReader: View {
           providerStateIds: message.providerStateIds
         ) == .trailing,
         message: message,
-        showSource: { sourceInspectionMessage = message }
+        showSource: { sourceInspectionMessage = message },
+        translate: { startTranslation(message) }
       )
       Divider()
         .overlay(Color.white.opacity(0.08))
@@ -9258,6 +9278,22 @@ struct MailShellConversationReader: View {
         understandingErrorMessage =
           (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
       }
+    }
+  }
+
+  private func startTranslation(_ message: MailboxMessageMetadata) {
+    do {
+      translationPresentation = try MailTranslationRequestBuilder.incomingMessage(
+        messageId: message.id,
+        localBodyText: inboxViewModel.loadedMessageBodyText(for: message.id),
+        profileId: mailAssistanceViewModel.activeProfileId
+      )
+      readerErrorMessage = nil
+      readerErrorSource = nil
+    } catch {
+      readerErrorMessage =
+        (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+      readerErrorSource = .other
     }
   }
 
@@ -10713,6 +10749,7 @@ private struct MailShellConversationMessageHeader: View {
   let isOwnMessage: Bool
   let message: MailboxMessageMetadata
   let showSource: () -> Void
+  let translate: () -> Void
 
   var body: some View {
     HStack(alignment: .top, spacing: 12) {
@@ -10749,6 +10786,7 @@ private struct MailShellConversationMessageHeader: View {
           .foregroundStyle(isOwnMessage ? Color.accentColor : Color.secondary)
       }
       Menu {
+        Button("Translate Message", systemImage: "character.bubble", action: translate)
         Button("View Message Source", systemImage: "doc.text.magnifyingglass", action: showSource)
       } label: {
         Label("Message Actions", systemImage: "ellipsis")
