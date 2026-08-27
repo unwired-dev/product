@@ -522,13 +522,15 @@ struct MailShellComposer: View {
   private func focusBody() {
     isBodyFocusPending = true
     focusedField = nil
-    subjectFieldGeneration &+= 1
     scheduleBodyFocus()
   }
 
   private func scheduleBodyFocus() {
     Task { @MainActor in
       try? await Task.sleep(for: .milliseconds(100))
+      guard isBodyFocusPending, focusedField == nil else { return }
+      subjectFieldGeneration &+= 1
+      try? await Task.sleep(for: .milliseconds(50))
       guard isBodyFocusPending, focusedField == nil else { return }
       #if canImport(UIKit)
         UIApplication.shared.connectedScenes

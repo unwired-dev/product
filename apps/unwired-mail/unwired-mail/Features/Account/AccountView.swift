@@ -3411,53 +3411,61 @@ struct AccountView: View {
       recordScope != profilePreferenceRecordScope
     else { return nil }
 
+    let pacesPreparation = profilePreferenceRecordScope != nil
+    func shouldContinuePreparation() async -> Bool {
+      if pacesPreparation {
+        await waitForNextMainRunLoopCycle()
+      }
+      return profileViewModel.activeProfile?.recordScope == recordScope
+    }
+
     let blockedSenderStore = BlockedSenderStore(
       session: snapshot,
       recordScope: recordScope,
       syncService: blockedSenderSyncServiceFactory(recordScope)
     )
+    guard await shouldContinuePreparation() else { return nil }
     let categoryViewModel = CustomCategoryViewModel(
       service: categorySyncServiceFactory(recordScope),
       session: snapshot
     )
-    await waitForNextMainRunLoopCycle()
-    guard profileViewModel.activeProfile?.recordScope == recordScope else { return nil }
+    guard await shouldContinuePreparation() else { return nil }
     let composePreferenceStore = session.sharedComposePreferenceStore(
       for: snapshot,
       recordScope: recordScope,
       syncService: composePreferenceSyncFactory(recordScope)
     )
+    guard await shouldContinuePreparation() else { return nil }
     let featureSuggestionPreferenceStore = session.sharedFeatureSuggestionPreferenceStore(
       for: snapshot,
       recordScope: recordScope,
       syncService: featureSuggestionPreferenceSyncFactory(recordScope)
     )
-    await waitForNextMainRunLoopCycle()
-    guard profileViewModel.activeProfile?.recordScope == recordScope else { return nil }
+    guard await shouldContinuePreparation() else { return nil }
     let inboxPreferenceStore = session.sharedInboxPreferenceStore(
       for: snapshot,
       recordScope: recordScope,
       syncService: inboxPreferenceSyncFactory(recordScope)
     )
+    guard await shouldContinuePreparation() else { return nil }
     let sendingIdentityStore = SendingIdentityStore(
       session: snapshot,
       recordScope: recordScope,
       syncService: sendingIdentitySyncFactory(recordScope)
     )
-    await waitForNextMainRunLoopCycle()
-    guard profileViewModel.activeProfile?.recordScope == recordScope else { return nil }
+    guard await shouldContinuePreparation() else { return nil }
     let signatureStore = session.sharedSignatureStore(
       for: snapshot,
       recordScope: recordScope,
       syncService: signaturePreferenceSyncFactory(recordScope)
     )
+    guard await shouldContinuePreparation() else { return nil }
     let templateStore = session.sharedTemplateStore(
       for: snapshot,
       recordScope: recordScope,
       syncService: templatePreferenceSyncFactory(recordScope)
     )
-    await waitForNextMainRunLoopCycle()
-    guard profileViewModel.activeProfile?.recordScope == recordScope else { return nil }
+    guard await shouldContinuePreparation() else { return nil }
     self.blockedSenderStore.retire()
     self.blockedSenderStore = blockedSenderStore
     self.categoryViewModel = categoryViewModel
