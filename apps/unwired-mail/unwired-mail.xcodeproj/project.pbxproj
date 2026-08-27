@@ -237,6 +237,10 @@
 		C0DEC0DE414000000000001 /* Services/Assistance/UnderstandingAssistance.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE414000000000002 /* Services/Assistance/UnderstandingAssistance.swift */; };
 		C0DEC0DE414000000000003 /* Features/Account/UnderstandingAssistanceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE414000000000004 /* Features/Account/UnderstandingAssistanceView.swift */; };
 		C0DEC0DE414000000000005 /* UnderstandingAssistanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE414000000000006 /* UnderstandingAssistanceTests.swift */; };
+		C0DEC0DE415000000000001 /* Services/Assistance/MailTranslation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE415000000000002 /* Services/Assistance/MailTranslation.swift */; };
+		C0DEC0DE415000000000003 /* Features/Account/MailTranslationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE415000000000004 /* Features/Account/MailTranslationView.swift */; };
+		C0DEC0DE415000000000005 /* Features/Account/MailTranslationComparisonView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE415000000000006 /* Features/Account/MailTranslationComparisonView.swift */; };
+		C0DEC0DE415000000000007 /* MailTranslationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE415000000000008 /* MailTranslationTests.swift */; };
 		C0DEC0DE413000000000001 /* Services/Assistance/ResponseAssistance.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE413000000000002 /* Services/Assistance/ResponseAssistance.swift */; };
 		C0DEC0DE413000000000003 /* Features/Account/ResponseAssistanceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE413000000000004 /* Features/Account/ResponseAssistanceView.swift */; };
 		C0DEC0DE413000000000005 /* Features/Account/ResponseAssistancePreviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE413000000000006 /* Features/Account/ResponseAssistancePreviewView.swift */; };
@@ -542,6 +546,10 @@
 		C0DEC0DE414000000000002 /* Services/Assistance/UnderstandingAssistance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/Assistance/UnderstandingAssistance.swift; sourceTree = "<group>"; };
 		C0DEC0DE414000000000004 /* Features/Account/UnderstandingAssistanceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Account/UnderstandingAssistanceView.swift; sourceTree = "<group>"; };
 		C0DEC0DE414000000000006 /* UnderstandingAssistanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UnderstandingAssistanceTests.swift; sourceTree = "<group>"; };
+		C0DEC0DE415000000000002 /* Services/Assistance/MailTranslation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/Assistance/MailTranslation.swift; sourceTree = "<group>"; };
+		C0DEC0DE415000000000004 /* Features/Account/MailTranslationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Account/MailTranslationView.swift; sourceTree = "<group>"; };
+		C0DEC0DE415000000000006 /* Features/Account/MailTranslationComparisonView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Account/MailTranslationComparisonView.swift; sourceTree = "<group>"; };
+		C0DEC0DE415000000000008 /* MailTranslationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MailTranslationTests.swift; sourceTree = "<group>"; };
 		C0DEC0DE413000000000002 /* Services/Assistance/ResponseAssistance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/Assistance/ResponseAssistance.swift; sourceTree = "<group>"; };
 		C0DEC0DE413000000000004 /* Features/Account/ResponseAssistanceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Account/ResponseAssistanceView.swift; sourceTree = "<group>"; };
 		C0DEC0DE413000000000006 /* Features/Account/ResponseAssistancePreviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Account/ResponseAssistancePreviewView.swift; sourceTree = "<group>"; };
@@ -640,6 +648,8 @@
 				C0DEC0DE413000000000004 /* Features/Account/ResponseAssistanceView.swift */,
 				C0DEC0DE413000000000006 /* Features/Account/ResponseAssistancePreviewView.swift */,
 				C0DEC0DE414000000000004 /* Features/Account/UnderstandingAssistanceView.swift */,
+				C0DEC0DE415000000000004 /* Features/Account/MailTranslationView.swift */,
+				C0DEC0DE415000000000006 /* Features/Account/MailTranslationComparisonView.swift */,
 				D16100000000000000000011 /* Features/Account/MailShellCompositionDraft.swift */,
 				C0DEC0DE162000000000008 /* Features/Account/MailShellCompositionDraft+Codable.swift */,
 				D16100000000000000000012 /* Features/Account/MailComposerViewModel.swift */,
@@ -696,6 +706,7 @@
 				C0DEC0DE412000000000002 /* Services/Assistance/ComposeAssistance.swift */,
 				C0DEC0DE413000000000002 /* Services/Assistance/ResponseAssistance.swift */,
 				C0DEC0DE414000000000002 /* Services/Assistance/UnderstandingAssistance.swift */,
+				C0DEC0DE415000000000002 /* Services/Assistance/MailTranslation.swift */,
 				71A6A0162C0B000100000001 /* Services/BackendEnvironment.swift */,
 				71A6A0192C0B000100000001 /* Services/DotEnvFile.swift */,
 				71A6A0862C0B000100000001 /* Services/Gmail/GmailMessageMetadataService.swift */,
@@ -853,6 +864,7 @@
 				C0DEC0DE412000000000006 /* ComposeAssistanceTests.swift */,
 				C0DEC0DE413000000000008 /* ResponseAssistanceTests.swift */,
 				C0DEC0DE414000000000006 /* UnderstandingAssistanceTests.swift */,
+				C0DEC0DE415000000000008 /* MailTranslationTests.swift */,
 				71A6A0962C0B000100000001 /* NotificationRuleSyncServiceTests.swift */,
 				71A6A09C2C0B000100000001 /* NotificationRuleViewModelTests.swift */,
 				71A6A0F32C0B000100000001 /* PinSyncServiceTests.swift */,
@@ -1098,6 +1110,8 @@
 				C0DEC0DE413000000000003 /* Features/Account/ResponseAssistanceView.swift in Sources */,
 				C0DEC0DE413000000000005 /* Features/Account/ResponseAssistancePreviewView.swift in Sources */,
 				C0DEC0DE414000000000003 /* Features/Account/UnderstandingAssistanceView.swift in Sources */,
+				C0DEC0DE415000000000003 /* Features/Account/MailTranslationView.swift in Sources */,
+				C0DEC0DE415000000000005 /* Features/Account/MailTranslationComparisonView.swift in Sources */,
 				D16100000000000000000001 /* Features/Account/MailShellCompositionDraft.swift in Sources */,
 				C0DEC0DE162000000000007 /* Features/Account/MailShellCompositionDraft+Codable.swift in Sources */,
 				D16100000000000000000002 /* Features/Account/MailComposerViewModel.swift in Sources */,
@@ -1153,6 +1167,7 @@
 				C0DEC0DE412000000000001 /* Services/Assistance/ComposeAssistance.swift in Sources */,
 				C0DEC0DE413000000000001 /* Services/Assistance/ResponseAssistance.swift in Sources */,
 				C0DEC0DE414000000000001 /* Services/Assistance/UnderstandingAssistance.swift in Sources */,
+				C0DEC0DE415000000000001 /* Services/Assistance/MailTranslation.swift in Sources */,
 				71A6A0062C0B000100000001 /* Services/BackendEnvironment.swift in Sources */,
 				71A6A0092C0B000100000001 /* Services/DotEnvFile.swift in Sources */,
 				71A6A0842C0B000100000001 /* Services/Gmail/GmailMessageMetadataService.swift in Sources */,
@@ -1307,6 +1322,7 @@
 				C0DEC0DE412000000000005 /* ComposeAssistanceTests.swift in Sources */,
 				C0DEC0DE413000000000007 /* ResponseAssistanceTests.swift in Sources */,
 				C0DEC0DE414000000000005 /* UnderstandingAssistanceTests.swift in Sources */,
+				C0DEC0DE415000000000007 /* MailTranslationTests.swift in Sources */,
 				71A6A0952C0B000100000001 /* NotificationRuleSyncServiceTests.swift in Sources */,
 				71A6A09B2C0B000100000001 /* NotificationRuleViewModelTests.swift in Sources */,
 				71A6A0F22C0B000100000001 /* PinSyncServiceTests.swift in Sources */,
