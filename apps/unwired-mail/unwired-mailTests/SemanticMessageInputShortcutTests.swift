@@ -240,24 +240,24 @@ struct SemanticMessageInputShortcutTests {
       includesAssistance: true
     )
 
-    #expect(
-      Array(commands.suffix(7))
-        == [
-          .assistance(.ask),
-          .assistance(.draftFromPrompt),
-          .assistance(.rewriteSelection),
-          .assistance(.proofread),
-          .assistance(.shorten),
-          .assistance(.changeTone),
-          .assistance(.suggestSubject),
-        ]
+    let expectedAssistance = SemanticMessageSlashCommand.AssistanceCommand.allCases.map(
+      SemanticMessageSlashCommand.Command.assistance
     )
+    #expect(Array(commands.suffix(expectedAssistance.count)) == expectedAssistance)
     #expect(
       SemanticMessageSlashCommand.Presentation.commands(
         matching: "tone",
         includesAssistance: true
       ) == [.assistance(.changeTone)]
     )
+  }
+
+  @Test("Semantic character offsets convert to native UTF-16 positions", .bug(id: 564))
+  func semanticOffsetsConvertToNativeOffsets() {
+    let text = "👨‍👩‍👧‍👦/draft"
+
+    #expect(SemanticMessageNativeText.nativeOffset(forCharacterOffset: 1, in: text) == 11)
+    #expect(SemanticMessageNativeText.nativeOffset(forCharacterOffset: 2, in: text) == 12)
   }
 
   @MainActor

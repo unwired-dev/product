@@ -112,6 +112,18 @@ struct ComposeAssistanceTests {
       ) == .transform(.shorten)
     )
     #expect(
+      SemanticMessageSlashCommand.AssistanceCommand.rewriteSelection.makeAction(
+        instruction: "Tighten this paragraph",
+        tone: .neutral
+      ) == .refine(instruction: "Tighten this paragraph")
+    )
+    #expect(
+      SemanticMessageSlashCommand.AssistanceCommand.proofread.makeAction(
+        instruction: "",
+        tone: .neutral
+      ) == .proofread
+    )
+    #expect(
       SemanticMessageSlashCommand.AssistanceCommand.changeTone.makeAction(
         instruction: "",
         tone: .friendly
@@ -142,6 +154,31 @@ struct ComposeAssistanceTests {
     #expect(target.insertionOffset == 3)
     #expect(target.sourceDocument == document)
     #expect(target.targetDocument == document)
+  }
+
+  @Test("Compose Assistance insertion anchors follow preceding edits", .bug(id: 564))
+  func composeAssistanceInsertionAnchorRebases() {
+    #expect(
+      SemanticMessageEditorModel.rebasedComposeAssistanceInsertionOffset(
+        6,
+        replacing: 1..<1,
+        withCharacterCount: 3
+      ) == 9
+    )
+    #expect(
+      SemanticMessageEditorModel.rebasedComposeAssistanceInsertionOffset(
+        6,
+        replacing: 4..<8,
+        withCharacterCount: 1
+      ) == 5
+    )
+    #expect(
+      SemanticMessageEditorModel.rebasedComposeAssistanceInsertionOffset(
+        6,
+        replacing: 8..<9,
+        withCharacterCount: 2
+      ) == 6
+    )
   }
 
   @Test

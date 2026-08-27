@@ -173,6 +173,20 @@ final class SemanticMessageEditorModel {
     )
   }
 
+  static func rebasedComposeAssistanceInsertionOffset(
+    _ insertionOffset: Int,
+    replacing replacedRange: Range<Int>,
+    withCharacterCount replacementCount: Int
+  ) -> Int {
+    if replacedRange.upperBound <= insertionOffset {
+      return max(0, insertionOffset + replacementCount - replacedRange.count)
+    }
+    if replacedRange.lowerBound < insertionOffset {
+      return replacedRange.lowerBound + replacementCount
+    }
+    return insertionOffset
+  }
+
   /// Applies accepted assistance as one undoable semantic-document mutation.
   func applyAssistanceDocument(
     _ replacement: SemanticMessageDocument,

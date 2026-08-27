@@ -64,6 +64,11 @@ final class SemanticMessageTextViewCoordinator: NSObject, UITextViewDelegate {
     if text == "\n" || text == "\t", applySelectedSlashCommand() {
       return false
     }
+    rebaseAssistancePanelInsertionOffset(
+      replacing: range,
+      with: text,
+      in: textView.text
+    )
     guard let semanticTextView = textView as? SemanticMessageUITextView,
       semanticTextView.isPasting == false,
       textView.markedTextRange == nil,
@@ -198,6 +203,21 @@ final class SemanticMessageTextViewCoordinator: NSObject, UITextViewDelegate {
         in: updated.string
       )
     )
+  }
+
+  private func rebaseAssistancePanelInsertionOffset(
+    replacing nativeRange: NSRange,
+    with replacement: String,
+    in text: String
+  ) {
+    guard let assistancePanelInsertionOffset else { return }
+    let replacedRange = SemanticMessageNativeText.characterRange(nativeRange, in: text)
+    self.assistancePanelInsertionOffset =
+      SemanticMessageEditorModel.rebasedComposeAssistanceInsertionOffset(
+        assistancePanelInsertionOffset,
+        replacing: replacedRange,
+        withCharacterCount: replacement.count
+      )
   }
 }
 
@@ -369,7 +389,7 @@ extension SemanticMessageTextViewCoordinator {
   ) -> ComposeAssistanceSlashPanel {
     ComposeAssistanceSlashPanel(
       command: command,
-      insertionOffset: assistancePanelInsertionOffset ?? 0,
+      insertionOffset: { [weak self] in self?.assistancePanelInsertionOffset ?? 0 },
       editorModel: parent.editorModel,
       assistanceViewModel: context.viewModel,
       currentSubject: context.currentSubject,
@@ -411,15 +431,14 @@ extension SemanticMessageTextViewCoordinator {
         window: window
       )
     else { return }
-    let documentLength = textView.offset(
-      from: textView.beginningOfDocument,
-      to: textView.endOfDocument
+    let nativeOffset = SemanticMessageNativeText.nativeOffset(
+      forCharacterOffset: insertionOffset,
+      in: textView.text
     )
-    let clampedOffset = min(max(insertionOffset, 0), documentLength)
     guard
       let anchorPosition = textView.position(
         from: textView.beginningOfDocument,
-        offset: clampedOffset
+        offset: nativeOffset
       )
     else { return }
     let caretRect = textView.convert(

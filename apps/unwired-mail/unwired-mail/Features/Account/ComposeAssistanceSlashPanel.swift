@@ -4,7 +4,7 @@ import SwiftUI
 /// A caret-anchored, nonmodal Compose Assistance workflow opened from the slash catalog.
 struct ComposeAssistanceSlashPanel: View {
   let command: SemanticMessageSlashCommand.AssistanceCommand
-  let insertionOffset: Int
+  let insertionOffset: () -> Int
   @Bindable var editorModel: SemanticMessageEditorModel
   @Bindable var assistanceViewModel: MailAssistanceViewModel
   let currentSubject: () -> String
@@ -162,7 +162,7 @@ struct ComposeAssistanceSlashPanel: View {
   private var currentTarget: ComposeAssistanceTarget {
     switch command {
     case .draftFromPrompt:
-      editorModel.composeAssistanceBodyTarget(insertionOffset: insertionOffset)
+      editorModel.composeAssistanceBodyTarget(insertionOffset: insertionOffset())
     case .suggestSubject:
       editorModel.composeAssistanceBodyTarget()
     case .ask, .changeTone, .proofread, .rewriteSelection, .shorten:
