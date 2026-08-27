@@ -334,12 +334,16 @@ struct MailShellComposer: View {
         if focusedField != nil {
           isBodyFocused = false
           isBodyFocusPending = false
-        } else if isBodyFocusPending {
-          isBodyFocusPending = false
-          isBodyFocused = true
         }
         guard let recipientField = recipientField(for: previousField) else { return }
         recipientEditor.commitPendingText(in: recipientField)
+      }
+      .task(id: isBodyFocusPending) {
+        guard isBodyFocusPending else { return }
+        await Task.yield()
+        guard isBodyFocusPending, focusedField == nil else { return }
+        isBodyFocusPending = false
+        isBodyFocused = true
       }
       .onChange(of: recipientEditor.headers) { _, headers in
         synchronizeRecipientHeaders(headers)
