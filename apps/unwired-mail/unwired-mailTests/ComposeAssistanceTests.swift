@@ -112,18 +112,6 @@ struct ComposeAssistanceTests {
       ) == .transform(.shorten)
     )
     #expect(
-      SemanticMessageSlashCommand.AssistanceCommand.rewriteSelection.makeAction(
-        instruction: "Tighten this paragraph",
-        tone: .neutral
-      ) == .refine(instruction: "Tighten this paragraph")
-    )
-    #expect(
-      SemanticMessageSlashCommand.AssistanceCommand.proofread.makeAction(
-        instruction: "",
-        tone: .neutral
-      ) == .proofread
-    )
-    #expect(
       SemanticMessageSlashCommand.AssistanceCommand.changeTone.makeAction(
         instruction: "",
         tone: .friendly
@@ -134,6 +122,22 @@ struct ComposeAssistanceTests {
         instruction: "",
         tone: .neutral
       ) == .suggestSubject
+    )
+  }
+
+  @Test("Selection assistance actions map to existing operations", .bug(id: 564))
+  func selectionAssistanceActionsMapToExistingOperations() {
+    #expect(
+      SemanticMessageSlashCommand.AssistanceCommand.rewriteSelection.makeAction(
+        instruction: "Tighten this paragraph",
+        tone: .neutral
+      ) == .refine(instruction: "Tighten this paragraph")
+    )
+    #expect(
+      SemanticMessageSlashCommand.AssistanceCommand.proofread.makeAction(
+        instruction: "",
+        tone: .neutral
+      ) == .proofread
     )
   }
 
