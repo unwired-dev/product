@@ -5,6 +5,7 @@ import UIKit
 struct SemanticMessageTextView: UIViewRepresentable {
   let editorModel: SemanticMessageEditorModel
   @Binding var isFocused: Bool
+  let focusRequest: Int
   let minimumHeight: CGFloat
 
   func makeCoordinator() -> SemanticMessageTextViewCoordinator {
@@ -42,7 +43,7 @@ struct SemanticMessageTextView: UIViewRepresentable {
     context.coordinator.parent = self
     context.coordinator.synchronizeTextView()
     if isFocused, textView.isFirstResponder == false {
-      context.coordinator.focusIfNeeded()
+      context.coordinator.focusIfNeeded(for: focusRequest)
     }
   }
 

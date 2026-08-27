@@ -9,7 +9,7 @@ final class SemanticMessageTextViewCoordinator: NSObject, UITextViewDelegate {
   weak var textView: SemanticMessageUITextView?
 
   private var isSynchronizing = false
-  private var isFocusScheduled = false
+  private var scheduledFocusRequest: Int?
   private var renderedDocument: SemanticMessageDocument?
   private var dismissedSlashCommandContext: SemanticMessageSlashCommand.Context?
   private var slashCommandPresentation: SemanticMessageSlashCommand.Presentation?
@@ -21,14 +21,20 @@ final class SemanticMessageTextViewCoordinator: NSObject, UITextViewDelegate {
   }
 
   func focusIfNeeded() {
-    guard parent.isFocused, isFocusScheduled == false else { return }
-    isFocusScheduled = true
+    focusIfNeeded(for: parent.focusRequest)
+  }
+
+  func focusIfNeeded(for request: Int) {
+    guard parent.isFocused, scheduledFocusRequest != request else { return }
+    scheduledFocusRequest = request
     Task { @MainActor [weak self] in
       guard let self else { return }
-      defer { isFocusScheduled = false }
+      defer {
+        if scheduledFocusRequest == request { scheduledFocusRequest = nil }
+      }
       for attempt in 0..<10 {
         await Task.yield()
-        guard parent.isFocused, let textView else { return }
+        guard parent.isFocused, parent.focusRequest == request, let textView else { return }
         if textView.window != nil {
           _ = textView.becomeFirstResponder()
           if textView.isFirstResponder { return }
