@@ -225,15 +225,14 @@ final class MailTestBootstrapUITests: XCTestCase {
   }
 
   private func replaceRecipientTokens(in recipient: XCUIElement, app: XCUIApplication) throws {
-    recipient.typeKey(.return, modifierFlags: [])
+    recipient.typeText(",")
     try removeRecipientTokens(in: app)
     try focusAndType(
-      "recipient@synthetic.invalid",
+      "recipient@synthetic.invalid,",
       into: recipient,
       in: app,
       failure: "MAIL_TEST_FAILURE:ui: The recipient field could not be focused after token removal."
     )
-    recipient.typeKey(.tab, modifierFlags: [])
     assertRecipientReplacement(in: app)
   }
 
