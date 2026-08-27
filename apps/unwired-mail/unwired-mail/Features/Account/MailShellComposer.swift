@@ -50,6 +50,7 @@ struct MailShellComposer: View {
   @State private var isBodyFocused = false
   @State private var isBodyFocusPending = false
   @State private var bodyFocusRequest = 0
+  @State private var subjectFieldGeneration = 0
   @State private var editorModel: SemanticMessageEditorModel
   @State private var assetErrorMessage: String?
   @State private var translationErrorMessage: String?
@@ -252,6 +253,7 @@ struct MailShellComposer: View {
               focusedField: $focusedField,
               focusBody: focusBody
             )
+            .id(subjectFieldGeneration)
             Divider()
             MailComposerActionBar(
               editorModel: editorModel,
@@ -520,6 +522,7 @@ struct MailShellComposer: View {
   private func focusBody() {
     isBodyFocusPending = true
     focusedField = nil
+    subjectFieldGeneration &+= 1
     scheduleBodyFocus()
   }
 
@@ -1503,10 +1506,6 @@ private struct MailComposerSubjectField: View {
       .focused(focusedField, equals: .subject)
       .submitLabel(.next)
       .onSubmit(focusBody)
-      .onKeyPress(.return) {
-        focusBody()
-        return .handled
-      }
       .padding(.horizontal, 16)
       .padding(.vertical, 12)
       .accessibilityIdentifier("mail-compose-subject")
