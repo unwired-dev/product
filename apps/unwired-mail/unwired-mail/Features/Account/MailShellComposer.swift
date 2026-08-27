@@ -48,6 +48,7 @@ struct MailShellComposer: View {
   @State private var bodyFocusRequest = 0
   @State private var editorModel: SemanticMessageEditorModel
   @State private var assetErrorMessage: String?
+  @State private var translationErrorMessage: String?
   @State private var composeAssistancePresentation: ComposeAssistancePresentation?
   @State private var translationPresentation: MailTranslationPresentation?
   @State private var responseAssistancePresentation: ResponseAssistancePresentation?
@@ -473,6 +474,9 @@ struct MailShellComposer: View {
       )
       if let assetStatusMessage {
         MailComposerAssetStatus(message: assetStatusMessage)
+      }
+      if let translationErrorMessage {
+        MailComposerAssetStatus(message: translationErrorMessage)
       }
       if exceedsKnownTransferLimit,
         viewModel.draft.assets.contains(where: {
@@ -982,7 +986,7 @@ struct MailShellComposer: View {
     guard let mailAssistanceViewModel else { return }
     let target = editorModel.composeAssistanceTarget()
     do {
-      translationPresentation = try MailTranslationRequestBuilder.draftSelection(
+      let presentation = try MailTranslationRequestBuilder.draftSelection(
         target: target,
         inputVersion: ComposeAssistanceRequestBuilder.inputVersion(
           document: editorModel.document,
@@ -992,9 +996,11 @@ struct MailShellComposer: View {
         ),
         profileId: mailAssistanceViewModel.activeProfileId
       )
-      assetErrorMessage = nil
+      mailAssistanceViewModel.discardPreview()
+      translationErrorMessage = nil
+      translationPresentation = presentation
     } catch {
-      assetErrorMessage =
+      translationErrorMessage =
         (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
     }
   }

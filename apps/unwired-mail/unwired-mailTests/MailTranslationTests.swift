@@ -182,14 +182,20 @@ struct MailTranslationTests {
     let presentation = try incomingPresentation(text: "Private text")
     let viewModel = try await readyViewModel(for: presentation)
     let request = try begin(presentation, using: viewModel)
-    await viewModel.perform(
-      request,
-      using: TranslationSessionStub(response: response(for: presentation))
+    let session = TranslationSessionStub(
+      response: response(for: presentation),
+      blocksTranslation: true
     )
+    let translation = Task { await viewModel.perform(request, using: session) }
+    await session.waitUntilTranslationStarts()
     #expect(viewModel.hasRetainedMailContent)
 
     viewModel.cancelAndDestroy()
+    await session.waitUntilCancelled()
+    await translation.value
+    let cancelCallCount = await session.cancelCallCount
 
+    #expect(cancelCallCount > 0)
     #expect(!viewModel.hasRetainedMailContent)
     #expect(viewModel.result == nil)
     #expect(throws: MailTranslationError.unavailable) {
@@ -315,24 +321,75 @@ private actor TranslationAvailabilityStub: MailTranslationAvailabilityChecking {
 }
 
 private actor TranslationSessionStub: MailTranslationSession {
+  private(set) var cancelCallCount = 0
   let preparationError: TranslationTestError?
   let response: MailTranslationResponse
+  private let blocksTranslation: Bool
+  private var cancellationWaiters: [CheckedContinuation<Void, Never>] = []
+  private var releaseTranslation: CheckedContinuation<Void, Never>?
+  private var translationDidStart = false
+  private var translationStartWaiters: [CheckedContinuation<Void, Never>] = []
 
   init(
     response: MailTranslationResponse,
-    preparationError: TranslationTestError? = nil
+    preparationError: TranslationTestError? = nil,
+    blocksTranslation: Bool = false
   ) {
     self.response = response
     self.preparationError = preparationError
+    self.blocksTranslation = blocksTranslation
   }
 
-  func cancel() {}
+  func cancel() {
+    cancelCallCount += 1
+    releaseTranslation?.resume()
+    releaseTranslation = nil
+    let waiters = cancellationWaiters
+    cancellationWaiters = []
+    waiters.forEach { $0.resume() }
+  }
 
   func prepareTranslation() throws {
     if let preparationError { throw preparationError }
   }
 
-  func translate(_ sourceText: String) -> MailTranslationResponse {
-    response
+  func translate(_ sourceText: String) async throws -> MailTranslationResponse {
+    translationDidStart = true
+    let waiters = translationStartWaiters
+    translationStartWaiters = []
+    waiters.forEach { $0.resume() }
+    if blocksTranslation {
+      await withCheckedContinuation { continuation in
+        if cancelCallCount > 0 {
+          continuation.resume()
+        } else {
+          releaseTranslation = continuation
+        }
+      }
+      try Task.checkCancellation()
+    }
+    return response
+  }
+
+  func waitUntilCancelled() async {
+    if cancelCallCount > 0 { return }
+    await withCheckedContinuation { continuation in
+      if cancelCallCount > 0 {
+        continuation.resume()
+      } else {
+        cancellationWaiters.append(continuation)
+      }
+    }
+  }
+
+  func waitUntilTranslationStarts() async {
+    if translationDidStart { return }
+    await withCheckedContinuation { continuation in
+      if translationDidStart {
+        continuation.resume()
+      } else {
+        translationStartWaiters.append(continuation)
+      }
+    }
   }
 }

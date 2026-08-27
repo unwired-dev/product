@@ -343,13 +343,7 @@ final class MailTranslationViewModel {
     sourceLanguage: Locale.Language?,
     targetLanguage: Locale.Language
   ) async {
-    availabilityCheck?.cancel()
-    activeTranslation?.cancel()
-    availabilityOperationId = UUID()
-    translationOperationId = UUID()
-    availability = nil
-    result = nil
-    errorMessage = nil
+    resetForLanguageSelectionChange()
     phase = .checkingAvailability
     let currentAvailabilityOperationId = availabilityOperationId
     let check = Task {
@@ -379,6 +373,20 @@ final class MailTranslationViewModel {
       phase = .idle
       errorMessage = Self.message(for: error)
     }
+  }
+
+  /// Invalidates work and results for a language pair that is no longer selected.
+  func resetForLanguageSelectionChange() {
+    availabilityOperationId = UUID()
+    translationOperationId = UUID()
+    activeTranslation?.cancel()
+    availabilityCheck?.cancel()
+    activeTranslation = nil
+    availabilityCheck = nil
+    availability = nil
+    errorMessage = nil
+    phase = .idle
+    result = nil
   }
 
   /// Creates a fenced request after verifying enablement, Profile ownership, and input freshness.

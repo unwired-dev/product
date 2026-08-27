@@ -124,12 +124,21 @@ struct MailTranslationView: View {
       selectAvailableTargetIfNeeded()
     }
     .task(id: languageSelectionIdentifier) {
-      guard let targetLanguage else { return }
+      guard assistanceViewModel.isEnabled,
+        !assistanceViewModel.contentIsConcealed,
+        let targetLanguage
+      else {
+        viewModel.resetForLanguageSelectionChange()
+        return
+      }
       await viewModel.refreshAvailability(
         sourceText: presentation.sourceText,
         sourceLanguage: sourceLanguage,
         targetLanguage: targetLanguage
       )
+    }
+    .onChange(of: assistanceViewModel.isEnabled) { _, isEnabled in
+      if !isEnabled { cancelAndDismiss() }
     }
     .onChange(of: assistanceViewModel.contentIsConcealed) { _, isConcealed in
       if isConcealed { cancelAndDismiss() }
@@ -206,6 +215,8 @@ struct MailTranslationView: View {
 
   private func replaceSelection() {
     guard let result = viewModel.result,
+      let targetLanguage,
+      result.targetLanguage.isEquivalent(to: targetLanguage),
       result.applicationStatus(
         profileId: assistanceViewModel.activeProfileId,
         inputVersion: currentInputVersion()
