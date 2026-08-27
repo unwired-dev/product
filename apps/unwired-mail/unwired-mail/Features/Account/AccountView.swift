@@ -6071,6 +6071,8 @@ private struct MailboxSynchronizationOverlay: View {
 
 // swiftlint:disable:next type_body_length
 struct MailShellThreadList: View {
+  @ScaledMetric(relativeTo: .subheadline) private var unreadIndicatorSize: CGFloat = 7
+
   let connection: MailboxConnection?
   let connections: [MailboxConnection]
   var composePreferences: ComposePreferences = .defaults
@@ -6186,16 +6188,18 @@ struct MailShellThreadList: View {
               }
             }
             Section {
+              let pinnedThreadIds = pinViewModel.pinnedThreadIds
               ForEach(items) { item in
                 let leadingActions = resolvedSwipeActions(for: item, edge: .leading)
                 let trailingActions = resolvedSwipeActions(for: item, edge: .trailing)
                 NavigationLink(value: item.thread.id) {
                   MailShellThreadRow(
                     categoryNamesById: categoryNamesById,
-                    isPinned: pinViewModel.pinnedThreadIds.contains(item.thread.id),
+                    isPinned: pinnedThreadIds.contains(item.thread.id),
                     item: item,
                     preferences: inboxPreferences,
-                    showsSourceConnection: mailboxSelection?.isUnified == true
+                    showsSourceConnection: mailboxSelection?.isUnified == true,
+                    unreadIndicatorSize: unreadIndicatorSize
                   )
                   .onAppear { itemDidRender(item) }
                   .onChange(of: item.id) { _, _ in itemDidRender(item) }
@@ -7323,13 +7327,12 @@ private struct MailShellMailboxTools: View {
 }
 
 private struct MailShellThreadRow: View {
-  @ScaledMetric(relativeTo: .subheadline) private var unreadIndicatorSize: CGFloat = 7
-
   let categoryNamesById: [String: String]
   let isPinned: Bool
   let item: MailShellThreadListItem
   let preferences: InboxPreferences
   let showsSourceConnection: Bool
+  let unreadIndicatorSize: CGFloat
 
   private var thread: MailboxThread {
     item.thread
