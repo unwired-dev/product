@@ -272,8 +272,8 @@ struct MailTranslationTests {
   }
 }
 
-private extension MailTranslationTests {
-  func response(
+extension MailTranslationTests {
+  fileprivate func response(
     for presentation: MailTranslationPresentation
   ) -> MailTranslationResponse {
     MailTranslationResponse(
@@ -284,7 +284,7 @@ private extension MailTranslationTests {
     )
   }
 
-  func validation(
+  fileprivate func validation(
     for presentation: MailTranslationPresentation
   ) -> MailTranslationValidationContext {
     MailTranslationValidationContext(
