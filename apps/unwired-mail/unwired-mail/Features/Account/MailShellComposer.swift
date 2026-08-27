@@ -18,9 +18,12 @@ private struct MailRecipientSuggestionRequest: Equatable {
 
 /// The mail-shell navigation actions available to an embedded composer.
 struct MailShellComposerNavigation {
+  let drafts: [MailShellCompositionDraft]
   let isExpanded: Bool
   let showsExpansionControl: Bool
   let dismiss: () -> Void
+  let newMessage: () -> Void
+  let openDraft: (MailShellCompositionDraft) -> Void
   let toggleExpansion: () -> Void
 }
 
@@ -46,7 +49,6 @@ struct MailShellComposer: View {
   @FocusState private var focusedField: MailComposerFocus?
   @State private var isBodyFocused = false
   @State private var bodyFocusRequest = 0
-  @State private var editorModel: SemanticMessageEditorModel
   @State private var assetErrorMessage: String?
   @State private var translationErrorMessage: String?
   @State private var composeAssistancePresentation: ComposeAssistancePresentation?
@@ -125,9 +127,6 @@ struct MailShellComposer: View {
       )
     )
     _suggestionService = State(initialValue: suggestionService)
-    _editorModel = State(
-      initialValue: SemanticMessageEditorModel(document: initialDraft.document)
-    )
     _viewModel = State(
       initialValue: MailComposerViewModel(
         draft: initialDraft,
@@ -185,9 +184,6 @@ struct MailShellComposer: View {
       )
     )
     _suggestionService = State(initialValue: suggestionService)
-    _editorModel = State(
-      initialValue: SemanticMessageEditorModel(document: viewModel.draft.document)
-    )
     _viewModel = State(initialValue: viewModel)
   }
 
@@ -219,7 +215,7 @@ struct MailShellComposer: View {
         MailComposerHeader(
           title: viewModel.draft.title,
           close: closeComposer,
-          closeIsDisabled: viewModel.saveState == .saving,
+          actionsAreDisabled: viewModel.saveState == .saving || viewModel.isSwitchingDraft,
           expansion: headerExpansion,
           canAutomaticallySend: canScheduleSend,
           canSendLater: viewModel.canCreateSendReminder,
@@ -229,6 +225,14 @@ struct MailShellComposer: View {
           sendLater: openSendLater,
           sendNow: scheduledSendDueAt != nil && sendNow != nil ? sendScheduledNow : nil,
           selectedPhoto: $selectedPhoto,
+          switching: navigation.map {
+            MailComposerHeader.Switching(
+              canSwitch: !viewModel.isSwitchingDraft,
+              drafts: $0.drafts.filter { $0.id != viewModel.draft.id },
+              newMessage: $0.newMessage,
+              openDraft: $0.openDraft
+            )
+          },
           discard: requestDiscard
         )
         Divider()
@@ -397,9 +401,12 @@ struct MailShellComposer: View {
         draftDidChange(draft)
         viewModel.draftChanged()
       }
+      .onChange(of: viewModel.draft.id) { _, _ in
+        resetDraftPresentation()
+      }
       .onChange(of: editorModel.document) { _, document in
         guard viewModel.draft.document != document else { return }
-        viewModel.draft.document = document
+        viewModel.editorDocumentChanged()
       }
       .interactiveDismissDisabled(
         viewModel.hasUnsavedChanges || viewModel.saveState.blocksDismissal
@@ -447,6 +454,10 @@ struct MailShellComposer: View {
         )
       }
     }
+  }
+
+  private var editorModel: SemanticMessageEditorModel {
+    viewModel.editorModel
   }
 
   private var composerSupplementalDetails: some View {
@@ -519,6 +530,26 @@ struct MailShellComposer: View {
     focusedField = nil
     isBodyFocused = true
     bodyFocusRequest &+= 1
+  }
+
+  private func resetDraftPresentation() {
+    recipientEditor = MailRecipientEditor(
+      to: viewModel.draft.recipient,
+      cc: viewModel.draft.ccRecipients,
+      bcc: viewModel.draft.bccRecipients
+    )
+    assetErrorMessage = nil
+    translationErrorMessage = nil
+    composeAssistancePresentation = nil
+    translationPresentation = nil
+    responseAssistancePresentation = nil
+    selectedSuggestionId = nil
+    suggestions = []
+    showsExpandedRecipients = false
+    showsQuotedText = false
+    focusedField = viewModel.draft.recipient.isEmpty ? .to : nil
+    isBodyFocused = !viewModel.draft.recipient.isEmpty
+    if isBodyFocused { bodyFocusRequest &+= 1 }
   }
 
   private func updateSendingIdentity(_ identityId: SendingIdentityId?) {
@@ -1148,9 +1179,16 @@ private struct MailComposerHeader: View {
     let toggle: () -> Void
   }
 
+  struct Switching {
+    let canSwitch: Bool
+    let drafts: [MailShellCompositionDraft]
+    let newMessage: () -> Void
+    let openDraft: (MailShellCompositionDraft) -> Void
+  }
+
   let title: String
   let close: () -> Void
-  let closeIsDisabled: Bool
+  let actionsAreDisabled: Bool
   let expansion: Expansion?
   let canAutomaticallySend: Bool
   let canSendLater: Bool
@@ -1160,6 +1198,7 @@ private struct MailComposerHeader: View {
   let sendLater: () -> Void
   let sendNow: (() -> Void)?
   @Binding var selectedPhoto: PhotosPickerItem?
+  let switching: Switching?
   let discard: () -> Void
 
   var body: some View {
@@ -1167,7 +1206,7 @@ private struct MailComposerHeader: View {
       Button("Close Composer", systemImage: "xmark", action: close)
         .labelStyle(.iconOnly)
         .frame(minWidth: 44, minHeight: 44)
-        .disabled(closeIsDisabled)
+        .disabled(actionsAreDisabled)
         .accessibilityIdentifier("mail-compose-close")
       Text(title)
         .font(.headline)
@@ -1186,6 +1225,21 @@ private struct MailComposerHeader: View {
         .accessibilityIdentifier("mail-compose-expansion")
       }
       Menu("More", systemImage: "ellipsis") {
+        if let switching {
+          Button("New Message", systemImage: "square.and.pencil", action: switching.newMessage)
+            .disabled(!switching.canSwitch)
+          if !switching.drafts.isEmpty {
+            Menu("Open Draft", systemImage: "doc.text") {
+              ForEach(switching.drafts) { draft in
+                Button(draft.menuTitle) {
+                  switching.openDraft(draft)
+                }
+                .disabled(!switching.canSwitch)
+              }
+            }
+          }
+          Divider()
+        }
         if let sendNow {
           Button("Send Now", systemImage: "paperplane.fill", action: sendNow)
             .disabled(!isSendEnabled)
@@ -1201,6 +1255,7 @@ private struct MailComposerHeader: View {
       }
       .labelStyle(.iconOnly)
       .frame(minWidth: 44, minHeight: 44)
+      .disabled(actionsAreDisabled)
       .accessibilityIdentifier("mail-compose-more")
       MailComposerSendButton(
         title: sendTitle,

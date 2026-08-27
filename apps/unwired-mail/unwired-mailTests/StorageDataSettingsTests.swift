@@ -733,7 +733,9 @@ private actor FixedDraftSyncService: MailCompositionDraftSyncing {
     _: MailShellCompositionDraft,
     profileId _: MailProfileId,
     session _: ProductAccountSessionSnapshot
-  ) async throws {}
+  ) async throws -> MailCompositionDraftSyncSaveResult {
+    .saved
+  }
 }
 
 private actor SuspendingProductSyncExporter: ProductSyncExporting {

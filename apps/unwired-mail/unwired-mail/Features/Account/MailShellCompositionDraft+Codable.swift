@@ -6,6 +6,7 @@ extension MailShellCompositionDraft {
     case bccRecipients
     case ccRecipients
     case connectionId
+    case conflictSourceId
     case document
     case hasExplicitReadReceiptChoice
     case id
@@ -30,6 +31,7 @@ extension MailShellCompositionDraft {
     bccRecipients = try container.decodeIfPresent(String.self, forKey: .bccRecipients) ?? ""
     ccRecipients = try container.decodeIfPresent(String.self, forKey: .ccRecipients) ?? ""
     connectionId = try container.decodeIfPresent(MailboxConnectionId.self, forKey: .connectionId)
+    conflictSourceId = try container.decodeIfPresent(UUID.self, forKey: .conflictSourceId)
     if let decodedDocument = try container.decodeIfPresent(
       SemanticMessageDocument.self,
       forKey: .document
@@ -76,6 +78,7 @@ extension MailShellCompositionDraft {
     try container.encode(bccRecipients, forKey: .bccRecipients)
     try container.encode(ccRecipients, forKey: .ccRecipients)
     try container.encodeIfPresent(connectionId, forKey: .connectionId)
+    try container.encodeIfPresent(conflictSourceId, forKey: .conflictSourceId)
     try container.encode(document, forKey: .document)
     try container.encode(document.plainText, forKey: .legacyBody)
     try container.encode(hasExplicitReadReceiptChoice, forKey: .hasExplicitReadReceiptChoice)

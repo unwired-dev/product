@@ -23,7 +23,34 @@ private struct MailDraftChunkSyncPayload: Codable, Sendable {
 
 struct MailCompositionDraftSyncSnapshot: Sendable {
   let drafts: [MailShellCompositionDraft]
-  let removedDraftIds: Set<UUID>
+  let removedDraftUpdatedAtMilliseconds: [UUID: Int64]
+
+  var removedDraftIds: Set<UUID> {
+    Set(removedDraftUpdatedAtMilliseconds.keys)
+  }
+
+  init(
+    drafts: [MailShellCompositionDraft],
+    removedDraftIds: Set<UUID>
+  ) {
+    self.drafts = drafts
+    removedDraftUpdatedAtMilliseconds = Dictionary(
+      uniqueKeysWithValues: removedDraftIds.map { ($0, .min) }
+    )
+  }
+
+  init(
+    drafts: [MailShellCompositionDraft],
+    removedDraftUpdatedAtMilliseconds: [UUID: Int64]
+  ) {
+    self.drafts = drafts
+    self.removedDraftUpdatedAtMilliseconds = removedDraftUpdatedAtMilliseconds
+  }
+}
+
+enum MailCompositionDraftSyncSaveResult: Sendable {
+  case removed
+  case saved
 }
 
 protocol MailCompositionDraftSyncing: Sendable {
@@ -40,7 +67,7 @@ protocol MailCompositionDraftSyncing: Sendable {
     _ draft: MailShellCompositionDraft,
     profileId: MailProfileId,
     session: ProductAccountSessionSnapshot
-  ) async throws
+  ) async throws -> MailCompositionDraftSyncSaveResult
 }
 
 /// Synchronizes encrypted Draft metadata and independently encrypted asset chunks.
@@ -78,12 +105,13 @@ actor MailCompositionDraftSyncService: MailCompositionDraftSyncing {
   ) async throws -> MailCompositionDraftSyncSnapshot {
     let records = try await drafts.list(session: session)
     var loaded: [MailShellCompositionDraft] = []
-    var removedDraftIds: Set<UUID> = []
+    var removedDraftUpdatedAtMilliseconds: [UUID: Int64] = [:]
     for (recordId, record) in records
     where recordId.profileId == profileId {
       try Task.checkCancellation()
       guard var draft = record.value.draft else {
-        removedDraftIds.insert(recordId.draftId)
+        removedDraftUpdatedAtMilliseconds[recordId.draftId] =
+          record.value.updatedAtMilliseconds
         continue
       }
       let requestedChunks = draft.assets.flatMap { asset in
@@ -104,7 +132,7 @@ actor MailCompositionDraftSyncService: MailCompositionDraftSyncing {
     }
     return MailCompositionDraftSyncSnapshot(
       drafts: loaded.sorted { $0.updatedAtMilliseconds > $1.updatedAtMilliseconds },
-      removedDraftIds: removedDraftIds
+      removedDraftUpdatedAtMilliseconds: removedDraftUpdatedAtMilliseconds
     )
   }
 
@@ -112,32 +140,21 @@ actor MailCompositionDraftSyncService: MailCompositionDraftSyncing {
     _ draft: MailShellCompositionDraft,
     profileId: MailProfileId,
     session: ProductAccountSessionSnapshot
-  ) async throws {
-    for asset in draft.assets {
-      for chunk in asset.chunks {
-        try Task.checkCancellation()
-        let recordId = MailDraftChunkSyncRecordId(
-          assetId: asset.id,
-          draftId: draft.id,
-          index: chunk.index
-        )
-        _ = try await chunks.update(recordId, session: session) { current in
-          guard
-            current?.value.updatedAtMilliseconds ?? .min <= draft.updatedAtMilliseconds
-          else { return .acceptAuthoritative }
-          return .write(
-            MailDraftChunkSyncPayload(
-              chunk: chunk,
-              updatedAtMilliseconds: draft.updatedAtMilliseconds
-            )
-          )
-        }
-      }
+  ) async throws -> MailCompositionDraftSyncSaveResult {
+    let recordId = MailCompositionDraftSyncRecordId(draftId: draft.id, profileId: profileId)
+    if !draft.assets.isEmpty,
+      let current = try await drafts.read([recordId], session: session)[recordId],
+      current.value.draft == nil
+    {
+      return .removed
     }
+    try await saveChunks(for: draft, session: session)
     var metadata = draft
     metadata.assets = draft.assets.map(\.metadataOnly)
-    let recordId = MailCompositionDraftSyncRecordId(draftId: draft.id, profileId: profileId)
-    _ = try await drafts.update(recordId, session: session) { current in
+    let record = try await drafts.update(recordId, session: session) { current in
+      if current?.value.draft == nil, current != nil {
+        return .acceptAuthoritative
+      }
       guard current?.value.updatedAtMilliseconds ?? .min <= metadata.updatedAtMilliseconds else {
         return .acceptAuthoritative
       }
@@ -148,6 +165,13 @@ actor MailCompositionDraftSyncService: MailCompositionDraftSyncing {
         )
       )
     }
+    guard let record, record.value.draft == nil else { return .saved }
+    try await removeRejectedChunks(
+      for: draft,
+      removedAtMilliseconds: record.value.updatedAtMilliseconds,
+      session: session
+    )
+    return .removed
   }
 
   func remove(
@@ -158,27 +182,16 @@ actor MailCompositionDraftSyncService: MailCompositionDraftSyncing {
     let recordId = MailCompositionDraftSyncRecordId(draftId: draftId, profileId: profileId)
     let record = try await drafts.read([recordId], session: session)[recordId]
     let removedAtMilliseconds = Int64(Date.now.timeIntervalSince1970 * 1_000)
-    for asset in record?.value.draft?.assets ?? [] {
-      for index in 0..<asset.expectedChunkCount {
-        try Task.checkCancellation()
-        let chunkId = MailDraftChunkSyncRecordId(
-          assetId: asset.id,
-          draftId: draftId,
-          index: index
-        )
-        _ = try await chunks.update(chunkId, session: session) { current in
-          guard current?.value.updatedAtMilliseconds ?? .min <= removedAtMilliseconds else {
-            return .acceptAuthoritative
-          }
-          return .write(
-            MailDraftChunkSyncPayload(
-              chunk: nil,
-              updatedAtMilliseconds: removedAtMilliseconds
-            )
-          )
-        }
+    let chunkIds = (record?.value.draft?.assets ?? []).flatMap { asset in
+      (0..<asset.expectedChunkCount).map {
+        MailDraftChunkSyncRecordId(assetId: asset.id, draftId: draftId, index: $0)
       }
     }
+    try await removeChunks(
+      chunkIds,
+      updatedAtMilliseconds: removedAtMilliseconds,
+      session: session
+    )
     _ = try await drafts.update(recordId, session: session) { current in
       guard current?.value.updatedAtMilliseconds ?? .min <= removedAtMilliseconds else {
         return .acceptAuthoritative
@@ -194,6 +207,76 @@ actor MailCompositionDraftSyncService: MailCompositionDraftSyncing {
 
   private static func draftIdentifier(_ id: MailCompositionDraftSyncRecordId) -> String {
     draftPrefix + encoded(id.profileId.rawValue) + "." + id.draftId.uuidString.lowercased()
+  }
+
+  private func removeRejectedChunks(
+    for draft: MailShellCompositionDraft,
+    removedAtMilliseconds: Int64,
+    session: ProductAccountSessionSnapshot
+  ) async throws {
+    let cleanupTimestamp = max(draft.updatedAtMilliseconds, removedAtMilliseconds)
+    let chunkIds = draft.assets.flatMap { asset in
+      asset.chunks.map { chunk in
+        MailDraftChunkSyncRecordId(
+          assetId: asset.id,
+          draftId: draft.id,
+          index: chunk.index
+        )
+      }
+    }
+    try await removeChunks(
+      chunkIds,
+      updatedAtMilliseconds: cleanupTimestamp,
+      session: session
+    )
+  }
+
+  private func saveChunks(
+    for draft: MailShellCompositionDraft,
+    session: ProductAccountSessionSnapshot
+  ) async throws {
+    for asset in draft.assets {
+      for chunk in asset.chunks {
+        try Task.checkCancellation()
+        let recordId = MailDraftChunkSyncRecordId(
+          assetId: asset.id,
+          draftId: draft.id,
+          index: chunk.index
+        )
+        _ = try await chunks.update(recordId, session: session) { current in
+          guard current?.value.updatedAtMilliseconds ?? .min <= draft.updatedAtMilliseconds else {
+            return .acceptAuthoritative
+          }
+          return .write(
+            MailDraftChunkSyncPayload(
+              chunk: chunk,
+              updatedAtMilliseconds: draft.updatedAtMilliseconds
+            )
+          )
+        }
+      }
+    }
+  }
+
+  private func removeChunks(
+    _ recordIds: [MailDraftChunkSyncRecordId],
+    updatedAtMilliseconds: Int64,
+    session: ProductAccountSessionSnapshot
+  ) async throws {
+    for recordId in recordIds {
+      try Task.checkCancellation()
+      _ = try await chunks.update(recordId, session: session) { current in
+        guard current?.value.updatedAtMilliseconds ?? .min <= updatedAtMilliseconds else {
+          return .acceptAuthoritative
+        }
+        return .write(
+          MailDraftChunkSyncPayload(
+            chunk: nil,
+            updatedAtMilliseconds: updatedAtMilliseconds
+          )
+        )
+      }
+    }
   }
 
   private static func draftRecordId(_ identifier: String) -> MailCompositionDraftSyncRecordId? {

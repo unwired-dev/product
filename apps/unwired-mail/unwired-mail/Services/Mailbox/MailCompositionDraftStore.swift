@@ -293,17 +293,19 @@ actor MailCompositionDraftRepository {
     } catch {
       return local
     }
-    for draftId in snapshot.removedDraftIds {
-      try? store.remove(draftId, productAccountId: productAccountId, profileId: profileId)
-    }
-    local.removeAll { snapshot.removedDraftIds.contains($0.id) }
+    local = try resolvingRemovedDrafts(
+      in: local,
+      snapshot: snapshot,
+      productAccountId: productAccountId,
+      profileId: profileId
+    )
     var merged = Dictionary(uniqueKeysWithValues: local.map { ($0.id, $0) })
     let synchronizedById = Dictionary(uniqueKeysWithValues: snapshot.drafts.map { ($0.id, $0) })
     for draft in local
     where synchronizedById[draft.id]?.updatedAtMilliseconds ?? .min
       < draft.updatedAtMilliseconds
     {
-      try? await syncService.save(draft, profileId: profileId, session: session)
+      _ = try? await syncService.save(draft, profileId: profileId, session: session)
     }
     for var draft in snapshot.drafts {
       if let existing = merged[draft.id],
@@ -343,6 +345,43 @@ actor MailCompositionDraftRepository {
       try await syncService.remove(draftId, profileId: profileId, session: session)
     }
     try store.remove(draftId, productAccountId: productAccountId, profileId: profileId)
+  }
+
+  private func resolvingRemovedDrafts(
+    in local: [MailShellCompositionDraft],
+    snapshot: MailCompositionDraftSyncSnapshot,
+    productAccountId: String,
+    profileId: MailProfileId
+  ) throws -> [MailShellCompositionDraft] {
+    var retained: [MailShellCompositionDraft] = []
+    for draft in local {
+      guard let removedAt = snapshot.removedDraftUpdatedAtMilliseconds[draft.id] else {
+        retained.append(draft)
+        continue
+      }
+      if draft.updatedAtMilliseconds > removedAt {
+        let copy = try replaceWithConflictCopy(
+          draft,
+          productAccountId: productAccountId,
+          profileId: profileId
+        )
+        retained.append(copy)
+      } else {
+        try? store.remove(draft.id, productAccountId: productAccountId, profileId: profileId)
+      }
+    }
+    return retained
+  }
+
+  func replaceWithConflictCopy(
+    _ draft: MailShellCompositionDraft,
+    productAccountId: String,
+    profileId: MailProfileId
+  ) throws -> MailShellCompositionDraft {
+    let copy = draft.preservingAsConflictCopy()
+    try store.save(copy, productAccountId: productAccountId, profileId: profileId)
+    try store.remove(draft.id, productAccountId: productAccountId, profileId: profileId)
+    return copy
   }
 
 }
