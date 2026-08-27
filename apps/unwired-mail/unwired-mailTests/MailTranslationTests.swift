@@ -346,9 +346,8 @@ private actor TranslationSessionStub: MailTranslationSession {
     releaseTranslation = nil
     let waiters = cancellationWaiters
     cancellationWaiters = []
-    for waiter in waiters {
-      waiter.resume()
-    }
+    // swiftlint:disable:next replace_for_each_with_for_loop
+    waiters.forEach { $0.resume() }
   }
 
   func prepareTranslation() throws {
@@ -359,9 +358,8 @@ private actor TranslationSessionStub: MailTranslationSession {
     translationDidStart = true
     let waiters = translationStartWaiters
     translationStartWaiters = []
-    for waiter in waiters {
-      waiter.resume()
-    }
+    // swiftlint:disable:next replace_for_each_with_for_loop
+    waiters.forEach { $0.resume() }
     if blocksTranslation {
       await withCheckedContinuation { continuation in
         if cancelCallCount > 0 {
