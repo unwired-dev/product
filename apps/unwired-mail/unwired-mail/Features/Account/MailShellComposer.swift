@@ -520,13 +520,6 @@ struct MailShellComposer: View {
   private func focusBody() {
     isBodyFocusPending = true
     focusedField = nil
-    #if canImport(UIKit)
-      UIApplication.shared.connectedScenes
-        .compactMap { $0 as? UIWindowScene }
-        .flatMap(\.windows)
-        .first(where: \.isKeyWindow)?
-        .endEditing(true)
-    #endif
     scheduleBodyFocus()
   }
 
@@ -534,6 +527,15 @@ struct MailShellComposer: View {
     Task { @MainActor in
       try? await Task.sleep(for: .milliseconds(100))
       guard isBodyFocusPending, focusedField == nil else { return }
+      #if canImport(UIKit)
+        UIApplication.shared.connectedScenes
+          .compactMap { $0 as? UIWindowScene }
+          .flatMap(\.windows)
+          .first(where: \.isKeyWindow)?
+          .endEditing(true)
+        try? await Task.sleep(for: .milliseconds(50))
+        guard isBodyFocusPending, focusedField == nil else { return }
+      #endif
       requestBodyFocus()
     }
   }
