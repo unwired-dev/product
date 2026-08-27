@@ -2,4 +2,4 @@
 'unwired-mail': patch
 ---
 
-Keep programmatic composer body focus stable while the native responder transition settles.
+Keep keyboard focus moving from the Subject field into the message body after submission.
