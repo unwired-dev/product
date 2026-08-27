@@ -369,8 +369,7 @@ struct MailShellComposer: View {
         if focusedField != nil {
           isBodyFocused = false
         } else if isBodyFocusPending {
-          isBodyFocusPending = false
-          requestBodyFocus()
+          scheduleBodyFocus()
         }
         guard let recipientField = recipientField(for: previousField) else { return }
         recipientEditor.commitPendingText(in: recipientField)
@@ -516,12 +515,17 @@ struct MailShellComposer: View {
   }
 
   private func focusBody() {
-    guard focusedField != nil else {
-      requestBodyFocus()
-      return
-    }
     isBodyFocusPending = true
     focusedField = nil
+    scheduleBodyFocus()
+  }
+
+  private func scheduleBodyFocus() {
+    Task { @MainActor in
+      try? await Task.sleep(for: .milliseconds(100))
+      guard isBodyFocusPending, focusedField == nil else { return }
+      requestBodyFocus()
+    }
   }
 
   private func requestBodyFocus() {
