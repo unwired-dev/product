@@ -512,7 +512,12 @@ struct MailShellComposer: View {
   }
 
   private func focusBody() {
-    requestBodyFocus()
+    focusedField = nil
+    Task { @MainActor in
+      await Task.yield()
+      guard focusedField == nil else { return }
+      requestBodyFocus()
+    }
   }
 
   private func requestBodyFocus() {

@@ -346,7 +346,9 @@ private actor TranslationSessionStub: MailTranslationSession {
     releaseTranslation = nil
     let waiters = cancellationWaiters
     cancellationWaiters = []
-    waiters.forEach { $0.resume() }
+    for waiter in waiters {
+      waiter.resume()
+    }
   }
 
   func prepareTranslation() throws {
@@ -357,7 +359,9 @@ private actor TranslationSessionStub: MailTranslationSession {
     translationDidStart = true
     let waiters = translationStartWaiters
     translationStartWaiters = []
-    waiters.forEach { $0.resume() }
+    for waiter in waiters {
+      waiter.resume()
+    }
     if blocksTranslation {
       await withCheckedContinuation { continuation in
         if cancelCallCount > 0 {
