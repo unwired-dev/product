@@ -2570,16 +2570,6 @@ struct AccountView: View {
         },
         itemDidRender: { item in
           releaseBudgetDriver?.recordRenderedItemId(item.id, owner: releaseBudgetDriverOwner)
-          let loadsRemoteImages =
-            messageContentPreferences?.remoteContentPolicy(
-              for: item.thread.latestMessage.connectionId
-            ) == .alwaysLoad
-          inboxViewModel.startVisibleMessageBodyPrefetch(
-            in: item.thread,
-            loadsRemoteImages: loadsRemoteImages,
-            profileId: activeDraftProfileId,
-            using: messageReader
-          )
         },
         contentPresentationDismissal: contentPresentationDismissal
       )
@@ -7919,6 +7909,7 @@ struct MailShellConversationReader: View {
   var sendingIdentities: [SendingIdentity] = []
 
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+  @State private var bodyLoadCoordinator = MailShellThreadBodyLoadCoordinator()
   @State private var calendarReview: CalendarEventReview?
   @State private var calendarReviewDismissalIdentifier: String?
   @State private var calendarReviewService = CalendarEventReviewService()
@@ -7942,6 +7933,10 @@ struct MailShellConversationReader: View {
   @State private var readTaskOwners = MailShellReadTaskOwners()
   @State private var readTasks: [StableProviderMessageIdentity: Task<Void, Never>] = [:]
   @State private var readerAvailableWidth: CGFloat = 0
+  @State private var readerScrollOffsetY: CGFloat = 0
+  @State private var readerScrollPosition = ScrollPosition(
+    idType: StableProviderMessageIdentity.self
+  )
   @State private var readerViewportFrame = CGRect.zero
   @State private var sourceInspectionMessage: MailboxMessageMetadata?
   @State private var translationPresentation: MailTranslationPresentation?
@@ -8034,6 +8029,7 @@ struct MailShellConversationReader: View {
   }
 
   private func resetSelectionState() {
+    bodyLoadCoordinator.reset()
     categorySelection = nil
     completedUnsubscribeIdentifiers = []
     contactReview = nil
@@ -8196,41 +8192,55 @@ struct MailShellConversationReader: View {
     for thread: MailboxThread,
     connection: MailboxConnection
   ) -> some View {
-    VStack(spacing: 0) {
-      ScrollViewReader { scrollProxy in
-        ScrollView {
-          LazyVStack(alignment: .leading, spacing: 16) {
-            followUpNudge(for: thread, connection: connection)
-            conversationMessages(in: thread, connection: connection)
-          }
-          .padding()
-          .frame(maxWidth: .infinity, alignment: .top)
-        }
-        .accessibilityIdentifier("mail-conversation-reader")
-        .contentMargins(.bottom, bottomScrollContentMargin, for: .scrollContent)
-        .mailShellTopScrollEdgeEffectHidden()
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .onGeometryChange(for: CGRect.self) { geometry in
-          geometry.frame(in: .global)
-        } action: { newViewportFrame in
-          readerViewportFrame = newViewportFrame
-          readerAvailableWidth = newViewportFrame.width
-        }
-        .overlay(alignment: .top) {
-          Rectangle()
-            .fill(MailTheme.separator)
-            .frame(height: 1)
-            .allowsHitTesting(false)
-        }
-        .task(id: selection.selectedMessageScrollTarget) {
-          guard let target = selection.selectedMessageScrollTarget else { return }
-          await Task.yield()
-          scrollProxy.scrollTo(target.messageId, anchor: .top)
-          selection.clearMessageScrollTarget(target)
-        }
+    ScrollView {
+      VStack(alignment: .leading, spacing: 0) {
+        MailShellThreadSummary(thread: thread)
+        followUpNudge(for: thread, connection: connection)
+        Divider()
+        conversationMessages(in: thread, connection: connection)
       }
+      .scrollTargetLayout()
+      .frame(maxWidth: .infinity, alignment: .top)
     }
+    .scrollPosition($readerScrollPosition)
+    .accessibilityIdentifier("mail-conversation-reader")
+    .contentMargins(.bottom, bottomScrollContentMargin, for: .scrollContent)
+    .mailShellTopScrollEdgeEffectHidden()
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    .onGeometryChange(for: CGRect.self) { geometry in
+      geometry.frame(in: .global)
+    } action: { newViewportFrame in
+      readerViewportFrame = newViewportFrame
+      readerAvailableWidth = newViewportFrame.width
+      bodyLoadCoordinator.updateViewport(newViewportFrame)
+    }
+    .onScrollGeometryChange(for: CGFloat.self) { geometry in
+      geometry.contentOffset.y
+    } action: { _, newOffsetY in
+      readerScrollOffsetY = newOffsetY
+    }
+    .overlay(alignment: .top) {
+      Rectangle()
+        .fill(MailTheme.separator)
+        .frame(height: 1)
+        .allowsHitTesting(false)
+    }
+    .task(id: thread.id) {
+      bodyLoadCoordinator.synchronize(thread.messages.map(\.id))
+      bodyLoadCoordinator.activate()
+    }
+    .task(id: selection.selectedMessageScrollTarget) {
+      guard let target = selection.selectedMessageScrollTarget else { return }
+      await Task.yield()
+      readerScrollPosition.scrollTo(id: target.messageId, anchor: .top)
+      selection.clearMessageScrollTarget(target)
+    }
+    .onChange(of: thread.messages.map(\.id)) { _, messageIds in
+      bodyLoadCoordinator.synchronize(messageIds)
+    }
+    .onDisappear {
+      bodyLoadCoordinator.reset()
+    }
   }
 
   @ViewBuilder
@@ -8299,7 +8309,16 @@ struct MailShellConversationReader: View {
     connection: MailboxConnection
   ) -> some View {
     ForEach(thread.messages) { message in
-      conversationMessage(message, in: thread, connection: connection)
+      conversationMessage(
+        message,
+        in: thread,
+        connection: connection,
+        loadRegistration: bodyLoadCoordinator.registration(for: message.id)
+      )
+      if message.id != thread.messages.last?.id {
+        Divider()
+          .padding(.horizontal, 16)
+      }
     }
   }
 
@@ -8349,32 +8368,26 @@ struct MailShellConversationReader: View {
   private func conversationMessage(
     _ message: MailboxMessageMetadata,
     in thread: MailboxThread,
-    connection: MailboxConnection
+    connection: MailboxConnection,
+    loadRegistration: MailShellThreadBodyLoadRegistration
   ) -> some View {
-    conversationMessageContent(message, in: thread, connection: connection)
-      .background(MailTheme.elevated)
-      .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-      .overlay {
-        RoundedRectangle(cornerRadius: 14, style: .continuous)
-          .stroke(Color.white.opacity(0.12), lineWidth: 1)
-      }
-      .environment(\.colorScheme, .dark)
-      .accessibilityElement(children: .contain)
-      .accessibilityIdentifier("mail-conversation-message")
-      .containerRelativeFrame(.horizontal) { length, _ in length * 0.9 }
-      .frame(
-        maxWidth: .infinity,
-        alignment: Self.messageHorizontalPlacement(
-          providerStateIds: message.providerStateIds
-        ) == .trailing ? .trailing : .leading
-      )
-      .id(message.id)
+    conversationMessageContent(
+      message,
+      in: thread,
+      connection: connection,
+      loadRegistration: loadRegistration
+    )
+    .accessibilityElement(children: .contain)
+    .accessibilityIdentifier("mail-conversation-message")
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .id(message.id)
   }
 
   private func conversationMessageContent(
     _ message: MailboxMessageMetadata,
     in thread: MailboxThread,
-    connection: MailboxConnection
+    connection: MailboxConnection,
+    loadRegistration: MailShellThreadBodyLoadRegistration
   ) -> some View {
     VStack(alignment: .leading, spacing: 0) {
       MailShellConversationMessageHeader(
@@ -8391,7 +8404,12 @@ struct MailShellConversationReader: View {
       Divider()
         .overlay(Color.white.opacity(0.08))
       VStack(alignment: .leading, spacing: 12) {
-        conversationMessageBody(message, in: thread, connection: connection)
+        conversationMessageBody(
+          message,
+          in: thread,
+          connection: connection,
+          loadRegistration: loadRegistration
+        )
         messageSuggestion(for: message, in: thread, connection: connection)
       }
     }
@@ -8401,18 +8419,27 @@ struct MailShellConversationReader: View {
   private func conversationMessageBody(
     _ message: MailboxMessageMetadata,
     in thread: MailboxThread,
-    connection: MailboxConnection
+    connection: MailboxConnection,
+    loadRegistration: MailShellThreadBodyLoadRegistration
   ) -> some View {
     MailShellConversationMessageBody(
+      adjustScrollOffset: { adjustment in
+        guard adjustment != 0 else { return }
+        readerScrollPosition.scrollTo(y: max(0, readerScrollOffsetY + adjustment))
+      },
       authorizeLinkOpening: {
         guard allowsContentReveal else { return false }
         return await revalidateTrustedDevice()
       },
       clearBodySignal: inboxViewModel.loadedMessageBodyClearSignal(for: message.id),
       removesQuotedReplies: Self.removesQuotedReplies(from: message, in: thread),
-      loadBody: {
+      loadBody: { priority in
         guard await revalidateTrustedDevice() else { throw CancellationError() }
-        return try await inboxViewModel.loadMessageBody(message, using: messageReader)
+        return try await inboxViewModel.loadMessageBody(
+          message,
+          priority: priority,
+          using: messageReader
+        )
       },
       loadAttachment: { attachment in
         try await loadAttachmentAfterRevalidation {
@@ -8452,6 +8479,8 @@ struct MailShellConversationReader: View {
       releaseRemoteContent: {
         inboxViewModel.discardLoadedRemoteImages(for: message.id)
       },
+      loadCoordinator: bodyLoadCoordinator,
+      loadRegistration: loadRegistration,
       visibleViewportFrame: readerViewportFrame
     )
   }
@@ -10744,53 +10773,89 @@ private struct MailShellConversationMessageHeader: View {
   let message: MailboxMessageMetadata
   let showSource: () -> Void
   let translate: () -> Void
+  @State private var recipientsAreExpanded = false
 
   var body: some View {
-    HStack(alignment: .top, spacing: 12) {
-      VStack(alignment: .leading, spacing: 3) {
-        Text(message.from ?? "Unknown sender")
-          .font(.headline)
-          .lineLimit(1)
-        Text(message.subject)
-          .font(.subheadline)
-          .lineLimit(1)
-        Text(receivedDate)
-          .font(.caption)
-          .foregroundStyle(isOwnMessage ? Color.accentColor : Color.secondary)
-      }
-      Spacer(minLength: 0)
-      if !isOwnMessage, NormalizedSenderAddress(message.from) != nil {
+    VStack(alignment: .leading, spacing: 8) {
+      HStack(alignment: .top, spacing: 12) {
+        VStack(alignment: .leading, spacing: 4) {
+          Text(message.from ?? "Unknown sender")
+            .font(.headline)
+            .lineLimit(1)
+          Text(receivedDate)
+            .font(.caption)
+            .foregroundStyle(isOwnMessage ? Color.accentColor : Color.secondary)
+        }
+        Spacer(minLength: 0)
+        if !isOwnMessage, NormalizedSenderAddress(message.from) != nil {
+          Menu {
+            if isSenderBlocked {
+              Label("Sender blocked", systemImage: "hand.raised.fill")
+            } else {
+              Button("Block Sender", systemImage: "hand.raised", role: .destructive) {
+                blockSender(message.from)
+              }
+            }
+          } label: {
+            Label("Sender Actions", systemImage: "ellipsis.circle")
+              .labelStyle(.iconOnly)
+          }
+          .accessibilityIdentifier("message-sender-actions")
+        }
+        if isLatest {
+          Text("Latest")
+            .font(.caption.bold())
+            .foregroundStyle(isOwnMessage ? Color.accentColor : Color.secondary)
+        }
         Menu {
-          if isSenderBlocked {
-            Label("Sender blocked", systemImage: "hand.raised.fill")
-          } else {
-            Button("Block Sender", systemImage: "hand.raised", role: .destructive) {
-              blockSender(message.from)
+          Button("Translate Message", systemImage: "character.bubble", action: translate)
+          Button("View Message Source", systemImage: "doc.text.magnifyingglass", action: showSource)
+        } label: {
+          Label("Message Actions", systemImage: "ellipsis")
+            .labelStyle(.iconOnly)
+        }
+        .accessibilityIdentifier("mail-message-actions")
+      }
+      if !recipientLines.isEmpty {
+        DisclosureGroup(isExpanded: $recipientsAreExpanded) {
+          VStack(alignment: .leading, spacing: 4) {
+            ForEach(recipientLines, id: \.label) { line in
+              LabeledContent(line.label, value: line.value)
             }
           }
+          .font(.caption)
+          .padding(.top, 4)
         } label: {
-          Image(systemName: "ellipsis.circle")
+          Text(recipientSummary)
+            .font(.caption)
+            .foregroundStyle(.secondary)
         }
-        .accessibilityLabel("Sender actions")
-        .accessibilityIdentifier("message-sender-actions")
+        .tint(.secondary)
+        .accessibilityIdentifier("mail-message-recipients")
       }
-      if isLatest {
-        Text("Latest")
-          .font(.caption.bold())
-          .foregroundStyle(isOwnMessage ? Color.accentColor : Color.secondary)
-      }
-      Menu {
-        Button("Translate Message", systemImage: "character.bubble", action: translate)
-        Button("View Message Source", systemImage: "doc.text.magnifyingglass", action: showSource)
-      } label: {
-        Label("Message Actions", systemImage: "ellipsis")
-          .labelStyle(.iconOnly)
-      }
-      .accessibilityIdentifier("mail-message-actions")
     }
-    .padding(.horizontal, 14)
-    .padding(.vertical, 10)
+    .padding(.horizontal, 16)
+    .padding(.vertical, 12)
     .frame(maxWidth: .infinity, alignment: .leading)
+  }
+
+  private var recipientLines: [(label: String, value: String)] {
+    var lines: [(label: String, value: String)] = []
+    if let recipients = message.recipientHeaders, !recipients.isEmpty {
+      lines.append(("To", recipients.joined(separator: ", ")))
+    }
+    if let recipients = message.bccRecipients, !recipients.isEmpty {
+      lines.append(("Bcc", recipients.joined(separator: ", ")))
+    }
+    return lines
+  }
+
+  private var recipientSummary: String {
+    guard let recipients = message.recipientHeaders, let first = recipients.first else {
+      return "Recipients"
+    }
+    let additionalCount = recipients.count - 1 + (message.bccRecipients?.count ?? 0)
+    return additionalCount == 0 ? "To: \(first)" : "To: \(first) +\(additionalCount)"
   }
 
   private var receivedDate: String {
@@ -10800,10 +10865,11 @@ private struct MailShellConversationMessageHeader: View {
 }
 
 private struct MailShellConversationMessageBody: View {
+  let adjustScrollOffset: (CGFloat) -> Void
   let authorizeLinkOpening: () async -> Bool
   let clearBodySignal: UUID?
   let removesQuotedReplies: Bool
-  let loadBody: () async throws -> MailboxMessageBody
+  let loadBody: (MailLoadPriority) async throws -> MailboxMessageBody
   let loadAttachment: (MailboxMessageAttachment) async throws -> Data
   let loadRemoteContent: (SanitizedMessageHTML) async throws -> RemoteMessageContentLoadResult
   let markBodyDisplayed: () -> Void
@@ -10812,6 +10878,8 @@ private struct MailShellConversationMessageBody: View {
   let onBodyLoaded: (MailboxMessageBody) -> Void
   let releaseBodyPresentation: () -> Void
   let releaseRemoteContent: () -> Void
+  let loadCoordinator: MailShellThreadBodyLoadCoordinator
+  let loadRegistration: MailShellThreadBodyLoadRegistration
   let visibleViewportFrame: CGRect
   @State private var bodyFrame = CGRect.zero
   @State private var isBodyLoaded = false
@@ -10819,6 +10887,7 @@ private struct MailShellConversationMessageBody: View {
 
   var body: some View {
     MailShellMessageBody(
+      allowsAutomaticRemoteContent: loadRegistration.allowsAutomaticRemoteContent,
       authorizeLinkOpening: authorizeLinkOpening,
       clearSignal: clearBodySignal,
       connectionId: message.connectionId,
@@ -10833,12 +10902,26 @@ private struct MailShellConversationMessageBody: View {
         updateBodyVisibility(isBodyLoaded: true)
       },
       onBodyLoaded: onBodyLoaded,
+      onLoadAttemptFinished: { requestId, shouldRetry in
+        loadCoordinator.finishLoad(
+          for: message.id,
+          requestId: requestId,
+          shouldRetry: shouldRetry
+        )
+      },
+      onRetryRequested: {
+        loadCoordinator.retry(message.id)
+      },
       onRelease: releaseBodyPresentation,
       onReleaseRemoteContent: releaseRemoteContent,
       removesQuotedReplies: removesQuotedReplies,
+      loadRequestId: loadRegistration.loadRequestId,
+      usesCoordinatedLoading: true,
       loadAttachment: loadAttachment,
       loadRemoteContent: loadRemoteContent,
-      load: loadBody
+      load: {
+        try await loadBody(loadRegistration.loadPriority)
+      }
     )
     .padding(.horizontal, 14)
     .padding(.vertical, 8)
@@ -10846,6 +10929,9 @@ private struct MailShellConversationMessageBody: View {
       geometry.frame(in: .global)
     } action: { newBodyFrame in
       bodyFrame = newBodyFrame
+      adjustScrollOffset(
+        loadCoordinator.updateFrame(newBodyFrame, for: message.id)
+      )
       updateBodyVisibility(bodyFrame: newBodyFrame)
     }
     .onChange(of: visibleViewportFrame) {
@@ -10878,6 +10964,7 @@ private struct MailShellConversationMessageBody: View {
 }
 
 struct MailShellMessageBody: View {
+  let allowsAutomaticRemoteContent: Bool
   let authorizeLinkOpening: () async -> Bool
   let clearSignal: UUID?
   let connectionId: MailboxConnectionId?
@@ -10890,17 +10977,23 @@ struct MailShellMessageBody: View {
   let onDismiss: () -> Void
   let onLoaded: () -> Void
   let onBodyLoaded: (MailboxMessageBody) -> Void
+  let onLoadAttemptFinished: (UUID, Bool) -> Void
+  let onRetryRequested: () -> Void
   let onRelease: () -> Void
   let onReleaseRemoteContent: () -> Void
   let removesQuotedReplies: Bool
+  let loadRequestId: UUID?
+  let usesCoordinatedLoading: Bool
   let loadRemoteContent: (SanitizedMessageHTML) async throws -> RemoteMessageContentLoadResult
   @State private var loadedContent: MailShellLoadedMessageContent?
   @State private var isPresentationRetained = false
+  @State private var automaticLoadRequestId = UUID()
   @State private var loadAttempt = 0
   @State private var loadGeneration = UUID()
   @State private var presentationState = MailShellMessageBodyPresentationState.placeholder
 
   init(
+    allowsAutomaticRemoteContent: Bool = true,
     authorizeLinkOpening: @escaping () async -> Bool = { true },
     clearSignal: UUID? = nil,
     connectionId: MailboxConnectionId? = nil,
@@ -10911,9 +11004,13 @@ struct MailShellMessageBody: View {
     onDismiss: @escaping () -> Void = {},
     onLoaded: @escaping () -> Void = {},
     onBodyLoaded: @escaping (MailboxMessageBody) -> Void = { _ in },
+    onLoadAttemptFinished: @escaping (UUID, Bool) -> Void = { _, _ in },
+    onRetryRequested: @escaping () -> Void = {},
     onRelease: @escaping () -> Void = {},
     onReleaseRemoteContent: @escaping () -> Void = {},
     removesQuotedReplies: Bool = false,
+    loadRequestId: UUID? = nil,
+    usesCoordinatedLoading: Bool = false,
     loadAttachment: @escaping (MailboxMessageAttachment) async throws -> Data = { _ in
       throw MailboxMessageAttachmentError.unsupportedProvider
     },
@@ -10924,6 +11021,7 @@ struct MailShellMessageBody: View {
       },
     load: @escaping () async throws -> MailboxMessageBody
   ) {
+    self.allowsAutomaticRemoteContent = allowsAutomaticRemoteContent
     self.authorizeLinkOpening = authorizeLinkOpening
     self.clearSignal = clearSignal
     self.connectionId = connectionId
@@ -10936,9 +11034,13 @@ struct MailShellMessageBody: View {
     self.onDismiss = onDismiss
     self.onLoaded = onLoaded
     self.onBodyLoaded = onBodyLoaded
+    self.onLoadAttemptFinished = onLoadAttemptFinished
+    self.onRetryRequested = onRetryRequested
     self.onRelease = onRelease
     self.onReleaseRemoteContent = onReleaseRemoteContent
     self.removesQuotedReplies = removesQuotedReplies
+    self.loadRequestId = loadRequestId
+    self.usesCoordinatedLoading = usesCoordinatedLoading
     self.loadRemoteContent = loadRemoteContent
   }
 
@@ -10946,6 +11048,7 @@ struct MailShellMessageBody: View {
     Group {
       if let loadedContent {
         MailShellMessageContent(
+          allowsAutomaticRemoteContent: allowsAutomaticRemoteContent,
           connectionId: connectionId,
           loadedContent: loadedContent,
           messageId: messageId,
@@ -10994,13 +11097,23 @@ struct MailShellMessageBody: View {
       presentations: loadedContent?.presentation.linkPresentations ?? [],
       authorize: authorizeLinkOpening
     )
-    .task(id: loadAttempt) {
+    .task(id: loadTaskIdentity) {
+      guard let requestId = usesCoordinatedLoading ? loadRequestId : automaticLoadRequestId else {
+        return
+      }
+      var shouldRetry = true
+      defer {
+        if usesCoordinatedLoading {
+          onLoadAttemptFinished(requestId, shouldRetry)
+        }
+      }
       let generation = loadGeneration
       do {
         let loadedMessageBody = try await load()
         isPresentationRetained = true
         guard generation == loadGeneration else {
           releasePresentation()
+          shouldRetry = Task.isCancelled
           return
         }
         let presentation = try await MessageHTMLPresentation.prepare(
@@ -11016,6 +11129,7 @@ struct MailShellMessageBody: View {
         )
         guard generation == loadGeneration else {
           releasePresentation()
+          shouldRetry = Task.isCancelled
           return
         }
         loadedContent = MailShellLoadedMessageContent(
@@ -11031,12 +11145,14 @@ struct MailShellMessageBody: View {
         if presentationState.revealsContent {
           onLoaded()
         }
+        shouldRetry = false
       } catch is CancellationError {
         releasePresentation()
       } catch {
         releasePresentation()
         guard generation == loadGeneration else { return }
         presentationState.didFail(error.localizedDescription)
+        shouldRetry = false
       }
     }
     .onAppear {
@@ -11071,6 +11187,15 @@ struct MailShellMessageBody: View {
     presentationState.retry()
     loadGeneration = UUID()
     loadAttempt += 1
+    if usesCoordinatedLoading {
+      onRetryRequested()
+    }
+  }
+
+  private var loadTaskIdentity: String {
+    let requestIdentity =
+      usesCoordinatedLoading ? loadRequestId?.uuidString ?? "waiting" : "automatic"
+    return "\(requestIdentity):\(loadAttempt)"
   }
 
   private func revealPreparedContent() {
@@ -11195,6 +11320,7 @@ enum MessagePlainTextLinks {
 }
 
 private struct MailShellMessageContent: View {
+  let allowsAutomaticRemoteContent: Bool
   let connectionId: MailboxConnectionId?
   let loadedContent: MailShellLoadedMessageContent
   let messageId: StableProviderMessageIdentity?
@@ -11208,6 +11334,7 @@ private struct MailShellMessageContent: View {
       switch loadedContent.presentation {
       case .html(let html):
         MessageHTMLView(
+          allowsAutomaticRemoteContent: allowsAutomaticRemoteContent,
           connectionId: connectionId,
           html: html,
           onInitialDocumentReady: onInitialHTMLDocumentReady,
@@ -13517,6 +13644,7 @@ final class GmailInboxViewModel {
 
   func loadMessageBody(
     _ message: MailboxMessageMetadata,
+    priority: MailLoadPriority = .interactive,
     using reader: MailboxMessageReading
   ) async throws -> MailboxMessageBody {
     loadingMessageBodyCounts[message.id, default: 0] += 1
@@ -13528,7 +13656,8 @@ final class GmailInboxViewModel {
       for: message.id,
       maximumConcurrentPipelines: MailLoadConcurrencyPolicy.maximumConcurrentBodyPipelines(
         for: message.connectionId.providerId
-      )
+      ),
+      priority: priority
     ) {
       try await reader.loadMessageBody(message: message, session: self.session)
     }

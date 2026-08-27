@@ -3,7 +3,7 @@ import Foundation
 // swiftlint:disable file_length
 
 /// The scheduling class for a read-only mail operation.
-enum MailLoadPriority {
+enum MailLoadPriority: Equatable {
   case interactive
   case speculative
 }
