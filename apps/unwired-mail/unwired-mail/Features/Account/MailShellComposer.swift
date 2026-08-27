@@ -473,6 +473,7 @@ struct MailShellComposer: View {
 
   private func focusBody() {
     focusedField = nil
+    isBodyFocused = false
     Task { @MainActor in
       await Task.yield()
       guard focusedField == nil || focusedField == .subject else { return }
