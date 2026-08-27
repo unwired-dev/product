@@ -330,7 +330,8 @@ struct MailShellComposer: View {
         guard let item else { return }
         Task { await importPhoto(item) }
       }
-      .onChange(of: focusedField) { previousField, _ in
+      .onChange(of: focusedField) { previousField, focusedField in
+        if focusedField != nil { isBodyFocused = false }
         guard let recipientField = recipientField(for: previousField) else { return }
         recipientEditor.commitPendingText(in: recipientField)
       }
@@ -473,13 +474,7 @@ struct MailShellComposer: View {
 
   private func focusBody() {
     focusedField = nil
-    isBodyFocused = false
-    Task { @MainActor in
-      await Task.yield()
-      guard focusedField == nil || focusedField == .subject else { return }
-      focusedField = nil
-      isBodyFocused = true
-    }
+    isBodyFocused = true
   }
 
   private func updateSendingIdentity(_ identityId: SendingIdentityId?) {
