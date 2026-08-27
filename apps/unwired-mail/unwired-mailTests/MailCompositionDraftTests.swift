@@ -710,7 +710,9 @@ final class MailCompositionDraftTests {
 
     #expect(await viewModel.close())
     #expect(viewModel.draft == copy)
-    #expect(viewModel.noticeMessage == MailCompositionDraftSaveConflict(copy: copy).errorDescription)
+    #expect(
+      viewModel.noticeMessage == MailCompositionDraftSaveConflict(copy: copy).errorDescription
+    )
     #expect(cancelledDraftIds == [source.id])
     #expect(scheduledDraftIds == [copy.id])
     #expect(viewModel.reminderState == .saved(.scheduled))
