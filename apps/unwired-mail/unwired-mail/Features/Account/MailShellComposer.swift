@@ -1,6 +1,9 @@
 import PhotosUI
 import SwiftUI
 import UniformTypeIdentifiers
+#if canImport(UIKit)
+  import UIKit
+#endif
 
 // swiftlint:disable file_length
 
@@ -517,6 +520,14 @@ struct MailShellComposer: View {
   private func focusBody() {
     isBodyFocusPending = true
     focusedField = nil
+    #if canImport(UIKit)
+      UIApplication.shared.sendAction(
+        #selector(UIResponder.resignFirstResponder),
+        to: nil,
+        from: nil,
+        for: nil
+      )
+    #endif
     scheduleBodyFocus()
   }
 
