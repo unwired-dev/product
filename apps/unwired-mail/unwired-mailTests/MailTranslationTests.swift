@@ -13,7 +13,6 @@ struct MailTranslationTests {
   @Test(.bug(id: 415))
   func incomingTranslationRequiresAlreadyLocalMessageText() {
     let messageId = messageId()
-
     #expect(throws: MailTranslationError.noLocalMessageText) {
       try MailTranslationRequestBuilder.incomingMessage(
         messageId: messageId,
@@ -270,8 +269,10 @@ struct MailTranslationTests {
     )
     return viewModel
   }
+}
 
-  private func response(
+extension MailTranslationTests {
+  fileprivate func response(
     for presentation: MailTranslationPresentation
   ) -> MailTranslationResponse {
     MailTranslationResponse(
@@ -282,7 +283,7 @@ struct MailTranslationTests {
     )
   }
 
-  private func validation(
+  fileprivate func validation(
     for presentation: MailTranslationPresentation
   ) -> MailTranslationValidationContext {
     MailTranslationValidationContext(
@@ -346,7 +347,9 @@ private actor TranslationSessionStub: MailTranslationSession {
     releaseTranslation = nil
     let waiters = cancellationWaiters
     cancellationWaiters = []
-    waiters.forEach { $0.resume() }
+    for waiter in waiters {
+      waiter.resume()
+    }
   }
 
   func prepareTranslation() throws {
@@ -357,7 +360,9 @@ private actor TranslationSessionStub: MailTranslationSession {
     translationDidStart = true
     let waiters = translationStartWaiters
     translationStartWaiters = []
-    waiters.forEach { $0.resume() }
+    for waiter in waiters {
+      waiter.resume()
+    }
     if blocksTranslation {
       await withCheckedContinuation { continuation in
         if cancelCallCount > 0 {
