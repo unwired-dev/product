@@ -9,6 +9,7 @@ final class SemanticMessageTextViewCoordinator: NSObject, UITextViewDelegate {
   weak var textView: SemanticMessageUITextView?
 
   private var isSynchronizing = false
+  private var activeFocusRequest: Int?
   private var scheduledFocusRequest: Int?
   private var renderedDocument: SemanticMessageDocument?
   private var dismissedSlashCommandContext: SemanticMessageSlashCommand.Context?
@@ -106,13 +107,17 @@ final class SemanticMessageTextViewCoordinator: NSObject, UITextViewDelegate {
   }
 
   func textViewDidBeginEditing(_ textView: UITextView) {
+    activeFocusRequest = parent.focusRequest
     if parent.isFocused == false { parent.isFocused = true }
     dismissedSlashCommandContext = nil
     refreshSlashCommandMenu()
   }
 
   func textViewDidEndEditing(_ textView: UITextView) {
-    if parent.isFocused { parent.isFocused = false }
+    if activeFocusRequest == parent.focusRequest, parent.isFocused {
+      parent.isFocused = false
+    }
+    activeFocusRequest = nil
     dismissedSlashCommandContext = nil
     dismissSlashCommandMenu()
   }
