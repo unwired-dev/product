@@ -268,19 +268,19 @@ struct MailShellComposer: View {
               isFocused: $isBodyFocused,
               focusRequest: bodyFocusRequest
             )
-              .simultaneousGesture(
-                TapGesture().onEnded {
-                  requestBodyFocus()
-                }
-              )
-              .dropDestination(for: Data.self) { items, _ in
-                addDroppedImages(items)
-                return !items.isEmpty
+            .simultaneousGesture(
+              TapGesture().onEnded {
+                requestBodyFocus()
               }
-              .dropDestination(for: URL.self) { urls, _ in
-                importFiles(.success(urls))
-                return !urls.isEmpty
-              }
+            )
+            .dropDestination(for: Data.self) { items, _ in
+              addDroppedImages(items)
+              return !items.isEmpty
+            }
+            .dropDestination(for: URL.self) { urls, _ in
+              importFiles(.success(urls))
+              return !urls.isEmpty
+            }
             Divider()
             composerSupplementalDetails
           }
