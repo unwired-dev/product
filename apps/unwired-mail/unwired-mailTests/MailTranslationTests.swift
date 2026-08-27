@@ -270,8 +270,10 @@ struct MailTranslationTests {
     )
     return viewModel
   }
+}
 
-  private func response(
+private extension MailTranslationTests {
+  func response(
     for presentation: MailTranslationPresentation
   ) -> MailTranslationResponse {
     MailTranslationResponse(
@@ -282,7 +284,7 @@ struct MailTranslationTests {
     )
   }
 
-  private func validation(
+  func validation(
     for presentation: MailTranslationPresentation
   ) -> MailTranslationValidationContext {
     MailTranslationValidationContext(
@@ -346,8 +348,9 @@ private actor TranslationSessionStub: MailTranslationSession {
     releaseTranslation = nil
     let waiters = cancellationWaiters
     cancellationWaiters = []
-    // swiftlint:disable:next replace_for_each_with_for_loop
-    waiters.forEach { $0.resume() }
+    for waiter in waiters {
+      waiter.resume()
+    }
   }
 
   func prepareTranslation() throws {
@@ -358,8 +361,9 @@ private actor TranslationSessionStub: MailTranslationSession {
     translationDidStart = true
     let waiters = translationStartWaiters
     translationStartWaiters = []
-    // swiftlint:disable:next replace_for_each_with_for_loop
-    waiters.forEach { $0.resume() }
+    for waiter in waiters {
+      waiter.resume()
+    }
     if blocksTranslation {
       await withCheckedContinuation { continuation in
         if cancelCallCount > 0 {
