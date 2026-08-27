@@ -26,12 +26,18 @@ final class SemanticMessageTextViewCoordinator: NSObject, UITextViewDelegate {
       defer {
         if scheduledFocusRequest == request { scheduledFocusRequest = nil }
       }
+      var stableFocusObservations = 0
       for attempt in 0..<10 {
         await Task.yield()
         guard parent.isFocused, parent.focusRequest == request, let textView else { return }
         if textView.window != nil {
-          _ = textView.becomeFirstResponder()
-          if textView.isFirstResponder { return }
+          if textView.isFirstResponder {
+            stableFocusObservations += 1
+            if stableFocusObservations == 2 { return }
+          } else {
+            stableFocusObservations = 0
+            _ = textView.becomeFirstResponder()
+          }
         }
         if attempt < 9 {
           try? await Task.sleep(for: .milliseconds(50))
@@ -100,6 +106,8 @@ final class SemanticMessageTextViewCoordinator: NSObject, UITextViewDelegate {
   }
 
   func textViewDidEndEditing(_ textView: UITextView) {
+    // SwiftUI can finish resigning the previous field after this request first succeeds.
+    guard scheduledFocusRequest != parent.focusRequest else { return }
     if activeFocusRequest == parent.focusRequest, parent.isFocused {
       parent.isFocused = false
     }
