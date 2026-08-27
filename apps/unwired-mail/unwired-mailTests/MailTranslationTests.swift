@@ -13,7 +13,6 @@ struct MailTranslationTests {
   @Test(.bug(id: 415))
   func incomingTranslationRequiresAlreadyLocalMessageText() {
     let messageId = messageId()
-
     #expect(throws: MailTranslationError.noLocalMessageText) {
       try MailTranslationRequestBuilder.incomingMessage(
         messageId: messageId,
