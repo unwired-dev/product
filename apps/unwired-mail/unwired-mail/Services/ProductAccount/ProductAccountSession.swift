@@ -276,6 +276,7 @@ final class ProductAccountSession {
   #endif
   private var isSigningOut = false
   private let appleSignInService: AppleSignInPerforming
+  private let authorizedRemoteContentCache: any AuthorizedRemoteContentCacheClearing
   private let devicePushUnregistrationService: DevicePushUnregistering
   private let genericNotificationFallbackStore: GenericNotificationFallbackClearing
   private let gmailPushWakeupDrainer: GmailPushWakeupDraining
@@ -302,6 +303,8 @@ final class ProductAccountSession {
 
   init(
     appleSignInService: AppleSignInPerforming,
+    authorizedRemoteContentCache: any AuthorizedRemoteContentCacheClearing =
+      AuthorizedRemoteContentCache(),
     devicePushUnregistrationService: DevicePushUnregistering =
       DevicePushUnregistrationService(),
     genericNotificationFallbackStore: GenericNotificationFallbackClearing =
@@ -340,6 +343,7 @@ final class ProductAccountSession {
       KeychainTrustedDeviceCredentialStore()
   ) {
     self.appleSignInService = appleSignInService
+    self.authorizedRemoteContentCache = authorizedRemoteContentCache
     self.devicePushUnregistrationService = devicePushUnregistrationService
     self.genericNotificationFallbackStore = genericNotificationFallbackStore
     self.gmailPushWakeupDrainer = gmailPushWakeupDrainer ?? GmailPushWakeupCoordinator.shared
@@ -1013,6 +1017,7 @@ extension ProductAccountSession {
 
     await outboxDeliveryService.suspend(productAccountId: existingSnapshot.productAccountId)
     try await mailboxConnectionService.clearLocalConnection(session: existingSnapshot)
+    try authorizedRemoteContentCache.clear(productAccountId: existingSnapshot.productAccountId)
   }
 
   fileprivate func clearOutboxIfProductAccountChanged(
@@ -1706,6 +1711,7 @@ extension ProductAccountSession {
     try inboxPreferenceLocalStateStore.clear(productAccountId: productAccountId)
     mailProfileLockStore.clear(productAccountId: productAccountId)
     try await mailProfileSpotlightDataClearer.clear(productAccountId: productAccountId)
+    try authorizedRemoteContentCache.clear(productAccountId: productAccountId)
     try productSyncCacheClearer.clear(productAccountId: productAccountId)
     try mailCompositionDraftStore.clear(productAccountId: productAccountId)
     try productSyncKeyMaterialStore.clear(

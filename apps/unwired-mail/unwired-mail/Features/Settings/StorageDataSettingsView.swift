@@ -6,6 +6,7 @@ struct StorageDataSettingsView: View {
   let viewModel: StorageDataSettingsViewModel
 
   @State private var confirmsClear = false
+  @State private var confirmsClearRemoteContent = false
   @State private var isFileExporterPresented = false
 
   var body: some View {
@@ -24,6 +25,10 @@ struct StorageDataSettingsView: View {
       StorageOverviewSection(viewModel: viewModel)
       DraftStorageSection(snapshot: viewModel.snapshot)
       ClearStorageSection(confirmsClear: $confirmsClear, viewModel: viewModel)
+      ClearRemoteContentSection(
+        confirmsClear: $confirmsClearRemoteContent,
+        viewModel: viewModel
+      )
       if let session {
         ProductSyncExportSection(session: session, viewModel: viewModel)
         ReadReceiptStorageSection(summary: viewModel.readReceiptSummary)
@@ -60,6 +65,20 @@ struct StorageDataSettingsView: View {
         Provider mail, Product-owned Categories, Thread Pins, Draft documents, Draft Assets, and Product \
         Sync records will remain.
         """
+      )
+    }
+    .confirmationDialog(
+      "Clear authorized remote content?",
+      isPresented: $confirmsClearRemoteContent,
+      titleVisibility: .visible
+    ) {
+      Button("Clear Remote Content", role: .destructive) {
+        Task { await viewModel.clearRemoteContent() }
+      }
+      Button("Cancel", role: .cancel) {}
+    } message: {
+      Text(
+        "Previously authorized remote images will need to be downloaded again. Provider mail is not deleted."
       )
     }
     .alert(
@@ -102,6 +121,10 @@ private struct StorageOverviewSection: View {
           "Downloaded attachments",
           value: formattedByteCount(snapshot.downloadedAttachmentByteCount)
         )
+        LabeledContent(
+          "Authorized remote content",
+          value: formattedByteCount(snapshot.remoteContentByteCount)
+        )
         LabeledContent("Total", value: formattedByteCount(snapshot.totalByteCount))
       } else if viewModel.isLoading {
         ProgressView("Inspecting storage…")
@@ -116,9 +139,28 @@ private struct StorageOverviewSection: View {
       Text(
         """
         Mail metadata and complete Drafts are durable local data. Cached bodies and downloaded \
-        incoming attachments can be downloaded again.
+        incoming attachments and authorized remote content can be downloaded again.
         """
       )
+    }
+  }
+}
+
+private struct ClearRemoteContentSection: View {
+  @Binding var confirmsClear: Bool
+  let viewModel: StorageDataSettingsViewModel
+
+  var body: some View {
+    Section {
+      Button("Clear Remote Content", role: .destructive) {
+        confirmsClear = true
+      }
+      .disabled(viewModel.isClearingRemoteContent)
+      if viewModel.isClearingRemoteContent {
+        ProgressView("Clearing remote content…")
+      }
+    } footer: {
+      Text("This removes only authorized remote images stored on this device.")
     }
   }
 }

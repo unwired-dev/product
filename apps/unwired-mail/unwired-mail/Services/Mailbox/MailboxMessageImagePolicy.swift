@@ -462,6 +462,7 @@ struct RemoteMessageContentAdmission: Sendable {
 struct RemoteMessageContentLoadProgress {
   var attemptedIdentifiers = Set<String>()
   var attemptedImageCount = 0
+  var cachedKeys = Set<AuthorizedRemoteContentCacheKey>()
   var images: [RemoteMessageImage] = []
   var loadedByteCount = 0
   var loadedPixelCount = 0
