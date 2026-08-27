@@ -106,7 +106,6 @@ final class SemanticMessageTextViewCoordinator: NSObject, UITextViewDelegate {
   }
 
   func textViewDidEndEditing(_ textView: UITextView) {
-    // SwiftUI can finish resigning the previous field after this request first succeeds.
     guard scheduledFocusRequest != parent.focusRequest else { return }
     if activeFocusRequest == parent.focusRequest, parent.isFocused {
       parent.isFocused = false

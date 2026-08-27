@@ -235,6 +235,8 @@ enum RemoteMessageContentSession {
 struct RemoteMessageContentLoader {
   typealias Fetch = (URLRequest, Int) async throws -> (Data, URLResponse)
 
+  private let cache: AuthorizedRemoteContentCache
+  private let cacheContext: AuthorizedRemoteContentCacheContext?
   private let fetch: Fetch?
   private let maximumConcurrentRequestCount: Int
   private let maximumLoadDuration: TimeInterval
@@ -245,6 +247,8 @@ struct RemoteMessageContentLoader {
   private let requestGate: ProductAccountRemoteImageRequestGate?
 
   init(
+    cache: AuthorizedRemoteContentCache = AuthorizedRemoteContentCache(),
+    cacheContext: AuthorizedRemoteContentCacheContext? = nil,
     maximumConcurrentRequestCount: Int = 1,
     maximumLoadDuration: TimeInterval = 30,
     maximumTotalByteCount: Int = MailboxMessageImagePolicy.maximumTotalByteCount,
@@ -254,6 +258,8 @@ struct RemoteMessageContentLoader {
     requestGate: ProductAccountRemoteImageRequestGate? = nil,
     fetch: Fetch? = nil
   ) {
+    self.cache = cache
+    self.cacheContext = cacheContext
     self.fetch = fetch
     self.maximumConcurrentRequestCount = max(1, maximumConcurrentRequestCount)
     self.maximumLoadDuration = maximumLoadDuration
@@ -313,6 +319,9 @@ struct RemoteMessageContentLoader {
       }
       progress.receivedByteCount += attempt.receivedByteCount
       guard let admission = attempt.admission else { continue }
+      if let cachedKey = attempt.cachedKey {
+        progress.cachedKeys.insert(cachedKey)
+      }
       progress.images.append(admission.image)
       progress.loadedByteCount += admission.image.data.count * occurrenceCount
       progress.loadedPixelCount += admission.pixelCount * occurrenceCount
@@ -330,7 +339,14 @@ struct RemoteMessageContentLoader {
 
   private struct ConcurrentAttempt: Sendable {
     let admission: RemoteMessageContentAdmission?
+    let cachedKey: AuthorizedRemoteContentCacheKey?
     let candidate: ConcurrentCandidate
+    let receivedByteCount: Int
+  }
+
+  private struct AdmissionAttempt: Sendable {
+    let admission: RemoteMessageContentAdmission?
+    let cachedKey: AuthorizedRemoteContentCacheKey?
     let receivedByteCount: Int
   }
 
@@ -371,6 +387,7 @@ struct RemoteMessageContentLoader {
             )
             return ConcurrentAttempt(
               admission: attempt?.admission,
+              cachedKey: attempt?.cachedKey,
               candidate: candidate,
               receivedByteCount: attempt?.receivedByteCount ?? 0
             )
@@ -386,6 +403,9 @@ struct RemoteMessageContentLoader {
       for concurrentAttempt in attempts {
         progress.receivedByteCount += concurrentAttempt.receivedByteCount
         guard let admission = concurrentAttempt.admission else { continue }
+        if let cachedKey = concurrentAttempt.cachedKey {
+          progress.cachedKeys.insert(cachedKey)
+        }
         let occurrenceCount = concurrentAttempt.candidate.occurrenceCount
         progress.images.append(admission.image)
         progress.loadedByteCount += admission.image.data.count * occurrenceCount
@@ -394,6 +414,7 @@ struct RemoteMessageContentLoader {
     }
 
     return RemoteMessageContentLoadResult(
+      cachedKeys: progress.cachedKeys,
       failedImageCount: html.remoteImageReferences.count - progress.images.count,
       html: RemoteMessageImageResolver.resolve(html, images: progress.images)
         .prioritizingUnattemptedRemoteImages(progress.attemptedIdentifiers),
@@ -452,45 +473,76 @@ struct RemoteMessageContentLoader {
     return candidates
   }
 
+  // swiftlint:disable:next function_body_length
   private func admission(
     for reference: RemoteMessageImageReference,
     deadline: TimeInterval,
     remainingLoadDuration: TimeInterval,
     maximumByteCount: Int,
     remainingPixelCount: Int
-  ) async throws -> (admission: RemoteMessageContentAdmission?, receivedByteCount: Int)? {
+  ) async throws -> AdmissionAttempt? {
     guard RemoteMessageContentPolicy.isLoadableHTTPSURL(reference.url) else {
       return nil
     }
     let maximumByteCount = min(MailboxMessageImagePolicy.maximumImageByteCount, maximumByteCount)
     guard maximumByteCount > 0, remainingPixelCount > 0 else { return nil }
+    let cacheKey = cacheContext?.key(for: reference)
+    if let cacheKey,
+      let cachedImage = cache.image(for: cacheKey, identifier: reference.identifier)
+    {
+      if let admission = admittedImage(
+        reference: reference,
+        data: cachedImage.data,
+        mimeType: cachedImage.mimeType,
+        remainingByteCount: maximumByteCount,
+        remainingPixelCount: remainingPixelCount
+      ) {
+        return AdmissionAttempt(admission: admission, cachedKey: cacheKey, receivedByteCount: 0)
+      }
+      cache.remove(cacheKey)
+    }
+    let writePermit = cacheKey.map(cache.makeWritePermit(for:))
     do {
       let load = try await admittedResponse(
         for: request(url: reference.url, timeoutInterval: remainingLoadDuration),
         deadline: deadline,
         maximumByteCount: maximumByteCount
       )
-      return (
-        admittedImage(
-          reference: reference,
-          data: load.data,
-          response: load.response,
-          remainingByteCount: maximumByteCount,
-          remainingPixelCount: remainingPixelCount
-        ),
-        load.receivedByteCount
+      let admission = admittedImage(
+        reference: reference,
+        data: load.data,
+        response: load.response,
+        remainingByteCount: maximumByteCount,
+        remainingPixelCount: remainingPixelCount
+      )
+      let retainedCacheKey: AuthorizedRemoteContentCacheKey? =
+        if let admission, let cacheKey, let writePermit,
+          (try? cache.save(admission.image, for: cacheKey, writePermit: writePermit)) == true
+        {
+          cacheKey
+        } else {
+          nil
+        }
+      return AdmissionAttempt(
+        admission: admission,
+        cachedKey: retainedCacheKey,
+        receivedByteCount: load.receivedByteCount
       )
     } catch RemoteMessageContentError.responseTooLarge(let receivedByteCount),
       RemoteMessageContentError.transferFailed(let receivedByteCount)
     {
-      return (nil, receivedByteCount)
+      return AdmissionAttempt(
+        admission: nil,
+        cachedKey: nil,
+        receivedByteCount: receivedByteCount
+      )
     } catch is CancellationError {
       throw CancellationError()
     } catch {
       if Task.isCancelled {
         throw CancellationError()
       }
-      return (nil, 0)
+      return AdmissionAttempt(admission: nil, cachedKey: nil, receivedByteCount: 0)
     }
   }
 
@@ -547,18 +599,34 @@ struct RemoteMessageContentLoader {
     guard let httpResponse = response as? HTTPURLResponse,
       (200..<300).contains(httpResponse.statusCode),
       RemoteMessageContentPolicy.isLoadableHTTPSURL(httpResponse.url),
-      let mimeType = MailboxMessageImagePolicy.normalizedSupportedMIMEType(
-        httpResponse.mimeType
-      ),
+      let mimeType = MailboxMessageImagePolicy.normalizedSupportedMIMEType(httpResponse.mimeType)
+    else {
+      return nil
+    }
+    return admittedImage(
+      reference: reference,
+      data: data,
+      mimeType: mimeType,
+      remainingByteCount: remainingByteCount,
+      remainingPixelCount: remainingPixelCount
+    )
+  }
+
+  private func admittedImage(
+    reference: RemoteMessageImageReference,
+    data: Data,
+    mimeType: String,
+    remainingByteCount: Int,
+    remainingPixelCount: Int
+  ) -> RemoteMessageContentAdmission? {
+    guard let mimeType = MailboxMessageImagePolicy.normalizedSupportedMIMEType(mimeType),
       let pixelCount = MailboxMessageImagePolicy.admittedPixelCount(
         data,
         mimeType: mimeType,
         remainingByteCount: remainingByteCount,
         remainingPixelCount: remainingPixelCount
       )
-    else {
-      return nil
-    }
+    else { return nil }
     return RemoteMessageContentAdmission(
       image: RemoteMessageImage(
         data: data,

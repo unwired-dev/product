@@ -264,7 +264,8 @@ final class PinSyncServiceTests {
         session: firstDeviceSession
       ),
       selection: MailShellSelectionModel(),
-      session: firstDeviceSession
+      session: firstDeviceSession,
+      profileId: nil
     )
 
     await reader.togglePin(Self.threadId, anchorMessageId: Self.messageId)
@@ -313,7 +314,8 @@ final class PinSyncServiceTests {
         session: firstDeviceSession
       ),
       selection: MailShellSelectionModel(),
-      session: firstDeviceSession
+      session: firstDeviceSession,
+      profileId: nil
     )
     let thread = try requireValue(
       MailboxThread.group([Self.message(threadId: Self.threadId.providerThreadId)]).first
@@ -328,6 +330,7 @@ final class PinSyncServiceTests {
 
   @MainActor
   @Test
+  // swiftlint:disable:next function_body_length
   func testAttachmentDownloadDoesNotInvokeProviderAfterRevalidationFails() async {
     let mailboxService = EmptyMailboxService()
     let reader = MailShellConversationReader(
@@ -367,6 +370,7 @@ final class PinSyncServiceTests {
       ),
       selection: MailShellSelectionModel(),
       session: firstDeviceSession,
+      profileId: nil,
       revalidateTrustedDevice: { false }
     )
 

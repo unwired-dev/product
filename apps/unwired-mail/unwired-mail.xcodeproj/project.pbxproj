@@ -118,6 +118,7 @@
 		71A6A19A2C0B000100000001 /* Services/Mailbox/RemoteMessageContentIPAddress.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A19B2C0B000100000001 /* Services/Mailbox/RemoteMessageContentIPAddress.swift */; };
 		71A6A1822C0B000100000001 /* Services/Mailbox/MailboxMessageImagePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1832C0B000100000001 /* Services/Mailbox/MailboxMessageImagePolicy.swift */; };
 		71A6A1842C0B000100000001 /* Services/Mailbox/RemoteMessageContentPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1852C0B000100000001 /* Services/Mailbox/RemoteMessageContentPresentation.swift */; };
+		558A00000000000000000001 /* Services/Mailbox/AuthorizedRemoteContentCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 558A00000000000000000002 /* Services/Mailbox/AuthorizedRemoteContentCache.swift */; };
 		71A6A1862C0B000100000001 /* Services/Mailbox/MessageHTMLSanitizationSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1872C0B000100000001 /* Services/Mailbox/MessageHTMLSanitizationSupport.swift */; };
 		71A6A17A2C0B000100000001 /* MessageHTMLPresentationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A17B2C0B000100000001 /* MessageHTMLPresentationTests.swift */; };
 		71A6A17C2C0B000100000001 /* Features/Settings/AppearanceSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A17D2C0B000100000001 /* Features/Settings/AppearanceSettingsView.swift */; };
@@ -425,6 +426,7 @@
 		71A6A19B2C0B000100000001 /* Services/Mailbox/RemoteMessageContentIPAddress.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/Mailbox/RemoteMessageContentIPAddress.swift; sourceTree = "<group>"; };
 		71A6A1832C0B000100000001 /* Services/Mailbox/MailboxMessageImagePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/Mailbox/MailboxMessageImagePolicy.swift; sourceTree = "<group>"; };
 		71A6A1852C0B000100000001 /* Services/Mailbox/RemoteMessageContentPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/Mailbox/RemoteMessageContentPresentation.swift; sourceTree = "<group>"; };
+		558A00000000000000000002 /* Services/Mailbox/AuthorizedRemoteContentCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/Mailbox/AuthorizedRemoteContentCache.swift; sourceTree = "<group>"; };
 		71A6A1872C0B000100000001 /* Services/Mailbox/MessageHTMLSanitizationSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/Mailbox/MessageHTMLSanitizationSupport.swift; sourceTree = "<group>"; };
 		71A6A17B2C0B000100000001 /* MessageHTMLPresentationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageHTMLPresentationTests.swift; sourceTree = "<group>"; };
 		71A6A17D2C0B000100000001 /* Features/Settings/AppearanceSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Settings/AppearanceSettingsView.swift; sourceTree = "<group>"; };
@@ -738,6 +740,7 @@
 				71A6A18B2C0B000100000001 /* Services/Mailbox/MessageContentPreferences.swift */,
 				71A6A1832C0B000100000001 /* Services/Mailbox/MailboxMessageImagePolicy.swift */,
 				71A6A1852C0B000100000001 /* Services/Mailbox/RemoteMessageContentPresentation.swift */,
+				558A00000000000000000002 /* Services/Mailbox/AuthorizedRemoteContentCache.swift */,
 				71A6A1872C0B000100000001 /* Services/Mailbox/MessageHTMLSanitizationSupport.swift */,
 				71A6A1212C0B000100000001 /* Services/Mailbox/MicrosoftGraphMailboxConnectionAdapter.swift */,
 				71A6A1332C0B000100000001 /* Services/Mailbox/EWSMailboxConnectionAdapter.swift */,
@@ -1192,6 +1195,7 @@
 				71A6A18A2C0B000100000001 /* Services/Mailbox/MessageContentPreferences.swift in Sources */,
 				71A6A1822C0B000100000001 /* Services/Mailbox/MailboxMessageImagePolicy.swift in Sources */,
 				71A6A1842C0B000100000001 /* Services/Mailbox/RemoteMessageContentPresentation.swift in Sources */,
+				558A00000000000000000001 /* Services/Mailbox/AuthorizedRemoteContentCache.swift in Sources */,
 				71A6A1862C0B000100000001 /* Services/Mailbox/MessageHTMLSanitizationSupport.swift in Sources */,
 				71A6A1202C0B000100000001 /* Services/Mailbox/MicrosoftGraphMailboxConnectionAdapter.swift in Sources */,
 				71A6A1322C0B000100000001 /* Services/Mailbox/EWSMailboxConnectionAdapter.swift in Sources */,
