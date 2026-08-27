@@ -3420,6 +3420,8 @@ struct AccountView: View {
       service: categorySyncServiceFactory(recordScope),
       session: snapshot
     )
+    await waitForNextMainRunLoopCycle()
+    guard profileViewModel.activeProfile?.recordScope == recordScope else { return nil }
     let composePreferenceStore = session.sharedComposePreferenceStore(
       for: snapshot,
       recordScope: recordScope,
@@ -3442,6 +3444,8 @@ struct AccountView: View {
       recordScope: recordScope,
       syncService: sendingIdentitySyncFactory(recordScope)
     )
+    await waitForNextMainRunLoopCycle()
+    guard profileViewModel.activeProfile?.recordScope == recordScope else { return nil }
     let signatureStore = session.sharedSignatureStore(
       for: snapshot,
       recordScope: recordScope,
