@@ -1304,9 +1304,10 @@ final class MailCompositionDraftTests {
     )
     let source = draft(recipient: "recipient@example.com")
     try initialStore.save(source, productAccountId: accountId, profileId: profileId)
-    let originalSize = try #require(
-      draftFiles(in: rootDirectory).first { $0.pathExtension == "json" }
-    ).resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+    let originalSize =
+      try #require(
+        draftFiles(in: rootDirectory).first { $0.pathExtension == "json" }
+      ).resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
     var copy = source.preservingAsConflictCopy()
     copy.document = SemanticMessageDocument(plainText: String(repeating: "x", count: 4_096))
     let constrainedStore = FileMailCompositionDraftStore(
