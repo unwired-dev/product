@@ -6,6 +6,7 @@ import UniformTypeIdentifiers
 
 private enum MailComposerFocus: Hashable {
   case bcc
+  case body
   case cc  // swiftlint:disable:this identifier_name
   case subject
   case to  // swiftlint:disable:this identifier_name
@@ -44,7 +45,6 @@ struct MailShellComposer: View {
 
   @Environment(\.dismiss) private var dismiss
   @FocusState private var focusedField: MailComposerFocus?
-  @State private var isBodyFocused = false
   @State private var editorModel: SemanticMessageEditorModel
   @State private var assetErrorMessage: String?
   @State private var composeAssistancePresentation: ComposeAssistancePresentation?
@@ -262,11 +262,10 @@ struct MailShellComposer: View {
               requestResponseAssistance: responseAssistanceAction
             )
             Divider()
-            MailComposerBodyField(editorModel: editorModel, isFocused: $isBodyFocused)
+            MailComposerBodyField(editorModel: editorModel, focusedField: $focusedField)
               .simultaneousGesture(
                 TapGesture().onEnded {
-                  focusedField = nil
-                  isBodyFocused = true
+                  focusedField = .body
                 }
               )
               .dropDestination(for: Data.self) { items, _ in
@@ -330,8 +329,7 @@ struct MailShellComposer: View {
         guard let item else { return }
         Task { await importPhoto(item) }
       }
-      .onChange(of: focusedField) { previousField, focusedField in
-        if focusedField != nil { isBodyFocused = false }
+      .onChange(of: focusedField) { previousField, _ in
         guard let recipientField = recipientField(for: previousField) else { return }
         recipientEditor.commitPendingText(in: recipientField)
       }
@@ -341,11 +339,11 @@ struct MailShellComposer: View {
       .task {
         viewModel.draftChanged()
         await Task.yield()
-        guard focusedField == nil, isBodyFocused == false else { return }
+        guard focusedField == nil else { return }
         if viewModel.draft.recipient.isEmpty {
           focusedField = .to
         } else {
-          isBodyFocused = true
+          focusedField = .body
         }
       }
       .task(id: suggestionRequest) {
@@ -473,8 +471,7 @@ struct MailShellComposer: View {
   }
 
   private func focusBody() {
-    focusedField = nil
-    isBodyFocused = true
+    focusedField = .body
   }
 
   private func updateSendingIdentity(_ identityId: SendingIdentityId?) {
@@ -727,6 +724,7 @@ struct MailShellComposer: View {
     guard let focus else { return nil }
     return switch focus {
     case .bcc: .bcc
+    case .body: nil
     case .cc: .cc
     case .to: .to
     case .subject: nil
@@ -1152,12 +1150,12 @@ private struct MailComposerHeader: View {
 
 private struct MailComposerBodyField: View {
   @Bindable var editorModel: SemanticMessageEditorModel
-  @Binding var isFocused: Bool
+  let focusedField: FocusState<MailComposerFocus?>.Binding
 
   var body: some View {
     SemanticMessageTextView(
       editorModel: editorModel,
-      isFocused: $isFocused,
+      isFocused: isFocused,
       minimumHeight: 160
     )
     .frame(maxWidth: .infinity, alignment: .topLeading)
@@ -1168,6 +1166,19 @@ private struct MailComposerBodyField: View {
         }
       }
     }
+  }
+
+  private var isFocused: Binding<Bool> {
+    Binding(
+      get: { focusedField.wrappedValue == .body },
+      set: { isFocused in
+        if isFocused {
+          focusedField.wrappedValue = .body
+        } else if focusedField.wrappedValue == .body {
+          focusedField.wrappedValue = nil
+        }
+      }
+    )
   }
 }
 
