@@ -225,15 +225,14 @@ final class MailTestBootstrapUITests: XCTestCase {
   }
 
   private func replaceRecipientTokens(in recipient: XCUIElement, app: XCUIApplication) throws {
-    recipient.typeKey(.return, modifierFlags: [])
+    recipient.typeText(",")
     try removeRecipientTokens(in: app)
     try focusAndType(
-      "recipient@synthetic.invalid",
+      "recipient@synthetic.invalid,",
       into: recipient,
       in: app,
       failure: "MAIL_TEST_FAILURE:ui: The recipient field could not be focused after token removal."
     )
-    app.keyboards.buttons["return"].tap()
     assertRecipientReplacement(in: app)
   }
 
@@ -265,7 +264,7 @@ final class MailTestBootstrapUITests: XCTestCase {
   private func assertRecipientReplacement(in app: XCUIApplication) {
     let replacement = app.buttons["Remove recipient@synthetic.invalid"]
     XCTAssertTrue(
-      replacement.waitForExistence(timeout: 2),
+      replacement.waitForExistence(timeout: 5),
       "The expected recipient replacement did not appear."
     )
     let recipientTokens = app.buttons.matching(
