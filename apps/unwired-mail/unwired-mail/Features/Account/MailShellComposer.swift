@@ -45,6 +45,7 @@ struct MailShellComposer: View {
   @Environment(\.dismiss) private var dismiss
   @FocusState private var focusedField: MailComposerFocus?
   @State private var isBodyFocused = false
+  @State private var isBodyFocusPending = false
   @State private var bodyFocusRequest = 0
   @State private var editorModel: SemanticMessageEditorModel
   @State private var assetErrorMessage: String?
@@ -367,6 +368,9 @@ struct MailShellComposer: View {
       .onChange(of: focusedField) { previousField, focusedField in
         if focusedField != nil {
           isBodyFocused = false
+        } else if isBodyFocusPending {
+          isBodyFocusPending = false
+          requestBodyFocus()
         }
         guard let recipientField = recipientField(for: previousField) else { return }
         recipientEditor.commitPendingText(in: recipientField)
@@ -512,15 +516,16 @@ struct MailShellComposer: View {
   }
 
   private func focusBody() {
-    focusedField = nil
-    Task { @MainActor in
-      await Task.yield()
-      guard focusedField == nil else { return }
+    guard focusedField != nil else {
       requestBodyFocus()
+      return
     }
+    isBodyFocusPending = true
+    focusedField = nil
   }
 
   private func requestBodyFocus() {
+    isBodyFocusPending = false
     focusedField = nil
     isBodyFocused = true
     bodyFocusRequest &+= 1
