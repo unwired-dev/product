@@ -303,7 +303,7 @@ struct MailShellComposer: View {
               return !items.isEmpty
             }
             .dropDestination(for: URL.self) { urls, _ in
-              importFiles(.success(urls))
+              importFiles(.success(urls), draftId: viewModel.draft.id)
               return !urls.isEmpty
             }
             Divider()
@@ -317,7 +317,10 @@ struct MailShellComposer: View {
         isPresented: $showsFileImporter,
         allowedContentTypes: [.data],
         allowsMultipleSelection: true,
-        onCompletion: importFiles
+        onCompletion: { result in
+          guard let pendingFileImportDraftId else { return }
+          importFiles(result, draftId: pendingFileImportDraftId)
+        }
       )
       .sheet(item: $composeAssistancePresentation) { presentation in
         if let mailAssistanceViewModel {
@@ -1200,9 +1203,15 @@ struct MailShellComposer: View {
     }
   }
 
-  private func importFiles(_ result: Result<[URL], Error>) {
-    guard pendingFileImportDraftId == viewModel.draft.id else { return }
-    pendingFileImportDraftId = nil
+  static func fileImportTargetsActiveDraft(_ draftId: UUID, activeDraftId: UUID) -> Bool {
+    draftId == activeDraftId
+  }
+
+  private func importFiles(_ result: Result<[URL], Error>, draftId: UUID) {
+    guard Self.fileImportTargetsActiveDraft(draftId, activeDraftId: viewModel.draft.id) else {
+      return
+    }
+    if pendingFileImportDraftId == draftId { pendingFileImportDraftId = nil }
     do {
       for url in try result.get() {
         let hasAccess = url.startAccessingSecurityScopedResource()

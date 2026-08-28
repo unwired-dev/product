@@ -686,6 +686,20 @@ final class MailCompositionDraftTests {
   }
 
   @Test(.bug(id: 562))
+  func droppedFileImportTargetsTheVisibleDraft() {
+    let draftId = UUID()
+
+    #expect(MailShellComposer.fileImportTargetsActiveDraft(draftId, activeDraftId: draftId))
+  }
+
+  @Test(.bug(id: 562))
+  func droppedFileImportAfterDraftSwitchIsIgnored() {
+    #expect(
+      MailShellComposer.fileImportTargetsActiveDraft(UUID(), activeDraftId: UUID()) == false
+    )
+  }
+
+  @Test(.bug(id: 562))
   func conflictCopyReportsRecoveryAndMovesItsReminderNotification() async {
     let now = Date(timeIntervalSince1970: 2_000_000_000)
     var source = draft(recipient: "recipient@example.com")
