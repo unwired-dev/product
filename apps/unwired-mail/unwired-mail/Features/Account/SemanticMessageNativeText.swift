@@ -94,6 +94,12 @@ enum SemanticMessageNativeText {
     return lower..<upper
   }
 
+  static func nativeOffset(forCharacterOffset offset: Int, in text: String) -> Int {
+    let characterOffset = min(max(offset, 0), text.count)
+    let index = text.index(text.startIndex, offsetBy: characterOffset)
+    return index.utf16Offset(in: text)
+  }
+
   static func nativeSelection(
     _ selection: AttributedTextSelection,
     in text: AttributedString
