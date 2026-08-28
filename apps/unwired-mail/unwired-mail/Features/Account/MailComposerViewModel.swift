@@ -1,6 +1,8 @@
 import Foundation
 import Observation
 
+// swiftlint:disable file_length
+
 enum MailComposerSaveState: Equatable {
   case failed(String)
   case idle
