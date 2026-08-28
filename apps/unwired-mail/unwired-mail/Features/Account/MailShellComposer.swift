@@ -1573,6 +1573,19 @@ private struct MailComposerSubjectField: UIViewRepresentable {
       }
       super.insertText(text)
     }
+
+    override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+      guard
+        presses.contains(where: {
+          $0.key?.charactersIgnoringModifiers == "\r"
+            || $0.key?.charactersIgnoringModifiers == "\n"
+        }) == false
+      else {
+        submit?()
+        return
+      }
+      super.pressesBegan(presses, with: event)
+    }
   }
 
   @Binding var subject: String
