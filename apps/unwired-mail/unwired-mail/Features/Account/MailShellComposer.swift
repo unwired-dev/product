@@ -374,6 +374,10 @@ struct MailShellComposer: View {
         Task { await importPhoto(item) }
       }
       .onChange(of: focusedField) { previousField, focusedField in
+        if isBodyFocusPending, focusedField == .subject {
+          self.focusedField = nil
+          return
+        }
         if focusedField != nil {
           bodyFocusHandoff &+= 1
           isBodyFocusPending = false
