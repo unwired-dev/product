@@ -252,6 +252,8 @@ struct MailShellComposer: View {
                 focusedField: $focusedField,
                 focusBody: focusBody
               )
+              .padding(.horizontal, 16)
+              .padding(.vertical, 12)
             } else {
               Button(action: focusSubject) {
                 Text(viewModel.draft.subject.isEmpty ? "Subject" : viewModel.draft.subject)
@@ -1550,19 +1552,71 @@ private struct MailComposerIdentityRow: View {
   }
 }
 
-private struct MailComposerSubjectField: View {
+private struct MailComposerSubjectField: UIViewRepresentable {
   @Binding var subject: String
   let focusedField: FocusState<MailComposerFocus?>.Binding
   let focusBody: () -> Void
 
-  var body: some View {
-    TextField("Subject", text: $subject)
-      .focused(focusedField, equals: .subject)
-      .submitLabel(.next)
-      .onSubmit(focusBody)
-      .padding(.horizontal, 16)
-      .padding(.vertical, 12)
-      .accessibilityIdentifier("mail-compose-subject")
+  func makeCoordinator() -> Coordinator {
+    Coordinator(parent: self)
+  }
+
+  func makeUIView(context: Context) -> UITextField {
+    let textField = UITextField()
+    textField.adjustsFontForContentSizeCategory = true
+    textField.font = .preferredFont(forTextStyle: .body)
+    textField.placeholder = "Subject"
+    textField.returnKeyType = .next
+    textField.accessibilityIdentifier = "mail-compose-subject"
+    textField.delegate = context.coordinator
+    textField.addTarget(
+      context.coordinator,
+      action: #selector(Coordinator.subjectDidChange),
+      for: .editingChanged
+    )
+    return textField
+  }
+
+  func updateUIView(_ textField: UITextField, context: Context) {
+    context.coordinator.parent = self
+    if textField.text != subject { textField.text = subject }
+    if focusedField.wrappedValue == .subject {
+      if textField.isFirstResponder == false { textField.becomeFirstResponder() }
+    } else if textField.isFirstResponder {
+      textField.resignFirstResponder()
+    }
+  }
+
+  @MainActor
+  final class Coordinator: NSObject, UITextFieldDelegate {
+    var parent: MailComposerSubjectField
+
+    init(parent: MailComposerSubjectField) {
+      self.parent = parent
+    }
+
+    @objc func subjectDidChange(_ textField: UITextField) {
+      parent.subject = textField.text ?? ""
+    }
+
+    func textFieldDidBeginEditing(_: UITextField) {
+      if parent.focusedField.wrappedValue != .subject {
+        parent.focusedField.wrappedValue = .subject
+      }
+    }
+
+    func textFieldDidEndEditing(_: UITextField) {
+      if parent.focusedField.wrappedValue == .subject {
+        parent.focusedField.wrappedValue = nil
+      }
+    }
+
+    func textFieldShouldReturn(_ textField: UITextField) -> Bool {
+      parent.focusedField.wrappedValue = nil
+      textField.resignFirstResponder()
+      parent.focusBody()
+      return false
+    }
   }
 }
 
