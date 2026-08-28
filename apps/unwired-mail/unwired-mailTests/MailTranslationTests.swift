@@ -13,7 +13,6 @@ struct MailTranslationTests {
   @Test(.bug(id: 415))
   func incomingTranslationRequiresAlreadyLocalMessageText() {
     let messageId = messageId()
-
     #expect(throws: MailTranslationError.noLocalMessageText) {
       try MailTranslationRequestBuilder.incomingMessage(
         messageId: messageId,
@@ -258,8 +257,10 @@ struct MailTranslationTests {
     )
     return viewModel
   }
+}
 
-  private func response(
+extension MailTranslationTests {
+  fileprivate func response(
     for presentation: MailTranslationPresentation
   ) -> MailTranslationResponse {
     MailTranslationResponse(
@@ -270,7 +271,7 @@ struct MailTranslationTests {
     )
   }
 
-  private func validation(
+  fileprivate func validation(
     for presentation: MailTranslationPresentation
   ) -> MailTranslationValidationContext {
     MailTranslationValidationContext(

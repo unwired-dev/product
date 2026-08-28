@@ -3,7 +3,16 @@ import UIKit
 
 /// A native text-system editor backed by the semantic message document.
 struct SemanticMessageTextView: UIViewRepresentable {
+  /// The composer-owned dependencies used by an anchored assistance panel.
+  struct ComposeAssistanceContext {
+    let viewModel: MailAssistanceViewModel
+    let currentSubject: () -> String
+    let recipientDisplayNames: () -> [String]
+    let applySubject: (String) -> Void
+  }
+
   let editorModel: SemanticMessageEditorModel
+  let composeAssistanceContext: ComposeAssistanceContext?
   @Binding var isFocused: Bool
   let focusRequest: Int
   let focusDidBegin: () -> Void
@@ -34,7 +43,7 @@ struct SemanticMessageTextView: UIViewRepresentable {
       coordinator?.handleSlashCommandKey(key) ?? false
     }
     textView.layoutSubviewsAction = { [weak coordinator = context.coordinator] in
-      coordinator?.refreshSlashCommandMenuAfterLayout()
+      coordinator?.refreshSlashCommandOverlayAfterLayout()
     }
     context.coordinator.synchronizeTextView()
     return textView
@@ -55,7 +64,7 @@ struct SemanticMessageTextView: UIViewRepresentable {
     textView.didMoveToWindowAction = nil
     textView.handleSlashCommandKey = nil
     textView.layoutSubviewsAction = nil
-    coordinator.dismissSlashCommandMenu()
+    coordinator.dismissSlashCommandOverlay()
   }
 
   func sizeThatFits(

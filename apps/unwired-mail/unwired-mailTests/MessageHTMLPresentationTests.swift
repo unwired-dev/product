@@ -2264,6 +2264,26 @@ extension MessageHTMLPresentationTests {
   }
 
   @MainActor
+  @Test("Automatic remote content waits for viewport eligibility", .bug(id: 559))
+  func automaticRemoteContentWaitsForViewportEligibility() {
+    let presentation = RemoteMessageContentPresentation()
+
+    presentation.apply(
+      policy: .alwaysLoad,
+      hasRemoteImages: true,
+      allowsAutomaticLoad: false
+    )
+
+    #expect(presentation.loadRequest == nil)
+    #expect(presentation.state == .blocked)
+
+    presentation.beginAutomaticLoadIfNeeded(policy: .alwaysLoad, hasRemoteImages: true)
+
+    #expect(presentation.loadRequest != nil)
+    #expect(presentation.state == .loading)
+  }
+
+  @MainActor
   @Test
   func testResolvedCIDImageRendersInsideSecuredWebView() async throws {
     let imageData = try requireValue(

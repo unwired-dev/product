@@ -1,7 +1,124 @@
 import SwiftUI
 
-/// The block-command picker opened from a slash query in the semantic editor.
+// swiftlint:disable type_body_length
+/// The slash-command picker opened from a query in the semantic editor.
 enum SemanticMessageSlashCommand {
+  /// One block or explicit Compose Assistance command in the slash catalog.
+  enum Command: Equatable, Identifiable {
+    case assistance(AssistanceCommand)
+    case block(SemanticMessageBlockCommand)
+
+    var id: String {
+      switch self {
+      case .assistance(let command): "assistance-\(command.rawValue)"
+      case .block(let command): "block-\(command.rawValue)"
+      }
+    }
+
+    var title: String {
+      switch self {
+      case .assistance(let command): command.title
+      case .block(let command): command.slashTitle
+      }
+    }
+
+    var systemImage: String {
+      switch self {
+      case .assistance(let command): command.systemImage
+      case .block(let command): command.systemImage
+      }
+    }
+
+    fileprivate var accessibilityIdentifier: String {
+      switch self {
+      case .assistance(let command): command.rawValue
+      case .block(let command): command.rawValue
+      }
+    }
+
+    fileprivate var searchText: String {
+      switch self {
+      case .assistance(let command): command.searchText
+      case .block(let command): command.slashSearchText
+      }
+    }
+  }
+
+  /// The explicit Compose Assistance actions exposed by the slash catalog.
+  enum AssistanceCommand: String, CaseIterable, Identifiable {
+    case ask
+    case draftFromPrompt
+    case rewriteSelection
+    case proofread
+    case shorten
+    case changeTone
+    case suggestSubject
+
+    var id: String { rawValue }
+
+    var title: String {
+      switch self {
+      case .ask: "Ask Compose Assistance"
+      case .changeTone: "Change Tone"
+      case .draftFromPrompt: "Draft from Prompt"
+      case .proofread: "Proofread"
+      case .rewriteSelection: "Rewrite Selection"
+      case .shorten: "Shorten"
+      case .suggestSubject: "Suggest Subject"
+      }
+    }
+
+    var systemImage: String {
+      switch self {
+      case .ask: "sparkles"
+      case .changeTone: "waveform"
+      case .draftFromPrompt: "text.badge.plus"
+      case .proofread: "checkmark.circle"
+      case .rewriteSelection: "pencil.and.scribble"
+      case .shorten: "arrow.down.right.and.arrow.up.left"
+      case .suggestSubject: "textformat"
+      }
+    }
+
+    var requiresSelection: Bool {
+      switch self {
+      case .changeTone, .proofread, .rewriteSelection, .shorten: true
+      case .ask, .draftFromPrompt, .suggestSubject: false
+      }
+    }
+
+    var requiresInstruction: Bool {
+      self == .ask || self == .draftFromPrompt || self == .rewriteSelection
+    }
+
+    /// Creates the explicit assistance action chosen by Generate.
+    func makeAction(
+      instruction: String,
+      tone: ComposeAssistancePreset
+    ) -> ComposeAssistanceAction {
+      switch self {
+      case .ask, .rewriteSelection: .refine(instruction: instruction)
+      case .changeTone: .transform(tone)
+      case .draftFromPrompt: .generateBody(prompt: instruction)
+      case .proofread: .proofread
+      case .shorten: .transform(.shorten)
+      case .suggestSubject: .suggestSubject
+      }
+    }
+
+    fileprivate var searchText: String {
+      switch self {
+      case .ask: "Ask Compose Assistance Help AI"
+      case .changeTone: "Change Tone Professional Friendly Direct Empathetic Neutral"
+      case .draftFromPrompt: "Draft from Prompt Generate Body"
+      case .proofread: "Proofread Spelling Grammar"
+      case .rewriteSelection: "Rewrite Selection Refine"
+      case .shorten: "Shorten Concise"
+      case .suggestSubject: "Suggest Subject"
+      }
+    }
+  }
+
   /// A live slash query and the authored range it will replace.
   struct Context: Equatable {
     let query: String
@@ -16,7 +133,7 @@ enum SemanticMessageSlashCommand {
 
     let context: Context
     let frame: CGRect
-    var selectedCommand: SemanticMessageBlockCommand?
+    var selectedCommand: Command?
 
     /// Creates a presentation anchored to the current caret.
     init(
@@ -24,10 +141,15 @@ enum SemanticMessageSlashCommand {
       caretRect: CGRect,
       visibleBounds: CGRect,
       isCompactWidth: Bool,
-      selectedCommand: SemanticMessageBlockCommand? = nil
+      includesAssistance: Bool,
+      selectedCommand: Command? = nil
     ) {
       self.context = context
-      let commands = Self.commands(matching: context.query)
+      self.includesAssistance = includesAssistance
+      let commands = Self.commands(
+        matching: context.query,
+        includesAssistance: includesAssistance
+      )
       self.selectedCommand =
         selectedCommand.flatMap { commands.contains($0) ? $0 : nil } ?? commands.first
       frame = Self.menuFrame(
@@ -38,9 +160,11 @@ enum SemanticMessageSlashCommand {
       )
     }
 
-    var commands: [SemanticMessageBlockCommand] {
-      Self.commands(matching: context.query)
+    var commands: [Command] {
+      Self.commands(matching: context.query, includesAssistance: includesAssistance)
     }
+
+    let includesAssistance: Bool
 
     /// Moves the active command by one keyboard step, wrapping at either end.
     mutating func moveSelection(by offset: Int) {
@@ -54,10 +178,14 @@ enum SemanticMessageSlashCommand {
     }
 
     /// Returns the supported block commands filtered by a localized user query.
-    static func commands(matching query: String) -> [SemanticMessageBlockCommand] {
+    static func commands(
+      matching query: String,
+      includesAssistance: Bool = false
+    ) -> [Command] {
       let query = query.trimmingCharacters(in: .whitespaces)
-      guard !query.isEmpty else { return slashCatalog }
-      return slashCatalog.filter { $0.slashSearchText.localizedStandardContains(query) }
+      let catalog = slashCatalog(includesAssistance: includesAssistance)
+      guard !query.isEmpty else { return catalog }
+      return catalog.filter { $0.searchText.localizedStandardContains(query) }
     }
 
     /// Places the menu inside the visible editor region, preferring below the caret.
@@ -67,14 +195,42 @@ enum SemanticMessageSlashCommand {
       isCompactWidth: Bool,
       commandCount: Int
     ) -> CGRect {
+      let desiredHeight =
+        rowHeight * CGFloat(max(1, min(commandCount, maximumVisibleRows)))
+      return anchoredFrame(
+        caretRect: caretRect,
+        visibleBounds: visibleBounds,
+        isCompactWidth: isCompactWidth,
+        desiredHeight: desiredHeight
+      )
+    }
+
+    /// Places an assistance panel inside the visible editor region.
+    static func panelFrame(
+      caretRect: CGRect,
+      visibleBounds: CGRect,
+      isCompactWidth: Bool
+    ) -> CGRect {
+      anchoredFrame(
+        caretRect: caretRect,
+        visibleBounds: visibleBounds,
+        isCompactWidth: isCompactWidth,
+        desiredHeight: 360
+      )
+    }
+
+    private static func anchoredFrame(
+      caretRect: CGRect,
+      visibleBounds: CGRect,
+      isCompactWidth: Bool,
+      desiredHeight: CGFloat
+    ) -> CGRect {
       let margin: CGFloat = 8
       let availableWidth = max(0, visibleBounds.width - margin * 2)
       let width =
-        isCompactWidth
+        isCompactWidth || availableWidth < regularWidth
         ? min(regularWidth, availableWidth)
         : regularWidth
-      let desiredHeight =
-        rowHeight * CGFloat(max(1, min(commandCount, maximumVisibleRows)))
       let height = min(desiredHeight, max(0, visibleBounds.height - margin * 2))
       let minimumX = visibleBounds.minX + margin
       let maximumX = max(minimumX, visibleBounds.maxX - margin - width)
@@ -89,29 +245,33 @@ enum SemanticMessageSlashCommand {
       return CGRect(x: originX, y: originY, width: width, height: height)
     }
 
-    private static let slashCatalog: [SemanticMessageBlockCommand] = [
-      .paragraph,
-      .heading1,
-      .heading2,
-      .heading3,
-      .bulletedList,
-      .numberedList,
-      .blockquote,
-      .codeBlock,
-    ]
+    private static func slashCatalog(includesAssistance: Bool) -> [Command] {
+      let blocks: [Command] = [
+        .block(.paragraph),
+        .block(.heading1),
+        .block(.heading2),
+        .block(.heading3),
+        .block(.bulletedList),
+        .block(.numberedList),
+        .block(.blockquote),
+        .block(.codeBlock),
+      ]
+      guard includesAssistance else { return blocks }
+      return blocks + AssistanceCommand.allCases.map(Command.assistance)
+    }
   }
 
   /// The pointer-, touch-, and keyboard-readable command list.
   struct Menu: View {
     let presentation: Presentation
-    let select: (SemanticMessageBlockCommand) -> Void
+    let select: (Command) -> Void
     @State private var scrollPosition = ScrollPosition(idType: String.self)
 
     var body: some View {
       ScrollView {
         LazyVStack(spacing: 0) {
           if presentation.commands.isEmpty {
-            Text("No matching blocks")
+            Text("No matching commands")
               .foregroundStyle(.secondary)
               .frame(maxWidth: .infinity, minHeight: Presentation.rowHeight)
               .padding(.horizontal, 16)
@@ -121,7 +281,7 @@ enum SemanticMessageSlashCommand {
                 action: { select(command) },
                 label: {
                   HStack(spacing: 12) {
-                    Label(command.slashTitle, systemImage: command.systemImage)
+                    Label(command.title, systemImage: command.systemImage)
                     Spacer(minLength: 8)
                     if command == presentation.selectedCommand {
                       Image(systemName: "checkmark")
@@ -142,7 +302,9 @@ enum SemanticMessageSlashCommand {
               .accessibilityAddTraits(
                 command == presentation.selectedCommand ? .isSelected : []
               )
-              .accessibilityIdentifier("mail-compose-slash-command-\(command.rawValue)")
+              .accessibilityIdentifier(
+                "mail-compose-slash-command-\(command.accessibilityIdentifier)"
+              )
               .id(command.id)
             }
           }
@@ -158,7 +320,7 @@ enum SemanticMessageSlashCommand {
       .clipShape(.rect(cornerRadius: 12))
       .shadow(radius: 8, y: 4)
       .accessibilityElement(children: .contain)
-      .accessibilityLabel("Block commands")
+      .accessibilityLabel("Slash commands")
       .accessibilityIdentifier("mail-compose-slash-menu")
     }
 
@@ -168,6 +330,7 @@ enum SemanticMessageSlashCommand {
     }
   }
 }
+// swiftlint:enable type_body_length
 
 extension SemanticMessageBlockCommand {
   fileprivate var slashTitle: String {

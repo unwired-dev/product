@@ -274,6 +274,7 @@ struct MailShellComposer: View {
             Divider()
             MailComposerBodyField(
               editorModel: editorModel,
+              composeAssistanceContext: composeAssistanceContext,
               isFocused: $isBodyFocused,
               focusRequest: bodyFocusRequest,
               focusDidBegin: bodyFocusDidBegin
@@ -1021,6 +1022,16 @@ struct MailShellComposer: View {
     )
   }
 
+  private var composeAssistanceContext: SemanticMessageTextView.ComposeAssistanceContext? {
+    guard let mailAssistanceViewModel else { return nil }
+    return SemanticMessageTextView.ComposeAssistanceContext(
+      viewModel: mailAssistanceViewModel,
+      currentSubject: { viewModel.draft.subject },
+      recipientDisplayNames: { recipientDisplayNames },
+      applySubject: { subject in viewModel.draft.subject = subject }
+    )
+  }
+
   private func requestTranslation() {
     guard let mailAssistanceViewModel else { return }
     let target = editorModel.composeAssistanceTarget()
@@ -1258,6 +1269,7 @@ private struct MailComposerHeader: View {
 
 private struct MailComposerBodyField: View {
   @Bindable var editorModel: SemanticMessageEditorModel
+  let composeAssistanceContext: SemanticMessageTextView.ComposeAssistanceContext?
   @Binding var isFocused: Bool
   let focusRequest: Int
   let focusDidBegin: () -> Void
@@ -1265,6 +1277,7 @@ private struct MailComposerBodyField: View {
   var body: some View {
     SemanticMessageTextView(
       editorModel: editorModel,
+      composeAssistanceContext: composeAssistanceContext,
       isFocused: $isFocused,
       focusRequest: focusRequest,
       focusDidBegin: focusDidBegin,
