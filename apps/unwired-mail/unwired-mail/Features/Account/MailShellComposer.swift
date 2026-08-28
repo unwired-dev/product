@@ -1665,6 +1665,20 @@ private struct MailComposerSubjectField: UIViewRepresentable {
       }
       super.insertText(text)
     }
+
+    override var keyCommands: [UIKeyCommand]? {
+      (super.keyCommands ?? []) + [
+        UIKeyCommand(
+          input: "\r",
+          modifierFlags: [],
+          action: #selector(submitHardwareReturn)
+        )
+      ]
+    }
+
+    @objc private func submitHardwareReturn() {
+      submit?()
+    }
   }
 
   @Binding var subject: String
