@@ -58,6 +58,7 @@ struct MailShellComposer: View {
   @State private var translationPresentation: MailTranslationPresentation?
   @State private var responseAssistancePresentation: ResponseAssistancePresentation?
   @State private var linkDestination = "https://"
+  @State private var pendingFileImportDraftId: UUID?
   @State private var recipientEditor: MailRecipientEditor
   @State private var sendLaterRequest: SendLaterRequest?
   @State private var selectedPhoto: PhotosPickerItem?
@@ -250,20 +251,28 @@ struct MailShellComposer: View {
             Divider()
             recipientFields
             Divider()
-            MailComposerSubjectField(
-              subject: $viewModel.draft.subject,
-              focusedField: $focusedField,
-              focusBody: focusBody
-            )
-            .id(presentsSubjectField)
-            .disabled(!presentsSubjectField)
-            .opacity(presentsSubjectField ? 1 : 0)
-            .accessibilityHidden(!presentsSubjectField)
+            if presentsSubjectField {
+              MailComposerSubjectField(
+                subject: $viewModel.draft.subject,
+                focusedField: $focusedField,
+                focusBody: focusBody
+              )
+            } else {
+              Text(viewModel.draft.subject.isEmpty ? "Subject" : viewModel.draft.subject)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .hidden()
+                .accessibilityHidden(true)
+            }
             Divider()
             MailComposerActionBar(
               editorModel: editorModel,
               hasQuotedText: viewModel.draft.quotedText?.isEmpty == false,
-              requestFile: { showsFileImporter = true },
+              requestFile: {
+                pendingFileImportDraftId = viewModel.draft.id
+                showsFileImporter = true
+              },
               requestLink: requestLink,
               showsFormattingToolbar: preferences.showsFormattingToolbar,
               showsExpandedRecipients: $showsExpandedRecipients,
@@ -375,7 +384,8 @@ struct MailShellComposer: View {
       }
       .onChange(of: selectedPhoto) { _, item in
         guard let item else { return }
-        Task { await importPhoto(item) }
+        let draftId = viewModel.draft.id
+        Task { await importPhoto(item, draftId: draftId) }
       }
       .onChange(of: focusedField) { previousField, focusedField in
         if isBodyFocusPending, focusedField == .subject {
@@ -578,7 +588,11 @@ struct MailShellComposer: View {
   }
 
   private func resetDraftPresentation() {
+    bodyFocusHandoff &+= 1
+    isBodyFocusPending = false
+    presentsSubjectField = true
     sendLaterRequest = nil
+    pendingFileImportDraftId = nil
     selectedPhoto = nil
     showsDiscardConfirmation = false
     showsFileImporter = false
@@ -1178,6 +1192,8 @@ struct MailShellComposer: View {
   }
 
   private func importFiles(_ result: Result<[URL], Error>) {
+    guard pendingFileImportDraftId == viewModel.draft.id else { return }
+    pendingFileImportDraftId = nil
     do {
       for url in try result.get() {
         let hasAccess = url.startAccessingSecurityScopedResource()
@@ -1197,12 +1213,14 @@ struct MailShellComposer: View {
     }
   }
 
-  private func importPhoto(_ item: PhotosPickerItem) async {
+  private func importPhoto(_ item: PhotosPickerItem, draftId: UUID) async {
     do {
       guard let data = try await item.loadTransferable(type: Data.self) else {
+        guard draftId == viewModel.draft.id else { return }
         assetErrorMessage = "Can't attach the selected photo. Choose another photo."
         return
       }
+      guard draftId == viewModel.draft.id else { return }
       viewModel.draft.addAsset(
         MailDraftAsset(
           data: data,
@@ -1212,9 +1230,10 @@ struct MailShellComposer: View {
       )
       assetErrorMessage = nil
     } catch {
+      guard draftId == viewModel.draft.id else { return }
       assetErrorMessage = "Can't attach the selected photo. Choose another photo."
     }
-    selectedPhoto = nil
+    if draftId == viewModel.draft.id { selectedPhoto = nil }
   }
 }
 

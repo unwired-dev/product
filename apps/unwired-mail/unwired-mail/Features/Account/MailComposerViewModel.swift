@@ -374,7 +374,8 @@ final class MailComposerViewModel {
     do {
       try await saveDraft(candidate)
       guard revision == editRevision else { return false }
-      lastSavedDraft = draft
+      draft = candidate
+      lastSavedDraft = candidate
       saveState = .saved
       return true
     } catch let conflict as MailCompositionDraftSaveConflict {

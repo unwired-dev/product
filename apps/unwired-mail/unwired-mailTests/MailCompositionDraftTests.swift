@@ -381,6 +381,7 @@ final class MailCompositionDraftTests {
 
     #expect(await viewModel.send() == .sent)
     #expect(savedDrafts.last?.body == "Latest edit")
+    #expect(savedDrafts.last == viewModel.draft)
     #expect(admittedDrafts.last?.body == "Latest edit")
     #expect(deletedDraftIds == [initialDraft.id])
     #expect(viewModel.saveState == .saved)
@@ -1267,12 +1268,13 @@ final class MailCompositionDraftTests {
     var source = draft(recipient: "recipient@example.com")
     source.document = SemanticMessageDocument(plainText: "Keep this edit")
     source.markEdited(now: Date(timeIntervalSince1970: 2_000_000_000))
+    let syncService = RemovedDraftSyncService(
+      draftId: source.id,
+      removedAt: source.updatedAtMilliseconds - 1
+    )
     let repository = MailCompositionDraftRepository(
       store: ReadOnlyDraftStore(drafts: [source]),
-      syncService: RemovedDraftSyncService(
-        draftId: source.id,
-        removedAt: source.updatedAtMilliseconds - 1
-      ),
+      syncService: syncService,
       reminderSyncService: OfflineSendReminderSyncService()
     )
     let session = ProductAccountSessionSnapshot(
@@ -1289,6 +1291,7 @@ final class MailCompositionDraftTests {
     )
 
     #expect(drafts == [source])
+    #expect(await syncService.savedDraftIds().isEmpty)
   }
 
   @Test(.bug(id: 562))
@@ -1686,6 +1689,7 @@ private struct ReadOnlyDraftStore: MailCompositionDraftPersisting {
 private actor RemovedDraftSyncService: MailCompositionDraftSyncing {
   let draftId: UUID
   let removedAt: Int64
+  private var savedIds: [UUID] = []
 
   init(draftId: UUID, removedAt: Int64) {
     self.draftId = draftId
@@ -1709,11 +1713,16 @@ private actor RemovedDraftSyncService: MailCompositionDraftSyncing {
   ) async throws {}
 
   func save(
-    _: MailShellCompositionDraft,
+    _ draft: MailShellCompositionDraft,
     profileId _: MailProfileId,
     session _: ProductAccountSessionSnapshot
   ) async throws -> MailCompositionDraftSyncSaveResult {
-    .saved
+    savedIds.append(draft.id)
+    return .saved
+  }
+
+  func savedDraftIds() -> [UUID] {
+    savedIds
   }
 }
 

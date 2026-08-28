@@ -329,8 +329,9 @@ actor MailCompositionDraftRepository {
     var merged = Dictionary(uniqueKeysWithValues: local.map { ($0.id, $0) })
     let synchronizedById = Dictionary(uniqueKeysWithValues: snapshot.drafts.map { ($0.id, $0) })
     for draft in local
-    where synchronizedById[draft.id]?.updatedAtMilliseconds ?? .min
-      < draft.updatedAtMilliseconds
+    where snapshot.removedDraftUpdatedAtMilliseconds[draft.id] == nil
+      && (synchronizedById[draft.id]?.updatedAtMilliseconds ?? .min)
+        < draft.updatedAtMilliseconds
     {
       _ = try? await syncService.save(draft, profileId: profileId, session: session)
     }
