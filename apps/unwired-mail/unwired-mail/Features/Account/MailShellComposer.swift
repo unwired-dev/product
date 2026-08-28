@@ -1574,17 +1574,18 @@ private struct MailComposerSubjectField: UIViewRepresentable {
       super.insertText(text)
     }
 
-    override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
-      guard
-        presses.contains(where: {
-          $0.key?.charactersIgnoringModifiers == "\r"
-            || $0.key?.charactersIgnoringModifiers == "\n"
-        }) == false
-      else {
-        submit?()
-        return
-      }
-      super.pressesBegan(presses, with: event)
+    override var keyCommands: [UIKeyCommand]? {
+      (super.keyCommands ?? []) + [
+        UIKeyCommand(
+          input: "\r",
+          modifierFlags: [],
+          action: #selector(submitHardwareReturn)
+        )
+      ]
+    }
+
+    @objc private func submitHardwareReturn() {
+      submit?()
     }
   }
 
