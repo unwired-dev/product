@@ -252,6 +252,11 @@ struct MailShellComposer: View {
                 isFocused: $isSubjectFocused,
                 focusBody: focusBody
               )
+              .onKeyPress(keys: [.return]) {
+                guard isSubjectFocused else { return .ignored }
+                focusBody()
+                return .handled
+              }
               .padding(.horizontal, 16)
               .padding(.vertical, 12)
             } else {
@@ -1572,20 +1577,6 @@ private struct MailComposerSubjectField: UIViewRepresentable {
         return
       }
       super.insertText(text)
-    }
-
-    override var keyCommands: [UIKeyCommand]? {
-      (super.keyCommands ?? []) + [
-        UIKeyCommand(
-          input: "\r",
-          modifierFlags: [],
-          action: #selector(submitHardwareReturn)
-        )
-      ]
-    }
-
-    @objc private func submitHardwareReturn() {
-      submit?()
     }
   }
 
