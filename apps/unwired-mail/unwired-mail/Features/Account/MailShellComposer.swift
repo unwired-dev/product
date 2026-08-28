@@ -251,6 +251,7 @@ struct MailShellComposer: View {
               focusedField: $focusedField,
               focusBody: focusBody
             )
+            .id(presentsSubjectField)
             .disabled(!presentsSubjectField)
             .opacity(presentsSubjectField ? 1 : 0)
             .accessibilityHidden(!presentsSubjectField)
