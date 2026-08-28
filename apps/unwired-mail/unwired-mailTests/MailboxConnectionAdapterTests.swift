@@ -5959,6 +5959,32 @@ final class MailboxConnectionAdapterTests {
     withExtendedLifetime(window) {}
   }
 
+  @Test(.bug(id: 559))
+  func testMailShellMessageBodyDoesNotRetryAuthenticationRefusal() async throws {
+    let attemptFinished = expectation(description: "Message body attempt finished")
+    let requestId = UUID()
+    var shouldRetry: Bool?
+    let host = UIHostingController(
+      rootView: MailShellMessageBody(
+        onLoadAttemptFinished: { finishedRequestId, retry in
+          guard finishedRequestId == requestId else { return }
+          shouldRetry = retry
+          attemptFinished.fulfill()
+        },
+        loadRequestId: requestId,
+        usesCoordinatedLoading: true,
+        load: { throw CancellationError() }
+      )
+    )
+    let window = try releaseFixtureWindow(hosting: host)
+
+    releaseBeginRendering(host.view)
+    await fulfillment(of: [attemptFinished], timeout: 1)
+
+    #expect(shouldRetry == false)
+    withExtendedLifetime(window) {}
+  }
+
   @Test(.bug(id: 552))
   func testMessageBodyPresentationRevealsOnlyPreparedContent() {
     let html = SanitizedMessageHTML(documentHTML: "styled-document")

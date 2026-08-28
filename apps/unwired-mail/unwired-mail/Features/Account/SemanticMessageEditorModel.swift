@@ -160,6 +160,33 @@ final class SemanticMessageEditorModel {
     )
   }
 
+  /// Captures the full authored body with an optional fixed insertion point.
+  func composeAssistanceBodyTarget(insertionOffset: Int? = nil) -> ComposeAssistanceTarget {
+    let currentOffset = selectionOffsets?.0 ?? attributedText.characters.count
+    return ComposeAssistanceTarget(
+      insertionOffset: min(
+        max(insertionOffset ?? currentOffset, 0), attributedText.characters.count),
+      range: nil,
+      scope: .authoredBody,
+      sourceDocument: document,
+      targetDocument: document
+    )
+  }
+
+  static func rebasedComposeAssistanceInsertionOffset(
+    _ insertionOffset: Int,
+    replacing replacedRange: Range<Int>,
+    withCharacterCount replacementCount: Int
+  ) -> Int {
+    if replacedRange.upperBound <= insertionOffset {
+      return max(0, insertionOffset + replacementCount - replacedRange.count)
+    }
+    if replacedRange.lowerBound < insertionOffset {
+      return replacedRange.lowerBound + replacementCount
+    }
+    return insertionOffset
+  }
+
   /// Applies accepted assistance as one undoable semantic-document mutation.
   func applyAssistanceDocument(
     _ replacement: SemanticMessageDocument,
@@ -358,6 +385,35 @@ final class SemanticMessageEditorModel {
       .count(where: { $0 == "\n" })
     guard updatedDocument.blocks.indices.contains(blockIndex) else { return false }
     updatedDocument.blocks[blockIndex].kind = command.kind(ordinal: 1)
+    recordUndo(previousDocument)
+    redoDocuments.removeAll()
+    document = updatedDocument
+    replaceAttributedText(
+      with: updatedDocument,
+      selectionOffsets: (
+        context.replacementRange.lowerBound,
+        context.replacementRange.lowerBound
+      )
+    )
+    return true
+  }
+
+  /// Removes a live slash query without applying a block transformation.
+  @discardableResult
+  func removeSlashCommandQuery(context: SemanticMessageSlashCommand.Context) -> Bool {
+    guard slashCommandContext == context else { return false }
+    let previousDocument = document
+    var updatedText = attributedText
+    let lower = updatedText.characters.index(
+      updatedText.startIndex,
+      offsetBy: context.replacementRange.lowerBound
+    )
+    let upper = updatedText.characters.index(
+      updatedText.startIndex,
+      offsetBy: context.replacementRange.upperBound
+    )
+    updatedText.replaceSubrange(lower..<upper, with: AttributedString())
+    let updatedDocument = semanticDocument(for: updatedText)
     recordUndo(previousDocument)
     redoDocuments.removeAll()
     document = updatedDocument

@@ -198,8 +198,8 @@ struct MailLoadSchedulerTests {
     #expect(await probe.startedLabels().contains("cancelled") == false)
   }
 
-  @Test("An interactive consumer promotes a queued shared speculative load", .bug(id: 551))
-  func interactiveConsumerPromotesQueuedSharedLoad() async throws {
+  @Test("An active speculative body load can be promoted in place", .bug(id: 559))
+  func speculativeBodyLoadPromotesInPlace() async throws {
     let scheduler = ProductAccountMailLoadScheduler()
     let probe = MailLoadConcurrencyProbe()
     let connection = connectionId(provider: .gmail, value: "queued-promotion")
@@ -227,13 +227,7 @@ struct MailLoadSchedulerTests {
       label: "later-interactive",
       messageId: messageId(connection: connection, value: "later-interactive")
     )
-    let interactive = Task { @MainActor in
-      try await scheduler.loadMessageBody(for: sharedMessage) {
-        Issue.record("The shared provider load ran twice")
-        return MailboxMessageBody(text: "duplicate")
-      }
-    }
-    await scheduler.waitUntilSharedBodyConsumerCountForTesting(2, messageId: sharedMessage)
+    scheduler.promoteMessageBodyLoad(for: sharedMessage)
 
     await probe.release("blocker-0")
     await probe.waitUntilStarted(3)
@@ -244,7 +238,6 @@ struct MailLoadSchedulerTests {
       _ = try await blocker.value
     }
     _ = try await speculative.value
-    _ = try await interactive.value
     _ = try await laterInteractive.value
   }
 

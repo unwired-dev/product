@@ -401,11 +401,23 @@ final class RemoteMessageContentPresentation {
     loadRequest = UUID()
   }
 
-  func apply(policy: RemoteContentLoadPolicy, hasRemoteImages: Bool) {
+  func apply(
+    policy: RemoteContentLoadPolicy,
+    hasRemoteImages: Bool,
+    allowsAutomaticLoad: Bool = true
+  ) {
     reset()
-    if policy == .alwaysLoad, hasRemoteImages {
+    if allowsAutomaticLoad, policy == .alwaysLoad, hasRemoteImages {
       requestLoad()
     }
+  }
+
+  func beginAutomaticLoadIfNeeded(
+    policy: RemoteContentLoadPolicy,
+    hasRemoteImages: Bool
+  ) {
+    guard policy == .alwaysLoad, hasRemoteImages, loadRequest == nil else { return }
+    requestLoad()
   }
 
   func load(

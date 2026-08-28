@@ -48,7 +48,10 @@ struct MailShellComposer: View {
   @Environment(\.dismiss) private var dismiss
   @FocusState private var focusedField: MailComposerFocus?
   @State private var isBodyFocused = false
+  @State private var isBodyFocusPending = false
   @State private var bodyFocusRequest = 0
+  @State private var bodyFocusHandoff = 0
+  @State private var presentsSubjectField = true
   @State private var assetErrorMessage: String?
   @State private var translationErrorMessage: String?
   @State private var composeAssistancePresentation: ComposeAssistancePresentation?
@@ -252,6 +255,9 @@ struct MailShellComposer: View {
               focusedField: $focusedField,
               focusBody: focusBody
             )
+            .disabled(!presentsSubjectField)
+            .opacity(presentsSubjectField ? 1 : 0)
+            .accessibilityHidden(!presentsSubjectField)
             Divider()
             MailComposerActionBar(
               editorModel: editorModel,
@@ -272,8 +278,10 @@ struct MailShellComposer: View {
             Divider()
             MailComposerBodyField(
               editorModel: editorModel,
+              composeAssistanceContext: composeAssistanceContext,
               isFocused: $isBodyFocused,
-              focusRequest: bodyFocusRequest
+              focusRequest: bodyFocusRequest,
+              focusDidBegin: bodyFocusDidBegin
             )
             .simultaneousGesture(
               TapGesture().onEnded {
@@ -370,6 +378,9 @@ struct MailShellComposer: View {
       }
       .onChange(of: focusedField) { previousField, focusedField in
         if focusedField != nil {
+          bodyFocusHandoff &+= 1
+          isBodyFocusPending = false
+          presentsSubjectField = true
           isBodyFocused = false
         }
         guard let recipientField = recipientField(for: previousField) else { return }
@@ -523,10 +534,39 @@ struct MailShellComposer: View {
   }
 
   private func focusBody() {
-    requestBodyFocus()
+    bodyFocusHandoff &+= 1
+    let handoff = bodyFocusHandoff
+    isBodyFocusPending = true
+    presentsSubjectField = false
+    focusedField = nil
+    Task { @MainActor in
+      await Task.yield()
+      guard handoff == bodyFocusHandoff, isBodyFocusPending, focusedField == nil else { return }
+      isBodyFocused = true
+      bodyFocusRequest &+= 1
+    }
+  }
+
+  private func bodyFocusDidBegin() {
+    guard isBodyFocusPending else { return }
+    let handoff = bodyFocusHandoff
+    Task { @MainActor in
+      try? await Task.sleep(for: .milliseconds(100))
+      guard
+        handoff == bodyFocusHandoff,
+        isBodyFocusPending,
+        focusedField == nil,
+        isBodyFocused
+      else { return }
+      presentsSubjectField = true
+      isBodyFocusPending = false
+    }
   }
 
   private func requestBodyFocus() {
+    bodyFocusHandoff &+= 1
+    isBodyFocusPending = false
+    presentsSubjectField = true
     focusedField = nil
     isBodyFocused = true
     bodyFocusRequest &+= 1
@@ -1026,6 +1066,16 @@ struct MailShellComposer: View {
     )
   }
 
+  private var composeAssistanceContext: SemanticMessageTextView.ComposeAssistanceContext? {
+    guard let mailAssistanceViewModel else { return nil }
+    return SemanticMessageTextView.ComposeAssistanceContext(
+      viewModel: mailAssistanceViewModel,
+      currentSubject: { viewModel.draft.subject },
+      recipientDisplayNames: { recipientDisplayNames },
+      applySubject: { subject in viewModel.draft.subject = subject }
+    )
+  }
+
   private func requestTranslation() {
     guard let mailAssistanceViewModel else { return }
     let target = editorModel.composeAssistanceTarget()
@@ -1287,14 +1337,18 @@ private struct MailComposerHeader: View {
 
 private struct MailComposerBodyField: View {
   @Bindable var editorModel: SemanticMessageEditorModel
+  let composeAssistanceContext: SemanticMessageTextView.ComposeAssistanceContext?
   @Binding var isFocused: Bool
   let focusRequest: Int
+  let focusDidBegin: () -> Void
 
   var body: some View {
     SemanticMessageTextView(
       editorModel: editorModel,
+      composeAssistanceContext: composeAssistanceContext,
       isFocused: $isFocused,
       focusRequest: focusRequest,
+      focusDidBegin: focusDidBegin,
       minimumHeight: 160
     )
     .frame(maxWidth: .infinity, alignment: .topLeading)
