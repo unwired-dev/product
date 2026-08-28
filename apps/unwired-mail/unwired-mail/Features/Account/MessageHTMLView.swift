@@ -475,6 +475,7 @@ enum MessageHTMLDocument {
 }
 
 struct MessageHTMLView: View {
+  let allowsAutomaticRemoteContent: Bool
   let connectionId: MailboxConnectionId?
   let html: SanitizedMessageHTML
   let onInitialDocumentReady: () -> Void
@@ -493,6 +494,7 @@ struct MessageHTMLView: View {
   @State private var remoteContent = RemoteMessageContentPresentation()
 
   init(
+    allowsAutomaticRemoteContent: Bool = true,
     connectionId: MailboxConnectionId?,
     html: SanitizedMessageHTML,
     onInitialDocumentReady: @escaping () -> Void = {},
@@ -504,6 +506,7 @@ struct MessageHTMLView: View {
         try await RemoteMessageContentLoader().load($0)
       }
   ) {
+    self.allowsAutomaticRemoteContent = allowsAutomaticRemoteContent
     self.connectionId = connectionId
     self.html = html
     self.onInitialDocumentReady = onInitialDocumentReady
@@ -548,6 +551,14 @@ struct MessageHTMLView: View {
       onResetRemoteContent()
       remoteContent.apply(
         policy: remoteContentPolicy,
+        hasRemoteImages: !html.remoteImageReferences.isEmpty,
+        allowsAutomaticLoad: allowsAutomaticRemoteContent
+      )
+    }
+    .onChange(of: allowsAutomaticRemoteContent) { _, allowsAutomaticLoad in
+      guard allowsAutomaticLoad else { return }
+      remoteContent.beginAutomaticLoadIfNeeded(
+        policy: remoteContentPolicy,
         hasRemoteImages: !html.remoteImageReferences.isEmpty
       )
     }
@@ -555,7 +566,8 @@ struct MessageHTMLView: View {
       onResetRemoteContent()
       remoteContent.apply(
         policy: remoteContentPolicy,
-        hasRemoteImages: !html.remoteImageReferences.isEmpty
+        hasRemoteImages: !html.remoteImageReferences.isEmpty,
+        allowsAutomaticLoad: allowsAutomaticRemoteContent
       )
     }
     .onDisappear {
