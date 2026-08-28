@@ -7,7 +7,6 @@ import UniformTypeIdentifiers
 private enum MailComposerFocus: Hashable {
   case bcc
   case cc  // swiftlint:disable:this identifier_name
-  case subject
   case to  // swiftlint:disable:this identifier_name
 }
 
@@ -46,6 +45,7 @@ struct MailShellComposer: View {
   @FocusState private var focusedField: MailComposerFocus?
   @State private var isBodyFocused = false
   @State private var isBodyFocusPending = false
+  @State private var isSubjectFocused = false
   @State private var bodyFocusRequest = 0
   @State private var bodyFocusHandoff = 0
   @State private var presentsSubjectField = true
@@ -249,7 +249,7 @@ struct MailShellComposer: View {
             if presentsSubjectField {
               MailComposerSubjectField(
                 subject: $viewModel.draft.subject,
-                focusedField: $focusedField,
+                isFocused: $isSubjectFocused,
                 focusBody: focusBody
               )
               .padding(.horizontal, 16)
@@ -386,20 +386,29 @@ struct MailShellComposer: View {
         Task { await importPhoto(item) }
       }
       .onChange(of: focusedField) { previousField, focusedField in
-        if isBodyFocusPending, focusedField == .subject {
-          self.focusedField = nil
-          isBodyFocused = true
-          bodyFocusRequest &+= 1
-          return
-        }
         if focusedField != nil {
           bodyFocusHandoff &+= 1
           isBodyFocusPending = false
           presentsSubjectField = true
           isBodyFocused = false
+          isSubjectFocused = false
         }
         guard let recipientField = recipientField(for: previousField) else { return }
         recipientEditor.commitPendingText(in: recipientField)
+      }
+      .onChange(of: isSubjectFocused) { _, isSubjectFocused in
+        if isBodyFocusPending, isSubjectFocused {
+          self.isSubjectFocused = false
+          isBodyFocused = true
+          bodyFocusRequest &+= 1
+          return
+        }
+        if isSubjectFocused {
+          bodyFocusHandoff &+= 1
+          isBodyFocusPending = false
+          focusedField = nil
+          isBodyFocused = false
+        }
       }
       .onChange(of: recipientEditor.headers) { _, headers in
         synchronizeRecipientHeaders(headers)
@@ -446,7 +455,7 @@ struct MailShellComposer: View {
       }
       .alert("Send Without a Subject?", isPresented: $showsMissingSubjectConfirmation) {
         Button("Send Without Subject", action: sendWithoutSubject)
-        Button("Add Subject", role: .cancel) { focusedField = .subject }
+        Button("Add Subject", role: .cancel, action: focusSubject)
       } message: {
         Text("The message has no subject. You can add one or send it as written.")
       }
@@ -547,6 +556,7 @@ struct MailShellComposer: View {
     isBodyFocusPending = true
     presentsSubjectField = false
     focusedField = nil
+    isSubjectFocused = false
     Task { @MainActor in
       await Task.yield()
       guard handoff == bodyFocusHandoff, isBodyFocusPending, focusedField == nil else { return }
@@ -579,7 +589,7 @@ struct MailShellComposer: View {
     Task { @MainActor in
       await Task.yield()
       guard handoff == bodyFocusHandoff, isBodyFocused == false else { return }
-      focusedField = .subject
+      isSubjectFocused = true
     }
   }
 
@@ -588,6 +598,7 @@ struct MailShellComposer: View {
     isBodyFocusPending = false
     presentsSubjectField = true
     focusedField = nil
+    isSubjectFocused = false
     isBodyFocused = true
     bodyFocusRequest &+= 1
   }
@@ -844,7 +855,6 @@ struct MailShellComposer: View {
     case .bcc: .bcc
     case .cc: .cc
     case .to: .to
-    case .subject: nil
     }
   }
 
@@ -1554,7 +1564,7 @@ private struct MailComposerIdentityRow: View {
 
 private struct MailComposerSubjectField: UIViewRepresentable {
   @Binding var subject: String
-  let focusedField: FocusState<MailComposerFocus?>.Binding
+  @Binding var isFocused: Bool
   let focusBody: () -> Void
 
   func makeCoordinator() -> Coordinator {
@@ -1580,7 +1590,7 @@ private struct MailComposerSubjectField: UIViewRepresentable {
   func updateUIView(_ textField: UITextField, context: Context) {
     context.coordinator.parent = self
     if textField.text != subject { textField.text = subject }
-    if focusedField.wrappedValue == .subject {
+    if isFocused {
       if textField.isFirstResponder == false { textField.becomeFirstResponder() }
     } else if textField.isFirstResponder {
       textField.resignFirstResponder()
@@ -1600,19 +1610,15 @@ private struct MailComposerSubjectField: UIViewRepresentable {
     }
 
     func textFieldDidBeginEditing(_: UITextField) {
-      if parent.focusedField.wrappedValue != .subject {
-        parent.focusedField.wrappedValue = .subject
-      }
+      parent.isFocused = true
     }
 
     func textFieldDidEndEditing(_: UITextField) {
-      if parent.focusedField.wrappedValue == .subject {
-        parent.focusedField.wrappedValue = nil
-      }
+      parent.isFocused = false
     }
 
     func textFieldShouldReturn(_ textField: UITextField) -> Bool {
-      parent.focusedField.wrappedValue = nil
+      parent.isFocused = false
       textField.resignFirstResponder()
       parent.focusBody()
       return false
