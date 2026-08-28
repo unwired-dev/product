@@ -246,15 +246,20 @@ struct MailShellComposer: View {
             Divider()
             recipientFields
             Divider()
-            MailComposerSubjectField(
-              subject: $viewModel.draft.subject,
-              focusedField: $focusedField,
-              focusBody: focusBody
-            )
-            .id(presentsSubjectField)
-            .disabled(!presentsSubjectField)
-            .opacity(presentsSubjectField ? 1 : 0)
-            .accessibilityHidden(!presentsSubjectField)
+            if presentsSubjectField {
+              MailComposerSubjectField(
+                subject: $viewModel.draft.subject,
+                focusedField: $focusedField,
+                focusBody: focusBody
+              )
+            } else {
+              Text(viewModel.draft.subject.isEmpty ? "Subject" : viewModel.draft.subject)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .hidden()
+                .accessibilityHidden(true)
+            }
             Divider()
             MailComposerActionBar(
               editorModel: editorModel,
