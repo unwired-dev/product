@@ -253,12 +253,17 @@ struct MailShellComposer: View {
                 focusBody: focusBody
               )
             } else {
-              Text(viewModel.draft.subject.isEmpty ? "Subject" : viewModel.draft.subject)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 12)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .hidden()
-                .accessibilityHidden(true)
+              Button(action: focusSubject) {
+                Text(viewModel.draft.subject.isEmpty ? "Subject" : viewModel.draft.subject)
+                  .foregroundStyle(
+                    viewModel.draft.subject.isEmpty ? Color.secondary : Color.primary
+                  )
+                  .padding(.horizontal, 16)
+                  .padding(.vertical, 12)
+                  .frame(maxWidth: .infinity, alignment: .leading)
+              }
+              .buttonStyle(.plain)
+              .accessibilityIdentifier("mail-compose-subject")
             }
             Divider()
             MailComposerActionBar(
@@ -559,23 +564,20 @@ struct MailShellComposer: View {
         focusedField == nil,
         isBodyFocused
       else { return }
-      presentsSubjectField = true
-      try? await Task.sleep(for: .milliseconds(100))
-      guard
-        handoff == bodyFocusHandoff,
-        isBodyFocusPending,
-        focusedField == nil,
-        isBodyFocused
-      else { return }
-      bodyFocusRequest &+= 1
-      try? await Task.sleep(for: .milliseconds(100))
-      guard
-        handoff == bodyFocusHandoff,
-        isBodyFocusPending,
-        focusedField == nil,
-        isBodyFocused
-      else { return }
       isBodyFocusPending = false
+    }
+  }
+
+  private func focusSubject() {
+    bodyFocusHandoff &+= 1
+    let handoff = bodyFocusHandoff
+    isBodyFocusPending = false
+    isBodyFocused = false
+    presentsSubjectField = true
+    Task { @MainActor in
+      await Task.yield()
+      guard handoff == bodyFocusHandoff, isBodyFocused == false else { return }
+      focusedField = .subject
     }
   }
 
