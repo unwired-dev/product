@@ -6202,14 +6202,17 @@ struct MailShellThreadList: View {
               }
             }
             Section {
+              let categoryNamesById = categoryNamesById
               let pinnedThreadIds = pinViewModel.pinnedThreadIds
               ForEach(items) { item in
+                let isUnread = MailViewFilter.isUnread(item.thread)
                 let leadingActions = resolvedSwipeActions(for: item, edge: .leading)
                 let trailingActions = resolvedSwipeActions(for: item, edge: .trailing)
                 NavigationLink(value: item.thread.id) {
                   MailShellThreadRow(
                     categoryNamesById: categoryNamesById,
                     isPinned: pinnedThreadIds.contains(item.thread.id),
+                    isUnread: isUnread,
                     item: item,
                     preferences: inboxPreferences,
                     showsSourceConnection: mailboxSelection?.isUnified == true,
@@ -6219,7 +6222,7 @@ struct MailShellThreadList: View {
                   .onChange(of: item.id) { _, _ in itemDidRender(item) }
                 }
                 .accessibilityIdentifier("mail-thread-row")
-                .accessibilityValue(MailViewFilter.isUnread(item.thread) ? "Unread" : "Read")
+                .accessibilityValue(isUnread ? "Unread" : "Read")
                 .accessibilityAddTraits(
                   selectedThreadIds.contains(item.thread.id) ? .isSelected : []
                 )
@@ -7341,8 +7344,14 @@ private struct MailShellMailboxTools: View {
 }
 
 private struct MailShellThreadRow: View {
+  private static let receivedDateFormat = Date.FormatStyle(
+    date: .abbreviated,
+    time: .omitted
+  )
+
   let categoryNamesById: [String: String]
   let isPinned: Bool
+  let isUnread: Bool
   let item: MailShellThreadListItem
   let preferences: InboxPreferences
   let showsSourceConnection: Bool
@@ -7439,10 +7448,6 @@ private struct MailShellThreadRow: View {
     return categoryNamesById[categoryId]
   }
 
-  private var isUnread: Bool {
-    MailViewFilter.isUnread(thread)
-  }
-
   private var rowSpacing: CGFloat {
     switch preferences.threadDensity {
     case .compact:
@@ -7478,7 +7483,7 @@ private struct MailShellThreadRow: View {
       timeIntervalSince1970:
         TimeInterval(thread.latestMessage.providerInternalDateMilliseconds) / 1_000
     )
-    .formatted(date: .abbreviated, time: .omitted)
+    .formatted(Self.receivedDateFormat)
   }
 }
 
