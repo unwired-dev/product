@@ -1655,6 +1655,18 @@ private struct MailComposerIdentityRow: View {
 }
 
 private struct MailComposerSubjectField: UIViewRepresentable {
+  private final class SubjectTextField: UITextField {
+    var submit: (() -> Void)?
+
+    override func insertText(_ text: String) {
+      guard text != "\n", text != "\r" else {
+        submit?()
+        return
+      }
+      super.insertText(text)
+    }
+  }
+
   @Binding var subject: String
   @Binding var isFocused: Bool
   let focusBody: () -> Void
@@ -1664,7 +1676,7 @@ private struct MailComposerSubjectField: UIViewRepresentable {
   }
 
   func makeUIView(context: Context) -> UITextField {
-    let textField = UITextField()
+    let textField = SubjectTextField()
     textField.adjustsFontForContentSizeCategory = true
     textField.font = .preferredFont(forTextStyle: .body)
     textField.placeholder = "Subject"
@@ -1676,6 +1688,10 @@ private struct MailComposerSubjectField: UIViewRepresentable {
       action: #selector(Coordinator.subjectDidChange),
       for: .editingChanged
     )
+    textField.submit = { [weak coordinator = context.coordinator, weak textField] in
+      guard let textField else { return }
+      coordinator?.submit(textField)
+    }
     return textField
   }
 
@@ -1710,10 +1726,15 @@ private struct MailComposerSubjectField: UIViewRepresentable {
     }
 
     func textFieldShouldReturn(_ textField: UITextField) -> Bool {
+      submit(textField)
+      return false
+    }
+
+    func submit(_ textField: UITextField) {
+      guard textField.isFirstResponder else { return }
       parent.isFocused = false
       textField.resignFirstResponder()
       parent.focusBody()
-      return false
     }
   }
 }
