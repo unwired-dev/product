@@ -1,5 +1,13 @@
 import Foundation
 
+struct MailCompositionDraftSaveConflict: LocalizedError {
+  let copy: MailShellCompositionDraft
+
+  var errorDescription: String? {
+    "This Draft was deleted elsewhere. Your edits were saved as a conflicted Draft."
+  }
+}
+
 extension MailCompositionDraftRepository {
   func save(
     _ draft: MailShellCompositionDraft,
@@ -35,14 +43,16 @@ extension MailCompositionDraftRepository {
         )
         throw SendReminderSyncError.concurrentModification
       }
-      try await syncService.save(synchronizedDraft, profileId: profileId, session: session)
-      try store.save(
+      try await persistSynchronizedDraft(
         synchronizedDraft,
         productAccountId: productAccountId,
-        profileId: profileId
+        profileId: profileId,
+        session: session
       )
     } catch is CancellationError {
       throw CancellationError()
+    } catch let conflict as MailCompositionDraftSaveConflict {
+      throw conflict
     } catch SendReminderSyncError.concurrentModification {
       throw SendReminderSyncError.concurrentModification
     } catch {
@@ -231,7 +241,11 @@ extension MailCompositionDraftRepository {
     do {
       var synchronizedProjection = result
       synchronizedProjection.sendReminder = result.sendReminder?.synchronized()
-      try await syncService.save(synchronizedProjection, profileId: profileId, session: session)
+      _ = try await syncService.save(
+        synchronizedProjection,
+        profileId: profileId,
+        session: session
+      )
       result = synchronizedProjection
     } catch is CancellationError {
       throw CancellationError()
@@ -243,6 +257,41 @@ extension MailCompositionDraftRepository {
       return result
     } catch {
       return fallback
+    }
+  }
+
+  private func materializeConflictCopy(
+    of draft: MailShellCompositionDraft,
+    productAccountId: String,
+    profileId: MailProfileId,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailShellCompositionDraft {
+    let copy = try replaceWithConflictCopy(
+      draft,
+      productAccountId: productAccountId,
+      profileId: profileId
+    )
+    _ = try? await syncService.save(copy, profileId: profileId, session: session)
+    return copy
+  }
+
+  private func persistSynchronizedDraft(
+    _ draft: MailShellCompositionDraft,
+    productAccountId: String,
+    profileId: MailProfileId,
+    session: ProductAccountSessionSnapshot
+  ) async throws {
+    switch try await syncService.save(draft, profileId: profileId, session: session) {
+    case .saved:
+      try store.save(draft, productAccountId: productAccountId, profileId: profileId)
+    case .removed:
+      let copy = try await materializeConflictCopy(
+        of: draft,
+        productAccountId: productAccountId,
+        profileId: profileId,
+        session: session
+      )
+      throw MailCompositionDraftSaveConflict(copy: copy)
     }
   }
 }

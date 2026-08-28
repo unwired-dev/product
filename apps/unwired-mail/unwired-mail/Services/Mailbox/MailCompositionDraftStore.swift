@@ -1,5 +1,7 @@
 import Foundation
 
+// swiftlint:disable file_length
+
 enum MailCompositionDraftStoreError: LocalizedError, Equatable {
   case storageLimitExceeded
 
@@ -19,6 +21,12 @@ protocol MailCompositionDraftPersisting: Sendable {
   ) throws -> [MailShellCompositionDraft]
   func remove(
     _ draftId: UUID,
+    productAccountId: String,
+    profileId: MailProfileId
+  ) throws
+  func replace(
+    _ draftId: UUID,
+    with draft: MailShellCompositionDraft,
     productAccountId: String,
     profileId: MailProfileId
   ) throws
@@ -146,6 +154,25 @@ struct FileMailCompositionDraftStore: MailCompositionDraftPersisting, @unchecked
       } else {
         drafts.append(draft)
       }
+      try write(
+        drafts.sorted { $0.updatedAtMilliseconds > $1.updatedAtMilliseconds },
+        productAccountId: productAccountId,
+        profileId: profileId
+      )
+    }
+  }
+
+  func replace(
+    _ draftId: UUID,
+    with draft: MailShellCompositionDraft,
+    productAccountId: String,
+    profileId: MailProfileId
+  ) throws {
+    try Self.mutationLock.withLock {
+      try migrateLegacyRootIfNeeded()
+      var drafts = try loadForMutation(productAccountId: productAccountId, profileId: profileId)
+      drafts.removeAll { $0.id == draftId || $0.id == draft.id }
+      drafts.append(draft)
       try write(
         drafts.sorted { $0.updatedAtMilliseconds > $1.updatedAtMilliseconds },
         productAccountId: productAccountId,
@@ -293,17 +320,20 @@ actor MailCompositionDraftRepository {
     } catch {
       return local
     }
-    for draftId in snapshot.removedDraftIds {
-      try? store.remove(draftId, productAccountId: productAccountId, profileId: profileId)
-    }
-    local.removeAll { snapshot.removedDraftIds.contains($0.id) }
+    local = try resolvingRemovedDrafts(
+      in: local,
+      snapshot: snapshot,
+      productAccountId: productAccountId,
+      profileId: profileId
+    )
     var merged = Dictionary(uniqueKeysWithValues: local.map { ($0.id, $0) })
     let synchronizedById = Dictionary(uniqueKeysWithValues: snapshot.drafts.map { ($0.id, $0) })
     for draft in local
-    where synchronizedById[draft.id]?.updatedAtMilliseconds ?? .min
-      < draft.updatedAtMilliseconds
+    where snapshot.removedDraftUpdatedAtMilliseconds[draft.id] == nil
+      && (synchronizedById[draft.id]?.updatedAtMilliseconds ?? .min)
+        < draft.updatedAtMilliseconds
     {
-      try? await syncService.save(draft, profileId: profileId, session: session)
+      _ = try? await syncService.save(draft, profileId: profileId, session: session)
     }
     for var draft in snapshot.drafts {
       if let existing = merged[draft.id],
@@ -343,6 +373,51 @@ actor MailCompositionDraftRepository {
       try await syncService.remove(draftId, profileId: profileId, session: session)
     }
     try store.remove(draftId, productAccountId: productAccountId, profileId: profileId)
+  }
+
+  private func resolvingRemovedDrafts(
+    in local: [MailShellCompositionDraft],
+    snapshot: MailCompositionDraftSyncSnapshot,
+    productAccountId: String,
+    profileId: MailProfileId
+  ) throws -> [MailShellCompositionDraft] {
+    var retained: [MailShellCompositionDraft] = []
+    for draft in local {
+      guard let removedAt = snapshot.removedDraftUpdatedAtMilliseconds[draft.id] else {
+        retained.append(draft)
+        continue
+      }
+      if draft.updatedAtMilliseconds > removedAt {
+        do {
+          let copy = try replaceWithConflictCopy(
+            draft,
+            productAccountId: productAccountId,
+            profileId: profileId
+          )
+          retained.append(copy)
+        } catch {
+          retained.append(draft)
+        }
+      } else {
+        try? store.remove(draft.id, productAccountId: productAccountId, profileId: profileId)
+      }
+    }
+    return retained
+  }
+
+  func replaceWithConflictCopy(
+    _ draft: MailShellCompositionDraft,
+    productAccountId: String,
+    profileId: MailProfileId
+  ) throws -> MailShellCompositionDraft {
+    let copy = draft.preservingAsConflictCopy()
+    try store.replace(
+      draft.id,
+      with: copy,
+      productAccountId: productAccountId,
+      profileId: profileId
+    )
+    return copy
   }
 
 }

@@ -1,6 +1,8 @@
 import Foundation
 import Observation
 
+// swiftlint:disable file_length
+
 enum MailComposerSaveState: Equatable {
   case failed(String)
   case idle
@@ -44,6 +46,10 @@ final class MailComposerViewModel {
   typealias SendDraft = @MainActor (MailShellCompositionDraft) async -> Bool
 
   var draft: MailShellCompositionDraft
+  private(set) var editorModel: SemanticMessageEditorModel
+  private(set) var isFinished = false
+  private(set) var isSwitchingDraft = false
+  private(set) var noticeMessage: String?
   var presentation: ComposePresentationPreference
   private(set) var reminderState: MailComposerReminderState = .idle
   private(set) var saveState: MailComposerSaveState = .idle
@@ -53,6 +59,7 @@ final class MailComposerViewModel {
   private let cancelReminder: CancelReminder
   private let deleteDraft: DeleteDraft
   private var editRevision = 0
+  private var editorModelsByDraftId: [UUID: SemanticMessageEditorModel]
   private var hasConfirmedMissingSubject = false
   private var lastSavedDraft: MailShellCompositionDraft?
   private let now: () -> Date
@@ -82,6 +89,9 @@ final class MailComposerViewModel {
     self.cancelReminder = cancelReminder
     self.deleteDraft = deleteDraft
     self.draft = draft
+    let editorModel = SemanticMessageEditorModel(document: draft.document)
+    self.editorModel = editorModel
+    editorModelsByDraftId = [draft.id: editorModel]
     self.presentation = presentation
     self.now = now
     self.reminderOwnerDeviceId = reminderOwnerDeviceId
@@ -109,6 +119,7 @@ final class MailComposerViewModel {
     guard lastSavedDraft != draft else { return }
     editRevision += 1
     hasConfirmedMissingSubject = false
+    noticeMessage = nil
     let previousAutosaveTask = autosaveTask
     autosaveTask?.cancel()
     guard draft.hasUserState else {
@@ -134,6 +145,41 @@ final class MailComposerViewModel {
     }
   }
 
+  func editorDocumentChanged() {
+    guard draft.document != editorModel.document else { return }
+    draft.document = editorModel.document
+  }
+
+  func switchDraft(to nextDraft: MailShellCompositionDraft) async -> Bool {
+    guard !isSwitchingDraft else { return false }
+    guard nextDraft != draft else { return true }
+    isSwitchingDraft = true
+    defer { isSwitchingDraft = false }
+
+    if nextDraft.id == draft.id {
+      await cancelPendingAutosave()
+    } else {
+      guard await close() else { return false }
+    }
+    editorModelsByDraftId[draft.id] = editorModel
+    draft = nextDraft
+    if let cached = editorModelsByDraftId[nextDraft.id], cached.document == nextDraft.document {
+      editorModel = cached
+    } else {
+      let editor = SemanticMessageEditorModel(document: nextDraft.document)
+      editorModelsByDraftId[nextDraft.id] = editor
+      editorModel = editor
+    }
+    editRevision += 1
+    hasConfirmedMissingSubject = false
+    isFinished = false
+    lastSavedDraft = nextDraft
+    noticeMessage = nil
+    reminderState = .idle
+    saveState = nextDraft.hasUserState ? .saved : .idle
+    return true
+  }
+
   func close() async -> Bool {
     guard draft.hasUserState else { return await discard() }
     return await flushAutosave()
@@ -145,6 +191,7 @@ final class MailComposerViewModel {
       try await deleteDraft(draft.id)
       await cancelCurrentReminder()
       saveState = .saved
+      isFinished = true
       return true
     } catch {
       saveState = .failed(error.localizedDescription)
@@ -187,6 +234,7 @@ final class MailComposerViewModel {
         saveState = .failed("Message queued, but its local Draft could not be removed.")
       }
     }
+    isFinished = true
     return .sent
   }
 
@@ -214,12 +262,15 @@ final class MailComposerViewModel {
         draft = retainedDraft
         lastSavedDraft = retainedDraft
         saveState = .saved
+      } catch let conflict as MailCompositionDraftSaveConflict {
+        adoptConflictCopy(conflict.copy)
       } catch {
         saveState = .failed(
           "Message scheduled, but its previous Send Reminder could not be cleared. Reload Drafts."
         )
       }
     }
+    isFinished = true
     return true
   }
 
@@ -231,7 +282,7 @@ final class MailComposerViewModel {
     await cancelPendingAutosave()
 
     let previousDraft = draft
-    let candidate = makeReminderDraft(dueAt: dueAt, timeZoneIdentifier: timeZoneIdentifier)
+    var candidate = makeReminderDraft(dueAt: dueAt, timeZoneIdentifier: timeZoneIdentifier)
     reminderState = .saving
     saveState = .saving
     do {
@@ -239,26 +290,32 @@ final class MailComposerViewModel {
       lastSavedDraft = candidate
       draft = candidate
       saveState = .saved
+    } catch let conflict as MailCompositionDraftSaveConflict {
+      candidate = conflict.copy
+      adoptConflictCopy(candidate)
     } catch {
       saveState = .failed(error.localizedDescription)
       reminderState = .failed(error.localizedDescription)
       return false
     }
-
     do {
       reminderState = .saved(try await scheduleReminder(candidate))
     } catch let schedulingError as ScheduledSendManagementError {
-      let rollbackDraft = makeReminderRollbackDraft(
-        restoring: previousDraft,
-        superseding: candidate
-      )
-      draft = rollbackDraft
-      do {
-        try await saveDraft(rollbackDraft)
-        lastSavedDraft = rollbackDraft
-        saveState = .saved
-      } catch {
-        saveState = .failed(error.localizedDescription)
+      if candidate.id == previousDraft.id {
+        let rollbackDraft = makeReminderRollbackDraft(
+          restoring: previousDraft,
+          superseding: candidate
+        )
+        draft = rollbackDraft
+        do {
+          try await saveDraft(rollbackDraft)
+          lastSavedDraft = rollbackDraft
+          saveState = .saved
+        } catch let conflict as MailCompositionDraftSaveConflict {
+          adoptConflictCopy(conflict.copy)
+        } catch {
+          saveState = .failed(error.localizedDescription)
+        }
       }
       reminderState = .failed(schedulingError.localizedDescription)
       return false
@@ -351,8 +408,22 @@ final class MailComposerViewModel {
     do {
       try await saveDraft(candidate)
       guard revision == editRevision else { return false }
-      lastSavedDraft = draft
+      draft = candidate
+      lastSavedDraft = candidate
       saveState = .saved
+      return true
+    } catch let conflict as MailCompositionDraftSaveConflict {
+      guard revision == editRevision else { return false }
+      let originalDraft = draft
+      adoptConflictCopy(conflict.copy)
+      if let reminder = originalDraft.sendReminder {
+        await cancelReminder(reminder, originalDraft.id)
+        do {
+          reminderState = .saved(try await scheduleReminder(conflict.copy))
+        } catch {
+          reminderState = .failed(error.localizedDescription)
+        }
+      }
       return true
     } catch is CancellationError {
       guard revision == editRevision else { return false }
@@ -363,5 +434,14 @@ final class MailComposerViewModel {
       saveState = .failed(error.localizedDescription)
       return false
     }
+  }
+
+  private func adoptConflictCopy(_ copy: MailShellCompositionDraft) {
+    editorModelsByDraftId[draft.id] = nil
+    draft = copy
+    editorModelsByDraftId[copy.id] = editorModel
+    lastSavedDraft = copy
+    noticeMessage = MailCompositionDraftSaveConflict(copy: copy).errorDescription
+    saveState = .saved
   }
 }
