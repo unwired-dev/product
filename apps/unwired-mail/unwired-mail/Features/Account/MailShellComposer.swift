@@ -44,7 +44,6 @@ struct MailShellComposer: View {
   let scheduledSendDueAt: Date?
   let sendNow: MailComposerViewModel.SendDraft?
 
-  @Environment(\.dismiss) private var dismiss
   @FocusState private var focusedField: MailComposerFocus?
   @State private var isBodyFocused = false
   @State private var isBodyFocusPending = false
@@ -73,80 +72,6 @@ struct MailShellComposer: View {
   @State private var suggestionService: MailRecipientSuggestionService
   @State private var viewModel: MailComposerViewModel
 
-  init(
-    connections: [MailboxConnection],
-    draft: MailShellCompositionDraft,
-    preferences: ComposePreferences = .defaults,
-    signatures: SignaturePreferences = .empty,
-    templates: TemplatePreferences = .empty,
-    isSending: Bool,
-    mailAssistanceViewModel: MailAssistanceViewModel? = nil,
-    readingPreferences: ReadingPreferences = .defaults,
-    profileName: String = "Mail Profile",
-    recipientMessages: [MailboxMessageMetadata] = [],
-    responseAssistanceContext: ResponseAssistanceContext? = nil,
-    sendingIdentities: [SendingIdentity] = [],
-    navigation: MailShellComposerNavigation? = nil,
-    suggestionService: MailRecipientSuggestionService = MailRecipientSuggestionService(),
-    draftDidChange: @escaping (MailShellCompositionDraft) -> Void = { _ in },
-    saveDraft: @escaping MailComposerViewModel.SaveDraft = { _ in },
-    deleteDraft: @escaping MailComposerViewModel.DeleteDraft = { _ in },
-    reminderOwnerDeviceId: String = "local-device",
-    cancelReminder: @escaping MailComposerViewModel.CancelReminder = { _, _ in },
-    scheduleReminder: @escaping MailComposerViewModel.ScheduleReminder = { _ in .unavailable },
-    scheduleSend: @escaping MailComposerViewModel.ScheduleSend = { _, _, _ in false },
-    scheduledSendDueAt: Date? = nil,
-    sendNow: MailComposerViewModel.SendDraft? = nil,
-    send: @escaping MailComposerViewModel.SendDraft
-  ) {
-    self.connections = connections
-    var initialDraft = draft
-    if initialDraft.signature == nil, scheduledSendDueAt == nil {
-      initialDraft.applyDefaultSignature(from: signatures)
-    }
-    if let connectionId = draft.connectionId {
-      initialDraft.applyInitialReadReceiptPolicy(
-        readingPreferences.outgoingReadReceiptPolicy(for: connectionId)
-      )
-    }
-    self.draftDidChange = draftDidChange
-    self.isSending = isSending
-    self.mailAssistanceViewModel = mailAssistanceViewModel
-    self.navigation = navigation
-    self.preferences = preferences
-    self.profileName = profileName
-    self.readingPreferences = readingPreferences
-    self.recipientMessages = recipientMessages
-    self.responseAssistanceContext = responseAssistanceContext
-    self.sendingIdentities = sendingIdentities
-    self.signatures = signatures
-    self.templates = templates
-    self.scheduledSendDueAt = scheduledSendDueAt
-    self.sendNow = sendNow
-    _recipientEditor = State(
-      initialValue: MailRecipientEditor(
-        to: initialDraft.recipient,
-        cc: initialDraft.ccRecipients,
-        bcc: initialDraft.bccRecipients
-      )
-    )
-    _suggestionService = State(initialValue: suggestionService)
-    _viewModel = State(
-      initialValue: MailComposerViewModel(
-        draft: initialDraft,
-        presentation: preferences.presentation,
-        reminderOwnerDeviceId: reminderOwnerDeviceId,
-        allowsEditingTransitions: scheduledSendDueAt != nil,
-        saveDraft: saveDraft,
-        deleteDraft: deleteDraft,
-        cancelReminder: cancelReminder,
-        scheduleReminder: scheduleReminder,
-        scheduleSend: scheduleSend,
-        sendDraft: send
-      )
-    )
-  }
-
   @MainActor
   init(
     connections: [MailboxConnection],
@@ -163,7 +88,9 @@ struct MailShellComposer: View {
     sendingIdentities: [SendingIdentity] = [],
     navigation: MailShellComposerNavigation? = nil,
     suggestionService: MailRecipientSuggestionService = MailRecipientSuggestionService(),
-    draftDidChange: @escaping (MailShellCompositionDraft) -> Void = { _ in }
+    draftDidChange: @escaping (MailShellCompositionDraft) -> Void = { _ in },
+    scheduledSendDueAt: Date? = nil,
+    sendNow: MailComposerViewModel.SendDraft? = nil
   ) {
     self.connections = connections
     self.draftDidChange = draftDidChange
@@ -178,8 +105,8 @@ struct MailShellComposer: View {
     self.sendingIdentities = sendingIdentities
     self.signatures = signatures
     self.templates = templates
-    scheduledSendDueAt = nil
-    sendNow = nil
+    self.scheduledSendDueAt = scheduledSendDueAt
+    self.sendNow = sendNow
     _recipientEditor = State(
       initialValue: MailRecipientEditor(
         to: viewModel.draft.recipient,
@@ -193,138 +120,174 @@ struct MailShellComposer: View {
 
   @ViewBuilder
   var body: some View {
-    #if os(iOS)
-      if navigation == nil {
-        composer
-          .presentationDetents(
-            viewModel.presentation == .partial ? [.fraction(0.6)] : [.large]
-          )
-          .presentationDragIndicator(viewModel.presentation == .partial ? .visible : .hidden)
-          .presentationBackgroundInteraction(
-            viewModel.presentation == .partial ? .enabled : .disabled
-          )
-      } else {
-        composer
-      }
-    #else
+    #if os(macOS)
       composer
         .frame(minWidth: 560, minHeight: 520)
+    #else
+      composer
     #endif
   }
 
   private var composer: some View {
-    @Bindable var viewModel = viewModel
-    return NavigationStack {
-      VStack(spacing: 0) {
-        MailComposerHeader(
-          title: viewModel.draft.title,
-          close: closeComposer,
-          actionsAreDisabled: viewModel.saveState == .saving || viewModel.isSwitchingDraft,
-          expansion: headerExpansion,
-          canAutomaticallySend: canScheduleSend,
-          canSendLater: viewModel.canCreateSendReminder,
-          isSendEnabled: isSendEnabled,
-          sendTitle: scheduledSendDueAt == nil ? "Send" : "Save Changes",
-          send: sendDraft,
-          sendLater: openSendLater,
-          sendNow: scheduledSendDueAt != nil && sendNow != nil ? sendScheduledNow : nil,
-          selectedPhoto: $selectedPhoto,
-          switching: navigation.map {
-            MailComposerHeader.Switching(
-              canSwitch: !viewModel.isSwitchingDraft,
-              drafts: $0.drafts.filter { $0.id != viewModel.draft.id },
-              newMessage: $0.newMessage,
-              openDraft: $0.openDraft
-            )
-          },
-          discard: requestDiscard
-        )
-        Divider()
-        ScrollView {
-          VStack(spacing: 0) {
-            MailComposerIdentityRow(
-              connections: connections,
-              identities: sendingIdentities,
-              profileName: profileName,
-              selectedIdentityId: $viewModel.draft.sendingIdentityId
-            )
-            Divider()
-            recipientFields
-            Divider()
-            if presentsSubjectField {
-              MailComposerSubjectField(
-                subject: $viewModel.draft.subject,
-                isFocused: $isSubjectFocused,
-                focusBody: focusBody
-              )
-              .onKeyPress(keys: [.return]) {
-                guard isSubjectFocused else { return .ignored }
-                focusBody()
-                return .handled
-              }
-              .padding(.horizontal, 16)
-              .padding(.vertical, 12)
-            } else {
-              Button(action: focusSubject) {
-                Text(viewModel.draft.subject.isEmpty ? "Subject" : viewModel.draft.subject)
-                  .foregroundStyle(
-                    viewModel.draft.subject.isEmpty ? Color.secondary : Color.primary
-                  )
-                  .padding(.horizontal, 16)
-                  .padding(.vertical, 12)
-                  .frame(maxWidth: .infinity, alignment: .leading)
-              }
-              .buttonStyle(.plain)
-              .accessibilityIdentifier("mail-compose-subject")
-            }
-            Divider()
-            MailComposerActionBar(
-              editorModel: editorModel,
-              hasQuotedText: viewModel.draft.quotedText?.isEmpty == false,
-              requestFile: {
-                pendingFileImportDraftId = viewModel.draft.id
-                showsFileImporter = true
-              },
-              requestLink: requestLink,
-              showsFormattingToolbar: preferences.showsFormattingToolbar,
-              showsExpandedRecipients: $showsExpandedRecipients,
-              showsQuotedText: $showsQuotedText,
-              signatures: signatures,
-              selectedSignatureId: selectedSignatureId,
-              templates: templates,
-              applyTemplate: applyTemplate,
-              requestAssistance: mailAssistanceViewModel == nil ? nil : requestComposeAssistance,
-              requestResponseAssistance: responseAssistanceAction,
-              requestTranslation: mailAssistanceViewModel == nil ? nil : requestTranslation
-            )
-            Divider()
-            MailComposerBodyField(
-              editorModel: editorModel,
-              composeAssistanceContext: composeAssistanceContext,
-              isFocused: $isBodyFocused,
-              focusRequest: bodyFocusRequest,
-              focusDidBegin: bodyFocusDidBegin
-            )
-            .simultaneousGesture(
-              TapGesture().onEnded {
-                requestBodyFocus()
-              }
-            )
-            .dropDestination(for: Data.self) { items, _ in
-              addDroppedImages(items)
-              return !items.isEmpty
-            }
-            .dropDestination(for: URL.self) { urls, _ in
-              importFiles(.success(urls), draftId: viewModel.draft.id)
-              return !urls.isEmpty
-            }
-            Divider()
-            composerSupplementalDetails
-          }
-        }
-        .scrollDismissesKeyboard(.interactively)
-        .accessibilityIdentifier("mail-compose-document-scroll")
+    composerContent
+      .confirmationDialog(
+        "Discard this Draft?",
+        isPresented: $showsDiscardConfirmation,
+        titleVisibility: .visible
+      ) {
+        Button("Discard Draft", role: .destructive, action: discardDraft)
+        Button("Keep Editing", role: .cancel) {}
+      } message: {
+        Text("This removes the Draft from this device.")
       }
+      .alert("Send Without a Subject?", isPresented: $showsMissingSubjectConfirmation) {
+        Button("Send Without Subject", action: sendWithoutSubject)
+        Button("Add Subject", role: .cancel, action: focusSubject)
+      } message: {
+        missingSubjectMessage
+      }
+      .alert("Add Link", isPresented: $showsLinkEditor) {
+        TextField("https://example.com", text: $linkDestination)
+          .textInputAutocapitalization(.never)
+        Button("Add Link", action: applyLink)
+        Button("Cancel", role: .cancel) {}
+      } message: {
+        Text("Enter an HTTP, HTTPS, or email link for the selected text.")
+      }
+      .sheet(item: $sendLaterRequest) { _ in
+        sendLaterSheet
+      }
+  }
+
+  private var composerHeader: some View {
+    @Bindable var viewModel = viewModel
+    return MailComposerHeader(
+      title: viewModel.draft.title,
+      close: closeComposer,
+      actionsAreDisabled: viewModel.saveState == .saving || viewModel.isSwitchingDraft,
+      expansion: headerExpansion,
+      canAutomaticallySend: canScheduleSend,
+      canSendLater: viewModel.canCreateSendReminder,
+      isSendEnabled: isSendEnabled,
+      sendTitle: scheduledSendDueAt == nil ? "Send" : "Save Changes",
+      send: sendDraft,
+      sendLater: openSendLater,
+      sendNow: scheduledSendDueAt != nil && sendNow != nil ? sendScheduledNow : nil,
+      selectedPhoto: $selectedPhoto,
+      switching: navigation.map {
+        MailComposerHeader.Switching(
+          canSwitch: !viewModel.isSwitchingDraft,
+          drafts: $0.drafts.filter { $0.id != viewModel.draft.id },
+          newMessage: $0.newMessage,
+          openDraft: $0.openDraft
+        )
+      },
+      discard: requestDiscard
+    )
+  }
+
+  private var composerContent: some View {
+    NavigationStack {
+      composerLifecycleEditor
+    }
+  }
+
+  private var composerEditor: some View {
+    @Bindable var viewModel = viewModel
+    return VStack(spacing: 0) {
+      composerHeader
+      Divider()
+      ScrollView {
+        VStack(spacing: 0) {
+          MailComposerIdentityRow(
+            connections: connections,
+            identities: sendingIdentities,
+            profileName: profileName,
+            selectedIdentityId: $viewModel.draft.sendingIdentityId
+          )
+          Divider()
+          recipientFields
+          Divider()
+          if presentsSubjectField {
+            MailComposerSubjectField(
+              subject: $viewModel.draft.subject,
+              isFocused: $isSubjectFocused,
+              focusBody: focusBody
+            )
+            .onKeyPress(keys: [.return]) { _ in
+              guard isSubjectFocused else { return .ignored }
+              focusBody()
+              return .handled
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+          } else {
+            Button(action: focusSubject) {
+              Text(viewModel.draft.subject.isEmpty ? "Subject" : viewModel.draft.subject)
+                .foregroundStyle(
+                  viewModel.draft.subject.isEmpty ? Color.secondary : Color.primary
+                )
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("mail-compose-subject")
+          }
+          Divider()
+          MailComposerActionBar(
+            editorModel: editorModel,
+            hasQuotedText: viewModel.draft.quotedText?.isEmpty == false,
+            requestFile: {
+              pendingFileImportDraftId = viewModel.draft.id
+              showsFileImporter = true
+            },
+            requestLink: requestLink,
+            showsFormattingToolbar: preferences.showsFormattingToolbar,
+            showsExpandedRecipients: $showsExpandedRecipients,
+            showsQuotedText: $showsQuotedText,
+            signatures: signatures,
+            selectedSignatureId: selectedSignatureId,
+            templates: templates,
+            applyTemplate: applyTemplate,
+            requestAssistance: mailAssistanceViewModel == nil ? nil : requestComposeAssistance,
+            requestResponseAssistance: responseAssistanceAction,
+            requestTranslation: mailAssistanceViewModel == nil ? nil : requestTranslation
+          )
+          Divider()
+          MailComposerBodyField(
+            editorModel: editorModel,
+            composeAssistanceContext: composeAssistanceContext,
+            isFocused: $isBodyFocused,
+            focusRequest: bodyFocusRequest,
+            focusDidBegin: bodyFocusDidBegin
+          )
+          .simultaneousGesture(
+            TapGesture().onEnded {
+              requestBodyFocus()
+            }
+          )
+          .dropDestination(for: Data.self) { items, _ in
+            addDroppedImages(items)
+            return !items.isEmpty
+          }
+          .dropDestination(for: URL.self) { urls, _ in
+            importFiles(.success(urls), draftId: viewModel.draft.id)
+            return !urls.isEmpty
+          }
+          Divider()
+          composerSupplementalDetails
+        }
+      }
+      .scrollDismissesKeyboard(.interactively)
+      .accessibilityIdentifier("mail-compose-document-scroll")
+    }
+  }
+
+  private var composerPresentationEditor: some View {
+    @Bindable var viewModel = viewModel
+    return
+      composerEditor
       .fileImporter(
         isPresented: $showsFileImporter,
         allowedContentTypes: [.data],
@@ -397,6 +360,12 @@ struct MailShellComposer: View {
           )
         }
       }
+  }
+
+  private var composerInputLifecycleEditor: some View {
+    @Bindable var viewModel = viewModel
+    return
+      composerPresentationEditor
       .onChange(of: selectedPhoto) { _, item in
         guard let item else { return }
         let draftId = viewModel.draft.id
@@ -430,6 +399,12 @@ struct MailShellComposer: View {
       .onChange(of: recipientEditor.headers) { _, headers in
         synchronizeRecipientHeaders(headers)
       }
+  }
+
+  private var composerLifecycleEditor: some View {
+    @Bindable var viewModel = viewModel
+    return
+      composerInputLifecycleEditor
       .task {
         viewModel.draftChanged()
         await Task.yield()
@@ -463,49 +438,29 @@ struct MailShellComposer: View {
       .interactiveDismissDisabled(
         viewModel.hasUnsavedChanges || viewModel.saveState.blocksDismissal
       )
-      .confirmationDialog(
-        "Discard this Draft?",
-        isPresented: $showsDiscardConfirmation,
-        titleVisibility: .visible
-      ) {
-        Button("Discard Draft", role: .destructive, action: discardDraft)
-        Button("Keep Editing", role: .cancel) {}
-      } message: {
-        Text("This removes the Draft from this device.")
-      }
-      .alert("Send Without a Subject?", isPresented: $showsMissingSubjectConfirmation) {
-        Button("Send Without Subject", action: sendWithoutSubject)
-        Button("Add Subject", role: .cancel, action: focusSubject)
-      } message: {
-        Text("The message has no subject. You can add one or send it as written.")
-      }
-      .alert("Add Link", isPresented: $showsLinkEditor) {
-        TextField("https://example.com", text: $linkDestination)
-          .textInputAutocapitalization(.never)
-        Button("Add Link", action: applyLink)
-        Button("Cancel", role: .cancel) {}
-      } message: {
-        Text("Enter an HTTP, HTTPS, or email link for the selected text.")
-      }
-      .sheet(item: $sendLaterRequest) { _ in
-        SendLaterSheet(
-          existingReminder: viewModel.draft.sendReminder,
-          existingAutomaticDueAt: scheduledSendDueAt,
-          canAutomaticallySend: canScheduleSend,
-          scheduleAutomatically: { dueAt, timeZone in
-            let scheduled = await viewModel.scheduleSend(
-              at: dueAt,
-              timeZoneIdentifier: timeZone
-            )
-            if scheduled { dismissComposer() }
-            return scheduled
-          },
-          schedule: { dueAt, timeZone in
-            await viewModel.remind(at: dueAt, timeZoneIdentifier: timeZone)
-          }
+  }
+
+  private var sendLaterSheet: some View {
+    SendLaterSheet(
+      existingReminder: viewModel.draft.sendReminder,
+      existingAutomaticDueAt: scheduledSendDueAt,
+      canAutomaticallySend: canScheduleSend,
+      scheduleAutomatically: { dueAt, timeZone in
+        let scheduled = await viewModel.scheduleSend(
+          at: dueAt,
+          timeZoneIdentifier: timeZone
         )
+        if scheduled { dismissComposer() }
+        return scheduled
+      },
+      schedule: { dueAt, timeZone in
+        await viewModel.remind(at: dueAt, timeZoneIdentifier: timeZone)
       }
-    }
+    )
+  }
+
+  private var missingSubjectMessage: Text {
+    Text("The message has no subject. You can add one or send it as written.")
   }
 
   private var editorModel: SemanticMessageEditorModel {
@@ -1101,11 +1056,7 @@ struct MailShellComposer: View {
   }
 
   private func dismissComposer() {
-    if let navigation {
-      navigation.dismiss()
-    } else {
-      dismiss()
-    }
+    navigation?.dismiss()
   }
 
   private func requestLink() {

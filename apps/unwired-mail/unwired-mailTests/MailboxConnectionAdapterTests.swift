@@ -6505,7 +6505,6 @@ final class MailboxConnectionAdapterTests {
       )
       let emptyDraftViewModel = MailComposerViewModel(
         draft: emptyDraft,
-        presentation: .partial,
         saveDraft: { draft in
           try await draftRepository.save(
             draft,
@@ -6545,7 +6544,6 @@ final class MailboxConnectionAdapterTests {
       )
       let warmDraftViewModel = MailComposerViewModel(
         draft: warmDraft,
-        presentation: .partial,
         saveDraft: { draft in
           try await draftRepository.save(
             draft,

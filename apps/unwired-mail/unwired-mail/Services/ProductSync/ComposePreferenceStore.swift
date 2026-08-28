@@ -156,10 +156,6 @@ final class ComposePreferenceStore {
     edit(.undoSend, value: .undoSend(value))
   }
 
-  func setPresentation(_ value: ComposePresentationPreference) {
-    edit(.presentation, value: .presentation(value))
-  }
-
   func setShowsFormattingToolbar(_ value: Bool) {
     edit(.formattingToolbar, value: .boolean(value))
   }

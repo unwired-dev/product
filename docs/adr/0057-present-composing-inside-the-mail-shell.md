@@ -10,7 +10,7 @@ While the regular-width composer is collapsed, the sidebar and Thread list remai
 
 The collapsed overlay spans the detail column with 12-point outer insets and uses 70 percent of its available height, clamped from 420 through 720 points. The composer has only this overlay state and its full-app expanded state, with no freeform drag resizing. Its direct control toggles those states and remains visible in both; compact iPhone omits it because the pushed editor already fills its navigation destination.
 
-Expansion is transient to the open editor and never changes how a later Draft opens. The legacy synchronized partial-height or full-screen opening preference is ignored after migration, then removed only after the minimum-client generation fences out older clients that still understand it.
+Expansion is transient to the open editor and never changes how a later Draft opens. Compose preference schema version 2 ignores and omits the legacy synchronized partial-height or full-screen opening field. Version 1 clients reject that newer payload, so they cannot recreate the retired preference.
 
 Only the compact composer header remains fixed. Its leading control is a visible `x` icon with the accessibility label “Close Composer,” followed by a left-aligned Draft title. The expansion control remains directly visible beside the overflow menu, and Send remains visible at the trailing edge. From identity, recipients, subject, formatting controls, the authored body, attachments, quoted text, and save or error status share one outer scroll view. The rich body editor grows with its content and never owns a competing internal vertical scroll.
 

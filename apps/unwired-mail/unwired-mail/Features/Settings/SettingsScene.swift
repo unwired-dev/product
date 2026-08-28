@@ -329,11 +329,6 @@ extension SettingsDestination {
     case .compose:
       return [
         SettingsSearchItem(title: "Undo Send", keywords: ["Outbox delay"], route: route),
-        SettingsSearchItem(
-          title: "Composer Presentation",
-          keywords: ["Partial", "Full Screen"],
-          route: route
-        ),
         SettingsSearchItem(title: "Formatting Toolbar", route: route),
         SettingsSearchItem(title: "Quoted Text", keywords: ["Reply"], route: route),
         SettingsSearchItem(
