@@ -390,6 +390,8 @@ struct MailShellComposer: View {
       .onChange(of: focusedField) { previousField, focusedField in
         if isBodyFocusPending, focusedField == .subject {
           self.focusedField = nil
+          isBodyFocused = true
+          bodyFocusRequest &+= 1
           return
         }
         if focusedField != nil {
@@ -574,6 +576,13 @@ struct MailShellComposer: View {
         isBodyFocused
       else { return }
       presentsSubjectField = true
+      try? await Task.sleep(for: .milliseconds(100))
+      guard
+        handoff == bodyFocusHandoff,
+        isBodyFocusPending,
+        focusedField == nil,
+        isBodyFocused
+      else { return }
       isBodyFocusPending = false
     }
   }
