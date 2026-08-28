@@ -6206,8 +6206,7 @@ struct MailShellThreadList: View {
               let pinnedThreadIds = pinViewModel.pinnedThreadIds
               ForEach(items) { item in
                 let isUnread = MailViewFilter.isUnread(item.thread)
-                let leadingActions = resolvedSwipeActions(for: item, edge: .leading)
-                let trailingActions = resolvedSwipeActions(for: item, edge: .trailing)
+                let swipeActions = resolvedSwipeActions(for: item)
                 NavigationLink(value: item.thread.id) {
                   MailShellThreadRow(
                     categoryNamesById: categoryNamesById,
@@ -6244,10 +6243,10 @@ struct MailShellThreadList: View {
                   allowsFullSwipe: SwipeActionResolver.allowsFullSwipe(
                     preferences: swipePreferences,
                     edge: .leading,
-                    resolvedActions: leadingActions
+                    resolvedActions: swipeActions.leading
                   )
                 ) {
-                  ForEach(leadingActions) { action in
+                  ForEach(swipeActions.leading) { action in
                     swipeButton(action, item: item)
                   }
                 }
@@ -6256,10 +6255,10 @@ struct MailShellThreadList: View {
                   allowsFullSwipe: SwipeActionResolver.allowsFullSwipe(
                     preferences: swipePreferences,
                     edge: .trailing,
-                    resolvedActions: trailingActions
+                    resolvedActions: swipeActions.trailing
                   )
                 ) {
-                  ForEach(trailingActions) { action in
+                  ForEach(swipeActions.trailing) { action in
                     swipeButton(action, item: item)
                   }
                 }
@@ -6605,10 +6604,9 @@ struct MailShellThreadList: View {
   }
 
   private func resolvedSwipeActions(
-    for item: MailShellThreadListItem,
-    edge: SwipeEdge
-  ) -> [ResolvedSwipeAction] {
-    guard let connection = connection(for: item) else { return [] }
+    for item: MailShellThreadListItem
+  ) -> (leading: [ResolvedSwipeAction], trailing: [ResolvedSwipeAction]) {
+    guard let connection = connection(for: item) else { return ([], []) }
     let messages = mailboxMessages(for: item)
     let contextualActions = MailShellConversationReader.contextualProviderActions(
       supported: connection.capabilities.providerActions,
@@ -6619,15 +6617,23 @@ struct MailShellThreadList: View {
         connection.providerId
       )
     )
-    return SwipeActionResolver.resolve(
-      configuredActions: swipePreferences.actions(for: edge),
-      context: SwipeActionContext(
-        messages: messages,
-        pinTargetThreadId: item.thread.id,
-        pinnedThreadIds: pinViewModel.pinnedThreadIds,
-        providerActions: contextualActions
+    let context = SwipeActionContext(
+      messages: messages,
+      pinTargetThreadId: item.thread.id,
+      pinnedThreadIds: pinViewModel.pinnedThreadIds,
+      providerActions: contextualActions
+    )
+    return (
+      leading: SwipeActionResolver.resolve(
+        configuredActions: swipePreferences.actions(for: .leading),
+        context: context,
+        platform: .current
       ),
-      platform: .current
+      trailing: SwipeActionResolver.resolve(
+        configuredActions: swipePreferences.actions(for: .trailing),
+        context: context,
+        platform: .current
+      )
     )
   }
 
