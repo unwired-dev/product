@@ -6264,16 +6264,7 @@ struct MailShellThreadList: View {
             Section {
               let categoryNamesById = categoryNamesById
               let pinnedThreadIds = pinViewModel.pinnedThreadIds
-              let moveEnabledConnectionIds = Set(
-                connections.compactMap { connection in
-                  guard
-                    navigationSnapshot.providerMailboxes(for: connection.id).contains(where: {
-                      $0.isMoveDestination && MailboxMessageCollection.isProviderMailboxId($0.id)
-                    })
-                  else { return nil }
-                  return connection.id
-                }
-              )
+              let moveEnabledConnectionIds = moveEnabledConnectionIds
               ForEach(items) { item in
                 let isUnread = MailViewFilter.isUnread(item.thread)
                 let swipeActions = resolvedSwipeActions(
@@ -6708,6 +6699,19 @@ struct MailShellThreadList: View {
         context: context,
         platform: .current
       )
+    )
+  }
+
+  private var moveEnabledConnectionIds: Set<MailboxConnectionId> {
+    Set(
+      connections.compactMap { connection in
+        guard
+          navigationSnapshot.providerMailboxes(for: connection.id).contains(where: {
+            $0.isMoveDestination && MailboxMessageCollection.isProviderMailboxId($0.id)
+          })
+        else { return nil }
+        return connection.id
+      }
     )
   }
 
