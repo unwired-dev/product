@@ -7,7 +7,6 @@ import UniformTypeIdentifiers
 private enum MailComposerFocus: Hashable {
   case bcc
   case cc  // swiftlint:disable:this identifier_name
-  case subject
   case to  // swiftlint:disable:this identifier_name
 }
 
@@ -18,9 +17,12 @@ private struct MailRecipientSuggestionRequest: Equatable {
 
 /// The mail-shell navigation actions available to an embedded composer.
 struct MailShellComposerNavigation {
+  let drafts: [MailShellCompositionDraft]
   let isExpanded: Bool
   let showsExpansionControl: Bool
   let dismiss: () -> Void
+  let newMessage: () -> Void
+  let openDraft: (MailShellCompositionDraft) -> Void
   let toggleExpansion: () -> Void
 }
 
@@ -46,16 +48,17 @@ struct MailShellComposer: View {
   @FocusState private var focusedField: MailComposerFocus?
   @State private var isBodyFocused = false
   @State private var isBodyFocusPending = false
+  @State private var isSubjectFocused = false
   @State private var bodyFocusRequest = 0
   @State private var bodyFocusHandoff = 0
   @State private var presentsSubjectField = true
-  @State private var editorModel: SemanticMessageEditorModel
   @State private var assetErrorMessage: String?
   @State private var translationErrorMessage: String?
   @State private var composeAssistancePresentation: ComposeAssistancePresentation?
   @State private var translationPresentation: MailTranslationPresentation?
   @State private var responseAssistancePresentation: ResponseAssistancePresentation?
   @State private var linkDestination = "https://"
+  @State private var pendingFileImportDraftId: UUID?
   @State private var recipientEditor: MailRecipientEditor
   @State private var sendLaterRequest: SendLaterRequest?
   @State private var selectedPhoto: PhotosPickerItem?
@@ -128,9 +131,6 @@ struct MailShellComposer: View {
       )
     )
     _suggestionService = State(initialValue: suggestionService)
-    _editorModel = State(
-      initialValue: SemanticMessageEditorModel(document: initialDraft.document)
-    )
     _viewModel = State(
       initialValue: MailComposerViewModel(
         draft: initialDraft,
@@ -188,9 +188,6 @@ struct MailShellComposer: View {
       )
     )
     _suggestionService = State(initialValue: suggestionService)
-    _editorModel = State(
-      initialValue: SemanticMessageEditorModel(document: viewModel.draft.document)
-    )
     _viewModel = State(initialValue: viewModel)
   }
 
@@ -222,7 +219,7 @@ struct MailShellComposer: View {
         MailComposerHeader(
           title: viewModel.draft.title,
           close: closeComposer,
-          closeIsDisabled: viewModel.saveState == .saving,
+          actionsAreDisabled: viewModel.saveState == .saving || viewModel.isSwitchingDraft,
           expansion: headerExpansion,
           canAutomaticallySend: canScheduleSend,
           canSendLater: viewModel.canCreateSendReminder,
@@ -232,6 +229,14 @@ struct MailShellComposer: View {
           sendLater: openSendLater,
           sendNow: scheduledSendDueAt != nil && sendNow != nil ? sendScheduledNow : nil,
           selectedPhoto: $selectedPhoto,
+          switching: navigation.map {
+            MailComposerHeader.Switching(
+              canSwitch: !viewModel.isSwitchingDraft,
+              drafts: $0.drafts.filter { $0.id != viewModel.draft.id },
+              newMessage: $0.newMessage,
+              openDraft: $0.openDraft
+            )
+          },
           discard: requestDiscard
         )
         Divider()
@@ -246,19 +251,40 @@ struct MailShellComposer: View {
             Divider()
             recipientFields
             Divider()
-            MailComposerSubjectField(
-              subject: $viewModel.draft.subject,
-              focusedField: $focusedField,
-              focusBody: focusBody
-            )
-            .disabled(!presentsSubjectField)
-            .opacity(presentsSubjectField ? 1 : 0)
-            .accessibilityHidden(!presentsSubjectField)
+            if presentsSubjectField {
+              MailComposerSubjectField(
+                subject: $viewModel.draft.subject,
+                isFocused: $isSubjectFocused,
+                focusBody: focusBody
+              )
+              .onKeyPress(keys: [.return]) {
+                guard isSubjectFocused else { return .ignored }
+                focusBody()
+                return .handled
+              }
+              .padding(.horizontal, 16)
+              .padding(.vertical, 12)
+            } else {
+              Button(action: focusSubject) {
+                Text(viewModel.draft.subject.isEmpty ? "Subject" : viewModel.draft.subject)
+                  .foregroundStyle(
+                    viewModel.draft.subject.isEmpty ? Color.secondary : Color.primary
+                  )
+                  .padding(.horizontal, 16)
+                  .padding(.vertical, 12)
+                  .frame(maxWidth: .infinity, alignment: .leading)
+              }
+              .buttonStyle(.plain)
+              .accessibilityIdentifier("mail-compose-subject")
+            }
             Divider()
             MailComposerActionBar(
               editorModel: editorModel,
               hasQuotedText: viewModel.draft.quotedText?.isEmpty == false,
-              requestFile: { showsFileImporter = true },
+              requestFile: {
+                pendingFileImportDraftId = viewModel.draft.id
+                showsFileImporter = true
+              },
               requestLink: requestLink,
               showsFormattingToolbar: preferences.showsFormattingToolbar,
               showsExpandedRecipients: $showsExpandedRecipients,
@@ -289,7 +315,7 @@ struct MailShellComposer: View {
               return !items.isEmpty
             }
             .dropDestination(for: URL.self) { urls, _ in
-              importFiles(.success(urls))
+              importFiles(.success(urls), draftId: viewModel.draft.id)
               return !urls.isEmpty
             }
             Divider()
@@ -303,7 +329,10 @@ struct MailShellComposer: View {
         isPresented: $showsFileImporter,
         allowedContentTypes: [.data],
         allowsMultipleSelection: true,
-        onCompletion: importFiles
+        onCompletion: { result in
+          guard let pendingFileImportDraftId else { return }
+          importFiles(result, draftId: pendingFileImportDraftId)
+        }
       )
       .sheet(item: $composeAssistancePresentation) { presentation in
         if let mailAssistanceViewModel {
@@ -370,7 +399,8 @@ struct MailShellComposer: View {
       }
       .onChange(of: selectedPhoto) { _, item in
         guard let item else { return }
-        Task { await importPhoto(item) }
+        let draftId = viewModel.draft.id
+        Task { await importPhoto(item, draftId: draftId) }
       }
       .onChange(of: focusedField) { previousField, focusedField in
         if focusedField != nil {
@@ -378,9 +408,24 @@ struct MailShellComposer: View {
           isBodyFocusPending = false
           presentsSubjectField = true
           isBodyFocused = false
+          isSubjectFocused = false
         }
         guard let recipientField = recipientField(for: previousField) else { return }
         recipientEditor.commitPendingText(in: recipientField)
+      }
+      .onChange(of: isSubjectFocused) { _, isSubjectFocused in
+        if isBodyFocusPending, isSubjectFocused {
+          self.isSubjectFocused = false
+          isBodyFocused = true
+          bodyFocusRequest &+= 1
+          return
+        }
+        if isSubjectFocused {
+          bodyFocusHandoff &+= 1
+          isBodyFocusPending = false
+          focusedField = nil
+          isBodyFocused = false
+        }
       }
       .onChange(of: recipientEditor.headers) { _, headers in
         synchronizeRecipientHeaders(headers)
@@ -408,9 +453,12 @@ struct MailShellComposer: View {
         draftDidChange(draft)
         viewModel.draftChanged()
       }
+      .onChange(of: viewModel.draft.id) { _, _ in
+        resetDraftPresentation()
+      }
       .onChange(of: editorModel.document) { _, document in
         guard viewModel.draft.document != document else { return }
-        viewModel.draft.document = document
+        viewModel.editorDocumentChanged()
       }
       .interactiveDismissDisabled(
         viewModel.hasUnsavedChanges || viewModel.saveState.blocksDismissal
@@ -427,7 +475,7 @@ struct MailShellComposer: View {
       }
       .alert("Send Without a Subject?", isPresented: $showsMissingSubjectConfirmation) {
         Button("Send Without Subject", action: sendWithoutSubject)
-        Button("Add Subject", role: .cancel) { focusedField = .subject }
+        Button("Add Subject", role: .cancel, action: focusSubject)
       } message: {
         Text("The message has no subject. You can add one or send it as written.")
       }
@@ -458,6 +506,10 @@ struct MailShellComposer: View {
         )
       }
     }
+  }
+
+  private var editorModel: SemanticMessageEditorModel {
+    viewModel.editorModel
   }
 
   private var composerSupplementalDetails: some View {
@@ -528,6 +580,7 @@ struct MailShellComposer: View {
     isBodyFocusPending = true
     presentsSubjectField = false
     focusedField = nil
+    isSubjectFocused = false
     Task { @MainActor in
       await Task.yield()
       guard handoff == bodyFocusHandoff, isBodyFocusPending, focusedField == nil else { return }
@@ -547,8 +600,20 @@ struct MailShellComposer: View {
         focusedField == nil,
         isBodyFocused
       else { return }
-      presentsSubjectField = true
       isBodyFocusPending = false
+    }
+  }
+
+  private func focusSubject() {
+    bodyFocusHandoff &+= 1
+    let handoff = bodyFocusHandoff
+    isBodyFocusPending = false
+    isBodyFocused = false
+    presentsSubjectField = true
+    Task { @MainActor in
+      await Task.yield()
+      guard handoff == bodyFocusHandoff, isBodyFocused == false else { return }
+      isSubjectFocused = true
     }
   }
 
@@ -557,8 +622,40 @@ struct MailShellComposer: View {
     isBodyFocusPending = false
     presentsSubjectField = true
     focusedField = nil
+    isSubjectFocused = false
     isBodyFocused = true
     bodyFocusRequest &+= 1
+  }
+
+  private func resetDraftPresentation() {
+    bodyFocusHandoff &+= 1
+    isBodyFocusPending = false
+    presentsSubjectField = true
+    isSubjectFocused = false
+    sendLaterRequest = nil
+    pendingFileImportDraftId = nil
+    selectedPhoto = nil
+    showsDiscardConfirmation = false
+    showsFileImporter = false
+    showsLinkEditor = false
+    showsMissingSubjectConfirmation = false
+    recipientEditor = MailRecipientEditor(
+      to: viewModel.draft.recipient,
+      cc: viewModel.draft.ccRecipients,
+      bcc: viewModel.draft.bccRecipients
+    )
+    assetErrorMessage = nil
+    translationErrorMessage = nil
+    composeAssistancePresentation = nil
+    translationPresentation = nil
+    responseAssistancePresentation = nil
+    selectedSuggestionId = nil
+    suggestions = []
+    showsExpandedRecipients = false
+    showsQuotedText = false
+    focusedField = viewModel.draft.recipient.isEmpty ? .to : nil
+    isBodyFocused = !viewModel.draft.recipient.isEmpty
+    if isBodyFocused { bodyFocusRequest &+= 1 }
   }
 
   private func updateSendingIdentity(_ identityId: SendingIdentityId?) {
@@ -672,29 +769,36 @@ struct MailShellComposer: View {
 
   @ViewBuilder
   private var saveStatus: some View {
-    switch viewModel.saveState {
-    case .failed(let message):
-      VStack(alignment: .leading, spacing: 8) {
-        Label("Draft not saved", systemImage: "exclamationmark.triangle")
-          .foregroundStyle(.red)
-        Text(message)
+    if let noticeMessage = viewModel.noticeMessage {
+      Label(noticeMessage, systemImage: "exclamationmark.triangle")
+        .font(.footnote)
+        .foregroundStyle(.secondary)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    } else {
+      switch viewModel.saveState {
+      case .failed(let message):
+        VStack(alignment: .leading, spacing: 8) {
+          Label("Draft not saved", systemImage: "exclamationmark.triangle")
+            .foregroundStyle(.red)
+          Text(message)
+            .font(.footnote)
+            .foregroundStyle(.secondary)
+          Button("Try Saving Again", action: viewModel.retryAutosave)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+      case .pending, .saving:
+        Label("Saving Draft…", systemImage: "arrow.triangle.2.circlepath")
           .font(.footnote)
           .foregroundStyle(.secondary)
-        Button("Try Saving Again", action: viewModel.retryAutosave)
+          .frame(maxWidth: .infinity, alignment: .leading)
+      case .saved:
+        Label("Draft saved", systemImage: "checkmark.circle")
+          .font(.footnote)
+          .foregroundStyle(.secondary)
+          .frame(maxWidth: .infinity, alignment: .leading)
+      case .idle:
+        EmptyView()
       }
-      .frame(maxWidth: .infinity, alignment: .leading)
-    case .pending, .saving:
-      Label("Saving Draft…", systemImage: "arrow.triangle.2.circlepath")
-        .font(.footnote)
-        .foregroundStyle(.secondary)
-        .frame(maxWidth: .infinity, alignment: .leading)
-    case .saved:
-      Label("Draft saved", systemImage: "checkmark.circle")
-        .font(.footnote)
-        .foregroundStyle(.secondary)
-        .frame(maxWidth: .infinity, alignment: .leading)
-    case .idle:
-      EmptyView()
     }
   }
 
@@ -813,7 +917,6 @@ struct MailShellComposer: View {
     case .bcc: .bcc
     case .cc: .cc
     case .to: .to
-    case .subject: nil
     }
   }
 
@@ -1128,7 +1231,15 @@ struct MailShellComposer: View {
     }
   }
 
-  private func importFiles(_ result: Result<[URL], Error>) {
+  static func fileImportTargetsActiveDraft(_ draftId: UUID, activeDraftId: UUID) -> Bool {
+    draftId == activeDraftId
+  }
+
+  private func importFiles(_ result: Result<[URL], Error>, draftId: UUID) {
+    guard Self.fileImportTargetsActiveDraft(draftId, activeDraftId: viewModel.draft.id) else {
+      return
+    }
+    if pendingFileImportDraftId == draftId { pendingFileImportDraftId = nil }
     do {
       for url in try result.get() {
         let hasAccess = url.startAccessingSecurityScopedResource()
@@ -1148,12 +1259,14 @@ struct MailShellComposer: View {
     }
   }
 
-  private func importPhoto(_ item: PhotosPickerItem) async {
+  private func importPhoto(_ item: PhotosPickerItem, draftId: UUID) async {
     do {
       guard let data = try await item.loadTransferable(type: Data.self) else {
+        guard draftId == viewModel.draft.id else { return }
         assetErrorMessage = "Can't attach the selected photo. Choose another photo."
         return
       }
+      guard draftId == viewModel.draft.id else { return }
       viewModel.draft.addAsset(
         MailDraftAsset(
           data: data,
@@ -1163,9 +1276,10 @@ struct MailShellComposer: View {
       )
       assetErrorMessage = nil
     } catch {
+      guard draftId == viewModel.draft.id else { return }
       assetErrorMessage = "Can't attach the selected photo. Choose another photo."
     }
-    selectedPhoto = nil
+    if draftId == viewModel.draft.id { selectedPhoto = nil }
   }
 }
 
@@ -1198,9 +1312,16 @@ private struct MailComposerHeader: View {
     let toggle: () -> Void
   }
 
+  struct Switching {
+    let canSwitch: Bool
+    let drafts: [MailShellCompositionDraft]
+    let newMessage: () -> Void
+    let openDraft: (MailShellCompositionDraft) -> Void
+  }
+
   let title: String
   let close: () -> Void
-  let closeIsDisabled: Bool
+  let actionsAreDisabled: Bool
   let expansion: Expansion?
   let canAutomaticallySend: Bool
   let canSendLater: Bool
@@ -1210,6 +1331,7 @@ private struct MailComposerHeader: View {
   let sendLater: () -> Void
   let sendNow: (() -> Void)?
   @Binding var selectedPhoto: PhotosPickerItem?
+  let switching: Switching?
   let discard: () -> Void
 
   var body: some View {
@@ -1217,7 +1339,7 @@ private struct MailComposerHeader: View {
       Button("Close Composer", systemImage: "xmark", action: close)
         .labelStyle(.iconOnly)
         .frame(minWidth: 44, minHeight: 44)
-        .disabled(closeIsDisabled)
+        .disabled(actionsAreDisabled)
         .accessibilityIdentifier("mail-compose-close")
       Text(title)
         .font(.headline)
@@ -1236,6 +1358,21 @@ private struct MailComposerHeader: View {
         .accessibilityIdentifier("mail-compose-expansion")
       }
       Menu("More", systemImage: "ellipsis") {
+        if let switching {
+          Button("New Message", systemImage: "square.and.pencil", action: switching.newMessage)
+            .disabled(!switching.canSwitch)
+          if !switching.drafts.isEmpty {
+            Menu("Open Draft", systemImage: "doc.text") {
+              ForEach(switching.drafts) { draft in
+                Button(draft.menuTitle) {
+                  switching.openDraft(draft)
+                }
+                .disabled(!switching.canSwitch)
+              }
+            }
+          }
+          Divider()
+        }
         if let sendNow {
           Button("Send Now", systemImage: "paperplane.fill", action: sendNow)
             .disabled(!isSendEnabled)
@@ -1251,6 +1388,7 @@ private struct MailComposerHeader: View {
       }
       .labelStyle(.iconOnly)
       .frame(minWidth: 44, minHeight: 44)
+      .disabled(actionsAreDisabled)
       .accessibilityIdentifier("mail-compose-more")
       MailComposerSendButton(
         title: sendTitle,
@@ -1521,19 +1659,92 @@ private struct MailComposerIdentityRow: View {
   }
 }
 
-private struct MailComposerSubjectField: View {
+private struct MailComposerSubjectField: UIViewRepresentable {
+  private final class SubjectTextField: UITextField {
+    var submit: (() -> Void)?
+
+    override func insertText(_ text: String) {
+      guard text != "\n", text != "\r" else {
+        submit?()
+        return
+      }
+      super.insertText(text)
+    }
+  }
+
   @Binding var subject: String
-  let focusedField: FocusState<MailComposerFocus?>.Binding
+  @Binding var isFocused: Bool
   let focusBody: () -> Void
 
-  var body: some View {
-    TextField("Subject", text: $subject)
-      .focused(focusedField, equals: .subject)
-      .submitLabel(.next)
-      .onSubmit(focusBody)
-      .padding(.horizontal, 16)
-      .padding(.vertical, 12)
-      .accessibilityIdentifier("mail-compose-subject")
+  func makeCoordinator() -> Coordinator {
+    Coordinator(parent: self)
+  }
+
+  func makeUIView(context: Context) -> UITextField {
+    let textField = SubjectTextField()
+    textField.adjustsFontForContentSizeCategory = true
+    textField.font = .preferredFont(forTextStyle: .body)
+    textField.placeholder = "Subject"
+    textField.returnKeyType = .next
+    textField.accessibilityIdentifier = "mail-compose-subject"
+    textField.delegate = context.coordinator
+    textField.addTarget(
+      context.coordinator,
+      action: #selector(Coordinator.subjectDidChange),
+      for: .editingChanged
+    )
+    textField.submit = { [weak coordinator = context.coordinator, weak textField] in
+      guard let textField else { return }
+      coordinator?.submit(textField)
+    }
+    return textField
+  }
+
+  func updateUIView(_ textField: UITextField, context: Context) {
+    context.coordinator.parent = self
+    if textField.text != subject { textField.text = subject }
+    if isFocused {
+      if textField.isFirstResponder == false { textField.becomeFirstResponder() }
+    } else if textField.isFirstResponder {
+      textField.resignFirstResponder()
+    }
+  }
+
+  @MainActor
+  final class Coordinator: NSObject, UITextFieldDelegate {
+    var parent: MailComposerSubjectField
+    private var focusesBodyAfterEditingEnds = false
+
+    init(parent: MailComposerSubjectField) {
+      self.parent = parent
+    }
+
+    @objc func subjectDidChange(_ textField: UITextField) {
+      parent.subject = textField.text ?? ""
+    }
+
+    func textFieldDidBeginEditing(_: UITextField) {
+      parent.isFocused = true
+    }
+
+    func textFieldDidEndEditing(_: UITextField) {
+      parent.isFocused = false
+      guard focusesBodyAfterEditingEnds else { return }
+      focusesBodyAfterEditingEnds = false
+      parent.focusBody()
+    }
+
+    func textFieldShouldReturn(_ textField: UITextField) -> Bool {
+      submit(textField)
+      return false
+    }
+
+    func submit(_ textField: UITextField) {
+      guard textField.isFirstResponder else { return }
+      focusesBodyAfterEditingEnds = true
+      parent.isFocused = false
+      textField.resignFirstResponder()
+    }
   }
 }
 

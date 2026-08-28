@@ -16,6 +16,7 @@ struct MailShellCompositionDraft: Codable, Equatable, Identifiable, Sendable {
   var bccRecipients: String
   var ccRecipients: String
   var connectionId: MailboxConnectionId?
+  var conflictSourceId: UUID?
   var document: SemanticMessageDocument
   var hasExplicitReadReceiptChoice: Bool
   let id: UUID
@@ -42,6 +43,7 @@ struct MailShellCompositionDraft: Codable, Equatable, Identifiable, Sendable {
     subject: String,
     bccRecipients: String = "",
     ccRecipients: String = "",
+    conflictSourceId: UUID? = nil,
     hasExplicitReadReceiptChoice: Bool = false,
     id: UUID = UUID(),
     kind: MailCompositionKind = .newMessage,
@@ -58,6 +60,7 @@ struct MailShellCompositionDraft: Codable, Equatable, Identifiable, Sendable {
     self.bccRecipients = bccRecipients
     self.ccRecipients = ccRecipients
     self.connectionId = connectionId
+    self.conflictSourceId = conflictSourceId
     self.document = document ?? SemanticMessageDocument(plainText: body)
     self.hasExplicitReadReceiptChoice = hasExplicitReadReceiptChoice
     self.id = id
@@ -90,13 +93,20 @@ struct MailShellCompositionDraft: Codable, Equatable, Identifiable, Sendable {
   }
 
   var title: String {
-    switch kind {
+    if conflictSourceId != nil { return "Conflicted Draft" }
+    return switch kind {
     case .editing: "Edit Message"
     case .forward: "Forward"
     case .newMessage: "New Message"
     case .reply: "Reply"
     case .replyAll: "Reply All"
     }
+  }
+
+  var menuTitle: String {
+    let trimmedSubject = subject.trimmingCharacters(in: .whitespacesAndNewlines)
+    let subjectTitle = trimmedSubject.isEmpty ? "Untitled Draft" : trimmedSubject
+    return conflictSourceId == nil ? subjectTitle : "Conflicted — \(subjectTitle)"
   }
 
   var deliveryRecipientHeader: String {
@@ -283,6 +293,31 @@ struct MailShellCompositionDraft: Codable, Equatable, Identifiable, Sendable {
       sendReminder: sendReminder,
       sendingIdentityId: sendingIdentityId,
       signature: signature,
+      document: document,
+      assets: assets
+    )
+  }
+
+  func preservingAsConflictCopy(now: Date = .now) -> MailShellCompositionDraft {
+    MailShellCompositionDraft(
+      body: body,
+      connectionId: connectionId,
+      recipient: recipient,
+      replyToMessage: replyToMessage,
+      requestsReadReceipt: requestsReadReceipt,
+      sourceMessage: sourceMessage,
+      subject: subject,
+      bccRecipients: bccRecipients,
+      ccRecipients: ccRecipients,
+      conflictSourceId: conflictSourceId ?? id,
+      hasExplicitReadReceiptChoice: hasExplicitReadReceiptChoice,
+      kind: kind,
+      omittedForwardAttachmentCount: omittedForwardAttachmentCount,
+      quotedText: quotedText,
+      sendReminder: sendReminder,
+      sendingIdentityId: sendingIdentityId,
+      signature: signature,
+      updatedAtMilliseconds: Int64(now.timeIntervalSince1970 * 1_000),
       document: document,
       assets: assets
     )

@@ -1672,6 +1672,7 @@ struct AccountView: View {
   @State private var signatureStore: SignatureStore
   @State private var templateStore: TemplateStore
   @State private var composerNavigation = MailShellComposerNavigationState()
+  @State private var composerViewModels: [MailProfileId: MailComposerViewModel] = [:]
   @State private var composerSendErrorMessage = ""
   @State private var showsComposerSendError = false
   @State private var showsMailboxTools = false
@@ -1710,7 +1711,7 @@ struct AccountView: View {
   @State private var snoozeViewModel: ThreadSnoozeViewModel
   @State private var spotlightReconcileTask: Task<Void, Never>?
   @State private var profileInterruptionViewModel: MailProfileInterruptionViewModel
-  @State private var parkedCompositionDrafts: [MailProfileId: MailShellCompositionDraft] = [:]
+  @State private var parkedComposerProfileIds: Set<MailProfileId> = []
   @State private var profileSwitchGate = MailProfileSwitchGate()
   @State private var profilePreferenceRecordScope: MailProfileRecordScope = .legacyProductAccount
   @State private var profileViewModel: MailProfileWorkspaceViewModel
@@ -2477,7 +2478,8 @@ struct AccountView: View {
     ) {
       MailShellSidebar(
         beginComposition: beginNewMessage,
-        canCompose: composerNavigation.draft == nil && !profileConnections.isEmpty,
+        canCompose: composerViewModels[activeDraftProfileId]?.isSwitchingDraft != true
+          && !profileConnections.isEmpty,
         connections: profileConnections,
         profiles: profileViewModel.profiles,
         activeProfileId: profileViewModel.activeProfileId,
@@ -2616,7 +2618,7 @@ struct AccountView: View {
           try await categoryViewModel.create(draft)
         },
         presentCompositionDraft: { draft in
-          Self.presentCompositionDraft(draft, in: &composerNavigation)
+          presentComposerDraft(draft)
         },
         signatures: signatureStore.preferences,
         sendingIdentities: profileSendingIdentities
@@ -2686,7 +2688,9 @@ struct AccountView: View {
     }
     .overlayPreferenceValue(MailShellDetailColumnBoundsPreferenceKey.self) { bounds in
       GeometryReader { proxy in
-        if let draft = composerNavigation.draft {
+        if composerNavigation.draft != nil,
+          let composerViewModel = composerViewModels[activeDraftProfileId]
+        {
           let containerFrame = CGRect(origin: .zero, size: proxy.size)
           let detailColumnFrame = bounds.map { proxy[$0] }
           let layout = MailShellComposerPresentationLayout(
@@ -2706,7 +2710,7 @@ struct AccountView: View {
 
             MailShellComposer(
               connections: profileConnections,
-              draft: draft,
+              viewModel: composerViewModel,
               preferences: composePreferenceStore.preferences,
               signatures: signatureStore.preferences,
               templates: templateStore.preferences,
@@ -2715,54 +2719,19 @@ struct AccountView: View {
               readingPreferences: readingPreferenceStore.preferences,
               profileName: profileViewModel.activeProfile?.name ?? "Mail Profile",
               recipientMessages: mailShellSelection.threads.flatMap(\.messages),
-              responseAssistanceContext: responseAssistanceContext(for: draft),
+              responseAssistanceContext: responseAssistanceContext(for: composerViewModel.draft),
               sendingIdentities: profileSendingIdentities,
               navigation: MailShellComposerNavigation(
+                drafts: savedCompositionDrafts,
                 isExpanded: composerNavigation.isExpanded,
                 showsExpansionControl: layout.mode != .compactDestination,
                 dismiss: dismissCompositionDraft,
+                newMessage: beginNewMessage,
+                openDraft: openCompositionDraft,
                 toggleExpansion: toggleCompositionDraftExpansion
               ),
-              draftDidChange: { composerNavigation.updatePresentedDraft($0) },
-              saveDraft: { [profileId = activeDraftProfileId] draft in
-                try await saveCompositionDraft(draft, profileId: profileId)
-              },
-              deleteDraft: { [profileId = activeDraftProfileId] draftId in
-                try await deleteCompositionDraft(draftId, profileId: profileId)
-              },
-              reminderOwnerDeviceId: snapshot.trustedDeviceId,
-              cancelReminder: { [profileId = activeDraftProfileId] reminder, draftId in
-                cancelSendReminder(reminder, draftId: draftId, profileId: profileId)
-              },
-              scheduleReminder: { [profileId = activeDraftProfileId] draft in
-                try await scheduleSendReminder(for: draft, profileId: profileId)
-              },
-              scheduleSend: { [profileId = activeDraftProfileId] draft, dueAt, timeZone in
-                await scheduleNewMessage(
-                  draft,
-                  profileId: profileId,
-                  dueAt: dueAt,
-                  originalTimeZoneIdentifier: timeZone
-                )
-              },
-              send: { draft in
-                mailActionViewModel.clearError()
-                composerSendErrorMessage = ""
-                showsComposerSendError = false
-                let didSend = await sendCompositionDraft(draft)
-                if let message = Self.composerSendErrorMessage(
-                  didSend: didSend,
-                  actionErrorMessage: mailActionViewModel.errorMessage,
-                  attemptedDraftId: draft.id,
-                  presentedDraftId: composerNavigation.draft?.id
-                ) {
-                  composerSendErrorMessage = message
-                  showsComposerSendError = true
-                }
-                return didSend
-              }
+              draftDidChange: { composerNavigation.updatePresentedDraft($0) }
             )
-            .id(draft.id)
             .frame(width: layout.frame.width, height: layout.frame.height)
             .background(MailTheme.canvas)
             .clipShape(
@@ -3259,8 +3228,8 @@ struct AccountView: View {
         profileViewModel.activeProfileId == sourceProfileId
       else { return false }
       try profileViewModel.activate(profileId) {
-        if let compositionDraft = composerNavigation.draft {
-          parkedCompositionDrafts[sourceProfileId] = compositionDraft
+        if composerNavigation.draft != nil {
+          parkedComposerProfileIds.insert(sourceProfileId)
           composerNavigation.park()
         }
       }
@@ -3344,8 +3313,10 @@ struct AccountView: View {
   private func finishProfileSwitch(to profileId: MailProfileId) {
     restoredProfileIdRawValue = profileId.rawValue
     gmailViewModel.selectedConnectionId = profileConnections.first?.id
-    if let compositionDraft = parkedCompositionDrafts.removeValue(forKey: profileId) {
-      presentComposerDraft(compositionDraft)
+    if parkedComposerProfileIds.remove(profileId) != nil,
+      let viewModel = composerViewModels[profileId]
+    {
+      composerNavigation.present(viewModel.draft)
     }
     loadUnifiedMailbox(synchronizes: false)
     Task {
@@ -3859,13 +3830,91 @@ extension AccountView {
   }
 
   private func dismissCompositionDraft() {
+    let profileId = activeDraftProfileId
+    if composerViewModels[profileId]?.isFinished == true {
+      composerViewModels[profileId] = nil
+    }
     composerNavigation.dismiss()
   }
 
   private func presentComposerDraft(_ draft: MailShellCompositionDraft) {
     composerSendErrorMessage = ""
     showsComposerSendError = false
-    composerNavigation.present(draft)
+    let profileId = activeDraftProfileId
+    let preparedDraft = preparedCompositionDraft(draft)
+    if let viewModel = composerViewModels[profileId] {
+      Task {
+        guard await viewModel.switchDraft(to: preparedDraft) else { return }
+        guard activeDraftProfileId == profileId else { return }
+        composerNavigation.present(viewModel.draft)
+      }
+    } else {
+      let viewModel = makeComposerViewModel(draft: preparedDraft, profileId: profileId)
+      composerViewModels[profileId] = viewModel
+      composerNavigation.present(viewModel.draft)
+    }
+  }
+
+  private func preparedCompositionDraft(
+    _ draft: MailShellCompositionDraft
+  ) -> MailShellCompositionDraft {
+    var result = draft
+    if result.signature == nil {
+      result.applyDefaultSignature(from: signatureStore.preferences)
+    }
+    if let connectionId = result.connectionId {
+      result.applyInitialReadReceiptPolicy(
+        readingPreferenceStore.preferences.outgoingReadReceiptPolicy(for: connectionId)
+      )
+    }
+    return result
+  }
+
+  private func makeComposerViewModel(
+    draft: MailShellCompositionDraft,
+    profileId: MailProfileId
+  ) -> MailComposerViewModel {
+    MailComposerViewModel(
+      draft: draft,
+      presentation: composePreferenceStore.preferences.presentation,
+      reminderOwnerDeviceId: snapshot.trustedDeviceId,
+      saveDraft: { draft in
+        try await saveCompositionDraft(draft, profileId: profileId)
+      },
+      deleteDraft: { draftId in
+        try await deleteCompositionDraft(draftId, profileId: profileId)
+      },
+      cancelReminder: { reminder, draftId in
+        cancelSendReminder(reminder, draftId: draftId, profileId: profileId)
+      },
+      scheduleReminder: { draft in
+        try await scheduleSendReminder(for: draft, profileId: profileId)
+      },
+      scheduleSend: { draft, dueAt, timeZone in
+        await scheduleNewMessage(
+          draft,
+          profileId: profileId,
+          dueAt: dueAt,
+          originalTimeZoneIdentifier: timeZone
+        )
+      },
+      sendDraft: { draft in
+        mailActionViewModel.clearError()
+        composerSendErrorMessage = ""
+        showsComposerSendError = false
+        let didSend = await sendCompositionDraft(draft)
+        if let message = Self.composerSendErrorMessage(
+          didSend: didSend,
+          actionErrorMessage: mailActionViewModel.errorMessage,
+          attemptedDraftId: draft.id,
+          presentedDraftId: composerNavigation.draft?.id
+        ) {
+          composerSendErrorMessage = message
+          showsComposerSendError = true
+        }
+        return didSend
+      }
+    )
   }
 
   private func toggleCompositionDraftExpansion() {
@@ -4097,13 +4146,18 @@ extension AccountView {
     _ draft: MailShellCompositionDraft,
     profileId: MailProfileId
   ) async throws {
-    try await compositionDraftRepository.save(
-      draft,
-      productAccountId: snapshot.productAccountId,
-      profileId: profileId,
-      session: snapshot
-    )
-    await loadCompositionDrafts(profileId: profileId)
+    do {
+      try await compositionDraftRepository.save(
+        draft,
+        productAccountId: snapshot.productAccountId,
+        profileId: profileId,
+        session: snapshot
+      )
+      await loadCompositionDrafts(profileId: profileId)
+    } catch let conflict as MailCompositionDraftSaveConflict {
+      await loadCompositionDrafts(profileId: profileId)
+      throw conflict
+    }
   }
 
   private func deleteCompositionDraft(
@@ -4141,6 +4195,7 @@ extension AccountView {
       guard load.generation == compositionDraftLoadGate.generation,
         profileId == activeDraftProfileId
       else { return }
+      cancelConflictSourceReminders(in: drafts, profileId: profileId)
       savedCompositionDrafts = drafts
       await reconcileSendReminders(drafts, profileId: profileId)
     } catch {
@@ -4239,6 +4294,18 @@ extension AccountView {
       } else {
         cancelSendReminder(reminder, draftId: draft.id, profileId: profileId)
       }
+    }
+  }
+
+  private func cancelConflictSourceReminders(
+    in drafts: [MailShellCompositionDraft],
+    profileId: MailProfileId
+  ) {
+    for draft in drafts {
+      guard let sourceId = draft.conflictSourceId, let reminder = draft.sendReminder else {
+        continue
+      }
+      cancelSendReminder(reminder, draftId: sourceId, profileId: profileId)
     }
   }
 
@@ -5967,8 +6034,7 @@ private struct MailShellSavedDraftsButton: View {
   }
 
   private func title(for draft: MailShellCompositionDraft, at date: Date) -> String {
-    let subject = draft.subject.trimmingCharacters(in: .whitespacesAndNewlines)
-    let title = subject.isEmpty ? "Untitled Draft" : subject
+    let title = draft.menuTitle
     guard let reminder = draft.sendReminder else { return title }
     if reminder.isOverdue(at: date) { return "Overdue — \(title)" }
     if reminder.isSynchronizationPending { return "Syncing — \(title)" }
@@ -6196,14 +6262,20 @@ struct MailShellThreadList: View {
               }
             }
             Section {
+              let categoryNamesById = categoryNamesById
               let pinnedThreadIds = pinViewModel.pinnedThreadIds
+              let moveEnabledConnectionIds = moveEnabledConnectionIds
               ForEach(items) { item in
-                let leadingActions = resolvedSwipeActions(for: item, edge: .leading)
-                let trailingActions = resolvedSwipeActions(for: item, edge: .trailing)
+                let isUnread = MailViewFilter.isUnread(item.thread)
+                let swipeActions = resolvedSwipeActions(
+                  for: item,
+                  moveEnabledConnectionIds: moveEnabledConnectionIds
+                )
                 NavigationLink(value: item.thread.id) {
                   MailShellThreadRow(
                     categoryNamesById: categoryNamesById,
                     isPinned: pinnedThreadIds.contains(item.thread.id),
+                    isUnread: isUnread,
                     item: item,
                     preferences: inboxPreferences,
                     showsSourceConnection: mailboxSelection?.isUnified == true,
@@ -6213,7 +6285,7 @@ struct MailShellThreadList: View {
                   .onChange(of: item.id) { _, _ in itemDidRender(item) }
                 }
                 .accessibilityIdentifier("mail-thread-row")
-                .accessibilityValue(MailViewFilter.isUnread(item.thread) ? "Unread" : "Read")
+                .accessibilityValue(isUnread ? "Unread" : "Read")
                 .accessibilityAddTraits(
                   selectedThreadIds.contains(item.thread.id) ? .isSelected : []
                 )
@@ -6235,10 +6307,10 @@ struct MailShellThreadList: View {
                   allowsFullSwipe: SwipeActionResolver.allowsFullSwipe(
                     preferences: swipePreferences,
                     edge: .leading,
-                    resolvedActions: leadingActions
+                    resolvedActions: swipeActions.leading
                   )
                 ) {
-                  ForEach(leadingActions) { action in
+                  ForEach(swipeActions.leading) { action in
                     swipeButton(action, item: item)
                   }
                 }
@@ -6247,10 +6319,10 @@ struct MailShellThreadList: View {
                   allowsFullSwipe: SwipeActionResolver.allowsFullSwipe(
                     preferences: swipePreferences,
                     edge: .trailing,
-                    resolvedActions: trailingActions
+                    resolvedActions: swipeActions.trailing
                   )
                 ) {
-                  ForEach(trailingActions) { action in
+                  ForEach(swipeActions.trailing) { action in
                     swipeButton(action, item: item)
                   }
                 }
@@ -6597,28 +6669,49 @@ struct MailShellThreadList: View {
 
   private func resolvedSwipeActions(
     for item: MailShellThreadListItem,
-    edge: SwipeEdge
-  ) -> [ResolvedSwipeAction] {
-    guard let connection = connection(for: item) else { return [] }
+    moveEnabledConnectionIds: Set<MailboxConnectionId>
+  ) -> (leading: [ResolvedSwipeAction], trailing: [ResolvedSwipeAction]) {
+    guard let connection = connection(for: item) else { return ([], []) }
     let messages = mailboxMessages(for: item)
     let contextualActions = MailShellConversationReader.contextualProviderActions(
       supported: connection.capabilities.providerActions,
       messages: messages,
       collection: mailboxSelection?.collection,
-      allowsMove: !moveDestinations(for: item).isEmpty,
+      allowsMove: moveEnabledConnectionIds.contains(connection.id),
       allowsProviderMailboxMove: MailShellConversationReader.allowsMoveFromProviderMailbox(
         connection.providerId
       )
     )
-    return SwipeActionResolver.resolve(
-      configuredActions: swipePreferences.actions(for: edge),
-      context: SwipeActionContext(
-        messages: messages,
-        pinTargetThreadId: item.thread.id,
-        pinnedThreadIds: pinViewModel.pinnedThreadIds,
-        providerActions: contextualActions
+    let context = SwipeActionContext(
+      messages: messages,
+      pinTargetThreadId: item.thread.id,
+      pinnedThreadIds: pinViewModel.pinnedThreadIds,
+      providerActions: contextualActions
+    )
+    return (
+      leading: SwipeActionResolver.resolve(
+        configuredActions: swipePreferences.actions(for: .leading),
+        context: context,
+        platform: .current
       ),
-      platform: .current
+      trailing: SwipeActionResolver.resolve(
+        configuredActions: swipePreferences.actions(for: .trailing),
+        context: context,
+        platform: .current
+      )
+    )
+  }
+
+  private var moveEnabledConnectionIds: Set<MailboxConnectionId> {
+    Set(
+      connections.compactMap { connection in
+        guard
+          navigationSnapshot.providerMailboxes(for: connection.id).contains(where: {
+            $0.isMoveDestination && MailboxMessageCollection.isProviderMailboxId($0.id)
+          })
+        else { return nil }
+        return connection.id
+      }
     )
   }
 
@@ -7335,8 +7428,14 @@ private struct MailShellMailboxTools: View {
 }
 
 private struct MailShellThreadRow: View {
+  private static let receivedDateFormat = Date.FormatStyle(
+    date: .abbreviated,
+    time: .omitted
+  )
+
   let categoryNamesById: [String: String]
   let isPinned: Bool
+  let isUnread: Bool
   let item: MailShellThreadListItem
   let preferences: InboxPreferences
   let showsSourceConnection: Bool
@@ -7433,10 +7532,6 @@ private struct MailShellThreadRow: View {
     return categoryNamesById[categoryId]
   }
 
-  private var isUnread: Bool {
-    MailViewFilter.isUnread(thread)
-  }
-
   private var rowSpacing: CGFloat {
     switch preferences.threadDensity {
     case .compact:
@@ -7472,7 +7567,7 @@ private struct MailShellThreadRow: View {
       timeIntervalSince1970:
         TimeInterval(thread.latestMessage.providerInternalDateMilliseconds) / 1_000
     )
-    .formatted(date: .abbreviated, time: .omitted)
+    .formatted(Self.receivedDateFormat)
   }
 }
 
