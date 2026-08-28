@@ -463,48 +463,23 @@ struct MailShellComposer: View {
       .interactiveDismissDisabled(
         viewModel.hasUnsavedChanges || viewModel.saveState.blocksDismissal
       )
-      .confirmationDialog(
-        "Discard this Draft?",
-        isPresented: $showsDiscardConfirmation,
-        titleVisibility: .visible
-      ) {
-        Button("Discard Draft", role: .destructive, action: discardDraft)
-        Button("Keep Editing", role: .cancel) {}
-      } message: {
-        Text("This removes the Draft from this device.")
-      }
-      .alert("Send Without a Subject?", isPresented: $showsMissingSubjectConfirmation) {
-        Button("Send Without Subject", action: sendWithoutSubject)
-        Button("Add Subject", role: .cancel, action: focusSubject)
-      } message: {
-        Text("The message has no subject. You can add one or send it as written.")
-      }
-      .alert("Add Link", isPresented: $showsLinkEditor) {
-        TextField("https://example.com", text: $linkDestination)
-          .textInputAutocapitalization(.never)
-        Button("Add Link", action: applyLink)
-        Button("Cancel", role: .cancel) {}
-      } message: {
-        Text("Enter an HTTP, HTTPS, or email link for the selected text.")
-      }
-      .sheet(item: $sendLaterRequest) { _ in
-        SendLaterSheet(
-          existingReminder: viewModel.draft.sendReminder,
-          existingAutomaticDueAt: scheduledSendDueAt,
-          canAutomaticallySend: canScheduleSend,
-          scheduleAutomatically: { dueAt, timeZone in
-            let scheduled = await viewModel.scheduleSend(
-              at: dueAt,
-              timeZoneIdentifier: timeZone
-            )
-            if scheduled { dismissComposer() }
-            return scheduled
-          },
-          schedule: { dueAt, timeZone in
-            await viewModel.remind(at: dueAt, timeZoneIdentifier: timeZone)
-          }
+      .modifier(
+        MailComposerPresentationModifier(
+          linkDestination: $linkDestination,
+          sendLaterRequest: $sendLaterRequest,
+          showsDiscardConfirmation: $showsDiscardConfirmation,
+          showsLinkEditor: $showsLinkEditor,
+          showsMissingSubjectConfirmation: $showsMissingSubjectConfirmation,
+          canScheduleSend: canScheduleSend,
+          scheduledSendDueAt: scheduledSendDueAt,
+          viewModel: viewModel,
+          applyLink: applyLink,
+          discardDraft: discardDraft,
+          dismissComposer: dismissComposer,
+          focusSubject: focusSubject,
+          sendWithoutSubject: sendWithoutSubject
         )
-      }
+      )
     }
   }
 
@@ -1280,6 +1255,69 @@ struct MailShellComposer: View {
       assetErrorMessage = "Can't attach the selected photo. Choose another photo."
     }
     if draftId == viewModel.draft.id { selectedPhoto = nil }
+  }
+}
+
+private struct MailComposerPresentationModifier: ViewModifier {
+  @Binding var linkDestination: String
+  @Binding var sendLaterRequest: SendLaterRequest?
+  @Binding var showsDiscardConfirmation: Bool
+  @Binding var showsLinkEditor: Bool
+  @Binding var showsMissingSubjectConfirmation: Bool
+
+  let canScheduleSend: Bool
+  let scheduledSendDueAt: Date?
+  let viewModel: MailComposerViewModel
+  let applyLink: () -> Void
+  let discardDraft: () -> Void
+  let dismissComposer: () -> Void
+  let focusSubject: () -> Void
+  let sendWithoutSubject: () -> Void
+
+  func body(content: Content) -> some View {
+    content
+      .confirmationDialog(
+        "Discard this Draft?",
+        isPresented: $showsDiscardConfirmation,
+        titleVisibility: .visible
+      ) {
+        Button("Discard Draft", role: .destructive, action: discardDraft)
+        Button("Keep Editing", role: .cancel) {}
+      } message: {
+        Text("This removes the Draft from this device.")
+      }
+      .alert("Send Without a Subject?", isPresented: $showsMissingSubjectConfirmation) {
+        Button("Send Without Subject", action: sendWithoutSubject)
+        Button("Add Subject", role: .cancel, action: focusSubject)
+      } message: {
+        Text("The message has no subject. You can add one or send it as written.")
+      }
+      .alert("Add Link", isPresented: $showsLinkEditor) {
+        TextField("https://example.com", text: $linkDestination)
+          .textInputAutocapitalization(.never)
+        Button("Add Link", action: applyLink)
+        Button("Cancel", role: .cancel) {}
+      } message: {
+        Text("Enter an HTTP, HTTPS, or email link for the selected text.")
+      }
+      .sheet(item: $sendLaterRequest) { _ in
+        SendLaterSheet(
+          existingReminder: viewModel.draft.sendReminder,
+          existingAutomaticDueAt: scheduledSendDueAt,
+          canAutomaticallySend: canScheduleSend,
+          scheduleAutomatically: { dueAt, timeZone in
+            let scheduled = await viewModel.scheduleSend(
+              at: dueAt,
+              timeZoneIdentifier: timeZone
+            )
+            if scheduled { dismissComposer() }
+            return scheduled
+          },
+          schedule: { dueAt, timeZone in
+            await viewModel.remind(at: dueAt, timeZoneIdentifier: timeZone)
+          }
+        )
+      }
   }
 }
 
