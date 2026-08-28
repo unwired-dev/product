@@ -1708,6 +1708,7 @@ private struct MailComposerSubjectField: UIViewRepresentable {
   @MainActor
   final class Coordinator: NSObject, UITextFieldDelegate {
     var parent: MailComposerSubjectField
+    private var focusesBodyAfterEditingEnds = false
 
     init(parent: MailComposerSubjectField) {
       self.parent = parent
@@ -1723,6 +1724,9 @@ private struct MailComposerSubjectField: UIViewRepresentable {
 
     func textFieldDidEndEditing(_: UITextField) {
       parent.isFocused = false
+      guard focusesBodyAfterEditingEnds else { return }
+      focusesBodyAfterEditingEnds = false
+      parent.focusBody()
     }
 
     func textFieldShouldReturn(_ textField: UITextField) -> Bool {
@@ -1732,9 +1736,9 @@ private struct MailComposerSubjectField: UIViewRepresentable {
 
     func submit(_ textField: UITextField) {
       guard textField.isFirstResponder else { return }
+      focusesBodyAfterEditingEnds = true
       parent.isFocused = false
       textField.resignFirstResponder()
-      parent.focusBody()
     }
   }
 }

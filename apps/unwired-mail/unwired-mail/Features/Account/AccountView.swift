@@ -6264,9 +6264,22 @@ struct MailShellThreadList: View {
             Section {
               let categoryNamesById = categoryNamesById
               let pinnedThreadIds = pinViewModel.pinnedThreadIds
+              let moveEnabledConnectionIds = Set(
+                connections.compactMap { connection in
+                  guard
+                    navigationSnapshot.providerMailboxes(for: connection.id).contains(where: {
+                      $0.isMoveDestination && MailboxMessageCollection.isProviderMailboxId($0.id)
+                    })
+                  else { return nil }
+                  return connection.id
+                }
+              )
               ForEach(items) { item in
                 let isUnread = MailViewFilter.isUnread(item.thread)
-                let swipeActions = resolvedSwipeActions(for: item)
+                let swipeActions = resolvedSwipeActions(
+                  for: item,
+                  moveEnabledConnectionIds: moveEnabledConnectionIds
+                )
                 NavigationLink(value: item.thread.id) {
                   MailShellThreadRow(
                     categoryNamesById: categoryNamesById,
@@ -6664,7 +6677,8 @@ struct MailShellThreadList: View {
   }
 
   private func resolvedSwipeActions(
-    for item: MailShellThreadListItem
+    for item: MailShellThreadListItem,
+    moveEnabledConnectionIds: Set<MailboxConnectionId>
   ) -> (leading: [ResolvedSwipeAction], trailing: [ResolvedSwipeAction]) {
     guard let connection = connection(for: item) else { return ([], []) }
     let messages = mailboxMessages(for: item)
@@ -6672,7 +6686,7 @@ struct MailShellThreadList: View {
       supported: connection.capabilities.providerActions,
       messages: messages,
       collection: mailboxSelection?.collection,
-      allowsMove: !moveDestinations(for: item).isEmpty,
+      allowsMove: moveEnabledConnectionIds.contains(connection.id),
       allowsProviderMailboxMove: MailShellConversationReader.allowsMoveFromProviderMailbox(
         connection.providerId
       )
