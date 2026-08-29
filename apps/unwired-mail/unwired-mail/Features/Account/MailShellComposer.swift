@@ -1722,6 +1722,14 @@ private struct MailComposerSubjectField: UIViewRepresentable {
   private final class SubjectTextField: UITextField {
     var submit: (() -> Void)?
 
+    override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+      guard presses.contains(where: { $0.key?.keyCode == .keyboardReturnOrEnter }) else {
+        super.pressesBegan(presses, with: event)
+        return
+      }
+      submit?()
+    }
+
     override func insertText(_ text: String) {
       guard text != "\n", text != "\r" else {
         submit?()
