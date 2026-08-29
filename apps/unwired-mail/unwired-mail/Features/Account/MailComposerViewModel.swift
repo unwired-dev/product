@@ -50,7 +50,6 @@ final class MailComposerViewModel {
   private(set) var isFinished = false
   private(set) var isSwitchingDraft = false
   private(set) var noticeMessage: String?
-  var presentation: ComposePresentationPreference
   private(set) var reminderState: MailComposerReminderState = .idle
   private(set) var saveState: MailComposerSaveState = .idle
 
@@ -72,7 +71,6 @@ final class MailComposerViewModel {
 
   init(
     draft: MailShellCompositionDraft,
-    presentation: ComposePresentationPreference,
     reminderOwnerDeviceId: String = "local-device",
     calendar: Calendar = .current,
     now: @escaping () -> Date = Date.init,
@@ -92,7 +90,6 @@ final class MailComposerViewModel {
     let editorModel = SemanticMessageEditorModel(document: draft.document)
     self.editorModel = editorModel
     editorModelsByDraftId = [draft.id: editorModel]
-    self.presentation = presentation
     self.now = now
     self.reminderOwnerDeviceId = reminderOwnerDeviceId
     self.saveDraft = saveDraft
@@ -318,10 +315,6 @@ final class MailComposerViewModel {
       )
     }
     return true
-  }
-
-  func togglePresentation() {
-    presentation = presentation == .partial ? .fullScreen : .partial
   }
 
   private func flushAutosave() async -> Bool {

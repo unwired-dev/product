@@ -26,44 +26,25 @@ enum UndoSendWindow: Int, CaseIterable, Codable, Identifiable, Sendable {
   }
 }
 
-enum ComposePresentationPreference: String, CaseIterable, Codable, Identifiable, Sendable {
-  case partial
-  case fullScreen
-
-  var id: Self { self }
-
-  var title: String {
-    switch self {
-    case .partial:
-      return "Partial"
-    case .fullScreen:
-      return "Full Screen"
-    }
-  }
-}
-
 struct ComposePreferences: Codable, Equatable, Sendable {
   static let defaults = ComposePreferences()
   static let primaryIdentifier = "mail-workflow-preferences:compose"
-  static let supportedSchemaVersion = 1
+  static let supportedSchemaVersion = 2
 
   var includesForwardedAttachments: Bool
   var includesQuotedText: Bool
-  var presentation: ComposePresentationPreference
   var showsFormattingToolbar: Bool
   var undoSendWindow: UndoSendWindow
   let schemaVersion: Int
 
   init(
     undoSendWindow: UndoSendWindow = .tenSeconds,
-    presentation: ComposePresentationPreference = .partial,
     showsFormattingToolbar: Bool = true,
     includesQuotedText: Bool = true,
     includesForwardedAttachments: Bool = true
   ) {
     self.includesForwardedAttachments = includesForwardedAttachments
     self.includesQuotedText = includesQuotedText
-    self.presentation = presentation
     self.showsFormattingToolbar = showsFormattingToolbar
     self.undoSendWindow = undoSendWindow
     schemaVersion = Self.supportedSchemaVersion
@@ -72,7 +53,6 @@ struct ComposePreferences: Codable, Equatable, Sendable {
   private enum CodingKeys: String, CodingKey {
     case includesForwardedAttachments
     case includesQuotedText
-    case presentation
     case schemaVersion
     case showsFormattingToolbar
     case undoSendWindow
@@ -95,23 +75,19 @@ struct ComposePreferences: Codable, Equatable, Sendable {
     includesQuotedText =
       (try? container.decode(Bool.self, forKey: .includesQuotedText))
       ?? Self.defaults.includesQuotedText
-    presentation =
-      (try? container.decode(ComposePresentationPreference.self, forKey: .presentation))
-      ?? Self.defaults.presentation
     showsFormattingToolbar =
       (try? container.decode(Bool.self, forKey: .showsFormattingToolbar))
       ?? Self.defaults.showsFormattingToolbar
     undoSendWindow =
       (try? container.decode(UndoSendWindow.self, forKey: .undoSendWindow))
       ?? Self.defaults.undoSendWindow
-    schemaVersion = max(1, decodedSchemaVersion)
+    schemaVersion = Self.supportedSchemaVersion
   }
 }
 
 enum ComposePreferenceField: String, CaseIterable, Codable, Identifiable, Sendable {
   case forwardedAttachments
   case formattingToolbar
-  case presentation
   case quotedText
   case undoSend
 
@@ -123,8 +99,6 @@ enum ComposePreferenceField: String, CaseIterable, Codable, Identifiable, Sendab
       return "Forwarded Attachments"
     case .formattingToolbar:
       return "Formatting Toolbar"
-    case .presentation:
-      return "Composer Presentation"
     case .quotedText:
       return "Quoted Text"
     case .undoSend:
@@ -135,15 +109,12 @@ enum ComposePreferenceField: String, CaseIterable, Codable, Identifiable, Sendab
 
 enum ComposePreferenceValue: Codable, Equatable, Sendable {
   case boolean(Bool)
-  case presentation(ComposePresentationPreference)
   case undoSend(UndoSendWindow)
 
   var title: String {
     switch self {
     case .boolean(let value):
       return value ? "On" : "Off"
-    case .presentation(let value):
-      return value.title
     case .undoSend(let value):
       return value.title
     }
@@ -157,8 +128,6 @@ extension ComposePreferences {
       return .boolean(includesForwardedAttachments)
     case .formattingToolbar:
       return .boolean(showsFormattingToolbar)
-    case .presentation:
-      return .presentation(presentation)
     case .quotedText:
       return .boolean(includesQuotedText)
     case .undoSend:
@@ -172,8 +141,6 @@ extension ComposePreferences {
       includesForwardedAttachments = enabled
     case (.formattingToolbar, .boolean(let enabled)):
       showsFormattingToolbar = enabled
-    case (.presentation, .presentation(let presentation)):
-      self.presentation = presentation
     case (.quotedText, .boolean(let enabled)):
       includesQuotedText = enabled
     case (.undoSend, .undoSend(let window)):
