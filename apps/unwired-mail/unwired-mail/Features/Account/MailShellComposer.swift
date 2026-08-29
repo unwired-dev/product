@@ -1646,7 +1646,6 @@ private struct MailComposerSubjectField: UIViewRepresentable {
         super.pressesBegan(presses, with: event)
         return
       }
-      submit?()
     }
 
     override func pressesEnded(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
@@ -1654,6 +1653,7 @@ private struct MailComposerSubjectField: UIViewRepresentable {
         super.pressesEnded(presses, with: event)
         return
       }
+      submit?()
     }
 
     override func insertText(_ text: String) {
