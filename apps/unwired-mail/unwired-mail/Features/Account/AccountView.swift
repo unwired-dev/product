@@ -4124,9 +4124,7 @@ extension AccountView {
     editSession: ScheduledSendEditSession,
     profileId: MailProfileId
   ) -> MailComposerViewModel {
-    let dueAt = Date(
-      timeIntervalSince1970: Double(editSession.item.record.dueAtMilliseconds) / 1_000
-    )
+    let dueAt = MailShellComposerEditingContext.scheduledSend(editSession).scheduledSendDueAt
     return MailComposerViewModel(
       draft: .editing(editSession.item.record),
       reminderOwnerDeviceId: snapshot.trustedDeviceId,
