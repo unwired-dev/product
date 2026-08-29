@@ -269,7 +269,10 @@ final class MailTestBootstrapUITests: XCTestCase {
     var removedCount = 0
     while removedCount < 12 {
       let token = recipientTokens.firstMatch
-      guard token.exists else { break }
+      guard token.waitForExistence(timeout: 5) else {
+        XCTFail("A populated recipient disappeared before every token was removed.")
+        throw NSError(domain: "MailTestBootstrapUITests", code: 1)
+      }
       let tokenLabel = token.label
       token.tap()
       guard app.buttons[tokenLabel].waitForNonExistence(timeout: 5) else {

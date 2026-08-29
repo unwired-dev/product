@@ -3356,17 +3356,11 @@ struct AccountView: View {
     switchGeneration: Int
   ) async -> Bool {
     muteViewModel.updateProfile(profileId)
-    guard await continueProfileSwitch(switchGeneration, profileId: profileId) else {
-      return false
-    }
     snoozeViewModel.updateProfile(profileId)
     guard await continueProfileSwitch(switchGeneration, profileId: profileId) else {
       return false
     }
     followUpNudgeViewModel.updateProfile(profileId)
-    guard await continueProfileSwitch(switchGeneration, profileId: profileId) else {
-      return false
-    }
     updateProductMailboxState()
     return await continueProfileSwitch(switchGeneration, profileId: profileId)
   }
