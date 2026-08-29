@@ -3331,8 +3331,10 @@ struct AccountView: View {
     {
       composerNavigation.present(viewModel.draft)
     }
-    loadUnifiedMailbox(synchronizes: false)
     Task {
+      await waitForNextMainRunLoopCycle()
+      guard profileViewModel.activeProfileId == profileId else { return }
+      loadUnifiedMailbox(synchronizes: false)
       await waitForCurrentMailboxLoad {
         (inboxLoadTask, inboxLoadGeneration)
       }
