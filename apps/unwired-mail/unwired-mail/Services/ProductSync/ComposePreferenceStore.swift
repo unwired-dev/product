@@ -195,6 +195,14 @@ protocol ComposePreferenceLocalStatePersisting {
 }
 
 struct UserDefaultsComposePreferenceStateStore: ComposePreferenceLocalStatePersisting {
+  private struct StoredSchema: Decodable {
+    let preferences: PreferencesSchema
+
+    struct PreferencesSchema: Decodable {
+      let schemaVersion: Int
+    }
+  }
+
   private static let keyPrefix = "mail-workflow-preferences.compose."
   private let defaults: UserDefaults
 
@@ -208,11 +216,20 @@ struct UserDefaultsComposePreferenceStateStore: ComposePreferenceLocalStatePersi
 
   func load(productAccountId: String) throws -> ComposePreferenceLocalState? {
     guard let data = defaults.data(forKey: key(productAccountId)) else { return nil }
+    let decoder = JSONDecoder()
+    if let schema = try? decoder.decode(StoredSchema.self, from: data),
+      schema.preferences.schemaVersion == 1,
+      let legacy = try? decoder.decode(LegacyComposePreferenceLocalState.self, from: data)
+    {
+      let state = legacy.current
+      try save(state, productAccountId: productAccountId)
+      return state
+    }
     do {
-      return try JSONDecoder().decode(ComposePreferenceLocalState.self, from: data)
+      return try decoder.decode(ComposePreferenceLocalState.self, from: data)
     } catch {
       guard
-        let legacy = try? JSONDecoder().decode(LegacyComposePreferenceLocalState.self, from: data)
+        let legacy = try? decoder.decode(LegacyComposePreferenceLocalState.self, from: data)
       else {
         defaults.removeObject(forKey: key(productAccountId))
         return nil

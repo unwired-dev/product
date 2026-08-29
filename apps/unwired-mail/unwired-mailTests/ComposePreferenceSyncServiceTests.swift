@@ -1,6 +1,8 @@
 import Foundation
 import Testing
 
+// swiftlint:disable file_length
+
 @testable import unwired_mail
 
 @MainActor
@@ -155,6 +157,29 @@ final class ComposePreferenceSyncServiceTests {
     #expect(
       try JSONDecoder().decode(ComposePreferenceLocalState.self, from: migratedData) == restored
     )
+  }
+
+  @Test(.bug(id: 566))
+  func testDecodableSchemaOneLocalStateIsReencodedAsSchemaTwo() throws {
+    let suiteName = "ComposePreferenceSyncServiceTests.\(UUID().uuidString)"
+    let defaults = try #require(UserDefaults(suiteName: suiteName))
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+    let key = "mail-workflow-preferences.compose.\(session.productAccountId)"
+    let legacyData = Data(
+      #"{"conflicts":{},"pendingChanges":{},"preferences":{"schemaVersion":1}}"#.utf8
+    )
+    defaults.set(legacyData, forKey: key)
+    let localStore = UserDefaultsComposePreferenceStateStore(defaults: defaults)
+
+    let restored = try #require(
+      localStore.load(productAccountId: session.productAccountId)
+    )
+    let migratedData = try #require(defaults.data(forKey: key))
+    let payload = try #require(JSONSerialization.jsonObject(with: migratedData) as? [String: Any])
+    let preferences = try #require(payload["preferences"] as? [String: Any])
+
+    #expect(restored.preferences.schemaVersion == 2)
+    #expect(preferences["schemaVersion"] as? Int == 2)
   }
 
   @Test

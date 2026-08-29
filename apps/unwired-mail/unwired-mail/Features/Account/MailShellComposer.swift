@@ -48,6 +48,7 @@ struct MailShellComposer: View {
   @State private var isBodyFocused = false
   @State private var isBodyFocusPending = false
   @State private var isSubjectFocused = false
+  @State private var subjectFocusRequest = 0
   @State private var bodyFocusRequest = 0
   @State private var bodyFocusHandoff = 0
   @State private var presentsSubjectField = true
@@ -211,6 +212,7 @@ struct MailShellComposer: View {
           MailComposerSubjectRow(
             subject: $viewModel.draft.subject,
             isFocused: $isSubjectFocused,
+            focusRequest: subjectFocusRequest,
             presentsField: presentsSubjectField,
             focusBody: focusBody,
             focusSubject: focusSubject
@@ -548,6 +550,7 @@ struct MailShellComposer: View {
     Task { @MainActor in
       await Task.yield()
       guard handoff == bodyFocusHandoff, isBodyFocused == false else { return }
+      subjectFocusRequest &+= 1
       isSubjectFocused = true
     }
   }
@@ -1593,6 +1596,7 @@ private struct MailComposerIdentityRow: View {
 private struct MailComposerSubjectRow: View {
   @Binding var subject: String
   @Binding var isFocused: Bool
+  let focusRequest: Int
   let presentsField: Bool
   let focusBody: () -> Void
   let focusSubject: () -> Void
@@ -1602,6 +1606,7 @@ private struct MailComposerSubjectRow: View {
       MailComposerSubjectField(
         subject: $subject,
         isFocused: $isFocused,
+        focusRequest: focusRequest,
         focusBody: focusBody
       )
       .padding(.horizontal, 16)
@@ -1635,6 +1640,7 @@ private struct MailComposerSubjectField: UIViewRepresentable {
 
   @Binding var subject: String
   @Binding var isFocused: Bool
+  let focusRequest: Int
   let focusBody: () -> Void
 
   func makeCoordinator() -> Coordinator {
@@ -1665,7 +1671,7 @@ private struct MailComposerSubjectField: UIViewRepresentable {
     context.coordinator.parent = self
     if textField.text != subject { textField.text = subject }
     if isFocused {
-      if textField.isFirstResponder == false { textField.becomeFirstResponder() }
+      context.coordinator.focus(textField, for: focusRequest)
     } else if textField.isFirstResponder {
       textField.resignFirstResponder()
     }
@@ -1674,6 +1680,7 @@ private struct MailComposerSubjectField: UIViewRepresentable {
   @MainActor
   final class Coordinator: NSObject, UITextFieldDelegate {
     var parent: MailComposerSubjectField
+    private var activeFocusRequest: Int?
     private var focusesBodyAfterEditingEnds = false
 
     init(parent: MailComposerSubjectField) {
@@ -1684,7 +1691,14 @@ private struct MailComposerSubjectField: UIViewRepresentable {
       parent.subject = textField.text ?? ""
     }
 
+    func focus(_ textField: UITextField, for request: Int) {
+      guard activeFocusRequest != request else { return }
+      activeFocusRequest = request
+      if textField.isFirstResponder == false { textField.becomeFirstResponder() }
+    }
+
     func textFieldDidBeginEditing(_: UITextField) {
+      activeFocusRequest = parent.focusRequest
       parent.isFocused = true
     }
 
