@@ -567,7 +567,17 @@ struct MailShellComposer: View {
 
   private func bodyFocusDidBegin() {
     guard isBodyFocusPending else { return }
-    isBodyFocusPending = false
+    let handoff = bodyFocusHandoff
+    Task { @MainActor in
+      try? await Task.sleep(for: .milliseconds(100))
+      guard
+        handoff == bodyFocusHandoff,
+        isBodyFocusPending,
+        focusedField == nil,
+        isBodyFocused
+      else { return }
+      isBodyFocusPending = false
+    }
   }
 
   private func focusSubject() {
