@@ -429,6 +429,9 @@ struct MailShellComposer: View {
             }
             .buttonStyle(.plain)
             .accessibilityIdentifier("mail-compose-subject")
+            .task(id: bodyFocusHandoff) {
+              await completeBodyFocusHandoff()
+            }
           }
           Divider()
           MailComposerActionBar(
@@ -563,17 +566,23 @@ struct MailShellComposer: View {
 
   private func focusBody() {
     bodyFocusHandoff &+= 1
-    let handoff = bodyFocusHandoff
     isBodyFocusPending = true
     presentsSubjectField = false
     focusedField = nil
     isSubjectFocused = false
-    Task { @MainActor in
-      await Task.yield()
-      guard handoff == bodyFocusHandoff, isBodyFocusPending, focusedField == nil else { return }
-      isBodyFocused = true
-      bodyFocusRequest &+= 1
-    }
+  }
+
+  private func completeBodyFocusHandoff() async {
+    let handoff = bodyFocusHandoff
+    await Task.yield()
+    guard
+      handoff == bodyFocusHandoff,
+      isBodyFocusPending,
+      focusedField == nil,
+      !Task.isCancelled
+    else { return }
+    isBodyFocused = true
+    bodyFocusRequest &+= 1
   }
 
   private func bodyFocusDidBegin() {

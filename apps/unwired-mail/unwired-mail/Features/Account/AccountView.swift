@@ -3246,12 +3246,11 @@ struct AccountView: View {
         profileSwitchGate.isCurrent(switchGeneration),
         profileViewModel.activeProfileId == profileId
       else { return false }
-      prepareProfileThreadState(for: profileId)
-      await waitForNextMainRunLoopCycle()
       guard
-        !Task.isCancelled,
-        profileSwitchGate.isCurrent(switchGeneration),
-        profileViewModel.activeProfileId == profileId
+        await prepareStagedProfileThreadState(
+          for: profileId,
+          switchGeneration: switchGeneration
+        )
       else { return false }
       finishProfileSwitch(to: profileId)
       if let preparedProfileRecordScope {
@@ -3350,6 +3349,36 @@ struct AccountView: View {
     snoozeViewModel.updateProfile(profileId)
     followUpNudgeViewModel.updateProfile(profileId)
     updateProductMailboxState()
+  }
+
+  private func prepareStagedProfileThreadState(
+    for profileId: MailProfileId,
+    switchGeneration: Int
+  ) async -> Bool {
+    muteViewModel.updateProfile(profileId)
+    guard await continueProfileSwitch(switchGeneration, profileId: profileId) else {
+      return false
+    }
+    snoozeViewModel.updateProfile(profileId)
+    guard await continueProfileSwitch(switchGeneration, profileId: profileId) else {
+      return false
+    }
+    followUpNudgeViewModel.updateProfile(profileId)
+    guard await continueProfileSwitch(switchGeneration, profileId: profileId) else {
+      return false
+    }
+    updateProductMailboxState()
+    return await continueProfileSwitch(switchGeneration, profileId: profileId)
+  }
+
+  private func continueProfileSwitch(
+    _ switchGeneration: Int,
+    profileId: MailProfileId
+  ) async -> Bool {
+    await waitForNextMainRunLoopCycle()
+    return !Task.isCancelled
+      && profileSwitchGate.isCurrent(switchGeneration)
+      && profileViewModel.activeProfileId == profileId
   }
 
   private func reloadPreparedProfileThreadState(for profileId: MailProfileId) async {
