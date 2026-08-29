@@ -414,18 +414,7 @@ struct MailShellComposer: View {
         recipientEditor.commitPendingText(in: recipientField)
       }
       .onChange(of: isSubjectFocused) { _, isSubjectFocused in
-        if isBodyFocusPending, isSubjectFocused {
-          self.isSubjectFocused = false
-          isBodyFocused = true
-          bodyFocusRequest &+= 1
-          return
-        }
-        if isSubjectFocused {
-          bodyFocusHandoff &+= 1
-          isBodyFocusPending = false
-          focusedField = nil
-          isBodyFocused = false
-        }
+        subjectFocusDidChange(isSubjectFocused)
       }
       .onChange(of: recipientEditor.headers) { _, headers in
         synchronizeRecipientHeaders(headers)
@@ -547,6 +536,21 @@ struct MailShellComposer: View {
       isExpanded: navigation.isExpanded,
       toggle: navigation.toggleExpansion
     )
+  }
+
+  private func subjectFocusDidChange(_ isSubjectFocused: Bool) {
+    if isBodyFocusPending, isSubjectFocused {
+      self.isSubjectFocused = false
+      isBodyFocused = true
+      bodyFocusRequest &+= 1
+      return
+    }
+    if isSubjectFocused {
+      bodyFocusHandoff &+= 1
+      isBodyFocusPending = false
+      focusedField = nil
+      isBodyFocused = false
+    }
   }
 
   private func focusBody() {
