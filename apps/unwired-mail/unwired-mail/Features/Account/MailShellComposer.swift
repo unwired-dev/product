@@ -1792,6 +1792,9 @@ private struct MailComposerSubjectField: UIViewRepresentable {
       focusesBodyAfterEditingEnds = true
       parent.isFocused = false
       textField.resignFirstResponder()
+      guard focusesBodyAfterEditingEnds else { return }
+      focusesBodyAfterEditingEnds = false
+      parent.focusBody()
     }
   }
 }
