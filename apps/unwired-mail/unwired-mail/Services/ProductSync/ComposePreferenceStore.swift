@@ -98,30 +98,27 @@ enum LegacyComposePreferenceValue: Decodable {
       self = .unknown
       return
     }
-    if
-      let valueContainer = try? container.nestedContainer(
-        keyedBy: ValueCodingKeys.self,
-        forKey: .boolean
-      ),
+    if let valueContainer = try? container.nestedContainer(
+      keyedBy: ValueCodingKeys.self,
+      forKey: .boolean
+    ),
       let value = try? valueContainer.decode(Bool.self, forKey: .value)
     {
       self = .boolean(value)
-    } else if
-      let valueContainer = try? container.nestedContainer(
-        keyedBy: ValueCodingKeys.self,
-        forKey: .presentation
-      ),
+    } else if let valueContainer = try? container.nestedContainer(
+      keyedBy: ValueCodingKeys.self,
+      forKey: .presentation
+    ),
       let value = try? valueContainer.decode(
         LegacyComposePresentationPreference.self,
         forKey: .value
       )
     {
       self = .presentation(value)
-    } else if
-      let valueContainer = try? container.nestedContainer(
-        keyedBy: ValueCodingKeys.self,
-        forKey: .undoSend
-      ),
+    } else if let valueContainer = try? container.nestedContainer(
+      keyedBy: ValueCodingKeys.self,
+      forKey: .undoSend
+    ),
       let value = try? valueContainer.decode(UndoSendWindow.self, forKey: .value)
     {
       self = .undoSend(value)
