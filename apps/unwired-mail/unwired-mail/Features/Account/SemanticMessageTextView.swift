@@ -21,15 +21,24 @@ final class SemanticMessageFocusBridge {
     focusTask?.cancel()
     focusTask = Task { @MainActor [weak self, weak subjectField] in
       subjectField?.resignFirstResponder()
+      var stableFocusObservations = 0
       for attempt in 0..<12 {
         await Task.yield()
         guard let self, !Task.isCancelled else { return }
-        if let textView, textView.window != nil, textView.becomeFirstResponder() {
-          focusTask = nil
-          return
+        if let textView, textView.window != nil {
+          if textView.isFirstResponder {
+            stableFocusObservations += 1
+            if stableFocusObservations == 2 {
+              focusTask = nil
+              return
+            }
+          } else {
+            stableFocusObservations = 0
+            _ = textView.becomeFirstResponder()
+          }
         }
         if attempt < 11 {
-          try? await Task.sleep(for: .milliseconds(50))
+          try? await Task.sleep(for: .milliseconds(250))
         }
       }
       focusTask = nil
