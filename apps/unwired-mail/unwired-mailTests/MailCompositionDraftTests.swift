@@ -542,7 +542,6 @@ final class MailCompositionDraftTests {
     var scheduleAttempts = 0
     let viewModel = MailComposerViewModel(
       draft: source,
-      presentation: .partial,
       reminderOwnerDeviceId: "device-a",
       now: { now },
       saveDraft: { _ in throw DraftFixtureError.saveFailed },
@@ -586,7 +585,6 @@ final class MailCompositionDraftTests {
     var savedDrafts: [MailShellCompositionDraft] = []
     let viewModel = MailComposerViewModel(
       draft: source,
-      presentation: .partial,
       reminderOwnerDeviceId: "device-a",
       now: { currentTime },
       saveDraft: { savedDrafts.append($0) },
@@ -635,7 +633,6 @@ final class MailCompositionDraftTests {
     var savedDrafts: [MailShellCompositionDraft] = []
     let viewModel = MailComposerViewModel(
       draft: source,
-      presentation: .partial,
       reminderOwnerDeviceId: "device-a",
       now: { currentTime },
       saveDraft: { draft in
@@ -882,7 +879,6 @@ final class MailCompositionDraftTests {
     var conflictCopy: MailShellCompositionDraft?
     let viewModel = MailComposerViewModel(
       draft: source,
-      presentation: .partial,
       reminderOwnerDeviceId: "device-a",
       now: { now },
       saveDraft: { candidate in

@@ -171,9 +171,8 @@ final class ComposePreferenceSyncServiceTests {
     defaults.set(legacyData, forKey: key)
     let localStore = UserDefaultsComposePreferenceStateStore(defaults: defaults)
 
-    let restored = try #require(
-      localStore.load(productAccountId: session.productAccountId)
-    )
+    let loaded = try localStore.load(productAccountId: session.productAccountId)
+    let restored = try #require(loaded)
     let migratedData = try #require(defaults.data(forKey: key))
     let payload = try #require(JSONSerialization.jsonObject(with: migratedData) as? [String: Any])
     let preferences = try #require(payload["preferences"] as? [String: Any])
