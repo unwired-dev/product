@@ -544,7 +544,6 @@ struct MailShellComposer: View {
     bodyFocusHandoff &+= 1
     let handoff = bodyFocusHandoff
     isBodyFocusPending = true
-    presentsSubjectField = false
     focusedField = nil
     isSubjectFocused = false
     Task { @MainActor in
