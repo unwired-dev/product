@@ -2436,6 +2436,7 @@ struct AccountView: View {
         spotlightReconcileTask?.cancel()
         spotlightReconcileTask = nil
         releaseBudgetDriver?.removeSelectionHandler(owner: releaseBudgetDriverOwner)
+        composerNavigation.dismiss()
         releaseAllComposerEditingContexts()
       }
   }
