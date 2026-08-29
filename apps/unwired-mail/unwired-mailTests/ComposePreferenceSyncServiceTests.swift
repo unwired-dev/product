@@ -127,7 +127,9 @@ final class ComposePreferenceSyncServiceTests {
     #expect(restored.preferences.showsFormattingToolbar == false)
     #expect(Set(restored.pendingChanges.keys) == [.formattingToolbar])
     let migratedData = try #require(defaults.data(forKey: key))
-    #expect(try JSONDecoder().decode(ComposePreferenceLocalState.self, from: migratedData) == restored)
+    #expect(
+      try JSONDecoder().decode(ComposePreferenceLocalState.self, from: migratedData) == restored
+    )
   }
 
   @Test
@@ -357,9 +359,8 @@ private struct LegacyStoredComposePreferenceConflict: Codable {
 
 private struct LegacyStoredComposePreferenceState: Codable {
   let conflicts: [LegacyStoredComposePreferenceField: LegacyStoredComposePreferenceConflict]
-  let pendingChanges: [
-    LegacyStoredComposePreferenceField: LegacyStoredComposePreferencePendingChange
-  ]
+  let pendingChanges:
+    [LegacyStoredComposePreferenceField: LegacyStoredComposePreferencePendingChange]
   let preferences: ComposePreferences
 }
 
