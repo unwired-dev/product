@@ -1880,6 +1880,7 @@ private struct MailComposerRecipientField: View {
           }
         }
         .scrollIndicators(.hidden)
+        .defaultScrollAnchor(.trailing)
       }
       if let issue {
         Label(issue.message, systemImage: "exclamationmark.circle")
