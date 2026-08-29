@@ -51,6 +51,7 @@ struct MailShellComposer: View {
   @State private var isSubjectFocused = false
   @State private var bodyFocusRequest = 0
   @State private var bodyFocusHandoff = 0
+  @State private var subjectSubmissionRequest = 0
   @State private var presentsSubjectField = true
   @State private var assetErrorMessage: String?
   @State private var translationErrorMessage: String?
@@ -406,11 +407,12 @@ struct MailShellComposer: View {
             MailComposerSubjectField(
               subject: $viewModel.draft.subject,
               isFocused: $isSubjectFocused,
+              submissionRequest: subjectSubmissionRequest,
               focusBody: focusBody
             )
             .onKeyPress(keys: [.return]) { _ in
               guard isSubjectFocused else { return .ignored }
-              focusBody()
+              subjectSubmissionRequest &+= 1
               return .handled
             }
             .padding(.horizontal, 16)
@@ -1722,10 +1724,11 @@ private struct MailComposerSubjectField: UIViewRepresentable {
 
   @Binding var subject: String
   @Binding var isFocused: Bool
+  let submissionRequest: Int
   let focusBody: () -> Void
 
   func makeCoordinator() -> Coordinator {
-    Coordinator(parent: self)
+    Coordinator(parent: self, submissionRequest: submissionRequest)
   }
 
   func makeUIView(context: Context) -> UITextField {
@@ -1751,6 +1754,7 @@ private struct MailComposerSubjectField: UIViewRepresentable {
   func updateUIView(_ textField: UITextField, context: Context) {
     context.coordinator.parent = self
     if textField.text != subject { textField.text = subject }
+    if context.coordinator.submitIfRequested(textField, request: submissionRequest) { return }
     if isFocused {
       if textField.isFirstResponder == false { textField.becomeFirstResponder() }
     } else if textField.isFirstResponder {
@@ -1762,9 +1766,11 @@ private struct MailComposerSubjectField: UIViewRepresentable {
   final class Coordinator: NSObject, UITextFieldDelegate {
     var parent: MailComposerSubjectField
     private var focusesBodyAfterEditingEnds = false
+    private var handledSubmissionRequest: Int
 
-    init(parent: MailComposerSubjectField) {
+    init(parent: MailComposerSubjectField, submissionRequest: Int) {
       self.parent = parent
+      handledSubmissionRequest = submissionRequest
     }
 
     @objc func subjectDidChange(_ textField: UITextField) {
@@ -1785,6 +1791,13 @@ private struct MailComposerSubjectField: UIViewRepresentable {
     func textFieldShouldReturn(_ textField: UITextField) -> Bool {
       submit(textField)
       return false
+    }
+
+    func submitIfRequested(_ textField: UITextField, request: Int) -> Bool {
+      guard request != handledSubmissionRequest else { return false }
+      handledSubmissionRequest = request
+      submit(textField)
+      return true
     }
 
     func submit(_ textField: UITextField) {

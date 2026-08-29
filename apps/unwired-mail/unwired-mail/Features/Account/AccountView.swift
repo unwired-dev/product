@@ -3300,7 +3300,21 @@ struct AccountView: View {
       profileSwitchGate.isCurrent(switchGeneration),
       profileViewModel.activeProfileId == sourceProfileId
     else { return false }
-    inboxViewModel.prepareForProfileSwitch()
+    inboxViewModel.prepareNavigationForProfileSwitch()
+    await waitForNextMainRunLoopCycle()
+    guard
+      !Task.isCancelled,
+      profileSwitchGate.isCurrent(switchGeneration),
+      profileViewModel.activeProfileId == sourceProfileId
+    else { return false }
+    inboxViewModel.clearNavigationSnapshotForProfileSwitch()
+    await waitForNextMainRunLoopCycle()
+    guard
+      !Task.isCancelled,
+      profileSwitchGate.isCurrent(switchGeneration),
+      profileViewModel.activeProfileId == sourceProfileId
+    else { return false }
+    inboxViewModel.prepareTransientStateForProfileSwitch()
     await waitForNextMainRunLoopCycle()
     guard
       !Task.isCancelled,
@@ -14238,10 +14252,28 @@ final class GmailInboxViewModel {
   }
 
   func prepareForProfileSwitch() {
+    prepareNavigationForProfileSwitch()
+    clearNavigationSnapshotForProfileSwitch()
+    clearVisibleThreadsForProfileSwitch()
+    prepareTransientStateForProfileSwitch()
+  }
+
+  func prepareNavigationForProfileSwitch() {
     cancelBackfill()
     cancelProfileSwitchTasks()
     resetProfileSwitchNavigationState()
-    clearVisibleThreadsForProfileSwitch()
+  }
+
+  func clearNavigationSnapshotForProfileSwitch() {
+    if navigationSnapshot != .empty {
+      navigationSnapshot = .empty
+    }
+    if !visibleMessageBodyPrefetches.isEmpty {
+      visibleMessageBodyPrefetches = [:]
+    }
+  }
+
+  func prepareTransientStateForProfileSwitch() {
     resetProfileSwitchTransientState()
   }
 
@@ -14276,12 +14308,6 @@ final class GmailInboxViewModel {
     }
     if isLoading {
       isLoading = false
-    }
-    if navigationSnapshot != .empty {
-      navigationSnapshot = .empty
-    }
-    if !visibleMessageBodyPrefetches.isEmpty {
-      visibleMessageBodyPrefetches = [:]
     }
   }
 
