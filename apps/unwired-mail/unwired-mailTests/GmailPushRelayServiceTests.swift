@@ -4764,7 +4764,7 @@ private final class RecordingUserNotificationCenter: UserNotificationCenterClien
 }
 
 @MainActor
-private final class SuspendingUserNotificationCenter: UserNotificationCenterClient {
+private final class SuspendingUserNotificationCenter: @MainActor UserNotificationCenterClient {
   private var deliveryContinuation: CheckedContinuation<Void, Error>?
   private var deliveryStartedContinuation: CheckedContinuation<Void, Never>?
   private var didStartDelivery = false

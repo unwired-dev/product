@@ -60,6 +60,134 @@ struct ComposePreferenceLocalState: Codable, Equatable, Sendable {
   }
 }
 
+enum LegacyComposePreferenceField: String, Decodable {
+  case forwardedAttachments
+  case formattingToolbar
+  case presentation
+  case quotedText
+  case undoSend
+
+  var current: ComposePreferenceField? {
+    ComposePreferenceField(rawValue: rawValue)
+  }
+}
+
+enum LegacyComposePresentationPreference: String, Decodable {
+  case fullScreen
+  case partial
+}
+
+enum LegacyComposePreferenceValue: Decodable {
+  case boolean(Bool)
+  case unknown
+  case presentation(LegacyComposePresentationPreference)
+  case undoSend(UndoSendWindow)
+
+  private enum CodingKeys: String, CodingKey {
+    case boolean
+    case presentation
+    case undoSend
+  }
+
+  private enum ValueCodingKeys: String, CodingKey {
+    case value = "_0"
+  }
+
+  init(from decoder: Decoder) throws {
+    guard let container = try? decoder.container(keyedBy: CodingKeys.self) else {
+      self = .unknown
+      return
+    }
+    if let valueContainer = try? container.nestedContainer(
+      keyedBy: ValueCodingKeys.self,
+      forKey: .boolean
+    ),
+      let value = try? valueContainer.decode(Bool.self, forKey: .value)
+    {
+      self = .boolean(value)
+    } else if let valueContainer = try? container.nestedContainer(
+      keyedBy: ValueCodingKeys.self,
+      forKey: .presentation
+    ),
+      let value = try? valueContainer.decode(
+        LegacyComposePresentationPreference.self,
+        forKey: .value
+      )
+    {
+      self = .presentation(value)
+    } else if let valueContainer = try? container.nestedContainer(
+      keyedBy: ValueCodingKeys.self,
+      forKey: .undoSend
+    ),
+      let value = try? valueContainer.decode(UndoSendWindow.self, forKey: .value)
+    {
+      self = .undoSend(value)
+    } else {
+      self = .unknown
+    }
+  }
+
+  var current: ComposePreferenceValue? {
+    switch self {
+    case .boolean(let value): .boolean(value)
+    case .presentation, .unknown: nil
+    case .undoSend(let value): .undoSend(value)
+    }
+  }
+}
+
+struct LegacyComposePreferencePendingChange: Decodable {
+  let baseValue: LegacyComposePreferenceValue
+  let localValue: LegacyComposePreferenceValue
+}
+
+struct LegacyComposePreferenceConflict: Decodable {
+  let field: LegacyComposePreferenceField
+  let localValue: LegacyComposePreferenceValue
+  let remoteValue: LegacyComposePreferenceValue
+}
+
+struct LegacyComposePreferenceLocalState: Decodable {
+  let conflicts: [LegacyComposePreferenceField: LegacyComposePreferenceConflict]
+  let pendingChanges: [LegacyComposePreferenceField: LegacyComposePreferencePendingChange]
+  let preferences: ComposePreferences
+
+  var current: ComposePreferenceLocalState {
+    let currentConflicts = conflicts.reduce(
+      into: [ComposePreferenceField: ComposePreferenceConflict]()
+    ) { result, entry in
+      guard
+        let field = entry.key.current,
+        let localValue = entry.value.localValue.current,
+        let remoteValue = entry.value.remoteValue.current
+      else { return }
+      result[field] = ComposePreferenceConflict(
+        field: field,
+        localValue: localValue,
+        remoteValue: remoteValue
+      )
+    }
+    let currentPendingChanges = pendingChanges.reduce(
+      into: [ComposePreferenceField: ComposePreferencePendingChange]()
+    ) { result, entry in
+      guard
+        let field = entry.key.current,
+        let baseValue = entry.value.baseValue.current,
+        let localValue = entry.value.localValue.current
+      else { return }
+      result[field] = ComposePreferencePendingChange(
+        baseValue: baseValue,
+        localValue: localValue
+      )
+    }
+    return ComposePreferenceLocalState(
+      conflicts: currentConflicts,
+      pendingChanges: currentPendingChanges,
+      preferences: preferences
+    )
+  }
+}
+
 protocol ComposePreferenceLocalStatePersisting {
   func clear(productAccountId: String) throws
   func load(productAccountId: String) throws -> ComposePreferenceLocalState?
@@ -67,6 +195,14 @@ protocol ComposePreferenceLocalStatePersisting {
 }
 
 struct UserDefaultsComposePreferenceStateStore: ComposePreferenceLocalStatePersisting {
+  private struct StoredSchema: Decodable {
+    let preferences: PreferencesSchema
+
+    struct PreferencesSchema: Decodable {
+      let schemaVersion: Int
+    }
+  }
+
   private static let keyPrefix = "mail-workflow-preferences.compose."
   private let defaults: UserDefaults
 
@@ -80,11 +216,27 @@ struct UserDefaultsComposePreferenceStateStore: ComposePreferenceLocalStatePersi
 
   func load(productAccountId: String) throws -> ComposePreferenceLocalState? {
     guard let data = defaults.data(forKey: key(productAccountId)) else { return nil }
+    let decoder = JSONDecoder()
+    if let schema = try? decoder.decode(StoredSchema.self, from: data),
+      schema.preferences.schemaVersion == 1,
+      let legacy = try? decoder.decode(LegacyComposePreferenceLocalState.self, from: data)
+    {
+      let state = legacy.current
+      try save(state, productAccountId: productAccountId)
+      return state
+    }
     do {
-      return try JSONDecoder().decode(ComposePreferenceLocalState.self, from: data)
+      return try decoder.decode(ComposePreferenceLocalState.self, from: data)
     } catch {
-      defaults.removeObject(forKey: key(productAccountId))
-      return nil
+      guard
+        let legacy = try? decoder.decode(LegacyComposePreferenceLocalState.self, from: data)
+      else {
+        defaults.removeObject(forKey: key(productAccountId))
+        return nil
+      }
+      let state = legacy.current
+      try save(state, productAccountId: productAccountId)
+      return state
     }
   }
 
@@ -154,10 +306,6 @@ final class ComposePreferenceStore {
 
   func setUndoSendWindow(_ value: UndoSendWindow) {
     edit(.undoSend, value: .undoSend(value))
-  }
-
-  func setPresentation(_ value: ComposePresentationPreference) {
-    edit(.presentation, value: .presentation(value))
   }
 
   func setShowsFormattingToolbar(_ value: Bool) {

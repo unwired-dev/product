@@ -39,16 +39,7 @@ struct ComposeSettingsView: View {
           )
         }
 
-        Section("Presentation") {
-          Picker("Composer", selection: presentation) {
-            ForEach(ComposePresentationPreference.allCases) { presentation in
-              Text(presentation.title).tag(presentation)
-            }
-          }
-          .pickerStyle(.segmented)
-          .id(ComposePreferenceField.presentation)
-          .settingsHighlight(highlightedField == .presentation)
-
+        Section("Formatting") {
           Toggle("Show Formatting Toolbar", isOn: showsFormattingToolbar)
             .id(ComposePreferenceField.formattingToolbar)
             .settingsHighlight(highlightedField == .formattingToolbar)
@@ -160,13 +151,6 @@ struct ComposeSettingsView: View {
     Binding(
       get: { store.preferences.undoSendWindow },
       set: store.setUndoSendWindow
-    )
-  }
-
-  private var presentation: Binding<ComposePresentationPreference> {
-    Binding(
-      get: { store.preferences.presentation },
-      set: store.setPresentation
     )
   }
 

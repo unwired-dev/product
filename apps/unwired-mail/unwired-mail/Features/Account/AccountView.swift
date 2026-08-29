@@ -1621,6 +1621,18 @@ private struct DuplicateProseEventAlertModifier: ViewModifier {
   }
 }
 
+private enum MailShellComposerEditingContext: Equatable {
+  case outbox(OutgoingDeliveryAttempt)
+  case scheduledSend(ScheduledSendEditSession)
+
+  var scheduledSendDueAt: Date? {
+    guard case .scheduledSend(let editSession) = self else { return nil }
+    return Date(
+      timeIntervalSince1970: Double(editSession.item.record.dueAtMilliseconds) / 1_000
+    )
+  }
+}
+
 // swiftlint:disable:next type_body_length
 struct AccountView: View {
   let session: ProductAccountSession
@@ -1672,7 +1684,9 @@ struct AccountView: View {
   @State private var signatureStore: SignatureStore
   @State private var templateStore: TemplateStore
   @State private var composerNavigation = MailShellComposerNavigationState()
+  @State private var composerEditingContexts: [MailProfileId: MailShellComposerEditingContext] = [:]
   @State private var composerViewModels: [MailProfileId: MailComposerViewModel] = [:]
+  @State private var composerPresentationGeneration = 0
   @State private var composerSendErrorMessage = ""
   @State private var showsComposerSendError = false
   @State private var showsMailboxTools = false
@@ -2090,6 +2104,7 @@ struct AccountView: View {
         return
       }
       mailAssistanceViewModel.profileDidLock()
+      releaseAllComposerEditingContexts()
       MailProfileContentPresentationDismissal.dismissRoot(
         showsMessageActionAlert: &showsBlockedActionAlert,
         composerNavigation: &composerNavigation,
@@ -2422,6 +2437,8 @@ struct AccountView: View {
         spotlightReconcileTask?.cancel()
         spotlightReconcileTask = nil
         releaseBudgetDriver?.removeSelectionHandler(owner: releaseBudgetDriverOwner)
+        composerNavigation.dismiss()
+        releaseAllComposerEditingContexts()
       }
   }
 
@@ -2509,17 +2526,16 @@ struct AccountView: View {
       MailShellThreadList(
         connection: selectedConnection,
         connections: profileConnections,
-        composePreferences: composePreferenceStore.preferences,
         featureSuggestionStore: featureSuggestionPreferenceStore,
         isConnectionBusy: gmailViewModel.isEditingDisabled,
         items: mailShellSelection.threadListItems(connections: profileConnections),
-        mailAssistanceViewModel: mailAssistanceViewModel,
         mailActionViewModel: mailActionViewModel,
         outboxItems: profileOutboxItems,
         scheduledSendItems: profileScheduledSendItems,
-        sendingIdentities: profileSendingIdentities,
         mailboxSelection: mailShellSelection.selectedMailbox,
         navigationSnapshot: inboxViewModel.navigationSnapshot,
+        editOutboxAttempt: presentOutboxAttempt,
+        editScheduledSend: presentScheduledSend,
         openSettings: openSettings,
         muteViewModel: muteViewModel,
         pinViewModel: pinViewModel,
@@ -2534,7 +2550,6 @@ struct AccountView: View {
           customCategories: categoryViewModel.categories
         ),
         inboxPreferences: inboxPreferenceStore.preferences,
-        readingPreferences: readingPreferenceStore.preferences,
         allowsProactiveSuggestions:
           profileInterruptionViewModel.policy.allowsProactiveSuggestions,
         clearCachedBodies: {
@@ -2562,13 +2577,6 @@ struct AccountView: View {
         },
         deleteDraft: { [profileId = activeDraftProfileId] draftId in
           try await deleteCompositionDraft(draftId, profileId: profileId)
-        },
-        reminderOwnerDeviceId: snapshot.trustedDeviceId,
-        cancelReminder: { [profileId = activeDraftProfileId] reminder, draftId in
-          cancelSendReminder(reminder, draftId: draftId, profileId: profileId)
-        },
-        scheduleReminder: { [profileId = activeDraftProfileId] draft in
-          try await scheduleSendReminder(for: draft, profileId: profileId)
         },
         itemDidRender: { item in
           releaseBudgetDriver?.recordRenderedItemId(item.id, owner: releaseBudgetDriverOwner)
@@ -2691,6 +2699,7 @@ struct AccountView: View {
         if composerNavigation.draft != nil,
           let composerViewModel = composerViewModels[activeDraftProfileId]
         {
+          let editingContext = composerEditingContexts[activeDraftProfileId]
           let containerFrame = CGRect(origin: .zero, size: proxy.size)
           let detailColumnFrame = bounds.map { proxy[$0] }
           let layout = MailShellComposerPresentationLayout(
@@ -2730,8 +2739,11 @@ struct AccountView: View {
                 openDraft: openCompositionDraft,
                 toggleExpansion: toggleCompositionDraftExpansion
               ),
-              draftDidChange: { composerNavigation.updatePresentedDraft($0) }
+              draftDidChange: { composerNavigation.updatePresentedDraft($0) },
+              scheduledSendDueAt: editingContext?.scheduledSendDueAt,
+              sendNow: composerSendNowAction(for: editingContext)
             )
+            .id(composerPresentationGeneration)
             .frame(width: layout.frame.width, height: layout.frame.height)
             .background(MailTheme.canvas)
             .clipShape(
@@ -3875,29 +3887,123 @@ extension AccountView {
   }
 
   private func dismissCompositionDraft() {
+    composerPresentationGeneration &+= 1
     let profileId = activeDraftProfileId
-    if composerViewModels[profileId]?.isFinished == true {
+    let editingContext = composerEditingContexts.removeValue(forKey: profileId)
+    if editingContext != nil || composerViewModels[profileId]?.isFinished == true {
       composerViewModels[profileId] = nil
     }
     composerNavigation.dismiss()
+    releaseComposerEditingContextDetached(editingContext)
   }
 
   private func presentComposerDraft(_ draft: MailShellCompositionDraft) {
+    composerPresentationGeneration &+= 1
+    let generation = composerPresentationGeneration
     composerSendErrorMessage = ""
     showsComposerSendError = false
     let profileId = activeDraftProfileId
     let preparedDraft = preparedCompositionDraft(draft)
     if let viewModel = composerViewModels[profileId] {
       Task {
-        guard await viewModel.switchDraft(to: preparedDraft) else { return }
-        guard activeDraftProfileId == profileId else { return }
-        composerNavigation.present(viewModel.draft)
+        if let editingContext = composerEditingContexts.removeValue(forKey: profileId) {
+          guard await viewModel.close() else {
+            guard generation == composerPresentationGeneration else { return }
+            composerEditingContexts[profileId] = editingContext
+            return
+          }
+          guard generation == composerPresentationGeneration else { return }
+          await releaseComposerEditingContext(editingContext)
+          guard generation == composerPresentationGeneration else { return }
+          composerViewModels[profileId] = makeComposerViewModel(
+            draft: preparedDraft,
+            profileId: profileId
+          )
+        } else {
+          guard await viewModel.switchDraft(to: preparedDraft) else { return }
+          guard generation == composerPresentationGeneration else { return }
+        }
+        guard generation == composerPresentationGeneration,
+          activeDraftProfileId == profileId
+        else { return }
+        composerNavigation.present(composerViewModels[profileId]?.draft ?? preparedDraft)
       }
     } else {
       let viewModel = makeComposerViewModel(draft: preparedDraft, profileId: profileId)
       composerViewModels[profileId] = viewModel
       composerNavigation.present(viewModel.draft)
     }
+  }
+
+  private func presentOutboxAttempt(_ attempt: OutgoingDeliveryAttempt) {
+    composerPresentationGeneration &+= 1
+    let generation = composerPresentationGeneration
+    composerSendErrorMessage = ""
+    showsComposerSendError = false
+    let profileId = activeDraftProfileId
+    Task {
+      guard
+        await prepareComposerReplacement(for: profileId, generation: generation)
+      else { return }
+      guard generation == composerPresentationGeneration else { return }
+      let viewModel = makeOutboxComposerViewModel(attempt: attempt, profileId: profileId)
+      composerEditingContexts[profileId] = .outbox(attempt)
+      composerViewModels[profileId] = viewModel
+      composerNavigation.present(viewModel.draft)
+    }
+  }
+
+  private func presentScheduledSend(_ item: ManagedScheduledSend) {
+    composerPresentationGeneration &+= 1
+    let generation = composerPresentationGeneration
+    composerSendErrorMessage = ""
+    showsComposerSendError = false
+    let profileId = activeDraftProfileId
+    Task {
+      guard let editSession = await mailActionViewModel.beginScheduledSendEdit(item) else { return }
+      guard generation == composerPresentationGeneration else {
+        await mailActionViewModel.releaseScheduledSendEdit(editSession)
+        return
+      }
+      guard await prepareComposerReplacement(for: profileId, generation: generation) else {
+        await mailActionViewModel.releaseScheduledSendEdit(editSession)
+        return
+      }
+      guard generation == composerPresentationGeneration else {
+        await mailActionViewModel.releaseScheduledSendEdit(editSession)
+        return
+      }
+      let viewModel = makeScheduledSendComposerViewModel(
+        editSession: editSession,
+        profileId: profileId
+      )
+      composerEditingContexts[profileId] = .scheduledSend(editSession)
+      composerViewModels[profileId] = viewModel
+      composerNavigation.present(viewModel.draft)
+    }
+  }
+
+  private func prepareComposerReplacement(
+    for profileId: MailProfileId,
+    generation: Int
+  ) async -> Bool {
+    guard generation == composerPresentationGeneration,
+      activeDraftProfileId == profileId
+    else { return false }
+    if let viewModel = composerViewModels[profileId] {
+      guard await viewModel.close() else { return false }
+      guard generation == composerPresentationGeneration else { return false }
+    }
+    if let editingContext = composerEditingContexts.removeValue(forKey: profileId) {
+      await releaseComposerEditingContext(editingContext)
+      guard generation == composerPresentationGeneration else { return false }
+    }
+    guard generation == composerPresentationGeneration,
+      activeDraftProfileId == profileId
+    else { return false }
+    composerViewModels[profileId] = nil
+    composerNavigation.park()
+    return true
   }
 
   private func preparedCompositionDraft(
@@ -3921,7 +4027,6 @@ extension AccountView {
   ) -> MailComposerViewModel {
     MailComposerViewModel(
       draft: draft,
-      presentation: composePreferenceStore.preferences.presentation,
       reminderOwnerDeviceId: snapshot.trustedDeviceId,
       saveDraft: { draft in
         try await saveCompositionDraft(draft, profileId: profileId)
@@ -3960,6 +4065,194 @@ extension AccountView {
         return didSend
       }
     )
+  }
+
+  private func makeOutboxComposerViewModel(
+    attempt: OutgoingDeliveryAttempt,
+    profileId: MailProfileId
+  ) -> MailComposerViewModel {
+    MailComposerViewModel(
+      draft: .editing(attempt),
+      sendDraft: { draft in
+        composerSendErrorMessage = ""
+        showsComposerSendError = false
+        guard activeDraftProfileId == profileId,
+          let connectionId = draft.connectionId,
+          let connection = profileConnections.first(where: { $0.id == connectionId }),
+          let identity = profileSendingIdentities.first(where: {
+            $0.id == draft.sendingIdentityId && $0.connectionId == connectionId
+          })
+        else {
+          composerSendErrorMessage =
+            Self.composerSendErrorMessage(
+              didSend: false,
+              actionErrorMessage: mailActionViewModel.errorMessage
+            ) ?? ""
+          showsComposerSendError = true
+          return false
+        }
+        let didSend = await mailActionViewModel.editOutboxAttempt(
+          attempt,
+          recipient: draft.recipient,
+          subject: draft.subject,
+          body: draft.deliveryBody,
+          document: draft.deliveryDocument,
+          assets: draft.assets,
+          ccRecipients: draft.ccRecipients,
+          bccRecipients: draft.bccRecipients,
+          fromAddress: identity.headerValue,
+          sendingIdentityId: identity.id,
+          connection: connection,
+          requestsReadReceipt: draft.requestsReadReceipt,
+          undoSendWindow: composePreferenceStore.preferences.undoSendWindow
+        )
+        if let message = Self.composerSendErrorMessage(
+          didSend: didSend,
+          actionErrorMessage: mailActionViewModel.errorMessage,
+          attemptedDraftId: draft.id,
+          presentedDraftId: composerNavigation.draft?.id
+        ) {
+          composerSendErrorMessage = message
+          showsComposerSendError = true
+        }
+        return didSend
+      }
+    )
+  }
+
+  private func makeScheduledSendComposerViewModel(
+    editSession: ScheduledSendEditSession,
+    profileId: MailProfileId
+  ) -> MailComposerViewModel {
+    let dueAt = Date(
+      timeIntervalSince1970: Double(editSession.item.record.dueAtMilliseconds) / 1_000
+    )
+    return MailComposerViewModel(
+      draft: .editing(editSession.item.record),
+      reminderOwnerDeviceId: snapshot.trustedDeviceId,
+      allowsEditingTransitions: true,
+      saveDraft: { _ in },
+      deleteDraft: { _ in },
+      cancelReminder: { reminder, draftId in
+        cancelSendReminder(reminder, draftId: draftId, profileId: profileId)
+      },
+      scheduleReminder: { draft in
+        try await saveCompositionDraft(draft, profileId: profileId)
+        guard
+          await mailActionViewModel.cancelScheduledSend(
+            editSession.item,
+            editGeneration: editSession.lease.generation
+          )
+        else {
+          try? await deleteCompositionDraft(draft.id, profileId: profileId)
+          throw ScheduledSendManagementError.staleRevision
+        }
+        await finishScheduledSendEdit(editSession, profileId: profileId)
+        let result = try await scheduleSendReminder(for: draft, profileId: profileId)
+        guard activeDraftProfileId == profileId else { return result }
+        composerPresentationGeneration &+= 1
+        let viewModel = makeComposerViewModel(draft: draft, profileId: profileId)
+        composerViewModels[profileId] = viewModel
+        composerNavigation.present(viewModel.draft)
+        return result
+      },
+      scheduleSend: { draft, newDueAt, timeZone in
+        await replaceScheduledSend(
+          editSession,
+          draft: draft,
+          dueAt: newDueAt,
+          timeZoneIdentifier: timeZone,
+          profileId: profileId
+        )
+      },
+      sendDraft: { draft in
+        await replaceScheduledSend(
+          editSession,
+          draft: draft,
+          dueAt: dueAt,
+          timeZoneIdentifier: editSession.item.record.originalTimeZoneIdentifier,
+          profileId: profileId
+        )
+      }
+    )
+  }
+
+  private func composerSendNowAction(
+    for editingContext: MailShellComposerEditingContext?
+  ) -> MailComposerViewModel.SendDraft? {
+    guard case .scheduledSend(let editSession) = editingContext else { return nil }
+    let profileId = activeDraftProfileId
+    return { draft in
+      await replaceScheduledSend(
+        editSession,
+        draft: draft,
+        dueAt: nil,
+        timeZoneIdentifier: TimeZone.current.identifier,
+        profileId: profileId
+      )
+    }
+  }
+
+  private func replaceScheduledSend(
+    _ editSession: ScheduledSendEditSession,
+    draft: MailShellCompositionDraft,
+    dueAt: Date?,
+    timeZoneIdentifier: String,
+    profileId: MailProfileId
+  ) async -> Bool {
+    guard activeDraftProfileId == profileId,
+      let identity = profileSendingIdentities.first(where: {
+        $0.id == draft.sendingIdentityId && $0.connectionId == draft.connectionId
+      })
+    else { return false }
+    let replaced = await mailActionViewModel.replaceScheduledSend(
+      editSession,
+      draft: draft,
+      fromAddress: identity.headerValue,
+      dueAt: dueAt,
+      originalTimeZoneIdentifier: timeZoneIdentifier,
+      undoSendWindow: composePreferenceStore.preferences.undoSendWindow
+    )
+    if !replaced, mailActionViewModel.scheduledSendEditConflict {
+      try? await saveCompositionDraft(draft.preservingAsNewDraft(), profileId: profileId)
+    }
+    return replaced
+  }
+
+  private func releaseComposerEditingContext(
+    _ editingContext: MailShellComposerEditingContext?
+  ) async {
+    guard case .scheduledSend(let editSession) = editingContext else { return }
+    await mailActionViewModel.releaseScheduledSendEdit(editSession)
+  }
+
+  private func finishScheduledSendEdit(
+    _ editSession: ScheduledSendEditSession,
+    profileId: MailProfileId
+  ) async {
+    guard composerEditingContexts[profileId] == .scheduledSend(editSession) else { return }
+    composerEditingContexts[profileId] = nil
+    await mailActionViewModel.releaseScheduledSendEdit(editSession)
+  }
+
+  private func releaseComposerEditingContextDetached(
+    _ editingContext: MailShellComposerEditingContext?
+  ) {
+    guard editingContext != nil else { return }
+    Task { await releaseComposerEditingContext(editingContext) }
+  }
+
+  private func releaseAllComposerEditingContexts() {
+    let profileIds = Array(composerEditingContexts.keys)
+    let editingContexts = Array(composerEditingContexts.values)
+    composerEditingContexts.removeAll()
+    for profileId in profileIds {
+      composerViewModels[profileId] = nil
+      parkedComposerProfileIds.remove(profileId)
+    }
+    for editingContext in editingContexts {
+      releaseComposerEditingContextDetached(editingContext)
+    }
   }
 
   private func toggleCompositionDraftExpansion() {
@@ -6200,17 +6493,16 @@ struct MailShellThreadList: View {
 
   let connection: MailboxConnection?
   let connections: [MailboxConnection]
-  var composePreferences: ComposePreferences = .defaults
   @Bindable var featureSuggestionStore: FeatureSuggestionPreferenceStore
   let isConnectionBusy: Bool
   let items: [MailShellThreadListItem]
-  var mailAssistanceViewModel: MailAssistanceViewModel?
   @Bindable var mailActionViewModel: GmailMailActionViewModel
   var outboxItems: [OutgoingDeliveryAttempt] = []
   var scheduledSendItems: [ManagedScheduledSend] = []
-  var sendingIdentities: [SendingIdentity] = []
   let mailboxSelection: MailShellMailboxSelection?
   let navigationSnapshot: MailboxNavigationSnapshot
+  var editOutboxAttempt: (OutgoingDeliveryAttempt) -> Void = { _ in }
+  var editScheduledSend: (ManagedScheduledSend) -> Void = { _ in }
   var openSettings: (SettingsRoute) -> Void = { _ in }
   @Bindable var muteViewModel: ThreadMuteViewModel
   @Bindable var pinViewModel: PinViewModel
@@ -6223,19 +6515,13 @@ struct MailShellThreadList: View {
   var selectSearchResult: (MailboxMessageMetadata) -> Void = { _ in }
   var categoryChoices: [MessageCategoryChoice] = []
   var inboxPreferences: InboxPreferences = .defaults
-  var readingPreferences: ReadingPreferences = .defaults
   var allowsProactiveSuggestions = true
   var clearCachedBodies: () async throws -> Void = {}
   var revalidateTrustedDevice: () async -> Bool = { true }
   var saveDraft: MailComposerViewModel.SaveDraft = { _ in }
   var deleteDraft: MailComposerViewModel.DeleteDraft = { _ in }
-  var reminderOwnerDeviceId = "local-device"
-  var cancelReminder: MailComposerViewModel.CancelReminder = { _, _ in }
-  var scheduleReminder: MailComposerViewModel.ScheduleReminder = { _ in .unavailable }
   var itemDidRender: (MailShellThreadListItem) -> Void = { _ in }
   var contentPresentationDismissal = MailPresentationDismissalCoordinator()
-  @State private var editingAttempt: OutgoingDeliveryAttempt?
-  @State private var scheduledEditSession: ScheduledSendEditSession?
   @State private var cleanupOutcome: InboxCleanupExecutionOutcome?
   @State private var cleanupProposal: InboxCleanupProposal?
   @State private var cleanupProposalTask: Task<Void, Never>?
@@ -6439,105 +6725,6 @@ struct MailShellThreadList: View {
         }
       }
     }
-    .composePresentation(
-      item: $editingAttempt,
-      preference: composePreferences.presentation
-    ) { attempt in
-      MailShellComposer(
-        connections: connections,
-        draft: .editing(attempt),
-        preferences: composePreferences,
-        isSending: mailActionViewModel.isPerformingAction,
-        mailAssistanceViewModel: mailAssistanceViewModel,
-        readingPreferences: readingPreferences,
-        sendingIdentities: sendingIdentities,
-        send: { draft in
-          guard
-            let connectionId = draft.connectionId,
-            let connection = connections.first(where: { $0.id == connectionId }),
-            let identity = sendingIdentities.first(where: { $0.id == draft.sendingIdentityId }),
-            identity.connectionId == connectionId
-          else { return false }
-          return await mailActionViewModel.editOutboxAttempt(
-            attempt,
-            recipient: draft.recipient,
-            subject: draft.subject,
-            body: draft.deliveryBody,
-            document: draft.deliveryDocument,
-            assets: draft.assets,
-            ccRecipients: draft.ccRecipients,
-            bccRecipients: draft.bccRecipients,
-            fromAddress: identity.headerValue,
-            sendingIdentityId: identity.id,
-            connection: connection,
-            requestsReadReceipt: draft.requestsReadReceipt,
-            undoSendWindow: composePreferences.undoSendWindow
-          )
-        }
-      )
-    }
-    .composePresentation(
-      item: $scheduledEditSession,
-      preference: composePreferences.presentation
-    ) { editSession in
-      let dueAt = Date(
-        timeIntervalSince1970: Double(editSession.item.record.dueAtMilliseconds) / 1_000
-      )
-      MailShellComposer(
-        connections: connections,
-        draft: .editing(editSession.item.record),
-        preferences: composePreferences,
-        isSending: mailActionViewModel.isPerformingAction,
-        mailAssistanceViewModel: mailAssistanceViewModel,
-        readingPreferences: readingPreferences,
-        sendingIdentities: sendingIdentities,
-        saveDraft: { _ in },
-        deleteDraft: { _ in },
-        reminderOwnerDeviceId: reminderOwnerDeviceId,
-        cancelReminder: cancelReminder,
-        scheduleReminder: { draft in
-          try await saveDraft(draft)
-          guard
-            await mailActionViewModel.cancelScheduledSend(
-              editSession.item,
-              editGeneration: editSession.lease.generation
-            )
-          else {
-            try? await deleteDraft(draft.id)
-            throw ScheduledSendManagementError.staleRevision
-          }
-          return try await scheduleReminder(draft)
-        },
-        scheduleSend: { draft, newDueAt, timeZone in
-          await replaceScheduledSend(
-            editSession,
-            draft: draft,
-            dueAt: newDueAt,
-            timeZoneIdentifier: timeZone
-          )
-        },
-        scheduledSendDueAt: dueAt,
-        sendNow: { draft in
-          await replaceScheduledSend(
-            editSession,
-            draft: draft,
-            dueAt: nil,
-            timeZoneIdentifier: TimeZone.current.identifier
-          )
-        },
-        send: { draft in
-          await replaceScheduledSend(
-            editSession,
-            draft: draft,
-            dueAt: dueAt,
-            timeZoneIdentifier: editSession.item.record.originalTimeZoneIdentifier
-          )
-        }
-      )
-      .onDisappear {
-        Task { await mailActionViewModel.releaseScheduledSendEdit(editSession) }
-      }
-    }
     .sheet(item: $cleanupReviewModel) { model in
       InboxCleanupReviewSheet(
         model: model,
@@ -6592,10 +6779,8 @@ struct MailShellThreadList: View {
         coordinator: contentPresentationDismissal
       ) {
         guard
-          editingAttempt != nil || cleanupReviewModel != nil || pendingMoveItem != nil
-            || showsMailboxTools
+          cleanupReviewModel != nil || pendingMoveItem != nil || showsMailboxTools
         else { return }
-        editingAttempt = nil
         cleanupReviewModel = nil
         pendingMoveItem = nil
         showsMailboxTools = false
@@ -7166,9 +7351,7 @@ struct MailShellThreadList: View {
       if item.state != .sending {
         HStack {
           Button("Edit") {
-            Task {
-              scheduledEditSession = await mailActionViewModel.beginScheduledSendEdit(item)
-            }
+            editScheduledSend(item)
           }
           Button("Cancel Scheduled Send", role: .destructive) {
             Task { await cancelScheduledSendAndRestoreDraft(item) }
@@ -7207,7 +7390,7 @@ struct MailShellThreadList: View {
       }
       HStack {
         if attempt.canEditOrCancel {
-          Button("Edit") { editingAttempt = attempt }
+          Button("Edit") { editOutboxAttempt(attempt) }
         }
         if attempt.canCancel {
           Button("Cancel", role: .destructive) {
@@ -7247,30 +7430,6 @@ struct MailShellThreadList: View {
       try? await deleteDraft(restoredDraft.id)
       mailActionViewModel.errorMessage = error.localizedDescription
     }
-  }
-
-  private func replaceScheduledSend(
-    _ editSession: ScheduledSendEditSession,
-    draft: MailShellCompositionDraft,
-    dueAt: Date?,
-    timeZoneIdentifier: String
-  ) async -> Bool {
-    guard
-      let identity = sendingIdentities.first(where: { $0.id == draft.sendingIdentityId }),
-      identity.connectionId == draft.connectionId
-    else { return false }
-    let replaced = await mailActionViewModel.replaceScheduledSend(
-      editSession,
-      draft: draft,
-      fromAddress: identity.headerValue,
-      dueAt: dueAt,
-      originalTimeZoneIdentifier: timeZoneIdentifier,
-      undoSendWindow: composePreferences.undoSendWindow
-    )
-    if !replaced, mailActionViewModel.scheduledSendEditConflict {
-      try? await saveDraft(draft.preservingAsNewDraft())
-    }
-    return replaced
   }
 
   // swiftlint:disable:next cyclomatic_complexity
@@ -11574,23 +11733,6 @@ extension View {
     }
   }
 
-  @ViewBuilder
-  fileprivate func composePresentation<Item: Identifiable, Content: View>(
-    item: Binding<Item?>,
-    preference: ComposePresentationPreference,
-    @ViewBuilder content: @escaping (Item) -> Content
-  ) -> some View {
-    switch preference {
-    case .partial:
-      sheet(item: item) { value in
-        content(value).id(value.id)
-      }
-    case .fullScreen:
-      fullScreenCover(item: item) { value in
-        content(value).id(value.id)
-      }
-    }
-  }
 }
 
 @MainActor

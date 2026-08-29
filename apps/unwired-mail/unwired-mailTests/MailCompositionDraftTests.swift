@@ -365,7 +365,6 @@ final class MailCompositionDraftTests {
     initialDraft.subject = "Subject"
     let viewModel = MailComposerViewModel(
       draft: initialDraft,
-      presentation: .partial,
       saveDraft: { savedDrafts.append($0) },
       deleteDraft: { deletedDraftIds.append($0) },
       sendDraft: {
@@ -414,7 +413,6 @@ final class MailCompositionDraftTests {
     var scheduledDrafts: [MailShellCompositionDraft] = []
     let viewModel = MailComposerViewModel(
       draft: source,
-      presentation: .partial,
       reminderOwnerDeviceId: "device-a",
       now: { now },
       saveDraft: { savedDrafts.append($0) },
@@ -457,7 +455,6 @@ final class MailCompositionDraftTests {
     var cancelled: [(UUID, UUID)] = []
     let viewModel = MailComposerViewModel(
       draft: source,
-      presentation: .partial,
       reminderOwnerDeviceId: "device-a",
       now: { currentTime },
       cancelReminder: { reminder, draftId in
@@ -502,7 +499,6 @@ final class MailCompositionDraftTests {
     discardSource.sendReminder = first
     let discardViewModel = MailComposerViewModel(
       draft: discardSource,
-      presentation: .partial,
       cancelReminder: { reminder, draftId in
         cancelled.append((reminder.revision, draftId))
       },
@@ -521,7 +517,6 @@ final class MailCompositionDraftTests {
     var savedDrafts: [MailShellCompositionDraft] = []
     let viewModel = MailComposerViewModel(
       draft: source,
-      presentation: .partial,
       reminderOwnerDeviceId: "device-a",
       now: { now },
       saveDraft: { savedDrafts.append($0) },
@@ -764,7 +759,6 @@ final class MailCompositionDraftTests {
     initialDraft.document = SemanticMessageDocument(plainText: "First edit")
     let viewModel = MailComposerViewModel(
       draft: initialDraft,
-      presentation: .partial,
       saveDraft: { try await saver.save($0) },
       sendDraft: { _ in true }
     )
@@ -791,7 +785,6 @@ final class MailCompositionDraftTests {
     second.document = SemanticMessageDocument(plainText: "Second body")
     let viewModel = MailComposerViewModel(
       draft: first,
-      presentation: .partial,
       saveDraft: { savedDrafts.append($0) },
       sendDraft: { _ in false }
     )
@@ -820,7 +813,6 @@ final class MailCompositionDraftTests {
     visible.document = SemanticMessageDocument(plainText: "Stale body")
     let viewModel = MailComposerViewModel(
       draft: visible,
-      presentation: .partial,
       saveDraft: { savedDrafts.append($0) },
       sendDraft: { _ in false }
     )
@@ -864,7 +856,6 @@ final class MailCompositionDraftTests {
     var scheduledDraftIds: [UUID] = []
     let viewModel = MailComposerViewModel(
       draft: source,
-      presentation: .partial,
       saveDraft: { _ in throw MailCompositionDraftSaveConflict(copy: copy) },
       cancelReminder: { _, draftId in cancelledDraftIds.append(draftId) },
       scheduleReminder: {
@@ -929,7 +920,6 @@ final class MailCompositionDraftTests {
     var saveAttempt = 0
     let viewModel = MailComposerViewModel(
       draft: source,
-      presentation: .partial,
       saveDraft: { _ in
         saveAttempt += 1
         if saveAttempt == 1 {
@@ -958,7 +948,6 @@ final class MailCompositionDraftTests {
     let second = draft(recipient: "second@example.com")
     let viewModel = MailComposerViewModel(
       draft: first,
-      presentation: .partial,
       saveDraft: { _ in throw DraftFixtureError.saveFailed },
       sendDraft: { _ in false }
     )
@@ -981,7 +970,6 @@ final class MailCompositionDraftTests {
     initialDraft.document = SemanticMessageDocument(plainText: "Autosaving")
     let viewModel = MailComposerViewModel(
       draft: initialDraft,
-      presentation: .partial,
       saveDraft: { try await saver.save($0) },
       deleteDraft: { _ in
         deleteAttempted = true
@@ -1013,7 +1001,6 @@ final class MailCompositionDraftTests {
     initialDraft.document = SemanticMessageDocument(plainText: "Autosaving")
     let viewModel = MailComposerViewModel(
       draft: initialDraft,
-      presentation: .partial,
       reminderOwnerDeviceId: "device-a",
       now: { now },
       saveDraft: { try await saver.save($0) },
@@ -1049,7 +1036,6 @@ final class MailCompositionDraftTests {
     let initialDraft = MailShellCompositionDraft.new(defaultSendingConnectionId: connectionId)
     let viewModel = MailComposerViewModel(
       draft: initialDraft,
-      presentation: .partial,
       saveDraft: { savedDrafts.append($0) },
       deleteDraft: { deletedDraftIds.append($0) },
       sendDraft: { _ in true }
@@ -1069,7 +1055,6 @@ final class MailCompositionDraftTests {
     initialDraft.subject = "Subject"
     let viewModel = MailComposerViewModel(
       draft: initialDraft,
-      presentation: .partial,
       deleteDraft: { _ in
         deleteAttempts += 1
         throw DraftFixtureError.deleteFailed
@@ -1092,7 +1077,6 @@ final class MailCompositionDraftTests {
     draft.subject = "Subject"
     let viewModel = MailComposerViewModel(
       draft: draft,
-      presentation: .partial,
       saveDraft: { _ in
         if shouldFail { throw DraftFixtureError.saveFailed }
       },
@@ -1117,7 +1101,6 @@ final class MailCompositionDraftTests {
     var sendCount = 0
     let viewModel = MailComposerViewModel(
       draft: draft(recipient: "recipient@example.com"),
-      presentation: .partial,
       sendDraft: { _ in
         sendCount += 1
         return true
@@ -1132,7 +1115,6 @@ final class MailCompositionDraftTests {
     invalidDraft.subject = "Subject"
     let invalidViewModel = MailComposerViewModel(
       draft: invalidDraft,
-      presentation: .partial,
       sendDraft: { _ in
         sendCount += 1
         return true
@@ -1670,7 +1652,6 @@ final class MailCompositionDraftTests {
     var sendCount = 0
     let viewModel = MailComposerViewModel(
       draft: source,
-      presentation: .partial,
       sendDraft: { _ in
         sendCount += 1
         return true

@@ -335,7 +335,6 @@ final class SettingsDestinationRegistryTests {
     #expect(
       destination.searchItems.map(\.title) == [
         "Undo Send",
-        "Composer Presentation",
         "Formatting Toolbar",
         "Quoted Text",
         "Forwarded Attachments",
@@ -343,9 +342,9 @@ final class SettingsDestinationRegistryTests {
     #expect(SettingsDestinationRegistry.destinations(in: .composing).contains(.compose))
     #expect(
       SettingsDestinationRegistry.resolveRoute(
-        .preferenceConflict(destination: .compose, field: "presentation"),
+        .preferenceConflict(destination: .compose, field: "formattingToolbar"),
         isSignedIn: true
-      ) == .preferenceConflict(destination: .compose, field: "presentation"))
+      ) == .preferenceConflict(destination: .compose, field: "formattingToolbar"))
   }
 
   @Test

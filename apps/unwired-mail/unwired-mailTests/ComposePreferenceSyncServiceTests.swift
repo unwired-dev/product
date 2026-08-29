@@ -1,10 +1,13 @@
 import Foundation
 import Testing
 
+// swiftlint:disable file_length
+
 @testable import unwired_mail
 
 @MainActor
 @Suite(.serialized)
+// swiftlint:disable:next type_body_length
 final class ComposePreferenceSyncServiceTests {
   private let session = ProductAccountSessionSnapshot(
     appleUserIdentifier: "apple-user",
@@ -16,14 +19,14 @@ final class ComposePreferenceSyncServiceTests {
   @Test
   func testDefaultsMatchComposeProductDecisions() {
     #expect(ComposePreferences.defaults.undoSendWindow == .tenSeconds)
-    #expect(ComposePreferences.defaults.presentation == .partial)
     #expect(ComposePreferences.defaults.showsFormattingToolbar)
     #expect(ComposePreferences.defaults.includesQuotedText)
     #expect(ComposePreferences.defaults.includesForwardedAttachments)
+    #expect(ComposePreferences.defaults.schemaVersion == 2)
   }
 
   @Test
-  func testDecodingOlderPayloadPreservesChoicesAndFillsNewDefaults() throws {
+  func testDecodingLegacyPayloadIgnoresRetiredPresentationAndFillsNewDefaults() throws {
     let data = Data(
       #"{"undoSendWindow":20,"presentation":"fullScreen","showsFormattingToolbar":false}"#.utf8
     )
@@ -31,15 +34,15 @@ final class ComposePreferenceSyncServiceTests {
     let preferences = try JSONDecoder().decode(ComposePreferences.self, from: data)
 
     #expect(preferences.undoSendWindow == .twentySeconds)
-    #expect(preferences.presentation == .fullScreen)
     #expect(!(preferences.showsFormattingToolbar))
     #expect(preferences.includesQuotedText)
     #expect(preferences.includesForwardedAttachments)
+    #expect(preferences.schemaVersion == 2)
   }
 
   @Test
   func testDecodingFutureSchemaFails() {
-    let data = Data(#"{"schemaVersion":2,"undoSendWindow":10}"#.utf8)
+    let data = Data(#"{"schemaVersion":3,"undoSendWindow":10}"#.utf8)
 
     #expect(throws: DecodingError.self) {
       try JSONDecoder().decode(ComposePreferences.self, from: data)
@@ -47,7 +50,7 @@ final class ComposePreferenceSyncServiceTests {
   }
 
   @Test
-  func testDecodingUnknownEnumValuesFallsBackToDefaults() throws {
+  func testDecodingUnknownUndoSendWindowFallsBackToDefault() throws {
     let data = Data(
       #"{"undoSendWindow":45,"presentation":"expanded","showsFormattingToolbar":false}"#.utf8
     )
@@ -55,7 +58,6 @@ final class ComposePreferenceSyncServiceTests {
     let preferences = try JSONDecoder().decode(ComposePreferences.self, from: data)
 
     #expect(preferences.undoSendWindow == .tenSeconds)
-    #expect(preferences.presentation == .partial)
     #expect(!(preferences.showsFormattingToolbar))
   }
 
@@ -71,10 +73,21 @@ final class ComposePreferenceSyncServiceTests {
     let preferences = try JSONDecoder().decode(ComposePreferences.self, from: data)
 
     #expect(preferences.undoSendWindow == .twentySeconds)
-    #expect(preferences.presentation == .fullScreen)
     #expect(preferences.showsFormattingToolbar)
     #expect(preferences.includesQuotedText)
     #expect(preferences.includesForwardedAttachments)
+  }
+
+  @Test(.bug(id: 566))
+  func testCurrentPayloadOmitsPresentationAndFencesLegacyClients() throws {
+    let data = try JSONEncoder().encode(ComposePreferences(undoSendWindow: .twentySeconds))
+    let payload = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+
+    #expect(payload["schemaVersion"] as? Int == 2)
+    #expect(payload["presentation"] == nil)
+    #expect(throws: DecodingError.self) {
+      try JSONDecoder().decode(LegacyComposePreferences.self, from: data)
+    }
   }
 
   @Test
@@ -90,6 +103,83 @@ final class ComposePreferenceSyncServiceTests {
 
     #expect(restored == nil)
     #expect(defaults.data(forKey: key) == nil)
+  }
+
+  @Test(.bug(id: 566))
+  func testLegacyLocalStatePreservesValidSchemaOneValues() throws {
+    let suiteName = "ComposePreferenceSyncServiceTests.\(UUID().uuidString)"
+    let defaults = try #require(UserDefaults(suiteName: suiteName))
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+    let key = "mail-workflow-preferences.compose.\(session.productAccountId)"
+    let legacyData = Data(
+      #"""
+      {
+        "conflicts": [],
+        "pendingChanges": [
+          "formattingToolbar",
+          {
+            "baseValue": {"boolean": {"_0": true}},
+            "localValue": {"boolean": {"_0": false}}
+          },
+          "presentation",
+          {
+            "baseValue": {"presentation": {"_0": "partial"}},
+            "localValue": {"presentation": {"_0": "fullScreen"}}
+          },
+          "undoSend",
+          {
+            "baseValue": {"undoSend": {"_0": 10}},
+            "localValue": {"undoSend": {"_0": 45}}
+          }
+        ],
+        "preferences": {
+          "schemaVersion": 1,
+          "presentation": "partial",
+          "undoSendWindow": 20,
+          "showsFormattingToolbar": false,
+          "includesQuotedText": true,
+          "includesForwardedAttachments": true
+        }
+      }
+      """#.utf8
+    )
+    defaults.set(legacyData, forKey: key)
+    let localStore = UserDefaultsComposePreferenceStateStore(defaults: defaults)
+
+    let loaded = try localStore.load(productAccountId: session.productAccountId)
+    let restored = try #require(loaded)
+
+    #expect(restored.preferences.undoSendWindow == .twentySeconds)
+    #expect(restored.preferences.showsFormattingToolbar == false)
+    #expect(restored.preferences.schemaVersion == 2)
+    #expect(Set(restored.pendingChanges.keys) == [.formattingToolbar])
+    let migratedData = try #require(defaults.data(forKey: key))
+    #expect(
+      try JSONDecoder().decode(ComposePreferenceLocalState.self, from: migratedData) == restored
+    )
+  }
+
+  @Test(.bug(id: 566))
+  func testDecodableSchemaOneLocalStateIsReencodedAsSchemaTwo() throws {
+    let suiteName = "ComposePreferenceSyncServiceTests.\(UUID().uuidString)"
+    let defaults = try #require(UserDefaults(suiteName: suiteName))
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+    let key = "mail-workflow-preferences.compose.\(session.productAccountId)"
+    let legacyData = Data(
+      #"{"conflicts":{},"pendingChanges":{},"preferences":{"schemaVersion":1}}"#.utf8
+    )
+    defaults.set(legacyData, forKey: key)
+    let localStore = UserDefaultsComposePreferenceStateStore(defaults: defaults)
+
+    let restored = try #require(
+      localStore.load(productAccountId: session.productAccountId)
+    )
+    let migratedData = try #require(defaults.data(forKey: key))
+    let payload = try #require(JSONSerialization.jsonObject(with: migratedData) as? [String: Any])
+    let preferences = try #require(payload["preferences"] as? [String: Any])
+
+    #expect(restored.preferences.schemaVersion == 2)
+    #expect(preferences["schemaVersion"] as? Int == 2)
   }
 
   @Test
@@ -173,25 +263,23 @@ final class ComposePreferenceSyncServiceTests {
       localStateStore: InMemoryComposePreferenceLocalStateStore(),
       automaticallySynchronizes: false
     )
-    store.setPresentation(.fullScreen)
+    store.setShowsFormattingToolbar(false)
     syncService.snapshot = ComposePreferenceSyncSnapshot(
       preferences: ComposePreferences(
-        undoSendWindow: .twentySeconds,
-        showsFormattingToolbar: false
+        undoSendWindow: .twentySeconds
       ),
       updatedAt: 3
     )
 
     await store.synchronize()
 
-    #expect(store.preferences.presentation == .fullScreen)
     #expect(store.preferences.undoSendWindow == .twentySeconds)
     #expect(!(store.preferences.showsFormattingToolbar))
     #expect(store.conflicts.isEmpty)
 
     store.setUndoSendWindow(.thirtySeconds)
     syncService.snapshot = ComposePreferenceSyncSnapshot(
-      preferences: ComposePreferences(undoSendWindow: .off, presentation: .fullScreen),
+      preferences: ComposePreferences(undoSendWindow: .off, showsFormattingToolbar: false),
       updatedAt: 5
     )
     await store.synchronize()
@@ -233,17 +321,17 @@ final class ComposePreferenceSyncServiceTests {
             localValue: .boolean(false)
           )
         ],
-        preferences: ComposePreferences(presentation: .fullScreen)
+        preferences: ComposePreferences(includesQuotedText: false)
       ),
       productAccountId: session.productAccountId
     )
     try localStore.save(
       ComposePreferenceLocalState(
         conflicts: [
-          .presentation: ComposePreferenceConflict(
-            field: .presentation,
-            localValue: .presentation(.partial),
-            remoteValue: .presentation(.fullScreen)
+          .quotedText: ComposePreferenceConflict(
+            field: .quotedText,
+            localValue: .boolean(false),
+            remoteValue: .boolean(true)
           )
         ],
         pendingChanges: [
@@ -252,7 +340,7 @@ final class ComposePreferenceSyncServiceTests {
             localValue: .undoSend(.off)
           )
         ],
-        preferences: ComposePreferences(undoSendWindow: .off)
+        preferences: ComposePreferences(undoSendWindow: .off, includesQuotedText: false)
       ),
       productAccountId: otherSession.productAccountId
     )
@@ -266,11 +354,31 @@ final class ComposePreferenceSyncServiceTests {
     store.updateSession(otherSession)
 
     #expect(store.preferences.undoSendWindow == .off)
-    #expect(store.preferences.presentation == .partial)
+    #expect(store.preferences.includesQuotedText == false)
     #expect(store.hasPendingChanges)
-    #expect(store.conflicts.map(\.field) == [.presentation])
+    #expect(store.conflicts.map(\.field) == [.quotedText])
   }
 
+}
+
+private struct LegacyComposePreferences: Decodable {
+  let schemaVersion: Int
+
+  private enum CodingKeys: String, CodingKey {
+    case schemaVersion
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    schemaVersion = try container.decodeIfPresent(Int.self, forKey: .schemaVersion) ?? 1
+    guard schemaVersion <= 1 else {
+      throw DecodingError.dataCorruptedError(
+        forKey: .schemaVersion,
+        in: container,
+        debugDescription: "Compose preference schema is newer than this client supports."
+      )
+    }
+  }
 }
 
 private final class InMemoryComposePreferenceLocalStateStore:
