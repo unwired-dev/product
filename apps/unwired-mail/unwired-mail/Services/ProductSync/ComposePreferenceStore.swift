@@ -60,7 +60,7 @@ struct ComposePreferenceLocalState: Codable, Equatable, Sendable {
   }
 }
 
-enum LegacyComposePreferenceField: String, Codable {
+enum LegacyComposePreferenceField: String, Decodable {
   case forwardedAttachments
   case formattingToolbar
   case presentation
@@ -72,37 +72,76 @@ enum LegacyComposePreferenceField: String, Codable {
   }
 }
 
-enum LegacyComposePresentationPreference: String, Codable {
+enum LegacyComposePresentationPreference: String, Decodable {
   case fullScreen
   case partial
 }
 
-enum LegacyComposePreferenceValue: Codable {
+enum LegacyComposePreferenceValue: Decodable {
   case boolean(Bool)
+  case unknown
   case presentation(LegacyComposePresentationPreference)
   case undoSend(UndoSendWindow)
+
+  private enum CodingKeys: String, CodingKey {
+    case boolean
+    case presentation
+    case undoSend
+  }
+
+  private enum ValueCodingKeys: String, CodingKey {
+    case value = "_0"
+  }
+
+  init(from decoder: Decoder) throws {
+    guard let container = try? decoder.container(keyedBy: CodingKeys.self) else {
+      self = .unknown
+      return
+    }
+    if let valueContainer = try? container.nestedContainer(
+      keyedBy: ValueCodingKeys.self,
+      forKey: .boolean
+    ), let value = try? valueContainer.decode(Bool.self, forKey: .value) {
+      self = .boolean(value)
+    } else if let valueContainer = try? container.nestedContainer(
+      keyedBy: ValueCodingKeys.self,
+      forKey: .presentation
+    ), let value = try? valueContainer.decode(
+      LegacyComposePresentationPreference.self,
+      forKey: .value
+    ) {
+      self = .presentation(value)
+    } else if let valueContainer = try? container.nestedContainer(
+      keyedBy: ValueCodingKeys.self,
+      forKey: .undoSend
+    ), let value = try? valueContainer.decode(UndoSendWindow.self, forKey: .value) {
+      self = .undoSend(value)
+    } else {
+      self = .unknown
+    }
+  }
 
   var current: ComposePreferenceValue? {
     switch self {
     case .boolean(let value): .boolean(value)
-    case .presentation: nil
+    case .presentation, .unknown: nil
     case .undoSend(let value): .undoSend(value)
     }
   }
 }
 
-struct LegacyComposePreferencePendingChange: Codable {
+struct LegacyComposePreferencePendingChange: Decodable {
   let baseValue: LegacyComposePreferenceValue
   let localValue: LegacyComposePreferenceValue
 }
 
-struct LegacyComposePreferenceConflict: Codable {
+struct LegacyComposePreferenceConflict: Decodable {
   let field: LegacyComposePreferenceField
   let localValue: LegacyComposePreferenceValue
   let remoteValue: LegacyComposePreferenceValue
 }
 
-struct LegacyComposePreferenceLocalState: Codable {
+struct LegacyComposePreferenceLocalState: Decodable {
   let conflicts: [LegacyComposePreferenceField: LegacyComposePreferenceConflict]
   let pendingChanges: [LegacyComposePreferenceField: LegacyComposePreferencePendingChange]
   let preferences: ComposePreferences

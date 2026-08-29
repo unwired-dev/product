@@ -104,29 +104,52 @@ final class ComposePreferenceSyncServiceTests {
   }
 
   @Test(.bug(id: 566))
-  func testLegacyLocalStateDropsOnlyRetiredPresentationEdits() throws {
+  func testLegacyLocalStatePreservesValidSchemaOneValues() throws {
     let suiteName = "ComposePreferenceSyncServiceTests.\(UUID().uuidString)"
     let defaults = try #require(UserDefaults(suiteName: suiteName))
     defer { defaults.removePersistentDomain(forName: suiteName) }
     let key = "mail-workflow-preferences.compose.\(session.productAccountId)"
-    let legacy = LegacyComposePreferenceLocalState(
-      conflicts: [:],
-      pendingChanges: [
-        .formattingToolbar: .init(baseValue: .boolean(true), localValue: .boolean(false)),
-        .presentation: .init(
-          baseValue: .presentation(.partial),
-          localValue: .presentation(.fullScreen)
-        ),
-      ],
-      preferences: ComposePreferences(showsFormattingToolbar: false)
+    let legacyData = Data(
+      #"""
+      {
+        "conflicts": [],
+        "pendingChanges": [
+          "formattingToolbar",
+          {
+            "baseValue": {"boolean": {"_0": true}},
+            "localValue": {"boolean": {"_0": false}}
+          },
+          "presentation",
+          {
+            "baseValue": {"presentation": {"_0": "partial"}},
+            "localValue": {"presentation": {"_0": "fullScreen"}}
+          },
+          "undoSend",
+          {
+            "baseValue": {"undoSend": {"_0": 10}},
+            "localValue": {"undoSend": {"_0": 45}}
+          }
+        ],
+        "preferences": {
+          "schemaVersion": 1,
+          "presentation": "partial",
+          "undoSendWindow": 20,
+          "showsFormattingToolbar": false,
+          "includesQuotedText": true,
+          "includesForwardedAttachments": true
+        }
+      }
+      """#.utf8
     )
-    defaults.set(try JSONEncoder().encode(legacy), forKey: key)
+    defaults.set(legacyData, forKey: key)
     let localStore = UserDefaultsComposePreferenceStateStore(defaults: defaults)
 
     let loaded = try localStore.load(productAccountId: session.productAccountId)
     let restored = try #require(loaded)
 
+    #expect(restored.preferences.undoSendWindow == .twentySeconds)
     #expect(restored.preferences.showsFormattingToolbar == false)
+    #expect(restored.preferences.schemaVersion == 2)
     #expect(Set(restored.pendingChanges.keys) == [.formattingToolbar])
     let migratedData = try #require(defaults.data(forKey: key))
     #expect(
