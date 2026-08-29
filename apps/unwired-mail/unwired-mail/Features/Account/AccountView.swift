@@ -3324,33 +3324,9 @@ struct AccountView: View {
     contentPresentationDismissal.dismissPresentations()
     mailShellSelection.clearThreadSelection()
     mailShellSelection.selectUnifiedInbox()
-    await waitForNextMainRunLoopCycle()
-    guard
-      !Task.isCancelled,
-      profileSwitchGate.isCurrent(switchGeneration),
-      profileViewModel.activeProfileId == sourceProfileId
-    else { return false }
     inboxViewModel.clearVisibleThreadsForProfileSwitch()
-    await waitForNextMainRunLoopCycle()
-    guard
-      !Task.isCancelled,
-      profileSwitchGate.isCurrent(switchGeneration),
-      profileViewModel.activeProfileId == sourceProfileId
-    else { return false }
     inboxViewModel.prepareNavigationForProfileSwitch()
-    await waitForNextMainRunLoopCycle()
-    guard
-      !Task.isCancelled,
-      profileSwitchGate.isCurrent(switchGeneration),
-      profileViewModel.activeProfileId == sourceProfileId
-    else { return false }
     inboxViewModel.clearNavigationSnapshotForProfileSwitch()
-    await waitForNextMainRunLoopCycle()
-    guard
-      !Task.isCancelled,
-      profileSwitchGate.isCurrent(switchGeneration),
-      profileViewModel.activeProfileId == sourceProfileId
-    else { return false }
     inboxViewModel.prepareTransientStateForProfileSwitch()
     await waitForNextMainRunLoopCycle()
     guard
@@ -14935,9 +14911,6 @@ final class GmailInboxViewModel {
       #if DEBUG
         await initialThreadBatchDidPublish?()
       #endif
-      // The projection observer also crosses a run-loop boundary. Give every batch time to render
-      // before adding the next one, or consecutive revisions can collapse into one frame.
-      await waitForNextMainRunLoopCycle()
     }
   }
 

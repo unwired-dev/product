@@ -1642,11 +1642,18 @@ private struct MailComposerSubjectField: UIViewRepresentable {
     var submit: (() -> Void)?
 
     override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
-      guard presses.contains(where: { $0.key?.keyCode == .keyboardReturnOrEnter }) else {
+      guard containsReturnKey(presses) else {
         super.pressesBegan(presses, with: event)
         return
       }
       submit?()
+    }
+
+    override func pressesEnded(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+      guard containsReturnKey(presses) else {
+        super.pressesEnded(presses, with: event)
+        return
+      }
     }
 
     override func insertText(_ text: String) {
@@ -1655,6 +1662,10 @@ private struct MailComposerSubjectField: UIViewRepresentable {
         return
       }
       super.insertText(text)
+    }
+
+    private func containsReturnKey(_ presses: Set<UIPress>) -> Bool {
+      presses.contains { $0.key?.keyCode == .keyboardReturnOrEnter }
     }
   }
 
