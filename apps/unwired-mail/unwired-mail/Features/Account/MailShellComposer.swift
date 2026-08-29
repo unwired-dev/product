@@ -408,7 +408,7 @@ struct MailShellComposer: View {
               isFocused: $isSubjectFocused,
               focusBody: focusBody
             )
-            .onKeyPress(keys: [.return]) {
+            .onKeyPress(keys: [.return]) { _ in
               guard isSubjectFocused else { return .ignored }
               focusBody()
               return .handled
