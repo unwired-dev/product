@@ -51,7 +51,7 @@ struct SemanticMessageTextView: UIViewRepresentable {
   let editorModel: SemanticMessageEditorModel
   let composeAssistanceContext: ComposeAssistanceContext?
   @Binding var isFocused: Bool
-  var focusBridge: SemanticMessageFocusBridge? = nil
+  let focusBridge: SemanticMessageFocusBridge?
   let focusRequest: Int
   let focusDidBegin: () -> Void
   let minimumHeight: CGFloat
