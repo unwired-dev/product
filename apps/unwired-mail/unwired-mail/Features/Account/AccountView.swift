@@ -7671,7 +7671,7 @@ private struct MailShellThreadRow: View {
             .font(.subheadline.weight(isUnread ? .semibold : .regular))
             .lineLimit(1)
           Spacer()
-          Text(receivedDate)
+          Text(receivedDate, format: Self.receivedDateFormat)
             .font(.caption)
             .foregroundStyle(.secondary)
         }
@@ -7770,12 +7770,11 @@ private struct MailShellThreadRow: View {
     }
   }
 
-  private var receivedDate: String {
+  private var receivedDate: Date {
     Date(
       timeIntervalSince1970:
         TimeInterval(thread.latestMessage.providerInternalDateMilliseconds) / 1_000
     )
-    .formatted(Self.receivedDateFormat)
   }
 }
 

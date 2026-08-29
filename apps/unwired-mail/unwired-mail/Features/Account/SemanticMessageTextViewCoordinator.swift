@@ -37,7 +37,7 @@ final class SemanticMessageTextViewCoordinator: NSObject, UITextViewDelegate {
         if scheduledFocusRequest == request { scheduledFocusRequest = nil }
       }
       var stableFocusObservations = 0
-      for attempt in 0..<10 {
+      for attempt in 0..<12 {
         await Task.yield()
         guard parent.isFocused, parent.focusRequest == request, let textView else { return }
         if textView.window != nil {
@@ -49,8 +49,8 @@ final class SemanticMessageTextViewCoordinator: NSObject, UITextViewDelegate {
             _ = textView.becomeFirstResponder()
           }
         }
-        if attempt < 9 {
-          try? await Task.sleep(for: .milliseconds(50))
+        if attempt < 11 {
+          try? await Task.sleep(for: .milliseconds(250))
         }
       }
     }

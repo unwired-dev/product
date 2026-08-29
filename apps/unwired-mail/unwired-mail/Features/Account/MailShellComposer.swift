@@ -519,20 +519,15 @@ struct MailShellComposer: View {
     focusedField = nil
     isSubjectFocused = false
     Task { @MainActor in
-      for attempt in 0..<12 {
-        await Task.yield()
-        guard
-          handoff == bodyFocusHandoff,
-          isBodyFocusPending,
-          focusedField == nil,
-          !Task.isCancelled
-        else { return }
-        isBodyFocused = true
-        bodyFocusRequest &+= 1
-        if attempt < 11 {
-          try? await Task.sleep(for: .milliseconds(250))
-        }
-      }
+      await Task.yield()
+      guard
+        handoff == bodyFocusHandoff,
+        isBodyFocusPending,
+        focusedField == nil,
+        !Task.isCancelled
+      else { return }
+      isBodyFocused = true
+      bodyFocusRequest &+= 1
     }
   }
 
