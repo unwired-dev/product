@@ -5,6 +5,7 @@ import Testing
 
 @MainActor
 @Suite(.serialized)
+// swiftlint:disable:next type_body_length
 final class ComposePreferenceSyncServiceTests {
   private let session = ProductAccountSessionSnapshot(
     appleUserIdentifier: "apple-user",
@@ -108,7 +109,7 @@ final class ComposePreferenceSyncServiceTests {
     let defaults = try #require(UserDefaults(suiteName: suiteName))
     defer { defaults.removePersistentDomain(forName: suiteName) }
     let key = "mail-workflow-preferences.compose.\(session.productAccountId)"
-    let legacy = LegacyStoredComposePreferenceState(
+    let legacy = LegacyComposePreferenceLocalState(
       conflicts: [:],
       pendingChanges: [
         .formattingToolbar: .init(baseValue: .boolean(true), localValue: .boolean(false)),
@@ -122,7 +123,8 @@ final class ComposePreferenceSyncServiceTests {
     defaults.set(try JSONEncoder().encode(legacy), forKey: key)
     let localStore = UserDefaultsComposePreferenceStateStore(defaults: defaults)
 
-    let restored = try #require(localStore.load(productAccountId: session.productAccountId))
+    let loaded = try localStore.load(productAccountId: session.productAccountId)
+    let restored = try #require(loaded)
 
     #expect(restored.preferences.showsFormattingToolbar == false)
     #expect(Set(restored.pendingChanges.keys) == [.formattingToolbar])
@@ -329,39 +331,6 @@ private struct LegacyComposePreferences: Decodable {
       )
     }
   }
-}
-
-private enum LegacyStoredComposePreferenceField: String, Codable {
-  case formattingToolbar
-  case presentation
-}
-
-private enum LegacyStoredComposePresentation: String, Codable {
-  case fullScreen
-  case partial
-}
-
-private enum LegacyStoredComposePreferenceValue: Codable {
-  case boolean(Bool)
-  case presentation(LegacyStoredComposePresentation)
-}
-
-private struct LegacyStoredComposePreferencePendingChange: Codable {
-  let baseValue: LegacyStoredComposePreferenceValue
-  let localValue: LegacyStoredComposePreferenceValue
-}
-
-private struct LegacyStoredComposePreferenceConflict: Codable {
-  let field: LegacyStoredComposePreferenceField
-  let localValue: LegacyStoredComposePreferenceValue
-  let remoteValue: LegacyStoredComposePreferenceValue
-}
-
-private struct LegacyStoredComposePreferenceState: Codable {
-  let conflicts: [LegacyStoredComposePreferenceField: LegacyStoredComposePreferenceConflict]
-  let pendingChanges:
-    [LegacyStoredComposePreferenceField: LegacyStoredComposePreferencePendingChange]
-  let preferences: ComposePreferences
 }
 
 private final class InMemoryComposePreferenceLocalStateStore:

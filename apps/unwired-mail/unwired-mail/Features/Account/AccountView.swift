@@ -4033,12 +4033,14 @@ extension AccountView {
         cancelSendReminder(reminder, draftId: draftId, profileId: profileId)
       },
       scheduleReminder: { draft in
+        try await saveCompositionDraft(draft, profileId: profileId)
         guard
           await mailActionViewModel.cancelScheduledSend(
             editSession.item,
             editGeneration: editSession.lease.generation
           )
         else {
+          try? await deleteCompositionDraft(draft.id, profileId: profileId)
           throw ScheduledSendManagementError.staleRevision
         }
         await finishScheduledSendEdit(editSession, profileId: profileId)

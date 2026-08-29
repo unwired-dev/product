@@ -60,7 +60,7 @@ struct ComposePreferenceLocalState: Codable, Equatable, Sendable {
   }
 }
 
-private enum LegacyComposePreferenceField: String, Codable {
+enum LegacyComposePreferenceField: String, Codable {
   case forwardedAttachments
   case formattingToolbar
   case presentation
@@ -72,12 +72,12 @@ private enum LegacyComposePreferenceField: String, Codable {
   }
 }
 
-private enum LegacyComposePresentationPreference: String, Codable {
+enum LegacyComposePresentationPreference: String, Codable {
   case fullScreen
   case partial
 }
 
-private enum LegacyComposePreferenceValue: Codable {
+enum LegacyComposePreferenceValue: Codable {
   case boolean(Bool)
   case presentation(LegacyComposePresentationPreference)
   case undoSend(UndoSendWindow)
@@ -91,18 +91,18 @@ private enum LegacyComposePreferenceValue: Codable {
   }
 }
 
-private struct LegacyComposePreferencePendingChange: Codable {
+struct LegacyComposePreferencePendingChange: Codable {
   let baseValue: LegacyComposePreferenceValue
   let localValue: LegacyComposePreferenceValue
 }
 
-private struct LegacyComposePreferenceConflict: Codable {
+struct LegacyComposePreferenceConflict: Codable {
   let field: LegacyComposePreferenceField
   let localValue: LegacyComposePreferenceValue
   let remoteValue: LegacyComposePreferenceValue
 }
 
-private struct LegacyComposePreferenceLocalState: Codable {
+struct LegacyComposePreferenceLocalState: Codable {
   let conflicts: [LegacyComposePreferenceField: LegacyComposePreferenceConflict]
   let pendingChanges: [LegacyComposePreferenceField: LegacyComposePreferencePendingChange]
   let preferences: ComposePreferences

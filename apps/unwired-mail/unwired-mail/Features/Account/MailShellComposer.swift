@@ -1605,11 +1605,6 @@ private struct MailComposerSubjectRow: View {
         isFocused: $isFocused,
         focusBody: focusBody
       )
-      .onKeyPress(keys: [.return]) { _ in
-        guard isFocused else { return .ignored }
-        focusBody()
-        return .handled
-      }
       .padding(.horizontal, 16)
       .padding(.vertical, 12)
     } else {
