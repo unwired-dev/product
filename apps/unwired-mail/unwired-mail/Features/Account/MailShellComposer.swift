@@ -213,117 +213,9 @@ struct MailShellComposer: View {
   }
 
   private var composer: some View {
-    @Bindable var viewModel = viewModel
-    return NavigationStack {
-      VStack(spacing: 0) {
-        MailComposerHeader(
-          title: viewModel.draft.title,
-          close: closeComposer,
-          actionsAreDisabled: viewModel.saveState == .saving || viewModel.isSwitchingDraft,
-          expansion: headerExpansion,
-          canAutomaticallySend: canScheduleSend,
-          canSendLater: viewModel.canCreateSendReminder,
-          isSendEnabled: isSendEnabled,
-          sendTitle: scheduledSendDueAt == nil ? "Send" : "Save Changes",
-          send: sendDraft,
-          sendLater: openSendLater,
-          sendNow: scheduledSendDueAt != nil && sendNow != nil ? sendScheduledNow : nil,
-          selectedPhoto: $selectedPhoto,
-          switching: navigation.map {
-            MailComposerHeader.Switching(
-              canSwitch: !viewModel.isSwitchingDraft,
-              drafts: $0.drafts.filter { $0.id != viewModel.draft.id },
-              newMessage: $0.newMessage,
-              openDraft: $0.openDraft
-            )
-          },
-          discard: requestDiscard
-        )
-        Divider()
-        ScrollView {
-          VStack(spacing: 0) {
-            MailComposerIdentityRow(
-              connections: connections,
-              identities: sendingIdentities,
-              profileName: profileName,
-              selectedIdentityId: $viewModel.draft.sendingIdentityId
-            )
-            Divider()
-            recipientFields
-            Divider()
-            if presentsSubjectField {
-              MailComposerSubjectField(
-                subject: $viewModel.draft.subject,
-                isFocused: $isSubjectFocused,
-                focusBody: focusBody
-              )
-              .onKeyPress(keys: [.return]) {
-                guard isSubjectFocused else { return .ignored }
-                focusBody()
-                return .handled
-              }
-              .padding(.horizontal, 16)
-              .padding(.vertical, 12)
-            } else {
-              Button(action: focusSubject) {
-                Text(viewModel.draft.subject.isEmpty ? "Subject" : viewModel.draft.subject)
-                  .foregroundStyle(
-                    viewModel.draft.subject.isEmpty ? Color.secondary : Color.primary
-                  )
-                  .padding(.horizontal, 16)
-                  .padding(.vertical, 12)
-                  .frame(maxWidth: .infinity, alignment: .leading)
-              }
-              .buttonStyle(.plain)
-              .accessibilityIdentifier("mail-compose-subject")
-            }
-            Divider()
-            MailComposerActionBar(
-              editorModel: editorModel,
-              hasQuotedText: viewModel.draft.quotedText?.isEmpty == false,
-              requestFile: {
-                pendingFileImportDraftId = viewModel.draft.id
-                showsFileImporter = true
-              },
-              requestLink: requestLink,
-              showsFormattingToolbar: preferences.showsFormattingToolbar,
-              showsExpandedRecipients: $showsExpandedRecipients,
-              showsQuotedText: $showsQuotedText,
-              signatures: signatures,
-              selectedSignatureId: selectedSignatureId,
-              templates: templates,
-              applyTemplate: applyTemplate,
-              requestAssistance: mailAssistanceViewModel == nil ? nil : requestComposeAssistance,
-              requestResponseAssistance: responseAssistanceAction,
-              requestTranslation: mailAssistanceViewModel == nil ? nil : requestTranslation
-            )
-            Divider()
-            MailComposerBodyField(
-              editorModel: editorModel,
-              composeAssistanceContext: composeAssistanceContext,
-              isFocused: $isBodyFocused,
-              focusRequest: bodyFocusRequest,
-              focusDidBegin: bodyFocusDidBegin
-            )
-            .simultaneousGesture(
-              TapGesture().onEnded {
-                requestBodyFocus()
-              }
-            )
-            .dropDestination(for: Data.self) { items, _ in
-              addDroppedImages(items)
-              return !items.isEmpty
-            }
-            .dropDestination(for: URL.self) { urls, _ in
-              importFiles(.success(urls), draftId: viewModel.draft.id)
-              return !urls.isEmpty
-            }
-            Divider()
-            composerSupplementalDetails
-          }
-        }
-        .scrollDismissesKeyboard(.interactively)
-        .accessibilityIdentifier("mail-compose-document-scroll")
+    NavigationStack {
+      Group {
+        composerContent
       }
       .fileImporter(
         isPresented: $showsFileImporter,
@@ -469,6 +361,120 @@ struct MailShellComposer: View {
           sendWithoutSubject: sendWithoutSubject
         )
       )
+    }
+  }
+
+  private var composerContent: some View {
+    @Bindable var viewModel = viewModel
+    return VStack(spacing: 0) {
+      MailComposerHeader(
+        title: viewModel.draft.title,
+        close: closeComposer,
+        actionsAreDisabled: viewModel.saveState == .saving || viewModel.isSwitchingDraft,
+        expansion: headerExpansion,
+        canAutomaticallySend: canScheduleSend,
+        canSendLater: viewModel.canCreateSendReminder,
+        isSendEnabled: isSendEnabled,
+        sendTitle: scheduledSendDueAt == nil ? "Send" : "Save Changes",
+        send: sendDraft,
+        sendLater: openSendLater,
+        sendNow: scheduledSendDueAt != nil && sendNow != nil ? sendScheduledNow : nil,
+        selectedPhoto: $selectedPhoto,
+        switching: navigation.map {
+          MailComposerHeader.Switching(
+            canSwitch: !viewModel.isSwitchingDraft,
+            drafts: $0.drafts.filter { $0.id != viewModel.draft.id },
+            newMessage: $0.newMessage,
+            openDraft: $0.openDraft
+          )
+        },
+        discard: requestDiscard
+      )
+      Divider()
+      ScrollView {
+        VStack(spacing: 0) {
+          MailComposerIdentityRow(
+            connections: connections,
+            identities: sendingIdentities,
+            profileName: profileName,
+            selectedIdentityId: $viewModel.draft.sendingIdentityId
+          )
+          Divider()
+          recipientFields
+          Divider()
+          if presentsSubjectField {
+            MailComposerSubjectField(
+              subject: $viewModel.draft.subject,
+              isFocused: $isSubjectFocused,
+              focusBody: focusBody
+            )
+            .onKeyPress(keys: [.return]) {
+              guard isSubjectFocused else { return .ignored }
+              focusBody()
+              return .handled
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+          } else {
+            Button(action: focusSubject) {
+              Text(viewModel.draft.subject.isEmpty ? "Subject" : viewModel.draft.subject)
+                .foregroundStyle(
+                  viewModel.draft.subject.isEmpty ? Color.secondary : Color.primary
+                )
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("mail-compose-subject")
+          }
+          Divider()
+          MailComposerActionBar(
+            editorModel: editorModel,
+            hasQuotedText: viewModel.draft.quotedText?.isEmpty == false,
+            requestFile: {
+              pendingFileImportDraftId = viewModel.draft.id
+              showsFileImporter = true
+            },
+            requestLink: requestLink,
+            showsFormattingToolbar: preferences.showsFormattingToolbar,
+            showsExpandedRecipients: $showsExpandedRecipients,
+            showsQuotedText: $showsQuotedText,
+            signatures: signatures,
+            selectedSignatureId: selectedSignatureId,
+            templates: templates,
+            applyTemplate: applyTemplate,
+            requestAssistance: mailAssistanceViewModel == nil ? nil : requestComposeAssistance,
+            requestResponseAssistance: responseAssistanceAction,
+            requestTranslation: mailAssistanceViewModel == nil ? nil : requestTranslation
+          )
+          Divider()
+          MailComposerBodyField(
+            editorModel: editorModel,
+            composeAssistanceContext: composeAssistanceContext,
+            isFocused: $isBodyFocused,
+            focusRequest: bodyFocusRequest,
+            focusDidBegin: bodyFocusDidBegin
+          )
+          .simultaneousGesture(
+            TapGesture().onEnded {
+              requestBodyFocus()
+            }
+          )
+          .dropDestination(for: Data.self) { items, _ in
+            addDroppedImages(items)
+            return !items.isEmpty
+          }
+          .dropDestination(for: URL.self) { urls, _ in
+            importFiles(.success(urls), draftId: viewModel.draft.id)
+            return !urls.isEmpty
+          }
+          Divider()
+          composerSupplementalDetails
+        }
+      }
+      .scrollDismissesKeyboard(.interactively)
+      .accessibilityIdentifier("mail-compose-document-scroll")
     }
   }
 
