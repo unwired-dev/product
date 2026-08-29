@@ -3592,7 +3592,9 @@ final class MailboxConnectionAdapterTests {
       )
       try await adapter.registerOrRenewPush(connection: connection, session: session)
     }
-    _ = await adapter.resumePendingActions(connections: connections, session: session)
+    for connection in connections {
+      _ = await adapter.resumePendingActions(connection: connection, session: session)
+    }
     let defaultsSuite = "MailboxConnectionAdapterTests.\(UUID().uuidString)"
     let defaults = try requireValue(UserDefaults(suiteName: defaultsSuite))
     defer {

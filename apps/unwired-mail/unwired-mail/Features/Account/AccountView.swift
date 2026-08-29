@@ -2436,6 +2436,7 @@ struct AccountView: View {
         spotlightReconcileTask?.cancel()
         spotlightReconcileTask = nil
         releaseBudgetDriver?.removeSelectionHandler(owner: releaseBudgetDriverOwner)
+        releaseAllComposerEditingContexts()
       }
   }
 
@@ -2740,6 +2741,7 @@ struct AccountView: View {
               scheduledSendDueAt: editingContext?.scheduledSendDueAt,
               sendNow: composerSendNowAction(for: editingContext)
             )
+            .id(ObjectIdentifier(composerViewModel))
             .frame(width: layout.frame.width, height: layout.frame.height)
             .background(MailTheme.canvas)
             .clipShape(
@@ -3844,7 +3846,7 @@ extension AccountView {
       composerViewModels[profileId] = nil
     }
     composerNavigation.dismiss()
-    releaseComposerEditingContext(editingContext)
+    releaseComposerEditingContextDetached(editingContext)
   }
 
   private func presentComposerDraft(_ draft: MailShellCompositionDraft) {
@@ -4025,26 +4027,21 @@ extension AccountView {
       draft: .editing(editSession.item.record),
       reminderOwnerDeviceId: snapshot.trustedDeviceId,
       allowsEditingTransitions: true,
-      saveDraft: { draft in
-        try await saveCompositionDraft(draft, profileId: profileId)
-      },
-      deleteDraft: { draftId in
-        try await deleteCompositionDraft(draftId, profileId: profileId)
-      },
+      saveDraft: { _ in },
+      deleteDraft: { _ in },
       cancelReminder: { reminder, draftId in
         cancelSendReminder(reminder, draftId: draftId, profileId: profileId)
       },
       scheduleReminder: { draft in
-        try await saveCompositionDraft(draft, profileId: profileId)
         guard
           await mailActionViewModel.cancelScheduledSend(
             editSession.item,
             editGeneration: editSession.lease.generation
           )
         else {
-          try? await deleteCompositionDraft(draft.id, profileId: profileId)
           throw ScheduledSendManagementError.staleRevision
         }
+        await finishScheduledSendEdit(editSession, profileId: profileId)
         return try await scheduleSendReminder(for: draft, profileId: profileId)
       },
       scheduleSend: { draft, newDueAt, timeZone in
@@ -4117,7 +4114,16 @@ extension AccountView {
     await mailActionViewModel.releaseScheduledSendEdit(editSession)
   }
 
-  private func releaseComposerEditingContext(
+  private func finishScheduledSendEdit(
+    _ editSession: ScheduledSendEditSession,
+    profileId: MailProfileId
+  ) async {
+    guard composerEditingContexts[profileId] == .scheduledSend(editSession) else { return }
+    composerEditingContexts[profileId] = nil
+    await mailActionViewModel.releaseScheduledSendEdit(editSession)
+  }
+
+  private func releaseComposerEditingContextDetached(
     _ editingContext: MailShellComposerEditingContext?
   ) {
     guard editingContext != nil else { return }
@@ -4133,7 +4139,7 @@ extension AccountView {
       parkedComposerProfileIds.remove(profileId)
     }
     for editingContext in editingContexts {
-      releaseComposerEditingContext(editingContext)
+      releaseComposerEditingContextDetached(editingContext)
     }
   }
 

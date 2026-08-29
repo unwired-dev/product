@@ -81,7 +81,7 @@ struct ComposePreferences: Codable, Equatable, Sendable {
     undoSendWindow =
       (try? container.decode(UndoSendWindow.self, forKey: .undoSendWindow))
       ?? Self.defaults.undoSendWindow
-    schemaVersion = max(1, decodedSchemaVersion)
+    schemaVersion = Self.supportedSchemaVersion
   }
 }
 

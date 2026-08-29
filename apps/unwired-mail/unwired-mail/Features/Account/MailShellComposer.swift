@@ -208,32 +208,13 @@ struct MailShellComposer: View {
           Divider()
           recipientFields
           Divider()
-          if presentsSubjectField {
-            MailComposerSubjectField(
-              subject: $viewModel.draft.subject,
-              isFocused: $isSubjectFocused,
-              focusBody: focusBody
-            )
-            .onKeyPress(keys: [.return]) { _ in
-              guard isSubjectFocused else { return .ignored }
-              focusBody()
-              return .handled
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-          } else {
-            Button(action: focusSubject) {
-              Text(viewModel.draft.subject.isEmpty ? "Subject" : viewModel.draft.subject)
-                .foregroundStyle(
-                  viewModel.draft.subject.isEmpty ? Color.secondary : Color.primary
-                )
-                .padding(.horizontal, 16)
-                .padding(.vertical, 12)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("mail-compose-subject")
-          }
+          MailComposerSubjectRow(
+            subject: $viewModel.draft.subject,
+            isFocused: $isSubjectFocused,
+            presentsField: presentsSubjectField,
+            focusBody: focusBody,
+            focusSubject: focusSubject
+          )
           Divider()
           MailComposerActionBar(
             editorModel: editorModel,
@@ -1607,6 +1588,41 @@ private struct MailComposerIdentityRow: View {
     }
     .padding(.horizontal, 16)
     .padding(.vertical, 12)
+  }
+}
+
+private struct MailComposerSubjectRow: View {
+  @Binding var subject: String
+  @Binding var isFocused: Bool
+  let presentsField: Bool
+  let focusBody: () -> Void
+  let focusSubject: () -> Void
+
+  var body: some View {
+    if presentsField {
+      MailComposerSubjectField(
+        subject: $subject,
+        isFocused: $isFocused,
+        focusBody: focusBody
+      )
+      .onKeyPress(keys: [.return]) { _ in
+        guard isFocused else { return .ignored }
+        focusBody()
+        return .handled
+      }
+      .padding(.horizontal, 16)
+      .padding(.vertical, 12)
+    } else {
+      Button(action: focusSubject) {
+        Text(subject.isEmpty ? "Subject" : subject)
+          .foregroundStyle(subject.isEmpty ? Color.secondary : Color.primary)
+          .padding(.horizontal, 16)
+          .padding(.vertical, 12)
+          .frame(maxWidth: .infinity, alignment: .leading)
+      }
+      .buttonStyle(.plain)
+      .accessibilityIdentifier("mail-compose-subject")
+    }
   }
 }
 

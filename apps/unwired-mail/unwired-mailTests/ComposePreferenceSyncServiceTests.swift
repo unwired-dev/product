@@ -34,6 +34,7 @@ final class ComposePreferenceSyncServiceTests {
     #expect(!(preferences.showsFormattingToolbar))
     #expect(preferences.includesQuotedText)
     #expect(preferences.includesForwardedAttachments)
+    #expect(preferences.schemaVersion == 2)
   }
 
   @Test
@@ -99,6 +100,34 @@ final class ComposePreferenceSyncServiceTests {
 
     #expect(restored == nil)
     #expect(defaults.data(forKey: key) == nil)
+  }
+
+  @Test(.bug(id: 566))
+  func testLegacyLocalStateDropsOnlyRetiredPresentationEdits() throws {
+    let suiteName = "ComposePreferenceSyncServiceTests.\(UUID().uuidString)"
+    let defaults = try #require(UserDefaults(suiteName: suiteName))
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+    let key = "mail-workflow-preferences.compose.\(session.productAccountId)"
+    let legacy = LegacyStoredComposePreferenceState(
+      conflicts: [:],
+      pendingChanges: [
+        .formattingToolbar: .init(baseValue: .boolean(true), localValue: .boolean(false)),
+        .presentation: .init(
+          baseValue: .presentation(.partial),
+          localValue: .presentation(.fullScreen)
+        ),
+      ],
+      preferences: ComposePreferences(showsFormattingToolbar: false)
+    )
+    defaults.set(try JSONEncoder().encode(legacy), forKey: key)
+    let localStore = UserDefaultsComposePreferenceStateStore(defaults: defaults)
+
+    let restored = try #require(localStore.load(productAccountId: session.productAccountId))
+
+    #expect(restored.preferences.showsFormattingToolbar == false)
+    #expect(Set(restored.pendingChanges.keys) == [.formattingToolbar])
+    let migratedData = try #require(defaults.data(forKey: key))
+    #expect(try JSONDecoder().decode(ComposePreferenceLocalState.self, from: migratedData) == restored)
   }
 
   @Test
@@ -185,8 +214,7 @@ final class ComposePreferenceSyncServiceTests {
     store.setShowsFormattingToolbar(false)
     syncService.snapshot = ComposePreferenceSyncSnapshot(
       preferences: ComposePreferences(
-        undoSendWindow: .twentySeconds,
-        showsFormattingToolbar: false
+        undoSendWindow: .twentySeconds
       ),
       updatedAt: 3
     )
@@ -299,6 +327,40 @@ private struct LegacyComposePreferences: Decodable {
       )
     }
   }
+}
+
+private enum LegacyStoredComposePreferenceField: String, Codable {
+  case formattingToolbar
+  case presentation
+}
+
+private enum LegacyStoredComposePresentation: String, Codable {
+  case fullScreen
+  case partial
+}
+
+private enum LegacyStoredComposePreferenceValue: Codable {
+  case boolean(Bool)
+  case presentation(LegacyStoredComposePresentation)
+}
+
+private struct LegacyStoredComposePreferencePendingChange: Codable {
+  let baseValue: LegacyStoredComposePreferenceValue
+  let localValue: LegacyStoredComposePreferenceValue
+}
+
+private struct LegacyStoredComposePreferenceConflict: Codable {
+  let field: LegacyStoredComposePreferenceField
+  let localValue: LegacyStoredComposePreferenceValue
+  let remoteValue: LegacyStoredComposePreferenceValue
+}
+
+private struct LegacyStoredComposePreferenceState: Codable {
+  let conflicts: [LegacyStoredComposePreferenceField: LegacyStoredComposePreferenceConflict]
+  let pendingChanges: [
+    LegacyStoredComposePreferenceField: LegacyStoredComposePreferencePendingChange
+  ]
+  let preferences: ComposePreferences
 }
 
 private final class InMemoryComposePreferenceLocalStateStore:

@@ -60,6 +60,89 @@ struct ComposePreferenceLocalState: Codable, Equatable, Sendable {
   }
 }
 
+private enum LegacyComposePreferenceField: String, Codable {
+  case forwardedAttachments
+  case formattingToolbar
+  case presentation
+  case quotedText
+  case undoSend
+
+  var current: ComposePreferenceField? {
+    ComposePreferenceField(rawValue: rawValue)
+  }
+}
+
+private enum LegacyComposePresentationPreference: String, Codable {
+  case fullScreen
+  case partial
+}
+
+private enum LegacyComposePreferenceValue: Codable {
+  case boolean(Bool)
+  case presentation(LegacyComposePresentationPreference)
+  case undoSend(UndoSendWindow)
+
+  var current: ComposePreferenceValue? {
+    switch self {
+    case .boolean(let value): .boolean(value)
+    case .presentation: nil
+    case .undoSend(let value): .undoSend(value)
+    }
+  }
+}
+
+private struct LegacyComposePreferencePendingChange: Codable {
+  let baseValue: LegacyComposePreferenceValue
+  let localValue: LegacyComposePreferenceValue
+}
+
+private struct LegacyComposePreferenceConflict: Codable {
+  let field: LegacyComposePreferenceField
+  let localValue: LegacyComposePreferenceValue
+  let remoteValue: LegacyComposePreferenceValue
+}
+
+private struct LegacyComposePreferenceLocalState: Codable {
+  let conflicts: [LegacyComposePreferenceField: LegacyComposePreferenceConflict]
+  let pendingChanges: [LegacyComposePreferenceField: LegacyComposePreferencePendingChange]
+  let preferences: ComposePreferences
+
+  var current: ComposePreferenceLocalState {
+    let currentConflicts = conflicts.reduce(
+      into: [ComposePreferenceField: ComposePreferenceConflict]()
+    ) { result, entry in
+      guard
+        let field = entry.key.current,
+        let localValue = entry.value.localValue.current,
+        let remoteValue = entry.value.remoteValue.current
+      else { return }
+      result[field] = ComposePreferenceConflict(
+        field: field,
+        localValue: localValue,
+        remoteValue: remoteValue
+      )
+    }
+    let currentPendingChanges = pendingChanges.reduce(
+      into: [ComposePreferenceField: ComposePreferencePendingChange]()
+    ) { result, entry in
+      guard
+        let field = entry.key.current,
+        let baseValue = entry.value.baseValue.current,
+        let localValue = entry.value.localValue.current
+      else { return }
+      result[field] = ComposePreferencePendingChange(
+        baseValue: baseValue,
+        localValue: localValue
+      )
+    }
+    return ComposePreferenceLocalState(
+      conflicts: currentConflicts,
+      pendingChanges: currentPendingChanges,
+      preferences: preferences
+    )
+  }
+}
+
 protocol ComposePreferenceLocalStatePersisting {
   func clear(productAccountId: String) throws
   func load(productAccountId: String) throws -> ComposePreferenceLocalState?
@@ -83,8 +166,15 @@ struct UserDefaultsComposePreferenceStateStore: ComposePreferenceLocalStatePersi
     do {
       return try JSONDecoder().decode(ComposePreferenceLocalState.self, from: data)
     } catch {
-      defaults.removeObject(forKey: key(productAccountId))
-      return nil
+      guard
+        let legacy = try? JSONDecoder().decode(LegacyComposePreferenceLocalState.self, from: data)
+      else {
+        defaults.removeObject(forKey: key(productAccountId))
+        return nil
+      }
+      let state = legacy.current
+      try save(state, productAccountId: productAccountId)
+      return state
     }
   }
 
