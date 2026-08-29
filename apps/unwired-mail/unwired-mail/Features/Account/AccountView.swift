@@ -1494,12 +1494,15 @@ final class MailProfileWorkspaceViewModel {
 
   var profiles: [MailProfileDefinition] {
     _ = snapshotRevision
-    selection?.snapshot.profiles.sorted {
+    return selection?.snapshot.profiles.sorted {
       $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
     } ?? []
   }
 
-  var profileSnapshot: MailProfileSyncSnapshot? { selection?.snapshot }
+  var profileSnapshot: MailProfileSyncSnapshot? {
+    _ = snapshotRevision
+    return selection?.snapshot
+  }
 
   func updateSession(_ session: ProductAccountSessionSnapshot) {
     loadGeneration += 1
@@ -1572,16 +1575,17 @@ final class MailProfileWorkspaceViewModel {
     guard let selection else { throw MailProfileSyncError.invalidProfileState }
     loadGeneration += 1
     isLoading = false
-    let selection = try selection.activating(
+    let activatedSelection = try selection.activating(
       profileId,
       parkCurrentDraft: parkCurrentDraft
     )
-    self.selection = selection
-    activeProfileId = selection.activeProfileId
+    self.selection = activatedSelection
+    activeProfileId = activatedSelection.activeProfileId
     errorMessage = nil
   }
 
   func connections(from connections: [MailboxConnection]) -> [MailboxConnection] {
+    _ = snapshotRevision
     guard let activeProfileId else { return [] }
     return selection?.connections(for: activeProfileId, from: connections) ?? []
   }
@@ -1591,10 +1595,11 @@ final class MailProfileWorkspaceViewModel {
     from connections: [MailboxConnection]
   ) -> [MailboxConnection] {
     _ = snapshotRevision
-    selection?.connections(for: profileId, from: connections) ?? []
+    return selection?.connections(for: profileId, from: connections) ?? []
   }
 
   func owns(_ connectionId: MailboxConnectionId) -> Bool {
+    _ = snapshotRevision
     guard let activeProfileId else { return false }
     return selection?.snapshot.assignments[connectionId] == activeProfileId
   }
