@@ -402,27 +402,13 @@ struct MailShellComposer: View {
           Divider()
           recipientFields
           Divider()
-          if presentsSubjectField {
-            MailComposerSubjectField(
-              subject: $viewModel.draft.subject,
-              isFocused: $isSubjectFocused,
-              focusBody: focusBody
-            )
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-          } else {
-            Button(action: focusSubject) {
-              Text(viewModel.draft.subject.isEmpty ? "Subject" : viewModel.draft.subject)
-                .foregroundStyle(
-                  viewModel.draft.subject.isEmpty ? Color.secondary : Color.primary
-                )
-                .padding(.horizontal, 16)
-                .padding(.vertical, 12)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("mail-compose-subject")
-          }
+          MailComposerSubjectRow(
+            subject: $viewModel.draft.subject,
+            isFocused: $isSubjectFocused,
+            presentsField: presentsSubjectField,
+            focusBody: focusBody,
+            focusSubject: focusSubject
+          )
           Divider()
           MailComposerActionBar(
             editorModel: editorModel,
@@ -558,6 +544,7 @@ struct MailShellComposer: View {
     bodyFocusHandoff &+= 1
     let handoff = bodyFocusHandoff
     isBodyFocusPending = true
+    presentsSubjectField = false
     focusedField = nil
     isSubjectFocused = false
     Task { @MainActor in
@@ -580,11 +567,6 @@ struct MailShellComposer: View {
 
   private func bodyFocusDidBegin() {
     guard isBodyFocusPending else { return }
-    if presentsSubjectField {
-      presentsSubjectField = false
-      bodyFocusRequest &+= 1
-      return
-    }
     isBodyFocusPending = false
   }
 
@@ -1475,6 +1457,36 @@ private struct MailComposerBodyField: View {
           editorModel.applyBlock(command)
         }
       }
+    }
+  }
+}
+
+private struct MailComposerSubjectRow: View {
+  @Binding var subject: String
+  @Binding var isFocused: Bool
+  let presentsField: Bool
+  let focusBody: () -> Void
+  let focusSubject: () -> Void
+
+  var body: some View {
+    if presentsField {
+      MailComposerSubjectField(
+        subject: $subject,
+        isFocused: $isFocused,
+        focusBody: focusBody
+      )
+      .padding(.horizontal, 16)
+      .padding(.vertical, 12)
+    } else {
+      Button(action: focusSubject) {
+        Text(subject.isEmpty ? "Subject" : subject)
+          .foregroundStyle(subject.isEmpty ? Color.secondary : Color.primary)
+          .padding(.horizontal, 16)
+          .padding(.vertical, 12)
+          .frame(maxWidth: .infinity, alignment: .leading)
+      }
+      .buttonStyle(.plain)
+      .accessibilityIdentifier("mail-compose-subject")
     }
   }
 }
