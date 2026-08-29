@@ -63,6 +63,7 @@ struct SignInView: View {
       }
       .frame(maxWidth: 320, minHeight: 44)
       .buttonStyle(.bordered)
+      .accessibilityIdentifier("signed-out-settings")
 
       if case .failed(let message) = session.state {
         Label(message, systemImage: "exclamationmark.triangle.fill")

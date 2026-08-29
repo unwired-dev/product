@@ -69,7 +69,7 @@ final class MailTestBootstrapUITests: XCTestCase {
   func testComposeAndSendThroughVisibleClient() throws {
     let app = launchApplication(
       composerLayout: "regular",
-      preferredContentSizeCategory: "UICTContentSizeCategoryAccessibilityExtraExtraExtraLarge"
+      preferredContentSizeCategory: "UICTContentSizeCategoryAccessibilityXXXL"
     )
     let header = try openRegularComposer(in: app)
     let initialCloseFrame = header.close.frame
@@ -82,6 +82,12 @@ final class MailTestBootstrapUITests: XCTestCase {
       body: draft.body,
       in: app
     )
+    try app.performAccessibilityAudit(
+      for: [
+        .contrast, .dynamicType, .hitRegion, .sufficientElementDescription, .textClipped, .trait,
+      ]
+    )
+    attachInterfaceEvidence(named: "regular-composer-accessibility-text", app: app)
 
     try sendVisibleDraft(step: "compose-send", in: app)
     waitForOutboxToDrain(in: app)
@@ -501,6 +507,8 @@ final class MailTestBootstrapUITests: XCTestCase {
       failure: "MAIL_TEST_FAILURE:ui: The reply body did not receive automatic keyboard focus."
     )
     body.typeText("Synthetic visible reply")
+    try app.performAccessibilityAudit(for: .all)
+    attachInterfaceEvidence(named: "compact-reply-composer", app: app)
 
     try sendVisibleDraft(step: "reply", in: app)
     try verifyReplyConversation(in: app)
@@ -779,6 +787,18 @@ final class MailTestBootstrapUITests: XCTestCase {
     in app: XCUIApplication
   ) -> XCUIElement {
     app.descendants(matching: elementType).matching(identifier: identifier).firstMatch
+  }
+
+  private func attachInterfaceEvidence(named name: String, app: XCUIApplication) {
+    let screenshot = XCTAttachment(screenshot: app.screenshot())
+    screenshot.name = name
+    screenshot.lifetime = .keepAlways
+    add(screenshot)
+
+    let hierarchy = XCTAttachment(string: app.debugDescription)
+    hierarchy.name = "\(name)-hierarchy"
+    hierarchy.lifetime = .keepAlways
+    add(hierarchy)
   }
 
   private func button(

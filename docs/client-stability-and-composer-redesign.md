@@ -336,6 +336,7 @@ The attached Notion screenshot is a behavioral reference for command discovery a
 - Extend the Release performance fixture to cover a warm cached Thread, viewport-priority scheduling, composer opening, and absence of 100 ms main-thread stalls.
 - Add deterministic request counters to synthetic provider and remote-image fixtures so “no provider request” and “no remote-host request” are assertions rather than timing inferences.
 - Run Apple format/lint and the affected Debug, Release-performance, and Core Mail Loop gates required by repository policy.
+- Run the [client interaction and accessibility qualification](qualification/client-interaction-accessibility.md) on iPhone, regular-width iPad, and Mac Catalyst. Retain semantic hierarchy and screenshot evidence for System, Light, and Dark appearances.
 
 ## Related decisions
 
