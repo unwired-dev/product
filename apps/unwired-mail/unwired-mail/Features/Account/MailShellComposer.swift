@@ -48,6 +48,7 @@ struct MailShellComposer: View {
   @State private var isBodyFocused = false
   @State private var isBodyFocusPending = false
   @State private var isSubjectFocused = false
+  @State private var bodyFocusBridge = SemanticMessageFocusBridge()
   @State private var subjectFocusRequest = 0
   @State private var bodyFocusRequest = 0
   @State private var bodyFocusHandoff = 0
@@ -212,6 +213,7 @@ struct MailShellComposer: View {
           MailComposerSubjectRow(
             subject: $viewModel.draft.subject,
             isFocused: $isSubjectFocused,
+            bodyFocusBridge: bodyFocusBridge,
             focusRequest: subjectFocusRequest,
             presentsField: presentsSubjectField,
             focusBody: focusBody,
@@ -242,6 +244,7 @@ struct MailShellComposer: View {
             editorModel: editorModel,
             composeAssistanceContext: composeAssistanceContext,
             isFocused: $isBodyFocused,
+            focusBridge: bodyFocusBridge,
             focusRequest: bodyFocusRequest,
             focusDidBegin: bodyFocusDidBegin
           )
@@ -1348,6 +1351,7 @@ private struct MailComposerBodyField: View {
   @Bindable var editorModel: SemanticMessageEditorModel
   let composeAssistanceContext: SemanticMessageTextView.ComposeAssistanceContext?
   @Binding var isFocused: Bool
+  let focusBridge: SemanticMessageFocusBridge
   let focusRequest: Int
   let focusDidBegin: () -> Void
 
@@ -1356,6 +1360,7 @@ private struct MailComposerBodyField: View {
       editorModel: editorModel,
       composeAssistanceContext: composeAssistanceContext,
       isFocused: $isFocused,
+      focusBridge: focusBridge,
       focusRequest: focusRequest,
       focusDidBegin: focusDidBegin,
       minimumHeight: 160
@@ -1601,6 +1606,7 @@ private struct MailComposerIdentityRow: View {
 private struct MailComposerSubjectRow: View {
   @Binding var subject: String
   @Binding var isFocused: Bool
+  let bodyFocusBridge: SemanticMessageFocusBridge
   let focusRequest: Int
   let presentsField: Bool
   let focusBody: () -> Void
@@ -1611,6 +1617,7 @@ private struct MailComposerSubjectRow: View {
       MailComposerSubjectField(
         subject: $subject,
         isFocused: $isFocused,
+        bodyFocusBridge: bodyFocusBridge,
         focusRequest: focusRequest,
         focusBody: focusBody
       )
@@ -1653,6 +1660,7 @@ private struct MailComposerSubjectField: UIViewRepresentable {
 
   @Binding var subject: String
   @Binding var isFocused: Bool
+  let bodyFocusBridge: SemanticMessageFocusBridge
   let focusRequest: Int
   let focusBody: () -> Void
 
@@ -1694,7 +1702,6 @@ private struct MailComposerSubjectField: UIViewRepresentable {
   final class Coordinator: NSObject, UITextFieldDelegate {
     var parent: MailComposerSubjectField
     private var activeFocusRequest: Int?
-    private var focusesBodyAfterEditingEnds = false
 
     init(parent: MailComposerSubjectField) {
       self.parent = parent
@@ -1717,9 +1724,6 @@ private struct MailComposerSubjectField: UIViewRepresentable {
 
     func textFieldDidEndEditing(_: UITextField) {
       parent.isFocused = false
-      guard focusesBodyAfterEditingEnds else { return }
-      focusesBodyAfterEditingEnds = false
-      parent.focusBody()
     }
 
     func textFieldShouldReturn(_ textField: UITextField) -> Bool {
@@ -1729,15 +1733,8 @@ private struct MailComposerSubjectField: UIViewRepresentable {
 
     func submit(_ textField: UITextField) {
       guard textField.isFirstResponder else { return }
-      focusesBodyAfterEditingEnds = true
       parent.isFocused = false
-      Task { @MainActor [self, textField] in
-        await Task.yield()
-        textField.resignFirstResponder()
-        guard focusesBodyAfterEditingEnds else { return }
-        focusesBodyAfterEditingEnds = false
-        parent.focusBody()
-      }
+      parent.bodyFocusBridge.focusBody(from: textField, fallback: parent.focusBody)
     }
   }
 }

@@ -1,6 +1,43 @@
 import SwiftUI
 import UIKit
 
+@MainActor
+final class SemanticMessageFocusBridge {
+  private weak var textView: SemanticMessageUITextView?
+  private var focusTask: Task<Void, Never>?
+
+  func register(_ textView: SemanticMessageUITextView) {
+    self.textView = textView
+  }
+
+  func unregister(_ textView: SemanticMessageUITextView) {
+    guard self.textView === textView else { return }
+    focusTask?.cancel()
+    focusTask = nil
+    self.textView = nil
+  }
+
+  func focusBody(from subjectField: UITextField, fallback: @escaping () -> Void) {
+    focusTask?.cancel()
+    focusTask = Task { @MainActor [weak self, weak subjectField] in
+      subjectField?.resignFirstResponder()
+      for attempt in 0..<12 {
+        await Task.yield()
+        guard let self, !Task.isCancelled else { return }
+        if let textView, textView.window != nil, textView.becomeFirstResponder() {
+          focusTask = nil
+          return
+        }
+        if attempt < 11 {
+          try? await Task.sleep(for: .milliseconds(50))
+        }
+      }
+      focusTask = nil
+      fallback()
+    }
+  }
+}
+
 /// A native text-system editor backed by the semantic message document.
 struct SemanticMessageTextView: UIViewRepresentable {
   /// The composer-owned dependencies used by an anchored assistance panel.
@@ -14,6 +51,7 @@ struct SemanticMessageTextView: UIViewRepresentable {
   let editorModel: SemanticMessageEditorModel
   let composeAssistanceContext: ComposeAssistanceContext?
   @Binding var isFocused: Bool
+  var focusBridge: SemanticMessageFocusBridge? = nil
   let focusRequest: Int
   let focusDidBegin: () -> Void
   let minimumHeight: CGFloat
@@ -36,6 +74,7 @@ struct SemanticMessageTextView: UIViewRepresentable {
     textView.accessibilityLabel = "Message"
     textView.setContentCompressionResistancePriority(.required, for: .vertical)
     context.coordinator.textView = textView
+    focusBridge?.register(textView)
     textView.didMoveToWindowAction = { [weak coordinator = context.coordinator] in
       coordinator?.focusIfNeeded()
     }
@@ -51,6 +90,7 @@ struct SemanticMessageTextView: UIViewRepresentable {
 
   func updateUIView(_ textView: SemanticMessageUITextView, context: Context) {
     context.coordinator.parent = self
+    focusBridge?.register(textView)
     context.coordinator.synchronizeTextView()
     if isFocused, textView.isFirstResponder == false {
       context.coordinator.focusIfNeeded(for: focusRequest)
@@ -64,6 +104,7 @@ struct SemanticMessageTextView: UIViewRepresentable {
     textView.didMoveToWindowAction = nil
     textView.handleSlashCommandKey = nil
     textView.layoutSubviewsAction = nil
+    coordinator.parent.focusBridge?.unregister(textView)
     coordinator.dismissSlashCommandOverlay()
   }
 

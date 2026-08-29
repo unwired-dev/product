@@ -1464,9 +1464,11 @@ extension MailboxConnectionSyncService: MailProfileSnapshotLoading {}
 final class MailProfileWorkspaceViewModel {
   private(set) var errorMessage: String?
   private(set) var isLoading = false
-  private(set) var selection: MailProfileWorkspaceSelection?
+  private(set) var activeProfileId: MailProfileId?
   private(set) var startupProfileId: MailProfileId?
 
+  @ObservationIgnored private var selection: MailProfileWorkspaceSelection?
+  private var snapshotRevision = 0
   private var session: ProductAccountSessionSnapshot
   private var loadGeneration = 0
   private let snapshotLoader: MailProfileSnapshotLoading
@@ -1484,10 +1486,14 @@ final class MailProfileWorkspaceViewModel {
     startupProfileId = startupStore.load(productAccountId: session.productAccountId)
   }
 
-  var activeProfile: MailProfileDefinition? { selection?.activeProfile }
-  var activeProfileId: MailProfileId? { selection?.activeProfileId }
+  var activeProfile: MailProfileDefinition? {
+    _ = snapshotRevision
+    guard let activeProfileId else { return nil }
+    return selection?.snapshot.profiles.first { $0.id == activeProfileId }
+  }
 
   var profiles: [MailProfileDefinition] {
+    _ = snapshotRevision
     selection?.snapshot.profiles.sorted {
       $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
     } ?? []
@@ -1517,11 +1523,13 @@ final class MailProfileWorkspaceViewModel {
     do {
       let snapshot = try await snapshotLoader.loadProfileSnapshot(session: session)
       guard generation == loadGeneration else { return }
-      selection = MailProfileWorkspaceSelection(
-        snapshot: snapshot,
-        targetedProfileId: targetedProfileId,
-        restoredProfileId: restoredProfileId,
-        startupProfileId: startupProfileId
+      replaceSelection(
+        MailProfileWorkspaceSelection(
+          snapshot: snapshot,
+          targetedProfileId: targetedProfileId,
+          restoredProfileId: restoredProfileId,
+          startupProfileId: startupProfileId
+        )
       )
       errorMessage = nil
     } catch is CancellationError {
@@ -1547,11 +1555,13 @@ final class MailProfileWorkspaceViewModel {
       profiles: [defaultProfile],
       updatedAt: nil
     )
-    selection = MailProfileWorkspaceSelection(
-      snapshot: snapshot,
-      targetedProfileId: targetedProfileId,
-      restoredProfileId: restoredProfileId,
-      startupProfileId: startupProfileId
+    replaceSelection(
+      MailProfileWorkspaceSelection(
+        snapshot: snapshot,
+        targetedProfileId: targetedProfileId,
+        restoredProfileId: restoredProfileId,
+        startupProfileId: startupProfileId
+      )
     )
   }
 
@@ -1562,26 +1572,31 @@ final class MailProfileWorkspaceViewModel {
     guard let selection else { throw MailProfileSyncError.invalidProfileState }
     loadGeneration += 1
     isLoading = false
-    self.selection = try selection.activating(
+    let selection = try selection.activating(
       profileId,
       parkCurrentDraft: parkCurrentDraft
     )
+    self.selection = selection
+    activeProfileId = selection.activeProfileId
     errorMessage = nil
   }
 
   func connections(from connections: [MailboxConnection]) -> [MailboxConnection] {
-    selection?.connections(from: connections) ?? []
+    guard let activeProfileId else { return [] }
+    return selection?.connections(for: activeProfileId, from: connections) ?? []
   }
 
   func connections(
     for profileId: MailProfileId,
     from connections: [MailboxConnection]
   ) -> [MailboxConnection] {
+    _ = snapshotRevision
     selection?.connections(for: profileId, from: connections) ?? []
   }
 
   func owns(_ connectionId: MailboxConnectionId) -> Bool {
-    selection?.owns(connectionId) == true
+    guard let activeProfileId else { return false }
+    return selection?.snapshot.assignments[connectionId] == activeProfileId
   }
 
   func setStartupProfile(_ profileId: MailProfileId) {
@@ -1592,6 +1607,12 @@ final class MailProfileWorkspaceViewModel {
 
   func show(_ error: Error) {
     errorMessage = error.localizedDescription
+  }
+
+  private func replaceSelection(_ selection: MailProfileWorkspaceSelection) {
+    self.selection = selection
+    activeProfileId = selection.activeProfileId
+    snapshotRevision &+= 1
   }
 }
 
