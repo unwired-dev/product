@@ -36,13 +36,20 @@ final class SemanticMessageTextViewCoordinator: NSObject, UITextViewDelegate {
       defer {
         if scheduledFocusRequest == request { scheduledFocusRequest = nil }
       }
-      for attempt in 0..<60 {
+      var stableFocusObservations = 0
+      for attempt in 0..<10 {
         await Task.yield()
         guard parent.isFocused, parent.focusRequest == request, let textView else { return }
-        if textView.window != nil, textView.isFirstResponder == false {
-          _ = textView.becomeFirstResponder()
+        if textView.window != nil {
+          if textView.isFirstResponder {
+            stableFocusObservations += 1
+            if stableFocusObservations == 2 { return }
+          } else {
+            stableFocusObservations = 0
+            _ = textView.becomeFirstResponder()
+          }
         }
-        if attempt < 59 {
+        if attempt < 9 {
           try? await Task.sleep(for: .milliseconds(50))
         }
       }
@@ -125,7 +132,9 @@ final class SemanticMessageTextViewCoordinator: NSObject, UITextViewDelegate {
   func textViewDidEndEditing(_ textView: UITextView) {
     guard scheduledFocusRequest != parent.focusRequest else { return }
     if activeFocusRequest == parent.focusRequest, parent.isFocused {
-      parent.isFocused = false
+      activeFocusRequest = nil
+      focusIfNeeded(for: parent.focusRequest)
+      return
     }
     activeFocusRequest = nil
     dismissedSlashCommandContext = nil
