@@ -1791,10 +1791,14 @@ private struct MailComposerSubjectField: UIViewRepresentable {
       guard textField.isFirstResponder else { return }
       focusesBodyAfterEditingEnds = true
       parent.isFocused = false
-      textField.resignFirstResponder()
-      guard focusesBodyAfterEditingEnds else { return }
-      focusesBodyAfterEditingEnds = false
-      parent.focusBody()
+      Task { @MainActor [weak self, weak textField] in
+        await Task.yield()
+        guard let self, let textField else { return }
+        textField.resignFirstResponder()
+        guard focusesBodyAfterEditingEnds else { return }
+        focusesBodyAfterEditingEnds = false
+        parent.focusBody()
+      }
     }
   }
 }
