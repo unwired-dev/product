@@ -12,6 +12,7 @@ import WebKit
 // swiftlint:disable file_length type_body_length
 
 private final class MailboxAdapterURLStub: URLProtocolStub {}
+private final class MailboxAdapterBodyURLStub: URLProtocolStub {}
 
 private let gmailAdapterMessageBody = MailboxMessageBody(
   text: "Decrypted body",
@@ -6240,18 +6241,13 @@ final class MailboxConnectionAdapterTests {
         updatedAt: 1_781_200_000_300
       )
     )
-    let adapter = GmailMailboxConnectionAdapter(
-      bodyReader: GmailMessageBodyService(
-        cache: bodyCache,
-        keyMaterialStore: keyMaterialStore,
-        oauthClientId: nil
-      ),
-      connectionService: connectionService,
-      definitionSyncService: definitionSyncService,
-      metadataService: metadataService,
-      pendingActionService: PendingProviderActionService(store: AdapterPendingActionStore()),
-      outboxService: OutboxDeliveryService(store: AdapterOutboxStore())
-    )
+    let providerBodyRequestCounter = LockedRequestCounter()
+    let providerBodySession = ConvexClientTesting.makeSession(
+      protocolClass: MailboxAdapterBodyURLStub.self
+    ) { _ in
+      providerBodyRequestCounter.increment()
+      throw URLError(.cannotLoadFromNetwork)
+    }
     let productionSyncTokenStore = ReleaseGmailProviderTokenStore()
     for status in connectionStatuses {
       try productionSyncTokenStore.save(
@@ -6263,6 +6259,23 @@ final class MailboxConnectionAdapterTests {
         providerAccountIdentifier: status.providerAccountIdentifier
       )
     }
+    let adapter = GmailMailboxConnectionAdapter(
+      bodyReader: GmailMessageBodyService(
+        gmailBaseURL: try requireValue(URL(string: "https://gmail.release.test/gmail/v1")),
+        cache: bodyCache,
+        keyMaterialStore: keyMaterialStore,
+        oauthClientId: "gmail-client-id",
+        session: providerBodySession,
+        tokenStore: productionSyncTokenStore,
+        tokenRefreshURL: try requireValue(URL(string: "https://oauth.release.test/token")),
+        tokenInfoURL: try requireValue(URL(string: "https://oauth.release.test/tokeninfo"))
+      ),
+      connectionService: connectionService,
+      definitionSyncService: definitionSyncService,
+      metadataService: metadataService,
+      pendingActionService: PendingProviderActionService(store: AdapterPendingActionStore()),
+      outboxService: OutboxDeliveryService(store: AdapterOutboxStore())
+    )
     let productionSyncService = GmailMessageMetadataService(
       gmailBaseURL: URL(string: "https://gmail.release.test/gmail/v1")!,
       notificationEligibilityStore: ReleaseGmailPushEligibilityStore(),
@@ -6301,6 +6314,7 @@ final class MailboxConnectionAdapterTests {
     var mailboxSwitchSamples: [Double] = []
     var mailViewSwitchSamples: [Double] = []
     var bodyOpenSamples: [Double] = []
+    var bodyOpenMainActorStalls: [Double] = []
     var emptyDraftOpenSamples: [Double] = []
     var warmDraftOpenSamples: [Double] = []
     var directInputFeedbackSamples: [Double] = []
@@ -6482,13 +6496,17 @@ final class MailboxConnectionAdapterTests {
         }
       )
       bodyWindow.makeKeyAndVisible()
-      let bodyRendered = await releaseWaitForRenderedContent(
-        in: bodyHost.view,
-        budgetScale: presentationBudgetScale,
-        isReady: { bodyLoaded }
-      )
+      var bodyRendered = false
+      let bodyOpenMainActorStall = await releaseMainThreadStall {
+        bodyRendered = await releaseWaitForRenderedContent(
+          in: bodyHost.view,
+          budgetScale: presentationBudgetScale,
+          isReady: { bodyLoaded }
+        )
+      }
       #expect(bodyRendered)
       bodyOpenSamples.append(releaseElapsedMilliseconds(from: bodyStart, clock: clock))
+      bodyOpenMainActorStalls.append(bodyOpenMainActorStall)
 
       let emptyDraftStart = clock.now
       let emptyDraft = MailShellCompositionDraft.new(
@@ -6612,6 +6630,27 @@ final class MailboxConnectionAdapterTests {
       draftWindow.rootViewController = nil
     }
 
+    let remoteContentSample = try await releaseRemoteContentCacheSample(
+      clock: clock,
+      keyMaterialStore: keyMaterialStore,
+      messageId: bodyMessage.id,
+      productAccountId: session.productAccountId,
+      profileId: workProfileId
+    )
+    let loadSchedulerTests = MailLoadSchedulerTests()
+    try await loadSchedulerTests.bodyPipelineLimits()
+    try await loadSchedulerTests.duplicateMessageLoadsShareOneTask()
+    try await loadSchedulerTests.remoteImageRequestLimits()
+    try await loadSchedulerTests.duplicateRemoteResourcesShareOneTask()
+    let viewportSchedulerTests = MailShellThreadBodyLoadCoordinatorTests()
+    let viewportSchedulingMainActorStall = try await releaseMainThreadStall {
+      for _ in 0..<20 {
+        viewportSchedulerTests.visibleBodiesStartFirst()
+        try viewportSchedulerTests.offscreenBodiesContinueByDistance()
+        await Task.yield()
+      }
+    }
+
     var providerLatencySamples: [Double] = []
     for connection in connections {
       let providerStart = clock.now
@@ -6718,6 +6757,7 @@ final class MailboxConnectionAdapterTests {
     #expect(releaseP95(mailboxSwitchSamples) < 200 * presentationBudgetScale)
     #expect(releaseP95(mailViewSwitchSamples) < 200 * presentationBudgetScale)
     #expect(releaseP95(bodyOpenSamples) < 200 * presentationBudgetScale)
+    #expect(bodyOpenMainActorStalls.max() ?? .infinity < 100)
     #expect(releaseP95(emptyDraftOpenSamples) < 300 * presentationBudgetScale)
     #expect(releaseP95(warmDraftOpenSamples) < 200 * presentationBudgetScale)
     #expect(releaseP95(directInputFeedbackSamples) < 34 * presentationBudgetScale)
@@ -6732,6 +6772,10 @@ final class MailboxConnectionAdapterTests {
     #expect(unreadCountingMainActorStall < 100)
     #expect(formattingMainActorStall < 100)
     #expect(draftAutosaveMainActorStalls.max() ?? .infinity < 100)
+    #expect(viewportSchedulingMainActorStall < 100)
+    #expect(providerBodyRequestCounter.value == 0)
+    #expect(remoteContentSample.initialRequestCount == 1)
+    #expect(remoteContentSample.reuseRequestCount == 0)
     #expect(threadsByConnection.values.map(\.count).sorted() == [50, 50])
     #expect(
       providerRolloutThreadsByConnection.values.map(\.count).sorted() == [50, 50, 50, 50, 50])
@@ -6739,29 +6783,36 @@ final class MailboxConnectionAdapterTests {
       categorizationStartupSamplesByConnection.values.map(releaseP95).max())
     let syncAndCategorizationMainActorStall = try requireValue(
       syncAndCategorizationMainActorStalls.max())
-    print(
-      "Gmail-first release ms: launch p95=\(releaseP95(launchSamples)), "
-        + "Profile switch p95=\(releaseP95(profileSwitchSamples)), "
-        + "Profile switch main max=\(profileSwitchMainActorStalls.max() ?? .infinity), "
-        + "Profile switch main contexts=\(profileSwitchMainActorStallContexts.joined(separator: " | ")), "
-        + "mailbox switch p95=\(releaseP95(mailboxSwitchSamples)), "
-        + "Mail View switch p95=\(releaseP95(mailViewSwitchSamples)), "
-        + "body p95=\(releaseP95(bodyOpenSamples)), "
-        + "empty Draft p95=\(releaseP95(emptyDraftOpenSamples)), "
-        + "warm Draft p95=\(releaseP95(warmDraftOpenSamples)), "
-        + "input frame p95=\(releaseP95(directInputFeedbackSamples)), "
-        + "format frame p95=\(releaseP95(formattingFeedbackSamples)), "
-        + "categorization startup max per-connection p95=\(categorizationStartupP95) "
-        + "for 10 fresh starts x 2 connections x 50 messages, "
-        + "sync + categorization main max=\(syncAndCategorizationMainActorStall), "
-        + "mixed-provider aggregation p95=\(releaseP95(providerRolloutAggregationSamples)) "
-        + "for 5 connections x 50 messages, "
-        + "mixed-provider aggregation main max=\(providerRolloutMainActorStall), "
-        + "unread main max=\(unreadCountingMainActorStall), "
-        + "format main max=\(formattingMainActorStall), "
-        + "Draft autosave main max=\(draftAutosaveMainActorStalls.max() ?? .infinity), "
-        + "provider seam p95=\(releaseP95(providerLatencySamples)) (reported separately)"
-    )
+    let releaseMetrics = [
+      "launch p95=\(releaseP95(launchSamples))",
+      "Profile switch p95=\(releaseP95(profileSwitchSamples))",
+      "Profile switch main max=\(profileSwitchMainActorStalls.max() ?? .infinity)",
+      "Profile switch main contexts=\(profileSwitchMainActorStallContexts.joined(separator: " | "))",
+      "mailbox switch p95=\(releaseP95(mailboxSwitchSamples))",
+      "Mail View switch p95=\(releaseP95(mailViewSwitchSamples))",
+      "body p95=\(releaseP95(bodyOpenSamples))",
+      "body main max=\(bodyOpenMainActorStalls.max() ?? .infinity)",
+      "empty Draft p95=\(releaseP95(emptyDraftOpenSamples))",
+      "warm Draft p95=\(releaseP95(warmDraftOpenSamples))",
+      "input frame p95=\(releaseP95(directInputFeedbackSamples))",
+      "format frame p95=\(releaseP95(formattingFeedbackSamples))",
+      "categorization startup max per-connection p95=\(categorizationStartupP95) "
+        + "for 10 fresh starts x 2 connections x 50 messages",
+      "sync + categorization main max=\(syncAndCategorizationMainActorStall)",
+      "mixed-provider aggregation p95=\(releaseP95(providerRolloutAggregationSamples)) "
+        + "for 5 connections x 50 messages",
+      "mixed-provider aggregation main max=\(providerRolloutMainActorStall)",
+      "unread main max=\(unreadCountingMainActorStall)",
+      "format main max=\(formattingMainActorStall)",
+      "Draft autosave main max=\(draftAutosaveMainActorStalls.max() ?? .infinity)",
+      "viewport scheduling main max=\(viewportSchedulingMainActorStall)",
+      "cached body provider requests=\(providerBodyRequestCounter.value)",
+      "cached remote reuse requests=\(remoteContentSample.reuseRequestCount)",
+      "remote seed network ms=\(remoteContentSample.networkLatencyMilliseconds) "
+        + "(reported separately)",
+      "provider seam p95=\(releaseP95(providerLatencySamples)) (reported separately)",
+    ]
+    print("Gmail-first release ms: \(releaseMetrics.joined(separator: ", "))")
   }
   // swiftlint:enable cyclomatic_complexity function_body_length
 
@@ -11092,6 +11143,144 @@ private final class ReleaseGenericMailAuthorizationStore: GenericMailAuthorizati
     productAccountId _: ProductAccountId
   ) throws {
     _ = authorization
+  }
+}
+
+private struct ReleaseRemoteContentCacheSample {
+  let initialRequestCount: Int
+  let networkLatencyMilliseconds: Double
+  let reuseRequestCount: Int
+}
+
+private struct ReleaseRemoteContentCacheFixture {
+  let cache: AuthorizedRemoteContentCache
+  let context: AuthorizedRemoteContentCacheContext
+  let fetch: RemoteMessageContentLoader.Fetch
+  let html: SanitizedMessageHTML
+  let requestCounter: LockedRequestCounter
+  let root: URL
+}
+
+@MainActor
+private func releaseRemoteContentCacheSample(
+  clock: ContinuousClock,
+  keyMaterialStore: ProductSyncKeyMaterialPersisting,
+  messageId: StableProviderMessageIdentity,
+  productAccountId: String,
+  profileId: MailProfileId
+) async throws -> ReleaseRemoteContentCacheSample {
+  let fixture = try releaseRemoteContentCacheFixture(
+    keyMaterialStore: keyMaterialStore,
+    messageId: messageId,
+    productAccountId: productAccountId,
+    profileId: profileId
+  )
+  defer { try? FileManager.default.removeItem(at: fixture.root) }
+  let networkStart = clock.now
+  let initialResult = try await RemoteMessageContentLoader(
+    cache: fixture.cache,
+    cacheContext: fixture.context,
+    fetch: fixture.fetch
+  ).load(fixture.html)
+  let networkLatencyMilliseconds = releaseElapsedMilliseconds(from: networkStart, clock: clock)
+  #expect(initialResult.loadedImageCount == 1)
+  let initialRequestCount = fixture.requestCounter.value
+
+  let reopenedCache = AuthorizedRemoteContentCache(
+    keyMaterialStore: keyMaterialStore,
+    rootDirectory: fixture.root
+  )
+  for _ in 0..<20 {
+    let reopenedResult = try await RemoteMessageContentLoader(
+      cache: reopenedCache,
+      cacheContext: fixture.context,
+      fetch: fixture.fetch
+    ).load(fixture.html)
+    #expect(reopenedResult.loadedImageCount == 1)
+  }
+
+  return ReleaseRemoteContentCacheSample(
+    initialRequestCount: initialRequestCount,
+    networkLatencyMilliseconds: networkLatencyMilliseconds,
+    reuseRequestCount: fixture.requestCounter.value - initialRequestCount
+  )
+}
+
+private func releaseRemoteContentCacheFixture(
+  keyMaterialStore: ProductSyncKeyMaterialPersisting,
+  messageId: StableProviderMessageIdentity,
+  productAccountId: String,
+  profileId: MailProfileId
+) throws -> ReleaseRemoteContentCacheFixture {
+  let root = FileManager.default.temporaryDirectory.appending(
+    path: "release-remote-content-cache-\(UUID().uuidString)",
+    directoryHint: .isDirectory
+  )
+  let referenceURL = try requireValue(
+    URL(string: "https://images.example.com/release-cached.png")
+  )
+  let html = SanitizedMessageHTML(
+    documentHTML: #"<img data-unwired-remote-image="remote-image-0">"#,
+    remoteImageReferences: [
+      RemoteMessageImageReference(identifier: "remote-image-0", url: referenceURL)
+    ]
+  )
+  let context = AuthorizedRemoteContentCacheContext(
+    productAccountId: productAccountId,
+    profileId: profileId,
+    messageId: messageId,
+    html: html
+  )
+  let cache = AuthorizedRemoteContentCache(
+    keyMaterialStore: keyMaterialStore,
+    rootDirectory: root
+  )
+  let requestCounter = LockedRequestCounter()
+  let png = try requireValue(
+    Data(
+      base64Encoded:
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+    )
+  )
+  return ReleaseRemoteContentCacheFixture(
+    cache: cache,
+    context: context,
+    fetch: releaseRemoteContentFetch(png: png, requestCounter: requestCounter),
+    html: html,
+    requestCounter: requestCounter,
+    root: root
+  )
+}
+
+private func releaseRemoteContentFetch(
+  png: Data,
+  requestCounter: LockedRequestCounter
+) -> RemoteMessageContentLoader.Fetch {
+  { request, _ in
+    requestCounter.increment()
+    let url = try requireValue(request.url)
+    let response = try requireValue(
+      HTTPURLResponse(
+        url: url,
+        statusCode: 200,
+        httpVersion: "HTTP/1.1",
+        headerFields: ["Content-Type": "image/png"]
+      )
+    )
+    return (png, response)
+  }
+}
+
+private final class LockedRequestCounter: @unchecked Sendable {
+  private let lock = NSLock()
+  private var storedValue = 0
+
+  var value: Int {
+    lock.withLock { storedValue }
+  }
+
+  func increment() {
+    lock.withLock { storedValue += 1 }
   }
 }
 
