@@ -1637,41 +1637,6 @@ private struct MailComposerSubjectRow: View {
 }
 
 private struct MailComposerSubjectField: UIViewRepresentable {
-  private final class SubjectTextField: UITextField {
-    var submit: (() -> Void)?
-
-    override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
-      guard containsReturnKey(presses), markedTextRange == nil else {
-        super.pressesBegan(presses, with: event)
-        return
-      }
-    }
-
-    override func pressesEnded(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
-      guard containsReturnKey(presses), markedTextRange == nil else {
-        super.pressesEnded(presses, with: event)
-        return
-      }
-      submit?()
-    }
-
-    override func insertText(_ text: String) {
-      guard text != "\n", text != "\r" else {
-        guard markedTextRange == nil else {
-          super.insertText(text)
-          return
-        }
-        submit?()
-        return
-      }
-      super.insertText(text)
-    }
-
-    private func containsReturnKey(_ presses: Set<UIPress>) -> Bool {
-      presses.contains { $0.key?.keyCode == .keyboardReturnOrEnter }
-    }
-  }
-
   @Binding var subject: String
   @Binding var isFocused: Bool
   let bodyFocusBridge: SemanticMessageFocusBridge
@@ -1683,7 +1648,7 @@ private struct MailComposerSubjectField: UIViewRepresentable {
   }
 
   func makeUIView(context: Context) -> UITextField {
-    let textField = SubjectTextField()
+    let textField = UITextField()
     textField.adjustsFontForContentSizeCategory = true
     textField.font = .preferredFont(forTextStyle: .body)
     textField.placeholder = "Subject"
@@ -1695,10 +1660,6 @@ private struct MailComposerSubjectField: UIViewRepresentable {
       action: #selector(Coordinator.subjectDidChange),
       for: .editingChanged
     )
-    textField.submit = { [weak coordinator = context.coordinator, weak textField] in
-      guard let textField else { return }
-      coordinator?.submit(textField)
-    }
     return textField
   }
 
