@@ -11504,10 +11504,10 @@ private final class ReleaseMainThreadStallProbe {
     if activity.contains(.afterWaiting) {
       cycleCount += 1
       cycleStartContext = context?() ?? ""
-      cycleStartMilliseconds = releaseCurrentThreadCPUTimeMilliseconds()
+      cycleStartMilliseconds = ProcessInfo.processInfo.systemUptime * 1_000
     }
     if activity.contains(.beforeWaiting), let cycleStartMilliseconds {
-      let delay = releaseCurrentThreadCPUTimeMilliseconds() - cycleStartMilliseconds
+      let delay = (ProcessInfo.processInfo.systemUptime * 1_000) - cycleStartMilliseconds
       if delay > maximumDelayMilliseconds {
         maximumDelayMilliseconds = delay
         maximumContext =
@@ -11516,12 +11516,6 @@ private final class ReleaseMainThreadStallProbe {
       self.cycleStartMilliseconds = nil
     }
   }
-}
-
-private func releaseCurrentThreadCPUTimeMilliseconds() -> Double {
-  var time = timespec()
-  precondition(clock_gettime(CLOCK_THREAD_CPUTIME_ID, &time) == 0)
-  return (Double(time.tv_sec) * 1_000) + (Double(time.tv_nsec) / 1_000_000)
 }
 
 @MainActor
