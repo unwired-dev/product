@@ -22,6 +22,7 @@ final class SemanticMessageFocusBridge {
   func focusBody(from subjectField: UITextField, fallback: @escaping () -> Void) {
     cancelPendingFocus()
     focusTask = Task { @MainActor [weak self, weak subjectField] in
+      await Task.yield()
       guard !Task.isCancelled else { return }
       subjectField?.resignFirstResponder()
       var stableFocusObservations = 0
