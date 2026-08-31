@@ -1630,14 +1630,14 @@ private struct MailComposerSubjectField: UIViewRepresentable {
     var submit: (() -> Void)?
 
     override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
-      guard containsReturnKey(presses) else {
+      guard containsReturnKey(presses), markedTextRange == nil else {
         super.pressesBegan(presses, with: event)
         return
       }
     }
 
     override func pressesEnded(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
-      guard containsReturnKey(presses) else {
+      guard containsReturnKey(presses), markedTextRange == nil else {
         super.pressesEnded(presses, with: event)
         return
       }
@@ -1646,6 +1646,10 @@ private struct MailComposerSubjectField: UIViewRepresentable {
 
     override func insertText(_ text: String) {
       guard text != "\n", text != "\r" else {
+        guard markedTextRange == nil else {
+          super.insertText(text)
+          return
+        }
         submit?()
         return
       }
