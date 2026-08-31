@@ -54,7 +54,6 @@ final class SemanticMessageFocusBridge {
   /// Unregisters the native message editor when SwiftUI dismantles it.
   func unregister(_ textView: SemanticMessageUITextView) {
     guard self.textView === textView else { return }
-    cancelPendingFocus()
     self.textView = nil
   }
 }
