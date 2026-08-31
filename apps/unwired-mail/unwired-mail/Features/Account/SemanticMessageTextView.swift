@@ -25,6 +25,7 @@ final class SemanticMessageFocusBridge {
       await Task.yield()
       guard !Task.isCancelled else { return }
       subjectField?.resignFirstResponder()
+      fallback()
       var stableFocusObservations = 0
       for attempt in 0..<12 {
         await Task.yield()
@@ -46,7 +47,6 @@ final class SemanticMessageFocusBridge {
         }
       }
       focusTask = nil
-      fallback()
     }
   }
 
