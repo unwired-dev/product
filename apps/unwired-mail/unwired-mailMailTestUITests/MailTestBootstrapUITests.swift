@@ -191,12 +191,7 @@ final class MailTestBootstrapUITests: XCTestCase {
       in: app,
       failure: "MAIL_TEST_FAILURE:ui: The recipient field was not visible."
     )
-    try focusAndType(
-      (0..<12).map { "recipient\($0)@synthetic.invalid" }.joined(separator: ", "),
-      into: recipient,
-      in: app,
-      failure: "MAIL_TEST_FAILURE:ui: The recipient field did not receive keyboard focus."
-    )
+    try populateRecipientTokens(in: recipient, app: app)
     try replaceRecipientTokens(in: recipient, app: app)
     let subject = try requireElement(
       identifier: "mail-compose-subject",
@@ -252,7 +247,6 @@ final class MailTestBootstrapUITests: XCTestCase {
   }
 
   private func replaceRecipientTokens(in recipient: XCUIElement, app: XCUIApplication) throws {
-    recipient.typeText(",")
     try removeRecipientTokens(in: app)
     try focusAndType(
       "recipient@synthetic.invalid,",
@@ -261,6 +255,25 @@ final class MailTestBootstrapUITests: XCTestCase {
       failure: "MAIL_TEST_FAILURE:ui: The recipient field could not be focused after token removal."
     )
     assertRecipientReplacement(in: app)
+  }
+
+  private func populateRecipientTokens(
+    in recipient: XCUIElement,
+    app: XCUIApplication
+  ) throws {
+    for index in 0..<12 {
+      let address = "recipient\(index)@synthetic.invalid"
+      try focusAndType(
+        "\(address),",
+        into: recipient,
+        in: app,
+        failure: "MAIL_TEST_FAILURE:ui: Recipient \(index + 1) could not be entered."
+      )
+      guard app.buttons["Remove \(address)"].waitForExistence(timeout: 5) else {
+        XCTFail("Recipient \(index + 1) did not become a removable token.")
+        throw NSError(domain: "MailTestBootstrapUITests", code: 1)
+      }
+    }
   }
 
   private func removeRecipientTokens(in app: XCUIApplication) throws {
