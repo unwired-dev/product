@@ -83,7 +83,7 @@ struct UnwiredMailApp: App {
         CatalystSettingsCommands(settingsRouter: settingsRouter)
       }
 
-      WindowGroup("Settings", id: SettingsRouter.catalystWindowID) {
+      Window("Settings", id: SettingsRouter.catalystWindowID) {
         SettingsRootView(session: session)
           .tint(MailTheme.accent)
           .background(MailTheme.canvas)

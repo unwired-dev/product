@@ -53,7 +53,7 @@ final class SettingsAccessibilityUITests: XCTestCase {
 
     assertUnavailable(
       unavailableRow(
-        identifier: "unavailable-settings-search-Mailbox Connections",
+        identifier: "unavailable-settings-search-emailAccounts-Email Accounts-Mailbox Connections",
         in: app
       ),
       in: app
@@ -80,7 +80,7 @@ final class SettingsAccessibilityUITests: XCTestCase {
     }
   }
 
-  func testNativePlatformHierarchyRemainsUsableWithAccessibilityTextAndReducedMotion() throws {
+  func testNativePlatformHierarchyRemainsUsableWithAccessibilityTextAndAnimationsDisabled() throws {
     let result = launchSignedOutSettings(
       appearance: .system,
       additionalArguments: [
@@ -105,7 +105,7 @@ final class SettingsAccessibilityUITests: XCTestCase {
       for: result.app,
       appearance: .system,
       layout: result.layout,
-      qualifier: "accessibility-text-reduced-motion"
+      qualifier: "accessibility-text-animations-disabled"
     )
   }
 
@@ -256,12 +256,16 @@ extension SettingsAccessibilityUITests {
       print("ACCESSIBILITY_AUDIT_ISSUE\n\(details)")
 
       let attachment = XCTAttachment(string: details)
-      let handlesAnonymousSwiftUIArtifact =
+      let isAnonymousSwiftUIArtifact =
         issue.element == nil
+        && issue.detailedDescription.contains("SwiftUI.AccessibilityNode")
+      let handlesAnonymousSwiftUIArtifact =
+        isAnonymousSwiftUIArtifact
         && (issue.auditType == .contrast
-          && issue.detailedDescription.contains("SwiftUI.AccessibilityNode")
           || issue.auditType == .textClipped
-            && issue.compactDescription == "Text clipped")
+            && issue.compactDescription == "Text clipped"
+            && issue.detailedDescription
+              == "Text of this SwiftUI.AccessibilityNode may be clipped at larger Dynamic Type sizes.")
       let verifiedAppearanceText = [
         "Increased Contrast",
         "Adds contrast beyond the current system setting on this device.",

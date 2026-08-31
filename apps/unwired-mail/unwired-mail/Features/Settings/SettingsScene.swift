@@ -614,6 +614,10 @@ struct SettingsSearchResult: Equatable, Identifiable {
   var id: Identity {
     Identity(route: route, subtitle: subtitle, title: title)
   }
+
+  var accessibilityIdentifier: String {
+    "\(route.destination.rawValue)-\(subtitle)-\(title)"
+  }
 }
 
 struct SettingsAttention: Equatable, Identifiable {
@@ -1092,14 +1096,16 @@ struct AdaptiveSettingsScene<DestinationContent: View>: View {
               searchResultLabel(result)
             }
             .buttonStyle(.plain)
-            .accessibilityIdentifier("settings-search-result-\(result.title)")
+            .accessibilityIdentifier("settings-search-result-\(result.accessibilityIdentifier)")
           } else {
             searchResultLabel(result)
               .foregroundStyle(Color.primary)
               .accessibilityElement(children: .combine)
               .accessibilityLabel(result.title)
               .accessibilityHint(Self.unavailableExplanation)
-              .accessibilityIdentifier("unavailable-settings-search-\(result.title)")
+              .accessibilityIdentifier(
+                "unavailable-settings-search-\(result.accessibilityIdentifier)"
+              )
           }
         }
       }

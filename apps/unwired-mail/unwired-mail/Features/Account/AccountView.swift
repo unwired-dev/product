@@ -4079,9 +4079,7 @@ extension AccountView {
     editSession: ScheduledSendEditSession,
     profileId: MailProfileId
   ) -> MailComposerViewModel {
-    let dueAt = Date(
-      timeIntervalSince1970: Double(editSession.item.record.dueAtMilliseconds) / 1_000
-    )
+    let dueAt = scheduledSendDueDate(for: editSession)
     return MailComposerViewModel(
       draft: .editing(editSession.item.record),
       reminderOwnerDeviceId: snapshot.trustedDeviceId,
@@ -4130,6 +4128,10 @@ extension AccountView {
         )
       }
     )
+  }
+
+  private func scheduledSendDueDate(for editSession: ScheduledSendEditSession) -> Date {
+    Date(timeIntervalSince1970: Double(editSession.item.record.dueAtMilliseconds) / 1_000)
   }
 
   private func composerSendNowAction(
