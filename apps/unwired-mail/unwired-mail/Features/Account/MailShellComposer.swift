@@ -1640,12 +1640,25 @@ private struct MailComposerSubjectField: UIViewRepresentable {
   private final class SubjectTextField: UITextField {
     var submit: (() -> Void)?
 
+    override func insertText(_ text: String) {
+      let submitsAfterNativeHandling =
+        markedTextRange == nil
+        && (text == "\n" || text == "\r")
+      super.insertText(text)
+      guard submitsAfterNativeHandling else { return }
+      submitAfterNativeHandling()
+    }
+
     override func pressesEnded(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
       let submitsAfterNativeHandling =
         markedTextRange == nil
         && presses.contains { $0.key?.keyCode == .keyboardReturnOrEnter }
       super.pressesEnded(presses, with: event)
       guard submitsAfterNativeHandling else { return }
+      submitAfterNativeHandling()
+    }
+
+    private func submitAfterNativeHandling() {
       Task { @MainActor [weak self] in
         await Task.yield()
         guard let self, isFirstResponder else { return }
