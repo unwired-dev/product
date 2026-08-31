@@ -11461,7 +11461,8 @@ private final class ReleaseMainThreadStallProbe {
   private let context: (() -> String)?
   private var cycleCount = 0
   private var cycleStartContext = ""
-  private var cycleStartMilliseconds: Double?
+  private var cycleStartCPUMilliseconds: Double?
+  private var cycleStartWallMilliseconds: Double?
   private(set) var maximumContext = "unavailable"
   private var maximumDelayMilliseconds = 0.0
   private var observer: CFRunLoopObserver?
@@ -11472,7 +11473,8 @@ private final class ReleaseMainThreadStallProbe {
 
   func start() {
     cycleStartContext = context?() ?? ""
-    cycleStartMilliseconds = Self.currentThreadCPUTimeMilliseconds()
+    cycleStartCPUMilliseconds = Self.currentThreadCPUTimeMilliseconds()
+    cycleStartWallMilliseconds = Self.monotonicTimeMilliseconds()
     let activities =
       CFRunLoopActivity.afterWaiting.rawValue | CFRunLoopActivity.beforeWaiting.rawValue
     let observer = CFRunLoopObserverCreateWithHandler(
@@ -11496,7 +11498,8 @@ private final class ReleaseMainThreadStallProbe {
       CFRunLoopRemoveObserver(CFRunLoopGetMain(), observer, .commonModes)
     }
     observer = nil
-    cycleStartMilliseconds = nil
+    cycleStartCPUMilliseconds = nil
+    cycleStartWallMilliseconds = nil
     return maximumDelayMilliseconds
   }
 
@@ -11504,17 +11507,29 @@ private final class ReleaseMainThreadStallProbe {
     if activity.contains(.afterWaiting) {
       cycleCount += 1
       cycleStartContext = context?() ?? ""
-      cycleStartMilliseconds = Self.currentThreadCPUTimeMilliseconds()
+      cycleStartCPUMilliseconds = Self.currentThreadCPUTimeMilliseconds()
+      cycleStartWallMilliseconds = Self.monotonicTimeMilliseconds()
     }
-    if activity.contains(.beforeWaiting), let cycleStartMilliseconds {
-      let delay = Self.currentThreadCPUTimeMilliseconds() - cycleStartMilliseconds
+    if activity.contains(.beforeWaiting), let cycleStartWallMilliseconds {
+      let delay = Self.monotonicTimeMilliseconds() - cycleStartWallMilliseconds
       if delay > maximumDelayMilliseconds {
+        let cpuDelay = cycleStartCPUMilliseconds.map {
+          Self.currentThreadCPUTimeMilliseconds() - $0
+        }
         maximumDelayMilliseconds = delay
         maximumContext =
-          "cycle=\(cycleCount), start={\(cycleStartContext)}, end={\(context?() ?? "")}"
+          "cycle=\(cycleCount), cpu=\(cpuDelay ?? 0)ms, start={\(cycleStartContext)}, "
+          + "end={\(context?() ?? "")}"
       }
-      self.cycleStartMilliseconds = nil
+      cycleStartCPUMilliseconds = nil
+      self.cycleStartWallMilliseconds = nil
     }
+  }
+
+  private static func monotonicTimeMilliseconds() -> Double {
+    var time = timespec()
+    precondition(clock_gettime(CLOCK_MONOTONIC, &time) == 0)
+    return (Double(time.tv_sec) * 1_000) + (Double(time.tv_nsec) / 1_000_000)
   }
 
   private static func currentThreadCPUTimeMilliseconds() -> Double {
