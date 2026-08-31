@@ -1748,7 +1748,7 @@ private struct MailComposerSubjectField: UIViewRepresentable {
     func submit(_ textField: UITextField) {
       guard textField.isFirstResponder else { return }
       parent.isFocused = false
-      parent.bodyFocusBridge.focusBody(from: textField, requestFocus: parent.focusBody)
+      parent.bodyFocusBridge.focusBody(requestFocus: parent.focusBody)
     }
   }
 }

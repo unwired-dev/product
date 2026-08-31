@@ -19,11 +19,11 @@ final class SemanticMessageFocusBridge {
   }
 
   /// Transfers focus after the Subject field finishes handling Return.
-  func focusBody(from subjectField: UITextField, requestFocus: @escaping () -> Void) {
+  func focusBody(requestFocus: @escaping () -> Void) {
     cancelPendingFocus()
     requestFocus()
-    focusTask = Task { @MainActor [weak self, weak subjectField] in
-      subjectField?.resignFirstResponder()
+    _ = textView?.becomeFirstResponder()
+    focusTask = Task { @MainActor [weak self] in
       var stableFocusObservations = 0
       for attempt in 0..<12 {
         await Task.yield()
