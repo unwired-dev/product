@@ -1643,7 +1643,8 @@ private struct MailComposerSubjectField: UIViewRepresentable {
 
     override func insertText(_ text: String) {
       let submitsAfterNativeHandling =
-        markedTextRange == nil
+        isFirstResponder
+        && markedTextRange == nil
         && (text == "\n" || text == "\r")
       super.insertText(text)
       guard submitsAfterNativeHandling else { return }
@@ -1652,7 +1653,8 @@ private struct MailComposerSubjectField: UIViewRepresentable {
 
     override func pressesEnded(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
       let submitsAfterNativeHandling =
-        markedTextRange == nil
+        isFirstResponder
+        && markedTextRange == nil
         && presses.contains { $0.key?.keyCode == .keyboardReturnOrEnter }
       super.pressesEnded(presses, with: event)
       guard submitsAfterNativeHandling else { return }
@@ -1662,8 +1664,7 @@ private struct MailComposerSubjectField: UIViewRepresentable {
     private func submitAfterNativeHandling() {
       Task { @MainActor [weak self] in
         await Task.yield()
-        guard let self, isFirstResponder else { return }
-        submit?()
+        self?.submit?()
       }
     }
   }
@@ -1693,7 +1694,7 @@ private struct MailComposerSubjectField: UIViewRepresentable {
     )
     textField.submit = { [weak coordinator = context.coordinator, weak textField] in
       guard let textField else { return }
-      coordinator?.submit(textField)
+      coordinator?.submitAfterNativeHandling(textField)
     }
     return textField
   }
@@ -1743,6 +1744,10 @@ private struct MailComposerSubjectField: UIViewRepresentable {
 
     func submit(_ textField: UITextField) {
       guard textField.isFirstResponder else { return }
+      submitAfterNativeHandling(textField)
+    }
+
+    func submitAfterNativeHandling(_ textField: UITextField) {
       parent.isFocused = false
       parent.bodyFocusBridge.focusBody(from: textField, fallback: parent.focusBody)
     }
