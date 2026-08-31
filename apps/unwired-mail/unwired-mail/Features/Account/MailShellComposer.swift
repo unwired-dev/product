@@ -48,6 +48,7 @@ struct MailShellComposer: View {
   @State private var isBodyFocused = false
   @State private var isBodyFocusPending = false
   @State private var isSubjectFocused = false
+  @State private var bodyFocusBridge = SemanticMessageFocusBridge()
   @State private var subjectFocusRequest = 0
   @State private var bodyFocusRequest = 0
   @State private var bodyFocusHandoff = 0
@@ -212,6 +213,7 @@ struct MailShellComposer: View {
           MailComposerSubjectRow(
             subject: $viewModel.draft.subject,
             isFocused: $isSubjectFocused,
+            bodyFocusBridge: bodyFocusBridge,
             focusRequest: subjectFocusRequest,
             presentsField: presentsSubjectField,
             focusBody: focusBody,
@@ -242,6 +244,7 @@ struct MailShellComposer: View {
             editorModel: editorModel,
             composeAssistanceContext: composeAssistanceContext,
             isFocused: $isBodyFocused,
+            focusBridge: bodyFocusBridge,
             focusRequest: bodyFocusRequest,
             focusDidBegin: bodyFocusDidBegin
           )
@@ -356,6 +359,7 @@ struct MailShellComposer: View {
       }
       .onChange(of: focusedField) { previousField, focusedField in
         if focusedField != nil {
+          bodyFocusBridge.cancelPendingFocus()
           bodyFocusHandoff &+= 1
           isBodyFocusPending = false
           presentsSubjectField = true
@@ -373,6 +377,7 @@ struct MailShellComposer: View {
           return
         }
         if isSubjectFocused {
+          bodyFocusBridge.cancelPendingFocus()
           bodyFocusHandoff &+= 1
           isBodyFocusPending = false
           focusedField = nil
@@ -516,6 +521,7 @@ struct MailShellComposer: View {
     bodyFocusHandoff &+= 1
     let handoff = bodyFocusHandoff
     isBodyFocusPending = true
+    presentsSubjectField = false
     focusedField = nil
     isSubjectFocused = false
     Task { @MainActor in
@@ -542,6 +548,7 @@ struct MailShellComposer: View {
   }
 
   private func focusSubject() {
+    bodyFocusBridge.cancelPendingFocus()
     bodyFocusHandoff &+= 1
     let handoff = bodyFocusHandoff
     isBodyFocusPending = false
@@ -566,6 +573,7 @@ struct MailShellComposer: View {
   }
 
   private func resetDraftPresentation() {
+    bodyFocusBridge.cancelPendingFocus()
     bodyFocusHandoff &+= 1
     isBodyFocusPending = false
     presentsSubjectField = true
@@ -1343,6 +1351,7 @@ private struct MailComposerBodyField: View {
   @Bindable var editorModel: SemanticMessageEditorModel
   let composeAssistanceContext: SemanticMessageTextView.ComposeAssistanceContext?
   @Binding var isFocused: Bool
+  let focusBridge: SemanticMessageFocusBridge
   let focusRequest: Int
   let focusDidBegin: () -> Void
 
@@ -1351,6 +1360,7 @@ private struct MailComposerBodyField: View {
       editorModel: editorModel,
       composeAssistanceContext: composeAssistanceContext,
       isFocused: $isFocused,
+      focusBridge: focusBridge,
       focusRequest: focusRequest,
       focusDidBegin: focusDidBegin,
       minimumHeight: 160
@@ -1596,6 +1606,7 @@ private struct MailComposerIdentityRow: View {
 private struct MailComposerSubjectRow: View {
   @Binding var subject: String
   @Binding var isFocused: Bool
+  let bodyFocusBridge: SemanticMessageFocusBridge
   let focusRequest: Int
   let presentsField: Bool
   let focusBody: () -> Void
@@ -1606,6 +1617,7 @@ private struct MailComposerSubjectRow: View {
       MailComposerSubjectField(
         subject: $subject,
         isFocused: $isFocused,
+        bodyFocusBridge: bodyFocusBridge,
         focusRequest: focusRequest,
         focusBody: focusBody
       )
@@ -1630,16 +1642,36 @@ private struct MailComposerSubjectField: UIViewRepresentable {
     var submit: (() -> Void)?
 
     override func insertText(_ text: String) {
-      guard text != "\n", text != "\r" else {
-        submit?()
-        return
-      }
+      let submitsAfterNativeHandling =
+        isFirstResponder
+        && markedTextRange == nil
+        && (text == "\n" || text == "\r")
       super.insertText(text)
+      guard submitsAfterNativeHandling else { return }
+      submitAfterNativeHandling()
+    }
+
+    override func pressesEnded(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+      let submitsAfterNativeHandling =
+        isFirstResponder
+        && markedTextRange == nil
+        && presses.contains { $0.key?.keyCode == .keyboardReturnOrEnter }
+      super.pressesEnded(presses, with: event)
+      guard submitsAfterNativeHandling else { return }
+      submitAfterNativeHandling()
+    }
+
+    private func submitAfterNativeHandling() {
+      Task { @MainActor [weak self] in
+        await Task.yield()
+        self?.submit?()
+      }
     }
   }
 
   @Binding var subject: String
   @Binding var isFocused: Bool
+  let bodyFocusBridge: SemanticMessageFocusBridge
   let focusRequest: Int
   let focusBody: () -> Void
 
@@ -1660,9 +1692,8 @@ private struct MailComposerSubjectField: UIViewRepresentable {
       action: #selector(Coordinator.subjectDidChange),
       for: .editingChanged
     )
-    textField.submit = { [weak coordinator = context.coordinator, weak textField] in
-      guard let textField else { return }
-      coordinator?.submit(textField)
+    textField.submit = { [weak coordinator = context.coordinator] in
+      coordinator?.submitAfterNativeHandling()
     }
     return textField
   }
@@ -1681,7 +1712,6 @@ private struct MailComposerSubjectField: UIViewRepresentable {
   final class Coordinator: NSObject, UITextFieldDelegate {
     var parent: MailComposerSubjectField
     private var activeFocusRequest: Int?
-    private var focusesBodyAfterEditingEnds = false
 
     init(parent: MailComposerSubjectField) {
       self.parent = parent
@@ -1704,9 +1734,6 @@ private struct MailComposerSubjectField: UIViewRepresentable {
 
     func textFieldDidEndEditing(_: UITextField) {
       parent.isFocused = false
-      guard focusesBodyAfterEditingEnds else { return }
-      focusesBodyAfterEditingEnds = false
-      parent.focusBody()
     }
 
     func textFieldShouldReturn(_ textField: UITextField) -> Bool {
@@ -1716,15 +1743,12 @@ private struct MailComposerSubjectField: UIViewRepresentable {
 
     func submit(_ textField: UITextField) {
       guard textField.isFirstResponder else { return }
-      focusesBodyAfterEditingEnds = true
+      submitAfterNativeHandling()
+    }
+
+    func submitAfterNativeHandling() {
       parent.isFocused = false
-      Task { @MainActor [self, textField] in
-        await Task.yield()
-        textField.resignFirstResponder()
-        guard focusesBodyAfterEditingEnds else { return }
-        focusesBodyAfterEditingEnds = false
-        parent.focusBody()
-      }
+      parent.bodyFocusBridge.focusBody(requestFocus: parent.focusBody)
     }
   }
 }

@@ -287,12 +287,17 @@ struct AppearanceSettingsView: View {
 
         Section {
           Toggle("Increased Contrast", isOn: $preferences.increasedContrast)
+            .fixedSize(horizontal: false, vertical: true)
             .id(AppearanceSettingsControl.increasedContrast)
             .settingsHighlight(highlightedControl == .increasedContrast)
         } footer: {
           Text("Adds contrast beyond the current system setting on this device.")
+            .font(.body.weight(.semibold))
+            .foregroundColor(.primary)
+            .fixedSize(horizontal: false, vertical: true)
         }
       }
+      .headerProminence(.increased)
       .onChange(of: navigationRequest?.id, initial: true) { _, _ in
         applyNavigation(navigationRequest?.route, proxy: proxy)
       }
@@ -348,11 +353,11 @@ private struct AppearancePreview: View {
   private var messageListPreview: some View {
     HStack(alignment: .top, spacing: 12) {
       Circle()
-        .fill(.blue)
+        .fill(Color(red: 0, green: 0.32, blue: 0.72))
         .frame(width: 34, height: 34)
         .overlay {
           Text("A")
-            .font(.callout.weight(.semibold))
+            .font(.headline.bold())
             .foregroundStyle(.white)
         }
         .accessibilityHidden(true)
@@ -364,14 +369,14 @@ private struct AppearancePreview: View {
           Spacer()
           Text("10:42")
             .font(.caption)
-            .foregroundStyle(.secondary)
+            .foregroundStyle(.primary)
         }
         Text("Weekend plans")
           .font(.subheadline.weight(.medium))
         Text("The trail opens early on Saturday.")
           .font(.subheadline)
-          .foregroundStyle(.secondary)
-          .lineLimit(1)
+          .foregroundStyle(.primary)
+          .fixedSize(horizontal: false, vertical: true)
       }
     }
     .padding(14)

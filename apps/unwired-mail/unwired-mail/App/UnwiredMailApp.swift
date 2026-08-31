@@ -1,5 +1,9 @@
 import SwiftUI
 
+#if canImport(UIKit)
+  import UIKit
+#endif
+
 @main
 struct UnwiredMailApp: App {
   @State private var appearancePreferences: AppearancePreferences
@@ -19,6 +23,11 @@ struct UnwiredMailApp: App {
   init() {
     #if DEBUG
       DotEnvFile.loadDefaultsIfPresent()
+      #if canImport(UIKit)
+        if ProcessInfo.processInfo.environment["CLIENT_VALIDATION_DISABLE_ANIMATIONS"] == "1" {
+          UIView.setAnimationsEnabled(false)
+        }
+      #endif
     #endif
     _appearancePreferences = State(initialValue: AppearancePreferences())
     _attachmentNetworkMonitor = State(initialValue: AttachmentDownloadNetworkMonitor())

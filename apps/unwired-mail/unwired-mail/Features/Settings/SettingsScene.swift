@@ -614,6 +614,10 @@ struct SettingsSearchResult: Equatable, Identifiable {
   var id: Identity {
     Identity(route: route, subtitle: subtitle, title: title)
   }
+
+  var accessibilityIdentifier: String {
+    "\(route.destination.rawValue)-\(subtitle)-\(title)"
+  }
 }
 
 struct SettingsAttention: Equatable, Identifiable {
@@ -1013,14 +1017,7 @@ struct AdaptiveSettingsScene<DestinationContent: View>: View {
 
   private var compactSettingsList: some View {
     settingsList { destination in
-      Button {
-        requestNavigation(destination.route)
-      } label: {
-        destinationLabel(destination)
-      }
-      .buttonStyle(.plain)
-      .disabled(!isAvailable(destination))
-      .accessibilityHint(unavailableHint(for: destination))
+      destinationRow(destination)
     }
     .navigationTitle("Settings")
     .navigationDestination(item: compactSelection) { destination in
@@ -1032,17 +1029,10 @@ struct AdaptiveSettingsScene<DestinationContent: View>: View {
   private var splitNavigation: some View {
     NavigationSplitView {
       settingsList { destination in
-        Button {
-          requestNavigation(destination.route)
-        } label: {
-          destinationLabel(destination)
-        }
-        .buttonStyle(.plain)
-        .disabled(!isAvailable(destination))
-        .accessibilityHint(unavailableHint(for: destination))
-        .listRowBackground(
-          selection == destination ? Color.accentColor.opacity(0.14) : Color.clear
-        )
+        destinationRow(destination)
+          .listRowBackground(
+            selection == destination ? Color.accentColor.opacity(0.14) : Color.clear
+          )
       }
       .navigationTitle("Settings")
       .toolbar { dismissToolbar }
@@ -1067,52 +1057,106 @@ struct AdaptiveSettingsScene<DestinationContent: View>: View {
     List {
       if searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
         ForEach(SettingsDestinationRegistry.implementedGroups(isSignedIn: isSignedIn)) { group in
-          Section(group.title) {
+          Section {
             ForEach(
               SettingsDestinationRegistry.destinations(in: group, isSignedIn: isSignedIn)
             ) { destination in
               row(destination)
             }
+          } header: {
+            Text(group.title)
+              .foregroundStyle(Color.primary)
+              .accessibilityIdentifier("settings-section-\(group.rawValue)")
           }
         }
       } else {
-        Section("Search Results") {
-          if searchResults.isEmpty {
-            Text("No Settings controls found")
-              .foregroundStyle(.secondary)
-          } else {
-            ForEach(searchResults) { result in
-              Button {
-                requestNavigation(result.route)
-              } label: {
-                HStack {
-                  VStack(alignment: .leading, spacing: 2) {
-                    Text(result.title)
-                    Text(result.subtitle)
-                      .font(.caption)
-                      .foregroundStyle(.secondary)
-                    if !isAvailable(result.route.destination) {
-                      Text(Self.unavailableExplanation)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    }
-                  }
-                  Spacer()
-                  Image(systemName: "chevron.right")
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
-                }
-                .contentShape(Rectangle())
-              }
-              .buttonStyle(.plain)
-              .disabled(!isAvailable(result.route.destination))
-              .accessibilityHint(unavailableHint(for: result.route.destination))
+        searchResultsSection
+      }
+    }
+    .headerProminence(.increased)
+    .searchable(
+      text: $searchQuery,
+      placement: .navigationBarDrawer(displayMode: .automatic),
+      prompt: "Search Settings"
+    )
+    .accessibilityIdentifier("settings-destination-list")
+  }
+
+  private var searchResultsSection: some View {
+    Section {
+      if searchResults.isEmpty {
+        Text("No Settings controls found")
+          .foregroundStyle(.secondary)
+      } else {
+        ForEach(searchResults) { result in
+          if isAvailable(result.route.destination) {
+            Button {
+              requestNavigation(result.route)
+            } label: {
+              searchResultLabel(result)
             }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("settings-search-result-\(result.accessibilityIdentifier)")
+          } else {
+            searchResultLabel(result)
+              .foregroundStyle(Color.primary)
+              .accessibilityElement(children: .combine)
+              .accessibilityLabel(result.title)
+              .accessibilityHint(Self.unavailableExplanation)
+              .accessibilityIdentifier(
+                "unavailable-settings-search-\(result.accessibilityIdentifier)"
+              )
           }
         }
       }
+    } header: {
+      Text("Search Results")
+        .foregroundStyle(Color.primary)
+        .accessibilityIdentifier("settings-section-search-results")
     }
-    .searchable(text: $searchQuery, prompt: "Search Settings")
+  }
+
+  @ViewBuilder
+  private func destinationRow(_ destination: SettingsDestination) -> some View {
+    if isAvailable(destination) {
+      Button {
+        requestNavigation(destination.route)
+      } label: {
+        destinationLabel(destination)
+      }
+      .buttonStyle(.plain)
+      .accessibilityIdentifier("settings-destination-\(destination.rawValue)")
+    } else {
+      destinationLabel(destination)
+        .foregroundStyle(Color.primary)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(destination.title)
+        .accessibilityHint(Self.unavailableExplanation)
+        .accessibilityIdentifier("unavailable-settings-\(destination.rawValue)")
+    }
+  }
+
+  private func searchResultLabel(_ result: SettingsSearchResult) -> some View {
+    HStack {
+      VStack(alignment: .leading, spacing: 2) {
+        Text(result.title)
+        Text(result.subtitle)
+          .font(.caption)
+          .foregroundStyle(.secondary)
+        if !isAvailable(result.route.destination) {
+          Text(Self.unavailableExplanation)
+            .font(.caption)
+            .foregroundStyle(Color.primary)
+        }
+      }
+      Spacer()
+      if isAvailable(result.route.destination) {
+        Image(systemName: "chevron.right")
+          .font(.caption)
+          .foregroundStyle(.tertiary)
+      }
+    }
+    .contentShape(Rectangle())
   }
 
   private func destinationLabel(_ destination: SettingsDestination) -> some View {
@@ -1122,7 +1166,7 @@ struct AdaptiveSettingsScene<DestinationContent: View>: View {
         if !isAvailable(destination) {
           Text(Self.unavailableExplanation)
             .font(.caption)
-            .foregroundStyle(.secondary)
+            .foregroundStyle(Color.primary)
         }
       }
       Spacer()
@@ -1137,10 +1181,6 @@ struct AdaptiveSettingsScene<DestinationContent: View>: View {
 
   private func isAvailable(_ destination: SettingsDestination) -> Bool {
     isSignedIn || destination.isAvailableWhenSignedOut
-  }
-
-  private func unavailableHint(for destination: SettingsDestination) -> String {
-    isAvailable(destination) ? "" : Self.unavailableExplanation
   }
 
   private static var unavailableExplanation: String {

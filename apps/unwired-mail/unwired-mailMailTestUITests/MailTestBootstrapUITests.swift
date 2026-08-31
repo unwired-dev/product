@@ -69,7 +69,7 @@ final class MailTestBootstrapUITests: XCTestCase {
   func testComposeAndSendThroughVisibleClient() throws {
     let app = launchApplication(
       composerLayout: "regular",
-      preferredContentSizeCategory: "UICTContentSizeCategoryAccessibilityExtraExtraExtraLarge"
+      preferredContentSizeCategory: "UICTContentSizeCategoryAccessibilityXXXL"
     )
     let header = try openRegularComposer(in: app)
     let initialCloseFrame = header.close.frame
@@ -82,6 +82,12 @@ final class MailTestBootstrapUITests: XCTestCase {
       body: draft.body,
       in: app
     )
+    try app.performAccessibilityAudit(
+      for: [
+        .contrast, .dynamicType, .hitRegion, .sufficientElementDescription, .textClipped, .trait,
+      ]
+    )
+    attachInterfaceEvidence(named: "regular-composer-accessibility-text", app: app)
 
     try sendVisibleDraft(step: "compose-send", in: app)
     waitForOutboxToDrain(in: app)
@@ -185,12 +191,7 @@ final class MailTestBootstrapUITests: XCTestCase {
       in: app,
       failure: "MAIL_TEST_FAILURE:ui: The recipient field was not visible."
     )
-    try focusAndType(
-      (0..<12).map { "recipient\($0)@synthetic.invalid" }.joined(separator: ", "),
-      into: recipient,
-      in: app,
-      failure: "MAIL_TEST_FAILURE:ui: The recipient field did not receive keyboard focus."
-    )
+    try populateRecipientTokens(in: recipient, app: app)
     try replaceRecipientTokens(in: recipient, app: app)
     let subject = try requireElement(
       identifier: "mail-compose-subject",
@@ -246,7 +247,6 @@ final class MailTestBootstrapUITests: XCTestCase {
   }
 
   private func replaceRecipientTokens(in recipient: XCUIElement, app: XCUIApplication) throws {
-    recipient.typeText(",")
     try removeRecipientTokens(in: app)
     try focusAndType(
       "recipient@synthetic.invalid,",
@@ -255,6 +255,25 @@ final class MailTestBootstrapUITests: XCTestCase {
       failure: "MAIL_TEST_FAILURE:ui: The recipient field could not be focused after token removal."
     )
     assertRecipientReplacement(in: app)
+  }
+
+  private func populateRecipientTokens(
+    in recipient: XCUIElement,
+    app: XCUIApplication
+  ) throws {
+    for index in 0..<12 {
+      let address = "recipient\(index)@synthetic.invalid"
+      try focusAndType(
+        "\(address),",
+        into: recipient,
+        in: app,
+        failure: "MAIL_TEST_FAILURE:ui: Recipient \(index + 1) could not be entered."
+      )
+      guard app.buttons["Remove \(address)"].waitForExistence(timeout: 5) else {
+        XCTFail("Recipient \(index + 1) did not become a removable token.")
+        throw NSError(domain: "MailTestBootstrapUITests", code: 1)
+      }
+    }
   }
 
   private func removeRecipientTokens(in app: XCUIApplication) throws {
@@ -501,6 +520,8 @@ final class MailTestBootstrapUITests: XCTestCase {
       failure: "MAIL_TEST_FAILURE:ui: The reply body did not receive automatic keyboard focus."
     )
     body.typeText("Synthetic visible reply")
+    try app.performAccessibilityAudit(for: .all)
+    attachInterfaceEvidence(named: "compact-reply-composer", app: app)
 
     try sendVisibleDraft(step: "reply", in: app)
     try verifyReplyConversation(in: app)
@@ -779,6 +800,18 @@ final class MailTestBootstrapUITests: XCTestCase {
     in app: XCUIApplication
   ) -> XCUIElement {
     app.descendants(matching: elementType).matching(identifier: identifier).firstMatch
+  }
+
+  private func attachInterfaceEvidence(named name: String, app: XCUIApplication) {
+    let screenshot = XCTAttachment(screenshot: app.screenshot())
+    screenshot.name = name
+    screenshot.lifetime = .keepAlways
+    add(screenshot)
+
+    let hierarchy = XCTAttachment(string: app.debugDescription)
+    hierarchy.name = "\(name)-hierarchy"
+    hierarchy.lifetime = .keepAlways
+    add(hierarchy)
   }
 
   private func button(
