@@ -166,7 +166,7 @@ final class ComposePreferenceSyncServiceTests {
     defer { defaults.removePersistentDomain(forName: suiteName) }
     let key = "mail-workflow-preferences.compose.\(session.productAccountId)"
     let legacyData = Data(
-      #"{"conflicts":{},"pendingChanges":{},"preferences":{"schemaVersion":1}}"#.utf8
+      #"{"conflicts":[],"pendingChanges":[],"preferences":{"schemaVersion":1}}"#.utf8
     )
     defaults.set(legacyData, forKey: key)
     let localStore = UserDefaultsComposePreferenceStateStore(defaults: defaults)
