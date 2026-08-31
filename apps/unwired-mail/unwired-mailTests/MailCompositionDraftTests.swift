@@ -432,22 +432,31 @@ final class MailCompositionDraftTests {
     )
     let reminder = try #require(viewModel.draft.sendReminder)
     #expect(reminder.originatingDeviceId == "device-a")
+    #expect(reminder.notificationOwnerDeviceId == "device-a")
+    #expect(reminder.changedByTrustedDeviceId == "device-a")
+    #expect(reminder.originalTimeZoneIdentifier == "Europe/Prague")
     #expect(reminder.dueAt == now.addingTimeInterval(3_600))
+    #expect(reminder.isSynchronizationPending)
+    #expect(reminder.createdAtMilliseconds == Int64(now.timeIntervalSince1970 * 1_000))
+    #expect(reminder.changedAtMilliseconds == Int64(now.timeIntervalSince1970 * 1_000))
+    #expect(viewModel.draft.updatedAtMilliseconds == Int64(now.timeIntervalSince1970 * 1_000))
     #expect(savedDrafts.last == viewModel.draft)
     #expect(scheduledDrafts.last == viewModel.draft)
     #expect(viewModel.reminderState == .saved(.scheduled))
   }
 
   @Test(.bug(id: 377))
+  // swiftlint:disable:next function_body_length
   func reminderRescheduleAdvancesRevisionAndSendOrDiscardCancelsCurrentRevision() async throws {
-    let now = Date(timeIntervalSince1970: 2_000_000_000)
+    let initialTime = Date(timeIntervalSince1970: 2_000_000_000)
+    var currentTime = initialTime
     var source = draft(recipient: "recipient@example.com")
     source.subject = "Subject"
     var cancelled: [(UUID, UUID)] = []
     let viewModel = MailComposerViewModel(
       draft: source,
       reminderOwnerDeviceId: "device-a",
-      now: { now },
+      now: { currentTime },
       cancelReminder: { reminder, draftId in
         cancelled.append((reminder.revision, draftId))
       },
@@ -457,20 +466,31 @@ final class MailCompositionDraftTests {
 
     #expect(
       await viewModel.remind(
-        at: now.addingTimeInterval(3_600),
+        at: initialTime.addingTimeInterval(3_600),
         timeZoneIdentifier: "Europe/Prague"
       )
     )
     let first = try #require(viewModel.draft.sendReminder)
+    currentTime = initialTime.addingTimeInterval(60)
     #expect(
       await viewModel.remind(
-        at: now.addingTimeInterval(7_200),
+        at: initialTime.addingTimeInterval(7_200),
         timeZoneIdentifier: "Europe/Prague"
       )
     )
     let second = try #require(viewModel.draft.sendReminder)
     #expect(second.id == first.id)
     #expect(second.revision != first.revision)
+    #expect(second.originatingDeviceId == first.originatingDeviceId)
+    #expect(second.notificationOwnerDeviceId == first.notificationOwnerDeviceId)
+    #expect(second.changedByTrustedDeviceId == "device-a")
+    #expect(second.originalTimeZoneIdentifier == "Europe/Prague")
+    #expect(second.isSynchronizationPending)
+    #expect(second.createdAtMilliseconds == first.createdAtMilliseconds)
+    #expect(second.changedAtMilliseconds == Int64(currentTime.timeIntervalSince1970 * 1_000))
+    #expect(
+      viewModel.draft.updatedAtMilliseconds == Int64(currentTime.timeIntervalSince1970 * 1_000)
+    )
     #expect(await viewModel.send() == .sent)
     #expect(cancelled.map(\.0) == [second.revision])
     #expect(cancelled.map(\.1) == [source.id])
@@ -513,6 +533,134 @@ final class MailCompositionDraftTests {
     #expect(savedDrafts.last?.sendReminder != nil)
     #expect(viewModel.reminderState == .saved(.unavailable))
     #expect(viewModel.draft.sendReminder?.isOverdue(at: now.addingTimeInterval(61)) == true)
+  }
+
+  @Test(.bug(id: 377))
+  func reminderSaveFailurePreservesTheOriginalDraftAndFailureStates() async {
+    let now = Date(timeIntervalSince1970: 2_000_000_000)
+    let source = draft(recipient: "recipient@example.com")
+    var scheduleAttempts = 0
+    let viewModel = MailComposerViewModel(
+      draft: source,
+      reminderOwnerDeviceId: "device-a",
+      now: { now },
+      saveDraft: { _ in throw DraftFixtureError.saveFailed },
+      scheduleReminder: { _ in
+        scheduleAttempts += 1
+        return .scheduled
+      },
+      sendDraft: { _ in false }
+    )
+
+    #expect(
+      !(await viewModel.remind(
+        at: now.addingTimeInterval(60),
+        timeZoneIdentifier: "UTC"
+      ))
+    )
+    #expect(viewModel.draft == source)
+    #expect(viewModel.draft.sendReminder == nil)
+    #expect(scheduleAttempts == 0)
+    guard case .failed = viewModel.saveState else {
+      Issue.record("Expected the reminder Draft save failure to remain visible")
+      return
+    }
+    guard case .failed = viewModel.reminderState else {
+      Issue.record("Expected the reminder save failure to remain visible")
+      return
+    }
+  }
+
+  @Test(.bug(id: 377))
+  func managedReminderRescheduleFailurePersistsANewerRollbackRevision() async throws {
+    let initialTime = Date(timeIntervalSince1970: 2_000_000_000)
+    let currentTime = initialTime.addingTimeInterval(60)
+    var source = draft(recipient: "recipient@example.com")
+    source.sendReminder = SendReminder(
+      dueAt: initialTime.addingTimeInterval(3_600),
+      originatingDeviceId: "device-a",
+      originalTimeZoneIdentifier: "Europe/Prague",
+      createdAt: initialTime
+    )
+    var savedDrafts: [MailShellCompositionDraft] = []
+    let viewModel = MailComposerViewModel(
+      draft: source,
+      reminderOwnerDeviceId: "device-a",
+      now: { currentTime },
+      saveDraft: { savedDrafts.append($0) },
+      scheduleReminder: { _ in throw ScheduledSendManagementError.staleRevision },
+      sendDraft: { _ in false }
+    )
+
+    #expect(
+      !(await viewModel.remind(
+        at: initialTime.addingTimeInterval(7_200),
+        timeZoneIdentifier: "UTC"
+      ))
+    )
+    #expect(savedDrafts.count == 2)
+    let originalReminder = try #require(source.sendReminder)
+    let candidateReminder = try #require(savedDrafts.first?.sendReminder)
+    let rollbackDraft = try #require(savedDrafts.last)
+    let rollbackReminder = try #require(rollbackDraft.sendReminder)
+    #expect(rollbackReminder.id == originalReminder.id)
+    #expect(rollbackReminder.dueAtMilliseconds == originalReminder.dueAtMilliseconds)
+    #expect(
+      rollbackReminder.originalTimeZoneIdentifier == originalReminder.originalTimeZoneIdentifier
+    )
+    #expect(rollbackReminder.revision != originalReminder.revision)
+    #expect(rollbackReminder.revision != candidateReminder.revision)
+    #expect(rollbackReminder.changedAtMilliseconds > candidateReminder.changedAtMilliseconds)
+    #expect(viewModel.draft == rollbackDraft)
+    #expect(viewModel.saveState == .saved)
+    #expect(
+      viewModel.reminderState
+        == .failed(ScheduledSendManagementError.staleRevision.localizedDescription)
+    )
+  }
+
+  @Test(.bug(id: 377))
+  func managedReminderRollbackSaveFailureRemainsVisible() async throws {
+    let initialTime = Date(timeIntervalSince1970: 2_000_000_000)
+    let currentTime = initialTime.addingTimeInterval(60)
+    var source = draft(recipient: "recipient@example.com")
+    source.sendReminder = SendReminder(
+      dueAt: initialTime.addingTimeInterval(3_600),
+      originatingDeviceId: "device-a",
+      originalTimeZoneIdentifier: "Europe/Prague",
+      createdAt: initialTime
+    )
+    var savedDrafts: [MailShellCompositionDraft] = []
+    let viewModel = MailComposerViewModel(
+      draft: source,
+      reminderOwnerDeviceId: "device-a",
+      now: { currentTime },
+      saveDraft: { draft in
+        guard savedDrafts.isEmpty else { throw DraftFixtureError.saveFailed }
+        savedDrafts.append(draft)
+      },
+      scheduleReminder: { _ in throw ScheduledSendManagementError.staleRevision },
+      sendDraft: { _ in false }
+    )
+
+    #expect(
+      !(await viewModel.remind(
+        at: initialTime.addingTimeInterval(7_200),
+        timeZoneIdentifier: "UTC"
+      ))
+    )
+    let candidateReminder = try #require(savedDrafts.first?.sendReminder)
+    let rollbackReminder = try #require(viewModel.draft.sendReminder)
+    #expect(rollbackReminder.dueAtMilliseconds == source.sendReminder?.dueAtMilliseconds)
+    #expect(rollbackReminder.changedAtMilliseconds > candidateReminder.changedAtMilliseconds)
+    guard case .failed = viewModel.saveState else {
+      Issue.record("Expected the reminder rollback save failure to remain visible")
+      return
+    }
+    #expect(
+      viewModel.reminderState
+        == .failed(ScheduledSendManagementError.staleRevision.localizedDescription)
+    )
   }
 
   @Test(.bug(id: 377))
@@ -722,6 +870,42 @@ final class MailCompositionDraftTests {
     #expect(cancelledDraftIds == [source.id])
     #expect(scheduledDraftIds == [copy.id])
     #expect(viewModel.reminderState == .saved(.scheduled))
+  }
+
+  @Test(.bug(id: 377), .bug(id: 562))
+  func reminderSchedulingFailurePreservesConflictCopy() async throws {
+    let now = Date(timeIntervalSince1970: 2_000_000_000)
+    let source = draft(recipient: "recipient@example.com")
+    var conflictCopy: MailShellCompositionDraft?
+    let viewModel = MailComposerViewModel(
+      draft: source,
+      reminderOwnerDeviceId: "device-a",
+      now: { now },
+      saveDraft: { candidate in
+        let copy = candidate.preservingAsConflictCopy(now: now)
+        conflictCopy = copy
+        throw MailCompositionDraftSaveConflict(copy: copy)
+      },
+      scheduleReminder: { _ in throw ScheduledSendManagementError.staleRevision },
+      sendDraft: { _ in false }
+    )
+
+    #expect(
+      !(await viewModel.remind(
+        at: now.addingTimeInterval(3_600),
+        timeZoneIdentifier: "UTC"
+      ))
+    )
+    let copy = try #require(conflictCopy)
+    #expect(viewModel.draft == copy)
+    #expect(
+      viewModel.noticeMessage == MailCompositionDraftSaveConflict(copy: copy).errorDescription
+    )
+    #expect(viewModel.saveState == .saved)
+    #expect(
+      viewModel.reminderState
+        == .failed(ScheduledSendManagementError.staleRevision.localizedDescription)
+    )
   }
 
   @Test(.bug(id: 562))

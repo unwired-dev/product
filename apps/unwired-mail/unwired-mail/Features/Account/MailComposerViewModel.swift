@@ -279,10 +279,7 @@ final class MailComposerViewModel {
     await cancelPendingAutosave()
 
     let previousDraft = draft
-    var candidate = reminderCandidate(
-      dueAt: dueAt,
-      timeZoneIdentifier: timeZoneIdentifier
-    )
+    var candidate = makeReminderDraft(dueAt: dueAt, timeZoneIdentifier: timeZoneIdentifier)
     reminderState = .saving
     saveState = .saving
     do {
@@ -298,16 +295,26 @@ final class MailComposerViewModel {
       reminderState = .failed(error.localizedDescription)
       return false
     }
-
     do {
       reminderState = .saved(try await scheduleReminder(candidate))
-    } catch let error as ScheduledSendManagementError {
+    } catch let schedulingError as ScheduledSendManagementError {
       if candidate.id == previousDraft.id {
-        draft = previousDraft
-        lastSavedDraft = previousDraft
+        let rollbackDraft = makeReminderRollbackDraft(
+          restoring: previousDraft,
+          superseding: candidate
+        )
+        draft = rollbackDraft
+        do {
+          try await saveDraft(rollbackDraft)
+          lastSavedDraft = rollbackDraft
+          saveState = .saved
+        } catch let conflict as MailCompositionDraftSaveConflict {
+          adoptConflictCopy(conflict.copy)
+        } catch {
+          saveState = .failed(error.localizedDescription)
+        }
       }
-      saveState = .saved
-      reminderState = .failed(error.localizedDescription)
+      reminderState = .failed(schedulingError.localizedDescription)
       return false
     } catch {
       reminderState = .failed(
@@ -317,25 +324,8 @@ final class MailComposerViewModel {
     return true
   }
 
-  private func flushAutosave() async -> Bool {
-    await cancelPendingAutosave()
-    return await persistCurrentDraft(revision: editRevision)
-  }
-
-  private func cancelPendingAutosave() async {
-    editRevision += 1
-    let pendingAutosaveTask = autosaveTask
-    autosaveTask = nil
-    pendingAutosaveTask?.cancel()
-    await pendingAutosaveTask?.value
-  }
-
-  private func cancelCurrentReminder() async {
-    guard let reminder = draft.sendReminder else { return }
-    await cancelReminder(reminder, draft.id)
-  }
-
-  private func reminderCandidate(
+  /// Returns the current draft with a newly created or rescheduled reminder.
+  private func makeReminderDraft(
     dueAt: Date,
     timeZoneIdentifier: String
   ) -> MailShellCompositionDraft {
@@ -357,6 +347,50 @@ final class MailComposerViewModel {
     }
     candidate.markEdited(now: now())
     return candidate
+  }
+
+  /// Returns the previous draft with a reminder revision that supersedes a failed reschedule.
+  private func makeReminderRollbackDraft(
+    restoring previousDraft: MailShellCompositionDraft,
+    superseding candidate: MailShellCompositionDraft
+  ) -> MailShellCompositionDraft {
+    guard let previousReminder = previousDraft.sendReminder,
+      let candidateReminder = candidate.sendReminder
+    else { return previousDraft }
+
+    let currentMilliseconds = Int64(now().timeIntervalSince1970 * 1_000)
+    let rollbackMilliseconds = max(
+      currentMilliseconds,
+      candidateReminder.changedAtMilliseconds + 1
+    )
+    let rollbackDate = Date(timeIntervalSince1970: TimeInterval(rollbackMilliseconds) / 1_000)
+    var rollbackDraft = previousDraft
+    rollbackDraft.sendReminder = previousReminder.rescheduled(
+      to: previousReminder.dueAt,
+      originalTimeZoneIdentifier: previousReminder.originalTimeZoneIdentifier,
+      changedByTrustedDeviceId: reminderOwnerDeviceId,
+      changedAt: rollbackDate
+    )
+    rollbackDraft.markEdited(now: rollbackDate)
+    return rollbackDraft
+  }
+
+  private func flushAutosave() async -> Bool {
+    await cancelPendingAutosave()
+    return await persistCurrentDraft(revision: editRevision)
+  }
+
+  private func cancelPendingAutosave() async {
+    editRevision += 1
+    let pendingAutosaveTask = autosaveTask
+    autosaveTask = nil
+    pendingAutosaveTask?.cancel()
+    await pendingAutosaveTask?.value
+  }
+
+  private func cancelCurrentReminder() async {
+    guard let reminder = draft.sendReminder else { return }
+    await cancelReminder(reminder, draft.id)
   }
 
   private func persistCurrentDraft(revision: Int) async -> Bool {

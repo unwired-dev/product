@@ -2448,7 +2448,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxConnectio
       profileResolver: ProductSyncNotificationProfileResolver()
     ),
     metadataStore: GmailMessageMetadataPersisting = SwiftDataGmailMessageMetadataStore(),
-    oauthAuthorizer: GmailOAuthAuthorizing = GoogleGmailOAuthService(),
+    oauthAuthorizer: GmailOAuthAuthorizing = GmailOAuthAuthorizerFactory.make(),
     pushWatchService: GmailPushWatchRegistering = GmailPushWatchService(),
     pendingActionService: PendingProviderActionService = .shared,
     pendingActionGate: MailboxConnectionSyncGate = .pendingActions,

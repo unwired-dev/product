@@ -1464,9 +1464,11 @@ extension MailboxConnectionSyncService: MailProfileSnapshotLoading {}
 final class MailProfileWorkspaceViewModel {
   private(set) var errorMessage: String?
   private(set) var isLoading = false
-  private(set) var selection: MailProfileWorkspaceSelection?
+  private(set) var activeProfileId: MailProfileId?
   private(set) var startupProfileId: MailProfileId?
 
+  @ObservationIgnored private var selection: MailProfileWorkspaceSelection?
+  private var snapshotRevision = 0
   private var session: ProductAccountSessionSnapshot
   private var loadGeneration = 0
   private let snapshotLoader: MailProfileSnapshotLoading
@@ -1484,16 +1486,23 @@ final class MailProfileWorkspaceViewModel {
     startupProfileId = startupStore.load(productAccountId: session.productAccountId)
   }
 
-  var activeProfile: MailProfileDefinition? { selection?.activeProfile }
-  var activeProfileId: MailProfileId? { selection?.activeProfileId }
+  var activeProfile: MailProfileDefinition? {
+    _ = snapshotRevision
+    guard let activeProfileId else { return nil }
+    return selection?.snapshot.profiles.first { $0.id == activeProfileId }
+  }
 
   var profiles: [MailProfileDefinition] {
-    selection?.snapshot.profiles.sorted {
+    _ = snapshotRevision
+    return selection?.snapshot.profiles.sorted {
       $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
     } ?? []
   }
 
-  var profileSnapshot: MailProfileSyncSnapshot? { selection?.snapshot }
+  var profileSnapshot: MailProfileSyncSnapshot? {
+    _ = snapshotRevision
+    return selection?.snapshot
+  }
 
   func updateSession(_ session: ProductAccountSessionSnapshot) {
     loadGeneration += 1
@@ -1517,11 +1526,13 @@ final class MailProfileWorkspaceViewModel {
     do {
       let snapshot = try await snapshotLoader.loadProfileSnapshot(session: session)
       guard generation == loadGeneration else { return }
-      selection = MailProfileWorkspaceSelection(
-        snapshot: snapshot,
-        targetedProfileId: targetedProfileId,
-        restoredProfileId: restoredProfileId,
-        startupProfileId: startupProfileId
+      replaceSelection(
+        MailProfileWorkspaceSelection(
+          snapshot: snapshot,
+          targetedProfileId: targetedProfileId,
+          restoredProfileId: restoredProfileId,
+          startupProfileId: startupProfileId
+        )
       )
       errorMessage = nil
     } catch is CancellationError {
@@ -1547,11 +1558,13 @@ final class MailProfileWorkspaceViewModel {
       profiles: [defaultProfile],
       updatedAt: nil
     )
-    selection = MailProfileWorkspaceSelection(
-      snapshot: snapshot,
-      targetedProfileId: targetedProfileId,
-      restoredProfileId: restoredProfileId,
-      startupProfileId: startupProfileId
+    replaceSelection(
+      MailProfileWorkspaceSelection(
+        snapshot: snapshot,
+        targetedProfileId: targetedProfileId,
+        restoredProfileId: restoredProfileId,
+        startupProfileId: startupProfileId
+      )
     )
   }
 
@@ -1562,26 +1575,33 @@ final class MailProfileWorkspaceViewModel {
     guard let selection else { throw MailProfileSyncError.invalidProfileState }
     loadGeneration += 1
     isLoading = false
-    self.selection = try selection.activating(
+    let activatedSelection = try selection.activating(
       profileId,
       parkCurrentDraft: parkCurrentDraft
     )
+    self.selection = activatedSelection
+    activeProfileId = activatedSelection.activeProfileId
     errorMessage = nil
   }
 
   func connections(from connections: [MailboxConnection]) -> [MailboxConnection] {
-    selection?.connections(from: connections) ?? []
+    _ = snapshotRevision
+    guard let activeProfileId else { return [] }
+    return selection?.connections(for: activeProfileId, from: connections) ?? []
   }
 
   func connections(
     for profileId: MailProfileId,
     from connections: [MailboxConnection]
   ) -> [MailboxConnection] {
-    selection?.connections(for: profileId, from: connections) ?? []
+    _ = snapshotRevision
+    return selection?.connections(for: profileId, from: connections) ?? []
   }
 
   func owns(_ connectionId: MailboxConnectionId) -> Bool {
-    selection?.owns(connectionId) == true
+    _ = snapshotRevision
+    guard let activeProfileId else { return false }
+    return selection?.snapshot.assignments[connectionId] == activeProfileId
   }
 
   func setStartupProfile(_ profileId: MailProfileId) {
@@ -1592,6 +1612,12 @@ final class MailProfileWorkspaceViewModel {
 
   func show(_ error: Error) {
     errorMessage = error.localizedDescription
+  }
+
+  private func replaceSelection(_ selection: MailProfileWorkspaceSelection) {
+    self.selection = selection
+    activeProfileId = selection.activeProfileId
+    snapshotRevision &+= 1
   }
 }
 
@@ -3258,12 +3284,11 @@ struct AccountView: View {
         profileSwitchGate.isCurrent(switchGeneration),
         profileViewModel.activeProfileId == profileId
       else { return false }
-      prepareProfileThreadState(for: profileId)
-      await waitForNextMainRunLoopCycle()
       guard
-        !Task.isCancelled,
-        profileSwitchGate.isCurrent(switchGeneration),
-        profileViewModel.activeProfileId == profileId
+        await prepareStagedProfileThreadState(
+          for: profileId,
+          switchGeneration: switchGeneration
+        )
       else { return false }
       finishProfileSwitch(to: profileId)
       if let preparedProfileRecordScope {
@@ -3299,20 +3324,10 @@ struct AccountView: View {
     contentPresentationDismissal.dismissPresentations()
     mailShellSelection.clearThreadSelection()
     mailShellSelection.selectUnifiedInbox()
-    await waitForNextMainRunLoopCycle()
-    guard
-      !Task.isCancelled,
-      profileSwitchGate.isCurrent(switchGeneration),
-      profileViewModel.activeProfileId == sourceProfileId
-    else { return false }
     inboxViewModel.clearVisibleThreadsForProfileSwitch()
-    await waitForNextMainRunLoopCycle()
-    guard
-      !Task.isCancelled,
-      profileSwitchGate.isCurrent(switchGeneration),
-      profileViewModel.activeProfileId == sourceProfileId
-    else { return false }
-    inboxViewModel.prepareForProfileSwitch()
+    inboxViewModel.prepareNavigationForProfileSwitch()
+    inboxViewModel.clearNavigationSnapshotForProfileSwitch()
+    inboxViewModel.prepareTransientStateForProfileSwitch()
     await waitForNextMainRunLoopCycle()
     guard
       !Task.isCancelled,
@@ -3330,8 +3345,10 @@ struct AccountView: View {
     {
       composerNavigation.present(viewModel.draft)
     }
-    loadUnifiedMailbox(synchronizes: false)
     Task {
+      await waitForNextMainRunLoopCycle()
+      guard profileViewModel.activeProfileId == profileId else { return }
+      loadUnifiedMailbox(synchronizes: false)
       await waitForCurrentMailboxLoad {
         (inboxLoadTask, inboxLoadGeneration)
       }
@@ -3348,6 +3365,36 @@ struct AccountView: View {
     snoozeViewModel.updateProfile(profileId)
     followUpNudgeViewModel.updateProfile(profileId)
     updateProductMailboxState()
+  }
+
+  private func prepareStagedProfileThreadState(
+    for profileId: MailProfileId,
+    switchGeneration: Int
+  ) async -> Bool {
+    muteViewModel.updateProfile(profileId)
+    guard await continueProfileSwitch(switchGeneration, profileId: profileId) else {
+      return false
+    }
+    snoozeViewModel.updateProfile(profileId)
+    guard await continueProfileSwitch(switchGeneration, profileId: profileId) else {
+      return false
+    }
+    followUpNudgeViewModel.updateProfile(profileId)
+    guard await continueProfileSwitch(switchGeneration, profileId: profileId) else {
+      return false
+    }
+    updateProductMailboxState()
+    return await continueProfileSwitch(switchGeneration, profileId: profileId)
+  }
+
+  private func continueProfileSwitch(
+    _ switchGeneration: Int,
+    profileId: MailProfileId
+  ) async -> Bool {
+    await waitForNextMainRunLoopCycle()
+    return !Task.isCancelled
+      && profileSwitchGate.isCurrent(switchGeneration)
+      && profileViewModel.activeProfileId == profileId
   }
 
   private func reloadPreparedProfileThreadState(for profileId: MailProfileId) async {
@@ -4079,9 +4126,7 @@ extension AccountView {
     editSession: ScheduledSendEditSession,
     profileId: MailProfileId
   ) -> MailComposerViewModel {
-    let dueAt = Date(
-      timeIntervalSince1970: Double(editSession.item.record.dueAtMilliseconds) / 1_000
-    )
+    let dueAt = MailShellComposerEditingContext.scheduledSend(editSession).scheduledSendDueAt
     return MailComposerViewModel(
       draft: .editing(editSession.item.record),
       reminderOwnerDeviceId: snapshot.trustedDeviceId,
@@ -5394,9 +5439,15 @@ final class MailShellSelectionModel {
   }
 
   func clearThreadSelection() {
-    selectedMessageScrollTarget = nil
-    selectedThreadIds = []
-    retainedSearchResultThread = nil
+    if selectedMessageScrollTarget != nil {
+      selectedMessageScrollTarget = nil
+    }
+    if !selectedThreadIds.isEmpty {
+      selectedThreadIds = []
+    }
+    if retainedSearchResultThread != nil {
+      retainedSearchResultThread = nil
+    }
   }
 
   func selectMailbox(
@@ -7622,7 +7673,7 @@ private struct MailShellThreadRow: View {
             .font(.subheadline.weight(isUnread ? .semibold : .regular))
             .lineLimit(1)
           Spacer()
-          Text(receivedDate)
+          Text(receivedDate, format: Self.receivedDateFormat)
             .font(.caption)
             .foregroundStyle(.secondary)
         }
@@ -7721,12 +7772,11 @@ private struct MailShellThreadRow: View {
     }
   }
 
-  private var receivedDate: String {
+  private var receivedDate: Date {
     Date(
       timeIntervalSince1970:
         TimeInterval(thread.latestMessage.providerInternalDateMilliseconds) / 1_000
     )
-    .formatted(Self.receivedDateFormat)
   }
 }
 
@@ -14374,10 +14424,28 @@ final class GmailInboxViewModel {
   }
 
   func prepareForProfileSwitch() {
+    prepareNavigationForProfileSwitch()
+    clearNavigationSnapshotForProfileSwitch()
+    clearVisibleThreadsForProfileSwitch()
+    prepareTransientStateForProfileSwitch()
+  }
+
+  func prepareNavigationForProfileSwitch() {
     cancelBackfill()
     cancelProfileSwitchTasks()
     resetProfileSwitchNavigationState()
-    clearVisibleThreadsForProfileSwitch()
+  }
+
+  func clearNavigationSnapshotForProfileSwitch() {
+    if navigationSnapshot != .empty {
+      navigationSnapshot = .empty
+    }
+    if !visibleMessageBodyPrefetches.isEmpty {
+      visibleMessageBodyPrefetches = [:]
+    }
+  }
+
+  func prepareTransientStateForProfileSwitch() {
     resetProfileSwitchTransientState()
   }
 
@@ -14412,12 +14480,6 @@ final class GmailInboxViewModel {
     }
     if isLoading {
       isLoading = false
-    }
-    if navigationSnapshot != .empty {
-      navigationSnapshot = .empty
-    }
-    if !visibleMessageBodyPrefetches.isEmpty {
-      visibleMessageBodyPrefetches = [:]
     }
   }
 
@@ -14849,9 +14911,6 @@ final class GmailInboxViewModel {
       #if DEBUG
         await initialThreadBatchDidPublish?()
       #endif
-      // The projection observer also crosses a run-loop boundary. Give every batch time to render
-      // before adding the next one, or consecutive revisions can collapse into one frame.
-      await waitForNextMainRunLoopCycle()
     }
   }
 

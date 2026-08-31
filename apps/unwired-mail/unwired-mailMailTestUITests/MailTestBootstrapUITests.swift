@@ -269,7 +269,10 @@ final class MailTestBootstrapUITests: XCTestCase {
     var removedCount = 0
     while removedCount < 12 {
       let token = recipientTokens.firstMatch
-      guard token.exists else { break }
+      guard token.waitForExistence(timeout: 5) else {
+        XCTFail("A populated recipient disappeared before every token was removed.")
+        throw NSError(domain: "MailTestBootstrapUITests", code: 1)
+      }
       let tokenLabel = token.label
       token.tap()
       guard app.buttons[tokenLabel].waitForNonExistence(timeout: 5) else {
@@ -971,12 +974,22 @@ final class MailTestBootstrapUITests: XCTestCase {
     for _ in 0..<8 where !row.exists {
       app.swipeDown()
     }
-    while !row.waitForExistence(timeout: 2), Date() < deadline {
+    let connectionRetry = app.buttons["mailbox-sync-overlay"]
+    var retriedConnection = false
+    while Date() < deadline {
+      if row.waitForExistence(timeout: 2), row.isHittable {
+        return row
+      }
+      if !retriedConnection, connectionRetry.isHittable {
+        connectionRetry.tap()
+        retriedConnection = true
+      }
       app.swipeUp()
     }
     return try XCTUnwrap(
-      row.exists ? row : nil,
-      "MAIL_TEST_FAILURE:\(step):message-row-not-presented: The expected synthetic message row did not appear."
+      row.exists && row.isHittable ? row : nil,
+      "MAIL_TEST_FAILURE:\(step):message-row-not-presented: "
+        + "The expected synthetic message row did not become interactive."
     )
   }
 
