@@ -1637,6 +1637,23 @@ private struct MailComposerSubjectRow: View {
 }
 
 private struct MailComposerSubjectField: UIViewRepresentable {
+  private final class SubjectTextField: UITextField {
+    var submit: (() -> Void)?
+
+    override func pressesEnded(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+      let submitsAfterNativeHandling =
+        markedTextRange == nil
+        && presses.contains { $0.key?.keyCode == .keyboardReturnOrEnter }
+      super.pressesEnded(presses, with: event)
+      guard submitsAfterNativeHandling else { return }
+      Task { @MainActor [weak self] in
+        await Task.yield()
+        guard let self, isFirstResponder else { return }
+        submit?()
+      }
+    }
+  }
+
   @Binding var subject: String
   @Binding var isFocused: Bool
   let bodyFocusBridge: SemanticMessageFocusBridge
@@ -1648,7 +1665,7 @@ private struct MailComposerSubjectField: UIViewRepresentable {
   }
 
   func makeUIView(context: Context) -> UITextField {
-    let textField = UITextField()
+    let textField = SubjectTextField()
     textField.adjustsFontForContentSizeCategory = true
     textField.font = .preferredFont(forTextStyle: .body)
     textField.placeholder = "Subject"
@@ -1660,6 +1677,10 @@ private struct MailComposerSubjectField: UIViewRepresentable {
       action: #selector(Coordinator.subjectDidChange),
       for: .editingChanged
     )
+    textField.submit = { [weak coordinator = context.coordinator, weak textField] in
+      guard let textField else { return }
+      coordinator?.submit(textField)
+    }
     return textField
   }
 
