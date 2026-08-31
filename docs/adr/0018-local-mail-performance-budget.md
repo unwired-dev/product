@@ -48,6 +48,9 @@ The unscaled limits above remain the reference-device product budgets. GitHub Ac
 same fixture with the `CI_PERFORMANCE_BUDGET` condition, which applies a 4x scale only to rendered
 presentation timings because its hosted simulator is not a reference device, and builds only the
 active simulator architecture. Categorization and main-thread-stall limits remain unscaled in CI.
+The stall probe measures current-thread CPU time during active main-run-loop cycles so hosted-runner
+descheduling is not charged to application work; end-to-end presentation budgets continue to use
+monotonic wall-clock time.
 The scaled presentation limit is a regression guard for the hosted runner; it does not replace or
 relax the unscaled local budget.
 

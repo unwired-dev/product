@@ -11472,7 +11472,7 @@ private final class ReleaseMainThreadStallProbe {
 
   func start() {
     cycleStartContext = context?() ?? ""
-    cycleStartMilliseconds = ProcessInfo.processInfo.systemUptime * 1_000
+    cycleStartMilliseconds = Self.currentThreadCPUTimeMilliseconds()
     let activities =
       CFRunLoopActivity.afterWaiting.rawValue | CFRunLoopActivity.beforeWaiting.rawValue
     let observer = CFRunLoopObserverCreateWithHandler(
@@ -11504,10 +11504,10 @@ private final class ReleaseMainThreadStallProbe {
     if activity.contains(.afterWaiting) {
       cycleCount += 1
       cycleStartContext = context?() ?? ""
-      cycleStartMilliseconds = ProcessInfo.processInfo.systemUptime * 1_000
+      cycleStartMilliseconds = Self.currentThreadCPUTimeMilliseconds()
     }
     if activity.contains(.beforeWaiting), let cycleStartMilliseconds {
-      let delay = (ProcessInfo.processInfo.systemUptime * 1_000) - cycleStartMilliseconds
+      let delay = Self.currentThreadCPUTimeMilliseconds() - cycleStartMilliseconds
       if delay > maximumDelayMilliseconds {
         maximumDelayMilliseconds = delay
         maximumContext =
@@ -11515,6 +11515,12 @@ private final class ReleaseMainThreadStallProbe {
       }
       self.cycleStartMilliseconds = nil
     }
+  }
+
+  private static func currentThreadCPUTimeMilliseconds() -> Double {
+    var time = timespec()
+    precondition(clock_gettime(CLOCK_THREAD_CPUTIME_ID, &time) == 0)
+    return (Double(time.tv_sec) * 1_000) + (Double(time.tv_nsec) / 1_000_000)
   }
 }
 
