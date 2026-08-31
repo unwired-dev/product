@@ -11472,7 +11472,7 @@ private final class ReleaseMainThreadStallProbe {
 
   func start() {
     cycleStartContext = context?() ?? ""
-    cycleStartMilliseconds = releaseCurrentThreadCPUTimeMilliseconds()
+    cycleStartMilliseconds = ProcessInfo.processInfo.systemUptime * 1_000
     let activities =
       CFRunLoopActivity.afterWaiting.rawValue | CFRunLoopActivity.beforeWaiting.rawValue
     let observer = CFRunLoopObserverCreateWithHandler(
