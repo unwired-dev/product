@@ -261,11 +261,10 @@ extension SettingsAccessibilityUITests {
         && issue.detailedDescription.contains("SwiftUI.AccessibilityNode")
       let handlesAnonymousSwiftUIArtifact =
         isAnonymousSwiftUIArtifact
-        && (issue.auditType == .contrast
-          || issue.auditType == .textClipped
-            && issue.compactDescription == "Text clipped"
-            && issue.detailedDescription
-              == "Text of this SwiftUI.AccessibilityNode may be clipped at larger Dynamic Type sizes.")
+        && issue.auditType == .textClipped
+        && issue.compactDescription == "Text clipped"
+        && issue.detailedDescription
+          == "Text of this SwiftUI.AccessibilityNode may be clipped at larger Dynamic Type sizes."
       let verifiedAppearanceText = [
         "Increased Contrast",
         "Adds contrast beyond the current system setting on this device.",

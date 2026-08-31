@@ -22,9 +22,11 @@ files. Successful local result bundles can be inspected directly; failed CI runs
 XCTest result bundles for 14 days through the Core Mail Loop artifact policy.
 
 The iOS 26 audit can report anonymous `SwiftUI.AccessibilityNode` findings for system-owned scroll
-edges, plus Dynamic Type false positives for the Increased Contrast label and footer. The suite
-also records the native iPad `UISearchBarTextField` placeholder-clipping diagnostic. It handles only
-those exact known signatures. Other app-owned elements still fail normally, while the separate
+edges, plus Dynamic Type false positives for the Increased Contrast label and footer. Anonymous
+contrast findings remain unhandled because XCTest does not expose a signature that distinguishes
+system-owned scroll edges from app-owned nodes. The suite handles only the exact known text-clipping,
+Dynamic Type, and native iPad `UISearchBarTextField` signatures. Other app-owned elements still fail
+normally, while the separate
 accessibility-XXXL launch verifies the appearance texts' scaling and the dedicated search test
 verifies the system field remains operable.
 
