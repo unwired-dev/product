@@ -1,5 +1,10 @@
 # SwiftMail 1.11.0 Provider Compatibility Run
 
+Scope: the current SwiftUI and Mac Catalyst prototype. Keep this document for
+maintenance until cutover. Its implementation and qualification claims do not
+qualify the Expo or native React Native Mac replacement; use
+[the active documentation index](../README.md) for that work.
+
 SwiftMail is an accepted, exact-pinned app dependency. Issue [#280](https://github.com/unwired-dev/product/issues/280) records passing live iCloud Mail and Fastmail Mail Test Evidence, so Standards-Based Mailbox Connections can be enabled in externally distributed Release builds. The Provider Compatibility Run package remains deliberately separate from the app project and independently verifies tag `1.11.0` at commit `a2d4a94f844db62843ef6aec16f3ed9462152acc`; provider credentials and the 10,000-message qualification fixtures never enter ordinary pull-request CI.
 
 ## Protected environment and accounts
@@ -8,21 +13,21 @@ Create a GitHub environment named `swiftmail-provider-qualification`. Configure 
 
 Use two disposable Provider Test Mailboxes/Tenants containing no personal mail. Store their app-specific credentials only as environment secrets:
 
-| Secret | Purpose |
-| --- | --- |
-| `ICLOUD_QUALIFICATION_EMAIL` | Dedicated iCloud Mail address |
-| `ICLOUD_QUALIFICATION_PASSWORD` | Dedicated iCloud app-specific password |
-| `FASTMAIL_QUALIFICATION_EMAIL` | Dedicated Fastmail address |
-| `FASTMAIL_QUALIFICATION_PASSWORD` | Dedicated Fastmail app password |
+| Secret                            | Purpose                                |
+| --------------------------------- | -------------------------------------- |
+| `ICLOUD_QUALIFICATION_EMAIL`      | Dedicated iCloud Mail address          |
+| `ICLOUD_QUALIFICATION_PASSWORD`   | Dedicated iCloud app-specific password |
+| `FASTMAIL_QUALIFICATION_EMAIL`    | Dedicated Fastmail address             |
+| `FASTMAIL_QUALIFICATION_PASSWORD` | Dedicated Fastmail app password        |
 
 The workflow accepts these optional environment variables. They are identifiers, not credentials:
 
-| Variable | Default or purpose |
-| --- | --- |
-| `ICLOUD_QUALIFICATION_DATASET_MAILBOX` | `Unwired Qualification Dataset` |
-| `FASTMAIL_QUALIFICATION_DATASET_MAILBOX` | `Unwired Qualification Dataset` |
-| `*_QUALIFICATION_SENT_MAILBOX` | Exact manual mapping only when the provider omits an unambiguous `\Sent` attribute |
-| `*_QUALIFICATION_JUNK_MAILBOX` | Exact manual mapping only when the provider omits an unambiguous `\Junk` attribute |
+| Variable                                 | Default or purpose                                                                 |
+| ---------------------------------------- | ---------------------------------------------------------------------------------- |
+| `ICLOUD_QUALIFICATION_DATASET_MAILBOX`   | `Unwired Qualification Dataset`                                                    |
+| `FASTMAIL_QUALIFICATION_DATASET_MAILBOX` | `Unwired Qualification Dataset`                                                    |
+| `*_QUALIFICATION_SENT_MAILBOX`           | Exact manual mapping only when the provider omits an unambiguous `\Sent` attribute |
+| `*_QUALIFICATION_JUNK_MAILBOX`           | Exact manual mapping only when the provider omits an unambiguous `\Junk` attribute |
 
 Manual mappings are validated against the exact server listing. The runner never calls SwiftMail's name-based role helpers, so localized names are not guessed.
 

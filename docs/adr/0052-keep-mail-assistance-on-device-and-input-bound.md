@@ -4,6 +4,11 @@
 
 Accepted.
 
+[ADR 0059](0059-replace-the-client-for-a-shared-cross-platform-product.md)
+raises the planned replacement client's deployment floor to version 27. The
+on-device privacy and model-unavailability requirements remain accepted; the
+existing Swift implementation retains its current version 26 floor until retired.
+
 ## Context
 
 Compose, response, and understanding features need a shared model boundary before they add user interfaces. Mail and Draft content is private, can contain adversarial instructions, and can change while inference is running. The application must also remain useful when the system model is unavailable.

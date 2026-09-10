@@ -4,6 +4,11 @@ status: accepted
 
 # Stage mail-engine adoption before provider certification
 
+Replacement scope: [ADR 0059](0059-replace-the-client-for-a-shared-cross-platform-product.md)
+supersedes this Swift implementation choice for the new client. The decision and
+evidence below remain applicable to the existing prototype. New dependencies
+and native bindings require qualification against the replacement's actual hosts.
+
 The exact SwiftMail 1.11.0 release has entered the production dependency graph behind the product-owned Mail Engine boundary after passing the complete deterministic Mail Engine contract, without waiting for paid or secrets-backed provider accounts. That adoption gate comprises the candidate adapter passing `MailEngineQualificationTests.swift` unchanged plus every deterministic MIME, search, mutation, privacy, logging, and performance case required by ADR 0027. Issue [#280](https://github.com/unwired-dev/product/issues/280) now records passing live iCloud Mail and Fastmail qualification evidence, so Standards-Based Mailbox Connections that depend on SwiftMail are accepted for externally distributed production Release builds. Deterministic failures still block dependency or adapter changes, and the product will not ship a fork, patch, handwritten IMAP or SMTP fallback, automatic retry of ambiguous SMTP delivery, unrestricted expunge, or content-bearing protocol logs.
 
 SwiftMail and its adapter run in the Apple/on-device Mail Engine boundary. The TypeScript/Convex backend remains limited to operational account data, encrypted sync blobs, device records, and push metadata; it must not become a mailbox sync engine or make protocol-level decisions.

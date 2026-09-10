@@ -1,5 +1,12 @@
 # Scheduled Send and Send Reminder implementation plan
 
+Historical Swift-prototype document, archived on 2026-09-09. Preserve this
+record as implementation and decision history. The accepted replacement scope
+is defined by [ADR 0059](../adr/0059-replace-the-client-for-a-shared-cross-platform-product.md)
+and [the published tickets](../qualification/expo-rewrite-ticket-coverage.md).
+The status and future-tense plans below belong to the prototype and do not
+establish replacement behavior or qualification.
+
 Status: cross-device Send Reminder plus Gmail, Microsoft Graph, EWS, and standards-based SMTP connections, Scheduled Send delivery, revision-fenced Outbox management, lifecycle hardening, deterministic local evidence, and protected provider compatibility evidence implemented; Scheduled Send is enabled for release
 
 The automatic-delivery slice admits a scheduled message on a selected, authorized Gmail, Microsoft 365, On-Premises Exchange, or Standards-Based Mailbox Connection on the originating device. It synchronizes the exact outgoing commitment through encrypted Product Sync, requires an opaque backend acknowledgement for the same identity, due instant, and revision, persists the delayed Outbox attempt before dismissing the Draft, and routes an opaque APNs wake to eligible trusted devices. A device with the encrypted payload, selected Mailbox Authorization, and separate revocable Scheduled Delivery Authorization may acquire the one revision-bound claim. The client durably fences provider handoff, reuses provider reconciliation, removes completed operational records, and moves work that cannot start within 24 hours to Needs Attention. Issues #381–#385 add the implemented management, provider parity, and lifecycle compatibility; Issue #386 plans release evidence without weakening this privacy boundary.
@@ -10,10 +17,10 @@ Let a person choose a future time from any new-message, reply, reply-all, or for
 
 ## Product contract
 
-| Choice | Domain state | Delivery authority | Offline creation | Completion |
-| --- | --- | --- | --- | --- |
-| Send automatically | Scheduled Send in Outbox | Exactly one eligible trusted device | No; admission fails closed | Sent, cancelled to Draft, or Needs Attention |
-| Remind me to send | Send Reminder attached to Draft | None | Yes; cross-device sync may remain pending | Opened, rescheduled, sent, or discarded |
+| Choice             | Domain state                    | Delivery authority                  | Offline creation                          | Completion                                   |
+| ------------------ | ------------------------------- | ----------------------------------- | ----------------------------------------- | -------------------------------------------- |
+| Send automatically | Scheduled Send in Outbox        | Exactly one eligible trusted device | No; admission fails closed                | Sent, cancelled to Draft, or Needs Attention |
+| Remind me to send  | Send Reminder attached to Draft | None                                | Yes; cross-device sync may remain pending | Opened, rescheduled, sent, or discarded      |
 
 Both choices share one Send Later surface. Automatic delivery appears for an authorized Gmail, Microsoft 365, On-Premises Exchange, or Standards-Based connection, and any compatible trusted device that holds the same Mailbox Authorization and a separate revocable Scheduled Delivery Authorization may deliver it. Receive-only connections do not offer automatic scheduling. The product never delegates selectively to provider-native scheduling and never changes the selected sending connection without explicit user action.
 
@@ -240,10 +247,10 @@ Draft admission and cancellation tombstones remain authoritative to older client
 
 ## Decisions
 
-- [ADR 0001: End-to-end encrypted Product Sync](adr/0001-end-to-end-encrypted-product-sync.md)
-- [ADR 0002: Device-held provider tokens with a push relay](adr/0002-device-held-mail-provider-tokens-with-push-relay.md)
-- [ADR 0010: Device-local Mailbox Authorization](adr/0010-device-local-mailbox-authorization.md)
-- [ADR 0013: Best-effort device-side mail freshness](adr/0013-best-effort-device-side-mail-freshness.md)
-- [ADR 0016: Durable Outbox delivery attempts](adr/0016-durable-outbox-delivery-attempts.md)
-- [ADR 0025: Semantic rich-text Drafts with encrypted assets](adr/0025-use-semantic-rich-text-drafts-with-encrypted-assets.md)
-- [ADR 0046: Coordinate private Scheduled Send on trusted devices](adr/0046-coordinate-private-scheduled-send-on-trusted-devices.md)
+- [ADR 0001: End-to-end encrypted Product Sync](../adr/0001-end-to-end-encrypted-product-sync.md)
+- [ADR 0002: Device-held provider tokens with a push relay](../adr/0002-device-held-mail-provider-tokens-with-push-relay.md)
+- [ADR 0010: Device-local Mailbox Authorization](../adr/0010-device-local-mailbox-authorization.md)
+- [ADR 0013: Best-effort device-side mail freshness](../adr/0013-best-effort-device-side-mail-freshness.md)
+- [ADR 0016: Durable Outbox delivery attempts](../adr/0016-durable-outbox-delivery-attempts.md)
+- [ADR 0025: Semantic rich-text Drafts with encrypted assets](../adr/0025-use-semantic-rich-text-drafts-with-encrypted-assets.md)
+- [ADR 0046: Coordinate private Scheduled Send on trusted devices](../adr/0046-coordinate-private-scheduled-send-on-trusted-devices.md)

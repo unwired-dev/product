@@ -1,5 +1,10 @@
 # Mail test environment implementation plan
 
+Scope: the current SwiftUI and Mac Catalyst prototype. Keep this document for
+maintenance until cutover. Its implementation and qualification claims do not
+qualify the Expo or native React Native Mac replacement; use
+[the active documentation index](README.md) for that work.
+
 Status: the secure GreenMail smoke foundation, disposable Mail Test Device, Apple app bootstrap, Synthetic Test Message visibility assertions, visible compose, reply, read, organize, and two-mode Send Later coverage, deterministic Scheduled Send release scenarios, on-demand message-content, System Categorization, and incremental-arrival scenarios, a persistent Manual Mail Sandbox, and the affected-path pull-request gate are available. Protected production-provider compatibility runs remain required before Scheduled Send release.
 
 ## Goal

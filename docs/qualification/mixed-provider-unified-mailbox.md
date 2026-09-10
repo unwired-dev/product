@@ -1,5 +1,10 @@
 # Mixed-provider Unified Mailbox qualification
 
+Scope: the current SwiftUI and Mac Catalyst prototype. Keep this document for
+maintenance until cutover. Its implementation and qualification claims do not
+qualify the Expo or native React Native Mac replacement; use
+[the active documentation index](../README.md) for that work.
+
 Issue [#71](https://github.com/unwired-dev/product/issues/71) is enforced by the deterministic
 `MailboxConnectionAdapterTests.testProviderRolloutMixedConnectionScenario` fixture. It composes one
 authorized connection from each supported provider family under one Product Account:

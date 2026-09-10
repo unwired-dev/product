@@ -4,6 +4,11 @@ status: accepted
 
 # Use a qualified third-party mail protocol engine
 
+Replacement scope: [ADR 0059](0059-replace-the-client-for-a-shared-cross-platform-product.md)
+supersedes this Swift implementation choice for the new client. The decision and
+evidence below remain applicable to the existing prototype. New dependencies
+and native bindings require qualification against the replacement's actual hosts.
+
 Generic IMAP and SMTP connections will use a qualified third-party protocol engine behind the provider-neutral Mailbox Connection adapter rather than a product-owned wire-protocol implementation. The engine owns transport, authentication, protocol framing and parsing, MIME, and connection lifecycle; the product continues to own durable synchronization, local persistence, Stable Provider Message Identity, role mapping, capability policy, retries, privacy controls, and provider-action reconciliation.
 
 ## Decision

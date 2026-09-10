@@ -1,5 +1,12 @@
 # Apple client and Convex backend bootstrap review
 
+Historical Swift-prototype document, archived on 2026-09-09. Preserve this
+record as implementation and decision history. The accepted replacement scope
+is defined by [ADR 0059](../adr/0059-replace-the-client-for-a-shared-cross-platform-product.md)
+and [the published tickets](../qualification/expo-rewrite-ticket-coverage.md).
+The status and future-tense plans below belong to the prototype and do not
+establish replacement behavior or qualification.
+
 Issue: https://github.com/unwired-dev/product/issues/1
 
 Status: approved for initial implementation.
