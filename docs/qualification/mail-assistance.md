@@ -1,5 +1,10 @@
 # On-Device Mail Assistance qualification
 
+Scope: the current SwiftUI and Mac Catalyst prototype. Keep this document for
+maintenance until cutover. Its implementation and qualification claims do not
+qualify the Expo or native React Native Mac replacement; use
+[the active documentation index](../README.md) for that work.
+
 Issue [#416](https://github.com/unwired-dev/product/issues/416) owns the release evidence for
 Compose, Response, Understanding, and Translation Assistance. Ordinary pull-request CI proves the
 deterministic product contract. A protected run on an Apple Intelligence-capable physical device

@@ -1,5 +1,10 @@
 # Storage and Product Sync export
 
+Scope: the current SwiftUI and Mac Catalyst prototype. Keep this document for
+maintenance until cutover. Its implementation and qualification claims do not
+qualify the Expo or native React Native Mac replacement; use
+[the active documentation index](README.md) for that work.
+
 Privacy & Data > Storage & Export gives a signed-in person one place to inspect local mail storage, remove downloadable copies, and export Product Sync data.
 
 ## Device storage

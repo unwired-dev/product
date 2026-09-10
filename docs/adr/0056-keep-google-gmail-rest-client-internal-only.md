@@ -1,5 +1,10 @@
 # ADR 0056: Keep the Google Gmail REST client internal-only
 
+Replacement scope: [ADR 0059](0059-replace-the-client-for-a-shared-cross-platform-product.md)
+supersedes this Swift implementation choice for the new client. The decision and
+evidence below remain applicable to the existing prototype. New dependencies
+and native bindings require qualification against the replacement's actual hosts.
+
 ## Status
 
 Accepted
@@ -56,12 +61,12 @@ Release measurements used the same iPhone 17 / iOS 26.5 Simulator, package cache
 architecture, and otherwise clean DerivedData directories. Baseline was commit
 `0ecbb51e391786b438415dd4875ff18dba2888a4`.
 
-| Measurement | Baseline | Candidate | Delta |
-| --- | ---: | ---: | ---: |
-| Clean Release build wall time | 205.70 s | 205.18 s | -0.52 s (-0.3%) |
-| App executable | 93,966,384 bytes | 95,367,968 bytes | +1,401,584 bytes (+1.5%) |
-| App bundle | 93,588 KiB | 95,028 KiB | +1,440 KiB (+1.5%) |
-| Compiled dependency objects | 0 | 18 Google + 9 GTM | +27 |
+| Measurement                   |         Baseline |         Candidate |                    Delta |
+| ----------------------------- | ---------------: | ----------------: | -----------------------: |
+| Clean Release build wall time |         205.70 s |          205.18 s |          -0.52 s (-0.3%) |
+| App executable                | 93,966,384 bytes |  95,367,968 bytes | +1,401,584 bytes (+1.5%) |
+| App bundle                    |       93,588 KiB |        95,028 KiB |       +1,440 KiB (+1.5%) |
+| Compiled dependency objects   |                0 | 18 Google + 9 GTM |                      +27 |
 
 Headless `xcodebuild` did not create an `Index.noindex/DataStore` for either Release build, so an
 Xcode indexing-time or index-store-size delta was not directly measurable in this environment.
