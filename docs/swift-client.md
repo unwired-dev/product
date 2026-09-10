@@ -91,7 +91,7 @@ New Message is a separate bottom-right action from the Mail View bar and hides w
 
 Send Reminders synchronize end-to-end encrypted with their Draft, remain visibly pending while offline, and route one local notification through the latest active notification-authorized Trusted Device. Legacy clients ignore this additive record family. Presentation honors the Profile's default-on Return to Attention preference together with Quiet, Profile Lock, OS notification authorization, and device-local lock-screen content policy.
 
-Converting a Scheduled Send to a Send Reminder preserves a newer composer presentation: finishing the conversion does not reopen a dismissed composer or replace a Draft opened while it was running.
+Converting a Scheduled Send to a Send Reminder preserves a newer composer presentation: finishing the conversion does not reopen a dismissed or Profile-locked composer or replace a Draft opened while it was running.
 
 ### Generic mail server setup
 
