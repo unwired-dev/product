@@ -4124,6 +4124,7 @@ extension AccountView {
     draft: MailShellCompositionDraft,
     profileId: MailProfileId
   ) async throws -> SendReminderNotificationOutcome {
+    let generation = composerPresentationGeneration
     try await saveCompositionDraft(draft, profileId: profileId)
     guard
       await mailActionViewModel.cancelScheduledSend(
@@ -4136,7 +4137,9 @@ extension AccountView {
     }
     await finishScheduledSendEdit(editSession, profileId: profileId)
     let result = try await scheduleSendReminder(for: draft, profileId: profileId)
-    guard activeDraftProfileId == profileId else { return result }
+    guard generation == composerPresentationGeneration,
+      activeDraftProfileId == profileId
+    else { return result }
     composerPresentationGeneration &+= 1
     let viewModel = makeComposerViewModel(draft: draft, profileId: profileId)
     composerViewModels[profileId] = viewModel

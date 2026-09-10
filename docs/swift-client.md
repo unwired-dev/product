@@ -91,6 +91,8 @@ New Message is a separate bottom-right action from the Mail View bar and hides w
 
 Send Reminders synchronize end-to-end encrypted with their Draft, remain visibly pending while offline, and route one local notification through the latest active notification-authorized Trusted Device. Legacy clients ignore this additive record family. Presentation honors the Profile's default-on Return to Attention preference together with Quiet, Profile Lock, OS notification authorization, and device-local lock-screen content policy.
 
+Converting a Scheduled Send to a Send Reminder preserves a newer composer presentation: finishing the conversion does not reopen a dismissed composer or replace a Draft opened while it was running.
+
 ### Generic mail server setup
 
 The authenticated account screen can prepare a device-local IMAP/SMTP or legacy POP3/SMTP connection. Enter an address to apply the bundled reviewed iCloud Mail or Fastmail settings, or enter hostnames, ports, and transport modes manually. Every discovered value remains editable and is shown before connection. The bundled entries follow [Apple's iCloud Mail server settings](https://support.apple.com/en-us/102525) and [Fastmail's IMAP, POP, and SMTP settings](https://www.fastmail.help/hc/en-us/articles/1500000279921); unknown and custom domains use manual setup rather than guessed hostnames. SwiftMail owns IMAP and SMTP transport, authentication, protocol parsing, and MIME; the product-owned stream verifier remains only for legacy POP3.

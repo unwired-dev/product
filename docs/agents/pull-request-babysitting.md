@@ -9,8 +9,7 @@ requests whose title contains `[WIP]` or `[skip review]` or that carry the
 `do-not-review` label. Because CodeRabbit skips bot-authored pull requests by
 default, [`.github/workflows/coderabbit-bot-review.yml`](../../.github/workflows/coderabbit-bot-review.yml)
 explicitly requests reviews for non-draft pull requests authored by
-`gipity-bot[bot]` when they are opened, reopened, receive new commits
-(`synchronize`), or become ready for review (`ready_for_review`). Generated
+`gipity-bot[bot]` when they become ready for review (`ready_for_review`). Generated
 Convex client files are excluded from review.
 
 Codex can close the feedback loop with a
