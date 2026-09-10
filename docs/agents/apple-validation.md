@@ -26,8 +26,9 @@ blocked.
 Keep host access command-scoped. Run only the intended non-destructive validation command, use the
 repository's pinned toolchain, avoid unrelated network or filesystem access, and report that the
 check ran outside the sandbox. Do not weaken, skip, or rewrite tests merely to make them compatible
-with the sandbox. This exception does not apply to untrusted or PR-controlled code handled by the
-PR babysitter; its isolated local-validation and remote-CI fallback policy remains authoritative.
+with the sandbox. This exception never applies to the PR babysitter workflow,
+including trusted-base validation. Its isolated local-validation and remote-CI
+fallback policy remains authoritative.
 
 Local trusted automation that uses CoreSimulator must isolate its Apple resources:
 
@@ -54,7 +55,6 @@ Local trusted automation that uses CoreSimulator must isolate its Apple resource
 The iOS, iPadOS, and macOS app must provide formatter, linter, and test commands.
 
 - Format and lint: `zsh scripts/check-apple-lint.zsh`
-- Broad smoke test (includes the Release-only performance fixture; use the split CI contract below for required validation): `xcodebuild test -project apps/unwired-mail/unwired-mail.xcodeproj -scheme unwired-mail -destination 'platform=iOS Simulator,name=iPhone 17'`
 
 Write Apple unit tests with Swift Testing: `import Testing`, `@Suite`, `@Test`, `#expect`, and `#require`. Do not add XCTest-based unit tests. Use XCTest only for test targets that require XCTest-specific APIs, such as UI automation, and document the reason in that target.
 

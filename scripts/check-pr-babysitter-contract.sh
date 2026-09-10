@@ -3,9 +3,9 @@
 set -euo pipefail
 
 repository_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
-skill_file="$repository_root/.agents/skills/babysit-pr/SKILL.md"
 agents_file="$repository_root/AGENTS.md"
 policy_file="$repository_root/docs/agents/pull-request-babysitting.md"
+apple_validation_file="$repository_root/docs/agents/apple-validation.md"
 ci_file="$repository_root/.github/workflows/ci.yml"
 
 require_text() {
@@ -19,34 +19,18 @@ require_text() {
   fi
 }
 
-require_text "$skill_file" "## Local sandbox validation"
-require_text "$skill_file" \
-  "only inside Codex's configured \`workspace-write\` sandbox."
-require_text "$skill_file" "Never request"
-require_text "$skill_file" "host escalation, switch to \`danger-full-access\`"
-require_text "$skill_file" "## Remote validation fallback"
-require_text "$skill_file" \
-  "Local validation unavailability does not block synchronization,"
-require_text "$skill_file" \
-  "Never execute PR-controlled code in this trusted mutation checkout."
-require_text "$skill_file" \
-  "GitHub Actions as the validation evidence for the pushed candidate."
-require_text "$skill_file" \
-  "local sandbox route is not itself a blocker."
-require_text "$skill_file" \
-  "Every current required GitHub Actions failure is repair"
-require_text "$skill_file" \
-  "Attribution determines the explanation and the smallest safe"
-require_text "$skill_file" \
-  "each failing leaf job with job-scoped failed-step logs."
-require_text "$skill_file" \
-  "reproducing on the base branch is not a blocker."
 require_text "$agents_file" \
   "[repository policy](docs/agents/pull-request-babysitting.md)"
 require_text "$policy_file" \
   "repairs valid feedback and every current required GitHub Actions failure."
-require_text "$skill_file" \
-  "or a missing or stale status reply, make no changes and report"
+require_text "$policy_file" \
+  "Inspect each failing leaf job's logs and make the smallest safe fix, including"
+require_text "$policy_file" \
+  "failures already present on the base branch. Attribution determines the"
+require_text "$policy_file" \
+  "explanation and repair scope, not whether to repair the failure."
+require_text "$policy_file" \
+  "repair, or a missing or stale status reply, make no changes and report no action."
 require_text "$policy_file" \
   "trusted-base local validation as the existing Scheduled-task account only"
 require_text "$policy_file" \
@@ -54,6 +38,16 @@ require_text "$policy_file" \
 require_text "$policy_file" \
   "or paths outside its run workspace. It never requests host escalation or runs"
 require_text "$policy_file" "PR-controlled code outside that sandbox."
+require_text "$policy_file" \
+  "sanitized, hook-free checkout, pushes the candidate, and uses current-head"
+require_text "$policy_file" \
+  "required GitHub Actions as the isolated validation evidence. An unavailable"
+require_text "$policy_file" \
+  "compatible local sandbox route alone does not stop synchronization, review"
+require_text "$policy_file" "fixes, or required CI repair."
+require_text "$apple_validation_file" \
+  "This exception never applies to the PR babysitter workflow,"
+require_text "$apple_validation_file" "including trusted-base validation."
 require_text "$ci_file" "permissions:"
 require_text "$ci_file" "  contents: read"
 

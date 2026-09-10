@@ -29,9 +29,12 @@ The task excludes drafts, includes ready PRs without review threads, and ignores
 fork heads. For each PR it first merges the actual base into a stale or
 conflicted head, then independently validates automated review findings and
 repairs valid feedback and every current required GitHub Actions failure.
-It pushes with the GitHub App identity, requests Codex review after writes,
-posts an accurate disposition
-and resolves every handled thread after persisting any unfinished work, and
+Inspect each failing leaf job's logs and make the smallest safe fix, including
+failures already present on the base branch. Attribution determines the
+explanation and repair scope, not whether to repair the failure.
+The task pushes with the GitHub App identity, requests Codex review after writes,
+posts an accurate disposition and resolves every handled thread after persisting
+any unfinished work, and
 waits independently for required CI plus current-head Codex and CodeRabbit
 responses before completing the pass. Only a fixed disposition requires its
 fix and supporting validation to be pushed first. The CodeRabbit gate is not
@@ -52,7 +55,7 @@ work inside the sandbox, the task prepares only clear merges and fixes in a
 sanitized, hook-free checkout, pushes the candidate, and uses current-head
 required GitHub Actions as the isolated validation evidence. An unavailable
 compatible local sandbox route alone does not stop synchronization, review
-fixes, or attributable CI repair. The task cleans up every process, Simulator,
+fixes, or required CI repair. The task cleans up every process, Simulator,
 XCTest clone, and PR worktree it creates. It never merges or approves a pull
 request and never triggers CodeRabbit. The Scheduled-task account must have the
 GitHub integration, `gh`, `gipity-gh`, and `gipity-git` configured; the sandbox
@@ -72,6 +75,8 @@ replies. It posts a new reply only when the command or PR head changes the
 materially evidenced state.
 Other top-level comments are report-only; unresolved review threads continue to
 be assessed automatically.
+When no eligible PR needs synchronization, review or command work, required CI
+repair, or a missing or stale status reply, make no changes and report no action.
 
 Scheduled tasks are time-triggered. Do not add a GitHub Action that merely
 posts `@codex` comments or starts a second coding agent: it would not share the
