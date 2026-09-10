@@ -4092,24 +4092,11 @@ extension AccountView {
         cancelSendReminder(reminder, draftId: draftId, profileId: profileId)
       },
       scheduleReminder: { draft in
-        try await saveCompositionDraft(draft, profileId: profileId)
-        guard
-          await mailActionViewModel.cancelScheduledSend(
-            editSession.item,
-            editGeneration: editSession.lease.generation
-          )
-        else {
-          try? await deleteCompositionDraft(draft.id, profileId: profileId)
-          throw ScheduledSendManagementError.staleRevision
-        }
-        await finishScheduledSendEdit(editSession, profileId: profileId)
-        let result = try await scheduleSendReminder(for: draft, profileId: profileId)
-        guard activeDraftProfileId == profileId else { return result }
-        composerPresentationGeneration &+= 1
-        let viewModel = makeComposerViewModel(draft: draft, profileId: profileId)
-        composerViewModels[profileId] = viewModel
-        composerNavigation.present(viewModel.draft)
-        return result
+        try await convertScheduledSendToReminder(
+          editSession,
+          draft: draft,
+          profileId: profileId
+        )
       },
       scheduleSend: { draft, newDueAt, timeZone in
         await replaceScheduledSend(
@@ -4130,6 +4117,31 @@ extension AccountView {
         )
       }
     )
+  }
+
+  private func convertScheduledSendToReminder(
+    _ editSession: ScheduledSendEditSession,
+    draft: MailShellCompositionDraft,
+    profileId: MailProfileId
+  ) async throws -> SendReminderNotificationOutcome {
+    try await saveCompositionDraft(draft, profileId: profileId)
+    guard
+      await mailActionViewModel.cancelScheduledSend(
+        editSession.item,
+        editGeneration: editSession.lease.generation
+      )
+    else {
+      try? await deleteCompositionDraft(draft.id, profileId: profileId)
+      throw ScheduledSendManagementError.staleRevision
+    }
+    await finishScheduledSendEdit(editSession, profileId: profileId)
+    let result = try await scheduleSendReminder(for: draft, profileId: profileId)
+    guard activeDraftProfileId == profileId else { return result }
+    composerPresentationGeneration &+= 1
+    let viewModel = makeComposerViewModel(draft: draft, profileId: profileId)
+    composerViewModels[profileId] = viewModel
+    composerNavigation.present(viewModel.draft)
+    return result
   }
 
   private func composerSendNowAction(

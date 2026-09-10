@@ -28,8 +28,9 @@ request in unwired-dev/product.
 The task excludes drafts, includes ready PRs without review threads, and ignores
 fork heads. For each PR it first merges the actual base into a stale or
 conflicted head, then independently validates automated review findings and
-repairs current, attributable GitHub Actions failures. It pushes with the GitHub
-App identity, requests Codex review after writes, posts an accurate disposition
+repairs valid feedback and every current required GitHub Actions failure.
+It pushes with the GitHub App identity, requests Codex review after writes,
+posts an accurate disposition
 and resolves every handled thread after persisting any unfinished work, and
 waits independently for required CI plus current-head Codex and CodeRabbit
 responses before completing the pass. Only a fixed disposition requires its

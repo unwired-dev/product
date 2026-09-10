@@ -5,6 +5,7 @@ set -euo pipefail
 repository_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 skill_file="$repository_root/.agents/skills/babysit-pr/SKILL.md"
 agents_file="$repository_root/AGENTS.md"
+policy_file="$repository_root/docs/agents/pull-request-babysitting.md"
 ci_file="$repository_root/.github/workflows/ci.yml"
 
 require_text() {
@@ -41,14 +42,18 @@ require_text "$skill_file" \
 require_text "$skill_file" \
   "reproducing on the base branch is not a blocker."
 require_text "$agents_file" \
-  "repair valid feedback and every current required GitHub Actions"
+  "[repository policy](docs/agents/pull-request-babysitting.md)"
+require_text "$policy_file" \
+  "repairs valid feedback and every current required GitHub Actions failure."
 require_text "$skill_file" \
   "or a missing or stale status reply, make no changes and report"
-require_text "$agents_file" \
-  "existing Scheduled-task local account only inside Codex's configured"
-require_text "$agents_file" \
-  "the run workspace. Never request host escalation or run PR-controlled code"
-require_text "$agents_file" "outside that sandbox."
+require_text "$policy_file" \
+  "trusted-base local validation as the existing Scheduled-task account only"
+require_text "$policy_file" \
+  "inside Codex's \`workspace-write\` sandbox, after harmless probes confirm that"
+require_text "$policy_file" \
+  "or paths outside its run workspace. It never requests host escalation or runs"
+require_text "$policy_file" "PR-controlled code outside that sandbox."
 require_text "$ci_file" "permissions:"
 require_text "$ci_file" "  contents: read"
 
