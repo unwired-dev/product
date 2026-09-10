@@ -1,5 +1,12 @@
 # IMAP and SMTP protocol-engine offload
 
+Historical Swift-prototype document, archived on 2026-09-09. Preserve this
+record as implementation and decision history. The accepted replacement scope
+is defined by [ADR 0059](../adr/0059-replace-the-client-for-a-shared-cross-platform-product.md)
+and [the published tickets](../qualification/expo-rewrite-ticket-coverage.md).
+The status and future-tense plans below belong to the prototype and do not
+establish replacement behavior or qualification.
+
 Research date: 2026-07-28
 
 Status update: 2026-07-31
@@ -52,7 +59,7 @@ the protocol code it would replace.
 The present implementation hand-builds IMAP and SMTP command flows on
 `URLSessionStreamTask`:
 
-- [`SystemIMAPMailboxClient.swift`](../../apps/unwired-mail/unwired-mail/Services/Mailbox/SystemIMAPMailboxClient.swift)
+- [`SystemIMAPMailboxClient.swift`](https://github.com/unwired-dev/product/blob/391217c924f584a6bed76b62fc97a8b0b273d8ef/apps/unwired-mail/unwired-mail/Services/Mailbox/SystemIMAPMailboxClient.swift)
   owns IMAP login, command framing, response parsing, metadata paging, and body
   decoding.
 - [`SystemGenericMailEndpointVerifier.swift`](../../apps/unwired-mail/unwired-mail/Services/Mailbox/SystemGenericMailEndpointVerifier.swift)

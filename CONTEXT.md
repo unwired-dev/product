@@ -1,12 +1,19 @@
 # Private Email
 
-This context describes the language for an Apple-first private email product that helps people manage email without sending message content to a server for AI processing.
+Use this glossary for product terminology. It includes concepts implemented or
+planned for the Swift prototype as well as the accepted replacement. Presence
+here does not establish first-release scope; use
+[the documentation index](docs/README.md) and
+[ADR 0059](docs/adr/0059-replace-the-client-for-a-shared-cross-platform-product.md)
+to distinguish launch requirements, follow-ups, and historical behavior.
+
+This context describes the language for a private email product that helps people manage email without sending message content to a server for AI processing.
 
 ## Language
 
-**Apple-first private email client**:
-An email client for iOS, iPadOS, and macOS where privacy-sensitive processing is expected to happen on the user's device.
-_Avoid_: Cross-platform email client, webmail
+**Private email client**:
+An email client that connects to mail providers from trusted devices and keeps privacy-sensitive processing on those devices.
+_Avoid_: Webmail, Apple Mail extension
 
 **On-Device Mail Assistance**:
 Explicitly requested help for composing, responding to, understanding, or transforming mail through Apple system models on a trusted device, with no cloud or product-backend model fallback.
@@ -94,6 +101,10 @@ _Avoid_: Test email, ad hoc fixture
 **Synthetic Test Message**:
 A standards-valid test message whose addresses, content, and assets were created for testing and do not derive from personal or production mail.
 _Avoid_: Anonymized production email, copied personal email
+
+**Mock Mail Session**:
+An isolated product session whose identity, mail, and assistance responses come from repeatable synthetic scenarios and have no authority over real accounts or mail.
+_Avoid_: Provider Compatibility Run, production mailbox, Local Mail Test Environment
 
 **Core Mail Loop**:
 The everyday sequence in which a person receives, synchronizes, reads, organizes, composes, sends, and replies to mail while observing the resulting mailbox state.
@@ -259,6 +270,10 @@ _Avoid_: Canned recipient, auto-send rule, global template, Named Template, mess
 An immutable attempt to send one Outbox message through a selected **Mailbox Connection**.
 _Avoid_: Draft edit, Provider Mail Action
 
+**Delivery Owner**:
+The trusted device where the person pressed Send and that owns execution of the resulting queued **Outgoing Delivery Attempt**.
+_Avoid_: Current foreground device, backend mail sender, any available device
+
 **Undo Send Window**:
 A user-selected delay before an **Outgoing Delivery Attempt** is handed to its provider, during which the Outbox message remains cancellable.
 _Avoid_: Provider recall, retract delivered message
@@ -288,7 +303,7 @@ A Profile-scoped, product-owned suppression state for a **Thread** that prevents
 _Avoid_: Provider mute, hidden Thread, notification rule
 
 **Gmail-first provider support**:
-The provider strategy where multiple Gmail **Mailbox Connections** precede generic IMAP and SMTP, Microsoft Graph, POP3 and Exchange Web Services, while JMAP is deferred.
+The provider strategy where the first release supports only Gmail **Mailbox Connections**, with IMAP/SMTP and Microsoft 365 planned afterward.
 _Avoid_: Provider-agnostic v1
 
 **Category**:
@@ -428,8 +443,12 @@ A notification shown only after local categorization determines the message matc
 _Avoid_: Generic new-mail notification
 
 **Notification Rule**:
-User-owned preference that controls which categorized messages can produce visible notifications.
+User-owned preference that controls which newly arriving messages can produce visible notifications for a **Mailbox Connection**.
 _Avoid_: Backend routing rule
+
+**New Mail Notification**:
+A device-evaluated notification for newly arriving Inbox mail from an enabled **Mailbox Connection**, distinct from historical synchronization results.
+_Avoid_: Historical-mail alert, Category-Aware Notification, Generic Notification Fallback
 
 **Generic Notification Fallback**:
 An optional user setting that allows a visible new-mail notification when category-aware notification processing cannot finish in time.
@@ -479,9 +498,17 @@ _Avoid_: Product Account window, combined workspace
 The opaque Product Sync namespace owned by one **Mail Profile**. The **Default Profile** retains the deployed Product Account-scoped record identifiers; a new Profile receives a distinct opaque namespace.
 _Avoid_: provider namespace, device-local directory
 
-**Apple-First Sign-In**:
-The Product Account sign-in strategy where Sign in with Apple is supported before email magic link.
-_Avoid_: Password-first account
+**Product Sign-In**:
+Authentication that establishes access to a **Product Account** through a supported **Sign-In Provider**, independently of permission to access a mailbox.
+_Avoid_: Mailbox Authorization, Apple-First Sign-In
+
+**Sign-In Provider**:
+An identity service a person uses to authenticate to a **Product Account**. Its identity grant does not itself authorize access to mail from a **Mail Provider**.
+_Avoid_: Mail Provider, Mailbox Connection
+
+**Linked Sign-In**:
+A verified association between one **Product Account** and an identity at a **Sign-In Provider**, allowing that identity to authenticate to the same Product Account.
+_Avoid_: Mailbox Connection, matching email address, automatically linked mailbox identity
 
 **Operational Account Data**:
 Backend-readable account data needed to run identity, billing, device routing, and encrypted sync operations.
@@ -569,7 +596,7 @@ _Avoid_: Password reset, support recovery
 
 ## Relationships
 
-- An **Apple-first private email client** runs on iOS, iPadOS, and macOS
+- A **Private email client** keeps its privacy boundary consistent across supported platforms
 - A **True email client** is responsible for mailbox access and message organization
 - A **True email client** connects to one or more **Mail Providers**
 - A **Product Account** may own multiple **Mailbox Connections**
@@ -744,7 +771,7 @@ _Avoid_: Password reset, support recovery
 - Unblocking stops future enforcement but does not restore mail already moved to Trash; devices without local authorization retain the synchronized preference and report that enforcement is waiting for an authorized trusted device
 - A bulk selection may span multiple **Mailbox Connections** but exposes only actions supported by every selected connection
 - Each bulk batch expands into ordered actions behind existing pending actions for its **Mailbox Connection**; execution is serialized per connection, while cross-connection batches may proceed independently and preserve successful batches when another connection fails
-- **Gmail-first provider support** orders provider delivery as multiple Gmail **Mailbox Connections**, generic IMAP and SMTP, Microsoft Graph, then POP3 and Exchange Web Services; JMAP is deferred
+- **Gmail-first provider support** limits the first release to Gmail **Mailbox Connections**, with IMAP/SMTP and Microsoft 365 planned afterward
 - A **Synced Category** belongs to the product, not to a **Mail Provider**
 - A **Provider Mail Action** may change provider state, but a **Message Category** does not
 - A **Product Account** identifies the user for **Product Sync**
@@ -857,7 +884,7 @@ _Avoid_: Password reset, support recovery
 - **Best-Effort Background Freshness** does not permit the backend to hold **Mailbox Authorization** or synchronize mail itself
 - A **Category-Aware Notification** depends on local **System Categorization**
 - A **Generic Notification Fallback** is optional and not the default notification behavior
-- **Apple-First Sign-In** identifies a **Product Account**
+- **Product Sign-In** identifies a **Product Account** without implying **Mailbox Authorization**
 - The backend may read **Operational Account Data** but not user organization data or mailbox content
 - A **Notification Rule** is encrypted user data and is evaluated on trusted devices
 - Global notification switch, category eligibility, and per-connection notification policy synchronize as encrypted **Mail Workflow Preferences**
@@ -900,13 +927,13 @@ _Avoid_: Password reset, support recovery
 ## Example dialogue
 
 > **Dev:** "Should the first version support Android?"
-> **Domain expert:** "No — this is an **Apple-first private email client**, so iOS, iPadOS, and macOS come first."
+> **Domain expert:** "The **Private email client** launches on iOS, iPadOS, and macOS. Android and Windows are future targets."
 > **Dev:** "Can we rely on Apple Mail as the source of messages?"
 > **Domain expert:** "No — this is a **True email client**, so it connects to providers directly."
 > **Dev:** "Can users archive, delete, reply, and use provider-native mailbox actions?"
 > **Domain expert:** "Yes — a **True email client** supports **Provider Mail Actions**."
 > **Dev:** "Should the provider layer be fully neutral from day one?"
-> **Domain expert:** "No — use **Gmail-first provider support**: multiple Gmail connections first, then IMAP and SMTP, Microsoft Graph, POP3 and Exchange Web Services; defer JMAP."
+> **Domain expert:** "Use **Gmail-first provider support**. The first release supports Gmail; IMAP/SMTP and Microsoft 365 follow later."
 > **Dev:** "Does supporting multiple accounts mean switching between multiple product sign-ins?"
 > **Domain expert:** "No — one **Product Account** may own multiple **Mailbox Connections**."
 > **Dev:** "Can a second trusted device reuse the first device's provider credentials?"
@@ -964,11 +991,11 @@ _Avoid_: Password reset, support recovery
 > **Dev:** "Can the app guarantee instant background delivery for every provider?"
 > **Domain expert:** "No — **Best-Effort Background Freshness** preserves device-local mailbox authorization and reconciles delayed changes on the next available wake or foreground activation."
 > **Dev:** "Should users get generic new-mail alerts?"
-> **Domain expert:** "No — prefer **Category-Aware Notifications** based on local categorization and user notification rules."
-> **Dev:** "If category-aware processing cannot finish in the background, should the app still show a new-mail alert?"
-> **Domain expert:** "No by default — only show one when the user enables **Generic Notification Fallback**."
-> **Dev:** "Should account sign-in start with passwords?"
-> **Domain expert:** "No — use **Apple-First Sign-In**, then add email magic link later if needed."
+> **Domain expert:** "Yes. The focused release uses **New Mail Notifications** with generic content by default and optional sender/subject previews."
+> **Dev:** "How does category-aware notification fallback work in the existing Swift prototype?"
+> **Domain expert:** "That prototype shows a fallback alert only when the user enables **Generic Notification Fallback**. The replacement's **New Mail Notifications** do not depend on categorization."
+> **Dev:** "Does signing in also authorize access to mail?"
+> **Domain expert:** "**Product Sign-In** establishes identity. Connecting a mailbox also requires **Mailbox Authorization** from its **Mail Provider**."
 > **Dev:** "Can the backend read category names for support?"
 > **Domain expert:** "No — the backend may only read **Operational Account Data**."
 > **Dev:** "Can the backend read notification preferences to optimize routing?"
@@ -976,7 +1003,7 @@ _Avoid_: Password reset, support recovery
 
 ## Flagged ambiguities
 
-- "email app" was resolved as **Apple-first private email client**, not a cross-platform email client.
+- "email app" was resolved as **Private email client**, with Apple platforms first and Android and Windows as future targets.
 - "email app" was resolved as **True email client**, not an assistant layer on top of Apple Mail.
 - "main actions" was resolved as **Provider Mail Actions**, not product category actions.
 - "offline mail actions" was resolved as optimistic local changes backed by durable **Pending Provider Actions**, not silent failure or online-only interaction.
@@ -986,7 +1013,7 @@ _Avoid_: Password reset, support recovery
 - "mailbox credential sync" was resolved as synchronized non-secret **Mailbox Connections** with device-local **Mailbox Authorization**, not synchronized provider credentials.
 - "generic provider authentication" was resolved as preferred OAuth with device-Keychain passwords or app passwords permitted over **Secure Mail Transport**; client certificates and enterprise SSO are deferred.
 - "disconnect account" was split into **Remove Device Authorization** and **Remove Mailbox Connection Everywhere**, with distinct local and cross-device data scopes.
-- "provider rollout" was resolved as multiple Gmail **Mailbox Connections**, generic IMAP and SMTP, Microsoft Graph, then POP3 and Exchange Web Services; JMAP is deferred.
+- "provider rollout" was resolved as Gmail-only for the first release, followed by IMAP/SMTP and Microsoft 365.
 - "Exchange Web Services support" was resolved as **On-Premises Exchange Connections** only; Exchange Online and Microsoft 365 use Microsoft Graph.
 - "POP3 support" was resolved as a limited **Legacy POP3 Connection** using POP3 and SMTP with product-owned organization, not an IMAP-equivalent synchronized mailbox.
 - "IMAP support" was resolved as a complete **Standards-Based Mailbox Connection** using IMAP and SMTP, not read-only mailbox access.
@@ -1045,8 +1072,8 @@ _Avoid_: Password reset, support recovery
 - "real-time mail" was resolved as **Best-Effort Background Freshness**, not guaranteed instant background delivery or backend-held mailbox credentials.
 - "auto-refresh" was resolved as launch and foreground synchronization, provider signals, a five-minute active-app fallback poll, manual refresh, and locally observed mailbox views.
 - "sync health" was resolved as visible per-connection **Mailbox Sync Status**, global refresh and last-success information, and non-blocking backfill progress.
-- "push notifications" was resolved as **Category-Aware Notifications**, not generic new-mail notifications.
+- "push notifications" for the focused release was resolved as device-evaluated **New Mail Notifications**, with generic content by default and optional sender/subject previews.
 - "notification fallback" was resolved as optional **Generic Notification Fallback**, not default behavior.
-- "account sign-in" was resolved as **Apple-First Sign-In**, not password-first account creation.
+- "account sign-in" was resolved as **Product Sign-In**, distinct from **Mailbox Authorization** even when one onboarding journey obtains both grants.
 - "backend-readable account data" was resolved as **Operational Account Data**, not user organization data or mailbox content.
 - "notification rules" were resolved as encrypted user data, not backend-readable routing rules.

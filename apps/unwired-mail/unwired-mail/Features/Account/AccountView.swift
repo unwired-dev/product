@@ -1686,7 +1686,6 @@ struct AccountView: View {
   @State private var composerNavigation = MailShellComposerNavigationState()
   @State private var composerEditingContexts: [MailProfileId: MailShellComposerEditingContext] = [:]
   @State private var composerViewModels: [MailProfileId: MailComposerViewModel] = [:]
-  @State private var composerPresentationGeneration = 0
   @State private var composerSendErrorMessage = ""
   @State private var showsComposerSendError = false
   @State private var showsMailboxTools = false
@@ -2743,7 +2742,7 @@ struct AccountView: View {
               scheduledSendDueAt: editingContext?.scheduledSendDueAt,
               sendNow: composerSendNowAction(for: editingContext)
             )
-            .id(composerPresentationGeneration)
+            .id(composerNavigation.presentationGeneration)
             .frame(width: layout.frame.width, height: layout.frame.height)
             .background(MailTheme.canvas)
             .clipShape(
@@ -3842,7 +3841,6 @@ extension AccountView {
   }
 
   private func dismissCompositionDraft() {
-    composerPresentationGeneration &+= 1
     let profileId = activeDraftProfileId
     let editingContext = composerEditingContexts.removeValue(forKey: profileId)
     if editingContext != nil || composerViewModels[profileId]?.isFinished == true {
@@ -3853,8 +3851,7 @@ extension AccountView {
   }
 
   private func presentComposerDraft(_ draft: MailShellCompositionDraft) {
-    composerPresentationGeneration &+= 1
-    let generation = composerPresentationGeneration
+    let generation = composerNavigation.beginPresentation()
     composerSendErrorMessage = ""
     showsComposerSendError = false
     let profileId = activeDraftProfileId
@@ -3863,22 +3860,22 @@ extension AccountView {
       Task {
         if let editingContext = composerEditingContexts.removeValue(forKey: profileId) {
           guard await viewModel.close() else {
-            guard generation == composerPresentationGeneration else { return }
+            guard generation == composerNavigation.presentationGeneration else { return }
             composerEditingContexts[profileId] = editingContext
             return
           }
-          guard generation == composerPresentationGeneration else { return }
+          guard generation == composerNavigation.presentationGeneration else { return }
           await releaseComposerEditingContext(editingContext)
-          guard generation == composerPresentationGeneration else { return }
+          guard generation == composerNavigation.presentationGeneration else { return }
           composerViewModels[profileId] = makeComposerViewModel(
             draft: preparedDraft,
             profileId: profileId
           )
         } else {
           guard await viewModel.switchDraft(to: preparedDraft) else { return }
-          guard generation == composerPresentationGeneration else { return }
+          guard generation == composerNavigation.presentationGeneration else { return }
         }
-        guard generation == composerPresentationGeneration,
+        guard generation == composerNavigation.presentationGeneration,
           activeDraftProfileId == profileId
         else { return }
         composerNavigation.present(composerViewModels[profileId]?.draft ?? preparedDraft)
@@ -3891,8 +3888,7 @@ extension AccountView {
   }
 
   private func presentOutboxAttempt(_ attempt: OutgoingDeliveryAttempt) {
-    composerPresentationGeneration &+= 1
-    let generation = composerPresentationGeneration
+    let generation = composerNavigation.beginPresentation()
     composerSendErrorMessage = ""
     showsComposerSendError = false
     let profileId = activeDraftProfileId
@@ -3900,7 +3896,7 @@ extension AccountView {
       guard
         await prepareComposerReplacement(for: profileId, generation: generation)
       else { return }
-      guard generation == composerPresentationGeneration else { return }
+      guard generation == composerNavigation.presentationGeneration else { return }
       let viewModel = makeOutboxComposerViewModel(attempt: attempt, profileId: profileId)
       composerEditingContexts[profileId] = .outbox(attempt)
       composerViewModels[profileId] = viewModel
@@ -3909,14 +3905,13 @@ extension AccountView {
   }
 
   private func presentScheduledSend(_ item: ManagedScheduledSend) {
-    composerPresentationGeneration &+= 1
-    let generation = composerPresentationGeneration
+    let generation = composerNavigation.beginPresentation()
     composerSendErrorMessage = ""
     showsComposerSendError = false
     let profileId = activeDraftProfileId
     Task {
       guard let editSession = await mailActionViewModel.beginScheduledSendEdit(item) else { return }
-      guard generation == composerPresentationGeneration else {
+      guard generation == composerNavigation.presentationGeneration else {
         await mailActionViewModel.releaseScheduledSendEdit(editSession)
         return
       }
@@ -3924,7 +3919,7 @@ extension AccountView {
         await mailActionViewModel.releaseScheduledSendEdit(editSession)
         return
       }
-      guard generation == composerPresentationGeneration else {
+      guard generation == composerNavigation.presentationGeneration else {
         await mailActionViewModel.releaseScheduledSendEdit(editSession)
         return
       }
@@ -3942,18 +3937,18 @@ extension AccountView {
     for profileId: MailProfileId,
     generation: Int
   ) async -> Bool {
-    guard generation == composerPresentationGeneration,
+    guard generation == composerNavigation.presentationGeneration,
       activeDraftProfileId == profileId
     else { return false }
     if let viewModel = composerViewModels[profileId] {
       guard await viewModel.close() else { return false }
-      guard generation == composerPresentationGeneration else { return false }
+      guard generation == composerNavigation.presentationGeneration else { return false }
     }
     if let editingContext = composerEditingContexts.removeValue(forKey: profileId) {
       await releaseComposerEditingContext(editingContext)
-      guard generation == composerPresentationGeneration else { return false }
+      guard generation == composerNavigation.presentationGeneration else { return false }
     }
-    guard generation == composerPresentationGeneration,
+    guard generation == composerNavigation.presentationGeneration,
       activeDraftProfileId == profileId
     else { return false }
     composerViewModels[profileId] = nil
@@ -4092,24 +4087,11 @@ extension AccountView {
         cancelSendReminder(reminder, draftId: draftId, profileId: profileId)
       },
       scheduleReminder: { draft in
-        try await saveCompositionDraft(draft, profileId: profileId)
-        guard
-          await mailActionViewModel.cancelScheduledSend(
-            editSession.item,
-            editGeneration: editSession.lease.generation
-          )
-        else {
-          try? await deleteCompositionDraft(draft.id, profileId: profileId)
-          throw ScheduledSendManagementError.staleRevision
-        }
-        await finishScheduledSendEdit(editSession, profileId: profileId)
-        let result = try await scheduleSendReminder(for: draft, profileId: profileId)
-        guard activeDraftProfileId == profileId else { return result }
-        composerPresentationGeneration &+= 1
-        let viewModel = makeComposerViewModel(draft: draft, profileId: profileId)
-        composerViewModels[profileId] = viewModel
-        composerNavigation.present(viewModel.draft)
-        return result
+        try await convertScheduledSendToReminder(
+          editSession,
+          draft: draft,
+          profileId: profileId
+        )
       },
       scheduleSend: { draft, newDueAt, timeZone in
         await replaceScheduledSend(
@@ -4130,6 +4112,31 @@ extension AccountView {
         )
       }
     )
+  }
+
+  private func convertScheduledSendToReminder(
+    _ editSession: ScheduledSendEditSession,
+    draft: MailShellCompositionDraft,
+    profileId: MailProfileId
+  ) async throws -> SendReminderNotificationOutcome {
+    let generation = composerNavigation.presentationGeneration
+    try await saveCompositionDraft(draft, profileId: profileId)
+    guard
+      await mailActionViewModel.cancelScheduledSend(
+        editSession.item,
+        editGeneration: editSession.lease.generation
+      )
+    else {
+      try? await deleteCompositionDraft(draft.id, profileId: profileId)
+      throw ScheduledSendManagementError.staleRevision
+    }
+    await finishScheduledSendEdit(editSession, profileId: profileId)
+    let result = try await scheduleSendReminder(for: draft, profileId: profileId)
+    guard activeDraftProfileId == profileId else { return result }
+    let viewModel = makeComposerViewModel(draft: draft, profileId: profileId)
+    guard composerNavigation.present(viewModel.draft, ifCurrent: generation) else { return result }
+    composerViewModels[profileId] = viewModel
+    return result
   }
 
   private func composerSendNowAction(

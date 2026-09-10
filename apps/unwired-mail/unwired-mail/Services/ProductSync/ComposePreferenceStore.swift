@@ -197,10 +197,10 @@ protocol ComposePreferenceLocalStatePersisting {
 struct UserDefaultsComposePreferenceStateStore: ComposePreferenceLocalStatePersisting {
   private struct StoredSchema: Decodable {
     let preferences: PreferencesSchema
+  }
 
-    struct PreferencesSchema: Decodable {
-      let schemaVersion: Int
-    }
+  private struct PreferencesSchema: Decodable {
+    let schemaVersion: Int
   }
 
   private static let keyPrefix = "mail-workflow-preferences.compose."

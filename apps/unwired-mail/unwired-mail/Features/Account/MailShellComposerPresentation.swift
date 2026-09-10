@@ -74,13 +74,21 @@ struct MailShellComposerPresentationLayout: Equatable {
 
 struct MailShellComposerNavigationState {
   private(set) var draft: MailShellCompositionDraft?
+  private(set) var presentationGeneration = 0
   private var expandedDraftIds: Set<UUID> = []
 
   var isExpanded: Bool {
     draft.map { expandedDraftIds.contains($0.id) } ?? false
   }
 
+  @discardableResult
+  mutating func beginPresentation() -> Int {
+    presentationGeneration &+= 1
+    return presentationGeneration
+  }
+
   mutating func dismiss() {
+    beginPresentation()
     if let draft {
       expandedDraftIds.remove(draft.id)
     }
@@ -88,6 +96,7 @@ struct MailShellComposerNavigationState {
   }
 
   mutating func dismissAll() {
+    beginPresentation()
     guard draft != nil || !expandedDraftIds.isEmpty else { return }
     draft = nil
     expandedDraftIds.removeAll()
@@ -99,7 +108,14 @@ struct MailShellComposerNavigationState {
   }
 
   mutating func present(_ draft: MailShellCompositionDraft) {
+    beginPresentation()
     self.draft = draft
+  }
+
+  mutating func present(_ draft: MailShellCompositionDraft, ifCurrent generation: Int) -> Bool {
+    guard generation == presentationGeneration else { return false }
+    present(draft)
+    return true
   }
 
   mutating func updatePresentedDraft(_ draft: MailShellCompositionDraft) {

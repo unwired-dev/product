@@ -87,6 +87,55 @@ struct MailProfileInterruptionTests {
     #expect(readerMessageActionError == nil)
   }
 
+  @Test(arguments: [false, true])
+  func profileLockRejectsDelayedComposerPresentation(hasVisibleComposer: Bool) {
+    var navigation = MailShellComposerNavigationState()
+    let draft = MailShellCompositionDraft.new(defaultSendingConnectionId: nil)
+    if hasVisibleComposer {
+      navigation.present(draft)
+    }
+    let pendingGeneration = navigation.presentationGeneration
+    var showsMessageActionAlert = false
+    var composerSendErrorMessage = ""
+    var showsComposerSendError = false
+    var compactSettingsIsPresented = false
+
+    MailProfileContentPresentationDismissal.dismissRoot(
+      showsMessageActionAlert: &showsMessageActionAlert,
+      composerNavigation: &navigation,
+      composerSendErrorMessage: &composerSendErrorMessage,
+      showsComposerSendError: &showsComposerSendError,
+      compactSettingsIsPresented: &compactSettingsIsPresented
+    )
+
+    let didPresentStaleDraft = navigation.present(draft, ifCurrent: pendingGeneration)
+    #expect(!didPresentStaleDraft)
+    #expect(navigation.draft == nil)
+
+    let reopenedDraft = MailShellCompositionDraft.new(defaultSendingConnectionId: nil)
+    let newGeneration = navigation.beginPresentation()
+    let didPresentNewDraft = navigation.present(reopenedDraft, ifCurrent: newGeneration)
+    #expect(didPresentNewDraft)
+    #expect(navigation.draft?.id == reopenedDraft.id)
+    let didReplaceNewDraft = navigation.present(draft, ifCurrent: pendingGeneration)
+    #expect(!didReplaceNewDraft)
+    #expect(navigation.draft?.id == reopenedDraft.id)
+  }
+
+  @Test
+  func dismissedComposerRejectsDelayedPresentation() {
+    var navigation = MailShellComposerNavigationState()
+    let draft = MailShellCompositionDraft.new(defaultSendingConnectionId: nil)
+    navigation.present(draft)
+    let pendingGeneration = navigation.presentationGeneration
+
+    navigation.dismiss()
+    let didPresentStaleDraft = navigation.present(draft, ifCurrent: pendingGeneration)
+
+    #expect(!didPresentStaleDraft)
+    #expect(navigation.draft == nil)
+  }
+
   @Test
   func notificationResolverFailsClosedForMissingOwnershipAndHonorsQuietExpiration() async throws {
     let profile = MailProfileDefinition.defaultProfile(productAccountId: session.productAccountId)

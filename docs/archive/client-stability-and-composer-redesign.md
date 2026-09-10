@@ -1,5 +1,12 @@
 # Client stability and composer redesign
 
+Historical Swift-prototype document, archived on 2026-09-09. Preserve this
+record as implementation and decision history. The accepted replacement scope
+is defined by [ADR 0059](../adr/0059-replace-the-client-for-a-shared-cross-platform-product.md)
+and [the published tickets](../qualification/expo-rewrite-ticket-coverage.md).
+The status and future-tense plans below belong to the prototype and do not
+establish replacement behavior or qualification.
+
 Status: accepted product and architecture specification; implementation pending.
 
 ## Goal
@@ -339,11 +346,11 @@ The attached Notion screenshot is a behavioral reference for command discovery a
 
 ## Related decisions
 
-- [ADR 0012: Use local-first metadata and a bounded encrypted body cache](adr/0012-bounded-encrypted-body-cache.md)
-- [ADR 0018: Local mail performance budget](adr/0018-local-mail-performance-budget.md)
-- [ADR 0025: Use semantic rich-text Drafts with encrypted assets](adr/0025-use-semantic-rich-text-drafts-with-encrypted-assets.md)
-- [ADR 0029: Sanitize HTML before WebKit rendering](adr/0029-sanitize-html-before-webkit-rendering.md)
-- [ADR 0052: Keep mail assistance on device and input-bound](adr/0052-keep-mail-assistance-on-device-and-input-bound.md)
-- [ADR 0057: Present composing inside the mail shell](adr/0057-present-composing-inside-the-mail-shell.md)
-- [ADR 0058: Present Settings as independent navigation](adr/0058-present-settings-as-independent-navigation.md)
+- [ADR 0012: Use local-first metadata and a bounded encrypted body cache](../adr/0012-bounded-encrypted-body-cache.md)
+- [ADR 0018: Local mail performance budget](../adr/0018-local-mail-performance-budget.md)
+- [ADR 0025: Use semantic rich-text Drafts with encrypted assets](../adr/0025-use-semantic-rich-text-drafts-with-encrypted-assets.md)
+- [ADR 0029: Sanitize HTML before WebKit rendering](../adr/0029-sanitize-html-before-webkit-rendering.md)
+- [ADR 0052: Keep mail assistance on device and input-bound](../adr/0052-keep-mail-assistance-on-device-and-input-bound.md)
+- [ADR 0057: Present composing inside the mail shell](../adr/0057-present-composing-inside-the-mail-shell.md)
+- [ADR 0058: Present Settings as independent navigation](../adr/0058-present-settings-as-independent-navigation.md)
 - [Settings redesign](settings-redesign.md)

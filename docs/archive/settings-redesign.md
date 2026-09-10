@@ -1,5 +1,12 @@
 # Settings redesign
 
+Historical Swift-prototype document, archived on 2026-09-09. Preserve this
+record as implementation and decision history. The accepted replacement scope
+is defined by [ADR 0059](../adr/0059-replace-the-client-for-a-shared-cross-platform-product.md)
+and [the published tickets](../qualification/expo-rewrite-ticket-coverage.md).
+The status and future-tense plans below belong to the prototype and do not
+establish replacement behavior or qualification.
+
 Status: the destination model and released controls are implemented. The independent platform
 navigation and destination-local failure amendments in ADR-0058 are accepted but implementation
 is pending. Signed-out users can open Settings for Appearance, Privacy & Data, local-only Advanced
@@ -14,23 +21,23 @@ The released experience must not contain empty or “Coming Soon” destinations
 
 ## Information architecture
 
-| Group | Destination | Purpose |
-| --- | --- | --- |
-| Accounts | Email Accounts | Manage Mailbox Connections, authorization, sending identity, and synchronization |
-| Accounts | Mail Profiles | Create, style, duplicate, transfer, and delete encrypted workspace boundaries |
-| Accounts | Account & Devices | Manage the Product Account, Trusted Devices, recovery, sign-out, and deletion |
-| Mail | Inbox | Configure inbox presentation and launch behavior |
-| Mail | Reading | Configure Message Read State and Read Receipt behavior |
-| Mail | Swipes | Assign message actions to leading and trailing swipe gestures |
-| Composing | Compose | Configure general drafting, replying, forwarding, and Undo Send behavior |
-| Composing | Signatures | Create signatures and assign them to Mailbox Connections |
-| Composing | Templates | Create reusable message subjects and bodies |
-| Automation | Categories | Configure System Categorization, the Custom Category, and historical categorization |
-| Automation | Notifications | Configure category-aware notification eligibility and device presentation |
-| Application | Appearance | Configure device-local theme and reading presentation |
-| Application | Privacy & Data | Configure remote content, downloads, local storage, encryption information, and export |
-| Application | Advanced | Inspect sync health, run redacted diagnostics, and rebuild local state |
-| Application | About | Show product, policy, support, version, and license information |
+| Group       | Destination       | Purpose                                                                                |
+| ----------- | ----------------- | -------------------------------------------------------------------------------------- |
+| Accounts    | Email Accounts    | Manage Mailbox Connections, authorization, sending identity, and synchronization       |
+| Accounts    | Mail Profiles     | Create, style, duplicate, transfer, and delete encrypted workspace boundaries          |
+| Accounts    | Account & Devices | Manage the Product Account, Trusted Devices, recovery, sign-out, and deletion          |
+| Mail        | Inbox             | Configure inbox presentation and launch behavior                                       |
+| Mail        | Reading           | Configure Message Read State and Read Receipt behavior                                 |
+| Mail        | Swipes            | Assign message actions to leading and trailing swipe gestures                          |
+| Composing   | Compose           | Configure general drafting, replying, forwarding, and Undo Send behavior               |
+| Composing   | Signatures        | Create signatures and assign them to Mailbox Connections                               |
+| Composing   | Templates         | Create reusable message subjects and bodies                                            |
+| Automation  | Categories        | Configure System Categorization, the Custom Category, and historical categorization    |
+| Automation  | Notifications     | Configure category-aware notification eligibility and device presentation              |
+| Application | Appearance        | Configure device-local theme and reading presentation                                  |
+| Application | Privacy & Data    | Configure remote content, downloads, local storage, encryption information, and export |
+| Application | Advanced          | Inspect sync health, run redacted diagnostics, and rebuild local state                 |
+| Application | About             | Show product, policy, support, version, and license information                        |
 
 “Destination” is the canonical UI term for a sidebar item. These items are not independent tab bars.
 
@@ -375,7 +382,7 @@ Device-Local Preferences remain on one device:
 
 Provider credentials remain in the current device's Keychain.
 
-Device-local preferences always save offline. Mail Workflow Preferences save locally while offline, queue encrypted Product Sync updates, and show pending state, except the global notification switch, notification category eligibility, and per-connection notification policy: their Notification Rule save contract remains fail-closed as specified in [ADR 0008](adr/0008-device-evaluated-category-aware-notifications.md), so an uncertain remote write leaves no background-eligible rules cache. Non-overlapping fields merge automatically. If two devices change the same field from the same older revision, both values are preserved for explicit resolution; device clocks, upload order, and device identity never silently choose the winner. Signatures and templates may preserve the competing value as a conflict copy.
+Device-local preferences always save offline. Mail Workflow Preferences save locally while offline, queue encrypted Product Sync updates, and show pending state, except the global notification switch, notification category eligibility, and per-connection notification policy: their Notification Rule save contract remains fail-closed as specified in [ADR 0008](../adr/0008-device-evaluated-category-aware-notifications.md), so an uncertain remote write leaves no background-eligible rules cache. Non-overlapping fields merge automatically. If two devices change the same field from the same older revision, both values are preserved for explicit resolution; device clocks, upload order, and device identity never silently choose the winner. Signatures and templates may preserve the competing value as a conflict copy.
 
 Device Revocation, Delete Product Account, Mailbox Connection removal, authorization or reauthorization, server verification, and Mailbox Role remapping require connectivity and cannot appear complete offline. Removing Mailbox Authorization from the current device remains available offline and immediately deletes its local Keychain credentials and cached mailbox data.
 
@@ -385,7 +392,7 @@ Migration is idempotent and never resets settings merely because the new UI open
 
 - Preserve every Mailbox Connection and the Default Sending Connection.
 - Preserve the existing Custom Category.
-- Migrate existing Notification Rules into the synchronized Notification category eligibility preference, preserving their selected Category IDs as the global default; each connection inherits that default until the user creates an override. Enable the global notification switch when migrated rules are non-empty and leave it off when they are empty. Before these migrated controls become authoritative, advance the [ADR 0008](adr/0008-device-evaluated-category-aware-notifications.md) minimum-client generation fence, invalidate older payloads and cached rules, and wait until every Trusted Device acknowledges that generation or is revoked.
+- Migrate existing Notification Rules into the synchronized Notification category eligibility preference, preserving their selected Category IDs as the global default; each connection inherits that default until the user creates an override. Enable the global notification switch when migrated rules are non-empty and leave it off when they are empty. Before these migrated controls become authoritative, advance the [ADR 0008](../adr/0008-device-evaluated-category-aware-notifications.md) minimum-client generation fence, invalidate older payloads and cached rules, and wait until every Trusted Device acknowledges that generation or is revoked.
 - Preserve the current device's Generic Notification Fallback.
 - Initialize genuinely new preferences from the explicit defaults in this document.
 
@@ -462,9 +469,9 @@ require action.
 
 ## Related decisions
 
-- [ADR 0001: End-to-end encrypted Product Sync](adr/0001-end-to-end-encrypted-product-sync.md)
-- [ADR 0010: Device-local mailbox authorization](adr/0010-device-local-mailbox-authorization.md)
-- [ADR 0019: Sync mail workflow preferences, not device state](adr/0019-sync-mail-workflow-preferences-not-device-state.md)
-- [ADR 0020: Revoke devices with Product Sync key rotation](adr/0020-revoke-devices-with-sync-key-rotation.md)
-- [ADR 0021: Delete Product Accounts immediately](adr/0021-delete-product-accounts-immediately.md)
-- [ADR 0022: Save workflow preferences offline with explicit conflicts](adr/0022-save-workflow-preferences-offline-with-explicit-conflicts.md)
+- [ADR 0001: End-to-end encrypted Product Sync](../adr/0001-end-to-end-encrypted-product-sync.md)
+- [ADR 0010: Device-local mailbox authorization](../adr/0010-device-local-mailbox-authorization.md)
+- [ADR 0019: Sync mail workflow preferences, not device state](../adr/0019-sync-mail-workflow-preferences-not-device-state.md)
+- [ADR 0020: Revoke devices with Product Sync key rotation](../adr/0020-revoke-devices-with-sync-key-rotation.md)
+- [ADR 0021: Delete Product Accounts immediately](../adr/0021-delete-product-accounts-immediately.md)
+- [ADR 0022: Save workflow preferences offline with explicit conflicts](../adr/0022-save-workflow-preferences-offline-with-explicit-conflicts.md)

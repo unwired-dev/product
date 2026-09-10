@@ -1,5 +1,10 @@
 # Device-evaluated Category-Aware Notifications
 
+[ADR 0063](0063-notify-for-new-inbox-mail-without-categorization.md) replaces category
+eligibility for the planned focused client with new-Inbox eligibility and generic
+content by default. Device-side evaluation and backend privacy remain required.
+The existing Swift implementation continues to follow the contract below.
+
 The planned categorization cache stores System and Custom Category sets plus per-Category Future Learning Signals. Notification eligibility matches any resulting Category membership, rather than assuming a singular Category.
 
 Notification Rules are user-owned encrypted Product Sync data. The Apple client stores the global notification switch, category eligibility, and per-connection notification policy in one encrypted payload and decrypts them only on trusted devices. The new payload identifier is scoped to the Product Account's active Profile; the legacy selected-category payload migrates into the Default Profile with notifications enabled and no connection overrides. Convex stores only the opaque payload identifier, ciphertext, nonce, and key version, so it cannot read those preferences or use them to decide which devices receive wakeups.
