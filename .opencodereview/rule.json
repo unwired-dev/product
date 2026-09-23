@@ -1,0 +1,39 @@
+{
+  "include": [
+    "**/*.md",
+    "scripts/**/*.zsh",
+    "apps/unwired-mail/**/*Tests.swift",
+    "apps/unwired-mail/**/*Test.swift",
+    "packages/*/test/**",
+    "packages/**/*.test.{ts,tsx}",
+    "packages/**/*.spec.{ts,tsx}"
+  ],
+  "exclude": ["packages/convex/convex/_generated/**"],
+  "rules": [
+    {
+      "path": "apps/unwired-mail/**/*.swift",
+      "rule": "Check functional correctness, actor isolation, cancellation, lifecycle, persistence, retries, uncertain delivery outcomes, and Keychain accessibility. Flag exposure of credentials, mail content, or decrypted Product Sync data in logs or outside approved device-local storage. Require tests for changed privacy, data-loss, and duplicate-send risks. This is the Swift prototype; apply replacement-only requirements only where the change implements the replacement.",
+      "merge_system_rule": true
+    },
+    {
+      "path": "packages/convex/convex/**/*.ts",
+      "rule": "Check authentication, argument and return validation, and authorization scoped to the authenticated Product Account and trusted device. Flag backend-readable mail content, plaintext sensitive data, secrets in logs, unbounded reads, and missing indexes. Product identity, mailbox authorization, and Product Sync keys are separate. Send admission must be atomic and content-free; uncertain claim or provider responses never permit automatic duplicate sends. Require focused tests for relevant unauthorized access, malformed input, and retry paths.",
+      "merge_system_rule": true
+    },
+    {
+      "path": "packages/contracts/**",
+      "rule": "Treat exported types, validators, and fixtures as cross-boundary contracts. Check distinct identity types, schema and fixture agreement, consumer updates, and focused compatibility tests. Distinguish approved fresh-data replacement changes from accidental incompatibilities in maintained prototype behavior.",
+      "merge_system_rule": true
+    },
+    {
+      "path": ".github/workflows/**",
+      "rule": "Check least-privilege permissions, immutable action pins, secrets, caches, and parity with documented validation. Never execute PR-controlled code with review credentials or copy ChatGPT credentials into this public repository's Actions. Preserve required checks and the scheduled babysitter's single-writer coordination. Do not add an Action that merely posts @codex comments or starts a competing coding agent.",
+      "merge_system_rule": true
+    },
+    {
+      "path": "**",
+      "rule": "Follow applicable AGENTS.md guidance, CONTEXT.md, and docs/README.md. ADRs 0059 through 0064 define the accepted replacement scope: Gmail first, separate product identity and mailbox consent, end-to-end encrypted Product Sync, originating-device Outbox with atomic send admission, generic new-Inbox notifications by default, and independent mobile and Mac dependency graphs. Preserve on-device-only Mail Assistance. Do not treat historical prototype features as replacement requirements or deferred native validation as passing. Report consequential defects with evidence; require tests for named risks rather than implementation details or test-count targets.",
+      "merge_system_rule": true
+    }
+  ]
+}

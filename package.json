@@ -13,6 +13,8 @@
     "lint": "turbo run lint",
     "lint:fix": "turbo run lint:fix",
     "mail:test": "pnpm --filter @private-email/mail-test-harness mail:test",
+    "review:preview": "pnpm dlx @alibaba-group/open-code-review@1.12.9 delegate preview --format json",
+    "review:rules": "pnpm dlx @alibaba-group/open-code-review@1.12.9 delegate rule --format json",
     "test": "turbo run test",
     "version-packages": "changeset version"
   },

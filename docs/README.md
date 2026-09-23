@@ -23,6 +23,7 @@ their scope below; publication of a plan does not prove implementation or releas
 - [Test admission, retirement, and feedback budgets](agents/testing.md)
 - [GitHub issue workflow](agents/issue-tracker.md) and [triage labels](agents/triage-labels.md)
 - [Automated reviews and PR babysitting](agents/pull-request-babysitting.md)
+- [OpenCodeReview delegation with a ChatGPT subscription](agents/opencodereview.md)
 - [Code documentation patterns](../.patterns/README.md)
 
 Preserve applicable privacy, encryption, identity-isolation, transport, and

@@ -12,6 +12,13 @@ explicitly requests reviews for non-draft pull requests authored by
 `gipity-bot[bot]` when they become ready for review (`ready_for_review`). Generated
 Convex client files are excluded from review.
 
+[OpenCodeReview delegation](opencodereview.md) is an optional advisory pass
+inside a ChatGPT-authenticated Codex session. Its file selection and project
+rules require no OCR model API key. Enable it in the existing Scheduled task
+only after provisioning the pinned tool in the trusted environment; keep the
+single writer, sandbox boundary, and independent CI and reviewer gates below.
+Native Codex GitHub review and OCR delegation are distinct integrations.
+
 Codex can close the feedback loop with a
 [Scheduled task](https://learn.chatgpt.com/docs/automations?surface=app) and an installed
 `babysit-pr` skill. Resolve that skill through the session skill catalogue; this
