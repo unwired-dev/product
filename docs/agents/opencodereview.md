@@ -147,13 +147,14 @@ unchanged-head run to confirm durable deduplication.
 Run the deterministic delegation regression checks from the repository root:
 
 ```zsh
-mise exec -- node --test scripts/opencodereview.test.mjs
+mise exec -- pnpm test:opencodereview
 ```
 
 They use the pinned package commands and temporary Git fixtures under
 `scratchpad/` to check Swift test helpers, provider tests, generated-code
 exclusion, clean-checkout range selection, and trusted-base rule resolution
-when the PR changes its own rule file. No model credentials are required.
+when the PR changes its own rule file. TypeScript CI runs the same command.
+No model credentials are required; this tests delegation inputs, not an AI review.
 
 Keep both package-script version pins together when upgrading. Recheck rules
 and preview output before changing the trusted task installation. Sources:

@@ -53,6 +53,7 @@ mise exec -- pnpm lint
 mise exec -- pnpm format
 mise exec -- pnpm turbo run check-types
 mise exec -- pnpm test
+mise exec -- pnpm test:opencodereview
 mise exec -- pnpm fallow
 ```
 

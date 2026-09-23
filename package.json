@@ -16,6 +16,7 @@
     "review:preview": "pnpm dlx @alibaba-group/open-code-review@1.12.9 delegate preview --format json",
     "review:rules": "pnpm dlx @alibaba-group/open-code-review@1.12.9 delegate rule --format json",
     "test": "turbo run test",
+    "test:opencodereview": "node --test scripts/opencodereview.test.mjs",
     "version-packages": "changeset version"
   },
   "devDependencies": {

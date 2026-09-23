@@ -207,6 +207,9 @@ jobs:
       - name: Test
         run: pnpm test
 
+      - name: Test OCR delegation
+        run: pnpm test:opencodereview
+
   fallow:
     name: Fallow
     if: github.event_name != 'schedule' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
