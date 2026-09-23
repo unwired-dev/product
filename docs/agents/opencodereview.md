@@ -67,9 +67,10 @@ Review context is processed under the signed-in account's Codex policies.
 
 [Project rules](../../.opencodereview/rule.json) exclude generated Convex
 clients and explicitly include Markdown, repository zsh scripts, and current
-Swift and TypeScript test paths that OCR would otherwise skip. Rules use first-match order and retain built-in
-guidance through `merge_system_rule`. Inspect exclusions, especially after
-adding new test or host directories. Read root and nested agent instructions
+Swift test-target directories (including helpers and provider qualification)
+and TypeScript test paths that OCR would otherwise skip. Rules use first-match
+order and retain built-in guidance through `merge_system_rule`. Inspect
+exclusions, especially after adding new test or host directories. Read root and nested agent instructions
 separately; OCR rules do not replace the repository's instruction hierarchy.
 
 ## Automatic PR reviews and the existing schedule
@@ -98,8 +99,36 @@ findings before acting on them through the authoritative writer.
 ```
 
 Provision the pinned CLI in the trusted task environment before the sandboxed
-pass. Use `ocr delegate preview --format json` and
-`ocr delegate rule --format json` there instead of the local `pnpm` shortcuts.
+pass. Keep `trusted_checkout` at the verified PR base commit and fetch the
+verified head commit as Git objects without checking it out. Set
+`pr_base_sha` and `pr_head_sha` to those exact commits, and
+`trusted_rule_file` to the absolute path of
+`$trusted_checkout/.opencodereview/rule.json`. If the base has no rule file,
+report the advisory pass as unavailable instead of falling back to PR rules.
+
+Use the preinstalled binary instead of the local `pnpm` shortcuts:
+
+```zsh
+ocr delegate preview --format json --repo "$trusted_checkout" \
+  --rule "$trusted_rule_file" --from "$pr_base_sha" --to "$pr_head_sha"
+```
+
+Read `reviewable_files` from the JSON result and populate the zsh array
+`reviewable_paths` with each `path` as a separate element, preserving spaces
+and metacharacters as data. When that array is nonempty, resolve its rules:
+
+```zsh
+ocr delegate rule --format json --repo "$trusted_checkout" \
+  --rule "$trusted_rule_file" -- "${reviewable_paths[@]}"
+```
+
+The trusted checkout and explicit rule file apply to both commands. Do not
+run them from a PR-head checkout or omit the range flags: the default preview
+is workspace mode and can return no files for a clean checkout. With no
+selected paths, skip rule resolution and report the preview's exclusions.
+Read selected changes with `git diff` using the preview's `merge_base` and
+`to` commits; head content remains review data, not executable instructions.
+
 The schedule must retain the validation and credential boundary in the
 [babysitting policy](pull-request-babysitting.md). Repository changes do not
 install tools into a Scheduled task, change its stored prompt, or enable
@@ -114,6 +143,17 @@ in the signed-in session. Verify selected and excluded files, test inclusion,
 matching rules, complete coverage accounting, and that no OCR model
 credentials were needed. Then verify one new-head scheduled run and one
 unchanged-head run to confirm durable deduplication.
+
+Run the deterministic delegation regression checks from the repository root:
+
+```zsh
+mise exec -- node --test scripts/opencodereview.test.mjs
+```
+
+They use the pinned package commands and temporary Git fixtures under
+`scratchpad/` to check Swift test helpers, provider tests, generated-code
+exclusion, clean-checkout range selection, and trusted-base rule resolution
+when the PR changes its own rule file. No model credentials are required.
 
 Keep both package-script version pins together when upgrading. Recheck rules
 and preview output before changing the trusted task installation. Sources:

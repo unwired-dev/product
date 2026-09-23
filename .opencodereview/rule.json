@@ -2,8 +2,8 @@
   "include": [
     "**/*.md",
     "scripts/**/*.zsh",
-    "apps/unwired-mail/**/*Tests.swift",
-    "apps/unwired-mail/**/*Test.swift",
+    "apps/unwired-mail/*Tests/**/*.swift",
+    "tools/swiftmail-provider-qualification/Tests/**/*.swift",
     "packages/*/test/**",
     "packages/**/*.test.{ts,tsx}",
     "packages/**/*.spec.{ts,tsx}"
