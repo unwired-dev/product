@@ -67,10 +67,9 @@ jobs:
         run: |
           mkdir -p artifacts/expo-bootstrap
           xcodebuild -version
-          xcrun simctl list runtimes -j | jq -e '.runtimes[] | select(.identifier == "com.apple.CoreSimulator.SimRuntime.iOS-27-0" and .isAvailable)'
+          xcrun simctl list runtimes -j | jq -e '.runtimes[] | select(.identifier == "com.apple.CoreSimulator.SimRuntime.iOS-27-0" and .isAvailable) | .identifier'
           (( $(df -k . | awk 'NR == 2 {print $4}') >= 6 * 1024 * 1024 ))
           pod --version
-          command -v rg
           gem install xcodeproj --version 1.28.1 --no-document --install-dir "$RUNNER_TEMP/native-gems"
           echo "GEM_PATH=$RUNNER_TEMP/native-gems:$(ruby -e 'puts Gem.path.join(":")')" >> "$GITHUB_ENV"
           echo "RUBY=$(command -v ruby)" >> "$GITHUB_ENV"

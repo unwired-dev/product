@@ -150,12 +150,12 @@ mise exec -- pnpm test:native ../../artifacts/expo-bootstrap/DerivedData/Build/P
 ```
 
 The runner requires Ruby with CocoaPods' `xcodeproj` gem (`RUBY` may select that
-Ruby executable), `rg`, and the iOS 27 runtime. It creates and cleans up its own
+Ruby executable) and the iOS 27 runtime. It creates and cleans up its own
 iPhone 18 Pro and iPad Pro 11-inch M5 simulators and keeps logs and xcresults
 under `artifacts/expo-bootstrap/`. A testmanagerd socket/CoreSimulator disconnect
 or zero-test success triggers one retry on a fresh owned device; assertion
 failures fail immediately. The root `pnpm test:native-runner` command exercises
-these retry and cleanup paths with stub tools (requires zsh and rg). It verifies packaged launch, selecting and
+these retry and cleanup paths with stub tools (requires zsh). It verifies packaged launch, selecting and
 replacing a message, and compact back navigation. It does not claim keyboard,
 VoiceOver, resize or physical-device qualification. Native E2E runs in a separate job from the Linux bundle check; see
 [recorded evidence](qualification/expo-react-native-client.md).
