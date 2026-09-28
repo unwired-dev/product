@@ -1,0 +1,75 @@
+{
+  "name": "@private-email/mobile",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "expo-router/entry",
+  "scripts": {
+    "build": "expo export --platform ios --source-maps",
+    "check-types": "tsc --noEmit",
+    "dev": "expo start --dev-client",
+    "fallow": "fallow --format json",
+    "format": "oxfmt --check .",
+    "format:fix": "oxfmt --write .",
+    "ios": "expo run:ios",
+    "lint": "oxlint --type-aware --type-check --deny-warnings --report-unused-disable-directives .",
+    "native:generate": "expo prebuild --platform ios",
+    "prepare": "effect-tsgo patch --oxlint",
+    "test": "jest --runInBand",
+    "test:native": "zsh scripts/test-native.zsh",
+    "verify:bundle": "node scripts/verify-bundle.ts"
+  },
+  "dependencies": {
+    "@expo/log-box": "57.0.4",
+    "@expo/metro-runtime": "57.0.16",
+    "@private-email/mail-core": "file:../../packages/mail-core",
+    "effect": "4.0.0-rc.118",
+    "expo": "57.0.25",
+    "expo-build-properties": "57.0.22",
+    "expo-constants": "57.0.19",
+    "expo-dev-client": "57.0.19",
+    "expo-linking": "57.0.11",
+    "expo-router": "57.0.23",
+    "expo-status-bar": "57.0.1",
+    "react": "19.2.3",
+    "react-native": "0.86.3",
+    "react-native-gesture-handler": "2.32.0",
+    "react-native-reanimated": "4.5.1",
+    "react-native-safe-area-context": "5.7.0",
+    "react-native-screens": "4.26.2",
+    "react-native-worklets": "0.10.1"
+  },
+  "devDependencies": {
+    "@effect/tsgo": "0.46.1",
+    "@rajzik/oxfmt-config": "4.0.4",
+    "@rajzik/oxlint-config": "4.0.4",
+    "@react-native/jest-preset": "0.86.3",
+    "@react-native/metro-config": "0.86.3",
+    "@testing-library/react-native": "14.0.1",
+    "@types/jest": "29.5.14",
+    "@types/node": "24.19.0",
+    "@types/react": "19.2.18",
+    "babel-preset-expo": "57.0.13",
+    "fallow": "3.30.0",
+    "jest": "29.7.0",
+    "jest-expo": "57.0.5",
+    "oxfmt": "0.71.0",
+    "oxlint": "1.85.0",
+    "oxlint-tsgolint": "7.0.2003",
+    "react-dom": "19.2.3",
+    "test-renderer": "1.2.0",
+    "typescript": "7.0.2"
+  },
+  "engines": {
+    "node": ">=24 <25",
+    "pnpm": "11.5.2"
+  },
+  "packageManager": "pnpm@11.5.2",
+  "expo": {
+    "install": {
+      "exclude": [
+        "typescript"
+      ]
+    }
+  }
+}

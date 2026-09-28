@@ -385,7 +385,7 @@ describe('scheduled Send admission', () => {
     vi.stubEnv('APNS_TEAM_ID', 'team-id');
     vi.stubEnv(
       'APNS_PRIVATE_KEY',
-      privateKey.export({ format: 'pem', type: 'pkcs8' }),
+      privateKey.export({ format: 'pem', type: 'pkcs8' }).toString(),
     );
     vi.stubEnv('APNS_TOPIC', 'dev.unwired.mail');
     try {

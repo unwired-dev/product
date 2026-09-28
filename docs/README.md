@@ -1,10 +1,12 @@
 # Documentation index
 
-The Expo rewrite is approved and ticketed. The current executable application
-is still the SwiftUI and Mac Catalyst prototype. Read documents according to
+The Expo rewrite is approved and ticketed. The Expo mock Inbox and the existing
+SwiftUI and Mac Catalyst prototype are executable. Read documents according to
 their scope below; publication of a plan does not prove implementation or release.
 
 ## Replacement decisions and work
+
+- [Expo bootstrap, stack, setup and checks](expo-client.md)
 
 - [Accepted product and platform scope](adr/0059-replace-the-client-for-a-shared-cross-platform-product.md)
 - [Mock testing and real integration evidence](adr/0060-pair-mocked-mail-journeys-with-real-integration-evidence.md)

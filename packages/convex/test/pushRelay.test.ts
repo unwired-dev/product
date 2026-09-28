@@ -3305,7 +3305,7 @@ describe('gmail push relay', () => {
     const { privateKey } = generateKeyPairSync('ec', { namedCurve: 'P-256' });
     vi.stubEnv(
       'APNS_PRIVATE_KEY',
-      privateKey.export({ format: 'pem', type: 'pkcs8' }),
+      privateKey.export({ format: 'pem', type: 'pkcs8' }).toString(),
     );
     vi.stubEnv('APNS_TOPIC', 'dev.unwired.mail');
     try {
@@ -3452,7 +3452,7 @@ describe('gmail push relay', () => {
     const { privateKey } = generateKeyPairSync('ec', { namedCurve: 'P-256' });
     vi.stubEnv(
       'APNS_PRIVATE_KEY',
-      privateKey.export({ format: 'pem', type: 'pkcs8' }),
+      privateKey.export({ format: 'pem', type: 'pkcs8' }).toString(),
     );
     vi.stubEnv('APNS_TOPIC', 'dev.unwired.mail');
     try {
@@ -3502,7 +3502,7 @@ describe('gmail push relay', () => {
     const { privateKey } = generateKeyPairSync('ec', { namedCurve: 'P-256' });
     vi.stubEnv(
       'APNS_PRIVATE_KEY',
-      privateKey.export({ format: 'pem', type: 'pkcs8' }),
+      privateKey.export({ format: 'pem', type: 'pkcs8' }).toString(),
     );
     vi.stubEnv('APNS_TOPIC', 'dev.unwired.mail');
     try {

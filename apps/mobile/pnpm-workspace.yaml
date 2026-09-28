@@ -1,24 +1,4 @@
-packages:
-  - 'packages/*'
-
-overrides:
-  baseline-browser-mapping: 2.11.26
-  electron-to-chromium: 1.5.439
-
-catalog:
-  '@effect/tsgo': 0.46.1
-  '@changesets/cli': ^3.0.3
-  '@rajzik/oxfmt-config': ^4.0.4
-  '@rajzik/oxlint-config': ^4.0.4
-  '@rajzik/tsconfig': ^4.0.4
-  '@types/node': ^24.19.0
-  convex: ^1.46.0
-  oxfmt: ^0.71.0
-  oxlint: 1.85.0
-  oxlint-tsgolint: 7.0.2003
-  turbo: ^2.11.5
-  typescript: 7.0.2
-  vitest: ^5.0.2
+packages: []
 
 allowBuilds:
   esbuild: true
@@ -43,12 +23,5 @@ minimumReleaseAgeExclude:
   - '@oxfmt/binding-win32-arm64-msvc@0.71.0'
   - '@oxfmt/binding-win32-ia32-msvc@0.71.0'
   - '@oxfmt/binding-win32-x64-msvc@0.71.0'
-  - '@turbo/darwin-64@2.11.5'
-  - '@turbo/darwin-arm64@2.11.5'
-  - '@turbo/linux-64@2.11.5'
-  - '@turbo/linux-arm64@2.11.5'
-  - '@turbo/windows-64@2.11.5'
-  - '@turbo/windows-arm64@2.11.5'
-  - oxfmt@0.71.0
-  - turbo@2.11.5
   - effect@4.0.0-rc.118
+  - oxfmt@0.71.0

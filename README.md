@@ -2,26 +2,27 @@
 
 Private email client and Convex backend.
 
-The repository currently contains a SwiftUI and Mac Catalyst prototype. The
-approved replacement uses Expo for iPhone and iPad and a separate native React
+The repository contains the SwiftUI and Mac Catalyst prototype and an Expo mock
+Inbox for iPhone and iPad. The approved replacement uses a separate native React
 Native Mac host, with Gmail first and Android, Windows, IMAP/SMTP, and Microsoft
 365 in later slices. Google and Apple Product Sign-In replace Apple-only login.
 
 Start with [the accepted rewrite](docs/adr/0059-replace-the-client-for-a-shared-cross-platform-product.md)
 and [the 78-ticket coverage index](docs/qualification/expo-rewrite-ticket-coverage.md).
-The replacement is not implemented. Dependency and shared-source bundling probes
-passed; [native version-27 qualification](docs/qualification/expo-react-native-client.md)
-is deferred with maintainer approval and remains required before release.
+The [Expo bootstrap](docs/expo-client.md) uses Effect v4 and native split-view
+navigation. Full [platform qualification](docs/qualification/expo-react-native-client.md)
+remains required before release.
 
 ## Current checkout
 
+- `apps/mobile`: independently installed Expo mock Inbox.
+- `packages/mail-core`: framework-independent mock mailbox and theme tokens.
 - `apps/unwired-mail`: SwiftUI client for iPhone, iPad, and Mac Catalyst.
 - `packages/contracts`: shared API contracts and fixtures.
 - `packages/convex`: Convex backend.
 - `packages/mail-test-harness`: current local mail test tooling.
 
-These setup commands apply to the current checkout. Future mobile and Mac hosts
-will have independent dependency roots and lockfiles under
+The mobile host and future Mac host use independent dependency roots and lockfiles under
 [ADR 0064](docs/adr/0064-isolate-mobile-and-macos-native-dependencies.md).
 
 ## Local development
@@ -35,6 +36,9 @@ mise trust .mise.toml
 mise install
 mise exec -- pnpm install
 ```
+
+For the replacement app, follow [Expo installation and launch](docs/expo-client.md#install-and-run).
+The commands below start the existing backend.
 
 If `.env.local` does not exist, copy `.env.example` to it. Start Convex with:
 

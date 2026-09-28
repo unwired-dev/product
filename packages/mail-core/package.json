@@ -1,0 +1,29 @@
+{
+  "name": "@private-email/mail-core",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./theme": "./src/theme.ts"
+  },
+  "scripts": {
+    "check-types": "tsc --noEmit",
+    "format": "oxfmt --check .",
+    "format:fix": "oxfmt --write .",
+    "lint": "oxlint --type-aware --type-check --deny-warnings --report-unused-disable-directives .",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "effect": "4.0.0-rc.118"
+  },
+  "devDependencies": {
+    "@rajzik/tsconfig": "catalog:",
+    "@types/node": "catalog:",
+    "oxfmt": "catalog:",
+    "oxlint": "catalog:",
+    "oxlint-tsgolint": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

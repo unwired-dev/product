@@ -1,13 +1,49 @@
 # Expo and React Native platform qualification
 
-Evidence date: 2026-09-09. Status: **dependency and JavaScript bundle checks pass;
-native version-27 qualification is deferred**.
+Evidence updated: 2026-09-28. Status: **Expo bootstrap builds and launches on
+iOS/iPadOS 27; full replacement qualification remains incomplete**.
 
-The maintainer confirmed the rewrite and authorized implementation to proceed
-without native validation for now. No Mac with macOS 27 and Xcode 27 is available
-to the project. Keep the version-27 deployment floors and complete the deferred
-checks when suitable tooling is available. This record does not claim a working
-replacement client, successful native build, or release readiness.
+The [mobile bootstrap](../expo-client.md) now uses Expo 57.0.25, React Native
+0.86.3 and React 19.2.3 with Effect 4.0.0-rc.118. Xcode 27 and the iOS 27 runtime
+are available on the development host. The maintainer's earlier native-validation
+deferral still applies to unavailable checks, including the separate Mac host.
+
+## Mobile bootstrap evidence — 2026-09-28
+
+- Strict peer dependency installation passes with an independent mobile lockfile.
+- Root workspace lint, formatting, TypeScript and tests pass after dependency
+  updates. Mobile lint, formatting, TypeScript and three component tests pass;
+  the shared Effect service has three passing contract tests.
+- A deliberately discarded Effect value fails Oxlint with
+  `effecttsgo/floating-effect`, confirming the patched compiler integration.
+- The production Hermes export includes the mobile renderer, native Router split
+  view, Effect and the current shared source. The verifier rejects stale shared
+  source, other renderer versions, the Mac graph and backend imports.
+- An arm64 Release simulator build succeeds with Xcode 27. Packaged launch
+  without Metro succeeds on task-owned iPhone 18 Pro and iPad Pro 11-inch M5
+  simulators running iOS 27.0 (24A434).
+- One native XCTest journey passes on each device: open Maya's message, return
+  through the native back button on iPhone, select Oliver, and confirm that the
+  previous sender is no longer displayed. iPad shows the columns side by side.
+  `pnpm test:native` retains this journey with owned-device cleanup and rejects
+  zero-test success. It consumes an already-built simulator app.
+- The first native launch exposed the iOS 27 scene-lifecycle requirement. The
+  Expo build-properties plugin now generates scene support. The first iPad
+  screenshot exposed an overlapping sidebar; explicit tiled split behavior
+  and the detail pane's left safe-area inset correct it. The native journey
+  checks that message text starts beyond the sidebar.
+
+Hardware-keyboard activation, VoiceOver, resizable iPad windows, physical-device
+behavior, persistence, credentials, native Mac, signing and App Store archives
+are not established by this bootstrap. Keep those checks in the release gate.
+The mock Inbox is in-memory; opening mail does not mark it read.
+
+## Earlier dependency probe — 2026-09-09
+
+The sections below preserve the original probe, package pins and machine state.
+At that time no Mac with macOS 27 and Xcode 27 was available, and the maintainer
+authorized implementation with native checks deferred. Those probe results are
+historical and are not evidence for the current native app.
 
 The deferred native work is tracked in
 [GitHub issue #623](https://github.com/unwired-dev/product/issues/623). It is a

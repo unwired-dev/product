@@ -1,5 +1,5 @@
 {
-  "extends": "@rajzik/tsconfig",
+  "extends": ["@rajzik/tsconfig", "../../tsconfig.effect.json"],
   "compilerOptions": {
     "allowImportingTsExtensions": true,
     "module": "NodeNext",

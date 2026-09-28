@@ -2,8 +2,9 @@
 
 ## Start here
 
-The checkout contains the SwiftUI and Mac Catalyst prototype. The approved Expo
-and native React Native Mac replacement is not implemented yet.
+The checkout contains the SwiftUI and Mac Catalyst prototype and the Expo mock
+Inbox in `apps/mobile`. The native React Native Mac replacement is not implemented
+yet. Follow [Expo setup](docs/expo-client.md) for its independent installation.
 
 Read the issue, [documentation index](docs/README.md), relevant
 [domain terms](CONTEXT.md), and the nearest nested `AGENTS.md` before editing.

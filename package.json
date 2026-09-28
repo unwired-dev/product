@@ -13,15 +13,21 @@
     "lint": "turbo run lint",
     "lint:fix": "turbo run lint:fix",
     "mail:test": "pnpm --filter @private-email/mail-test-harness mail:test",
+    "prepare": "effect-tsgo patch --oxlint",
     "test": "turbo run test",
     "version-packages": "changeset version"
   },
   "devDependencies": {
     "@changesets/cli": "catalog:",
+    "@effect/tsgo": "catalog:",
     "@rajzik/oxfmt-config": "catalog:",
     "@rajzik/oxlint-config": "catalog:",
-    "fallow": "^3.9.1",
-    "turbo": "catalog:"
+    "fallow": "^3.30.0",
+    "oxfmt": "catalog:",
+    "oxlint": "catalog:",
+    "oxlint-tsgolint": "catalog:",
+    "turbo": "catalog:",
+    "typescript": "catalog:"
   },
   "engines": {
     "node": ">=24 <25",

@@ -1,0 +1,18 @@
+{
+  "$schema": "https://raw.githubusercontent.com/fallow-rs/fallow/main/schema.json",
+  "entry": ["app/**/*.tsx", "test/**/*.test.tsx", "scripts/*.ts"],
+  "ignorePatterns": ["ios/**", ".expo/**", "dist/**"],
+  "ignoreDependencies": [
+    // Native runtime and config plugins are loaded by Expo, outside JS imports.
+    "expo",
+    "expo-build-properties",
+    "expo-dev-client",
+    // Expo Router's native peers are autolinked; react-dom satisfies its web peer.
+    "react-native-gesture-handler",
+    "react-native-reanimated",
+    "react-native-worklets",
+    "react-dom",
+    // Babel resolves this preset from its config string.
+    "babel-preset-expo",
+  ],
+}
