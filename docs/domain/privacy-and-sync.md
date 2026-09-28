@@ -70,6 +70,22 @@ _Avoid_: Historical-mail alert, Category-Aware Notification, Generic Notificatio
 An optional user setting that allows a visible new-mail notification when category-aware notification processing cannot finish in time.
 _Avoid_: Default generic notification
 
+**Return-to-Attention**:
+A default-on, per-Mail Profile preference permitting the current notification-owning Trusted Device to request an interruption for a due Thread Snooze, Follow-Up Nudge, or Send Reminder. Presentation remains subject to Quiet State, Profile Lock, OS notification authorization, and device-local lock-screen content policy.
+_Avoid_: Return to Attention, guaranteed reminder, automatic send
+
+**Quiet State**:
+A Mail Profile's interruption-suppression state, synchronized through **End-to-End Encrypted Product Sync**, that may be inactive, indefinite, or active until an absolute instant. While active, it suppresses visible notifications and proactive suggestions without suspending mailbox synchronization, indexing, Outbox, or Scheduled Send work.
+_Avoid_: Quiet, Profile Quiet, Profile Lock, paused synchronization
+
+**Profile Lock**:
+Device-local protection scoped to one Product Account and Mail Profile that requires device-owner authentication before mail UI or search can reveal Profile content, with a device-local background grace period. Lock removes the Profile's Spotlight entries and suppresses content-bearing notifications while background work continues.
+_Avoid_: Quiet State, Product Sign-In, synchronized lock
+
+**Spotlight Mail Indexing**:
+An off-by-default Device-Local Preference scoped to one Product Account and Mail Profile that permits a complete-file-protection Spotlight index of only sender, recipients, subject, date, Profile, Mailbox Connection, and opaque exact-message deep-link metadata. It excludes bodies, attachments, Product Sync, and the product backend, and removes stale entries on lock, disablement, authorization revocation, message deletion, connection transfer, or Profile deletion.
+_Avoid_: Full-text mail index, synchronized search index, backend search
+
 **Product Sync**:
 Synchronization of product-owned user data across devices through the product's backend.
 _Avoid_: iCloud sync, provider sync

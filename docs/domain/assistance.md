@@ -31,8 +31,8 @@ Ephemeral generated or transformed content that remains separate from provider m
 _Avoid_: generated Draft, automatic edit, model memory
 
 **Compose Assistance**:
-Subject suggestions use the separate subject input and subject action; body drafting and rewriting remain limited to the authored body or current selection.
-Explicitly requested, device-local drafting, subject suggestion, mechanical proofreading, or meaning-preserving rewriting of a Draft's authored body or current selection. Its ephemeral refinement transcript and preview remain outside the editor until explicit acceptance, and it cannot change recipients, signatures, quoted correspondence, attachments, or delivery state.
+Subject suggestions read the authored body and preview a separate subject, accepted only through the explicit Use Subject action; body drafting, proofreading, and rewriting remain limited to the authored body or current selection.
+Explicitly requested, device-local help with a Draft: subject suggestion, body drafting, mechanical proofreading, or meaning-preserving rewriting. Its ephemeral refinement transcript and preview remain outside the editor until explicit acceptance, and it cannot change recipients, signatures, quoted correspondence, attachments, or delivery state.
 _Avoid_: automatic rewrite, generated signature, inferred recipient, automatic send
 
 **Response Assistance**:

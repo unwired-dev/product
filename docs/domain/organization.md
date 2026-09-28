@@ -33,6 +33,14 @@ _Avoid_: Message pin, Gmail star, IMAP flag, provider pin
 A Profile-scoped, product-owned suppression state for a **Thread** that prevents notifications and proactive suggestions without hiding mail, changing unread state, or changing provider mail.
 _Avoid_: Provider mute, hidden Thread, notification rule
 
+**Thread Snooze**:
+Profile-scoped product state synchronized through **End-to-End Encrypted Product Sync** that hides a Thread from ordinary Inbox until its absolute due instant or a new message arrives. It retains the Thread in Snoozed, All Mail, and Profile-scoped search without changing provider mail.
+_Avoid_: Provider snooze, archive, scheduled delivery
+
+**Follow-Up Nudge**:
+Profile-scoped encrypted product state for revisiting a sent Thread, created only by explicit scheduling or acceptance of an on-device suggestion. It never drafts or sends mail, is cancelled by a newly observed reply outside the recorded authorized Sending Identity set, and remains visibly overdue when interruption is unavailable.
+_Avoid_: Automatic follow-up, Read Receipt, Scheduled Send
+
 **Category**:
 A product-owned grouping used to organize messages independently of provider folders and labels; it may be product-provided or user-created.
 _Avoid_: Folder, Gmail label, Outlook category
@@ -52,6 +60,14 @@ _Avoid_: Promotions, Newsletters & Ads
 **People**:
 A **System Category** for person-to-person correspondence primarily authored by a human for direct conversation, excluding bulk mail, newsletters, transactional notifications, and automated campaigns.
 _Avoid_: Contacts, human-looking sender
+
+**Invites**:
+A **System Category** for invitations and messages requesting an RSVP.
+_Avoid_: Calendar Event Candidate, accepted invitation, calendar entry
+
+**Flights**:
+A **System Category** for flight-related messages, including airline itineraries and boarding information.
+_Avoid_: All travel, calendar entry
 
 **Custom Category**:
 A user-created **Category** for organizing messages according to the user's own needs.
