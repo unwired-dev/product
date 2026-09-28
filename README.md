@@ -28,8 +28,8 @@ One root workspace and lockfile use a shared catalog and a named `mobile` catalo
 ## Local development
 
 Use mise, Node 24, and the exact pnpm version in `package.json`, currently 11.5.2.
-Current Apple builds need the Xcode toolchain and simulator runtime documented in
-[the Apple validation guide](docs/agents/apple-validation.md).
+Expo builds need the Xcode toolchain and simulator runtime documented in
+[Expo setup](docs/expo-client.md#install-and-run).
 
 ```sh
 mise trust .mise.toml
@@ -62,8 +62,8 @@ mise exec -- pnpm fallow
 ```
 
 Use [the testing policy](docs/agents/testing.md) to select meaningful checks and
-[the Apple validation guide](docs/agents/apple-validation.md) for current native
-tests. The [mail test environment](docs/mail-test-environment.md) documents the
+[the native validation guide](docs/agents/native-validation.md) for resource
+ownership during native checks. The [mail test environment](docs/mail-test-environment.md) documents the
 existing harness; the replacement's isolated Mock Mail Sessions follow
 [ADR 0060](docs/adr/0060-pair-mocked-mail-journeys-with-real-integration-evidence.md).
 

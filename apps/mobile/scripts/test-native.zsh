@@ -46,15 +46,20 @@ for device_type in \
       -derivedDataPath "$run_dir/DerivedData" -resultBundlePath "$run_dir/$device_id.xcresult" \
       -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO \
       > "$run_dir/$device_id.log" 2>&1 || test_exit=$?
-    if (( test_exit == 0 )) && rg -q 'Executed 1 test, with 0 failures' "$run_dir/$device_id.log"; then
+    if (( test_exit == 0 )) && rg -q 'Executed [1-9][0-9]* tests?, with 0 failures' "$run_dir/$device_id.log"; then
       print "Native Inbox journey passed: $device_type"
       xcrun simctl shutdown "$device_id"
       break
     fi
-    # Retry infrastructure failures, including a successful run with zero selected tests.
-    if (( attempt == 1 )) && { (( test_exit == 0 )) || rg -qi \
-      'testmanagerd.*(socket|connect)|CoreSimulator.*(disconnect|connection.*invalid|service.*invalid)' \
-      "$run_dir/$device_id.log"; }; then
+    # Assertion failures must never be hidden by an infrastructure retry.
+    assertion_failed=0
+    if rg -qi 'XCTAssert[^ ]* failed|Test Case .* failed|Executed [0-9]+ tests?, with [1-9][0-9]* failures?' "$run_dir/$device_id.log"; then
+      assertion_failed=1
+    fi
+    if (( attempt == 1 && assertion_failed == 0 )) && {
+      { (( test_exit == 0 )) && rg -q 'Executed 0 tests?, with 0 failures' "$run_dir/$device_id.log"; } ||
+      rg -qi 'testmanagerd.*(socket.*(missing|not found|failed|unavailable)|failed to (connect|establish)|connection.*(invalid|interrupted|lost))|CoreSimulator.*(disconnected|connection.*invalid|service.*invalid)' "$run_dir/$device_id.log"
+    }; then
       print -u2 "Simulator infrastructure failed; retrying once on a fresh device: $device_type"
       xcrun simctl shutdown "$device_id" >/dev/null 2>&1 || true
       xcrun simctl delete "$device_id" >/dev/null 2>&1 || true

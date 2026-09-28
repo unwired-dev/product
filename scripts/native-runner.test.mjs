@@ -15,6 +15,10 @@ import { fileURLToPath } from 'node:url';
 const root = fileURLToPath(new URL('..', import.meta.url));
 const scenarios = [
   ['success', 0, 2],
+  ['multiple-tests', 0, 2],
+  ['no-results', 1, 1],
+  ['assertion-with-connection-log', 1, 1],
+  ['assertion-with-infrastructure-error', 1, 1],
   ['socket', 0, 3],
   ['disconnect', 0, 3],
   ['zero', 0, 3],
@@ -60,6 +64,10 @@ if (command === 'xcrun' && args[1] === 'create') console.log('owned-' + next('de
 if (command === 'xcrun' && args[1] === 'delete') fs.appendFileSync(path.join(base, 'deleted'), args[2] + '\\n');
 if (command === 'xcodebuild' && args[0] === 'test-without-building') {
   const attempt = next('attempts');
+  if (scenario === 'no-results') process.exit(0);
+  if (scenario === 'multiple-tests') { console.log('Executed 2 tests, with 0 failures'); process.exit(0); }
+  if (scenario === 'assertion-with-connection-log') { console.log('testmanagerd connection established'); console.log('XCTAssertTrue failed'); process.exit(65); }
+  if (scenario === 'assertion-with-infrastructure-error') { console.log('CoreSimulator service disconnected'); console.log('XCTAssertTrue failed'); process.exit(65); }
   if (scenario === 'assertion') { console.log('XCTAssertEqual failed'); process.exit(65); }
   if (scenario === 'persistent' || attempt === 1) {
     if (scenario === 'socket' || scenario === 'persistent') { console.log('testmanagerd socket missing'); process.exit(65); }

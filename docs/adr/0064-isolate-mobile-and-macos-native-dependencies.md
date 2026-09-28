@@ -23,9 +23,11 @@ it does not establish that a future Mac host can share the current installation.
 
 Catalogs are version constants, not runtime isolation. Each host's Metro bundle
 and native autolinking must resolve exactly its compatible renderer/native graph.
-The current mobile host passes strict peer installation, production bundle
-inventory, native Release build and iPhone/iPad interaction checks using the root
-workspace. Mac resolution and autolinking must be qualified when that host is added.
+The current mobile mock Inbox passes strict peer installation, production bundle
+inventory, and local iOS/iPadOS 27 simulator Release build, launch and interaction
+checks using the root workspace. This does not qualify real provider, persistence,
+credential or full-product behavior. Mac resolution and autolinking must be
+qualified when that host is added.
 
 Share application logic through `workspace:*` packages without React, React
 Native, Expo or native-module imports. Each host owns its React views and platform
@@ -53,7 +55,8 @@ other's renderer line.
 
 On 2026-09-09 the maintainer authorized implementation to continue without native
 version-27 validation because no suitable Mac is available to the project. Keep
-iOS, iPadOS, and macOS deployment targets at 27 or newer. Native build, packaging,
-persistence, credential, lifecycle, and E2E evidence remains deferred until the
-required toolchain and runtimes are available; the exception is not a passing
-result and does not waive release qualification or available TypeScript checks.
+iOS, iPadOS, and macOS deployment targets at 27 or newer. The 2026-09-28 mock Inbox evidence above supersedes that deferral for its local
+mobile simulator build and interaction checks. Remaining Mac-host and full-product
+native qualification stays deferred where tooling or implementation is unavailable;
+the exception is not a passing result and does not waive release qualification
+or available TypeScript checks.

@@ -21,9 +21,10 @@ their scope below; publication of a plan does not prove implementation or releas
 ## Shared policies
 
 - [Root agent guide](../AGENTS.md) and [backend guide](../packages/convex/AGENTS.md)
-- [Domain vocabulary](../CONTEXT.md) and [domain documentation policy](agents/domain.md)
+- [Domain vocabulary by topic](../CONTEXT.md) and [maintenance policy](agents/domain.md)
 - [Test admission, retirement, and feedback budgets](agents/testing.md)
-- [GitHub issue workflow](agents/issue-tracker.md) and [triage labels](agents/triage-labels.md)
+- [Native validation and resource ownership](agents/native-validation.md)
+- [GitHub issue workflow and triage labels](agents/issue-tracker.md)
 - [Automated reviews and PR babysitting](agents/pull-request-babysitting.md)
 - [Code documentation patterns](../.patterns/README.md)
 
@@ -40,7 +41,6 @@ implementation details, and qualification results do not transfer to new hosts.
 
 - [Swift setup and current behavior](swift-client.md)
 - [Scoped Swift agent guide](../apps/unwired-mail/AGENTS.md)
-- [Apple validation and CI contract](agents/apple-validation.md)
 - [Mail test environment](mail-test-environment.md)
 - [Protected Gmail test tenant](gmail-provider-test-tenant.md)
 - [Storage and Product Sync export](storage-and-product-sync-export.md)
@@ -50,14 +50,15 @@ implementation details, and qualification results do not transfer to new hosts.
 
 ## Historical documents
 
-[The archive](archive/README.md) retains seven superseded bootstrap, redesign,
-scheduling, and library-research documents. Their links remain usable inside
-the repository, but their old implementation status and rollout plans are
-historical. ADRs keep their stable filenames and receive scope or supersession
-notes where needed.
+[The archive](archive/README.md) retains superseded bootstrap, redesign,
+scheduling and library-research documents, plus historical domain discussions.
+Their links remain usable inside the repository, but their old implementation
+status and rollout plans are historical. ADRs keep their stable filenames and
+receive scope or supersession notes where needed.
 
 Update affected documentation in each implementation slice. At
 [cutover #627](https://github.com/unwired-dev/product/issues/627), remove the
-remaining Swift-specific setup, guides, commands, and tests only after verified
-replacements exist. Keep useful historical decisions and provider evidence
-clearly scoped rather than presenting them as replacement qualification.
+remaining Swift implementation, build targets and tests after their replacement
+slices are complete. Obsolete Swift operating instructions can be removed now.
+Keep useful historical decisions and provider evidence clearly scoped rather
+than presenting them as replacement qualification.

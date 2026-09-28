@@ -7,13 +7,17 @@ Inbox in `apps/mobile`. The native React Native Mac replacement is not implement
 yet. Follow [Expo setup](docs/expo-client.md) for the root workspace setup.
 
 Read the issue, [documentation index](docs/README.md), relevant
-[domain terms](CONTEXT.md), and the nearest nested `AGENTS.md` before editing.
+[domain index](CONTEXT.md), its relevant topic glossary, and the nearest nested
+`AGENTS.md` before editing.
 Follow the replacement decisions in ADR 0059 through 0064, linked from the index.
 Historical prototype plans do not expand the approved scope.
 
 ## Work
 
 - Preserve unrelated working-tree changes and keep edits within the requested scope.
+- When changing product terminology or `CONTEXT.md`, follow the
+  [domain documentation policy](docs/agents/domain.md). Keep definitions in their
+  owning topic and the root context file as a reading index.
 - Use the mise-managed toolchain and the nearest `package.json` package-manager
   version. Follow [setup instructions](README.md#local-development).
 - Use one root workspace and lockfile with scoped native catalogs under
@@ -26,16 +30,25 @@ Historical prototype plans do not expand the approved scope.
 ## Verify
 
 Follow the [testing policy](docs/agents/testing.md) and
-[validation commands](README.md#validation). Add tests for named risks and retire
-tests only with replacement coverage or a reason their behavior no longer exists.
-Docs-only changes need formatting and link checks.
+[validation commands](README.md#validation).
 
-For the Swift app or Apple CI, follow the
-[Apple validation guide](docs/agents/apple-validation.md), including resource
-ownership and host fallback. Legacy Swift CI is disabled by maintainer decision;
-its tests remain available for local investigation.
-The replacement targets iOS, iPadOS, and macOS 27. Native validation is deferred
-while tooling is unavailable, but remains required before release.
+- Prefer integration tests that exercise real collaborating modules and observable
+  outcomes. Prefer end-to-end tests for complete user journeys in the running app.
+- Write the minimum unit tests needed for risks that integration or E2E tests
+  cannot cover reliably or efficiently. Do not add a test for every function.
+- Every test must protect a named behavior or failure risk and fail when that
+  behavior breaks. Avoid implementation-detail assertions, internal mock call counts,
+  trivial checks and duplicating the same evidence across test layers.
+- Keep scenarios deterministic and isolated. Mock external boundaries where
+  necessary; distinguish mocked journeys from real integration evidence.
+- Retire tests only with replacement coverage or a reason their protected behavior
+  no longer exists. Docs-only changes need formatting and link checks.
+
+For native builds and interaction tests, follow the
+[native validation guide](docs/agents/native-validation.md) and
+[Expo commands](docs/expo-client.md#validate). The replacement targets iOS,
+iPadOS, and macOS 27. Record unavailable checks as deferred; they remain required
+before release. Legacy Swift checks are outside the maintained CI scope.
 
 ## Deliver
 
@@ -43,7 +56,7 @@ while tooling is unavailable, but remains required before release.
 - Add a changeset for runtime behavior or exported API/type changes. Documentation,
   tests, and internal refactors may omit one.
 - Track work in [GitHub Issues](docs/agents/issue-tracker.md) using the
-  [triage labels](docs/agents/triage-labels.md) and native blocking dependencies.
+  [triage labels](docs/agents/issue-tracker.md#triage-labels) and native blocking dependencies.
 - Open PRs ready for review and reference their issue. Independently validate
   feedback, record the disposition, and resolve handled conversations, including
   deferred work. Keep reviewer and CI completion gates independent.

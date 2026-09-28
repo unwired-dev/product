@@ -100,7 +100,7 @@ cd apps/mobile
 mise exec -- pnpm ios --configuration Release --device
 ```
 
-For automated native checks, follow the [Simulator ownership policy](agents/apple-validation.md):
+For automated native checks, follow the [Simulator ownership policy](agents/native-validation.md):
 create fresh task-owned devices, use their UDIDs, isolate DerivedData and result
 paths, and shut down/delete only those devices in a failure-safe cleanup trap.
 
@@ -134,6 +134,8 @@ This is bundle evidence, not a substitute for a native build or interaction test
 The primary CI job runs lint, formatting, types and tests for mobile, core,
 contracts and the retained Convex backend, plus the Effect import-policy tests.
 The Mobile workflow checks Fallow, Expo compatibility and the production bundle.
+Its `Expo native E2E` job also builds the Release app and runs the iPhone/iPad
+interaction journey on pull requests ready for review and pushes to `main`.
 Legacy Swift CI and manual qualification jobs are disabled by maintainer decision.
 
 A focused native XCTest journey is also available. First build a simulator Release
@@ -155,11 +157,33 @@ or zero-test success triggers one retry on a fresh owned device; assertion
 failures fail immediately. The root `pnpm test:native-runner` command exercises
 these retry and cleanup paths with stub tools (requires zsh and rg). It verifies packaged launch, selecting and
 replacing a message, and compact back navigation. It does not claim keyboard,
-VoiceOver, resize or physical-device qualification. Native CI remains separate
-from the Linux bundle job; see [recorded evidence](qualification/expo-react-native-client.md).
+VoiceOver, resize or physical-device qualification. Native E2E runs in a separate job from the Linux bundle check; see
+[recorded evidence](qualification/expo-react-native-client.md).
 
 The three component tests cover selecting a message, replacing the selected
 message and rejecting an unknown identifier. The shared service tests cover
 lookup failure and the invariant that opening a message leaves read state alone.
 Real provider, encrypted persistence, authentication, delivery, production
 observability and device automation belong to their approved follow-up slices.
+
+### Native E2E in CI
+
+The [Mobile workflow](../.github/workflows/mobile.yml) uses GitHub's arm64
+[`xcode-27` image](https://github.com/actions/runner-images/blob/main/images/macos/xcode-27-arm64-Readme.md)
+with Xcode 27.0 selected explicitly and the iOS 27.0 simulator runtime. It performs
+a frozen root installation, generates the iOS project, installs Pods, builds an
+unsigned arm64 simulator Release app with packaged JavaScript, and passes that
+app to the same `pnpm test:native` runner used locally. No signing credentials,
+provider accounts or running Metro server are required.
+
+The job verifies the runner's failure handling before native execution. Assertion
+failures fail immediately, zero selected tests never pass, and only recognized
+infrastructure failures or zero-test success receive one fresh-device retry.
+Its 45-minute timeout includes installation and the native build; the interaction
+step has a separate 15-minute limit. Superseded pull-request runs are cancelled.
+Build logs and XCTest result bundles, including screenshots, are uploaded as
+`expo-native-e2e-<run id>-<attempt>` with seven-day retention, including on failure.
+
+The `Expo native E2E` check covers the mock Inbox on iPhone and iPad. It does not
+qualify the future native Mac host or real provider integration. Repository
+branch protection must select this check separately if it should block merging.

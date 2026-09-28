@@ -43,6 +43,16 @@ behavior, persistence, credentials, native Mac, signing and App Store archives
 are not established by this bootstrap. Keep those checks in the release gate.
 The mock Inbox is in-memory; opening mail does not mark it read.
 
+## Native E2E automation
+
+The [Mobile workflow](../../.github/workflows/mobile.yml) now defines an
+`Expo native E2E` job for ready pull requests and pushes to `main`. It builds the
+packaged Release app on the `xcode-27` arm64 image, runs the existing iPhone/iPad
+journey, and uploads build logs and XCTest results. The runner rejects zero-test
+success and avoids retrying assertion failures even when infrastructure messages
+are also present. This workflow definition does not establish a passing hosted
+run; record that evidence after the updated workflow executes.
+
 ## Earlier dependency probe — 2026-09-09
 
 The sections below preserve the original probe, package pins and machine state.

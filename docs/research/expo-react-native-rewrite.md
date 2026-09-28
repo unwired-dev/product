@@ -132,7 +132,7 @@ on-device-only product promise.
 
 ### Product identity is separate from mailbox permission
 
-[CONTEXT.md](../../CONTEXT.md) defines a Product Account independently of its
+[The identity glossary](../domain/identity.md) defines a Product Account independently of its
 Mailbox Connections and device-local Mailbox Authorization. It now defines
 Product Sign-In independently of Mailbox Authorization. The existing implementation
 still uses Apple-first Product Account authentication.
@@ -322,9 +322,10 @@ report the iPhone targets as already verified on another platform or apply a
 hosted-runner timing multiplier as a product target.
 
 Retain [the testing policy](../agents/testing.md)'s feedback budgets: focused warm
-checks within two minutes, required Apple PR validation at a 20-minute p95 after
-runner allocation, and nightly validation within 60 minutes. Measure setup/build
-separately from tests and cancel superseded runs. Keep only tests protecting named
+checks within two minutes and required PR validation at a 20-minute p95 after
+runner allocation. The current replacement workflows have no nightly matrix;
+the earlier Swift nightly rollout is retired. Measure setup/build separately
+from tests and cancel superseded runs. Keep only tests protecting named
 product, privacy, delivery, persistence, concurrency, or platform risks.
 
 ## Documentation impact

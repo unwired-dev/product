@@ -1,3 +1,10 @@
+function isNamespaceImport(node) {
+  return (
+    node.specifiers.length === 1 &&
+    node.specifiers[0].type === 'ImportNamespaceSpecifier'
+  );
+}
+
 export default {
   meta: { name: 'effect-imports' },
   rules: {
@@ -20,8 +27,7 @@ export default {
               context.report({ node, messageId: 'barrel' });
             } else if (
               /^(effect\/|@effect\/)/u.test(source) &&
-              (node.specifiers.length !== 1 ||
-                node.specifiers[0].type !== 'ImportNamespaceSpecifier')
+              !isNamespaceImport(node)
             ) {
               context.report({ node, messageId: 'namespace' });
             }
