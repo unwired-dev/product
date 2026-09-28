@@ -1,8 +1,9 @@
 # Validate the current Swift client
 
 These commands and resource-ownership rules apply to the existing SwiftUI and
-Mac Catalyst implementation. Keep them in parity with the current CI workflow
-until [cutover #627](https://github.com/unwired-dev/product/issues/627).
+Mac Catalyst implementation. Legacy Swift CI and manual provider qualification
+jobs were disabled at the maintainer's request on 2026-09-28. These local commands
+remain available until [cutover #627](https://github.com/unwired-dev/product/issues/627).
 The Expo and native React Native Mac hosts need their own commands. Their version-27
 qualification is tracked by [#623](https://github.com/unwired-dev/product/issues/623).
 
@@ -64,41 +65,28 @@ If Apple tooling is unavailable in the current environment, state that clearly i
 
 ## CI expectations
 
-The repository must have CI pipelines under `.github/workflows/`.
+The replacement checks live in `.github/workflows/ci.yml` and `mobile.yml`.
+One strict, frozen root install supplies all packages. The TypeScript job checks
+mobile, shared core/contracts and the retained Convex backend, plus the Effect
+import-policy regression tests. Fallow scans root and mobile entry points;
+mobile CI also checks Expo compatibility and the production Hermes bundle.
+The root Fallow scan excludes the legacy mail harness.
 
-Non-draft pull request and default-branch CI must run the same checks agents are expected to run locally:
+Legacy Swift Debug, Release-performance and Core Mail Loop jobs, their nightly
+schedule, and manual Swift provider-qualification jobs are disabled by maintainer
+decision. Their test sources are retained for local investigation. The legacy
+mail harness tests are also excluded from the primary CI task selection.
 
-- `pnpm install --frozen-lockfile`
-- `pnpm lint`
-- `pnpm format`
-- `pnpm turbo run check-types`
-- `pnpm test`
-- `pnpm fallow`
-- `swift-format lint --recursive --strict apps/unwired-mail/unwired-mail apps/unwired-mail/unwired-mailTests`
-- `swiftlint lint --strict --no-cache apps/unwired-mail`
-- the affected Apple Debug build and tests documented below.
-- `mise exec -- pnpm mail:test run core-mail-loop --json` when Core Mail Loop paths are affected.
+Native Expo Release builds and iPhone/iPad journeys have local evidence; they are
+not yet automated in hosted CI. See [Expo validation](../expo-client.md#validate).
+The remaining platform qualification is required before release.
 
-Keep TypeScript, Fallow, and Apple validation in separate CI jobs so failures identify the affected toolchain clearly. The Fallow job uses the [`fallow-rs/fallow@v3`](https://docs.fallow.tools/integrations/ci) GitHub Action in `audit` mode and fails only findings introduced since the pull request base or previous pushed commit. Any temporarily non-blocking bootstrap job must include a comment naming why it is non-blocking and what issue will make it required.
+### Historical Swift CI commands
 
-Apple validation uses affected-project matrices in `.github/workflows/ci.yml`. Add broad Debug,
-narrow Release-performance, and Core Mail Loop path filters for each Apple project. Changes to
-shared Apple tooling run every configured gate; otherwise, macOS runners start only for selected
-projects and risks. Run ordinary tests in Debug. Run the local-mail performance fixture separately
-in Release for performance-sensitive paths and nightly as documented in
-`docs/adr/0018-local-mail-performance-budget.md`. Run the deterministic Core Mail Loop for its
-affected paths and nightly. The hosted CI simulator uses the documented 4x presentation budget
-scale; categorization, main-thread stalls, and local reference runs remain unscaled.
-The Debug pass, Release performance fixture, and Core Mail Loop run as separate matrix jobs so
-selected gates execute in parallel, with configuration-specific caches saved immediately after a
-successful build so later test failures do not discard reusable build output. The existing
-`Apple · <project>` check requires every gate selected for that project.
-
-Keep the hosted Apple commands in parity with the workflow. CI wraps each identical command with
-`scripts/measure-ci-command.zsh` only to record phase timing in `.ci-metrics/*.tsv`; the wrapper is
-CI-only. The Debug pass builds once, disables parallel testing, and excludes the Release-only
-fixture and both mixed-connection scenarios, which run immediately afterward in a fresh test
-process:
+These commands are retained for manual investigation. Apply the task-owned
+Simulator and path substitutions above. The Debug pass builds once, disables
+parallel testing, and excludes the Release-only fixture and both mixed-connection
+scenarios, which run immediately afterward in a fresh test process:
 
 ```sh
 xcodebuild build-for-testing \

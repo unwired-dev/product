@@ -1,19 +1,27 @@
-import { correctness, presets } from '@effect/tsgo/oxlint-presets';
+import * as EffectPresets from '@effect/tsgo/oxlint-presets';
 import { buildOxlintConfig } from '@rajzik/oxlint-config';
 
 export default buildOxlintConfig({
   react: true,
   overrides: {
-    extends: [correctness],
+    jsPlugins: [
+      {
+        name: 'effect-imports',
+        specifier: '../../scripts/oxlint-effect-imports.mjs',
+      },
+    ],
+    extends: [EffectPresets.recommended],
     ignorePatterns: ['ios/**', '.expo/**', 'dist/**'],
     rules: {
+      'effect-imports/namespace-imports': 'deny',
+      'import/no-namespace': ['warn', { ignore: ['effect/**', '@effect/**'] }],
       // The shared config enables all categories; select Effect rule sets explicitly.
       ...Object.fromEntries(
-        Object.values(presets).flatMap((preset) =>
+        Object.values(EffectPresets.presets).flatMap((preset) =>
           Object.keys(preset.rules ?? {}).map((rule) => [rule, 'allow']),
         ),
       ),
-      ...correctness.rules,
+      ...EffectPresets.recommended.rules,
       'eslint/one-var': 'allow',
       'react/forbid-component-props': 'allow',
       'react/jsx-no-literals': 'allow',

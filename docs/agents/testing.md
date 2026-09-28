@@ -69,15 +69,16 @@ babysitter. That workflow must use its credential-free sandbox or exact-head Git
 | Nightly               | Full performance coverage, broad compatibility matrices, and wider deterministic journeys                                                                                                     |
 | Pre-release or manual | Live-provider, APNs, protected-tenant, physical-device, and other credentialed or hardware-dependent evidence                                                                                 |
 
-Apple Debug, Release-performance, and Core Mail Loop validation remain separate gates. Each gate
-runs serially within its job, while selected gates execute in parallel with each other.
-[The Apple validation guide](apple-validation.md) remains authoritative for the
-current Swift commands.
+For the replacement bootstrap, CI runs the Expo app, shared core/contracts and
+retained Convex backend checks, Effect import-policy regression tests, Fallow and
+production bundle verification. Native Expo journeys currently run locally.
 
-Do not manually skip an existing required check because this policy assigns it another
-cadence. `.github/workflows/ci.yml` implements the portfolio above and the CI contract
-in [the Apple validation guide](apple-validation.md) remains authoritative for
-the current Swift commands.
+The maintainer disabled legacy Swift Debug, Release-performance, Core Mail Loop,
+nightly and manual qualification jobs on 2026-09-28. Their test sources and local
+commands remain available, but they are no longer merge gates. The legacy harness
+is excluded from primary CI task selection. The portfolio above remains guidance
+for future replacement coverage; hardware and credentialed qualification remains
+required before release. See the [CI scope and local Apple commands](apple-validation.md).
 
 ## Consolidation and retirement
 

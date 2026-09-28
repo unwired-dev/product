@@ -18,18 +18,43 @@ remain available. Native Mac is a separate implementation ticket.
   React owns presentation state. A mounted provider owns and disposes its
   `ManagedRuntime`; opening a message does not mutate mailbox read state.
 - TypeScript 7.0.2, `@effect/tsgo` 0.46.1, Oxlint 1.85.0 and Oxfmt 0.71.0.
-  Install runs `effect-tsgo patch --oxlint` in both dependency roots. Every
+  Install runs `effect-tsgo patch --oxlint` once at the workspace root. Every
   TypeScript config includes the `@effect/language-service` plugin configuration;
   its diagnostics run once through Oxlint. Effect correctness rules apply
-  throughout; recommended rules also apply to the shared mailbox implementation.
+  throughout; recommended rules apply to the mobile app and shared mailbox implementation.
 - Vitest tests the shared core; Jest Expo and React Native Testing Library test
-  message selection and unavailable routes. Fallow scans each installation.
+  message selection and unavailable routes. Fallow scans the root and mobile entry points separately.
 
-Mobile has its own package manifest, `pnpm-workspace.yaml`, `node_modules`, and
-lockfile under [ADR 0064](adr/0064-isolate-mobile-and-macos-native-dependencies.md).
-It consumes `mail-core` with a local `file:` dependency. Keep React and native
-imports out of that shared package. After changing shared source, rerun the
-mobile install to refresh pnpm's installed copy before testing or bundling.
+One root `pnpm-workspace.yaml` and lockfile manage all packages under
+[ADR 0064](adr/0064-isolate-mobile-and-macos-native-dependencies.md). Shared tooling
+and Effect use the default catalog; mobile renderer, Expo and test packages use
+`catalog:mobile`. The app consumes `mail-core` through `workspace:*`, so source
+edits are immediately available without reinstalling. Keep React and native
+imports out of that shared package. Catalogs centralize versions; bundle checks
+and native autolinking still have to establish each host's renderer boundary.
+
+### Effect setup and imports
+
+Effect is also a root development dependency, making `node_modules/effect/AGENTS.md`
+and `node_modules/effect/src` available to agents. Read the installed guide before
+writing Effect code, as directed by the upstream
+[Effect setup skill](https://github.com/Effect-TS/skills/blob/main/skills/effect-ts/SKILL.md).
+The skill was applied once for setup, without installing it into the repository.
+
+Use namespace imports from Effect module subpaths:
+
+```ts
+import * as Effect from 'effect/Effect';
+import * as Layer from 'effect/Layer';
+```
+
+Both Oxlint configurations enforce `effect-imports/namespace-imports` for
+`effect/*` and `@effect/*`. Named, default, side-effect and root `effect` barrel
+imports fail lint, including named type imports. Namespace type imports are
+allowed. The TypeScript Effect plugin also suggests namespace imports for the
+installed Effect packages; Oxlint is the enforcement layer. Run
+`pnpm test:tooling` from the root to check both configurations against accepted
+and rejected import forms.
 
 ### Compatibility pins
 
@@ -53,9 +78,8 @@ and pnpm remains exactly 11.5.2.
 From the repository root, activate the [mise toolchain](../README.md#local-development):
 
 ```sh
-mise exec -- pnpm install --frozen-lockfile
-cd apps/mobile
 mise exec -- pnpm install --frozen-lockfile --strict-peer-dependencies
+cd apps/mobile
 mise exec -- pnpm ios --device
 ```
 
@@ -82,11 +106,12 @@ paths, and shut down/delete only those devices in a failure-safe cleanup trap.
 
 ## Validate
 
-Shared code and backend checks run from the repository root:
+All workspace checks, including the locally retained legacy harness, run from the root:
 
 ```sh
 mise exec -- pnpm turbo run lint format check-types test
 mise exec -- pnpm fallow
+mise exec -- pnpm test:tooling
 ```
 
 Run mobile checks from `apps/mobile`:
@@ -106,7 +131,10 @@ mise exec -- pnpm verify:bundle
 checks the mobile React/native versions, shared mailbox source, Effect and native
 split view, and rejects the Mac renderer graph, React DOM and backend sources.
 This is bundle evidence, not a substitute for a native build or interaction test.
-The Mobile CI workflow runs these checks independently of the existing Swift CI.
+The primary CI job runs lint, formatting, types and tests for mobile, core,
+contracts and the retained Convex backend, plus the Effect import-policy tests.
+The Mobile workflow checks Fallow, Expo compatibility and the production bundle.
+Legacy Swift CI and manual qualification jobs are disabled by maintainer decision.
 
 A focused native XCTest journey is also available. First build a simulator Release
 app using isolated DerivedData (from `apps/mobile`, after native generation):
@@ -116,13 +144,16 @@ xcodebuild build -workspace ios/UnwiredMailPreview.xcworkspace \
   -scheme UnwiredMailPreview -configuration Release -sdk iphonesimulator \
   -destination 'generic/platform=iOS Simulator' \
   -derivedDataPath ../../artifacts/expo-bootstrap/DerivedData CODE_SIGNING_ALLOWED=NO
-pnpm test:native ../../artifacts/expo-bootstrap/DerivedData/Build/Products/Release-iphonesimulator/UnwiredMailPreview.app
+mise exec -- pnpm test:native ../../artifacts/expo-bootstrap/DerivedData/Build/Products/Release-iphonesimulator/UnwiredMailPreview.app
 ```
 
 The runner requires Ruby with CocoaPods' `xcodeproj` gem (`RUBY` may select that
 Ruby executable), `rg`, and the iOS 27 runtime. It creates and cleans up its own
 iPhone 18 Pro and iPad Pro 11-inch M5 simulators and keeps logs and xcresults
-under `artifacts/expo-bootstrap/`. It verifies packaged launch, selecting and
+under `artifacts/expo-bootstrap/`. A testmanagerd socket/CoreSimulator disconnect
+or zero-test success triggers one retry on a fresh owned device; assertion
+failures fail immediately. The root `pnpm test:native-runner` command exercises
+these retry and cleanup paths with stub tools (requires zsh and rg). It verifies packaged launch, selecting and
 replacing a message, and compact back navigation. It does not claim keyboard,
 VoiceOver, resize or physical-device qualification. Native CI remains separate
 from the Linux bundle job; see [recorded evidence](qualification/expo-react-native-client.md).

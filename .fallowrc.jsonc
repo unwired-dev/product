@@ -1,10 +1,12 @@
 {
   "$schema": "https://raw.githubusercontent.com/fallow-rs/fallow/main/schema.json",
+  "entry": ["scripts/oxlint-effect-imports.mjs"],
   "ignorePatterns": [
     "oxfmt.config.ts",
     "oxlint.config.ts",
     "**/convex/_generated/**",
     "apps/mobile/**",
+    "packages/mail-test-harness/**",
   ],
   "ignoreUnresolvedImports": ["**/_generated/**", "./_generated/dataModel.js"],
   "ignoreDependencies": [

@@ -5,6 +5,10 @@ maintenance until cutover. Its implementation and qualification claims do not
 qualify the Expo or native React Native Mac replacement; use
 [the active documentation index](../README.md) for that work.
 
+The maintainer disabled this legacy qualification workflow on 2026-09-28.
+The commands and evidence below are historical; dispatching the workflow skips
+its job until the workflow is explicitly re-enabled.
+
 Issue [#416](https://github.com/unwired-dev/product/issues/416) owns the release evidence for
 Compose, Response, Understanding, and Translation Assistance. Ordinary pull-request CI proves the
 deterministic product contract. A protected run on an Apple Intelligence-capable physical device

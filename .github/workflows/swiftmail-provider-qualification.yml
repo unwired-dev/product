@@ -27,6 +27,8 @@ concurrency:
 
 jobs:
   qualify:
+    # Legacy Swift qualification is disabled by maintainer decision for the rewrite.
+    if: ${{ false }}
     name: SwiftMail 1.11.0 live providers
     environment: swiftmail-provider-qualification
     runs-on: macos-26

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile, readdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 
-import { Schema } from 'effect';
+import * as Schema from 'effect/Schema';
 
 const dist = new URL('../dist/', import.meta.url);
 const files = await readdir(dist, { recursive: true });
@@ -21,7 +21,7 @@ const sourceMap = Schema.fromJsonString(
 );
 const sources: string[] = [];
 for (const map of maps) {
-  const decoded = Schema.decodeUnknownSync(sourceMap)(
+  const decoded = Schema.decodeSync(sourceMap)(
     await readFile(new URL(map, dist), 'utf8'),
   );
   for (const name of ['index', 'theme']) {
@@ -38,7 +38,7 @@ for (const map of maps) {
           ),
           'utf8',
         ),
-        `Stale shared ${name} source: rerun the mobile install and export.`,
+        `Stale shared ${name} source: re-export the production bundle.`,
       );
     }
   }

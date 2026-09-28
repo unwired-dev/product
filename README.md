@@ -15,14 +15,14 @@ remains required before release.
 
 ## Current checkout
 
-- `apps/mobile`: independently installed Expo mock Inbox.
+- `apps/mobile`: Expo mock Inbox in the root pnpm workspace.
 - `packages/mail-core`: framework-independent mock mailbox and theme tokens.
 - `apps/unwired-mail`: SwiftUI client for iPhone, iPad, and Mac Catalyst.
 - `packages/contracts`: shared API contracts and fixtures.
 - `packages/convex`: Convex backend.
 - `packages/mail-test-harness`: current local mail test tooling.
 
-The mobile host and future Mac host use independent dependency roots and lockfiles under
+One root workspace and lockfile use a shared catalog and a named `mobile` catalog under
 [ADR 0064](docs/adr/0064-isolate-mobile-and-macos-native-dependencies.md).
 
 ## Local development
@@ -43,7 +43,7 @@ The commands below start the existing backend.
 If `.env.local` does not exist, copy `.env.example` to it. Start Convex with:
 
 ```sh
-mise exec -- pnpm dev
+mise exec -- pnpm --filter @private-email/convex dev
 ```
 
 Follow [the Swift prototype setup](docs/swift-client.md) for app environment
@@ -57,6 +57,7 @@ mise exec -- pnpm lint
 mise exec -- pnpm format
 mise exec -- pnpm turbo run check-types
 mise exec -- pnpm test
+mise exec -- pnpm test:tooling
 mise exec -- pnpm fallow
 ```
 
@@ -65,6 +66,10 @@ Use [the testing policy](docs/agents/testing.md) to select meaningful checks and
 tests. The [mail test environment](docs/mail-test-environment.md) documents the
 existing harness; the replacement's isolated Mock Mail Sessions follow
 [ADR 0060](docs/adr/0060-pair-mocked-mail-journeys-with-real-integration-evidence.md).
+
+CI covers the Expo app, shared core/contracts, and retained Convex backend. Legacy
+Swift build, performance, Core Mail Loop and provider-qualification jobs are disabled
+by maintainer decision; their test sources and local commands remain available.
 
 ## Working on the project
 

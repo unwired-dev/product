@@ -10,12 +10,16 @@ deferral still applies to unavailable checks, including the separate Mac host.
 
 ## Mobile bootstrap evidence — 2026-09-28
 
-- Strict peer dependency installation passes with an independent mobile lockfile.
+- Strict peer dependency installation passes with one root workspace and lockfile,
+  shared catalog and named `mobile` catalog. Shared source uses `workspace:*`.
 - Root workspace lint, formatting, TypeScript and tests pass after dependency
   updates. Mobile lint, formatting, TypeScript and three component tests pass;
   the shared Effect service has three passing contract tests.
 - A deliberately discarded Effect value fails Oxlint with
   `effecttsgo/floating-effect`, confirming the patched compiler integration.
+- Effect is available at the root for its installed agent guide and source.
+  Both Oxlint configurations reject non-namespace Effect imports; the regression
+  fixtures cover named, default, barrel, side-effect and type imports.
 - The production Hermes export includes the mobile renderer, native Router split
   view, Effect and the current shared source. The verifier rejects stale shared
   source, other renderer versions, the Mac graph and backend imports.
@@ -27,6 +31,7 @@ deferral still applies to unavailable checks, including the separate Mac host.
   previous sender is no longer displayed. iPad shows the columns side by side.
   `pnpm test:native` retains this journey with owned-device cleanup and rejects
   zero-test success. It consumes an already-built simulator app.
+  The Release build and both journeys were repeated after workspace consolidation.
 - The first native launch exposed the iOS 27 scene-lifecycle requirement. The
   Expo build-properties plugin now generates scene support. The first iPad
   screenshot exposed an overlapping sidebar; explicit tiled split behavior
@@ -49,9 +54,9 @@ The deferred native work is tracked in
 [GitHub issue #623](https://github.com/unwired-dev/product/issues/623). It is a
 release prerequisite and does not block the approved feature-implementation tickets.
 
-## Selected arrangement
+## Historical selected arrangement
 
-Use [independent native host installations](../adr/0064-isolate-mobile-and-macos-native-dependencies.md):
+The original probe used [independent native host installations](../adr/0064-isolate-mobile-and-macos-native-dependencies.md):
 
 | Host        | Expo    | React Native | React Native macOS | React  |
 | ----------- | ------- | ------------ | ------------------ | ------ |
@@ -72,8 +77,9 @@ selected the latter. The cross-judge scored them 8/10 and 9/10 across host fit,
 dependency evidence, isolation, implementation cost, and falsifiable verification.
 Retain the other candidate's explicit renderer inventory and observable Mac
 close-versus-Quit checks. Do not adopt its Expo version override or speculative
-storage API. Use independent lockfiles as well as independent Metro resolution;
-a shared native workspace would weaken the selected boundary.
+storage API. That decision originally required independent lockfiles and Metro
+resolution. The 2026-09-28 amendment replaces the lockfile boundary with named
+catalogs and verified per-host resolution.
 
 ## Executed checks
 
@@ -163,7 +169,7 @@ CocoaPods was not installed. No simulator, native project, native module, app
 archive, or database reset was created by this probe.
 
 Continue implementation under the maintainer's explicit deferral. Before release,
-record results for the actual replacement hosts and exact dependency lockfiles:
+record results for the actual replacement hosts and exact root dependency lockfile:
 
 1. Build and launch iPhone/iPad and native Mac apps with deployment targets at 27,
    packaged JavaScript, and the selected native modules. Exercise Hermes and native

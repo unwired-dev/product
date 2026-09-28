@@ -1,4 +1,4 @@
-import { correctness, recommended, presets } from '@effect/tsgo/oxlint-presets';
+import * as EffectPresets from '@effect/tsgo/oxlint-presets';
 import { buildOxlintConfig } from '@rajzik/oxlint-config';
 
 export default buildOxlintConfig({
@@ -6,23 +6,31 @@ export default buildOxlintConfig({
   node: true,
   turbo: true,
   overrides: {
-    extends: [correctness],
+    jsPlugins: [
+      {
+        name: 'effect-imports',
+        specifier: './scripts/oxlint-effect-imports.mjs',
+      },
+    ],
+    extends: [EffectPresets.correctness],
     ignorePatterns: ['**/convex/_generated/**'],
     rules: {
+      'effect-imports/namespace-imports': 'deny',
+      'import/no-namespace': ['warn', { ignore: ['effect/**', '@effect/**'] }],
       // The shared config enables all categories; select Effect rule sets explicitly.
       ...Object.fromEntries(
-        Object.values(presets).flatMap((preset) =>
+        Object.values(EffectPresets.presets).flatMap((preset) =>
           Object.keys(preset.rules ?? {}).map((rule) => [rule, 'allow']),
         ),
       ),
-      ...correctness.rules,
+      ...EffectPresets.correctness.rules,
       'unicorn/max-nested-calls': 'allow',
       'eslint/one-var': 'allow',
     },
     overrides: [
       {
         files: ['packages/mail-core/src/**/*.ts'],
-        rules: recommended.rules,
+        rules: EffectPresets.recommended.rules,
       },
       {
         files: ['packages/mail-test-harness/**/*.ts'],

@@ -5,6 +5,10 @@ maintenance until cutover. Its implementation and qualification claims do not
 qualify the Expo or native React Native Mac replacement; use
 [the active documentation index](../README.md) for that work.
 
+The maintainer disabled this legacy qualification workflow on 2026-09-28.
+The commands and evidence below are historical; dispatching the workflow skips
+its job until the workflow is explicitly re-enabled.
+
 SwiftMail is an accepted, exact-pinned app dependency. Issue [#280](https://github.com/unwired-dev/product/issues/280) records passing live iCloud Mail and Fastmail Mail Test Evidence, so Standards-Based Mailbox Connections can be enabled in externally distributed Release builds. The Provider Compatibility Run package remains deliberately separate from the app project and independently verifies tag `1.11.0` at commit `a2d4a94f844db62843ef6aec16f3ed9462152acc`; provider credentials and the 10,000-message qualification fixtures never enter ordinary pull-request CI.
 
 ## Protected environment and accounts

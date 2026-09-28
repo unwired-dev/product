@@ -3,7 +3,8 @@
     "plugins": [
       {
         "name": "@effect/language-service",
-        "diagnostics": false
+        "diagnostics": false,
+        "namespaceImportPackages": ["effect", "@effect/tsgo"]
       }
     ]
   }

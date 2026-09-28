@@ -4,7 +4,7 @@
 
 The checkout contains the SwiftUI and Mac Catalyst prototype and the Expo mock
 Inbox in `apps/mobile`. The native React Native Mac replacement is not implemented
-yet. Follow [Expo setup](docs/expo-client.md) for its independent installation.
+yet. Follow [Expo setup](docs/expo-client.md) for the root workspace setup.
 
 Read the issue, [documentation index](docs/README.md), relevant
 [domain terms](CONTEXT.md), and the nearest nested `AGENTS.md` before editing.
@@ -16,7 +16,7 @@ Historical prototype plans do not expand the approved scope.
 - Preserve unrelated working-tree changes and keep edits within the requested scope.
 - Use the mise-managed toolchain and the nearest `package.json` package-manager
   version. Follow [setup instructions](README.md#local-development).
-- Keep mobile and Mac dependency installations independent under
+- Use one root workspace and lockfile with scoped native catalogs under
   [ADR 0064](docs/adr/0064-isolate-mobile-and-macos-native-dependencies.md).
 - Put temporary probes in `scratchpad/`, run TypeScript with plain Node 24,
   and remove task-owned probes afterward.
@@ -32,7 +32,8 @@ Docs-only changes need formatting and link checks.
 
 For the Swift app or Apple CI, follow the
 [Apple validation guide](docs/agents/apple-validation.md), including resource
-ownership and host fallback. Keep required checks until replacements are verified.
+ownership and host fallback. Legacy Swift CI is disabled by maintainer decision;
+its tests remain available for local investigation.
 The replacement targets iOS, iPadOS, and macOS 27. Native validation is deferred
 while tooling is unavailable, but remains required before release.
 
@@ -49,3 +50,11 @@ while tooling is unavailable, but remains required before release.
 - Before PR babysitting, follow the
   [repository policy](docs/agents/pull-request-babysitting.md).
 - Report verification results and unavailable checks accurately.
+
+## Learning more about Effect
+
+This repository uses the Effect TypeScript library.
+Before writing any Effect code, first read `node_modules/effect/AGENTS.md`
+**completely**, and follow the links in the file when required.
+If you need to learn more about particular Effect APIs and concepts that the
+guide does not cover, search through source in `node_modules/effect/src`.

@@ -2,7 +2,8 @@ import type { Message } from '@private-email/mail-core';
 import type { ReactNode } from 'react';
 
 import { listInbox, MockMailbox } from '@private-email/mail-core';
-import { Effect, ManagedRuntime } from 'effect';
+import * as Effect from 'effect/Effect';
+import * as ManagedRuntime from 'effect/ManagedRuntime';
 import { createContext, useContext, useEffect, useState } from 'react';
 
 type InboxState =

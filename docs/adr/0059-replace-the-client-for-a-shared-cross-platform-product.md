@@ -108,6 +108,6 @@ assistance and notifications, and the development cutover. Package compatibility
 native integration, and runtime behavior still need proof. See the
 [rewrite research](../research/expo-react-native-rewrite.md) for the evidence,
 implementation gates, and verification targets. Use
-[separately installed native hosts](0064-isolate-mobile-and-macos-native-dependencies.md);
+[named catalogs and verified native host boundaries](0064-isolate-mobile-and-macos-native-dependencies.md);
 the [platform qualification record](../qualification/expo-react-native-client.md)
 distinguishes completed dependency and bundling checks from deferred native checks.

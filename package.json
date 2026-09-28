@@ -15,6 +15,8 @@
     "mail:test": "pnpm --filter @private-email/mail-test-harness mail:test",
     "prepare": "effect-tsgo patch --oxlint",
     "test": "turbo run test",
+    "test:native-runner": "node --test scripts/native-runner.test.mjs",
+    "test:tooling": "node --test scripts/oxlint-effect-imports.test.mjs",
     "version-packages": "changeset version"
   },
   "devDependencies": {
@@ -22,7 +24,8 @@
     "@effect/tsgo": "catalog:",
     "@rajzik/oxfmt-config": "catalog:",
     "@rajzik/oxlint-config": "catalog:",
-    "fallow": "^3.30.0",
+    "effect": "catalog:",
+    "fallow": "catalog:",
     "oxfmt": "catalog:",
     "oxlint": "catalog:",
     "oxlint-tsgolint": "catalog:",

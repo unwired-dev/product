@@ -13,7 +13,7 @@ their scope below; publication of a plan does not prove implementation or releas
 - [Product identity and mailbox consent](adr/0061-separate-product-identity-from-registration-mailbox-authorization.md)
 - [Originating-device Outbox and atomic admission](adr/0062-keep-queued-delivery-on-its-originating-device.md)
 - [Private new-Inbox notifications](adr/0063-notify-for-new-inbox-mail-without-categorization.md)
-- [Independent mobile and Mac dependency graphs](adr/0064-isolate-mobile-and-macos-native-dependencies.md)
+- [Workspace catalogs and native dependency boundaries](adr/0064-isolate-mobile-and-macos-native-dependencies.md)
 - [Interview decisions and research](research/expo-react-native-rewrite.md)
 - [Platform qualification and deferred native evidence](qualification/expo-react-native-client.md)
 - [Complete ticket and dependency coverage](qualification/expo-rewrite-ticket-coverage.md)

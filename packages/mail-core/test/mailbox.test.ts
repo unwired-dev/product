@@ -1,4 +1,6 @@
-import { Effect, Exit, ManagedRuntime } from 'effect';
+import * as Effect from 'effect/Effect';
+import * as Exit from 'effect/Exit';
+import * as ManagedRuntime from 'effect/ManagedRuntime';
 
 import { listInbox, MockMailbox, readMessage } from '../src/index.ts';
 
