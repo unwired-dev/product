@@ -23,5 +23,5 @@ xcodebuild test -project WindowProbe.xcodeproj -scheme WindowProbe \
   -resultBundlePath "$UNWIRED_TEST_ARTIFACTS/WindowProbe.xcresult" CODE_SIGN_IDENTITY=- ARCHS=arm64 \
   | tee "$UNWIRED_TEST_ARTIFACTS/xcodebuild.log"
 # A successful build with no executed journey is not test evidence.
-rg -q 'Executed 1 test, with 0 failures' "$UNWIRED_TEST_ARTIFACTS/xcodebuild.log"
+/usr/bin/grep -q 'Executed 1 test, with 0 failures' "$UNWIRED_TEST_ARTIFACTS/xcodebuild.log"
 print "Native evidence: $UNWIRED_TEST_ARTIFACTS"

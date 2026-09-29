@@ -1,4 +1,8 @@
-import { fireEvent, render, within } from '@testing-library/react-native';
+import {
+  fireEvent,
+  renderAsync,
+  within,
+} from '@testing-library/react-native';
 import { View } from 'react-native';
 
 import { InboxWindow } from '../src/window.tsx';
@@ -34,7 +38,7 @@ function Windows({
 describe('mac window selection with the shared mock mailbox', () => {
   it('keeps selections independent and preserves the remaining window when another closes', async () => {
     expect.hasAssertions();
-    const app = render(
+    const app = await renderAsync(
       <Windows
         first
         second
@@ -46,14 +50,14 @@ describe('mac window selection with the shared mock mailbox', () => {
     fireEvent.press(await second.findByRole('button', { name: oliver }));
     expect(first.getByText('maya@example.com')).toBeVisible();
     expect(second.getByText('oliver@example.com')).toBeVisible();
-    app.rerender(
+    await app.rerenderAsync(
       <Windows
         first={false}
         second
       />,
     );
     expect(app.getByText('oliver@example.com')).toBeVisible();
-    app.rerender(
+    await app.rerenderAsync(
       <Windows
         first
         second
@@ -72,7 +76,7 @@ describe('mac window selection with the shared mock mailbox', () => {
 
   it('can read the same fixture after all views unmount, without carrying a closed selection', async () => {
     expect.hasAssertions();
-    const app = render(
+    const app = await renderAsync(
       <Windows
         first
         second={false}
@@ -80,13 +84,13 @@ describe('mac window selection with the shared mock mailbox', () => {
     );
     fireEvent.press(await app.findByRole('button', { name: maya }));
     expect(app.getByText('maya@example.com')).toBeVisible();
-    app.rerender(
+    await app.rerenderAsync(
       <Windows
         first={false}
         second={false}
       />,
     );
-    app.rerender(
+    await app.rerenderAsync(
       <Windows
         first={false}
         second
