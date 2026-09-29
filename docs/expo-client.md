@@ -180,7 +180,10 @@ The job verifies the runner's failure handling before native execution. Assertio
 failures fail immediately, zero selected tests never pass, and only recognized
 infrastructure failures or zero-test success receive one fresh-device retry.
 Its 45-minute timeout includes installation and the native build; the interaction
-step has a separate 15-minute limit. Superseded pull-request runs are cancelled.
+step has a separate 25-minute limit for harness compilation, two sequential
+simulator startups and both journeys, including the bounded infrastructure retry.
+The original 15-minute limit interrupted a hosted run after iPhone passed but
+before iPad produced a test result. Superseded pull-request runs are cancelled.
 Build logs and XCTest result bundles, including screenshots, are uploaded as
 `expo-native-e2e-<run id>-<attempt>` with seven-day retention, including on failure.
 

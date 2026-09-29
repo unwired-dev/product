@@ -93,7 +93,7 @@ jobs:
             CODE_SIGNING_ALLOWED=NO ARCHS=arm64 \
             > artifacts/expo-bootstrap/build.log 2>&1
       - name: Run iPhone and iPad interaction journeys
-        timeout-minutes: 15
+        timeout-minutes: 25
         run: pnpm --filter @private-email/mobile test:native "$GITHUB_WORKSPACE/artifacts/expo-bootstrap/DerivedData/Build/Products/Release-iphonesimulator/UnwiredMailPreview.app"
       - name: Upload native test evidence
         if: always()
