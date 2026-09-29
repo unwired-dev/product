@@ -172,3 +172,6 @@ xcuserdata/
 
 # Local Expo qualification evidence
 /artifacts/expo-bootstrap/
+
+# Native Mac mock Inbox validation
+/artifacts/macos-inbox/

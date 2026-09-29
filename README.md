@@ -3,8 +3,8 @@
 Private email client and Convex backend.
 
 The repository contains the SwiftUI and Mac Catalyst prototype and an Expo mock
-Inbox for iPhone and iPad. The approved replacement uses a separate native React
-Native Mac host, with Gmail first and Android, Windows, IMAP/SMTP, and Microsoft
+Inbox for iPhone and iPad, plus a native React Native Mac mock Inbox. The approved
+replacement ships with Gmail first and Android, Windows, IMAP/SMTP, and Microsoft
 365 in later slices. Google and Apple Product Sign-In replace Apple-only login.
 
 Start with [the accepted rewrite](docs/adr/0059-replace-the-client-for-a-shared-cross-platform-product.md)
@@ -16,13 +16,14 @@ remains required before release.
 ## Current checkout
 
 - `apps/mobile`: Expo mock Inbox in the root pnpm workspace.
+- `apps/macos`: AppKit React Native macOS mock Inbox with independent windows.
 - `packages/mail-core`: framework-independent mock mailbox and theme tokens.
 - `apps/unwired-mail`: SwiftUI client for iPhone, iPad, and Mac Catalyst.
 - `packages/contracts`: shared API contracts and fixtures.
 - `packages/convex`: Convex backend.
 - `packages/mail-test-harness`: current local mail test tooling.
 
-One root workspace and lockfile use a shared catalog and a named `mobile` catalog under
+One root workspace and lockfile use a shared catalog and named `mobile` and `macos` catalogs under
 [ADR 0064](docs/adr/0064-isolate-mobile-and-macos-native-dependencies.md).
 
 ## Local development
@@ -38,6 +39,7 @@ mise exec -- pnpm install
 ```
 
 For the replacement app, follow [Expo installation and launch](docs/expo-client.md#install-and-run).
+For Mac, follow [native Mac setup](docs/macos-client.md).
 The commands below start the existing backend.
 
 If `.env.local` does not exist, copy `.env.example` to it. Start Convex with:
@@ -67,7 +69,7 @@ ownership during native checks. The [mail test environment](docs/mail-test-envir
 existing harness; the replacement's isolated Mock Mail Sessions follow
 [ADR 0060](docs/adr/0060-pair-mocked-mail-journeys-with-real-integration-evidence.md).
 
-CI covers the Expo app, shared core/contracts, and retained Convex backend. Legacy
+CI covers both replacement hosts, shared core/contracts, and the retained Convex backend. Legacy
 Swift build, performance, Core Mail Loop and provider-qualification jobs are disabled
 by maintainer decision; their test sources and local commands remain available.
 

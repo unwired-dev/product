@@ -1,0 +1,126 @@
+import { spacing } from '@private-email/mail-core/theme';
+import {
+  ActivityIndicator,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
+
+import { useInbox } from './mailbox.ts';
+import { usePalette } from './theme.ts';
+
+const styles = StyleSheet.create({
+  fill: { flex: 1 },
+  content: {
+    width: '100%',
+    maxWidth: 760,
+    alignSelf: 'center',
+    padding: spacing.extraLarge,
+  },
+  subject: {
+    fontSize: 28,
+    lineHeight: 36,
+    fontWeight: '600',
+    letterSpacing: -0.5,
+  },
+  metadata: {
+    gap: 5,
+    marginTop: spacing.large,
+    paddingBottom: spacing.large,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  sender: { fontSize: 16, fontWeight: '600' },
+  secondary: { fontSize: 14, lineHeight: 21 },
+  body: { fontSize: 17, lineHeight: 28, marginTop: spacing.large },
+  empty: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: spacing.extraLarge,
+    gap: spacing.small,
+  },
+  emptyTitle: { fontSize: 22, fontWeight: '500', textAlign: 'center' },
+  emptyDescription: { fontSize: 16, textAlign: 'center' },
+});
+
+const dateFormat = new Intl.DateTimeFormat('en', {
+  dateStyle: 'long',
+  timeStyle: 'short',
+  timeZone: 'UTC',
+});
+
+export function MessageDetail({ id }: { readonly id: string | undefined }) {
+  const state = useInbox();
+  const colors = usePalette();
+  const message =
+    state.kind === 'ready'
+      ? state.messages.find((item) => item.id === id)
+      : undefined;
+
+  if (state.kind === 'loading') {
+    return (
+      <ActivityIndicator
+        accessibilityLabel="Loading message"
+        style={styles.fill}
+      />
+    );
+  }
+
+  return (
+    <View style={[styles.fill, { backgroundColor: colors.background }]}>
+      {message === undefined ? (
+        <View
+          accessible
+          accessibilityRole="text"
+          accessibilityLabel={
+            id
+              ? 'Message unavailable. Choose another message from the Inbox.'
+              : 'Select a message to start reading.'
+          }
+          style={styles.empty}>
+          <Text
+            accessibilityRole="header"
+            style={[styles.emptyTitle, { color: colors.foreground }]}>
+            {id ? 'Message unavailable' : 'A little space for your mail'}
+          </Text>
+          <Text style={[styles.emptyDescription, { color: colors.secondary }]}>
+            {id
+              ? 'Choose another message from the Inbox.'
+              : 'Select a message to start reading.'}
+          </Text>
+        </View>
+      ) : (
+        <ScrollView contentContainerStyle={styles.content}>
+          <Text
+            accessibilityRole="header"
+            selectable
+            style={[styles.subject, { color: colors.foreground }]}>
+            {message.subject}
+          </Text>
+          <View
+            style={[styles.metadata, { borderBottomColor: colors.separator }]}>
+            <Text
+              selectable
+              style={[styles.sender, { color: colors.foreground }]}>
+              {message.sender}
+            </Text>
+            <Text
+              selectable
+              style={[styles.secondary, { color: colors.secondary }]}>
+              {message.address}
+            </Text>
+            <Text style={[styles.secondary, { color: colors.secondary }]}>
+              {dateFormat.format(new Date(message.receivedAt))} UTC
+            </Text>
+          </View>
+          <Text
+            selectable
+            style={[styles.body, { color: colors.foreground }]}>
+            {message.body}
+          </Text>
+        </ScrollView>
+      )}
+    </View>
+  );
+}

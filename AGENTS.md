@@ -3,8 +3,9 @@
 ## Start here
 
 The checkout contains the SwiftUI and Mac Catalyst prototype and the Expo mock
-Inbox in `apps/mobile`. The native React Native Mac replacement is not implemented
-yet. Follow [Expo setup](docs/expo-client.md) for the root workspace setup.
+Inbox in `apps/mobile`, plus the AppKit React Native Mac mock Inbox in
+`apps/macos`. Follow [Expo setup](docs/expo-client.md) for the root workspace setup
+and [Mac setup](docs/macos-client.md) for the desktop host.
 
 Read the issue, [documentation index](docs/README.md), relevant
 [domain index](CONTEXT.md), its relevant topic glossary, and the nearest nested

@@ -21,7 +21,11 @@ const cases = [
   ["import { readFile } from 'node:fs';", false],
 ];
 
-for (const config of ['oxlint.config.ts', 'apps/mobile/oxlint.config.ts']) {
+for (const config of [
+  'oxlint.config.ts',
+  'apps/mobile/oxlint.config.ts',
+  'apps/macos/oxlint.config.ts',
+]) {
   test(`${config} enforces Effect namespace imports`, () => {
     const scratchpad = join(root, 'scratchpad');
     mkdirSync(scratchpad, { recursive: true });

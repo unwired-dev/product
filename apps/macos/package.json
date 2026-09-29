@@ -1,0 +1,50 @@
+{
+  "name": "@private-email/macos",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "build": "mkdir -p dist && react-native bundle --platform macos --dev false --entry-file index.js --bundle-output dist/main.jsbundle --sourcemap-output dist/main.jsbundle.map --assets-dest dist",
+    "check-types": "tsc --noEmit",
+    "dev": "react-native start",
+    "fallow": "fallow --format json",
+    "format": "oxfmt --check .",
+    "format:fix": "oxfmt --write .",
+    "lint": "oxlint --type-aware --type-check --deny-warnings --report-unused-disable-directives .",
+    "native:build": "zsh scripts/build-native.zsh",
+    "native:generate": "ruby scripts/create-project.rb",
+    "native:pods": "cd macos && pod install",
+    "test": "jest --runInBand",
+    "test:native": "zsh scripts/test-native.zsh",
+    "verify:bundle": "node scripts/verify-bundle.ts"
+  },
+  "dependencies": {
+    "@private-email/mail-core": "workspace:*",
+    "effect": "catalog:",
+    "fast-text-encoding": "catalog:macos",
+    "react": "catalog:macos",
+    "react-native": "catalog:macos",
+    "react-native-macos": "catalog:macos"
+  },
+  "devDependencies": {
+    "@effect/tsgo": "catalog:",
+    "@rajzik/oxfmt-config": "catalog:",
+    "@rajzik/oxlint-config": "catalog:",
+    "@react-native-community/cli": "catalog:macos",
+    "@react-native-community/cli-platform-ios": "catalog:macos",
+    "@react-native/babel-preset": "catalog:macos",
+    "@react-native/metro-config": "catalog:macos",
+    "@testing-library/react-native": "catalog:macos",
+    "@types/jest": "catalog:macos",
+    "@types/node": "catalog:",
+    "@types/react": "catalog:macos",
+    "fallow": "catalog:",
+    "jest": "catalog:macos",
+    "oxfmt": "catalog:",
+    "oxlint": "catalog:",
+    "oxlint-tsgolint": "catalog:",
+    "react-test-renderer": "catalog:macos",
+    "typescript": "catalog:"
+  }
+}
