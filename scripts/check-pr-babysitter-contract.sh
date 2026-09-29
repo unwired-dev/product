@@ -5,7 +5,7 @@ set -euo pipefail
 repository_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 agents_file="$repository_root/AGENTS.md"
 policy_file="$repository_root/docs/agents/pull-request-babysitting.md"
-apple_validation_file="$repository_root/docs/agents/apple-validation.md"
+testing_policy_file="$repository_root/docs/agents/testing.md"
 ci_file="$repository_root/.github/workflows/ci.yml"
 
 require_text() {
@@ -32,7 +32,13 @@ require_text "$policy_file" \
 require_text "$policy_file" \
   "repair, or a missing or stale status reply, make no changes and report no action."
 require_text "$policy_file" \
-  "trusted-base local validation as the existing Scheduled-task account only"
+  "The task uses the GitHub authentication and Git author configured for the agent."
+require_text "$policy_file" \
+  "bot account or optional wrapper is not."
+require_text "$policy_file" \
+  "For a named PR request, process only that PR."
+require_text "$policy_file" \
+  "trusted-base local validation as the existing agent local OS account only"
 require_text "$policy_file" \
   "inside Codex's \`workspace-write\` sandbox, after harmless probes confirm that"
 require_text "$policy_file" \
@@ -45,9 +51,9 @@ require_text "$policy_file" \
 require_text "$policy_file" \
   "compatible local sandbox route alone does not stop synchronization, review"
 require_text "$policy_file" "fixes, or required CI repair."
-require_text "$apple_validation_file" \
+require_text "$testing_policy_file" \
   "This exception never applies to the PR babysitter workflow,"
-require_text "$apple_validation_file" "including trusted-base validation."
+require_text "$testing_policy_file" "including trusted-base validation."
 require_text "$ci_file" "permissions:"
 require_text "$ci_file" "  contents: read"
 

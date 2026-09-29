@@ -179,7 +179,8 @@ Manual verification against a running Convex deployment:
 
 ## Validation
 
-Use [the current Apple validation guide](agents/apple-validation.md) for lint,
-Debug tests, Release performance, and Core Mail Loop checks. Existing provider
+Legacy Swift CI and its operating runbook are retired. For any local
+investigation, follow the shared
+[native resource ownership rules](agents/native-validation.md). Existing provider
 evidence is documented in [SwiftMail engine qualification](qualification/swiftmail-engine.md)
 and [the protected provider runbook](qualification/swiftmail-provider.md).

@@ -131,7 +131,7 @@ vi.stubEnv('APPLE_BUNDLE_ID', 'dev.unwired.mail');
 vi.stubEnv('APPLE_SIGN_IN_KEY_ID', 'apple-sign-in-key');
 vi.stubEnv(
   'APPLE_SIGN_IN_PRIVATE_KEY',
-  appleSignInPrivateKey.export({ format: 'pem', type: 'pkcs8' }),
+  appleSignInPrivateKey.export({ format: 'pem', type: 'pkcs8' }).toString(),
 );
 vi.stubEnv('APPLE_TEAM_ID', 'apple-team-id');
 vi.stubGlobal(
@@ -2858,10 +2858,12 @@ describe('gmail operational connection registration', () => {
   it('accepts an escaped single-line Apple private key', async () => {
     expect.assertions(1);
 
-    const privateKey = appleSignInPrivateKey.export({
-      format: 'pem',
-      type: 'pkcs8',
-    });
+    const privateKey = appleSignInPrivateKey
+      .export({
+        format: 'pem',
+        type: 'pkcs8',
+      })
+      .toString();
     vi.stubEnv(
       'APPLE_SIGN_IN_PRIVATE_KEY',
       privateKey.replaceAll('\n', String.raw`\n`),

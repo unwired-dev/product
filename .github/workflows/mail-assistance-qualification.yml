@@ -40,6 +40,8 @@ concurrency:
 
 jobs:
   qualify:
+    # Legacy Swift qualification is disabled by maintainer decision for the rewrite.
+    if: ${{ false }}
     name: On-device model and interaction qualification
     environment: mail-assistance-qualification
     runs-on:

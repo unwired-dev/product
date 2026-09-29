@@ -34,6 +34,7 @@ that require its APIs, such as UI automation. Follow the root
 [test-admission policy](../../docs/agents/testing.md), including meaningful E2E
 coverage; UI tests are not limited to cases where unit tests are impossible.
 
-Follow [the Apple validation guide](../../docs/agents/apple-validation.md) for
-strict formatting/linting, affected tests, Release performance, CI parity, and
-owned Simulator/DerivedData cleanup. Report unavailable checks explicitly.
+Legacy Swift validation commands are no longer maintained in the shared agent
+guides. If investigating this prototype, apply the shared
+[native resource ownership rules](../../docs/agents/native-validation.md) and
+report the exact checks run. Prototype results do not qualify the replacement.

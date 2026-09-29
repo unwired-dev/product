@@ -1,11 +1,20 @@
 {
   "$schema": "https://raw.githubusercontent.com/fallow-rs/fallow/main/schema.json",
-  "ignorePatterns": ["oxfmt.config.ts", "oxlint.config.ts", "**/convex/_generated/**"],
+  "entry": ["scripts/oxlint-effect-imports.mjs"],
+  "ignorePatterns": [
+    "oxfmt.config.ts",
+    "oxlint.config.ts",
+    "**/convex/_generated/**",
+    "apps/mobile/**",
+    "packages/mail-test-harness/**",
+  ],
   "ignoreUnresolvedImports": ["**/_generated/**", "./_generated/dataModel.js"],
   "ignoreDependencies": [
+    // Used by prepare and the ignored Oxlint configuration files.
+    "@effect/tsgo",
     "@edge-runtime/vm",
     "@rajzik/oxfmt-config",
     "@rajzik/oxlint-config",
-    "@rajzik/tsconfig"
-  ]
+    "@rajzik/tsconfig",
+  ],
 }

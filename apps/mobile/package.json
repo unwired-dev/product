@@ -1,0 +1,69 @@
+{
+  "name": "@private-email/mobile",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "expo-router/entry",
+  "scripts": {
+    "build": "expo export --platform ios --source-maps",
+    "check-types": "tsc --noEmit",
+    "dev": "expo start --dev-client",
+    "fallow": "fallow --format json",
+    "format": "oxfmt --check .",
+    "format:fix": "oxfmt --write .",
+    "ios": "expo run:ios",
+    "lint": "oxlint --type-aware --type-check --deny-warnings --report-unused-disable-directives .",
+    "native:generate": "expo prebuild --platform ios",
+    "test": "jest --runInBand",
+    "test:native": "zsh scripts/test-native.zsh",
+    "verify:bundle": "node scripts/verify-bundle.ts"
+  },
+  "dependencies": {
+    "@expo/log-box": "catalog:mobile",
+    "@expo/metro-runtime": "catalog:mobile",
+    "@private-email/mail-core": "workspace:*",
+    "effect": "catalog:",
+    "expo": "catalog:mobile",
+    "expo-build-properties": "catalog:mobile",
+    "expo-constants": "catalog:mobile",
+    "expo-dev-client": "catalog:mobile",
+    "expo-linking": "catalog:mobile",
+    "expo-router": "catalog:mobile",
+    "expo-status-bar": "catalog:mobile",
+    "react": "catalog:mobile",
+    "react-native": "catalog:mobile",
+    "react-native-gesture-handler": "catalog:mobile",
+    "react-native-reanimated": "catalog:mobile",
+    "react-native-safe-area-context": "catalog:mobile",
+    "react-native-screens": "catalog:mobile",
+    "react-native-worklets": "catalog:mobile"
+  },
+  "devDependencies": {
+    "@effect/tsgo": "catalog:",
+    "@rajzik/oxfmt-config": "catalog:",
+    "@rajzik/oxlint-config": "catalog:",
+    "@react-native/jest-preset": "catalog:mobile",
+    "@react-native/metro-config": "catalog:mobile",
+    "@testing-library/react-native": "catalog:mobile",
+    "@types/jest": "catalog:mobile",
+    "@types/node": "catalog:",
+    "@types/react": "catalog:mobile",
+    "babel-preset-expo": "catalog:mobile",
+    "fallow": "catalog:",
+    "jest": "catalog:mobile",
+    "jest-expo": "catalog:mobile",
+    "oxfmt": "catalog:",
+    "oxlint": "catalog:",
+    "oxlint-tsgolint": "catalog:",
+    "react-dom": "catalog:mobile",
+    "test-renderer": "catalog:mobile",
+    "typescript": "catalog:"
+  },
+  "expo": {
+    "install": {
+      "exclude": [
+        "typescript"
+      ]
+    }
+  }
+}

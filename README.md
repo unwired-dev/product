@@ -2,33 +2,34 @@
 
 Private email client and Convex backend.
 
-The repository currently contains a SwiftUI and Mac Catalyst prototype. The
-approved replacement uses Expo for iPhone and iPad and a separate native React
+The repository contains the SwiftUI and Mac Catalyst prototype and an Expo mock
+Inbox for iPhone and iPad. The approved replacement uses a separate native React
 Native Mac host, with Gmail first and Android, Windows, IMAP/SMTP, and Microsoft
 365 in later slices. Google and Apple Product Sign-In replace Apple-only login.
 
 Start with [the accepted rewrite](docs/adr/0059-replace-the-client-for-a-shared-cross-platform-product.md)
 and [the 78-ticket coverage index](docs/qualification/expo-rewrite-ticket-coverage.md).
-The replacement is not implemented. Dependency and shared-source bundling probes
-passed; [native version-27 qualification](docs/qualification/expo-react-native-client.md)
-is deferred with maintainer approval and remains required before release.
+The [Expo bootstrap](docs/expo-client.md) uses Effect v4 and native split-view
+navigation. Full [platform qualification](docs/qualification/expo-react-native-client.md)
+remains required before release.
 
 ## Current checkout
 
+- `apps/mobile`: Expo mock Inbox in the root pnpm workspace.
+- `packages/mail-core`: framework-independent mock mailbox and theme tokens.
 - `apps/unwired-mail`: SwiftUI client for iPhone, iPad, and Mac Catalyst.
 - `packages/contracts`: shared API contracts and fixtures.
 - `packages/convex`: Convex backend.
 - `packages/mail-test-harness`: current local mail test tooling.
 
-These setup commands apply to the current checkout. Future mobile and Mac hosts
-will have independent dependency roots and lockfiles under
+One root workspace and lockfile use a shared catalog and a named `mobile` catalog under
 [ADR 0064](docs/adr/0064-isolate-mobile-and-macos-native-dependencies.md).
 
 ## Local development
 
 Use mise, Node 24, and the exact pnpm version in `package.json`, currently 11.5.2.
-Current Apple builds need the Xcode toolchain and simulator runtime documented in
-[the Apple validation guide](docs/agents/apple-validation.md).
+Expo builds need the Xcode toolchain and simulator runtime documented in
+[Expo setup](docs/expo-client.md#install-and-run).
 
 ```sh
 mise trust .mise.toml
@@ -36,10 +37,13 @@ mise install
 mise exec -- pnpm install
 ```
 
+For the replacement app, follow [Expo installation and launch](docs/expo-client.md#install-and-run).
+The commands below start the existing backend.
+
 If `.env.local` does not exist, copy `.env.example` to it. Start Convex with:
 
 ```sh
-mise exec -- pnpm dev
+mise exec -- pnpm --filter @private-email/convex dev
 ```
 
 Follow [the Swift prototype setup](docs/swift-client.md) for app environment
@@ -53,14 +57,19 @@ mise exec -- pnpm lint
 mise exec -- pnpm format
 mise exec -- pnpm turbo run check-types
 mise exec -- pnpm test
+mise exec -- pnpm test:tooling
 mise exec -- pnpm fallow
 ```
 
 Use [the testing policy](docs/agents/testing.md) to select meaningful checks and
-[the Apple validation guide](docs/agents/apple-validation.md) for current native
-tests. The [mail test environment](docs/mail-test-environment.md) documents the
+[the native validation guide](docs/agents/native-validation.md) for resource
+ownership during native checks. The [mail test environment](docs/mail-test-environment.md) documents the
 existing harness; the replacement's isolated Mock Mail Sessions follow
 [ADR 0060](docs/adr/0060-pair-mocked-mail-journeys-with-real-integration-evidence.md).
+
+CI covers the Expo app, shared core/contracts, and retained Convex backend. Legacy
+Swift build, performance, Core Mail Loop and provider-qualification jobs are disabled
+by maintainer decision; their test sources and local commands remain available.
 
 ## Working on the project
 

@@ -1,0 +1,107 @@
+name: Mobile
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mobile-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  mobile:
+    name: Expo mobile
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      CI: '1'
+      EXPO_NO_TELEMETRY: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - name: Install workspace dependencies
+        run: pnpm install --frozen-lockfile --strict-peer-dependencies
+      - run: pnpm --filter @private-email/mobile fallow
+      - run: pnpm --filter @private-email/mobile exec expo install --check
+      - name: Export production Hermes bundle
+        run: pnpm --filter @private-email/mobile build
+      - name: Verify mobile renderer and shared source
+        run: pnpm --filter @private-email/mobile verify:bundle
+
+  native-e2e:
+    name: Expo native E2E
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: xcode-27
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: zsh -e -o pipefail {0}
+    env:
+      CI: '1'
+      EXPO_NO_TELEMETRY: '1'
+      DEVELOPER_DIR: /Applications/Xcode_27.0.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - name: Check native toolchain
+        run: |
+          mkdir -p artifacts/expo-bootstrap
+          xcodebuild -version
+          xcrun simctl list runtimes -j | jq -e '.runtimes[] | select(.identifier == "com.apple.CoreSimulator.SimRuntime.iOS-27-0" and .isAvailable) | .identifier'
+          (( $(df -k . | awk 'NR == 2 {print $4}') >= 6 * 1024 * 1024 ))
+          pod --version
+          gem install xcodeproj --version 1.28.1 --no-document --install-dir "$RUNNER_TEMP/native-gems"
+          echo "GEM_PATH=$RUNNER_TEMP/native-gems:$(ruby -e 'puts Gem.path.join(":")')" >> "$GITHUB_ENV"
+          echo "RUBY=$(command -v ruby)" >> "$GITHUB_ENV"
+      - name: Install workspace dependencies
+        run: pnpm install --frozen-lockfile --strict-peer-dependencies
+      - name: Check native runner failure handling
+        run: pnpm test:native-runner
+      - name: Generate the iOS project
+        run: pnpm --filter @private-email/mobile native:generate --no-install
+      - name: Install CocoaPods dependencies
+        working-directory: apps/mobile/ios
+        run: pod install
+      - name: Build packaged Release app
+        run: |
+          xcodebuild build \
+            -workspace apps/mobile/ios/UnwiredMailPreview.xcworkspace \
+            -scheme UnwiredMailPreview -configuration Release -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath artifacts/expo-bootstrap/DerivedData \
+            -resultBundlePath artifacts/expo-bootstrap/build.xcresult \
+            CODE_SIGNING_ALLOWED=NO ARCHS=arm64 \
+            > artifacts/expo-bootstrap/build.log 2>&1
+      - name: Run iPhone and iPad interaction journeys
+        timeout-minutes: 25
+        run: pnpm --filter @private-email/mobile test:native "$GITHUB_WORKSPACE/artifacts/expo-bootstrap/DerivedData/Build/Products/Release-iphonesimulator/UnwiredMailPreview.app"
+      - name: Upload native test evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: expo-native-e2e-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            artifacts/expo-bootstrap/**/*.log
+            artifacts/expo-bootstrap/**/*.xcresult/**
+          if-no-files-found: warn
+          retention-days: 7

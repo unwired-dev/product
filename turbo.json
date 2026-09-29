@@ -37,5 +37,11 @@
       "cache": false,
       "persistent": true
     }
-  }
+  },
+  "globalDependencies": [
+    "oxlint.config.ts",
+    "oxfmt.config.ts",
+    "tsconfig.effect.json",
+    "scripts/oxlint-effect-imports.mjs"
+  ]
 }

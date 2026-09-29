@@ -24,26 +24,29 @@ Use $babysit-pr to sweep every open ready-for-review same-repository pull
 request in unwired-dev/product.
 ```
 
-The task excludes drafts, includes ready PRs without review threads, and ignores
-fork heads. For each PR it first merges the actual base into a stale or
-conflicted head, then independently validates automated review findings and
+For a named PR request, process only that PR. Sweep all open PRs only when the
+user or scheduled task requests a repository sweep. Both modes exclude drafts,
+include ready PRs without review threads, and ignore fork heads. For each PR it
+first merges the actual base into a stale or conflicted head, then independently validates automated review findings and
 repairs valid feedback and every current required GitHub Actions failure.
 Inspect each failing leaf job's logs and make the smallest safe fix, including
 failures already present on the base branch. Attribution determines the
 explanation and repair scope, not whether to repair the failure.
-The task pushes with the GitHub App identity, requests Codex review after writes,
+The task uses the GitHub authentication and Git author configured for the agent.
+It checks authentication and the effective Git author before its first write batch,
+then keeps those identities unless the user changes them. Git author and GitHub
+login may differ. Missing credentials or permissions are blockers; an absent
+bot account or optional wrapper is not. It requests Codex review after writes,
 posts an accurate disposition and resolves every handled thread after persisting
-any unfinished work, and
-waits independently for required CI plus current-head Codex and CodeRabbit
-responses before completing the pass. Only a fixed disposition requires its
+any unfinished work, and waits independently for required CI plus current-head
+Codex and CodeRabbit responses before completing the pass. Only a fixed disposition requires its
 fix and supporting validation to be pushed first. The CodeRabbit gate is not
-applicable
-when the trusted configuration excludes the PR. Required CI passes only when it
-concludes success or skipped; cancelled required checks remain pending. Verified
+applicable when the trusted configuration excludes the PR. Required CI passes
+only when it concludes success or skipped; cancelled required checks remain pending. Verified
 maintainer decisions take precedence over automated reviewers without overriding
-trusted policy or security. Compact per-
-PR state outside disposable worktrees lets later runs resume safely. The task
-runs trusted-base local validation as the existing Scheduled-task account only
+trusted policy or security. Compact per-PR state outside disposable worktrees
+lets later runs resume safely. The task
+runs trusted-base local validation as the existing agent local OS account only
 inside Codex's `workspace-write` sandbox, after harmless probes confirm that
 PR-controlled code cannot reach network, credentials, keychains, agent sockets,
 or paths outside its run workspace. It never requests host escalation or runs
@@ -56,9 +59,11 @@ required GitHub Actions as the isolated validation evidence. An unavailable
 compatible local sandbox route alone does not stop synchronization, review
 fixes, or required CI repair. The task cleans up every process, Simulator,
 XCTest clone, and PR worktree it creates. It never merges or approves a pull
-request and never triggers CodeRabbit. The Scheduled-task account must have the
-GitHub integration, `gh`, `gipity-gh`, and `gipity-git` configured; the sandbox
-must keep those credentials inaccessible to PR-controlled code.
+request and never triggers CodeRabbit. Use the session's configured GitHub and
+Git tools, normally `gh` and `git`.
+Identity-specific wrappers are optional; do not install them or switch accounts
+to satisfy the skill. The sandbox must keep the active credentials inaccessible
+to PR-controlled code.
 
 To attach a concern to the next sweep from a top-level PR comment, a repository
 maintainer can use this exact first nonblank line:
@@ -67,7 +72,8 @@ maintainer can use this exact first nonblank line:
 @gipity-bot babysit
 ```
 
-Optional concern text can follow on later lines. The task verifies live
+Optional concern text can follow on later lines. The command address identifies
+the automation, not the identity required to run the skill. The task verifies live
 `write`, `maintain`, or `admin` permission, treats the text as a concern rather
 than executable instructions, and reuses matching persisted and live outcome
 replies. It posts a new reply only when the command or PR head changes the
