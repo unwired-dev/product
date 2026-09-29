@@ -1,6 +1,6 @@
 # Native validation
 
-This guide covers resource ownership for the Expo client and future native
+This guide covers resource ownership for the Expo client and native
 React Native macOS host. Commands and toolchain requirements live in
 [Expo setup and validation](../expo-client.md#validate); remaining release
 checks live in [platform qualification](../qualification/expo-react-native-client.md).
@@ -24,7 +24,9 @@ The replacement targets iOS, iPadOS, and macOS 27 or newer.
   service connection logs do not justify a retry.
 - For the Expo Inbox journeys, run `pnpm test:native` from `apps/mobile`
   after the documented build prerequisites. The runner owns its Simulator
-  lifecycle and result paths. The Mac host needs its own qualified runner.
+  lifecycle and result paths. The [Mac runner](../macos-client.md#verification)
+  owns its probe project and results; run it against a task-built app on a
+  logged-in macOS desktop.
 
 Follow the [execution-environment policy](testing.md#execution-environment) for
 sandbox restrictions and the separate PR babysitter validation boundary.

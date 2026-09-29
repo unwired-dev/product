@@ -1,0 +1,5 @@
+macos/Pods/
+macos/build/
+macos/*.xcodeproj/
+macos/*.xcworkspace/
+macos/.xcode.env*

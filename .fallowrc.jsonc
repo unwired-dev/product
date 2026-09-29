@@ -6,6 +6,7 @@
     "oxlint.config.ts",
     "**/convex/_generated/**",
     "apps/mobile/**",
+    "apps/macos/**",
     "packages/mail-test-harness/**",
   ],
   "ignoreUnresolvedImports": ["**/_generated/**", "./_generated/dataModel.js"],

@@ -1,0 +1,16 @@
+{
+  "$schema": "https://raw.githubusercontent.com/fallow-rs/fallow/main/schema.json",
+  "entry": [
+    "index.js",
+    "react-native.config.cjs",
+    "test/**/*.test.tsx",
+    "scripts/*.ts",
+  ],
+  "ignorePatterns": ["macos/**", "dist/**"],
+  "ignoreDependencies": [
+    "@react-native/babel-preset",
+    "@react-native-community/cli",
+    "@react-native-community/cli-platform-ios",
+    "react-test-renderer",
+  ],
+}

@@ -102,19 +102,20 @@ Automated native checks follow the
 
 ## Current checks and release evidence
 
-The maintained checks cover the Expo app, shared core/contracts and retained
+The maintained checks cover the Expo and Mac apps, shared core/contracts and retained
 Convex backend:
 
-| Lane            | Evidence                                                                                                                                           |
-| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| CI: TypeScript  | Lint, formatting, types and tests for mobile and Convex with their workspace dependencies; Effect import-policy tests and agent workflow contracts |
-| CI: Fallow      | Root unused-code and complexity audit                                                                                                              |
-| CI: Expo mobile | Mobile Fallow scan, Expo compatibility, production Hermes export and bundle boundary checks                                                        |
-| CI: Expo native E2E | Expo Release build and focused iPhone/iPad Inbox journeys                                                                                          |
-| Pre-release     | Real Gmail authorization and transport, encrypted persistence, credentials, APNs, accessibility, physical devices and native Mac qualification     |
+| Lane                | Evidence                                                                                                                                                |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| CI: TypeScript      | Lint, formatting, types and tests for mobile, Mac and Convex with their workspace dependencies; Effect import-policy tests and agent workflow contracts |
+| CI: Fallow          | Root unused-code and complexity audit                                                                                                                   |
+| CI: Expo mobile     | Mobile Fallow scan, Expo compatibility, production Hermes export and bundle boundary checks                                                             |
+| CI: Mac bundle      | Mac production JavaScript export, renderer inventory, shared source and native autolinking scope                                                        |
+| CI: Expo native E2E | Expo Release build and focused iPhone/iPad Inbox journeys                                                                                               |
+| Pre-release         | Real Gmail authorization and transport, encrypted persistence, credentials, APNs, accessibility, physical devices and native Mac qualification          |
 
 The workflow files [CI](../../.github/workflows/ci.yml) and
-[Mobile](../../.github/workflows/mobile.yml) define the automated commands.
+[Mobile](../../.github/workflows/mobile.yml) and [Mac](../../.github/workflows/macos.yml) define the automated commands.
 [Expo validation](../expo-client.md#validate) documents local commands and their
 limits. The native E2E job runs the iPhone/iPad Inbox journey on hosted macOS;
 no nightly validation matrix is currently configured. Legacy Swift jobs and the legacy mail harness

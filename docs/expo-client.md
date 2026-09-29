@@ -4,7 +4,7 @@
 a deterministic Inbox and message detail for iPhone and iPad. It uses synthetic
 in-memory messages; it has no sign-in, provider connection, persistence, sending,
 or Convex client integration. The existing Convex backend and Swift prototype
-remain available. Native Mac is a separate implementation ticket.
+remain available. The [native Mac host](macos-client.md) consumes the same mock mailbox.
 
 ## Stack and boundaries
 
@@ -48,7 +48,7 @@ import * as Effect from 'effect/Effect';
 import * as Layer from 'effect/Layer';
 ```
 
-Both Oxlint configurations enforce `effect-imports/namespace-imports` for
+All host and root Oxlint configurations enforce `effect-imports/namespace-imports` for
 `effect/*` and `@effect/*`. Named, default, side-effect and root `effect` barrel
 imports fail lint, including named type imports. Namespace type imports are
 allowed. The TypeScript Effect plugin also suggests namespace imports for the
@@ -188,5 +188,5 @@ Build logs and XCTest result bundles, including screenshots, are uploaded as
 `expo-native-e2e-<run id>-<attempt>` with seven-day retention, including on failure.
 
 The `Expo native E2E` check covers the mock Inbox on iPhone and iPad. It does not
-qualify the future native Mac host or real provider integration. Repository
+qualify the separate native Mac host or real provider integration. Repository
 branch protection must select this check separately if it should block merging.

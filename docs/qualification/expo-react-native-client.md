@@ -1,12 +1,48 @@
 # Expo and React Native platform qualification
 
-Evidence updated: 2026-09-28. Status: **Expo bootstrap builds and launches on
-iOS/iPadOS 27; full replacement qualification remains incomplete**.
+Evidence updated: 2026-09-29. Status: **Expo bootstrap builds and launches on
+iOS/iPadOS 27 and the native Mac mock Inbox builds and launches on macOS 27;
+full replacement qualification remains incomplete**.
 
 The [mobile bootstrap](../expo-client.md) now uses Expo 57.0.25, React Native
 0.86.3 and React 19.2.3 with Effect 4.0.0-rc.118. Xcode 27 and the iOS 27 runtime
 are available on the development host. The maintainer's earlier native-validation
-deferral still applies to unavailable checks, including the separate Mac host.
+deferral still applies to unavailable release checks. Mac host evidence follows.
+
+## Native Mac mock Inbox evidence — 2026-09-29
+
+The [Mac host](../macos-client.md) adds AppKit windows around the shared synthetic
+Inbox. The amended root-workspace boundary now includes a `macos` catalog with
+React Native macOS 0.81.9, React Native 0.81.6 and React 19.1.4.
+
+- Frozen strict-peer installation succeeds with both host graphs installed.
+- All 20 workspace lint, format, type and test tasks pass for Mac, mobile,
+  shared core/contracts and Convex. Two Mac component integration scenarios
+  exercise independent selection, view closure and remounting against the real
+  mock mailbox service. Three Effect import-policy checks pass.
+- Both production bundle inventories pass. Mac autolinking finds no extra native
+  modules and resolves the pinned Mac fork. Mobile autolinking resolves React
+  Native 0.86.3 and its seven native modules, with no Mac dependency.
+- Native `Testing` and `Release` arm64 builds succeed on macOS 27.0 (26A428) with
+  Xcode 27.0 (27A266a), local ad-hoc signing and hardened runtime disabled for
+  local dynamic-framework loading. Distribution signing is unqualified.
+- The approved, pinned `fast-text-encoding@1.0.6` supplies the UTF-8 APIs missing
+  from Mac Hermes before Effect loads. Packaged native launch renders the shared
+  Inbox without Metro.
+- The native XCTest journey passes on the packaged Testing app and exercises
+  independent selection, menu focus, Command-N and
+  Command-W, closing all windows, continued synthetic work, Launch Services
+  reopen, reading another message and menu Quit in one process/session.
+  Direct native UI automation also verifies Command-Q; XCTest keyboard injection
+  after reopening did not reliably deliver that shortcut.
+- The Release executable contains none of the Testing probe environment key,
+  work-counter or session-property symbols.
+
+The local XCTest runner uses an optimized, packaged Testing app, with a synthetic
+application-scoped timer and content-free lifecycle records. Those records are
+compiled out of Release. Bundle output and successful compilation do not prove
+window lifetime, synchronization, delivery or real provider integration. No
+legacy coverage is removed.
 
 ## Mobile bootstrap evidence — 2026-09-28
 
