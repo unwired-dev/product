@@ -75,6 +75,30 @@ test('Apple language matching, native fallback, and override persistence across 
     assert.doesNotThrow(() =>
       new Intl.DateTimeFormat(regional.settings.locale).format(new Date(0)),
     );
+    for (const [identifier, calendar, numberingSystem] of [
+      ['en_US@calendar=buddhist;numbers=thai', 'buddhist', 'thai'],
+      ['en_US@calendar=gregorian;numbers=arab', 'gregory', 'arab'],
+      ['en-US-u-ca-japanese-nu-fullwide', 'japanese', 'fullwide'],
+      ['en_US@calendar=ethiopic-amete-alem', 'ethioaa', 'latn'],
+      ['en_US@rg=czzzzz;calendar=buddhist;numbers=thai', 'buddhist', 'thai'],
+    ]) {
+      const settings = run('-AppleLocale', identifier).settings;
+      const formatter = new Intl.DateTimeFormat(settings.locale, {
+        year: 'numeric',
+        timeZone: 'UTC',
+      });
+      assert.equal(formatter.resolvedOptions().calendar, calendar);
+      assert.equal(formatter.resolvedOptions().numberingSystem, numberingSystem);
+      assert.equal(
+        formatter.format(new Date(0)),
+        new Intl.DateTimeFormat('en-US', {
+          calendar,
+          numberingSystem,
+          year: 'numeric',
+          timeZone: 'UTC',
+        }).format(new Date(0)),
+      );
+    }
     const system = run(...french);
     assert.equal(system.settings.language, 'fr');
     assert.equal(system.settings.locale, 'fr-CA');

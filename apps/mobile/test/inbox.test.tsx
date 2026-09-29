@@ -6,6 +6,7 @@ import { useState } from 'react';
 import { Inbox } from '../src/inbox.tsx';
 import { InboxProvider } from '../src/mailbox.tsx';
 import { MessageDetail } from '../src/message-detail.tsx';
+import { inbox } from '../src/private-storage.ts';
 
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Mock only the native preferences boundary.
 jest.mock('../src/language-storage.ts', () => ({
@@ -26,15 +27,10 @@ jest.mock('../src/language-storage.ts', () => ({
 }));
 
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Jest's host adapter boundary.
-jest.mock('../src/private-storage.ts', () => {
-  const { createPersistentInbox } = jest.requireActual(
-    '@private-email/mail-core/persistent-inbox',
-  );
-  const { makeMockInboxStorage } = jest.requireActual(
-    '@private-email/mail-core/mock-storage',
-  );
-  return { inbox: createPersistentInbox(makeMockInboxStorage()) };
-});
+jest.mock('../src/private-storage.ts', () => ({
+  __esModule: true,
+  inbox: undefined,
+}));
 
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Jest requires a module name, not a dynamic import.
 jest.mock('react-native-screens/experimental', () => ({
@@ -55,6 +51,22 @@ function InboxJourney() {
 }
 
 describe('preview Inbox', () => {
+  // oxlint-disable-next-line vitest/no-hooks -- Each test owns a fresh native-boundary store.
+  beforeEach(() => {
+    jest.replaceProperty(
+      jest.requireMock<typeof import('../src/private-storage.ts')>(
+        '../src/private-storage.ts',
+      ),
+      'inbox',
+      createPersistentInbox(makeMockInboxStorage()),
+    );
+  });
+
+  // oxlint-disable-next-line vitest/no-hooks -- Dispose each test's application runtime after cleanup.
+  afterEach(async () => {
+    await inbox.dispose();
+  });
+
   it('opens the activated message and exposes its selected state', async () => {
     expect.hasAssertions();
     await render(<InboxJourney />);

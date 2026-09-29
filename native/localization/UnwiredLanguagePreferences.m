@@ -23,6 +23,24 @@ NSDictionary *UnwiredLanguageSettings(void)
   NSMutableArray<NSString *> *components = [NSMutableArray arrayWithObject:current.languageCode];
   if (current.scriptCode) [components addObject:current.scriptCode];
   if (current.regionCode) [components addObject:current.regionCode];
+  NSDictionary<NSString *, NSString *> *keywords =
+      [NSLocale componentsFromLocaleIdentifier:current.localeIdentifier];
+  NSMutableArray<NSString *> *extensions = [NSMutableArray array];
+  NSString *calendar = keywords[@"calendar"];
+  if (calendar) {
+    NSDictionary *calendarAliases = @{@"gregorian": @"gregory", @"ethiopic-amete-alem": @"ethioaa"};
+    [extensions addObject:@"ca"];
+    [extensions addObject:calendarAliases[calendar] ?: calendar];
+  }
+  NSString *numbers = keywords[@"numbers"];
+  if (numbers) {
+    [extensions addObject:@"nu"];
+    [extensions addObject:numbers];
+  }
+  if (extensions.count) {
+    [components addObject:@"u"];
+    [components addObjectsFromArray:extensions];
+  }
   NSString *locale = preference ?: [components componentsJoinedByString:@"-"];
   return @{@"preference": preference ?: NSNull.null, @"language": language, @"locale": locale};
 }

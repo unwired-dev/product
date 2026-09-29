@@ -25,6 +25,10 @@ JavaScript can open the store and set one message's unread field. It cannot
 create, read, replace, or remove the encryption key. The native module uses
 React Native's legacy-module interoperability in both hosts.
 
+On iOS, protected-data availability is checked before filesystem access and again
+before first-run seeding. Lock-time I/O failures are reported as locked so retry
+can recover after unlock without replacing ciphertext.
+
 Opening an existing file requires its existing key. Missing, inaccessible or
 malformed keys do not generate replacements. Authentication, decoding, version,
 and file-access failures preserve the stored bytes. The interface hides stale

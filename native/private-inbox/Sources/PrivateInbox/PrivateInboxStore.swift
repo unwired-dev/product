@@ -2,6 +2,10 @@ import CryptoKit
 import Darwin
 import Foundation
 
+#if os(iOS)
+  import UIKit
+#endif
+
 struct StoredMessage: Codable {
   let id: String
   let sender: String
@@ -22,25 +26,55 @@ struct InboxSnapshot: Codable {
 public final class PrivateInboxStore {
   private let directory: URL
   private let keychain: DeviceKeychain
+  private let protectedDataAvailable: () -> Bool
   private let associatedData = Data("dev.unwired.private-inbox.v1".utf8)
 
-  public init(directory: URL, service: String) {
+  public convenience init(directory: URL, service: String) {
+    self.init(
+      directory: directory, service: service,
+      protectedDataAvailable: Self.protectedDataAvailability())
+  }
+
+  init(directory: URL, service: String, protectedDataAvailable: @escaping () -> Bool) {
     self.directory = directory
     keychain = DeviceKeychain(service: service + ".database")
+    self.protectedDataAvailable = protectedDataAvailable
+  }
+
+  private static func protectedDataAvailability() -> () -> Bool {
+    #if os(iOS)
+      let application: UIApplication
+      if Thread.isMainThread {
+        application = MainActor.assumeIsolated { UIApplication.shared }
+      } else {
+        application = DispatchQueue.main.sync {
+          MainActor.assumeIsolated { UIApplication.shared }
+        }
+      }
+      return { application.isProtectedDataAvailable }
+    #else
+      return { true }
+    #endif
+  }
+
+  private func requireProtectedData() throws {
+    guard protectedDataAvailable() else { throw PrivateInboxError.locked }
   }
 
   public func open(seed: String) throws -> String {
     try transaction {
+      let availableKey = try keychain.read("encryption-key")
       let file = directory.appendingPathComponent("inbox.enc")
       let encrypted: Data
       do {
         encrypted = try Data(contentsOf: file)
       } catch CocoaError.fileReadNoSuchFile {
+        try requireProtectedData()
         let messages = try JSONDecoder().decode([StoredMessage].self, from: Data(seed.utf8))
         let snapshot = InboxSnapshot(version: 1, revision: 0, messages: messages)
         try validate(snapshot)
         let key: Data
-        if let existing = try keychain.read("encryption-key") {
+        if let existing = availableKey {
           key = existing
         } else {
           key = SymmetricKey(size: .bits256).withUnsafeBytes { Data($0) }
@@ -49,20 +83,22 @@ public final class PrivateInboxStore {
         try save(snapshot, key: key)
         return try encode(snapshot)
       }
-      return try encode(decrypt(encrypted))
+      guard let key = availableKey, key.count == 32 else { throw PrivateInboxError.locked }
+      return try encode(decrypt(encrypted, key: key))
     }
   }
 
   public func setUnread(id: String, unread: Bool) throws -> String {
     try transaction {
+      let key = try existingKey()
       let data = try Data(contentsOf: directory.appendingPathComponent("inbox.enc"))
-      var snapshot = try decrypt(data)
+      var snapshot = try decrypt(data, key: key)
       guard let index = snapshot.messages.firstIndex(where: { $0.id == id }) else {
         throw PrivateInboxError.invalidStore
       }
       snapshot.messages[index].unread = unread
       snapshot.revision += 1
-      try save(snapshot, key: existingKey())
+      try save(snapshot, key: key)
       return try encode(snapshot)
     }
   }
@@ -74,8 +110,7 @@ public final class PrivateInboxStore {
     return key
   }
 
-  private func decrypt(_ data: Data) throws -> InboxSnapshot {
-    let key = try existingKey()
+  private func decrypt(_ data: Data, key: Data) throws -> InboxSnapshot {
     do {
       let box = try AES.GCM.SealedBox(combined: data)
       let plaintext = try AES.GCM.open(
@@ -120,6 +155,16 @@ public final class PrivateInboxStore {
   }
 
   private func transaction<T>(_ operation: () throws -> T) throws -> T {
+    try requireProtectedData()
+    do {
+      return try unlockedTransaction(operation)
+    } catch {
+      try requireProtectedData()
+      throw error
+    }
+  }
+
+  private func unlockedTransaction<T>(_ operation: () throws -> T) throws -> T {
     try FileManager.default.createDirectory(
       at: directory, withIntermediateDirectories: true,
       attributes: [.posixPermissions: 0o700])

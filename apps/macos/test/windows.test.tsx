@@ -1,6 +1,9 @@
+import { makeMockInboxStorage } from '@private-email/mail-core/mock-storage';
+import { createPersistentInbox } from '@private-email/mail-core/persistent-inbox';
 import { fireEvent, renderAsync, within } from '@testing-library/react-native';
 import { View } from 'react-native';
 
+import { inbox } from '../src/private-storage.ts';
 import { InboxWindow } from '../src/window.tsx';
 
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Mock only the native preferences boundary.
@@ -22,15 +25,10 @@ jest.mock('../src/language-storage.ts', () => ({
 }));
 
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Jest's host adapter boundary.
-jest.mock('../src/private-storage.ts', () => {
-  const { createPersistentInbox } = jest.requireActual(
-    '@private-email/mail-core/persistent-inbox',
-  );
-  const { makeMockInboxStorage } = jest.requireActual(
-    '@private-email/mail-core/mock-storage',
-  );
-  return { inbox: createPersistentInbox(makeMockInboxStorage()) };
-});
+jest.mock('../src/private-storage.ts', () => ({
+  __esModule: true,
+  inbox: undefined,
+}));
 
 const maya = 'Unread. Maya Chen. A little more room to think';
 const oliver = 'Unread. Oliver Park. Saturday, by the river?';
@@ -61,6 +59,22 @@ function Windows({
 }
 
 describe('mac window selection with the shared mock mailbox', () => {
+  // oxlint-disable-next-line vitest/no-hooks -- Each test owns a fresh native-boundary store.
+  beforeEach(() => {
+    jest.replaceProperty(
+      jest.requireMock<typeof import('../src/private-storage.ts')>(
+        '../src/private-storage.ts',
+      ),
+      'inbox',
+      createPersistentInbox(makeMockInboxStorage()),
+    );
+  });
+
+  // oxlint-disable-next-line vitest/no-hooks -- Dispose each test's application runtime after cleanup.
+  afterEach(async () => {
+    await inbox.dispose();
+  });
+
   it('keeps selections independent and preserves the remaining window when another closes', async () => {
     expect.hasAssertions();
     const app = await renderAsync(

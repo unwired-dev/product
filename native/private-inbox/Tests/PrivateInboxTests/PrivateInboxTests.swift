@@ -60,6 +60,41 @@ struct PrivateInboxTests {
     try ciphertext.write(to: path)
   }
 
+  @Test func protectedDataLockPreservesStorageAndRetriesAfterUnlock() throws {
+    let service = "dev.unwired.private-inbox.tests.\(UUID().uuidString)"
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    let keys = DeviceKeychain(service: service + ".database")
+    defer {
+      try? keys.remove("encryption-key")
+      try? FileManager.default.removeItem(at: directory)
+    }
+    var available = false
+    let store = PrivateInboxStore(
+      directory: directory, service: service, protectedDataAvailable: { available })
+    #expect(throws: PrivateInboxError.locked) { try store.open(seed: seed) }
+    #expect(!FileManager.default.fileExists(atPath: directory.path))
+    #expect(try keys.read("encryption-key") == nil)
+    available = true
+    _ = try store.open(seed: seed)
+    _ = try store.setUnread(id: "first", unread: false)
+    let file = directory.appendingPathComponent("inbox.enc")
+    let ciphertext = try Data(contentsOf: file)
+    let key = try keys.read("encryption-key")
+    available = false
+    #expect(throws: PrivateInboxError.locked) { try store.open(seed: "[]") }
+    #expect(throws: PrivateInboxError.locked) {
+      try store.setUnread(id: "second", unread: false)
+    }
+    #expect(try Data(contentsOf: file) == ciphertext)
+    #expect(try keys.read("encryption-key") == key)
+    available = true
+    let restored = try JSONDecoder().decode(
+      InboxSnapshot.self, from: Data(store.open(seed: "[]").utf8))
+    #expect(restored.messages.count == 2)
+    #expect(restored.messages[0].unread == false)
+    #expect(restored.messages[1].unread == true)
+  }
+
   @Test func credentialRemovalPreservesTheDatabase() throws {
     let service = "dev.unwired.private-inbox.tests.\(UUID().uuidString)"
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
