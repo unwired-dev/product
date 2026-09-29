@@ -86,7 +86,10 @@ persistence. Run their lint, format, type and test checks through the root works
 The app-hosted Swift Testing suite uses the real filesystem, CryptoKit and
 Keychain. It checks reopening, ciphertext without fixture plaintext, rejection
 with a wrong or missing key, preserved corrupt data, credential use/removal,
-credential/database isolation and competing native store instances:
+credential/database isolation and competing native store instances. A controlled
+protected-data availability boundary also checks locked first-run access, preservation
+of existing ciphertext and keys, and recovery after unlock; physical-device lock
+qualification remains separate:
 
 ```sh
 mise exec -- zsh native/private-inbox/integration/test.zsh ios
