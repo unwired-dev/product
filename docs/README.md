@@ -19,6 +19,8 @@ their scope below; publication of a plan does not prove implementation or releas
 - [Platform qualification and deferred native evidence](qualification/expo-react-native-client.md)
 - [Complete ticket and dependency coverage](qualification/expo-rewrite-ticket-coverage.md)
 
+- [Private preview Inbox storage and credentials](private-inbox-storage.md)
+
 ## Shared policies
 
 - [Root agent guide](../AGENTS.md) and [backend guide](../packages/convex/AGENTS.md)

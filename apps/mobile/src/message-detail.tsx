@@ -1,6 +1,7 @@
 import { spacing } from '@private-email/mail-core/theme';
 import {
   ActivityIndicator,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -8,7 +9,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-screens/experimental';
 
-import { useInbox } from './mailbox.tsx';
+import { useInbox, useInboxActions } from './mailbox.tsx';
 import { usePalette } from './theme.ts';
 
 const styles = StyleSheet.create({
@@ -53,6 +54,7 @@ const dateFormat = new Intl.DateTimeFormat('en', {
 
 export function MessageDetail({ id }: { readonly id: string | undefined }) {
   const state = useInbox();
+  const actions = useInboxActions();
   const colors = usePalette();
   const message =
     state.kind === 'ready'
@@ -65,6 +67,29 @@ export function MessageDetail({ id }: { readonly id: string | undefined }) {
         accessibilityLabel="Loading message"
         style={styles.fill}
       />
+    );
+  }
+
+  if (state.kind === 'locked' || state.kind === 'failed') {
+    return (
+      <View style={styles.empty}>
+        <Text
+          accessibilityRole="alert"
+          style={[styles.emptyDescription, { color: colors.foreground }]}>
+          {state.kind === 'locked'
+            ? 'Private storage is locked. Unlock your device and try again.'
+            : 'Private storage could not be opened or saved. Your stored data has been kept.'}
+        </Text>
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => {
+            void actions.load();
+          }}>
+          <Text style={[styles.secondary, { color: colors.accent }]}>
+            Try again
+          </Text>
+        </Pressable>
+      </View>
     );
   }
 
@@ -87,6 +112,15 @@ export function MessageDetail({ id }: { readonly id: string | undefined }) {
         </View>
       ) : (
         <ScrollView contentContainerStyle={styles.content}>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => {
+              void actions.setUnread(message.id, !message.unread);
+            }}>
+            <Text style={[styles.secondary, { color: colors.accent }]}>
+              {message.unread ? 'Mark as read' : 'Mark as unread'}
+            </Text>
+          </Pressable>
           <Text
             accessibilityRole="header"
             selectable

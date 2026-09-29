@@ -47,6 +47,13 @@ final class WindowTests: XCTestCase {
     oliver.click()
     XCTAssertTrue(address(second, "oliver@example.com").waitForExistence(timeout: 10))
     XCTAssertTrue(address(first, "maya@example.com").exists)
+    // Start from either read state so repeated runs remain independent of prior fixture changes.
+    let markUnread = second.buttons["Mark as unread"]
+    if markUnread.exists { markUnread.click() }
+    XCTAssertTrue(second.buttons["Mark as read"].waitForExistence(timeout: 10))
+    second.buttons["Mark as read"].click()
+    XCTAssertTrue(second.buttons["Mark as unread"].waitForExistence(timeout: 10))
+    XCTAssertTrue(first.buttons["Oliver Park. Saturday, by the river?"].waitForExistence(timeout: 10))
     XCTAssertFalse(address(second, "maya@example.com").exists)
 
     app.menuBars.menuBarItems["Window"].click()
@@ -91,5 +98,10 @@ final class WindowTests: XCTestCase {
     XCTAssertEqual(Set(records.map(\.pid)).count, 1)
     XCTAssertEqual(Set(records.map(\.session)).count, 1)
     XCTAssertEqual(records.filter { $0.event == "launch" }.count, 1)
+    app.launch()
+    let restored = app.windows["Inbox 1"].buttons["Oliver Park. Saturday, by the river?"]
+    XCTAssertTrue(restored.waitForExistence(timeout: 30))
+    restored.click()
+    XCTAssertTrue(app.windows["Inbox 1"].buttons["Mark as unread"].waitForExistence(timeout: 10))
   }
 }

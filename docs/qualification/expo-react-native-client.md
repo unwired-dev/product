@@ -240,3 +240,51 @@ No legacy tests have been retired by this dependency probe. Retire tests with
 the implementation they protect, preserving or replacing the named risks in
 [the testing policy](../agents/testing.md) and
 [the mock-mode decision](../adr/0060-pair-mocked-mail-journeys-with-real-integration-evidence.md).
+
+## Private Inbox persistence, 2026-09-29
+
+[#594](https://github.com/unwired-dev/product/issues/594) implements
+[native encrypted fixture storage](../private-inbox-storage.md) for Expo and Mac.
+Verification used Xcode 27.0, Swift 6.4, the iOS 27.0 Simulator runtime, Node
+24.16.0 and pnpm 11.5.2.
+
+Passed:
+
+- Lint, formatting, types and tests for mobile, Mac, mail-core, contracts and
+  Convex through `pnpm turbo run lint format check-types test` with those package
+  filters. Focused tests were rerun after the final test-only edits.
+- Both production bundles and renderer/native-boundary checks, Expo dependency
+  compatibility, root and host Fallow scans, Effect import-policy tests and the
+  existing native runner failure-handling suite. Fallow reported no unused-code
+  findings; advisory health findings remain separate from its exit status.
+- Swift formatting and strict SwiftLint for the new native store, bridge and
+  integration tests; Ruby and zsh syntax checks; affected local documentation links.
+- Ad-hoc signed Expo simulator Release build and the native iPhone 18 Pro and
+  iPad Pro 11-inch M5 journeys. Both explicitly mark a fixture read, terminate
+  the app, relaunch its packaged binary, and observe the restored read state.
+  Local evidence: `artifacts/expo-bootstrap/native-pEBIF3/`.
+- Three app-hosted Swift Testing integration scenarios on an owned iOS 27
+  Simulator, using real Keychain, CryptoKit and filesystem operations. These
+  prove encrypted persistence, no fixture plaintext in the encrypted file,
+  rejection without the correct key, preservation of missing-key/corrupt data,
+  synthetic credential use and deletion, database-key isolation, and competing
+  native updates. Local evidence: `artifacts/private-inbox/integration.8tcd1d/`.
+- Mac `Testing` build, including the shared native store and bridge, with ad-hoc
+  signing and packaged JavaScript. This proves compilation and packaging only.
+
+Deferred:
+
+- Signed Mac Keychain integration and native read-state relaunch checks. The
+  local Unwired development certificate is available, but matching Mac App
+  Development provisioning profiles are absent for
+  `dev.unwired.mail.macos.preview` and `dev.unwired.storage-probe.StorageHost`.
+  Xcode rejected both signed builds before tests could run. Ad-hoc signing and
+  a plain SwiftPM test executable do not qualify Data Protection Keychain access.
+  The Mac checks remain required before release; the signing setup is documented
+  in the storage guide. No developer-portal resources were created.
+- Physical-device lock/unlock, backup/restore and distribution-signing behavior.
+  Simulator tests do not prove these policies on a shipped app.
+
+Mock Mail Session tests prove application behavior through a substituted native
+boundary. They are distinct from the real storage tests and the packaged-app
+journeys above. This slice retires no legacy coverage.

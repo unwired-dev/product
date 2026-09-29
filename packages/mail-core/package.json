@@ -5,6 +5,8 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./persistent-inbox": "./src/persistent-inbox.ts",
+    "./mock-storage": "./src/mock-storage.ts",
     "./theme": "./src/theme.ts"
   },
   "scripts": {

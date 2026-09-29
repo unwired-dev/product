@@ -1,38 +1,23 @@
-import type { Message } from '@private-email/mail-core';
+import { useEffect, useSyncExternalStore } from 'react';
+import { AppState } from 'react-native';
 
-import { listInbox, MockMailbox } from '@private-email/mail-core';
-import * as ManagedRuntime from 'effect/ManagedRuntime';
-import { useEffect, useState } from 'react';
-
-type InboxState =
-  | { readonly kind: 'loading' }
-  | { readonly kind: 'failed' }
-  | { readonly kind: 'ready'; readonly messages: readonly Message[] };
-
-// One runtime per JavaScript application, retained when every window unmounts.
-const runtime = ManagedRuntime.make(MockMailbox);
-const inbox = runtime.runPromise(listInbox);
+import { inbox } from './private-storage.ts';
 
 export function useInbox() {
-  const [state, setState] = useState<InboxState>({ kind: 'loading' });
   useEffect(() => {
-    let mounted = true;
-    async function load() {
-      try {
-        const messages = await inbox;
-        if (mounted) {
-          setState({ kind: 'ready', messages });
-        }
-      } catch {
-        if (mounted) {
-          setState({ kind: 'failed' });
-        }
+    void inbox.load();
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') {
+        void inbox.load();
       }
-    }
-    void load();
+    });
     return () => {
-      mounted = false;
+      subscription.remove();
     };
   }, []);
-  return state;
+  return useSyncExternalStore(inbox.subscribe, inbox.getSnapshot);
+}
+
+export function useInboxActions() {
+  return inbox;
 }

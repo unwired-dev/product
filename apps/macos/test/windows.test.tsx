@@ -3,6 +3,17 @@ import { View } from 'react-native';
 
 import { InboxWindow } from '../src/window.tsx';
 
+// oxlint-disable-next-line vitest/prefer-import-in-mock -- Jest's host adapter boundary.
+jest.mock('../src/private-storage.ts', () => {
+  const { createPersistentInbox } = jest.requireActual(
+    '@private-email/mail-core/persistent-inbox',
+  );
+  const { makeMockInboxStorage } = jest.requireActual(
+    '@private-email/mail-core/mock-storage',
+  );
+  return { inbox: createPersistentInbox(makeMockInboxStorage()) };
+});
+
 const maya = 'Unread. Maya Chen. A little more room to think';
 const oliver = 'Unread. Oliver Park. Saturday, by the river?';
 
@@ -98,5 +109,49 @@ describe('mac window selection with the shared mock mailbox', () => {
     fireEvent.press(await app.findByRole('button', { name: oliver }));
     expect(app.getByText('oliver@example.com')).toBeVisible();
     expect(app.queryByText('maya@example.com')).toBeNull();
+  });
+
+  it('shares committed read state while each window keeps its selection', async () => {
+    expect.hasAssertions();
+    const app = await renderAsync(
+      <Windows
+        first
+        second
+      />,
+    );
+    const first = within(app.getByTestId('inbox-window-first'));
+    const second = within(app.getByTestId('inbox-window-second'));
+    fireEvent.press(await first.findByRole('button', { name: maya }));
+    fireEvent.press(await second.findByRole('button', { name: oliver }));
+    fireEvent.press(first.getByRole('button', { name: 'Mark as read' }));
+    await second.findByRole('button', {
+      name: 'Maya Chen. A little more room to think',
+    });
+    expect(first.getByText('maya@example.com')).toBeVisible();
+    expect(second.getByText('oliver@example.com')).toBeVisible();
+    fireEvent.press(second.getByRole('button', { name: 'Mark as read' }));
+    await expect(
+      first.findByRole('button', {
+        name: 'Oliver Park. Saturday, by the river?',
+      }),
+    ).resolves.toBeVisible();
+    await app.rerenderAsync(
+      <Windows
+        first={false}
+        second={false}
+      />,
+    );
+    await app.rerenderAsync(
+      <Windows
+        first
+        second={false}
+      />,
+    );
+    await expect(
+      app.findByRole('button', {
+        name: 'Maya Chen. A little more room to think',
+      }),
+    ).resolves.toBeVisible();
+    expect(app.getByText('Select a message to start reading.')).toBeVisible();
   });
 });

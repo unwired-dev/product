@@ -2,8 +2,8 @@
 
 `apps/mobile` implements [#592](https://github.com/unwired-dev/product/issues/592):
 a deterministic Inbox and message detail for iPhone and iPad. It uses synthetic
-in-memory messages; it has no sign-in, provider connection, persistence, sending,
-or Convex client integration. The existing Convex backend and Swift prototype
+messages with [native encrypted read-state persistence](private-inbox-storage.md);
+it has no sign-in, provider connection, sending, or Convex client integration. The existing Convex backend and Swift prototype
 remain available. The [native Mac host](macos-client.md) consumes the same mock mailbox.
 
 ## Stack and boundaries
@@ -15,8 +15,8 @@ remain available. The [native Mac host](macos-client.md) consumes the same mock 
   `packages/mail-core`. System text, accessible buttons, selection state and
   focus borders form the initial UI; there is no additional component library.
 - Effect 4.0.0-rc.118 owns the mock mailbox service and application effects.
-  React owns presentation state. A mounted provider owns and disposes its
-  `ManagedRuntime`; opening a message does not mutate mailbox read state.
+  React owns presentation state. An application-scoped `ManagedRuntime` owns
+  persistent Inbox operations; opening a message does not mutate mailbox read state.
 - TypeScript 7.0.2, `@effect/tsgo` 0.46.1, Oxlint 1.85.0 and Oxfmt 0.71.0.
   Install runs `effect-tsgo patch --oxlint` once at the workspace root. Every
   TypeScript config includes the `@effect/language-service` plugin configuration;
@@ -145,7 +145,7 @@ app using isolated DerivedData (from `apps/mobile`, after native generation):
 xcodebuild build -workspace ios/UnwiredMailPreview.xcworkspace \
   -scheme UnwiredMailPreview -configuration Release -sdk iphonesimulator \
   -destination 'generic/platform=iOS Simulator' \
-  -derivedDataPath ../../artifacts/expo-bootstrap/DerivedData CODE_SIGNING_ALLOWED=NO
+  -derivedDataPath ../../artifacts/expo-bootstrap/DerivedData CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=-
 mise exec -- pnpm test:native ../../artifacts/expo-bootstrap/DerivedData/Build/Products/Release-iphonesimulator/UnwiredMailPreview.app
 ```
 
@@ -163,8 +163,10 @@ VoiceOver, resize or physical-device qualification. Native E2E runs in a separat
 The three component tests cover selecting a message, replacing the selected
 message and rejecting an unknown identifier. The shared service tests cover
 lookup failure and the invariant that opening a message leaves read state alone.
-Real provider, encrypted persistence, authentication, delivery, production
-observability and device automation belong to their approved follow-up slices.
+Read-state changes and storage recovery have additional shared and component
+coverage. The [private storage checks](private-inbox-storage.md#verification)
+exercise real encryption and credentials separately. Real provider, authentication,
+delivery and production observability belong to their approved follow-up slices.
 
 ### Native E2E in CI
 
@@ -172,7 +174,7 @@ The [Mobile workflow](../.github/workflows/mobile.yml) uses GitHub's arm64
 [`xcode-27` image](https://github.com/actions/runner-images/blob/main/images/macos/xcode-27-arm64-Readme.md)
 with Xcode 27.0 selected explicitly and the iOS 27.0 simulator runtime. It performs
 a frozen root installation, generates the iOS project, installs Pods, builds an
-unsigned arm64 simulator Release app with packaged JavaScript, and passes that
+ad-hoc signed arm64 simulator Release app with packaged JavaScript, and passes that
 app to the same `pnpm test:native` runner used locally. No signing credentials,
 provider accounts or running Metro server are required.
 

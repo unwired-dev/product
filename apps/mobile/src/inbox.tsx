@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-screens/experimental';
 
-import { useInbox } from './mailbox.tsx';
+import { useInbox, useInboxActions } from './mailbox.tsx';
 import { usePalette } from './theme.ts';
 
 const styles = StyleSheet.create({
@@ -124,6 +124,7 @@ function MessageRow({
 
 export function Inbox({ selectedId, onSelect }: InboxProps) {
   const state = useInbox();
+  const actions = useInboxActions();
   const colors = usePalette();
   return (
     <SafeAreaView
@@ -143,12 +144,25 @@ export function Inbox({ selectedId, onSelect }: InboxProps) {
         {state.kind === 'loading' ? (
           <ActivityIndicator accessibilityLabel="Loading Inbox" />
         ) : null}
-        {state.kind === 'failed' ? (
+        {state.kind === 'failed' || state.kind === 'locked' ? (
           <Text
             accessibilityRole="alert"
             style={[styles.notice, { color: colors.foreground }]}>
-            The preview mailbox could not be opened.
+            {state.kind === 'locked'
+              ? 'Private storage is locked. Unlock your device and try again.'
+              : 'Private storage could not be opened or saved. Your stored data has been kept.'}
           </Text>
+        ) : null}
+        {state.kind === 'failed' || state.kind === 'locked' ? (
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => {
+              void actions.load();
+            }}>
+            <Text style={[styles.notice, { color: colors.accent }]}>
+              Try again
+            </Text>
+          </Pressable>
         ) : null}
         {state.kind === 'ready' ? (
           <FlatList
@@ -172,7 +186,7 @@ export function Inbox({ selectedId, onSelect }: InboxProps) {
           />
         ) : null}
         <Text style={[styles.footer, { color: colors.secondary }]}>
-          Sample messages · Stored in memory
+          Sample messages · Encrypted on this device
         </Text>
       </View>
     </SafeAreaView>

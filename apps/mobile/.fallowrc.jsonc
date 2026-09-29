@@ -1,6 +1,11 @@
 {
   "$schema": "https://raw.githubusercontent.com/fallow-rs/fallow/main/schema.json",
-  "entry": ["app/**/*.tsx", "test/**/*.test.tsx", "scripts/*.ts"],
+  "entry": [
+    "app/**/*.tsx",
+    "test/**/*.test.tsx",
+    "scripts/*.ts",
+    "plugins/*.cjs",
+  ],
   "ignorePatterns": ["ios/**", ".expo/**", "dist/**"],
   "ignoreDependencies": [
     // Native runtime and config plugins are loaded by Expo, outside JS imports.

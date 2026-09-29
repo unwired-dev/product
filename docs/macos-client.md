@@ -1,9 +1,10 @@
 # Native Mac mock Inbox
 
 `apps/macos` implements [#593](https://github.com/unwired-dev/product/issues/593)
-with AppKit windows and React Native macOS views. It reads the same synthetic,
-in-memory mailbox as Expo through `@private-email/mail-core`. It has no provider,
-credentials, persistence, sending, or Convex connection.
+with AppKit windows and React Native macOS views. It reads the same synthetic
+mailbox as Expo through `@private-email/mail-core`, with
+[native encrypted read-state persistence](private-inbox-storage.md). It has no
+provider, sending, or Convex connection.
 
 ## Host ownership
 
@@ -27,8 +28,8 @@ one requires an explicit update to that check.
 AppKit owns stable window identities and menu routing. One React factory and one
 JavaScript mailbox runtime live for the application process. Each window mounts
 its own React root and owns its selected message. Closing a window releases its
-view; opening another starts with no selection. Reading leaves mock unread flags
-unchanged.
+view; opening another starts with no selection. Reading leaves unread flags unchanged. Explicit read/unread actions persist
+and update all windows without changing their selections.
 
 | Command                                | Behavior                                            |
 | -------------------------------------- | --------------------------------------------------- |
@@ -64,9 +65,11 @@ open ../../artifacts/macos-inbox/DerivedData/Build/Products/Release/UnwiredMail.
 The checked-in Objective-C++ host, Podfile and Ruby project generator own the
 native setup. `native:build` regenerates the ignored Xcode project, installs Pods
 using the committed `Podfile.lock`, and builds arm64 with isolated DerivedData.
-Local builds use ad-hoc signing and
+Local builds default to ad-hoc signing and
 disable hardened runtime because ad-hoc dynamic frameworks have no Team ID. The
-generated project retains hardened runtime for distribution signing. All
+generated project retains hardened runtime for distribution signing.
+Persistence requires the [Keychain signing setup](private-inbox-storage.md#native-wiring-and-signing);
+ad-hoc builds report locked storage. All
 configurations target macOS 27. Release embeds `main.jsbundle`; it never falls
 back to Metro. The native build phase exports and verifies the bundle before
 copying it into the app. Distribution signing and App Store archives remain
@@ -127,5 +130,5 @@ separately through native UI automation; XCTest window screenshots fail on the
 qualification host’s multi-display setup. Preserve native,
 component and bundle evidence as distinct claims in the
 [qualification record](qualification/expo-react-native-client.md). Real Gmail,
-private storage, delivery, accessibility and distribution still require their own
-checks. No legacy coverage is retired by this slice.
+delivery, accessibility and distribution still require their own checks.
+[Private storage](private-inbox-storage.md) has separate real integration checks. No legacy coverage is retired by this slice.
