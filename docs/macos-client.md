@@ -99,13 +99,23 @@ view while another remains, and selecting mail after every view unmounts. They
 run the real shared mock service with React Native's test renderer. They do not
 prove AppKit lifecycle behavior.
 
-For the native journey, build the optimized, packaged `Testing` configuration:
+The native mailbox journey requires the
+[Keychain signing setup](private-inbox-storage.md#native-wiring-and-signing):
+a development identity and team, plus an installed matching Mac provisioning
+profile for `dev.unwired.mail.macos.preview`. Build the optimized, packaged
+`Testing` configuration with that identity:
 
 ```sh
 cd apps/macos
+UNWIRED_SIGNING_IDENTITY='Apple Development' \
+UNWIRED_DEVELOPMENT_TEAM='<your team>' \
 mise exec -- pnpm native:build Testing
 mise exec -- pnpm test:native ../../artifacts/macos-inbox/DerivedData/Build/Products/Testing/UnwiredMail.app
 ```
+
+Ad-hoc builds can verify compilation and packaging but show locked storage, so
+they cannot run this mailbox journey. Without the required profile, record the
+native mailbox journey as deferred; component and bundle checks remain available.
 
 The XCTest journey opens two windows, selects different messages, focuses a
 window through its menu, closes both, checks continued application work, reopens
