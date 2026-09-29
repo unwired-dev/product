@@ -54,9 +54,7 @@ describe('preview Inbox', () => {
   // oxlint-disable-next-line vitest/no-hooks -- Each test owns a fresh native-boundary store.
   beforeEach(() => {
     jest.replaceProperty(
-      jest.requireMock<typeof import('../src/private-storage.ts')>(
-        '../src/private-storage.ts',
-      ),
+      jest.requireMock<{ inbox: typeof inbox }>('../src/private-storage.ts'),
       'inbox',
       createPersistentInbox(makeMockInboxStorage()),
     );
