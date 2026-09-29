@@ -3,7 +3,7 @@ import { createPersistentInbox } from '@private-email/mail-core/persistent-inbox
 import { fireEvent, renderAsync, within } from '@testing-library/react-native';
 import { View } from 'react-native';
 
-import * as privateStorage from '../src/private-storage.ts';
+import { inbox } from '../src/private-storage.ts';
 import { InboxWindow } from '../src/window.tsx';
 
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Jest's host adapter boundary.
@@ -40,19 +40,23 @@ function Windows({
   );
 }
 
-beforeEach(() => {
-  jest.replaceProperty(
-    privateStorage,
-    'inbox',
-    createPersistentInbox(makeMockInboxStorage()),
-  );
-});
-
-afterEach(async () => {
-  await privateStorage.inbox.dispose();
-});
-
 describe('mac window selection with the shared mock mailbox', () => {
+  // oxlint-disable-next-line vitest/no-hooks -- Each test owns a fresh native-boundary store.
+  beforeEach(() => {
+    jest.replaceProperty(
+      jest.requireMock<typeof import('../src/private-storage.ts')>(
+        '../src/private-storage.ts',
+      ),
+      'inbox',
+      createPersistentInbox(makeMockInboxStorage()),
+    );
+  });
+
+  // oxlint-disable-next-line vitest/no-hooks -- Dispose each test's application runtime after cleanup.
+  afterEach(async () => {
+    await inbox.dispose();
+  });
+
   it('keeps selections independent and preserves the remaining window when another closes', async () => {
     expect.hasAssertions();
     const app = await renderAsync(
