@@ -1,8 +1,4 @@
-import {
-  fireEvent,
-  renderAsync,
-  within,
-} from '@testing-library/react-native';
+import { fireEvent, renderAsync, within } from '@testing-library/react-native';
 import { View } from 'react-native';
 
 import { InboxWindow } from '../src/window.tsx';
