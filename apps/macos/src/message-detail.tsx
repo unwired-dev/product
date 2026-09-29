@@ -8,6 +8,7 @@ import {
   View,
 } from 'react-native';
 
+import { useLocalization, useMessageDateFormat } from './localization.ts';
 import { useInbox, useInboxActions } from './mailbox.ts';
 import { usePalette } from './theme.ts';
 
@@ -45,16 +46,12 @@ const styles = StyleSheet.create({
   emptyDescription: { fontSize: 16, textAlign: 'center' },
 });
 
-const dateFormat = new Intl.DateTimeFormat('en', {
-  dateStyle: 'long',
-  timeStyle: 'short',
-  timeZone: 'UTC',
-});
-
 export function MessageDetail({ id }: { readonly id: string | undefined }) {
   const state = useInbox();
   const actions = useInboxActions();
   const colors = usePalette();
+  const { t } = useLocalization();
+  const dateFormat = useMessageDateFormat(true);
   const message =
     state.kind === 'ready'
       ? state.messages.find((item) => item.id === id)
@@ -63,7 +60,7 @@ export function MessageDetail({ id }: { readonly id: string | undefined }) {
   if (state.kind === 'loading') {
     return (
       <ActivityIndicator
-        accessibilityLabel="Loading message"
+        accessibilityLabel={t('message.loading')}
         style={styles.fill}
       />
     );
@@ -75,9 +72,7 @@ export function MessageDetail({ id }: { readonly id: string | undefined }) {
         <Text
           accessibilityRole="alert"
           style={[styles.emptyDescription, { color: colors.foreground }]}>
-          {state.kind === 'locked'
-            ? 'Private storage is locked. Unlock your device and try again.'
-            : 'Private storage could not be opened or saved. Your stored data has been kept.'}
+          {state.kind === 'locked' ? t('storage.locked') : t('storage.failed')}
         </Text>
         <Pressable
           accessibilityRole="button"
@@ -85,7 +80,7 @@ export function MessageDetail({ id }: { readonly id: string | undefined }) {
             void actions.load();
           }}>
           <Text style={[styles.secondary, { color: colors.accent }]}>
-            Try again
+            {t('storage.retry')}
           </Text>
         </Pressable>
       </View>
@@ -99,20 +94,16 @@ export function MessageDetail({ id }: { readonly id: string | undefined }) {
           accessible
           accessibilityRole="text"
           accessibilityLabel={
-            id
-              ? 'Message unavailable. Choose another message from the Inbox.'
-              : 'Select a message to start reading.'
+            id ? t('message.unavailableLabel') : t('message.select')
           }
           style={styles.empty}>
           <Text
             accessibilityRole="header"
             style={[styles.emptyTitle, { color: colors.foreground }]}>
-            {id ? 'Message unavailable' : 'A little space for your mail'}
+            {id ? t('message.unavailable') : t('message.empty')}
           </Text>
           <Text style={[styles.emptyDescription, { color: colors.secondary }]}>
-            {id
-              ? 'Choose another message from the Inbox.'
-              : 'Select a message to start reading.'}
+            {id ? t('message.chooseAnother') : t('message.select')}
           </Text>
         </View>
       ) : (
@@ -123,7 +114,7 @@ export function MessageDetail({ id }: { readonly id: string | undefined }) {
               void actions.setUnread(message.id, !message.unread);
             }}>
             <Text style={[styles.secondary, { color: colors.accent }]}>
-              {message.unread ? 'Mark as read' : 'Mark as unread'}
+              {message.unread ? t('message.markRead') : t('message.markUnread')}
             </Text>
           </Pressable>
           <Text

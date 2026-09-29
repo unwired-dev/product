@@ -1,4 +1,5 @@
 #import "AppDelegate.h"
+#import "UnwiredLanguagePreferences.h"
 #import <React/RCTBundleURLProvider.h>
 #import <ReactAppDependencyProvider/RCTAppDependencyProvider.h>
 #import <os/log.h>
@@ -22,6 +23,10 @@
   self.reactFactory = [[RCTReactNativeFactory alloc] initWithDelegate:self];
   self.inboxWindows = [NSMutableArray new];
   [self installMenus];
+  [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(updateLanguage:)
+      name:UnwiredLanguageDidChange object:nil];
+  [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(updateLanguage:)
+      name:NSCurrentLocaleDidChangeNotification object:nil];
 #if UNWIRED_NATIVE_TESTING
   self.sessionID = NSUUID.UUID.UUIDString;
   __weak AppDelegate *weakSelf = self;
@@ -59,7 +64,7 @@
   NSWindow *window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 1040, 720)
       styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable
       backing:NSBackingStoreBuffered defer:NO];
-  window.title = [@"Inbox " stringByAppendingString:windowID];
+  window.title = [UnwiredNativeText(@"windowTitle") stringByReplacingOccurrencesOfString:@"{{number}}" withString:windowID];
   window.identifier = [@"inbox-window-" stringByAppendingString:windowID];
   window.accessibilityIdentifier = window.identifier;
   window.minSize = NSMakeSize(760, 480);
@@ -145,36 +150,51 @@
   [self recordLifecycle:@"quit"];
 }
 
+- (void)updateLanguage:(NSNotification *)notification
+{
+  if (!NSThread.isMainThread) {
+    dispatch_async(dispatch_get_main_queue(), ^{ [self updateLanguage:notification]; });
+    return;
+  }
+  [self installMenus];
+  for (NSWindowController *controller in self.inboxWindows) {
+    NSWindow *window = controller.window;
+    NSString *number = [window.identifier substringFromIndex:@"inbox-window-".length];
+    window.title = [UnwiredNativeText(@"windowTitle") stringByReplacingOccurrencesOfString:@"{{number}}" withString:number];
+    [NSApp addWindowsItem:window title:window.title filename:NO];
+  }
+}
+
 - (void)installMenus
 {
   NSMenu *main = [NSMenu new];
-  NSMenuItem *appItem = [main addItemWithTitle:@"Unwired Mail" action:nil keyEquivalent:@""];
-  NSMenu *app = [[NSMenu alloc] initWithTitle:@"Unwired Mail"];
+  NSMenuItem *appItem = [main addItemWithTitle:UnwiredNativeText(@"app") action:nil keyEquivalent:@""];
+  NSMenu *app = [[NSMenu alloc] initWithTitle:UnwiredNativeText(@"app")];
   appItem.submenu = app;
-  [app addItemWithTitle:@"Hide Unwired Mail" action:@selector(hide:) keyEquivalent:@"h"];
+  [app addItemWithTitle:UnwiredNativeText(@"hide") action:@selector(hide:) keyEquivalent:@"h"];
   [app addItem:[NSMenuItem separatorItem]];
-  [app addItemWithTitle:@"Quit Unwired Mail" action:@selector(terminate:) keyEquivalent:@"q"];
+  [app addItemWithTitle:UnwiredNativeText(@"quit") action:@selector(terminate:) keyEquivalent:@"q"];
 
-  NSMenuItem *fileItem = [main addItemWithTitle:@"File" action:nil keyEquivalent:@""];
-  NSMenu *file = [[NSMenu alloc] initWithTitle:@"File"];
+  NSMenuItem *fileItem = [main addItemWithTitle:UnwiredNativeText(@"file") action:nil keyEquivalent:@""];
+  NSMenu *file = [[NSMenu alloc] initWithTitle:UnwiredNativeText(@"file")];
   fileItem.submenu = file;
-  NSMenuItem *newItem = [file addItemWithTitle:@"New Window" action:@selector(newWindow:) keyEquivalent:@"n"];
+  NSMenuItem *newItem = [file addItemWithTitle:UnwiredNativeText(@"newWindow") action:@selector(newWindow:) keyEquivalent:@"n"];
   newItem.target = self;
-  [file addItemWithTitle:@"Close Window" action:@selector(performClose:) keyEquivalent:@"w"];
+  [file addItemWithTitle:UnwiredNativeText(@"closeWindow") action:@selector(performClose:) keyEquivalent:@"w"];
 
-  NSMenuItem *editItem = [main addItemWithTitle:@"Edit" action:nil keyEquivalent:@""];
-  NSMenu *edit = [[NSMenu alloc] initWithTitle:@"Edit"];
+  NSMenuItem *editItem = [main addItemWithTitle:UnwiredNativeText(@"edit") action:nil keyEquivalent:@""];
+  NSMenu *edit = [[NSMenu alloc] initWithTitle:UnwiredNativeText(@"edit")];
   editItem.submenu = edit;
-  [edit addItemWithTitle:@"Copy" action:@selector(copy:) keyEquivalent:@"c"];
-  [edit addItemWithTitle:@"Select All" action:@selector(selectAll:) keyEquivalent:@"a"];
+  [edit addItemWithTitle:UnwiredNativeText(@"copy") action:@selector(copy:) keyEquivalent:@"c"];
+  [edit addItemWithTitle:UnwiredNativeText(@"selectAll") action:@selector(selectAll:) keyEquivalent:@"a"];
 
-  NSMenuItem *windowItem = [main addItemWithTitle:@"Window" action:nil keyEquivalent:@""];
-  NSMenu *windows = [[NSMenu alloc] initWithTitle:@"Window"];
+  NSMenuItem *windowItem = [main addItemWithTitle:UnwiredNativeText(@"window") action:nil keyEquivalent:@""];
+  NSMenu *windows = [[NSMenu alloc] initWithTitle:UnwiredNativeText(@"window")];
   windowItem.submenu = windows;
-  NSMenuItem *focus = [windows addItemWithTitle:@"Show Inbox" action:@selector(focusInbox:) keyEquivalent:@"0"];
+  NSMenuItem *focus = [windows addItemWithTitle:UnwiredNativeText(@"showInbox") action:@selector(focusInbox:) keyEquivalent:@"0"];
   focus.target = self;
-  [windows addItemWithTitle:@"Minimize" action:@selector(performMiniaturize:) keyEquivalent:@"m"];
-  NSMenuItem *next = [windows addItemWithTitle:@"Next Window" action:@selector(nextWindow:) keyEquivalent:@"`"];
+  [windows addItemWithTitle:UnwiredNativeText(@"minimize") action:@selector(performMiniaturize:) keyEquivalent:@"m"];
+  NSMenuItem *next = [windows addItemWithTitle:UnwiredNativeText(@"nextWindow") action:@selector(nextWindow:) keyEquivalent:@"`"];
   next.target = self;
   [windows addItem:[NSMenuItem separatorItem]];
   NSApp.mainMenu = main;

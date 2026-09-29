@@ -20,6 +20,7 @@ their scope below; publication of a plan does not prove implementation or releas
 - [Complete ticket and dependency coverage](qualification/expo-rewrite-ticket-coverage.md)
 
 - [Private preview Inbox storage and credentials](private-inbox-storage.md)
+- [Interface translations and language preferences](localization.md)
 
 ## Shared policies
 

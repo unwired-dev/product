@@ -9,6 +9,51 @@ final class WindowTests: XCTestCase {
     let workTicks: Int
   }
 
+  func testLanguagePreferenceAcrossWindowsAndRelaunch() throws {
+    continueAfterFailure = false
+    let appURL = URL(
+      fileURLWithPath: try XCTUnwrap(ProcessInfo.processInfo.environment["UNWIRED_APP_PATH"]))
+    let app = XCUIApplication(url: appURL)
+    app.launch()
+    addTeardownBlock { if app.state != .notRunning { app.terminate() } }
+    let first = app.windows["Inbox 1"]
+    let english = first.descendants(matching: .any)["language-en"]
+    XCTAssertTrue(english.waitForExistence(timeout: 30))
+    english.click()
+    let checked = NSPredicate(
+      format: "value CONTAINS 'checked' AND NOT value CONTAINS 'unchecked'")
+    XCTAssertEqual(
+      XCTWaiter.wait(
+        for: [XCTNSPredicateExpectation(predicate: checked, object: english)], timeout: 10),
+      .completed)
+    app.typeKey("n", modifierFlags: .command)
+    let second = app.windows["Inbox 2"]
+    let secondEnglish = second.descendants(matching: .any)["language-en"]
+    XCTAssertTrue(secondEnglish.waitForExistence(timeout: 10))
+    XCTAssertEqual(
+      XCTWaiter.wait(
+        for: [XCTNSPredicateExpectation(predicate: checked, object: secondEnglish)], timeout: 10),
+      .completed)
+    app.terminate()
+    app.launch()
+    XCTAssertTrue(english.waitForExistence(timeout: 30))
+    XCTAssertEqual(
+      XCTWaiter.wait(
+        for: [XCTNSPredicateExpectation(predicate: checked, object: english)], timeout: 10),
+      .completed)
+    let system = first.descendants(matching: .any)["language-system"]
+    system.click()
+    XCTAssertEqual(
+      XCTWaiter.wait(
+        for: [XCTNSPredicateExpectation(predicate: checked, object: system)], timeout: 10),
+      .completed)
+    app.menuBars.menuBarItems["File"].click()
+    XCTAssertTrue(app.menuItems["New Window"].exists)
+    app.typeKey(.escape, modifierFlags: [])
+  }
+
+  // Keep the existing single-process lifecycle journey together.
+  // swiftlint:disable:next function_body_length
   func testIndependentWindowsCloseReopenAndQuit() throws {
     continueAfterFailure = false
     let environment = ProcessInfo.processInfo.environment
@@ -35,14 +80,16 @@ final class WindowTests: XCTestCase {
     }
     let first = app.windows["Inbox 1"]
     XCTAssertTrue(first.waitForExistence(timeout: 30))
-    let maya = first.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Maya Chen")).firstMatch
+    let maya = first.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Maya Chen"))
+      .firstMatch
     XCTAssertTrue(maya.waitForExistence(timeout: 20))
     maya.click()
     XCTAssertTrue(address(first, "maya@example.com").waitForExistence(timeout: 10))
     app.typeKey("n", modifierFlags: .command)
     let second = app.windows["Inbox 2"]
     XCTAssertTrue(second.waitForExistence(timeout: 10))
-    let oliver = second.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Oliver Park")).firstMatch
+    let oliver = second.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Oliver Park"))
+      .firstMatch
     XCTAssertTrue(oliver.waitForExistence(timeout: 10))
     oliver.click()
     XCTAssertTrue(address(second, "oliver@example.com").waitForExistence(timeout: 10))
@@ -53,7 +100,8 @@ final class WindowTests: XCTestCase {
     XCTAssertTrue(second.buttons["Mark as read"].waitForExistence(timeout: 10))
     second.buttons["Mark as read"].click()
     XCTAssertTrue(second.buttons["Mark as unread"].waitForExistence(timeout: 10))
-    XCTAssertTrue(first.buttons["Oliver Park. Saturday, by the river?"].waitForExistence(timeout: 10))
+    XCTAssertTrue(
+      first.buttons["Oliver Park. Saturday, by the river?"].waitForExistence(timeout: 10))
     XCTAssertFalse(address(second, "maya@example.com").exists)
 
     app.menuBars.menuBarItems["Window"].click()
@@ -71,10 +119,13 @@ final class WindowTests: XCTestCase {
       }
     }
     let lastClose = try XCTUnwrap(events().last { $0.event == "window-close" })
-    let workContinues = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-      guard let records = try? events() else { return false }
-      return records.contains { $0.event == "work" && $0.windows == 0 && $0.workTicks > lastClose.workTicks }
-    }, object: nil)
+    let workContinues = XCTNSPredicateExpectation(
+      predicate: NSPredicate { _, _ in
+        guard let records = try? events() else { return false }
+        return records.contains {
+          $0.event == "work" && $0.windows == 0 && $0.workTicks > lastClose.workTicks
+        }
+      }, object: nil)
     XCTAssertEqual(XCTWaiter.wait(for: [workContinues], timeout: 10), .completed)
 
     // Activating an already running app follows the Dock/Finder reopen path.
@@ -86,8 +137,12 @@ final class WindowTests: XCTestCase {
     XCTAssertEqual(opener.terminationStatus, 0)
     let reopened = app.windows["Inbox 3"]
     XCTAssertTrue(reopened.waitForExistence(timeout: 10))
-    XCTAssertTrue(reopened.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Select a message to start reading.")).firstMatch.waitForExistence(timeout: 10))
-    reopened.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Oliver Park")).firstMatch.click()
+    XCTAssertTrue(
+      reopened.descendants(matching: .any).matching(
+        NSPredicate(format: "label == %@", "Select a message to start reading.")
+      ).firstMatch.waitForExistence(timeout: 10))
+    reopened.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Oliver Park")).firstMatch
+      .click()
     XCTAssertTrue(address(reopened, "oliver@example.com").waitForExistence(timeout: 10))
     app.menuBars.menuBarItems["Unwired Mail Preview"].click()
     app.menuItems["Quit Unwired Mail"].click()

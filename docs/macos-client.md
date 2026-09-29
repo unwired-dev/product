@@ -132,3 +132,9 @@ component and bundle evidence as distinct claims in the
 [qualification record](qualification/expo-react-native-client.md). Real Gmail,
 delivery, accessibility and distribution still require their own checks.
 [Private storage](private-inbox-storage.md) has separate real integration checks. No legacy coverage is retired by this slice.
+
+## Interface language
+
+The Inbox supports System default and a saved English override. See
+[interface translations](localization.md) for catalogs, adding languages, native
+menu behavior, and language verification.

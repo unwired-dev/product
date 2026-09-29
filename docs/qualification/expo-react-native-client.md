@@ -288,3 +288,35 @@ Deferred:
 Mock Mail Session tests prove application behavior through a substituted native
 boundary. They are distinct from the real storage tests and the packaged-app
 journeys above. This slice retires no legacy coverage.
+
+## Interface language foundation — 2026-09-29
+
+Issue [#677](https://github.com/unwired-dev/product/issues/677) adds shared English
+catalogs with i18next/react-i18next, device-language selection, and a saved local
+override. English is the only production locale. A temporary French catalog is
+used only in tests.
+
+Local evidence:
+
+- All 24 scoped Turbo lint, format, typecheck, and test tasks passed, including
+  shared localization (4 tests), Expo (7 tests), and Mac (5 tests).
+- Both production bundles and native dependency-boundary checks passed. Frozen
+  installation with strict peers passed. Root and host Fallow dependency/unused
+  checks reported no findings; repository health advisories remain separate.
+- The Foundation integration test passed regional language matching, missing-key
+  English fallback, separate-process preference persistence/removal, and conversion
+  of Apple's `en_US@rg=czzzzz` region override to an Intl-compatible `en-CZ` tag.
+- The packaged iOS Release app passed language selection/relaunch and the Inbox
+  journey on fresh iPhone 18 Pro and iPad Pro 11-inch M5 simulators running iOS 27.
+  Evidence: `artifacts/expo-bootstrap/native-vh6OVt/` in the localization worktree.
+- The native Mac Testing build and focused language journey passed: shared choice
+  across windows, relaunch persistence, reset to System default, and native menus.
+  Evidence: `artifacts/macos-inbox/journey.mYf9iJ/` in the localization worktree.
+  This journey does not access mailbox Keychain items. The separately documented
+  signed Mac mailbox qualification remains deferred pending provisioning.
+- Swift formatting/lint, the native preference test's lint/format, and all 10
+  native runner failure-handling checks passed.
+
+These checks qualify the English language foundation, not additional translations
+or right-to-left layouts. Follow [the localization guide](../localization.md)
+before registering a new production language.

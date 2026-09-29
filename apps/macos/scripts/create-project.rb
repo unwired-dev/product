@@ -11,6 +11,11 @@ private_inbox = project.main_group.new_group('PrivateInbox', '../../../native/pr
 %w[Sources/PrivateInbox/DeviceKeychain.swift Sources/PrivateInbox/PrivateInboxStore.swift Sources/PrivateInbox/SyntheticCredential.swift bridge/UnwiredPrivateInbox.swift bridge/UnwiredPrivateInboxBridge.m].each do |name|
   target.add_file_references([private_inbox.new_file(name)])
 end
+localization = project.main_group.new_group('Localization', '../../../native/localization')
+target.add_file_references(%w[UnwiredLocalization.m UnwiredLanguagePreferences.m].map { |name| localization.new_file(name) })
+localization.new_file('UnwiredLanguagePreferences.h')
+catalogs = project.main_group.new_file('../../../packages/localization/catalogs.bundle')
+target.resources_build_phase.add_file_reference(catalogs)
 project.add_build_configuration('Testing', :release)
 target.add_build_configuration('Testing', :release)
 project.build_configurations.each do |configuration|
@@ -22,6 +27,7 @@ target.build_configurations.each do |configuration|
     'INFOPLIST_FILE' => 'UnwiredMail/Info.plist',
     'CLANG_ENABLE_OBJC_ARC' => 'YES',
     'CLANG_ENABLE_MODULES' => 'YES',
+    'HEADER_SEARCH_PATHS' => ['$(inherited)', '$(SRCROOT)/../../../native/localization'],
     'SWIFT_VERSION' => '5.0',
     'MACOSX_DEPLOYMENT_TARGET' => '27.0',
     'ENABLE_HARDENED_RUNTIME' => configuration.name == 'Release' ? 'YES' : 'NO',

@@ -33,6 +33,9 @@ catalogs:
     fallow:
       specifier: ^3.30.0
       version: 3.30.0
+    i18next:
+      specifier: 26.4.2
+      version: 26.4.2
     oxfmt:
       specifier: ^0.71.0
       version: 0.71.0
@@ -42,6 +45,9 @@ catalogs:
     oxlint-tsgolint:
       specifier: 7.0.2003
       version: 7.0.2003
+    react-i18next:
+      specifier: 17.0.15
+      version: 17.0.15
     turbo:
       specifier: ^2.11.5
       version: 2.11.5
@@ -215,6 +221,9 @@ importers:
 
   apps/macos:
     dependencies:
+      '@private-email/localization':
+        specifier: workspace:*
+        version: link:../../packages/localization
       '@private-email/mail-core':
         specifier: workspace:*
         version: link:../../packages/mail-core
@@ -224,9 +233,15 @@ importers:
       fast-text-encoding:
         specifier: catalog:macos
         version: 1.0.6
+      i18next:
+        specifier: 'catalog:'
+        version: 26.4.2(typescript@7.0.2)
       react:
         specifier: catalog:macos
         version: 19.1.4
+      react-i18next:
+        specifier: 'catalog:'
+        version: 17.0.15(i18next@26.4.2(typescript@7.0.2))(react-native@0.81.6(@babel/core@7.29.7)(@react-native-community/cli@20.0.2(typescript@7.0.2))(@react-native/metro-config@0.81.6(@babel/core@7.29.7))(@types/react@19.1.17)(react@19.1.4))(react@19.1.4)(typescript@7.0.2)
       react-native:
         specifier: catalog:macos
         version: 0.81.6(@babel/core@7.29.7)(@react-native-community/cli@20.0.2(typescript@7.0.2))(@react-native/metro-config@0.81.6(@babel/core@7.29.7))(@types/react@19.1.17)(react@19.1.4)
@@ -297,6 +312,9 @@ importers:
       '@expo/metro-runtime':
         specifier: catalog:mobile
         version: 57.0.16(@expo/log-box@57.0.4)(expo@57.0.25)(react-dom@19.2.3(react@19.2.3))(react-native@0.86.3(@babel/core@7.29.7)(@react-native-community/cli@20.0.2(typescript@7.0.2))(@react-native/jest-preset@0.86.3(@babel/core@7.29.7)(react@19.2.3))(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.18)(react@19.2.3))(react@19.2.3)
+      '@private-email/localization':
+        specifier: workspace:*
+        version: link:../../packages/localization
       '@private-email/mail-core':
         specifier: workspace:*
         version: link:../../packages/mail-core
@@ -324,9 +342,15 @@ importers:
       expo-status-bar:
         specifier: catalog:mobile
         version: 57.0.1(expo@57.0.25)(react-native@0.86.3(@babel/core@7.29.7)(@react-native-community/cli@20.0.2(typescript@7.0.2))(@react-native/jest-preset@0.86.3(@babel/core@7.29.7)(react@19.2.3))(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.18)(react@19.2.3))(react@19.2.3)
+      i18next:
+        specifier: 'catalog:'
+        version: 26.4.2(typescript@7.0.2)
       react:
         specifier: catalog:mobile
         version: 19.2.3
+      react-i18next:
+        specifier: 'catalog:'
+        version: 17.0.15(i18next@26.4.2(typescript@7.0.2))(react-dom@19.2.3(react@19.2.3))(react-native@0.86.3(@babel/core@7.29.7)(@react-native-community/cli@20.0.2(typescript@7.0.2))(@react-native/jest-preset@0.86.3(@babel/core@7.29.7)(react@19.2.3))(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.18)(react@19.2.3))(react@19.2.3)(typescript@7.0.2)
       react-native:
         specifier: catalog:mobile
         version: 0.86.3(@babel/core@7.29.7)(@react-native-community/cli@20.0.2(typescript@7.0.2))(@react-native/jest-preset@0.86.3(@babel/core@7.29.7)(react@19.2.3))(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.18)(react@19.2.3)
@@ -468,6 +492,34 @@ importers:
       vite:
         specifier: ^8.3.1
         version: 8.3.1(@types/node@24.19.0)(esbuild@0.27.0)(terser@5.51.2)(yaml@2.9.1)
+      vitest:
+        specifier: 'catalog:'
+        version: 5.0.2(@edge-runtime/vm@5.0.0)(@types/node@24.19.0)(jsdom@20.0.3)(vite@8.3.1(@types/node@24.19.0)(esbuild@0.27.0)(terser@5.51.2)(yaml@2.9.1))
+
+  packages/localization:
+    dependencies:
+      i18next:
+        specifier: 'catalog:'
+        version: 26.4.2(typescript@7.0.2)
+    devDependencies:
+      '@rajzik/tsconfig':
+        specifier: 'catalog:'
+        version: 4.0.4
+      '@types/node':
+        specifier: 'catalog:'
+        version: 24.19.0
+      oxfmt:
+        specifier: 'catalog:'
+        version: 0.71.0
+      oxlint:
+        specifier: 'catalog:'
+        version: 1.85.0(oxlint-tsgolint@7.0.2003)
+      oxlint-tsgolint:
+        specifier: 'catalog:'
+        version: 7.0.2003
+      typescript:
+        specifier: 'catalog:'
+        version: 7.0.2
       vitest:
         specifier: 'catalog:'
         version: 5.0.2(@edge-runtime/vm@5.0.0)(@types/node@24.19.0)(jsdom@20.0.3)(vite@8.3.1(@types/node@24.19.0)(esbuild@0.27.0)(terser@5.51.2)(yaml@2.9.1))
@@ -4057,6 +4109,9 @@ packages:
   html-escaper@2.0.2:
     resolution: {integrity: sha512-H2iMtd0I4Mt5eYiapRdIDjp+XzelXQ0tFE4JS7YFwFevXXMmOp9myNrUvCg0D6ws8iqkRPBfKHgbwig1SmlLfg==}
 
+  html-parse-stringify@4.0.1:
+    resolution: {integrity: sha512-0zHsZJrK7S3K2aucXWL6ycoYJ/iNtIcFHC/nYQgFklPtrv5LpJctIiSCroWZWeuoXvuyFdzp6KzjJQ+OT5MfFw==}
+
   http-errors@2.0.1:
     resolution: {integrity: sha512-4FbRdAX+bSdmo4AUFuS0WNiPz8NgFt+r8ThgNWmlrjQjt1Q7ZR9+zTlce2859x4KSXrwIsaeTqDoKQmtP8pLmQ==}
     engines: {node: '>= 0.8'}
@@ -4080,6 +4135,14 @@ packages:
   human-signals@2.1.0:
     resolution: {integrity: sha512-B4FFZ6q/T2jhhksgkbEW3HBvWIfDW85snkQgawt07S7J5QXTk6BkNV+0yAeZrM5QpMAdYlocGoljn0sJ/WQkFw==}
     engines: {node: '>=10.17.0'}
+
+  i18next@26.4.2:
+    resolution: {integrity: sha512-RX+R0VLg13IbvRuJSxnqykUFS9vQZTl8wYpWPCIUDWVrSGjsQywB5Y+pjzrkboxGAuYfJZVH1InFTdgBdxq6ug==}
+    peerDependencies:
+      typescript: ^5 || ^6 || ^7
+    peerDependenciesMeta:
+      typescript:
+        optional: true
 
   iconv-lite@0.4.24:
     resolution: {integrity: sha512-v3MXnZAcvnywkTUEZomIActle7RXXeedOR31wwl7VlyoXO4Qi9arvSenNQWne1TcRwhCL1HwLI21bEqdpj8/rA==}
@@ -5188,6 +5251,22 @@ packages:
     peerDependencies:
       react: '>=17.0.0'
 
+  react-i18next@17.0.15:
+    resolution: {integrity: sha512-7uYpx/oBkesLto7cOzOmfITlUBaXHCAcFahmgETMfWr8nbbWRRnVGvz8wsH/xpbNcyoH+NpCcnOQEqWPMO6/hw==}
+    peerDependencies:
+      i18next: '>= 26.2.0'
+      react: '>= 16.8.0'
+      react-dom: '*'
+      react-native: '*'
+      typescript: ^5 || ^6 || ^7
+    peerDependenciesMeta:
+      react-dom:
+        optional: true
+      react-native:
+        optional: true
+      typescript:
+        optional: true
+
   react-is@16.13.1:
     resolution: {integrity: sha512-24e6ynE2H+OKt4kqsOvNd8kBpV65zoxbA4BVsEOB3ARVWQki/DHzaUoC5KuON/BiccDaCCTZBuOcfZs70kR8bQ==}
 
@@ -5846,6 +5925,11 @@ packages:
     peerDependenciesMeta:
       '@types/react':
         optional: true
+
+  use-sync-external-store@1.7.0:
+    resolution: {integrity: sha512-6L+EeigHMQhdaIPNIFUKwfWJSwWFQ8gJbJ2DLOs5sDIegTwR9fRxvnM3uciHKjIZhFz+KAv2emhWMRvDmMcY8A==}
+    peerDependencies:
+      react: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
 
   util-deprecate@1.0.2:
     resolution: {integrity: sha512-EPD5q1uXyFxJpCrLnCc1nHnq3gOa6DZBocAIiI2TaSCA7VCJ1UJDMagCzIkXNsUYfD1daK//LTEQ8xiIbrHtcw==}
@@ -10054,6 +10138,8 @@ snapshots:
 
   html-escaper@2.0.2: {}
 
+  html-parse-stringify@4.0.1: {}
+
   http-errors@2.0.1:
     dependencies:
       depd: 2.0.0
@@ -10087,6 +10173,10 @@ snapshots:
   human-id@4.2.0: {}
 
   human-signals@2.1.0: {}
+
+  i18next@26.4.2(typescript@7.0.2):
+    optionalDependencies:
+      typescript: 7.0.2
 
   iconv-lite@0.4.24:
     dependencies:
@@ -11708,6 +11798,29 @@ snapshots:
     dependencies:
       react: 19.2.3
 
+  react-i18next@17.0.15(i18next@26.4.2(typescript@7.0.2))(react-dom@19.2.3(react@19.2.3))(react-native@0.86.3(@babel/core@7.29.7)(@react-native-community/cli@20.0.2(typescript@7.0.2))(@react-native/jest-preset@0.86.3(@babel/core@7.29.7)(react@19.2.3))(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.18)(react@19.2.3))(react@19.2.3)(typescript@7.0.2):
+    dependencies:
+      '@babel/runtime': 7.29.7
+      html-parse-stringify: 4.0.1
+      i18next: 26.4.2(typescript@7.0.2)
+      react: 19.2.3
+      use-sync-external-store: 1.7.0(react@19.2.3)
+    optionalDependencies:
+      react-dom: 19.2.3(react@19.2.3)
+      react-native: 0.86.3(@babel/core@7.29.7)(@react-native-community/cli@20.0.2(typescript@7.0.2))(@react-native/jest-preset@0.86.3(@babel/core@7.29.7)(react@19.2.3))(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.18)(react@19.2.3)
+      typescript: 7.0.2
+
+  react-i18next@17.0.15(i18next@26.4.2(typescript@7.0.2))(react-native@0.81.6(@babel/core@7.29.7)(@react-native-community/cli@20.0.2(typescript@7.0.2))(@react-native/metro-config@0.81.6(@babel/core@7.29.7))(@types/react@19.1.17)(react@19.1.4))(react@19.1.4)(typescript@7.0.2):
+    dependencies:
+      '@babel/runtime': 7.29.7
+      html-parse-stringify: 4.0.1
+      i18next: 26.4.2(typescript@7.0.2)
+      react: 19.1.4
+      use-sync-external-store: 1.7.0(react@19.1.4)
+    optionalDependencies:
+      react-native: 0.81.6(@babel/core@7.29.7)(@react-native-community/cli@20.0.2(typescript@7.0.2))(@react-native/metro-config@0.81.6(@babel/core@7.29.7))(@types/react@19.1.17)(react@19.1.4)
+      typescript: 7.0.2
+
   react-is@16.13.1: {}
 
   react-is@18.3.1: {}
@@ -12477,6 +12590,14 @@ snapshots:
       tslib: 2.8.1
     optionalDependencies:
       '@types/react': 19.2.18
+
+  use-sync-external-store@1.7.0(react@19.1.4):
+    dependencies:
+      react: 19.1.4
+
+  use-sync-external-store@1.7.0(react@19.2.3):
+    dependencies:
+      react: 19.2.3
 
   util-deprecate@1.0.2: {}
 

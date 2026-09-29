@@ -12,6 +12,8 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-screens/experimental';
 
+import { LanguageSelector } from './language-selector.tsx';
+import { useLocalization, useMessageDateFormat } from './localization.ts';
 import { useInbox, useInboxActions } from './mailbox.tsx';
 import { usePalette } from './theme.ts';
 
@@ -53,12 +55,6 @@ interface InboxProps {
   readonly onSelect: (id: string) => void;
 }
 
-const dateFormat = new Intl.DateTimeFormat('en', {
-  month: 'short',
-  day: 'numeric',
-  timeZone: 'UTC',
-});
-
 function MessageRow({
   message,
   selected,
@@ -69,10 +65,15 @@ function MessageRow({
   readonly onSelect: (id: string) => void;
 }) {
   const colors = usePalette();
+  const { t } = useLocalization();
+  const dateFormat = useMessageDateFormat();
   const [focused, setFocused] = useState(false);
   return (
     <Pressable
-      accessibilityLabel={`${message.unread ? 'Unread. ' : ''}${message.sender}. ${message.subject}`}
+      accessibilityLabel={t(message.unread ? 'inbox.unreadRow' : 'inbox.row', {
+        sender: message.sender,
+        subject: message.subject,
+      })}
       accessibilityRole="button"
       accessibilityState={{ selected }}
       focusable
@@ -126,6 +127,7 @@ export function Inbox({ selectedId, onSelect }: InboxProps) {
   const state = useInbox();
   const actions = useInboxActions();
   const colors = usePalette();
+  const { t } = useLocalization();
   return (
     <SafeAreaView
       edges={{ top: true, bottom: true, left: true }}
@@ -135,22 +137,22 @@ export function Inbox({ selectedId, onSelect }: InboxProps) {
           <Text
             accessibilityRole="header"
             style={[styles.title, { color: colors.foreground }]}>
-            Inbox
+            {t('inbox.title')}
           </Text>
           <Text style={[styles.subtitle, { color: colors.secondary }]}>
-            Preview mailbox
+            {t('inbox.subtitle')}
           </Text>
         </View>
         {state.kind === 'loading' ? (
-          <ActivityIndicator accessibilityLabel="Loading Inbox" />
+          <ActivityIndicator accessibilityLabel={t('inbox.loading')} />
         ) : null}
         {state.kind === 'failed' || state.kind === 'locked' ? (
           <Text
             accessibilityRole="alert"
             style={[styles.notice, { color: colors.foreground }]}>
             {state.kind === 'locked'
-              ? 'Private storage is locked. Unlock your device and try again.'
-              : 'Private storage could not be opened or saved. Your stored data has been kept.'}
+              ? t('storage.locked')
+              : t('storage.failed')}
           </Text>
         ) : null}
         {state.kind === 'failed' || state.kind === 'locked' ? (
@@ -160,20 +162,20 @@ export function Inbox({ selectedId, onSelect }: InboxProps) {
               void actions.load();
             }}>
             <Text style={[styles.notice, { color: colors.accent }]}>
-              Try again
+              {t('storage.retry')}
             </Text>
           </Pressable>
         ) : null}
         {state.kind === 'ready' ? (
           <FlatList
-            accessibilityLabel="Inbox messages"
+            accessibilityLabel={t('inbox.messages')}
             contentContainerStyle={styles.list}
             data={state.messages}
             extraData={selectedId}
             keyExtractor={(message) => message.id}
             ListEmptyComponent={
               <Text style={[styles.notice, { color: colors.secondary }]}>
-                Your inbox is clear.
+                {t('inbox.empty')}
               </Text>
             }
             renderItem={({ item }) => (
@@ -185,8 +187,9 @@ export function Inbox({ selectedId, onSelect }: InboxProps) {
             )}
           />
         ) : null}
+        <LanguageSelector />
         <Text style={[styles.footer, { color: colors.secondary }]}>
-          Sample messages · Encrypted on this device
+          {t('inbox.footer')}
         </Text>
       </View>
     </SafeAreaView>
