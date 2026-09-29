@@ -8,7 +8,7 @@ remain available. The [native Mac host](macos-client.md) consumes the same mock 
 
 ## Stack and boundaries
 
-- Expo 57.0.25, React Native 0.86.3, React 19.2.3, and Expo Router 57.0.23.
+- Expo 57.0.26, React Native 0.86.3, React 19.2.3, and Expo Router 57.0.24.
 - Router's explicitly accepted alpha `unstable-split-view` supplies native compact
   and regular layouts. Route parameters identify the selected message.
 - React Native `StyleSheet` and framework-independent light/dark tokens in
@@ -58,7 +58,7 @@ and rejected import forms.
 
 ### Compatibility pins
 
-Dependencies were refreshed on 2026-09-28. Native packages follow Expo 57's exact
+Dependencies were refreshed on 2026-09-29. Native packages follow Expo 57's exact
 compatibility map, rather than independently upgrading the renderer or native
 peers. Keep React 19.2.3 paired with React Native 0.86.3. Router's transitive
 native peers (gesture handler, Reanimated and Worklets) are explicitly installed
