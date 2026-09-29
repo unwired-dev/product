@@ -1,18 +1,16 @@
+import { makeMockInboxStorage } from '@private-email/mail-core/mock-storage';
+import { createPersistentInbox } from '@private-email/mail-core/persistent-inbox';
 import { fireEvent, renderAsync, within } from '@testing-library/react-native';
 import { View } from 'react-native';
 
+import * as privateStorage from '../src/private-storage.ts';
 import { InboxWindow } from '../src/window.tsx';
 
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Jest's host adapter boundary.
-jest.mock('../src/private-storage.ts', () => {
-  const { createPersistentInbox } = jest.requireActual(
-    '@private-email/mail-core/persistent-inbox',
-  );
-  const { makeMockInboxStorage } = jest.requireActual(
-    '@private-email/mail-core/mock-storage',
-  );
-  return { inbox: createPersistentInbox(makeMockInboxStorage()) };
-});
+jest.mock('../src/private-storage.ts', () => ({
+  __esModule: true,
+  inbox: undefined,
+}));
 
 const maya = 'Unread. Maya Chen. A little more room to think';
 const oliver = 'Unread. Oliver Park. Saturday, by the river?';
@@ -41,6 +39,18 @@ function Windows({
     </View>
   );
 }
+
+beforeEach(() => {
+  jest.replaceProperty(
+    privateStorage,
+    'inbox',
+    createPersistentInbox(makeMockInboxStorage()),
+  );
+});
+
+afterEach(async () => {
+  await privateStorage.inbox.dispose();
+});
 
 describe('mac window selection with the shared mock mailbox', () => {
   it('keeps selections independent and preserves the remaining window when another closes', async () => {

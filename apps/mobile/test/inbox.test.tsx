@@ -6,17 +6,13 @@ import { useState } from 'react';
 import { Inbox } from '../src/inbox.tsx';
 import { InboxProvider } from '../src/mailbox.tsx';
 import { MessageDetail } from '../src/message-detail.tsx';
+import * as privateStorage from '../src/private-storage.ts';
 
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Jest's host adapter boundary.
-jest.mock('../src/private-storage.ts', () => {
-  const { createPersistentInbox } = jest.requireActual(
-    '@private-email/mail-core/persistent-inbox',
-  );
-  const { makeMockInboxStorage } = jest.requireActual(
-    '@private-email/mail-core/mock-storage',
-  );
-  return { inbox: createPersistentInbox(makeMockInboxStorage()) };
-});
+jest.mock('../src/private-storage.ts', () => ({
+  __esModule: true,
+  inbox: undefined,
+}));
 
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Jest requires a module name, not a dynamic import.
 jest.mock('react-native-screens/experimental', () => ({
@@ -35,6 +31,18 @@ function InboxJourney() {
     </InboxProvider>
   );
 }
+
+beforeEach(() => {
+  jest.replaceProperty(
+    privateStorage,
+    'inbox',
+    createPersistentInbox(makeMockInboxStorage()),
+  );
+});
+
+afterEach(async () => {
+  await privateStorage.inbox.dispose();
+});
 
 describe('preview Inbox', () => {
   it('opens the activated message and exposes its selected state', async () => {
