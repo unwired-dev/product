@@ -255,8 +255,12 @@ extension PrivateInboxTests {
         "providerSubject": "synthetic-mailbox-subject", "address": "same@example.invalid",
       ])
     #expect(try await provider.store(keys: keys).restore() == connected)
-    provider.outcome = .cancelled
-    #expect(try await first.authorizeGmail(reselect: true) == connected)
+    // A failed reselection is reported without dropping the connected mailbox.
+    for failure in [RegistrationError.cancelled, .declined, .gmailUnavailable] {
+      provider.outcome = failure
+      await #expect(throws: failure) { try await first.authorizeGmail(reselect: true) }
+      #expect(try await provider.store(keys: keys).restore() == connected)
+    }
     provider.outcome = nil
     #expect(try first.load()?.subject == "synthetic-product-subject")
     #expect(

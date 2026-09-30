@@ -5,6 +5,7 @@ registration path to both native hosts. Product Sign-In creates or reconnects th
 Product Account through Convex before a separate Gmail authorization session.
 Cancelled or declined Gmail consent and Google identities without Gmail retain
 the Product Account. Retry can use the original account or another Google mailbox.
+A failed or cancelled choice of another mailbox keeps a connected mailbox connected.
 Adding that mailbox does not link its Google identity as another Product Sign-In.
 
 Production builds open onboarding. Explicit `open-read-relaunch` and

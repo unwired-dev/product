@@ -187,18 +187,16 @@ struct SavedRegistration: Codable {
       next.mailboxSetupReason = nil
       try save(next)
       return try connected(next)
-    } catch RegistrationError.cancelled {
-      // Cancelling a reselection keeps the mailbox that is already connected.
-      if reselect, next.mailbox != nil, next.mailboxSetupReason == nil {
-        return try connected(next)
-      }
-      return try failure(next, reason: "cancelled")
-    } catch RegistrationError.declined {
-      return try failure(next, reason: "declined")
-    } catch RegistrationError.gmailUnavailable {
-      return try failure(next, reason: "gmail-unavailable")
     } catch {
-      return try failure(next, reason: "interrupted")
+      // A failed reselection keeps the connected mailbox; the host reports the rejection.
+      if reselect, next.mailbox != nil, next.mailboxSetupReason == nil { throw error }
+      switch error {
+      case RegistrationError.cancelled: return try failure(next, reason: "cancelled")
+      case RegistrationError.declined: return try failure(next, reason: "declined")
+      case RegistrationError.gmailUnavailable:
+        return try failure(next, reason: "gmail-unavailable")
+      default: return try failure(next, reason: "interrupted")
+      }
     }
   }
 
