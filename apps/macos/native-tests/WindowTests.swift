@@ -9,6 +9,8 @@ final class WindowTests: XCTestCase {
     let workTicks: Int
   }
 
+  // Keep language changes, window menus, and relaunch in one native journey.
+  // swiftlint:disable:next function_body_length
   func testLanguagePreferenceAcrossWindowsAndRelaunch() throws {
     continueAfterFailure = false
     let appURL = URL(
@@ -34,6 +36,20 @@ final class WindowTests: XCTestCase {
       XCTWaiter.wait(
         for: [XCTNSPredicateExpectation(predicate: checked, object: secondEnglish)], timeout: 10),
       .completed)
+    for preference in ["language-system", "language-en", "language-system", "language-en"] {
+      let selection = second.descendants(matching: .any)[preference]
+      selection.click()
+      XCTAssertEqual(
+        XCTWaiter.wait(
+          for: [XCTNSPredicateExpectation(predicate: checked, object: selection)], timeout: 10),
+        .completed)
+      assertWindowMenu(app, titles: ["Inbox 1", "Inbox 2"])
+    }
+    app.menuBars.menuBarItems["Window"].click()
+    app.menuItems["Inbox 2"].click()
+    app.typeKey("w", modifierFlags: .command)
+    XCTAssertTrue(second.waitForNonExistence(timeout: 10))
+    assertWindowMenu(app, titles: ["Inbox 1"])
     app.terminate()
     app.launch()
     XCTAssertTrue(english.waitForExistence(timeout: 30))
@@ -49,6 +65,18 @@ final class WindowTests: XCTestCase {
       .completed)
     app.menuBars.menuBarItems["File"].click()
     XCTAssertTrue(app.menuItems["New Window"].exists)
+    app.typeKey(.escape, modifierFlags: [])
+  }
+
+  private func assertWindowMenu(
+    _ app: XCUIApplication, titles: [String], file: StaticString = #filePath, line: UInt = #line
+  ) {
+    app.menuBars.menuBarItems["Window"].click()
+    let entries = app.menuItems.matching(NSPredicate(format: "label BEGINSWITH %@", "Inbox "))
+    XCTAssertEqual(entries.count, titles.count, file: file, line: line)
+    for title in titles {
+      XCTAssertEqual(entries.matching(identifier: title).count, 1, file: file, line: line)
+    }
     app.typeKey(.escape, modifierFlags: [])
   }
 

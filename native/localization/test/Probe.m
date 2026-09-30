@@ -1,5 +1,11 @@
 #import "UnwiredLanguagePreferences.h"
 
+static NSDictionary *snapshot(void)
+{
+  return @{@"settings": UnwiredLanguageSettings(),
+    @"showInbox": UnwiredNativeText(@"showInbox"), @"hide": UnwiredNativeText(@"hide")};
+}
+
 int main(int argc, const char *argv[])
 {
   @autoreleasepool {
@@ -12,8 +18,15 @@ int main(int argc, const char *argv[])
       UnwiredSetLanguage(@"en");
     }
     [NSUserDefaults.standardUserDefaults synchronize];
-    NSDictionary *result = @{@"settings": UnwiredLanguageSettings(),
-      @"showInbox": UnwiredNativeText(@"showInbox"), @"hide": UnwiredNativeText(@"hide")};
+    id result = snapshot();
+    if ([arguments containsObject:@"--switch-languages"]) {
+      NSMutableArray *snapshots = [NSMutableArray new];
+      for (id preference in @[NSNull.null, @"en", NSNull.null]) {
+        UnwiredSetLanguage(preference == NSNull.null ? nil : preference);
+        [snapshots addObject:snapshot()];
+      }
+      result = snapshots;
+    }
     NSData *data = [NSJSONSerialization dataWithJSONObject:result options:0 error:nil];
     [NSFileHandle.fileHandleWithStandardOutput writeData:data];
   }

@@ -1,15 +1,25 @@
 #import "UnwiredLanguagePreferences.h"
+#import <dispatch/dispatch.h>
 
 NSNotificationName const UnwiredLanguageDidChange = @"UnwiredLanguageDidChange";
 static NSString *const preferenceKey = @"interfaceLanguage";
 
 static id catalog(NSString *name)
 {
-  NSURL *directory = [NSBundle.mainBundle URLForResource:@"catalogs" withExtension:@"bundle"];
-  NSURL *url = [directory URLByAppendingPathComponent:[name stringByAppendingPathExtension:@"json"]];
-  NSData *data = [NSData dataWithContentsOfURL:url];
-  NSCAssert(data != nil, @"Bundled translation catalogs are required.");
-  return [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+  static NSMutableDictionary<NSString *, id> *catalogs;
+  static dispatch_once_t once;
+  dispatch_once(&once, ^{ catalogs = [NSMutableDictionary new]; });
+  @synchronized (catalogs) {
+    id cached = catalogs[name];
+    if (cached) return cached;
+    NSURL *directory = [NSBundle.mainBundle URLForResource:@"catalogs" withExtension:@"bundle"];
+    NSURL *url = [directory URLByAppendingPathComponent:[name stringByAppendingPathExtension:@"json"]];
+    NSData *data = [NSData dataWithContentsOfURL:url];
+    NSCAssert(data != nil, @"Bundled translation catalogs are required.");
+    id parsed = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+    catalogs[name] = parsed;
+    return parsed;
+  }
 }
 
 NSDictionary *UnwiredLanguageSettings(void)

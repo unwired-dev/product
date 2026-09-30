@@ -34,6 +34,8 @@ native app and also imported by JavaScript. Apple locale matching and preference
 persistence live in [`native/localization`](../native/localization). Mac menu
 labels use the catalog's `native` section with per-key English fallback. The
 native window title substitutes `{{number}}`; other native labels are plain text.
+Native catalogs are parsed once per resource and cached for the process lifetime;
+language selection and per-key fallback still refresh on each lookup.
 
 Use complete messages with named interpolation values, such as
 `t('inbox.unreadRow', { sender, subject })`. Do not concatenate translated sentence
@@ -74,13 +76,15 @@ mise exec -- node --test native/localization/test/native.test.mjs
 
 The Node integration test requires macOS/Xcode. It compiles the real Foundation
 adapter into an isolated temporary app, tests a temporary French catalog and
-regional matching, and launches separate processes to verify preference
-persistence and removal. It removes its preferences domain and temporary bundle.
+regional matching and language changes within one process, and launches separate
+processes to verify preference persistence and removal. It removes its preferences domain and temporary bundle.
 French exists only in tests; it is not shipped.
 
 Follow [Expo native validation](expo-client.md#validate) for the packaged iPhone
 and iPad journey, which also checks language selection across relaunch. The
-focused Mac language journey does not require access to mailbox Keychain items:
+focused Mac language journey checks that repeated preference changes keep one
+Window menu entry per open window and remove closed windows. It does not require
+access to mailbox Keychain items:
 
 ```sh
 mise exec -- pnpm --filter @private-email/macos native:build Testing

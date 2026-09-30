@@ -104,6 +104,19 @@ test('Apple language matching, native fallback, and override persistence across 
     assert.equal(system.settings.locale, 'fr-CA');
     assert.equal(system.showInbox, 'Afficher la boîte de réception');
     assert.equal(system.hide, 'Hide Unwired Mail');
+    const switches = run('--switch-languages', ...french);
+    assert.deepEqual(
+      switches.map((value) => value.showInbox),
+      [
+        'Afficher la boîte de réception',
+        'Show Inbox',
+        'Afficher la boîte de réception',
+      ],
+    );
+    assert.deepEqual(
+      switches.map((value) => value.hide),
+      ['Hide Unwired Mail', 'Hide Unwired Mail', 'Hide Unwired Mail'],
+    );
     run('--english', ...french);
     const relaunched = run(...french);
     assert.deepEqual(relaunched.settings, {
