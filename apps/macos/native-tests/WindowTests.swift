@@ -47,9 +47,7 @@ final class WindowTests: XCTestCase {
     oliver.click()
     XCTAssertTrue(address(second, "oliver@example.com").waitForExistence(timeout: 10))
     XCTAssertTrue(address(first, "maya@example.com").exists)
-    // Start from either read state so repeated runs remain independent of prior fixture changes.
-    let markUnread = second.buttons["Mark as unread"]
-    if markUnread.exists { markUnread.click() }
+    XCTAssertTrue(oliver.label.hasPrefix("Unread."))
     XCTAssertTrue(second.buttons["Mark as read"].waitForExistence(timeout: 10))
     second.buttons["Mark as read"].click()
     XCTAssertTrue(second.buttons["Mark as unread"].waitForExistence(timeout: 10))
@@ -101,7 +99,9 @@ final class WindowTests: XCTestCase {
     app.launch()
     let restored = app.windows["Inbox 1"].buttons["Oliver Park. Saturday, by the river?"]
     XCTAssertTrue(restored.waitForExistence(timeout: 30))
+    XCTAssertFalse(restored.label.hasPrefix("Unread."))
     restored.click()
     XCTAssertTrue(app.windows["Inbox 1"].buttons["Mark as unread"].waitForExistence(timeout: 10))
+
   }
 }

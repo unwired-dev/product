@@ -1,4 +1,5 @@
 const path = require('node:path');
+const { resolveSeed } = require('../../scripts/mock-mail-build.cjs');
 const { getDefaultConfig, mergeConfig } = require('@react-native/metro-config');
 
 const macos = path.dirname(require.resolve('react-native-macos/package.json'));
@@ -32,7 +33,7 @@ module.exports = mergeConfig(getDefaultConfig(__dirname), {
           platform,
         );
       }
-      return context.resolveRequest(context, moduleName, platform);
+      return resolveSeed(context, moduleName, platform);
     },
   },
 });

@@ -79,6 +79,14 @@ for (const source of sources) {
     `Unexpected platform dependency: ${source}`,
   );
 }
+const mockSources = sources.filter((source) =>
+  source.includes('/mail-core/src/testing/'),
+);
+assert.equal(
+  mockSources.length > 0,
+  Boolean(process.env.UNWIRED_MOCK_SCENARIO),
+  'Mock providers must appear only in explicitly selected test bundles.',
+);
 process.stdout.write(
   `Verified ${sources.length} sources in ${fileURLToPath(dist)}: mobile renderer, Effect, shared core and native split view.\n`,
 );

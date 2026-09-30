@@ -1,5 +1,6 @@
 import { makeMockInboxStorage } from '@private-email/mail-core/mock-storage';
 import { createPersistentInbox } from '@private-email/mail-core/persistent-inbox';
+import { createMockMailSession } from '@private-email/mail-core/testing/mock-session';
 import { fireEvent, renderAsync, within } from '@testing-library/react-native';
 import { View } from 'react-native';
 
@@ -46,7 +47,10 @@ describe('mac window selection with the shared mock mailbox', () => {
     jest.replaceProperty(
       jest.requireMock<{ inbox: typeof inbox }>('../src/private-storage.ts'),
       'inbox',
-      createPersistentInbox(makeMockInboxStorage()),
+      createPersistentInbox(
+        makeMockInboxStorage(),
+        createMockMailSession('open-read-relaunch').mail.list,
+      ),
     );
   });
 

@@ -96,6 +96,14 @@ assert.deepEqual(
   [],
   'Review native modules before expanding the Mac autolinking scope.',
 );
+const mockSources = sources.filter((source) =>
+  source.includes('/mail-core/src/testing/'),
+);
+assert.equal(
+  mockSources.length > 0,
+  Boolean(process.env.UNWIRED_MOCK_SCENARIO),
+  'Mock providers must appear only in explicitly selected test bundles.',
+);
 process.stdout.write(
   `Verified ${sources.length} Mac sources, shared fixture and host-only autolinking.\n`,
 );

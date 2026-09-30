@@ -66,7 +66,7 @@ mise exec -- pnpm fallow
 Use [the testing policy](docs/agents/testing.md) to select meaningful checks and
 [the native validation guide](docs/agents/native-validation.md) for resource
 ownership during native checks. The [mail test environment](docs/mail-test-environment.md) documents the
-existing harness; the replacement's isolated Mock Mail Sessions follow
+existing harness; the replacement's [isolated Mock Mail Sessions](docs/mock-mail-sessions.md) follow
 [ADR 0060](docs/adr/0060-pair-mocked-mail-journeys-with-real-integration-evidence.md).
 
 CI covers both replacement hosts, shared core/contracts, and the retained Convex backend. Legacy

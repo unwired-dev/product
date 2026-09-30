@@ -1,11 +1,20 @@
 const fs = require('node:fs');
 const path = require('node:path');
+const { scenario } = require('../../../scripts/mock-mail-build.cjs');
 const { withXcodeProject } = require('expo/config-plugins');
 
 module.exports = function privateInbox(config) {
+  const scenarioSetting = JSON.stringify(scenario ?? '');
   return withXcodeProject(config, (result) => {
     const project = result.modResults;
     const target = project.getFirstTarget().uuid;
+    for (const configuration of Object.values(
+      project.pbxXCBuildConfigurationSection(),
+    )) {
+      if (configuration && configuration.buildSettings) {
+        configuration.buildSettings.UNWIRED_MOCK_SCENARIO = scenarioSetting;
+      }
+    }
     const root = result.modRequest.platformProjectRoot;
     const destination = path.join(root, 'PrivateInbox');
     fs.mkdirSync(destination, { recursive: true });

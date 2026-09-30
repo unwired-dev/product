@@ -177,3 +177,7 @@ xcuserdata/
 /artifacts/macos-inbox/
 
 /artifacts/private-inbox/
+
+/apps/macos/macos/UnwiredMail/Info.generated.plist
+
+/artifacts/mock-mail*/

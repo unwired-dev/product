@@ -7,7 +7,9 @@
     ".": "./src/index.ts",
     "./persistent-inbox": "./src/persistent-inbox.ts",
     "./mock-storage": "./src/mock-storage.ts",
-    "./theme": "./src/theme.ts"
+    "./theme": "./src/theme.ts",
+    "./inbox-seed": "./src/inbox-seed.ts",
+    "./testing/mock-session": "./src/testing/mock-session.ts"
   },
   "scripts": {
     "check-types": "tsc --noEmit",

@@ -78,7 +78,9 @@ requirement.
 
 ## Verification
 
-Mock Mail Sessions use `makeMockInboxStorage` only at the native boundary. Shared
+Deterministic shared and component tests use `makeMockInboxStorage` only at the
+native boundary. [Native Mock Mail Sessions](mock-mail-sessions.md) use the real
+encrypted store and a disposable app/Keychain namespace. Shared
 and component tests exercise application state, retry, malformed responses,
 window selection and read changes. They do not prove encryption or process
 persistence. Run their lint, format, type and test checks through the root workspace.

@@ -1,4 +1,16 @@
+import { env } from 'node:process';
+
 import type { ExpoConfig } from 'expo/config';
+
+const mockScenario: unknown = env.UNWIRED_MOCK_SCENARIO;
+if (
+  mockScenario !== undefined &&
+  mockScenario !== '' &&
+  mockScenario !== 'open-read-relaunch' &&
+  mockScenario !== 'mail-unavailable'
+) {
+  throw new Error('Unknown Mock Mail Session scenario');
+}
 
 const config: ExpoConfig = {
   name: 'Unwired Mail Preview',
@@ -10,6 +22,7 @@ const config: ExpoConfig = {
   ios: {
     bundleIdentifier: 'dev.unwired.mail.preview',
     supportsTablet: true,
+    infoPlist: mockScenario ? { UnwiredMockScenario: mockScenario } : {},
   },
   plugins: [
     'expo-router',

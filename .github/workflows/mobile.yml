@@ -52,6 +52,7 @@ jobs:
     env:
       CI: '1'
       EXPO_NO_TELEMETRY: '1'
+      UNWIRED_MOCK_SCENARIO: open-read-relaunch
       DEVELOPER_DIR: /Applications/Xcode_27.0.app/Contents/Developer
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -80,6 +81,12 @@ jobs:
       - name: Verify native encryption and credential removal
         timeout-minutes: 8
         run: zsh native/private-inbox/integration/test.zsh ios
+      - name: Verify ordinary native project generation with cleared scenario
+        run: |
+          UNWIRED_MOCK_SCENARIO='' pnpm --filter @private-email/mobile native:generate --no-install
+          plutil -lint apps/mobile/ios/UnwiredMailPreview.xcodeproj/project.pbxproj
+          UNWIRED_MOCK_SCENARIO='' UNWIRED_BUILD_CONFIGURATION=Release ruby apps/macos/scripts/create-project.rb
+          plutil -lint apps/macos/macos/UnwiredMail.xcodeproj/project.pbxproj
       - name: Generate the iOS project
         run: pnpm --filter @private-email/mobile native:generate --no-install
       - name: Install CocoaPods dependencies
@@ -106,6 +113,9 @@ jobs:
           path: |
             artifacts/private-inbox/**/*.log
             artifacts/private-inbox/**/*.xcresult/**
+            artifacts/expo-bootstrap/**/result.json
+            artifacts/expo-bootstrap/**/ownership.json
+            artifacts/expo-bootstrap/**/devices.txt
             artifacts/expo-bootstrap/**/*.log
             artifacts/expo-bootstrap/**/*.xcresult/**
           if-no-files-found: warn

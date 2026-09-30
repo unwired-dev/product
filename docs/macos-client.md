@@ -99,23 +99,15 @@ view while another remains, and selecting mail after every view unmounts. They
 run the real shared mock service with React Native's test renderer. They do not
 prove AppKit lifecycle behavior.
 
-The native mailbox journey requires the
-[Keychain signing setup](private-inbox-storage.md#native-wiring-and-signing):
-a development identity and team, plus an installed matching Mac provisioning
-profile for `dev.unwired.mail.macos.preview`. Build the optimized, packaged
-`Testing` configuration with that identity:
-
-```sh
-cd apps/macos
-UNWIRED_SIGNING_IDENTITY='Apple Development' \
-UNWIRED_DEVELOPMENT_TEAM='<your team>' \
-mise exec -- pnpm native:build Testing
-mise exec -- pnpm test:native ../../artifacts/macos-inbox/DerivedData/Build/Products/Testing/UnwiredMail.app
-```
-
-Ad-hoc builds can verify compilation and packaging but show locked storage, so
-they cannot run this mailbox journey. Without the required profile, record the
-native mailbox journey as deferred; component and bundle checks remain available.
+The native mailbox journey uses the [isolated Mock Mail Session runner](mock-mail-sessions.md#native-mac-entry-point).
+Build with `UNWIRED_MOCK_SCENARIO=open-read-relaunch` in the optimized,
+packaged `Testing` configuration. The runner copies the app into a random bundle
+identity; Mac Data Protection Keychain requires a development signing identity
+and a profile covering `dev.unwired.mock.*`, selected using
+`UNWIRED_SIGNING_IDENTITY` and `UNWIRED_MOCK_PROFILE`. It signs an external cleanup
+helper for the same isolated Keychain group. The ordinary preview app and its
+store are preserved. Without that profile, record native execution as deferred;
+component, bundle and runner contracts remain available.
 
 The XCTest journey opens two windows, selects different messages, focuses a
 window through its menu, closes both, checks continued application work, reopens

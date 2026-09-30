@@ -1,6 +1,12 @@
 {
   "$schema": "https://raw.githubusercontent.com/fallow-rs/fallow/main/schema.json",
-  "entry": ["scripts/oxlint-effect-imports.mjs"],
+  "entry": [
+    "scripts/oxlint-effect-imports.mjs",
+    // Metro selects these modules at build time, outside the static import graph.
+    "scripts/mock-mail-build.cjs",
+    "packages/mail-core/src/testing/open-read-relaunch.ts",
+    "packages/mail-core/src/testing/mail-unavailable.ts",
+  ],
   "ignorePatterns": [
     "oxfmt.config.ts",
     "oxlint.config.ts",

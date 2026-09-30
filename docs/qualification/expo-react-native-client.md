@@ -1,6 +1,6 @@
 # Expo and React Native platform qualification
 
-Evidence updated: 2026-09-29. Status: **Expo bootstrap builds and launches on
+Evidence updated: 2026-09-30. Status: **Expo bootstrap builds and launches on
 iOS/iPadOS 27 and the native Mac mock Inbox builds and launches on macOS 27;
 full replacement qualification remains incomplete**.
 
@@ -8,6 +8,42 @@ The [mobile bootstrap](../expo-client.md) now uses Expo 57.0.25, React Native
 0.86.3 and React 19.2.3 with Effect 4.0.0-rc.118. Xcode 27 and the iOS 27 runtime
 are available on the development host. The maintainer's earlier native-validation
 deferral still applies to unavailable release checks. Mac host evidence follows.
+
+## Isolated Mock Mail Session evidence, 2026-09-30
+
+[#595](https://github.com/unwired-dev/product/issues/595) adds
+[external deterministic session runners](../mock-mail-sessions.md). On the local
+Xcode 27.0/macOS 27.0.1 host:
+
+- Mobile Release compilation passed. The same synthetic open, mark-read and
+  relaunch journey passed on fresh iPhone 18 Pro and iPad Pro 11-inch M5 iOS 27
+  simulators. Both used the real application runtime, presentation and native
+  encrypted store. Exit evidence was zero, and the run-owned app copy,
+  DerivedData and simulators were removed.
+- Four separate app-hosted native storage tests passed against real CryptoKit,
+  filesystem and Keychain, covering relaunch, unavailable keys, corrupt
+  ciphertext, protected-data recovery, credential removal and competing writes.
+- Mac packaged `Testing` compilation passed. Native E2E preflight failed closed
+  because no configured profile covers disposable `dev.unwired.mock.*` IDs.
+  This journey and its signed external Keychain cleanup remain deferred before
+  release. An ad-hoc build does not establish Data Protection Keychain evidence.
+- Shared synthetic-provider/application tests, both host component suites,
+  retained backend tests, lint, format and types passed. Both external runner
+  contracts passed with tool stubs. Those contracts prove orchestration and
+  cleanup behavior, not Mac native execution.
+- Normal and selected production JavaScript exports passed the host bundle
+  checks. Normal exports exclude mock providers. Root and host Fallow checks
+  report zero unused-code/dependency issues; health diagnostics remain
+  advisory.
+
+Local results are retained under `artifacts/mock-mail-595`,
+`artifacts/expo-bootstrap/native-TAgsiX`, and
+`artifacts/private-inbox/integration.wElIBS`. The first mobile run exposed an
+invalid test query after navigation; after moving that assertion before
+navigation, both native journeys passed. That failed run remains available as
+diagnostic evidence. No real Gmail, sign-in, assistance engine, delivery or
+physical-device qualification is claimed. Hosted CI results are separate from
+this local evidence.
 
 ## Native Mac mock Inbox evidence — 2026-09-29
 
