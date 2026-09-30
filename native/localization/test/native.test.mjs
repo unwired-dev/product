@@ -8,6 +8,8 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
+import { createMessageDateFormat } from '../../../packages/localization/src/message-date-format.ts';
+
 const root = fileURLToPath(new URL('../../../', import.meta.url));
 
 test('Apple language matching, native fallback, and override persistence across launches', () => {
@@ -112,11 +114,7 @@ test('Apple language matching, native fallback, and override persistence across 
         force12,
       ];
       const settings = run(...preferences).settings;
-      const formatter = new Intl.DateTimeFormat(settings.locale, {
-        hour: 'numeric',
-        minute: '2-digit',
-        timeZone: 'UTC',
-      });
+      const formatter = createMessageDateFormat(settings.locale, true);
       assert.equal(formatter.resolvedOptions().hourCycle, hourCycle);
       assert.deepEqual(
         [new Date(0), new Date(13 * 60 * 60 * 1000)].map(

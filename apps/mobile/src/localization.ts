@@ -1,4 +1,7 @@
-import { createLocalization } from '@private-email/localization';
+import {
+  createLocalization,
+  createMessageDateFormat,
+} from '@private-email/localization';
 import { useMemo, useSyncExternalStore } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -31,13 +34,7 @@ export function useLocalization() {
 export function useMessageDateFormat(detail = false) {
   const { settings } = useLocalization();
   return useMemo(
-    () =>
-      new Intl.DateTimeFormat(
-        settings.locale,
-        detail
-          ? { dateStyle: 'long', timeStyle: 'short', timeZone: 'UTC' }
-          : { month: 'short', day: 'numeric', timeZone: 'UTC' },
-      ),
+    () => createMessageDateFormat(settings.locale, detail),
     [settings.locale, detail],
   );
 }

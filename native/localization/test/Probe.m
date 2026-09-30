@@ -10,6 +10,12 @@ int main(int argc, const char *argv[])
 {
   @autoreleasepool {
     NSArray *arguments = NSProcessInfo.processInfo.arguments;
+    NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
+    NSMutableDictionary *overrides = [[defaults volatileDomainForName:NSArgumentDomain] mutableCopy];
+    for (NSString *key in @[@"AppleICUForce24HourTime", @"AppleICUForce12HourTime"]) {
+      if (overrides[key]) overrides[key] = @([defaults boolForKey:key]);
+    }
+    [defaults setVolatileDomain:overrides forName:NSArgumentDomain];
     if ([arguments containsObject:@"--reset"]) {
       [NSUserDefaults.standardUserDefaults removePersistentDomainForName:NSBundle.mainBundle.bundleIdentifier];
     } else if ([arguments containsObject:@"--system"]) {

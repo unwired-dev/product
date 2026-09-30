@@ -19,6 +19,11 @@ format under an override. The preview Inbox retains its existing UTC
 time zone. Message senders, subjects, previews, and bodies are content and are
 never treated as translation keys.
 
+Both hosts use the shared message-date formatter with explicit components. Apple's
+[Hermes implementation](https://github.com/facebook/hermes/blob/main/lib/Platform/Intl/PlatformIntlApple.mm)
+applies hour cycles when an hour component is requested; its date/time-style path
+bypasses that handling.
+
 ## Implementation
 
 [`@private-email/localization`](../packages/localization/src/index.ts) owns an

@@ -3,6 +3,8 @@ import { createInstance } from 'i18next';
 import english from '../catalogs.bundle/en.json' with { type: 'json' };
 import languages from '../catalogs.bundle/languages.json' with { type: 'json' };
 
+export { createMessageDateFormat } from './message-date-format.ts';
+
 export { default as languages } from '../catalogs.bundle/languages.json' with { type: 'json' };
 
 export interface LanguageSettings {

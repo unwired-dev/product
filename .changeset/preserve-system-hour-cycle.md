@@ -1,4 +1,5 @@
 ---
+"@private-email/localization": patch
 "@private-email/mobile": patch
 "@private-email/macos": patch
 ---
