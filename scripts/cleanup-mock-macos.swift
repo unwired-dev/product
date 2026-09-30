@@ -3,9 +3,15 @@ import Foundation
 import Security
 
 // External cleanup is restricted to the exact randomly assigned run namespace.
+guard CommandLine.arguments.count == 2 else {
+  fputs("Expected this helper's Mock Mail Session identifier\n", stderr)
+  exit(EXIT_FAILURE)
+}
 let identifier = CommandLine.arguments[1]
-guard identifier.range(of: #"^dev\.unwired\.mock\.[0-9a-f]{32}$"#, options: .regularExpression) != nil else {
-  fatalError("Refusing cleanup outside a Mock Mail Session")
+guard identifier == Bundle.main.bundleIdentifier,
+  identifier.range(of: #"^dev\.unwired\.mock\.[0-9a-f]{32}$"#, options: .regularExpression) != nil else {
+  fputs("Refusing cleanup outside a Mock Mail Session\n", stderr)
+  exit(EXIT_FAILURE)
 }
 let applications = NSRunningApplication.runningApplications(withBundleIdentifier: identifier).filter {
   $0.processIdentifier != ProcessInfo.processInfo.processIdentifier

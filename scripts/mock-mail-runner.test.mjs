@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import {
   cpSync,
   existsSync,
@@ -10,6 +11,7 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -113,7 +115,7 @@ const command = path.basename(process.argv[1]);
 if (command === 'swiftc') {
   fs.writeFileSync(args[args.indexOf('-o') + 1], '#!${process.execPath}\\nimport fs from "node:fs"; fs.writeFileSync(' + JSON.stringify(path.join(base, 'cleaned')) + ', process.argv[2]); process.exit(${cleanupExit});\\n', { mode: 0o755 });
 }
-if (command === 'security') console.log('<?xml version="1.0"?><plist version="1.0"><dict><key>TeamIdentifier</key><array><string>SYNTHETIC</string></array><key>Entitlements</key><dict><key>com.apple.application-identifier</key><string>SYNTHETIC.dev.unwired.mock.*</string></dict></dict></plist>');
+if (command === 'security') console.log('<?xml version="1.0"?><plist version="1.0"><dict><key>TeamIdentifier</key><array><string>SYNTHETIC</string></array><key>Entitlements</key><dict><key>com.apple.application-identifier</key><string>LEGACY1234.dev.unwired.mock.*</string></dict></dict></plist>');
 if (command === 'xcodebuild') {
   if (${terminate}) { process.kill(process.ppid, 'SIGTERM'); process.exit(143); }
   console.log(${JSON.stringify(log)});
@@ -159,6 +161,15 @@ if (command === 'xcodebuild') {
         readFileSync(join(directory, 'cleaned'), 'utf8'),
         ownership.bundleIdentifier,
       );
+      const entitlements = readFileSync(
+        join(evidence, 'mock-entitlements.plist'),
+        'utf8',
+      );
+      assert.ok(entitlements.includes(
+        `<string>LEGACY1234.${ownership.bundleIdentifier}</string>`,
+      ));
+      assert.match(entitlements, /<string>SYNTHETIC<\/string>/u);
+      assert.doesNotMatch(entitlements, /SYNTHETIC\.dev\.unwired\.mock/u);
       assert.equal(
         readFileSync(join(source, 'Contents/Info.plist'), 'utf8'),
         original,
@@ -201,4 +212,45 @@ test('build selection resolves only explicit test scenarios and production keeps
     encoding: 'utf8',
   });
   assert.notEqual(invalid.status, 0);
+});
+
+test('cleanup helper rejects another session before removing its storage', {
+  skip: process.platform !== 'darwin',
+}, () => {
+  const directory = workspace();
+  const identifier = 'dev.unwired.mock.' + randomUUID().replaceAll('-', '');
+  const otherIdentifier = 'dev.unwired.mock.' + randomUUID().replaceAll('-', '');
+  const otherStorage = join(homedir(), 'Library/Application Support', otherIdentifier);
+  try {
+    const contents = join(directory, 'Cleanup.app/Contents');
+    mkdirSync(join(contents, 'MacOS'), { recursive: true });
+    writeFileSync(join(contents, 'Info.plist'), plist({
+      CFBundleIdentifier: identifier,
+      CFBundleExecutable: 'cleanup',
+      CFBundlePackageType: 'APPL',
+    }));
+    const executable = join(contents, 'MacOS/cleanup');
+    const build = run(directory, 'swiftc', [
+      join(root, 'scripts/cleanup-mock-macos.swift'), '-o', executable,
+    ]);
+    assert.equal(build.status, 0, build.stdout + build.stderr);
+    mkdirSync(otherStorage);
+    const sentinel = join(otherStorage, 'sentinel');
+    writeFileSync(sentinel, 'another session');
+    for (const args of [[], [otherIdentifier]]) {
+      const result = run(directory, executable, args);
+      assert.ifError(result.error);
+      assert.notEqual(result.status, 0);
+      assert.match(result.stderr, /Expected this helper|Refusing cleanup outside/u);
+      assert.equal(readFileSync(sentinel, 'utf8'), 'another session');
+    }
+    // The unsigned helper can reach the Keychain boundary for its own session.
+    const ownSession = run(directory, executable, [identifier]);
+    assert.ifError(ownSession.error);
+    assert.doesNotMatch(ownSession.stderr, /Expected this helper|Refusing cleanup outside/u);
+    assert.equal(readFileSync(sentinel, 'utf8'), 'another session');
+  } finally {
+    rmSync(otherStorage, { recursive: true, force: true });
+    rmSync(directory, { recursive: true, force: true });
+  }
 });

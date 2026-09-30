@@ -33,13 +33,14 @@ if host == 'macos':
     authorization = plistlib.loads(decoded)
     team = authorization['TeamIdentifier'][0]
     allowed = authorization['Entitlements'].get('com.apple.application-identifier')
-    if allowed not in (team + '.dev.unwired.mock.*', team + '.*'):
+    prefix = allowed.split('.', 1)[0] if isinstance(allowed, str) else ''
+    if not prefix or allowed not in (prefix + '.dev.unwired.mock.*', prefix + '.*'):
         raise SystemExit('Mac profile must cover disposable dev.unwired.mock.* identities')
     entitlements_path = destination.parent / 'mock-entitlements.plist'
     with entitlements_path.open('wb') as stream:
-        plistlib.dump({'com.apple.application-identifier': team + '.' + identifier,
+        plistlib.dump({'com.apple.application-identifier': prefix + '.' + identifier,
                       'com.apple.developer.team-identifier': team,
-                      'keychain-access-groups': [team + '.' + identifier]}, stream)
+                      'keychain-access-groups': [prefix + '.' + identifier]}, stream)
 # Record ownership before mutation so preparation failures can be cleaned up.
 record = {'version': 1, 'kind': 'mock-mail-session', 'scenario': info['UnwiredMockScenario'],
           'host': host, 'bundleIdentifier': identifier, 'app': str(destination)}

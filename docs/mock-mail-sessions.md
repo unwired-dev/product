@@ -74,8 +74,9 @@ mise exec -- pnpm --filter @private-email/macos test:native \
 ```
 
 The runner requires a Mac development profile covering `dev.unwired.mock.*`
-or the team's wildcard identifier. It does not create portal resources or
-request provisioning updates. The disposable app and external cleanup helper
+or the profile's wildcard identifier. The application and Keychain identifiers
+use the profile's App ID prefix, which may differ from its team ID. The runner
+does not create portal resources or request provisioning updates. The disposable app and external cleanup helper
 use an application identifier and Keychain access group for that exact random
 run ID. They never inherit the original app's Keychain access groups. An ad-hoc
 Mac app cannot access the Data Protection Keychain and is insufficient evidence.
@@ -97,7 +98,9 @@ attachments. Results live under
 `artifacts/expo-bootstrap/native-*` or `artifacts/macos-inbox/journey.*`.
 
 Exit, failure and interrupt traps delete only run-owned app copies, probes and
-simulators. The Mac helper terminates only the generated bundle identity,
+simulators. The Mac helper requires the recovery argument to match its own
+bundle identity before touching another process or storage. It terminates only
+that generated identity,
 deletes its exact database Keychain item and removes its Application Support
 directory. Cleanup failure fails the run. If Mac cleanup fails, the signed cleanup helper
 is retained with the ownership record for retry. Evidence remains for diagnosis.
