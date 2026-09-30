@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import {
   cpSync,
+  existsSync,
+  readdirSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -15,6 +17,8 @@ import { fileURLToPath } from 'node:url';
 const root = fileURLToPath(new URL('..', import.meta.url));
 const scenarios = [
   ['success', 0, 2],
+  ['delete-failure', 1, 2],
+  ['terminated', 143, 1],
   ['multiple-tests', 0, 2],
   ['no-results', 1, 1],
   ['assertion-with-connection-log', 1, 1],
@@ -39,6 +43,7 @@ for (const [scenario, expectedExit, expectedDevices] of scenarios) {
         nativeTests,
         bin,
         join(directory, 'Preview.app'),
+        join(directory, 'scripts'),
       ]) {
         mkdirSync(path, { recursive: true });
       }
@@ -47,6 +52,14 @@ for (const [scenario, expectedExit, expectedDevices] of scenarios) {
         join(scripts, 'test-native.zsh'),
       );
       writeFileSync(join(nativeTests, 'InboxTests.swift'), '');
+      cpSync(
+        join(root, 'scripts/prepare-mock-app.py'),
+        join(directory, 'scripts/prepare-mock-app.py'),
+      );
+      writeFileSync(
+        join(directory, 'Preview.app/Info.plist'),
+        `<?xml version="1.0"?><plist version="1.0"><dict><key>UnwiredMockScenario</key><string>open-read-relaunch</string></dict></plist>`,
+      );
       const stub = `#!${process.execPath}
 import fs from 'node:fs';
 import path from 'node:path';
@@ -61,9 +74,10 @@ const next = (name) => {
   return count;
 };
 if (command === 'xcrun' && args[1] === 'create') console.log('owned-' + next('devices'));
-if (command === 'xcrun' && args[1] === 'delete') fs.appendFileSync(path.join(base, 'deleted'), args[2] + '\\n');
+if (command === 'xcrun' && args[1] === 'delete') { fs.appendFileSync(path.join(base, 'deleted'), args[2] + '\\n'); if (scenario === 'delete-failure') process.exit(1); }
 if (command === 'xcodebuild' && args[0] === 'test-without-building') {
   const attempt = next('attempts');
+  if (scenario === 'terminated') { process.kill(process.ppid, 'SIGTERM'); process.exit(143); }
   if (scenario === 'no-results') process.exit(0);
   if (scenario === 'multiple-tests') { console.log('Executed 2 tests, with 0 failures'); process.exit(0); }
   if (scenario === 'assertion-with-connection-log') { console.log('testmanagerd connection established'); console.log('XCTAssertTrue failed'); process.exit(65); }
@@ -77,7 +91,7 @@ if (command === 'xcodebuild' && args[0] === 'test-without-building') {
   console.log('Executed 1 test, with 0 failures');
 }
 `;
-      for (const command of ['xcrun', 'xcodebuild', 'ruby']) {
+      for (const command of ['xcrun', 'xcodebuild', 'ruby', 'codesign']) {
         writeFileSync(join(bin, command), stub, { mode: 0o755 });
       }
       const result = spawnSync(
@@ -99,6 +113,18 @@ if (command === 'xcodebuild' && args[0] === 'test-without-building') {
         Number(readFileSync(join(directory, 'devices'), 'utf8')),
         expectedDevices,
       );
+      const artifacts = join(directory, 'artifacts/expo-bootstrap');
+      const entries = readdirSync(artifacts);
+      assert.equal(entries.length, 1);
+      const evidence = join(artifacts, entries[0]);
+      const ownership = JSON.parse(
+        readFileSync(join(evidence, 'ownership.json'), 'utf8'),
+      );
+      assert.match(
+        ownership.bundleIdentifier,
+        /^dev\.unwired\.mock\.[0-9a-f]{32}$/u,
+      );
+      assert.equal(existsSync(join(evidence, 'Mock.app')), false);
       const deleted = new Set(
         readFileSync(join(directory, 'deleted'), 'utf8').trim().split('\n'),
       );

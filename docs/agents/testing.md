@@ -36,7 +36,10 @@ integration coverage for their actual boundaries and E2E coverage for the
 corresponding user journeys. These are testing requirements, not claims that
 those replacement features already exist.
 
-Deterministic Mock Mail Sessions can supply synthetic mail for app journeys.
+[Deterministic Mock Mail Sessions](../mock-mail-sessions.md) supply synthetic
+identity, mail and assistance providers for app journeys. Linux CI exercises
+both external runners with tool stubs, including ownership, cleanup, production-build
+rejection and zero-test failure. These are runner contracts, not native evidence.
 They do not replace real persistence, native-binding or provider integration
 evidence required by [ADR 0060](../adr/0060-pair-mocked-mail-journeys-with-real-integration-evidence.md).
 

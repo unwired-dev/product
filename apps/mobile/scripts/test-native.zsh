@@ -5,7 +5,7 @@ if [[ $# != 1 || ! -d "$1" || "$1" != *.app ]]; then
   print -u2 'Usage: pnpm test:native /absolute/path/to/Release-iphonesimulator/UnwiredMailPreview.app'
   exit 2
 fi
-app_bundle="${1:A}"
+source_app="${1:A}"
 mobile_root="${0:A:h:h}"
 repo_root="${mobile_root:h:h}"
 mkdir -p "$repo_root/artifacts/expo-bootstrap"
@@ -13,14 +13,21 @@ run_dir=$(mktemp -d "$repo_root/artifacts/expo-bootstrap/native-XXXXXX")
 print "Native evidence: $run_dir"
 owned_devices=()
 cleanup() {
+  local cleanup_exit=0
   for device_id in "${owned_devices[@]}"; do
     xcrun simctl shutdown "$device_id" >/dev/null 2>&1 || true
-    xcrun simctl delete "$device_id" >/dev/null 2>&1 || true
+    xcrun simctl delete "$device_id" >/dev/null 2>&1 || cleanup_exit=1
   done
+  rm -rf "$run_dir/Mock.app" "$run_dir/DerivedData" || cleanup_exit=1
+  return "$cleanup_exit"
 }
-trap cleanup EXIT
+trap 'run_exit=$?; cleanup || run_exit=1; print "{\"exitCode\":$run_exit,\"kind\":\"mock-mail-session\"}" > "$run_dir/result.json"; exit "$run_exit"' EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
+
+UNWIRED_BUNDLE_ID=$(python3 "$repo_root/scripts/prepare-mock-app.py" mobile "$source_app" "$run_dir/Mock.app")
+export UNWIRED_BUNDLE_ID
+app_bundle="$run_dir/Mock.app"
 
 cp "$mobile_root/native-tests/InboxTests.swift" "$run_dir/"
 builtin cd -q "$run_dir"
@@ -37,6 +44,7 @@ for device_type in \
   for attempt in 1 2; do
     device_id=$(xcrun simctl create "Inbox bootstrap ${run_dir:t}" "$device_type" com.apple.CoreSimulator.SimRuntime.iOS-27-0)
     owned_devices+=("$device_id")
+    print "$device_id" >> "$run_dir/devices.txt"
     xcrun simctl boot "$device_id"
     xcrun simctl bootstatus "$device_id" -b
     xcrun simctl install "$device_id" "$app_bundle"
@@ -62,7 +70,6 @@ for device_type in \
     }; then
       print -u2 "Simulator infrastructure failed; retrying once on a fresh device: $device_type"
       xcrun simctl shutdown "$device_id" >/dev/null 2>&1 || true
-      xcrun simctl delete "$device_id" >/dev/null 2>&1 || true
       continue
     fi
     tail -60 "$run_dir/$device_id.log" >&2

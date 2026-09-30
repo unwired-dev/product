@@ -138,7 +138,10 @@ Its `Expo native E2E` job also builds the Release app and runs the iPhone/iPad
 interaction journey on pull requests ready for review and pushes to `main`.
 Legacy Swift CI and manual qualification jobs are disabled by maintainer decision.
 
-A focused native XCTest journey is also available. First build a simulator Release
+A focused native XCTest journey is also available through the
+[isolated Mock Mail Session runner](mock-mail-sessions.md). Select
+`UNWIRED_MOCK_SCENARIO=open-read-relaunch` when generating the native project
+before building the app. Ordinary preview builds are rejected by this runner. First build a simulator Release
 app using isolated DerivedData (from `apps/mobile`, after native generation):
 
 ```sh
@@ -187,7 +190,8 @@ simulator startups and both journeys, including the bounded infrastructure retry
 The original 15-minute limit interrupted a hosted run after iPhone passed but
 before iPad produced a test result. Superseded pull-request runs are cancelled.
 Build logs and XCTest result bundles, including screenshots, are uploaded as
-`expo-native-e2e-<run id>-<attempt>` with seven-day retention, including on failure.
+`expo-native-e2e-<run id>-<attempt>` with seven-day retention, including on failure. The job selects the test-only `open-read-relaunch` scenario
+and uploads run ownership, simulator IDs and exit results as well.
 
 The `Expo native E2E` check covers the mock Inbox on iPhone and iPad. It does not
 qualify the separate native Mac host or real provider integration. Repository

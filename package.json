@@ -15,7 +15,7 @@
     "mail:test": "pnpm --filter @private-email/mail-test-harness mail:test",
     "prepare": "effect-tsgo patch --oxlint",
     "test": "turbo run test",
-    "test:native-runner": "node --test scripts/native-runner.test.mjs",
+    "test:native-runner": "node --test scripts/native-runner.test.mjs scripts/mock-mail-runner.test.mjs",
     "test:tooling": "node --test scripts/oxlint-effect-imports.test.mjs",
     "version-packages": "changeset version"
   },

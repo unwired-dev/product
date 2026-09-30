@@ -1,5 +1,9 @@
 require 'xcodeproj'
 
+scenario = ENV['UNWIRED_MOCK_SCENARIO']
+raise 'Unknown Mock Mail Session scenario' if scenario && !%w[open-read-relaunch mail-unavailable].include?(scenario)
+raise 'Mock scenarios require Testing configuration' if scenario && ENV['UNWIRED_BUILD_CONFIGURATION'] != 'Testing'
+
 Dir.chdir(File.expand_path('../macos', __dir__))
 project = Xcodeproj::Project.new('UnwiredMail.xcodeproj')
 target = project.new_target(:application, 'UnwiredMail', :osx, '27.0')
@@ -7,6 +11,10 @@ group = project.main_group.new_group('UnwiredMail', 'UnwiredMail')
 target.add_file_references(%w[main.mm AppDelegate.mm].map { |name| group.new_file(name) })
 group.new_file('AppDelegate.h')
 group.new_file('Info.plist')
+info = Xcodeproj::Plist.read_from_path('UnwiredMail/Info.plist')
+info.delete('UnwiredMockScenario')
+info['UnwiredMockScenario'] = scenario if scenario
+Xcodeproj::Plist.write_to_path(info, 'UnwiredMail/Info.generated.plist')
 private_inbox = project.main_group.new_group('PrivateInbox', '../../../native/private-inbox')
 %w[Sources/PrivateInbox/DeviceKeychain.swift Sources/PrivateInbox/PrivateInboxStore.swift Sources/PrivateInbox/SyntheticCredential.swift bridge/UnwiredPrivateInbox.swift bridge/UnwiredPrivateInboxBridge.m].each do |name|
   target.add_file_references([private_inbox.new_file(name)])
@@ -19,7 +27,8 @@ end
 target.build_configurations.each do |configuration|
   configuration.build_settings.merge!({
     'PRODUCT_BUNDLE_IDENTIFIER' => 'dev.unwired.mail.macos.preview',
-    'INFOPLIST_FILE' => 'UnwiredMail/Info.plist',
+    'INFOPLIST_FILE' => configuration.name == 'Testing' && scenario ? 'UnwiredMail/Info.generated.plist' : 'UnwiredMail/Info.plist',
+    'UNWIRED_MOCK_SCENARIO' => configuration.name == 'Testing' ? (scenario || '') : '',
     'CLANG_ENABLE_OBJC_ARC' => 'YES',
     'CLANG_ENABLE_MODULES' => 'YES',
     'SWIFT_VERSION' => '5.0',

@@ -42,7 +42,12 @@ export type InboxState =
       readonly messages: typeof Snapshot.Type.messages;
     };
 
-export function createPersistentInbox(storage: NativeInboxStorage) {
+export function createPersistentInbox(
+  storage: NativeInboxStorage,
+  initialMessages: () => Promise<
+    ReadonlyArray<typeof MessageSchema.Type>
+  > = () => Promise.resolve(fixtureMessages),
+) {
   const runtime = ManagedRuntime.make(Layer.succeed(PrivateStorage, storage));
   const semaphore = Semaphore.makeUnsafe(1);
   let state: InboxState = { kind: 'loading' };
@@ -87,7 +92,9 @@ export function createPersistentInbox(storage: NativeInboxStorage) {
       };
     },
     load: () =>
-      execute((native) => native.open(JSON.stringify(fixtureMessages))),
+      execute(async (native) =>
+        native.open(JSON.stringify(await initialMessages())),
+      ),
     setUnread: (id: string, unread: boolean) =>
       execute((native) => native.setUnread(id, unread)),
     dispose: () => runtime.dispose(),

@@ -1,3 +1,6 @@
 const { getDefaultConfig } = require('expo/metro-config');
+const { resolveSeed } = require('../../scripts/mock-mail-build.cjs');
 
-module.exports = getDefaultConfig(__dirname);
+const config = getDefaultConfig(__dirname);
+config.resolver.resolveRequest = resolveSeed;
+module.exports = config;

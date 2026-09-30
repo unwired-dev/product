@@ -15,4 +15,8 @@ project.save
 scheme = Xcodeproj::XCScheme.new
 scheme.add_build_target(target)
 scheme.add_test_target(target)
+scheme.test_action.should_use_launch_scheme_args_env = false
+scheme.test_action.environment_variables = Xcodeproj::XCScheme::EnvironmentVariables.new(
+  [{ :key => 'UNWIRED_BUNDLE_ID', :value => ENV.fetch('UNWIRED_BUNDLE_ID') }]
+)
 scheme.save_as(project.path, 'InboxProbe')

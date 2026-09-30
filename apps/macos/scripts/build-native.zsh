@@ -2,6 +2,11 @@
 set -euo pipefail
 builtin cd -q "${0:A:h}/.."
 configuration=${1:-Release}
+export UNWIRED_BUILD_CONFIGURATION="$configuration"
+if [[ -n "${UNWIRED_MOCK_SCENARIO:-}" && "$configuration" != Testing ]]; then
+  print -u2 "Mock scenarios require Testing configuration"
+  exit 2
+fi
 artifact_root="${PWD}/../../artifacts/macos-inbox"
 mkdir -p "$artifact_root"
 pnpm native:generate
