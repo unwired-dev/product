@@ -63,13 +63,16 @@ test('preparation refuses production builds before copying or signing', () => {
   }
 });
 
-for (const scenario of [
-  'success',
-  'zero',
-  'assertion',
-  'cleanup-failure',
-  'terminated',
-]) {
+const successLog = 'Executed 1 test, with 0 failures';
+const macScenarios = [
+  ['success', 0, 0, successLog, 0, false],
+  ['zero', 1, 0, 'Executed 0 tests, with 0 failures', 0, false],
+  ['assertion', 65, 65, 'Executed 1 test, with 1 failure', 0, false],
+  ['cleanup-failure', 1, 0, successLog, 1, false],
+  ['terminated', 143, 143, '', 0, true],
+];
+
+for (const [scenario, expectedExit, testExit, log, cleanupExit, terminate] of macScenarios) {
   test(`Mac runner preserves evidence and cleans only its disposable resources: ${scenario}`, () => {
     const directory = workspace();
     try {
@@ -108,13 +111,13 @@ const base = ${JSON.stringify(directory)};
 const args = process.argv.slice(2);
 const command = path.basename(process.argv[1]);
 if (command === 'swiftc') {
-  fs.writeFileSync(args[args.indexOf('-o') + 1], '#!${process.execPath}\\nimport fs from "node:fs"; fs.writeFileSync(' + JSON.stringify(path.join(base, 'cleaned')) + ', process.argv[2]); process.exit(${scenario === 'cleanup-failure' ? 1 : 0});\\n', { mode: 0o755 });
+  fs.writeFileSync(args[args.indexOf('-o') + 1], '#!${process.execPath}\\nimport fs from "node:fs"; fs.writeFileSync(' + JSON.stringify(path.join(base, 'cleaned')) + ', process.argv[2]); process.exit(${cleanupExit});\\n', { mode: 0o755 });
 }
 if (command === 'security') console.log('<?xml version="1.0"?><plist version="1.0"><dict><key>TeamIdentifier</key><array><string>SYNTHETIC</string></array><key>Entitlements</key><dict><key>com.apple.application-identifier</key><string>SYNTHETIC.dev.unwired.mock.*</string></dict></dict></plist>');
 if (command === 'xcodebuild') {
-  if (${JSON.stringify(scenario)} === 'terminated') { process.kill(process.ppid, 'SIGTERM'); process.exit(143); }
-  console.log(${JSON.stringify(scenario === 'zero' ? 'Executed 0 tests, with 0 failures' : scenario === 'assertion' ? 'Executed 1 test, with 1 failure' : 'Executed 1 test, with 0 failures')});
-  process.exit(${scenario === 'assertion' ? 65 : 0});
+  if (${terminate}) { process.kill(process.ppid, 'SIGTERM'); process.exit(143); }
+  console.log(${JSON.stringify(log)});
+  process.exit(${testExit});
 }
 `;
       for (const command of [
@@ -138,13 +141,7 @@ if (command === 'xcodebuild') {
       assert.ifError(result.error);
       assert.equal(
         result.status,
-        scenario === 'success'
-          ? 0
-          : scenario === 'assertion'
-            ? 65
-            : scenario === 'terminated'
-              ? 143
-              : 1,
+        expectedExit,
         result.stdout + result.stderr,
       );
       const artifacts = join(directory, 'artifacts/macos-inbox');
@@ -169,7 +166,7 @@ if (command === 'xcodebuild') {
       assert.equal(existsSync(join(evidence, 'Mock.app')), false);
       assert.equal(
         existsSync(join(evidence, 'Cleanup.app')),
-        scenario === 'cleanup-failure',
+        cleanupExit !== 0,
       );
       assert.equal(
         JSON.parse(readFileSync(join(evidence, 'result.json'), 'utf8'))
