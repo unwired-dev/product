@@ -149,10 +149,11 @@ struct PrivateInboxTests {
   var outcome: RegistrationError?
   var scopes: Set<String> = []
   var gmailAvailable = true
+  var refreshes = 0
 
   func value(_ subject: String) -> GoogleRegistrationIdentity {
     GoogleRegistrationIdentity(
-      subject: subject, credential: Data(subject.utf8),
+      subject: subject, credential: Data("\(subject)#\(refreshes)".utf8),
       idToken: "synthetic-id-token-" + subject, accessToken: "synthetic-access-token",
       scopes: scopes)
   }
@@ -161,10 +162,12 @@ struct PrivateInboxTests {
     return value(subject)
   }
   func refresh(_ credential: Data) async throws -> GoogleRegistrationIdentity {
-    guard let saved = String(data: credential, encoding: .utf8) else {
+    guard let saved = String(data: credential, encoding: .utf8)?.split(separator: "#").first
+    else {
       throw RegistrationError.invalidIdentity
     }
-    return value(saved)
+    refreshes += 1
+    return value(String(saved))
   }
   func verifyGmail(_ identity: GoogleRegistrationIdentity) async throws -> GmailRegistrationReceipt
   {
@@ -293,7 +296,9 @@ extension PrivateInboxTests {
           trustedDeviceCredential: "synthetic-device-proof")
       })
     #expect(try await resumed.restore()["kind"] == "mailbox-needed")
+    let beforeRefresh = try interrupted.load()?.identityCredential
     let offline = try await interrupted.restore()
+    #expect(try interrupted.load()?.identityCredential != beforeRefresh)
     #expect(offline["kind"] == "mailbox-needed")
     #expect(offline["productAccountId"] == "synthetic-product-subject")
     #expect(offline["reason"] == "unavailable")
