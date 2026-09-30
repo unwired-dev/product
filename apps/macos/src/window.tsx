@@ -3,6 +3,7 @@ import { StyleSheet, View } from 'react-native';
 
 import { Inbox } from './inbox.tsx';
 import { MessageDetail } from './message-detail.tsx';
+import { RegistrationGate } from './registration-gate.tsx';
 import { usePalette } from './theme.ts';
 
 const styles = StyleSheet.create({
@@ -11,7 +12,7 @@ const styles = StyleSheet.create({
   detail: { flex: 1 },
 });
 
-export function InboxWindow({ windowId }: { readonly windowId: string }) {
+export function PreviewWindow({ windowId }: { readonly windowId: string }) {
   const [selectedId, setSelectedId] = useState<string>();
   const colors = usePalette();
   return (
@@ -28,5 +29,13 @@ export function InboxWindow({ windowId }: { readonly windowId: string }) {
         <MessageDetail id={selectedId} />
       </View>
     </View>
+  );
+}
+
+export function InboxWindow({ windowId }: { readonly windowId: string }) {
+  return (
+    <RegistrationGate>
+      <PreviewWindow windowId={windowId} />
+    </RegistrationGate>
   );
 }

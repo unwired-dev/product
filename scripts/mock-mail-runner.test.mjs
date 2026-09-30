@@ -74,7 +74,14 @@ const macScenarios = [
   ['terminated', 143, 143, '', 0, true],
 ];
 
-for (const [scenario, expectedExit, testExit, log, cleanupExit, terminate] of macScenarios) {
+for (const [
+  scenario,
+  expectedExit,
+  testExit,
+  log,
+  cleanupExit,
+  terminate,
+] of macScenarios) {
   test(`Mac runner preserves evidence and cleans only its disposable resources: ${scenario}`, () => {
     const directory = workspace();
     try {
@@ -141,11 +148,7 @@ if (command === 'xcodebuild') {
         },
       );
       assert.ifError(result.error);
-      assert.equal(
-        result.status,
-        expectedExit,
-        result.stdout + result.stderr,
-      );
+      assert.equal(result.status, expectedExit, result.stdout + result.stderr);
       const artifacts = join(directory, 'artifacts/macos-inbox');
       const entries = readdirSync(artifacts);
       assert.equal(entries.length, 1);
@@ -165,9 +168,11 @@ if (command === 'xcodebuild') {
         join(evidence, 'mock-entitlements.plist'),
         'utf8',
       );
-      assert.ok(entitlements.includes(
-        `<string>LEGACY1234.${ownership.bundleIdentifier}</string>`,
-      ));
+      assert.ok(
+        entitlements.includes(
+          `<string>LEGACY1234.${ownership.bundleIdentifier}</string>`,
+        ),
+      );
       assert.match(entitlements, /<string>SYNTHETIC<\/string>/u);
       assert.doesNotMatch(entitlements, /SYNTHETIC\.dev\.unwired\.mock/u);
       assert.equal(
@@ -197,6 +202,10 @@ test('build selection resolves only explicit test scenarios and production keeps
     ['', 'normal'],
     ['open-read-relaunch', 'sourceFile'],
     ['mail-unavailable', 'sourceFile'],
+    ['registration-cancelled', 'normal'],
+    ['registration-declined', 'normal'],
+    ['registration-no-gmail', 'normal'],
+    ['registration-interrupted', 'normal'],
   ]) {
     const result = spawnSync(process.execPath, ['-e', script], {
       cwd: root,
@@ -214,43 +223,63 @@ test('build selection resolves only explicit test scenarios and production keeps
   assert.notEqual(invalid.status, 0);
 });
 
-test('cleanup helper rejects another session before removing its storage', {
-  skip: process.platform !== 'darwin',
-}, () => {
-  const directory = workspace();
-  const identifier = 'dev.unwired.mock.' + randomUUID().replaceAll('-', '');
-  const otherIdentifier = 'dev.unwired.mock.' + randomUUID().replaceAll('-', '');
-  const otherStorage = join(homedir(), 'Library/Application Support', otherIdentifier);
-  try {
-    const contents = join(directory, 'Cleanup.app/Contents');
-    mkdirSync(join(contents, 'MacOS'), { recursive: true });
-    writeFileSync(join(contents, 'Info.plist'), plist({
-      CFBundleIdentifier: identifier,
-      CFBundleExecutable: 'cleanup',
-      CFBundlePackageType: 'APPL',
-    }));
-    const executable = join(contents, 'MacOS/cleanup');
-    const build = run(directory, 'swiftc', [
-      join(root, 'scripts/cleanup-mock-macos.swift'), '-o', executable,
-    ]);
-    assert.equal(build.status, 0, build.stdout + build.stderr);
-    mkdirSync(otherStorage);
-    const sentinel = join(otherStorage, 'sentinel');
-    writeFileSync(sentinel, 'another session');
-    for (const args of [[], [otherIdentifier]]) {
-      const result = run(directory, executable, args);
-      assert.ifError(result.error);
-      assert.notEqual(result.status, 0);
-      assert.match(result.stderr, /Expected this helper|Refusing cleanup outside/u);
+test(
+  'cleanup helper rejects another session before removing its storage',
+  {
+    skip: process.platform !== 'darwin',
+  },
+  () => {
+    const directory = workspace();
+    const identifier = 'dev.unwired.mock.' + randomUUID().replaceAll('-', '');
+    const otherIdentifier =
+      'dev.unwired.mock.' + randomUUID().replaceAll('-', '');
+    const otherStorage = join(
+      homedir(),
+      'Library/Application Support',
+      otherIdentifier,
+    );
+    try {
+      const contents = join(directory, 'Cleanup.app/Contents');
+      mkdirSync(join(contents, 'MacOS'), { recursive: true });
+      writeFileSync(
+        join(contents, 'Info.plist'),
+        plist({
+          CFBundleIdentifier: identifier,
+          CFBundleExecutable: 'cleanup',
+          CFBundlePackageType: 'APPL',
+        }),
+      );
+      const executable = join(contents, 'MacOS/cleanup');
+      const build = run(directory, 'swiftc', [
+        join(root, 'scripts/cleanup-mock-macos.swift'),
+        '-o',
+        executable,
+      ]);
+      assert.equal(build.status, 0, build.stdout + build.stderr);
+      mkdirSync(otherStorage);
+      const sentinel = join(otherStorage, 'sentinel');
+      writeFileSync(sentinel, 'another session');
+      for (const args of [[], [otherIdentifier]]) {
+        const result = run(directory, executable, args);
+        assert.ifError(result.error);
+        assert.notEqual(result.status, 0);
+        assert.match(
+          result.stderr,
+          /Expected this helper|Refusing cleanup outside/u,
+        );
+        assert.equal(readFileSync(sentinel, 'utf8'), 'another session');
+      }
+      // The unsigned helper can reach the Keychain boundary for its own session.
+      const ownSession = run(directory, executable, [identifier]);
+      assert.ifError(ownSession.error);
+      assert.doesNotMatch(
+        ownSession.stderr,
+        /Expected this helper|Refusing cleanup outside/u,
+      );
       assert.equal(readFileSync(sentinel, 'utf8'), 'another session');
+    } finally {
+      rmSync(otherStorage, { recursive: true, force: true });
+      rmSync(directory, { recursive: true, force: true });
     }
-    // The unsigned helper can reach the Keychain boundary for its own session.
-    const ownSession = run(directory, executable, [identifier]);
-    assert.ifError(ownSession.error);
-    assert.doesNotMatch(ownSession.stderr, /Expected this helper|Refusing cleanup outside/u);
-    assert.equal(readFileSync(sentinel, 'utf8'), 'another session');
-  } finally {
-    rmSync(otherStorage, { recursive: true, force: true });
-    rmSync(directory, { recursive: true, force: true });
-  }
-});
+  },
+);

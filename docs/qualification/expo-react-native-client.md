@@ -9,6 +9,51 @@ The [mobile bootstrap](../expo-client.md) now uses Expo 57.0.25, React Native
 are available on the development host. The maintainer's earlier native-validation
 deferral still applies to unavailable release checks. Mac host evidence follows.
 
+## Google registration evidence, 2026-09-30
+
+[#596](https://github.com/unwired-dev/product/issues/596) adds
+[Google Product Sign-In and separate Gmail authorization](../google-registration.md)
+with the approved GoogleSignIn 10.0.0 native SDK on both hosts.
+
+- All 20 affected workspace lint, format, type and test tasks passed. Existing
+  backend and Inbox coverage remains. New application and rendered-host tests
+  cover pending setup, retry and mailbox reselection; Convex integration proves
+  same-address Google and Apple identities stay separate without creating a
+  mailbox connection or Product Sync key material.
+- Seven app-hosted native tests passed on an owned iOS 27 Simulator against real
+  Keychain, CryptoKit and filesystem operations. Added scenarios cover callback
+  nonce/audience/subject/issuer/expiry rejection, missing Gmail grants, unavailable
+  Gmail, interrupted registration, offline account retention, independent mailbox
+  selection and preservation of existing Inbox ciphertext. Google authorization
+  and Convex are controlled boundaries in these tests, not live OAuth evidence.
+- Normal and selected registration JavaScript exports passed both host bundle
+  checks. Root and host Fallow scans reported zero unused-code findings. Native
+  runner contracts, Effect import-policy checks, Swift formatting and strict
+  SwiftLint passed.
+- Normal and selected Expo simulator Release and Mac packaged Testing builds
+  passed with GoogleSignIn.
+  Selected registration builds include a fixed native mock provider; normal builds
+  exclude it. Release Mac configuration cannot inherit the Testing scenario marker.
+- The native registration journey passed on fresh iPhone 18 Pro and iPad Pro
+  11-inch M5 iOS 27 Simulators. It retains pending setup across process relaunch,
+  authorizes a different synthetic mailbox and restores the connected status.
+
+The native provider and backend substitutes above are distinct from the protected
+[real OAuth qualification path](../google-registration.md#protected-real-oauth-qualification).
+That path, signed Mac Keychain/UI checks, physical-device behavior and distribution
+qualification remain deferred before release. No installed Mac provisioning
+profile matches the disposable test app identifiers; no developer-portal resources
+were created.
+
+Local evidence is retained in `artifacts/mock-mail-registration`,
+`artifacts/expo-bootstrap/native-0GNjv1` and
+`artifacts/private-inbox/integration.0aqXIK`. A final mobile rerun failed during
+Simulator installation before tests began; the retry on fresh owned devices
+passed on both iPhone and iPad. Mac project regeneration required CocoaPods reintegration;
+an initial pnpm-launched pod installation failed with a null-path error, and a
+standalone installation succeeded. Failed attempts remain diagnostic evidence.
+Hosted CI completion is separate from these local checks.
+
 ## Isolated Mock Mail Session evidence, 2026-09-30
 
 [#595](https://github.com/unwired-dev/product/issues/595) adds

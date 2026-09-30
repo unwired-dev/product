@@ -181,3 +181,5 @@ xcuserdata/
 /apps/macos/macos/UnwiredMail/Info.generated.plist
 
 /artifacts/mock-mail*/
+
+/apps/macos/macos/UnwiredMail/Info.testing.plist

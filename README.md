@@ -15,8 +15,8 @@ remains required before release.
 
 ## Current checkout
 
-- `apps/mobile`: Expo mock Inbox in the root pnpm workspace.
-- `apps/macos`: AppKit React Native macOS mock Inbox with independent windows.
+- `apps/mobile`: Expo Google onboarding and selected mock Inbox in the root workspace.
+- `apps/macos`: AppKit React Native macOS Google onboarding and mock Inbox windows.
 - `packages/mail-core`: framework-independent mock mailbox and theme tokens.
 - `apps/unwired-mail`: SwiftUI client for iPhone, iPad, and Mac Catalyst.
 - `packages/contracts`: shared API contracts and fixtures.

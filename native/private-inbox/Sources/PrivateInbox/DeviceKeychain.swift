@@ -48,4 +48,14 @@ struct DeviceKeychain {
       throw PrivateInboxError.locked
     }
   }
+
+  func save(_ data: Data, account: String) throws {
+    let status = SecItemUpdate(
+      query(account) as CFDictionary, [kSecValueData as String: data] as CFDictionary)
+    if status == errSecItemNotFound {
+      try insert(data, account: account)
+      return
+    }
+    guard status == errSecSuccess else { throw PrivateInboxError.locked }
+  }
 }

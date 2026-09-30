@@ -9,7 +9,10 @@
     "./mock-storage": "./src/mock-storage.ts",
     "./theme": "./src/theme.ts",
     "./inbox-seed": "./src/inbox-seed.ts",
-    "./testing/mock-session": "./src/testing/mock-session.ts"
+    "./testing/mock-session": "./src/testing/mock-session.ts",
+    "./registration": "./src/registration.ts",
+    "./registration-mode": "./src/registration-mode.ts",
+    "./testing/registration-session": "./src/testing/registration-session.ts"
   },
   "scripts": {
     "check-types": "tsc --noEmit",

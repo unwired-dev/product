@@ -15,8 +15,8 @@ if host not in ('mobile', 'macos') or destination.exists():
 relative = Path('Info.plist') if host == 'mobile' else Path('Contents/Info.plist')
 with (source / relative).open('rb') as stream:
     info = plistlib.load(stream)
-if info.get('UnwiredMockScenario') != 'open-read-relaunch':
-    raise SystemExit('The native journey requires an open-read-relaunch test-only build')
+if info.get('UnwiredMockScenario') not in ('open-read-relaunch', 'registration-cancelled', 'registration-declined', 'registration-no-gmail', 'registration-interrupted'):
+    raise SystemExit('The native journey requires a supported test-only build')
 identifier = 'dev.unwired.mock.' + uuid.uuid4().hex
 signer = '-'
 entitlements_path = None

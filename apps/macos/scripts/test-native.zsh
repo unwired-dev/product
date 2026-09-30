@@ -33,6 +33,7 @@ trap 'exit 143' TERM
 swiftc ../../scripts/cleanup-mock-macos.swift -o "$UNWIRED_TEST_ARTIFACTS/cleanup"
 bundle_id=$(python3 ../../scripts/prepare-mock-app.py macos "$source_app" "$UNWIRED_TEST_ARTIFACTS/Mock.app" "$UNWIRED_TEST_ARTIFACTS/cleanup")
 export UNWIRED_APP_PATH="$UNWIRED_TEST_ARTIFACTS/Mock.app"
+export UNWIRED_TEST_SCENARIO=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["scenario"])' "$UNWIRED_TEST_ARTIFACTS/ownership.json")
 cp native-tests/{WindowTests.swift,create-project.rb} "$probe_dir/"
 builtin cd -q "$probe_dir"
 "${RUBY:-ruby}" create-project.rb

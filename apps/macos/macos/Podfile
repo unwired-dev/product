@@ -6,6 +6,7 @@ prepare_react_native_project!
 project 'UnwiredMail', 'Debug' => :debug, 'Release' => :release, 'Testing' => :release
 
 target 'UnwiredMail' do
+  pod 'GoogleSignIn', '10.0.0'
   config = use_native_modules!
   expected = File.realpath('../node_modules/react-native-macos')
   raise 'Autolinking resolved a foreign React Native host' unless File.realpath(config[:reactNativePath]) == expected

@@ -2,7 +2,7 @@ require 'xcodeproj'
 
 scenario = ENV['UNWIRED_MOCK_SCENARIO']
 scenario = nil if scenario == ''
-raise 'Unknown Mock Mail Session scenario' if scenario && !%w[open-read-relaunch mail-unavailable].include?(scenario)
+raise 'Unknown Mock Mail Session scenario' if scenario && !%w[open-read-relaunch mail-unavailable registration-cancelled registration-declined registration-no-gmail registration-interrupted].include?(scenario)
 raise 'Mock scenarios require Testing configuration' if scenario && ENV['UNWIRED_BUILD_CONFIGURATION'] != 'Testing'
 
 Dir.chdir(File.expand_path('../macos', __dir__))
@@ -14,10 +14,17 @@ group.new_file('AppDelegate.h')
 group.new_file('Info.plist')
 info = Xcodeproj::Plist.read_from_path('UnwiredMail/Info.plist')
 info.delete('UnwiredMockScenario')
-info['UnwiredMockScenario'] = scenario if scenario
+client_id = ENV.fetch('UNWIRED_GOOGLE_CLIENT_ID', '')
+raise 'Invalid native Google OAuth client ID' unless client_id.empty? || client_id.match?(/\A[0-9A-Za-z-]+\.apps\.googleusercontent\.com\z/)
+info['GIDClientID'] = client_id
+info['UnwiredConvexURL'] = ENV.fetch('UNWIRED_CONVEX_URL', '')
+info['CFBundleURLTypes'] = client_id.empty? ? [] : [{ 'CFBundleURLSchemes' => [client_id.split('.').reverse.join('.')] }]
 Xcodeproj::Plist.write_to_path(info, 'UnwiredMail/Info.generated.plist')
+info['UnwiredMockScenario'] = scenario if scenario
+Xcodeproj::Plist.write_to_path(info, 'UnwiredMail/Info.testing.plist')
 private_inbox = project.main_group.new_group('PrivateInbox', '../../../native/private-inbox')
-%w[Sources/PrivateInbox/DeviceKeychain.swift Sources/PrivateInbox/PrivateInboxStore.swift Sources/PrivateInbox/SyntheticCredential.swift bridge/UnwiredPrivateInbox.swift bridge/UnwiredPrivateInboxBridge.m].each do |name|
+Dir.glob('../../../native/private-inbox/{Sources/PrivateInbox,bridge}/*.{swift,m}').each do |file|
+  name = file.delete_prefix('../../../native/private-inbox/')
   target.add_file_references([private_inbox.new_file(name)])
 end
 project.add_build_configuration('Testing', :release)
@@ -28,11 +35,12 @@ end
 target.build_configurations.each do |configuration|
   configuration.build_settings.merge!({
     'PRODUCT_BUNDLE_IDENTIFIER' => 'dev.unwired.mail.macos.preview',
-    'INFOPLIST_FILE' => configuration.name == 'Testing' && scenario ? 'UnwiredMail/Info.generated.plist' : 'UnwiredMail/Info.plist',
+    'INFOPLIST_FILE' => configuration.name == 'Testing' ? 'UnwiredMail/Info.testing.plist' : 'UnwiredMail/Info.generated.plist',
     'UNWIRED_MOCK_SCENARIO' => configuration.name == 'Testing' ? (scenario || '') : '',
     'CLANG_ENABLE_OBJC_ARC' => 'YES',
     'CLANG_ENABLE_MODULES' => 'YES',
     'SWIFT_VERSION' => '5.0',
+    'SWIFT_ACTIVE_COMPILATION_CONDITIONS' => ['$(inherited)', configuration.name == 'Testing' && scenario&.start_with?('registration-') ? 'UNWIRED_REGISTRATION_MOCK' : ''],
     'MACOSX_DEPLOYMENT_TARGET' => '27.0',
     'ENABLE_HARDENED_RUNTIME' => configuration.name == 'Release' ? 'YES' : 'NO',
     'CODE_SIGN_IDENTITY' => ENV.fetch('UNWIRED_SIGNING_IDENTITY', '-'),
