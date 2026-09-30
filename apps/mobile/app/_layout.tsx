@@ -7,6 +7,7 @@ import { useEffect, useRef } from 'react';
 
 import { Inbox } from '../src/inbox.tsx';
 import { InboxProvider } from '../src/mailbox.tsx';
+import { RegistrationGate } from '../src/registration-gate.tsx';
 
 export default function RootLayout() {
   const splitView = useRef<SplitHostCommands>(null);
@@ -24,20 +25,22 @@ export default function RootLayout() {
   }
 
   return (
-    <InboxProvider>
-      <StatusBar style="auto" />
-      <SplitView
-        ref={splitView}
-        preferredDisplayMode="oneBesideSecondary"
-        preferredSplitBehavior="tile"
-        topColumnForCollapsing={id ? 'secondary' : 'primary'}>
-        <SplitView.Column>
-          <Inbox
-            onSelect={selectMessage}
-            selectedId={id}
-          />
-        </SplitView.Column>
-      </SplitView>
-    </InboxProvider>
+    <RegistrationGate>
+      <InboxProvider>
+        <StatusBar style="auto" />
+        <SplitView
+          ref={splitView}
+          preferredDisplayMode="oneBesideSecondary"
+          preferredSplitBehavior="tile"
+          topColumnForCollapsing={id ? 'secondary' : 'primary'}>
+          <SplitView.Column>
+            <Inbox
+              onSelect={selectMessage}
+              selectedId={id}
+            />
+          </SplitView.Column>
+        </SplitView>
+      </InboxProvider>
+    </RegistrationGate>
   );
 }

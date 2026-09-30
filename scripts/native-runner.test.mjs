@@ -56,6 +56,10 @@ for (const [scenario, expectedExit, expectedDevices] of scenarios) {
         join(root, 'scripts/prepare-mock-app.py'),
         join(directory, 'scripts/prepare-mock-app.py'),
       );
+      cpSync(
+        join(root, 'scripts/mock-mail-scenarios.json'),
+        join(directory, 'scripts/mock-mail-scenarios.json'),
+      );
       writeFileSync(
         join(directory, 'Preview.app/Info.plist'),
         `<?xml version="1.0"?><plist version="1.0"><dict><key>UnwiredMockScenario</key><string>open-read-relaunch</string></dict></plist>`,

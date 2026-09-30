@@ -22,15 +22,17 @@ for _ in 0..<50 {
   Thread.sleep(forTimeInterval: 0.1)
 }
 guard applications.allSatisfy({ $0.isTerminated }) else { fatalError("Mock app did not terminate") }
-let status = SecItemDelete([
-  kSecClass as String: kSecClassGenericPassword,
-  kSecAttrService as String: identifier + ".private-inbox.database",
-  kSecAttrAccount as String: "encryption-key",
-  kSecAttrSynchronizable as String: false,
-  kSecUseDataProtectionKeychain as String: true,
-] as CFDictionary)
-guard status == errSecSuccess || status == errSecItemNotFound else {
-  fatalError("Mock Keychain cleanup failed: \(status)")
+for (service, account) in [(".private-inbox.database", "encryption-key"), (".google-registration", "registration")] {
+  let status = SecItemDelete([
+    kSecClass as String: kSecClassGenericPassword,
+    kSecAttrService as String: identifier + service,
+    kSecAttrAccount as String: account,
+    kSecAttrSynchronizable as String: false,
+    kSecUseDataProtectionKeychain as String: true,
+  ] as CFDictionary)
+  guard status == errSecSuccess || status == errSecItemNotFound else {
+    fatalError("Mock Keychain cleanup failed: \(status)")
+  }
 }
 let support = try FileManager.default.url(for: .applicationSupportDirectory,
   in: .userDomainMask, appropriateFor: nil, create: false)

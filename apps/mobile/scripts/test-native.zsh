@@ -27,6 +27,7 @@ trap 'exit 143' TERM
 
 UNWIRED_BUNDLE_ID=$(python3 "$repo_root/scripts/prepare-mock-app.py" mobile "$source_app" "$run_dir/Mock.app")
 export UNWIRED_BUNDLE_ID
+export UNWIRED_TEST_SCENARIO=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["scenario"])' "$run_dir/ownership.json")
 app_bundle="$run_dir/Mock.app"
 
 cp "$mobile_root/native-tests/InboxTests.swift" "$run_dir/"

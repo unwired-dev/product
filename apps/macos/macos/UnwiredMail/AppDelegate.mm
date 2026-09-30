@@ -2,6 +2,7 @@
 #import <React/RCTBundleURLProvider.h>
 #import <ReactAppDependencyProvider/RCTAppDependencyProvider.h>
 #import <os/log.h>
+#import <GoogleSignIn/GoogleSignIn.h>
 
 @interface AppDelegate ()
 @property(nonatomic, strong) RCTReactNativeFactory *reactFactory;
@@ -18,6 +19,8 @@
 
 - (void)applicationDidFinishLaunching:(NSNotification *)notification
 {
+  [[NSAppleEventManager sharedAppleEventManager] setEventHandler:self
+      andSelector:@selector(handleGoogleURL:reply:) forEventClass:kInternetEventClass andEventID:kAEGetURL];
   self.dependencyProvider = [RCTAppDependencyProvider new];
   self.reactFactory = [[RCTReactNativeFactory alloc] initWithDelegate:self];
   self.inboxWindows = [NSMutableArray new];
@@ -34,6 +37,13 @@
   [self recordLifecycle:@"launch"];
   [self newWindow:nil];
   [NSApp activateIgnoringOtherApps:YES];
+}
+
+- (void)handleGoogleURL:(NSAppleEventDescriptor *)event reply:(NSAppleEventDescriptor *)reply
+{
+  NSString *value = [[event paramDescriptorForKeyword:keyDirectObject] stringValue];
+  NSURL *url = value ? [NSURL URLWithString:value] : nil;
+  if (url) [[GIDSignIn sharedInstance] handleURL:url];
 }
 
 - (NSURL *)sourceURLForBridge:(RCTBridge *)bridge

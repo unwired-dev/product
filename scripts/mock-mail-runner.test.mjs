@@ -97,6 +97,10 @@ for (const [scenario, expectedExit, testExit, log, cleanupExit, terminate] of ma
         join(root, 'scripts/prepare-mock-app.py'),
         join(sharedScripts, 'prepare-mock-app.py'),
       );
+      cpSync(
+        join(root, 'scripts/mock-mail-scenarios.json'),
+        join(sharedScripts, 'mock-mail-scenarios.json'),
+      );
       writeFileSync(join(sharedScripts, 'cleanup-mock-macos.swift'), '');
       writeFileSync(join(nativeTests, 'WindowTests.swift'), '');
       writeFileSync(join(nativeTests, 'create-project.rb'), '');
@@ -197,6 +201,10 @@ test('build selection resolves only explicit test scenarios and production keeps
     ['', 'normal'],
     ['open-read-relaunch', 'sourceFile'],
     ['mail-unavailable', 'sourceFile'],
+    ['registration-cancelled', 'normal'],
+    ['registration-declined', 'normal'],
+    ['registration-no-gmail', 'normal'],
+    ['registration-interrupted', 'normal'],
   ]) {
     const result = spawnSync(process.execPath, ['-e', script], {
       cwd: root,

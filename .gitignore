@@ -181,3 +181,8 @@ xcuserdata/
 /apps/macos/macos/UnwiredMail/Info.generated.plist
 
 /artifacts/mock-mail*/
+
+/apps/macos/macos/UnwiredMail/Info.testing.plist
+
+# graft's local graph cache — regenerable, not committed (run `graft build`).
+/graft/

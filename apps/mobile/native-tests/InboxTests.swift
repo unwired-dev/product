@@ -1,14 +1,47 @@
 import XCTest
 
 final class InboxTests: XCTestCase {
+  private func registrationJourney(_ app: XCUIApplication) throws {
+    app.buttons["Sign in with Google"].tap()
+    XCTAssertTrue(app.staticTexts["Connect your Gmail"].waitForExistence(timeout: 15))
+    XCTAssertFalse(app.staticTexts["Gmail connected"].exists)
+    app.terminate()
+    app.launch()
+    XCTAssertTrue(app.staticTexts["Connect your Gmail"].waitForExistence(timeout: 15))
+    app.buttons["Choose another Google mailbox"].tap()
+    XCTAssertTrue(app.staticTexts["Gmail connected"].waitForExistence(timeout: 15))
+    XCTAssertTrue(
+      app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "other@example.invalid"))
+        .firstMatch.exists)
+    app.terminate()
+    app.launch()
+    XCTAssertTrue(app.staticTexts["Gmail connected"].waitForExistence(timeout: 15))
+    let shot = XCTAttachment(screenshot: app.screenshot())
+    shot.name = "Resumed Gmail registration"
+    shot.lifetime = .keepAlways
+    add(shot)
+  }
+
   func testSelectAndReplaceMessage() throws {
     continueAfterFailure = false
     let identifier = try XCTUnwrap(ProcessInfo.processInfo.environment["UNWIRED_BUNDLE_ID"])
     let app = XCUIApplication(bundleIdentifier: identifier)
     addTeardownBlock { if app.state != .notRunning { app.terminate() } }
     app.launch()
+    if ProcessInfo.processInfo.environment["UNWIRED_TEST_SCENARIO"]?.hasPrefix("registration-")
+      == true
+    {
+      XCTAssertTrue(app.staticTexts["Welcome to Unwired Mail"].waitForExistence(timeout: 20))
+      try registrationJourney(app)
+      return
+    }
+    inboxJourney(app)
+  }
+
+  private func inboxJourney(_ app: XCUIApplication) {
     XCTAssertTrue(app.staticTexts["Inbox"].waitForExistence(timeout: 20))
-    let maya = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Maya Chen")).firstMatch
+    let maya = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Maya Chen"))
+      .firstMatch
     XCTAssertTrue(maya.waitForExistence(timeout: 10))
     XCTAssertTrue(maya.label.hasPrefix("Unread."))
     maya.tap()
@@ -21,7 +54,8 @@ final class InboxTests: XCTestCase {
     shot.name = "Selected message"
     shot.lifetime = .keepAlways
     add(shot)
-    let oliver = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Oliver Park")).firstMatch
+    let oliver = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Oliver Park"))
+      .firstMatch
     if !oliver.exists || !oliver.isHittable {
       let back = app.navigationBars.buttons.firstMatch
       XCTAssertTrue(back.exists)

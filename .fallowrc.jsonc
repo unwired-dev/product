@@ -6,6 +6,7 @@
     "scripts/mock-mail-build.cjs",
     "packages/mail-core/src/testing/open-read-relaunch.ts",
     "packages/mail-core/src/testing/mail-unavailable.ts",
+    "packages/mail-core/src/testing/registration-mode.ts",
   ],
   "ignorePatterns": [
     "oxfmt.config.ts",

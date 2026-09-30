@@ -9,6 +9,24 @@ final class WindowTests: XCTestCase {
     let workTicks: Int
   }
 
+  private func registrationJourney(_ app: XCUIApplication, first: XCUIElement) {
+    XCTAssertTrue(first.buttons["Sign in with Google"].waitForExistence(timeout: 20))
+    first.buttons["Sign in with Google"].click()
+    XCTAssertTrue(first.buttons["Authorize Gmail"].waitForExistence(timeout: 15))
+    XCTAssertFalse(first.staticTexts["Gmail connected"].exists)
+    app.terminate()
+    app.launch()
+    let resumed = app.windows["Inbox 1"]
+    XCTAssertTrue(resumed.buttons["Authorize Gmail"].waitForExistence(timeout: 15))
+    resumed.buttons["Choose another Google mailbox"].click()
+    XCTAssertTrue(resumed.staticTexts["Gmail connected"].waitForExistence(timeout: 15))
+    app.terminate()
+    app.launch()
+    XCTAssertTrue(app.windows["Inbox 1"].staticTexts["Gmail connected"].waitForExistence(timeout: 15))
+  }
+
+  // Keep the existing window lifecycle journey in one session for its PID and work assertions.
+  // swiftlint:disable:next function_body_length
   func testIndependentWindowsCloseReopenAndQuit() throws {
     continueAfterFailure = false
     let environment = ProcessInfo.processInfo.environment
@@ -35,6 +53,10 @@ final class WindowTests: XCTestCase {
     }
     let first = app.windows["Inbox 1"]
     XCTAssertTrue(first.waitForExistence(timeout: 30))
+    if environment["UNWIRED_TEST_SCENARIO"]?.hasPrefix("registration-") == true {
+      registrationJourney(app, first: first)
+      return
+    }
     let maya = first.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Maya Chen")).firstMatch
     XCTAssertTrue(maya.waitForExistence(timeout: 20))
     maya.click()

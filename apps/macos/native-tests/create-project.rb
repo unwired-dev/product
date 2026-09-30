@@ -19,6 +19,6 @@ scheme.add_build_target(target)
 scheme.add_test_target(target)
 scheme.test_action.should_use_launch_scheme_args_env = false
 scheme.test_action.environment_variables = Xcodeproj::XCScheme::EnvironmentVariables.new(
-  %w[UNWIRED_APP_PATH].map { |key| { :key => key, :value => ENV.fetch(key) } }
+  %w[UNWIRED_APP_PATH UNWIRED_TEST_SCENARIO].map { |key| { :key => key, :value => ENV.fetch(key) } }
 )
 scheme.save_as(project.path, 'WindowProbe', true)

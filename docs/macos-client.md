@@ -1,10 +1,15 @@
-# Native Mac mock Inbox
+# Native Mac client and mock Inbox
 
 `apps/macos` implements [#593](https://github.com/unwired-dev/product/issues/593)
 with AppKit windows and React Native macOS views. It reads the same synthetic
 mailbox as Expo through `@private-email/mail-core`, with
-[native encrypted read-state persistence](private-inbox-storage.md). It has no
-provider, sending, or Convex connection.
+[native encrypted read-state persistence](private-inbox-storage.md). Production
+registration now creates a Convex Product Account and authorizes Gmail through
+the native adapter. Mail synchronization and sending are later slices.
+
+Production launches now use [Google registration and separate Gmail consent](google-registration.md).
+Configure the native client ID and Convex deployment when generating the host.
+Select an explicit Mock Mail Session to run the synthetic Inbox journeys.
 
 ## Host ownership
 

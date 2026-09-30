@@ -27,9 +27,11 @@ Native builds can select `open-read-relaunch` or `mail-unavailable` using
 `UNWIRED_MOCK_SCENARIO`. Metro resolves the normal seed module to the selected
 test module at build time. Unselected bundles exclude all mock-provider code;
 source-map checks enforce that boundary and reject backend sources. Unknown
-scenario names fail the build. Native XCTest currently requires
-`open-read-relaunch`; failure scenarios run in deterministic application tests.
-The native runners reject builds without that test marker. Selection is never
+scenario names fail the build. Native XCTest accepts `open-read-relaunch` and the four registration scenarios
+described in [Google registration](google-registration.md#deterministic-evidence).
+The registration journeys use the native registration store and real Keychain
+with a fixed synthetic provider compiled only in the selected test build.
+The native runners reject builds without a supported test marker. Selection is never
 an app route, URL scheme, runtime setting, control server or reset operation.
 
 ## Mobile entry point
@@ -101,7 +103,7 @@ Exit, failure and interrupt traps delete only run-owned app copies, probes and
 simulators. The Mac helper requires the recovery argument to match its own
 bundle identity before touching another process or storage. It terminates only
 that generated identity,
-deletes its exact database Keychain item and removes its Application Support
+deletes its exact database and registration Keychain items and removes its Application Support
 directory. Cleanup failure fails the run. If Mac cleanup fails, the signed cleanup helper
 is retained with the ownership record for retry. Evidence remains for diagnosis.
 No system can guarantee trap execution after SIGKILL or power loss; retained

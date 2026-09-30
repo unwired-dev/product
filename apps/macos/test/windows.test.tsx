@@ -5,7 +5,7 @@ import { fireEvent, renderAsync, within } from '@testing-library/react-native';
 import { View } from 'react-native';
 
 import { inbox } from '../src/private-storage.ts';
-import { InboxWindow } from '../src/window.tsx';
+import { PreviewWindow as InboxWindow } from '../src/window.tsx';
 
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Jest's host adapter boundary.
 jest.mock('../src/private-storage.ts', () => ({

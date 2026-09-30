@@ -8,6 +8,8 @@ import subprocess
 import sys
 import uuid
 
+with Path(__file__).with_name('mock-mail-scenarios.json').open('rb') as stream:
+    scenarios = json.load(stream)
 host, source, destination = sys.argv[1:4]
 source, destination = Path(source).resolve(), Path(destination).resolve()
 if host not in ('mobile', 'macos') or destination.exists():
@@ -15,8 +17,8 @@ if host not in ('mobile', 'macos') or destination.exists():
 relative = Path('Info.plist') if host == 'mobile' else Path('Contents/Info.plist')
 with (source / relative).open('rb') as stream:
     info = plistlib.load(stream)
-if info.get('UnwiredMockScenario') != 'open-read-relaunch':
-    raise SystemExit('The native journey requires an open-read-relaunch test-only build')
+if info.get('UnwiredMockScenario') not in scenarios['nativeJourney']:
+    raise SystemExit('The native journey requires a supported test-only build')
 identifier = 'dev.unwired.mock.' + uuid.uuid4().hex
 signer = '-'
 entitlements_path = None
