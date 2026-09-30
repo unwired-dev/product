@@ -1,6 +1,7 @@
 import Foundation
 import GoogleSignIn
 import React
+import os
 
 #if os(iOS)
   import UIKit
@@ -88,8 +89,22 @@ import React
   }
 }
 
+extension RegistrationError {
+  var code: String {
+    switch self {
+    case .cancelled: "cancelled"
+    case .declined: "declined"
+    case .gmailUnavailable: "gmail-unavailable"
+    case .invalidIdentity: "invalid-identity"
+    case .unavailable: "unavailable"
+    }
+  }
+}
+
 @objc(UnwiredRegistration)
 final class UnwiredRegistration: NSObject {
+  private static let logger = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "dev.unwired.mail", category: "registration")
   @MainActor private static var busy = false
   @MainActor private static var sharedStore: RegistrationStore?
   @objc static func requiresMainQueueSetup() -> Bool { true }
@@ -164,7 +179,8 @@ final class UnwiredRegistration: NSObject {
   }
 
   private func perform(
-    _ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock,
+    _ name: String, _ resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock,
     operation: @escaping @MainActor (RegistrationStore) async throws -> [String: String]
   ) {
     Task { @MainActor in
@@ -175,7 +191,19 @@ final class UnwiredRegistration: NSObject {
       Self.busy = true
       defer { Self.busy = false }
       do { resolve(try await operation(store())) } catch {
-        reject("unavailable", "Registration could not finish. Retry with your saved account.", nil)
+        // Descriptions stay private: SDK and transport errors can echo request details.
+        let failure = error as NSError
+        Self.logger.error(
+          """
+          \(name, privacy: .public) failed: \(failure.domain, privacy: .public) \
+          \(failure.code, privacy: .public) \(failure.localizedDescription, privacy: .private)
+          """)
+        let code = (error as? RegistrationError)?.code ?? "unavailable"
+        reject(
+          code,
+          code == "cancelled"
+            ? "Sign-in was cancelled."
+            : "Registration could not finish. Retry with your saved account.", nil)
       }
     }
   }
@@ -183,18 +211,20 @@ final class UnwiredRegistration: NSObject {
   @objc(restore:rejecter:)
   func restore(_ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock)
   {
-    perform(resolve, reject: reject) { try await $0.restore() }
+    perform("restore", resolve, reject: reject) { try await $0.restore() }
   }
   @objc(signIn:rejecter:)
   func signIn(_ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock)
   {
-    perform(resolve, reject: reject) { try await $0.signIn() }
+    perform("signIn", resolve, reject: reject) { try await $0.signIn() }
   }
   @objc(authorizeGmail:resolver:rejecter:)
   func authorizeGmail(
     _ reselect: Bool, resolve: @escaping RCTPromiseResolveBlock,
     reject: @escaping RCTPromiseRejectBlock
   ) {
-    perform(resolve, reject: reject) { try await $0.authorizeGmail(reselect: reselect) }
+    perform("authorizeGmail", resolve, reject: reject) {
+      try await $0.authorizeGmail(reselect: reselect)
+    }
   }
 }

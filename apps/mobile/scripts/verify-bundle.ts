@@ -79,12 +79,16 @@ for (const source of sources) {
     `Unexpected platform dependency: ${source}`,
   );
 }
+// Registration scenarios substitute a native provider only; their JavaScript stays production.
+const scenario: unknown = process.env.UNWIRED_MOCK_SCENARIO;
+const nativeOnly =
+  typeof scenario === 'string' && scenario.startsWith('registration-');
 const mockSources = sources.filter((source) =>
   source.includes('/mail-core/src/testing/'),
 );
 assert.equal(
   mockSources.length > 0,
-  Boolean(process.env.UNWIRED_MOCK_SCENARIO),
+  Boolean(scenario) && !nativeOnly,
   'Mock providers must appear only in explicitly selected test bundles.',
 );
 process.stdout.write(

@@ -14,6 +14,7 @@ export const RegistrationSnapshotSchema = Schema.Union([
         'declined',
         'gmail-unavailable',
         'interrupted',
+        'unavailable',
       ]),
     ),
   }),
@@ -25,6 +26,11 @@ export const RegistrationSnapshotSchema = Schema.Union([
   }),
 ]);
 export type RegistrationSnapshot = typeof RegistrationSnapshotSchema.Type;
+
+// Native hosts reject with the registration failure code; a cancelled session is not a failure.
+const isCancelled = Schema.is(
+  Schema.Struct({ code: Schema.Literal('cancelled') }),
+);
 
 export interface NativeRegistration {
   readonly restore: () => Promise<unknown>;
@@ -38,6 +44,12 @@ type RegistrationState = Readonly<{
   failed: boolean;
 }>;
 
+// A connected status is only valid while its verification succeeds.
+const pending = (snapshot: RegistrationSnapshot): RegistrationSnapshot =>
+  snapshot.kind === 'connected'
+    ? { kind: 'mailbox-needed', productAccountId: snapshot.productAccountId }
+    : snapshot;
+
 export function createRegistration(native: NativeRegistration) {
   let state: RegistrationState = {
     snapshot: { kind: 'signed-out' },
@@ -45,6 +57,7 @@ export function createRegistration(native: NativeRegistration) {
     failed: false,
   };
   let running = false;
+  let restored = false;
   const listeners = new Set<() => void>();
   const publish = (next: RegistrationState) => {
     state = next;
@@ -52,25 +65,38 @@ export function createRegistration(native: NativeRegistration) {
       listener();
     }
   };
-  const execute = async (operation: () => Promise<unknown>) => {
+  // oxlint-disable-next-line node/no-sync -- Decode the native response boundary.
+  const decode = Schema.decodeUnknownSync(RegistrationSnapshotSchema);
+  const execute = async (
+    operation: () => Promise<RegistrationSnapshot>,
+    onFailure: (snapshot: RegistrationSnapshot) => RegistrationSnapshot = (
+      snapshot,
+    ) => snapshot,
+  ) => {
     if (running) {
       return;
     }
     running = true;
     publish({ ...state, busy: true, failed: false });
     try {
-      const value = await operation();
-      // oxlint-disable-next-line node/no-sync -- Decode the native response boundary.
-      const snapshot = Schema.decodeUnknownSync(RegistrationSnapshotSchema)(
-        value,
-      );
-      publish({ snapshot, busy: false, failed: false });
-    } catch {
-      publish({ ...state, busy: false, failed: true });
+      publish({ snapshot: await operation(), busy: false, failed: false });
+    } catch (error) {
+      if (isCancelled(error)) {
+        publish({ ...state, busy: false, failed: false });
+      } else {
+        console.error('Registration failed', error);
+        publish({
+          snapshot: onFailure(state.snapshot),
+          busy: false,
+          failed: true,
+        });
+      }
     } finally {
       running = false;
     }
   };
+  const restore = () =>
+    execute(async () => decode(await native.restore()), pending);
   return {
     getSnapshot: () => state,
     subscribe: (listener: () => void) => {
@@ -79,40 +105,43 @@ export function createRegistration(native: NativeRegistration) {
         listeners.delete(listener);
       };
     },
-    restore: () => {
-      if (running) {
+    restore,
+    // Every mounted host view restores through the same store; only the first mount verifies.
+    restoreOnce: () => {
+      if (restored) {
         return Promise.resolve();
       }
-      if (state.snapshot.kind === 'connected') {
-        publish({
-          ...state,
-          snapshot: {
-            kind: 'mailbox-needed',
-            productAccountId: state.snapshot.productAccountId,
-          },
-        });
-      }
-      return execute(native.restore);
+      restored = true;
+      return restore();
     },
     register: () =>
       execute(async () => {
         // Commit Product Sign-In before starting the separate consent session.
-        const value = await native.signIn();
-        // oxlint-disable-next-line node/no-sync -- Decode the native response boundary.
-        const snapshot = Schema.decodeUnknownSync(RegistrationSnapshotSchema)(
-          value,
-        );
+        const snapshot = decode(await native.signIn());
         publish({ snapshot, busy: true, failed: false });
         return snapshot.kind === 'mailbox-needed'
-          ? native.authorizeGmail(false)
+          ? decode(await native.authorizeGmail(false))
           : snapshot;
       }),
     authorizeGmail: (reselect: boolean) =>
-      execute(() => native.authorizeGmail(reselect)),
+      execute(async () => decode(await native.authorizeGmail(reselect))),
   };
 }
 
 export type Registration = ReturnType<typeof createRegistration>;
+
+const mailboxReasons = {
+  cancelled:
+    'Gmail authorization was cancelled. Your Product Account is retained. Retry or choose another Google mailbox.',
+  declined:
+    'Gmail access was not granted. Your Product Account is retained. Retry or choose another Google mailbox.',
+  'gmail-unavailable':
+    'Gmail is unavailable for this authorization. Your Product Account is retained. Retry or choose another Google mailbox.',
+  interrupted:
+    'Gmail authorization was interrupted. Your Product Account is retained. Retry to finish setup.',
+  unavailable:
+    'Your saved Product Account could not be verified. It is retained on this device. Retry when you are online, or sign in again with Google.',
+} as const;
 
 export function registrationCopy(snapshot: RegistrationSnapshot) {
   switch (snapshot.kind) {
@@ -127,16 +156,7 @@ export function registrationCopy(snapshot: RegistrationSnapshot) {
       return {
         title: 'Connect your Gmail',
         description: snapshot.reason
-          ? {
-              cancelled:
-                'Gmail authorization was cancelled. Your Product Account is retained. Retry or choose another Google mailbox.',
-              declined:
-                'Gmail access was not granted. Your Product Account is retained. Retry or choose another Google mailbox.',
-              'gmail-unavailable':
-                'Gmail is unavailable for this authorization. Your Product Account is retained. Retry or choose another Google mailbox.',
-              interrupted:
-                'Gmail authorization was interrupted. Your Product Account is retained. Retry to finish setup.',
-            }[snapshot.reason]
+          ? mailboxReasons[snapshot.reason]
           : 'Your Product Account is ready. Grant Gmail access to finish setup. You can use another Google account for your mailbox.',
       };
     }

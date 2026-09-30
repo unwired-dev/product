@@ -1,0 +1,17 @@
+{
+  "build": [
+    "open-read-relaunch",
+    "mail-unavailable",
+    "registration-cancelled",
+    "registration-declined",
+    "registration-no-gmail",
+    "registration-interrupted"
+  ],
+  "nativeJourney": [
+    "open-read-relaunch",
+    "registration-cancelled",
+    "registration-declined",
+    "registration-no-gmail",
+    "registration-interrupted"
+  ]
+}

@@ -44,7 +44,10 @@ identity JWT can contain Google profile claims, including the sign-in email.
 The record is bound to its native client ID and Convex deployment. Interruption
 after identity authorization persists the credential before the backend call;
 retry resumes the same subject and stable installation ID. Pending setup offers
-interactive sign-in again when refresh or authorization is interrupted. Retry cannot replace
+interactive sign-in again when the saved account cannot be verified or authorization
+is interrupted. Cancelling Product Sign-In returns to the previous status without
+an error; other native failures reject with their registration code and are logged
+without credentials. Retry cannot replace
 an existing Product identity with a different subject. Product Accounts remain
 identified by verified issuer and subject, never by matching email. No existing
 backend rows, Inbox files or Product Sync keys are reset or regenerated. This
@@ -101,7 +104,8 @@ External Mock Mail Sessions also accept `registration-cancelled`,
 `registration-declined`, `registration-no-gmail` and `registration-interrupted`.
 Their native provider is compiled only with `UNWIRED_REGISTRATION_MOCK` in an
 explicitly selected build, accepts only its fixed scenario, and has no network or
-real credential inputs. Both native UI probes retain the original Inbox journey
+real credential inputs. Their JavaScript bundle stays production-equivalent; the
+bundle checks expect no mock module in it. Both native UI probes retain the original Inbox journey
 and add registration, relaunch into pending setup, alternate mailbox authorization
 and connected relaunch. The existing disposable app/simulator ownership and
 cleanup rules apply; Mac cleanup removes the run's registration Keychain record

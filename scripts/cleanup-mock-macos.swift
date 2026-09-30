@@ -9,13 +9,11 @@ guard CommandLine.arguments.count == 2 else {
 }
 let identifier = CommandLine.arguments[1]
 guard identifier == Bundle.main.bundleIdentifier,
-  identifier.range(of: #"^dev\.unwired\.mock\.[0-9a-f]{32}$"#, options: .regularExpression) != nil
-else {
+  identifier.range(of: #"^dev\.unwired\.mock\.[0-9a-f]{32}$"#, options: .regularExpression) != nil else {
   fputs("Refusing cleanup outside a Mock Mail Session\n", stderr)
   exit(EXIT_FAILURE)
 }
-let applications = NSRunningApplication.runningApplications(withBundleIdentifier: identifier).filter
-{
+let applications = NSRunningApplication.runningApplications(withBundleIdentifier: identifier).filter {
   $0.processIdentifier != ProcessInfo.processInfo.processIdentifier
 }
 for application in applications { application.forceTerminate() }
@@ -24,23 +22,19 @@ for _ in 0..<50 {
   Thread.sleep(forTimeInterval: 0.1)
 }
 guard applications.allSatisfy({ $0.isTerminated }) else { fatalError("Mock app did not terminate") }
-for (service, account) in [
-  (".private-inbox.database", "encryption-key"), (".google-registration", "registration"),
-] {
-  let status = SecItemDelete(
-    [
-      kSecClass as String: kSecClassGenericPassword,
-      kSecAttrService as String: identifier + service,
-      kSecAttrAccount as String: account,
-      kSecAttrSynchronizable as String: false,
-      kSecUseDataProtectionKeychain as String: true,
-    ] as CFDictionary)
+for (service, account) in [(".private-inbox.database", "encryption-key"), (".google-registration", "registration")] {
+  let status = SecItemDelete([
+    kSecClass as String: kSecClassGenericPassword,
+    kSecAttrService as String: identifier + service,
+    kSecAttrAccount as String: account,
+    kSecAttrSynchronizable as String: false,
+    kSecUseDataProtectionKeychain as String: true,
+  ] as CFDictionary)
   guard status == errSecSuccess || status == errSecItemNotFound else {
     fatalError("Mock Keychain cleanup failed: \(status)")
   }
 }
-let support = try FileManager.default.url(
-  for: .applicationSupportDirectory,
+let support = try FileManager.default.url(for: .applicationSupportDirectory,
   in: .userDomainMask, appropriateFor: nil, create: false)
 let directory = support.appendingPathComponent(identifier)
 if FileManager.default.fileExists(atPath: directory.path) {

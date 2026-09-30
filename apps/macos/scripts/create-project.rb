@@ -1,8 +1,10 @@
+require 'json'
 require 'xcodeproj'
 
 scenario = ENV['UNWIRED_MOCK_SCENARIO']
 scenario = nil if scenario == ''
-raise 'Unknown Mock Mail Session scenario' if scenario && !%w[open-read-relaunch mail-unavailable registration-cancelled registration-declined registration-no-gmail registration-interrupted].include?(scenario)
+scenarios = JSON.parse(File.read(File.expand_path('../../../scripts/mock-mail-scenarios.json', __dir__)))
+raise 'Unknown Mock Mail Session scenario' if scenario && !scenarios['build'].include?(scenario)
 raise 'Mock scenarios require Testing configuration' if scenario && ENV['UNWIRED_BUILD_CONFIGURATION'] != 'Testing'
 
 Dir.chdir(File.expand_path('../macos', __dir__))

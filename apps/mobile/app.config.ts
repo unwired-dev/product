@@ -2,16 +2,13 @@ import { env } from 'node:process';
 
 import type { ExpoConfig } from 'expo/config';
 
+import scenarios from '../../scripts/mock-mail-scenarios.json';
+
 const mockScenario: unknown = env.UNWIRED_MOCK_SCENARIO;
 if (
   mockScenario !== undefined &&
   mockScenario !== '' &&
-  mockScenario !== 'open-read-relaunch' &&
-  mockScenario !== 'mail-unavailable' &&
-  mockScenario !== 'registration-cancelled' &&
-  mockScenario !== 'registration-declined' &&
-  mockScenario !== 'registration-no-gmail' &&
-  mockScenario !== 'registration-interrupted'
+  (typeof mockScenario !== 'string' || !scenarios.build.includes(mockScenario))
 ) {
   throw new Error('Unknown Mock Mail Session scenario');
 }

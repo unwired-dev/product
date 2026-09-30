@@ -129,7 +129,7 @@ struct SavedRegistration: Codable {
       let identity = try await provider.refresh(saved.identityCredential)
       next = try await establish(saved, identity: identity)
     } catch {
-      if saved.product != nil { return try failure(saved, reason: "interrupted") }
+      if saved.product != nil { return try failure(saved, reason: "unavailable") }
       throw error
     }
     guard let credential = next.mailboxCredential, let mailbox = next.mailbox else {

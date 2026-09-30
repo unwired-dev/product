@@ -7,7 +7,6 @@
     "packages/mail-core/src/testing/open-read-relaunch.ts",
     "packages/mail-core/src/testing/mail-unavailable.ts",
     "packages/mail-core/src/testing/registration-mode.ts",
-    "packages/mail-core/src/testing/registration-onboarding.ts",
   ],
   "ignorePatterns": [
     "oxfmt.config.ts",

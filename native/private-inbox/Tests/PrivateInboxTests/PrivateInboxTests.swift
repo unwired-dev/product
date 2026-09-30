@@ -293,7 +293,7 @@ extension PrivateInboxTests {
     let offline = try await interrupted.restore()
     #expect(offline["kind"] == "mailbox-needed")
     #expect(offline["productAccountId"] == "synthetic-product-subject")
-    #expect(offline["reason"] == "interrupted")
+    #expect(offline["reason"] == "unavailable")
     provider.subject = "different-product-subject"
     await #expect(throws: (any Error).self) { try await resumed.signIn() }
     #expect(try resumed.load()?.subject == "synthetic-product-subject")

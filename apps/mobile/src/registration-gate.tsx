@@ -50,7 +50,7 @@ export function RegistrationGate({
   const copy = registrationCopy(snapshot);
   useEffect(() => {
     if (!preview) {
-      void store.restore();
+      void store.restoreOnce();
     }
   }, [preview, store]);
   if (preview) {
@@ -99,7 +99,9 @@ export function RegistrationGate({
               store.authorizeGmail(true),
             )}
         {snapshot.kind === 'mailbox-needed' &&
-        (failed || snapshot.reason === 'interrupted')
+        (failed ||
+          snapshot.reason === 'interrupted' ||
+          snapshot.reason === 'unavailable')
           ? button('Sign in again with Google', store.register)
           : null}
         {failed ? button('Try again', store.restore) : null}

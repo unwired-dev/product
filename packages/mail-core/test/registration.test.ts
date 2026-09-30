@@ -53,6 +53,55 @@ describe('google registration', () => {
     });
   });
 
+  it('returns quietly to the previous status when Product Sign-In is cancelled', async () => {
+    expect.hasAssertions();
+    const session = createMockRegistrationSession('registration-success');
+    const store = createRegistration({
+      ...session.native,
+      signIn: () =>
+        Promise.reject(
+          Object.assign(new Error('Cancelled'), { code: 'cancelled' }),
+        ),
+    });
+    await store.restore();
+    await store.register();
+    expect(store.getSnapshot()).toStrictEqual({
+      snapshot: { kind: 'signed-out' },
+      busy: false,
+      failed: false,
+    });
+  });
+
+  it('verifies a connected account once per store and drops the connected status when verification fails', async () => {
+    expect.hasAssertions();
+    const session = createMockRegistrationSession('registration-success');
+    let restores = 0;
+    let nativeRestore = session.native.restore;
+    const store = createRegistration({
+      ...session.native,
+      restore: () => {
+        restores += 1;
+        return nativeRestore();
+      },
+    });
+    await store.register();
+    expect(store.getSnapshot().snapshot.kind).toBe('connected');
+    await store.restoreOnce();
+    await store.restoreOnce();
+    expect(restores).toBe(1);
+    expect(store.getSnapshot().snapshot.kind).toBe('connected');
+    nativeRestore = () => Promise.reject(new Error('Synthetic host offline'));
+    await store.restore();
+    expect(store.getSnapshot()).toStrictEqual({
+      snapshot: {
+        kind: 'mailbox-needed',
+        productAccountId: 'synthetic-product-account',
+      },
+      busy: false,
+      failed: true,
+    });
+  });
+
   it('rejects malformed native connection data and prevents overlapping consent operations', async () => {
     expect.hasAssertions();
     const session = createMockRegistrationSession('registration-success');
