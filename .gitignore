@@ -175,3 +175,5 @@ xcuserdata/
 
 # Native Mac mock Inbox validation
 /artifacts/macos-inbox/
+
+/artifacts/private-inbox/

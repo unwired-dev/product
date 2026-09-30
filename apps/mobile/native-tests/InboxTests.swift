@@ -28,5 +28,13 @@ final class InboxTests: XCTestCase {
     oliver.tap()
     XCTAssertTrue(app.staticTexts["oliver@example.com"].waitForExistence(timeout: 10))
     XCTAssertFalse(app.staticTexts["maya@example.com"].exists)
+    app.buttons["Mark as read"].tap()
+    XCTAssertTrue(app.buttons["Mark as unread"].waitForExistence(timeout: 10))
+    app.terminate()
+    app.launch()
+    let restored = app.buttons["Oliver Park. Saturday, by the river?"]
+    XCTAssertTrue(restored.waitForExistence(timeout: 20))
+    restored.tap()
+    XCTAssertTrue(app.buttons["Mark as unread"].waitForExistence(timeout: 10))
   }
 }

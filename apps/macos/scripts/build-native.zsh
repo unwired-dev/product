@@ -8,4 +8,4 @@ pnpm native:generate
 pnpm native:pods
 xcodebuild build -workspace macos/UnwiredMail.xcworkspace -scheme UnwiredMail \
   -configuration "$configuration" -destination 'platform=macOS' \
-  -derivedDataPath "$artifact_root/DerivedData" CODE_SIGN_IDENTITY=- ARCHS=arm64 ENABLE_HARDENED_RUNTIME=NO
+  -derivedDataPath "$artifact_root/DerivedData" CODE_SIGN_IDENTITY="${UNWIRED_SIGNING_IDENTITY:--}" ARCHS=arm64 ENABLE_HARDENED_RUNTIME=NO

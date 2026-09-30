@@ -7,6 +7,10 @@ group = project.main_group.new_group('UnwiredMail', 'UnwiredMail')
 target.add_file_references(%w[main.mm AppDelegate.mm].map { |name| group.new_file(name) })
 group.new_file('AppDelegate.h')
 group.new_file('Info.plist')
+private_inbox = project.main_group.new_group('PrivateInbox', '../../../native/private-inbox')
+%w[Sources/PrivateInbox/DeviceKeychain.swift Sources/PrivateInbox/PrivateInboxStore.swift Sources/PrivateInbox/SyntheticCredential.swift bridge/UnwiredPrivateInbox.swift bridge/UnwiredPrivateInboxBridge.m].each do |name|
+  target.add_file_references([private_inbox.new_file(name)])
+end
 project.add_build_configuration('Testing', :release)
 target.add_build_configuration('Testing', :release)
 project.build_configurations.each do |configuration|
@@ -17,9 +21,13 @@ target.build_configurations.each do |configuration|
     'PRODUCT_BUNDLE_IDENTIFIER' => 'dev.unwired.mail.macos.preview',
     'INFOPLIST_FILE' => 'UnwiredMail/Info.plist',
     'CLANG_ENABLE_OBJC_ARC' => 'YES',
+    'CLANG_ENABLE_MODULES' => 'YES',
+    'SWIFT_VERSION' => '5.0',
     'MACOSX_DEPLOYMENT_TARGET' => '27.0',
     'ENABLE_HARDENED_RUNTIME' => configuration.name == 'Release' ? 'YES' : 'NO',
-    'CODE_SIGN_IDENTITY' => '-',
+    'CODE_SIGN_IDENTITY' => ENV.fetch('UNWIRED_SIGNING_IDENTITY', '-'),
+    'DEVELOPMENT_TEAM' => ENV.fetch('UNWIRED_DEVELOPMENT_TEAM', ''),
+    'CODE_SIGN_ENTITLEMENTS' => ENV.fetch('UNWIRED_SIGNING_IDENTITY', '-') == '-' ? '' : 'UnwiredMail/UnwiredMail.entitlements',
     'COMBINE_HIDPI_IMAGES' => 'YES',
     'LD_RUNPATH_SEARCH_PATHS' => ['$(inherited)', '@executable_path/../Frameworks'],
     'GCC_PREPROCESSOR_DEFINITIONS' => ['$(inherited)', configuration.name == 'Debug' ? 'DEBUG=1' : 'DEBUG=0',

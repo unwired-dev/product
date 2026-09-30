@@ -1,43 +1,44 @@
-import type { Message } from '@private-email/mail-core';
+import type { PersistentInbox } from '@private-email/mail-core/persistent-inbox';
 import type { ReactNode } from 'react';
 
-import { listInbox, MockMailbox } from '@private-email/mail-core';
-import * as Effect from 'effect/Effect';
-import * as ManagedRuntime from 'effect/ManagedRuntime';
-import { createContext, useContext, useEffect, useState } from 'react';
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useSyncExternalStore,
+} from 'react';
+import { AppState } from 'react-native';
 
-type InboxState =
-  | { readonly kind: 'loading' }
-  | { readonly kind: 'failed' }
-  | { readonly kind: 'ready'; readonly messages: readonly Message[] };
+import { inbox } from './private-storage.ts';
 
-const InboxContext = createContext<InboxState>({ kind: 'loading' });
+const InboxContext = createContext(inbox);
 
-export function InboxProvider({ children }: { readonly children: ReactNode }) {
-  const [state, setState] = useState<InboxState>({ kind: 'loading' });
-
+export function InboxProvider({
+  children,
+  store = inbox,
+}: {
+  readonly children: ReactNode;
+  readonly store?: PersistentInbox;
+}) {
   useEffect(() => {
-    const runtime = ManagedRuntime.make(MockMailbox);
-    runtime.runFork(
-      listInbox.pipe(
-        Effect.matchCause({
-          onFailure: () => {
-            setState({ kind: 'failed' });
-          },
-          onSuccess: (messages) => {
-            setState({ kind: 'ready', messages });
-          },
-        }),
-      ),
-    );
+    void store.load();
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') {
+        void store.load();
+      }
+    });
     return () => {
-      void runtime.dispose();
+      subscription.remove();
     };
-  }, []);
-
-  return <InboxContext value={state}>{children}</InboxContext>;
+  }, [store]);
+  return <InboxContext value={store}>{children}</InboxContext>;
 }
 
 export function useInbox() {
+  const store = useContext(InboxContext);
+  return useSyncExternalStore(store.subscribe, store.getSnapshot);
+}
+
+export function useInboxActions() {
   return useContext(InboxContext);
 }
