@@ -14,6 +14,7 @@ const config: ExpoConfig = {
   plugins: [
     'expo-router',
     './plugins/private-inbox.cjs',
+    './plugins/localization.cjs',
     [
       'expo-build-properties',
       { ios: { deploymentTarget: '27.0', enableSceneSupport: true } },

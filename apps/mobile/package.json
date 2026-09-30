@@ -21,6 +21,7 @@
   "dependencies": {
     "@expo/log-box": "catalog:mobile",
     "@expo/metro-runtime": "catalog:mobile",
+    "@private-email/localization": "workspace:*",
     "@private-email/mail-core": "workspace:*",
     "effect": "catalog:",
     "expo": "catalog:mobile",
@@ -30,7 +31,9 @@
     "expo-linking": "catalog:mobile",
     "expo-router": "catalog:mobile",
     "expo-status-bar": "catalog:mobile",
+    "i18next": "catalog:",
     "react": "catalog:mobile",
+    "react-i18next": "catalog:",
     "react-native": "catalog:mobile",
     "react-native-gesture-handler": "catalog:mobile",
     "react-native-reanimated": "catalog:mobile",

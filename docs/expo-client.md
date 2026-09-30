@@ -192,3 +192,9 @@ Build logs and XCTest result bundles, including screenshots, are uploaded as
 The `Expo native E2E` check covers the mock Inbox on iPhone and iPad. It does not
 qualify the separate native Mac host or real provider integration. Repository
 branch protection must select this check separately if it should block merging.
+
+## Interface language
+
+The Inbox supports System default and a saved English override. See
+[interface translations](localization.md) for catalogs, adding languages, native
+menu behavior, and language verification.

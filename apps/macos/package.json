@@ -20,10 +20,13 @@
     "verify:bundle": "node scripts/verify-bundle.ts"
   },
   "dependencies": {
+    "@private-email/localization": "workspace:*",
     "@private-email/mail-core": "workspace:*",
     "effect": "catalog:",
     "fast-text-encoding": "catalog:macos",
+    "i18next": "catalog:",
     "react": "catalog:macos",
+    "react-i18next": "catalog:",
     "react-native": "catalog:macos",
     "react-native-macos": "catalog:macos"
   },

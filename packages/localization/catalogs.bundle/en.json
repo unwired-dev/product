@@ -1,0 +1,49 @@
+{
+  "inbox": {
+    "title": "Inbox",
+    "subtitle": "Preview mailbox",
+    "heading": "Inbox. Preview mailbox",
+    "loading": "Loading Inbox",
+    "messages": "Inbox messages",
+    "empty": "Your inbox is clear.",
+    "footer": "Sample messages · Encrypted on this device",
+    "row": "{{sender}}. {{subject}}",
+    "unreadRow": "Unread. {{sender}}. {{subject}}"
+  },
+  "storage": {
+    "locked": "Private storage is locked. Unlock your device and try again.",
+    "failed": "Private storage could not be opened or saved. Your stored data has been kept.",
+    "retry": "Try again"
+  },
+  "message": {
+    "loading": "Loading message",
+    "unavailable": "Message unavailable",
+    "empty": "A little space for your mail",
+    "chooseAnother": "Choose another message from the Inbox.",
+    "select": "Select a message to start reading.",
+    "unavailableLabel": "Message unavailable. Choose another message from the Inbox.",
+    "markRead": "Mark as read",
+    "markUnread": "Mark as unread"
+  },
+  "language": {
+    "title": "Language",
+    "system": "System default",
+    "saveFailed": "The language could not be saved. Try again."
+  },
+  "native": {
+    "app": "Unwired Mail",
+    "hide": "Hide Unwired Mail",
+    "quit": "Quit Unwired Mail",
+    "file": "File",
+    "newWindow": "New Window",
+    "closeWindow": "Close Window",
+    "edit": "Edit",
+    "copy": "Copy",
+    "selectAll": "Select All",
+    "window": "Window",
+    "showInbox": "Show Inbox",
+    "minimize": "Minimize",
+    "nextWindow": "Next Window",
+    "windowTitle": "Inbox {{number}}"
+  }
+}

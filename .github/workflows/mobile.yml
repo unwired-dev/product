@@ -77,6 +77,8 @@ jobs:
         run: pnpm install --frozen-lockfile --strict-peer-dependencies
       - name: Check native runner failure handling
         run: pnpm test:native-runner
+      - name: Verify native language matching and preferences
+        run: node --test native/localization/test/native.test.mjs
       - name: Verify native encryption and credential removal
         timeout-minutes: 8
         run: zsh native/private-inbox/integration/test.zsh ios

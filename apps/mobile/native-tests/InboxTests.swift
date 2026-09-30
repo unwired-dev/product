@@ -6,7 +6,9 @@ final class InboxTests: XCTestCase {
     let app = XCUIApplication(bundleIdentifier: "dev.unwired.mail.preview")
     app.launch()
     XCTAssertTrue(app.staticTexts["Inbox"].waitForExistence(timeout: 20))
-    let maya = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Maya Chen")).firstMatch
+    verifyLanguagePreference(in: app)
+    let maya = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Maya Chen"))
+      .firstMatch
     XCTAssertTrue(maya.waitForExistence(timeout: 10))
     maya.tap()
     let sender = app.staticTexts.matching(identifier: "maya@example.com").firstMatch
@@ -18,7 +20,8 @@ final class InboxTests: XCTestCase {
     shot.name = "Selected message"
     shot.lifetime = .keepAlways
     add(shot)
-    let oliver = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Oliver Park")).firstMatch
+    let oliver = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Oliver Park"))
+      .firstMatch
     if !oliver.isHittable {
       let back = app.navigationBars.buttons.firstMatch
       XCTAssertTrue(back.exists)
@@ -37,4 +40,29 @@ final class InboxTests: XCTestCase {
     restored.tap()
     XCTAssertTrue(app.buttons["Mark as unread"].waitForExistence(timeout: 10))
   }
+
+  private func verifyLanguagePreference(in app: XCUIApplication) {
+    let english = app.descendants(matching: .any)["language-en"]
+    XCTAssertTrue(english.waitForExistence(timeout: 10))
+    english.tap()
+    let checked = NSPredicate(format: "value CONTAINS 'checked' AND NOT value CONTAINS 'unchecked'")
+    XCTAssertEqual(
+      XCTWaiter.wait(
+        for: [XCTNSPredicateExpectation(predicate: checked, object: english)], timeout: 10),
+      .completed)
+    app.terminate()
+    app.launch()
+    XCTAssertTrue(english.waitForExistence(timeout: 20))
+    XCTAssertEqual(
+      XCTWaiter.wait(
+        for: [XCTNSPredicateExpectation(predicate: checked, object: english)], timeout: 10),
+      .completed)
+    let system = app.descendants(matching: .any)["language-system"]
+    system.tap()
+    XCTAssertEqual(
+      XCTWaiter.wait(
+        for: [XCTNSPredicateExpectation(predicate: checked, object: system)], timeout: 10),
+      .completed)
+  }
+
 }

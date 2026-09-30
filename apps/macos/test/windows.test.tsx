@@ -6,6 +6,24 @@ import { View } from 'react-native';
 import { inbox } from '../src/private-storage.ts';
 import { InboxWindow } from '../src/window.tsx';
 
+// oxlint-disable-next-line vitest/prefer-import-in-mock -- Mock only the native preferences boundary.
+jest.mock('../src/language-storage.ts', () => ({
+  languageStorage: {
+    initial: { preference: null, language: 'en', locale: 'en-GB' },
+    getSettings: async () => ({
+      preference: null,
+      language: 'en',
+      locale: 'en-GB',
+    }),
+    setLanguage: async (preference: string | null) => ({
+      preference,
+      language: 'en',
+      locale: preference ?? 'en-GB',
+    }),
+    subscribe: jest.fn(),
+  },
+}));
+
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Jest's host adapter boundary.
 jest.mock('../src/private-storage.ts', () => ({
   __esModule: true,
