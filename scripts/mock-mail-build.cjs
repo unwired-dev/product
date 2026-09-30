@@ -11,32 +11,20 @@ module.exports = {
   scenario,
   resolveSeed(context, moduleName, platform) {
     // Registration scenarios substitute a native provider only; their JavaScript stays production.
-    if (
-      moduleName === '@private-email/mail-core/registration-mode' &&
-      scenario &&
-      !scenario.startsWith('registration-')
-    ) {
-      return {
-        type: 'sourceFile',
-        filePath: path.resolve(
-          __dirname,
-          '../packages/mail-core/src/testing/registration-mode.ts',
-        ),
-      };
-    }
-    if (
-      moduleName === '@private-email/mail-core/inbox-seed' &&
-      scenario &&
-      !scenario.startsWith('registration-')
-    ) {
-      return {
-        type: 'sourceFile',
-        filePath: path.resolve(
-          __dirname,
-          `../packages/mail-core/src/testing/${scenario}.ts`,
-        ),
-      };
-    }
-    return context.resolveRequest(context, moduleName, platform);
+    const seeded = scenario && !scenario.startsWith('registration-');
+    const source =
+      seeded &&
+      {
+        '@private-email/mail-core/registration-mode': 'registration-mode',
+        '@private-email/mail-core/inbox-seed': scenario,
+      }[moduleName];
+    if (!source) return context.resolveRequest(context, moduleName, platform);
+    return {
+      type: 'sourceFile',
+      filePath: path.resolve(
+        __dirname,
+        `../packages/mail-core/src/testing/${source}.ts`,
+      ),
+    };
   },
 };

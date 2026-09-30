@@ -68,8 +68,9 @@ struct SavedRegistration: Codable {
   func load() throws -> SavedRegistration? {
     guard let data = try keys.read("registration") else { return nil }
     let saved = try JSONDecoder().decode(SavedRegistration.self, from: data)
+    // A record from another deployment or client cannot be resumed here; start a new sign-in.
     guard saved.version == 1, saved.deployment == deployment, saved.clientID == clientID else {
-      throw RegistrationError.unavailable
+      return nil
     }
     return saved
   }
@@ -168,8 +169,14 @@ struct SavedRegistration: Codable {
   func authorizeGmail(reselect: Bool) async throws -> [String: String] {
     guard let saved = try load(), saved.product != nil else { throw RegistrationError.unavailable }
     // Refresh the retained Product Sign-In independently of the mailbox selection.
-    let identity = try await provider.refresh(saved.identityCredential)
-    var next = try await establish(saved, identity: identity)
+    var next: SavedRegistration
+    do {
+      let identity = try await provider.refresh(saved.identityCredential)
+      next = try await establish(saved, identity: identity)
+    } catch {
+      // Keep any identity credential that establish persisted before the backend failed.
+      return try failure((try? load()) ?? saved, reason: "interrupted")
+    }
     do {
       let gmail = try await provider.signIn(
         mail: true, hint: reselect ? nil : (saved.mailbox?.subject ?? saved.subject))

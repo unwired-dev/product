@@ -79,12 +79,21 @@ import os
       url: URL(string: "https://gmail.googleapis.com/gmail/v1/users/me/profile")!)
     request.setValue("Bearer " + identity.accessToken, forHTTPHeaderField: "Authorization")
     request.timeoutInterval = 30
-    let (data, response) = try await URLSession.shared.data(for: request)
-    guard let response = response as? HTTPURLResponse, response.statusCode == 200 else {
+    struct Profile: Decodable { let emailAddress: String }
+    let profile: Profile
+    do {
+      let (data, response) = try await URLSession.shared.data(for: request)
+      guard let response = response as? HTTPURLResponse, response.statusCode == 200 else {
+        throw RegistrationError.gmailUnavailable
+      }
+      profile = try JSONDecoder().decode(Profile.self, from: data)
+    } catch let error as URLError where error.code == .cancelled {
+      throw CancellationError()
+    } catch is CancellationError {
+      throw CancellationError()
+    } catch {
       throw RegistrationError.gmailUnavailable
     }
-    struct Profile: Decodable { let emailAddress: String }
-    let profile = try JSONDecoder().decode(Profile.self, from: data)
     return GmailRegistrationReceipt(subject: identity.subject, address: profile.emailAddress)
   }
 }
@@ -143,7 +152,7 @@ final class UnwiredRegistration: NSObject {
   @MainActor private static func connect(
     base: URL, identity: GoogleRegistrationIdentity, deviceIdentifier: String, credential: String?
   ) async throws -> ProductRegistrationReceipt {
-    var request = URLRequest(url: base.appendingPathComponent("api/mutation"))
+    var request = URLRequest(url: base.appending(path: "api/mutation"))
     request.httpMethod = "POST"
     request.timeoutInterval = 30
     request.setValue("application/json", forHTTPHeaderField: "Content-Type")

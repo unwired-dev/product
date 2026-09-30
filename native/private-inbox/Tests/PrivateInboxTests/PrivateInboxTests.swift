@@ -294,6 +294,15 @@ extension PrivateInboxTests {
     #expect(offline["kind"] == "mailbox-needed")
     #expect(offline["productAccountId"] == "synthetic-product-subject")
     #expect(offline["reason"] == "unavailable")
+    // A Product identity failure before mailbox selection reports the retained account.
+    let reauthorize = try await interrupted.authorizeGmail(reselect: true)
+    #expect(reauthorize["kind"] == "mailbox-needed")
+    #expect(reauthorize["reason"] == "interrupted")
+    // A record for another Google client is ignored rather than blocking a new sign-in.
+    let rotated = RegistrationStore(
+      keys: keys, deployment: "https://synthetic.example.invalid", clientID: "rotated-client",
+      provider: provider, connect: { _, _, _ in throw RegistrationError.unavailable })
+    #expect(try await rotated.restore() == ["kind": "signed-out"])
     provider.subject = "different-product-subject"
     await #expect(throws: (any Error).self) { try await resumed.signIn() }
     #expect(try resumed.load()?.subject == "synthetic-product-subject")
