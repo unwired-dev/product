@@ -14,8 +14,8 @@ loaded before the first React render. Mac menus and window titles use the same
 catalog and saved preference, including before JavaScript starts.
 
 Dates use the device's regional format under System default, including explicit
-calendar and numbering-system preferences, and the selected language's format
-under an override. The preview Inbox retains its existing UTC
+calendar, numbering-system, and 12/24-hour preferences, and the selected language's
+format under an override. The preview Inbox retains its existing UTC
 time zone. Message senders, subjects, previews, and bodies are content and are
 never treated as translation keys.
 

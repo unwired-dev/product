@@ -71,7 +71,7 @@ test('Apple language matching, native fallback, and override persistence across 
       'fr_CA',
     ];
     const regional = run('-AppleLocale', 'en_US@rg=czzzzz');
-    assert.equal(regional.settings.locale, 'en-CZ');
+    assert.equal(new Intl.Locale(regional.settings.locale).baseName, 'en-CZ');
     assert.doesNotThrow(() =>
       new Intl.DateTimeFormat(regional.settings.locale).format(new Date(0)),
     );
@@ -99,9 +99,39 @@ test('Apple language matching, native fallback, and override persistence across 
         }).format(new Date(0)),
       );
     }
+    for (const [identifier, force24, force12, hourCycle, hours] of [
+      ['en_US', 'YES', 'NO', 'h23', ['00', '13']],
+      ['en_GB', 'NO', 'YES', 'h12', ['12', '1']],
+    ]) {
+      const preferences = [
+        '-AppleLocale',
+        identifier,
+        '-AppleICUForce24HourTime',
+        force24,
+        '-AppleICUForce12HourTime',
+        force12,
+      ];
+      const settings = run(...preferences).settings;
+      const formatter = new Intl.DateTimeFormat(settings.locale, {
+        hour: 'numeric',
+        minute: '2-digit',
+        timeZone: 'UTC',
+      });
+      assert.equal(formatter.resolvedOptions().hourCycle, hourCycle);
+      assert.deepEqual(
+        [new Date(0), new Date(13 * 60 * 60 * 1000)].map(
+          (date) =>
+            formatter.formatToParts(date).find((part) => part.type === 'hour')
+              .value,
+        ),
+        hours,
+      );
+      const override = run('-interfaceLanguage', 'en', ...preferences);
+      assert.equal(override.settings.locale, 'en');
+    }
     const system = run(...french);
     assert.equal(system.settings.language, 'fr');
-    assert.equal(system.settings.locale, 'fr-CA');
+    assert.equal(new Intl.Locale(system.settings.locale).baseName, 'fr-CA');
     assert.equal(system.showInbox, 'Afficher la boîte de réception');
     assert.equal(system.hide, 'Hide Unwired Mail');
     const switches = run('--switch-languages', ...french);

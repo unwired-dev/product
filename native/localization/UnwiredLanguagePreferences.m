@@ -47,6 +47,21 @@ NSDictionary *UnwiredLanguageSettings(void)
     [extensions addObject:@"nu"];
     [extensions addObject:numbers];
   }
+  // The locale identifier omits the user's 12/24-hour override.
+  NSString *hourPattern = [NSDateFormatter dateFormatFromTemplate:@"j" options:0 locale:current];
+  NSDictionary<NSString *, NSString *> *hourCycles =
+      @{@"K": @"h11", @"h": @"h12", @"H": @"h23", @"k": @"h24"};
+  BOOL quoted = NO;
+  for (NSUInteger index = 0; index < hourPattern.length; index++) {
+    NSString *symbol = [hourPattern substringWithRange:NSMakeRange(index, 1)];
+    if ([symbol isEqualToString:@"'"]) quoted = !quoted;
+    NSString *cycle = quoted ? nil : hourCycles[symbol];
+    if (cycle) {
+      [extensions addObject:@"hc"];
+      [extensions addObject:cycle];
+      break;
+    }
+  }
   if (extensions.count) {
     [components addObject:@"u"];
     [components addObjectsFromArray:extensions];
