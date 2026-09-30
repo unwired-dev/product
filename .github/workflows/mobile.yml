@@ -81,6 +81,12 @@ jobs:
       - name: Verify native encryption and credential removal
         timeout-minutes: 8
         run: zsh native/private-inbox/integration/test.zsh ios
+      - name: Verify ordinary native project generation with cleared scenario
+        run: |
+          UNWIRED_MOCK_SCENARIO='' pnpm --filter @private-email/mobile native:generate --no-install
+          plutil -lint apps/mobile/ios/UnwiredMailPreview.xcodeproj/project.pbxproj
+          UNWIRED_MOCK_SCENARIO='' UNWIRED_BUILD_CONFIGURATION=Release ruby apps/macos/scripts/create-project.rb
+          plutil -lint apps/macos/macos/UnwiredMail.xcodeproj/project.pbxproj
       - name: Generate the iOS project
         run: pnpm --filter @private-email/mobile native:generate --no-install
       - name: Install CocoaPods dependencies

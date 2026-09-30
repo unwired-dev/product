@@ -11,7 +11,8 @@ module.exports = function privateInbox(config) {
       project.pbxXCBuildConfigurationSection(),
     )) {
       if (configuration && configuration.buildSettings) {
-        configuration.buildSettings.UNWIRED_MOCK_SCENARIO = scenario ?? '';
+        configuration.buildSettings.UNWIRED_MOCK_SCENARIO =
+          JSON.stringify(scenario ?? '');
       }
     }
     const root = result.modRequest.platformProjectRoot;

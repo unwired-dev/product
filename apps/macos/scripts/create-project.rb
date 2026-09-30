@@ -1,6 +1,7 @@
 require 'xcodeproj'
 
 scenario = ENV['UNWIRED_MOCK_SCENARIO']
+scenario = nil if scenario == ''
 raise 'Unknown Mock Mail Session scenario' if scenario && !%w[open-read-relaunch mail-unavailable].include?(scenario)
 raise 'Mock scenarios require Testing configuration' if scenario && ENV['UNWIRED_BUILD_CONFIGURATION'] != 'Testing'
 
