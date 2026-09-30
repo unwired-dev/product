@@ -187,6 +187,10 @@ struct SavedRegistration: Codable {
       try save(next)
       return try connected(next)
     } catch RegistrationError.cancelled {
+      // Cancelling a reselection keeps the mailbox that is already connected.
+      if reselect, next.mailbox != nil, next.mailboxSetupReason == nil {
+        return try connected(next)
+      }
       return try failure(next, reason: "cancelled")
     } catch RegistrationError.declined {
       return try failure(next, reason: "declined")
