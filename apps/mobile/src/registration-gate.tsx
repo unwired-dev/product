@@ -1,7 +1,10 @@
 import type { Registration } from '@private-email/mail-core/registration';
 import type { ReactNode } from 'react';
 
-import { registrationCopy } from '@private-email/mail-core/registration';
+import {
+  providerNames,
+  registrationCopy,
+} from '@private-email/mail-core/registration';
 import { previewInbox } from '@private-email/mail-core/registration-mode';
 import { useEffect, useSyncExternalStore } from 'react';
 import {
@@ -79,6 +82,11 @@ export function RegistrationGate({
         <Text style={[styles.text, { color: colors.secondary }]}>
           {copy.description}
         </Text>
+        {copy.account === undefined ? null : (
+          <Text style={[styles.text, { color: colors.secondary }]}>
+            {copy.account}
+          </Text>
+        )}
         {busy ? <ActivityIndicator accessibilityLabel="Connecting" /> : null}
         {failed ? (
           <Text
@@ -87,9 +95,12 @@ export function RegistrationGate({
             Setup could not finish. Try again to resume your saved setup.
           </Text>
         ) : null}
-        {snapshot.kind === 'signed-out'
-          ? button('Sign in with Google', store.register)
-          : null}
+        {snapshot.kind === 'signed-out' ? (
+          <>
+            {button('Sign in with Apple', () => store.register('apple'))}
+            {button('Sign in with Google', () => store.register('google'))}
+          </>
+        ) : null}
         {snapshot.kind === 'mailbox-needed'
           ? button('Authorize Gmail', () => store.authorizeGmail(false))
           : null}
@@ -102,7 +113,10 @@ export function RegistrationGate({
         (failed ||
           snapshot.reason === 'interrupted' ||
           snapshot.reason === 'unavailable')
-          ? button('Sign in again with Google', store.register)
+          ? button(
+              `Sign in again with ${providerNames[snapshot.signInProvider]}`,
+              () => store.register(snapshot.signInProvider),
+            )
           : null}
         {failed ? button('Try again', store.restore) : null}
       </View>

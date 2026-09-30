@@ -17,7 +17,9 @@ import os
     guard let subject = user.userID, let token = user.idToken?.tokenString else {
       throw RegistrationError.invalidIdentity
     }
-    try GoogleIdentityClaims.validate(token, clientID: clientID, subject: subject, nonce: nonce)
+    try IdentityTokenClaims.validate(
+      token, issuers: IdentityTokenClaims.google, audience: clientID, subject: subject, nonce: nonce
+    )
     return GoogleRegistrationIdentity(
       subject: subject,
       credential: try NSKeyedArchiver.archivedData(
@@ -139,6 +141,7 @@ final class UnwiredRegistration: NSObject {
         keys: DeviceKeychain(service: bundle + ".google-registration"),
         deployment: deployment, clientID: clientID,
         provider: NativeGoogleRegistrationProvider(clientID: clientID),
+        apple: NativeAppleRegistrationProvider(audience: bundle),
         connect: { identity, deviceIdentifier, credential in
           try await Self.connect(
             base: base, identity: identity, deviceIdentifier: deviceIdentifier,
@@ -150,7 +153,7 @@ final class UnwiredRegistration: NSObject {
   }
 
   @MainActor private static func connect(
-    base: URL, identity: GoogleRegistrationIdentity, deviceIdentifier: String, credential: String?
+    base: URL, identity: ProductSignInIdentity, deviceIdentifier: String, credential: String?
   ) async throws -> ProductRegistrationReceipt {
     var request = URLRequest(url: base.appending(path: "api/mutation"))
     request.httpMethod = "POST"
@@ -222,10 +225,17 @@ final class UnwiredRegistration: NSObject {
   {
     perform("restore", resolve, reject: reject) { try await $0.restore() }
   }
-  @objc(signIn:rejecter:)
-  func signIn(_ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock)
-  {
-    perform("signIn", resolve, reject: reject) { try await $0.signIn() }
+  @objc(signIn:resolver:rejecter:)
+  func signIn(
+    _ provider: String, resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    perform("signIn", resolve, reject: reject) {
+      guard let provider = SignInProvider(rawValue: provider) else {
+        throw RegistrationError.unavailable
+      }
+      return try await $0.signIn(with: provider)
+    }
   }
   @objc(authorizeGmail:resolver:rejecter:)
   func authorizeGmail(

@@ -7,8 +7,8 @@ mailbox as Expo through `@private-email/mail-core`, with
 registration now creates a Convex Product Account and authorizes Gmail through
 the native adapter. Mail synchronization and sending are later slices.
 
-Production launches now use [Google registration and separate Gmail consent](google-registration.md).
-Configure the native client ID and Convex deployment when generating the host.
+Production launches offer [Apple](apple-registration.md) or [Google](google-registration.md)
+registration with separate Gmail consent. Configure the native client ID and Convex deployment when generating the host.
 Select an explicit Mock Mail Session to run the synthetic Inbox journeys.
 
 ## Host ownership

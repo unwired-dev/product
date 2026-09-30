@@ -9,6 +9,40 @@ The [mobile bootstrap](../expo-client.md) now uses Expo 57.0.25, React Native
 are available on the development host. The maintainer's earlier native-validation
 deferral still applies to unavailable release checks. Mac host evidence follows.
 
+## Apple registration evidence, 2026-09-30
+
+[#597](https://github.com/unwired-dev/product/issues/597) adds
+[Sign in with Apple continuing into Gmail authorization](../apple-registration.md)
+on both hosts.
+
+- All 20 affected workspace lint, format, type and test tasks passed. Shared
+  application tests run every Gmail consent failure after Apple sign-in and
+  cover Apple cancellation. Rendered host tests cover the Apple-specific copy,
+  the relay contact address and a Gmail-derived connected address. Convex
+  integration keeps same-relay-address Apple and Google identities in separate
+  Product Accounts without storing the address.
+- Nine app-hosted native tests passed on an owned iOS 27 Simulator with real
+  Keychain. New scenarios cover Apple cancellation and Gmail decline/connection.
+  They confirm no Google hint or identity is derived from the Apple account. They
+  also cover cross-provider rejection, contact-address retention, revoked-credential
+  recovery, interrupted registration and Apple-issuer claim checks. Apple, Google
+  and Convex are controlled boundaries here, not live evidence.
+- The `registration-apple` packaged journey passed on fresh iPhone 18 Pro and
+  iPad Pro 11-inch M5 iOS 27 Simulators. It uses a Release simulator build carrying
+  the Sign in with Apple entitlement, with pending setup and connected relaunch.
+  The Google `registration-declined` journey passed again on both devices.
+- The Mac `Testing` build with `registration-apple` compiled, bundled and
+  passed its bundle check with ad-hoc signing. Native runner contracts (20 tests),
+  Effect import-policy checks and Fallow on changed files passed.
+
+Real Sign in with Apple, signed Mac Keychain/UI and physical devices remain
+deferred, as does the [protected qualification path](../apple-registration.md#protected-real-qualification).
+No installed Mac profile covers the disposable `dev.unwired.mock.*` IDs, and none
+of the installed profiles was checked for the Sign in with Apple capability.
+Local evidence is in `artifacts/expo-bootstrap/native-hT8jlu` (Apple),
+`artifacts/expo-bootstrap/native-iCWlM6` (Google) and
+`artifacts/private-inbox/integration.s7Okrv`.
+
 ## Google registration evidence, 2026-09-30
 
 [#596](https://github.com/unwired-dev/product/issues/596) adds

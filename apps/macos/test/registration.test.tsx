@@ -4,7 +4,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react-native';
 
 import { RegistrationGate } from '../src/registration-gate.tsx';
 
-describe('google registration', () => {
+describe('product registration', () => {
   it('retains setup after declined consent and connects a reselected Gmail account after remount', async () => {
     expect.hasAssertions();
     const session = createMockRegistrationSession('registration-declined');
@@ -50,14 +50,14 @@ describe('google registration', () => {
   it('offers interactive sign-in to recover a retained account after interruption', async () => {
     expect.hasAssertions();
     const session = createMockRegistrationSession('registration-success');
-    await session.native.signIn();
+    await session.native.signIn('google');
     let authorizeGmail: (reselect: boolean) => Promise<unknown> = () =>
       Promise.reject(new Error('Synthetic identity needs sign-in'));
     const store = createRegistration({
       ...session.native,
-      signIn: () => {
+      signIn: (provider) => {
         ({ authorizeGmail } = session.native);
-        return session.native.signIn();
+        return session.native.signIn(provider);
       },
       authorizeGmail: (reselect) => authorizeGmail(reselect),
     });
@@ -76,6 +76,7 @@ describe('google registration', () => {
     expect(store.getSnapshot().snapshot).toStrictEqual({
       kind: 'mailbox-needed',
       productAccountId: 'synthetic-product-account',
+      signInProvider: 'google',
     });
     await act(async () => {
       await fireEvent.press(
@@ -91,5 +92,44 @@ describe('google registration', () => {
       kind: 'connected',
       productAccountId: 'synthetic-product-account',
     });
+  });
+
+  it('continues Apple sign-in into separate Gmail authorization and keeps the relay address as contact information', async () => {
+    expect.hasAssertions();
+    const session = createMockRegistrationSession('registration-declined');
+    await render(
+      <RegistrationGate
+        store={createRegistration(session.native)}
+        preview={false}>
+        {null}
+      </RegistrationGate>,
+    );
+    await act(async () => {
+      await fireEvent.press(
+        await screen.findByRole('button', { name: 'Sign in with Apple' }),
+      );
+    });
+    await expect(
+      screen.findByRole('header', { name: 'Connect your Gmail' }),
+    ).resolves.toBeVisible();
+    expect(
+      screen.getByText(/Signing in with Apple does not give access to mail/u),
+    ).toBeVisible();
+    expect(
+      screen.getByText(
+        'Signed in with Apple. Contact email: relay@privaterelay.example.invalid.',
+      ),
+    ).toBeVisible();
+    await act(async () => {
+      await fireEvent.press(
+        await screen.findByRole('button', {
+          name: 'Choose another Google mailbox',
+        }),
+      );
+    });
+    // The connected mailbox comes from the Gmail grant, never the Apple address.
+    await expect(
+      screen.findByText('other@example.invalid is connected on this device.'),
+    ).resolves.toBeVisible();
   });
 });

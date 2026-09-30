@@ -20,9 +20,11 @@ tests.add_dependency(host)
 Dir.glob(File.join(root, 'Sources/PrivateInbox/*.swift')).each do |file|
   tests.add_file_references([project.main_group.new_file(file)])
 end
-source = File.read(File.join(root, 'Tests/PrivateInboxTests/PrivateInboxTests.swift')).sub('@testable import PrivateInbox', '')
-File.write('PrivateInboxTests.swift', source)
-tests.add_file_references([project.main_group.new_file('PrivateInboxTests.swift')])
+Dir.glob(File.join(root, 'Tests/PrivateInboxTests/*.swift')).each do |file|
+  name = File.basename(file)
+  File.write(name, File.read(file).sub('@testable import PrivateInbox', ''))
+  tests.add_file_references([project.main_group.new_file(name)])
+end
 [host, tests].each do |target|
   target.build_configurations.each do |config|
     config.build_settings.merge!({

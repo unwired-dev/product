@@ -10,6 +10,6 @@ const native = () =>
 
 export const registration = createRegistration({
   restore: () => native().restore(),
-  signIn: () => native().signIn(),
+  signIn: (provider) => native().signIn(provider),
   authorizeGmail: (reselect) => native().authorizeGmail(reselect),
 });

@@ -22,6 +22,33 @@ final class InboxTests: XCTestCase {
     add(shot)
   }
 
+  // Apple identifies the Product Account; Gmail access still needs its own Google grant.
+  private func appleRegistrationJourney(_ app: XCUIApplication) {
+    app.buttons["Sign in with Apple"].tap()
+    XCTAssertTrue(app.staticTexts["Connect your Gmail"].waitForExistence(timeout: 15))
+    XCTAssertFalse(app.staticTexts["Gmail connected"].exists)
+    let contact = app.staticTexts.matching(
+      NSPredicate(format: "label CONTAINS %@", "relay@privaterelay.example.invalid")
+    ).firstMatch
+    XCTAssertTrue(contact.exists)
+    app.terminate()
+    app.launch()
+    XCTAssertTrue(app.staticTexts["Connect your Gmail"].waitForExistence(timeout: 15))
+    app.buttons["Authorize Gmail"].tap()
+    XCTAssertTrue(app.staticTexts["Gmail connected"].waitForExistence(timeout: 15))
+    XCTAssertTrue(
+      app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "other@example.invalid"))
+        .firstMatch.exists)
+    app.terminate()
+    app.launch()
+    XCTAssertTrue(app.staticTexts["Gmail connected"].waitForExistence(timeout: 15))
+    XCTAssertTrue(contact.exists)
+    let shot = XCTAttachment(screenshot: app.screenshot())
+    shot.name = "Apple registration with Gmail"
+    shot.lifetime = .keepAlways
+    add(shot)
+  }
+
   func testSelectAndReplaceMessage() throws {
     continueAfterFailure = false
     let identifier = try XCTUnwrap(ProcessInfo.processInfo.environment["UNWIRED_BUNDLE_ID"])
@@ -32,7 +59,11 @@ final class InboxTests: XCTestCase {
       == true
     {
       XCTAssertTrue(app.staticTexts["Welcome to Unwired Mail"].waitForExistence(timeout: 20))
-      try registrationJourney(app)
+      if ProcessInfo.processInfo.environment["UNWIRED_TEST_SCENARIO"] == "registration-apple" {
+        appleRegistrationJourney(app)
+      } else {
+        try registrationJourney(app)
+      }
       return
     }
     inboxJourney(app)
