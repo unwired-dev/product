@@ -90,13 +90,11 @@ const settled = (snapshot: RegistrationSnapshot): RegistrationState => ({
   failed: false,
 });
 
-// oxlint-disable-next-line unicorn/throw-new-error -- Schema's tagged-error class factory.
 class RegistrationCancelled extends Schema.TaggedError<RegistrationCancelled>()(
   'RegistrationCancelled',
   {},
 ) {}
 
-// oxlint-disable-next-line unicorn/throw-new-error -- Schema's tagged-error class factory.
 class RegistrationFailed extends Schema.TaggedError<RegistrationFailed>()(
   'RegistrationFailed',
   { cause: Schema.Defect() },

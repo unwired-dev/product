@@ -34,6 +34,8 @@ export const effectRules: DummyRuleMap = {
       treatMethodsAsReadonly: true,
     },
   ],
+  // Schema.TaggedError<Self>()(…) is a class factory, not an Error call missing `new`.
+  'unicorn/throw-new-error': 'allow',
 };
 
 // Untrusted input is decoded with Schema; errors are tagged.

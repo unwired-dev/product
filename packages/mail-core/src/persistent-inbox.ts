@@ -19,7 +19,6 @@ export interface NativeInboxStorage {
   readonly setUnread: (id: string, unread: boolean) => Promise<unknown>;
 }
 
-// oxlint-disable-next-line unicorn/throw-new-error -- Schema's tagged-error class factory.
 class StorageFailure extends Schema.TaggedError<StorageFailure>()(
   'StorageFailure',
   {
