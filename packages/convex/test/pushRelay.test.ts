@@ -2576,6 +2576,48 @@ describe('gmail push relay', () => {
     ).resolves.toStrictEqual(expect.objectContaining({ verified: true }));
   });
 
+  it('finds the latest Gmail verification signal behind lexically larger history ids', async () => {
+    expect.assertions(1);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const productConnection = await asUser.mutation(
+      api.productAccount.connect,
+      {
+        deviceIdentifier: 'device-001',
+        platform: 'ios',
+      },
+    );
+    await registerGmailConnection(asUser, {
+      emailAddress: 'busy@example.com',
+      providerAccountIdentifier: 'gmail-user-001',
+      trustedDeviceId: productConnection.trustedDeviceId,
+    });
+    await t.run(async (ctx) => {
+      for (let index = 0; index < 100; index += 1) {
+        await ctx.db.insert('gmailPushVerificationSignals', {
+          historyId: String(900 + index),
+          receivedAt: Date.now() - 1000,
+          routingDigest: routingDigest('busy@example.com'),
+        });
+      }
+    });
+    await t.mutation(internal.pushRelay.enqueueGmailWakeups, {
+      routingDigest: routingDigest('busy@example.com'),
+      historyId: '1000',
+    });
+
+    await expect(
+      asUser.action(api.pushRelay.verifyGmailWatch, {
+        gmailIdentityToken: busyIdentityToken,
+        opaqueConnectionId:
+          opaqueConnectionIdFromIdentityToken(busyIdentityToken),
+        historyId: '1000',
+        trustedDeviceId: productConnection.trustedDeviceId,
+      }),
+    ).resolves.toStrictEqual(expect.objectContaining({ verified: true }));
+  });
+
   it('expires verification signals without another Gmail push', async () => {
     expect.assertions(2);
 

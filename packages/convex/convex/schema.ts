@@ -308,5 +308,6 @@ export default defineSchema({
     routingDigest: v.optional(v.string()),
   })
     .index('by_emailAddress_and_historyId', ['emailAddress', 'historyId'])
-    .index('by_routingDigest_and_historyId', ['routingDigest', 'historyId']),
+    .index('by_routingDigest_and_historyId', ['routingDigest', 'historyId'])
+    .index('by_routingDigest_and_receivedAt', ['routingDigest', 'receivedAt']),
 });

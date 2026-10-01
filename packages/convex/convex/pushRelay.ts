@@ -1883,7 +1883,7 @@ export const verifyGmailWatchForIdentity = internalMutation({
 
     const signals = await ctx.db
       .query('gmailPushVerificationSignals')
-      .withIndex('by_routingDigest_and_historyId', (q) =>
+      .withIndex('by_routingDigest_and_receivedAt', (q) =>
         q.eq('routingDigest', args.currentRoutingDigest),
       )
       .order('desc')
