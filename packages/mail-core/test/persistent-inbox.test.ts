@@ -84,35 +84,46 @@ describe('mock Mail Session persistence boundary', () => {
     });
     await inbox.load();
     expect(inbox.getSnapshot()).toStrictEqual({ kind: 'failed' });
-    // Seed providers and native hosts may reject with account data in the message.
+    // Seed providers and native hosts may reject with account data in any field.
     const seeded = createPersistentInbox(
       {
-        open: () =>
-          Promise.reject(
-            Object.assign(new Error('sealed-store alex@example.com'), {
-              code: 'unavailable',
-            }),
-          ),
+        open: () => Promise.reject(new Error('unavailable')),
         setUnread: () => Promise.reject(new Error('unavailable')),
       },
       () => Promise.reject(new Error('sealed-seed alex@example.com')),
     );
     await seeded.load();
     expect(seeded.getSnapshot()).toStrictEqual({ kind: 'failed' });
-    const unavailable = createPersistentInbox({
-      open: () =>
-        Promise.reject(
-          Object.assign(new Error('sealed-store alex@example.com'), {
-            code: 'unavailable',
-          }),
-        ),
-      setUnread: () => Promise.reject(new Error('unavailable')),
-    });
-    await unavailable.load();
-    expect(unavailable.getSnapshot()).toStrictEqual({ kind: 'failed' });
+    for (const rejection of [
+      Object.assign(new Error('sealed-store alex@example.com'), {
+        code: 'unavailable',
+      }),
+      Object.assign(new Error('unavailable'), {
+        code: 'sealed-code alex@example.com',
+      }),
+      Object.assign(new Error('unavailable'), {
+        name: 'sealed-name alex@example.com',
+      }),
+    ]) {
+      const failing = createPersistentInbox({
+        open: () => Promise.reject(rejection),
+        setUnread: () => Promise.reject(new Error('unavailable')),
+      });
+      await failing.load();
+      expect(failing.getSnapshot()).toStrictEqual({ kind: 'failed' });
+    }
     expect(
       logged.filter((value) => value === 'Private Inbox storage failed:'),
-    ).toHaveLength(3);
+    ).toHaveLength(5);
+    expect(logged).toStrictEqual(
+      expect.arrayContaining([
+        'invalid at messages.0.unread',
+        'Error',
+        'code unavailable',
+        'unrecognized code',
+        'unrecognized error',
+      ]),
+    );
     expect(inspect(logged, { depth: 10 })).not.toMatch(/sealed-|alex@/u);
   });
 });

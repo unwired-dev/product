@@ -24,6 +24,11 @@ text with `Schema.fromJsonString(schema)`. Narrow with the `Predicate` module wh
 no schema is warranted. A failed decode keeps the boundary closed: map it to the
 boundary's existing error, with the decode error as its cause.
 
+At the native bridge, the Apple host owns its security checks: Keychain access,
+encryption, file locking, provider authorization, and the codes it rejects with.
+TypeScript decodes what crosses the bridge so a malformed or unexpected result
+fails closed; it complements the host's checks and never replaces them.
+
 ## Errors
 
 Define failures with `Schema.TaggedError`. A failure that wraps a foreign error
@@ -33,11 +38,11 @@ as locked storage or a cancelled sign-in, are their own tagged errors and recove
 quietly. Unexpected failures are logged with `Effect.logError(message, diagnostic)`
 before recovery.
 
-Logs carry no mail content, tokens, or account identifiers. Error messages from
-hosts and providers can contain them, so a failure keeps its cause for handling
-and logs an allow-listed diagnostic instead: the error `code` or `name`, or for
-decode failures the `SchemaError` message (the failing path and expectation,
-without the value). See `packages/mail-core/src/diagnostics.ts`.
+Logs carry no mail content, tokens, or account identifiers. Any field of a host
+or provider error can contain them, so a failure keeps its cause for handling and
+logs an allow-listed diagnostic instead: a known native error `code` or standard
+error `name`, a fixed fallback for anything else, and for decode failures only
+the failing paths. See `packages/mail-core/src/diagnostics.ts`.
 
 ## Functions and services
 

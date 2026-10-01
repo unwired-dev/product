@@ -3,7 +3,7 @@ import * as Option from 'effect/Option';
 import * as Schema from 'effect/Schema';
 import * as Semaphore from 'effect/Semaphore';
 
-import { rejectionDiagnostic } from './diagnostics.ts';
+import { decodeDiagnostic, rejectionDiagnostic } from './diagnostics.ts';
 
 const SignInProviderSchema = Schema.Literals(['google', 'apple']);
 export type SignInProvider = typeof SignInProviderSchema.Type;
@@ -106,7 +106,6 @@ class RegistrationFailed extends Schema.TaggedError<RegistrationFailed>()(
 const decodeSnapshot = Schema.decodeUnknownEffect(RegistrationSnapshotSchema);
 
 // Calls a native registration operation and decodes the snapshot it resolves with.
-// Decode failures log the SchemaError message, which names the failing path without its value.
 const request = Effect.fnUntraced(function* (
   operation: () => Promise<unknown>,
 ) {
@@ -123,7 +122,10 @@ const request = Effect.fnUntraced(function* (
   return yield* decodeSnapshot(value).pipe(
     Effect.mapError(
       (error) =>
-        new RegistrationFailed({ cause: error, diagnostic: error.message }),
+        new RegistrationFailed({
+          cause: error,
+          diagnostic: decodeDiagnostic(error),
+        }),
     ),
   );
 });

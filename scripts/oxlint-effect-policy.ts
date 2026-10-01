@@ -25,11 +25,13 @@ export const effectRules: DummyRuleMap = {
   ),
   ...EffectPresets.recommended.rules,
   ...effectNativeRules,
-  // Effect values are immutable descriptions, though their types are not deeply readonly.
+  // Effect values and Schema errors are immutable, though their types are not deeply readonly.
   'typescript/prefer-readonly-parameter-types': [
     'warn',
     {
-      allow: [{ from: 'package', package: 'effect', name: ['Effect'] }],
+      allow: [
+        { from: 'package', package: 'effect', name: ['Effect', 'SchemaError'] },
+      ],
       ignoreInferredTypes: true,
       treatMethodsAsReadonly: true,
     },
