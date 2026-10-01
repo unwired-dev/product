@@ -1,3 +1,4 @@
+import * as Option from 'effect/Option';
 import * as Schema from 'effect/Schema';
 
 const SignInProviderSchema = Schema.Literals(['google', 'apple']);
@@ -6,6 +7,8 @@ export type SignInProvider = typeof SignInProviderSchema.Type;
 const Account = Schema.Struct({
   productAccountId: Schema.NonEmptyString,
   signInProvider: SignInProviderSchema,
+  // The other Sign-In Provider explicitly linked to the same Product Account.
+  alternateSignIn: Schema.optionalKey(SignInProviderSchema),
   // Display and contact information only; it never links identities or selects a mailbox.
   contactEmail: Schema.optionalKey(Schema.NonEmptyString),
 });
@@ -38,16 +41,29 @@ const isCancelled = Schema.is(
   Schema.Struct({ code: Schema.Literal('cancelled') }),
 );
 
+const LinkFailureSchema = Schema.Literals([
+  'identity-owned',
+  'stale-authentication',
+]);
+export type LinkFailure = typeof LinkFailureSchema.Type | 'failed';
+const linkFailureCode = Schema.decodeUnknownOption(
+  Schema.Struct({ code: LinkFailureSchema }),
+);
+
 export interface NativeRegistration {
   readonly restore: () => Promise<unknown>;
   readonly signIn: (provider: SignInProvider) => Promise<unknown>;
   readonly authorizeGmail: (reselect: boolean) => Promise<unknown>;
+  // Verifies the current Product Account and the identity being linked, interactively.
+  readonly link: (provider: SignInProvider) => Promise<unknown>;
 }
 
 type RegistrationState = Readonly<{
   snapshot: RegistrationSnapshot;
   busy: boolean;
   failed: boolean;
+  // A failed link leaves the Product Account and its sign-ins unchanged.
+  linkFailure?: LinkFailure;
 }>;
 
 // A connected status is only valid while its verification succeeds.
@@ -57,11 +73,20 @@ const pending = (snapshot: RegistrationSnapshot): RegistrationSnapshot =>
         kind: 'mailbox-needed',
         productAccountId: snapshot.productAccountId,
         signInProvider: snapshot.signInProvider,
+        ...(snapshot.alternateSignIn === undefined
+          ? {}
+          : { alternateSignIn: snapshot.alternateSignIn }),
         ...(snapshot.contactEmail === undefined
           ? {}
           : { contactEmail: snapshot.contactEmail }),
       }
     : snapshot;
+
+const settled = (snapshot: RegistrationSnapshot): RegistrationState => ({
+  snapshot,
+  busy: false,
+  failed: false,
+});
 
 export function createRegistration(native: NativeRegistration) {
   let state: RegistrationState = {
@@ -82,34 +107,37 @@ export function createRegistration(native: NativeRegistration) {
   const decode = Schema.decodeUnknownSync(RegistrationSnapshotSchema);
   const execute = async (
     operation: () => Promise<RegistrationSnapshot>,
-    onFailure: (snapshot: RegistrationSnapshot) => RegistrationSnapshot = (
-      snapshot,
-    ) => snapshot,
+    onFailure: (
+      snapshot: RegistrationSnapshot,
+      error: unknown,
+    ) => RegistrationState = (snapshot) => ({
+      ...settled(snapshot),
+      failed: true,
+    }),
   ) => {
     if (running) {
       return;
     }
     running = true;
-    publish({ ...state, busy: true, failed: false });
+    publish({ snapshot: state.snapshot, busy: true, failed: false });
     try {
-      publish({ snapshot: await operation(), busy: false, failed: false });
+      publish(settled(await operation()));
     } catch (error) {
       if (isCancelled(error)) {
-        publish({ ...state, busy: false, failed: false });
+        publish(settled(state.snapshot));
       } else {
         console.error('Registration failed', error);
-        publish({
-          snapshot: onFailure(state.snapshot),
-          busy: false,
-          failed: true,
-        });
+        publish(onFailure(state.snapshot, error));
       }
     } finally {
       running = false;
     }
   };
   const restore = () =>
-    execute(async () => decode(await native.restore()), pending);
+    execute(
+      async () => decode(await native.restore()),
+      (snapshot) => ({ ...settled(pending(snapshot)), failed: true }),
+    );
   return {
     getSnapshot: () => state,
     subscribe: (listener: () => void) => {
@@ -138,6 +166,17 @@ export function createRegistration(native: NativeRegistration) {
       }),
     authorizeGmail: (reselect: boolean) =>
       execute(async () => decode(await native.authorizeGmail(reselect))),
+    link: (provider: SignInProvider) =>
+      execute(
+        async () => decode(await native.link(provider)),
+        (snapshot, error) => ({
+          ...settled(snapshot),
+          linkFailure: Option.getOrElse(
+            Option.map(linkFailureCode(error), ({ code }) => code),
+            (): LinkFailure => 'failed',
+          ),
+        }),
+      ),
   };
 }
 
@@ -176,6 +215,53 @@ function accountLine(
   return snapshot.contactEmail === undefined
     ? `${signedIn}.`
     : `${signedIn}. Contact email: ${snapshot.contactEmail}.`;
+}
+
+export const otherSignInProvider = (
+  provider: SignInProvider,
+): SignInProvider => (provider === 'apple' ? 'google' : 'apple');
+
+// Account settings: which identities open this Product Account.
+export function signInMethodsCopy(
+  snapshot: Readonly<{
+    signInProvider: SignInProvider;
+    alternateSignIn?: SignInProvider;
+  }>,
+) {
+  const current = providerNames[snapshot.signInProvider];
+  if (snapshot.alternateSignIn !== undefined) {
+    return {
+      description: `Sign in with ${current} or ${providerNames[snapshot.alternateSignIn]} to open this Product Account.`,
+      link: undefined,
+    };
+  }
+  const other = otherSignInProvider(snapshot.signInProvider);
+  return {
+    description: `Only ${current} opens this Product Account. Linking ${providerNames[other]} adds another way to sign in. It does not connect a mailbox.`,
+    link: other,
+  };
+}
+
+export function linkFailureCopy(
+  failure: LinkFailure,
+  provider: SignInProvider,
+) {
+  const name = providerNames[provider];
+  switch (failure) {
+    case 'identity-owned': {
+      return `That ${name} sign-in already belongs to another Product Account. Accounts are never merged, so it was not linked.`;
+    }
+    case 'stale-authentication': {
+      return `Linking needs a recent sign-in with both providers. Try again to link ${name}.`;
+    }
+    case 'failed': {
+      return `${name} could not be linked. Your Product Account is unchanged. Try again.`;
+    }
+    default: {
+      const exhaustive: never = failure;
+      return exhaustive;
+    }
+  }
 }
 
 export function registrationCopy(snapshot: RegistrationSnapshot) {

@@ -6,6 +6,8 @@ import type { MutationCtx } from './_generated/server.js';
 import { internal } from './_generated/api.js';
 import { internalMutation } from './_generated/server.js';
 import {
+  accountTokenIdentifier,
+  productAccountForSignIn,
   requireTrustedDeviceProof,
   trustedDeviceCredentialArgs,
 } from './productAccountAuth.js';
@@ -41,7 +43,8 @@ async function ownedDeletionRequest(
   const request = await ctx.db.get(requestId);
   if (
     request === null ||
-    request.tokenIdentifier !== identity.tokenIdentifier
+    request.tokenIdentifier !==
+      (await accountTokenIdentifier(ctx, identity.tokenIdentifier))
   ) {
     throw new Error('Product Account deletion request required');
   }
@@ -83,22 +86,21 @@ export const prepareDeletion = internalMutation({
   // fallow-ignore-next-line complexity -- One transaction arbitrates tombstones, leases, retries, and device ownership.
   handler: async (ctx, args) => {
     const identity = await authenticatedIdentity(ctx);
+    // A Linked Sign-In requests deletion of the account it opens, keyed by its original identity.
+    const tokenIdentifier = await accountTokenIdentifier(
+      ctx,
+      identity.tokenIdentifier,
+    );
     const tombstone = await ctx.db
       .query('productAccountDeletionTombstones')
       .withIndex('by_tokenIdentifier', (q) =>
-        q.eq('tokenIdentifier', identity.tokenIdentifier),
+        q.eq('tokenIdentifier', tokenIdentifier),
       )
       .unique();
     if (tombstone !== null) {
       return { state: 'already-deleted' as const };
     }
-    // fallow-ignore-next-line code-duplication -- Deletion keeps its authenticated account lookup local to this transaction.
-    const account = await ctx.db
-      .query('productAccounts')
-      .withIndex('by_tokenIdentifier', (q) =>
-        q.eq('tokenIdentifier', identity.tokenIdentifier),
-      )
-      .unique();
+    const account = await productAccountForSignIn(ctx, tokenIdentifier);
     if (account === null) {
       throw new Error('Product Account required');
     }
@@ -121,7 +123,7 @@ export const prepareDeletion = internalMutation({
     const existing = await ctx.db
       .query('productAccountDeletionRequests')
       .withIndex('by_tokenIdentifier', (q) =>
-        q.eq('tokenIdentifier', identity.tokenIdentifier),
+        q.eq('tokenIdentifier', tokenIdentifier),
       )
       .unique();
     if (existing !== null) {
@@ -179,7 +181,7 @@ export const prepareDeletion = internalMutation({
       requestedAt: now,
       requestedByTrustedDeviceId: args.trustedDeviceId,
       revocationMaterial,
-      tokenIdentifier: identity.tokenIdentifier,
+      tokenIdentifier,
       updatedAt: now,
     });
     const request = await ctx.db.get(requestId);
@@ -607,6 +609,52 @@ async function deleteMicrosoftGraphRouteWork(
   return true;
 }
 
+async function tombstoneSignIn(
+  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
+  link: Readonly<Doc<'linkedSignIns'>>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents are immutable inputs here.
+): Promise<void> {
+  const tombstone = await ctx.db
+    .query('productAccountDeletionTombstones')
+    .withIndex('by_tokenIdentifier', (q) =>
+      q.eq('tokenIdentifier', link.tokenIdentifier),
+    )
+    .unique();
+  if (tombstone === null) {
+    await ctx.db.insert('productAccountDeletionTombstones', {
+      deletedAt: Date.now(),
+      productAccountId: link.productAccountId,
+      tokenIdentifier: link.tokenIdentifier,
+    });
+  }
+  // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+  await ctx.db.delete(link._id);
+}
+
+// Every Linked Sign-In is tombstoned with the account so it cannot reopen or recreate it.
+async function deleteSignInLinks(
+  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
+  productAccountId: Id<'productAccounts'>,
+): Promise<boolean> {
+  const requests = await ctx.db
+    .query('signInLinkRequests')
+    .withIndex('by_productAccountId', (q) =>
+      q.eq('productAccountId', productAccountId),
+    )
+    .take(deletionBatchSize);
+  const links = await ctx.db
+    .query('linkedSignIns')
+    .withIndex('by_productAccountId_and_provider', (q) =>
+      q.eq('productAccountId', productAccountId),
+    )
+    .take(deletionBatchSize);
+  await Promise.all([
+    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+    ...requests.map(async (request) => ctx.db.delete(request._id)),
+    ...links.map(async (link) => tombstoneSignIn(ctx, link)),
+  ]);
+  return requests.length + links.length > 0;
+}
+
 // oxlint-disable complexity -- Ordered bounded deletion drains each account-owned table before the tombstone.
 // fallow-ignore-next-line complexity -- Ordered bounded deletion drains each account-owned table before the tombstone.
 async function deleteNextBatchData(
@@ -624,6 +672,9 @@ async function deleteNextBatchData(
     return false;
   }
   if (await deleteMicrosoftGraphRouteWork(ctx, request.productAccountId)) {
+    return false;
+  }
+  if (await deleteSignInLinks(ctx, request.productAccountId)) {
     return false;
   }
   const scheduledSends = await ctx.db

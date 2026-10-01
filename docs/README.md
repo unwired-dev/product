@@ -23,6 +23,7 @@ their scope below; publication of a plan does not prove implementation or releas
 - [Private preview Inbox storage and credentials](private-inbox-storage.md)
 - [Google registration, Gmail consent and protected OAuth qualification](google-registration.md)
 - [Apple registration continuing into Gmail authorization](apple-registration.md)
+- [Linked Google and Apple sign-in](linked-sign-in.md)
 
 ## Shared policies
 

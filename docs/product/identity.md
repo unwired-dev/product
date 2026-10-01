@@ -16,6 +16,7 @@ launch requirements or proof that a feature is implemented.
 
 - [Accepted replacement scope](../adr/0059-replace-the-client-for-a-shared-cross-platform-product.md)
 - [Separate product identity from registration mailbox authorization](../adr/0061-separate-product-identity-from-registration-mailbox-authorization.md)
+- [Linked Google and Apple sign-in](../linked-sign-in.md) for the replacement's explicit linking behavior
 - [Separate encrypted Mail Profile ownership from legacy records](../adr/0048-separate-encrypted-mail-profile-ownership.md)
 - [Scope each window to one Mail Profile](../adr/0050-scope-each-window-to-one-mail-profile.md)
 

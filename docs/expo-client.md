@@ -9,7 +9,8 @@ Mailbox synchronization and sending are later slices. The existing Convex backen
 and Swift prototype remain available. The [native Mac host](macos-client.md) consumes the same mock mailbox.
 
 Production launches offer [Apple](apple-registration.md) or [Google](google-registration.md)
-registration with separate Gmail consent. Configure the native client ID and Convex deployment when generating the host.
+registration with separate Gmail consent. Either can later be [linked](linked-sign-in.md)
+as the other sign-in method. Configure the native client ID and Convex deployment when generating the host.
 Select an explicit Mock Mail Session to run the synthetic Inbox journeys.
 
 ## Stack and boundaries

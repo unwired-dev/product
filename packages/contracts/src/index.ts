@@ -9,10 +9,16 @@ export {
   productAccountConnectResponseFixture,
   productAccountConnectResponseValidator,
   productAccountDeletionResponseValidator,
+  signInLinkRequestResponseValidator,
+  signInLinkResponseValidator,
+  signInProviderValidator,
   trustedDeviceUnregistrationResponseValidator,
   type GmailProviderConnectionStatus,
   type ProductAccountConnectResponse,
   type ProductAccountDeletionResponse,
+  type SignInLinkRequestResponse,
+  type SignInLinkResponse,
+  type SignInProvider,
   type TrustedDeviceUnregistrationResponse,
 } from './productAccount.ts';
 export {

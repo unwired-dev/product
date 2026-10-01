@@ -2,6 +2,8 @@ import Foundation
 
 enum RegistrationError: Error {
   case cancelled, declined, gmailUnavailable, invalidIdentity, unavailable
+  // Linking: the identity belongs to another Product Account, or a sign-in is no longer recent.
+  case identityOwned, staleAuthentication
 }
 
 enum SignInProvider: String, Codable {
@@ -45,6 +47,23 @@ struct ProductRegistrationReceipt: Codable {
   let productAccountId: String
   let trustedDeviceId: String
   let trustedDeviceCredential: String
+  // Every Sign-In Provider that opens the Product Account; absent in records before linking.
+  var signInProviders: [SignInProvider]? = nil
+}
+
+struct SignInLinkRequest {
+  // Absent when the provider is already linked to this Product Account.
+  let linkTicket: String?
+  let signInProviders: [SignInProvider]
+}
+
+// Backend steps for an explicit link: the current account vouches, then the new identity redeems.
+struct SignInLinking {
+  let request:
+    (ProductSignInIdentity, ProductRegistrationReceipt, SignInProvider) async throws ->
+      SignInLinkRequest
+  let complete:
+    (ProductSignInIdentity, ProductRegistrationReceipt, String) async throws -> [SignInProvider]
 }
 
 @MainActor protocol GoogleRegistrationProvider {
@@ -65,7 +84,7 @@ struct SavedRegistration: Codable {
   let deviceIdentifier: String
   // Records written before Apple sign-in carry no provider and are Google.
   var signInProvider: SignInProvider?
-  let subject: String
+  var subject: String
   // Apple has no native refresh credential, so its identity keeps empty data.
   var identityCredential: Data
   var contactEmail: String?
@@ -84,13 +103,18 @@ struct SavedRegistration: Codable {
   let clientID: String
   let provider: any GoogleRegistrationProvider
   let apple: (any AppleRegistrationProvider)?
-  let connect: (ProductSignInIdentity, String, String?) async throws -> ProductRegistrationReceipt
+  // Receives the device's previous receipt, whose Product Account a reconnect must reach.
+  let connect:
+    (ProductSignInIdentity, String, ProductRegistrationReceipt?) async throws ->
+      ProductRegistrationReceipt
+  let linking: SignInLinking?
 
   init(
     keys: DeviceKeychain, deployment: String, clientID: String,
     provider: any GoogleRegistrationProvider, apple: (any AppleRegistrationProvider)? = nil,
+    linking: SignInLinking? = nil,
     connect:
-      @escaping (ProductSignInIdentity, String, String?) async throws ->
+      @escaping (ProductSignInIdentity, String, ProductRegistrationReceipt?) async throws ->
       ProductRegistrationReceipt
   ) {
     self.keys = keys
@@ -98,6 +122,7 @@ struct SavedRegistration: Codable {
     self.clientID = clientID
     self.provider = provider
     self.apple = apple
+    self.linking = linking
     self.connect = connect
   }
 
@@ -122,6 +147,9 @@ struct SavedRegistration: Codable {
       "signInProvider": saved.provider.rawValue,
     ]
     if let email = saved.contactEmail, !email.isEmpty { result["contactEmail"] = email }
+    if let alternate = product.signInProviders?.first(where: { $0 != saved.provider }) {
+      result["alternateSignIn"] = alternate.rawValue
+    }
     return result
   }
 
@@ -150,8 +178,7 @@ struct SavedRegistration: Codable {
     if let email = identity.contactEmail { next.contactEmail = email }
     // Persist successful identity authorization even if the backend request is interrupted.
     try save(next)
-    let product = try await connect(
-      identity, saved.deviceIdentifier, saved.product?.trustedDeviceCredential)
+    let product = try await connect(identity, saved.deviceIdentifier, saved.product)
     if let previous = saved.product, product.productAccountId != previous.productAccountId {
       throw RegistrationError.invalidIdentity
     }
@@ -185,8 +212,11 @@ struct SavedRegistration: Codable {
   func signIn(with signInProvider: SignInProvider = .google) async throws -> [String: String] {
     var saved = try load()
     // Explicit linking is required before another provider can reach a committed Product Account.
-    if let current = saved, current.product != nil, current.provider != signInProvider {
-      throw RegistrationError.invalidIdentity
+    if let current = saved, let product = current.product, current.provider != signInProvider {
+      guard product.signInProviders?.contains(signInProvider) == true else {
+        throw RegistrationError.invalidIdentity
+      }
+      return try pending(await switchSignIn(current, to: signInProvider))
     }
     let identity = try await productIdentity(
       signInProvider, hint: saved?.provider == .google ? saved?.subject : nil)
@@ -203,6 +233,52 @@ struct SavedRegistration: Codable {
         signInProvider: signInProvider, subject: identity.subject,
         identityCredential: identity.credential)
     return try pending(await establish(record, identity: identity))
+  }
+
+  // Moves this device to a Linked Sign-In once the backend confirms it opens the same account.
+  func switchSignIn(_ saved: SavedRegistration, to signInProvider: SignInProvider) async throws
+    -> SavedRegistration
+  {
+    guard let previous = saved.product else { throw RegistrationError.unavailable }
+    // The linked identity is chosen explicitly; no mailbox or contact address hints it.
+    let identity = try await productIdentity(signInProvider, hint: nil)
+    let product = try await connect(identity, saved.deviceIdentifier, previous)
+    guard product.productAccountId == previous.productAccountId else {
+      throw RegistrationError.invalidIdentity
+    }
+    var next = saved
+    next.signInProvider = signInProvider
+    next.subject = identity.subject
+    next.identityCredential = identity.credential
+    if let email = identity.contactEmail { next.contactEmail = email }
+    next.product = product
+    try save(next)
+    return next
+  }
+
+  // Verifies the current Product Account and then the identity being linked, both interactively.
+  func link(_ other: SignInProvider) async throws -> [String: String] {
+    guard let linking, var saved = try load(), var product = saved.product else {
+      throw RegistrationError.unavailable
+    }
+    guard other != saved.provider else { throw RegistrationError.invalidIdentity }
+    let current = try await productIdentity(
+      saved.provider, hint: saved.provider == .google ? saved.subject : nil)
+    guard current.provider == saved.provider, current.subject == saved.subject else {
+      throw RegistrationError.invalidIdentity
+    }
+    let request = try await linking.request(current, product, other)
+    var providers = request.signInProviders
+    if let ticket = request.linkTicket {
+      // Nothing is stored until the backend commits the link; an interruption changes nothing.
+      let identity = try await productIdentity(other, hint: nil)
+      providers = try await linking.complete(identity, product, ticket)
+    }
+    product.signInProviders = providers
+    saved.product = product
+    try save(saved)
+    return try saved.mailbox != nil && saved.mailboxSetupReason == nil
+      ? connected(saved) : pending(saved)
   }
 
   // Confirms the retained Product Sign-In without an interactive session.

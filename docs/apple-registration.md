@@ -13,9 +13,10 @@ until a Google account grants Gmail access and passes Gmail verification.
 Product Accounts stay keyed by the verified issuer and subject. An Apple identity
 and a Google identity are separate Product Accounts even when their email addresses
 match. The Gmail mailbox authorized after Apple sign-in is a Mailbox Connection, not
-a Linked Sign-In. Its Google identity never reaches Convex. Explicit linking is
-out of scope. On a device with a committed Product Account, sign-in through the
-other provider is rejected rather than switching or merging accounts.
+a Linked Sign-In. Its Google identity never reaches Convex. Only
+[explicit linking](linked-sign-in.md) lets Google open the same account. On a
+device with a committed Product Account, sign-in through a provider that is not
+linked is rejected rather than switching or merging accounts.
 
 Apple may return a private relay address. The native adapter keeps it in the
 device-only registration record and shows it as the account's contact email. It
@@ -84,7 +85,7 @@ Neither persists that address.
 The hosted native storage suite uses a controlled Apple boundary with real
 Keychain persistence. It checks Apple cancellation and Gmail decline and
 connection. It confirms that no Google hint or Google identity is derived from
-the Apple account. It also covers rejection of the other provider after
+the Apple account. It also covers rejection of an unlinked provider after
 registration, retention of the first contact address and revoked-credential
 recovery. An interrupted registration restarts with Product Sign-In. Claim tests
 reject a Google token presented as Apple. These are deterministic native
