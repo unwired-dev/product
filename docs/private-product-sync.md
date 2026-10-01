@@ -87,7 +87,7 @@ clients read records through every 100-record page.
 `productSync:initialize` stores the first recovery envelope and marks the account
 initialized in one mutation. It requires the authenticated Trusted Device proof
 and the current key epoch. It returns `initialized: false` when the account
-already has other material, so exactly one device wins. Repeating the winning
+already has other material or any encrypted record, so exactly one device wins. Repeating the winning
 envelope after a lost response succeeds without another write. A device that
 loses discards its unpublished keys, which have protected nothing, and needs
 enrollment. No record is written before publication succeeds. The legacy

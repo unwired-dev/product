@@ -227,7 +227,17 @@ export const initialize = mutation({
         }),
       };
     }
-    if (account.productSyncMaterialInitializedAt !== undefined) {
+    // Records written under keys that predate the marker also rule out new key material.
+    const existingRecord = await ctx.db
+      .query('encryptedProductSyncPayloads')
+      .withIndex('by_productAccountId', (q) =>
+        q.eq('productAccountId', account.productAccountId),
+      )
+      .first();
+    if (
+      existingRecord !== null ||
+      account.productSyncMaterialInitializedAt !== undefined
+    ) {
       return { initialized: false };
     }
     const payload = await insertPayload(

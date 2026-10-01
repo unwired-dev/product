@@ -1252,6 +1252,32 @@ describe('productSync initialization', () => {
     ).rejects.toThrow('Product Sync key rotation required');
   });
 
+  it('never initializes an account whose records were encrypted under earlier keys', async () => {
+    expect.assertions(2);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(googleIdentity);
+    const device = await connectDevice(asUser, 'installation-001');
+    await asUser.mutation(api.productSync.putEncryptedPayloadIfUnchanged, {
+      ...device.proof,
+      encryptedPayload,
+      payloadIdentifier: 'mailbox.prototype',
+    });
+
+    await expect(
+      asUser.mutation(api.productSync.initialize, {
+        ...device.proof,
+        encryptedPayload: recoveryEnvelope,
+      }),
+    ).resolves.toStrictEqual({ initialized: false });
+    await expect(
+      asUser.query(api.productSync.getEncryptedPayloadForTrustedDevice, {
+        ...device.proof,
+        payloadIdentifier: 'product-account-recovery-v1',
+      }),
+    ).resolves.toBeNull();
+  });
+
   it('initializes only the Product Account of the presenting Trusted Device', async () => {
     expect.assertions(2);
 
