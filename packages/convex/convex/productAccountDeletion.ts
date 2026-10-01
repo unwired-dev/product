@@ -10,6 +10,9 @@ import {
 
 import { productAccountDeletionResponseValidator } from '@private-email/contracts';
 import { v } from 'convex/values';
+import * as Option from 'effect/Option';
+import * as Predicate from 'effect/Predicate';
+import * as Schema from 'effect/Schema';
 
 import type { Id } from './_generated/dataModel.js';
 import type { ActionCtx } from './_generated/server.js';
@@ -33,6 +36,48 @@ type RevocationToken = Exclude<
   RevocationMaterial,
   { kind: 'authorization-code' }
 >;
+
+const decodeJson = Schema.decodeUnknownOption(
+  Schema.fromJsonString(Schema.Unknown),
+);
+
+const isAppleIdentityTokenHeader = Schema.is(
+  Schema.Struct({ alg: Schema.Literal('RS256'), kid: Schema.String }),
+);
+
+const isAppleIdentityTokenClaims = Schema.is(
+  Schema.Struct({
+    aud: Schema.String,
+    exp: Schema.Finite,
+    iss: Schema.Literal(appleAudience),
+    sub: Schema.String,
+  }),
+);
+
+const decodeApplePublicKeySet = Schema.decodeUnknownOption(
+  Schema.Struct({ keys: Schema.Array(Schema.Unknown) }),
+);
+
+const decodeApplePublicKey = Schema.decodeUnknownOption(
+  Schema.Struct({
+    e: Schema.String,
+    kid: Schema.String,
+    kty: Schema.Literal('RSA'),
+    n: Schema.String,
+  }),
+);
+
+const decodeAppleIdentityTokenResponse = Schema.decodeUnknownOption(
+  Schema.Struct({ id_token: Schema.String }),
+);
+
+const decodeAppleRefreshTokenResponse = Schema.decodeUnknownOption(
+  Schema.Struct({ refresh_token: Schema.String }),
+);
+
+const decodeAppleErrorResponse = Schema.decodeUnknownOption(
+  Schema.Struct({ error: Schema.String }),
+);
 
 function requiredEnvironmentValue(name: string): string {
   // oxlint-disable-next-line node/no-process-env -- Convex actions read deployment env at runtime.
@@ -123,27 +168,14 @@ async function postToApple(
   }
 }
 
-function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
-  return typeof value === 'object' && value !== null;
-}
-
-function unknownArray(value: unknown): readonly unknown[] {
-  return Array.isArray(value) ? value : [];
-}
-
-// fallow-ignore-next-line complexity -- Every malformed token shape must fail closed.
-function decodedJwtPart(encoded: string): Readonly<Record<string, unknown>> {
-  try {
-    const decoded: unknown = JSON.parse(
-      Buffer.from(encoded, 'base64url').toString('utf8'),
-    );
-    if (isRecord(decoded)) {
-      return decoded;
-    }
-  } catch {
-    // Fall through to the common malformed-token error.
-  }
-  throw new Error('Apple authorization exchange failed');
+// A token part that is not a JSON object is malformed; a JSON object with the wrong claims does not match.
+function decodedJwtPart(encoded: string): object {
+  return decodeJson(Buffer.from(encoded, 'base64url').toString('utf8')).pipe(
+    Option.filter(Predicate.isObjectOrArray),
+    Option.getOrThrowWith(
+      () => new Error('Apple authorization exchange failed'),
+    ),
+  );
 }
 
 // fallow-ignore-next-line complexity -- Apple identity tokens must fail closed across signature and claim validation.
@@ -166,11 +198,9 @@ async function verifyAppleIdentityToken(
   const header = decodedJwtPart(encodedHeader);
   const claims = decodedJwtPart(encodedClaims);
   if (
-    header.alg !== 'RS256' ||
-    typeof header.kid !== 'string' ||
-    claims.iss !== appleAudience ||
+    !isAppleIdentityTokenHeader(header) ||
+    !isAppleIdentityTokenClaims(claims) ||
     claims.aud !== requiredEnvironmentValue('APPLE_BUNDLE_ID') ||
-    typeof claims.exp !== 'number' ||
     claims.exp <= Date.now() / 1000 ||
     claims.sub !== expectedSubject
   ) {
@@ -185,21 +215,14 @@ async function verifyAppleIdentityToken(
     throw retryableAppleError();
   }
   const body: unknown = response.ok ? await response.json() : undefined;
-  const keys = isRecord(body) ? unknownArray(body.keys) : [];
-  const key = keys.find(
-    // fallow-ignore-next-line complexity -- Apple signing-key selection validates every required JWK field.
-    (candidate) =>
-      isRecord(candidate) &&
-      candidate.kid === header.kid &&
-      candidate.kty === 'RSA' &&
-      typeof candidate.n === 'string' &&
-      typeof candidate.e === 'string',
-  );
-  if (
-    !isRecord(key) ||
-    typeof key.n !== 'string' ||
-    typeof key.e !== 'string'
-  ) {
+  const keys = Option.match(decodeApplePublicKeySet(body), {
+    onNone: () => [],
+    onSome: (keySet) => keySet.keys,
+  });
+  const key = keys
+    .flatMap((candidate) => Option.toArray(decodeApplePublicKey(candidate)))
+    .find((candidate) => candidate.kid === header.kid);
+  if (key === undefined) {
     throw new Error('Apple authorization exchange failed');
   }
   const publicKey = createPublicKey({
@@ -236,22 +259,22 @@ async function exchangeAuthorizationCode(
     throw new Error('Apple authorization exchange failed');
   }
   const body: unknown = await response.json();
-  if (!isRecord(body) || typeof body.id_token !== 'string') {
-    throw new Error('Apple authorization exchange failed');
-  }
-  await verifyAppleIdentityToken(body.id_token, expectedSubject);
-  if (typeof body.refresh_token === 'string') {
-    return { kind: 'refresh-token', value: body.refresh_token };
-  }
-  throw new Error('Apple authorization exchange failed');
+  const { id_token: identityToken } = Option.getOrThrowWith(
+    decodeAppleIdentityTokenResponse(body),
+    () => new Error('Apple authorization exchange failed'),
+  );
+  await verifyAppleIdentityToken(identityToken, expectedSubject);
+  const { refresh_token: refreshToken } = Option.getOrThrowWith(
+    decodeAppleRefreshTokenResponse(body),
+    () => new Error('Apple authorization exchange failed'),
+  );
+  return { kind: 'refresh-token', value: refreshToken };
 }
 
 async function appleErrorCode(response: Response): Promise<string | undefined> {
   try {
     const body: unknown = await response.json();
-    return isRecord(body) && typeof body.error === 'string'
-      ? body.error
-      : undefined;
+    return Option.getOrUndefined(decodeAppleErrorResponse(body))?.error;
   } catch {
     return undefined;
   }

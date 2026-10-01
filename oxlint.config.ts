@@ -45,11 +45,6 @@ export default buildOxlintConfig({
         },
       },
       {
-        // Convex boundaries move to Schema in #687.
-        files: ['packages/convex/**/*.ts'],
-        rules: boundaryExemptions,
-      },
-      {
         // Tests read trusted fixtures; their assertions check the shape.
         files: ['**/*.test.ts', '**/*.test.tsx'],
         rules: {

@@ -111,9 +111,17 @@ const googleIdentitySigningKey = {
 function createGoogleIdentityToken(
   emailAddress: string,
   providerAccountIdentifier: string,
+  overrides: Readonly<{
+    claims?: Readonly<Record<string, unknown>>;
+    keyId?: string;
+  }> = {},
 ): string {
   const header = Buffer.from(
-    JSON.stringify({ alg: 'RS256', kid: 'google-test-key', typ: 'JWT' }),
+    JSON.stringify({
+      alg: 'RS256',
+      kid: overrides.keyId ?? 'google-test-key',
+      typ: 'JWT',
+    }),
   ).toString('base64url');
   const claims = Buffer.from(
     JSON.stringify({
@@ -123,6 +131,7 @@ function createGoogleIdentityToken(
       exp: 4_102_444_800,
       iss: 'https://accounts.google.com',
       sub: providerAccountIdentifier,
+      ...overrides.claims,
     }),
   ).toString('base64url');
   const signingInput = `${header}.${claims}`;
@@ -3138,8 +3147,8 @@ describe('gmail push relay', () => {
     ).resolves.toStrictEqual(expect.objectContaining({ verified: true }));
   });
 
-  it('rejects mailbox ownership when the stable Google subject differs', async () => {
-    expect.assertions(3);
+  it('rejects mailbox ownership for another Google subject or a malformed proof', async () => {
+    expect.assertions(4);
 
     const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(1_784_000_000_000);
     const t = convexTest(schema, modules);
@@ -3161,16 +3170,50 @@ describe('gmail push relay', () => {
       apnsToken: 'attacker-device-token',
       trustedDeviceId: productConnection.trustedDeviceId,
     });
-    await expect(
+    const verifyVictimWatch = async (gmailIdentityToken: string) =>
       asUser.action(api.pushRelay.verifyGmailWatch, {
-        gmailIdentityToken: matchingVictimEmailIdentityToken,
-        opaqueConnectionId: opaqueConnectionIdFromIdentityToken(
-          matchingVictimEmailIdentityToken,
-        ),
+        gmailIdentityToken,
+        opaqueConnectionId:
+          opaqueConnectionIdFromIdentityToken(gmailIdentityToken),
         historyId: 'victim-history-id',
         trustedDeviceId: productConnection.trustedDeviceId,
-      }),
+      });
+    await expect(
+      verifyVictimWatch(matchingVictimEmailIdentityToken),
     ).rejects.toThrow('Gmail mailbox ownership proof rejected');
+
+    // Proofs for the registered identity that are unverified, expired or malformed fail closed.
+    const victimProof = (
+      overrides: Parameters<typeof createGoogleIdentityToken>[2],
+    ) =>
+      createGoogleIdentityToken(
+        'victim@example.com',
+        'client-asserted-id',
+        overrides,
+      );
+    const [, victimClaims, victimSignature] = victimProof({}).split('.');
+    // Only the unknown key identifier refreshes the signing keys, which arrive malformed.
+    googleSigningKeyFetch.mockResolvedValueOnce(
+      Response.json({ keys: 'not-a-key-set' }),
+    );
+    const malformedProofOutcomes = await Promise.allSettled(
+      [
+        victimProof({ claims: { email_verified: false } }),
+        victimProof({ claims: { exp: 1_783_999_999 } }),
+        `${Buffer.from('not-json').toString('base64url')}.${victimClaims}.${victimSignature}`,
+        victimProof({ keyId: 'rotated-google-key' }),
+      ].map(verifyVictimWatch),
+    );
+    expect(malformedProofOutcomes).toStrictEqual(
+      Array.from({ length: 4 }, () => ({
+        reason: expect.objectContaining({
+          message: expect.stringContaining(
+            'Gmail mailbox ownership proof rejected',
+          ),
+        }),
+        status: 'rejected',
+      })),
+    );
     nowSpy.mockReturnValue(1_784_000_600_001);
 
     await expect(
@@ -3250,7 +3293,7 @@ describe('gmail push relay', () => {
   });
 
   it('authenticates and validates the Gmail Pub/Sub HTTP ingress', async () => {
-    expect.assertions(4);
+    expect.assertions(5);
 
     vi.stubEnv('GMAIL_PUSH_VERIFICATION_TOKEN', 'push-secret');
     try {
@@ -3275,6 +3318,29 @@ describe('gmail push relay', () => {
         method: 'POST',
       });
       expect(malformed.status).toBe(400);
+
+      const malformedStatuses = await Promise.all(
+        [
+          { message: {} },
+          {
+            message: {
+              data: btoa(
+                JSON.stringify({
+                  emailAddress: 'matching@example.com',
+                  historyId: '',
+                }),
+              ),
+            },
+          },
+        ].map(async (envelope) => {
+          const response = await t.fetch('/gmail/push?token=push-secret', {
+            body: JSON.stringify(envelope),
+            method: 'POST',
+          });
+          return response.status;
+        }),
+      );
+      expect(malformedStatuses).toStrictEqual([400, 400]);
 
       const accepted = await t.fetch('/gmail/push?token=push-secret', {
         body: JSON.stringify({ message: { data: metadata } }),
@@ -3578,17 +3644,28 @@ describe('gmail push relay', () => {
         headers: { 'content-type': 'application/json' },
         method: 'POST',
       });
+      const malformedResponse = await t.fetch(pushURL, {
+        body: JSON.stringify({
+          value: [{ ...notification, clientState: 1 }],
+        }),
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
+      });
       const pendingWakeups = await t.run((ctx) =>
         ctx.db.query('microsoftGraphWakeupStates').collect(),
       );
       expect({
         pendingWakeupCount: pendingWakeups.length,
         pendingWakeupRouteId: pendingWakeups[0]?.routeId,
-        statuses: [isolatedResponse.status, oversizedResponse.status],
+        statuses: [
+          isolatedResponse.status,
+          oversizedResponse.status,
+          malformedResponse.status,
+        ],
       }).toStrictEqual({
         pendingWakeupCount: 1,
         pendingWakeupRouteId: route.routeId,
-        statuses: [202, 202],
+        statuses: [202, 202, 400],
       });
 
       apnsMock.status = 500;

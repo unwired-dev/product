@@ -3992,8 +3992,8 @@ describe('gmail operational connection registration', () => {
     ).resolves.toHaveLength(1);
   });
 
-  it('rejects an Apple identity token with an invalid signature', async () => {
-    expect.assertions(2);
+  it('rejects a malformed or invalidly signed Apple identity token', async () => {
+    expect.assertions(5);
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
@@ -4004,18 +4004,39 @@ describe('gmail operational connection registration', () => {
     const token = appleIdToken(appleIdentity.subject);
     const [header, claims] = token.split('.');
     const invalidSignature = Buffer.alloc(256).toString('base64url');
-    const invalidToken = `${header}.${claims}.${invalidSignature}`;
-    vi.mocked(fetch).mockImplementationOnce(async () =>
-      Response.json({
-        access_token: 'apple-access-token',
-        id_token: invalidToken,
-        token_type: 'Bearer',
-      }),
-    );
+    const fetchMock = vi.mocked(fetch);
+    const deleteWithAppleTokenResponse = async (body: unknown) => {
+      fetchMock.mockImplementationOnce(async () => Response.json(body));
+      return asUser.action(api.productAccountDeletion.deleteProductAccount, {
+        authorizationCode: 'malformed-authorization-code',
+        trustedDeviceId: currentDevice.trustedDeviceId,
+      });
+    };
 
     await expect(
+      deleteWithAppleTokenResponse({
+        access_token: 'apple-access-token',
+        id_token: `${header}.${claims}.${invalidSignature}`,
+        token_type: 'Bearer',
+      }),
+    ).rejects.toThrow('Apple authorization exchange failed');
+    await expect(
+      deleteWithAppleTokenResponse({
+        id_token: `${header}.${Buffer.from('null').toString('base64url')}.${invalidSignature}`,
+        refresh_token: 'apple-refresh-token',
+      }),
+    ).rejects.toThrow('Apple authorization exchange failed');
+    await expect(
+      deleteWithAppleTokenResponse({ refresh_token: 'apple-refresh-token' }),
+    ).rejects.toThrow('Apple authorization exchange failed');
+    // Apple publishes no usable RSA key for the token's key identifier.
+    fetchMock.mockImplementationOnce(async () => appleTokenResponse());
+    fetchMock.mockImplementationOnce(async () =>
+      Response.json({ keys: [{ ...appleIdentitySigningKey, kty: 'EC' }] }),
+    );
+    await expect(
       asUser.action(api.productAccountDeletion.deleteProductAccount, {
-        authorizationCode: 'invalid-signature-authorization-code',
+        authorizationCode: 'unverifiable-authorization-code',
         trustedDeviceId: currentDevice.trustedDeviceId,
       }),
     ).rejects.toThrow('Apple authorization exchange failed');

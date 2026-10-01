@@ -554,17 +554,38 @@ describe('productSync encrypted payloads', () => {
       headers: { 'content-type': 'application/json' },
       method: 'POST',
     });
-    const staleToken = await asUser.fetch('/product-sync/recovery-material', {
-      body,
-      headers: {
-        authorization: `Bearer ${appleIdentityToken(Math.floor(Date.now() / 1000) - 301)}`,
-        'content-type': 'application/json',
-      },
-      method: 'POST',
-    });
+    const [header, recentClaims, signature] = appleIdentityToken(
+      Math.floor(Date.now() / 1000),
+    ).split('.');
+    const encodeClaims = (claims: unknown) =>
+      Buffer.from(JSON.stringify(claims), 'utf8').toString('base64url');
+    const rejectedTokens = [
+      appleIdentityToken(Math.floor(Date.now() / 1000) - 301),
+      `${header}.${Buffer.from('not-json').toString('base64url')}.${signature}`,
+      `${header}.${encodeClaims([recentClaims])}.${signature}`,
+      `${header}.${encodeClaims({
+        iat: String(Math.floor(Date.now() / 1000)),
+        iss: appleIdentity.issuer,
+        sub: appleIdentity.subject,
+      })}.${signature}`,
+    ];
+    const rejectedStatuses = await Promise.all(
+      rejectedTokens.map(async (token) => {
+        const response = await asUser.fetch('/product-sync/recovery-material', {
+          body,
+          headers: {
+            authorization: `Bearer ${token}`,
+            'content-type': 'application/json',
+          },
+          method: 'POST',
+        });
+        return response.status;
+      }),
+    );
 
     expect(missingToken.status).toBe(401);
-    expect(staleToken.status).toBe(401);
+    // Stale, non-JSON, non-object and non-numeric issued-at claims all fail closed.
+    expect(rejectedStatuses).toStrictEqual([401, 401, 401, 401]);
   });
 
   it('accepts small Apple authentication clock skew', async () => {

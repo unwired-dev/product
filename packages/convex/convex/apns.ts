@@ -7,6 +7,9 @@ import { once } from 'node:events';
 import { connect } from 'node:http2';
 
 import { v } from 'convex/values';
+import * as Option from 'effect/Option';
+import * as Predicate from 'effect/Predicate';
+import * as Schema from 'effect/Schema';
 
 import type { Id } from './_generated/dataModel.js';
 import type { ActionCtx } from './_generated/server.js';
@@ -64,15 +67,14 @@ type ScheduledSendWakeupPage = Readonly<{
   recipients: readonly ScheduledSendWakeupRecipient[];
 }>;
 
-class ApnsRequestError extends Error {
-  public readonly status: number;
+class ApnsRequestError extends Schema.TaggedError<ApnsRequestError>()(
+  'ApnsRequestError',
+  { message: Schema.String, status: Schema.Finite },
+) {}
 
-  public constructor(status: number, responseBody: string) {
-    super(`APNs request failed (${status}): ${responseBody}`);
-    this.name = 'ApnsRequestError';
-    this.status = status;
-  }
-}
+const decodeApnsResponseStatus = Schema.decodeUnknownOption(
+  Schema.Struct({ ':status': Schema.Finite }),
+);
 
 function requiredEnvironmentValue(name: string): string {
   // oxlint-disable-next-line node/no-process-env -- Convex actions read deployment env at runtime.
@@ -138,7 +140,10 @@ async function sendWakeup(
     // oxlint-disable-next-line eslint/no-use-before-define -- Function declarations are hoisted.
     const status = apnsResponseStatus(rawHeaders);
     if (status !== 200) {
-      throw new ApnsRequestError(status, responseBody);
+      throw new ApnsRequestError({
+        message: `APNs request failed (${status}): ${responseBody}`,
+        status,
+      });
     }
   } finally {
     clearTimeout(timeout);
@@ -192,7 +197,7 @@ function firstApnsResponseArgument(responseArguments: unknown): unknown {
 }
 
 function validateApnsResponseHeaders(rawHeaders: unknown): object {
-  if (typeof rawHeaders !== 'object' || rawHeaders === null) {
+  if (!Predicate.isObjectOrArray(rawHeaders)) {
     throw new TypeError('Invalid APNs response headers');
   }
   return rawHeaders;
@@ -232,8 +237,10 @@ async function apnsResponseBody(
 }
 
 function apnsResponseStatus(headers: object): number {
-  const rawStatus: unknown = Reflect.get(headers, ':status');
-  return typeof rawStatus === 'number' ? rawStatus : 0;
+  return Option.match(decodeApnsResponseStatus(headers), {
+    onNone: () => 0,
+    onSome: (decoded) => decoded[':status'],
+  });
 }
 
 function isStaleTokenFailure(

@@ -1,7 +1,7 @@
-import type { EncryptedProductSyncPayloadBody } from '@private-email/contracts/productSync';
-
 import { httpRouter } from 'convex/server';
 import { ConvexError } from 'convex/values';
+import * as Option from 'effect/Option';
+import * as Schema from 'effect/Schema';
 
 import type { ActionCtx } from './_generated/server.js';
 
@@ -18,23 +18,53 @@ const maxMicrosoftGraphNotificationsPerRequest = 100;
 const recentAuthenticationMaximumAgeSeconds = 5 * 60;
 const recentAuthenticationClockSkewSeconds = 5;
 
-type RecoveryMaterialRequest = Readonly<{
-  encryptedPayload: EncryptedProductSyncPayloadBody;
-  expectedUpdatedAt?: number;
-  trustedDeviceCredential?: string;
-  trustedDeviceId: string;
-}>;
+const RecentAuthenticationClaimsSchema = Schema.Struct({
+  iat: Schema.Finite,
+  iss: Schema.String,
+  sub: Schema.String,
+});
+type RecentAuthenticationClaims = typeof RecentAuthenticationClaimsSchema.Type;
+const decodeRecentAuthenticationClaims = Schema.decodeUnknownOption(
+  Schema.fromJsonString(RecentAuthenticationClaimsSchema),
+);
 
-type MicrosoftGraphNotification = Readonly<{
-  clientState: string;
-  subscriptionId: string;
-}>;
+// Numbers keep the receiving mutation's v.number() domain, which admits non-finite values.
+const decodeRecoveryMaterialRequest = Schema.decodeUnknownOption(
+  Schema.Struct({
+    encryptedPayload: Schema.Struct({
+      algorithm: Schema.Literal('AES-GCM-256'),
+      ciphertextBase64: Schema.String,
+      keyVersion: Schema.Number, // oxlint-disable-line effecttsgo/schema-number -- Matches v.number().
+      nonceBase64: Schema.String,
+      schemaVersion: Schema.Number, // oxlint-disable-line effecttsgo/schema-number -- Matches v.number().
+      tagBase64: Schema.String,
+    }),
+    expectedUpdatedAt: Schema.optionalKey(Schema.Number), // oxlint-disable-line effecttsgo/schema-number -- Matches v.number().
+    trustedDeviceCredential: Schema.optionalKey(Schema.String),
+    trustedDeviceId: Schema.String,
+  }),
+);
 
-function isUnknownRecord(
-  value: unknown,
-): value is Readonly<Record<string, unknown>> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
+const isTrustedDeviceAccessFailure = Schema.is(
+  Schema.Struct({
+    code: Schema.Literals([
+      trustedDeviceRevokedErrorCode,
+      trustedDeviceReconnectRequiredErrorCode,
+    ]),
+  }),
+);
+
+const MicrosoftGraphNotificationSchema = Schema.Struct({
+  clientState: Schema.String,
+  subscriptionId: Schema.String,
+});
+type MicrosoftGraphNotification = typeof MicrosoftGraphNotificationSchema.Type;
+const decodeMicrosoftGraphNotification = Schema.decodeUnknownOption(
+  MicrosoftGraphNotificationSchema,
+);
+const decodeMicrosoftGraphNotificationBatch = Schema.decodeUnknownOption(
+  Schema.Struct({ value: Schema.Array(Schema.Unknown) }),
+);
 
 function decodeBase64Url(value: string): string | null {
   try {
@@ -67,38 +97,23 @@ function bearerToken(
     : null;
 }
 
-// fallow-ignore-next-line complexity -- Token parsing keeps malformed claims on the unauthorized path.
 function appleIdentityTokenClaims(
   identityToken: string,
-): Readonly<Record<string, unknown>> | null {
+): RecentAuthenticationClaims | null {
   const segments = identityToken.split('.');
   const claimsSegment = segments.length === 3 ? segments[1] : undefined;
-  if (claimsSegment === undefined) {
-    return null;
-  }
-  const claimsJSON = decodeBase64Url(claimsSegment);
-  if (claimsJSON === null) {
-    return null;
-  }
-  try {
-    const claims: unknown = JSON.parse(claimsJSON);
-    return isUnknownRecord(claims) ? claims : null;
-  } catch {
-    return null;
-  }
+  const claimsJSON =
+    claimsSegment === undefined ? null : decodeBase64Url(claimsSegment);
+  return claimsJSON === null
+    ? null
+    : Option.getOrNull(decodeRecentAuthenticationClaims(claimsJSON));
 }
 
-// fallow-ignore-next-line complexity -- Every identity and freshness condition is required for authorization.
 function recentlyIssuedForIdentity(
-  claims: Readonly<Record<string, unknown>>,
+  claims: RecentAuthenticationClaims,
   identity: Readonly<{ issuer: string; subject: string }>,
 ): boolean {
-  if (
-    claims.iss !== identity.issuer ||
-    claims.sub !== identity.subject ||
-    typeof claims.iat !== 'number' ||
-    !Number.isFinite(claims.iat)
-  ) {
+  if (claims.iss !== identity.issuer || claims.sub !== identity.subject) {
     return false;
   }
   const now = Math.floor(Date.now() / 1000);
@@ -106,44 +121,6 @@ function recentlyIssuedForIdentity(
     claims.iat <= now + recentAuthenticationClockSkewSeconds &&
     now - claims.iat <= recentAuthenticationMaximumAgeSeconds
   );
-}
-
-// fallow-ignore-next-line complexity -- Recovery material is validated field-by-field before entering Convex.
-function decodeRecoveryMaterialRequest(
-  value: unknown,
-): RecoveryMaterialRequest | null {
-  if (!isUnknownRecord(value) || !isUnknownRecord(value.encryptedPayload)) {
-    return null;
-  }
-  const { encryptedPayload } = value;
-  if (
-    encryptedPayload.algorithm !== 'AES-GCM-256' ||
-    typeof encryptedPayload.ciphertextBase64 !== 'string' ||
-    typeof encryptedPayload.keyVersion !== 'number' ||
-    typeof encryptedPayload.nonceBase64 !== 'string' ||
-    typeof encryptedPayload.schemaVersion !== 'number' ||
-    typeof encryptedPayload.tagBase64 !== 'string' ||
-    typeof value.trustedDeviceId !== 'string' ||
-    (value.trustedDeviceCredential !== undefined &&
-      typeof value.trustedDeviceCredential !== 'string') ||
-    (value.expectedUpdatedAt !== undefined &&
-      typeof value.expectedUpdatedAt !== 'number')
-  ) {
-    return null;
-  }
-  return {
-    encryptedPayload: {
-      algorithm: encryptedPayload.algorithm,
-      ciphertextBase64: encryptedPayload.ciphertextBase64,
-      keyVersion: encryptedPayload.keyVersion,
-      nonceBase64: encryptedPayload.nonceBase64,
-      schemaVersion: encryptedPayload.schemaVersion,
-      tagBase64: encryptedPayload.tagBase64,
-    },
-    expectedUpdatedAt: value.expectedUpdatedAt,
-    trustedDeviceCredential: value.trustedDeviceCredential,
-    trustedDeviceId: value.trustedDeviceId,
-  };
 }
 
 // fallow-ignore-next-line complexity -- Authentication and payload failures intentionally remain distinct responses.
@@ -163,10 +140,11 @@ async function replaceRecoveryMaterialResponse(
   }
 
   const body: unknown = await request.json().catch(() => null);
-  const args = decodeRecoveryMaterialRequest(body);
-  if (args === null) {
+  const decoded = decodeRecoveryMaterialRequest(body);
+  if (Option.isNone(decoded)) {
     return new Response('Invalid Recovery Key material', { status: 400 });
   }
+  const args = decoded.value;
 
   try {
     const payload = await ctx.runMutation(
@@ -175,13 +153,10 @@ async function replaceRecoveryMaterialResponse(
     );
     return Response.json(payload);
   } catch (error) {
-    if (
-      error instanceof ConvexError &&
-      isUnknownRecord(error.data) &&
-      (error.data.code === trustedDeviceRevokedErrorCode ||
-        error.data.code === trustedDeviceReconnectRequiredErrorCode)
-    ) {
-      return Response.json({ code: error.data.code }, { status: 403 });
+    const failure: unknown =
+      error instanceof ConvexError ? error.data : undefined;
+    if (isTrustedDeviceAccessFailure(failure)) {
+      return Response.json({ code: failure.code }, { status: 403 });
     }
     if (
       error instanceof Error &&
@@ -219,28 +194,17 @@ function hasValidVerificationToken(
 function microsoftGraphNotifications(
   value: unknown,
 ): MicrosoftGraphNotification[] {
-  if (!isUnknownRecord(value) || !Array.isArray(value.value)) {
-    return [];
-  }
-  const candidates: unknown[] = value.value.slice(
-    0,
-    maxMicrosoftGraphNotificationsPerRequest,
+  const candidates = Option.match(
+    decodeMicrosoftGraphNotificationBatch(value),
+    {
+      onNone: () => [],
+      onSome: (batch) =>
+        batch.value.slice(0, maxMicrosoftGraphNotificationsPerRequest),
+    },
   );
-  return candidates.flatMap((candidate) => {
-    if (
-      !isUnknownRecord(candidate) ||
-      typeof candidate.clientState !== 'string' ||
-      typeof candidate.subscriptionId !== 'string'
-    ) {
-      return [];
-    }
-    return [
-      {
-        clientState: candidate.clientState,
-        subscriptionId: candidate.subscriptionId,
-      },
-    ];
-  });
+  return candidates.flatMap((candidate) =>
+    Option.toArray(decodeMicrosoftGraphNotification(candidate)),
+  );
 }
 
 async function sha256Hex(value: string): Promise<string> {
