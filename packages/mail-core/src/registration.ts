@@ -3,7 +3,11 @@ import * as Option from 'effect/Option';
 import * as Schema from 'effect/Schema';
 import * as Semaphore from 'effect/Semaphore';
 
-import { decodeDiagnostic, rejectionDiagnostic } from './diagnostics.ts';
+import {
+  decodeDiagnostic,
+  rejectionDiagnostic,
+  runLogged,
+} from './diagnostics.ts';
 
 const SignInProviderSchema = Schema.Literals(['google', 'apple']);
 export type SignInProvider = typeof SignInProviderSchema.Type;
@@ -159,7 +163,7 @@ export function createRegistration(native: NativeRegistration) {
       failed: true,
     }),
   ) =>
-    Effect.runPromise(
+    runLogged(
       Effect.sync(() => {
         publish({ snapshot: state.snapshot, busy: true, failed: false });
       }).pipe(

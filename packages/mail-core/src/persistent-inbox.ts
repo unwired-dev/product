@@ -2,7 +2,11 @@ import * as Effect from 'effect/Effect';
 import * as Schema from 'effect/Schema';
 import * as Semaphore from 'effect/Semaphore';
 
-import { decodeDiagnostic, rejectionDiagnostic } from './diagnostics.ts';
+import {
+  decodeDiagnostic,
+  rejectionDiagnostic,
+  runLogged,
+} from './diagnostics.ts';
 import { fixtureMessages, MessageSchema } from './index.ts';
 
 const Snapshot = Schema.Struct({
@@ -86,7 +90,7 @@ export function createPersistentInbox(
     }
   };
   const execute = (operation: () => Promise<unknown>) =>
-    Effect.runPromise(
+    runLogged(
       synchronize(operation).pipe(
         Effect.flatMap((next) =>
           Effect.sync(() => {
