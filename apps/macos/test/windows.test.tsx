@@ -4,7 +4,8 @@ import { createMockMailSession } from '@private-email/mail-core/testing/mock-ses
 import { fireEvent, renderAsync, within } from '@testing-library/react-native';
 import { View } from 'react-native';
 
-import { inbox } from '../src/private-storage.ts';
+import type { inbox } from '../src/private-storage.ts';
+
 import { PreviewWindow as InboxWindow } from '../src/window.tsx';
 
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Jest's host adapter boundary.
@@ -52,11 +53,6 @@ describe('mac window selection with the shared mock mailbox', () => {
         createMockMailSession('open-read-relaunch').mail.list,
       ),
     );
-  });
-
-  // oxlint-disable-next-line vitest/no-hooks -- Dispose each test's application runtime after cleanup.
-  afterEach(async () => {
-    await inbox.dispose();
   });
 
   it('keeps selections independent and preserves the remaining window when another closes', async () => {

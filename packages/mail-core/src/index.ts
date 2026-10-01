@@ -1,7 +1,3 @@
-import * as Context from 'effect/Context';
-import * as Data from 'effect/Data';
-import * as Effect from 'effect/Effect';
-import * as Layer from 'effect/Layer';
 import * as Schema from 'effect/Schema';
 
 export const MessageSchema = Schema.Struct({
@@ -16,18 +12,6 @@ export const MessageSchema = Schema.Struct({
 });
 
 export type Message = typeof MessageSchema.Type;
-
-export class MessageNotFound extends Data.TaggedError('MessageNotFound')<{
-  readonly id: string;
-}> {}
-
-export class Mailbox extends Context.Service<
-  Mailbox,
-  {
-    readonly list: Effect.Effect<readonly Message[]>;
-    readonly find: (id: string) => Effect.Effect<Message, MessageNotFound>;
-  }
->()('@private-email/mail-core/Mailbox') {}
 
 export const fixtureMessages: readonly Message[] = [
   {
@@ -71,24 +55,3 @@ export const fixtureMessages: readonly Message[] = [
     unread: false,
   },
 ];
-
-export const MockMailbox = Layer.succeed(Mailbox, {
-  list: Effect.succeed(fixtureMessages),
-  find: Effect.fn('MockMailbox.find')(function* (id: string) {
-    const message = fixtureMessages.find((candidate) => candidate.id === id);
-    if (message === undefined) {
-      return yield* new MessageNotFound({ id });
-    }
-    return message;
-  }),
-});
-
-export const listInbox = Effect.gen(function* () {
-  const mailbox = yield* Mailbox;
-  return yield* mailbox.list;
-});
-
-export const readMessage = Effect.fn('readMessage')(function* (id: string) {
-  const mailbox = yield* Mailbox;
-  return yield* mailbox.find(id);
-});

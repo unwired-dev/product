@@ -65,10 +65,10 @@ before release. Legacy Swift checks are outside the maintained CI scope.
   [repository policy](docs/agents/pull-request-babysitting.md).
 - Report verification results and unavailable checks accurately.
 
-## Learning more about Effect
+## Effect
 
-This repository uses the Effect TypeScript library.
-Before writing any Effect code, first read `node_modules/effect/AGENTS.md`
-**completely**, and follow the links in the file when required.
-If you need to learn more about particular Effect APIs and concepts that the
-guide does not cover, search through source in `node_modules/effect/src`.
+Before writing or reviewing TypeScript, read the
+[Effect conventions](docs/agents/effect.md): where Effect is required, and how
+boundaries, errors, services and runtimes are written. Before writing Effect code,
+read `node_modules/effect/AGENTS.md` **completely** and follow its links; search
+`node_modules/effect/src` for APIs the guides do not cover.

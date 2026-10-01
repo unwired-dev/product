@@ -8,48 +8,40 @@ describe('isolated synthetic providers', () => {
     const session = createMockMailSession('open-read-relaunch');
     const boundary = makeMockInboxStorage();
     const first = createPersistentInbox(boundary, session.mail.list);
-    try {
-      await first.load();
-      expect(first.getSnapshot()).toMatchObject({
-        kind: 'ready',
-        messages: expect.arrayContaining([
-          expect.objectContaining({ id: 'studio-review', unread: true }),
-        ]),
-      });
-      await first.setUnread('studio-review', false);
-    } finally {
-      await first.dispose();
-    }
+    await first.load();
+    expect(first.getSnapshot()).toMatchObject({
+      kind: 'ready',
+      messages: expect.arrayContaining([
+        expect.objectContaining({ id: 'studio-review', unread: true }),
+      ]),
+    });
+    await first.setUnread('studio-review', false);
     const relaunched = createPersistentInbox(boundary, session.mail.list);
     const isolated = createPersistentInbox(
       makeMockInboxStorage(),
       session.mail.list,
     );
-    try {
-      await Promise.all([relaunched.load(), isolated.load()]);
-      expect(relaunched.getSnapshot()).toMatchObject({
-        kind: 'ready',
-        messages: expect.arrayContaining([
-          expect.objectContaining({ id: 'studio-review', unread: false }),
-        ]),
-      });
-      expect(isolated.getSnapshot()).toMatchObject({
-        kind: 'ready',
-        messages: expect.arrayContaining([
-          expect.objectContaining({ id: 'studio-review', unread: true }),
-        ]),
-      });
-      await expect(session.identity.signIn()).resolves.toStrictEqual({
-        kind: 'synthetic',
-        account: 'mock-product-account',
-        address: 'alex@example.invalid',
-      });
-      await expect(session.assistance.summarize()).resolves.toBe(
-        'Synthetic summary: a studio review and a weekend walk.',
-      );
-    } finally {
-      await Promise.all([relaunched.dispose(), isolated.dispose()]);
-    }
+    await Promise.all([relaunched.load(), isolated.load()]);
+    expect(relaunched.getSnapshot()).toMatchObject({
+      kind: 'ready',
+      messages: expect.arrayContaining([
+        expect.objectContaining({ id: 'studio-review', unread: false }),
+      ]),
+    });
+    expect(isolated.getSnapshot()).toMatchObject({
+      kind: 'ready',
+      messages: expect.arrayContaining([
+        expect.objectContaining({ id: 'studio-review', unread: true }),
+      ]),
+    });
+    await expect(session.identity.signIn()).resolves.toStrictEqual({
+      kind: 'synthetic',
+      account: 'mock-product-account',
+      address: 'alex@example.invalid',
+    });
+    await expect(session.assistance.summarize()).resolves.toBe(
+      'Synthetic summary: a studio review and a weekend walk.',
+    );
   });
 
   it.each(['identity-unavailable', 'mail-unavailable'])(
@@ -61,12 +53,8 @@ describe('isolated synthetic providers', () => {
         makeMockInboxStorage(),
         session.mail.list,
       );
-      try {
-        await inbox.load();
-        expect(inbox.getSnapshot()).toStrictEqual({ kind: 'failed' });
-      } finally {
-        await inbox.dispose();
-      }
+      await inbox.load();
+      expect(inbox.getSnapshot()).toStrictEqual({ kind: 'failed' });
     },
   );
 

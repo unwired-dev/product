@@ -39,8 +39,8 @@ a permanently lost key. There is no reset or key-export API in the app.
 A native file lock covers each read-modify-write operation, including first
 initialization. Each mutation reloads the latest ciphertext and changes only the
 requested message. Independent windows or native store instances therefore cannot
-overwrite completed changes using an older snapshot. The application-scoped
-Effect runtime serializes operations and publishes updates to all mounted views.
+overwrite completed changes using an older snapshot. The shared store
+serializes operations with an Effect semaphore and publishes updates to all mounted views.
 An error never falls back to an in-memory Inbox.
 
 `SyntheticCredential` owns a separate Keychain service and lifecycle. It creates

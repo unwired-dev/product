@@ -25,7 +25,7 @@ proportionate execution and maintenance cost.
   because a function, class or file exists.
 
 For the Expo Inbox, a component integration test can select a message through
-the real mailbox service and verify the displayed detail or unavailable route.
+the real Persistent Inbox store and verify the displayed detail or unavailable route.
 The native E2E runner verifies packaged launch, message selection and back
 navigation. A rendered component test is not a native E2E test.
 

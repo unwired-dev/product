@@ -46,11 +46,6 @@ describe('preview Inbox', () => {
     );
   });
 
-  // oxlint-disable-next-line vitest/no-hooks -- Dispose each test's application runtime after cleanup.
-  afterEach(async () => {
-    await inbox.dispose();
-  });
-
   it('opens the activated message and exposes its selected state', async () => {
     expect.hasAssertions();
     await render(<InboxJourney />);
@@ -133,23 +128,17 @@ describe('preview Inbox', () => {
       ...storage,
       open: () => currentOpen(),
     });
-    try {
-      await render(
-        <InboxProvider store={store}>
-          <MessageDetail id="studio-review" />
-        </InboxProvider>,
-      );
-      await expect(screen.findByRole('alert')).resolves.toHaveTextContent(
-        /Private storage is locked/u,
-      );
-      expect(screen.queryByText('maya@example.com')).toBeNull();
-      currentOpen = () => storage.open('[]');
-      await fireEvent.press(screen.getByRole('button', { name: 'Try again' }));
-      await expect(
-        screen.findByText('maya@example.com'),
-      ).resolves.toBeVisible();
-    } finally {
-      await store.dispose();
-    }
+    await render(
+      <InboxProvider store={store}>
+        <MessageDetail id="studio-review" />
+      </InboxProvider>,
+    );
+    await expect(screen.findByRole('alert')).resolves.toHaveTextContent(
+      /Private storage is locked/u,
+    );
+    expect(screen.queryByText('maya@example.com')).toBeNull();
+    currentOpen = () => storage.open('[]');
+    await fireEvent.press(screen.getByRole('button', { name: 'Try again' }));
+    await expect(screen.findByText('maya@example.com')).resolves.toBeVisible();
   });
 });

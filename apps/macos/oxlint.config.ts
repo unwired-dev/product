@@ -1,6 +1,11 @@
 import * as EffectPresets from '@effect/tsgo/oxlint-presets';
 import { buildOxlintConfig } from '@rajzik/oxlint-config';
 
+import {
+  boundaryRules,
+  effectRules,
+} from '../../scripts/oxlint-effect-policy.ts';
+
 export default buildOxlintConfig({
   react: true,
   overrides: {
@@ -9,19 +14,18 @@ export default buildOxlintConfig({
         name: 'effect-imports',
         specifier: '../../scripts/oxlint-effect-imports.mjs',
       },
+      {
+        name: 'effect-boundaries',
+        specifier: '../../scripts/oxlint-effect-boundaries.mjs',
+      },
     ],
     extends: [EffectPresets.recommended],
     ignorePatterns: ['macos/**', 'dist/**'],
     rules: {
       'effect-imports/namespace-imports': 'deny',
       'import/no-namespace': ['warn', { ignore: ['effect/**', '@effect/**'] }],
-      // The shared config enables all categories; select Effect rule sets explicitly.
-      ...Object.fromEntries(
-        Object.values(EffectPresets.presets).flatMap((preset) =>
-          Object.keys(preset.rules ?? {}).map((rule) => [rule, 'allow']),
-        ),
-      ),
-      ...EffectPresets.recommended.rules,
+      ...effectRules,
+      ...boundaryRules,
       'eslint/one-var': 'allow',
       'react/forbid-component-props': 'allow',
       'react/jsx-no-literals': 'allow',
