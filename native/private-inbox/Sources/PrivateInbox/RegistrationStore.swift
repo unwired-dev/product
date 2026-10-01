@@ -4,6 +4,8 @@ enum RegistrationError: Error {
   case cancelled, declined, gmailUnavailable, invalidIdentity, unavailable
   // Linking: the identity belongs to another Product Account, or a sign-in is no longer recent.
   case identityOwned, staleAuthentication
+  // The entry does not match the end of the Recovery Key shown for setup.
+  case recoveryKeyMismatch
 }
 
 enum SignInProvider: String, Codable {
@@ -49,6 +51,8 @@ struct ProductRegistrationReceipt: Codable {
   let trustedDeviceCredential: String
   // Every Sign-In Provider that opens the Product Account; absent in records before linking.
   var signInProviders: [SignInProvider]? = nil
+  // As reported by the latest connect; absent means unknown and never permits creating keys.
+  var productSyncMaterialInitialized: Bool? = nil
 }
 
 struct SignInLinkRequest {
@@ -108,11 +112,16 @@ struct SavedRegistration: Codable {
     (ProductSignInIdentity, String, ProductRegistrationReceipt?) async throws ->
       ProductRegistrationReceipt
   let linking: SignInLinking?
+  let productSync: ProductSyncBackend?
+  // The latest verified Product Sign-In in this process; Apple tokens cannot be renewed silently.
+  var session: ProductSignInIdentity?
+  // Mailbox descriptors last read back and decrypted from Product Sync, by Product Account.
+  var syncedMailboxes: [String: [String]] = [:]
 
   init(
     keys: DeviceKeychain, deployment: String, clientID: String,
     provider: any GoogleRegistrationProvider, apple: (any AppleRegistrationProvider)? = nil,
-    linking: SignInLinking? = nil,
+    linking: SignInLinking? = nil, productSync: ProductSyncBackend? = nil,
     connect:
       @escaping (ProductSignInIdentity, String, ProductRegistrationReceipt?) async throws ->
       ProductRegistrationReceipt
@@ -123,6 +132,7 @@ struct SavedRegistration: Codable {
     self.provider = provider
     self.apple = apple
     self.linking = linking
+    self.productSync = productSync
     self.connect = connect
   }
 
@@ -150,7 +160,7 @@ struct SavedRegistration: Codable {
     if let alternate = product.signInProviders?.first(where: { $0 != saved.provider }) {
       result["alternateSignIn"] = alternate.rawValue
     }
-    return result
+    return try result.merging(privateSync(saved)) { $1 }
   }
 
   func pending(_ saved: SavedRegistration) throws -> [String: String] {
@@ -184,7 +194,8 @@ struct SavedRegistration: Codable {
     }
     next.product = product
     try save(next)
-    return next
+    session = identity
+    return await synchronize(next)
   }
 
   func appleProvider() throws -> any AppleRegistrationProvider {
@@ -252,7 +263,8 @@ struct SavedRegistration: Codable {
     if let email = identity.contactEmail { next.contactEmail = email }
     next.product = product
     try save(next)
-    return next
+    session = identity
+    return await synchronize(next)
   }
 
   // Verifies the current Product Account and then the identity being linked, both interactively.
@@ -328,7 +340,7 @@ struct SavedRegistration: Codable {
       next.mailbox = receipt
       next.mailboxSetupReason = nil
       try save(next)
-      return try connected(next)
+      return try await connected(synchronize(next))
     } catch {
       // Cached consent is never proof of currently usable Gmail access.
       return try failure(next, reason: "gmail-unavailable")
@@ -371,7 +383,7 @@ struct SavedRegistration: Codable {
       next.mailbox = receipt
       next.mailboxSetupReason = nil
       try save(next)
-      return try connected(next)
+      return try await connected(synchronize(next))
     } catch {
       // A failed reselection keeps the connected mailbox; the host reports the rejection.
       if reselect, next.mailbox != nil, next.mailboxSetupReason == nil { throw error }

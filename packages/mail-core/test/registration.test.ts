@@ -1,11 +1,20 @@
 import { createRegistration } from '../src/registration.ts';
-import { createMockRegistrationSession } from '../src/testing/registration-session.ts';
+import {
+  createMockRegistrationSession,
+  syntheticRecoveryKey,
+} from '../src/testing/registration-session.ts';
 
+// A new Product Account presents its Recovery Key until setup is confirmed.
+const unconfirmed = {
+  privateSync: 'recovery-key',
+  recoveryKey: syntheticRecoveryKey,
+} as const;
 const accounts = {
-  google: { productAccountId: 'synthetic-product-account' },
+  google: { productAccountId: 'synthetic-product-account', ...unconfirmed },
   apple: {
     productAccountId: 'synthetic-apple-product-account',
     contactEmail: 'relay@privaterelay.example.invalid',
+    ...unconfirmed,
   },
 } as const;
 
@@ -46,6 +55,7 @@ describe('product registration', () => {
         ...accounts[provider],
         providerSubject: 'synthetic-alternate-google-subject',
         address: 'other@example.invalid',
+        privateSyncMailboxes: 'other@example.invalid',
       });
     },
   );
@@ -112,8 +122,9 @@ describe('product registration', () => {
     expect(store.getSnapshot()).toStrictEqual({
       snapshot: {
         kind: 'mailbox-needed',
-        productAccountId: 'synthetic-product-account',
+        ...accounts.google,
         signInProvider: 'google',
+        privateSyncMailboxes: 'alex@example.invalid',
       },
       busy: false,
       failed: true,
@@ -163,6 +174,7 @@ describe('product registration', () => {
       alternateSignIn: 'google',
       providerSubject: 'synthetic-google-subject',
       address: 'alex@example.invalid',
+      privateSyncMailboxes: 'alex@example.invalid',
     };
     expect(store.getSnapshot()).toStrictEqual({
       snapshot: linked,
@@ -177,6 +189,40 @@ describe('product registration', () => {
       ...linked,
       signInProvider: 'google',
       alternateSignIn: 'apple',
+    });
+  });
+
+  it('keeps presenting the Recovery Key until the person confirms its final group', async () => {
+    expect.hasAssertions();
+    const session = createMockRegistrationSession('registration-success');
+    const store = createRegistration(session.native);
+    await store.register('google');
+    const presented = store.getSnapshot().snapshot;
+    await store.confirmRecoveryKey('0000');
+    expect(store.getSnapshot()).toStrictEqual({
+      snapshot: presented,
+      busy: false,
+      failed: false,
+      recoveryKeyFailure: 'mismatch',
+    });
+    const relaunched = createRegistration(session.native);
+    await relaunched.restore();
+    expect(relaunched.getSnapshot().snapshot).toStrictEqual(presented);
+    await relaunched.confirmRecoveryKey(
+      syntheticRecoveryKey.slice(-4).toLowerCase(),
+    );
+    expect(relaunched.getSnapshot()).toStrictEqual({
+      snapshot: {
+        kind: 'connected',
+        productAccountId: 'synthetic-product-account',
+        signInProvider: 'google',
+        privateSync: 'ready',
+        providerSubject: 'synthetic-google-subject',
+        address: 'alex@example.invalid',
+        privateSyncMailboxes: 'alex@example.invalid',
+      },
+      busy: false,
+      failed: false,
     });
   });
 

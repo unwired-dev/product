@@ -5,12 +5,14 @@ import {
   encryptedProductSyncPayloadListResponseValidator,
   encryptedProductSyncPayloadValidator,
   maybeEncryptedProductSyncPayloadValidator,
+  productSyncInitializationResponseValidator,
 } from '@private-email/contracts/productSync';
 import { paginationOptsValidator } from 'convex/server';
 import { v } from 'convex/values';
 
 import type { Doc, Id } from './_generated/dataModel.js';
 import type { MutationCtx, QueryCtx } from './_generated/server.js';
+import type { AuthenticatedProductAccount } from './productAccountAuth.js';
 
 import { internalMutation, mutation, query } from './_generated/server.js';
 import {
@@ -153,6 +155,92 @@ export const putEncryptedPayloadIfUnchanged = mutation({
     return writeEncryptedPayloadIfUnchanged(ctx, args);
   },
   returns: encryptedProductSyncPayloadValidator,
+});
+
+const encryptedPayloadFields = [
+  'algorithm',
+  'ciphertextBase64',
+  'keyVersion',
+  'nonceBase64',
+  'schemaVersion',
+  'tagBase64',
+] as const;
+
+function sameEncryptedPayload(
+  stored: EncryptedProductSyncPayload['encryptedPayload'],
+  presented: EncryptedProductSyncPayload['encryptedPayload'],
+): boolean {
+  return encryptedPayloadFields.every(
+    (field) => stored[field] === presented[field],
+  );
+}
+
+// Repeating the winning publication is idempotent; other material is never replaced here.
+async function adoptPublishedRecoveryMaterial(
+  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
+  account: AuthenticatedProductAccount, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- The alias is deeply readonly.
+  material: Readonly<{
+    existing: EncryptedProductSyncPayload['encryptedPayload'];
+    presented: EncryptedProductSyncPayload['encryptedPayload'];
+  }>,
+): Promise<boolean> {
+  const initialized = sameEncryptedPayload(
+    material.existing,
+    material.presented,
+  );
+  if (initialized && account.productSyncMaterialInitializedAt === undefined) {
+    await ctx.db.patch(account.productAccountId, {
+      productSyncMaterialInitializedAt: Date.now(),
+    });
+  }
+  return initialized;
+}
+
+// Creates Product Sync key material only for an account that has never had any: the first
+// recovery envelope and the initialized marker commit together, and exactly one device wins.
+export const initialize = mutation({
+  args: {
+    ...trustedDeviceCredentialArgs,
+    encryptedPayload: encryptedProductSyncPayloadBodyValidator,
+    trustedDeviceId: v.id('trustedDevices'),
+  },
+  handler: async (ctx, args) => {
+    const account = await requireAuthenticatedTrustedDevice(
+      ctx,
+      args.trustedDeviceId,
+      args.trustedDeviceCredential,
+    );
+    requireCurrentProductSyncKeyEpoch(
+      account,
+      args.encryptedPayload.keyVersion,
+    );
+    const existing = await findPayload(
+      ctx,
+      account.productAccountId,
+      recoveryPayloadIdentifier,
+    );
+    if (existing !== null) {
+      return {
+        initialized: await adoptPublishedRecoveryMaterial(ctx, account, {
+          existing: existing.encryptedPayload,
+          presented: args.encryptedPayload,
+        }),
+      };
+    }
+    if (account.productSyncMaterialInitializedAt !== undefined) {
+      return { initialized: false };
+    }
+    const payload = await insertPayload(
+      ctx,
+      { ...args, payloadIdentifier: recoveryPayloadIdentifier },
+      account.productAccountId,
+    );
+    await ctx.db.patch(account.productAccountId, {
+      productSyncMaterialInitializedAt: payload.writtenAt,
+    });
+    return { initialized: true };
+  },
+  returns: productSyncInitializationResponseValidator,
 });
 
 const encryptedPayloadRevisionValidator = v.object({

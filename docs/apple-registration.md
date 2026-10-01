@@ -37,8 +37,9 @@ Restore and Gmail authorization therefore check the Apple credential state for
 the saved subject instead of reconnecting to Convex. A revoked, missing or
 unverifiable credential keeps the Product Account and mailbox-setup record. The
 host then reports that the account could not be verified and offers Sign in again
-with Apple. Backend operations that need a current Apple token belong to later
-slices. They must reauthenticate interactively or add a server-side token exchange.
+with Apple. Backend operations that need a current Apple token must reauthenticate
+interactively or add a server-side token exchange. [Private Product Sync](private-product-sync.md#initialization-and-relaunch)
+uses the token from the current interactive sign-in and keeps its local state on relaunch.
 
 Cancelling the Apple sheet returns to the previous status without an error.
 If Convex does not confirm a new Apple registration, the record keeps the

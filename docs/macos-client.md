@@ -9,7 +9,8 @@ the native adapter. Mail synchronization and sending are later slices.
 
 Production launches offer [Apple](apple-registration.md) or [Google](google-registration.md)
 registration with separate Gmail consent. Either can later be [linked](linked-sign-in.md)
-as the other sign-in method. Configure the native client ID and Convex deployment when generating the host.
+as the other sign-in method. A new account [initializes private Product Sync](private-product-sync.md)
+and presents its Recovery Key. Configure the native client ID and Convex deployment when generating the host.
 Select an explicit Mock Mail Session to run the synthetic Inbox journeys.
 
 ## Host ownership

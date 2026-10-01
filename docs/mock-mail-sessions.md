@@ -33,6 +33,9 @@ described in [Google registration](google-registration.md#deterministic-evidence
 [linked sign-in](linked-sign-in.md#deterministic-evidence).
 The registration journeys use the native registration store and real Keychain
 with a fixed synthetic provider compiled only in the selected test build.
+Its synthetic [Product Sync](private-product-sync.md#deterministic-evidence)
+backend keeps the run's encrypted records in the same Keychain service, so new
+accounts present a Recovery Key and relaunches keep their keys.
 The native runners reject builds without a supported test marker. Selection is never
 an app route, URL scheme, runtime setting, control server or reset operation.
 
@@ -105,7 +108,8 @@ Exit, failure and interrupt traps delete only run-owned app copies, probes and
 simulators. The Mac helper requires the recovery argument to match its own
 bundle identity before touching another process or storage. It terminates only
 that generated identity,
-deletes its exact database and registration Keychain items and removes its Application Support
+deletes every item in its exact database and registration Keychain services, including
+Product Sync keys and synthetic records, and removes its Application Support
 directory. Cleanup failure fails the run. If Mac cleanup fails, the signed cleanup helper
 is retained with the ownership record for retry. Evidence remains for diagnosis.
 No system can guarantee trap execution after SIGKILL or power loss; retained

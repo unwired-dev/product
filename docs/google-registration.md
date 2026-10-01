@@ -52,8 +52,8 @@ an error; other native failures reject with their registration code and are logg
 without credentials. Retry cannot replace
 an existing Product identity with a different subject. Product Accounts remain
 identified by verified issuer and subject, never by matching email. No existing
-backend rows, Inbox files or Product Sync keys are reset or regenerated. This
-slice does not initialize or recover Product Sync key material.
+backend rows, Inbox files or Product Sync keys are reset or regenerated. A new
+Product Account then [initializes private Product Sync and a Recovery Key](private-product-sync.md).
 
 ## Configure the hosts
 

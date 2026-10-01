@@ -4,6 +4,15 @@ import * as Schema from 'effect/Schema';
 const SignInProviderSchema = Schema.Literals(['google', 'apple']);
 export type SignInProvider = typeof SignInProviderSchema.Type;
 
+// End-to-End Encrypted Product Sync on this device.
+const PrivateSyncSchema = Schema.Literals([
+  'setup-pending',
+  'recovery-key',
+  'ready',
+  'enrollment-needed',
+]);
+export type PrivateSync = typeof PrivateSyncSchema.Type;
+
 const Account = Schema.Struct({
   productAccountId: Schema.NonEmptyString,
   signInProvider: SignInProviderSchema,
@@ -11,6 +20,12 @@ const Account = Schema.Struct({
   alternateSignIn: Schema.optionalKey(SignInProviderSchema),
   // Display and contact information only; it never links identities or selects a mailbox.
   contactEmail: Schema.optionalKey(Schema.NonEmptyString),
+  // Absent where a host has no Product Sync backend.
+  privateSync: Schema.optionalKey(PrivateSyncSchema),
+  // Shown only until its setup is confirmed; never stored outside native device storage.
+  recoveryKey: Schema.optionalKey(Schema.NonEmptyString),
+  // Mailbox addresses read back and decrypted from Product Sync, one per line.
+  privateSyncMailboxes: Schema.optionalKey(Schema.NonEmptyString),
 });
 export const RegistrationSnapshotSchema = Schema.Union([
   Schema.Struct({ kind: Schema.Literal('signed-out') }),
@@ -50,12 +65,19 @@ const linkFailureCode = Schema.decodeUnknownOption(
   Schema.Struct({ code: LinkFailureSchema }),
 );
 
+const isRecoveryKeyMismatch = Schema.is(
+  Schema.Struct({ code: Schema.Literal('recovery-key-mismatch') }),
+);
+export type RecoveryKeyFailure = 'mismatch' | 'failed';
+
 export interface NativeRegistration {
   readonly restore: () => Promise<unknown>;
   readonly signIn: (provider: SignInProvider) => Promise<unknown>;
   readonly authorizeGmail: (reselect: boolean) => Promise<unknown>;
   // Verifies the current Product Account and the identity being linked, interactively.
   readonly link: (provider: SignInProvider) => Promise<unknown>;
+  // Confirms Recovery Key setup with the final group the person wrote down.
+  readonly confirmRecoveryKey: (entry: string) => Promise<unknown>;
 }
 
 type RegistrationState = Readonly<{
@@ -64,23 +86,22 @@ type RegistrationState = Readonly<{
   failed: boolean;
   // A failed link leaves the Product Account and its sign-ins unchanged.
   linkFailure?: LinkFailure;
+  recoveryKeyFailure?: RecoveryKeyFailure;
 }>;
 
 // A connected status is only valid while its verification succeeds.
-const pending = (snapshot: RegistrationSnapshot): RegistrationSnapshot =>
-  snapshot.kind === 'connected'
-    ? {
-        kind: 'mailbox-needed',
-        productAccountId: snapshot.productAccountId,
-        signInProvider: snapshot.signInProvider,
-        ...(snapshot.alternateSignIn === undefined
-          ? {}
-          : { alternateSignIn: snapshot.alternateSignIn }),
-        ...(snapshot.contactEmail === undefined
-          ? {}
-          : { contactEmail: snapshot.contactEmail }),
-      }
-    : snapshot;
+const pending = (snapshot: RegistrationSnapshot): RegistrationSnapshot => {
+  if (snapshot.kind !== 'connected') {
+    return snapshot;
+  }
+  const {
+    address: _address,
+    kind: _kind,
+    providerSubject: _providerSubject,
+    ...account
+  } = snapshot;
+  return { ...account, kind: 'mailbox-needed' };
+};
 
 const settled = (snapshot: RegistrationSnapshot): RegistrationState => ({
   snapshot,
@@ -175,6 +196,16 @@ export function createRegistration(native: NativeRegistration) {
             Option.map(linkFailureCode(error), ({ code }) => code),
             (): LinkFailure => 'failed',
           ),
+        }),
+      ),
+    confirmRecoveryKey: (entry: string) =>
+      execute(
+        async () => decode(await native.confirmRecoveryKey(entry)),
+        (snapshot, error) => ({
+          ...settled(snapshot),
+          recoveryKeyFailure: isRecoveryKeyMismatch(error)
+            ? 'mismatch'
+            : 'failed',
         }),
       ),
   };
@@ -301,3 +332,72 @@ export function registrationCopy(snapshot: RegistrationSnapshot) {
     }
   }
 }
+
+type PrivateSyncState = Readonly<{
+  privateSync?: PrivateSync;
+  recoveryKey?: string;
+  privateSyncMailboxes?: string;
+}>;
+
+// Private product data on this device; mailbox credentials never take part in it.
+export function privateSyncCopy(snapshot: PrivateSyncState) {
+  const mailboxes =
+    snapshot.privateSyncMailboxes === undefined
+      ? undefined
+      : `Encrypted mailbox list: ${snapshot.privateSyncMailboxes.split('\n').join(', ')}.`;
+  switch (snapshot.privateSync) {
+    case undefined: {
+      return undefined;
+    }
+    case 'setup-pending': {
+      return {
+        title: 'Private sync',
+        description:
+          'Private sync setup has not finished. It continues the next time your Product Account is verified. Sign in again to finish it now.',
+        mailboxes,
+        recoveryKey: undefined,
+      };
+    }
+    case 'recovery-key': {
+      return {
+        title: 'Save your Recovery Key',
+        description:
+          'Your product data is end-to-end encrypted. If you lose every trusted device, this Recovery Key is the only way to unlock it. Write it down and keep it somewhere safe. Unwired Mail cannot show it to anyone else or reset it.',
+        mailboxes,
+        recoveryKey: snapshot.recoveryKey,
+      };
+    }
+    case 'ready': {
+      return {
+        title: 'Private sync is on',
+        description:
+          'Your product data is end-to-end encrypted. Only your trusted devices can read it.',
+        mailboxes,
+        recoveryKey: undefined,
+      };
+    }
+    case 'enrollment-needed': {
+      return {
+        title: 'Unlock private data on this device',
+        description:
+          'This Product Account already has end-to-end encrypted data, so this device needs its keys. Approve it from one of your trusted devices or use your Recovery Key. Nothing was reset or replaced.',
+        mailboxes,
+        recoveryKey: undefined,
+      };
+    }
+    default: {
+      const exhaustive: never = snapshot.privateSync;
+      return exhaustive;
+    }
+  }
+}
+
+export const recoveryKeyConfirmationCopy = {
+  prompt:
+    'To confirm you saved it, enter the last four characters of your Recovery Key.',
+  label: 'Last four characters',
+  confirm: 'Confirm Recovery Key',
+  mismatch:
+    'That does not match the end of your Recovery Key. Check your written copy and try again.',
+  failed: 'Your Recovery Key could not be confirmed. Try again.',
+} as const;

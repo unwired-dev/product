@@ -15,6 +15,15 @@ export type EncryptedProductSyncPayloadBody = Infer<
   typeof encryptedProductSyncPayloadBodyValidator
 >;
 
+// False when the Product Account already holds other key material; the device must enroll or recover.
+export const productSyncInitializationResponseValidator = v.object({
+  initialized: v.boolean(),
+});
+
+export type ProductSyncInitializationResponse = Infer<
+  typeof productSyncInitializationResponseValidator
+>;
+
 export const encryptedProductSyncPayloadValidator = v.object({
   encryptedPayload: encryptedProductSyncPayloadBodyValidator,
   payloadIdentifier: v.string(),

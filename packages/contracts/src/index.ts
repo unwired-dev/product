@@ -27,9 +27,11 @@ export {
   encryptedProductSyncPayloadPageFixture,
   encryptedProductSyncPayloadPageValidator,
   encryptedProductSyncPayloadValidator,
+  productSyncInitializationResponseValidator,
   type EncryptedProductSyncPayload,
   type EncryptedProductSyncPayloadBody,
   type EncryptedProductSyncPayloadPage,
+  type ProductSyncInitializationResponse,
 } from './productSync.ts';
 export {
   devicePushRegistrationResponseFixture,

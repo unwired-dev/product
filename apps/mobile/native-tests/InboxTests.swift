@@ -5,17 +5,36 @@ final class InboxTests: XCTestCase {
     app.buttons["Sign in with Google"].tap()
     XCTAssertTrue(app.staticTexts["Connect your Gmail"].waitForExistence(timeout: 15))
     XCTAssertFalse(app.staticTexts["Gmail connected"].exists)
+    // A new Product Account presents its Recovery Key until setup is confirmed.
+    let recoveryKey = app.staticTexts["recovery-key"]
+    XCTAssertTrue(recoveryKey.waitForExistence(timeout: 15))
+    let presented = recoveryKey.label
+    XCTAssertEqual(presented.count, 64)
     app.terminate()
     app.launch()
     XCTAssertTrue(app.staticTexts["Connect your Gmail"].waitForExistence(timeout: 15))
+    // Relaunch keeps the device-held keys; nothing is regenerated.
+    XCTAssertEqual(app.staticTexts["recovery-key"].label, presented)
     app.buttons["Choose another Google mailbox"].tap()
     XCTAssertTrue(app.staticTexts["Gmail connected"].waitForExistence(timeout: 15))
     XCTAssertTrue(
       app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "other@example.invalid"))
         .firstMatch.exists)
+    let entry = app.textFields["Last four characters"]
+    entry.tap()
+    entry.typeText(String(presented.suffix(4)) + "\n")
+    app.buttons["Confirm Recovery Key"].tap()
+    XCTAssertTrue(app.staticTexts["Private sync is on"].waitForExistence(timeout: 15))
+    XCTAssertFalse(app.staticTexts["recovery-key"].exists)
     app.terminate()
     app.launch()
     XCTAssertTrue(app.staticTexts["Gmail connected"].waitForExistence(timeout: 15))
+    XCTAssertTrue(app.staticTexts["Private sync is on"].exists)
+    // The mailbox descriptor is read back and decrypted from Product Sync after relaunch.
+    XCTAssertTrue(
+      app.staticTexts["Encrypted mailbox list: other@example.invalid."].waitForExistence(
+        timeout: 15))
+    XCTAssertFalse(app.staticTexts["recovery-key"].exists)
     let shot = XCTAttachment(screenshot: app.screenshot())
     shot.name = "Resumed Gmail registration"
     shot.lifetime = .keepAlways

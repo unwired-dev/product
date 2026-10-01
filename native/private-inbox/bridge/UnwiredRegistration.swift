@@ -110,6 +110,7 @@ extension RegistrationError {
     case .unavailable: "unavailable"
     case .identityOwned: "identity-owned"
     case .staleAuthentication: "stale-authentication"
+    case .recoveryKeyMismatch: "recovery-key-mismatch"
     }
   }
 }
@@ -183,6 +184,7 @@ final class UnwiredRegistration: NSObject {
             }
             return response.signInProviders
           }),
+        productSync: Self.productSync(base: base),
         connect: { identity, deviceIdentifier, previous in
           try await Self.connect(
             base: base, identity: identity, deviceIdentifier: deviceIdentifier,
@@ -203,9 +205,10 @@ final class UnwiredRegistration: NSObject {
   ]
 
   @MainActor private static func mutation<Value: Decodable>(
-    base: URL, identity: ProductSignInIdentity, path: String, args: [String: Any]
+    base: URL, identity: ProductSignInIdentity, path: String, args: [String: Any],
+    function: String = "mutation"
   ) async throws -> Value {
-    var request = URLRequest(url: base.appending(path: "api/mutation"))
+    var request = URLRequest(url: base.appending(path: "api/" + function))
     request.httpMethod = "POST"
     request.timeoutInterval = 30
     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -224,6 +227,42 @@ final class UnwiredRegistration: NSObject {
       return value
     }
     throw result.errorData.flatMap { backendErrors[$0.code] } ?? RegistrationError.unavailable
+  }
+
+  // Every Product Sync call carries the Trusted Device proof; Convex sees only opaque payloads.
+  @MainActor private static func productSync(base: URL) -> ProductSyncBackend {
+    func proof(_ product: ProductRegistrationReceipt) -> [String: Any] {
+      [
+        "trustedDeviceId": product.trustedDeviceId,
+        "trustedDeviceCredential": product.trustedDeviceCredential,
+      ]
+    }
+    func json(_ payload: EncryptedPayload) throws -> Any {
+      try JSONSerialization.jsonObject(with: JSONEncoder().encode(payload))
+    }
+    return ProductSyncBackend(
+      initialize: { identity, product, envelope in
+        struct Response: Decodable { let initialized: Bool }
+        let response: Response = try await mutation(
+          base: base, identity: identity, path: "productSync:initialize",
+          args: proof(product).merging(["encryptedPayload": try json(envelope)]) { $1 })
+        return response.initialized
+      },
+      list: { identity, product, prefix in
+        try await mutation(
+          base: base, identity: identity, path: "productSync:listEncryptedPayloadsForTrustedDevice",
+          args: proof(product).merging(["payloadIdentifierPrefix": prefix]) { $1 },
+          function: "query")
+      },
+      put: { identity, product, identifier, payload, expectedUpdatedAt in
+        var args = proof(product)
+        args["payloadIdentifier"] = identifier
+        args["encryptedPayload"] = try json(payload)
+        if let expectedUpdatedAt { args["expectedUpdatedAt"] = expectedUpdatedAt }
+        return try await mutation(
+          base: base, identity: identity, path: "productSync:putEncryptedPayloadIfUnchanged",
+          args: args)
+      })
   }
 
   @MainActor private static func connect(
@@ -274,11 +313,13 @@ final class UnwiredRegistration: NSObject {
           \(failure.code, privacy: .public) \(failure.localizedDescription, privacy: .private)
           """)
         let code = (error as? RegistrationError)?.code ?? "unavailable"
-        reject(
-          code,
-          code == "cancelled"
-            ? "Sign-in was cancelled."
-            : "Registration could not finish. Retry with your saved account.", nil)
+        let message =
+          switch code {
+          case "cancelled": "Sign-in was cancelled."
+          case "recovery-key-mismatch": "That does not match the end of your Recovery Key."
+          default: "Registration could not finish. Retry with your saved account."
+          }
+        reject(code, message, nil)
       }
     }
   }
@@ -311,6 +352,13 @@ final class UnwiredRegistration: NSObject {
       }
       return try await $0.link(provider)
     }
+  }
+  @objc(confirmRecoveryKey:resolver:rejecter:)
+  func confirmRecoveryKey(
+    _ entry: String, resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    perform("confirmRecoveryKey", resolve, reject: reject) { try $0.confirmRecoveryKey(entry) }
   }
   @objc(authorizeGmail:resolver:rejecter:)
   func authorizeGmail(
