@@ -249,10 +249,27 @@ final class UnwiredRegistration: NSObject {
         return response.initialized
       },
       list: { identity, product, prefix in
-        try await mutation(
-          base: base, identity: identity, path: "productSync:listEncryptedPayloadsForTrustedDevice",
-          args: proof(product).merging(["payloadIdentifierPrefix": prefix]) { $1 },
-          function: "query")
+        struct Page: Decodable {
+          let page: [StoredPayload]
+          let isDone: Bool
+          let continueCursor: String
+        }
+        // Convex serves at most 100 records per page; read every page for a complete set.
+        var records: [StoredPayload] = []
+        var cursor: Any = NSNull()
+        while true {
+          let page: Page = try await mutation(
+            base: base, identity: identity,
+            path: "productSync:listEncryptedPayloadsForTrustedDevice",
+            args: proof(product).merging([
+              "payloadIdentifierPrefix": prefix,
+              "paginationOpts": ["cursor": cursor, "numItems": 100],
+            ]) { $1 },
+            function: "query")
+          records += page.page
+          if page.isDone { return records }
+          cursor = page.continueCursor
+        }
       },
       put: { identity, product, identifier, payload, expectedUpdatedAt in
         var args = proof(product)

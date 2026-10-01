@@ -147,9 +147,10 @@ extension RegistrationStore {
       result["privateSyncMailboxes"] = mailboxes.joined(separator: "\n")
     }
     guard let vault = try loadVault(product.productAccountId) else {
-      // Missing local keys for an account with key material never create replacements.
+      // Missing local keys for an account with key material never create replacements. An
+      // unknown state, such as a receipt saved before Product Sync, waits for verification.
       result["privateSync"] =
-        product.productSyncMaterialInitialized == false ? "setup-pending" : "enrollment-needed"
+        product.productSyncMaterialInitialized == true ? "enrollment-needed" : "setup-pending"
       return result
     }
     if !vault.published {

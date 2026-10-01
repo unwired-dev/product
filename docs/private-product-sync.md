@@ -79,7 +79,10 @@ credentials stay in the separate device-only registration record.
 `productAccount:connect` reports whether the Product Account already has Product
 Sync material. A device creates keys only when Convex reports it has none and this
 device holds no keys for the account. It saves the keys locally before publishing
-anything, so an interrupted attempt resumes with the same keys.
+anything, so an interrupted attempt resumes with the same keys. A receipt saved
+before this slice reports no state; it shows setup as pending, never enrollment,
+and creates no keys until the next connect reports the account's state. Native
+clients read records through every 100-record page.
 
 `productSync:initialize` stores the first recovery envelope and marks the account
 initialized in one mutation. It requires the authenticated Trusted Device proof

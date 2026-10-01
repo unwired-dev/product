@@ -51,7 +51,8 @@ struct ProductRegistrationReceipt: Codable {
   let trustedDeviceCredential: String
   // Every Sign-In Provider that opens the Product Account; absent in records before linking.
   var signInProviders: [SignInProvider]? = nil
-  // As reported by the latest connect; absent means unknown and never permits creating keys.
+  // As reported by the latest connect; absent means unknown, which never permits creating keys
+  // and reports setup as pending until the next connect.
   var productSyncMaterialInitialized: Bool? = nil
 }
 

@@ -331,4 +331,36 @@ extension PrivateInboxTests {
     #expect(restored["recoveryKey"] == winner["recoveryKey"])
     #expect(backend.initializations == 1)
   }
+
+  @Test @MainActor func unknownProductSyncStateWaitsForVerificationWithoutCreatingKeys()
+    async throws
+  {
+    let keys = device()
+    let account = "account-synthetic-apple-subject"
+    defer { remove(keys, accounts: [account]) }
+    let google = SyntheticGoogleRegistrationProvider()
+    let apple = SyntheticAppleRegistrationProvider()
+    let backend = SyntheticProductSyncBackend()
+    var legacy = true
+    func store() -> RegistrationStore {
+      RegistrationStore(
+        keys: keys, deployment: "https://synthetic.example.invalid", clientID: "synthetic-client",
+        provider: google, apple: apple, productSync: backend.backend,
+        connect: { identity, _, _ in
+          var receipt = backend.receipt("account-" + identity.subject)
+          if legacy { receipt.productSyncMaterialInitialized = nil }
+          return receipt
+        })
+    }
+    // A receipt without Product Sync state, as saved before this slice, neither creates keys
+    // nor demands enrollment; Apple restore cannot reconnect, so it offers sign-in again.
+    #expect(try await store().signIn(with: .apple)["privateSync"] == "setup-pending")
+    #expect(try await store().restore()["privateSync"] == "setup-pending")
+    #expect(try store().loadVault(account) == nil)
+    #expect(backend.initializations == 0)
+    // Signing in again reports the account's actual state, which initializes it.
+    legacy = false
+    #expect(try await store().signIn(with: .apple)["privateSync"] == "recovery-key")
+    #expect(backend.initializations == 1)
+  }
 }
