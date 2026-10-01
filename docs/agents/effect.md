@@ -34,9 +34,9 @@ quietly. Unexpected failures are logged with `Effect.logError(message, cause)`
 before recovery.
 
 Logs carry no mail content, tokens, or account identifiers. Log native bridge
-rejections (a code and a fixed message) and `SchemaError` causes (the failing path
-and expectation, without the value); keep decoded input and provider response
-bodies out of log calls.
+rejections (a code and a fixed message) and, for decode failures, the
+`SchemaError` message (the failing path and expectation, without the value); keep
+decoded input and provider response bodies out of log calls.
 
 ## Functions and services
 

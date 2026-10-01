@@ -4,10 +4,11 @@ import { createMockMailSession } from '@private-email/mail-core/testing/mock-ses
 import { fireEvent, render, screen } from '@testing-library/react-native';
 import { useState } from 'react';
 
+import type { inbox } from '../src/private-storage.ts';
+
 import { Inbox } from '../src/inbox.tsx';
 import { InboxProvider } from '../src/mailbox.tsx';
 import { MessageDetail } from '../src/message-detail.tsx';
-import { inbox } from '../src/private-storage.ts';
 
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Jest's host adapter boundary.
 jest.mock('../src/private-storage.ts', () => ({

@@ -105,8 +105,8 @@ class RegistrationFailed extends Schema.TaggedError<RegistrationFailed>()(
 const decodeSnapshot = Schema.decodeUnknownEffect(RegistrationSnapshotSchema);
 
 // Calls a native registration operation and decodes the snapshot it resolves with.
-// Native rejections carry only a code and a fixed message; Schema errors name the
-// failing path without its value.
+// Native rejections carry only a code and a fixed message; decode failures log the
+// SchemaError message, which names the failing path without its value.
 const request = Effect.fnUntraced(function* (
   operation: () => Promise<unknown>,
 ) {
@@ -118,7 +118,9 @@ const request = Effect.fnUntraced(function* (
         : new RegistrationFailed({ cause }),
   });
   return yield* decodeSnapshot(value).pipe(
-    Effect.mapError((cause) => new RegistrationFailed({ cause })),
+    Effect.mapError(
+      (error) => new RegistrationFailed({ cause: error.message }),
+    ),
   );
 });
 

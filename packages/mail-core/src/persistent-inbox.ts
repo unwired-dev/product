@@ -36,8 +36,8 @@ export type InboxState =
     };
 
 // A locked store is expected while the device is locked; any other failure is logged.
-// Native rejections carry only a code and a fixed message; Schema errors name the
-// failing path without its value.
+// Native rejections carry only a code and a fixed message; decode failures log the
+// SchemaError message, which names the failing path without its value.
 const synchronize = Effect.fnUntraced(
   function* (operation: () => Promise<unknown>) {
     const value = yield* Effect.tryPromise({
@@ -49,7 +49,9 @@ const synchronize = Effect.fnUntraced(
         }),
     });
     const snapshot = yield* decodeSnapshot(value).pipe(
-      Effect.mapError((cause) => new StorageFailure({ kind: 'failed', cause })),
+      Effect.mapError(
+        (error) => new StorageFailure({ kind: 'failed', cause: error.message }),
+      ),
     );
     return { kind: 'ready', messages: snapshot.messages } as const;
   },
