@@ -64,6 +64,12 @@ Hosts consume shared logic as framework-independent stores:
 `getSnapshot`, `subscribe`, and Promise-returning actions. See
 `packages/mail-core/src/persistent-inbox.ts` and `registration.ts`.
 
+Convex handlers run their program with `runConvexProgram` from
+`packages/convex/convex/effectRuntime.ts`. It reads configuration per invocation
+and resumes sleeps through a Promise, so Convex calls stay in the function's async
+context. Convex code calls `fetch` through `Effect.tryPromise` rather than
+`HttpClient`, which keeps fetch's abort deadlines and test fetch mocks.
+
 ## Tests
 
 Test stores and Convex functions through their public interfaces, as the

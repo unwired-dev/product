@@ -3738,7 +3738,25 @@ describe('gmail push relay', () => {
         retryWasRescheduled: true,
       });
 
-      const previousScheduledAt = retainedWakeups[0]!.scheduledAt;
+      // A timed-out APNs request stays retryable instead of ending the wakeup.
+      vi.setSystemTime(retainedWakeups[0]!.scheduledAt);
+      apnsMock.stallResponseBody = true;
+      const timedOutDelivery = t.action(
+        internal.apns.deliverMicrosoftGraphWakeup,
+        {
+          routeId: route.routeId,
+          scheduledAt: retainedWakeups[0]!.scheduledAt,
+        },
+      );
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(10_000);
+      await timedOutDelivery;
+      apnsMock.stallResponseBody = false;
+      const timedOutWakeup = await t.run((ctx) =>
+        ctx.db.query('microsoftGraphWakeupStates').unique(),
+      );
+
+      const previousScheduledAt = timedOutWakeup!.scheduledAt;
       await t.run(async (ctx) => {
         await ctx.db.patch(
           'microsoftGraphWakeupStates',
@@ -3760,10 +3778,15 @@ describe('gmail push relay', () => {
         scheduledAtChanged:
           refreshedWakeup?.scheduledAt !== previousScheduledAt,
         status: newerNotification.status,
+        timedOutAttemptCount: timedOutWakeup?.attemptCount,
+        timedOutRetryWasRescheduled:
+          previousScheduledAt > retainedWakeups[0]!.scheduledAt,
       }).toStrictEqual({
         attemptCount: 0,
         scheduledAtChanged: false,
         status: 202,
+        timedOutAttemptCount: 2,
+        timedOutRetryWasRescheduled: true,
       });
 
       apnsMock.status = 200;
@@ -3818,7 +3841,8 @@ describe('gmail push relay', () => {
         payloadContainsProviderData: false,
         remainingAfterPermanentFailure: [],
         remainingAfterSuccessfulRetry: [],
-        requestCount: 3,
+        // Failed, timed-out, successful retry and permanent-failure requests.
+        requestCount: 4,
       });
     } finally {
       vi.useRealTimers();
