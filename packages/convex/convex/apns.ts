@@ -15,7 +15,7 @@ import type { Id } from './_generated/dataModel.js';
 import type { ActionCtx } from './_generated/server.js';
 
 import { internal } from './_generated/api.js';
-import { internalAction } from './_generated/server.js';
+import { env, internalAction } from './_generated/server.js';
 import { gmailWakeupPayload } from './gmailPushPayload.js';
 
 const apnsEnvironmentValidator = v.union(
@@ -77,8 +77,7 @@ const decodeApnsResponseStatus = Schema.decodeUnknownOption(
 );
 
 function requiredEnvironmentValue(name: string): string {
-  // oxlint-disable-next-line node/no-process-env -- Convex actions read deployment env at runtime.
-  const value = process.env[name];
+  const value = env[name];
   if (value === undefined || value.length === 0) {
     throw new Error(`${name} is required`);
   }
@@ -118,26 +117,22 @@ function providerToken(configuration: ApnsConfiguration): string {
 
 async function sendWakeup(
   delivery: ApnsDelivery,
-  client: ClientHttp2Session, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- HTTP/2 sessions issue mutable request streams.
+  client: ClientHttp2Session,
 ): Promise<void> {
   const timeoutController = new AbortController();
   const timeout = setTimeout(() => {
     timeoutController.abort();
   }, apnsRequestTimeoutMs);
   try {
-    // oxlint-disable-next-line eslint/no-use-before-define -- Function declarations are hoisted.
     const request = apnsRequest(client, delivery);
-    // oxlint-disable-next-line eslint/no-use-before-define -- Function declarations are hoisted.
     const rawHeaders = await apnsResponseHeaders(
       request,
       timeoutController.signal,
     );
-    // oxlint-disable-next-line eslint/no-use-before-define -- Function declarations are hoisted.
     const responseBody = await apnsResponseBody(
       request,
       timeoutController.signal,
     );
-    // oxlint-disable-next-line eslint/no-use-before-define -- Function declarations are hoisted.
     const status = apnsResponseStatus(rawHeaders);
     if (status !== 200) {
       throw new ApnsRequestError({
@@ -151,7 +146,7 @@ async function sendWakeup(
 }
 
 function apnsRequest(
-  client: ClientHttp2Session, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- HTTP/2 sessions issue mutable request streams.
+  client: ClientHttp2Session,
   delivery: ApnsDelivery,
 ): ClientHttp2Stream {
   const request = client.request({
@@ -169,8 +164,8 @@ function apnsRequest(
 }
 
 async function apnsResponseArguments(
-  request: ClientHttp2Stream, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- HTTP/2 streams are mutable event emitters.
-  signal: AbortSignal, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- AbortSignal is observed but not mutated.
+  request: ClientHttp2Stream,
+  signal: AbortSignal,
 ): Promise<unknown> {
   try {
     const response: unknown = await once(request, 'response', { signal });
@@ -204,8 +199,8 @@ function validateApnsResponseHeaders(rawHeaders: unknown): object {
 }
 
 async function apnsResponseHeaders(
-  request: ClientHttp2Stream, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- HTTP/2 streams are mutable event emitters.
-  signal: AbortSignal, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- AbortSignal is observed but not mutated.
+  request: ClientHttp2Stream,
+  signal: AbortSignal,
 ): Promise<object> {
   const responseArguments = await apnsResponseArguments(request, signal);
   return validateApnsResponseHeaders(
@@ -214,8 +209,8 @@ async function apnsResponseHeaders(
 }
 
 async function apnsResponseBody(
-  request: ClientHttp2Stream, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- HTTP/2 streams are mutable event emitters.
-  signal: AbortSignal, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- AbortSignal is observed but not mutated.
+  request: ClientHttp2Stream,
+  signal: AbortSignal,
 ): Promise<string> {
   let responseBody = '';
   const onData = (chunk: unknown): void => {
@@ -244,7 +239,7 @@ function apnsResponseStatus(headers: object): number {
 }
 
 function isStaleTokenFailure(
-  result: PromiseSettledResult<void>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Promise results are immutable inputs here.
+  result: PromiseSettledResult<void>,
 ): result is PromiseRejectedResult {
   return (
     result.status === 'rejected' &&
@@ -253,9 +248,7 @@ function isStaleTokenFailure(
   );
 }
 
-function isPermanentApnsFailure(
-  result: PromiseSettledResult<void>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Promise results are immutable inputs here.
-): boolean {
+function isPermanentApnsFailure(result: PromiseSettledResult<void>): boolean {
   return (
     result.status === 'rejected' &&
     result.reason instanceof ApnsRequestError &&
@@ -264,9 +257,9 @@ function isPermanentApnsFailure(
 }
 
 async function handleDeliveryResult(
-  ctx: ActionCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex action context invokes mutations.
-  result: PromiseSettledResult<void>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Promise results are immutable inputs here.
-  recipient: // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Recipient data is treated as immutable input.
+  ctx: ActionCtx,
+  result: PromiseSettledResult<void>,
+  recipient:
     | Readonly<{
         apnsEnvironment: 'production' | 'sandbox';
         apnsToken: string;
@@ -279,7 +272,6 @@ async function handleDeliveryResult(
     return;
   }
   console.error('APNs wakeup delivery failed', result.reason);
-  // oxlint-disable-next-line eslint/no-use-before-define -- Helper extracts the cleanup target from a stale-token failure.
   const staleRecipient = staleTokenRecipient(result, recipient);
   if (staleRecipient === undefined) {
     return;
@@ -292,8 +284,7 @@ async function handleDeliveryResult(
 }
 
 function staleTokenRecipient(
-  result: PromiseSettledResult<void>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Promise results are immutable inputs here.
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Recipient data is immutable input.
+  result: PromiseSettledResult<void>,
   recipient: StaleTokenRecipient | undefined,
 ): StaleTokenRecipient | undefined {
   return recipient !== undefined && isStaleTokenFailure(result)
@@ -330,7 +321,7 @@ function scheduledSendWakeupPayload(
 }
 
 async function deliverWakeupBatch<Recipient extends StaleTokenRecipient>(
-  ctx: ActionCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex action context invokes mutations.
+  ctx: ActionCtx,
   recipients: readonly Recipient[],
   payload: (recipient: Recipient) => string,
 ): Promise<ReadonlyArray<PromiseSettledResult<void>>> {
@@ -381,7 +372,6 @@ async function deliverWakeupBatch<Recipient extends StaleTokenRecipient>(
 }
 
 async function attemptWakeupDelivery<Recipient extends StaleTokenRecipient>(
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Convex action contexts expose mutable mutation methods.
   options: Readonly<{
     ctx: ActionCtx;
     failureMessage: string;
@@ -402,9 +392,7 @@ async function attemptWakeupDelivery<Recipient extends StaleTokenRecipient>(
 }
 
 async function deliverGmailWakeupBatch(
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Convex supplies its mutable action context.
   ctx: ActionCtx,
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Convex validates and owns the generated action arguments.
   args: Readonly<{
     historyId: string;
     recipients: readonly GmailWakeupRecipient[];

@@ -9,6 +9,20 @@ function isTypeofObject(left, right) {
   );
 }
 
+function memberName(member) {
+  return member.computed ? member.property.value : member.property.name;
+}
+
+// Matches JSON.parse and JSON['parse'], whatever whitespace or comments separate them.
+function isJsonParse(callee) {
+  return (
+    callee.type === 'MemberExpression' &&
+    callee.object.type === 'Identifier' &&
+    callee.object.name === 'JSON' &&
+    memberName(callee) === 'parse'
+  );
+}
+
 export default {
   meta: { name: 'effect-boundaries' },
   rules: {
@@ -47,7 +61,7 @@ export default {
       create(context) {
         return {
           CallExpression(node) {
-            if (context.sourceCode.getText(node.callee) === 'JSON.parse') {
+            if (isJsonParse(node.callee)) {
               context.report({ node, messageId: 'parse' });
             }
           },

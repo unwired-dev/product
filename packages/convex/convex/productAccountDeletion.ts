@@ -18,7 +18,7 @@ import type { Id } from './_generated/dataModel.js';
 import type { ActionCtx } from './_generated/server.js';
 
 import { internal } from './_generated/api.js';
-import { action, internalAction } from './_generated/server.js';
+import { action, env, internalAction } from './_generated/server.js';
 import { trustedDeviceCredentialArgs } from './productAccountAuth.js';
 
 const appleAudience = 'https://appleid.apple.com';
@@ -80,8 +80,7 @@ const decodeAppleErrorResponse = Schema.decodeUnknownOption(
 );
 
 function requiredEnvironmentValue(name: string): string {
-  // oxlint-disable-next-line node/no-process-env -- Convex actions read deployment env at runtime.
-  const value = process.env[name];
+  const value = env[name];
   if (!value) {
     throw new Error(`Missing ${name} configuration`);
   }

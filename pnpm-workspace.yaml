@@ -10,6 +10,7 @@ overrides:
 catalog:
   '@effect/tsgo': 0.46.1
   '@changesets/cli': ^3.0.3
+  '@convex-dev/eslint-plugin': ^5.0.0
   '@rajzik/oxfmt-config': ^4.0.4
   '@rajzik/oxlint-config': ^4.0.4
   '@rajzik/tsconfig': ^4.0.4

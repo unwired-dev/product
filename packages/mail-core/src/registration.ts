@@ -3,6 +3,8 @@ import * as Option from 'effect/Option';
 import * as Schema from 'effect/Schema';
 import * as Semaphore from 'effect/Semaphore';
 
+import { rejectionDiagnostic } from './diagnostics.ts';
+
 const SignInProviderSchema = Schema.Literals(['google', 'apple']);
 export type SignInProvider = typeof SignInProviderSchema.Type;
 
@@ -97,14 +99,14 @@ class RegistrationCancelled extends Schema.TaggedError<RegistrationCancelled>()(
 
 class RegistrationFailed extends Schema.TaggedError<RegistrationFailed>()(
   'RegistrationFailed',
-  { cause: Schema.Defect() },
+  // The diagnostic is logged instead of the cause; see rejectionDiagnostic.
+  { cause: Schema.Defect(), diagnostic: Schema.String },
 ) {}
 
 const decodeSnapshot = Schema.decodeUnknownEffect(RegistrationSnapshotSchema);
 
 // Calls a native registration operation and decodes the snapshot it resolves with.
-// Native rejections carry only a code and a fixed message; decode failures log the
-// SchemaError message, which names the failing path without its value.
+// Decode failures log the SchemaError message, which names the failing path without its value.
 const request = Effect.fnUntraced(function* (
   operation: () => Promise<unknown>,
 ) {
@@ -113,11 +115,15 @@ const request = Effect.fnUntraced(function* (
     catch: (cause) =>
       isCancelled(cause)
         ? new RegistrationCancelled()
-        : new RegistrationFailed({ cause }),
+        : new RegistrationFailed({
+            cause,
+            diagnostic: rejectionDiagnostic(cause),
+          }),
   });
   return yield* decodeSnapshot(value).pipe(
     Effect.mapError(
-      (error) => new RegistrationFailed({ cause: error.message }),
+      (error) =>
+        new RegistrationFailed({ cause: error, diagnostic: error.message }),
     ),
   );
 });
@@ -161,7 +167,7 @@ export function createRegistration(native: NativeRegistration) {
           RegistrationCancelled: () =>
             Effect.sync(() => settled(state.snapshot)),
           RegistrationFailed: (error) =>
-            Effect.logError('Registration failed', error.cause).pipe(
+            Effect.logError('Registration failed:', error.diagnostic).pipe(
               Effect.andThen(
                 Effect.sync(() => onFailure(state.snapshot, error.cause)),
               ),

@@ -2,6 +2,7 @@ import * as Effect from 'effect/Effect';
 import * as Schema from 'effect/Schema';
 import * as Semaphore from 'effect/Semaphore';
 
+import { rejectionDiagnostic } from './diagnostics.ts';
 import { fixtureMessages, MessageSchema } from './index.ts';
 
 const Snapshot = Schema.Struct({
@@ -24,6 +25,8 @@ class StorageFailure extends Schema.TaggedError<StorageFailure>()(
   {
     kind: Schema.Literals(['locked', 'failed']),
     cause: Schema.Defect(),
+    // Logged instead of the cause; see rejectionDiagnostic.
+    diagnostic: Schema.String,
   },
 ) {}
 
@@ -35,8 +38,7 @@ export type InboxState =
     };
 
 // A locked store is expected while the device is locked; any other failure is logged.
-// Native rejections carry only a code and a fixed message; decode failures log the
-// SchemaError message, which names the failing path without its value.
+// Decode failures log the SchemaError message, which names the failing path without its value.
 const synchronize = Effect.fnUntraced(
   function* (operation: () => Promise<unknown>) {
     const value = yield* Effect.tryPromise({
@@ -45,11 +47,17 @@ const synchronize = Effect.fnUntraced(
         new StorageFailure({
           kind: isLocked(cause) ? 'locked' : 'failed',
           cause,
+          diagnostic: rejectionDiagnostic(cause),
         }),
     });
     const snapshot = yield* decodeSnapshot(value).pipe(
       Effect.mapError(
-        (error) => new StorageFailure({ kind: 'failed', cause: error.message }),
+        (error) =>
+          new StorageFailure({
+            kind: 'failed',
+            cause: error,
+            diagnostic: error.message,
+          }),
       ),
     );
     return { kind: 'ready', messages: snapshot.messages } as const;
@@ -57,7 +65,7 @@ const synchronize = Effect.fnUntraced(
   // oxlint-disable-next-line promise/prefer-await-to-callbacks -- Effect's typed error channel.
   Effect.catchTag('StorageFailure', (error) =>
     (error.kind === 'failed'
-      ? Effect.logError('Private Inbox storage failed', error.cause)
+      ? Effect.logError('Private Inbox storage failed:', error.diagnostic)
       : Effect.void
     ).pipe(Effect.as({ kind: error.kind })),
   ),

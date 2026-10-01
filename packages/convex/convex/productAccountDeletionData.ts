@@ -25,9 +25,7 @@ const revocationMaterialValidator = v.union(
   v.object({ kind: v.literal('refresh-token'), value: v.string() }),
 );
 
-async function authenticatedIdentity(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
-) {
+async function authenticatedIdentity(ctx: MutationCtx) {
   const identity = await ctx.auth.getUserIdentity();
   if (!identity) {
     throw new Error('Authentication required');
@@ -36,11 +34,11 @@ async function authenticatedIdentity(
 }
 
 async function ownedDeletionRequest(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
+  ctx: MutationCtx,
   requestId: Id<'productAccountDeletionRequests'>,
 ): Promise<Doc<'productAccountDeletionRequests'>> {
   const identity = await authenticatedIdentity(ctx);
-  const request = await ctx.db.get(requestId);
+  const request = await ctx.db.get('productAccountDeletionRequests', requestId);
   if (
     request === null ||
     request.tokenIdentifier !==
@@ -52,8 +50,8 @@ async function ownedDeletionRequest(
 }
 
 async function scheduleRevocationExpiry(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
-  request: Readonly<Doc<'productAccountDeletionRequests'>>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents contain mutable generated fields but are not mutated here.
+  ctx: MutationCtx,
+  request: Readonly<Doc<'productAccountDeletionRequests'>>,
 ): Promise<void> {
   await ctx.scheduler.runAfter(
     Math.max(
@@ -62,14 +60,13 @@ async function scheduleRevocationExpiry(
         (Date.now() - request.requestedAt),
     ),
     internal.productAccountDeletionData.scheduleRevocationRecovery,
-    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
     { requestId: request._id },
   );
 }
 
 async function scheduleAuthorizationCodeExpiry(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
-  request: Readonly<Doc<'productAccountDeletionRequests'>>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents contain mutable generated fields but are not mutated here.
+  ctx: MutationCtx,
+  request: Readonly<Doc<'productAccountDeletionRequests'>>,
 ): Promise<void> {
   if (request.revocationMaterial?.kind === 'authorization-code') {
     await scheduleRevocationExpiry(ctx, request);
@@ -109,7 +106,6 @@ export const prepareDeletion = internalMutation({
       {
         deviceCredentialEnforcementActivatedAt:
           account.deviceCredentialEnforcementActivatedAt,
-        // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
         productAccountId: account._id,
       },
       {
@@ -147,8 +143,7 @@ export const prepareDeletion = internalMutation({
           value: args.authorizationCode,
         };
       }
-      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-      await ctx.db.patch(existing._id, {
+      await ctx.db.patch('productAccountDeletionRequests', existing._id, {
         activeAttemptId:
           existing.phase === 'revocation-pending'
             ? args.attemptId
@@ -158,7 +153,6 @@ export const prepareDeletion = internalMutation({
       });
       return {
         phase: existing.phase,
-        // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
         requestId: existing._id,
         revocationPreviouslyAttempted:
           existing.revocationAttemptedAt !== undefined,
@@ -176,7 +170,6 @@ export const prepareDeletion = internalMutation({
     const requestId = await ctx.db.insert('productAccountDeletionRequests', {
       activeAttemptId: args.attemptId,
       phase: 'revocation-pending',
-      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
       productAccountId: account._id,
       requestedAt: now,
       requestedByTrustedDeviceId: args.trustedDeviceId,
@@ -184,7 +177,10 @@ export const prepareDeletion = internalMutation({
       tokenIdentifier,
       updatedAt: now,
     });
-    const request = await ctx.db.get(requestId);
+    const request = await ctx.db.get(
+      'productAccountDeletionRequests',
+      requestId,
+    );
     if (request !== null) {
       await scheduleAuthorizationCodeExpiry(ctx, request);
     }
@@ -231,7 +227,7 @@ export const storeRevocationToken = internalMutation({
     ) {
       throw new Error('Product Account deletion attempt superseded');
     }
-    await ctx.db.patch(args.requestId, {
+    await ctx.db.patch('productAccountDeletionRequests', args.requestId, {
       revocationMaterial: args.token,
       updatedAt: Date.now(),
     });
@@ -256,7 +252,7 @@ export const markRevocationAttemptStarted = internalMutation({
       throw new Error('Product Account deletion attempt superseded');
     }
     const now = Date.now();
-    await ctx.db.patch(args.requestId, {
+    await ctx.db.patch('productAccountDeletionRequests', args.requestId, {
       revocationAttemptedAt: Date.now(),
       revocationRecoveryScheduledAt:
         request.revocationRecoveryScheduledAt ?? now,
@@ -288,7 +284,7 @@ export const markRevocationSucceeded = internalMutation({
     ) {
       throw new Error('Product Account deletion attempt superseded');
     }
-    await ctx.db.patch(args.requestId, {
+    await ctx.db.patch('productAccountDeletionRequests', args.requestId, {
       revocationMaterial: undefined,
       revocationSucceededAt: Date.now(),
       updatedAt: Date.now(),
@@ -302,7 +298,10 @@ export const scheduleRevocationRecovery = internalMutation({
   args: { requestId: v.id('productAccountDeletionRequests') },
   // fallow-ignore-next-line complexity -- Recovery scheduling validates every durable revocation precondition.
   handler: async (ctx, args) => {
-    const request = await ctx.db.get(args.requestId);
+    const request = await ctx.db.get(
+      'productAccountDeletionRequests',
+      args.requestId,
+    );
     if (request === null || request.phase !== 'revocation-pending') {
       return null;
     }
@@ -318,7 +317,7 @@ export const scheduleRevocationRecovery = internalMutation({
       return null;
     }
     if (request.revocationSucceededAt !== undefined) {
-      await ctx.db.patch(args.requestId, {
+      await ctx.db.patch('productAccountDeletionRequests', args.requestId, {
         activeAttemptId: undefined,
         phase: 'deleting-data',
         revocationAttemptedAt: undefined,
@@ -339,7 +338,7 @@ export const scheduleRevocationRecovery = internalMutation({
         revocationRequestLifetimeMilliseconds &&
       request.revocationAttemptedAt === undefined
     ) {
-      await ctx.db.delete(args.requestId);
+      await ctx.db.delete('productAccountDeletionRequests', args.requestId);
       return null;
     }
     if (
@@ -371,7 +370,10 @@ export const prepareRevocationRecovery = internalMutation({
   },
   // fallow-ignore-next-line complexity -- Recovery leases must reject every stale or incomplete request state.
   handler: async (ctx, args) => {
-    const request = await ctx.db.get(args.requestId);
+    const request = await ctx.db.get(
+      'productAccountDeletionRequests',
+      args.requestId,
+    );
     if (
       request === null ||
       request.phase !== 'revocation-pending' ||
@@ -383,7 +385,7 @@ export const prepareRevocationRecovery = internalMutation({
     ) {
       return null;
     }
-    await ctx.db.patch(args.requestId, {
+    await ctx.db.patch('productAccountDeletionRequests', args.requestId, {
       activeAttemptId: args.attemptId,
       updatedAt: Date.now(),
     });
@@ -413,13 +415,16 @@ export const abortRecoveredRevocation = internalMutation({
   },
   // fallow-ignore-next-line complexity -- Abort is permitted only for the exact active recovery lease.
   handler: async (ctx, args) => {
-    const request = await ctx.db.get(args.requestId);
+    const request = await ctx.db.get(
+      'productAccountDeletionRequests',
+      args.requestId,
+    );
     if (
       request?.phase === 'revocation-pending' &&
       request.revocationAttemptedAt !== undefined &&
       request.activeAttemptId === args.attemptId
     ) {
-      await ctx.db.delete(args.requestId);
+      await ctx.db.delete('productAccountDeletionRequests', args.requestId);
     }
     return null;
   },
@@ -433,14 +438,17 @@ export const markRecoveredRevocationSucceeded = internalMutation({
     requestId: v.id('productAccountDeletionRequests'),
   },
   handler: async (ctx, args) => {
-    const request = await ctx.db.get(args.requestId);
+    const request = await ctx.db.get(
+      'productAccountDeletionRequests',
+      args.requestId,
+    );
     if (
       request?.phase !== 'revocation-pending' ||
       request.activeAttemptId !== args.attemptId
     ) {
       return null;
     }
-    await ctx.db.patch(args.requestId, {
+    await ctx.db.patch('productAccountDeletionRequests', args.requestId, {
       revocationMaterial: undefined,
       revocationSucceededAt: Date.now(),
       updatedAt: Date.now(),
@@ -462,7 +470,7 @@ export const abortDeletion = internalMutation({
       request.phase === 'revocation-pending' &&
       request.activeAttemptId === args.attemptId
     ) {
-      await ctx.db.delete(args.requestId);
+      await ctx.db.delete('productAccountDeletionRequests', args.requestId);
     }
     return null;
   },
@@ -482,7 +490,7 @@ export const releaseDeletionAttempt = internalMutation({
       request.activeAttemptId === args.attemptId
     ) {
       await scheduleAuthorizationCodeExpiry(ctx, request);
-      await ctx.db.patch(args.requestId, {
+      await ctx.db.patch('productAccountDeletionRequests', args.requestId, {
         activeAttemptId: undefined,
         updatedAt: Date.now(),
       });
@@ -508,7 +516,7 @@ export const markRevocationComplete = internalMutation({
         internal.productAccountDeletionData.continueProductAccountDeletion,
         { requestId: args.requestId },
       );
-      await ctx.db.patch(args.requestId, {
+      await ctx.db.patch('productAccountDeletionRequests', args.requestId, {
         activeAttemptId: undefined,
         phase: 'deleting-data',
         revocationAttemptedAt: undefined,
@@ -533,7 +541,10 @@ export const completeRecoveredRevocation = internalMutation({
   },
   // fallow-ignore-next-line complexity -- Completion atomically fences revocation before scheduling data deletion.
   handler: async (ctx, args) => {
-    const request = await ctx.db.get(args.requestId);
+    const request = await ctx.db.get(
+      'productAccountDeletionRequests',
+      args.requestId,
+    );
     if (
       request?.phase === 'revocation-pending' &&
       request.revocationAttemptedAt !== undefined &&
@@ -544,7 +555,7 @@ export const completeRecoveredRevocation = internalMutation({
         internal.productAccountDeletionData.continueProductAccountDeletion,
         { requestId: args.requestId },
       );
-      await ctx.db.patch(args.requestId, {
+      await ctx.db.patch('productAccountDeletionRequests', args.requestId, {
         activeAttemptId: undefined,
         phase: 'deleting-data',
         revocationAttemptedAt: undefined,
@@ -560,30 +571,29 @@ export const completeRecoveredRevocation = internalMutation({
 });
 
 async function deleteGmailRouteWork(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
+  ctx: MutationCtx,
   productAccountId: Id<'productAccounts'>,
 ): Promise<boolean> {
   const route = await ctx.db
     .query('mailProviderConnections')
-    .withIndex('by_productAccountId_and_provider', (q) =>
+    .withIndex('by_productAccountId_and_provider_and_emailAddress', (q) =>
       q.eq('productAccountId', productAccountId).eq('provider', 'gmail'),
     )
     .first();
   if (route === null) {
     return false;
   }
-  // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-  await ctx.db.delete(route._id);
+  await ctx.db.delete('mailProviderConnections', route._id);
   return true;
 }
 
 async function deleteMicrosoftGraphRouteWork(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
+  ctx: MutationCtx,
   productAccountId: Id<'productAccounts'>,
 ): Promise<boolean> {
   const route = await ctx.db
     .query('mailProviderConnections')
-    .withIndex('by_productAccountId_and_provider', (q) =>
+    .withIndex('by_productAccountId_and_provider_and_emailAddress', (q) =>
       q
         .eq('productAccountId', productAccountId)
         .eq('provider', 'microsoft-graph'),
@@ -594,24 +604,21 @@ async function deleteMicrosoftGraphRouteWork(
   }
   const wakeups = await ctx.db
     .query('microsoftGraphWakeupStates')
-    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
     .withIndex('by_routeId', (q) => q.eq('routeId', route._id))
     .take(deletionBatchSize);
   if (wakeups.length > 0) {
     for (const wakeup of wakeups) {
-      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-      await ctx.db.delete(wakeup._id);
+      await ctx.db.delete('microsoftGraphWakeupStates', wakeup._id);
     }
     return true;
   }
-  // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-  await ctx.db.delete(route._id);
+  await ctx.db.delete('mailProviderConnections', route._id);
   return true;
 }
 
 async function tombstoneSignIn(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
-  link: Readonly<Doc<'linkedSignIns'>>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents are immutable inputs here.
+  ctx: MutationCtx,
+  link: Readonly<Doc<'linkedSignIns'>>,
 ): Promise<void> {
   const tombstone = await ctx.db
     .query('productAccountDeletionTombstones')
@@ -626,13 +633,12 @@ async function tombstoneSignIn(
       tokenIdentifier: link.tokenIdentifier,
     });
   }
-  // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-  await ctx.db.delete(link._id);
+  await ctx.db.delete('linkedSignIns', link._id);
 }
 
 // Every Linked Sign-In is tombstoned with the account so it cannot reopen or recreate it.
 async function deleteSignInLinks(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
+  ctx: MutationCtx,
   productAccountId: Id<'productAccounts'>,
 ): Promise<boolean> {
   const requests = await ctx.db
@@ -648,8 +654,9 @@ async function deleteSignInLinks(
     )
     .take(deletionBatchSize);
   await Promise.all([
-    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-    ...requests.map(async (request) => ctx.db.delete(request._id)),
+    ...requests.map(async (request) =>
+      ctx.db.delete('signInLinkRequests', request._id),
+    ),
     ...links.map(async (link) => tombstoneSignIn(ctx, link)),
   ]);
   return requests.length + links.length > 0;
@@ -658,10 +665,10 @@ async function deleteSignInLinks(
 // oxlint-disable complexity -- Ordered bounded deletion drains each account-owned table before the tombstone.
 // fallow-ignore-next-line complexity -- Ordered bounded deletion drains each account-owned table before the tombstone.
 async function deleteNextBatchData(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
+  ctx: MutationCtx,
   requestId: Id<'productAccountDeletionRequests'>,
 ): Promise<boolean> {
-  const request = await ctx.db.get(requestId);
+  const request = await ctx.db.get('productAccountDeletionRequests', requestId);
   if (request === null) {
     return true;
   }
@@ -688,14 +695,13 @@ async function deleteNextBatchData(
       if (scheduledSend.scheduledFunctionId !== undefined) {
         await ctx.scheduler.cancel(scheduledSend.scheduledFunctionId);
       }
-      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-      await ctx.db.delete(scheduledSend._id);
+      await ctx.db.delete('scheduledSends', scheduledSend._id);
     }
     return false;
   }
   const devices = await ctx.db
     .query('trustedDevices')
-    .withIndex('by_productAccountId', (q) =>
+    .withIndex('by_productAccountId_and_deviceIdentifier', (q) =>
       q.eq('productAccountId', request.productAccountId),
     )
     .take(deletionBatchSize);
@@ -710,38 +716,35 @@ async function deleteNextBatchData(
         .take(deletionBatchSize);
       if (heartbeats.length > 0) {
         for (const heartbeat of heartbeats) {
-          // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-          await ctx.db.delete(heartbeat._id);
+          await ctx.db.delete('devicePushRouteHeartbeats', heartbeat._id);
         }
         return false;
       }
-      await ctx.db.delete(deviceId);
+      await ctx.db.delete('trustedDevices', deviceId);
     }
     return false;
   }
   const revokedDevices = await ctx.db
     .query('revokedTrustedDevices')
-    .withIndex('by_productAccountId', (q) =>
+    .withIndex('by_productAccountId_and_deviceIdentifier', (q) =>
       q.eq('productAccountId', request.productAccountId),
     )
     .take(deletionBatchSize);
   if (revokedDevices.length > 0) {
     for (const revokedDevice of revokedDevices) {
-      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-      await ctx.db.delete(revokedDevice._id);
+      await ctx.db.delete('revokedTrustedDevices', revokedDevice._id);
     }
     return false;
   }
   const revocationTargets = await ctx.db
     .query('trustedDeviceRevocationTargets')
-    .withIndex('by_productAccountId', (q) =>
+    .withIndex('by_productAccountId_and_trustedDeviceId', (q) =>
       q.eq('productAccountId', request.productAccountId),
     )
     .take(deletionBatchSize);
   if (revocationTargets.length > 0) {
     for (const target of revocationTargets) {
-      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-      await ctx.db.delete(target._id);
+      await ctx.db.delete('trustedDeviceRevocationTargets', target._id);
     }
     return false;
   }
@@ -753,21 +756,19 @@ async function deleteNextBatchData(
     .take(deletionBatchSize);
   if (deviceIdentifierHistory.length > 0) {
     for (const history of deviceIdentifierHistory) {
-      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-      await ctx.db.delete(history._id);
+      await ctx.db.delete('trustedDeviceIdentifierHistory', history._id);
     }
     return false;
   }
   const payloads = await ctx.db
     .query('encryptedProductSyncPayloads')
-    .withIndex('by_productAccountId', (q) =>
+    .withIndex('by_productAccountId_and_payloadIdentifier', (q) =>
       q.eq('productAccountId', request.productAccountId),
     )
     .take(encryptedPayloadDeletionBatchSize);
   if (payloads.length > 0) {
     for (const payload of payloads) {
-      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-      await ctx.db.delete(payload._id);
+      await ctx.db.delete('encryptedProductSyncPayloads', payload._id);
     }
     return false;
   }
@@ -779,8 +780,7 @@ async function deleteNextBatchData(
     .take(deletionBatchSize);
   if (bindings.length > 0) {
     for (const binding of bindings) {
-      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-      await ctx.db.delete(binding._id);
+      await ctx.db.delete('gmailOpaqueIdentityBindings', binding._id);
     }
     return false;
   }
@@ -797,11 +797,11 @@ async function deleteNextBatchData(
       tokenIdentifier: request.tokenIdentifier,
     });
   }
-  const account = await ctx.db.get(request.productAccountId);
+  const account = await ctx.db.get('productAccounts', request.productAccountId);
   if (account !== null) {
-    await ctx.db.delete(request.productAccountId);
+    await ctx.db.delete('productAccounts', request.productAccountId);
   }
-  await ctx.db.delete(requestId);
+  await ctx.db.delete('productAccountDeletionRequests', requestId);
   return true;
 }
 // oxlint-enable complexity

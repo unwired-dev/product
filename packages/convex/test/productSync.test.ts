@@ -703,7 +703,7 @@ describe('productSync encrypted payloads', () => {
         revokedAt: Date.now(),
         trustedDeviceId: connect.trustedDeviceId,
       });
-      await ctx.db.delete(connect.trustedDeviceId);
+      await ctx.db.delete('trustedDevices', connect.trustedDeviceId);
     });
 
     const response = await asUser.fetch('/product-sync/recovery-material', {

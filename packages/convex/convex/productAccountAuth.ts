@@ -32,7 +32,7 @@ export function signInProviderForIssuer(
 }
 
 async function linkedSignIn(
-  ctx: QueryCtx | MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex contexts are immutable inputs.
+  ctx: QueryCtx | MutationCtx,
   tokenIdentifier: string,
 ): Promise<Doc<'linkedSignIns'> | null> {
   return ctx.db
@@ -45,7 +45,7 @@ async function linkedSignIn(
 
 // A verified issuer and subject reach only the account that created or explicitly linked them.
 export async function productAccountForSignIn(
-  ctx: QueryCtx | MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex contexts are immutable inputs.
+  ctx: QueryCtx | MutationCtx,
   tokenIdentifier: string,
 ): Promise<Doc<'productAccounts'> | null> {
   const owned = await ctx.db
@@ -58,24 +58,28 @@ export async function productAccountForSignIn(
     return owned;
   }
   const linked = await linkedSignIn(ctx, tokenIdentifier);
-  return linked === null ? null : ctx.db.get(linked.productAccountId);
+  return linked === null
+    ? null
+    : ctx.db.get('productAccounts', linked.productAccountId);
 }
 
 // Deletion state is keyed by the identity that created the Product Account.
 export async function accountTokenIdentifier(
-  ctx: QueryCtx | MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex contexts are immutable inputs.
+  ctx: QueryCtx | MutationCtx,
   tokenIdentifier: string,
 ): Promise<string> {
   const linked = await linkedSignIn(ctx, tokenIdentifier);
   const account =
-    linked === null ? null : await ctx.db.get(linked.productAccountId);
+    linked === null
+      ? null
+      : await ctx.db.get('productAccounts', linked.productAccountId);
   return account?.tokenIdentifier ?? tokenIdentifier;
 }
 
 // The original Sign-In Provider first, followed by any Linked Sign-In.
 export async function signInProvidersForAccount(
-  ctx: QueryCtx | MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex contexts are immutable inputs.
-  account: Readonly<Doc<'productAccounts'>>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents are immutable inputs here.
+  ctx: QueryCtx | MutationCtx,
+  account: Readonly<Doc<'productAccounts'>>,
 ): Promise<SignInProvider[]> {
   // Prototype accounts predate Google sign-in and were created by Apple.
   const original =
@@ -84,7 +88,6 @@ export async function signInProvidersForAccount(
   const linked = await ctx.db
     .query('linkedSignIns')
     .withIndex('by_productAccountId_and_provider', (q) =>
-      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
       q.eq('productAccountId', account._id),
     )
     .take(2);
@@ -97,7 +100,7 @@ export async function signInProvidersForAccount(
 }
 
 export async function requireProductAccountNotDeleted(
-  ctx: QueryCtx | MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex contexts are immutable inputs.
+  ctx: QueryCtx | MutationCtx,
   signInTokenIdentifier: string,
 ): Promise<void> {
   const tokenIdentifier = await accountTokenIdentifier(
@@ -182,7 +185,7 @@ export function throwTrustedDeviceReconnectRequired(): never {
 }
 
 export async function requireProductAccount(
-  ctx: QueryCtx | MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
+  ctx: QueryCtx | MutationCtx,
 ): Promise<AuthenticatedProductAccount> {
   const identity = await ctx.auth.getUserIdentity();
   if (!identity) {
@@ -198,7 +201,6 @@ export async function requireProductAccount(
   return {
     deviceCredentialEnforcementActivatedAt:
       account.deviceCredentialEnforcementActivatedAt,
-    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
     productAccountId: account._id,
     productSyncKeyEpoch: account.productSyncKeyEpoch,
     productSyncMaterialInitializedAt: account.productSyncMaterialInitializedAt,
@@ -207,7 +209,7 @@ export async function requireProductAccount(
 }
 
 export async function requireRecentAuthentication(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
+  ctx: MutationCtx,
 ): Promise<void> {
   const identity = await ctx.auth.getUserIdentity();
   // oxlint-disable-next-line typescript/dot-notation -- iat is exposed through UserIdentity's additional-claims index signature.
@@ -225,7 +227,7 @@ export async function requireRecentAuthentication(
 }
 
 export function requireCurrentProductSyncKeyEpoch(
-  account: AuthenticatedProductAccount, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- The alias is deeply readonly.
+  account: AuthenticatedProductAccount,
   keyVersion: number,
 ): void {
   const requiredKeyEpoch =
@@ -238,11 +240,11 @@ export function requireCurrentProductSyncKeyEpoch(
 }
 
 export async function requireTrustedDevice(
-  ctx: QueryCtx | MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
+  ctx: QueryCtx | MutationCtx,
   productAccountId: Id<'productAccounts'>,
   trustedDeviceId: Id<'trustedDevices'>,
 ): Promise<void> {
-  const trustedDevice = await ctx.db.get(trustedDeviceId);
+  const trustedDevice = await ctx.db.get('trustedDevices', trustedDeviceId);
   if (trustedDevice === null) {
     const revokedDevice = await ctx.db
       .query('revokedTrustedDevices')
@@ -273,16 +275,19 @@ type TrustedDeviceProof = Readonly<{
 }>;
 
 export async function requireTrustedDeviceProof(
-  ctx: QueryCtx | MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
-  account: TrustedDeviceProofAccount, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex identifiers are branded values.
-  proof: TrustedDeviceProof, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex identifiers are branded values.
+  ctx: QueryCtx | MutationCtx,
+  account: TrustedDeviceProofAccount,
+  proof: TrustedDeviceProof,
 ): Promise<void> {
   await requireTrustedDevice(
     ctx,
     account.productAccountId,
     proof.trustedDeviceId,
   );
-  const trustedDevice = await ctx.db.get(proof.trustedDeviceId);
+  const trustedDevice = await ctx.db.get(
+    'trustedDevices',
+    proof.trustedDeviceId,
+  );
   if (trustedDevice === null) {
     throw new Error('Trusted device required');
   }
@@ -302,7 +307,7 @@ export async function requireTrustedDeviceProof(
   }
   const priorRevocation = await ctx.db
     .query('revokedTrustedDevices')
-    .withIndex('by_productAccountId', (q) =>
+    .withIndex('by_productAccountId_and_deviceIdentifier', (q) =>
       q.eq('productAccountId', account.productAccountId),
     )
     .first();
@@ -312,7 +317,7 @@ export async function requireTrustedDeviceProof(
 }
 
 export async function requireAuthenticatedTrustedDevice(
-  ctx: QueryCtx | MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
+  ctx: QueryCtx | MutationCtx,
   trustedDeviceId: Id<'trustedDevices'>,
   trustedDeviceCredential?: string,
 ): Promise<AuthenticatedProductAccount> {

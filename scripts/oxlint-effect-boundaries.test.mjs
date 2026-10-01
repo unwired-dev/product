@@ -13,7 +13,13 @@ const cases = [
   ["export const d = (value: unknown) => typeof value === 'string';", null],
   ['export const e = (text: string): unknown => JSON.parse(text);', 'parse'],
   ['export const f = (value: unknown) => JSON.stringify(value);', null],
-  ["export const g = (text: string): unknown => JSON['parse'](text);", null],
+  ["export const g = (text: string): unknown => JSON['parse'](text);", 'parse'],
+  ['export const h = (text: string): unknown => JSON . parse(text);', 'parse'],
+  [
+    'export const i = (text: string): unknown => JSON/* trusted? */.parse(text);',
+    'parse',
+  ],
+  ['export const j = (value: { parse: () => 1 }) => value.parse();', null],
   ['export class Failure extends Error {}', 'error'],
 ];
 const codes = {

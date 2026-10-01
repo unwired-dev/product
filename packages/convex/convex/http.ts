@@ -6,7 +6,7 @@ import * as Schema from 'effect/Schema';
 import type { ActionCtx } from './_generated/server.js';
 
 import { internal } from './_generated/api.js';
-import { httpAction } from './_generated/server.js';
+import { env, httpAction } from './_generated/server.js';
 import { decodeGmailPushEnvelope } from './gmailPushPayload.js';
 import {
   trustedDeviceReconnectRequiredErrorCode,
@@ -84,9 +84,7 @@ function decodeBase64Url(value: string): string | null {
 }
 
 // fallow-ignore-next-line complexity -- Authentication parsing keeps every malformed form fail-closed.
-function bearerToken(
-  request: Request, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Request is inspected but not mutated.
-): string | null {
+function bearerToken(request: Request): string | null {
   const authorization = request.headers.get('authorization');
   if (authorization === null) {
     return null;
@@ -125,8 +123,8 @@ function recentlyIssuedForIdentity(
 
 // fallow-ignore-next-line complexity -- Authentication and payload failures intentionally remain distinct responses.
 async function replaceRecoveryMaterialResponse(
-  ctx: ActionCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
-  request: Request, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Request is inspected but not mutated.
+  ctx: ActionCtx,
+  request: Request,
 ): Promise<Response> {
   const identity = await ctx.auth.getUserIdentity();
   const token = bearerToken(request);
@@ -178,11 +176,8 @@ function decodeRequestEnvelope(
   }
 }
 
-function hasValidVerificationToken(
-  request: Request, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Request is inspected but not mutated.
-): boolean {
-  // oxlint-disable-next-line node/no-process-env -- Convex HTTP actions read deployment env at runtime.
-  const verificationToken = process.env.GMAIL_PUSH_VERIFICATION_TOKEN;
+function hasValidVerificationToken(request: Request): boolean {
+  const verificationToken = env.GMAIL_PUSH_VERIFICATION_TOKEN;
   const requestToken = new URL(request.url).searchParams.get('token');
   return (
     verificationToken !== undefined &&
@@ -217,9 +212,7 @@ async function sha256Hex(value: string): Promise<string> {
     .join('');
 }
 
-function microsoftGraphValidationResponse(
-  url: URL, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- URL is inspected but not mutated.
-): Response | null {
+function microsoftGraphValidationResponse(url: URL): Response | null {
   const validationToken = url.searchParams.get('validationToken');
   if (validationToken === null) {
     return null;
@@ -230,15 +223,13 @@ function microsoftGraphValidationResponse(
   });
 }
 
-function microsoftGraphRouteId(
-  url: URL, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- URL is inspected but not mutated.
-): string | null {
+function microsoftGraphRouteId(url: URL): string | null {
   const routeId = url.searchParams.get('routeId');
   return routeId?.length === 0 ? null : routeId;
 }
 
 async function enqueueMicrosoftGraphNotifications(
-  ctx: ActionCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
+  ctx: ActionCtx,
   routeId: string,
   notifications: readonly MicrosoftGraphNotification[],
 ): Promise<void> {
@@ -263,8 +254,8 @@ async function enqueueMicrosoftGraphNotifications(
 }
 
 async function microsoftGraphPushResponse(
-  ctx: ActionCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
-  request: Request, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Request is inspected but not mutated.
+  ctx: ActionCtx,
+  request: Request,
 ): Promise<Response> {
   const url = new URL(request.url);
   const validationResponse = microsoftGraphValidationResponse(url);

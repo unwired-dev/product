@@ -1,3 +1,4 @@
+import convexPlugin from '@convex-dev/eslint-plugin';
 import * as EffectPresets from '@effect/tsgo/oxlint-presets';
 import { buildOxlintConfig } from '@rajzik/oxlint-config';
 
@@ -21,6 +22,7 @@ export default buildOxlintConfig({
         name: 'effect-boundaries',
         specifier: './scripts/oxlint-effect-boundaries.mjs',
       },
+      '@convex-dev/eslint-plugin',
     ],
     extends: [EffectPresets.recommended],
     ignorePatterns: ['**/convex/_generated/**'],
@@ -31,8 +33,23 @@ export default buildOxlintConfig({
       ...boundaryRules,
       'unicorn/max-nested-calls': 'allow',
       'eslint/one-var': 'allow',
+      // Function declarations are hoisted.
+      'eslint/no-use-before-define': ['deny', { functions: false }],
     },
     overrides: [
+      ...convexPlugin.configs.recommended.map(({ files, rules }) => ({
+        files,
+        rules,
+      })),
+      {
+        // Convex documents expose `_id` and `_creationTime`.
+        files: ['packages/convex/**/*.ts'],
+        rules: {
+          'eslint/no-underscore-dangle': 'allow',
+          // Convex contexts, documents, and ids are generated mutable types.
+          'typescript/prefer-readonly-parameter-types': 'allow',
+        },
+      },
       {
         // The legacy prototype harness is retired at cutover (#627).
         files: ['packages/mail-test-harness/**/*.ts'],
@@ -47,9 +64,13 @@ export default buildOxlintConfig({
       {
         // Tests read trusted fixtures; their assertions check the shape.
         files: ['**/*.test.ts', '**/*.test.tsx'],
+        // Vitest rule settings only apply where an override enables the plugin.
+        plugins: ['vitest'],
         rules: {
           ...boundaryExemptions,
           'node/no-sync': 'allow',
+          // Conflicts with vitest/prefer-strict-boolean-matchers.
+          'vitest/prefer-to-be-falsy': 'allow',
         },
       },
     ],
