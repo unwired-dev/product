@@ -6,7 +6,8 @@
     "registration-declined",
     "registration-no-gmail",
     "registration-interrupted",
-    "registration-apple"
+    "registration-apple",
+    "registration-link"
   ],
   "nativeJourney": [
     "open-read-relaunch",
@@ -14,6 +15,7 @@
     "registration-declined",
     "registration-no-gmail",
     "registration-interrupted",
-    "registration-apple"
+    "registration-apple",
+    "registration-link"
   ]
 }

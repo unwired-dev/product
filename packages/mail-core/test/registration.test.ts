@@ -147,4 +147,65 @@ describe('product registration', () => {
       failed: true,
     });
   });
+
+  it('links the other Sign-In Provider explicitly, keeps it across relaunch and opens the same Product Account with it', async () => {
+    expect.hasAssertions();
+    const session = createMockRegistrationSession('registration-link');
+    const store = createRegistration(session.native);
+    await store.register('apple');
+    // A Gmail grant never links the mailbox's Google identity as a sign-in.
+    expect(store.getSnapshot().snapshot).not.toHaveProperty('alternateSignIn');
+    await store.link('google');
+    const linked = {
+      kind: 'connected',
+      ...accounts.apple,
+      signInProvider: 'apple',
+      alternateSignIn: 'google',
+      providerSubject: 'synthetic-google-subject',
+      address: 'alex@example.invalid',
+    };
+    expect(store.getSnapshot()).toStrictEqual({
+      snapshot: linked,
+      busy: false,
+      failed: false,
+    });
+    const relaunched = createRegistration(session.native);
+    await relaunched.restore();
+    expect(relaunched.getSnapshot().snapshot).toStrictEqual(linked);
+    await relaunched.register('google');
+    expect(relaunched.getSnapshot().snapshot).toStrictEqual({
+      ...linked,
+      signInProvider: 'google',
+      alternateSignIn: 'apple',
+    });
+  });
+
+  it.each([
+    ['identity-owned', 'identity-owned'],
+    ['stale-authentication', 'stale-authentication'],
+    ['unavailable', 'failed'],
+  ] as const)(
+    'reports a %s link rejection without changing the Product Account',
+    async (code, linkFailure) => {
+      expect.hasAssertions();
+      const session = createMockRegistrationSession('registration-success');
+      const store = createRegistration({
+        ...session.native,
+        link: () =>
+          Promise.reject(Object.assign(new Error('Link rejected'), { code })),
+      });
+      await store.register('google');
+      const before = store.getSnapshot().snapshot;
+      await store.link('apple');
+      expect(store.getSnapshot()).toStrictEqual({
+        snapshot: before,
+        busy: false,
+        failed: false,
+        linkFailure,
+      });
+      // The failure clears once another operation finishes.
+      await store.restore();
+      expect(store.getSnapshot()).not.toHaveProperty('linkFailure');
+    },
+  );
 });

@@ -2,11 +2,20 @@ import type { Infer } from 'convex/values';
 
 import { v } from 'convex/values';
 
+export const signInProviderValidator = v.union(
+  v.literal('apple'),
+  v.literal('google'),
+);
+
+export type SignInProvider = Infer<typeof signInProviderValidator>;
+
 export const productAccountConnectResponseValidator = v.object({
   accountCreated: v.boolean(),
   deviceRegistered: v.boolean(),
   productSyncMaterialInitialized: v.boolean(),
   productAccountId: v.string(),
+  // Every Sign-In Provider that can open this Product Account, original first.
+  signInProviders: v.array(signInProviderValidator),
   trustedDeviceCredential: v.optional(v.string()),
   trustedDeviceId: v.string(),
 });
@@ -47,9 +56,27 @@ export const productAccountConnectResponseFixture: ProductAccountConnectResponse
     deviceRegistered: true,
     productSyncMaterialInitialized: false,
     productAccountId: 'productAccountFixtureId',
+    signInProviders: ['apple'],
     trustedDeviceCredential: 'trustedDeviceCredentialFixture',
     trustedDeviceId: 'trustedDeviceFixtureId',
   };
+
+export const signInLinkRequestResponseValidator = v.object({
+  // Absent when the requested Sign-In Provider is already linked.
+  linkTicket: v.optional(v.string()),
+  signInProviders: v.array(signInProviderValidator),
+});
+
+export type SignInLinkRequestResponse = Infer<
+  typeof signInLinkRequestResponseValidator
+>;
+
+export const signInLinkResponseValidator = v.object({
+  productAccountId: v.string(),
+  signInProviders: v.array(signInProviderValidator),
+});
+
+export type SignInLinkResponse = Infer<typeof signInLinkResponseValidator>;
 
 export const productSyncMaterialInitializedResponseValidator = v.object({
   productSyncMaterialInitialized: v.boolean(),

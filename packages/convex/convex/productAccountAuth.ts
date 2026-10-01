@@ -1,6 +1,8 @@
+import type { SignInProvider } from '@private-email/contracts/productAccount';
+
 import { ConvexError, v } from 'convex/values';
 
-import type { Id } from './_generated/dataModel.js';
+import type { Doc, Id } from './_generated/dataModel.js';
 import type { MutationCtx, QueryCtx } from './_generated/server.js';
 
 export const productAccountDeletedCode = 'PRODUCT_ACCOUNT_DELETED';
@@ -15,10 +17,93 @@ export function productAccountDeletedError(): ConvexError<{
   });
 }
 
-export async function requireProductAccountNotDeleted(
+const signInProviderIssuers: Readonly<Record<string, SignInProvider>> = {
+  'https://accounts.google.com': 'google',
+  'accounts.google.com': 'google',
+  'https://appleid.apple.com': 'apple',
+};
+
+export function signInProviderForIssuer(
+  issuer: string,
+): SignInProvider | undefined {
+  return Object.hasOwn(signInProviderIssuers, issuer)
+    ? signInProviderIssuers[issuer]
+    : undefined;
+}
+
+async function linkedSignIn(
   ctx: QueryCtx | MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex contexts are immutable inputs.
   tokenIdentifier: string,
+): Promise<Doc<'linkedSignIns'> | null> {
+  return ctx.db
+    .query('linkedSignIns')
+    .withIndex('by_tokenIdentifier', (q) =>
+      q.eq('tokenIdentifier', tokenIdentifier),
+    )
+    .unique();
+}
+
+// A verified issuer and subject reach only the account that created or explicitly linked them.
+export async function productAccountForSignIn(
+  ctx: QueryCtx | MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex contexts are immutable inputs.
+  tokenIdentifier: string,
+): Promise<Doc<'productAccounts'> | null> {
+  const owned = await ctx.db
+    .query('productAccounts')
+    .withIndex('by_tokenIdentifier', (q) =>
+      q.eq('tokenIdentifier', tokenIdentifier),
+    )
+    .unique();
+  if (owned !== null) {
+    return owned;
+  }
+  const linked = await linkedSignIn(ctx, tokenIdentifier);
+  return linked === null ? null : ctx.db.get(linked.productAccountId);
+}
+
+// Deletion state is keyed by the identity that created the Product Account.
+export async function accountTokenIdentifier(
+  ctx: QueryCtx | MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex contexts are immutable inputs.
+  tokenIdentifier: string,
+): Promise<string> {
+  const linked = await linkedSignIn(ctx, tokenIdentifier);
+  const account =
+    linked === null ? null : await ctx.db.get(linked.productAccountId);
+  return account?.tokenIdentifier ?? tokenIdentifier;
+}
+
+// The original Sign-In Provider first, followed by any Linked Sign-In.
+export async function signInProvidersForAccount(
+  ctx: QueryCtx | MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex contexts are immutable inputs.
+  account: Readonly<Doc<'productAccounts'>>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents are immutable inputs here.
+): Promise<SignInProvider[]> {
+  // Prototype accounts predate Google sign-in and were created by Apple.
+  const original =
+    signInProviderForIssuer(account.tokenIdentifier.split('|', 1)[0] ?? '') ??
+    'apple';
+  const linked = await ctx.db
+    .query('linkedSignIns')
+    .withIndex('by_productAccountId_and_provider', (q) =>
+      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+      q.eq('productAccountId', account._id),
+    )
+    .take(2);
+  return [
+    original,
+    ...linked
+      .map(({ provider }) => provider)
+      .filter((provider) => provider !== original),
+  ];
+}
+
+export async function requireProductAccountNotDeleted(
+  ctx: QueryCtx | MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex contexts are immutable inputs.
+  signInTokenIdentifier: string,
 ): Promise<void> {
+  const tokenIdentifier = await accountTokenIdentifier(
+    ctx,
+    signInTokenIdentifier,
+  );
   const [deletionRequest, tombstone] = await Promise.all([
     ctx.db
       .query('productAccountDeletionRequests')
@@ -105,12 +190,7 @@ export async function requireProductAccount(
   }
   await requireProductAccountNotDeleted(ctx, identity.tokenIdentifier);
 
-  const account = await ctx.db
-    .query('productAccounts')
-    .withIndex('by_tokenIdentifier', (q) =>
-      q.eq('tokenIdentifier', identity.tokenIdentifier),
-    )
-    .unique();
+  const account = await productAccountForSignIn(ctx, identity.tokenIdentifier);
   if (account === null) {
     throw new Error('Product Account required');
   }

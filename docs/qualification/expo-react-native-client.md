@@ -9,6 +9,39 @@ The [mobile bootstrap](../expo-client.md) now uses Expo 57.0.25, React Native
 are available on the development host. The maintainer's earlier native-validation
 deferral still applies to unavailable release checks. Mac host evidence follows.
 
+## Linked sign-in evidence, 2026-10-01
+
+[#598](https://github.com/unwired-dev/product/issues/598) adds
+[explicit Google and Apple linking](../linked-sign-in.md) on both hosts.
+
+- All 20 affected workspace lint, format, type and test tasks passed, as did
+  Fallow audit on the changed files. Convex integration covers alternate sign-in
+  from a second installation and same-email non-linking. It also covers owned
+  identities, superseded tickets and stale tokens on either side. Expired,
+  wrong-provider and wrong-device tickets are rejected, a lost completion can be
+  retried and deletion tombstones both identities. Shared and rendered host tests
+  cover linking from account settings, remount and link failures.
+- Eleven app-hosted native tests passed on an owned iOS 27 Simulator with real
+  Keychain. Two new scenarios cover interactive reverification, no hint for the
+  linked identity, cancellation and alternate sign-in on another installation.
+  They also cover recovery after Apple revocation, owned identities, stale
+  sessions and unlinked switches. Apple, Google and the backend are controlled
+  boundaries here.
+- The `registration-link` packaged journey passed on fresh iPhone 18 Pro and
+  iPad Pro 11-inch M5 iOS 27 Simulators. It uses a Release simulator build and
+  relaunches with both sign-in methods.
+- The Mac `Testing` build with `registration-link` compiled and passed its bundle
+  check with ad-hoc signing. Normal mobile and Mac bundle checks and native runner
+  contracts (20 tests) passed.
+
+Real Apple and Google linking, the deployment's JWT gateway, signed Mac
+Keychain/UI and physical devices remain deferred. The
+[protected qualification path](../linked-sign-in.md#protected-real-qualification)
+has not run either. No installed Mac profile covers the disposable
+`dev.unwired.mock.*` IDs. Local evidence is in
+`artifacts/expo-bootstrap/native-Ak0yAc` and
+`artifacts/private-inbox/integration.dmkGTV`.
+
 ## Apple registration evidence, 2026-09-30
 
 [#597](https://github.com/unwired-dev/product/issues/597) adds

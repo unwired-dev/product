@@ -6,7 +6,8 @@ Product Account through Convex before a separate Gmail authorization session.
 Cancelled or declined Gmail consent and Google identities without Gmail retain
 the Product Account. Retry can use the original account or another Google mailbox.
 A failed or cancelled choice of another mailbox keeps a connected mailbox connected.
-Adding that mailbox does not link its Google identity as another Product Sign-In.
+Adding that mailbox does not link its Google identity as another Product Sign-In;
+only [explicit linking](linked-sign-in.md) does.
 
 Production builds open onboarding. Explicit `open-read-relaunch` and
 `mail-unavailable` builds retain the synthetic Inbox preview. A connected Gmail
@@ -102,8 +103,9 @@ issuer, audience and expiry checks run there too. These checks are deterministic
 native application integration evidence, not real OAuth evidence.
 
 External Mock Mail Sessions also accept `registration-cancelled`,
-`registration-declined`, `registration-no-gmail`, `registration-interrupted` and
-the Apple-first [`registration-apple`](apple-registration.md#deterministic-evidence).
+`registration-declined`, `registration-no-gmail`, `registration-interrupted`,
+the Apple-first [`registration-apple`](apple-registration.md#deterministic-evidence)
+and [`registration-link`](linked-sign-in.md#deterministic-evidence).
 Their native provider is compiled only with `UNWIRED_REGISTRATION_MOCK` in an
 explicitly selected build, accepts only its fixed scenario, and has no network or
 real credential inputs. Their JavaScript bundle stays production-equivalent; the

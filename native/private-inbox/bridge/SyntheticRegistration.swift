@@ -64,13 +64,14 @@
     guard
       [
         "registration-cancelled", "registration-declined", "registration-no-gmail",
-        "registration-interrupted", "registration-apple",
+        "registration-interrupted", "registration-apple", "registration-link",
       ].contains(scenario)
     else {
       throw RegistrationError.unavailable
     }
     let google = MockGoogleRegistrationProvider(scenario: scenario)
-    // Each synthetic sign-in identity owns its own Product Account.
+    // Each synthetic sign-in identity owns its own Product Account; in the link
+    // scenario the Google identity is unregistered and may join the Apple account.
     let accounts = [
       "synthetic-product-subject": "synthetic-product-account",
       "synthetic-apple-subject": "synthetic-apple-product-account",
@@ -79,13 +80,27 @@
       keys: DeviceKeychain(service: bundle + ".google-registration"),
       deployment: "https://synthetic.example.invalid", clientID: "synthetic-client",
       provider: google, apple: MockAppleRegistrationProvider(google: google),
+      linking: SignInLinking(
+        request: { identity, product, _ in
+          guard accounts[identity.subject] == product.productAccountId else {
+            throw RegistrationError.invalidIdentity
+          }
+          return SignInLinkRequest(
+            linkTicket: String(repeating: "b", count: 64),
+            signInProviders: product.signInProviders ?? [identity.provider])
+        },
+        complete: { identity, product, _ in
+          guard scenario == "registration-link" else { throw RegistrationError.identityOwned }
+          return (product.signInProviders ?? []) + [identity.provider]
+        }),
       connect: { identity, _, _ in
         guard let account = accounts[identity.subject] else {
           throw RegistrationError.invalidIdentity
         }
         return ProductRegistrationReceipt(
           productAccountId: account, trustedDeviceId: "synthetic-device",
-          trustedDeviceCredential: String(repeating: "a", count: 64))
+          trustedDeviceCredential: String(repeating: "a", count: 64),
+          signInProviders: [identity.provider])
       })
   }
 #endif

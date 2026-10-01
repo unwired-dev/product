@@ -1,3 +1,4 @@
+import { signInProviderValidator } from '@private-email/contracts/productAccount';
 import { encryptedProductSyncPayloadBodyValidator } from '@private-email/contracts/productSync';
 import { defineSchema, defineTable } from 'convex/server';
 import { v } from 'convex/values';
@@ -19,6 +20,30 @@ export default defineSchema({
     ),
     tokenIdentifier: v.string(),
   }).index('by_tokenIdentifier', ['tokenIdentifier']),
+
+  // A verified alternate Product Sign-In; each provider subject has exactly one owner.
+  linkedSignIns: defineTable({
+    linkedAt: v.number(),
+    productAccountId: v.id('productAccounts'),
+    provider: signInProviderValidator,
+    tokenIdentifier: v.string(),
+  })
+    .index('by_tokenIdentifier', ['tokenIdentifier'])
+    .index('by_productAccountId_and_provider', [
+      'productAccountId',
+      'provider',
+    ]),
+
+  // A short-lived, single-use grant from a recently authenticated Trusted Device.
+  signInLinkRequests: defineTable({
+    expiresAt: v.number(),
+    productAccountId: v.id('productAccounts'),
+    provider: signInProviderValidator,
+    ticketDigest: v.string(),
+    trustedDeviceId: v.id('trustedDevices'),
+  })
+    .index('by_ticketDigest', ['ticketDigest'])
+    .index('by_productAccountId', ['productAccountId']),
 
   productAccountDeletionRequests: defineTable({
     activeAttemptId: v.optional(v.string()),

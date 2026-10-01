@@ -35,6 +35,26 @@ final class WindowTests: XCTestCase {
     XCTAssertTrue(app.windows["Inbox 1"].staticTexts["Gmail connected"].waitForExistence(timeout: 15))
   }
 
+  // Linking verifies both identities; the Gmail grant never becomes a sign-in method.
+  private func linkJourney(_ app: XCUIApplication, first: XCUIElement) {
+    func text(_ value: String, in window: XCUIElement) -> XCUIElement {
+      window.staticTexts.matching(
+        NSPredicate(format: "label CONTAINS %@ OR value CONTAINS %@", value, value)
+      ).firstMatch
+    }
+    XCTAssertTrue(first.buttons["Sign in with Apple"].waitForExistence(timeout: 20))
+    first.buttons["Sign in with Apple"].click()
+    XCTAssertTrue(text("Gmail connected", in: first).waitForExistence(timeout: 15))
+    XCTAssertTrue(text("Only Apple opens this Product Account", in: first).exists)
+    first.buttons["Link Google sign-in"].click()
+    let linked = "Sign in with Apple or Google to open this Product Account."
+    XCTAssertTrue(text(linked, in: first).waitForExistence(timeout: 15))
+    XCTAssertFalse(first.buttons["Link Google sign-in"].exists)
+    app.terminate()
+    app.launch()
+    XCTAssertTrue(text(linked, in: app.windows["Inbox 1"]).waitForExistence(timeout: 15))
+  }
+
   // Keep the existing window lifecycle journey in one session for its PID and work assertions.
   // swiftlint:disable:next function_body_length
   func testIndependentWindowsCloseReopenAndQuit() throws {
@@ -63,6 +83,10 @@ final class WindowTests: XCTestCase {
     }
     let first = app.windows["Inbox 1"]
     XCTAssertTrue(first.waitForExistence(timeout: 30))
+    if environment["UNWIRED_TEST_SCENARIO"] == "registration-link" {
+      linkJourney(app, first: first)
+      return
+    }
     if environment["UNWIRED_TEST_SCENARIO"]?.hasPrefix("registration-") == true {
       registrationJourney(
         app, first: first, apple: environment["UNWIRED_TEST_SCENARIO"] == "registration-apple")

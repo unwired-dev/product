@@ -49,6 +49,28 @@ final class InboxTests: XCTestCase {
     add(shot)
   }
 
+  // Linking verifies both identities; the Gmail grant never becomes a sign-in method.
+  private func linkJourney(_ app: XCUIApplication) {
+    app.buttons["Sign in with Apple"].tap()
+    XCTAssertTrue(app.staticTexts["Gmail connected"].waitForExistence(timeout: 15))
+    XCTAssertTrue(
+      app.staticTexts.matching(
+        NSPredicate(format: "label CONTAINS %@", "Only Apple opens this Product Account")
+      ).firstMatch.exists)
+    app.buttons["Link Google sign-in"].tap()
+    let linked = app.staticTexts["Sign in with Apple or Google to open this Product Account."]
+    XCTAssertTrue(linked.waitForExistence(timeout: 15))
+    XCTAssertFalse(app.buttons["Link Google sign-in"].exists)
+    app.terminate()
+    app.launch()
+    XCTAssertTrue(linked.waitForExistence(timeout: 15))
+    XCTAssertTrue(app.staticTexts["Gmail connected"].exists)
+    let shot = XCTAttachment(screenshot: app.screenshot())
+    shot.name = "Linked Apple and Google sign-in"
+    shot.lifetime = .keepAlways
+    add(shot)
+  }
+
   func testSelectAndReplaceMessage() throws {
     continueAfterFailure = false
     let identifier = try XCTUnwrap(ProcessInfo.processInfo.environment["UNWIRED_BUNDLE_ID"])
@@ -59,9 +81,10 @@ final class InboxTests: XCTestCase {
       == true
     {
       XCTAssertTrue(app.staticTexts["Welcome to Unwired Mail"].waitForExistence(timeout: 20))
-      if ProcessInfo.processInfo.environment["UNWIRED_TEST_SCENARIO"] == "registration-apple" {
-        appleRegistrationJourney(app)
-      } else {
+      switch ProcessInfo.processInfo.environment["UNWIRED_TEST_SCENARIO"] {
+      case "registration-apple": appleRegistrationJourney(app)
+      case "registration-link": linkJourney(app)
+      default:
         try registrationJourney(app)
       }
       return

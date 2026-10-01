@@ -27,9 +27,10 @@ Native builds can select `open-read-relaunch` or `mail-unavailable` using
 `UNWIRED_MOCK_SCENARIO`. Metro resolves the normal seed module to the selected
 test module at build time. Unselected bundles exclude all mock-provider code;
 source-map checks enforce that boundary and reject backend sources. Unknown
-scenario names fail the build. Native XCTest accepts `open-read-relaunch` and the five registration scenarios
-described in [Google registration](google-registration.md#deterministic-evidence)
-and [Apple registration](apple-registration.md#deterministic-evidence).
+scenario names fail the build. Native XCTest accepts `open-read-relaunch` and the six registration scenarios
+described in [Google registration](google-registration.md#deterministic-evidence),
+[Apple registration](apple-registration.md#deterministic-evidence) and
+[linked sign-in](linked-sign-in.md#deterministic-evidence).
 The registration journeys use the native registration store and real Keychain
 with a fixed synthetic provider compiled only in the selected test build.
 The native runners reject builds without a supported test marker. Selection is never

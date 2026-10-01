@@ -8,7 +8,7 @@ import {
   trustedDeviceSummaryValidator,
 } from '@private-email/contracts/productAccount';
 import { encryptedProductSyncPayloadBodyValidator } from '@private-email/contracts/productSync';
-import { v } from 'convex/values';
+import { ConvexError, v } from 'convex/values';
 
 import type { Doc, Id } from './_generated/dataModel.js';
 import type { MutationCtx, QueryCtx } from './_generated/server.js';
@@ -18,11 +18,13 @@ import { opaqueGmailConnectionId } from './gmailRouting.js';
 import {
   initialProductSyncKeyEpoch,
   issueTrustedDeviceCredential,
+  productAccountForSignIn,
   requireAuthenticatedTrustedDevice,
   requireProductAccount,
   requireRecentAuthentication,
   requireProductAccountNotDeleted,
   requireTrustedDevice,
+  signInProvidersForAccount,
   trustedDeviceCredentialArgs,
   trustedDeviceCredentialDigest,
   throwTrustedDeviceRevoked,
@@ -47,9 +49,13 @@ type TrustedDeviceRegistration = Readonly<{
 
 type ProductAccountConnection = Readonly<{
   deviceIdentifier: string;
+  // A device that already holds a Product Account may only reconnect to it.
+  expectedProductAccountId: Id<'productAccounts'> | undefined;
   now: number;
   tokenIdentifier: string;
 }>;
+
+export const signInNotLinkedErrorCode = 'SIGN_IN_NOT_LINKED';
 
 type LegacyTrustedDeviceIdentifier = Readonly<{
   deviceIdentifier: string;
@@ -281,17 +287,26 @@ async function requireDeviceWasNotRevoked(
 
 async function upsertProductAccount(
   ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
-  connection: ProductAccountConnection,
+  connection: ProductAccountConnection, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex identifiers are branded values.
 ): Promise<{
   accountCreated: boolean;
   productAccountId: Id<'productAccounts'>;
 }> {
-  const existingAccount = await ctx.db
-    .query('productAccounts')
-    .withIndex('by_tokenIdentifier', (q) =>
-      q.eq('tokenIdentifier', connection.tokenIdentifier),
-    )
-    .unique();
+  const existingAccount = await productAccountForSignIn(
+    ctx,
+    connection.tokenIdentifier,
+  );
+  if (
+    connection.expectedProductAccountId !== undefined &&
+    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+    existingAccount?._id !== connection.expectedProductAccountId
+  ) {
+    // Neither creates an account nor reveals another one for an unlinked identity.
+    throw new ConvexError({
+      code: signInNotLinkedErrorCode,
+      message: 'This sign-in is not linked to this Product Account.',
+    });
+  }
 
   if (existingAccount === null) {
     return {
@@ -902,6 +917,7 @@ export const connect = mutation({
   args: {
     deviceIdentifier: v.string(),
     deviceName: v.optional(v.string()),
+    expectedProductAccountId: v.optional(v.id('productAccounts')),
     platform: v.string(),
     supportsDeviceCredentials: v.optional(v.boolean()),
     trustedDeviceCredential: v.optional(v.string()),
@@ -918,6 +934,7 @@ export const connect = mutation({
       ctx,
       {
         deviceIdentifier: args.deviceIdentifier,
+        expectedProductAccountId: args.expectedProductAccountId,
         now,
         tokenIdentifier: identity.tokenIdentifier,
       },
@@ -959,6 +976,7 @@ export const connect = mutation({
       productSyncMaterialInitialized:
         productAccount.productSyncMaterialInitializedAt !== undefined,
       productAccountId,
+      signInProviders: await signInProvidersForAccount(ctx, productAccount),
       ...(trustedDeviceCredential === undefined
         ? {}
         : { trustedDeviceCredential }),

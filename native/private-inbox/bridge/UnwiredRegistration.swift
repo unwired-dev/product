@@ -108,8 +108,18 @@ extension RegistrationError {
     case .gmailUnavailable: "gmail-unavailable"
     case .invalidIdentity: "invalid-identity"
     case .unavailable: "unavailable"
+    case .identityOwned: "identity-owned"
+    case .staleAuthentication: "stale-authentication"
     }
   }
+}
+
+// The Convex HTTP API response; ConvexError data carries a stable code.
+private struct ConvexEnvelope<Value: Decodable>: Decodable {
+  struct Failure: Decodable { let code: String }
+  let status: String
+  let value: Value?
+  let errorData: Failure?
 }
 
 @objc(UnwiredRegistration)
@@ -142,24 +152,84 @@ final class UnwiredRegistration: NSObject {
         deployment: deployment, clientID: clientID,
         provider: NativeGoogleRegistrationProvider(clientID: clientID),
         apple: NativeAppleRegistrationProvider(audience: bundle),
-        connect: { identity, deviceIdentifier, credential in
+        linking: SignInLinking(
+          request: { identity, product, provider in
+            struct Response: Decodable {
+              let linkTicket: String?
+              let signInProviders: [SignInProvider]
+            }
+            let response: Response = try await Self.mutation(
+              base: base, identity: identity, path: "signInLinks:request",
+              args: [
+                "provider": provider.rawValue, "trustedDeviceId": product.trustedDeviceId,
+                "trustedDeviceCredential": product.trustedDeviceCredential,
+              ])
+            return SignInLinkRequest(
+              linkTicket: response.linkTicket, signInProviders: response.signInProviders)
+          },
+          complete: { identity, product, ticket in
+            struct Response: Decodable {
+              let productAccountId: String
+              let signInProviders: [SignInProvider]
+            }
+            let response: Response = try await Self.mutation(
+              base: base, identity: identity, path: "signInLinks:complete",
+              args: [
+                "linkTicket": ticket, "trustedDeviceId": product.trustedDeviceId,
+                "trustedDeviceCredential": product.trustedDeviceCredential,
+              ])
+            guard response.productAccountId == product.productAccountId else {
+              throw RegistrationError.invalidIdentity
+            }
+            return response.signInProviders
+          }),
+        connect: { identity, deviceIdentifier, previous in
           try await Self.connect(
             base: base, identity: identity, deviceIdentifier: deviceIdentifier,
-            credential: credential)
+            previous: previous)
         })
       Self.sharedStore = store
       return store
     #endif
   }
 
-  @MainActor private static func connect(
-    base: URL, identity: ProductSignInIdentity, deviceIdentifier: String, credential: String?
-  ) async throws -> ProductRegistrationReceipt {
+  // Convex error codes the registration flow distinguishes; others are unavailable.
+  private static let backendErrors: [String: RegistrationError] = [
+    "SIGN_IN_IDENTITY_OWNED": .identityOwned,
+    "SIGN_IN_PROVIDER_ALREADY_LINKED": .identityOwned,
+    "SIGN_IN_RECENT_AUTHENTICATION_REQUIRED": .staleAuthentication,
+    "SIGN_IN_LINK_EXPIRED": .staleAuthentication,
+    "SIGN_IN_NOT_LINKED": .invalidIdentity,
+  ]
+
+  @MainActor private static func mutation<Value: Decodable>(
+    base: URL, identity: ProductSignInIdentity, path: String, args: [String: Any]
+  ) async throws -> Value {
     var request = URLRequest(url: base.appending(path: "api/mutation"))
     request.httpMethod = "POST"
     request.timeoutInterval = 30
     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
     request.setValue("Bearer " + identity.idToken, forHTTPHeaderField: "Authorization")
+    request.httpBody = try JSONSerialization.data(withJSONObject: [
+      "path": path, "args": args, "format": "json",
+    ])
+    let (data, response) = try await URLSession.shared.data(for: request)
+    // Application errors carry a code in errorData whatever the HTTP status.
+    guard let result = try? JSONDecoder().decode(ConvexEnvelope<Value>.self, from: data) else {
+      throw RegistrationError.unavailable
+    }
+    if result.status == "success", let value = result.value,
+      (response as? HTTPURLResponse)?.statusCode == 200
+    {
+      return value
+    }
+    throw result.errorData.flatMap { backendErrors[$0.code] } ?? RegistrationError.unavailable
+  }
+
+  @MainActor private static func connect(
+    base: URL, identity: ProductSignInIdentity, deviceIdentifier: String,
+    previous: ProductRegistrationReceipt?
+  ) async throws -> ProductRegistrationReceipt {
     #if os(iOS)
       let platform = "ios"
     #else
@@ -169,21 +239,14 @@ final class UnwiredRegistration: NSObject {
       "deviceIdentifier": deviceIdentifier, "platform": platform,
       "supportsDeviceCredentials": true,
     ]
-    if let credential { args["trustedDeviceCredential"] = credential }
-    request.httpBody = try JSONSerialization.data(withJSONObject: [
-      "path": "productAccount:connect", "args": args, "format": "json",
-    ])
-    let (data, response) = try await URLSession.shared.data(for: request)
-    guard let response = response as? HTTPURLResponse, response.statusCode == 200 else {
-      throw RegistrationError.unavailable
+    if let previous {
+      args["trustedDeviceCredential"] = previous.trustedDeviceCredential
+      // A reconnect never creates or reaches another Product Account.
+      args["expectedProductAccountId"] = previous.productAccountId
     }
-    struct Envelope: Decodable {
-      let status: String
-      let value: ProductRegistrationReceipt?
-    }
-    let result = try JSONDecoder().decode(Envelope.self, from: data)
-    guard result.status == "success", let product = result.value,
-      !product.productAccountId.isEmpty, !product.trustedDeviceId.isEmpty,
+    let product: ProductRegistrationReceipt = try await mutation(
+      base: base, identity: identity, path: "productAccount:connect", args: args)
+    guard !product.productAccountId.isEmpty, !product.trustedDeviceId.isEmpty,
       product.trustedDeviceCredential.range(of: "^[0-9a-f]{64}$", options: .regularExpression)
         != nil
     else { throw RegistrationError.unavailable }
@@ -235,6 +298,18 @@ final class UnwiredRegistration: NSObject {
         throw RegistrationError.unavailable
       }
       return try await $0.signIn(with: provider)
+    }
+  }
+  @objc(link:resolver:rejecter:)
+  func link(
+    _ provider: String, resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    perform("link", resolve, reject: reject) {
+      guard let provider = SignInProvider(rawValue: provider) else {
+        throw RegistrationError.unavailable
+      }
+      return try await $0.link(provider)
     }
   }
   @objc(authorizeGmail:resolver:rejecter:)
