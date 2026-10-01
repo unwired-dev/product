@@ -1,8 +1,9 @@
+import { env } from './_generated/server.js';
+
 type GmailRoutingKey = Readonly<{ key: string; version: number }>;
 
 function environmentValue(name: string): string | undefined {
-  // oxlint-disable-next-line node/no-process-env -- The deployment owns these backend-only routing secrets.
-  const value = process.env[name];
+  const value = env[name];
   return value === undefined || value.length === 0 ? undefined : value;
 }
 

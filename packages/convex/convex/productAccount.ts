@@ -110,14 +110,16 @@ function defaultTrustedDeviceName(platform: string): string {
 }
 
 async function preserveOrIssueTrustedDeviceCredential(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Connection input is immutable.
+  ctx: MutationCtx,
   request: TrustedDeviceCredentialConnection,
 ): Promise<string | undefined> {
   if (!request.supportsDeviceCredentials) {
     return undefined;
   }
-  const trustedDevice = await ctx.db.get(request.trustedDeviceId);
+  const trustedDevice = await ctx.db.get(
+    'trustedDevices',
+    request.trustedDeviceId,
+  );
   if (trustedDevice === null) {
     throw new Error('Trusted device required');
   }
@@ -130,16 +132,13 @@ async function preserveOrIssueTrustedDeviceCredential(
     return request.presentedCredential;
   }
   const credential = issueTrustedDeviceCredential();
-  await ctx.db.patch(request.trustedDeviceId, {
+  await ctx.db.patch('trustedDevices', request.trustedDeviceId, {
     credentialDigest: await trustedDeviceCredentialDigest(credential),
   });
   return credential;
 }
 
-function trustedDeviceSummary(
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Convex documents are immutable query results.
-  device: Readonly<Doc<'trustedDevices'>>,
-): {
+function trustedDeviceSummary(device: Readonly<Doc<'trustedDevices'>>): {
   displayName: string;
   id: string;
   lastSeenAt: number;
@@ -149,7 +148,6 @@ function trustedDeviceSummary(
   return {
     displayName:
       device.displayName ?? defaultTrustedDeviceName(device.platform),
-    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
     id: device._id,
     lastSeenAt: device.lastSeenAt,
     platform: device.platform,
@@ -158,7 +156,6 @@ function trustedDeviceSummary(
 }
 
 function gmailConnectionDetails(
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Convex ids are immutable branded strings.
   args: Readonly<{
     emailAddress: string;
     providerAccountIdentifier: string;
@@ -176,9 +173,7 @@ function gmailConnectionDetails(
   };
 }
 
-function gmailConnectionStatus(
-  connection: Doc<'mailProviderConnections'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents are immutable inputs here.
-) {
+function gmailConnectionStatus(connection: Doc<'mailProviderConnections'>) {
   if (
     connection.emailAddress === undefined ||
     connection.providerAccountIdentifier === undefined
@@ -202,8 +197,8 @@ type GmailTrustedDeviceAuthentication = Readonly<{
 }>;
 
 async function gmailConnectionsForTrustedDevice(
-  ctx: MutationCtx | QueryCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex contexts are immutable inputs here.
-  trustedDevice: GmailTrustedDeviceAuthentication, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex identifiers are branded values.
+  ctx: MutationCtx | QueryCtx,
+  trustedDevice: GmailTrustedDeviceAuthentication,
   limit: number,
 ): Promise<Array<Doc<'mailProviderConnections'>>> {
   const account = await requireAuthenticatedTrustedDevice(
@@ -213,7 +208,7 @@ async function gmailConnectionsForTrustedDevice(
   );
   return ctx.db
     .query('mailProviderConnections')
-    .withIndex('by_productAccountId_and_provider_and_trustedDeviceId', (q) =>
+    .withIndex('by_productId_provider_deviceId_providerAccountId', (q) =>
       q
         .eq('productAccountId', account.productAccountId)
         .eq('provider', 'gmail')
@@ -223,8 +218,8 @@ async function gmailConnectionsForTrustedDevice(
 }
 
 function gmailRoutingIdentityChanged(
-  existingConnection: Doc<'mailProviderConnections'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents are immutable inputs here.
-  connection: GmailConnectionDetails, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Connection details are treated as immutable input.
+  existingConnection: Doc<'mailProviderConnections'>,
+  connection: GmailConnectionDetails,
 ): boolean {
   return (
     existingConnection.providerAccountIdentifier !==
@@ -234,17 +229,16 @@ function gmailRoutingIdentityChanged(
 }
 
 async function updateGmailConnection(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
-  existingConnection: Doc<'mailProviderConnections'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents are immutable inputs here.
-  connection: GmailConnectionDetails, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Connection details are treated as immutable input.
+  ctx: MutationCtx,
+  existingConnection: Doc<'mailProviderConnections'>,
+  connection: GmailConnectionDetails,
 ): Promise<{ connectedAt: number } & GmailConnectionDetails> {
   const routingIdentityChanged = gmailRoutingIdentityChanged(
     existingConnection,
     connection,
   );
   if (routingIdentityChanged) {
-    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-    await ctx.db.delete(existingConnection._id);
+    await ctx.db.delete('mailProviderConnections', existingConnection._id);
     await ctx.db.insert('mailProviderConnections', {
       ...connection,
       connectedAt: existingConnection.connectedAt,
@@ -255,8 +249,7 @@ async function updateGmailConnection(
       ...connection,
     };
   }
-  // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-  await ctx.db.patch(existingConnection._id, {
+  await ctx.db.patch('mailProviderConnections', existingConnection._id, {
     ...connection,
     updatedAt: existingConnection.updatedAt,
   });
@@ -268,7 +261,7 @@ async function updateGmailConnection(
 }
 
 async function requireDeviceWasNotRevoked(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
+  ctx: MutationCtx,
   productAccountId: Id<'productAccounts'>,
   deviceIdentifier: string,
 ): Promise<void> {
@@ -286,8 +279,8 @@ async function requireDeviceWasNotRevoked(
 }
 
 async function upsertProductAccount(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
-  connection: ProductAccountConnection, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex identifiers are branded values.
+  ctx: MutationCtx,
+  connection: ProductAccountConnection,
 ): Promise<{
   accountCreated: boolean;
   productAccountId: Id<'productAccounts'>;
@@ -298,7 +291,6 @@ async function upsertProductAccount(
   );
   if (
     connection.expectedProductAccountId !== undefined &&
-    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
     existingAccount?._id !== connection.expectedProductAccountId
   ) {
     // Neither creates an account nor reveals another one for an unlinked identity.
@@ -320,14 +312,15 @@ async function upsertProductAccount(
     };
   }
 
-  // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
   const productAccountId = existingAccount._id;
   await requireDeviceWasNotRevoked(
     ctx,
     productAccountId,
     connection.deviceIdentifier,
   );
-  await ctx.db.patch(productAccountId, { lastSeenAt: connection.now });
+  await ctx.db.patch('productAccounts', productAccountId, {
+    lastSeenAt: connection.now,
+  });
 
   return {
     accountCreated: false,
@@ -336,11 +329,10 @@ async function upsertProductAccount(
 }
 
 async function migrateLegacyTrustedDeviceIdentifier(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
-  account: Doc<'productAccounts'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents are immutable inputs here.
+  ctx: MutationCtx,
+  account: Doc<'productAccounts'>,
   identifier: LegacyTrustedDeviceIdentifier,
 ): Promise<boolean> {
-  // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
   const productAccountId = account._id;
   const existingHistory = await ctx.db
     .query('trustedDeviceIdentifierHistory')
@@ -366,8 +358,7 @@ async function migrateLegacyTrustedDeviceIdentifier(
     account.legacyTrustedDeviceIdentifierMigrationCompletedAt === undefined &&
     identifier.firstRegisteredAt < existingHistory.firstRegisteredAt
   ) {
-    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-    await ctx.db.patch(existingHistory._id, {
+    await ctx.db.patch('trustedDeviceIdentifierHistory', existingHistory._id, {
       firstRegisteredAt: identifier.firstRegisteredAt,
     });
     return true;
@@ -376,8 +367,8 @@ async function migrateLegacyTrustedDeviceIdentifier(
 }
 
 async function migrateLegacyTrustedDeviceIdentifierBatch(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
-  account: Doc<'productAccounts'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents are immutable inputs here.
+  ctx: MutationCtx,
+  account: Doc<'productAccounts'>,
   identifiers: readonly LegacyTrustedDeviceIdentifier[],
 ): Promise<number> {
   let migratedIdentifierCount = 0;
@@ -413,7 +404,6 @@ export const migrateLegacyTrustedDeviceIdentifiers = internalMutation({
     if (account === null) {
       throw new Error('Product Account required');
     }
-    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
     const productAccountId = account._id;
     const migratedIdentifierCount =
       await migrateLegacyTrustedDeviceIdentifierBatch(
@@ -425,7 +415,7 @@ export const migrateLegacyTrustedDeviceIdentifiers = internalMutation({
       args.migrationComplete &&
       account.legacyTrustedDeviceIdentifierMigrationCompletedAt === undefined
     ) {
-      await ctx.db.patch(productAccountId, {
+      await ctx.db.patch('productAccounts', productAccountId, {
         legacyTrustedDeviceIdentifierMigrationCompletedAt: Date.now(),
       });
     }
@@ -445,7 +435,7 @@ export const migrateLegacyTrustedDeviceIdentifiers = internalMutation({
 });
 
 async function registerTrustedDevice(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
+  ctx: MutationCtx,
   productAccountId: Id<'productAccounts'>,
   registration: TrustedDeviceRegistration,
 ): Promise<{
@@ -458,7 +448,7 @@ async function registerTrustedDevice(
       : normalizedTrustedDeviceName(registration.deviceName);
   const devices = await ctx.db
     .query('trustedDevices')
-    .withIndex('by_productAccountId', (q) =>
+    .withIndex('by_productAccountId_and_deviceIdentifier', (q) =>
       q.eq('productAccountId', productAccountId),
     )
     .take(trustedDeviceLimitPerProductAccount);
@@ -480,8 +470,7 @@ async function registerTrustedDevice(
 }
 
 async function preserveTrustedDeviceRevocationTarget(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Revocation target input is immutable.
+  ctx: MutationCtx,
   target: Readonly<{
     deviceIdentifier: string;
     productAccountId: Id<'productAccounts'>;
@@ -502,8 +491,8 @@ async function preserveTrustedDeviceRevocationTarget(
 }
 
 async function updateTrustedDevice(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
-  existingDevice: Doc<'trustedDevices'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents are immutable inputs here.
+  ctx: MutationCtx,
+  existingDevice: Doc<'trustedDevices'>,
   registration: TrustedDeviceRegistration,
 ): Promise<{
   deviceRegistered: false;
@@ -513,9 +502,8 @@ async function updateTrustedDevice(
     registration.deviceName === undefined
       ? undefined
       : normalizedTrustedDeviceName(registration.deviceName);
-  // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
   const trustedDeviceId = existingDevice._id;
-  await ctx.db.patch(trustedDeviceId, {
+  await ctx.db.patch('trustedDevices', trustedDeviceId, {
     ...(existingDevice.displayName === undefined && displayName !== undefined
       ? { displayName }
       : {}),
@@ -529,7 +517,7 @@ async function updateTrustedDevice(
 }
 
 async function upsertTrustedDevice(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
+  ctx: MutationCtx,
   productAccountId: Id<'productAccounts'>,
   registration: TrustedDeviceRegistration,
 ): Promise<{
@@ -556,12 +544,12 @@ async function upsertTrustedDevice(
   if (existingDevice === null) {
     const priorRevocation = await ctx.db
       .query('revokedTrustedDevices')
-      .withIndex('by_productAccountId', (q) =>
+      .withIndex('by_productAccountId_and_deviceIdentifier', (q) =>
         q.eq('productAccountId', productAccountId),
       )
       .first();
     if (priorRevocation !== null) {
-      const account = await ctx.db.get(productAccountId);
+      const account = await ctx.db.get('productAccounts', productAccountId);
       if (
         identifierHistory === null ||
         account?.legacyTrustedDeviceIdentifierMigrationCompletedAt === undefined
@@ -592,7 +580,7 @@ async function upsertTrustedDevice(
 }
 
 async function deleteTrustedDeviceHeartbeat(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
+  ctx: MutationCtx,
   trustedDeviceId: Id<'trustedDevices'>,
 ): Promise<void> {
   const heartbeat = await ctx.db
@@ -602,13 +590,12 @@ async function deleteTrustedDeviceHeartbeat(
     )
     .unique();
   if (heartbeat !== null) {
-    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-    await ctx.db.delete(heartbeat._id);
+    await ctx.db.delete('devicePushRouteHeartbeats', heartbeat._id);
   }
 }
 
 async function legacyGmailRouteSnapshot(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
+  ctx: MutationCtx,
   productAccountId: Id<'productAccounts'>,
 ): Promise<
   Readonly<{
@@ -618,7 +605,7 @@ async function legacyGmailRouteSnapshot(
 > {
   const connections = await ctx.db
     .query('mailProviderConnections')
-    .withIndex('by_productAccountId_and_provider', (q) =>
+    .withIndex('by_productAccountId_and_provider_and_emailAddress', (q) =>
       q.eq('productAccountId', productAccountId).eq('provider', 'gmail'),
     )
     .take(gmailLegacyRouteFallbackLimit + 1);
@@ -654,7 +641,7 @@ type GmailIdentityBindingRouteRequest = Readonly<{
 
 function gmailIdentityBindingStillHasRoute(
   remainingConnectionExists: boolean,
-  request: GmailIdentityBindingRouteRequest, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex ids are immutable branded strings.
+  request: GmailIdentityBindingRouteRequest,
 ): boolean {
   return (
     remainingConnectionExists ||
@@ -664,8 +651,8 @@ function gmailIdentityBindingStillHasRoute(
 }
 
 async function deleteGmailIdentityBindingIfOrphaned(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
-  request: GmailIdentityBindingRouteRequest, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex ids are immutable branded strings.
+  ctx: MutationCtx,
+  request: GmailIdentityBindingRouteRequest,
 ): Promise<void> {
   const remainingConnection = await ctx.db
     .query('mailProviderConnections')
@@ -690,15 +677,14 @@ async function deleteGmailIdentityBindingIfOrphaned(
     )
     .unique();
   if (identityBinding !== null) {
-    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-    await ctx.db.delete(identityBinding._id);
+    await ctx.db.delete('gmailOpaqueIdentityBindings', identityBinding._id);
   }
 }
 
 async function deleteOrphanedGmailIdentityBindings(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
+  ctx: MutationCtx,
   productAccountId: Id<'productAccounts'>,
-  connections: ReadonlyArray<Doc<'mailProviderConnections'>>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents are immutable inputs here.
+  connections: ReadonlyArray<Doc<'mailProviderConnections'>>,
 ): Promise<void> {
   const candidateOpaqueConnectionIds = await Promise.all(
     connections.map(async (connection) => {
@@ -729,7 +715,7 @@ async function deleteOrphanedGmailIdentityBindings(
 }
 
 async function deleteGmailConnectionsForTrustedDevice(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
+  ctx: MutationCtx,
   productAccountId: Id<'productAccounts'>,
   trustedDeviceId: Id<'trustedDevices'>,
 ): Promise<void> {
@@ -737,7 +723,7 @@ async function deleteGmailConnectionsForTrustedDevice(
   for (;;) {
     const page = await ctx.db
       .query('mailProviderConnections')
-      .withIndex('by_productAccountId_and_provider_and_trustedDeviceId', (q) =>
+      .withIndex('by_productId_provider_deviceId_providerAccountId', (q) =>
         q
           .eq('productAccountId', productAccountId)
           .eq('provider', 'gmail')
@@ -748,8 +734,7 @@ async function deleteGmailConnectionsForTrustedDevice(
       break;
     }
     for (const connection of page) {
-      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-      await ctx.db.delete(connection._id);
+      await ctx.db.delete('mailProviderConnections', connection._id);
     }
     deletedConnections.push(...page);
   }
@@ -761,14 +746,14 @@ async function deleteGmailConnectionsForTrustedDevice(
 }
 
 async function deleteMicrosoftGraphConnectionsForTrustedDevice(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
+  ctx: MutationCtx,
   productAccountId: Id<'productAccounts'>,
   trustedDeviceId: Id<'trustedDevices'>,
 ): Promise<void> {
   for (;;) {
     const page = await ctx.db
       .query('mailProviderConnections')
-      .withIndex('by_productAccountId_and_provider_and_trustedDeviceId', (q) =>
+      .withIndex('by_productId_provider_deviceId_providerAccountId', (q) =>
         q
           .eq('productAccountId', productAccountId)
           .eq('provider', 'microsoft-graph')
@@ -781,21 +766,18 @@ async function deleteMicrosoftGraphConnectionsForTrustedDevice(
     for (const connection of page) {
       const wakeupState = await ctx.db
         .query('microsoftGraphWakeupStates')
-        // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
         .withIndex('by_routeId', (q) => q.eq('routeId', connection._id))
         .unique();
       if (wakeupState !== null) {
-        // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-        await ctx.db.delete(wakeupState._id);
+        await ctx.db.delete('microsoftGraphWakeupStates', wakeupState._id);
       }
-      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-      await ctx.db.delete(connection._id);
+      await ctx.db.delete('mailProviderConnections', connection._id);
     }
   }
 }
 
 async function deleteTrustedDeviceAndRoutes(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
+  ctx: MutationCtx,
   productAccountId: Id<'productAccounts'>,
   trustedDeviceId: Id<'trustedDevices'>,
 ): Promise<void> {
@@ -810,8 +792,8 @@ async function deleteTrustedDeviceAndRoutes(
     trustedDeviceId,
   );
   await deleteTrustedDeviceHeartbeat(ctx, trustedDeviceId);
-  if ((await ctx.db.get(trustedDeviceId)) !== null) {
-    await ctx.db.delete(trustedDeviceId);
+  if ((await ctx.db.get('trustedDevices', trustedDeviceId)) !== null) {
+    await ctx.db.delete('trustedDevices', trustedDeviceId);
   }
 }
 
@@ -822,8 +804,8 @@ type RevocationTargetCleanup = Readonly<{
 }>;
 
 async function deleteRevocationTargetDevicesAndRoutes(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
-  request: RevocationTargetCleanup, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Revocation cleanup input is immutable.
+  ctx: MutationCtx,
+  request: RevocationTargetCleanup,
 ): Promise<void> {
   const { productAccountId, target, trustedDeviceId } = request;
   const matchingDevices = await ctx.db
@@ -839,9 +821,7 @@ async function deleteRevocationTargetDevicesAndRoutes(
   }
   let selectedDeviceDeleted = false;
   for (const device of matchingDevices) {
-    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
     selectedDeviceDeleted ||= device._id === trustedDeviceId;
-    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
     await deleteTrustedDeviceAndRoutes(ctx, productAccountId, device._id);
   }
   if (!selectedDeviceDeleted) {
@@ -850,13 +830,13 @@ async function deleteRevocationTargetDevicesAndRoutes(
 }
 
 async function pendingRotationDeviceCount(
-  ctx: QueryCtx | MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
+  ctx: QueryCtx | MutationCtx,
   productAccountId: Id<'productAccounts'>,
   keyEpoch: number,
 ): Promise<number> {
   const devices = await ctx.db
     .query('trustedDevices')
-    .withIndex('by_productAccountId', (q) =>
+    .withIndex('by_productAccountId_and_deviceIdentifier', (q) =>
       q.eq('productAccountId', productAccountId),
     )
     .take(trustedDeviceLimitPerProductAccount + 1);
@@ -870,8 +850,7 @@ async function pendingRotationDeviceCount(
 }
 
 async function commitPendingProductSyncKeyRotation(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Convex documents are immutable inputs here.
+  ctx: MutationCtx,
   request: Readonly<{
     account: Doc<'productAccounts'>;
     keyEpoch: number;
@@ -887,7 +866,6 @@ async function commitPendingProductSyncKeyRotation(
     .query('encryptedProductSyncPayloads')
     .withIndex('by_productAccountId_and_payloadIdentifier', (q) =>
       q
-        // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
         .eq('productAccountId', request.account._id)
         .eq('payloadIdentifier', recoveryPayloadIdentifier),
     )
@@ -896,16 +874,14 @@ async function commitPendingProductSyncKeyRotation(
     throw new Error('Recovery material required');
   }
   const now = Math.max(Date.now(), recoveryMaterial.updatedAt + 1);
-  // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-  await ctx.db.patch(recoveryMaterial._id, {
+  await ctx.db.patch('encryptedProductSyncPayloads', recoveryMaterial._id, {
     encryptedPayload:
       request.account.productSyncPendingRecoveryWrappedAccountKey,
     trustedDeviceId: request.trustedDeviceId,
     updatedAt: now,
     writtenAt: now,
   });
-  // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-  await ctx.db.patch(request.account._id, {
+  await ctx.db.patch('productAccounts', request.account._id, {
     productSyncKeyEpoch: request.keyEpoch,
     productSyncPendingEncryptedTransition: undefined,
     productSyncPendingKeyEpoch: undefined,
@@ -939,7 +915,10 @@ export const connect = mutation({
         tokenIdentifier: identity.tokenIdentifier,
       },
     );
-    const productAccount = await ctx.db.get(productAccountId);
+    const productAccount = await ctx.db.get(
+      'productAccounts',
+      productAccountId,
+    );
     if (productAccount === null) {
       throw new Error('Product Account required');
     }
@@ -965,7 +944,7 @@ export const connect = mutation({
       trustedDeviceCredential !== undefined &&
       productAccount.deviceCredentialEnforcementActivatedAt === undefined
     ) {
-      await ctx.db.patch(productAccountId, {
+      await ctx.db.patch('productAccounts', productAccountId, {
         deviceCredentialEnforcementActivatedAt: now,
       });
     }
@@ -999,7 +978,7 @@ export const listTrustedDevices = query({
     );
     const devices = await ctx.db
       .query('trustedDevices')
-      .withIndex('by_productAccountId', (q) =>
+      .withIndex('by_productAccountId_and_deviceIdentifier', (q) =>
         q.eq('productAccountId', account.productAccountId),
       )
       .take(trustedDeviceLimitPerProductAccount + 1);
@@ -1029,12 +1008,17 @@ export const renameTrustedDevice = mutation({
       account.productAccountId,
       args.trustedDeviceToRenameId,
     );
-    const device = await ctx.db.get(args.trustedDeviceToRenameId);
+    const device = await ctx.db.get(
+      'trustedDevices',
+      args.trustedDeviceToRenameId,
+    );
     if (device === null) {
       throw new Error('Trusted device required');
     }
     const displayName = normalizedTrustedDeviceName(args.displayName);
-    await ctx.db.patch(args.trustedDeviceToRenameId, { displayName });
+    await ctx.db.patch('trustedDevices', args.trustedDeviceToRenameId, {
+      displayName,
+    });
     return trustedDeviceSummary({ ...device, displayName });
   },
   returns: trustedDeviceSummaryValidator,
@@ -1066,15 +1050,14 @@ function productSyncKeyRotationResponse(
 }
 
 async function completedRevocationResponse(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
-  account: Readonly<Doc<'productAccounts'>>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents contain generated mutable fields.
+  ctx: MutationCtx,
+  account: Readonly<Doc<'productAccounts'>>,
 ): Promise<ProductSyncKeyRotationResponse> {
   if (account.productSyncPendingKeyEpoch !== undefined) {
     return productSyncKeyRotationResponse(
       account.productSyncPendingKeyEpoch,
       await pendingRotationDeviceCount(
         ctx,
-        // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
         account._id,
         account.productSyncPendingKeyEpoch,
       ),
@@ -1094,8 +1077,7 @@ type PendingKeyRotationRevocation = Readonly<{
 }>;
 
 async function requireUnchangedRecoveryMaterial(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Convex ids are immutable branded strings.
+  ctx: MutationCtx,
   request: Readonly<{
     expectedKeyVersion?: number;
     expectedUpdatedAt: number;
@@ -1129,8 +1111,8 @@ type TrustedDeviceRevocation = Readonly<{
 }>;
 
 async function applyTrustedDeviceRevocation(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
-  request: TrustedDeviceRevocation, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents contain generated mutable fields.
+  ctx: MutationCtx,
+  request: TrustedDeviceRevocation,
 ): Promise<Id<'productAccounts'>> {
   const { account, args, nextKeyEpoch, target } = request;
   if (
@@ -1140,7 +1122,6 @@ async function applyTrustedDeviceRevocation(
   ) {
     throw new Error('Product Sync key rotation material is invalid');
   }
-  // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
   const productAccountId = account._id;
   await requireUnchangedRecoveryMaterial(ctx, {
     expectedKeyVersion:
@@ -1164,8 +1145,8 @@ async function applyTrustedDeviceRevocation(
 }
 
 async function revokeDuringPendingKeyRotation(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
-  request: PendingKeyRotationRevocation, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents contain generated mutable fields.
+  ctx: MutationCtx,
+  request: PendingKeyRotationRevocation,
 ): Promise<ProductSyncKeyRotationResponse> {
   const { account, args, pendingKeyEpoch, target } = request;
   const currentKeyEpoch =
@@ -1183,7 +1164,7 @@ async function revokeDuringPendingKeyRotation(
     nextKeyEpoch,
     target,
   });
-  await ctx.db.patch(productAccountId, {
+  await ctx.db.patch('productAccounts', productAccountId, {
     productSyncPendingEncryptedTransition: args.encryptedTransition,
     productSyncPendingKeyEpoch: nextKeyEpoch,
     productSyncPendingRecoveryWrappedAccountKey: args.recoveryWrappedAccountKey,
@@ -1202,8 +1183,8 @@ type NewKeyRotationRevocation = Readonly<{
 }>;
 
 async function startProductSyncKeyRotation(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
-  request: NewKeyRotationRevocation, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents contain generated mutable fields.
+  ctx: MutationCtx,
+  request: NewKeyRotationRevocation,
 ): Promise<ProductSyncKeyRotationResponse> {
   const { account, args, target } = request;
   const currentKeyEpoch =
@@ -1218,7 +1199,7 @@ async function startProductSyncKeyRotation(
     nextKeyEpoch,
     target,
   });
-  await ctx.db.patch(productAccountId, {
+  await ctx.db.patch('productAccounts', productAccountId, {
     productSyncKeyEpoch: currentKeyEpoch,
     productSyncPendingEncryptedTransition: args.encryptedTransition,
     productSyncPendingKeyEpoch: nextKeyEpoch,
@@ -1238,14 +1219,16 @@ const productSyncKeyRotationResponseValidator = v.object({
 });
 
 async function findTrustedDeviceRevocationTarget(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Convex ids are immutable branded strings.
+  ctx: MutationCtx,
   request: Readonly<{
     productAccountId: Id<'productAccounts'>;
     trustedDeviceId: Id<'trustedDevices'>;
   }>,
 ): Promise<TrustedDeviceRevocationTarget> {
-  const liveTarget = await ctx.db.get(request.trustedDeviceId);
+  const liveTarget = await ctx.db.get(
+    'trustedDevices',
+    request.trustedDeviceId,
+  );
   const target =
     liveTarget ??
     (await ctx.db
@@ -1281,11 +1264,13 @@ export const revokeTrustedDevice = mutation({
     if (args.trustedDeviceId === args.trustedDeviceToRevokeId) {
       throw new Error('Use sign out to remove the current Trusted Device');
     }
-    const account = await ctx.db.get(authenticatedAccount.productAccountId);
+    const account = await ctx.db.get(
+      'productAccounts',
+      authenticatedAccount.productAccountId,
+    );
     if (account === null) {
       throw new Error('Product Account required');
     }
-    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
     const productAccountId = account._id;
     const completedRevocation = await ctx.db
       .query('revokedTrustedDevices')
@@ -1332,7 +1317,10 @@ export const getProductSyncKeyRotation = query({
       args.trustedDeviceId,
       args.trustedDeviceCredential,
     );
-    const account = await ctx.db.get(authenticatedAccount.productAccountId);
+    const account = await ctx.db.get(
+      'productAccounts',
+      authenticatedAccount.productAccountId,
+    );
     if (
       account === null ||
       account.productSyncPendingEncryptedTransition === undefined ||
@@ -1372,7 +1360,10 @@ export const acknowledgeProductSyncKeyRotation = mutation({
       args.trustedDeviceId,
       args.trustedDeviceCredential,
     );
-    const account = await ctx.db.get(authenticatedAccount.productAccountId);
+    const account = await ctx.db.get(
+      'productAccounts',
+      authenticatedAccount.productAccountId,
+    );
     if (account === null) {
       throw new Error('Product Account required');
     }
@@ -1392,7 +1383,7 @@ export const acknowledgeProductSyncKeyRotation = mutation({
     if (account.productSyncPendingKeyEpoch !== args.keyEpoch) {
       throw new Error('Product Sync key rotation changed');
     }
-    await ctx.db.patch(args.trustedDeviceId, {
+    await ctx.db.patch('trustedDevices', args.trustedDeviceId, {
       productSyncKeyEpoch: args.keyEpoch,
     });
     const pendingDeviceCount = await pendingRotationDeviceCount(
@@ -1429,7 +1420,7 @@ export const unregisterTrustedDevice = mutation({
   },
   handler: async (ctx, args) => {
     const account = await requireProductAccount(ctx);
-    const device = await ctx.db.get(args.trustedDeviceId);
+    const device = await ctx.db.get('trustedDevices', args.trustedDeviceId);
     if (device === null) {
       return { registered: false };
     }
@@ -1469,7 +1460,10 @@ export const unregisterTrustedDevice = mutation({
       account.productAccountId,
       args.trustedDeviceId,
     );
-    const productAccount = await ctx.db.get(account.productAccountId);
+    const productAccount = await ctx.db.get(
+      'productAccounts',
+      account.productAccountId,
+    );
     if (productAccount?.productSyncPendingKeyEpoch !== undefined) {
       const pendingDeviceCount = await pendingRotationDeviceCount(
         ctx,
@@ -1500,7 +1494,7 @@ export const markProductSyncMaterialInitialized = mutation({
       args.trustedDeviceId,
       args.trustedDeviceCredential,
     );
-    await ctx.db.patch(account.productAccountId, {
+    await ctx.db.patch('productAccounts', account.productAccountId, {
       productSyncMaterialInitializedAt:
         account.productSyncMaterialInitializedAt ?? Date.now(),
     });
@@ -1604,12 +1598,11 @@ export const removeGmailProviderConnection = mutation({
       )
       .unique();
     if (connection !== null) {
-      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-      await ctx.db.delete(connection._id);
+      await ctx.db.delete('mailProviderConnections', connection._id);
     }
     const remainingConnection = await ctx.db
       .query('mailProviderConnections')
-      .withIndex('by_productAccountId_and_provider_and_trustedDeviceId', (q) =>
+      .withIndex('by_productId_provider_deviceId_providerAccountId', (q) =>
         q
           .eq('productAccountId', account.productAccountId)
           .eq('provider', 'gmail')

@@ -41,9 +41,7 @@ function linkError(
   return new ConvexError({ code, message });
 }
 
-async function requireRecentSignIn(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
-): Promise<void> {
+async function requireRecentSignIn(ctx: MutationCtx): Promise<void> {
   try {
     await requireRecentAuthentication(ctx);
   } catch {
@@ -55,11 +53,10 @@ async function requireRecentSignIn(
 }
 
 async function linkResponse(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
-  account: Readonly<Doc<'productAccounts'>>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents are immutable inputs here.
+  ctx: MutationCtx,
+  account: Readonly<Doc<'productAccounts'>>,
 ) {
   return {
-    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
     productAccountId: account._id,
     signInProviders: await signInProvidersForAccount(ctx, account),
   };
@@ -67,15 +64,14 @@ async function linkResponse(
 
 // Only the newest ticket for a provider remains usable.
 async function supersedeLinkRequests(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
-  account: Readonly<Doc<'productAccounts'>>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents are immutable inputs here.
+  ctx: MutationCtx,
+  account: Readonly<Doc<'productAccounts'>>,
   provider: SignInProvider,
 ): Promise<void> {
   const now = Date.now();
   const previous = await ctx.db
     .query('signInLinkRequests')
     .withIndex('by_productAccountId', (q) =>
-      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
       q.eq('productAccountId', account._id),
     )
     .take(linkRequestCleanupLimit);
@@ -83,8 +79,7 @@ async function supersedeLinkRequests(
     (request) => request.provider === provider || request.expiresAt <= now,
   );
   for (const request of stale) {
-    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-    await ctx.db.delete(request._id);
+    await ctx.db.delete('signInLinkRequests', request._id);
   }
 }
 
@@ -102,7 +97,7 @@ export const request = mutation({
       args.trustedDeviceId,
       args.trustedDeviceCredential,
     );
-    const account = await ctx.db.get(productAccountId);
+    const account = await ctx.db.get('productAccounts', productAccountId);
     if (account === null) {
       throw new Error('Product Account required');
     }
@@ -126,7 +121,7 @@ export const request = mutation({
 });
 
 async function pendingLinkRequest(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
+  ctx: MutationCtx,
   linkTicket: string,
 ): Promise<Doc<'signInLinkRequests'> | null> {
   if (!/^[0-9a-f]{64}$/u.test(linkTicket)) {
@@ -141,9 +136,9 @@ async function pendingLinkRequest(
 
 // Accounts are never merged, and each provider subject has exactly one owner.
 async function requireUnownedIdentity(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
+  ctx: MutationCtx,
   tokenIdentifier: string,
-  existing: Readonly<Doc<'linkedSignIns'>> | null, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents are immutable inputs here.
+  existing: Readonly<Doc<'linkedSignIns'>> | null,
 ): Promise<void> {
   const owner = await ctx.db
     .query('productAccounts')
@@ -174,9 +169,9 @@ type LinkCompletion = Readonly<{
 // The account a ticket (or a committed link being retried) names, with the ticket still live.
 // fallow-ignore-next-line complexity -- Every unusable ticket fails closed with the same expired response.
 async function linkTarget(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
+  ctx: MutationCtx,
   identity: Readonly<{ issuer: string; tokenIdentifier: string }>,
-  args: LinkCompletion, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex identifiers are branded values.
+  args: LinkCompletion,
 ) {
   const provider = signInProviderForIssuer(identity.issuer);
   const pending = await pendingLinkRequest(ctx, args.linkTicket);
@@ -189,7 +184,9 @@ async function linkTarget(
   const productAccountId =
     pending?.productAccountId ?? existing?.productAccountId;
   const account =
-    productAccountId === undefined ? null : await ctx.db.get(productAccountId);
+    productAccountId === undefined
+      ? null
+      : await ctx.db.get('productAccounts', productAccountId);
   const usable =
     pending === null ||
     (pending.expiresAt > Date.now() &&
@@ -202,14 +199,13 @@ async function linkTarget(
 }
 
 async function requireOpenProviderSlot(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
-  account: Readonly<Doc<'productAccounts'>>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents are immutable inputs here.
+  ctx: MutationCtx,
+  account: Readonly<Doc<'productAccounts'>>,
   provider: SignInProvider,
 ): Promise<void> {
   const occupied = await ctx.db
     .query('linkedSignIns')
     .withIndex('by_productAccountId_and_provider', (q) =>
-      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
       q.eq('productAccountId', account._id).eq('provider', provider),
     )
     .first();
@@ -246,7 +242,6 @@ export const complete = mutation({
       {
         deviceCredentialEnforcementActivatedAt:
           account.deviceCredentialEnforcementActivatedAt,
-        // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
         productAccountId: account._id,
       },
       {
@@ -255,7 +250,6 @@ export const complete = mutation({
       },
     );
     // A retried completion whose response was lost finds its committed link.
-    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
     if (existing?.productAccountId === account._id) {
       return linkResponse(ctx, account);
     }
@@ -266,13 +260,11 @@ export const complete = mutation({
     await requireOpenProviderSlot(ctx, account, provider);
     await ctx.db.insert('linkedSignIns', {
       linkedAt: Date.now(),
-      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
       productAccountId: account._id,
       provider,
       tokenIdentifier: identity.tokenIdentifier,
     });
-    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-    await ctx.db.delete(pending._id);
+    await ctx.db.delete('signInLinkRequests', pending._id);
     return linkResponse(ctx, account);
   },
   returns: signInLinkResponseValidator,
