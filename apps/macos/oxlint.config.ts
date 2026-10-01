@@ -28,6 +28,8 @@ export default buildOxlintConfig({
       ...effectRules,
       ...boundaryRules,
       'eslint/one-var': 'allow',
+      // Function declarations are hoisted.
+      'eslint/no-use-before-define': ['deny', { functions: false }],
       'react/forbid-component-props': 'allow',
       'react/jsx-no-literals': 'allow',
       'react/style-prop-object': ['warn', { allow: ['StatusBar'] }],
