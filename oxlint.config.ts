@@ -1,3 +1,4 @@
+import convexPlugin from '@convex-dev/eslint-plugin';
 import * as EffectPresets from '@effect/tsgo/oxlint-presets';
 import { buildOxlintConfig } from '@rajzik/oxlint-config';
 
@@ -11,6 +12,7 @@ export default buildOxlintConfig({
         name: 'effect-imports',
         specifier: './scripts/oxlint-effect-imports.mjs',
       },
+      '@convex-dev/eslint-plugin',
     ],
     extends: [EffectPresets.correctness],
     ignorePatterns: ['**/convex/_generated/**'],
@@ -28,6 +30,10 @@ export default buildOxlintConfig({
       'eslint/one-var': 'allow',
     },
     overrides: [
+      ...convexPlugin.configs.recommended.map(({ files, rules }) => ({
+        files,
+        rules,
+      })),
       {
         files: ['packages/mail-core/src/**/*.ts'],
         rules: EffectPresets.recommended.rules,

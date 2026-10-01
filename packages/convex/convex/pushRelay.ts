@@ -12,6 +12,7 @@ import type { MutationCtx, QueryCtx } from './_generated/server.js';
 import { internal } from './_generated/api.js';
 import {
   action,
+  env,
   internalAction,
   internalMutation,
   internalQuery,
@@ -341,8 +342,7 @@ function verifiedGoogleIdentity(
 }
 
 function gmailOauthClientId(): string {
-  // oxlint-disable-next-line node/no-process-env -- The deployment owns the expected Google OAuth audience.
-  const clientId = process.env.GMAIL_OAUTH_CLIENT_ID;
+  const clientId = env.GMAIL_OAUTH_CLIENT_ID;
   if (clientId === undefined || clientId.length === 0) {
     throw new Error('Gmail mailbox ownership proof is not configured');
   }
@@ -519,7 +519,7 @@ async function apnsRecipientForDevice(
     trustedDeviceId: Id<'trustedDevices'>;
   }>,
 ): Promise<ApnsRecipient | null> {
-  const device = await ctx.db.get(request.trustedDeviceId);
+  const device = await ctx.db.get('trustedDevices', request.trustedDeviceId);
   // oxlint-disable-next-line eslint/no-use-before-define -- Helper narrows the route fields.
   if (!hasActiveApnsRoute(device)) {
     return null;
@@ -585,7 +585,7 @@ async function isActiveOtherGmailRoute(
   if (!isOtherVerifiedGmailRoute(connection, trustedDeviceId)) {
     return false;
   }
-  const device = await ctx.db.get(connection.trustedDeviceId);
+  const device = await ctx.db.get('trustedDevices', connection.trustedDeviceId);
   return (
     hasActiveApnsRoute(device) &&
     (connection.pushVerifiedAt ?? 0) >
@@ -674,7 +674,7 @@ function gmailConnectionsForDevice(
 ) {
   return ctx.db
     .query('mailProviderConnections')
-    .withIndex('by_productAccountId_and_provider_and_trustedDeviceId', (q) =>
+    .withIndex('by_productId_provider_deviceId_providerAccountId', (q) =>
       q
         .eq('productAccountId', productAccountId)
         .eq('provider', 'gmail')
@@ -716,7 +716,7 @@ async function legacyGmailConnection(
     request.trustedDeviceId === undefined
       ? ctx.db
           .query('mailProviderConnections')
-          .withIndex('by_productAccountId_and_provider', (q) =>
+          .withIndex('by_productAccountId_and_provider_and_emailAddress', (q) =>
             q
               .eq('productAccountId', request.productAccountId)
               .eq('provider', 'gmail'),
@@ -808,7 +808,7 @@ async function hasRemainingLegacyGmailConnection(
 ): Promise<boolean> {
   const connections = await ctx.db
     .query('mailProviderConnections')
-    .withIndex('by_productAccountId_and_provider', (q) =>
+    .withIndex('by_productAccountId_and_provider_and_emailAddress', (q) =>
       q
         .eq('productAccountId', request.productAccountId)
         .eq('provider', 'gmail'),
@@ -922,7 +922,9 @@ async function recordGmailVerificationSignal(
         })
       : existingSignal._id; // oxlint-disable-line eslint/no-underscore-dangle -- Convex document id field
   if (existingSignal !== null) {
-    await ctx.db.patch(signalId, { receivedAt: signal.now });
+    await ctx.db.patch('gmailPushVerificationSignals', signalId, {
+      receivedAt: signal.now,
+    });
   }
   await ctx.scheduler.runAfter(
     gmailPushVerificationSignalLifetimeMs,
@@ -974,7 +976,7 @@ async function verifyPendingGmailConnections(
 ): Promise<ApnsRecipient[]> {
   const page = await ctx.db
     .query('mailProviderConnections')
-    .withIndex('by_gmailRoutingDigest', (q) =>
+    .withIndex('by_gmailRoutingDigest_and_pushVerifiedAt', (q) =>
       q.eq('gmailRoutingDigest', request.routingDigest),
     )
     .order('desc')
@@ -984,7 +986,10 @@ async function verifyPendingGmailConnections(
     });
   const recipients: ApnsRecipient[] = [];
   for (const connection of page.page) {
-    const device = await ctx.db.get(connection.trustedDeviceId);
+    const device = await ctx.db.get(
+      'trustedDevices',
+      connection.trustedDeviceId,
+    );
     if (
       device !== null &&
       pendingVerificationMatches(connection, {
@@ -999,7 +1004,7 @@ async function verifyPendingGmailConnections(
         request.now,
       );
       // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-      await ctx.db.patch(connection._id, {
+      await ctx.db.patch('mailProviderConnections', connection._id, {
         pushVerificationHistoryId: undefined,
         pushVerificationOwnershipVerifiedAt: undefined,
         pushVerificationRequestedAt: undefined,
@@ -1105,6 +1110,7 @@ async function clearGmailPushProof(
     return;
   }
   await ctx.db.patch(
+    'mailProviderConnections',
     connection._id, // oxlint-disable-line eslint/no-underscore-dangle -- Convex document id field
     // oxlint-disable-next-line eslint/no-use-before-define -- Helper centralizes the conditional patch.
     gmailPushProofPatch(clearPendingProof, clearVerifiedProof),
@@ -1166,6 +1172,7 @@ async function refreshDevicePushRouteHeartbeat(
     return;
   }
   await ctx.db.patch(
+    'devicePushRouteHeartbeats',
     // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
     heartbeat._id,
     { refreshedAt },
@@ -1184,6 +1191,7 @@ async function clearDevicePushRoute(
   // oxlint-disable-next-line eslint/no-use-before-define -- Helper removes the route heartbeat first.
   await deleteDevicePushRouteHeartbeat(ctx, device._id); // oxlint-disable-line eslint/no-underscore-dangle -- Convex document id field
   await ctx.db.patch(
+    'trustedDevices',
     // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
     device._id,
     // oxlint-disable-next-line eslint/no-use-before-define -- Helper builds the route-clear patch.
@@ -1239,7 +1247,7 @@ async function deleteDevicePushRouteHeartbeat(
   const heartbeat = await devicePushRouteHeartbeat(ctx, trustedDeviceId);
   if (heartbeat !== null) {
     // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-    await ctx.db.delete(heartbeat._id);
+    await ctx.db.delete('devicePushRouteHeartbeats', heartbeat._id);
   }
 }
 
@@ -1267,7 +1275,7 @@ async function registeredTrustedDevice(
     trustedDeviceId,
     trustedDeviceCredential,
   );
-  const device = await ctx.db.get(trustedDeviceId);
+  const device = await ctx.db.get('trustedDevices', trustedDeviceId);
   if (device === null) {
     throw new Error('Trusted device required');
   }
@@ -1286,7 +1294,9 @@ async function clearReusedApnsToken(
 ): Promise<void> {
   const devices = await ctx.db
     .query('trustedDevices')
-    .withIndex('by_apnsToken', (q) => q.eq('apnsToken', request.apnsToken))
+    .withIndex('by_apnsToken_and_apnsTokenRegisteredAt', (q) =>
+      q.eq('apnsToken', request.apnsToken),
+    )
     .take(devicePushTokenCleanupBatchSize);
   await Promise.all(
     devices
@@ -1342,7 +1352,7 @@ export const registerDevice = mutation({
       cleanupStartedAt: now,
       pushCleanupGeneration,
     });
-    await ctx.db.patch(args.trustedDeviceId, {
+    await ctx.db.patch('trustedDevices', args.trustedDeviceId, {
       apnsEnvironment: args.apnsEnvironment,
       apnsToken: args.apnsToken,
       apnsTokenRegisteredAt: now,
@@ -1367,7 +1377,7 @@ export const unregisterDevice = mutation({
       args.trustedDeviceId,
       args.trustedDeviceCredential,
     );
-    const device = await ctx.db.get(args.trustedDeviceId);
+    const device = await ctx.db.get('trustedDevices', args.trustedDeviceId);
     if (device === null) {
       throw new Error('Trusted device required');
     }
@@ -1465,14 +1475,14 @@ export const clearLegacyGmailSignalsForRegistration = internalMutation({
     }
     const legacySignals = await ctx.db
       .query('gmailPushVerificationSignals')
-      .withIndex('by_emailAddress', (q) =>
+      .withIndex('by_emailAddress_and_historyId', (q) =>
         q.eq('emailAddress', args.emailAddress),
       )
       .take(gmailLegacySignalMigrationLimit + 1);
     await Promise.all(
       legacySignals.slice(0, gmailLegacySignalMigrationLimit).map((signal) =>
         // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-        ctx.db.delete(signal._id),
+        ctx.db.delete('gmailPushVerificationSignals', signal._id),
       ),
     );
     return legacySignals.length > gmailLegacySignalMigrationLimit;
@@ -1553,7 +1563,7 @@ export const registerGmailConnectionForIdentity = internalMutation({
       const { _id: connectionId, connectedAt: existingConnectedAt } =
         currentConnection;
       connectedAt = existingConnectedAt;
-      await ctx.db.patch(connectionId, {
+      await ctx.db.patch('mailProviderConnections', connectionId, {
         emailAddress: undefined,
         gmailPreviousRoutingDigest: args.gmailPreviousRoutingDigest,
         gmailRoutingDigest: args.gmailRoutingDigest,
@@ -1568,7 +1578,7 @@ export const registerGmailConnectionForIdentity = internalMutation({
         legacyConnection._id !== connectionId
       ) {
         // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-        await ctx.db.delete(legacyConnection._id);
+        await ctx.db.delete('mailProviderConnections', legacyConnection._id);
       }
     } else if (legacyConnection === null) {
       const deviceConnections = await gmailConnectionsForDevice(
@@ -1595,7 +1605,7 @@ export const registerGmailConnectionForIdentity = internalMutation({
       const { _id: connectionId, connectedAt: existingConnectedAt } =
         legacyConnection;
       connectedAt = existingConnectedAt;
-      await ctx.db.patch(connectionId, {
+      await ctx.db.patch('mailProviderConnections', connectionId, {
         emailAddress: undefined,
         gmailPreviousRoutingDigest: args.gmailPreviousRoutingDigest,
         gmailRoutingDigest: args.gmailRoutingDigest,
@@ -1644,7 +1654,7 @@ export const removeGmailConnection = mutation({
       }));
     if (connection !== null) {
       // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-      await ctx.db.delete(connection._id);
+      await ctx.db.delete('mailProviderConnections', connection._id);
       const remainingOpaqueConnection = await ctx.db
         .query('mailProviderConnections')
         .withIndex(
@@ -1671,8 +1681,11 @@ export const removeGmailConnection = mutation({
           )
           .unique();
         if (identityBinding !== null) {
-          // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-          await ctx.db.delete(identityBinding._id);
+          await ctx.db.delete(
+            'gmailOpaqueIdentityBindings',
+            // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+            identityBinding._id,
+          );
         }
       }
     }
@@ -1880,7 +1893,7 @@ export const verifyGmailWatchForIdentity = internalMutation({
         updatedAt: bindingUpdatedAt,
       });
     }
-    const device = await ctx.db.get(args.trustedDeviceId);
+    const device = await ctx.db.get('trustedDevices', args.trustedDeviceId);
     if (device === null) {
       throw new Error('Trusted device required');
     }
@@ -1893,7 +1906,7 @@ export const verifyGmailWatchForIdentity = internalMutation({
       (connection.pushOwnershipVerifiedAt ?? 0) >
         (device.gmailPushProofsInvalidatedAt ?? 0)
     ) {
-      await ctx.db.patch(routeId, {
+      await ctx.db.patch('mailProviderConnections', routeId, {
         ...(preservesLegacyIdentity ? {} : { emailAddress: undefined }),
         gmailPreviousRoutingDigest: args.acceptedRoutingDigests.at(1),
         gmailRoutingDigest: args.currentRoutingDigest,
@@ -1910,7 +1923,7 @@ export const verifyGmailWatchForIdentity = internalMutation({
 
     const signals = await ctx.db
       .query('gmailPushVerificationSignals')
-      .withIndex('by_routingDigest', (q) =>
+      .withIndex('by_routingDigest_and_historyId', (q) =>
         q.eq('routingDigest', args.currentRoutingDigest),
       )
       .order('desc')
@@ -1922,6 +1935,7 @@ export const verifyGmailWatchForIdentity = internalMutation({
       now,
     });
     await ctx.db.patch(
+      'mailProviderConnections',
       // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
       connection._id,
       {
@@ -1971,7 +1985,10 @@ export const revalidateGmailRecipients = internalQuery({
           if (routeId === null) {
             return null;
           }
-          const connection = await ctx.db.get(routeId);
+          const connection = await ctx.db.get(
+            'mailProviderConnections',
+            routeId,
+          );
           if (
             connection === null ||
             connection.trustedDeviceId !== recipient.trustedDeviceId
@@ -2084,9 +2101,12 @@ export const expireGmailVerificationSignal = internalMutation({
     signalId: v.id('gmailPushVerificationSignals'),
   },
   handler: async (ctx, args) => {
-    const signal = await ctx.db.get(args.signalId);
+    const signal = await ctx.db.get(
+      'gmailPushVerificationSignals',
+      args.signalId,
+    );
     if (signal?.receivedAt === args.receivedAt) {
-      await ctx.db.delete(args.signalId);
+      await ctx.db.delete('gmailPushVerificationSignals', args.signalId);
     }
     return null;
   },
@@ -2151,7 +2171,9 @@ export const reconcileStaleDevicePushRoutes = internalMutation({
       args.staleBefore ?? Date.now() - devicePushRouteInactivityLifetimeMs;
     const page = await ctx.db
       .query('trustedDevices')
-      .withIndex('by_apnsToken', (q) => q.gt('apnsToken', ''))
+      .withIndex('by_apnsToken_and_apnsTokenRegisteredAt', (q) =>
+        q.gt('apnsToken', ''),
+      )
       .paginate({
         cursor: args.cursor ?? null,
         numItems: devicePushRouteReconciliationBatchSize,
@@ -2211,7 +2233,7 @@ export const clearStaleDevice = internalMutation({
     trustedDeviceId: v.id('trustedDevices'),
   },
   handler: async (ctx, args) => {
-    const device = await ctx.db.get(args.trustedDeviceId);
+    const device = await ctx.db.get('trustedDevices', args.trustedDeviceId);
     // oxlint-disable-next-line eslint/no-use-before-define -- Helper validates the current route identity.
     if (isCurrentPushRoute(device, args)) {
       await clearDevicePushRoute(ctx, device);
@@ -2242,7 +2264,7 @@ async function deleteMicrosoftGraphWakeupState(
   const state = await microsoftGraphWakeupState(ctx, routeId);
   if (state !== null) {
     // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-    await ctx.db.delete(state._id);
+    await ctx.db.delete('microsoftGraphWakeupStates', state._id);
   }
 }
 
@@ -2311,7 +2333,7 @@ async function requireMicrosoftGraphConnectionCapacity(
   }
   const deviceConnections = await ctx.db
     .query('mailProviderConnections')
-    .withIndex('by_productAccountId_and_provider_and_trustedDeviceId', (q) =>
+    .withIndex('by_productId_provider_deviceId_providerAccountId', (q) =>
       q
         .eq('productAccountId', routeContext.productAccountId)
         .eq('provider', 'microsoft-graph')
@@ -2361,7 +2383,7 @@ async function saveMicrosoftGraphRoute(
   // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
   const routeId = options.existing._id;
   if (hasActiveMicrosoftGraphSubscription(options.existing, options.now)) {
-    await ctx.db.patch(routeId, {
+    await ctx.db.patch('mailProviderConnections', routeId, {
       lastVerifiedAt: options.now,
       microsoftPendingClientStateDigest: args.clientStateDigest,
       updatedAt: options.now,
@@ -2369,7 +2391,7 @@ async function saveMicrosoftGraphRoute(
     return routeId;
   }
   await deleteMicrosoftGraphWakeupState(ctx, routeId);
-  await ctx.db.patch(routeId, {
+  await ctx.db.patch('mailProviderConnections', routeId, {
     lastVerifiedAt: options.now,
     microsoftClientStateDigest: args.clientStateDigest,
     microsoftPendingClientStateDigest: undefined,
@@ -2482,7 +2504,7 @@ async function ownedMicrosoftGraphRoute(
     trustedDevice.id,
     trustedDevice.credential,
   );
-  const route = await ctx.db.get(routeId);
+  const route = await ctx.db.get('mailProviderConnections', routeId);
   requireMicrosoftGraphRoute(route);
   requireMicrosoftGraphRouteOwnership(
     route,
@@ -2548,7 +2570,7 @@ async function activateConfirmedMicrosoftGraphWakeup(
     args.activateMismatchedWakeup
   ) {
     // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-    await ctx.db.patch(stagedWakeup._id, {
+    await ctx.db.patch('microsoftGraphWakeupStates', stagedWakeup._id, {
       clientStateDigest: args.clientStateDigest,
       pendingAt: args.now,
       scheduledAt: args.now,
@@ -2572,7 +2594,7 @@ async function confirmMicrosoftGraphRouteForDevice(
   requireValidMicrosoftGraphConfirmation(route, args);
   const now = Date.now();
   const confirmedState = confirmedMicrosoftGraphClientState(route, args);
-  await ctx.db.patch(args.routeId, {
+  await ctx.db.patch('mailProviderConnections', args.routeId, {
     lastVerifiedAt: now,
     microsoftClientStateDigest: confirmedState.clientStateDigest,
     microsoftPendingClientStateDigest: confirmedState.pendingClientStateDigest,
@@ -2617,7 +2639,7 @@ export const rollbackMicrosoftGraphRoute = mutation({
       id: args.trustedDeviceId,
     });
     if (route.microsoftPendingClientStateDigest === args.clientStateDigest) {
-      await ctx.db.patch(args.routeId, {
+      await ctx.db.patch('mailProviderConnections', args.routeId, {
         microsoftPendingClientStateDigest: undefined,
         updatedAt: Date.now(),
       });
@@ -2628,7 +2650,7 @@ export const rollbackMicrosoftGraphRoute = mutation({
       route.microsoftSubscriptionId === undefined
     ) {
       await deleteMicrosoftGraphWakeupState(ctx, args.routeId);
-      await ctx.db.delete(args.routeId);
+      await ctx.db.delete('mailProviderConnections', args.routeId);
       return { rolledBack: true };
     }
     return { rolledBack: false };
@@ -2662,7 +2684,7 @@ export const removeMicrosoftGraphRoute = mutation({
       // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
       await deleteMicrosoftGraphWakeupState(ctx, route._id);
       // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-      await ctx.db.delete(route._id);
+      await ctx.db.delete('mailProviderConnections', route._id);
     }
     return { removed: route !== null };
   },
@@ -2735,7 +2757,7 @@ async function acceptedMicrosoftGraphWakeupRoute(
   if (routeId === null) {
     return null;
   }
-  const route = await ctx.db.get(routeId);
+  const route = await ctx.db.get('mailProviderConnections', routeId);
   if (
     route === null ||
     !acceptsMicrosoftGraphWakeup(route, args, now) ||
@@ -2758,7 +2780,7 @@ async function enqueueMicrosoftGraphWakeupForRoute(
   const existing = await microsoftGraphWakeupState(ctx, routeId);
   if (existing !== null) {
     // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-    await ctx.db.patch(existing._id, {
+    await ctx.db.patch('microsoftGraphWakeupStates', existing._id, {
       attemptCount: 0,
       clientStateDigest: args.clientStateDigest,
       pendingAt: now,
@@ -2825,10 +2847,10 @@ async function claimActiveMicrosoftGraphWakeup(
   ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
   args: ActiveMicrosoftGraphWakeupArgs, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents are inspected but not mutated.
 ): Promise<ApnsRecipient | null> {
-  const device = await ctx.db.get(args.route.trustedDeviceId);
+  const device = await ctx.db.get('trustedDevices', args.route.trustedDeviceId);
   if (!hasActiveApnsRoute(device)) {
     // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-    await ctx.db.delete(args.state._id);
+    await ctx.db.delete('microsoftGraphWakeupStates', args.state._id);
     return null;
   }
   await ctx.scheduler.runAfter(
@@ -2865,7 +2887,7 @@ async function claimMicrosoftGraphWakeupForRoute(
   ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
   args: MicrosoftGraphWakeupScheduleArgs, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex identifiers are branded values.
 ): Promise<ApnsRecipient | null> {
-  const route = await ctx.db.get(args.routeId);
+  const route = await ctx.db.get('mailProviderConnections', args.routeId);
   const state = await microsoftGraphWakeupState(ctx, args.routeId);
   if (!isMatchingMicrosoftGraphWakeupState(state, args.scheduledAt)) {
     return null;
@@ -2875,7 +2897,7 @@ async function claimMicrosoftGraphWakeupForRoute(
     (await productAccountDeletionIsFenced(ctx, route.productAccountId))
   ) {
     // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-    await ctx.db.delete(state._id);
+    await ctx.db.delete('microsoftGraphWakeupStates', state._id);
     return null;
   }
   if (isClaimableMicrosoftGraphWakeup(route, state, Date.now())) {
@@ -2889,7 +2911,7 @@ async function claimMicrosoftGraphWakeupForRoute(
     return null;
   }
   // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-  await ctx.db.delete(state._id);
+  await ctx.db.delete('microsoftGraphWakeupStates', state._id);
   return null;
 }
 
@@ -2912,7 +2934,7 @@ async function microsoftGraphRouteDevice(
   if (route?.provider !== 'microsoft-graph') {
     return null;
   }
-  return ctx.db.get(route.trustedDeviceId);
+  return ctx.db.get('trustedDevices', route.trustedDeviceId);
 }
 
 type MicrosoftGraphWakeupCompletionContext = Readonly<{
@@ -2994,7 +3016,7 @@ async function scheduleMicrosoftGraphWakeupRetry(
   const delay = nextMicrosoftGraphWakeupDelay(args.delivered, attemptCount);
   const retryScheduledAt = Math.max(Date.now(), args.scheduledAt + delay);
   // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-  await ctx.db.patch(state._id, {
+  await ctx.db.patch('microsoftGraphWakeupStates', state._id, {
     attemptCount,
     scheduledAt: retryScheduledAt,
   });
@@ -3013,11 +3035,11 @@ async function completeMicrosoftGraphWakeupForRoute(
   if (state?.scheduledAt !== args.scheduledAt) {
     return null;
   }
-  const route = await ctx.db.get(args.routeId);
+  const route = await ctx.db.get('mailProviderConnections', args.routeId);
   const device = await microsoftGraphRouteDevice(ctx, route);
   if (shouldDiscardMicrosoftGraphWakeup({ device, route, state }, args)) {
     // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-    await ctx.db.delete(state._id);
+    await ctx.db.delete('microsoftGraphWakeupStates', state._id);
     return null;
   }
   await scheduleMicrosoftGraphWakeupRetry(ctx, state, args);

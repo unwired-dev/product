@@ -6,7 +6,7 @@ import { ConvexError } from 'convex/values';
 import type { ActionCtx } from './_generated/server.js';
 
 import { internal } from './_generated/api.js';
-import { httpAction } from './_generated/server.js';
+import { env, httpAction } from './_generated/server.js';
 import { decodeGmailPushEnvelope } from './gmailPushPayload.js';
 import {
   trustedDeviceReconnectRequiredErrorCode,
@@ -206,8 +206,7 @@ function decodeRequestEnvelope(
 function hasValidVerificationToken(
   request: Request, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Request is inspected but not mutated.
 ): boolean {
-  // oxlint-disable-next-line node/no-process-env -- Convex HTTP actions read deployment env at runtime.
-  const verificationToken = process.env.GMAIL_PUSH_VERIFICATION_TOKEN;
+  const verificationToken = env.GMAIL_PUSH_VERIFICATION_TOKEN;
   const requestToken = new URL(request.url).searchParams.get('token');
   return (
     verificationToken !== undefined &&

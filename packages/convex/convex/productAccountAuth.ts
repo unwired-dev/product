@@ -58,7 +58,9 @@ export async function productAccountForSignIn(
     return owned;
   }
   const linked = await linkedSignIn(ctx, tokenIdentifier);
-  return linked === null ? null : ctx.db.get(linked.productAccountId);
+  return linked === null
+    ? null
+    : ctx.db.get('productAccounts', linked.productAccountId);
 }
 
 // Deletion state is keyed by the identity that created the Product Account.
@@ -68,7 +70,9 @@ export async function accountTokenIdentifier(
 ): Promise<string> {
   const linked = await linkedSignIn(ctx, tokenIdentifier);
   const account =
-    linked === null ? null : await ctx.db.get(linked.productAccountId);
+    linked === null
+      ? null
+      : await ctx.db.get('productAccounts', linked.productAccountId);
   return account?.tokenIdentifier ?? tokenIdentifier;
 }
 
@@ -242,7 +246,7 @@ export async function requireTrustedDevice(
   productAccountId: Id<'productAccounts'>,
   trustedDeviceId: Id<'trustedDevices'>,
 ): Promise<void> {
-  const trustedDevice = await ctx.db.get(trustedDeviceId);
+  const trustedDevice = await ctx.db.get('trustedDevices', trustedDeviceId);
   if (trustedDevice === null) {
     const revokedDevice = await ctx.db
       .query('revokedTrustedDevices')
@@ -282,7 +286,10 @@ export async function requireTrustedDeviceProof(
     account.productAccountId,
     proof.trustedDeviceId,
   );
-  const trustedDevice = await ctx.db.get(proof.trustedDeviceId);
+  const trustedDevice = await ctx.db.get(
+    'trustedDevices',
+    proof.trustedDeviceId,
+  );
   if (trustedDevice === null) {
     throw new Error('Trusted device required');
   }
@@ -302,7 +309,7 @@ export async function requireTrustedDeviceProof(
   }
   const priorRevocation = await ctx.db
     .query('revokedTrustedDevices')
-    .withIndex('by_productAccountId', (q) =>
+    .withIndex('by_productAccountId_and_deviceIdentifier', (q) =>
       q.eq('productAccountId', account.productAccountId),
     )
     .first();

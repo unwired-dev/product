@@ -21,6 +21,7 @@
   },
   "devDependencies": {
     "@changesets/cli": "catalog:",
+    "@convex-dev/eslint-plugin": "catalog:",
     "@effect/tsgo": "catalog:",
     "@rajzik/oxfmt-config": "catalog:",
     "@rajzik/oxlint-config": "catalog:",

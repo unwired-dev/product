@@ -12,7 +12,7 @@ import type { Id } from './_generated/dataModel.js';
 import type { ActionCtx } from './_generated/server.js';
 
 import { internal } from './_generated/api.js';
-import { internalAction } from './_generated/server.js';
+import { env, internalAction } from './_generated/server.js';
 import { gmailWakeupPayload } from './gmailPushPayload.js';
 
 const apnsEnvironmentValidator = v.union(
@@ -75,8 +75,7 @@ class ApnsRequestError extends Error {
 }
 
 function requiredEnvironmentValue(name: string): string {
-  // oxlint-disable-next-line node/no-process-env -- Convex actions read deployment env at runtime.
-  const value = process.env[name];
+  const value = env[name];
   if (value === undefined || value.length === 0) {
     throw new Error(`${name} is required`);
   }

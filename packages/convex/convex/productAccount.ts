@@ -117,7 +117,10 @@ async function preserveOrIssueTrustedDeviceCredential(
   if (!request.supportsDeviceCredentials) {
     return undefined;
   }
-  const trustedDevice = await ctx.db.get(request.trustedDeviceId);
+  const trustedDevice = await ctx.db.get(
+    'trustedDevices',
+    request.trustedDeviceId,
+  );
   if (trustedDevice === null) {
     throw new Error('Trusted device required');
   }
@@ -130,7 +133,7 @@ async function preserveOrIssueTrustedDeviceCredential(
     return request.presentedCredential;
   }
   const credential = issueTrustedDeviceCredential();
-  await ctx.db.patch(request.trustedDeviceId, {
+  await ctx.db.patch('trustedDevices', request.trustedDeviceId, {
     credentialDigest: await trustedDeviceCredentialDigest(credential),
   });
   return credential;
@@ -213,7 +216,7 @@ async function gmailConnectionsForTrustedDevice(
   );
   return ctx.db
     .query('mailProviderConnections')
-    .withIndex('by_productAccountId_and_provider_and_trustedDeviceId', (q) =>
+    .withIndex('by_productId_provider_deviceId_providerAccountId', (q) =>
       q
         .eq('productAccountId', account.productAccountId)
         .eq('provider', 'gmail')
@@ -244,7 +247,7 @@ async function updateGmailConnection(
   );
   if (routingIdentityChanged) {
     // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-    await ctx.db.delete(existingConnection._id);
+    await ctx.db.delete('mailProviderConnections', existingConnection._id);
     await ctx.db.insert('mailProviderConnections', {
       ...connection,
       connectedAt: existingConnection.connectedAt,
@@ -256,7 +259,7 @@ async function updateGmailConnection(
     };
   }
   // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-  await ctx.db.patch(existingConnection._id, {
+  await ctx.db.patch('mailProviderConnections', existingConnection._id, {
     ...connection,
     updatedAt: existingConnection.updatedAt,
   });
@@ -327,7 +330,9 @@ async function upsertProductAccount(
     productAccountId,
     connection.deviceIdentifier,
   );
-  await ctx.db.patch(productAccountId, { lastSeenAt: connection.now });
+  await ctx.db.patch('productAccounts', productAccountId, {
+    lastSeenAt: connection.now,
+  });
 
   return {
     accountCreated: false,
@@ -367,7 +372,7 @@ async function migrateLegacyTrustedDeviceIdentifier(
     identifier.firstRegisteredAt < existingHistory.firstRegisteredAt
   ) {
     // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-    await ctx.db.patch(existingHistory._id, {
+    await ctx.db.patch('trustedDeviceIdentifierHistory', existingHistory._id, {
       firstRegisteredAt: identifier.firstRegisteredAt,
     });
     return true;
@@ -425,7 +430,7 @@ export const migrateLegacyTrustedDeviceIdentifiers = internalMutation({
       args.migrationComplete &&
       account.legacyTrustedDeviceIdentifierMigrationCompletedAt === undefined
     ) {
-      await ctx.db.patch(productAccountId, {
+      await ctx.db.patch('productAccounts', productAccountId, {
         legacyTrustedDeviceIdentifierMigrationCompletedAt: Date.now(),
       });
     }
@@ -458,7 +463,7 @@ async function registerTrustedDevice(
       : normalizedTrustedDeviceName(registration.deviceName);
   const devices = await ctx.db
     .query('trustedDevices')
-    .withIndex('by_productAccountId', (q) =>
+    .withIndex('by_productAccountId_and_deviceIdentifier', (q) =>
       q.eq('productAccountId', productAccountId),
     )
     .take(trustedDeviceLimitPerProductAccount);
@@ -515,7 +520,7 @@ async function updateTrustedDevice(
       : normalizedTrustedDeviceName(registration.deviceName);
   // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
   const trustedDeviceId = existingDevice._id;
-  await ctx.db.patch(trustedDeviceId, {
+  await ctx.db.patch('trustedDevices', trustedDeviceId, {
     ...(existingDevice.displayName === undefined && displayName !== undefined
       ? { displayName }
       : {}),
@@ -556,12 +561,12 @@ async function upsertTrustedDevice(
   if (existingDevice === null) {
     const priorRevocation = await ctx.db
       .query('revokedTrustedDevices')
-      .withIndex('by_productAccountId', (q) =>
+      .withIndex('by_productAccountId_and_deviceIdentifier', (q) =>
         q.eq('productAccountId', productAccountId),
       )
       .first();
     if (priorRevocation !== null) {
-      const account = await ctx.db.get(productAccountId);
+      const account = await ctx.db.get('productAccounts', productAccountId);
       if (
         identifierHistory === null ||
         account?.legacyTrustedDeviceIdentifierMigrationCompletedAt === undefined
@@ -603,7 +608,7 @@ async function deleteTrustedDeviceHeartbeat(
     .unique();
   if (heartbeat !== null) {
     // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-    await ctx.db.delete(heartbeat._id);
+    await ctx.db.delete('devicePushRouteHeartbeats', heartbeat._id);
   }
 }
 
@@ -618,7 +623,7 @@ async function legacyGmailRouteSnapshot(
 > {
   const connections = await ctx.db
     .query('mailProviderConnections')
-    .withIndex('by_productAccountId_and_provider', (q) =>
+    .withIndex('by_productAccountId_and_provider_and_emailAddress', (q) =>
       q.eq('productAccountId', productAccountId).eq('provider', 'gmail'),
     )
     .take(gmailLegacyRouteFallbackLimit + 1);
@@ -691,7 +696,7 @@ async function deleteGmailIdentityBindingIfOrphaned(
     .unique();
   if (identityBinding !== null) {
     // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-    await ctx.db.delete(identityBinding._id);
+    await ctx.db.delete('gmailOpaqueIdentityBindings', identityBinding._id);
   }
 }
 
@@ -737,7 +742,7 @@ async function deleteGmailConnectionsForTrustedDevice(
   for (;;) {
     const page = await ctx.db
       .query('mailProviderConnections')
-      .withIndex('by_productAccountId_and_provider_and_trustedDeviceId', (q) =>
+      .withIndex('by_productId_provider_deviceId_providerAccountId', (q) =>
         q
           .eq('productAccountId', productAccountId)
           .eq('provider', 'gmail')
@@ -749,7 +754,7 @@ async function deleteGmailConnectionsForTrustedDevice(
     }
     for (const connection of page) {
       // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-      await ctx.db.delete(connection._id);
+      await ctx.db.delete('mailProviderConnections', connection._id);
     }
     deletedConnections.push(...page);
   }
@@ -768,7 +773,7 @@ async function deleteMicrosoftGraphConnectionsForTrustedDevice(
   for (;;) {
     const page = await ctx.db
       .query('mailProviderConnections')
-      .withIndex('by_productAccountId_and_provider_and_trustedDeviceId', (q) =>
+      .withIndex('by_productId_provider_deviceId_providerAccountId', (q) =>
         q
           .eq('productAccountId', productAccountId)
           .eq('provider', 'microsoft-graph')
@@ -786,10 +791,10 @@ async function deleteMicrosoftGraphConnectionsForTrustedDevice(
         .unique();
       if (wakeupState !== null) {
         // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-        await ctx.db.delete(wakeupState._id);
+        await ctx.db.delete('microsoftGraphWakeupStates', wakeupState._id);
       }
       // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-      await ctx.db.delete(connection._id);
+      await ctx.db.delete('mailProviderConnections', connection._id);
     }
   }
 }
@@ -810,8 +815,8 @@ async function deleteTrustedDeviceAndRoutes(
     trustedDeviceId,
   );
   await deleteTrustedDeviceHeartbeat(ctx, trustedDeviceId);
-  if ((await ctx.db.get(trustedDeviceId)) !== null) {
-    await ctx.db.delete(trustedDeviceId);
+  if ((await ctx.db.get('trustedDevices', trustedDeviceId)) !== null) {
+    await ctx.db.delete('trustedDevices', trustedDeviceId);
   }
 }
 
@@ -856,7 +861,7 @@ async function pendingRotationDeviceCount(
 ): Promise<number> {
   const devices = await ctx.db
     .query('trustedDevices')
-    .withIndex('by_productAccountId', (q) =>
+    .withIndex('by_productAccountId_and_deviceIdentifier', (q) =>
       q.eq('productAccountId', productAccountId),
     )
     .take(trustedDeviceLimitPerProductAccount + 1);
@@ -897,7 +902,7 @@ async function commitPendingProductSyncKeyRotation(
   }
   const now = Math.max(Date.now(), recoveryMaterial.updatedAt + 1);
   // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-  await ctx.db.patch(recoveryMaterial._id, {
+  await ctx.db.patch('encryptedProductSyncPayloads', recoveryMaterial._id, {
     encryptedPayload:
       request.account.productSyncPendingRecoveryWrappedAccountKey,
     trustedDeviceId: request.trustedDeviceId,
@@ -905,7 +910,7 @@ async function commitPendingProductSyncKeyRotation(
     writtenAt: now,
   });
   // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-  await ctx.db.patch(request.account._id, {
+  await ctx.db.patch('productAccounts', request.account._id, {
     productSyncKeyEpoch: request.keyEpoch,
     productSyncPendingEncryptedTransition: undefined,
     productSyncPendingKeyEpoch: undefined,
@@ -939,7 +944,10 @@ export const connect = mutation({
         tokenIdentifier: identity.tokenIdentifier,
       },
     );
-    const productAccount = await ctx.db.get(productAccountId);
+    const productAccount = await ctx.db.get(
+      'productAccounts',
+      productAccountId,
+    );
     if (productAccount === null) {
       throw new Error('Product Account required');
     }
@@ -965,7 +973,7 @@ export const connect = mutation({
       trustedDeviceCredential !== undefined &&
       productAccount.deviceCredentialEnforcementActivatedAt === undefined
     ) {
-      await ctx.db.patch(productAccountId, {
+      await ctx.db.patch('productAccounts', productAccountId, {
         deviceCredentialEnforcementActivatedAt: now,
       });
     }
@@ -999,7 +1007,7 @@ export const listTrustedDevices = query({
     );
     const devices = await ctx.db
       .query('trustedDevices')
-      .withIndex('by_productAccountId', (q) =>
+      .withIndex('by_productAccountId_and_deviceIdentifier', (q) =>
         q.eq('productAccountId', account.productAccountId),
       )
       .take(trustedDeviceLimitPerProductAccount + 1);
@@ -1029,12 +1037,17 @@ export const renameTrustedDevice = mutation({
       account.productAccountId,
       args.trustedDeviceToRenameId,
     );
-    const device = await ctx.db.get(args.trustedDeviceToRenameId);
+    const device = await ctx.db.get(
+      'trustedDevices',
+      args.trustedDeviceToRenameId,
+    );
     if (device === null) {
       throw new Error('Trusted device required');
     }
     const displayName = normalizedTrustedDeviceName(args.displayName);
-    await ctx.db.patch(args.trustedDeviceToRenameId, { displayName });
+    await ctx.db.patch('trustedDevices', args.trustedDeviceToRenameId, {
+      displayName,
+    });
     return trustedDeviceSummary({ ...device, displayName });
   },
   returns: trustedDeviceSummaryValidator,
@@ -1183,7 +1196,7 @@ async function revokeDuringPendingKeyRotation(
     nextKeyEpoch,
     target,
   });
-  await ctx.db.patch(productAccountId, {
+  await ctx.db.patch('productAccounts', productAccountId, {
     productSyncPendingEncryptedTransition: args.encryptedTransition,
     productSyncPendingKeyEpoch: nextKeyEpoch,
     productSyncPendingRecoveryWrappedAccountKey: args.recoveryWrappedAccountKey,
@@ -1218,7 +1231,7 @@ async function startProductSyncKeyRotation(
     nextKeyEpoch,
     target,
   });
-  await ctx.db.patch(productAccountId, {
+  await ctx.db.patch('productAccounts', productAccountId, {
     productSyncKeyEpoch: currentKeyEpoch,
     productSyncPendingEncryptedTransition: args.encryptedTransition,
     productSyncPendingKeyEpoch: nextKeyEpoch,
@@ -1245,7 +1258,10 @@ async function findTrustedDeviceRevocationTarget(
     trustedDeviceId: Id<'trustedDevices'>;
   }>,
 ): Promise<TrustedDeviceRevocationTarget> {
-  const liveTarget = await ctx.db.get(request.trustedDeviceId);
+  const liveTarget = await ctx.db.get(
+    'trustedDevices',
+    request.trustedDeviceId,
+  );
   const target =
     liveTarget ??
     (await ctx.db
@@ -1281,7 +1297,10 @@ export const revokeTrustedDevice = mutation({
     if (args.trustedDeviceId === args.trustedDeviceToRevokeId) {
       throw new Error('Use sign out to remove the current Trusted Device');
     }
-    const account = await ctx.db.get(authenticatedAccount.productAccountId);
+    const account = await ctx.db.get(
+      'productAccounts',
+      authenticatedAccount.productAccountId,
+    );
     if (account === null) {
       throw new Error('Product Account required');
     }
@@ -1332,7 +1351,10 @@ export const getProductSyncKeyRotation = query({
       args.trustedDeviceId,
       args.trustedDeviceCredential,
     );
-    const account = await ctx.db.get(authenticatedAccount.productAccountId);
+    const account = await ctx.db.get(
+      'productAccounts',
+      authenticatedAccount.productAccountId,
+    );
     if (
       account === null ||
       account.productSyncPendingEncryptedTransition === undefined ||
@@ -1372,7 +1394,10 @@ export const acknowledgeProductSyncKeyRotation = mutation({
       args.trustedDeviceId,
       args.trustedDeviceCredential,
     );
-    const account = await ctx.db.get(authenticatedAccount.productAccountId);
+    const account = await ctx.db.get(
+      'productAccounts',
+      authenticatedAccount.productAccountId,
+    );
     if (account === null) {
       throw new Error('Product Account required');
     }
@@ -1392,7 +1417,7 @@ export const acknowledgeProductSyncKeyRotation = mutation({
     if (account.productSyncPendingKeyEpoch !== args.keyEpoch) {
       throw new Error('Product Sync key rotation changed');
     }
-    await ctx.db.patch(args.trustedDeviceId, {
+    await ctx.db.patch('trustedDevices', args.trustedDeviceId, {
       productSyncKeyEpoch: args.keyEpoch,
     });
     const pendingDeviceCount = await pendingRotationDeviceCount(
@@ -1429,7 +1454,7 @@ export const unregisterTrustedDevice = mutation({
   },
   handler: async (ctx, args) => {
     const account = await requireProductAccount(ctx);
-    const device = await ctx.db.get(args.trustedDeviceId);
+    const device = await ctx.db.get('trustedDevices', args.trustedDeviceId);
     if (device === null) {
       return { registered: false };
     }
@@ -1469,7 +1494,10 @@ export const unregisterTrustedDevice = mutation({
       account.productAccountId,
       args.trustedDeviceId,
     );
-    const productAccount = await ctx.db.get(account.productAccountId);
+    const productAccount = await ctx.db.get(
+      'productAccounts',
+      account.productAccountId,
+    );
     if (productAccount?.productSyncPendingKeyEpoch !== undefined) {
       const pendingDeviceCount = await pendingRotationDeviceCount(
         ctx,
@@ -1500,7 +1528,7 @@ export const markProductSyncMaterialInitialized = mutation({
       args.trustedDeviceId,
       args.trustedDeviceCredential,
     );
-    await ctx.db.patch(account.productAccountId, {
+    await ctx.db.patch('productAccounts', account.productAccountId, {
       productSyncMaterialInitializedAt:
         account.productSyncMaterialInitializedAt ?? Date.now(),
     });
@@ -1605,11 +1633,11 @@ export const removeGmailProviderConnection = mutation({
       .unique();
     if (connection !== null) {
       // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-      await ctx.db.delete(connection._id);
+      await ctx.db.delete('mailProviderConnections', connection._id);
     }
     const remainingConnection = await ctx.db
       .query('mailProviderConnections')
-      .withIndex('by_productAccountId_and_provider_and_trustedDeviceId', (q) =>
+      .withIndex('by_productId_provider_deviceId_providerAccountId', (q) =>
         q
           .eq('productAccountId', account.productAccountId)
           .eq('provider', 'gmail')

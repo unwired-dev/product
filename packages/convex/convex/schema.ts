@@ -95,8 +95,6 @@ export default defineSchema({
     scheduledDeliveryAuthorizationGeneration: v.optional(v.number()),
     scheduledDeliveryCapabilityVersion: v.optional(v.number()),
   })
-    .index('by_productAccountId', ['productAccountId'])
-    .index('by_apnsToken', ['apnsToken'])
     .index('by_apnsToken_and_apnsTokenRegisteredAt', [
       'apnsToken',
       'apnsTokenRegisteredAt',
@@ -120,12 +118,10 @@ export default defineSchema({
     deviceIdentifier: v.string(),
     productAccountId: v.id('productAccounts'),
     trustedDeviceId: v.id('trustedDevices'),
-  })
-    .index('by_productAccountId', ['productAccountId'])
-    .index('by_productAccountId_and_trustedDeviceId', [
-      'productAccountId',
-      'trustedDeviceId',
-    ]),
+  }).index('by_productAccountId_and_trustedDeviceId', [
+    'productAccountId',
+    'trustedDeviceId',
+  ]),
 
   revokedTrustedDevices: defineTable({
     deviceIdentifier: v.string(),
@@ -134,7 +130,6 @@ export default defineSchema({
     revokedAt: v.number(),
     trustedDeviceId: v.id('trustedDevices'),
   })
-    .index('by_productAccountId', ['productAccountId'])
     .index('by_productAccountId_and_deviceIdentifier', [
       'productAccountId',
       'deviceIdentifier',
@@ -203,12 +198,10 @@ export default defineSchema({
     trustedDeviceId: v.id('trustedDevices'),
     updatedAt: v.number(),
     writtenAt: v.number(),
-  })
-    .index('by_productAccountId', ['productAccountId'])
-    .index('by_productAccountId_and_payloadIdentifier', [
-      'productAccountId',
-      'payloadIdentifier',
-    ]),
+  }).index('by_productAccountId_and_payloadIdentifier', [
+    'productAccountId',
+    'payloadIdentifier',
+  ]),
 
   mailProviderConnections: defineTable({
     connectedAt: v.number(),
@@ -234,7 +227,6 @@ export default defineSchema({
     trustedDeviceId: v.id('trustedDevices'),
     updatedAt: v.number(),
   })
-    .index('by_provider_and_emailAddress', ['provider', 'emailAddress'])
     .index('by_provider_and_emailAddress_and_pushVerifiedAt', [
       'provider',
       'emailAddress',
@@ -251,16 +243,10 @@ export default defineSchema({
       'emailAddress',
       'pushVerificationRequestedAt',
     ])
-    .index('by_productAccountId_and_provider', ['productAccountId', 'provider'])
     .index('by_productAccountId_and_provider_and_emailAddress', [
       'productAccountId',
       'provider',
       'emailAddress',
-    ])
-    .index('by_productAccountId_and_provider_and_trustedDeviceId', [
-      'productAccountId',
-      'provider',
-      'trustedDeviceId',
     ])
     .index('by_productId_provider_deviceId_providerAccountId', [
       'productAccountId',
@@ -291,7 +277,6 @@ export default defineSchema({
       'gmailRoutingDigest',
       'pushVerificationRequestedAt',
     ])
-    .index('by_gmailRoutingDigest', ['gmailRoutingDigest'])
     .index('by_gmailPreviousRoutingDigest_and_pushVerifiedAt', [
       'gmailPreviousRoutingDigest',
       'pushVerifiedAt',
@@ -322,8 +307,6 @@ export default defineSchema({
     receivedAt: v.number(),
     routingDigest: v.optional(v.string()),
   })
-    .index('by_emailAddress', ['emailAddress'])
     .index('by_emailAddress_and_historyId', ['emailAddress', 'historyId'])
-    .index('by_routingDigest', ['routingDigest'])
     .index('by_routingDigest_and_historyId', ['routingDigest', 'historyId']),
 });

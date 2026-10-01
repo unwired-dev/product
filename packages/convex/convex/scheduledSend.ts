@@ -122,7 +122,7 @@ async function requireScheduledDeliveryAuthorization(
     trustedDeviceId: Id<'trustedDevices'>;
   }>,
 ) {
-  const device = await ctx.db.get(args.trustedDeviceId);
+  const device = await ctx.db.get('trustedDevices', args.trustedDeviceId);
   if (
     device === null ||
     device.scheduledDeliveryAuthorizationDigest === undefined ||
@@ -239,7 +239,7 @@ async function currentActiveSchedule(
     scheduleDocumentId: Id<'scheduledSends'>;
   }>,
 ): Promise<Doc<'scheduledSends'> | null> {
-  const schedule = await ctx.db.get(args.scheduleDocumentId);
+  const schedule = await ctx.db.get('scheduledSends', args.scheduleDocumentId);
   return isCurrentActiveSchedule(schedule, args.revision) ? schedule : null;
 }
 
@@ -294,7 +294,10 @@ async function preHandoffClaimCanBeReplaced(
   ) {
     return true;
   }
-  const owner = await ctx.db.get(schedule.claimOwnerTrustedDeviceId);
+  const owner = await ctx.db.get(
+    'trustedDevices',
+    schedule.claimOwnerTrustedDeviceId,
+  );
   return (
     owner === null ||
     owner.scheduledDeliveryAuthorizationGeneration !==
@@ -365,7 +368,7 @@ export const registerDeliveryCapability = mutation({
     if (args.capabilityVersion !== scheduledDeliveryCapabilityVersion) {
       throw new Error('Unsupported Scheduled Delivery capability');
     }
-    const device = await ctx.db.get(args.trustedDeviceId);
+    const device = await ctx.db.get('trustedDevices', args.trustedDeviceId);
     if (device === null) {
       throw new Error('Trusted device required');
     }
@@ -387,7 +390,7 @@ export const registerDeliveryCapability = mutation({
     const authorization = issueScheduledDeliveryAuthorization();
     const generation =
       (device.scheduledDeliveryAuthorizationGeneration ?? 0) + 1;
-    await ctx.db.patch(args.trustedDeviceId, {
+    await ctx.db.patch('trustedDevices', args.trustedDeviceId, {
       scheduledDeliveryAuthorizationDigest:
         await authorizationDigest(authorization),
       scheduledDeliveryAuthorizationGeneration: generation,
@@ -465,7 +468,9 @@ export const admit = mutation({
       internal.apns.deliverScheduledSendWakeup,
       { revision: args.revision, scheduleDocumentId },
     );
-    await ctx.db.patch(scheduleDocumentId, { scheduledFunctionId });
+    await ctx.db.patch('scheduledSends', scheduleDocumentId, {
+      scheduledFunctionId,
+    });
     return {
       dueAt: args.dueAt,
       encryptedPayloadUpdatedAt: args.encryptedPayloadUpdatedAt,
@@ -507,7 +512,7 @@ export const claim = mutation({
     }
     if (now > schedule.deadlineAt) {
       // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-      await ctx.db.patch(schedule._id, {
+      await ctx.db.patch('scheduledSends', schedule._id, {
         scheduledFunctionId: undefined,
         state: 'needs-attention',
         updatedAt: now,
@@ -530,7 +535,7 @@ export const claim = mutation({
     const generation = (schedule.claimGeneration ?? 0) + 1;
     const expiresAt = now + claimDurationMilliseconds;
     // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-    await ctx.db.patch(schedule._id, {
+    await ctx.db.patch('scheduledSends', schedule._id, {
       editExpiresAt: undefined,
       editGeneration: undefined,
       editOwnerTrustedDeviceId: undefined,
@@ -586,7 +591,7 @@ export const advanceClaimToHandoff = mutation({
       return false;
     }
     // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-    await ctx.db.patch(schedule._id, {
+    await ctx.db.patch('scheduledSends', schedule._id, {
       claimExpiresAt: undefined,
       claimPhase: 'handing-off',
       claimUpdatedAt: Date.now(),
@@ -655,7 +660,7 @@ export const releaseClaim = mutation({
       return false;
     }
     // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-    await ctx.db.patch(schedule._id, {
+    await ctx.db.patch('scheduledSends', schedule._id, {
       claimAuthorizationGeneration: undefined,
       claimExpiresAt: undefined,
       claimOwnerTrustedDeviceId: undefined,
@@ -748,7 +753,7 @@ export const beginEdit = mutation({
     const generation = (schedule.editGeneration ?? 0) + 1;
     const expiresAt = now + editDurationMilliseconds;
     // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-    await ctx.db.patch(schedule._id, {
+    await ctx.db.patch('scheduledSends', schedule._id, {
       claimAuthorizationGeneration: undefined,
       claimExpiresAt: undefined,
       claimOwnerTrustedDeviceId: undefined,
@@ -795,7 +800,7 @@ export const releaseEdit = mutation({
       return false;
     }
     // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-    await ctx.db.patch(schedule._id, {
+    await ctx.db.patch('scheduledSends', schedule._id, {
       editExpiresAt: undefined,
       editGeneration: undefined,
       editOwnerTrustedDeviceId: undefined,
@@ -852,7 +857,7 @@ export const cancel = mutation({
       await ctx.scheduler.cancel(schedule.scheduledFunctionId);
     }
     // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-    await ctx.db.patch(schedule._id, {
+    await ctx.db.patch('scheduledSends', schedule._id, {
       scheduledFunctionId: undefined,
       editExpiresAt: undefined,
       editGeneration: undefined,
@@ -939,7 +944,7 @@ export const reschedule = mutation({
       },
     );
     // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-    await ctx.db.patch(schedule._id, {
+    await ctx.db.patch('scheduledSends', schedule._id, {
       editExpiresAt: undefined,
       editGeneration: undefined,
       editOwnerTrustedDeviceId: undefined,
@@ -1039,7 +1044,7 @@ export const sendNow = mutation({
       },
     );
     // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-    await ctx.db.patch(schedule._id, {
+    await ctx.db.patch('scheduledSends', schedule._id, {
       claimAuthorizationGeneration: undefined,
       claimExpiresAt: undefined,
       claimOwnerTrustedDeviceId: undefined,
@@ -1100,7 +1105,7 @@ export const complete = mutation({
     }
     if (args.state === 'needs-attention') {
       // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-      await ctx.db.patch(schedule._id, {
+      await ctx.db.patch('scheduledSends', schedule._id, {
         claimAuthorizationGeneration: undefined,
         claimExpiresAt: undefined,
         claimOwnerTrustedDeviceId: undefined,
@@ -1112,7 +1117,7 @@ export const complete = mutation({
       return true;
     }
     // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-    await ctx.db.delete(schedule._id);
+    await ctx.db.delete('scheduledSends', schedule._id);
     return true;
   },
   returns: v.boolean(),
@@ -1141,7 +1146,7 @@ export const claimWakeup = internalMutation({
       };
     }
     if (now > schedule.deadlineAt) {
-      await ctx.db.patch(args.scheduleDocumentId, {
+      await ctx.db.patch('scheduledSends', args.scheduleDocumentId, {
         scheduledFunctionId: undefined,
         state: 'needs-attention',
         updatedAt: now,
@@ -1163,7 +1168,7 @@ export const claimWakeup = internalMutation({
     }
     const devices = await ctx.db
       .query('trustedDevices')
-      .withIndex('by_productAccountId', (q) =>
+      .withIndex('by_productAccountId_and_deviceIdentifier', (q) =>
         q.eq('productAccountId', schedule.productAccountId),
       )
       .paginate({
@@ -1171,7 +1176,7 @@ export const claimWakeup = internalMutation({
         maximumBytesRead: scheduledWakeupPageByteLimit,
         numItems: Math.min(scheduledWakeupPageSize, args.remainingDeviceCount),
       });
-    await ctx.db.patch(args.scheduleDocumentId, {
+    await ctx.db.patch('scheduledSends', args.scheduleDocumentId, {
       scheduledFunctionId: undefined,
       updatedAt: now,
       wakeAttemptedAt: now,
@@ -1237,7 +1242,7 @@ export const retryWakeup = internalMutation({
     }
     const now = Date.now();
     if (now >= schedule.deadlineAt) {
-      await ctx.db.patch(args.scheduleDocumentId, {
+      await ctx.db.patch('scheduledSends', args.scheduleDocumentId, {
         state: 'needs-attention',
         updatedAt: now,
       });
@@ -1249,7 +1254,7 @@ export const retryWakeup = internalMutation({
       internal.apns.deliverScheduledSendWakeup,
       args,
     );
-    await ctx.db.patch(args.scheduleDocumentId, {
+    await ctx.db.patch('scheduledSends', args.scheduleDocumentId, {
       scheduledFunctionId,
       updatedAt: now,
     });

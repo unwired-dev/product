@@ -75,7 +75,7 @@ async function insertPayload(
     updatedAt: now,
     writtenAt: now,
   });
-  const payload = await ctx.db.get(payloadId);
+  const payload = await ctx.db.get('encryptedProductSyncPayloads', payloadId);
   if (payload === null) {
     throw new Error('Encrypted Product Sync payload was not stored');
   }
@@ -123,7 +123,7 @@ async function updatePayload(
 ): Promise<EncryptedProductSyncPayload> {
   const now = Math.max(Date.now(), existingPayload.updatedAt + 1);
   // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-  await ctx.db.patch(existingPayload._id, {
+  await ctx.db.patch('encryptedProductSyncPayloads', existingPayload._id, {
     encryptedPayload: args.encryptedPayload,
     trustedDeviceId: args.trustedDeviceId,
     updatedAt: now,
@@ -276,7 +276,7 @@ async function deleteAtomicPayloads(
       );
     }
     // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-    await ctx.db.delete(existing._id);
+    await ctx.db.delete('encryptedProductSyncPayloads', existing._id);
   }
 }
 
@@ -450,7 +450,7 @@ async function listEncryptedPayloadsForProductAccount(
     payloadIdentifierPrefix === undefined
       ? ctx.db
           .query('encryptedProductSyncPayloads')
-          .withIndex('by_productAccountId', (q) =>
+          .withIndex('by_productAccountId_and_payloadIdentifier', (q) =>
             q.eq('productAccountId', productAccountId),
           )
       : ctx.db
@@ -499,7 +499,7 @@ async function requireLegacyProductSyncReadAccount(
   }
   const revocation = await ctx.db
     .query('revokedTrustedDevices')
-    .withIndex('by_productAccountId', (q) =>
+    .withIndex('by_productAccountId_and_deviceIdentifier', (q) =>
       q.eq('productAccountId', account.productAccountId),
     )
     .first();

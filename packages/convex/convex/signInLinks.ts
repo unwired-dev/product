@@ -84,7 +84,7 @@ async function supersedeLinkRequests(
   );
   for (const request of stale) {
     // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-    await ctx.db.delete(request._id);
+    await ctx.db.delete('signInLinkRequests', request._id);
   }
 }
 
@@ -102,7 +102,7 @@ export const request = mutation({
       args.trustedDeviceId,
       args.trustedDeviceCredential,
     );
-    const account = await ctx.db.get(productAccountId);
+    const account = await ctx.db.get('productAccounts', productAccountId);
     if (account === null) {
       throw new Error('Product Account required');
     }
@@ -189,7 +189,9 @@ async function linkTarget(
   const productAccountId =
     pending?.productAccountId ?? existing?.productAccountId;
   const account =
-    productAccountId === undefined ? null : await ctx.db.get(productAccountId);
+    productAccountId === undefined
+      ? null
+      : await ctx.db.get('productAccounts', productAccountId);
   const usable =
     pending === null ||
     (pending.expiresAt > Date.now() &&
@@ -272,7 +274,7 @@ export const complete = mutation({
       tokenIdentifier: identity.tokenIdentifier,
     });
     // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-    await ctx.db.delete(pending._id);
+    await ctx.db.delete('signInLinkRequests', pending._id);
     return linkResponse(ctx, account);
   },
   returns: signInLinkResponseValidator,

@@ -144,7 +144,7 @@ async function claimFixture() {
       .unique();
     const schedule = requireValue(stored);
     // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-    await ctx.db.patch(schedule._id, {
+    await ctx.db.patch('scheduledSends', schedule._id, {
       deadlineAt: Date.now() + 24 * 60 * 60 * 1000,
       dueAt: Date.now() - 1,
     });
@@ -284,7 +284,7 @@ describe('scheduled Send admission', () => {
         .unique();
       const schedule = requireValue(stored);
       // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-      await ctx.db.patch(schedule._id, {
+      await ctx.db.patch('scheduledSends', schedule._id, {
         deadlineAt: Date.now() - 1,
         dueAt: Date.now() - 2,
       });
@@ -345,7 +345,9 @@ describe('scheduled Send admission', () => {
         .unique();
       const schedule = requireValue(stored);
       // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-      await ctx.db.patch(schedule._id, { dueAt: Date.now() - 1 });
+      await ctx.db.patch('scheduledSends', schedule._id, {
+        dueAt: Date.now() - 1,
+      });
       return schedule;
     });
     vi.stubEnv('APNS_KEY_ID', 'key-id');
@@ -358,8 +360,10 @@ describe('scheduled Send admission', () => {
         // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
         scheduleDocumentId: schedule._id,
       });
-      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-      const retried = await t.run(async (ctx) => ctx.db.get(schedule._id));
+      const retried = await t.run(async (ctx) =>
+        // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+        ctx.db.get('scheduledSends', schedule._id),
+      );
 
       expect(retried?.state).toBe('active');
       expect(retried?.wakeAttemptedAt).toBeTypeOf('number');
@@ -394,8 +398,10 @@ describe('scheduled Send admission', () => {
         // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
         scheduleDocumentId: schedule._id,
       });
-      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-      const retried = await t.run(async (ctx) => ctx.db.get(schedule._id));
+      const retried = await t.run(async (ctx) =>
+        // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+        ctx.db.get('scheduledSends', schedule._id),
+      );
 
       expect(retried?.state).toBe('active');
       expect(retried?.scheduledFunctionId).toBeDefined();
@@ -459,7 +465,7 @@ describe('scheduled Send admission', () => {
         .unique();
       const schedule = requireValue(stored);
       // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-      await ctx.db.patch(schedule._id, {
+      await ctx.db.patch('scheduledSends', schedule._id, {
         deadlineAt: Date.now() + 30_000,
         scheduledFunctionId: undefined,
       });
@@ -471,8 +477,10 @@ describe('scheduled Send admission', () => {
       // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
       scheduleDocumentId: schedule._id,
     });
-    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-    const retried = await t.run(async (ctx) => ctx.db.get(schedule._id));
+    const retried = await t.run(async (ctx) =>
+      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+      ctx.db.get('scheduledSends', schedule._id),
+    );
 
     expect(persisted).toBe(true);
     expect(retried?.state).toBe('active');
@@ -514,7 +522,9 @@ describe('scheduled Send cross-device claims', () => {
     const fixture = await claimFixture();
     await fixture.t.run(async (ctx) => {
       // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-      await ctx.db.patch(fixture.schedule._id, { dueAt: Date.now() + 60_000 });
+      await ctx.db.patch('scheduledSends', fixture.schedule._id, {
+        dueAt: Date.now() + 60_000,
+      });
     });
 
     await expect(
@@ -941,7 +951,7 @@ describe('scheduled Send cross-device claims', () => {
         revokedAt: Date.now(),
         trustedDeviceId: fixture.device.trustedDeviceId,
       });
-      await ctx.db.delete(fixture.device.trustedDeviceId);
+      await ctx.db.delete('trustedDevices', fixture.device.trustedDeviceId);
     });
 
     await expect(
