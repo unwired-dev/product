@@ -344,7 +344,7 @@ export function privateSyncCopy(snapshot: PrivateSyncState) {
   const mailboxes =
     snapshot.privateSyncMailboxes === undefined
       ? undefined
-      : `Encrypted mailbox list: ${snapshot.privateSyncMailboxes.split('\n').join(', ')}.`;
+      : `Encrypted mailbox list: ${snapshot.privateSyncMailboxes.replaceAll('\n', ', ')}.`;
   switch (snapshot.privateSync) {
     case undefined: {
       return undefined;
@@ -391,6 +391,10 @@ export function privateSyncCopy(snapshot: PrivateSyncState) {
     }
   }
 }
+
+// Native confirmation ignores case and separators; keep only the four characters that count.
+export const recoveryKeyEntry = (text: string) =>
+  text.replaceAll(/[\s-]/gu, '').toUpperCase().slice(0, 4);
 
 export const recoveryKeyConfirmationCopy = {
   prompt:

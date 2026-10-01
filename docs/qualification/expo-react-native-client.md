@@ -43,7 +43,7 @@ The [protected qualification path](../private-product-sync.md#protected-real-qua
 has not run. No installed Mac profile covers the disposable `dev.unwired.mock.*`
 IDs. Local evidence is in `artifacts/expo-bootstrap/native-VdNwBS`,
 `artifacts/expo-bootstrap/native-5QUCAH` and
-`artifacts/private-inbox/integration.YuRdcR`.
+`artifacts/private-inbox/integration.CRbhTW`.
 
 ## Linked sign-in evidence, 2026-10-01
 

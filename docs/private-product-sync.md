@@ -31,7 +31,8 @@ Product Sync, for example `Encrypted mailbox list: alex@example.invalid.`. The
 entry appears only after the device reads the encrypted record back and opens it.
 
 If setup cannot reach Convex, the section reports that it will continue at the
-next verification and offers **Sign in again**. Reopening an account that already
+next verification and offers **Sign in again**. Signing in again rechecks a saved
+Gmail mailbox instead of restarting Gmail consent. Reopening an account that already
 has Product Sync keys on a device without them shows **Unlock private data on this
 device**. Approval from a trusted device
 ([#600](https://github.com/unwired-dev/product/issues/600)) and Recovery Key entry
@@ -52,9 +53,10 @@ recovery envelope and the publication and confirmation state.
 - **Records.** AES-GCM-256 with a fresh random 96-bit nonce for every seal.
   The authenticated data binds the Product Account ID, the opaque record
   identifier, the algorithm, the key epoch and the record schema. Convex stores
-  only the nonce, ciphertext, tag, key epoch and schema. Changing any stored field,
-  moving a record to another identifier or account, or relabelling its epoch fails
-  authentication. Records with an unexpected schema are rejected.
+  only the nonce, ciphertext, tag, key epoch and schema, plus its own row metadata
+  such as `updatedAt` for compare-and-set. Changing any sealed field, moving a record
+  to another identifier or account, or relabelling its epoch fails authentication;
+  row metadata is not authenticated. Records with an unexpected schema are rejected.
 - **Record identifiers.** `mailbox.` followed by a truncated HMAC-SHA-256 of the
   provider subject. The HMAC key is derived from the first epoch key. Identifiers
   are stable across devices and epochs. They reveal no address or subject, and

@@ -243,7 +243,8 @@ struct SavedRegistration: Codable {
         deployment: deployment, clientID: clientID, deviceIdentifier: UUID().uuidString,
         signInProvider: signInProvider, subject: identity.subject,
         identityCredential: identity.credential)
-    return try pending(await establish(record, identity: identity))
+    // Signing in again keeps a saved mailbox; recheck it rather than restarting Gmail consent.
+    return try await mailboxStatus(establish(record, identity: identity))
   }
 
   // Moves this device to a Linked Sign-In once the backend confirms it opens the same account.

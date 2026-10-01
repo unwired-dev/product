@@ -12,6 +12,7 @@ import {
   privateSyncCopy,
   providerNames,
   recoveryKeyConfirmationCopy,
+  recoveryKeyEntry,
   registrationCopy,
   signInMethodsCopy,
 } from '@private-email/mail-core/registration';
@@ -108,8 +109,9 @@ function PrivateSync({
             autoCapitalize="characters"
             autoComplete="off"
             autoCorrect={false}
-            maxLength={4}
-            onChangeText={setEntry}
+            onChangeText={(text) => {
+              setEntry(recoveryKeyEntry(text));
+            }}
             placeholder={recoveryKeyConfirmationCopy.label}
             placeholderTextColor={colors.secondary}
             style={[

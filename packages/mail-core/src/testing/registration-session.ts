@@ -105,7 +105,10 @@ export function createMockRegistrationSession(selection: unknown) {
         return Promise.resolve(snapshot);
       }
       if (snapshot.signInProvider === provider) {
-        snapshot = { kind: 'mailbox-needed', ...account(snapshot) };
+        // A saved mailbox that still verifies stays connected.
+        if (snapshot.kind !== 'connected') {
+          snapshot = { kind: 'mailbox-needed', ...account(snapshot) };
+        }
         return Promise.resolve(snapshot);
       }
       if (snapshot.alternateSignIn !== provider) {

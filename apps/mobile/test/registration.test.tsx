@@ -311,7 +311,8 @@ describe('product registration', () => {
     await act(async () => {
       await fireEvent.changeText(
         screen.getByLabelText('Last four characters'),
-        syntheticRecoveryKey.slice(-4).toLowerCase(),
+        // Separators and case are ignored, as in native confirmation.
+        [...syntheticRecoveryKey.slice(-4).toLowerCase()].join(' '),
       );
     });
     await act(async () => {

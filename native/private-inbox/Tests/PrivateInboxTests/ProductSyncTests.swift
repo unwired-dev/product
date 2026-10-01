@@ -240,6 +240,12 @@ extension PrivateInboxTests {
     let connected = try await store.authorizeGmail(reselect: false)
     #expect(connected["kind"] == "connected")
     #expect(connected["privateSyncMailboxes"] == "same@example.invalid")
+    // Signing in again, as offered for pending setup, rechecks the mailbox without new consent.
+    google.subject = "synthetic-product-subject"
+    let sessions = google.hints.count
+    #expect(try await backend.store(keys: keys, google: google).signIn() == connected)
+    #expect(google.hints.count == sessions + 1)
+    google.subject = "synthetic-mailbox-subject"
     let records = try #require(backend.records[account])
     #expect(records.count == 1)
     // Convex holds only opaque identifiers and ciphertext; no address, subject or credential.
