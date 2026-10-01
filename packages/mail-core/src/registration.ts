@@ -26,6 +26,8 @@ const Account = Schema.Struct({
   recoveryKey: Schema.optionalKey(Schema.NonEmptyString),
   // Mailbox addresses read back and decrypted from Product Sync, one per line.
   privateSyncMailboxes: Schema.optionalKey(Schema.NonEmptyString),
+  // The connected mailbox is not yet saved to Product Sync; a sign-in will save it.
+  privateSyncPending: Schema.optionalKey(Schema.Literal('mailbox')),
 });
 export const RegistrationSnapshotSchema = Schema.Union([
   Schema.Struct({ kind: Schema.Literal('signed-out') }),
@@ -337,6 +339,7 @@ type PrivateSyncState = Readonly<{
   privateSync?: PrivateSync;
   recoveryKey?: string;
   privateSyncMailboxes?: string;
+  privateSyncPending?: 'mailbox';
 }>;
 
 // Private product data on this device; mailbox credentials never take part in it.
@@ -345,6 +348,10 @@ export function privateSyncCopy(snapshot: PrivateSyncState) {
     snapshot.privateSyncMailboxes === undefined
       ? undefined
       : `Encrypted mailbox list: ${snapshot.privateSyncMailboxes.replaceAll('\n', ', ')}.`;
+  const unsavedMailbox =
+    snapshot.privateSyncPending === undefined
+      ? undefined
+      : 'Your connected mailbox is not saved to private sync yet. Sign in again to save it.';
   switch (snapshot.privateSync) {
     case undefined: {
       return undefined;
@@ -355,6 +362,7 @@ export function privateSyncCopy(snapshot: PrivateSyncState) {
         description:
           'Private sync setup has not finished. It continues the next time your Product Account is verified. Sign in again to finish it now.',
         mailboxes,
+        pending: unsavedMailbox,
         recoveryKey: undefined,
       };
     }
@@ -364,6 +372,7 @@ export function privateSyncCopy(snapshot: PrivateSyncState) {
         description:
           'Your product data is end-to-end encrypted. If you lose every trusted device, this Recovery Key is the only way to unlock it. Write it down and keep it somewhere safe. Unwired Mail cannot show it to anyone else or reset it.',
         mailboxes,
+        pending: unsavedMailbox,
         recoveryKey: snapshot.recoveryKey,
       };
     }
@@ -373,6 +382,7 @@ export function privateSyncCopy(snapshot: PrivateSyncState) {
         description:
           'Your product data is end-to-end encrypted. Only your trusted devices can read it.',
         mailboxes,
+        pending: unsavedMailbox,
         recoveryKey: undefined,
       };
     }
@@ -382,6 +392,7 @@ export function privateSyncCopy(snapshot: PrivateSyncState) {
         description:
           'This Product Account already has end-to-end encrypted data, so this device needs its keys. Approve it from one of your trusted devices or use your Recovery Key. Nothing was reset or replaced.',
         mailboxes,
+        pending: unsavedMailbox,
         recoveryKey: undefined,
       };
     }

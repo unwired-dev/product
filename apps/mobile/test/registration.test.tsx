@@ -352,4 +352,44 @@ describe('product registration', () => {
     expect(screen.queryByLabelText('Last four characters')).toBeNull();
     expect(screen.queryByText(/Encrypted mailbox list/u)).toBeNull();
   });
+
+  it('offers sign-in again when the connected mailbox is not yet saved to private sync', async () => {
+    expect.hasAssertions();
+    const connected = {
+      kind: 'connected',
+      productAccountId: 'synthetic-apple-product-account',
+      signInProvider: 'apple',
+      privateSync: 'ready',
+      privateSyncPending: 'mailbox',
+      providerSubject: 'synthetic-google-subject',
+      address: 'alex@example.invalid',
+    } as const;
+    const { privateSyncPending: _pending, ...saved } = connected;
+    await render(
+      <RegistrationGate
+        store={createRegistration({
+          restore: () => Promise.resolve(connected),
+          // Signing in again with Apple saves the descriptor and keeps the mailbox.
+          signIn: () => Promise.resolve(saved),
+          authorizeGmail: () =>
+            Promise.reject(new Error('Gmail consent must not restart')),
+          link: () => Promise.reject(new Error('Not linking')),
+          confirmRecoveryKey: () =>
+            Promise.reject(new Error('No Recovery Key to confirm')),
+        })}
+        preview={false}>
+        {null}
+      </RegistrationGate>,
+    );
+    await expect(
+      screen.findByText(/not saved to private sync yet/u),
+    ).resolves.toBeVisible();
+    await act(async () => {
+      await fireEvent.press(
+        screen.getByRole('button', { name: 'Sign in again with Apple' }),
+      );
+    });
+    expect(screen.queryByText(/not saved to private sync yet/u)).toBeNull();
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
 });

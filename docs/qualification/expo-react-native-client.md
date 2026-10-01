@@ -20,12 +20,13 @@ on both hosts.
   initialization, idempotent retry, refusal for already initialized accounts, and
   epoch and device-proof enforcement. Shared and rendered host tests cover Recovery
   Key confirmation, mismatch, remount and the enrollment-needed state.
-- Sixteen app-hosted native tests passed on an owned iOS 27 Simulator with real
+- Seventeen app-hosted native tests passed on an owned iOS 27 Simulator with real
   Keychain and CryptoKit. They cover nonce freshness and tamper, account,
   identifier, schema and epoch rejection. They also cover recovery and enrollment
   envelope binding, one-time initialization, the encrypted descriptor round trip
   and relaunch without new keys. Interrupted publication and the losing device's
-  enrollment state are covered too, as is a receipt without Product Sync state. Convex and the providers are controlled
+  enrollment state are covered too, as are a receipt without Product Sync state and an Apple relaunch that saves a
+  new mailbox only after signing in again. Convex and the providers are controlled
   boundaries here.
 - The `registration-declined` and `registration-link` packaged journeys passed on
   fresh iPhone 18 Pro and iPad Pro 11-inch M5 iOS 27 Simulators from Release
@@ -41,9 +42,9 @@ Native Mac E2E, real Convex Product Sync and providers, and the deployment's JWT
 gateway remain deferred. So do signed Mac Keychain behavior and physical devices.
 The [protected qualification path](../private-product-sync.md#protected-real-qualification)
 has not run. No installed Mac profile covers the disposable `dev.unwired.mock.*`
-IDs. Local evidence is in `artifacts/expo-bootstrap/native-VdNwBS`,
-`artifacts/expo-bootstrap/native-5QUCAH` and
-`artifacts/private-inbox/integration.CRbhTW`.
+IDs. Uncommitted local evidence stays on the development host in the git-ignored
+`artifacts/expo-bootstrap/native-VdNwBS`, `artifacts/expo-bootstrap/native-5QUCAH` and
+`artifacts/private-inbox/integration.bTFzKO` directories.
 
 ## Linked sign-in evidence, 2026-10-01
 

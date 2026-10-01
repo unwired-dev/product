@@ -137,6 +137,11 @@ function PrivateSync({
           {copy.mailboxes}
         </Text>
       )}
+      {copy.pending === undefined ? null : (
+        <Text style={[styles.text, { color: colors.foreground }]}>
+          {copy.pending}
+        </Text>
+      )}
     </>
   );
 }
@@ -194,6 +199,7 @@ function offersSignInAgain(
   }
   return (
     snapshot.privateSync === 'setup-pending' ||
+    snapshot.privateSyncPending !== undefined ||
     (snapshot.kind === 'mailbox-needed' &&
       (failed ||
         snapshot.reason === 'interrupted' ||

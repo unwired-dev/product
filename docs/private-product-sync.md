@@ -30,9 +30,13 @@ Once Gmail is connected, the section lists the mailbox addresses decrypted from
 Product Sync, for example `Encrypted mailbox list: alex@example.invalid.`. The
 entry appears only after the device reads the encrypted record back and opens it.
 
-If setup cannot reach Convex, the section reports that it will continue at the
-next verification and offers **Sign in again**. Signing in again rechecks a saved
-Gmail mailbox instead of restarting Gmail consent. Reopening an account that already
+If setup cannot reach Convex, the section reports that it will continue the next
+time this device reconnects its Product Account to Convex. That happens on a Google
+restore or any interactive sign-in, and the section offers **Sign in again** to do it
+now. A connected mailbox whose descriptor has not been read back yet, for example
+one chosen after an Apple relaunch, shows that it is not saved to private sync yet
+and offers the same action. Signing in again rechecks a saved Gmail mailbox instead
+of restarting Gmail consent. Reopening an account that already
 has Product Sync keys on a device without them shows **Unlock private data on this
 device**. Approval from a trusted device
 ([#600](https://github.com/unwired-dev/product/issues/600)) and Recovery Key entry
@@ -100,7 +104,9 @@ With Google, restore refreshes the Product Sign-In, reconnects and reads the
 mailbox descriptors back. Native Sign in with Apple cannot renew its identity
 token silently. An Apple device therefore uses the token from the current
 interactive sign-in for Product Sync, and keeps its local state after relaunch.
-Backend reads and writes resume after the next interactive sign-in.
+Backend reads and writes resume after the next interactive sign-in. The vault
+records which mailbox descriptors this device read back, so a mailbox connected
+without a session is reported as unsaved until then.
 
 Convex reads and writes require the Trusted Device Credential and remain fenced to
 its Product Account, as before. A Product Sync failure is logged without details

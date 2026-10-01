@@ -32,6 +32,8 @@ struct ProductSyncVault: Codable {
   // Convex accepted this device's recovery envelope as the account's key material.
   var published = false
   var recoveryKeyConfirmed = false
+  // Mailbox descriptors this device read back from Product Sync, by record identifier.
+  var savedMailboxes: [String: String]? = nil
 }
 
 // The synchronized description of an authorized mailbox; credentials never enter it.
@@ -91,8 +93,17 @@ extension RegistrationStore {
         current.published = true
         try saveVault(current)
       }
-      syncedMailboxes[account] = try await synchronizeMailboxes(
+      let mailboxes = try await synchronizeMailboxes(
         saved, vault: current, backend: backend, session: session)
+      syncedMailboxes[account] = mailboxes.addresses
+      if let (identifier, address) = mailboxes.confirmed,
+        current.savedMailboxes?[identifier] != address
+      {
+        current.savedMailboxes = (current.savedMailboxes ?? [:]).merging([identifier: address]) {
+          $1
+        }
+        try saveVault(current)
+      }
     } catch {
       // Product Sync stays pending; registration and the mailbox remain usable.
       Self.productSyncLogger.error(
@@ -105,9 +116,10 @@ extension RegistrationStore {
   func synchronizeMailboxes(
     _ saved: SavedRegistration, vault: ProductSyncVault, backend: ProductSyncBackend,
     session: ProductSignInIdentity
-  ) async throws -> [String] {
-    guard let product = saved.product else { return [] }
+  ) async throws -> (addresses: [String], confirmed: (String, String)?) {
+    guard let product = saved.product else { return ([], nil) }
     var stored = try await mailboxDescriptors(vault, backend: backend, session: session, product)
+    var confirmed: (String, String)?
     if let mailbox = saved.mailbox, saved.mailboxSetupReason == nil {
       let identifier = try vault.ring.identifier("mailbox", "gmail:" + mailbox.subject)
       let descriptor = MailboxDescriptor(provider: "gmail", address: mailbox.address)
@@ -119,8 +131,9 @@ extension RegistrationStore {
           session, product, identifier, sealed, stored[identifier]?.updatedAt)
         stored = try await mailboxDescriptors(vault, backend: backend, session: session, product)
       }
+      if stored[identifier]?.descriptor == descriptor { confirmed = (identifier, mailbox.address) }
     }
-    return Set(stored.values.compactMap { $0.descriptor?.address }).sorted()
+    return (Set(stored.values.compactMap { $0.descriptor?.address }).sorted(), confirmed)
   }
 
   func mailboxDescriptors(
@@ -160,6 +173,13 @@ extension RegistrationStore {
       result["recoveryKey"] = try RecoveryKey(bytes: vault.recoveryKey).display
     } else {
       result["privateSync"] = "ready"
+    }
+    // A verified mailbox not yet read back needs a backend session, such as after an Apple relaunch.
+    if let mailbox = saved.mailbox, saved.mailboxSetupReason == nil, vault.published,
+      try vault.savedMailboxes?[vault.ring.identifier("mailbox", "gmail:" + mailbox.subject)]
+        != mailbox.address
+    {
+      result["privateSyncPending"] = "mailbox"
     }
     return result
   }

@@ -369,4 +369,36 @@ extension PrivateInboxTests {
     #expect(try await store().signIn(with: .apple)["privateSync"] == "recovery-key")
     #expect(backend.initializations == 1)
   }
+
+  @Test @MainActor func appleRelaunchAsksToSignInAgainBeforeSavingANewMailbox() async throws {
+    let keys = device()
+    let account = "account-synthetic-apple-subject"
+    defer { remove(keys, accounts: [account]) }
+    let google = SyntheticGoogleRegistrationProvider()
+    google.scopes = [RegistrationStore.gmailScope]
+    let apple = SyntheticAppleRegistrationProvider()
+    let backend = SyntheticProductSyncBackend()
+    func store() -> RegistrationStore {
+      RegistrationStore(
+        keys: keys, deployment: "https://synthetic.example.invalid", clientID: "synthetic-client",
+        provider: google, apple: apple, productSync: backend.backend,
+        connect: { identity, _, _ in backend.receipt("account-" + identity.subject) })
+    }
+    let first = store()
+    _ = try await first.signIn(with: .apple)
+    google.subject = "synthetic-mailbox-subject"
+    #expect(try await first.authorizeGmail(reselect: false)["privateSyncPending"] == nil)
+    // After relaunch Apple has no backend session, so a newly chosen mailbox waits for sign-in.
+    google.subject = "synthetic-other-mailbox"
+    google.address = "other@example.invalid"
+    let reselected = try await store().authorizeGmail(reselect: true)
+    #expect(reselected["kind"] == "connected")
+    #expect(reselected["privateSyncPending"] == "mailbox")
+    #expect(backend.records[account]?.count == 1)
+    // Signing in again saves the descriptor and reads both back.
+    let signedIn = try await store().signIn(with: .apple)
+    #expect(signedIn["privateSyncPending"] == nil)
+    #expect(signedIn["privateSyncMailboxes"] == "other@example.invalid\nsame@example.invalid")
+    #expect(backend.records[account]?.count == 2)
+  }
 }
