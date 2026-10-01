@@ -164,6 +164,29 @@ const matchingVictimSubjectIdentityToken = createGoogleIdentityToken(
   'client-asserted-id',
 );
 
+// Convex's default runtime exposes process.env as a get-only Proxy that cannot be
+// enumerated or copied; Node's process.env can be both.
+async function withDefaultRuntimeEnvironment<T>(
+  run: () => Promise<T>,
+): Promise<T> {
+  // oxlint-disable-next-line node/no-process-env -- Emulates the default runtime's environment.
+  const environment = process.env;
+  // oxlint-disable-next-line node/no-process-env -- Emulates the default runtime's environment.
+  process.env = new Proxy(
+    {},
+    {
+      get: (_target, name) =>
+        typeof name === 'string' ? environment[name] : undefined,
+    },
+  );
+  try {
+    return await run();
+  } finally {
+    // oxlint-disable-next-line node/no-process-env -- Restores Node's environment.
+    process.env = environment;
+  }
+}
+
 vi.stubEnv('GMAIL_OAUTH_CLIENT_ID', 'gmail-client-id');
 vi.stubEnv('GMAIL_ROUTING_KEY', 'gmail-routing-test-key');
 vi.stubEnv('GMAIL_IDENTITY_BINDING_KEY', 'gmail-identity-binding-test-key');
@@ -307,7 +330,7 @@ describe('gmail push relay', () => {
     expect(googleSigningKeyFetch).not.toHaveBeenCalled();
   });
 
-  it('derives the opaque connection id for legacy watch verification calls', async () => {
+  it('derives the opaque connection id for legacy watch verification calls in the default runtime', async () => {
     expect.assertions(2);
 
     const t = convexTest(schema, modules);
@@ -331,14 +354,16 @@ describe('gmail push relay', () => {
     });
 
     await expect(
-      asUser.action(api.pushRelay.verifyGmailWatch, {
-        gmailIdentityToken: createGoogleIdentityToken(
-          'legacy@example.com',
-          'gmail-user-legacy',
-        ),
-        historyId: '100',
-        trustedDeviceId: device.trustedDeviceId,
-      }),
+      withDefaultRuntimeEnvironment(async () =>
+        asUser.action(api.pushRelay.verifyGmailWatch, {
+          gmailIdentityToken: createGoogleIdentityToken(
+            'legacy@example.com',
+            'gmail-user-legacy',
+          ),
+          historyId: '100',
+          trustedDeviceId: device.trustedDeviceId,
+        }),
+      ),
     ).resolves.toStrictEqual(expect.objectContaining({ verified: false }));
     await expect(
       t.run((ctx) =>

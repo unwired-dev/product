@@ -458,6 +458,8 @@ const resumeRevocation = Effect.fnUntraced(function* (
       AppleUnavailable: () => Effect.succeed(false),
       RevocationUnrecorded: () => Effect.succeed(false),
     }),
+    // An unexpected defect aborts recovery, like a terminal failure.
+    Effect.catchDefect(() => abortRecovery),
   );
   if (completed) {
     yield* call(async () =>
@@ -602,6 +604,12 @@ const deleteAccount = Effect.fnUntraced(function* (
           : settleAttempt(
               internal.productAccountDeletionData.abortDeletion,
             ).pipe(Effect.andThen(Effect.fail(error))),
+      ),
+      // An unexpected defect aborts the attempt and still surfaces, as before.
+      Effect.catchDefect((defect) =>
+        settleAttempt(internal.productAccountDeletionData.abortDeletion).pipe(
+          Effect.andThen(Effect.die(defect)),
+        ),
       ),
     );
     yield* call(async () =>

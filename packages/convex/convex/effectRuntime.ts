@@ -3,7 +3,10 @@ import * as ConfigProvider from 'effect/ConfigProvider';
 import * as Duration from 'effect/Duration';
 import * as Effect from 'effect/Effect';
 import * as Predicate from 'effect/Predicate';
+import * as References from 'effect/References';
 import * as Schema from 'effect/Schema';
+
+import { env } from './_generated/server.js';
 
 // A Promise-returning call outside Effect, such as a Convex function, rejected.
 // Handlers rethrow the original error, so Convex sees the same failure.
@@ -60,7 +63,7 @@ function allowListed(
 // Provider and runtime errors can carry tokens or account data in any field, so
 // logs keep only allow-listed codes and error names.
 export function failureDiagnostic(cause: unknown): string {
-  if (Predicate.hasProperty(cause, 'code')) {
+  if (Predicate.hasProperty(cause, 'code') && Predicate.isString(cause.code)) {
     return allowListed(errorCodes, cause.code, 'unrecognized code');
   }
   return Predicate.isError(cause)
@@ -101,6 +104,17 @@ const convexClock = Effect.clockWith((clock) =>
   }),
 );
 
+// Convex's default runtime exposes the environment as a get-only Proxy that cannot
+// be enumerated or copied, so each configuration key is read directly when loaded.
+const deploymentEnvironment = ConfigProvider.make((path) =>
+  Effect.sync(() => {
+    const value = env[path.join('_')];
+    return value === undefined || value === ''
+      ? undefined
+      : ConfigProvider.makeValue(value);
+  }),
+);
+
 // Runs one Convex handler's program and converts its typed failure to the error
 // the handler throws. Deployment environment variables are read per invocation.
 export async function runConvexProgram<A, E>(
@@ -115,8 +129,10 @@ export async function runConvexProgram<A, E>(
           Effect.provideService(Clock.Clock, clock),
           Effect.provideService(
             ConfigProvider.ConfigProvider,
-            ConfigProvider.fromEnv(),
+            deploymentEnvironment,
           ),
+          // Convex records console.error output at error level.
+          Effect.provideService(References.LogToStderr, true),
         ),
       ),
     ),
