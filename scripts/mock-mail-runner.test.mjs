@@ -205,6 +205,7 @@ test('build selection resolves only explicit test scenarios and production keeps
     ['registration-declined', 'normal'],
     ['registration-no-gmail', 'normal'],
     ['registration-interrupted', 'normal'],
+    ['registration-apple', 'normal'],
   ]) {
     const result = spawnSync(process.execPath, ['-e', script], {
       cwd: root,

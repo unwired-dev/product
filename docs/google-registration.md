@@ -12,8 +12,8 @@ Production builds open onboarding. Explicit `open-read-relaunch` and
 `mail-unavailable` builds retain the synthetic Inbox preview. A connected Gmail
 status confirms authorization only; mailbox synchronization belongs to the later
 Gmail slices. No synthetic message is presented as mail from the connected account.
-Apple's existing backend provider and prototype checks remain available; Apple
-registration in the replacement is a separate slice.
+[Apple registration](apple-registration.md) offers the other Product Sign-In and
+continues into this Gmail authorization flow.
 
 ## Native credentials and verification
 
@@ -102,7 +102,8 @@ issuer, audience and expiry checks run there too. These checks are deterministic
 native application integration evidence, not real OAuth evidence.
 
 External Mock Mail Sessions also accept `registration-cancelled`,
-`registration-declined`, `registration-no-gmail` and `registration-interrupted`.
+`registration-declined`, `registration-no-gmail`, `registration-interrupted` and
+the Apple-first [`registration-apple`](apple-registration.md#deterministic-evidence).
 Their native provider is compiled only with `UNWIRED_REGISTRATION_MOCK` in an
 explicitly selected build, accepts only its fixed scenario, and has no network or
 real credential inputs. Their JavaScript bundle stays production-equivalent; the

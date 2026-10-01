@@ -9,16 +9,26 @@ final class WindowTests: XCTestCase {
     let workTicks: Int
   }
 
-  private func registrationJourney(_ app: XCUIApplication, first: XCUIElement) {
-    XCTAssertTrue(first.buttons["Sign in with Google"].waitForExistence(timeout: 20))
-    first.buttons["Sign in with Google"].click()
+  private func registrationJourney(_ app: XCUIApplication, first: XCUIElement, apple: Bool) {
+    // Apple identifies the Product Account; Gmail access still needs its own Google grant.
+    let signIn = apple ? "Sign in with Apple" : "Sign in with Google"
+    XCTAssertTrue(first.buttons[signIn].waitForExistence(timeout: 20))
+    first.buttons[signIn].click()
     XCTAssertTrue(first.buttons["Authorize Gmail"].waitForExistence(timeout: 15))
     XCTAssertFalse(first.staticTexts["Gmail connected"].exists)
+    if apple {
+      XCTAssertTrue(
+        first.staticTexts.matching(
+          NSPredicate(
+            format: "label CONTAINS %@ OR value CONTAINS %@", "relay@privaterelay.example.invalid",
+            "relay@privaterelay.example.invalid")
+        ).firstMatch.exists)
+    }
     app.terminate()
     app.launch()
     let resumed = app.windows["Inbox 1"]
     XCTAssertTrue(resumed.buttons["Authorize Gmail"].waitForExistence(timeout: 15))
-    resumed.buttons["Choose another Google mailbox"].click()
+    resumed.buttons[apple ? "Authorize Gmail" : "Choose another Google mailbox"].click()
     XCTAssertTrue(resumed.staticTexts["Gmail connected"].waitForExistence(timeout: 15))
     app.terminate()
     app.launch()
@@ -54,7 +64,8 @@ final class WindowTests: XCTestCase {
     let first = app.windows["Inbox 1"]
     XCTAssertTrue(first.waitForExistence(timeout: 30))
     if environment["UNWIRED_TEST_SCENARIO"]?.hasPrefix("registration-") == true {
-      registrationJourney(app, first: first)
+      registrationJourney(
+        app, first: first, apple: environment["UNWIRED_TEST_SCENARIO"] == "registration-apple")
       return
     }
     let maya = first.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Maya Chen")).firstMatch

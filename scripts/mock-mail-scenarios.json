@@ -5,13 +5,15 @@
     "registration-cancelled",
     "registration-declined",
     "registration-no-gmail",
-    "registration-interrupted"
+    "registration-interrupted",
+    "registration-apple"
   ],
   "nativeJourney": [
     "open-read-relaunch",
     "registration-cancelled",
     "registration-declined",
     "registration-no-gmail",
-    "registration-interrupted"
+    "registration-interrupted",
+    "registration-apple"
   ]
 }

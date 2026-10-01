@@ -38,6 +38,8 @@ const config: ExpoConfig = {
   ios: {
     bundleIdentifier: 'dev.unwired.mail.preview',
     supportsTablet: true,
+    // Native Sign in with Apple; declared directly because no Expo module supplies it.
+    entitlements: { 'com.apple.developer.applesignin': ['Default'] },
     infoPlist: {
       ...(mockScenario ? { UnwiredMockScenario: mockScenario } : {}),
       GIDClientID: googleClientID,

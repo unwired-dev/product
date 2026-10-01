@@ -22,6 +22,7 @@ their scope below; publication of a plan does not prove implementation or releas
 - [Deterministic Mock Mail Sessions and external runners](mock-mail-sessions.md)
 - [Private preview Inbox storage and credentials](private-inbox-storage.md)
 - [Google registration, Gmail consent and protected OAuth qualification](google-registration.md)
+- [Apple registration continuing into Gmail authorization](apple-registration.md)
 
 ## Shared policies
 

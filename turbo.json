@@ -2,6 +2,7 @@
   "$schema": "https://turbo.build/schema.json",
   "globalEnv": [
     "APPLE_BUNDLE_ID",
+    "APPLE_PRODUCT_CLIENT_IDS",
     "APNS_KEY_ID",
     "APNS_PRIVATE_KEY",
     "APNS_TEAM_ID",

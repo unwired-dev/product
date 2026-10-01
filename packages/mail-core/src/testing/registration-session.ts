@@ -3,6 +3,7 @@ import * as Schema from 'effect/Schema';
 import type {
   NativeRegistration,
   RegistrationSnapshot,
+  SignInProvider,
 } from '../registration.ts';
 
 const Scenario = Schema.Literals([
@@ -18,12 +19,31 @@ export function createMockRegistrationSession(selection: unknown) {
   const scenario = Schema.decodeUnknownSync(Scenario)(selection);
   let snapshot: RegistrationSnapshot = { kind: 'signed-out' };
   let attempted = false;
+  // Each synthetic sign-in identity owns its own Product Account.
+  const accounts = {
+    google: { productAccountId: 'synthetic-product-account' },
+    apple: {
+      productAccountId: 'synthetic-apple-product-account',
+      contactEmail: 'relay@privaterelay.example.invalid',
+    },
+  } as const satisfies Record<SignInProvider, object>;
   const native: NativeRegistration = {
     restore: () => Promise.resolve(snapshot),
-    signIn: () => {
+    signIn: (provider) => {
+      if (
+        snapshot.kind !== 'signed-out' &&
+        snapshot.signInProvider !== provider
+      ) {
+        return Promise.reject(
+          Object.assign(new Error('Synthetic identity is not linked'), {
+            code: 'invalid-identity',
+          }),
+        );
+      }
       snapshot = {
         kind: 'mailbox-needed',
-        productAccountId: 'synthetic-product-account',
+        signInProvider: provider,
+        ...accounts[provider],
       };
       return Promise.resolve(snapshot);
     },
@@ -44,7 +64,8 @@ export function createMockRegistrationSession(selection: unknown) {
       }
       snapshot = {
         kind: 'connected',
-        productAccountId: 'synthetic-product-account',
+        signInProvider: snapshot.signInProvider,
+        ...accounts[snapshot.signInProvider],
         providerSubject: reselect
           ? 'synthetic-alternate-google-subject'
           : 'synthetic-google-subject',

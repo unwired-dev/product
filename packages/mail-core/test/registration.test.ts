@@ -1,23 +1,36 @@
 import { createRegistration } from '../src/registration.ts';
 import { createMockRegistrationSession } from '../src/testing/registration-session.ts';
 
-describe('google registration', () => {
-  it.each([
-    'registration-cancelled',
-    'registration-declined',
-    'registration-no-gmail',
-  ])(
-    'retains Product Sign-In after %s and resumes with a different Gmail identity',
-    async (scenario) => {
+const accounts = {
+  google: { productAccountId: 'synthetic-product-account' },
+  apple: {
+    productAccountId: 'synthetic-apple-product-account',
+    contactEmail: 'relay@privaterelay.example.invalid',
+  },
+} as const;
+
+describe('product registration', () => {
+  it.each(
+    (['google', 'apple'] as const).flatMap((provider) =>
+      [
+        'registration-cancelled',
+        'registration-declined',
+        'registration-no-gmail',
+      ].map((scenario) => [provider, scenario] as const),
+    ),
+  )(
+    'retains %s Product Sign-In after %s and resumes with a different Gmail identity',
+    async (provider, scenario) => {
       expect.hasAssertions();
       const session = createMockRegistrationSession(scenario);
       const first = createRegistration(session.native);
       await first.restore();
-      await first.register();
+      await first.register(provider);
       expect(first.getSnapshot()).toMatchObject({
         snapshot: {
           kind: 'mailbox-needed',
-          productAccountId: 'synthetic-product-account',
+          signInProvider: provider,
+          ...accounts[provider],
         },
         busy: false,
       });
@@ -29,7 +42,8 @@ describe('google registration', () => {
       await relaunched.authorizeGmail(true);
       expect(relaunched.getSnapshot().snapshot).toStrictEqual({
         kind: 'connected',
-        productAccountId: 'synthetic-product-account',
+        signInProvider: provider,
+        ...accounts[provider],
         providerSubject: 'synthetic-alternate-google-subject',
         address: 'other@example.invalid',
       });
@@ -40,9 +54,9 @@ describe('google registration', () => {
     expect.hasAssertions();
     const session = createMockRegistrationSession('registration-interrupted');
     const store = createRegistration(session.native);
-    await store.register();
+    await store.register('apple');
     expect(store.getSnapshot()).toMatchObject({
-      snapshot: { kind: 'mailbox-needed' },
+      snapshot: { kind: 'mailbox-needed', signInProvider: 'apple' },
       failed: true,
     });
     await store.restore();
@@ -53,24 +67,27 @@ describe('google registration', () => {
     });
   });
 
-  it('returns quietly to the previous status when Product Sign-In is cancelled', async () => {
-    expect.hasAssertions();
-    const session = createMockRegistrationSession('registration-success');
-    const store = createRegistration({
-      ...session.native,
-      signIn: () =>
-        Promise.reject(
-          Object.assign(new Error('Cancelled'), { code: 'cancelled' }),
-        ),
-    });
-    await store.restore();
-    await store.register();
-    expect(store.getSnapshot()).toStrictEqual({
-      snapshot: { kind: 'signed-out' },
-      busy: false,
-      failed: false,
-    });
-  });
+  it.each(['google', 'apple'] as const)(
+    'returns quietly to the previous status when %s Product Sign-In is cancelled',
+    async (provider) => {
+      expect.hasAssertions();
+      const session = createMockRegistrationSession('registration-success');
+      const store = createRegistration({
+        ...session.native,
+        signIn: () =>
+          Promise.reject(
+            Object.assign(new Error('Cancelled'), { code: 'cancelled' }),
+          ),
+      });
+      await store.restore();
+      await store.register(provider);
+      expect(store.getSnapshot()).toStrictEqual({
+        snapshot: { kind: 'signed-out' },
+        busy: false,
+        failed: false,
+      });
+    },
+  );
 
   it('verifies a connected account once per store and drops the connected status when verification fails', async () => {
     expect.hasAssertions();
@@ -84,7 +101,7 @@ describe('google registration', () => {
         return nativeRestore();
       },
     });
-    await store.register();
+    await store.register('google');
     expect(store.getSnapshot().snapshot.kind).toBe('connected');
     await store.restoreOnce();
     await store.restoreOnce();
@@ -96,6 +113,7 @@ describe('google registration', () => {
       snapshot: {
         kind: 'mailbox-needed',
         productAccountId: 'synthetic-product-account',
+        signInProvider: 'google',
       },
       busy: false,
       failed: true,
@@ -108,13 +126,13 @@ describe('google registration', () => {
     const gate = Promise.withResolvers<undefined>();
     const store = createRegistration({
       ...session.native,
-      signIn: async () => {
+      signIn: async (provider) => {
         await gate.promise;
-        return session.native.signIn();
+        return session.native.signIn(provider);
       },
       authorizeGmail: () => Promise.resolve({ kind: 'connected' }),
     });
-    const registration = store.register();
+    const registration = store.register('google');
     await store.authorizeGmail(true);
     expect(store.getSnapshot()).toStrictEqual({
       snapshot: { kind: 'signed-out' },

@@ -1,7 +1,13 @@
 import * as Schema from 'effect/Schema';
 
+const SignInProviderSchema = Schema.Literals(['google', 'apple']);
+export type SignInProvider = typeof SignInProviderSchema.Type;
+
 const Account = Schema.Struct({
   productAccountId: Schema.NonEmptyString,
+  signInProvider: SignInProviderSchema,
+  // Display and contact information only; it never links identities or selects a mailbox.
+  contactEmail: Schema.optionalKey(Schema.NonEmptyString),
 });
 export const RegistrationSnapshotSchema = Schema.Union([
   Schema.Struct({ kind: Schema.Literal('signed-out') }),
@@ -34,7 +40,7 @@ const isCancelled = Schema.is(
 
 export interface NativeRegistration {
   readonly restore: () => Promise<unknown>;
-  readonly signIn: () => Promise<unknown>;
+  readonly signIn: (provider: SignInProvider) => Promise<unknown>;
   readonly authorizeGmail: (reselect: boolean) => Promise<unknown>;
 }
 
@@ -47,7 +53,14 @@ type RegistrationState = Readonly<{
 // A connected status is only valid while its verification succeeds.
 const pending = (snapshot: RegistrationSnapshot): RegistrationSnapshot =>
   snapshot.kind === 'connected'
-    ? { kind: 'mailbox-needed', productAccountId: snapshot.productAccountId }
+    ? {
+        kind: 'mailbox-needed',
+        productAccountId: snapshot.productAccountId,
+        signInProvider: snapshot.signInProvider,
+        ...(snapshot.contactEmail === undefined
+          ? {}
+          : { contactEmail: snapshot.contactEmail }),
+      }
     : snapshot;
 
 export function createRegistration(native: NativeRegistration) {
@@ -114,10 +127,10 @@ export function createRegistration(native: NativeRegistration) {
       restored = true;
       return restore();
     },
-    register: () =>
+    register: (provider: SignInProvider) =>
       execute(async () => {
-        // Commit Product Sign-In before starting the separate consent session.
-        const snapshot = decode(await native.signIn());
+        // Commit Product Sign-In before starting the separate Gmail consent session.
+        const snapshot = decode(await native.signIn(provider));
         publish({ snapshot, busy: true, failed: false });
         return snapshot.kind === 'mailbox-needed'
           ? decode(await native.authorizeGmail(false))
@@ -130,6 +143,11 @@ export function createRegistration(native: NativeRegistration) {
 
 export type Registration = ReturnType<typeof createRegistration>;
 
+export const providerNames = {
+  google: 'Google',
+  apple: 'Apple',
+} as const satisfies Record<SignInProvider, string>;
+
 const mailboxReasons = {
   cancelled:
     'Gmail authorization was cancelled. Your Product Account is retained. Retry or choose another Google mailbox.',
@@ -139,9 +157,26 @@ const mailboxReasons = {
     'Gmail is unavailable for this authorization. Your Product Account is retained. Retry or choose another Google mailbox.',
   interrupted:
     'Gmail authorization was interrupted. Your Product Account is retained. Retry to finish setup.',
-  unavailable:
-    'Your saved Product Account could not be verified. It is retained on this device. Retry when you are online, or sign in again with Google.',
+  unavailable: (provider: SignInProvider) =>
+    `Your saved Product Account could not be verified. It is retained on this device. Retry when you are online, or sign in again with ${providerNames[provider]}.`,
 } as const;
+
+const mailboxNeeded = {
+  google:
+    'Your Product Account is ready. Grant Gmail access to finish setup. You can use another Google account for your mailbox.',
+  // Sign in with Apple identifies the Product Account only; it never grants mailbox access.
+  apple:
+    'Your Product Account is ready. Signing in with Apple does not give access to mail. Authorize a Google account with Gmail to finish setup.',
+} as const satisfies Record<SignInProvider, string>;
+
+function accountLine(
+  snapshot: Readonly<{ signInProvider: SignInProvider; contactEmail?: string }>,
+) {
+  const signedIn = `Signed in with ${providerNames[snapshot.signInProvider]}`;
+  return snapshot.contactEmail === undefined
+    ? `${signedIn}.`
+    : `${signedIn}. Contact email: ${snapshot.contactEmail}.`;
+}
 
 export function registrationCopy(snapshot: RegistrationSnapshot) {
   switch (snapshot.kind) {
@@ -149,21 +184,29 @@ export function registrationCopy(snapshot: RegistrationSnapshot) {
       return {
         title: 'Welcome to Unwired Mail',
         description:
-          'Create your Product Account with Google, then choose whether to grant Gmail access.',
+          'Create your Product Account with Apple or Google, then choose whether to grant Gmail access.',
+        account: undefined,
       };
     }
     case 'mailbox-needed': {
+      const { reason, signInProvider } = snapshot;
+      let description: string = mailboxNeeded[signInProvider];
+      if (reason === 'unavailable') {
+        description = mailboxReasons.unavailable(signInProvider);
+      } else if (reason !== undefined) {
+        description = mailboxReasons[reason];
+      }
       return {
         title: 'Connect your Gmail',
-        description: snapshot.reason
-          ? mailboxReasons[snapshot.reason]
-          : 'Your Product Account is ready. Grant Gmail access to finish setup. You can use another Google account for your mailbox.',
+        description,
+        account: accountLine(snapshot),
       };
     }
     case 'connected': {
       return {
         title: 'Gmail connected',
         description: `${snapshot.address} is connected on this device.`,
+        account: accountLine(snapshot),
       };
     }
     default: {

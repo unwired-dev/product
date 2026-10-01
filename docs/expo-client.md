@@ -3,12 +3,13 @@
 `apps/mobile` implements [#592](https://github.com/unwired-dev/product/issues/592):
 a deterministic Inbox and message detail for iPhone and iPad. It uses synthetic
 messages with [native encrypted read-state persistence](private-inbox-storage.md);
-production builds now use [Google Product Sign-In and Gmail consent](google-registration.md).
+production builds now offer [Apple](apple-registration.md) and [Google](google-registration.md)
+Product Sign-In, each followed by Gmail consent.
 Mailbox synchronization and sending are later slices. The existing Convex backend
 and Swift prototype remain available. The [native Mac host](macos-client.md) consumes the same mock mailbox.
 
-Production launches now use [Google registration and separate Gmail consent](google-registration.md).
-Configure the native client ID and Convex deployment when generating the host.
+Production launches offer [Apple](apple-registration.md) or [Google](google-registration.md)
+registration with separate Gmail consent. Configure the native client ID and Convex deployment when generating the host.
 Select an explicit Mock Mail Session to run the synthetic Inbox journeys.
 
 ## Stack and boundaries
