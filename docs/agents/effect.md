@@ -27,16 +27,17 @@ boundary's existing error, with the decode error as its cause.
 ## Errors
 
 Define failures with `Schema.TaggedError`. A failure that wraps a foreign error
-carries it as `cause: Schema.Defect()`, so logs keep the original error and
-stack. Recover with `Effect.catchTag` or `Effect.catchTags`. Expected states, such
+carries it as `cause: Schema.Defect()`, so recovery can inspect the original
+error. Recover with `Effect.catchTag` or `Effect.catchTags`. Expected states, such
 as locked storage or a cancelled sign-in, are their own tagged errors and recover
-quietly. Unexpected failures are logged with `Effect.logError(message, cause)`
+quietly. Unexpected failures are logged with `Effect.logError(message, diagnostic)`
 before recovery.
 
-Logs carry no mail content, tokens, or account identifiers. Log native bridge
-rejections (a code and a fixed message) and, for decode failures, the
-`SchemaError` message (the failing path and expectation, without the value); keep
-decoded input and provider response bodies out of log calls.
+Logs carry no mail content, tokens, or account identifiers. Error messages from
+hosts and providers can contain them, so a failure keeps its cause for handling
+and logs an allow-listed diagnostic instead: the error `code` or `name`, or for
+decode failures the `SchemaError` message (the failing path and expectation,
+without the value). See `packages/mail-core/src/diagnostics.ts`.
 
 ## Functions and services
 

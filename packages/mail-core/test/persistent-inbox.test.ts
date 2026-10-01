@@ -62,7 +62,7 @@ describe('mock Mail Session persistence boundary', () => {
     });
   });
 
-  it('rejects malformed native data without falling back to an in-memory Inbox or logging mail', async () => {
+  it('fails closed on malformed data and failing providers without logging mail or account data', async () => {
     expect.hasAssertions();
     const logged: unknown[] = [];
     for (const method of ['log', 'info', 'warn', 'error'] as const) {
@@ -84,7 +84,35 @@ describe('mock Mail Session persistence boundary', () => {
     });
     await inbox.load();
     expect(inbox.getSnapshot()).toStrictEqual({ kind: 'failed' });
-    expect(logged).not.toHaveLength(0);
-    expect(inspect(logged, { depth: 10 })).not.toMatch(/sealed-/u);
+    // Seed providers and native hosts may reject with account data in the message.
+    const seeded = createPersistentInbox(
+      {
+        open: () =>
+          Promise.reject(
+            Object.assign(new Error('sealed-store alex@example.com'), {
+              code: 'unavailable',
+            }),
+          ),
+        setUnread: () => Promise.reject(new Error('unavailable')),
+      },
+      () => Promise.reject(new Error('sealed-seed alex@example.com')),
+    );
+    await seeded.load();
+    expect(seeded.getSnapshot()).toStrictEqual({ kind: 'failed' });
+    const unavailable = createPersistentInbox({
+      open: () =>
+        Promise.reject(
+          Object.assign(new Error('sealed-store alex@example.com'), {
+            code: 'unavailable',
+          }),
+        ),
+      setUnread: () => Promise.reject(new Error('unavailable')),
+    });
+    await unavailable.load();
+    expect(unavailable.getSnapshot()).toStrictEqual({ kind: 'failed' });
+    expect(
+      logged.filter((value) => value === 'Private Inbox storage failed:'),
+    ).toHaveLength(3);
+    expect(inspect(logged, { depth: 10 })).not.toMatch(/sealed-|alex@/u);
   });
 });

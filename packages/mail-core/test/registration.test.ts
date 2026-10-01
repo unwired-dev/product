@@ -185,14 +185,22 @@ describe('product registration', () => {
     ['stale-authentication', 'stale-authentication'],
     ['unavailable', 'failed'],
   ] as const)(
-    'reports a %s link rejection without changing the Product Account',
+    'reports a %s link rejection without changing the Product Account or logging its message',
     async (code, linkFailure) => {
       expect.hasAssertions();
+      const logged: unknown[] = [];
+      vi.spyOn(console, 'log').mockImplementation((...values) => {
+        logged.push(...values);
+      });
       const session = createMockRegistrationSession('registration-success');
       const store = createRegistration({
         ...session.native,
         link: () =>
-          Promise.reject(Object.assign(new Error('Link rejected'), { code })),
+          Promise.reject(
+            Object.assign(new Error('Link rejected for sealed@example.com'), {
+              code,
+            }),
+          ),
       });
       await store.register('google');
       const before = store.getSnapshot().snapshot;
@@ -203,6 +211,8 @@ describe('product registration', () => {
         failed: false,
         linkFailure,
       });
+      expect(logged).toContain(`code ${code}`);
+      expect(String(logged)).not.toMatch(/sealed@/u);
       // The failure clears once another operation finishes.
       await store.restore();
       expect(store.getSnapshot()).not.toHaveProperty('linkFailure');
