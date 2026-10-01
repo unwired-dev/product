@@ -214,7 +214,8 @@ struct SavedRegistration: Codable {
     // Explicit linking is required before another provider can reach a committed Product Account.
     // The backend decides: the cached provider list may predate a link made on another device.
     if let current = saved, current.product != nil, current.provider != signInProvider {
-      return try pending(await switchSignIn(current, to: signInProvider))
+      // Switching sign-ins keeps the mailbox; recheck it rather than restarting Gmail consent.
+      return try await mailboxStatus(switchSignIn(current, to: signInProvider))
     }
     let identity = try await productIdentity(
       signInProvider, hint: saved?.provider == .google ? saved?.subject : nil)
@@ -310,6 +311,12 @@ struct SavedRegistration: Codable {
       if saved.product != nil { return try failure((try? load()) ?? saved, reason: "unavailable") }
       throw error
     }
+    return try await mailboxStatus(next)
+  }
+
+  // Reports a retained mailbox as connected only after its Gmail access verifies again.
+  func mailboxStatus(_ saved: SavedRegistration) async throws -> [String: String] {
+    var next = saved
     guard let credential = next.mailboxCredential, let mailbox = next.mailbox else {
       return try pending(next)
     }

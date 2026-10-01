@@ -40,7 +40,7 @@ Keychain/UI and physical devices remain deferred. The
 has not run either. No installed Mac profile covers the disposable
 `dev.unwired.mock.*` IDs. Local evidence is in
 `artifacts/expo-bootstrap/native-Ak0yAc` and
-`artifacts/private-inbox/integration.NLoQH7`.
+`artifacts/private-inbox/integration.dmkGTV`.
 
 ## Apple registration evidence, 2026-09-30
 

@@ -205,4 +205,55 @@ describe('product registration', () => {
     ).resolves.toBeVisible();
     expect(store.getSnapshot().snapshot).toStrictEqual(before);
   });
+
+  it('recovers an unverifiable Apple account through a Google link made on another device without new Gmail consent', async () => {
+    expect.hasAssertions();
+    const account = {
+      productAccountId: 'synthetic-apple-product-account',
+      signInProvider: 'apple',
+    } as const;
+    const store = createRegistration({
+      // This device's saved receipt predates the link.
+      restore: () =>
+        Promise.resolve({
+          kind: 'mailbox-needed',
+          ...account,
+          reason: 'unavailable',
+        }),
+      signIn: (provider) =>
+        Promise.resolve({
+          kind: 'connected',
+          ...account,
+          signInProvider: provider,
+          alternateSignIn: 'apple',
+          providerSubject: 'synthetic-google-subject',
+          address: 'alex@example.invalid',
+        }),
+      authorizeGmail: () =>
+        Promise.reject(new Error('Gmail consent must not restart')),
+      link: () => Promise.reject(new Error('Not linking')),
+    });
+    await render(
+      <RegistrationGate
+        store={store}
+        preview={false}>
+        {null}
+      </RegistrationGate>,
+    );
+    await act(async () => {
+      await fireEvent.press(
+        await screen.findByRole('button', {
+          name: 'Sign in with Google instead',
+        }),
+      );
+    });
+    await expect(
+      screen.findByRole('header', { name: 'Gmail connected' }),
+    ).resolves.toBeVisible();
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(store.getSnapshot().snapshot).toMatchObject({
+      ...account,
+      signInProvider: 'google',
+    });
+  });
 });

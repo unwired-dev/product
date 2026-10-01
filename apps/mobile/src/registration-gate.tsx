@@ -114,8 +114,11 @@ export function RegistrationGate({
     (failed ||
       snapshot.reason === 'interrupted' ||
       snapshot.reason === 'unavailable');
+  // Offered even when this device has not seen the link; Convex decides.
   const alternate =
-    snapshot.kind === 'signed-out' ? undefined : snapshot.alternateSignIn;
+    snapshot.kind === 'signed-out'
+      ? undefined
+      : otherSignInProvider(snapshot.signInProvider);
   const button = (label: string, action: () => Promise<void>) => (
     <Pressable
       accessibilityRole="button"

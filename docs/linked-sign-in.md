@@ -20,7 +20,9 @@ Account through the ordinary **Sign in with Apple** or **Sign in with Google**
 entry point. The account lists the other provider. On a device whose saved sign-in
 cannot be verified, the host also offers **Sign in with Google instead** or
 **Sign in with Apple instead**. One case is an Apple ID revoked in settings. The
-device keeps its installation ID, Trusted Device and mailbox records. The device
+device keeps its installation ID, Trusted Device and mailbox records. A connected
+mailbox is rechecked with Gmail rather than sent through consent again. The host
+offers the other provider even before this device has seen the link. The device
 asks Convex rather than trusting its cached list, which may predate a link made
 elsewhere. Convex rejects a provider identity that is not linked to the device's
 Product Account. It creates no new account, and the device record is unchanged.

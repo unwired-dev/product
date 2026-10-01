@@ -431,10 +431,15 @@ extension PrivateInboxTests {
     // When Apple is revoked here, the Linked Sign-In recovers this device's account.
     apple.state = .revoked
     #expect(try await store(keys).restore()["reason"] == "unavailable")
+    // The connected mailbox is rechecked, not reauthorized, after switching sign-ins.
+    google.hints = []
     let recovered = try await store(keys).signIn(with: .google)
-    #expect(recovered["productAccountId"] == "account-synthetic-apple-subject")
-    #expect(recovered["signInProvider"] == "google")
-    #expect(try store(keys).load()?.mailbox?.subject == "synthetic-mailbox-subject")
+    #expect(
+      recovered
+        == connected.merging([
+          "signInProvider": "google", "alternateSignIn": "apple",
+        ]) { $1 })
+    #expect(google.hints == [nil])
   }
 
   @Test @MainActor func linkingRejectsOwnedIdentitiesStaleSessionsAndUnlinkedSwitches()
