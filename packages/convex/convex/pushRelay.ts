@@ -429,13 +429,14 @@ async function productAccountDeletionIsFenced(
   ) {
     return true;
   }
+  // A deleted account has one tombstone per original or linked sign-in.
   return (
     (await ctx.db
       .query('productAccountDeletionTombstones')
       .withIndex('by_productAccountId', (q) =>
         q.eq('productAccountId', productAccountId),
       )
-      .unique()) !== null
+      .first()) !== null
   );
 }
 

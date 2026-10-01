@@ -212,10 +212,8 @@ struct SavedRegistration: Codable {
   func signIn(with signInProvider: SignInProvider = .google) async throws -> [String: String] {
     var saved = try load()
     // Explicit linking is required before another provider can reach a committed Product Account.
-    if let current = saved, let product = current.product, current.provider != signInProvider {
-      guard product.signInProviders?.contains(signInProvider) == true else {
-        throw RegistrationError.invalidIdentity
-      }
+    // The backend decides: the cached provider list may predate a link made on another device.
+    if let current = saved, current.product != nil, current.provider != signInProvider {
       return try pending(await switchSignIn(current, to: signInProvider))
     }
     let identity = try await productIdentity(

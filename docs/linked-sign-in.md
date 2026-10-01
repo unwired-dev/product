@@ -20,9 +20,10 @@ Account through the ordinary **Sign in with Apple** or **Sign in with Google**
 entry point. The account lists the other provider. On a device whose saved sign-in
 cannot be verified, the host also offers **Sign in with Google instead** or
 **Sign in with Apple instead**. One case is an Apple ID revoked in settings. The
-device keeps its installation ID, Trusted Device and mailbox records. A provider
-that is not linked is still rejected on a device with a committed Product Account.
-Neither the native adapter nor Convex creates a new account in that case.
+device keeps its installation ID, Trusted Device and mailbox records. The device
+asks Convex rather than trusting its cached list, which may predate a link made
+elsewhere. Convex rejects a provider identity that is not linked to the device's
+Product Account. It creates no new account, and the device record is unchanged.
 
 ## Identity boundaries
 
@@ -51,9 +52,11 @@ the link session is an explicit choice and still requires its own verification.
 
 ## Interruption and concurrency
 
-Nothing changes on the device or in Convex until completion commits. Cancelling
-either session, a stale token, an expired ticket or a network failure leaves the
-Product Account and its sign-ins unchanged. The host shows a link-specific
+The Product Account, its linked identities and the device record stay unchanged
+until completion commits. Before then Convex stores only the pending ticket,
+which a newer request may supersede. Cancelling either session, a stale token, an
+expired ticket or a network failure leaves the Product Account and its sign-ins
+unchanged. The host shows a link-specific
 message. Retrying starts a new request. If completion committed but the response
 was lost, retrying the consumed ticket returns the committed link. A later
 request also reports the provider as already linked.

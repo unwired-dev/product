@@ -276,6 +276,15 @@ describe('linked sign-ins', () => {
     ).rejects.toMatchObject({
       data: { code: 'SIGN_IN_RECENT_AUTHENTICATION_REQUIRED' },
     });
+    // A malformed ticket names no request and links nothing.
+    await expect(
+      t
+        .withIdentity(apple('apple-malformed'))
+        .mutation(api.signInLinks.complete, {
+          ...owner.proof,
+          linkTicket: 'not-a-ticket',
+        }),
+    ).rejects.toMatchObject({ data: { code: 'SIGN_IN_LINK_EXPIRED' } });
     // A ticket is bound to its provider and to the device that requested it.
     await expect(
       t

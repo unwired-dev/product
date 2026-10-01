@@ -3888,6 +3888,12 @@ describe('gmail push relay', () => {
         productAccountId: device.productAccountId,
         tokenIdentifier: appleIdentity.tokenIdentifier,
       });
+      // Deleting an account also tombstones each Linked Sign-In.
+      await ctx.db.insert('productAccountDeletionTombstones', {
+        deletedAt: Date.now(),
+        productAccountId: device.productAccountId,
+        tokenIdentifier: 'https://accounts.google.com|graph-tombstoned-linked',
+      });
     });
 
     await expect(
