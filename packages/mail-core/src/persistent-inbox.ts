@@ -2,7 +2,7 @@ import * as Effect from 'effect/Effect';
 import * as Schema from 'effect/Schema';
 import * as Semaphore from 'effect/Semaphore';
 
-import { rejectionDiagnostic } from './diagnostics.ts';
+import { decodeDiagnostic, rejectionDiagnostic } from './diagnostics.ts';
 import { fixtureMessages, MessageSchema } from './index.ts';
 
 const Snapshot = Schema.Struct({
@@ -38,7 +38,6 @@ export type InboxState =
     };
 
 // A locked store is expected while the device is locked; any other failure is logged.
-// Decode failures log the SchemaError message, which names the failing path without its value.
 const synchronize = Effect.fnUntraced(
   function* (operation: () => Promise<unknown>) {
     const value = yield* Effect.tryPromise({
@@ -56,7 +55,7 @@ const synchronize = Effect.fnUntraced(
           new StorageFailure({
             kind: 'failed',
             cause: error,
-            diagnostic: error.message,
+            diagnostic: decodeDiagnostic(error),
           }),
       ),
     );
