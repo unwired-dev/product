@@ -105,8 +105,9 @@ mailbox descriptors back. Native Sign in with Apple cannot renew its identity
 token silently. An Apple device therefore uses the token from the current
 interactive sign-in for Product Sync, and keeps its local state after relaunch.
 Backend reads and writes resume after the next interactive sign-in. The vault
-records which mailbox descriptors this device read back, so a mailbox connected
-without a session is reported as unsaved until then.
+keeps the mailbox list it last decrypted, so the list stays visible, and records
+which descriptors this device read back. A mailbox connected without a session is
+therefore reported as unsaved until then.
 
 Convex reads and writes require the Trusted Device Credential and remain fenced to
 its Product Account, as before. A Product Sync failure is logged without details

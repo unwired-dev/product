@@ -16,7 +16,7 @@ deferral still applies to unavailable release checks. Mac host evidence follows.
 on both hosts.
 
 - All 20 affected workspace lint, format, type and test tasks passed, including
-  220 Convex tests. Fallow audit passed on the changed files. Convex covers single
+  221 Convex tests. Fallow audit passed on the changed files. Convex covers single
   initialization, idempotent retry, refusal for already initialized accounts, and
   epoch and device-proof enforcement. Shared and rendered host tests cover Recovery
   Key confirmation, mismatch, remount and the enrollment-needed state.
@@ -25,7 +25,8 @@ on both hosts.
   identifier, schema and epoch rejection. They also cover recovery and enrollment
   envelope binding, one-time initialization, the encrypted descriptor round trip
   and relaunch without new keys. Interrupted publication and the losing device's
-  enrollment state are covered too, as are a receipt without Product Sync state and an Apple relaunch that saves a
+  enrollment state are covered too, as are a receipt without Product Sync state and
+  an Apple relaunch. That relaunch shows the last decrypted mailbox list and saves a
   new mailbox only after signing in again. Convex and the providers are controlled
   boundaries here.
 - The `registration-declined` and `registration-link` packaged journeys passed on
@@ -44,7 +45,7 @@ The [protected qualification path](../private-product-sync.md#protected-real-qua
 has not run. No installed Mac profile covers the disposable `dev.unwired.mock.*`
 IDs. Uncommitted local evidence stays on the development host in the git-ignored
 `artifacts/expo-bootstrap/native-VdNwBS`, `artifacts/expo-bootstrap/native-5QUCAH` and
-`artifacts/private-inbox/integration.bTFzKO` directories.
+`artifacts/private-inbox/integration.nBHQeR` directories.
 
 ## Linked sign-in evidence, 2026-10-01
 

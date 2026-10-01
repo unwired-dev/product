@@ -388,6 +388,8 @@ extension PrivateInboxTests {
     _ = try await first.signIn(with: .apple)
     google.subject = "synthetic-mailbox-subject"
     #expect(try await first.authorizeGmail(reselect: false)["privateSyncPending"] == nil)
+    // An Apple relaunch cannot reach Convex but still shows the list it last decrypted.
+    #expect(try await store().restore()["privateSyncMailboxes"] == "same@example.invalid")
     // After relaunch Apple has no backend session, so a newly chosen mailbox waits for sign-in.
     google.subject = "synthetic-other-mailbox"
     google.address = "other@example.invalid"

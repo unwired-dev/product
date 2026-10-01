@@ -116,8 +116,6 @@ struct SavedRegistration: Codable {
   let productSync: ProductSyncBackend?
   // The latest verified Product Sign-In in this process; Apple tokens cannot be renewed silently.
   var session: ProductSignInIdentity?
-  // Mailbox descriptors last read back and decrypted from Product Sync, by Product Account.
-  var syncedMailboxes: [String: [String]] = [:]
 
   init(
     keys: DeviceKeychain, deployment: String, clientID: String,

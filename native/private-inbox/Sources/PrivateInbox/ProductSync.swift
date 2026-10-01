@@ -34,6 +34,8 @@ struct ProductSyncVault: Codable {
   var recoveryKeyConfirmed = false
   // Mailbox descriptors this device read back from Product Sync, by record identifier.
   var savedMailboxes: [String: String]? = nil
+  // Every mailbox address last read back and decrypted, shown when no session is available.
+  var readMailboxes: [String]? = nil
 }
 
 // The synchronized description of an authorized mailbox; credentials never enter it.
@@ -95,14 +97,17 @@ extension RegistrationStore {
       }
       let mailboxes = try await synchronizeMailboxes(
         saved, vault: current, backend: backend, session: session)
-      syncedMailboxes[account] = mailboxes.addresses
-      if let (identifier, address) = mailboxes.confirmed,
-        current.savedMailboxes?[identifier] != address
-      {
-        current.savedMailboxes = (current.savedMailboxes ?? [:]).merging([identifier: address]) {
+      var next = current
+      next.readMailboxes = mailboxes.addresses
+      if let (identifier, address) = mailboxes.confirmed {
+        next.savedMailboxes = (current.savedMailboxes ?? [:]).merging([identifier: address]) {
           $1
         }
-        try saveVault(current)
+      }
+      if next.readMailboxes != current.readMailboxes
+        || next.savedMailboxes != current.savedMailboxes
+      {
+        try saveVault(next)
       }
     } catch {
       // Product Sync stays pending; registration and the mailbox remain usable.
@@ -156,9 +161,6 @@ extension RegistrationStore {
   func privateSync(_ saved: SavedRegistration) throws -> [String: String] {
     guard productSync != nil, let product = saved.product else { return [:] }
     var result: [String: String] = [:]
-    if let mailboxes = syncedMailboxes[product.productAccountId], !mailboxes.isEmpty {
-      result["privateSyncMailboxes"] = mailboxes.joined(separator: "\n")
-    }
     guard let vault = try loadVault(product.productAccountId) else {
       // Missing local keys for an account with key material never create replacements. An
       // unknown state, such as a receipt saved before Product Sync, waits for verification.
@@ -173,6 +175,9 @@ extension RegistrationStore {
       result["recoveryKey"] = try RecoveryKey(bytes: vault.recoveryKey).display
     } else {
       result["privateSync"] = "ready"
+    }
+    if let mailboxes = vault.readMailboxes, !mailboxes.isEmpty {
+      result["privateSyncMailboxes"] = mailboxes.joined(separator: "\n")
     }
     // A verified mailbox not yet read back needs a backend session, such as after an Apple relaunch.
     if let mailbox = saved.mailbox, saved.mailboxSetupReason == nil, vault.published,
