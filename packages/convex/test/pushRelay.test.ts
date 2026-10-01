@@ -392,7 +392,6 @@ describe('gmail push relay', () => {
         )
         .unique();
       expect(connection).not.toBeNull();
-      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
       await ctx.db.patch('mailProviderConnections', connection!._id, {
         pushOwnershipVerifiedAt: Date.now(),
         pushVerifiedAt: Date.now(),
@@ -404,7 +403,6 @@ describe('gmail push relay', () => {
         opaqueConnectionId: opaqueConnectionId('gmail-user-001'),
         trustedDeviceId: firstDevice.trustedDeviceId,
       }),
-      // oxlint-disable-next-line vitest/prefer-to-be-falsy -- The strict boolean matcher is required by vitest/prefer-strict-boolean-matchers.
     ).resolves.toBe(false);
     await asUser.mutation(api.pushRelay.unregisterDevice, {
       trustedDeviceId: secondDevice.trustedDeviceId,
@@ -495,7 +493,6 @@ describe('gmail push relay', () => {
         ),
         trustedDeviceId: firstDevice.trustedDeviceId,
       }),
-      // oxlint-disable-next-line vitest/prefer-to-be-falsy -- The strict boolean matcher is required by vitest/prefer-strict-boolean-matchers.
     ).resolves.toBe(false);
   });
 
@@ -538,7 +535,6 @@ describe('gmail push relay', () => {
           )
           .unique();
         const now = Date.now();
-        // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
         await ctx.db.patch('mailProviderConnections', connection!._id, {
           pushOwnershipVerifiedAt: now,
           pushVerifiedAt: now,
@@ -563,14 +559,12 @@ describe('gmail push relay', () => {
           opaqueConnectionId: opaqueConnectionId('gmail-user-001'),
           trustedDeviceId: firstDevice.trustedDeviceId,
         }),
-        // oxlint-disable-next-line vitest/prefer-to-be-falsy -- The strict boolean matcher is required by vitest/prefer-strict-boolean-matchers.
       ).resolves.toBe(false);
       await expect(
         asUser.query(api.pushRelay.shouldStopGmailWatch, {
           opaqueConnectionId: opaqueConnectionId('gmail-user-001'),
           trustedDeviceId: secondDevice.trustedDeviceId,
         }),
-        // oxlint-disable-next-line vitest/prefer-to-be-falsy -- The strict boolean matcher is required by vitest/prefer-strict-boolean-matchers.
       ).resolves.toBe(false);
     } finally {
       vi.stubEnv('GMAIL_ROUTING_KEY', 'gmail-routing-test-key');
@@ -631,7 +625,6 @@ describe('gmail push relay', () => {
         opaqueConnectionId: opaqueConnectionId('gmail-user-001'),
         trustedDeviceId: connection.trustedDeviceId,
       }),
-      // oxlint-disable-next-line vitest/prefer-to-be-falsy -- The strict boolean matcher is required by vitest/prefer-strict-boolean-matchers.
     ).resolves.toBe(false);
   });
 
@@ -712,7 +705,6 @@ describe('gmail push relay', () => {
         )
         .unique();
       expect(connection).not.toBeNull();
-      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
       await ctx.db.patch('mailProviderConnections', connection!._id, {
         pushOwnershipVerifiedAt: proofUpdatedAt,
         pushVerifiedAt: proofUpdatedAt,
@@ -800,7 +792,6 @@ describe('gmail push relay', () => {
         )
         .unique();
       expect(connection).not.toBeNull();
-      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
       await ctx.db.patch('mailProviderConnections', connection!._id, {
         pushOwnershipVerifiedAt: Date.now(),
         pushVerifiedAt: Date.now(),
@@ -812,7 +803,6 @@ describe('gmail push relay', () => {
         opaqueConnectionId: opaqueConnectionId('gmail-user-001'),
         trustedDeviceId: firstDevice.trustedDeviceId,
       }),
-      // oxlint-disable-next-line vitest/prefer-to-be-falsy -- The strict boolean matcher is required by vitest/prefer-strict-boolean-matchers.
     ).resolves.toBe(false);
   });
 
@@ -985,19 +975,16 @@ describe('gmail push relay', () => {
           q.eq('trustedDeviceId', refreshedDevice.trustedDeviceId),
         )
         .unique();
-      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
       await ctx.db.patch('devicePushRouteHeartbeats', staleHeartbeat!._id, {
         refreshedAt: staleBefore - 1,
       });
       await ctx.db.delete(
         'devicePushRouteHeartbeats',
-        // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
         legacyStaleHeartbeat!._id,
       );
       await ctx.db.patch('trustedDevices', legacyStaleDevice.trustedDeviceId, {
         lastSeenAt: staleBefore - 1,
       });
-      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
       await ctx.db.patch('devicePushRouteHeartbeats', refreshedHeartbeat!._id, {
         refreshedAt: staleBefore + 1,
       });
@@ -1009,7 +996,6 @@ describe('gmail push relay', () => {
         .take(3);
       await Promise.all(
         connections.map((connection) =>
-          // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
           ctx.db.patch('mailProviderConnections', connection._id, {
             pushOwnershipVerifiedAt: staleBefore,
             pushVerifiedAt: staleBefore,
@@ -1689,7 +1675,6 @@ describe('gmail push relay', () => {
           .take(12);
         await Promise.all(
           connections.slice(-1).map((connection) =>
-            // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
             ctx.db.patch('mailProviderConnections', connection._id, {
               pushVerificationHistoryId: '101',
               pushVerificationOwnershipVerifiedAt: refreshedVerifiedAt,
@@ -1881,7 +1866,6 @@ describe('gmail push relay', () => {
           )
           .take(12),
       );
-      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
       expect(routes.map((route) => route._id)).toStrictEqual([
         secondDevice.trustedDeviceId,
       ]);
@@ -1933,10 +1917,8 @@ describe('gmail push relay', () => {
         );
         await ctx.db.delete(
           'devicePushRouteHeartbeats',
-          // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
           freshLegacyHeartbeat!._id,
         );
-        // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
         await ctx.db.patch('devicePushRouteHeartbeats', staleHeartbeat!._id, {
           refreshedAt: staleBefore - 1,
         });
@@ -1995,7 +1977,6 @@ describe('gmail push relay', () => {
         )
         .unique();
       const now = Date.now();
-      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
       await ctx.db.patch('mailProviderConnections', connection!._id, {
         pushOwnershipVerifiedAt: now,
         pushVerifiedAt: now,
@@ -2324,7 +2305,6 @@ describe('gmail push relay', () => {
         )
         .unique();
       expect(connection).not.toBeNull();
-      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
       await ctx.db.patch('mailProviderConnections', connection!._id, {
         pushVerificationHistoryId: '100',
         pushVerificationOwnershipVerifiedAt: Date.now(),
@@ -2473,7 +2453,6 @@ describe('gmail push relay', () => {
             gmailPushProofsInvalidatedAt: Date.now(),
           },
         );
-        // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
         await ctx.db.patch('mailProviderConnections', connection!._id, {
           pushVerificationHistoryId: '100',
           pushVerificationOwnershipVerifiedAt: Date.now() - 1,
@@ -3644,7 +3623,6 @@ describe('gmail push relay', () => {
       await t.run(async (ctx) => {
         await ctx.db.patch(
           'microsoftGraphWakeupStates',
-          // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
           retainedWakeups[0]!._id,
           { attemptCount: 4 },
         );

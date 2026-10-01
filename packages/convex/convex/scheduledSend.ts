@@ -115,8 +115,7 @@ async function authorizationDigest(authorization: string): Promise<string> {
 
 // fallow-ignore-next-line complexity -- This boundary validates every credential and capability invariant before returning a narrowed device.
 async function requireScheduledDeliveryAuthorization(
-  ctx: QueryCtx | MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Convex generated IDs are mutable types.
+  ctx: QueryCtx | MutationCtx,
   args: Readonly<{
     scheduledDeliveryAuthorization: string;
     trustedDeviceId: Id<'trustedDevices'>;
@@ -145,9 +144,7 @@ async function requireScheduledDeliveryAuthorization(
   };
 }
 
-function admissionResponse(
-  schedule: Readonly<Doc<'scheduledSends'>>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents contain generated mutable fields but are not mutated here.
-) {
+function admissionResponse(schedule: Readonly<Doc<'scheduledSends'>>) {
   return {
     dueAt: schedule.dueAt,
     encryptedPayloadUpdatedAt: schedule.encryptedPayloadUpdatedAt,
@@ -170,11 +167,7 @@ interface ImmediateAdmissionArguments extends AdmissionArguments {
   readonly requestedAt: number;
 }
 
-function assertValidAdmission(
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- AdmissionArguments fields are explicitly readonly but the generated trusted-device ID is not inferred as readonly.
-  args: Readonly<AdmissionArguments>,
-  now: number,
-) {
+function assertValidAdmission(args: Readonly<AdmissionArguments>, now: number) {
   const isValid = [
     args.dueAt >= now + minuteMilliseconds,
     args.dueAt <= now + yearMilliseconds,
@@ -188,7 +181,6 @@ function assertValidAdmission(
 }
 
 function assertValidImmediateAdmission(
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- AdmissionArguments fields are explicitly readonly but the generated trusted-device ID is not inferred as readonly.
   args: Readonly<ImmediateAdmissionArguments>,
   now: number,
 ) {
@@ -206,8 +198,7 @@ function assertValidImmediateAdmission(
 }
 
 function admissionConflicts(
-  existing: Readonly<Doc<'scheduledSends'>>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents contain generated mutable fields but are not mutated here.
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- AdmissionArguments fields are explicitly readonly but the generated trusted-device ID is not inferred as readonly.
+  existing: Readonly<Doc<'scheduledSends'>>,
   args: Readonly<AdmissionArguments>,
 ) {
   return [
@@ -221,7 +212,7 @@ function admissionConflicts(
 }
 
 function isCurrentActiveSchedule(
-  schedule: Readonly<Doc<'scheduledSends'>> | null, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents contain generated mutable fields but are not mutated here.
+  schedule: Readonly<Doc<'scheduledSends'>> | null,
   revision: number,
 ): schedule is Doc<'scheduledSends'> {
   return (
@@ -232,8 +223,7 @@ function isCurrentActiveSchedule(
 }
 
 async function currentActiveSchedule(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation contexts expose mutable database methods.
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Convex IDs contain generated mutable fields.
+  ctx: MutationCtx,
   args: Readonly<{
     revision: number;
     scheduleDocumentId: Id<'scheduledSends'>;
@@ -244,7 +234,7 @@ async function currentActiveSchedule(
 }
 
 function hasPushRecipient(
-  device: Readonly<Doc<'trustedDevices'>> | null, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents contain generated mutable fields but are not mutated here.
+  device: Readonly<Doc<'trustedDevices'>> | null,
 ): device is Doc<'trustedDevices'> & {
   apnsEnvironment: 'production' | 'sandbox';
   apnsToken: string;
@@ -254,9 +244,7 @@ function hasPushRecipient(
   );
 }
 
-function claimedResponse(
-  schedule: Readonly<Doc<'scheduledSends'>>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents contain generated mutable fields but are not mutated here.
-) {
+function claimedResponse(schedule: Readonly<Doc<'scheduledSends'>>) {
   if (
     schedule.claimAuthorizationGeneration === undefined ||
     schedule.claimGeneration === undefined ||
@@ -275,8 +263,8 @@ function claimedResponse(
 
 // fallow-ignore-next-line complexity -- Claim replacement must keep expiry, ownership, authorization generation, and capability checks atomic.
 async function preHandoffClaimCanBeReplaced(
-  ctx: QueryCtx | MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
-  schedule: Readonly<Doc<'scheduledSends'>>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents contain generated mutable fields but are not mutated here.
+  ctx: QueryCtx | MutationCtx,
+  schedule: Readonly<Doc<'scheduledSends'>>,
   now: number,
 ) {
   if (schedule.claimPhase === undefined) {
@@ -308,25 +296,21 @@ async function preHandoffClaimCanBeReplaced(
 }
 
 function matchesClaim(
-  schedule: Readonly<Doc<'scheduledSends'>>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents contain generated mutable fields but are not mutated here.
-  device: Readonly<Doc<'trustedDevices'>>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents contain generated mutable fields but are not mutated here.
+  schedule: Readonly<Doc<'scheduledSends'>>,
+  device: Readonly<Doc<'trustedDevices'>>,
   claim: Readonly<{ claimGeneration: number; revision: number }>,
 ) {
   return [
     schedule.state === 'active',
     schedule.revision === claim.revision,
-    schedule.claimOwnerTrustedDeviceId === device._id, // oxlint-disable-line eslint/no-underscore-dangle -- Convex document id field
+    schedule.claimOwnerTrustedDeviceId === device._id,
     schedule.claimAuthorizationGeneration ===
       device.scheduledDeliveryAuthorizationGeneration,
     schedule.claimGeneration === claim.claimGeneration,
   ].every(Boolean);
 }
 
-function hasActiveEdit(
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Convex documents contain generated mutable identifiers but are not mutated here.
-  schedule: Readonly<Doc<'scheduledSends'>>,
-  now: number,
-) {
+function hasActiveEdit(schedule: Readonly<Doc<'scheduledSends'>>, now: number) {
   return (
     schedule.editOwnerTrustedDeviceId !== undefined &&
     schedule.editGeneration !== undefined &&
@@ -335,9 +319,7 @@ function hasActiveEdit(
 }
 
 function matchesEdit(
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Convex documents contain generated mutable identifiers but are not mutated here.
   schedule: Readonly<Doc<'scheduledSends'>>,
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The generated trusted-device ID is not inferred as readonly.
   edit: Readonly<{
     generation: number;
     now: number;
@@ -511,7 +493,6 @@ export const claim = mutation({
       return { status: 'unavailable' as const };
     }
     if (now > schedule.deadlineAt) {
-      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
       await ctx.db.patch('scheduledSends', schedule._id, {
         scheduledFunctionId: undefined,
         state: 'needs-attention',
@@ -534,7 +515,6 @@ export const claim = mutation({
     }
     const generation = (schedule.claimGeneration ?? 0) + 1;
     const expiresAt = now + claimDurationMilliseconds;
-    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
     await ctx.db.patch('scheduledSends', schedule._id, {
       editExpiresAt: undefined,
       editGeneration: undefined,
@@ -590,7 +570,6 @@ export const advanceClaimToHandoff = mutation({
     ) {
       return false;
     }
-    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
     await ctx.db.patch('scheduledSends', schedule._id, {
       claimExpiresAt: undefined,
       claimPhase: 'handing-off',
@@ -659,7 +638,6 @@ export const releaseClaim = mutation({
     ) {
       return false;
     }
-    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
     await ctx.db.patch('scheduledSends', schedule._id, {
       claimAuthorizationGeneration: undefined,
       claimExpiresAt: undefined,
@@ -752,7 +730,6 @@ export const beginEdit = mutation({
     }
     const generation = (schedule.editGeneration ?? 0) + 1;
     const expiresAt = now + editDurationMilliseconds;
-    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
     await ctx.db.patch('scheduledSends', schedule._id, {
       claimAuthorizationGeneration: undefined,
       claimExpiresAt: undefined,
@@ -799,7 +776,6 @@ export const releaseEdit = mutation({
     ) {
       return false;
     }
-    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
     await ctx.db.patch('scheduledSends', schedule._id, {
       editExpiresAt: undefined,
       editGeneration: undefined,
@@ -856,7 +832,6 @@ export const cancel = mutation({
     if (schedule.scheduledFunctionId !== undefined) {
       await ctx.scheduler.cancel(schedule.scheduledFunctionId);
     }
-    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
     await ctx.db.patch('scheduledSends', schedule._id, {
       scheduledFunctionId: undefined,
       editExpiresAt: undefined,
@@ -939,11 +914,9 @@ export const reschedule = mutation({
       internal.apns.deliverScheduledSendWakeup,
       {
         revision: args.revision,
-        // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
         scheduleDocumentId: schedule._id,
       },
     );
-    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
     await ctx.db.patch('scheduledSends', schedule._id, {
       editExpiresAt: undefined,
       editGeneration: undefined,
@@ -1039,11 +1012,9 @@ export const sendNow = mutation({
       internal.apns.deliverScheduledSendWakeup,
       {
         revision: args.revision,
-        // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
         scheduleDocumentId: schedule._id,
       },
     );
-    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
     await ctx.db.patch('scheduledSends', schedule._id, {
       claimAuthorizationGeneration: undefined,
       claimExpiresAt: undefined,
@@ -1104,7 +1075,6 @@ export const complete = mutation({
       return false;
     }
     if (args.state === 'needs-attention') {
-      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
       await ctx.db.patch('scheduledSends', schedule._id, {
         claimAuthorizationGeneration: undefined,
         claimExpiresAt: undefined,
@@ -1116,7 +1086,6 @@ export const complete = mutation({
       });
       return true;
     }
-    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
     await ctx.db.delete('scheduledSends', schedule._id);
     return true;
   },
@@ -1199,7 +1168,6 @@ export const claimWakeup = internalMutation({
           pushCleanupGeneration: device.pushCleanupGeneration,
           revision: schedule.revision,
           scheduleId: schedule.scheduleId,
-          // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
           trustedDeviceId: device._id,
         },
       ];

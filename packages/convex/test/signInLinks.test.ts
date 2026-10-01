@@ -305,7 +305,6 @@ describe('linked sign-ins', () => {
       for (const pending of await ctx.db
         .query('signInLinkRequests')
         .collect()) {
-        // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
         await ctx.db.patch('signInLinkRequests', pending._id, {
           expiresAt: Date.now() - 1,
         });

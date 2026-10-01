@@ -220,7 +220,6 @@ async function expectLegacyIdentifierMigration(
     if (legacyHistory === null) {
       throw new Error('Legacy identifier history required');
     }
-    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
     await ctx.db.delete('trustedDeviceIdentifierHistory', legacyHistory._id);
     await ctx.db.delete('trustedDevices', legacyDevice.trustedDeviceId);
     await ctx.db.patch('productAccounts', legacyDevice.productAccountId, {
@@ -1915,7 +1914,6 @@ describe('productAccount.connect', () => {
         .collect();
       await Promise.all(
         legacyIdentifierHistory.map(async (history) =>
-          // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
           ctx.db.delete('trustedDeviceIdentifierHistory', history._id),
         ),
       );

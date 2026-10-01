@@ -25,9 +25,7 @@ const revocationMaterialValidator = v.union(
   v.object({ kind: v.literal('refresh-token'), value: v.string() }),
 );
 
-async function authenticatedIdentity(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
-) {
+async function authenticatedIdentity(ctx: MutationCtx) {
   const identity = await ctx.auth.getUserIdentity();
   if (!identity) {
     throw new Error('Authentication required');
@@ -36,7 +34,7 @@ async function authenticatedIdentity(
 }
 
 async function ownedDeletionRequest(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
+  ctx: MutationCtx,
   requestId: Id<'productAccountDeletionRequests'>,
 ): Promise<Doc<'productAccountDeletionRequests'>> {
   const identity = await authenticatedIdentity(ctx);
@@ -52,8 +50,8 @@ async function ownedDeletionRequest(
 }
 
 async function scheduleRevocationExpiry(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
-  request: Readonly<Doc<'productAccountDeletionRequests'>>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents contain mutable generated fields but are not mutated here.
+  ctx: MutationCtx,
+  request: Readonly<Doc<'productAccountDeletionRequests'>>,
 ): Promise<void> {
   await ctx.scheduler.runAfter(
     Math.max(
@@ -62,14 +60,13 @@ async function scheduleRevocationExpiry(
         (Date.now() - request.requestedAt),
     ),
     internal.productAccountDeletionData.scheduleRevocationRecovery,
-    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
     { requestId: request._id },
   );
 }
 
 async function scheduleAuthorizationCodeExpiry(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
-  request: Readonly<Doc<'productAccountDeletionRequests'>>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents contain mutable generated fields but are not mutated here.
+  ctx: MutationCtx,
+  request: Readonly<Doc<'productAccountDeletionRequests'>>,
 ): Promise<void> {
   if (request.revocationMaterial?.kind === 'authorization-code') {
     await scheduleRevocationExpiry(ctx, request);
@@ -109,7 +106,6 @@ export const prepareDeletion = internalMutation({
       {
         deviceCredentialEnforcementActivatedAt:
           account.deviceCredentialEnforcementActivatedAt,
-        // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
         productAccountId: account._id,
       },
       {
@@ -147,7 +143,6 @@ export const prepareDeletion = internalMutation({
           value: args.authorizationCode,
         };
       }
-      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
       await ctx.db.patch('productAccountDeletionRequests', existing._id, {
         activeAttemptId:
           existing.phase === 'revocation-pending'
@@ -158,7 +153,6 @@ export const prepareDeletion = internalMutation({
       });
       return {
         phase: existing.phase,
-        // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
         requestId: existing._id,
         revocationPreviouslyAttempted:
           existing.revocationAttemptedAt !== undefined,
@@ -176,7 +170,6 @@ export const prepareDeletion = internalMutation({
     const requestId = await ctx.db.insert('productAccountDeletionRequests', {
       activeAttemptId: args.attemptId,
       phase: 'revocation-pending',
-      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
       productAccountId: account._id,
       requestedAt: now,
       requestedByTrustedDeviceId: args.trustedDeviceId,
@@ -578,7 +571,7 @@ export const completeRecoveredRevocation = internalMutation({
 });
 
 async function deleteGmailRouteWork(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
+  ctx: MutationCtx,
   productAccountId: Id<'productAccounts'>,
 ): Promise<boolean> {
   const route = await ctx.db
@@ -590,13 +583,12 @@ async function deleteGmailRouteWork(
   if (route === null) {
     return false;
   }
-  // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
   await ctx.db.delete('mailProviderConnections', route._id);
   return true;
 }
 
 async function deleteMicrosoftGraphRouteWork(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
+  ctx: MutationCtx,
   productAccountId: Id<'productAccounts'>,
 ): Promise<boolean> {
   const route = await ctx.db
@@ -612,24 +604,21 @@ async function deleteMicrosoftGraphRouteWork(
   }
   const wakeups = await ctx.db
     .query('microsoftGraphWakeupStates')
-    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
     .withIndex('by_routeId', (q) => q.eq('routeId', route._id))
     .take(deletionBatchSize);
   if (wakeups.length > 0) {
     for (const wakeup of wakeups) {
-      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
       await ctx.db.delete('microsoftGraphWakeupStates', wakeup._id);
     }
     return true;
   }
-  // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
   await ctx.db.delete('mailProviderConnections', route._id);
   return true;
 }
 
 async function tombstoneSignIn(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
-  link: Readonly<Doc<'linkedSignIns'>>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents are immutable inputs here.
+  ctx: MutationCtx,
+  link: Readonly<Doc<'linkedSignIns'>>,
 ): Promise<void> {
   const tombstone = await ctx.db
     .query('productAccountDeletionTombstones')
@@ -644,13 +633,12 @@ async function tombstoneSignIn(
       tokenIdentifier: link.tokenIdentifier,
     });
   }
-  // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
   await ctx.db.delete('linkedSignIns', link._id);
 }
 
 // Every Linked Sign-In is tombstoned with the account so it cannot reopen or recreate it.
 async function deleteSignInLinks(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
+  ctx: MutationCtx,
   productAccountId: Id<'productAccounts'>,
 ): Promise<boolean> {
   const requests = await ctx.db
@@ -667,7 +655,6 @@ async function deleteSignInLinks(
     .take(deletionBatchSize);
   await Promise.all([
     ...requests.map(async (request) =>
-      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
       ctx.db.delete('signInLinkRequests', request._id),
     ),
     ...links.map(async (link) => tombstoneSignIn(ctx, link)),
@@ -678,7 +665,7 @@ async function deleteSignInLinks(
 // oxlint-disable complexity -- Ordered bounded deletion drains each account-owned table before the tombstone.
 // fallow-ignore-next-line complexity -- Ordered bounded deletion drains each account-owned table before the tombstone.
 async function deleteNextBatchData(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
+  ctx: MutationCtx,
   requestId: Id<'productAccountDeletionRequests'>,
 ): Promise<boolean> {
   const request = await ctx.db.get('productAccountDeletionRequests', requestId);
@@ -708,7 +695,6 @@ async function deleteNextBatchData(
       if (scheduledSend.scheduledFunctionId !== undefined) {
         await ctx.scheduler.cancel(scheduledSend.scheduledFunctionId);
       }
-      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
       await ctx.db.delete('scheduledSends', scheduledSend._id);
     }
     return false;
@@ -730,7 +716,6 @@ async function deleteNextBatchData(
         .take(deletionBatchSize);
       if (heartbeats.length > 0) {
         for (const heartbeat of heartbeats) {
-          // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
           await ctx.db.delete('devicePushRouteHeartbeats', heartbeat._id);
         }
         return false;
@@ -747,7 +732,6 @@ async function deleteNextBatchData(
     .take(deletionBatchSize);
   if (revokedDevices.length > 0) {
     for (const revokedDevice of revokedDevices) {
-      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
       await ctx.db.delete('revokedTrustedDevices', revokedDevice._id);
     }
     return false;
@@ -760,7 +744,6 @@ async function deleteNextBatchData(
     .take(deletionBatchSize);
   if (revocationTargets.length > 0) {
     for (const target of revocationTargets) {
-      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
       await ctx.db.delete('trustedDeviceRevocationTargets', target._id);
     }
     return false;
@@ -773,7 +756,6 @@ async function deleteNextBatchData(
     .take(deletionBatchSize);
   if (deviceIdentifierHistory.length > 0) {
     for (const history of deviceIdentifierHistory) {
-      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
       await ctx.db.delete('trustedDeviceIdentifierHistory', history._id);
     }
     return false;
@@ -786,7 +768,6 @@ async function deleteNextBatchData(
     .take(encryptedPayloadDeletionBatchSize);
   if (payloads.length > 0) {
     for (const payload of payloads) {
-      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
       await ctx.db.delete('encryptedProductSyncPayloads', payload._id);
     }
     return false;
@@ -799,7 +780,6 @@ async function deleteNextBatchData(
     .take(deletionBatchSize);
   if (bindings.length > 0) {
     for (const binding of bindings) {
-      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
       await ctx.db.delete('gmailOpaqueIdentityBindings', binding._id);
     }
     return false;
