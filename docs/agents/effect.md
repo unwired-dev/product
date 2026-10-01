@@ -56,10 +56,12 @@ clock, or configuration. A value already held in a closure stays a plain value.
 
 ## Running programs
 
-Run Effect at the edge: one `Effect.runPromise` per host-facing call, such as a
-store method or a Convex handler. Create a `ManagedRuntime` only for a Layer with
-dependencies or resources, and dispose it with its owner. Serialize shared mutable
-work with `Semaphore`; use `withPermitsIfAvailable` to drop overlapping requests.
+Run Effect at the edge: one run per host-facing call, such as a store method or a
+Convex handler, through a runner that logs to `console.error` (`runLogged` in
+`packages/mail-core/src/diagnostics.ts`), so hosts record failures as errors.
+Create a `ManagedRuntime` only for a Layer with dependencies or resources, and
+dispose it with its owner. Serialize shared mutable work with `Semaphore`; use
+`withPermitsIfAvailable` to drop overlapping requests.
 
 Inside Effect code, use Effect's services instead of globals: `Effect.log*` for
 logging, `Clock` and `DateTime` for time, `Config` for environment values,

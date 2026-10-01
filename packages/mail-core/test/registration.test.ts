@@ -189,7 +189,7 @@ describe('product registration', () => {
     async (code, linkFailure) => {
       expect.hasAssertions();
       const logged: unknown[] = [];
-      vi.spyOn(console, 'log').mockImplementation((...values) => {
+      vi.spyOn(console, 'error').mockImplementation((...values) => {
         logged.push(...values);
       });
       const session = createMockRegistrationSession('registration-success');
