@@ -51,7 +51,7 @@ export default buildOxlintConfig({
       },
       {
         // Tests read trusted fixtures; their assertions check the shape.
-        files: ['**/*.test.ts'],
+        files: ['**/*.test.ts', '**/*.test.tsx'],
         rules: {
           ...boundaryExemptions,
           'node/no-sync': 'allow',

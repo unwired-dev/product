@@ -22,42 +22,48 @@ const codes = {
   error: 'effecttsgo(extends-native-error)',
 };
 
-for (const [config, fixtureDirectory] of [
-  ['oxlint.config.ts', 'packages/mail-core/src'],
-  ['apps/mobile/oxlint.config.ts', 'apps/mobile/src'],
-  ['apps/macos/oxlint.config.ts', 'apps/macos/src'],
+function boundaryDiagnostics(config, name) {
+  const scratchpad = join(root, 'scratchpad');
+  mkdirSync(scratchpad, { recursive: true });
+  const directory = mkdtempSync(join(scratchpad, 'effect-boundaries-'));
+  try {
+    const fixture = join(directory, name);
+    writeFileSync(fixture, cases.map(([source]) => source).join('\n'));
+    const result = spawnSync(
+      join(root, 'node_modules/.bin/oxlint'),
+      ['--config', join(root, config), '--format', 'json', fixture],
+      { cwd: root, encoding: 'utf8' },
+    );
+    assert.ifError(result.error);
+    const { diagnostics } = JSON.parse(result.stdout);
+    return diagnostics
+      .filter((diagnostic) => Object.values(codes).includes(diagnostic.code))
+      .map((diagnostic) => [
+        diagnostic.labels[0].span.line,
+        diagnostic.code,
+        diagnostic.severity,
+      ])
+      .sort(([a], [b]) => a - b);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+}
+
+for (const config of [
+  'oxlint.config.ts',
+  'apps/mobile/oxlint.config.ts',
+  'apps/macos/oxlint.config.ts',
 ]) {
   test(`${config} rejects hand-rolled boundary parsing`, () => {
-    const scratchpad = join(root, 'scratchpad');
-    mkdirSync(scratchpad, { recursive: true });
-    const directory = mkdtempSync(join(scratchpad, 'effect-boundaries-'));
-    try {
-      const fixture = join(directory, 'boundaries.ts');
-      writeFileSync(fixture, cases.map(([source]) => source).join('\n'));
-      const result = spawnSync(
-        join(root, 'node_modules/.bin/oxlint'),
-        ['--config', join(root, config), '--format', 'json', fixture],
-        { cwd: join(root, fixtureDirectory), encoding: 'utf8' },
-      );
-      assert.ifError(result.error);
-      assert.equal(result.status, 1, result.stderr);
-      const { diagnostics } = JSON.parse(result.stdout);
-      const reported = diagnostics
-        .filter((diagnostic) => Object.values(codes).includes(diagnostic.code))
-        .map((diagnostic) => [
-          diagnostic.labels[0].span.line,
-          diagnostic.code,
-          diagnostic.severity,
-        ])
-        .sort(([a], [b]) => a - b);
-      assert.deepEqual(
-        reported,
-        cases.flatMap(([, kind], index) =>
-          kind === null ? [] : [[index + 1, codes[kind], 'error']],
-        ),
-      );
-    } finally {
-      rmSync(directory, { recursive: true, force: true });
-    }
+    assert.deepEqual(
+      boundaryDiagnostics(config, 'boundaries.ts'),
+      cases.flatMap(([, kind], index) =>
+        kind === null ? [] : [[index + 1, codes[kind], 'error']],
+      ),
+    );
+  });
+
+  test(`${config} exempts tests, which read trusted fixtures`, () => {
+    assert.deepEqual(boundaryDiagnostics(config, 'boundaries.test.tsx'), []);
   });
 }

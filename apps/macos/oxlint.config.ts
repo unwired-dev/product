@@ -2,6 +2,7 @@ import * as EffectPresets from '@effect/tsgo/oxlint-presets';
 import { buildOxlintConfig } from '@rajzik/oxlint-config';
 
 import {
+  boundaryExemptions,
   boundaryRules,
   effectRules,
 } from '../../scripts/oxlint-effect-policy.ts';
@@ -43,6 +44,11 @@ export default buildOxlintConfig({
       {
         files: ['**/*.tsx'],
         rules: { 'typescript/prefer-readonly-parameter-types': 'allow' },
+      },
+      {
+        // Tests read trusted fixtures; their assertions check the shape.
+        files: ['**/*.test.ts', '**/*.test.tsx'],
+        rules: boundaryExemptions,
       },
     ],
   },
