@@ -370,8 +370,10 @@ describe('scheduled Send admission', () => {
     }
   });
 
-  it('persists a retry when every APNs delivery rejects', async () => {
-    expect.assertions(3);
+  it('persists a retry and reports at error level when every APNs delivery rejects', async () => {
+    expect.assertions(4);
+    // Convex records console.error output at error level, which alerts depend on.
+    const errors = vi.spyOn(console, 'error').mockReturnValue();
     const { asUser, device, schedule, t } = await claimFixture();
     await asUser.mutation(api.pushRelay.registerDevice, {
       apnsEnvironment: 'sandbox',
@@ -400,8 +402,12 @@ describe('scheduled Send admission', () => {
       expect(retried?.scheduledFunctionId).not.toBe(
         schedule.scheduledFunctionId,
       );
+      expect(errors.mock.calls.flat()).toContain(
+        'APNs wakeup delivery failed:',
+      );
     } finally {
       vi.unstubAllEnvs();
+      errors.mockRestore();
     }
   });
 

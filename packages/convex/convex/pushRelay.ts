@@ -1,26 +1,30 @@
 import type { Infer } from 'convex/values';
+import type * as Option from 'effect/Option';
 
 import {
   devicePushRegistrationResponseValidator,
   gmailPushVerificationResponseValidator,
 } from '@private-email/contracts/pushRelay';
 import { v } from 'convex/values';
-import * as Option from 'effect/Option';
+import * as Clock from 'effect/Clock';
+import * as Config from 'effect/Config';
+import * as Effect from 'effect/Effect';
 import * as Schema from 'effect/Schema';
 
 import type { Doc, Id } from './_generated/dataModel.js';
 import type { MutationCtx, QueryCtx } from './_generated/server.js';
+import type { CallFailed } from './effectRuntime.js';
 
 import { internal } from './_generated/api.js';
 import {
   action,
-  env,
   internalAction,
   internalMutation,
   internalQuery,
   mutation,
   query,
 } from './_generated/server.js';
+import { call, runConvexProgram } from './effectRuntime.js';
 import {
   gmailIdentityBindingDigest,
   gmailRoutingDigests,
@@ -140,11 +144,40 @@ const isGoogleSigningKey = Schema.is(
   }),
 );
 
-function requiredString(value: string | undefined): string {
-  if (value === undefined) {
-    throw new Error('Gmail mailbox ownership proof rejected');
-  }
-  return value;
+// The Gmail request or its mailbox ownership proof is refused.
+class GmailRequestRejected extends Schema.TaggedError<GmailRequestRejected>()(
+  'GmailRequestRejected',
+  {
+    message: Schema.Literals([
+      'Gmail mailbox ownership proof is not configured',
+      'Gmail mailbox ownership proof rejected',
+      'Gmail mailbox ownership proof required',
+      'Opaque Gmail connection id required',
+    ]),
+  },
+) {}
+
+// Google's signing keys could not be fetched or read, or the signature could not be
+// checked; handlers rethrow the cause.
+class GoogleVerificationFailed extends Schema.TaggedError<GoogleVerificationFailed>()(
+  'GoogleVerificationFailed',
+  { cause: Schema.Defect() },
+) {}
+
+type GmailProofFailure = GmailRequestRejected | GoogleVerificationFailed;
+
+function proofRejected(): GmailRequestRejected {
+  return new GmailRequestRejected({
+    message: 'Gmail mailbox ownership proof rejected',
+  });
+}
+
+function thrownGmailError(
+  error: CallFailed | GmailRequestRejected | GoogleVerificationFailed,
+): unknown {
+  return error._tag === 'GmailRequestRejected'
+    ? new Error(error.message)
+    : error.cause;
 }
 
 function decodeBase64Url(value: string): ArrayBuffer {
@@ -162,14 +195,13 @@ function decodeBase64Url(value: string): ArrayBuffer {
 function decodeJwtSegment<A>(
   decode: (json: string) => Option.Option<A>,
   segment: string,
-): A {
-  try {
-    return Option.getOrThrow(
-      decode(new TextDecoder().decode(decodeBase64Url(segment))),
-    );
-  } catch {
-    throw new Error('Gmail mailbox ownership proof rejected');
-  }
+): Effect.Effect<A, GmailRequestRejected> {
+  return Effect.try(() =>
+    new TextDecoder().decode(decodeBase64Url(segment)),
+  ).pipe(
+    Effect.flatMap((json) => Effect.fromOption(decode(json))),
+    Effect.mapError(proofRejected),
+  );
 }
 
 function googleCacheMaxAge(cacheControl: string): string | undefined {
@@ -192,140 +224,178 @@ function googleSigningKeyLifetimeMs(response: Response): number {
   );
 }
 
-function googleSigningKeys(value: unknown): ReadonlyMap<string, JsonWebKey> {
-  const { keys: candidates } = Option.getOrThrowWith(
-    decodeGoogleSigningKeySet(value),
-    () => new Error('Gmail mailbox ownership proof rejected'),
+function googleSigningKeys(
+  value: unknown,
+): Effect.Effect<ReadonlyMap<string, JsonWebKey>, GmailRequestRejected> {
+  return Effect.fromOption(decodeGoogleSigningKeySet(value)).pipe(
+    Effect.mapError(proofRejected),
+    Effect.flatMap(({ keys: candidates }) => {
+      const keys = new Map(
+        candidates
+          .filter(isGoogleSigningKey)
+          .map((key): readonly [string, JsonWebKey] => [key.kid, key]),
+      );
+      return keys.size === 0
+        ? Effect.fail(proofRejected())
+        : Effect.succeed(keys);
+    }),
   );
-  const keys = new Map(
-    candidates
-      .filter(isGoogleSigningKey)
-      .map((key): readonly [string, JsonWebKey] => [key.kid, key]),
-  );
-  if (keys.size === 0) {
-    throw new Error('Gmail mailbox ownership proof rejected');
-  }
-  return keys;
 }
 
-async function fetchGoogleSigningKeys(): Promise<CachedGoogleSigningKeys> {
-  const response = await fetch(googleJsonWebKeySetUrl, {
-    signal: AbortSignal.timeout(googleSigningKeyFetchTimeoutMs),
-  });
+// The deadline covers the key set body as well as the response headers.
+async function fetchGoogleKeySet(
+  signal: AbortSignal,
+): Promise<Readonly<{ body?: unknown; response: Response }>> {
+  const response = await fetch(googleJsonWebKeySetUrl, { signal });
   if (!response.ok) {
-    throw new Error('Gmail mailbox ownership proof rejected');
+    return { response };
   }
-  return {
-    expiresAt: Date.now() + googleSigningKeyLifetimeMs(response),
-    keys: googleSigningKeys(await response.json()),
+  const body: unknown = await response.json();
+  return { body, response };
+}
+
+// A timed-out key fetch fails with the error fetch reports for an aborted timeout.
+const fetchGoogleSigningKeys = Effect.gen(function* () {
+  const { body, response } = yield* Effect.tryPromise({
+    try: fetchGoogleKeySet,
+    catch: (cause) => new GoogleVerificationFailed({ cause }),
+  }).pipe(
+    Effect.timeoutOrElse({
+      duration: googleSigningKeyFetchTimeoutMs,
+      orElse: () =>
+        Effect.fail(
+          new GoogleVerificationFailed({
+            cause: new DOMException(
+              'The operation was aborted due to timeout',
+              'TimeoutError',
+            ),
+          }),
+        ),
+    }),
+  );
+  if (!response.ok) {
+    return yield* proofRejected();
+  }
+  const fetchedAt = yield* Clock.currentTimeMillis;
+  const keys = yield* googleSigningKeys(body);
+  const refreshed: CachedGoogleSigningKeys = {
+    expiresAt: fetchedAt + googleSigningKeyLifetimeMs(response),
+    keys,
   };
-}
+  return refreshed;
+});
 
-function cachedGoogleSigningKey(keyId: string): JsonWebKey | undefined {
+function cachedGoogleSigningKey(
+  keyId: string,
+  now: number,
+): JsonWebKey | undefined {
   const cached = cachedGoogleSigningKeys;
-  if (cached === null || cached.expiresAt <= Date.now()) {
-    return undefined;
-  }
-  return cached.keys.get(keyId);
+  return cached === null || cached.expiresAt <= now
+    ? undefined
+    : cached.keys.get(keyId);
 }
 
-async function googleSigningKey(keyId: string): Promise<JsonWebKey> {
-  const cachedKey = cachedGoogleSigningKey(keyId);
+// Signing keys are cached for the isolate until Google's cache lifetime ends.
+const googleSigningKey = Effect.fnUntraced(function* (keyId: string) {
+  const cachedKey = cachedGoogleSigningKey(
+    keyId,
+    yield* Clock.currentTimeMillis,
+  );
   if (cachedKey !== undefined) {
     return cachedKey;
   }
-  const refreshed = await fetchGoogleSigningKeys();
+  const refreshed = yield* fetchGoogleSigningKeys;
   cachedGoogleSigningKeys = refreshed;
   const key = refreshed.keys.get(keyId);
   if (key === undefined) {
-    throw new Error('Gmail mailbox ownership proof rejected');
+    return yield* proofRejected();
   }
   return key;
-}
+});
 
-async function hasValidGoogleSignature(
+const hasValidGoogleSignature = Effect.fnUntraced(function* (
   signingInput: string,
   signature: ArrayBuffer,
   keyId: string,
-): Promise<boolean> {
-  const key = await crypto.subtle.importKey(
-    'jwk',
-    await googleSigningKey(keyId),
-    { hash: 'SHA-256', name: 'RSASSA-PKCS1-v1_5' },
-    false,
-    ['verify'],
-  );
-  return crypto.subtle.verify(
-    'RSASSA-PKCS1-v1_5',
-    key,
-    signature,
-    new TextEncoder().encode(signingInput),
-  );
-}
+) {
+  const signingKey = yield* googleSigningKey(keyId);
+  return yield* Effect.tryPromise({
+    try: async () => {
+      const key = await crypto.subtle.importKey(
+        'jwk',
+        signingKey,
+        { hash: 'SHA-256', name: 'RSASSA-PKCS1-v1_5' },
+        false,
+        ['verify'],
+      );
+      return crypto.subtle.verify(
+        'RSASSA-PKCS1-v1_5',
+        key,
+        signature,
+        new TextEncoder().encode(signingInput),
+      );
+    },
+    catch: (cause) => new GoogleVerificationFailed({ cause }),
+  });
+});
 
-function googleIdentityTokenSegments(
+// fallow-ignore-next-line complexity -- Every proof condition is required before a mailbox is bound.
+const verifyGoogleIdentityToken = Effect.fnUntraced(function* (
   identityToken: string,
-): readonly [string, string, string] {
-  const segments = identityToken.split('.');
-  if (segments.length !== 3) {
-    throw new Error('Gmail mailbox ownership proof rejected');
+): Effect.fn.Return<VerifiedGoogleIdentity, GmailProofFailure> {
+  const clientId = yield* Config.NonEmptyString('GMAIL_OAUTH_CLIENT_ID').pipe(
+    Effect.mapError(
+      () =>
+        new GmailRequestRejected({
+          message: 'Gmail mailbox ownership proof is not configured',
+        }),
+    ),
+  );
+  if (identityToken.length === 0) {
+    return yield* new GmailRequestRejected({
+      message: 'Gmail mailbox ownership proof required',
+    });
   }
-  return [
-    requiredString(segments.at(0)),
-    requiredString(segments.at(1)),
-    requiredString(segments.at(2)),
-  ];
-}
-
-function googleIdentityTokenKeyId(headerSegment: string): string {
-  return decodeJwtSegment(decodeGoogleIdentityTokenHeader, headerSegment).kid;
-}
-
-function verifiedGoogleIdentity(
-  claimsSegment: string,
-  clientId: string,
-): VerifiedGoogleIdentity {
-  const claims = decodeJwtSegment(
+  const segments = identityToken.split('.');
+  const [headerSegment, claimsSegment, signatureSegment] = segments;
+  if (
+    segments.length !== 3 ||
+    headerSegment === undefined ||
+    claimsSegment === undefined ||
+    signatureSegment === undefined
+  ) {
+    return yield* proofRejected();
+  }
+  const signature = yield* Effect.try({
+    try: () => decodeBase64Url(signatureSegment),
+    catch: proofRejected,
+  });
+  const { kid: keyId } = yield* decodeJwtSegment(
+    decodeGoogleIdentityTokenHeader,
+    headerSegment,
+  );
+  if (
+    !(yield* hasValidGoogleSignature(
+      `${headerSegment}.${claimsSegment}`,
+      signature,
+      keyId,
+    ))
+  ) {
+    return yield* proofRejected();
+  }
+  const claims = yield* decodeJwtSegment(
     decodeGoogleIdentityTokenClaims,
     claimsSegment,
   );
-  if (claims.aud !== clientId || claims.exp <= Math.floor(Date.now() / 1000)) {
-    throw new Error('Gmail mailbox ownership proof rejected');
+  const now = yield* Clock.currentTimeMillis;
+  if (claims.aud !== clientId || claims.exp <= Math.floor(now / 1000)) {
+    return yield* proofRejected();
   }
   return {
     emailAddress: claims.email,
     providerAccountIdentifier: claims.sub,
   };
-}
-
-function gmailOauthClientId(): string {
-  const clientId = env.GMAIL_OAUTH_CLIENT_ID;
-  if (clientId === undefined || clientId.length === 0) {
-    throw new Error('Gmail mailbox ownership proof is not configured');
-  }
-  return clientId;
-}
-
-async function verifyGoogleIdentityToken(
-  identityToken: string,
-): Promise<VerifiedGoogleIdentity> {
-  const clientId = gmailOauthClientId();
-  if (identityToken.length === 0) {
-    throw new Error('Gmail mailbox ownership proof required');
-  }
-  const [headerSegment, claimsSegment, signatureSegment] =
-    googleIdentityTokenSegments(identityToken);
-  if (
-    !(await hasValidGoogleSignature(
-      `${headerSegment}.${claimsSegment}`,
-      decodeBase64Url(signatureSegment),
-      googleIdentityTokenKeyId(headerSegment),
-    ))
-  ) {
-    throw new Error('Gmail mailbox ownership proof rejected');
-  }
-  return verifiedGoogleIdentity(claimsSegment, clientId);
-}
+});
 
 function gmailHistoryIdAtOrAfter(
   candidateHistoryId: string,
@@ -1322,49 +1392,63 @@ export const registerGmailConnection = action({
     opaqueConnectionId: v.string(),
     trustedDeviceId: v.id('trustedDevices'),
   },
-  handler: async (ctx, args): Promise<GmailOperationalConnectionStatus> => {
-    await ctx.runQuery(internal.pushRelay.authenticateGmailWatch, {
-      trustedDeviceCredential: args.trustedDeviceCredential,
-      trustedDeviceId: args.trustedDeviceId,
-    });
-    if (args.opaqueConnectionId.length === 0) {
-      throw new Error('Opaque Gmail connection id required');
-    }
-    const identity = await verifyGoogleIdentityToken(args.gmailIdentityToken);
-    const [routing, previousRouting] = await gmailRoutingDigests(
-      identity.emailAddress,
-    );
-    if (routing === undefined) {
-      throw new Error('Gmail mailbox ownership proof rejected');
-    }
-    while (
-      await ctx.runMutation(
-        internal.pushRelay.clearLegacyGmailSignalsForRegistration,
-        {
-          emailAddress: identity.emailAddress,
-          providerAccountIdentifier: identity.providerAccountIdentifier,
-          trustedDeviceCredential: args.trustedDeviceCredential,
-          trustedDeviceId: args.trustedDeviceId,
-        },
-      )
-    ) {
-      // Each bounded mutation commits progress before the next batch.
-    }
-    const status: GmailOperationalConnectionStatus = await ctx.runMutation(
-      internal.pushRelay.registerGmailConnectionForIdentity,
-      {
-        emailAddress: identity.emailAddress,
-        gmailPreviousRoutingDigest: previousRouting?.digest,
-        gmailRoutingDigest: routing.digest,
-        gmailRoutingKeyVersion: routing.keyVersion,
-        opaqueConnectionId: args.opaqueConnectionId,
-        providerAccountIdentifier: identity.providerAccountIdentifier,
-        trustedDeviceCredential: args.trustedDeviceCredential,
-        trustedDeviceId: args.trustedDeviceId,
-      },
-    );
-    return status;
-  },
+  handler: async (ctx, args): Promise<GmailOperationalConnectionStatus> =>
+    runConvexProgram(
+      Effect.gen(function* () {
+        yield* call(async () =>
+          ctx.runQuery(internal.pushRelay.authenticateGmailWatch, {
+            trustedDeviceCredential: args.trustedDeviceCredential,
+            trustedDeviceId: args.trustedDeviceId,
+          }),
+        );
+        if (args.opaqueConnectionId.length === 0) {
+          return yield* new GmailRequestRejected({
+            message: 'Opaque Gmail connection id required',
+          });
+        }
+        const identity = yield* verifyGoogleIdentityToken(
+          args.gmailIdentityToken,
+        );
+        const [routing, previousRouting] = yield* call(async () =>
+          gmailRoutingDigests(identity.emailAddress),
+        );
+        if (routing === undefined) {
+          return yield* proofRejected();
+        }
+        while (
+          yield* call(async (): Promise<boolean> =>
+            ctx.runMutation(
+              internal.pushRelay.clearLegacyGmailSignalsForRegistration,
+              {
+                emailAddress: identity.emailAddress,
+                providerAccountIdentifier: identity.providerAccountIdentifier,
+                trustedDeviceCredential: args.trustedDeviceCredential,
+                trustedDeviceId: args.trustedDeviceId,
+              },
+            ),
+          )
+        ) {
+          // Each bounded mutation commits progress before the next batch.
+        }
+        return yield* call(
+          async (): Promise<GmailOperationalConnectionStatus> =>
+            ctx.runMutation(
+              internal.pushRelay.registerGmailConnectionForIdentity,
+              {
+                emailAddress: identity.emailAddress,
+                gmailPreviousRoutingDigest: previousRouting?.digest,
+                gmailRoutingDigest: routing.digest,
+                gmailRoutingKeyVersion: routing.keyVersion,
+                opaqueConnectionId: args.opaqueConnectionId,
+                providerAccountIdentifier: identity.providerAccountIdentifier,
+                trustedDeviceCredential: args.trustedDeviceCredential,
+                trustedDeviceId: args.trustedDeviceId,
+              },
+            ),
+        );
+      }),
+      thrownGmailError,
+    ),
   returns: gmailOperationalConnectionStatusValidator,
 });
 
@@ -1668,31 +1752,47 @@ export const verifyGmailWatch = action({
     opaqueConnectionId: v.optional(v.string()),
     trustedDeviceId: v.id('trustedDevices'),
   },
-  handler: async (ctx, args) => {
-    await ctx.runQuery(internal.pushRelay.authenticateGmailWatch, {
-      trustedDeviceCredential: args.trustedDeviceCredential,
-      trustedDeviceId: args.trustedDeviceId,
-    });
-    const identity = await verifyGoogleIdentityToken(args.gmailIdentityToken);
-    const routings = await gmailRoutingDigests(identity.emailAddress);
-    const [currentRouting] = routings;
-    if (currentRouting === undefined) {
-      throw new Error('Gmail mailbox ownership proof rejected');
-    }
-    const result: Infer<typeof gmailPushVerificationResponseValidator> =
-      await ctx.runMutation(internal.pushRelay.verifyGmailWatchForIdentity, {
-        acceptedRoutingDigests: routings.map((routing) => routing.digest),
-        currentRoutingDigest: currentRouting.digest,
-        currentRoutingKeyVersion: currentRouting.keyVersion,
-        emailAddress: identity.emailAddress,
-        historyId: args.historyId,
-        opaqueConnectionId: args.opaqueConnectionId,
-        providerAccountIdentifier: identity.providerAccountIdentifier,
-        trustedDeviceCredential: args.trustedDeviceCredential,
-        trustedDeviceId: args.trustedDeviceId,
-      });
-    return result;
-  },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<Infer<typeof gmailPushVerificationResponseValidator>> =>
+    runConvexProgram(
+      Effect.gen(function* () {
+        yield* call(async () =>
+          ctx.runQuery(internal.pushRelay.authenticateGmailWatch, {
+            trustedDeviceCredential: args.trustedDeviceCredential,
+            trustedDeviceId: args.trustedDeviceId,
+          }),
+        );
+        const identity = yield* verifyGoogleIdentityToken(
+          args.gmailIdentityToken,
+        );
+        const routings = yield* call(async () =>
+          gmailRoutingDigests(identity.emailAddress),
+        );
+        const [currentRouting] = routings;
+        if (currentRouting === undefined) {
+          return yield* proofRejected();
+        }
+        return yield* call(
+          async (): Promise<
+            Infer<typeof gmailPushVerificationResponseValidator>
+          > =>
+            ctx.runMutation(internal.pushRelay.verifyGmailWatchForIdentity, {
+              acceptedRoutingDigests: routings.map((routing) => routing.digest),
+              currentRoutingDigest: currentRouting.digest,
+              currentRoutingKeyVersion: currentRouting.keyVersion,
+              emailAddress: identity.emailAddress,
+              historyId: args.historyId,
+              opaqueConnectionId: args.opaqueConnectionId,
+              providerAccountIdentifier: identity.providerAccountIdentifier,
+              trustedDeviceCredential: args.trustedDeviceCredential,
+              trustedDeviceId: args.trustedDeviceId,
+            }),
+        );
+      }),
+      thrownGmailError,
+    ),
   returns: gmailPushVerificationResponseValidator,
 });
 

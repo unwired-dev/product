@@ -164,6 +164,29 @@ const matchingVictimSubjectIdentityToken = createGoogleIdentityToken(
   'client-asserted-id',
 );
 
+// Convex's default runtime exposes process.env as a get-only Proxy that cannot be
+// enumerated or copied; Node's process.env can be both.
+async function withDefaultRuntimeEnvironment<T>(
+  run: () => Promise<T>,
+): Promise<T> {
+  // oxlint-disable-next-line node/no-process-env -- Emulates the default runtime's environment.
+  const environment = process.env;
+  // oxlint-disable-next-line node/no-process-env -- Emulates the default runtime's environment.
+  process.env = new Proxy(
+    {},
+    {
+      get: (_target, name) =>
+        typeof name === 'string' ? environment[name] : undefined,
+    },
+  );
+  try {
+    return await run();
+  } finally {
+    // oxlint-disable-next-line node/no-process-env -- Restores Node's environment.
+    process.env = environment;
+  }
+}
+
 vi.stubEnv('GMAIL_OAUTH_CLIENT_ID', 'gmail-client-id');
 vi.stubEnv('GMAIL_ROUTING_KEY', 'gmail-routing-test-key');
 vi.stubEnv('GMAIL_IDENTITY_BINDING_KEY', 'gmail-identity-binding-test-key');
@@ -307,7 +330,7 @@ describe('gmail push relay', () => {
     expect(googleSigningKeyFetch).not.toHaveBeenCalled();
   });
 
-  it('derives the opaque connection id for legacy watch verification calls', async () => {
+  it('derives the opaque connection id for legacy watch verification calls in the default runtime', async () => {
     expect.assertions(2);
 
     const t = convexTest(schema, modules);
@@ -331,14 +354,16 @@ describe('gmail push relay', () => {
     });
 
     await expect(
-      asUser.action(api.pushRelay.verifyGmailWatch, {
-        gmailIdentityToken: createGoogleIdentityToken(
-          'legacy@example.com',
-          'gmail-user-legacy',
-        ),
-        historyId: '100',
-        trustedDeviceId: device.trustedDeviceId,
-      }),
+      withDefaultRuntimeEnvironment(async () =>
+        asUser.action(api.pushRelay.verifyGmailWatch, {
+          gmailIdentityToken: createGoogleIdentityToken(
+            'legacy@example.com',
+            'gmail-user-legacy',
+          ),
+          historyId: '100',
+          trustedDeviceId: device.trustedDeviceId,
+        }),
+      ),
     ).resolves.toStrictEqual(expect.objectContaining({ verified: false }));
     await expect(
       t.run((ctx) =>
@@ -3235,7 +3260,9 @@ describe('gmail push relay', () => {
         'client-asserted-id',
         overrides,
       );
-    const [, victimClaims, victimSignature] = victimProof({}).split('.');
+    const [victimHeader, victimClaims, victimSignature] = victimProof({}).split(
+      '.',
+    );
     // Only the unknown key identifier refreshes the signing keys, which arrive malformed.
     googleSigningKeyFetch.mockResolvedValueOnce(
       Response.json({ keys: 'not-a-key-set' }),
@@ -3245,11 +3272,12 @@ describe('gmail push relay', () => {
         victimProof({ claims: { email_verified: false } }),
         victimProof({ claims: { exp: 1_783_999_999 } }),
         `${Buffer.from('not-json').toString('base64url')}.${victimClaims}.${victimSignature}`,
+        `${victimHeader}.${victimClaims}.not!base64url`,
         victimProof({ keyId: 'rotated-google-key' }),
       ].map(verifyVictimWatch),
     );
     expect(malformedProofOutcomes).toStrictEqual(
-      Array.from({ length: 4 }, () => ({
+      Array.from({ length: 5 }, () => ({
         reason: expect.objectContaining({
           message: expect.stringContaining(
             'Gmail mailbox ownership proof rejected',
@@ -3738,7 +3766,25 @@ describe('gmail push relay', () => {
         retryWasRescheduled: true,
       });
 
-      const previousScheduledAt = retainedWakeups[0]!.scheduledAt;
+      // A timed-out APNs request stays retryable instead of ending the wakeup.
+      vi.setSystemTime(retainedWakeups[0]!.scheduledAt);
+      apnsMock.stallResponseBody = true;
+      const timedOutDelivery = t.action(
+        internal.apns.deliverMicrosoftGraphWakeup,
+        {
+          routeId: route.routeId,
+          scheduledAt: retainedWakeups[0]!.scheduledAt,
+        },
+      );
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(10_000);
+      await timedOutDelivery;
+      apnsMock.stallResponseBody = false;
+      const timedOutWakeup = await t.run((ctx) =>
+        ctx.db.query('microsoftGraphWakeupStates').unique(),
+      );
+
+      const previousScheduledAt = timedOutWakeup!.scheduledAt;
       await t.run(async (ctx) => {
         await ctx.db.patch(
           'microsoftGraphWakeupStates',
@@ -3760,10 +3806,15 @@ describe('gmail push relay', () => {
         scheduledAtChanged:
           refreshedWakeup?.scheduledAt !== previousScheduledAt,
         status: newerNotification.status,
+        timedOutAttemptCount: timedOutWakeup?.attemptCount,
+        timedOutRetryWasRescheduled:
+          previousScheduledAt > retainedWakeups[0]!.scheduledAt,
       }).toStrictEqual({
         attemptCount: 0,
         scheduledAtChanged: false,
         status: 202,
+        timedOutAttemptCount: 2,
+        timedOutRetryWasRescheduled: true,
       });
 
       apnsMock.status = 200;
@@ -3818,7 +3869,8 @@ describe('gmail push relay', () => {
         payloadContainsProviderData: false,
         remainingAfterPermanentFailure: [],
         remainingAfterSuccessfulRetry: [],
-        requestCount: 3,
+        // Failed, timed-out, successful retry and permanent-failure requests.
+        requestCount: 4,
       });
     } finally {
       vi.useRealTimers();

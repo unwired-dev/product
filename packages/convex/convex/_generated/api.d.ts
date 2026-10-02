@@ -10,6 +10,7 @@
 
 import type * as apns from "../apns.js";
 import type * as crons from "../crons.js";
+import type * as effectRuntime from "../effectRuntime.js";
 import type * as gmailPushPayload from "../gmailPushPayload.js";
 import type * as gmailRouting from "../gmailRouting.js";
 import type * as health from "../health.js";
@@ -32,6 +33,7 @@ import type {
 declare const fullApi: ApiFromModules<{
   apns: typeof apns;
   crons: typeof crons;
+  effectRuntime: typeof effectRuntime;
   gmailPushPayload: typeof gmailPushPayload;
   gmailRouting: typeof gmailRouting;
   health: typeof health;

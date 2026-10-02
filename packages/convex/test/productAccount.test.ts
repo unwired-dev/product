@@ -3202,46 +3202,61 @@ describe('gmail operational connection registration', () => {
     ).resolves.toStrictEqual({ deleted: true });
   });
 
-  it.each([429, 503])(
-    'retains the deletion attempt when Apple signing keys return %i',
-    async (status) => {
-      expect.assertions(2);
-
-      const t = convexTest(schema, modules);
-      const asUser = t.withIdentity(appleIdentity);
-      const currentDevice = await asUser.mutation(api.productAccount.connect, {
-        deviceIdentifier: 'device-001',
-        platform: 'ios',
-      });
-      const fetchMock = vi.mocked(fetch);
-      fetchMock.mockImplementationOnce(async () => appleTokenResponse());
-      fetchMock.mockImplementationOnce(
-        async () => new Response(null, { status }),
-      );
-
-      await expect(
-        asUser.action(api.productAccountDeletion.deleteProductAccount, {
-          authorizationCode: 'recent-apple-authorization-code',
-          trustedDeviceId: currentDevice.trustedDeviceId,
-        }),
-      ).rejects.toThrow(
-        'Apple authorization revocation is temporarily unavailable',
-      );
-      await expect(
-        t.run((ctx) =>
-          ctx.db.query('productAccountDeletionRequests').collect(),
-        ),
-      ).resolves.toMatchObject([
-        {
-          phase: 'revocation-pending',
-          revocationMaterial: {
-            kind: 'authorization-code',
-            value: 'recent-apple-authorization-code',
-          },
+  it.each<readonly [string, ReadonlyArray<() => Response>]>([
+    [
+      'Apple signing keys return 429',
+      [appleTokenResponse, () => new Response(null, { status: 429 })],
+    ],
+    [
+      'Apple signing keys return 503',
+      [appleTokenResponse, () => new Response(null, { status: 503 })],
+    ],
+    [
+      'the Apple token endpoint returns 503',
+      [() => new Response(null, { status: 503 })],
+    ],
+    [
+      'Apple cannot be reached',
+      [
+        () => {
+          throw new TypeError('fetch failed');
         },
-      ]);
-    },
-  );
+      ],
+    ],
+  ])('retains the deletion attempt when %s', async (_case, appleResponses) => {
+    expect.assertions(2);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const currentDevice = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+    });
+    const fetchMock = vi.mocked(fetch);
+    for (const appleResponse of appleResponses) {
+      fetchMock.mockImplementationOnce(async () => appleResponse());
+    }
+
+    await expect(
+      asUser.action(api.productAccountDeletion.deleteProductAccount, {
+        authorizationCode: 'recent-apple-authorization-code',
+        trustedDeviceId: currentDevice.trustedDeviceId,
+      }),
+    ).rejects.toThrow(
+      'Apple authorization revocation is temporarily unavailable',
+    );
+    await expect(
+      t.run((ctx) => ctx.db.query('productAccountDeletionRequests').collect()),
+    ).resolves.toMatchObject([
+      {
+        phase: 'revocation-pending',
+        revocationMaterial: {
+          kind: 'authorization-code',
+          value: 'recent-apple-authorization-code',
+        },
+      },
+    ]);
+  });
 
   it('completes deletion when Apple reports a previously attempted revoke as invalid', async () => {
     expect.assertions(3);
@@ -3408,7 +3423,7 @@ describe('gmail operational connection registration', () => {
     ).resolves.toStrictEqual([]);
   });
 
-  it('resumes a previously attempted Apple revocation without a client', async () => {
+  it('resumes a previously attempted Apple revocation without a client after Apple is unavailable', async () => {
     expect.assertions(3);
     vi.useFakeTimers();
     try {
@@ -3437,6 +3452,10 @@ describe('gmail operational connection registration', () => {
             value: 'already-revoked-refresh-token',
           },
         },
+      );
+      // Apple is unavailable for the first recovery, which keeps the request for the next one.
+      vi.mocked(fetch).mockImplementationOnce(
+        async () => new Response(null, { status: 503 }),
       );
       vi.mocked(fetch).mockImplementationOnce(async (input) => {
         expect(input).toBe('https://appleid.apple.com/auth/revoke');
