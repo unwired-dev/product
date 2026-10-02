@@ -124,6 +124,12 @@ class RegistrationCancelled extends Schema.TaggedError<RegistrationCancelled>()(
   {},
 ) {}
 
+// An entry that does not match the Recovery Key's final group is an expected state.
+class RecoveryKeyMismatch extends Schema.TaggedError<RecoveryKeyMismatch>()(
+  'RecoveryKeyMismatch',
+  {},
+) {}
+
 class RegistrationFailed extends Schema.TaggedError<RegistrationFailed>()(
   'RegistrationFailed',
   // The diagnostic is logged instead of the cause; see rejectionDiagnostic.
@@ -138,13 +144,17 @@ const request = Effect.fnUntraced(function* (
 ) {
   const value = yield* Effect.tryPromise({
     try: operation,
-    catch: (cause) =>
-      isCancelled(cause)
-        ? new RegistrationCancelled()
+    catch: (cause) => {
+      if (isCancelled(cause)) {
+        return new RegistrationCancelled();
+      }
+      return isRecoveryKeyMismatch(cause)
+        ? new RecoveryKeyMismatch()
         : new RegistrationFailed({
             cause,
             diagnostic: rejectionDiagnostic(cause),
-          }),
+          });
+    },
   });
   return yield* decodeSnapshot(value).pipe(
     Effect.mapError(
@@ -176,7 +186,7 @@ export function createRegistration(native: NativeRegistration) {
   const execute = (
     operation: Effect.Effect<
       RegistrationSnapshot,
-      RegistrationCancelled | RegistrationFailed
+      RegistrationCancelled | RecoveryKeyMismatch | RegistrationFailed
     >,
     onFailure: (
       snapshot: RegistrationSnapshot,
@@ -195,6 +205,11 @@ export function createRegistration(native: NativeRegistration) {
         Effect.catchTags({
           RegistrationCancelled: () =>
             Effect.sync(() => settled(state.snapshot)),
+          RecoveryKeyMismatch: () =>
+            Effect.sync((): RegistrationState => ({
+              ...settled(state.snapshot),
+              recoveryKeyFailure: 'mismatch',
+            })),
           RegistrationFailed: (error) =>
             Effect.logError('Registration failed:', error.diagnostic).pipe(
               Effect.andThen(
@@ -259,13 +274,8 @@ export function createRegistration(native: NativeRegistration) {
       ),
     confirmRecoveryKey: (entry: string) =>
       execute(
-        async () => decode(await native.confirmRecoveryKey(entry)),
-        (snapshot, error) => ({
-          ...settled(snapshot),
-          recoveryKeyFailure: isRecoveryKeyMismatch(error)
-            ? 'mismatch'
-            : 'failed',
-        }),
+        request(() => native.confirmRecoveryKey(entry)),
+        (snapshot) => ({ ...settled(snapshot), recoveryKeyFailure: 'failed' }),
       ),
   };
 }

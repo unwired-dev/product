@@ -172,8 +172,8 @@ function sameEncryptedPayload(
 
 // Repeating the winning publication is idempotent; other material is never replaced here.
 async function adoptPublishedRecoveryMaterial(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
-  account: AuthenticatedProductAccount, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- The alias is deeply readonly.
+  ctx: MutationCtx,
+  account: AuthenticatedProductAccount,
   material: Readonly<{
     existing: EncryptedProductSyncPayload['encryptedPayload'];
     presented: EncryptedProductSyncPayload['encryptedPayload'];
@@ -184,7 +184,7 @@ async function adoptPublishedRecoveryMaterial(
     material.presented,
   );
   if (initialized && account.productSyncMaterialInitializedAt === undefined) {
-    await ctx.db.patch(account.productAccountId, {
+    await ctx.db.patch('productAccounts', account.productAccountId, {
       productSyncMaterialInitializedAt: Date.now(),
     });
   }
@@ -225,7 +225,7 @@ export const initialize = mutation({
     // Records written under keys that predate the marker also rule out new key material.
     const existingRecord = await ctx.db
       .query('encryptedProductSyncPayloads')
-      .withIndex('by_productAccountId', (q) =>
+      .withIndex('by_productAccountId_and_payloadIdentifier', (q) =>
         q.eq('productAccountId', account.productAccountId),
       )
       .first();
@@ -240,7 +240,7 @@ export const initialize = mutation({
       { ...args, payloadIdentifier: recoveryPayloadIdentifier },
       account.productAccountId,
     );
-    await ctx.db.patch(account.productAccountId, {
+    await ctx.db.patch('productAccounts', account.productAccountId, {
       productSyncMaterialInitializedAt: payload.writtenAt,
     });
     return { initialized: true };
