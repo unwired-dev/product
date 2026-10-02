@@ -5,6 +5,8 @@ import {
   gmailPushVerificationResponseValidator,
 } from '@private-email/contracts/pushRelay';
 import { v } from 'convex/values';
+import * as Option from 'effect/Option';
+import * as Schema from 'effect/Schema';
 
 import type { Doc, Id } from './_generated/dataModel.js';
 import type { MutationCtx, QueryCtx } from './_generated/server.js';
@@ -99,27 +101,50 @@ type VerifiedGoogleIdentity = Readonly<{
   providerAccountIdentifier: string;
 }>;
 
-function stringField(
-  value: Readonly<Record<string, unknown>>,
-  field: string,
-): string | null {
-  const candidate = value[field];
-  return typeof candidate === 'string' && candidate.length > 0
-    ? candidate
-    : null;
-}
+const decodeGoogleIdentityTokenHeader = Schema.decodeUnknownOption(
+  Schema.fromJsonString(
+    Schema.Struct({
+      alg: Schema.Literal('RS256'),
+      kid: Schema.NonEmptyString,
+    }),
+  ),
+);
 
-function requiredString(value: string | null | undefined): string {
-  if (value === null || value === undefined) {
+const decodeGoogleIdentityTokenClaims = Schema.decodeUnknownOption(
+  Schema.fromJsonString(
+    Schema.Struct({
+      aud: Schema.NonEmptyString,
+      email: Schema.NonEmptyString,
+      email_verified: Schema.Literals([true, 'true']),
+      exp: Schema.Union([Schema.Finite, Schema.FiniteFromString]),
+      iss: Schema.Literals([
+        'accounts.google.com',
+        'https://accounts.google.com',
+      ]),
+      sub: Schema.NonEmptyString,
+    }),
+  ),
+);
+
+const decodeGoogleSigningKeySet = Schema.decodeUnknownOption(
+  Schema.Struct({ keys: Schema.Array(Schema.Unknown) }),
+);
+
+// Google publishes RS256 signature keys; the accepted key is passed to Web Crypto unchanged.
+const isGoogleSigningKey = Schema.is(
+  Schema.Struct({
+    alg: Schema.Literal('RS256'),
+    kid: Schema.NonEmptyString,
+    kty: Schema.Literal('RSA'),
+    use: Schema.optionalKey(Schema.Literals(['', 'sig'])),
+  }),
+);
+
+function requiredString(value: string | undefined): string {
+  if (value === undefined) {
     throw new Error('Gmail mailbox ownership proof rejected');
   }
   return value;
-}
-
-function isUnknownRecord(
-  value: unknown,
-): value is Readonly<Record<string, unknown>> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function decodeBase64Url(value: string): ArrayBuffer {
@@ -133,18 +158,18 @@ function decodeBase64Url(value: string): ArrayBuffer {
   return bytes.buffer;
 }
 
-function decodeJwtRecord(value: string): Readonly<Record<string, unknown>> {
+// Every malformed segment gets the common rejection, which does not disclose token contents.
+function decodeJwtSegment<A>(
+  decode: (json: string) => Option.Option<A>,
+  segment: string,
+): A {
   try {
-    const decoded: unknown = JSON.parse(
-      new TextDecoder().decode(decodeBase64Url(value)),
+    return Option.getOrThrow(
+      decode(new TextDecoder().decode(decodeBase64Url(segment))),
     );
-    if (isUnknownRecord(decoded)) {
-      return decoded;
-    }
   } catch {
-    // The common rejection below intentionally does not disclose token contents.
+    throw new Error('Gmail mailbox ownership proof rejected');
   }
-  throw new Error('Gmail mailbox ownership proof rejected');
 }
 
 function googleCacheMaxAge(cacheControl: string): string | undefined {
@@ -167,64 +192,16 @@ function googleSigningKeyLifetimeMs(response: Response): number {
   );
 }
 
-function googleSigningKeyFields(candidate: unknown): Readonly<{
-  algorithm: string | null;
-  keyId: string;
-  keyType: string | null;
-  keyUse: string;
-}> | null {
-  if (!isUnknownRecord(candidate)) {
-    return null;
-  }
-  const algorithm = stringField(candidate, 'alg');
-  const keyId = stringField(candidate, 'kid');
-  const keyType = stringField(candidate, 'kty');
-  const keyUse = stringField(candidate, 'use');
-  if (keyId === null) {
-    return null;
-  }
-  return {
-    algorithm,
-    keyId,
-    keyType,
-    keyUse: keyUse ?? '',
-  };
-}
-
-function googleSigningKeyEntry(
-  candidate: unknown,
-): readonly [string, JsonWebKey] | null {
-  const fields = googleSigningKeyFields(candidate);
-  if (fields === null) {
-    return null;
-  }
-  const validKey = [
-    fields.algorithm === 'RS256',
-    fields.keyType === 'RSA',
-    ['', 'sig'].includes(fields.keyUse),
-  ].every(Boolean);
-  if (!validKey) {
-    return null;
-  }
-  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- The accepted JWK fields are validated above.
-  return [fields.keyId, candidate as JsonWebKey];
-}
-
-function googleSigningKeyCandidates(value: unknown): readonly unknown[] {
-  const candidates = isUnknownRecord(value) ? value.keys : undefined;
-  if (!Array.isArray(candidates)) {
-    // oxlint-disable-next-line unicorn/prefer-type-error -- Preserve the proof rejection error contract.
-    throw new Error('Gmail mailbox ownership proof rejected');
-  }
-  return candidates;
-}
-
 function googleSigningKeys(value: unknown): ReadonlyMap<string, JsonWebKey> {
-  const entries = googleSigningKeyCandidates(value).flatMap((candidate) => {
-    const entry = googleSigningKeyEntry(candidate);
-    return entry === null ? [] : [entry];
-  });
-  const keys = new Map(entries);
+  const { keys: candidates } = Option.getOrThrowWith(
+    decodeGoogleSigningKeySet(value),
+    () => new Error('Gmail mailbox ownership proof rejected'),
+  );
+  const keys = new Map(
+    candidates
+      .filter(isGoogleSigningKey)
+      .map((key): readonly [string, JsonWebKey] => [key.kid, key]),
+  );
   if (keys.size === 0) {
     throw new Error('Gmail mailbox ownership proof rejected');
   }
@@ -301,43 +278,23 @@ function googleIdentityTokenSegments(
 }
 
 function googleIdentityTokenKeyId(headerSegment: string): string {
-  const header = decodeJwtRecord(headerSegment);
-  const algorithm = stringField(header, 'alg');
-  const keyId = stringField(header, 'kid');
-  if (algorithm !== 'RS256' || keyId === null) {
-    throw new Error('Gmail mailbox ownership proof rejected');
-  }
-  return keyId;
+  return decodeJwtSegment(decodeGoogleIdentityTokenHeader, headerSegment).kid;
 }
 
 function verifiedGoogleIdentity(
   claimsSegment: string,
   clientId: string,
 ): VerifiedGoogleIdentity {
-  const claims = decodeJwtRecord(claimsSegment);
-  const audience = stringField(claims, 'aud');
-  const emailAddress = requiredString(stringField(claims, 'email'));
-  const expiresAt = Number(claims.exp);
-  const issuer = stringField(claims, 'iss');
-  const providerAccountIdentifier = requiredString(stringField(claims, 'sub'));
-  const emailVerified =
-    claims.email_verified === true || claims.email_verified === 'true';
-  const validIssuer =
-    issuer === 'accounts.google.com' ||
-    issuer === 'https://accounts.google.com';
-  const validClaims = [
-    audience === clientId,
-    emailVerified,
-    Number.isFinite(expiresAt),
-    expiresAt > Math.floor(Date.now() / 1000),
-    validIssuer,
-  ].every(Boolean);
-  if (!validClaims) {
+  const claims = decodeJwtSegment(
+    decodeGoogleIdentityTokenClaims,
+    claimsSegment,
+  );
+  if (claims.aud !== clientId || claims.exp <= Math.floor(Date.now() / 1000)) {
     throw new Error('Gmail mailbox ownership proof rejected');
   }
   return {
-    emailAddress,
-    providerAccountIdentifier,
+    emailAddress: claims.email,
+    providerAccountIdentifier: claims.sub,
   };
 }
 

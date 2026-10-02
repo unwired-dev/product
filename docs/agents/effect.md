@@ -87,8 +87,7 @@ configurations:
   randomness, `fetch`, timers, `process.env`, and JSON globals inside Effect code.
 - `effect-boundaries/no-object-typeof-guard` and `effect-boundaries/no-json-parse`
   reject hand-rolled parsing, and `effecttsgo/extends-native-error` rejects
-  untagged error classes. Tests, the legacy harness, and Convex until
-  [#687](https://github.com/unwired-dev/product/issues/687) are exempt.
+  untagged error classes. Tests and the legacy harness are exempt.
 - `effect-imports/namespace-imports` requires
   `import * as Module from 'effect/Module'`.
 

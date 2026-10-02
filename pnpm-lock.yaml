@@ -446,6 +446,9 @@ importers:
       convex:
         specifier: 'catalog:'
         version: 1.46.0(react@19.2.3)
+      effect:
+        specifier: 'catalog:'
+        version: 4.0.0-rc.118
     devDependencies:
       '@edge-runtime/vm':
         specifier: ^5.0.0
