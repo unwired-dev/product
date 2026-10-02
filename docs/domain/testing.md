@@ -1,6 +1,6 @@
 # Mail testing
 
-[Domain index](../../CONTEXT.md) · [testing policy](../agents/testing.md) and [mail test environment](../mail-test-environment.md)
+[Domain index](../../GLOSSARY.md) · [testing policy](../agents/testing.md) and [mail test environment](../mail-test-environment.md)
 
 Mock Mail Sessions and real integration evidence serve different purposes under
 [ADR 0060](../adr/0060-pair-mocked-mail-journeys-with-real-integration-evidence.md).

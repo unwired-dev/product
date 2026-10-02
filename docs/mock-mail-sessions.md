@@ -1,5 +1,8 @@
 # Deterministic Mock Mail Sessions
 
+Setup, coding rules, validation and observable requirements remain in this file.
+The review agent owns the separate [architecture companion](architecture/mock-mail-sessions.md).
+
 [#595](https://github.com/unwired-dev/product/issues/595) provides test-only
 synthetic identity, mail and assistance providers and external native runners.
 Both hosts run the existing application runtime, views and native AES-GCM Inbox
@@ -9,11 +12,10 @@ Selection is not persisted.
 
 ## Boundaries and scenarios
 
-`createMockMailSession` accepts only a fixed scenario name. It cannot accept
+A Mock Mail Session accepts only a fixed scenario name. It cannot accept
 credentials, mailbox addresses, Product Account IDs, URLs, network clients or
 provider adapters. Its identity is a literal synthetic identity with an invalid
-email domain. Mail comes from the existing synthetic Inbox fixture. Assistance
-returns a fixed summary. No provider contacts Gmail, Convex, a sign-in service or
+email domain. No provider contacts Gmail, Convex, a sign-in service or
 an assistance service. There is no token or backend-authority representation.
 
 The factory offers `open-read-relaunch`, `identity-unavailable`,
@@ -24,15 +26,13 @@ not sign-in or assistance UI journeys. Later feature slices extend these
 contracts when their application paths exist.
 
 Native builds can select `open-read-relaunch` or `mail-unavailable` using
-`UNWIRED_MOCK_SCENARIO`. Metro resolves the normal seed module to the selected
-test module at build time. Unselected bundles exclude all mock-provider code;
+`UNWIRED_MOCK_SCENARIO`. Unselected bundles exclude all mock-provider code;
 source-map checks enforce that boundary and reject backend sources. Unknown
 scenario names fail the build. Native XCTest accepts `open-read-relaunch` and the six registration scenarios
 described in [Google registration](google-registration.md#deterministic-evidence),
 [Apple registration](apple-registration.md#deterministic-evidence) and
 [linked sign-in](linked-sign-in.md#deterministic-evidence).
-The registration journeys use the native registration store and real Keychain
-with a fixed synthetic provider compiled only in the selected test build.
+The registration journeys use real Keychain with a fixed synthetic provider compiled only in the selected test build.
 Its synthetic [Product Sync](private-product-sync.md#deterministic-evidence)
 backend keeps the run's encrypted records in the same Keychain service, so new
 accounts present a Recovery Key and relaunches keep their keys.

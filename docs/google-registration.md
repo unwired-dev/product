@@ -1,5 +1,8 @@
 # Google registration and Gmail consent
 
+Setup, coding rules, validation and observable requirements remain in this file.
+The review agent owns the separate [architecture companion](architecture/google-registration.md).
+
 [#596](https://github.com/unwired-dev/product/issues/596) adds the replacement
 registration path to both native hosts. Product Sign-In creates or reconnects the
 Product Account through Convex before a separate Gmail authorization session.
@@ -18,34 +21,17 @@ continues into this Gmail authorization flow.
 
 ## Native credentials and verification
 
-GoogleSignIn 10.0.0 supplies the system authorization session, PKCE, OAuth state
-and callback handling, and token refresh. Each interactive session also supplies
-a fresh nonce. The native adapter validates the returned identity's issuer,
-audience, subject, expiry and nonce. Only tokens returned directly by the SDK's
-Google token exchange are accepted at that boundary. Convex independently verifies
-the Product Sign-In JWT signature and configured audience through Google's OIDC
-provider. Deterministic claim tests do not prove Google's live signing-key behavior.
-
-The Gmail session requests `https://www.googleapis.com/auth/gmail.modify`. The
-application checks the token response's actual granted scopes through
-`GIDGoogleUser.grantedScopes` and calls Gmail `users/me/profile` with the resulting
-access token. An identity token, a matching address or a cached receipt cannot
-substitute for either check. Restoring a mailbox refreshes its credential and
+The Gmail session requests `https://www.googleapis.com/auth/gmail.modify`. An identity token, a matching address or a cached receipt cannot
+substitute for verified granted scope and Gmail mailbox access. Restoring a mailbox refreshes its credential and
 rechecks Gmail access. Failed verification returns to pending setup.
 
-Identity and mailbox users are archived independently in a native Keychain record
-using `WhenUnlockedThisDeviceOnly`, no synchronization and the Mac Data Protection
-Keychain. The SDK's transient sign-in cache is cleared after each interactive
-session. Its default credential cache uses `AfterFirstUnlockThisDeviceOnly`.
 JavaScript receives only account/connection status, opaque IDs and the mailbox
 address. Refresh credentials and Gmail access tokens never enter JavaScript or
 Convex. Convex receives the Product identity JWT and existing trusted-device proof
 only. No mailbox connection metadata or provider credential is uploaded. The Product
 identity JWT can contain Google profile claims, including the sign-in email.
 
-The record is bound to its native client ID and Convex deployment. Interruption
-after identity authorization persists the credential before the backend call;
-retry resumes the same subject and stable installation ID. Pending setup offers
+Interruption after identity authorization can resume the same subject and installation ID. Pending setup offers
 interactive sign-in again when the saved account cannot be verified or authorization
 is interrupted. Cancelling Product Sign-In returns to the previous status without
 an error; other native failures reject with their registration code and are logged

@@ -1,5 +1,8 @@
 # Linked Google and Apple sign-in
 
+Setup, coding rules, validation and observable requirements remain in this file.
+The review agent owns the separate [architecture companion](architecture/linked-sign-in.md).
+
 [#598](https://github.com/unwired-dev/product/issues/598) lets a person add the
 other Sign-In Provider to an existing Product Account. After linking, either
 [Apple](apple-registration.md) or [Google](google-registration.md) opens the same
@@ -31,22 +34,16 @@ Product Account. It creates no new account, and the device record is unchanged.
 
 A link requires recent verification of both identities in one interactive session:
 
-1. The host reauthenticates the current Product Sign-In interactively. The subject
-   must match the saved one. Convex then requires a token issued within five minutes
-   and the device's Trusted Device Credential. It issues a single-use link ticket
-   for the requested provider. The ticket expires after five minutes. Only its
-   SHA-256 digest is stored, and a newer request for that provider replaces it.
-2. The host runs a fresh interactive session for the other provider, with no
-   account hint. Neither the Gmail mailbox nor an Apple relay address selects that
-   identity. Convex checks the token's issuer and recent issue time, the ticket's
-   provider and expiry, and the same Trusted Device and credential. It then
-   records the Linked Sign-In and consumes the ticket in one transaction.
+The current identity must match the saved one. Verify both identities with fresh
+interactive authentication, without using a mailbox or relay address as an
+account hint. Each identity token must have been issued within the last five minutes, and the
+link request expires after five minutes. Expired verification requires a fresh
+interactive attempt immediately; there is no waiting period.
 
 Each verified issuer and subject has exactly one owner. Completion is rejected
 when the identity created another Product Account, is linked elsewhere, or
 belongs to a deleted account. A matching email address is never consulted. A
-Product Account holds at most one identity per provider. Convex resolves a Linked
-Sign-In to its account only through the stored issuer and subject.
+Product Account holds at most one identity per provider.
 
 The added Gmail mailbox is a Mailbox Connection. Its Google identity never reaches
 Convex and never becomes a Linked Sign-In. Selecting the same Google account in
@@ -55,21 +52,19 @@ the link session is an explicit choice and still requires its own verification.
 ## Interruption and concurrency
 
 The Product Account, its linked identities and the device record stay unchanged
-until completion commits. Before then Convex stores only the pending ticket,
-which a newer request may supersede. Cancelling either session, a stale token, an
+until completion commits. Cancelling either session, a stale token, an
 expired ticket or a network failure leaves the Product Account and its sign-ins
 unchanged. The host shows a link-specific
 message. Retrying starts a new request. If completion committed but the response
 was lost, retrying the consumed ticket returns the committed link. A later
 request also reports the provider as already linked.
 
-Convex mutations are serializable, so racing link attempts cannot both commit.
+Racing link attempts cannot both commit.
 A newer ticket invalidates an older one for the same provider. An identity
 claimed concurrently by registration or another account commits only once.
 
-Reconnects send the device's saved Product Account ID. If the presented identity
-does not resolve to that account, `productAccount:connect` fails with
-`SIGN_IN_NOT_LINKED`. It creates no account and reveals no other account.
+If the presented identity
+does not resolve to that account, sign-in is rejected. It creates no account and reveals no other account.
 
 ## Deletion and remaining work
 

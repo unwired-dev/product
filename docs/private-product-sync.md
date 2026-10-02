@@ -1,5 +1,8 @@
 # Private Product Sync and the Recovery Key
 
+Setup, coding rules, validation and observable requirements remain in this file.
+The review agent owns the separate [architecture companion](architecture/private-product-sync.md).
+
 [#599](https://github.com/unwired-dev/product/issues/599) initializes
 End-to-End Encrypted Product Sync for a new Product Account on iPhone, iPad and
 Mac. It creates the account keys on the first Trusted Device and presents a
@@ -46,35 +49,11 @@ unlock it. Nothing is reset, and Gmail can still be authorized locally.
 ## Keys and envelopes
 
 The native module holds every key; JavaScript receives only status, the Recovery
-Key while unconfirmed, and decrypted mailbox addresses. Each Product Account has a
-device-only Keychain item (`WhenUnlockedThisDeviceOnly`, not synchronizable, Data
-Protection Keychain on Mac). It holds the account key ring, the Recovery Key, the
-recovery envelope and the publication and confirmation state.
+Key while unconfirmed, and decrypted mailbox addresses.
 
-- **Key ring.** A random 256-bit AES key per epoch, starting at epoch 1. Earlier
-  epochs stay in the ring for older records, matching
-  [ADR 0020](adr/0020-revoke-devices-with-sync-key-rotation.md) rotation.
-- **Records.** AES-GCM-256 with a fresh random 96-bit nonce for every seal.
-  The authenticated data binds the Product Account ID, the opaque record
-  identifier, the algorithm, the key epoch and the record schema. Convex stores
-  only the nonce, ciphertext, tag, key epoch and schema, plus its own row metadata
-  such as `updatedAt` for compare-and-set. Changing any sealed field, moving a record
-  to another identifier or account, or relabelling its epoch fails authentication;
-  row metadata is not authenticated. Records with an unexpected schema are rejected.
-- **Record identifiers.** `mailbox.` followed by a truncated HMAC-SHA-256 of the
-  provider subject. The HMAC key is derived from the first epoch key. Identifiers
-  are stable across devices and epochs. They reveal no address or subject, and
-  they differ between Product Accounts.
-- **Recovery envelope.** The key ring encrypted with a key derived by HKDF from the
-  Recovery Key and the Product Account ID. Its authenticated data also binds the
-  account, epoch and schema. Schema 3 marks this format; the prototype's unbound
-  schema 1 and 2 wrappers are never opened. It is stored under the reserved
-  `product-account-recovery-v1` identifier.
-- **Enrollment envelope.** HPKE (X25519, HKDF-SHA-256, ChaCha20-Poly1305) seals
-  the key ring to one enrolling device's public key. The HPKE info and
-  authenticated data bind the Product Account, target device and enrollment
-  request. #600 owns its transport, approval and device-key storage; this slice
-  defines and tests the envelope only.
+Sealed records reject altered ciphertext, account, identifier, epoch and schema.
+Prototype recovery schemas are never opened. Enrollment keys unlock data only
+for the authorized target device and request.
 
 The mailbox descriptor contains the provider and address. Gmail credentials,
 access tokens, the Google subject and message content never enter it. Mailbox
@@ -82,31 +61,23 @@ credentials stay in the separate device-only registration record.
 
 ## Initialization and relaunch
 
-`productAccount:connect` reports whether the Product Account already has Product
-Sync material. A device creates keys only when Convex reports it has none and this
+Account connection reports whether Product Sync material already exists. A device creates keys only when Convex reports it has none and this
 device holds no keys for the account. It saves the keys locally before publishing
 anything, so an interrupted attempt resumes with the same keys. A receipt saved
 before this slice reports no state; it shows setup as pending, never enrollment,
-and creates no keys until the next connect reports the account's state. Native
-clients read records through every 100-record page.
+and creates no keys until the next connect reports the account's state. Read all record pages before reporting complete synchronization.
 
-`productSync:initialize` stores the first recovery envelope and marks the account
-initialized in one mutation. It requires the authenticated Trusted Device proof
-and the current key epoch. It returns `initialized: false` when the account
-already has other material or any encrypted record, so exactly one device wins. Repeating the winning
-envelope after a lost response succeeds without another write. A device that
-loses discards its unpublished keys, which have protected nothing, and needs
-enrollment. No record is written before publication succeeds. The legacy
-recovery-material replacement route still requires recent authentication.
+Exactly one device can initialize Product Sync. Repeating the winning publication
+after a lost response succeeds without replacing its keys. A competing device
+discards only its unpublished keys, needs enrollment and writes no records before
+publication succeeds. Replacing recovery material requires recent authentication.
 
 On relaunch the device loads its existing keys and never regenerates them.
 With Google, restore refreshes the Product Sign-In, reconnects and reads the
 mailbox descriptors back. Native Sign in with Apple cannot renew its identity
 token silently. An Apple device therefore uses the token from the current
 interactive sign-in for Product Sync, and keeps its local state after relaunch.
-Backend reads and writes resume after the next interactive sign-in. The vault
-keeps the mailbox list it last decrypted, so the list stays visible, and records
-which descriptors this device read back. A mailbox connected without a session is
+Backend reads and writes resume after the next interactive sign-in. The mailbox list last decrypted stays visible, and a mailbox descriptor is marked saved only after this device reads it back. A mailbox connected without a session is
 therefore reported as unsaved until then.
 
 Convex reads and writes require the Trusted Device Credential and remain fenced to

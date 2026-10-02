@@ -1,14 +1,20 @@
 # Domain documentation
 
 This repository has one product domain. Its vocabulary is split by reading topic
-under `docs/domain/`; those files do not imply separate services or architectural
-boundaries. `CONTEXT.md` is the stable entry point and topic index.
+under `docs/domain/`; those topics organize reading within this one product domain. `GLOSSARY.md` is the stable entry point and topic index, following
+[Matt Pocock's domain-modeling skill](https://github.com/mattpocock/skills/blob/main/skills/engineering/domain-modeling/SKILL.md).
+The skill reserves `GLOSSARY-MAP.md` for multiple contexts. This repository keeps
+its topic glossaries within one product domain.
 
 ## Read for the task
 
-Start at [CONTEXT.md](../../CONTEXT.md), open the relevant topic glossary, and
-follow its behavior and ADR links. Read related topics only when the task crosses
-their concepts. Use the established terms in issues, code, tests and documentation.
+Start at [GLOSSARY.md](../../GLOSSARY.md), open the relevant topic glossary, and
+read the observable requirements relevant to the task. Read related topics only
+when the task crosses their concepts. Use the established terms in issues, code,
+tests and documentation. Under the
+[implementation and review workflow](implementation-review.md), only the review
+agent follows ADR links and reads the separate architecture files. The implementer leaves
+architecture interpretation and corrections to that agent.
 
 Check [the documentation index](../README.md) for current scope. ADR 0059 through
 0064 supersede earlier prototype behavior where stated. A glossary entry, old
@@ -17,14 +23,14 @@ implementation status or passing qualification. Surface conflicts explicitly.
 
 ## Put each kind of information in its place
 
-| Information                                       | Location                                                          |
-| ------------------------------------------------- | ----------------------------------------------------------------- |
-| Topic routing and reading guidance                | Root `CONTEXT.md`                                                 |
-| Canonical terms and discouraged synonyms          | The owning file in `docs/domain/`                                 |
-| Observable behavior, limits and feature contracts | Relevant feature documentation, including `docs/product/`         |
-| Architectural choices and their rationale         | `docs/adr/` when a decision warrants an ADR                       |
-| Open questions and implementation work            | The relevant GitHub issue or design discussion                    |
-| Superseded dialogue and historical resolutions    | `docs/archive/`, with a scope note and links to current decisions |
+| Information                                       | Location                                                             |
+| ------------------------------------------------- | -------------------------------------------------------------------- |
+| Topic routing and reading guidance                | Root `GLOSSARY.md`                                                   |
+| Canonical terms and discouraged synonyms          | The owning file in `docs/domain/`                                    |
+| Observable behavior, limits and feature contracts | Relevant feature documentation, including `docs/product/`            |
+| Architectural choices and their rationale         | `docs/architecture/`, or `docs/adr/` when a decision warrants an ADR |
+| Open questions and implementation work            | The relevant GitHub issue or design discussion                       |
+| Superseded dialogue and historical resolutions    | `docs/archive/`, with a scope note and links to current decisions    |
 
 The behavior notes in `docs/product/` preserve rules moved from the former
 monolithic glossary. Some still describe the Swift prototype. When changing an
@@ -45,7 +51,7 @@ an old rule into a new requirement merely by moving or repeating it.
 4. Link to the owning definition or topic from other documents instead of copying
    it. Update callers and documentation when renaming a term; preserve a familiar
    former name in `_Avoid_:` when it helps readers find the replacement.
-5. Update `CONTEXT.md` when adding, renaming or moving a topic. Keep the root file
+5. Update `GLOSSARY.md` when adding, renaming or moving a topic. Keep the root file
    as an index, without duplicating definitions or accumulating feature rules.
 
 ## Verify a documentation change

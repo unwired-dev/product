@@ -1,9 +1,9 @@
 # Product Sync Record Patterns
 
 Use the typed Product Sync record boundary for product-owned state synchronized through
-[End-to-End Encrypted Product Sync](../CONTEXT.md#language). The privacy and recovery decision
+[End-to-End Encrypted Product Sync](../GLOSSARY.md#language). The privacy and recovery decision
 remains [ADR 0001](../docs/adr/0001-end-to-end-encrypted-product-sync.md); use the established
-domain vocabulary in [`CONTEXT.md`](../CONTEXT.md) instead of defining record-specific synonyms.
+domain vocabulary in [`GLOSSARY.md`](../GLOSSARY.md) instead of defining record-specific synonyms.
 
 ## Choose the record shape
 

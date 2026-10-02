@@ -1,6 +1,6 @@
 # Mail organization
 
-[Domain index](../../CONTEXT.md) · [behavior notes](../product/organization.md)
+[Domain index](../../GLOSSARY.md) · [behavior notes](../product/organization.md)
 
 These terms include prototype organization features and follow-up work.
 References to a feature's first release or v1 retain their original scope; they

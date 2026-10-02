@@ -1,8 +1,13 @@
 # Effect conventions
 
+Setup, coding rules, validation and observable requirements remain in this file.
+The review agent owns the separate [architecture companion](../architecture/agents/effect.md).
+
 These conventions apply the installed Effect guide (`node_modules/effect/AGENTS.md`)
-to this repository. [ADR 0065](../adr/0065-scope-effect-adoption.md) records
-the scope. Read the installed guide first. A fresh worktree has no `node_modules`;
+to this repository. The review agent reads
+[ADR 0065](../adr/0065-scope-effect-adoption.md) for the architectural scope under
+the [implementation and review workflow](implementation-review.md).
+Both roles read the installed coding guide first. A fresh worktree has no `node_modules`;
 run the [install](../../README.md#local-development) before reading it.
 
 ## Where Effect is required
@@ -24,10 +29,9 @@ text with `Schema.fromJsonString(schema)`. Narrow with the `Predicate` module wh
 no schema is warranted. A failed decode keeps the boundary closed: map it to the
 boundary's existing error, with the decode error as its cause.
 
-At the native bridge, the Apple host owns its security checks: Keychain access,
-encryption, file locking, provider authorization, and the codes it rejects with.
-TypeScript decodes what crosses the bridge so a malformed or unexpected result
-fails closed; it complements the host's checks and never replaces them.
+At the native bridge, preserve the Apple host's security checks. Decode every
+result in TypeScript so malformed or unexpected results fail closed; decoding
+complements the host checks and never replaces them.
 
 ## Errors
 
@@ -50,9 +54,9 @@ Write inline programs with `Effect.gen`. Name reusable functions with
 `Effect.fn('Name')` at a useful tracing boundary, otherwise `Effect.fnUntraced`.
 Add behavior with combinators passed to `Effect.fn`, not `.pipe` on it.
 
-Introduce a `Context.Service`, keyed `@private-email/<package>/<Name>` with a static
-`layer`, when callers need to substitute an implementation: a provider, HTTP client,
-clock, or configuration. A value already held in a closure stays a plain value.
+For implemented services, follow [Define Effect services](effect-services.md):
+use `Context.Service<Self>()` with an inferred `make`, acquire dependencies in
+`make`, and expose a static `layer = Layer.effect(this, this.make)`.
 
 ## Running programs
 
@@ -72,13 +76,10 @@ Hosts consume shared logic as framework-independent stores:
 `packages/mail-core/src/persistent-inbox.ts` and `registration.ts`.
 
 Convex handlers run their program with `runConvexProgram` from
-`packages/convex/convex/effectRuntime.ts`. It reads each configuration key from
-Convex's `env` when loaded, because the default runtime's environment cannot be
-enumerated or copied, as `ConfigProvider.fromEnv` requires. It logs to
-`console.error` so Convex records failures at error level, and it resumes sleeps
-through a Promise so Convex calls stay in the function's async context. Convex code
-calls `fetch` through `Effect.tryPromise` rather than `HttpClient`, which keeps
-fetch's abort deadlines and test fetch mocks.
+`packages/convex/convex/effectRuntime.ts`. Read configuration through the supplied
+provider and preserve the function's async context. Convex code calls `fetch`
+through `Effect.tryPromise` rather than `HttpClient`; retain fetch abort deadlines
+and test fetch mocks.
 
 ## Tests
 

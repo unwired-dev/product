@@ -1,11 +1,11 @@
 # Historical domain discussions
 
-Archived on 2026-09-28 when the vocabulary in `CONTEXT.md` was split by topic.
+Archived on 2026-09-28 when the former monolithic glossary was split by topic.
 These example dialogues and resolved ambiguities preserve the earlier interview
 record, including prototype and replacement decisions. They are historical
 evidence, not an active specification or a second glossary.
 
-Use the [domain index](../../CONTEXT.md) for canonical definitions and the
+Use the [domain index](../../GLOSSARY.md) for canonical definitions and the
 [documentation index](../README.md) for current scope. In particular,
 [ADR 0062](../adr/0062-keep-queued-delivery-on-its-originating-device.md)
 supersedes cross-device delivery takeover, and

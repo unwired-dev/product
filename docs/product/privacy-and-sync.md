@@ -1,29 +1,21 @@
 # Privacy, storage and synchronization: behavior notes
 
-[Vocabulary](../domain/privacy-and-sync.md) · [Domain index](../../CONTEXT.md)
+Setup, coding rules, validation and observable requirements remain in this file.
+The review agent owns the separate [architecture companion](../architecture/product/privacy-and-sync.md).
+
+[Vocabulary](../domain/privacy-and-sync.md) · [Domain index](../../GLOSSARY.md)
 
 Privacy and encryption boundaries remain applicable. Category-Aware Notification
 and Generic Notification Fallback retain prototype meanings; replacement
 notification behavior comes from
 [ADR 0063](../adr/0063-notify-for-new-inbox-mail-without-categorization.md).
 
-The notes below were moved from `CONTEXT.md` without changing their wording.
-They mix retained product constraints with prototype implementation and feature
-scope. Read them alongside the accepted ADRs; “v1” and “first release” in these
-notes refer to their original feature scope. They do not establish replacement
-launch requirements or proof that a feature is implemented.
-
-## Decisions and scope
-
-- [Accepted replacement scope](../adr/0059-replace-the-client-for-a-shared-cross-platform-product.md)
-- [End-to-end encrypted product sync](../adr/0001-end-to-end-encrypted-product-sync.md)
-- [Use local-first metadata and a bounded encrypted body cache](../adr/0012-bounded-encrypted-body-cache.md)
-- [Accept best-effort background mail freshness](../adr/0013-best-effort-device-side-mail-freshness.md)
-- [Sync mail workflow preferences, not device state](../adr/0019-sync-mail-workflow-preferences-not-device-state.md)
-- [Notify for new Inbox mail without categorization](../adr/0063-notify-for-new-inbox-mail-without-categorization.md)
-
-[The documentation index](../README.md) explains ADR precedence and separates
-current replacement work from prototype maintenance and historical plans.
+These observable requirements were separated from the former monolithic glossary
+and its implementation notes. The reviewer owns the separate architecture companion
+under the [implementation and review workflow](../agents/implementation-review.md).
+“v1” and “first release” in these notes refer to their original feature scope.
+They do not establish replacement launch requirements or proof that a feature is
+implemented.
 
 ## Privacy boundary
 
@@ -44,12 +36,12 @@ current replacement work from prototype maintenance and historical plans.
 - **Historical Metadata Backfill** pauses under low storage, low power, or network loss and resumes when conditions permit
 - Completing **Historical Metadata Backfill** does not require retaining historical message bodies
 - Body prefetch begins after **Initial Mailbox Availability** rather than delaying the newest message list
-- The Product Account mail-load coordinator permits at most four concurrent message-body pipelines account-wide and two per **Mailbox Connection**; a provider may lower only its own connection limit when its transport cannot safely multiplex
+- Message-body loading permits at most four concurrent pipelines account-wide and two per **Mailbox Connection**; a provider may lower only its own connection limit when its transport cannot safely multiplex.
 - An open message permits at most six concurrent remote-image requests, with twelve account-wide; duplicate message or image requests share one task
-- Each **Mailbox Connection** has at most one speculative prefetch or historical-work lane, which yields immediately to interactive work and never occupies another connection's capacity
+- Each **Mailbox Connection** has at most one speculative prefetch or historical-work lane, which yields immediately to interactive work and never occupies another connection's capacity.
 - The **Bounded Encrypted Body Cache** prefetches body text for a recent working set without prefetching attachments or Inline Images
 - For each **Mailbox Connection**, the prefetched recent working set contains at most 500 distinct messages combined across Inbox and **Sent Mailbox**, selected at one synchronization reference instant from messages whose applicable timestamp falls from that instant minus 30 days through that instant, inclusive, ordered by newest applicable timestamp first; duplicate appearances use the later applicable timestamp, and **Stable Provider Message Identity** is the deterministic tie-breaker
-- A synchronization first computes a cache-fitting combined protected set: selected-recent candidates take priority in recency order, then bodies belonging to pinned **Threads** in most-recently-read Thread and message order, stopping when eligible eviction space is exhausted. Applying a new selection may drop an existing pin-only body protection to admit a selected-recent candidate; the dropped body then follows last-resort pinned-Thread eviction. Only admitted candidates are protected; candidates of the same selection never evict one another, and a candidate that still cannot free eligible space is refused and remains on demand until a later synchronization finds space
+- Selected-recent bodies take priority over pinned-Thread bodies when the cache is full. Only bodies that fit are protected; refused bodies remain on demand, and a pinned body may lose protection under the hard cap.
 - Every non-Spam, non-Trash message body in a pinned **Thread** is eligible for prefetch regardless of the 30-day and 500-message cutoffs, subject to that cache-fitting protected-set admission rule; otherwise the Thread metadata and **Pin** remain while the missing body is fetched on demand
 - Spam, Trash, attachments, and older unpinned message bodies remain on-demand; Spam and Trash exclusion overrides a Thread **Pin** for body prefetch
 - Complete **Drafts**, including their **Semantic Message Document** and **Draft Assets**, remain available offline as product-authored data in the **Outgoing Content Store** and synchronize through **End-to-End Encrypted Product Sync** to trusted devices; outgoing content is never evicted automatically, and a full store prevents saving additional authored content until the user removes or shortens an item. Incoming content that would exceed the local limit remains encrypted in Product Sync and is marked pending local storage rather than discarded; it is admitted after space is freed. When trusted devices edit the same Draft from the same synchronized revision while offline, synchronization preserves both versions: the later upload remains the original Draft and the other becomes a user-visible conflicted Draft copy; neither is silently overwritten
@@ -58,9 +50,9 @@ current replacement work from prototype maintenance and historical plans.
 - Evicting a body from a pinned **Thread** preserves the Thread's **Pin** and fetches the body again on demand
 - **Outgoing Content Store** data does not count against the body-cache limit, but Drafts, Send Reminders, Scheduled Sends, and their documents and assets share its separate 100 MB limit
 - **Remote Message Content** is requested per device, defaults to asking the user, and may be configured to never load or always load
-- One-message consent authorizes only the current remote retrieval and later encrypted-cache reuse for the same stable message presentation; it does not authorize changed content or a new request. Remote image requests use an isolated cookie-free and credential-free HTTPS path, reject any literal or resolved non-public destination, pin one validated public address while authenticating the original TLS hostname, and repeat that boundary for every redirect
+- One-message consent authorizes only the current remote retrieval and later encrypted-cache reuse for the same stable message presentation; it does not authorize changed content or a new request. Remote image requests remain cookie-free and credential-free, use HTTPS and reject non-public destinations on every redirect.
 - The **Authorized Remote Content Cache** has a fixed 250 MB device-wide limit separate from the 500 MB body cache; least-recently-used entries are evicted first, currently displayed content is protected, and Storage Settings provides Clear Remote Content
-- The remote-content limit is a shared quota only: entries use Product Account-, Mail Profile-, connection-, stable-message-, and resource-revision-scoped encryption and identity, never deduplicate across Profiles, become inaccessible with Profile Lock, and follow existing Profile-removal deletion rules
+- Remote-content entries remain separated by Product Account, Mail Profile, connection, stable message and resource revision, never deduplicate across Profiles, become inaccessible with Profile Lock and follow Profile-removal deletion rules.
 - Known **Tracking Pixels** remain blocked when other **Remote Message Content** is allowed
 - Explicitly opening retained Gmail HTML may resolve only sanitized, referenced, bounded, supported MIME Inline Images into the isolated presentation; missing or invalid parts fail independently, admitted bytes remain encrypted with the versioned body-cache entry for later provider-free opens, and only their decoded presentation remains scoped to memory
 - Building a reply or forward quote never fetches **Remote Message Content**; quoted HTML is sanitized, blocked images remain non-loading placeholders, and unavailable embedded content or attachments are excluded unless the user explicitly downloads them

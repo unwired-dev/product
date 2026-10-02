@@ -1,26 +1,20 @@
 # Mail organization: behavior notes
 
-[Vocabulary](../domain/organization.md) · [Domain index](../../CONTEXT.md)
+Setup, coding rules, validation and observable requirements remain in this file.
+The review agent owns the separate [architecture companion](../architecture/product/organization.md).
+
+[Vocabulary](../domain/organization.md) · [Domain index](../../GLOSSARY.md)
 
 These terms include prototype organization features and follow-up work.
 References to a feature's first release or v1 retain their original scope; they
 do not add that feature to the focused replacement release.
 
-The notes below were moved from `CONTEXT.md` without changing their wording.
-They mix retained product constraints with prototype implementation and feature
-scope. Read them alongside the accepted ADRs; “v1” and “first release” in these
-notes refer to their original feature scope. They do not establish replacement
-launch requirements or proof that a feature is implemented.
-
-## Decisions and scope
-
-- [Accepted replacement scope](../adr/0059-replace-the-client-for-a-shared-cross-platform-product.md)
-- [Allow multiple Categories per message](../adr/0024-allow-multiple-categories-per-message.md)
-- [Make Inbox Cleanup reviewed and recoverable](../adr/0043-make-inbox-cleanup-reviewed-and-recoverable.md)
-- [Synchronize Muted Threads as product state](../adr/0051-synchronize-muted-threads-as-product-state.md)
-
-[The documentation index](../README.md) explains ADR precedence and separates
-current replacement work from prototype maintenance and historical plans.
+These observable requirements were separated from the former monolithic glossary
+and its implementation notes. The reviewer owns the separate architecture companion
+under the [implementation and review workflow](../agents/implementation-review.md).
+“v1” and “first release” in these notes refer to their original feature scope.
+They do not establish replacement launch requirements or proof that a feature is
+implemented.
 
 ## Product-owned actions
 
@@ -73,13 +67,13 @@ Interruption and protection terms are defined in the [privacy and sync glossary]
 
 - A **Pin** is protected by **End-to-End Encrypted Product Sync**, is keyed by its **Mailbox Connection** and **Stable Thread Identity**, and remains independent of provider-visible flags
 - Pinned **Threads** from all **Mailbox Connections** appear together in the unified pinned view
-- Legacy message Pins migrate idempotently to their containing **Thread**, deduplicate by **Stable Thread Identity**, and remain until the corresponding Thread **Pin** is durably synchronized; a message without reliable linkage forms a one-message Thread
+- Legacy message Pins migrate to their containing **Thread**, deduplicate and remain until the Thread **Pin** synchronizes durably; a message without reliable linkage forms a one-message Thread.
 
 ## Mute and blocked senders
 
 - A **Muted Thread** is protected by **End-to-End Encrypted Product Sync**, keyed by its **Mailbox Connection** and **Stable Thread Identity**, and scoped to one **Mail Profile**
 - A **Muted Thread** remains in Inbox, Mail Views, All Mail, and search with ordinary unread behavior; only notifications and proactive suggestions are suppressed until Unmute
-- New replies do not clear a **Muted Thread**, and rethreading repairs its identity through the stable anchor message without changing provider mail
+- New replies do not clear a **Muted Thread**, and repaired threading preserves its mute state without changing provider mail.
 - Product-owned actions such as **Pin** and **Muted Thread** do not wait for a mail provider and synchronize independently
 - A **Blocked Sender** is a profile-scoped **Mail Workflow Preference** protected by **End-to-End Encrypted Product Sync**; the backend receives neither its readable address nor provider execution requests
 - Blocking applies only to future arriving messages whose normalized sender address matches exactly, suppresses their new-message notifications, and enqueues a recoverable move to Trash through the owning **Mailbox Connection** when that connection supports the action
@@ -95,7 +89,7 @@ Interruption and protection terms are defined in the [privacy and sync glossary]
 - A **Message Category** is assigned to an individual message, not to a **Thread**
 - A message may have multiple **Message Categories**
 - A **Message Category** syncs across devices by its **Mailbox Connection** and **Stable Provider Message Identity**
-- Legacy single-category assignments migrate idempotently to one-member Category sets while preserving assignment source, override state, and learning signals; mixed-version synchronization remains readable and cannot collapse a multi-category set to one value
+- Legacy single-category assignments migrate to one-member Category sets while preserving assignment source, override state and learning signals; mixed-version synchronization remains readable and cannot collapse a multi-category set to one value.
 
 ## Category controls
 
@@ -118,9 +112,9 @@ Interruption and protection terms are defined in the [privacy and sync glossary]
 - System Categorization independently assigns every confidently matching purpose-specific **System Category**; **People** is assigned only as the fallback when no purpose-specific Category matches direct correspondence
 - A **Product Account** may have multiple **Custom Categories**
 - The legacy single Custom Category migrates idempotently into the multi-category collection without changing its identity, description, assignments, notification rules, or learning signals and without automatically adding a **Mail View**; if its name collides case-insensitively with a System Category, migration renames the Custom Category by appending ` (Custom)` and, if needed, a numeric suffix, truncating the legacy name as needed to preserve the 40-character limit
-- The multi-Custom-Category collection activates only after a synchronized minimum-client generation fences legacy singleton clients; updated devices dual-write and merge the legacy definition until every trusted device acknowledges that generation or is revoked, then retire the singleton record
+
 - A **Custom Category** may have a **Category Description**
-- Deleting a Custom Category writes a synchronized tombstone, removes it from active Mail Views and notification eligibility, and preserves historical message memberships and learning records as inactive references until every trusted device has observed the tombstone; an offline edit conflicts with the tombstone rather than recreating the Category silently
+- Deleting a Custom Category removes it from active Mail Views and notification eligibility while preserving historical memberships and learning records as inactive references. An offline edit conflicts rather than recreating the Category silently.
 - Custom Category names are trimmed, contain 1–40 characters, and are case-insensitively unique across System and Custom Categories; descriptions contain at most 500 characters
 - System Categories have fixed product-defined **Category Appearance**; Custom Categories choose from curated SF Symbols and an accessibility-tested color palette, and their appearance synchronizes through **End-to-End Encrypted Product Sync**
 - System Categorization evaluates every enabled **Custom Category** independently and may assign several alongside System Categories; disabling a Custom Category affects only future automatic assignment

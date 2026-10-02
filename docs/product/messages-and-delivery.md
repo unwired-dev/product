@@ -1,6 +1,9 @@
 # Messages and delivery: behavior notes
 
-[Vocabulary](../domain/messages-and-delivery.md) · [Domain index](../../CONTEXT.md)
+Setup, coding rules, validation and observable requirements remain in this file.
+The review agent owns the separate [architecture companion](../architecture/product/messages-and-delivery.md).
+
+[Vocabulary](../domain/messages-and-delivery.md) · [Domain index](../../GLOSSARY.md)
 
 The replacement keeps queued delivery on its originating device under
 [ADR 0062](../adr/0062-keep-queued-delivery-on-its-originating-device.md).
@@ -8,22 +11,12 @@ Scheduled Send Claim and Scheduled Delivery Authorization name the older
 cross-device scheduling protocol; their definitions do not authorize takeover
 in the replacement.
 
-The notes below were moved from `CONTEXT.md` without changing their wording.
-They mix retained product constraints with prototype implementation and feature
-scope. Read them alongside the accepted ADRs; “v1” and “first release” in these
-notes refer to their original feature scope. They do not establish replacement
-launch requirements or proof that a feature is implemented.
-
-## Decisions and scope
-
-- [Accepted replacement scope](../adr/0059-replace-the-client-for-a-shared-cross-platform-product.md)
-- [Keep queued delivery on its originating device](../adr/0062-keep-queued-delivery-on-its-originating-device.md)
-- [Model Outbox delivery as immutable attempts](../adr/0016-durable-outbox-delivery-attempts.md)
-- [Use semantic rich-text Drafts with encrypted assets](../adr/0025-use-semantic-rich-text-drafts-with-encrypted-assets.md)
-- [Scope verified Sending Identities to Mail Profiles](../adr/0054-scope-verified-sending-identities-to-mail-profiles.md)
-
-[The documentation index](../README.md) explains ADR precedence and separates
-current replacement work from prototype maintenance and historical plans.
+These observable requirements were separated from the former monolithic glossary
+and its implementation notes. The reviewer owns the separate architecture companion
+under the [implementation and review workflow](../agents/implementation-review.md).
+“v1” and “first release” in these notes refer to their original feature scope.
+They do not establish replacement launch requirements or proof that a feature is
+implemented.
 
 ## Read receipts
 
@@ -41,7 +34,7 @@ current replacement work from prototype maintenance and historical plans.
 - While that composer is not expanded, the sidebar and Thread list remain interactive, the covered detail column does not, and changing Thread selection updates the reader behind the composer without dismissing or resetting its Draft; closing reveals the latest selection
 - The regular-width composer spans the detail column with 12-point outer insets and uses 70 percent of available height clamped from 420 through 720 points; it has only overlay and full-app states, not freeform drag resizing
 - On compact layouts, composing is an editor destination pushed into the existing navigation stack rather than a sheet or full-screen modal
-- Composer expansion is transient to the open editor and never changes how a later Draft opens; the legacy synchronized partial-or-full opening preference is ignored after migration and removed only after older clients are fenced out
+- Composer expansion is transient to the open editor and never changes how a later Draft opens; the legacy synchronized partial-or-full opening preference is ignored after migration.
 - Selecting a product-authored **Draft** enters that same editor directly; Drafts have no read-only reader state
 - Each mail window has one active composer. Its `x` closes only after the latest autosave succeeds and never discards the Draft; Discard remains an explicit destructive overflow action
 - Starting another message or selecting another product-authored Draft autosaves and parks the current Draft, then switches the same editor to the requested Draft; a save failure blocks the switch and remains visible inline
@@ -51,15 +44,15 @@ current replacement work from prototype maintenance and historical plans.
 ## Provider submission and Draft lifetime
 
 - After SMTP accepts a message for a **Standards-Based Mailbox Connection**, the client appends a verified copy to its mapped Sent role; if that append cannot be confirmed, it retries or reconciles only the sent-copy operation, visibly marks the copy as pending, and never resends the delivered message
-- Before attempting that Sent append, the trusted device encrypts the exact accepted MIME in a connection-scoped journal; a stable RFC Message-ID prevents duplicate appends during recovery, and the journal is removed only after Sent containment or append is confirmed
+
 - An ambiguous post-content SMTP outcome is never retried automatically and requires explicit user reconciliation
 - The **Outbox** appears only while it contains a scheduled, pending, retrying, failed, or needs-attention outgoing message
 - Composer edits continuously autosave to an encrypted **Draft**; if the **Outgoing Content Store** cannot admit the latest edit, the composer visibly retains unsaved state and blocks closing, sending, and discard until the edit is saved or explicitly abandoned
-- The Apple Share Extension binds explicit shared content to the device-local **Startup Profile** and its Default Sending Identity, authenticates before revealing a locked Profile, stores only an encrypted **Share Intake Draft** in the shared App Group, and opens the normal composer without a direct-send path or backend-readable copy
-- Sending removes a **Draft** only after the outgoing message is durably admitted to the **Outbox**, which atomically retains the complete rendered MIME payload and referenced Draft Assets until the attempt becomes terminal or is cancelled
-- **Draft Assets** synchronize through **End-to-End Encrypted Product Sync** as independently encrypted, verified chunks; Send remains unavailable until every required asset is complete and valid on the sending device
+- The Apple Share Extension binds explicit shared content to the device-local **Startup Profile** and its Default Sending Identity, authenticates before revealing a locked Profile, and opens the normal composer without a direct-send path or backend-readable copy.
+- Sending removes a **Draft** only after the outgoing message is durably admitted to the **Outbox**, which retains its complete content and assets until the attempt becomes terminal or is cancelled.
+- **Draft Assets** synchronize through **End-to-End Encrypted Product Sync**. Send remains unavailable until every required asset is complete and valid on the sending device.
 - Product-authored Drafts are distinct from provider-hosted Draft mailboxes: provider Draft messages remain read-only provider mail in v1 and are not imported, mirrored, or retired by Product Sync Draft operations
-- Discarding a **Draft** or durably admitting it to the **Outbox** writes a synchronized tombstone. If an offline edit conflicts with that tombstone, the tombstone preserves the sent or discarded Draft while the edit is materialized as a user-visible conflicted Draft copy; referenced Draft Assets remain retained until the conflict copy is resolved or discarded, then become eligible for cleanup
+- Discarding a **Draft** or durably admitting it to the **Outbox** preserves the sent or discarded state across devices. A conflicting offline edit becomes a user-visible conflicted Draft copy whose assets remain retained until it is resolved or discarded.
 
 ## Historical cross-device scheduling
 
@@ -68,15 +61,15 @@ These prototype rules include delivery takeover by another device.
 supersedes that ownership model for the replacement, including future scheduling.
 
 - A **Scheduled Send** is a synchronized Outbox commitment, while a **Send Reminder** remains attached to a Draft and never authorizes delivery
-- A Send Reminder synchronizes end-to-end encrypted as an additive revisioned record with a cancellation tombstone; its Draft remains the content authority, and only the current reminder revision can be opened, cleared, or rescheduled
+- A Send Reminder synchronizes end-to-end encrypted; its Draft remains the content authority, and only the current reminder can be opened, cleared or rescheduled.
 - The latest active notification-authorized Trusted Device to reconcile a Send Reminder owns its local notification. A later owner fences the prior owner, while offline reminders remain visibly pending and denied or suppressed reminders remain available as overdue Drafts
 - Send Reminder interruption is governed by the existing default-on **Return-to-Attention** preference together with device interruption controls, Quiet State, Profile Lock, OS notification authorization, and device-local lock-screen content policy
 - Scheduled Send is available for every send-capable new-message, reply, reply-all, and forward composer and uses the same product-owned behavior for every send-capable **Mailbox Connection**
-- A Scheduled Send is admitted only after its complete payload synchronizes end-to-end encrypted, its Draft tombstone commits, and its opaque operational schedule is activated; admission fails closed while offline or uncertain and leaves the message as a Draft
-- For Scheduled Send, the backend may read only the Product Account, opaque schedule identity, absolute delivery instant, 24-hour deadline, expected encrypted-record revision, scheduled wake identifier, admission state, claim owner, claim generation, claim phase and timestamps, compatible device-authorization generation, and terminal or cleanup state without message outcome details; recipients, subject, body, assets, selected Mailbox Connection, and provider results remain end-to-end encrypted, and provider credentials remain device-local
+- A Scheduled Send is admitted only after its complete payload synchronizes end-to-end encrypted and its Draft is durably retired; admission fails closed while offline or uncertain and leaves the message as a Draft
+
 - Scheduled Send delivery is best-effort at or after its absolute selected instant; it never promises exact background execution, and an item more than 24 hours late requires user attention instead of sending automatically
-- Any compatible trusted device with the selected **Mailbox Authorization** and **Scheduled Delivery Authorization** may acquire the one active **Scheduled Send Claim**; provider handoff fences every other device until its result is reconciled
-- Opening a Scheduled Send for editing first acquires a synchronized edit fence; editing, rescheduling, cancellation, mode conversion, and delivery claiming compare the same synchronized revision so they cannot create duplicate delivery commitments
+- In the prototype, any compatible trusted device with the selected **Mailbox Authorization** and **Scheduled Delivery Authorization** may deliver a Scheduled Send, but exactly one device may proceed to provider handoff.
+- Opening a Scheduled Send for editing, rescheduling, cancellation, mode conversion and delivery cannot create duplicate delivery commitments.
 - Cancelling a Scheduled Send restores an editable Draft, while cancelling a Send Reminder removes only the reminder; explicit mode conversion keeps exactly one synchronized state active
 - Scheduled Send never silently changes its selected Mailbox Connection, and **Send Now** remains subject to the **Undo Send Window**
 - Removing authorization from one device preserves Scheduled Sends for other eligible devices; removing their Mailbox Connection everywhere or deleting the Product Account warns and cancels affected commitments
@@ -119,7 +112,7 @@ supersedes that ownership model for the replacement, including future scheduling
 - A **Thread** uses a reliable provider conversation identity when available, otherwise RFC message and reply identifiers
 - Subject similarity alone never combines messages into a **Thread**, and messages without reliable linkage remain separate
 - Selecting a **Thread** opens its conversation rather than only its latest message
-- The conversation reader orders messages newest to oldest and expands every message, with the newest message at the top; its load coordinator gives bodies intersecting the visible viewport priority over every off-screen body and immediately reprioritizes when scrolling changes visibility
+- The conversation reader orders messages newest to oldest and expands every message, with the newest message at the top; bodies intersecting the visible viewport have priority over every off-screen body, with immediate reprioritization when scrolling changes visibility
 - The reader uses one flat detail-column scroll with subject and Thread summary first, then compact sender-and-date headers, disclosed recipient details, message bodies, and thin message separators rather than stacked cards
 - Thread-level actions remain in one fixed reader toolbar instead of repeating controls on every expanded message
 - After visible bodies finish, off-screen bodies load automatically in distance-from-viewport order until the Thread is ready; Inline Images and **Remote Message Content** begin only within the visible viewport or a one-viewport prefetch margin

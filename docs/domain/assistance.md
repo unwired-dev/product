@@ -1,6 +1,6 @@
 # On-device assistance
 
-[Domain index](../../CONTEXT.md) · [behavior notes](../product/assistance.md)
+[Domain index](../../GLOSSARY.md) · [behavior notes](../product/assistance.md)
 
 Explicit on-device assistance remains part of the replacement. Profile-specific
 terms also describe prototype or follow-up behavior; platform and launch scope

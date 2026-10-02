@@ -1,6 +1,9 @@
 # Messages and delivery
 
-[Domain index](../../CONTEXT.md) · [behavior notes](../product/messages-and-delivery.md)
+Setup, coding rules, validation and observable requirements remain in this file.
+The review agent owns the separate [architecture companion](../architecture/domain/messages-and-delivery.md).
+
+[Domain index](../../GLOSSARY.md) · [behavior notes](../product/messages-and-delivery.md)
 
 The replacement keeps queued delivery on its originating device under
 [ADR 0062](../adr/0062-keep-queued-delivery-on-its-originating-device.md).
@@ -84,7 +87,7 @@ A revocable device-bound authorization that permits a compatible **Trusted Devic
 _Avoid_: Mailbox Authorization, provider credential, backend delivery credential
 
 **Stable Provider Message Identity**:
-A provider-specific message identity used to match the same message across devices. Gmail uses its immutable message resource ID; Microsoft Graph connections require immutable IDs; IMAP uses its immutable provider-mailbox identity plus UIDVALIDITY and UID; POP3 connections require UIDL; and Exchange uses its provider item identity. A provider that cannot supply the required stable identity is not eligible for a synchronized Mailbox Connection. Provider adapters retain a verified repair mapping for provider-issued identity changes such as moves; if repair is ambiguous or unavailable, they create a distinct product record rather than applying product state to the wrong message.
+A provider-specific message identity used to match the same message across devices. A provider that cannot supply the required stable identity is not eligible for a synchronized Mailbox Connection. Ambiguous or unavailable identity repair must not apply product state to the wrong message.
 _Avoid_: Local database ID, backend message ID
 
 **Thread**:
@@ -92,7 +95,7 @@ A group of related messages within one **Mailbox Connection**, shown together as
 _Avoid_: Category target
 
 **Stable Thread Identity**:
-A **Mailbox Connection**-scoped identity derived from a reliable provider conversation identity or verified RFC reply linkage and used to preserve product-owned Thread state across trusted devices.
+A **Mailbox Connection**-scoped identity used to preserve product-owned Thread state across trusted devices.
 _Avoid_: Subject, latest message identity
 
 **Inline Image**:

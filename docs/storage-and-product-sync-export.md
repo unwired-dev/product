@@ -1,5 +1,8 @@
 # Storage and Product Sync export
 
+Setup, coding rules, validation and observable requirements remain in this file.
+The review agent owns the separate [architecture companion](architecture/storage-and-product-sync-export.md).
+
 Scope: the current SwiftUI and Mac Catalyst prototype. Keep this document for
 maintenance until cutover. Its implementation and qualification claims do not
 qualify the Expo or native React Native Mac replacement; use
@@ -23,7 +26,7 @@ Clearing cached bodies and attachments preserves provider mail, metadata, Produc
 
 ## Product Sync export
 
-Export is available only from a Trusted Device with the Product Sync key material already present. The client paginates every exportable encrypted Product Sync record, excluding the Product Account recovery payload, decrypts each payload on device with its record identifier as authenticated associated data, and writes readable, sorted JSON. It fails without producing a partial file when key material is missing, pagination is incomplete, a duplicate record is returned, payload decoding or decryption fails, or the export is cancelled.
+Export is available only from a Trusted Device with the Product Sync key material already present. The client exports every exportable encrypted Product Sync record, excluding the Product Account recovery payload, decrypts each payload on device, and writes readable, sorted JSON. It fails without producing a partial file when key material is missing, pagination is incomplete, a duplicate record is returned, payload decoding or decryption fails, or the export is cancelled.
 
 The export contains the Product Account identifier, export time, format version, record identifiers and timestamps, and each decoded Product Sync value. This includes Mail Profile identity and ownership, multi-Category membership, Thread Pins, semantic Draft documents, and available Draft Asset metadata and content. Provider credentials, Product Account session credentials, and Trusted Device credentials are not Product Sync records and are excluded.
 
