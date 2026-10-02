@@ -1147,3 +1147,180 @@ describe('productSync encrypted payloads', () => {
     ).rejects.toThrow('Product Account required');
   });
 });
+
+describe('productSync initialization', () => {
+  const googleIdentity = {
+    issuer: 'https://accounts.google.com',
+    subject: 'google-user-001',
+    tokenIdentifier: 'https://accounts.google.com|google-user-001',
+  };
+  const recoveryEnvelope = {
+    ...encryptedPayload,
+    ciphertextBase64: 'cmVjb3Zlcnk',
+    schemaVersion: 3,
+  };
+
+  async function connectDevice(
+    asUser: ReturnType<ReturnType<typeof convexTest>['withIdentity']>,
+    deviceIdentifier: string,
+  ) {
+    const connection = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier,
+      platform: 'ios',
+      supportsDeviceCredentials: true,
+    });
+    return {
+      connection,
+      proof: {
+        trustedDeviceCredential: connection.trustedDeviceCredential,
+        trustedDeviceId: connection.trustedDeviceId as Id<'trustedDevices'>,
+      },
+    };
+  }
+
+  it('creates key material once for a new Product Account and lets only the winning device retry', async () => {
+    expect.assertions(4);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(googleIdentity);
+    const first = await connectDevice(asUser, 'installation-001');
+    const second = await connectDevice(asUser, 'installation-002');
+    expect(first.connection).toMatchObject({
+      productSyncMaterialInitialized: false,
+    });
+
+    await expect(
+      asUser.mutation(api.productSync.initialize, {
+        ...first.proof,
+        encryptedPayload: recoveryEnvelope,
+      }),
+    ).resolves.toStrictEqual({ initialized: true });
+    // A lost response retries with the same envelope; another device's material is refused.
+    await expect(
+      asUser.mutation(api.productSync.initialize, {
+        ...first.proof,
+        encryptedPayload: recoveryEnvelope,
+      }),
+    ).resolves.toStrictEqual({ initialized: true });
+    await expect(
+      asUser.mutation(api.productSync.initialize, {
+        ...second.proof,
+        encryptedPayload: { ...recoveryEnvelope, ciphertextBase64: 'b3RoZXI' },
+      }),
+    ).resolves.toStrictEqual({ initialized: false });
+  });
+
+  it('shares the winning recovery envelope with later devices but keeps it out of record writes', async () => {
+    expect.assertions(3);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(googleIdentity);
+    const first = await connectDevice(asUser, 'installation-001');
+    await asUser.mutation(api.productSync.initialize, {
+      ...first.proof,
+      encryptedPayload: recoveryEnvelope,
+    });
+    const second = await connectDevice(asUser, 'installation-002');
+    expect(second.connection).toMatchObject({
+      productSyncMaterialInitialized: true,
+    });
+    await expect(
+      asUser.query(api.productSync.getEncryptedPayloadForTrustedDevice, {
+        ...second.proof,
+        payloadIdentifier: 'product-account-recovery-v1',
+      }),
+    ).resolves.toMatchObject({ encryptedPayload: recoveryEnvelope });
+    // The recovery envelope stays reserved from ordinary record writes.
+    await expect(
+      asUser.mutation(api.productSync.putEncryptedPayloadIfUnchanged, {
+        ...second.proof,
+        encryptedPayload: recoveryEnvelope,
+        payloadIdentifier: 'product-account-recovery-v1',
+      }),
+    ).rejects.toThrow('Recovery material requires recent authentication');
+  });
+
+  it('never initializes an account that already has key material', async () => {
+    expect.assertions(3);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(googleIdentity);
+    const device = await connectDevice(asUser, 'installation-001');
+    await asUser.mutation(
+      api.productAccount.markProductSyncMaterialInitialized,
+      {
+        ...device.proof,
+      },
+    );
+
+    await expect(
+      asUser.mutation(api.productSync.initialize, {
+        ...device.proof,
+        encryptedPayload: recoveryEnvelope,
+      }),
+    ).resolves.toStrictEqual({ initialized: false });
+    await expect(
+      asUser.query(api.productSync.getEncryptedPayloadForTrustedDevice, {
+        ...device.proof,
+        payloadIdentifier: 'product-account-recovery-v1',
+      }),
+    ).resolves.toBeNull();
+    await expect(
+      asUser.mutation(api.productSync.initialize, {
+        ...device.proof,
+        encryptedPayload: { ...recoveryEnvelope, keyVersion: 2 },
+      }),
+    ).rejects.toThrow('Product Sync key rotation required');
+  });
+
+  it('never initializes an account whose records were encrypted under earlier keys', async () => {
+    expect.assertions(2);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(googleIdentity);
+    const device = await connectDevice(asUser, 'installation-001');
+    await asUser.mutation(api.productSync.putEncryptedPayloadIfUnchanged, {
+      ...device.proof,
+      encryptedPayload,
+      payloadIdentifier: 'mailbox.prototype',
+    });
+
+    await expect(
+      asUser.mutation(api.productSync.initialize, {
+        ...device.proof,
+        encryptedPayload: recoveryEnvelope,
+      }),
+    ).resolves.toStrictEqual({ initialized: false });
+    await expect(
+      asUser.query(api.productSync.getEncryptedPayloadForTrustedDevice, {
+        ...device.proof,
+        payloadIdentifier: 'product-account-recovery-v1',
+      }),
+    ).resolves.toBeNull();
+  });
+
+  it('initializes only the Product Account of the presenting Trusted Device', async () => {
+    expect.assertions(2);
+
+    const t = convexTest(schema, modules);
+    const owner = await connectDevice(
+      t.withIdentity(googleIdentity),
+      'installation-001',
+    );
+    const asOther = t.withIdentity(otherAppleIdentity);
+    await connectDevice(asOther, 'installation-002');
+
+    await expect(
+      asOther.mutation(api.productSync.initialize, {
+        ...owner.proof,
+        encryptedPayload: recoveryEnvelope,
+      }),
+    ).rejects.toThrow('Trusted device required');
+    await expect(
+      t.withIdentity(googleIdentity).mutation(api.productSync.initialize, {
+        trustedDeviceId: owner.proof.trustedDeviceId,
+        encryptedPayload: recoveryEnvelope,
+      }),
+    ).rejects.toThrow('Reconnect this Trusted Device to continue.');
+  });
+});

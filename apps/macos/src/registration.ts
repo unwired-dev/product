@@ -13,4 +13,5 @@ export const registration = createRegistration({
   signIn: (provider) => native().signIn(provider),
   authorizeGmail: (reselect) => native().authorizeGmail(reselect),
   link: (provider) => native().link(provider),
+  confirmRecoveryKey: (entry) => native().confirmRecoveryKey(entry),
 });

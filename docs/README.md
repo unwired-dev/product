@@ -25,6 +25,7 @@ their scope below; publication of a plan does not prove implementation or releas
 - [Google registration, Gmail consent and protected OAuth qualification](google-registration.md)
 - [Apple registration continuing into Gmail authorization](apple-registration.md)
 - [Linked Google and Apple sign-in](linked-sign-in.md)
+- [Private Product Sync and the Recovery Key](private-product-sync.md)
 
 ## Shared policies
 

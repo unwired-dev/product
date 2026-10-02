@@ -13,7 +13,13 @@ const Scenario = Schema.Literals([
   'registration-interrupted',
   'registration-success',
   'registration-link',
+  // The synthetic Product Account already has Product Sync keys on another device.
+  'registration-enrollment',
 ]);
+
+// A well-formed synthetic Recovery Key; it protects nothing.
+export const syntheticRecoveryKey =
+  'K7QM-2VXH-9D4T-RW8B-3NZC-6PJF-1GSA-5EYK-0MQT-4HBV-8XRD-2CWN-7G0P';
 
 const rejection = (message: string, code: string) =>
   Promise.reject(Object.assign(new Error(message), { code }));
@@ -28,7 +34,43 @@ const account = (snapshot: SignedIn) => ({
   ...(snapshot.contactEmail === undefined
     ? {}
     : { contactEmail: snapshot.contactEmail }),
+  ...(snapshot.privateSync === undefined
+    ? {}
+    : { privateSync: snapshot.privateSync }),
+  ...(snapshot.recoveryKey === undefined
+    ? {}
+    : { recoveryKey: snapshot.recoveryKey }),
+  ...(snapshot.privateSyncMailboxes === undefined
+    ? {}
+    : { privateSyncMailboxes: snapshot.privateSyncMailboxes }),
 });
+
+// Scenarios whose first Gmail session grants access; the others need another mailbox.
+const grantsFirstMailbox = new Set<typeof Scenario.Type>([
+  'registration-success',
+  'registration-link',
+  'registration-enrollment',
+  'registration-interrupted',
+]);
+
+const connectedTo = (
+  snapshot: SignedIn,
+  reselect: boolean,
+): RegistrationSnapshot => {
+  const address = reselect ? 'other@example.invalid' : 'alex@example.invalid';
+  return {
+    kind: 'connected',
+    ...account(snapshot),
+    providerSubject: reselect
+      ? 'synthetic-alternate-google-subject'
+      : 'synthetic-google-subject',
+    address,
+    // Only a device holding the account keys reads back the encrypted descriptor.
+    ...(snapshot.privateSync === 'enrollment-needed'
+      ? {}
+      : { privateSyncMailboxes: address }),
+  };
+};
 
 export function createMockRegistrationSession(selection: unknown) {
   // oxlint-disable-next-line node/no-sync -- Fixed test-only scenario selection.
@@ -48,15 +90,25 @@ export function createMockRegistrationSession(selection: unknown) {
     restore: () => Promise.resolve(snapshot),
     signIn: (provider) => {
       if (snapshot.kind === 'signed-out') {
+        // A new Product Account creates its keys; an existing one needs enrollment instead.
         snapshot = {
           kind: 'mailbox-needed',
           signInProvider: provider,
           ...accounts[provider],
+          ...(scenario === 'registration-enrollment'
+            ? { privateSync: 'enrollment-needed' }
+            : {
+                privateSync: 'recovery-key',
+                recoveryKey: syntheticRecoveryKey,
+              }),
         };
         return Promise.resolve(snapshot);
       }
       if (snapshot.signInProvider === provider) {
-        snapshot = { kind: 'mailbox-needed', ...account(snapshot) };
+        // A saved mailbox that still verifies stays connected.
+        if (snapshot.kind !== 'connected') {
+          snapshot = { kind: 'mailbox-needed', ...account(snapshot) };
+        }
         return Promise.resolve(snapshot);
       }
       if (snapshot.alternateSignIn !== provider) {
@@ -82,21 +134,10 @@ export function createMockRegistrationSession(selection: unknown) {
         attempted = true;
         return Promise.reject(new Error('Synthetic authorization interrupted'));
       }
-      if (
-        !['registration-success', 'registration-link'].includes(scenario) &&
-        !reselect &&
-        scenario !== 'registration-interrupted'
-      ) {
+      if (!reselect && !grantsFirstMailbox.has(scenario)) {
         return Promise.resolve(snapshot);
       }
-      snapshot = {
-        kind: 'connected',
-        ...account(snapshot),
-        providerSubject: reselect
-          ? 'synthetic-alternate-google-subject'
-          : 'synthetic-google-subject',
-        address: reselect ? 'other@example.invalid' : 'alex@example.invalid',
-      };
+      snapshot = connectedTo(snapshot, reselect);
       return Promise.resolve(snapshot);
     },
     link: (provider) => {
@@ -113,6 +154,23 @@ export function createMockRegistrationSession(selection: unknown) {
         );
       }
       snapshot = { ...snapshot, alternateSignIn: provider };
+      return Promise.resolve(snapshot);
+    },
+    confirmRecoveryKey: (entry) => {
+      if (
+        snapshot.kind === 'signed-out' ||
+        snapshot.privateSync !== 'recovery-key'
+      ) {
+        return rejection('Synthetic Recovery Key unavailable', 'unavailable');
+      }
+      if (entry.trim().toUpperCase() !== syntheticRecoveryKey.slice(-4)) {
+        return rejection(
+          'Synthetic Recovery Key mismatch',
+          'recovery-key-mismatch',
+        );
+      }
+      const { recoveryKey: _recoveryKey, ...confirmed } = snapshot;
+      snapshot = { ...confirmed, privateSync: 'ready' };
       return Promise.resolve(snapshot);
     },
   };

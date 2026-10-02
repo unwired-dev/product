@@ -1,5 +1,8 @@
 import { createRegistration } from '@private-email/mail-core/registration';
-import { createMockRegistrationSession } from '@private-email/mail-core/testing/registration-session';
+import {
+  createMockRegistrationSession,
+  syntheticRecoveryKey,
+} from '@private-email/mail-core/testing/registration-session';
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 
 import { RegistrationGate } from '../src/registration-gate.tsx';
@@ -44,7 +47,9 @@ describe('product registration', () => {
     await expect(
       screen.findByRole('header', { name: 'Gmail connected' }),
     ).resolves.toBeVisible();
-    expect(screen.getByText(/other@example.invalid/u)).toBeVisible();
+    expect(
+      screen.getByText('other@example.invalid is connected on this device.'),
+    ).toBeVisible();
   });
 
   it('offers interactive sign-in to recover a retained account after interruption', async () => {
@@ -77,6 +82,8 @@ describe('product registration', () => {
       kind: 'mailbox-needed',
       productAccountId: 'synthetic-product-account',
       signInProvider: 'google',
+      privateSync: 'recovery-key',
+      recoveryKey: syntheticRecoveryKey,
     });
     await act(async () => {
       await fireEvent.press(
@@ -232,6 +239,8 @@ describe('product registration', () => {
       authorizeGmail: () =>
         Promise.reject(new Error('Gmail consent must not restart')),
       link: () => Promise.reject(new Error('Not linking')),
+      confirmRecoveryKey: () =>
+        Promise.reject(new Error('No Recovery Key to confirm')),
     });
     await render(
       <RegistrationGate
@@ -255,5 +264,132 @@ describe('product registration', () => {
       ...account,
       signInProvider: 'google',
     });
+  });
+
+  it('presents the Recovery Key until its final group is confirmed, then shows the encrypted mailbox list', async () => {
+    expect.hasAssertions();
+    const session = createMockRegistrationSession('registration-success');
+    const first = await render(
+      <RegistrationGate
+        store={createRegistration(session.native)}
+        preview={false}>
+        {null}
+      </RegistrationGate>,
+    );
+    await act(async () => {
+      await fireEvent.press(
+        await screen.findByRole('button', { name: 'Sign in with Google' }),
+      );
+    });
+    await expect(
+      screen.findByText('Encrypted mailbox list: alex@example.invalid.'),
+    ).resolves.toBeVisible();
+    const entry = screen.getByLabelText('Last four characters');
+    await act(async () => {
+      await fireEvent.changeText(entry, '0000');
+    });
+    await act(async () => {
+      await fireEvent.press(
+        screen.getByRole('button', { name: 'Confirm Recovery Key' }),
+      );
+    });
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      /does not match the end of your Recovery Key/u,
+    );
+    // Remounting still presents the same key; no replacement is generated.
+    await first.unmount();
+    await render(
+      <RegistrationGate
+        store={createRegistration(session.native)}
+        preview={false}>
+        {null}
+      </RegistrationGate>,
+    );
+    await expect(
+      screen.findByText(syntheticRecoveryKey),
+    ).resolves.toBeVisible();
+    await act(async () => {
+      await fireEvent.changeText(
+        screen.getByLabelText('Last four characters'),
+        // Separators and case are ignored, as in native confirmation.
+        [...syntheticRecoveryKey.slice(-4).toLowerCase()].join(' '),
+      );
+    });
+    await act(async () => {
+      await fireEvent.press(
+        screen.getByRole('button', { name: 'Confirm Recovery Key' }),
+      );
+    });
+    await expect(
+      screen.findByRole('header', { name: 'Private sync is on' }),
+    ).resolves.toBeVisible();
+    expect(screen.queryByText(syntheticRecoveryKey)).toBeNull();
+  });
+
+  it('asks an existing Product Account to unlock this device without creating a Recovery Key', async () => {
+    expect.hasAssertions();
+    const session = createMockRegistrationSession('registration-enrollment');
+    await render(
+      <RegistrationGate
+        store={createRegistration(session.native)}
+        preview={false}>
+        {null}
+      </RegistrationGate>,
+    );
+    await act(async () => {
+      await fireEvent.press(
+        await screen.findByRole('button', { name: 'Sign in with Google' }),
+      );
+    });
+    await expect(
+      screen.findByRole('header', {
+        name: 'Unlock private data on this device',
+      }),
+    ).resolves.toBeVisible();
+    expect(
+      screen.getByRole('header', { name: 'Gmail connected' }),
+    ).toBeVisible();
+    expect(screen.queryByLabelText('Last four characters')).toBeNull();
+    expect(screen.queryByText(/Encrypted mailbox list/u)).toBeNull();
+  });
+
+  it('offers sign-in again when the connected mailbox is not yet saved to private sync', async () => {
+    expect.hasAssertions();
+    const connected = {
+      kind: 'connected',
+      productAccountId: 'synthetic-apple-product-account',
+      signInProvider: 'apple',
+      privateSync: 'ready',
+      privateSyncPending: 'mailbox',
+      providerSubject: 'synthetic-google-subject',
+      address: 'alex@example.invalid',
+    } as const;
+    const { privateSyncPending: _pending, ...saved } = connected;
+    await render(
+      <RegistrationGate
+        store={createRegistration({
+          restore: () => Promise.resolve(connected),
+          // Signing in again with Apple saves the descriptor and keeps the mailbox.
+          signIn: () => Promise.resolve(saved),
+          authorizeGmail: () =>
+            Promise.reject(new Error('Gmail consent must not restart')),
+          link: () => Promise.reject(new Error('Not linking')),
+          confirmRecoveryKey: () =>
+            Promise.reject(new Error('No Recovery Key to confirm')),
+        })}
+        preview={false}>
+        {null}
+      </RegistrationGate>,
+    );
+    await expect(
+      screen.findByText(/not saved to private sync yet/u),
+    ).resolves.toBeVisible();
+    await act(async () => {
+      await fireEvent.press(
+        screen.getByRole('button', { name: 'Sign in again with Apple' }),
+      );
+    });
+    expect(screen.queryByText(/not saved to private sync yet/u)).toBeNull();
+    expect(screen.queryByRole('alert')).toBeNull();
   });
 });

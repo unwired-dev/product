@@ -24,15 +24,34 @@ final class WindowTests: XCTestCase {
             "relay@privaterelay.example.invalid")
         ).firstMatch.exists)
     }
+    // A new Product Account presents its Recovery Key until setup is confirmed.
+    func recoveryKey(_ window: XCUIElement) -> String {
+      let text = window.staticTexts["recovery-key"]
+      return text.label.isEmpty ? text.value as? String ?? "" : text.label
+    }
+    XCTAssertTrue(first.staticTexts["recovery-key"].waitForExistence(timeout: 15))
+    let presented = recoveryKey(first)
+    XCTAssertEqual(presented.count, 64)
     app.terminate()
     app.launch()
     let resumed = app.windows["Inbox 1"]
     XCTAssertTrue(resumed.buttons["Authorize Gmail"].waitForExistence(timeout: 15))
+    // Relaunch keeps the device-held keys; nothing is regenerated.
+    XCTAssertEqual(recoveryKey(resumed), presented)
     resumed.buttons[apple ? "Authorize Gmail" : "Choose another Google mailbox"].click()
     XCTAssertTrue(resumed.staticTexts["Gmail connected"].waitForExistence(timeout: 15))
+    let entry = resumed.textFields["Last four characters"]
+    entry.click()
+    entry.typeText(String(presented.suffix(4)))
+    resumed.buttons["Confirm Recovery Key"].click()
+    XCTAssertTrue(resumed.staticTexts["Private sync is on"].waitForExistence(timeout: 15))
+    XCTAssertFalse(resumed.staticTexts["recovery-key"].exists)
     app.terminate()
     app.launch()
-    XCTAssertTrue(app.windows["Inbox 1"].staticTexts["Gmail connected"].waitForExistence(timeout: 15))
+    let relaunched = app.windows["Inbox 1"]
+    XCTAssertTrue(relaunched.staticTexts["Gmail connected"].waitForExistence(timeout: 15))
+    XCTAssertTrue(relaunched.staticTexts["Private sync is on"].exists)
+    XCTAssertFalse(relaunched.staticTexts["recovery-key"].exists)
   }
 
   // Linking verifies both identities; the Gmail grant never becomes a sign-in method.
