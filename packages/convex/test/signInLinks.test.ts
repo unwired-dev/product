@@ -142,8 +142,14 @@ async function registered(
 
 /* oxlint-disable vitest/max-expects -- Each journey proves one ownership contract across both identities. */
 describe('linked sign-ins', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it('rejects missing, stale, future, malformed and identity-mismatched bearer claims before issuing or completing a link', async () => {
     expect.hasAssertions();
+    // Keep the six-second skew outside the bound across both HTTP requests.
+    vi.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 9, 2, 12));
     const t = convexTest(schema, modules);
     const owner = await registered(t, google('google-current'));
     const asUser = t.withIdentity({
@@ -161,7 +167,7 @@ describe('linked sign-ins', () => {
       '',
       'malformed',
       claimsToken({ ...claims, iat: now() - 301 }),
-      claimsToken({ ...claims, iat: now() + 61 }),
+      claimsToken({ ...claims, iat: now() + 6 }),
       claimsToken({ ...claims, iat: String(now()) }),
       claimsToken({ iss: claims.iss, sub: claims.sub }),
       claimsToken({ ...claims, sub: 'another-person' }),
