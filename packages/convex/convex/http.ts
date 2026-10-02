@@ -144,14 +144,7 @@ async function replaceRecoveryMaterialResponse(
   ctx: ActionCtx,
   request: Request,
 ): Promise<Response> {
-  const identity = await ctx.auth.getUserIdentity();
-  const token = bearerToken(request);
-  const claims = token === null ? null : identityTokenClaims(token);
-  if (
-    identity === null ||
-    claims === null ||
-    !recentlyIssuedForIdentity(claims, identity)
-  ) {
+  if (!(await recentlyAuthenticatedRequest(ctx, request))) {
     return new Response('Recent authentication required', { status: 401 });
   }
 
@@ -188,55 +181,74 @@ function signInLinkFailure(code: string, status: number): Response {
   return Response.json({ status: 'error', errorData: { code } }, { status });
 }
 
-async function signInLinkResponse(
+async function recentlyAuthenticatedRequest(
   ctx: ActionCtx,
   request: Request,
-  operation: 'request' | 'complete',
-): Promise<Response> {
+): Promise<boolean> {
   // Convex validates this exact bearer token's signature, issuer and audience.
   // Reserved OIDC claims such as iat are not exposed on getUserIdentity().
   const identity = await ctx.auth.getUserIdentity();
   const token = bearerToken(request);
   const claims = token === null ? null : identityTokenClaims(token);
-  if (
-    identity === null ||
-    claims === null ||
-    !recentlyIssuedForIdentity(claims, identity)
-  ) {
+  return (
+    identity !== null &&
+    claims !== null &&
+    recentlyIssuedForIdentity(claims, identity)
+  );
+}
+
+async function signInLinkMutationResponse(
+  ctx: ActionCtx,
+  body: unknown,
+  operation: 'request' | 'complete',
+): Promise<Response> {
+  if (operation === 'request') {
+    const decoded = decodeSignInLinkRequest(body);
+    if (Option.isNone(decoded)) {
+      return new Response('Invalid sign-in link request', { status: 400 });
+    }
+    const value = await ctx.runMutation(
+      internal.signInLinks.request,
+      decoded.value,
+    );
+    return Response.json({ status: 'success', value });
+  }
+  const decoded = decodeSignInLinkCompletion(body);
+  if (Option.isNone(decoded)) {
+    return new Response('Invalid sign-in link completion', { status: 400 });
+  }
+  const value = await ctx.runMutation(
+    internal.signInLinks.complete,
+    decoded.value,
+  );
+  return Response.json({ status: 'success', value });
+}
+
+function signInLinkErrorResponse(error: unknown): Response {
+  const failure: unknown =
+    error instanceof ConvexError ? error.data : undefined;
+  if (isSignInLinkFailure(failure)) {
+    return signInLinkFailure(failure.code, 409);
+  }
+  if (isTrustedDeviceAccessFailure(failure)) {
+    return signInLinkFailure(failure.code, 403);
+  }
+  throw error;
+}
+
+async function signInLinkResponse(
+  ctx: ActionCtx,
+  request: Request,
+  operation: 'request' | 'complete',
+): Promise<Response> {
+  if (!(await recentlyAuthenticatedRequest(ctx, request))) {
     return signInLinkFailure(signInLinkErrorCodes.recentAuthentication, 401);
   }
   const body: unknown = await request.json().catch(() => null);
   try {
-    if (operation === 'request') {
-      const decoded = decodeSignInLinkRequest(body);
-      if (Option.isNone(decoded)) {
-        return new Response('Invalid sign-in link request', { status: 400 });
-      }
-      const value = await ctx.runMutation(
-        internal.signInLinks.request,
-        decoded.value,
-      );
-      return Response.json({ status: 'success', value });
-    }
-    const decoded = decodeSignInLinkCompletion(body);
-    if (Option.isNone(decoded)) {
-      return new Response('Invalid sign-in link completion', { status: 400 });
-    }
-    const value = await ctx.runMutation(
-      internal.signInLinks.complete,
-      decoded.value,
-    );
-    return Response.json({ status: 'success', value });
+    return await signInLinkMutationResponse(ctx, body, operation);
   } catch (error) {
-    const failure: unknown =
-      error instanceof ConvexError ? error.data : undefined;
-    if (isSignInLinkFailure(failure)) {
-      return signInLinkFailure(failure.code, 409);
-    }
-    if (isTrustedDeviceAccessFailure(failure)) {
-      return signInLinkFailure(failure.code, 403);
-    }
-    throw error;
+    return signInLinkErrorResponse(error);
   }
 }
 
