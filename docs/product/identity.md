@@ -23,7 +23,7 @@ implemented.
 - A newly drafted **Mail Profile** can be named and styled in device-local protected state while offline, retaining its opaque identity until encrypted Product Sync succeeds
 - Duplicating a **Mail Profile** copies only the reviewed Profile-scoped configuration; it never copies Mailbox Connections, provider credentials, cached mail, Drafts, Outbox attempts, history, or connection-scoped pins
 - Moving a **Mailbox Connection** between Profiles preserves its stable identity and device-local authorization, commits ownership and reviewed custom-Category copies atomically while online, and leaves source Profile-wide preferences in place
-
+- A Profile-scoped query requires an explicit **Mail Profile**
 - Every **Mail Profile Window** restores one device-local Profile; targeted deep links override restoration and the **Startup Profile**
 - Provider credentials remain device-local and outside **Profile Record Scope**
 
@@ -47,7 +47,7 @@ implemented.
 - **Device Revocation** immediately blocks the revoked device from Product Account APIs and push routing
 - Device Revocation preserves its durable block despite sign-out, reconnect or late unregister.
 - Every request requires the Trusted Device Credential; a Trusted Device ID alone is not authentication proof. Routine reconnects preserve valid in-flight authorization.
-- Existing Product Accounts cannot perform a new Device Revocation until operators complete their retained-device identifier migration. Already-tombstoned accounts remain fail-closed during migration; newly created accounts are complete immediately.
+- Existing Product Accounts cannot perform a new Device Revocation until operators complete their retained-device identifier migration. Already-tombstoned accounts remain fail-closed during migration; newly created accounts are complete immediately, and a completed migration cannot admit another retained-device identifier.
 - **Device Revocation** rotates Product Sync key material for the remaining **Trusted Devices**, preventing the revoked device from reading future synchronized changes
 - A revoked device purges local product data and mailbox credentials when it next connects, but revocation cannot guarantee erasure of data already copied from an offline or compromised device
 - Provider authorization must be revoked separately through the **Mail Provider** when its device-local credential may be compromised

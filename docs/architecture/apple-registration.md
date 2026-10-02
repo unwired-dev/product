@@ -5,9 +5,10 @@ Read under the [implementation and review workflow](../agents/implementation-rev
 Extracted passages retain their source scope; prototype details do not establish
 replacement requirements or release qualification.
 
-## Native verification and restore
+## Native verification and restore (replacement hosts)
 
-The native adapter uses `ASAuthorizationAppleIDProvider` with the email scope and a
+The replacement hosts' `NativeAppleRegistrationProvider` bridge uses
+`ASAuthorizationAppleIDProvider` with the email scope and a
 fresh nonce for each session. It validates the returned identity token's issuer
 (`https://appleid.apple.com`), audience (the host's bundle ID), subject, expiry and
 nonce before calling `productAccount:connect`. Convex verifies the signature and

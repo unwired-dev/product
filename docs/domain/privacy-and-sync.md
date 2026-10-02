@@ -42,7 +42,7 @@ Content referenced by a message but fetched from an external server only for an 
 _Avoid_: Message body, downloaded attachment
 
 **Authorized Remote Content Cache**:
-The separate 250 MB device-wide encrypted store for non-tracking **Remote Message Content** fetched after a person or their explicit loading policy authorized it. Entries remain private to their Product Account, Mail Profile, connection and message, without cross-Profile deduplication. It evicts least-recently-used entries first, protects content currently displayed, and retains hidden bytes after a Never-policy change until eviction or manual removal through Clear Remote Content.
+The separate 250 MB device-wide encrypted store for non-tracking **Remote Message Content** fetched after a person or their explicit loading policy authorized it. Entries remain private to their Product Account, Mail Profile, **Mailbox Connection** and **Stable Provider Message Identity**, without cross-Profile deduplication. It evicts least-recently-used entries first, protects content currently displayed, and retains hidden bytes after a Never-policy change until eviction or manual removal through Clear Remote Content.
 _Avoid_: Browser cache, Bounded Encrypted Body Cache, automatic remote-content permission
 
 **Tracking Pixel**:

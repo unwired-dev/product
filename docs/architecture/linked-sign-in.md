@@ -1,4 +1,4 @@
-# Linked sign in: architecture notes
+# Linked Sign-In: architecture notes
 
 Reviewer-only companion to [docs/linked-sign-in.md](../linked-sign-in.md).
 Read under the [implementation and review workflow](../agents/implementation-review.md).
