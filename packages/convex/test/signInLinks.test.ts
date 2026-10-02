@@ -145,7 +145,9 @@ describe('linked sign-ins', () => {
   it('rejects missing, stale, future, malformed and identity-mismatched bearer claims before issuing or completing a link', async () => {
     expect.hasAssertions();
     // Keep the six-second skew outside the bound across both HTTP requests.
-    const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 9, 2, 12));
+    const clock = vi
+      .spyOn(Date, 'now')
+      .mockReturnValue(Date.UTC(2026, 9, 2, 12));
     try {
       const t = convexTest(schema, modules);
       const owner = await registered(t, google('google-current'));
