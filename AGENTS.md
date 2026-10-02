@@ -42,7 +42,7 @@ for every implementation, including later implementation fixes.
 - Use the mise-managed toolchain and the nearest `package.json` package-manager
   version. Follow [setup instructions](README.md#local-development).
 - Use one root workspace and lockfile with scoped native catalogs under
-  the workspace setup in [Expo setup](docs/expo-client.md#install-and-run).
+  the workspace setup in [Expo setup](docs/expo-client.md#dependencies-and-coding-rules).
 - Put temporary probes in `scratchpad/`, run TypeScript with plain Node 24,
   and remove task-owned probes afterward.
 - Invoke `task-observer` for task-oriented work and consult relevant open skill
