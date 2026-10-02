@@ -142,75 +142,75 @@ async function registered(
 
 /* oxlint-disable vitest/max-expects -- Each journey proves one ownership contract across both identities. */
 describe('linked sign-ins', () => {
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
-
   it('rejects missing, stale, future, malformed and identity-mismatched bearer claims before issuing or completing a link', async () => {
     expect.hasAssertions();
     // Keep the six-second skew outside the bound across both HTTP requests.
-    vi.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 9, 2, 12));
-    const t = convexTest(schema, modules);
-    const owner = await registered(t, google('google-current'));
-    const asUser = t.withIdentity({
-      issuer: 'https://accounts.google.com',
-      subject: 'google-current',
-    });
-    const claimsToken = (claims: unknown) =>
-      `header.${Buffer.from(JSON.stringify(claims)).toString('base64url')}.signature`;
-    const claims = {
-      iat: now(),
-      iss: 'https://accounts.google.com',
-      sub: 'google-current',
-    };
-    const rejectedTokens = [
-      '',
-      'malformed',
-      claimsToken({ ...claims, iat: now() - 301 }),
-      claimsToken({ ...claims, iat: now() + 6 }),
-      claimsToken({ ...claims, iat: String(now()) }),
-      claimsToken({ iss: claims.iss, sub: claims.sub }),
-      claimsToken({ ...claims, sub: 'another-person' }),
-      claimsToken({ ...claims, iss: 'https://appleid.apple.com' }),
-    ];
-    const statuses = [];
-    for (const operation of ['request', 'complete']) {
-      for (const token of rejectedTokens) {
-        const response = await asUser.fetch(`/sign-in-links/${operation}`, {
-          method: 'POST',
-          headers: { authorization: `Bearer ${token}` },
-          body: JSON.stringify({
-            ...owner.proof,
-            provider: 'apple',
-            linkTicket: 'unused',
-          }),
-        });
-        statuses.push(response.status);
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 9, 2, 12));
+    try {
+      const t = convexTest(schema, modules);
+      const owner = await registered(t, google('google-current'));
+      const asUser = t.withIdentity({
+        issuer: 'https://accounts.google.com',
+        subject: 'google-current',
+      });
+      const claimsToken = (claims: unknown) =>
+        `header.${Buffer.from(JSON.stringify(claims)).toString('base64url')}.signature`;
+      const claims = {
+        iat: now(),
+        iss: 'https://accounts.google.com',
+        sub: 'google-current',
+      };
+      const rejectedTokens = [
+        '',
+        'malformed',
+        claimsToken({ ...claims, iat: now() - 301 }),
+        claimsToken({ ...claims, iat: now() + 6 }),
+        claimsToken({ ...claims, iat: String(now()) }),
+        claimsToken({ iss: claims.iss, sub: claims.sub }),
+        claimsToken({ ...claims, sub: 'another-person' }),
+        claimsToken({ ...claims, iss: 'https://appleid.apple.com' }),
+      ];
+      const statuses = [];
+      for (const operation of ['request', 'complete']) {
+        for (const token of rejectedTokens) {
+          const response = await asUser.fetch(`/sign-in-links/${operation}`, {
+            method: 'POST',
+            headers: { authorization: `Bearer ${token}` },
+            body: JSON.stringify({
+              ...owner.proof,
+              provider: 'apple',
+              linkTicket: 'unused',
+            }),
+          });
+          statuses.push(response.status);
+        }
       }
-    }
-    expect(statuses).toStrictEqual(
-      Array.from({ length: rejectedTokens.length * 2 }, () => 401),
-    );
-    const unauthenticated = await t.fetch('/sign-in-links/request', {
-      method: 'POST',
-      headers: { authorization: `Bearer ${claimsToken(claims)}` },
-      body: JSON.stringify({ ...owner.proof, provider: 'apple' }),
-    });
-    expect(unauthenticated.status).toBe(401);
-    for (const operation of ['request', 'complete']) {
-      const malformed = await asUser.fetch(`/sign-in-links/${operation}`, {
+      expect(statuses).toStrictEqual(
+        Array.from({ length: rejectedTokens.length * 2 }, () => 401),
+      );
+      const unauthenticated = await t.fetch('/sign-in-links/request', {
         method: 'POST',
         headers: { authorization: `Bearer ${claimsToken(claims)}` },
-        body: '{}',
+        body: JSON.stringify({ ...owner.proof, provider: 'apple' }),
       });
-      expect(malformed.status).toBe(400);
+      expect(unauthenticated.status).toBe(401);
+      for (const operation of ['request', 'complete']) {
+        const malformed = await asUser.fetch(`/sign-in-links/${operation}`, {
+          method: 'POST',
+          headers: { authorization: `Bearer ${claimsToken(claims)}` },
+          body: '{}',
+        });
+        expect(malformed.status).toBe(400);
+      }
+      await expect(
+        t.run((ctx) => ctx.db.query('signInLinkRequests').collect()),
+      ).resolves.toStrictEqual([]);
+      await expect(
+        t.run((ctx) => ctx.db.query('linkedSignIns').collect()),
+      ).resolves.toStrictEqual([]);
+    } finally {
+      clock.mockRestore();
     }
-    await expect(
-      t.run((ctx) => ctx.db.query('signInLinkRequests').collect()),
-    ).resolves.toStrictEqual([]);
-    await expect(
-      t.run((ctx) => ctx.db.query('linkedSignIns').collect()),
-    ).resolves.toStrictEqual([]);
   });
 
   it('links Apple to a Google account when the verified identity omits reserved JWT timestamps', async () => {
