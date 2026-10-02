@@ -1,25 +1,20 @@
 # On-device assistance: behavior notes
 
-[Vocabulary](../domain/assistance.md) · [Domain index](../../CONTEXT.md)
+Setup, coding rules, validation and observable requirements remain in this file.
+The review agent owns the separate [architecture companion](../architecture/product/assistance.md).
+
+[Vocabulary](../domain/assistance.md) · [Domain index](../../GLOSSARY.md)
 
 Explicit on-device assistance remains part of the replacement. Profile-specific
 terms also describe prototype or follow-up behavior; platform and launch scope
 come from the accepted replacement decisions.
 
-The notes below were moved from `CONTEXT.md` without changing their wording.
-They mix retained product constraints with prototype implementation and feature
-scope. Read them alongside the accepted ADRs; “v1” and “first release” in these
-notes refer to their original feature scope. They do not establish replacement
-launch requirements or proof that a feature is implemented.
-
-## Decisions and scope
-
-- [Accepted replacement scope](../adr/0059-replace-the-client-for-a-shared-cross-platform-product.md)
-- [Keep Mail Assistance on device and input-bound](../adr/0052-keep-mail-assistance-on-device-and-input-bound.md)
-- [Keep Mail Assistance enablement device-local](../adr/0053-keep-mail-assistance-enablement-device-local.md)
-
-[The documentation index](../README.md) explains ADR precedence and separates
-current replacement work from prototype maintenance and historical plans.
+These observable requirements were separated from the former monolithic glossary
+and its implementation notes. The reviewer owns the separate architecture companion
+under the [implementation and review workflow](../agents/implementation-review.md).
+“v1” and “first release” in these notes refer to their original feature scope.
+They do not establish replacement launch requirements or proof that a feature is
+implemented.
 
 ## Assistance inputs, previews and acceptance
 

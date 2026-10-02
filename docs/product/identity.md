@@ -1,27 +1,20 @@
 # Identity and devices: behavior notes
 
-[Vocabulary](../domain/identity.md) · [Domain index](../../CONTEXT.md)
+Setup, coding rules, validation and observable requirements remain in this file.
+The review agent owns the separate [architecture companion](../architecture/product/identity.md).
+
+[Vocabulary](../domain/identity.md) · [Domain index](../../GLOSSARY.md)
 
 Product Account identity and device trust apply to the replacement. Advanced
 Profiles are follow-up work; Default Profile and the deployed Profile Record
 Scope describe prototype migration behavior.
 
-The notes below were moved from `CONTEXT.md` without changing their wording.
-They mix retained product constraints with prototype implementation and feature
-scope. Read them alongside the accepted ADRs; “v1” and “first release” in these
-notes refer to their original feature scope. They do not establish replacement
-launch requirements or proof that a feature is implemented.
-
-## Decisions and scope
-
-- [Accepted replacement scope](../adr/0059-replace-the-client-for-a-shared-cross-platform-product.md)
-- [Separate product identity from registration mailbox authorization](../adr/0061-separate-product-identity-from-registration-mailbox-authorization.md)
-- [Linked Google and Apple sign-in](../linked-sign-in.md) for the replacement's explicit linking behavior
-- [Separate encrypted Mail Profile ownership from legacy records](../adr/0048-separate-encrypted-mail-profile-ownership.md)
-- [Scope each window to one Mail Profile](../adr/0050-scope-each-window-to-one-mail-profile.md)
-
-[The documentation index](../README.md) explains ADR precedence and separates
-current replacement work from prototype maintenance and historical plans.
+These observable requirements were separated from the former monolithic glossary
+and its implementation notes. The reviewer owns the separate architecture companion
+under the [implementation and review workflow](../agents/implementation-review.md).
+“v1” and “first release” in these notes refer to their original feature scope.
+They do not establish replacement launch requirements or proof that a feature is
+implemented.
 
 ## Accounts and Profiles
 
@@ -52,9 +45,10 @@ current replacement work from prototype maintenance and historical plans.
 
 - **Device Revocation**, **Delete Product Account**, connection removal, authorization or reauthorization, server verification, and mailbox-role remapping require connectivity and cannot appear complete while offline; removing **Mailbox Authorization** locally remains available offline and deletes local Keychain credentials and cached mailbox data
 - **Device Revocation** immediately blocks the revoked device from Product Account APIs and push routing
-- For owner revocation, the Apple client retains and submits the selected Trusted Device ID, while Convex retains and resolves its account-scoped revocation target after sign-out; unregistering, reconnecting, or a late unregister cannot preserve live access or remove the durable identifier tombstone
-- Every **Trusted Device** whose client supports device credentials presents its device-only **Trusted Device Credential** to Product Account, Product Sync, and push-relay APIs; routine reconnects preserve a valid credential so concurrent in-flight requests remain authorized, while a missing or stale credential is replaced; a Trusted Device ID alone is not authentication proof, and legacy devices reconnect after account-wide credential enforcement activates only when their exact pre-enforcement installation identifier was imported before the Product Account's migration marker was completed
-- Existing Product Accounts cannot perform a new **Device Revocation** until deployment operators import the retained pre-enforcement Trusted Device inventory and complete that Product Account's identifier migration; already-tombstoned accounts remain fail-closed during migration, newly created accounts are complete immediately, and a completed migration cannot admit another identifier
+- Device Revocation preserves its durable block despite sign-out, reconnect or late unregister.
+- Every **Trusted Device** whose client supports device credentials presents its device-only **Trusted Device Credential** to Product Account, Product Sync, and push-relay APIs; a Trusted Device ID alone is not authentication proof. Routine reconnects preserve a valid credential so concurrent in-flight requests remain authorized; a missing or stale credential is replaced.
+- Legacy devices may reconnect after account-wide credential enforcement only when their exact pre-enforcement installation identifier was imported before that Product Account's identifier migration was marked complete.
+- Existing Product Accounts cannot perform a new **Device Revocation** until deployment operators import the full retained pre-enforcement **Trusted Device** inventory and mark that Product Account's identifier migration complete. Already-tombstoned accounts remain fail-closed during migration; newly created accounts are complete immediately, and a completed migration cannot admit another retained-device identifier.
 - **Device Revocation** rotates Product Sync key material for the remaining **Trusted Devices**, preventing the revoked device from reading future synchronized changes
 - A revoked device purges local product data and mailbox credentials when it next connects, but revocation cannot guarantee erasure of data already copied from an offline or compromised device
 - Provider authorization must be revoked separately through the **Mail Provider** when its device-local credential may be compromised

@@ -7,11 +7,13 @@ Inbox for iPhone and iPad, plus a native React Native Mac mock Inbox. The approv
 replacement ships with Gmail first and Android, Windows, IMAP/SMTP, and Microsoft
 365 in later slices. Google and Apple Product Sign-In replace Apple-only login.
 
-Start with [the accepted rewrite](docs/adr/0059-replace-the-client-for-a-shared-cross-platform-product.md)
-and [the 78-ticket coverage index](docs/qualification/expo-rewrite-ticket-coverage.md).
-The [Expo bootstrap](docs/expo-client.md) uses Effect v4 and native split-view
-navigation. Full [platform qualification](docs/qualification/expo-react-native-client.md)
-remains required before release.
+Start with [the documentation index](docs/README.md)
+for requirements, setup and validation.
+The review agent reads [the architecture index](docs/architecture/README.md)
+under the [implementation and review workflow](docs/agents/implementation-review.md).
+Follow [Expo setup](docs/expo-client.md) for mobile coding conventions and commands.
+Full platform qualification remains required before release; the reviewer tracks
+its evidence through the architecture index.
 
 ## Current checkout
 
@@ -24,7 +26,7 @@ remains required before release.
 - `packages/mail-test-harness`: current local mail test tooling.
 
 One root workspace and lockfile use a shared catalog and named `mobile` and `macos` catalogs under
-[ADR 0064](docs/adr/0064-isolate-mobile-and-macos-native-dependencies.md).
+[Expo workspace setup](docs/expo-client.md#dependencies-and-coding-rules).
 
 ## Local development
 
@@ -66,8 +68,7 @@ mise exec -- pnpm fallow
 Use [the testing policy](docs/agents/testing.md) to select meaningful checks and
 [the native validation guide](docs/agents/native-validation.md) for resource
 ownership during native checks. The [mail test environment](docs/mail-test-environment.md) documents the
-existing harness; the replacement's [isolated Mock Mail Sessions](docs/mock-mail-sessions.md) follow
-[ADR 0060](docs/adr/0060-pair-mocked-mail-journeys-with-real-integration-evidence.md).
+existing harness; the replacement's [isolated Mock Mail Sessions](docs/mock-mail-sessions.md) keep deterministic mocked journeys distinct from real integration evidence.
 
 CI covers both replacement hosts, shared core/contracts, and the retained Convex backend. Legacy
 Swift build, performance, Core Mail Loop and provider-qualification jobs are disabled
@@ -77,7 +78,8 @@ by maintainer decision; their test sources and local commands remain available.
 
 - [Documentation index and historical status](docs/README.md)
 - [Agent guide](AGENTS.md)
-- [Product terminology](CONTEXT.md)
+- [Implementation and review workflow](docs/agents/implementation-review.md)
+- [Product terminology](GLOSSARY.md)
 - [GitHub issue workflow](docs/agents/issue-tracker.md)
 - [Automated reviews and PR babysitting](docs/agents/pull-request-babysitting.md)
 

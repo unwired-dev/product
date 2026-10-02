@@ -1,32 +1,27 @@
 # Private preview Inbox storage
 
+Setup, coding rules, validation and observable requirements remain in this file.
+The review agent owns the separate [architecture companion](architecture/private-inbox-storage.md).
+
 [#594](https://github.com/unwired-dev/product/issues/594) adds persistent read
 state to the synthetic Inbox in both Apple hosts. Selecting a message leaves its
 read state alone. **Mark as read** and **Mark as unread** commit a field update
 before publishing the resulting snapshot to the application. Selection stays in
 each window or route and is never persisted.
 
-## Ownership and failure behavior
+## Failure behavior
 
-`native/private-inbox` owns a versioned AES-256-GCM encrypted snapshot, using
-CryptoKit and Security without a third-party database dependency. This small
-fixture store is not a general mail database or the future 500 MB body cache.
-The complete fixture, including metadata and bodies, is encrypted in `inbox.enc`
-under the host's Application Support directory. The directory is excluded from
-backup; iOS writes also use complete file protection. Atomic ciphertext replacement
-and file synchronization finish before an update resolves. Temporary writes
-contain ciphertext, not fixture plaintext.
+The complete fixture, including metadata and bodies, remains encrypted on the
+device. This small fixture store is not a general mail database or the future
+500 MB body cache. Temporary writes contain ciphertext, not fixture plaintext.
+The encrypted store is excluded from backup; iOS writes use complete file protection.
+Its encryption key is device-only, never synchronized and accessible only while
+unlocked. Locked data stays inaccessible without replacing stored ciphertext.
 
-The native Keychain item uses `kSecAttrAccessibleWhenUnlockedThisDeviceOnly`,
-`kSecAttrSynchronizable: false`, and the Data Protection Keychain on macOS.
-Apple documents the [device-local accessibility policy](https://developer.apple.com/documentation/security/ksecattraccessiblewhenunlockedthisdeviceonly)
-and [Mac Data Protection Keychain selection](https://developer.apple.com/documentation/security/ksecusedataprotectionkeychain).
 JavaScript can open the store and set one message's unread field. It cannot
-create, read, replace, or remove the encryption key. The native module uses
-React Native's legacy-module interoperability in both hosts.
+create, read, replace, or remove the encryption key.
 
-On iOS, protected-data availability is checked before filesystem access and again
-before first-run seeding. Lock-time I/O failures are reported as locked so retry
+Lock-time I/O failures are reported as locked so retry
 can recover after unlock without replacing ciphertext.
 
 Opening an existing file requires its existing key. Missing, inaccessible or
@@ -36,19 +31,13 @@ mail, reports locked or unavailable storage, and offers **Try again**. Returning
 to the foreground also reloads storage. Retry neither resets storage nor recovers
 a permanently lost key. There is no reset or key-export API in the app.
 
-A native file lock covers each read-modify-write operation, including first
-initialization. Each mutation reloads the latest ciphertext and changes only the
-requested message. Independent windows or native store instances therefore cannot
-overwrite completed changes using an older snapshot. The shared store
-serializes operations with an Effect semaphore and publishes updates to all mounted views.
-An error never falls back to an in-memory Inbox.
+Independent windows or native store instances cannot
+overwrite completed changes using an older snapshot. An error never falls back to an in-memory Inbox.
 
-`SyntheticCredential` owns a separate Keychain service and lifecycle. It creates
-a random synthetic secret, uses it natively for a fixed local HMAC challenge,
-and removes it idempotently. It has no JavaScript secret getter, network client,
+The synthetic credential fixture creates, uses and removes a random secret only
+in native code, independently of the database key. It has no JavaScript secret getter, network client,
 logging, or Convex integration. Removing it leaves the database key intact. It
-is an integration fixture, not Gmail authorization or a production token API.
-The app has no provider or backend connection in this slice.
+is an integration fixture, not Gmail authorization or a production token API. The app has no provider or backend connection in this slice.
 
 ## Native wiring and signing
 

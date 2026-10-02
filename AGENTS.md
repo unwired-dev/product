@@ -8,21 +8,41 @@ Inbox in `apps/mobile`, plus the AppKit React Native Mac mock Inbox in
 and [Mac setup](docs/macos-client.md) for the desktop host.
 
 Read the issue, [documentation index](docs/README.md), relevant
-[domain index](CONTEXT.md), its relevant topic glossary, and the nearest nested
+[domain index](GLOSSARY.md), its relevant topic glossary, and the nearest nested
 `AGENTS.md` before editing.
-Follow the replacement decisions in ADR 0059 through 0064, linked from the index.
-Historical prototype plans do not expand the approved scope.
+Client guides contain product behavior, setup and validation. Architecture lives
+in separate files reserved for the review agent under the workflow below.
+
+## Implementation and review
+
+Follow the [implementation and review workflow](docs/agents/implementation-review.md)
+for every implementation, including later implementation fixes.
+
+- The implementer never reads repository architecture documentation, including
+  `docs/architecture/`, ADRs, `.patterns/`, and the reviewer-only sources listed
+  in the implementation and review workflow.
+  This role boundary takes precedence over architecture-reading instructions in
+  other repository guides or skills.
+- After implementing and running the relevant checks, spawn a separate review
+  agent with explicit `model: "gpt-6.1-sol"`, `reasoning_effort: "high"`, and
+  `fork_turns: "none"`, regardless of the implementer's model or reasoning effort.
+- The review agent reads the relevant architecture docs, reviews the complete
+  implementation, fixes validated issues itself, and verifies its changes.
+  The implementer pauses writes while the reviewer owns the checkout and waits
+  for its final report before delivering the work.
+- Reviewers do not spawn another implementation reviewer for their own fixes.
+  Any subsequent implementer edits require another review by the pinned agent.
 
 ## Work
 
 - Preserve unrelated working-tree changes and keep edits within the requested scope.
-- When changing product terminology or `CONTEXT.md`, follow the
+- When changing product terminology or `GLOSSARY.md`, follow the
   [domain documentation policy](docs/agents/domain.md). Keep definitions in their
-  owning topic and the root context file as a reading index.
+  owning topic and the root glossary file as a reading index.
 - Use the mise-managed toolchain and the nearest `package.json` package-manager
   version. Follow [setup instructions](README.md#local-development).
 - Use one root workspace and lockfile with scoped native catalogs under
-  [ADR 0064](docs/adr/0064-isolate-mobile-and-macos-native-dependencies.md).
+  the workspace setup in [Expo setup](docs/expo-client.md#dependencies-and-coding-rules).
 - Put temporary probes in `scratchpad/`, run TypeScript with plain Node 24,
   and remove task-owned probes afterward.
 - Invoke `task-observer` for task-oriented work and consult relevant open skill
@@ -69,6 +89,8 @@ before release. Legacy Swift checks are outside the maintained CI scope.
 
 Before writing or reviewing TypeScript, read the
 [Effect conventions](docs/agents/effect.md): where Effect is required, and how
-boundaries, errors, services and runtimes are written. Before writing Effect code,
+boundaries, errors, services and runtimes are written. For service definitions,
+also read [Define Effect services](docs/agents/effect-services.md).
+Before writing Effect code,
 read `node_modules/effect/AGENTS.md` **completely** and follow its links; search
 `node_modules/effect/src` for APIs the guides do not cover.

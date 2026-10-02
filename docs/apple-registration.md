@@ -1,5 +1,8 @@
 # Apple registration and Gmail authorization
 
+Setup, coding rules, validation and observable requirements remain in this file.
+The review agent owns the separate [architecture companion](architecture/apple-registration.md).
+
 [#597](https://github.com/unwired-dev/product/issues/597) adds Sign in with Apple
 as a second Product Sign-In choice on iPhone, iPad and Mac. It follows
 [ADR 0061](adr/0061-separate-product-identity-from-registration-mailbox-authorization.md):
@@ -26,12 +29,6 @@ session after Apple sign-in starts without a Google account hint.
 
 ## Native verification and restore
 
-The native adapter uses `ASAuthorizationAppleIDProvider` with the email scope and a
-fresh nonce for each session. It validates the returned identity token's issuer
-(`https://appleid.apple.com`), audience (the host's bundle ID), subject, expiry and
-nonce before calling `productAccount:connect`. Convex verifies the signature and
-audience through Apple's OIDC provider.
-
 Native Sign in with Apple cannot renew an identity token without user interaction.
 Restore and Gmail authorization therefore check the Apple credential state for
 the saved subject instead of reconnecting to Convex. A revoked, missing or
@@ -47,8 +44,7 @@ subject and installation ID. Restore reports Product Sign-In as the remaining
 step, and signing in with the same Apple ID resumes it. A record that never received a Product Account may
 be replaced by another Sign-In Provider. Once registration completes, Gmail
 cancellation, decline, missing Gmail and interruption keep it. The host reports
-the Gmail step as remaining, exactly as for Google registration. Records written by
-the Google slice have no provider field and are read as Google.
+the Gmail step as remaining, exactly as for Google registration.
 
 ## Configure the hosts
 

@@ -1,6 +1,9 @@
 # Identity and devices
 
-[Domain index](../../CONTEXT.md) · [behavior notes](../product/identity.md)
+Setup, coding rules, validation and observable requirements remain in this file.
+The review agent owns the separate [architecture companion](../architecture/domain/identity.md).
+
+[Domain index](../../GLOSSARY.md) · [behavior notes](../product/identity.md)
 
 Product Account identity and device trust apply to the replacement. Advanced
 Profiles are follow-up work; Default Profile and the deployed Profile Record
@@ -38,7 +41,7 @@ One app window whose navigation, Unified Mailboxes, Mail Views, search, composer
 _Avoid_: Product Account window, combined workspace
 
 **Profile Record Scope**:
-The opaque Product Sync namespace owned by one **Mail Profile**. The **Default Profile** retains the deployed Product Account-scoped record identifiers; a new Profile receives a distinct opaque namespace.
+The opaque Product Sync namespace owned by one **Mail Profile**.
 _Avoid_: provider namespace, device-local directory
 
 **Product Sign-In**:
@@ -62,7 +65,7 @@ A user-approved device authorized to access one **Product Account** and particip
 _Avoid_: Mailbox Authorization, remembered login
 
 **Trusted Device Credential**:
-An unlisted device-only secret that proves a request comes from one **Trusted Device**; its digest, not the credential, is stored by the backend.
+An unlisted device-only secret that proves a request comes from one **Trusted Device**.
 _Avoid_: Trusted Device ID, Apple identity token
 
 **Device Revocation**:

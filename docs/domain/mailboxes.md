@@ -1,6 +1,9 @@
 # Providers and mailboxes
 
-[Domain index](../../CONTEXT.md) · [behavior notes](../product/mailboxes.md)
+Setup, coding rules, validation and observable requirements remain in this file.
+The review agent owns the separate [architecture companion](../architecture/domain/mailboxes.md).
+
+[Domain index](../../GLOSSARY.md) · [behavior notes](../product/mailboxes.md)
 
 The replacement launches with Gmail. The engine dependency, certified
 Standards-Based Mail and legacy-provider terms describe the Swift prototype or
@@ -55,7 +58,7 @@ A provider-issued immutable mailbox or account identifier; when a provider suppl
 _Avoid_: Display name, local database ID
 
 **Stable Provider Connection Key**:
-A deterministic, device-generated opaque key derived from the provider type and **Stable Provider Mailbox Identity** (and verified endpoint when needed), stored only inside the end-to-end encrypted **Mailbox Connection** definition. Trusted devices use it to converge concurrent additions of the same provider mailbox.
+A deterministic, device-generated opaque key stored only inside the end-to-end encrypted **Mailbox Connection** definition. Trusted devices use it to converge concurrent additions of the same provider mailbox.
 _Avoid_: Backend-readable email address, random local connection ID
 
 **Mailbox Authorization**:

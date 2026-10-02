@@ -1,6 +1,9 @@
 # Privacy, storage and synchronization
 
-[Domain index](../../CONTEXT.md) · [behavior notes](../product/privacy-and-sync.md)
+Setup, coding rules, validation and observable requirements remain in this file.
+The review agent owns the separate [architecture companion](../architecture/domain/privacy-and-sync.md).
+
+[Domain index](../../GLOSSARY.md) · [behavior notes](../product/privacy-and-sync.md)
 
 Privacy and encryption boundaries remain applicable. Category-Aware Notification
 and Generic Notification Fallback retain prototype meanings; replacement
@@ -39,7 +42,7 @@ Content referenced by a message but fetched from an external server only for an 
 _Avoid_: Message body, downloaded attachment
 
 **Authorized Remote Content Cache**:
-The separate 250 MB device-wide encrypted store for non-tracking **Remote Message Content** fetched after a person or their explicit loading policy authorized it. Its quota is shared, but every entry is encrypted and namespaced by Product Account, Mail Profile, Mailbox Connection, stable message identity, and resource revision without cross-Profile deduplication. It evicts least-recently-used entries first, protects content currently displayed, and retains hidden bytes after a Never-policy change until eviction or manual removal through Clear Remote Content.
+The separate 250 MB device-wide encrypted store for non-tracking **Remote Message Content** fetched after a person or their explicit loading policy authorized it. Entries remain private to their Product Account, Mail Profile, **Mailbox Connection** and **Stable Provider Message Identity**, without cross-Profile deduplication. It evicts least-recently-used entries first, protects content currently displayed, and retains hidden bytes after a Never-policy change until eviction or manual removal through Clear Remote Content.
 _Avoid_: Browser cache, Bounded Encrypted Body Cache, automatic remote-content permission
 
 **Tracking Pixel**:

@@ -1,5 +1,8 @@
 # Expo client and mock Inbox
 
+Setup, coding rules, validation and observable requirements remain in this file.
+The review agent owns the separate [architecture companion](architecture/expo-client.md).
+
 `apps/mobile` implements [#592](https://github.com/unwired-dev/product/issues/592):
 a deterministic Inbox and message detail for iPhone and iPad. It uses synthetic
 messages with [native encrypted read-state persistence](private-inbox-storage.md);
@@ -15,17 +18,12 @@ the device that wins initialization presents the Recovery Key, and a competing d
 enters enrollment. Configure the native client ID and Convex deployment when generating the host.
 Select an explicit Mock Mail Session to run the synthetic Inbox journeys.
 
-## Stack and boundaries
+## Dependencies and coding rules
 
 - Expo 57.0.26, React Native 0.86.3, React 19.2.3, and Expo Router 57.0.24.
-- Router's explicitly accepted alpha `unstable-split-view` supplies native compact
-  and regular layouts. Route parameters identify the selected message.
-- React Native `StyleSheet` and framework-independent light/dark tokens in
-  `packages/mail-core`. System text, accessible buttons, selection state and
-  focus borders form the initial UI; there is no additional component library.
-- Effect 4.0.0-rc.118 runs the shared Persistent Inbox and Registration stores,
-  following the [Effect conventions](agents/effect.md). React owns presentation
-  state. Opening a message does not mutate mailbox read state.
+- Route parameters identify the selected message.
+- Use React Native `StyleSheet` and framework-independent light/dark tokens in `packages/mail-core`. Use system text, accessible buttons, selection state and focus borders; there is no additional component library.
+- Use Effect 4.0.0-rc.118 and follow the [Effect conventions](agents/effect.md). React owns presentation state. Opening a message does not mutate mailbox read state.
 - TypeScript 7.0.2, `@effect/tsgo` 0.46.1, Oxlint 1.85.0 and Oxfmt 0.71.0.
   Install runs `effect-tsgo patch --oxlint` once at the workspace root. Every
   TypeScript config includes the `@effect/language-service` plugin configuration;
@@ -39,8 +37,7 @@ One root `pnpm-workspace.yaml` and lockfile manage all packages under
 and Effect use the default catalog; mobile renderer, Expo and test packages use
 `catalog:mobile`. The app consumes `mail-core` through `workspace:*`, so source
 edits are immediately available without reinstalling. Keep React and native
-imports out of that shared package. Catalogs centralize versions; bundle checks
-and native autolinking still have to establish each host's renderer boundary.
+imports out of that shared package. Run bundle and native autolinking checks for each host.
 
 ### Effect setup and imports
 
@@ -196,8 +193,7 @@ infrastructure failures or zero-test success receive one fresh-device retry.
 Its 45-minute timeout includes installation and the native build; the interaction
 step has a separate 25-minute limit for harness compilation, two sequential
 simulator startups and both journeys, including the bounded infrastructure retry.
-The original 15-minute limit interrupted a hosted run after iPhone passed but
-before iPad produced a test result. Superseded pull-request runs are cancelled.
+Superseded pull-request runs are cancelled.
 Build logs and XCTest result bundles, including screenshots, are uploaded as
 `expo-native-e2e-<run id>-<attempt>` with seven-day retention, including on failure. The job selects the test-only `open-read-relaunch` scenario
 and uploads run ownership, simulator IDs and exit results as well.
