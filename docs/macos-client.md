@@ -23,6 +23,10 @@ The `macos` catalog pins React Native macOS 0.81.9, React Native 0.81.6 and Reac
 19.1.4 in the root workspace and lockfile. Keep React and native imports out of
 `mail-core`. Mac views and native adapters live in `apps/macos`.
 
+Load the approved `fast-text-encoding@1.0.6` polyfill in the entry point before
+Effect. Mac Hermes lacks `TextEncoder` and `TextDecoder`; the polyfill supplies
+UTF-8 encoding only, not a general message-charset decoder.
+
 The production source-map check rejects the mobile renderer, Expo, React DOM and
 backend code, checks the shared fixture against disk, and verifies native
 autolinking. The host currently autolinks no additional native modules. Adding

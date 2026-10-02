@@ -13,10 +13,6 @@ The `macos` catalog pins React Native macOS 0.81.9, React Native 0.81.6 and Reac
 supersedes the issue's original separate-lockfile requirement. Mac views and
 native adapters live in `apps/macos`; `mail-core` imports no UI framework.
 
-The entry point loads the approved `fast-text-encoding@1.0.6` polyfill before
-Effect. Mac Hermes lacks `TextEncoder` and `TextDecoder`; the polyfill supplies
-UTF-8 encoding only, not a general message-charset decoder.
-
 Metro redirects React and React Native imports, including subpaths, to this
 host's packages. Its startup module also comes from React Native macOS. The
 production source-map check rejects the mobile renderer, Expo, React DOM and
