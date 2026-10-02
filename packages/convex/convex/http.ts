@@ -12,6 +12,7 @@ import {
   trustedDeviceReconnectRequiredErrorCode,
   trustedDeviceRevokedErrorCode,
 } from './productAccountAuth.js';
+import { signInLinkErrorCodes } from './signInLinks.js';
 
 const http = httpRouter();
 const maxMicrosoftGraphNotificationsPerRequest = 100;
@@ -43,6 +44,23 @@ const decodeRecoveryMaterialRequest = Schema.decodeUnknownOption(
     trustedDeviceCredential: Schema.optionalKey(Schema.String),
     trustedDeviceId: Schema.String,
   }),
+);
+
+const signInLinkProof = {
+  trustedDeviceCredential: Schema.optionalKey(Schema.String),
+  trustedDeviceId: Schema.String,
+};
+const decodeSignInLinkRequest = Schema.decodeUnknownOption(
+  Schema.Struct({
+    ...signInLinkProof,
+    provider: Schema.Literals(['apple', 'google']),
+  }),
+);
+const decodeSignInLinkCompletion = Schema.decodeUnknownOption(
+  Schema.Struct({ ...signInLinkProof, linkTicket: Schema.String }),
+);
+const isSignInLinkFailure = Schema.is(
+  Schema.Struct({ code: Schema.Literals(Object.values(signInLinkErrorCodes)) }),
 );
 
 const isTrustedDeviceAccessFailure = Schema.is(
@@ -95,7 +113,7 @@ function bearerToken(request: Request): string | null {
     : null;
 }
 
-function appleIdentityTokenClaims(
+function identityTokenClaims(
   identityToken: string,
 ): RecentAuthenticationClaims | null {
   const segments = identityToken.split('.');
@@ -128,7 +146,7 @@ async function replaceRecoveryMaterialResponse(
 ): Promise<Response> {
   const identity = await ctx.auth.getUserIdentity();
   const token = bearerToken(request);
-  const claims = token === null ? null : appleIdentityTokenClaims(token);
+  const claims = token === null ? null : identityTokenClaims(token);
   if (
     identity === null ||
     claims === null ||
@@ -161,6 +179,62 @@ async function replaceRecoveryMaterialResponse(
       error.message.includes('Trusted device required')
     ) {
       return new Response('Trusted device required', { status: 403 });
+    }
+    throw error;
+  }
+}
+
+function signInLinkFailure(code: string, status: number): Response {
+  return Response.json({ status: 'error', errorData: { code } }, { status });
+}
+
+async function signInLinkResponse(
+  ctx: ActionCtx,
+  request: Request,
+  operation: 'request' | 'complete',
+): Promise<Response> {
+  // Convex validates this exact bearer token's signature, issuer and audience.
+  // Reserved OIDC claims such as iat are not exposed on getUserIdentity().
+  const identity = await ctx.auth.getUserIdentity();
+  const token = bearerToken(request);
+  const claims = token === null ? null : identityTokenClaims(token);
+  if (
+    identity === null ||
+    claims === null ||
+    !recentlyIssuedForIdentity(claims, identity)
+  ) {
+    return signInLinkFailure(signInLinkErrorCodes.recentAuthentication, 401);
+  }
+  const body: unknown = await request.json().catch(() => null);
+  try {
+    if (operation === 'request') {
+      const decoded = decodeSignInLinkRequest(body);
+      if (Option.isNone(decoded)) {
+        return new Response('Invalid sign-in link request', { status: 400 });
+      }
+      const value = await ctx.runMutation(
+        internal.signInLinks.request,
+        decoded.value,
+      );
+      return Response.json({ status: 'success', value });
+    }
+    const decoded = decodeSignInLinkCompletion(body);
+    if (Option.isNone(decoded)) {
+      return new Response('Invalid sign-in link completion', { status: 400 });
+    }
+    const value = await ctx.runMutation(
+      internal.signInLinks.complete,
+      decoded.value,
+    );
+    return Response.json({ status: 'success', value });
+  } catch (error) {
+    const failure: unknown =
+      error instanceof ConvexError ? error.data : undefined;
+    if (isSignInLinkFailure(failure)) {
+      return signInLinkFailure(failure.code, 409);
+    }
+    if (isTrustedDeviceAccessFailure(failure)) {
+      return signInLinkFailure(failure.code, 403);
     }
     throw error;
   }
@@ -295,6 +369,21 @@ http.route({
     );
     return new Response(null, { status: 204 });
   }),
+});
+
+http.route({
+  path: '/sign-in-links/request',
+  method: 'POST',
+  handler: httpAction((ctx, request) =>
+    signInLinkResponse(ctx, request, 'request'),
+  ),
+});
+http.route({
+  path: '/sign-in-links/complete',
+  method: 'POST',
+  handler: httpAction((ctx, request) =>
+    signInLinkResponse(ctx, request, 'complete'),
+  ),
 });
 
 http.route({

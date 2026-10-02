@@ -46,6 +46,7 @@ target.build_configurations.each do |configuration|
     'MACOSX_DEPLOYMENT_TARGET' => '27.0',
     'ENABLE_HARDENED_RUNTIME' => configuration.name == 'Release' ? 'YES' : 'NO',
     'CODE_SIGN_IDENTITY' => ENV.fetch('UNWIRED_SIGNING_IDENTITY', '-'),
+    'CODE_SIGN_STYLE' => ENV.fetch('UNWIRED_SIGNING_IDENTITY', '-').start_with?('Apple Development') ? 'Automatic' : 'Manual',
     'DEVELOPMENT_TEAM' => ENV.fetch('UNWIRED_DEVELOPMENT_TEAM', ''),
     'CODE_SIGN_ENTITLEMENTS' => ENV.fetch('UNWIRED_SIGNING_IDENTITY', '-') == '-' ? '' : 'UnwiredMail/UnwiredMail.entitlements',
     'COMBINE_HIDPI_IMAGES' => 'YES',

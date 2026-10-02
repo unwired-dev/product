@@ -9,6 +9,7 @@ if [[ -n "${UNWIRED_MOCK_SCENARIO:-}" && "$configuration" != Testing ]]; then
 fi
 artifact_root="${PWD}/../../artifacts/macos-inbox"
 mkdir -p "$artifact_root"
+export PATH="$(ruby -e 'print Gem.bindir'):$PATH"
 pnpm native:generate
 pnpm native:pods
 xcodebuild build -workspace macos/UnwiredMail.xcworkspace -scheme UnwiredMail \
