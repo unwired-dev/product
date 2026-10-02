@@ -59,7 +59,7 @@ import os
       {
         throw RegistrationError.cancelled
       }
-      throw RegistrationError.unavailable
+      throw error
     }
     return try identity(result.user, nonce: nonce)
   }
@@ -159,8 +159,8 @@ final class UnwiredRegistration: NSObject {
               let linkTicket: String?
               let signInProviders: [SignInProvider]
             }
-            let response: Response = try await Self.mutation(
-              base: base, identity: identity, path: "signInLinks:request",
+            let response: Response = try await Self.signInLink(
+              base: base, identity: identity, operation: "request",
               args: [
                 "provider": provider.rawValue, "trustedDeviceId": product.trustedDeviceId,
                 "trustedDeviceCredential": product.trustedDeviceCredential,
@@ -173,8 +173,8 @@ final class UnwiredRegistration: NSObject {
               let productAccountId: String
               let signInProviders: [SignInProvider]
             }
-            let response: Response = try await Self.mutation(
-              base: base, identity: identity, path: "signInLinks:complete",
+            let response: Response = try await Self.signInLink(
+              base: base, identity: identity, operation: "complete",
               args: [
                 "linkTicket": ticket, "trustedDeviceId": product.trustedDeviceId,
                 "trustedDeviceCredential": product.trustedDeviceCredential,
@@ -203,6 +203,33 @@ final class UnwiredRegistration: NSObject {
     "SIGN_IN_LINK_EXPIRED": .staleAuthentication,
     "SIGN_IN_NOT_LINKED": .invalidIdentity,
   ]
+
+  @MainActor private static func signInLink<Value: Decodable>(
+    base: URL, identity: ProductSignInIdentity, operation: String, args: [String: Any]
+  ) async throws -> Value {
+    guard var components = URLComponents(url: base, resolvingAgainstBaseURL: false),
+      let host = components.host, host.hasSuffix(".convex.cloud")
+    else { throw RegistrationError.unavailable }
+    components.host = String(host.dropLast(".convex.cloud".count)) + ".convex.site"
+    components.path = "/sign-in-links/" + operation
+    guard let url = components.url else { throw RegistrationError.unavailable }
+    var request = URLRequest(url: url)
+    request.httpMethod = "POST"
+    request.timeoutInterval = 30
+    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    request.setValue("Bearer " + identity.idToken, forHTTPHeaderField: "Authorization")
+    request.httpBody = try JSONSerialization.data(withJSONObject: args)
+    let (data, response) = try await URLSession.shared.data(for: request)
+    guard let result = try? JSONDecoder().decode(ConvexEnvelope<Value>.self, from: data) else {
+      throw RegistrationError.unavailable
+    }
+    if result.status == "success", let value = result.value,
+      (response as? HTTPURLResponse)?.statusCode == 200
+    {
+      return value
+    }
+    throw result.errorData.flatMap { backendErrors[$0.code] } ?? RegistrationError.unavailable
+  }
 
   @MainActor private static func mutation<Value: Decodable>(
     base: URL, identity: ProductSignInIdentity, path: String, args: [String: Any],

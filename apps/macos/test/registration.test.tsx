@@ -199,6 +199,9 @@ describe('product registration', () => {
         await screen.findByRole('button', { name: 'Sign in with Google' }),
       );
     });
+    expect(
+      screen.getByText(/First verify Google, then sign in with Apple\./u),
+    ).toBeVisible();
     const before = store.getSnapshot().snapshot;
     await act(async () => {
       await fireEvent.press(

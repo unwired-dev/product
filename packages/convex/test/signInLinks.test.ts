@@ -1,5 +1,7 @@
-/// <reference types="vite/client" />
 import { convexTest } from 'convex-test';
+/// <reference types="vite/client" />
+import { ConvexError } from 'convex/values';
+import * as Schema from 'effect/Schema';
 
 import type { Id } from '../convex/_generated/dataModel.js';
 
@@ -20,6 +22,78 @@ const apple = (subject: string, iat?: number) =>
   identity('https://appleid.apple.com', subject, iat);
 const google = (subject: string, iat?: number) =>
   identity('https://accounts.google.com', subject, iat);
+
+const SignInProvidersSchema = Schema.Array(
+  Schema.Literals(['apple', 'google']),
+);
+const decodeLinkRequest = Schema.decodeUnknownSync(
+  Schema.Struct({
+    linkTicket: Schema.optionalKey(Schema.String),
+    signInProviders: SignInProvidersSchema,
+  }),
+);
+const decodeLinkCompletion = Schema.decodeUnknownSync(
+  Schema.Struct({
+    productAccountId: Schema.String,
+    signInProviders: SignInProvidersSchema,
+  }),
+);
+const decodeLinkEnvelope = Schema.decodeUnknownSync(
+  Schema.Union([
+    Schema.Struct({ status: Schema.Literal('success'), value: Schema.Unknown }),
+    Schema.Struct({
+      status: Schema.Literal('error'),
+      errorData: Schema.Struct({ code: Schema.String }),
+    }),
+  ]),
+);
+
+function identityToken(
+  account: Readonly<{ issuer: string; subject: string; iat?: number }>,
+): string {
+  const claims = {
+    iat: account.iat ?? now(),
+    iss: account.issuer,
+    sub: account.subject,
+  };
+  return `test-header.${Buffer.from(JSON.stringify(claims)).toString('base64url')}.test-signature`;
+}
+
+function linkClient(
+  t: ReturnType<typeof convexTest>,
+  account: Readonly<{ issuer: string; subject: string; iat?: number }>,
+) {
+  // Model the gateway's verified identity without reserved token timestamps.
+  const asUser = t.withIdentity({
+    issuer: account.issuer,
+    subject: account.subject,
+  });
+  async function call(
+    operation: 'request' | 'complete',
+    args: unknown,
+  ): Promise<unknown> {
+    const response = await asUser.fetch(`/sign-in-links/${operation}`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${identityToken(account)}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify(args),
+    });
+    const envelope = decodeLinkEnvelope(await response.json());
+    if (envelope.status === 'error') {
+      throw new ConvexError(envelope.errorData);
+    }
+    expect(response.status).toBe(200);
+    return envelope.value;
+  }
+  return {
+    request: async (args: unknown) =>
+      decodeLinkRequest(await call('request', args)),
+    complete: async (args: unknown) =>
+      decodeLinkCompletion(await call('complete', args)),
+  };
+}
 
 function ticket(response: { linkTicket?: string }): string {
   if (response.linkTicket === undefined) {
@@ -68,19 +142,119 @@ async function registered(
 
 /* oxlint-disable vitest/max-expects -- Each journey proves one ownership contract across both identities. */
 describe('linked sign-ins', () => {
+  it('rejects missing, stale, future, malformed and identity-mismatched bearer claims before issuing or completing a link', async () => {
+    expect.hasAssertions();
+    // Keep the six-second skew outside the bound across both HTTP requests.
+    const clock = vi
+      .spyOn(Date, 'now')
+      .mockReturnValue(Date.UTC(2026, 9, 2, 12));
+    try {
+      const t = convexTest(schema, modules);
+      const owner = await registered(t, google('google-current'));
+      const asUser = t.withIdentity({
+        issuer: 'https://accounts.google.com',
+        subject: 'google-current',
+      });
+      const claimsToken = (claims: unknown) =>
+        `header.${Buffer.from(JSON.stringify(claims)).toString('base64url')}.signature`;
+      const claims = {
+        iat: now(),
+        iss: 'https://accounts.google.com',
+        sub: 'google-current',
+      };
+      const rejectedTokens = [
+        '',
+        'malformed',
+        claimsToken({ ...claims, iat: now() - 301 }),
+        claimsToken({ ...claims, iat: now() + 6 }),
+        claimsToken({ ...claims, iat: String(now()) }),
+        claimsToken({ iss: claims.iss, sub: claims.sub }),
+        claimsToken({ ...claims, sub: 'another-person' }),
+        claimsToken({ ...claims, iss: 'https://appleid.apple.com' }),
+      ];
+      const statuses = [];
+      for (const operation of ['request', 'complete']) {
+        for (const token of rejectedTokens) {
+          const response = await asUser.fetch(`/sign-in-links/${operation}`, {
+            method: 'POST',
+            headers: { authorization: `Bearer ${token}` },
+            body: JSON.stringify({
+              ...owner.proof,
+              provider: 'apple',
+              linkTicket: 'unused',
+            }),
+          });
+          statuses.push(response.status);
+        }
+      }
+      expect(statuses).toStrictEqual(
+        Array.from({ length: rejectedTokens.length * 2 }, () => 401),
+      );
+      const unauthenticated = await t.fetch('/sign-in-links/request', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${claimsToken(claims)}` },
+        body: JSON.stringify({ ...owner.proof, provider: 'apple' }),
+      });
+      expect(unauthenticated.status).toBe(401);
+      for (const operation of ['request', 'complete']) {
+        const malformed = await asUser.fetch(`/sign-in-links/${operation}`, {
+          method: 'POST',
+          headers: { authorization: `Bearer ${claimsToken(claims)}` },
+          body: '{}',
+        });
+        expect(malformed.status).toBe(400);
+      }
+      await expect(
+        t.run((ctx) => ctx.db.query('signInLinkRequests').collect()),
+      ).resolves.toStrictEqual([]);
+      await expect(
+        t.run((ctx) => ctx.db.query('linkedSignIns').collect()),
+      ).resolves.toStrictEqual([]);
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it('links Apple to a Google account when the verified identity omits reserved JWT timestamps', async () => {
+    expect.hasAssertions();
+    const t = convexTest(schema, modules);
+    const current = {
+      issuer: 'https://accounts.google.com',
+      subject: 'google-current',
+    };
+    const owner = await registered(t, google('google-current'));
+    const requested = await linkClient(t, current).request({
+      ...owner.proof,
+      provider: 'apple',
+    });
+    expect(requested.signInProviders).toStrictEqual(['google']);
+    const linked = await linkClient(t, apple('apple-added')).complete({
+      ...owner.proof,
+      linkTicket: ticket(requested),
+    });
+    expect(linked).toStrictEqual({
+      productAccountId: owner.productAccountId,
+      signInProviders: ['google', 'apple'],
+    });
+    const alternate = await registered(
+      t,
+      apple('apple-added'),
+      'apple-installation',
+    );
+    expect(alternate.productAccountId).toBe(owner.productAccountId);
+  });
+
   it('lets a verified Google identity open the Apple Product Account on another installation, while a same-email Google identity stays separate', async () => {
     expect.hasAssertions();
     const t = convexTest(schema, modules);
     const owner = await registered(t, apple('apple-001'));
-    const requested = await t
-      .withIdentity(apple('apple-001'))
-      .mutation(api.signInLinks.request, {
-        ...owner.proof,
-        provider: 'google',
-      });
+    const requested = await linkClient(t, apple('apple-001')).request({
+      ...owner.proof,
+      provider: 'google',
+    });
     expect(requested.signInProviders).toStrictEqual(['apple']);
     await expect(
-      t.withIdentity(google('google-001')).mutation(api.signInLinks.complete, {
+      linkClient(t, google('google-001')).complete({
         ...owner.proof,
         linkTicket: ticket(requested),
       }),
@@ -109,7 +283,7 @@ describe('linked sign-ins', () => {
     ).resolves.toHaveLength(2);
     // Requesting an already linked provider reports it without issuing a ticket.
     await expect(
-      t.withIdentity(google('google-001')).mutation(api.signInLinks.request, {
+      linkClient(t, google('google-001')).request({
         ...owner.proof,
         provider: 'apple',
       }),
@@ -154,18 +328,16 @@ describe('linked sign-ins', () => {
       'installation-other',
     );
     const request = () =>
-      t.withIdentity(apple('apple-owner')).mutation(api.signInLinks.request, {
+      linkClient(t, apple('apple-owner')).request({
         ...owner.proof,
         provider: 'google',
       });
     // An identity with its own Product Account is never attached or merged.
     await expect(
-      t
-        .withIdentity(google('google-registered'))
-        .mutation(api.signInLinks.complete, {
-          ...owner.proof,
-          linkTicket: ticket(await request()),
-        }),
+      linkClient(t, google('google-registered')).complete({
+        ...owner.proof,
+        linkTicket: ticket(await request()),
+      }),
     ).rejects.toMatchObject({ data: { code: 'SIGN_IN_IDENTITY_OWNED' } });
 
     // Devices racing to link Google: only the newest ticket can commit.
@@ -176,30 +348,24 @@ describe('linked sign-ins', () => {
     );
     const firstTicket = ticket(await request());
     const secondTicket = ticket(
-      await t
-        .withIdentity(apple('apple-owner'))
-        .mutation(api.signInLinks.request, {
-          ...second.proof,
-          provider: 'google',
-        }),
+      await linkClient(t, apple('apple-owner')).request({
+        ...second.proof,
+        provider: 'google',
+      }),
     );
     await expect(
-      t
-        .withIdentity(google('google-first'))
-        .mutation(api.signInLinks.complete, {
-          ...owner.proof,
-          linkTicket: firstTicket,
-        }),
+      linkClient(t, google('google-first')).complete({
+        ...owner.proof,
+        linkTicket: firstTicket,
+      }),
     ).rejects.toMatchObject({ data: { code: 'SIGN_IN_LINK_EXPIRED' } });
     const thirdTicket = ticket(await request());
-    await t
-      .withIdentity(google('google-first'))
-      .mutation(api.signInLinks.complete, {
-        ...owner.proof,
-        linkTicket: thirdTicket,
-      });
+    await linkClient(t, google('google-first')).complete({
+      ...owner.proof,
+      linkTicket: thirdTicket,
+    });
     await expect(
-      t.withIdentity(google('google-late')).mutation(api.signInLinks.complete, {
+      linkClient(t, google('google-late')).complete({
         ...second.proof,
         linkTicket: secondTicket,
       }),
@@ -207,15 +373,13 @@ describe('linked sign-ins', () => {
 
     // Another account cannot take over an identity that is already linked.
     const otherTicket = ticket(
-      await t
-        .withIdentity(google('google-registered'))
-        .mutation(api.signInLinks.request, {
-          ...other.proof,
-          provider: 'apple',
-        }),
+      await linkClient(t, google('google-registered')).request({
+        ...other.proof,
+        provider: 'apple',
+      }),
     );
     await expect(
-      t.withIdentity(apple('apple-owner')).mutation(api.signInLinks.complete, {
+      linkClient(t, apple('apple-owner')).complete({
         ...other.proof,
         linkTicket: otherTicket,
       }),
@@ -250,46 +414,42 @@ describe('linked sign-ins', () => {
     const owner = await registered(t, google('google-owner'));
     const stale = now() - 301;
     await expect(
-      t
-        .withIdentity(google('google-owner', stale))
-        .mutation(api.signInLinks.request, {
-          ...owner.proof,
-          provider: 'apple',
-        }),
+      linkClient(t, google('google-owner', stale)).request({
+        ...owner.proof,
+        provider: 'apple',
+      }),
     ).rejects.toMatchObject({
       data: { code: 'SIGN_IN_RECENT_AUTHENTICATION_REQUIRED' },
     });
     const request = async () =>
       ticket(
-        await t
-          .withIdentity(google('google-owner'))
-          .mutation(api.signInLinks.request, {
-            ...owner.proof,
-            provider: 'apple',
-          }),
+        await linkClient(t, google('google-owner')).request({
+          ...owner.proof,
+          provider: 'apple',
+        }),
       );
     const linkTicket = await request();
     await expect(
-      t
-        .withIdentity(apple('apple-new', stale))
-        .mutation(api.signInLinks.complete, { ...owner.proof, linkTicket }),
+      linkClient(t, apple('apple-new', stale)).complete({
+        ...owner.proof,
+        linkTicket,
+      }),
     ).rejects.toMatchObject({
       data: { code: 'SIGN_IN_RECENT_AUTHENTICATION_REQUIRED' },
     });
     // A malformed ticket names no request and links nothing.
     await expect(
-      t
-        .withIdentity(apple('apple-malformed'))
-        .mutation(api.signInLinks.complete, {
-          ...owner.proof,
-          linkTicket: 'not-a-ticket',
-        }),
+      linkClient(t, apple('apple-malformed')).complete({
+        ...owner.proof,
+        linkTicket: 'not-a-ticket',
+      }),
     ).rejects.toMatchObject({ data: { code: 'SIGN_IN_LINK_EXPIRED' } });
     // A ticket is bound to its provider and to the device that requested it.
     await expect(
-      t
-        .withIdentity(google('google-new'))
-        .mutation(api.signInLinks.complete, { ...owner.proof, linkTicket }),
+      linkClient(t, google('google-new')).complete({
+        ...owner.proof,
+        linkTicket,
+      }),
     ).rejects.toMatchObject({ data: { code: 'SIGN_IN_LINK_EXPIRED' } });
     const elsewhere = await registered(
       t,
@@ -297,9 +457,10 @@ describe('linked sign-ins', () => {
       'installation-elsewhere',
     );
     await expect(
-      t
-        .withIdentity(apple('apple-new'))
-        .mutation(api.signInLinks.complete, { ...elsewhere.proof, linkTicket }),
+      linkClient(t, apple('apple-new')).complete({
+        ...elsewhere.proof,
+        linkTicket,
+      }),
     ).rejects.toMatchObject({ data: { code: 'SIGN_IN_LINK_EXPIRED' } });
     await t.run(async (ctx) => {
       for (const pending of await ctx.db
@@ -311,24 +472,23 @@ describe('linked sign-ins', () => {
       }
     });
     await expect(
-      t
-        .withIdentity(apple('apple-new'))
-        .mutation(api.signInLinks.complete, { ...owner.proof, linkTicket }),
+      linkClient(t, apple('apple-new')).complete({
+        ...owner.proof,
+        linkTicket,
+      }),
     ).rejects.toMatchObject({ data: { code: 'SIGN_IN_LINK_EXPIRED' } });
     await expect(
       t.run((ctx) => ctx.db.query('linkedSignIns').collect()),
     ).resolves.toStrictEqual([]);
 
     const fresh = await request();
-    const linked = await t
-      .withIdentity(apple('apple-new'))
-      .mutation(api.signInLinks.complete, {
-        ...owner.proof,
-        linkTicket: fresh,
-      });
+    const linked = await linkClient(t, apple('apple-new')).complete({
+      ...owner.proof,
+      linkTicket: fresh,
+    });
     // The response was lost; retrying the consumed ticket confirms the committed link.
     await expect(
-      t.withIdentity(apple('apple-new')).mutation(api.signInLinks.complete, {
+      linkClient(t, apple('apple-new')).complete({
         ...owner.proof,
         linkTicket: fresh,
       }),
@@ -341,16 +501,15 @@ describe('linked sign-ins', () => {
     const t = convexTest(schema, modules);
     const owner = await registered(t, apple('apple-deleted'));
     const linkTicket = ticket(
-      await t
-        .withIdentity(apple('apple-deleted'))
-        .mutation(api.signInLinks.request, {
-          ...owner.proof,
-          provider: 'google',
-        }),
+      await linkClient(t, apple('apple-deleted')).request({
+        ...owner.proof,
+        provider: 'google',
+      }),
     );
-    await t
-      .withIdentity(google('google-deleted'))
-      .mutation(api.signInLinks.complete, { ...owner.proof, linkTicket });
+    await linkClient(t, google('google-deleted')).complete({
+      ...owner.proof,
+      linkTicket,
+    });
     // Deletion requested through the Linked Sign-In is keyed by the original identity.
     const linkedUser = t.withIdentity(google('google-deleted'));
     const prepared = await linkedUser.mutation(

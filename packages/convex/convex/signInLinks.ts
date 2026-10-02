@@ -10,12 +10,11 @@ import { ConvexError, v } from 'convex/values';
 import type { Doc } from './_generated/dataModel.js';
 import type { MutationCtx } from './_generated/server.js';
 
-import { mutation } from './_generated/server.js';
+import { internalMutation } from './_generated/server.js';
 import {
   issueTrustedDeviceCredential,
   requireAuthenticatedTrustedDevice,
   requireProductAccountNotDeleted,
-  requireRecentAuthentication,
   requireTrustedDeviceProof,
   signInProviderForIssuer,
   signInProvidersForAccount,
@@ -39,17 +38,6 @@ function linkError(
   message: string,
 ): ConvexError<{ code: string; message: string }> {
   return new ConvexError({ code, message });
-}
-
-async function requireRecentSignIn(ctx: MutationCtx): Promise<void> {
-  try {
-    await requireRecentAuthentication(ctx);
-  } catch {
-    throw linkError(
-      signInLinkErrorCodes.recentAuthentication,
-      'Sign in again to link another sign-in method.',
-    );
-  }
 }
 
 async function linkResponse(
@@ -83,18 +71,25 @@ async function supersedeLinkRequests(
   }
 }
 
-// Step one: a recently authenticated Trusted Device vouches for its Product Account.
-export const request = mutation({
+// HTTP actions validate recent authentication before calling these internal mutations.
+// Step one: a Trusted Device vouches for its Product Account.
+export const request = internalMutation({
   args: {
     ...trustedDeviceCredentialArgs,
     provider: signInProviderValidator,
-    trustedDeviceId: v.id('trustedDevices'),
+    trustedDeviceId: v.string(),
   },
   handler: async (ctx, args) => {
-    await requireRecentSignIn(ctx);
+    const trustedDeviceId = ctx.db.normalizeId(
+      'trustedDevices',
+      args.trustedDeviceId,
+    );
+    if (trustedDeviceId === null) {
+      throw new Error('Trusted device required');
+    }
     const { productAccountId } = await requireAuthenticatedTrustedDevice(
       ctx,
-      args.trustedDeviceId,
+      trustedDeviceId,
       args.trustedDeviceCredential,
     );
     const account = await ctx.db.get('productAccounts', productAccountId);
@@ -113,7 +108,7 @@ export const request = mutation({
       productAccountId,
       provider: args.provider,
       ticketDigest: await trustedDeviceCredentialDigest(linkTicket),
-      trustedDeviceId: args.trustedDeviceId,
+      trustedDeviceId,
     });
     return { linkTicket, signInProviders };
   },
@@ -218,11 +213,11 @@ async function requireOpenProviderSlot(
 }
 
 // Step two: the identity being linked authenticates and redeems the ticket on the same device.
-export const complete = mutation({
+export const complete = internalMutation({
   args: {
     ...trustedDeviceCredentialArgs,
     linkTicket: v.string(),
-    trustedDeviceId: v.id('trustedDevices'),
+    trustedDeviceId: v.string(),
   },
   // fallow-ignore-next-line complexity -- Ownership checks run in order inside one serializable transaction.
   handler: async (ctx, args) => {
@@ -230,11 +225,17 @@ export const complete = mutation({
     if (!identity) {
       throw new Error('Authentication required');
     }
-    await requireRecentSignIn(ctx);
+    const trustedDeviceId = ctx.db.normalizeId(
+      'trustedDevices',
+      args.trustedDeviceId,
+    );
+    if (trustedDeviceId === null) {
+      throw new Error('Trusted device required');
+    }
     const { account, existing, pending, provider } = await linkTarget(
       ctx,
       identity,
-      args,
+      { ...args, trustedDeviceId },
     );
     await requireProductAccountNotDeleted(ctx, account.tokenIdentifier);
     await requireTrustedDeviceProof(
@@ -246,7 +247,7 @@ export const complete = mutation({
       },
       {
         trustedDeviceCredential: args.trustedDeviceCredential,
-        trustedDeviceId: args.trustedDeviceId,
+        trustedDeviceId,
       },
     );
     // A retried completion whose response was lost finds its committed link.

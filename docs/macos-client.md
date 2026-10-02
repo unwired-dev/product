@@ -58,7 +58,9 @@ hardware-keyboard qualification remain separate release checks.
 
 Use the [mise Node/pnpm toolchain](../README.md#local-development), Xcode 27, and
 Ruby with CocoaPods and the `xcodeproj` gem. Keep the Ruby gem executables and
-pnpm on `PATH` for Xcode build phases. `RUBY` selects the test runner's Ruby.
+pnpm on `PATH` for Xcode build phases. `native:build` adds the active Ruby's gem
+executable directory to `PATH`, so installed CocoaPods remains available after
+a Ruby upgrade. `RUBY` selects the test runner's Ruby.
 
 ```sh
 mise exec -- pnpm install --frozen-lockfile --strict-peer-dependencies
@@ -72,15 +74,31 @@ using the committed `Podfile.lock`, and builds arm64 with isolated DerivedData.
 Local builds default to ad-hoc signing and
 disable hardened runtime because ad-hoc dynamic frameworks have no Team ID. The
 generated project retains hardened runtime for distribution signing.
-Persistence requires the [Keychain signing setup](private-inbox-storage.md#native-wiring-and-signing);
-ad-hoc builds report locked storage. All
+Google and Apple sign-in, and persistence, require the
+[Keychain signing setup](private-inbox-storage.md#native-wiring-and-signing).
+Google's SDK reports `com.google.GIDSignIn` code `-2` when it cannot store
+credentials in Keychain; ad-hoc builds report locked storage. All
 configurations target macOS 27. Release embeds `main.jsbundle`; it never falls
 back to Metro. Distribution signing and App Store archives remain
 unqualified.
 
-For development, run `pnpm dev`, then build the generated `UnwiredMail` scheme in
-Debug. Debug uses Metro. Regenerate the native project and reinstall Pods after
-changing native setup or dependencies.
+For development, run `mise exec -- pnpm dev` from `apps/macos` to start Metro.
+In another terminal in the same directory, build Debug. `native:build` loads the
+root `.env.local` if it exists; exported shell variables take precedence:
+
+```sh
+mise exec -- pnpm native:build Debug
+open ../../artifacts/macos-inbox/DerivedData/Build/Products/Debug/UnwiredMail.app
+```
+
+For real sign-in, set `UNWIRED_SIGNING_IDENTITY="Apple Development"` and
+`UNWIRED_DEVELOPMENT_TEAM="<your team ID>"` in that local file, alongside the
+[Google and Convex host configuration](google-registration.md#configure-the-hosts).
+Install a matching Mac development profile first. Generated development-signed
+projects use automatic signing; `native:build` uses installed profiles and does not create
+developer-portal resources. Debug uses Metro. Quit and reopen the app after a
+native rebuild. Regenerate the native project and reinstall Pods after changing
+native setup or dependencies.
 
 ## Verification
 

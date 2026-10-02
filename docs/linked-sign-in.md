@@ -16,7 +16,9 @@ Once a Product Account exists, the registration screen shows **Sign-in methods**
 With one provider it says only that provider opens the account and offers
 **Link Google sign-in** or **Link Apple sign-in**. The copy says linking adds a
 way to sign in and does not connect a mailbox. After linking it names both
-providers. Linking does not change the connected Gmail mailbox.
+providers. The copy also explains the session order: linking Apple from a Google
+account opens Google first to verify the existing sign-in, then Apple to add the
+other identity. Linking does not change the connected Gmail mailbox.
 
 Signing in with a linked provider on another installation opens the same Product
 Account through the ordinary **Sign in with Apple** or **Sign in with Google**
@@ -39,6 +41,17 @@ interactive authentication, without using a mailbox or relay address as an
 account hint. Each identity token must have been issued within the last five minutes, and the
 link request expires after five minutes. Expired verification requires a fresh
 interactive attempt immediately; there is no waiting period.
+
+The native host sends each identity token only as the Authorization bearer header
+on `POST /sign-in-links/request` and `POST /sign-in-links/complete`, using the
+configured deployment's `.convex.site` HTTP actions. Convex verifies the exact
+bearer token's signature, issuer and audience before the handler runs. The handler
+decodes its `iat` claim, binds its issuer and subject to the verified identity, and
+checks the five-minute limit with five seconds of future clock skew. Reserved OIDC
+claims such as `iat` are absent from `getUserIdentity()` and cannot supply this
+check. The ownership mutations are internal, so callers cannot bypass the HTTP
+freshness check. Deploy the backend and rebuild the native hosts together; the
+former public `signInLinks:request` and `signInLinks:complete` mutations are retired.
 
 Each verified issuer and subject has exactly one owner. Completion is rejected
 when the identity created another Product Account, is linked elsewhere, or
@@ -84,8 +97,11 @@ out of scope. Linking needs no new host or deployment configuration beyond
 
 ## Deterministic evidence
 
-Convex integration tests exercise `signInLinks:request`, `signInLinks:complete`
-and `productAccount:connect` with authenticated test identities. They cover
+Convex integration tests exercise both `/sign-in-links` HTTP actions and
+`productAccount:connect` with authenticated test identities. The verified identity
+omits reserved token timestamps; freshness is checked from a synthetic bearer
+token. Missing, stale, future, malformed and identity-mismatched claims fail closed
+before any link state changes, and malformed request bodies are rejected. They cover
 alternate sign-in from a second installation and a same-email identity that stays
 separate. They also cover identities owned by other accounts, superseded tickets
 and stale tokens on either side. Expired, wrong-provider and wrong-device tickets

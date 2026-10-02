@@ -337,7 +337,7 @@ export function signInMethodsCopy(
   }
   const other = otherSignInProvider(snapshot.signInProvider);
   return {
-    description: `Only ${current} opens this Product Account. Linking ${providerNames[other]} adds another way to sign in. It does not connect a mailbox.`,
+    description: `Only ${current} opens this Product Account. Linking ${providerNames[other]} adds another way to sign in. First verify ${current}, then sign in with ${providerNames[other]}. It does not connect a mailbox.`,
     link: other,
   };
 }

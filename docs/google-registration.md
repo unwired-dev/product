@@ -74,6 +74,12 @@ Do not commit configured deployment values or credentials. App Check enforcement
 restricted-scope verification, App Store disclosures and distribution entitlements
 remain protected release qualifications.
 
+On Mac, real sign-in requires development signing and a matching provisioning
+profile even in Debug. An ad-hoc build can show onboarding but Google's SDK cannot
+store its credential. Its `com.google.GIDSignIn` error code `-2` identifies this
+Keychain failure. The native adapter retains the SDK error for the private OS log;
+JavaScript still receives only the stable registration failure code.
+
 ## Deterministic evidence
 
 Shared application and rendered host tests use fixed synthetic registration
