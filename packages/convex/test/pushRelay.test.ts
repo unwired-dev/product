@@ -111,9 +111,17 @@ const googleIdentitySigningKey = {
 function createGoogleIdentityToken(
   emailAddress: string,
   providerAccountIdentifier: string,
+  overrides: Readonly<{
+    claims?: Readonly<Record<string, unknown>>;
+    keyId?: string;
+  }> = {},
 ): string {
   const header = Buffer.from(
-    JSON.stringify({ alg: 'RS256', kid: 'google-test-key', typ: 'JWT' }),
+    JSON.stringify({
+      alg: 'RS256',
+      kid: overrides.keyId ?? 'google-test-key',
+      typ: 'JWT',
+    }),
   ).toString('base64url');
   const claims = Buffer.from(
     JSON.stringify({
@@ -123,6 +131,7 @@ function createGoogleIdentityToken(
       exp: 4_102_444_800,
       iss: 'https://accounts.google.com',
       sub: providerAccountIdentifier,
+      ...overrides.claims,
     }),
   ).toString('base64url');
   const signingInput = `${header}.${claims}`;
@@ -154,6 +163,29 @@ const matchingVictimSubjectIdentityToken = createGoogleIdentityToken(
   'attacker@example.com',
   'client-asserted-id',
 );
+
+// Convex's default runtime exposes process.env as a get-only Proxy that cannot be
+// enumerated or copied; Node's process.env can be both.
+async function withDefaultRuntimeEnvironment<T>(
+  run: () => Promise<T>,
+): Promise<T> {
+  // oxlint-disable-next-line node/no-process-env -- Emulates the default runtime's environment.
+  const environment = process.env;
+  // oxlint-disable-next-line node/no-process-env -- Emulates the default runtime's environment.
+  process.env = new Proxy(
+    {},
+    {
+      get: (_target, name) =>
+        typeof name === 'string' ? environment[name] : undefined,
+    },
+  );
+  try {
+    return await run();
+  } finally {
+    // oxlint-disable-next-line node/no-process-env -- Restores Node's environment.
+    process.env = environment;
+  }
+}
 
 vi.stubEnv('GMAIL_OAUTH_CLIENT_ID', 'gmail-client-id');
 vi.stubEnv('GMAIL_ROUTING_KEY', 'gmail-routing-test-key');
@@ -298,7 +330,7 @@ describe('gmail push relay', () => {
     expect(googleSigningKeyFetch).not.toHaveBeenCalled();
   });
 
-  it('derives the opaque connection id for legacy watch verification calls', async () => {
+  it('derives the opaque connection id for legacy watch verification calls in the default runtime', async () => {
     expect.assertions(2);
 
     const t = convexTest(schema, modules);
@@ -322,14 +354,16 @@ describe('gmail push relay', () => {
     });
 
     await expect(
-      asUser.action(api.pushRelay.verifyGmailWatch, {
-        gmailIdentityToken: createGoogleIdentityToken(
-          'legacy@example.com',
-          'gmail-user-legacy',
-        ),
-        historyId: '100',
-        trustedDeviceId: device.trustedDeviceId,
-      }),
+      withDefaultRuntimeEnvironment(async () =>
+        asUser.action(api.pushRelay.verifyGmailWatch, {
+          gmailIdentityToken: createGoogleIdentityToken(
+            'legacy@example.com',
+            'gmail-user-legacy',
+          ),
+          historyId: '100',
+          trustedDeviceId: device.trustedDeviceId,
+        }),
+      ),
     ).resolves.toStrictEqual(expect.objectContaining({ verified: false }));
     await expect(
       t.run((ctx) =>
@@ -392,8 +426,7 @@ describe('gmail push relay', () => {
         )
         .unique();
       expect(connection).not.toBeNull();
-      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-      await ctx.db.patch(connection!._id, {
+      await ctx.db.patch('mailProviderConnections', connection!._id, {
         pushOwnershipVerifiedAt: Date.now(),
         pushVerifiedAt: Date.now(),
       });
@@ -404,7 +437,6 @@ describe('gmail push relay', () => {
         opaqueConnectionId: opaqueConnectionId('gmail-user-001'),
         trustedDeviceId: firstDevice.trustedDeviceId,
       }),
-      // oxlint-disable-next-line vitest/prefer-to-be-falsy -- The strict boolean matcher is required by vitest/prefer-strict-boolean-matchers.
     ).resolves.toBe(false);
     await asUser.mutation(api.pushRelay.unregisterDevice, {
       trustedDeviceId: secondDevice.trustedDeviceId,
@@ -495,7 +527,6 @@ describe('gmail push relay', () => {
         ),
         trustedDeviceId: firstDevice.trustedDeviceId,
       }),
-      // oxlint-disable-next-line vitest/prefer-to-be-falsy -- The strict boolean matcher is required by vitest/prefer-strict-boolean-matchers.
     ).resolves.toBe(false);
   });
 
@@ -538,8 +569,7 @@ describe('gmail push relay', () => {
           )
           .unique();
         const now = Date.now();
-        // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-        await ctx.db.patch(connection!._id, {
+        await ctx.db.patch('mailProviderConnections', connection!._id, {
           pushOwnershipVerifiedAt: now,
           pushVerifiedAt: now,
           pushVerifiedHistoryId: '100',
@@ -563,14 +593,12 @@ describe('gmail push relay', () => {
           opaqueConnectionId: opaqueConnectionId('gmail-user-001'),
           trustedDeviceId: firstDevice.trustedDeviceId,
         }),
-        // oxlint-disable-next-line vitest/prefer-to-be-falsy -- The strict boolean matcher is required by vitest/prefer-strict-boolean-matchers.
       ).resolves.toBe(false);
       await expect(
         asUser.query(api.pushRelay.shouldStopGmailWatch, {
           opaqueConnectionId: opaqueConnectionId('gmail-user-001'),
           trustedDeviceId: secondDevice.trustedDeviceId,
         }),
-        // oxlint-disable-next-line vitest/prefer-to-be-falsy -- The strict boolean matcher is required by vitest/prefer-strict-boolean-matchers.
       ).resolves.toBe(false);
     } finally {
       vi.stubEnv('GMAIL_ROUTING_KEY', 'gmail-routing-test-key');
@@ -631,7 +659,6 @@ describe('gmail push relay', () => {
         opaqueConnectionId: opaqueConnectionId('gmail-user-001'),
         trustedDeviceId: connection.trustedDeviceId,
       }),
-      // oxlint-disable-next-line vitest/prefer-to-be-falsy -- The strict boolean matcher is required by vitest/prefer-strict-boolean-matchers.
     ).resolves.toBe(false);
   });
 
@@ -712,12 +739,11 @@ describe('gmail push relay', () => {
         )
         .unique();
       expect(connection).not.toBeNull();
-      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-      await ctx.db.patch(connection!._id, {
+      await ctx.db.patch('mailProviderConnections', connection!._id, {
         pushOwnershipVerifiedAt: proofUpdatedAt,
         pushVerifiedAt: proofUpdatedAt,
       });
-      await ctx.db.patch(secondDevice.trustedDeviceId, {
+      await ctx.db.patch('trustedDevices', secondDevice.trustedDeviceId, {
         gmailPushProofsInvalidatedAt: proofUpdatedAt,
       });
     });
@@ -800,8 +826,7 @@ describe('gmail push relay', () => {
         )
         .unique();
       expect(connection).not.toBeNull();
-      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-      await ctx.db.patch(connection!._id, {
+      await ctx.db.patch('mailProviderConnections', connection!._id, {
         pushOwnershipVerifiedAt: Date.now(),
         pushVerifiedAt: Date.now(),
       });
@@ -812,7 +837,6 @@ describe('gmail push relay', () => {
         opaqueConnectionId: opaqueConnectionId('gmail-user-001'),
         trustedDeviceId: firstDevice.trustedDeviceId,
       }),
-      // oxlint-disable-next-line vitest/prefer-to-be-falsy -- The strict boolean matcher is required by vitest/prefer-strict-boolean-matchers.
     ).resolves.toBe(false);
   });
 
@@ -893,7 +917,9 @@ describe('gmail push relay', () => {
     });
 
     await expect(
-      t.run((ctx) => ctx.db.get(firstConnection.trustedDeviceId)),
+      t.run((ctx) =>
+        ctx.db.get('trustedDevices', firstConnection.trustedDeviceId),
+      ),
     ).resolves.toStrictEqual(
       expect.not.objectContaining({
         apnsEnvironment: expect.anything(),
@@ -901,7 +927,9 @@ describe('gmail push relay', () => {
       }),
     );
     await expect(
-      t.run((ctx) => ctx.db.get(secondConnection.trustedDeviceId)),
+      t.run((ctx) =>
+        ctx.db.get('trustedDevices', secondConnection.trustedDeviceId),
+      ),
     ).resolves.toStrictEqual(
       expect.objectContaining({
         apnsEnvironment: 'production',
@@ -981,15 +1009,17 @@ describe('gmail push relay', () => {
           q.eq('trustedDeviceId', refreshedDevice.trustedDeviceId),
         )
         .unique();
-      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-      await ctx.db.patch(staleHeartbeat!._id, { refreshedAt: staleBefore - 1 });
-      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-      await ctx.db.delete(legacyStaleHeartbeat!._id);
-      await ctx.db.patch(legacyStaleDevice.trustedDeviceId, {
+      await ctx.db.patch('devicePushRouteHeartbeats', staleHeartbeat!._id, {
+        refreshedAt: staleBefore - 1,
+      });
+      await ctx.db.delete(
+        'devicePushRouteHeartbeats',
+        legacyStaleHeartbeat!._id,
+      );
+      await ctx.db.patch('trustedDevices', legacyStaleDevice.trustedDeviceId, {
         lastSeenAt: staleBefore - 1,
       });
-      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-      await ctx.db.patch(refreshedHeartbeat!._id, {
+      await ctx.db.patch('devicePushRouteHeartbeats', refreshedHeartbeat!._id, {
         refreshedAt: staleBefore + 1,
       });
       const connections = await ctx.db
@@ -1000,8 +1030,7 @@ describe('gmail push relay', () => {
         .take(3);
       await Promise.all(
         connections.map((connection) =>
-          // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-          ctx.db.patch(connection._id, {
+          ctx.db.patch('mailProviderConnections', connection._id, {
             pushOwnershipVerifiedAt: staleBefore,
             pushVerifiedAt: staleBefore,
           }),
@@ -1044,7 +1073,7 @@ describe('gmail push relay', () => {
       trustedDeviceId: device.trustedDeviceId,
     });
     const originalRoute = await t.run((ctx) =>
-      ctx.db.get(device.trustedDeviceId),
+      ctx.db.get('trustedDevices', device.trustedDeviceId),
     );
     await asUser.mutation(api.pushRelay.registerDevice, {
       apnsEnvironment: 'production',
@@ -1058,7 +1087,7 @@ describe('gmail push relay', () => {
     });
 
     const refreshedRoute = await t.run((ctx) =>
-      ctx.db.get(device.trustedDeviceId),
+      ctx.db.get('trustedDevices', device.trustedDeviceId),
     );
     expect(refreshedRoute).toStrictEqual(
       expect.objectContaining({
@@ -1201,13 +1230,11 @@ describe('gmail push relay', () => {
       t.run((ctx) =>
         ctx.db
           .query('mailProviderConnections')
-          .withIndex(
-            'by_productAccountId_and_provider_and_trustedDeviceId',
-            (q) =>
-              q
-                .eq('productAccountId', device.productAccountId)
-                .eq('provider', 'gmail')
-                .eq('trustedDeviceId', device.trustedDeviceId),
+          .withIndex('by_productId_provider_deviceId_providerAccountId', (q) =>
+            q
+              .eq('productAccountId', device.productAccountId)
+              .eq('provider', 'gmail')
+              .eq('trustedDeviceId', device.trustedDeviceId),
           )
           .collect(),
       ),
@@ -1362,7 +1389,7 @@ describe('gmail push relay', () => {
       trustedDeviceId: device.trustedDeviceId,
     });
     const originalRoute = await t.run((ctx) =>
-      ctx.db.get(device.trustedDeviceId),
+      ctx.db.get('trustedDevices', device.trustedDeviceId),
     );
     await asUser.mutation(api.pushRelay.registerDevice, {
       apnsEnvironment: 'production',
@@ -1376,7 +1403,7 @@ describe('gmail push relay', () => {
     });
 
     await expect(
-      t.run((ctx) => ctx.db.get(device.trustedDeviceId)),
+      t.run((ctx) => ctx.db.get('trustedDevices', device.trustedDeviceId)),
     ).resolves.toStrictEqual(
       expect.not.objectContaining({ apnsToken: expect.anything() }),
     );
@@ -1409,7 +1436,9 @@ describe('gmail push relay', () => {
       trustedDeviceId: deviceId,
     });
 
-    await expect(t.run((ctx) => ctx.db.get(deviceId))).resolves.toStrictEqual(
+    await expect(
+      t.run((ctx) => ctx.db.get('trustedDevices', deviceId)),
+    ).resolves.toStrictEqual(
       expect.not.objectContaining({ apnsToken: expect.anything() }),
     );
   });
@@ -1603,13 +1632,11 @@ describe('gmail push relay', () => {
       const proofsWereCleared = await t.run(async (ctx) => {
         const connections = await ctx.db
           .query('mailProviderConnections')
-          .withIndex(
-            'by_productAccountId_and_provider_and_trustedDeviceId',
-            (q) =>
-              q
-                .eq('productAccountId', device.productAccountId)
-                .eq('provider', 'gmail')
-                .eq('trustedDeviceId', device.trustedDeviceId),
+          .withIndex('by_productId_provider_deviceId_providerAccountId', (q) =>
+            q
+              .eq('productAccountId', device.productAccountId)
+              .eq('provider', 'gmail')
+              .eq('trustedDeviceId', device.trustedDeviceId),
           )
           .take(11);
         return connections.map((connection) => ({
@@ -1673,19 +1700,16 @@ describe('gmail push relay', () => {
       await t.run(async (ctx) => {
         const connections = await ctx.db
           .query('mailProviderConnections')
-          .withIndex(
-            'by_productAccountId_and_provider_and_trustedDeviceId',
-            (q) =>
-              q
-                .eq('productAccountId', device.productAccountId)
-                .eq('provider', 'gmail')
-                .eq('trustedDeviceId', device.trustedDeviceId),
+          .withIndex('by_productId_provider_deviceId_providerAccountId', (q) =>
+            q
+              .eq('productAccountId', device.productAccountId)
+              .eq('provider', 'gmail')
+              .eq('trustedDeviceId', device.trustedDeviceId),
           )
           .take(12);
         await Promise.all(
           connections.slice(-1).map((connection) =>
-            // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-            ctx.db.patch(connection._id, {
+            ctx.db.patch('mailProviderConnections', connection._id, {
               pushVerificationHistoryId: '101',
               pushVerificationOwnershipVerifiedAt: refreshedVerifiedAt,
               pushVerificationRequestedAt: refreshedVerifiedAt,
@@ -1699,13 +1723,11 @@ describe('gmail push relay', () => {
       const proofCleanupState = await t.run(async (ctx) => {
         const connections = await ctx.db
           .query('mailProviderConnections')
-          .withIndex(
-            'by_productAccountId_and_provider_and_trustedDeviceId',
-            (q) =>
-              q
-                .eq('productAccountId', device.productAccountId)
-                .eq('provider', 'gmail')
-                .eq('trustedDeviceId', device.trustedDeviceId),
+          .withIndex('by_productId_provider_deviceId_providerAccountId', (q) =>
+            q
+              .eq('productAccountId', device.productAccountId)
+              .eq('provider', 'gmail')
+              .eq('trustedDeviceId', device.trustedDeviceId),
           )
           .take(12);
         return connections.map((connection) => ({
@@ -1768,7 +1790,7 @@ describe('gmail push relay', () => {
       const routes = await t.run((ctx) =>
         ctx.db
           .query('trustedDevices')
-          .withIndex('by_apnsToken', (q) =>
+          .withIndex('by_apnsToken_and_apnsTokenRegisteredAt', (q) =>
             q.eq('apnsToken', 'shared-apns-token'),
           )
           .take(102),
@@ -1819,7 +1841,7 @@ describe('gmail push relay', () => {
         t.run((ctx) =>
           ctx.db
             .query('trustedDevices')
-            .withIndex('by_apnsToken', (q) =>
+            .withIndex('by_apnsToken_and_apnsTokenRegisteredAt', (q) =>
               q.eq('apnsToken', 'shared-apns-token'),
             )
             .take(101),
@@ -1873,12 +1895,11 @@ describe('gmail push relay', () => {
       const routes = await t.run((ctx) =>
         ctx.db
           .query('trustedDevices')
-          .withIndex('by_apnsToken', (q) =>
+          .withIndex('by_apnsToken_and_apnsTokenRegisteredAt', (q) =>
             q.eq('apnsToken', 'shared-apns-token'),
           )
           .take(12),
       );
-      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
       expect(routes.map((route) => route._id)).toStrictEqual([
         secondDevice.trustedDeviceId,
       ]);
@@ -1925,12 +1946,14 @@ describe('gmail push relay', () => {
           )
           .unique();
         const freshLegacyRoute = await ctx.db.get(
+          'trustedDevices',
           freshLegacyDevice.trustedDeviceId,
         );
-        // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-        await ctx.db.delete(freshLegacyHeartbeat!._id);
-        // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-        await ctx.db.patch(staleHeartbeat!._id, {
+        await ctx.db.delete(
+          'devicePushRouteHeartbeats',
+          freshLegacyHeartbeat!._id,
+        );
+        await ctx.db.patch('devicePushRouteHeartbeats', staleHeartbeat!._id, {
           refreshedAt: staleBefore - 1,
         });
         return freshLegacyRoute!.lastSeenAt;
@@ -1948,7 +1971,10 @@ describe('gmail push relay', () => {
             q.eq('trustedDeviceId', freshLegacyDevice.trustedDeviceId),
           )
           .unique(),
-        staleRoute: await ctx.db.get(staleSecondPageDevice.trustedDeviceId),
+        staleRoute: await ctx.db.get(
+          'trustedDevices',
+          staleSecondPageDevice.trustedDeviceId,
+        ),
       }));
       expect(state.freshLegacyHeartbeat).toStrictEqual(
         expect.objectContaining({ refreshedAt: freshLegacyLastSeenAt }),
@@ -1985,8 +2011,7 @@ describe('gmail push relay', () => {
         )
         .unique();
       const now = Date.now();
-      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-      await ctx.db.patch(connection!._id, {
+      await ctx.db.patch('mailProviderConnections', connection!._id, {
         pushOwnershipVerifiedAt: now,
         pushVerifiedAt: now,
         pushVerifiedHistoryId: 'verified-history',
@@ -2306,18 +2331,15 @@ describe('gmail push relay', () => {
     await t.run(async (ctx) => {
       const connection = await ctx.db
         .query('mailProviderConnections')
-        .withIndex(
-          'by_productAccountId_and_provider_and_trustedDeviceId',
-          (q) =>
-            q
-              .eq('productAccountId', productConnection.productAccountId)
-              .eq('provider', 'gmail')
-              .eq('trustedDeviceId', productConnection.trustedDeviceId),
+        .withIndex('by_productId_provider_deviceId_providerAccountId', (q) =>
+          q
+            .eq('productAccountId', productConnection.productAccountId)
+            .eq('provider', 'gmail')
+            .eq('trustedDeviceId', productConnection.trustedDeviceId),
         )
         .unique();
       expect(connection).not.toBeNull();
-      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-      await ctx.db.patch(connection!._id, {
+      await ctx.db.patch('mailProviderConnections', connection!._id, {
         pushVerificationHistoryId: '100',
         pushVerificationOwnershipVerifiedAt: Date.now(),
         pushVerificationRequestedAt: Date.now(),
@@ -2335,13 +2357,11 @@ describe('gmail push relay', () => {
       t.run(async (ctx) => {
         const connection = await ctx.db
           .query('mailProviderConnections')
-          .withIndex(
-            'by_productAccountId_and_provider_and_trustedDeviceId',
-            (q) =>
-              q
-                .eq('productAccountId', productConnection.productAccountId)
-                .eq('provider', 'gmail')
-                .eq('trustedDeviceId', productConnection.trustedDeviceId),
+          .withIndex('by_productId_provider_deviceId_providerAccountId', (q) =>
+            q
+              .eq('productAccountId', productConnection.productAccountId)
+              .eq('provider', 'gmail')
+              .eq('trustedDeviceId', productConnection.trustedDeviceId),
           )
           .unique();
         return connection?.pushVerifiedAt;
@@ -2387,9 +2407,13 @@ describe('gmail push relay', () => {
       });
       vi.advanceTimersByTime(1);
       await t.run(async (ctx) => {
-        await ctx.db.patch(productConnection.trustedDeviceId, {
-          gmailPushProofsInvalidatedAt: Date.now(),
-        });
+        await ctx.db.patch(
+          'trustedDevices',
+          productConnection.trustedDeviceId,
+          {
+            gmailPushProofsInvalidatedAt: Date.now(),
+          },
+        );
       });
 
       await expect(
@@ -2449,20 +2473,21 @@ describe('gmail push relay', () => {
       await t.run(async (ctx) => {
         const connection = await ctx.db
           .query('mailProviderConnections')
-          .withIndex(
-            'by_productAccountId_and_provider_and_trustedDeviceId',
-            (q) =>
-              q
-                .eq('productAccountId', productConnection.productAccountId)
-                .eq('provider', 'gmail')
-                .eq('trustedDeviceId', productConnection.trustedDeviceId),
+          .withIndex('by_productId_provider_deviceId_providerAccountId', (q) =>
+            q
+              .eq('productAccountId', productConnection.productAccountId)
+              .eq('provider', 'gmail')
+              .eq('trustedDeviceId', productConnection.trustedDeviceId),
           )
           .unique();
-        await ctx.db.patch(productConnection.trustedDeviceId, {
-          gmailPushProofsInvalidatedAt: Date.now(),
-        });
-        // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-        await ctx.db.patch(connection!._id, {
+        await ctx.db.patch(
+          'trustedDevices',
+          productConnection.trustedDeviceId,
+          {
+            gmailPushProofsInvalidatedAt: Date.now(),
+          },
+        );
+        await ctx.db.patch('mailProviderConnections', connection!._id, {
           pushVerificationHistoryId: '100',
           pushVerificationOwnershipVerifiedAt: Date.now() - 1,
           pushVerificationRequestedAt: Date.now() - 1,
@@ -2585,6 +2610,48 @@ describe('gmail push relay', () => {
     ).resolves.toStrictEqual(expect.objectContaining({ verified: true }));
   });
 
+  it('finds the latest Gmail verification signal behind lexically larger history ids', async () => {
+    expect.assertions(1);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const productConnection = await asUser.mutation(
+      api.productAccount.connect,
+      {
+        deviceIdentifier: 'device-001',
+        platform: 'ios',
+      },
+    );
+    await registerGmailConnection(asUser, {
+      emailAddress: 'busy@example.com',
+      providerAccountIdentifier: 'gmail-user-001',
+      trustedDeviceId: productConnection.trustedDeviceId,
+    });
+    await t.run(async (ctx) => {
+      for (let index = 0; index < 100; index += 1) {
+        await ctx.db.insert('gmailPushVerificationSignals', {
+          historyId: String(900 + index),
+          receivedAt: Date.now() - 1000,
+          routingDigest: routingDigest('busy@example.com'),
+        });
+      }
+    });
+    await t.mutation(internal.pushRelay.enqueueGmailWakeups, {
+      routingDigest: routingDigest('busy@example.com'),
+      historyId: '1000',
+    });
+
+    await expect(
+      asUser.action(api.pushRelay.verifyGmailWatch, {
+        gmailIdentityToken: busyIdentityToken,
+        opaqueConnectionId:
+          opaqueConnectionIdFromIdentityToken(busyIdentityToken),
+        historyId: '1000',
+        trustedDeviceId: productConnection.trustedDeviceId,
+      }),
+    ).resolves.toStrictEqual(expect.objectContaining({ verified: true }));
+  });
+
   it('expires verification signals without another Gmail push', async () => {
     expect.assertions(2);
 
@@ -2596,19 +2663,27 @@ describe('gmail push relay', () => {
         receivedAt: 100,
       }),
     );
-    await t.run((ctx) => ctx.db.patch(signalId, { receivedAt: 200 }));
+    await t.run((ctx) =>
+      ctx.db.patch('gmailPushVerificationSignals', signalId, {
+        receivedAt: 200,
+      }),
+    );
 
     await t.mutation(internal.pushRelay.expireGmailVerificationSignal, {
       receivedAt: 100,
       signalId,
     });
-    await expect(t.run((ctx) => ctx.db.get(signalId))).resolves.not.toBeNull();
+    await expect(
+      t.run((ctx) => ctx.db.get('gmailPushVerificationSignals', signalId)),
+    ).resolves.not.toBeNull();
 
     await t.mutation(internal.pushRelay.expireGmailVerificationSignal, {
       receivedAt: 200,
       signalId,
     });
-    await expect(t.run((ctx) => ctx.db.get(signalId))).resolves.toBeNull();
+    await expect(
+      t.run((ctx) => ctx.db.get('gmailPushVerificationSignals', signalId)),
+    ).resolves.toBeNull();
   });
 
   it('applies the Gmail recipient cap after filtering inactive routes', async () => {
@@ -2753,7 +2828,7 @@ describe('gmail push relay', () => {
         historyId: '101',
       });
       await t.run(async (ctx) => {
-        await ctx.db.patch(pendingDeviceId, {
+        await ctx.db.patch('trustedDevices', pendingDeviceId, {
           apnsEnvironment: 'production',
           apnsToken: 'pending-token',
         });
@@ -2846,7 +2921,7 @@ describe('gmail push relay', () => {
         historyId: '200',
       });
       await t.run(async (ctx) => {
-        await ctx.db.patch(pendingDeviceId, {
+        await ctx.db.patch('trustedDevices', pendingDeviceId, {
           apnsEnvironment: 'production',
           apnsToken: 'newest-pending-token',
         });
@@ -2925,7 +3000,10 @@ describe('gmail push relay', () => {
         t.run(async (ctx) =>
           Promise.all(
             connectionIds.map(async (connectionId) => {
-              const connection = await ctx.db.get(connectionId);
+              const connection = await ctx.db.get(
+                'mailProviderConnections',
+                connectionId,
+              );
               return connection!.pushVerifiedHistoryId;
             }),
           ),
@@ -3138,8 +3216,8 @@ describe('gmail push relay', () => {
     ).resolves.toStrictEqual(expect.objectContaining({ verified: true }));
   });
 
-  it('rejects mailbox ownership when the stable Google subject differs', async () => {
-    expect.assertions(3);
+  it('rejects mailbox ownership for another Google subject or a malformed proof', async () => {
+    expect.assertions(4);
 
     const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(1_784_000_000_000);
     const t = convexTest(schema, modules);
@@ -3161,16 +3239,53 @@ describe('gmail push relay', () => {
       apnsToken: 'attacker-device-token',
       trustedDeviceId: productConnection.trustedDeviceId,
     });
-    await expect(
+    const verifyVictimWatch = async (gmailIdentityToken: string) =>
       asUser.action(api.pushRelay.verifyGmailWatch, {
-        gmailIdentityToken: matchingVictimEmailIdentityToken,
-        opaqueConnectionId: opaqueConnectionIdFromIdentityToken(
-          matchingVictimEmailIdentityToken,
-        ),
+        gmailIdentityToken,
+        opaqueConnectionId:
+          opaqueConnectionIdFromIdentityToken(gmailIdentityToken),
         historyId: 'victim-history-id',
         trustedDeviceId: productConnection.trustedDeviceId,
-      }),
+      });
+    await expect(
+      verifyVictimWatch(matchingVictimEmailIdentityToken),
     ).rejects.toThrow('Gmail mailbox ownership proof rejected');
+
+    // Proofs for the registered identity that are unverified, expired or malformed fail closed.
+    const victimProof = (
+      overrides: Parameters<typeof createGoogleIdentityToken>[2],
+    ) =>
+      createGoogleIdentityToken(
+        'victim@example.com',
+        'client-asserted-id',
+        overrides,
+      );
+    const [victimHeader, victimClaims, victimSignature] = victimProof({}).split(
+      '.',
+    );
+    // Only the unknown key identifier refreshes the signing keys, which arrive malformed.
+    googleSigningKeyFetch.mockResolvedValueOnce(
+      Response.json({ keys: 'not-a-key-set' }),
+    );
+    const malformedProofOutcomes = await Promise.allSettled(
+      [
+        victimProof({ claims: { email_verified: false } }),
+        victimProof({ claims: { exp: 1_783_999_999 } }),
+        `${Buffer.from('not-json').toString('base64url')}.${victimClaims}.${victimSignature}`,
+        `${victimHeader}.${victimClaims}.not!base64url`,
+        victimProof({ keyId: 'rotated-google-key' }),
+      ].map(verifyVictimWatch),
+    );
+    expect(malformedProofOutcomes).toStrictEqual(
+      Array.from({ length: 5 }, () => ({
+        reason: expect.objectContaining({
+          message: expect.stringContaining(
+            'Gmail mailbox ownership proof rejected',
+          ),
+        }),
+        status: 'rejected',
+      })),
+    );
     nowSpy.mockReturnValue(1_784_000_600_001);
 
     await expect(
@@ -3250,7 +3365,7 @@ describe('gmail push relay', () => {
   });
 
   it('authenticates and validates the Gmail Pub/Sub HTTP ingress', async () => {
-    expect.assertions(4);
+    expect.assertions(5);
 
     vi.stubEnv('GMAIL_PUSH_VERIFICATION_TOKEN', 'push-secret');
     try {
@@ -3275,6 +3390,29 @@ describe('gmail push relay', () => {
         method: 'POST',
       });
       expect(malformed.status).toBe(400);
+
+      const malformedStatuses = await Promise.all(
+        [
+          { message: {} },
+          {
+            message: {
+              data: btoa(
+                JSON.stringify({
+                  emailAddress: 'matching@example.com',
+                  historyId: '',
+                }),
+              ),
+            },
+          },
+        ].map(async (envelope) => {
+          const response = await t.fetch('/gmail/push?token=push-secret', {
+            body: JSON.stringify(envelope),
+            method: 'POST',
+          });
+          return response.status;
+        }),
+      );
+      expect(malformedStatuses).toStrictEqual([400, 400]);
 
       const accepted = await t.fetch('/gmail/push?token=push-secret', {
         body: JSON.stringify({ message: { data: metadata } }),
@@ -3399,7 +3537,7 @@ describe('gmail push relay', () => {
         }),
       ).resolves.toBeNull();
       const prunedDevice = await t.run(async (ctx) =>
-        ctx.db.get(badDevice.trustedDeviceId),
+        ctx.db.get('trustedDevices', badDevice.trustedDeviceId),
       );
       await asUser.mutation(api.pushRelay.registerDevice, {
         apnsEnvironment: 'production',
@@ -3578,17 +3716,28 @@ describe('gmail push relay', () => {
         headers: { 'content-type': 'application/json' },
         method: 'POST',
       });
+      const malformedResponse = await t.fetch(pushURL, {
+        body: JSON.stringify({
+          value: [{ ...notification, clientState: 1 }],
+        }),
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
+      });
       const pendingWakeups = await t.run((ctx) =>
         ctx.db.query('microsoftGraphWakeupStates').collect(),
       );
       expect({
         pendingWakeupCount: pendingWakeups.length,
         pendingWakeupRouteId: pendingWakeups[0]?.routeId,
-        statuses: [isolatedResponse.status, oversizedResponse.status],
+        statuses: [
+          isolatedResponse.status,
+          oversizedResponse.status,
+          malformedResponse.status,
+        ],
       }).toStrictEqual({
         pendingWakeupCount: 1,
         pendingWakeupRouteId: route.routeId,
-        statuses: [202, 202],
+        statuses: [202, 202, 400],
       });
 
       apnsMock.status = 500;
@@ -3617,10 +3766,31 @@ describe('gmail push relay', () => {
         retryWasRescheduled: true,
       });
 
-      const previousScheduledAt = retainedWakeups[0]!.scheduledAt;
+      // A timed-out APNs request stays retryable instead of ending the wakeup.
+      vi.setSystemTime(retainedWakeups[0]!.scheduledAt);
+      apnsMock.stallResponseBody = true;
+      const timedOutDelivery = t.action(
+        internal.apns.deliverMicrosoftGraphWakeup,
+        {
+          routeId: route.routeId,
+          scheduledAt: retainedWakeups[0]!.scheduledAt,
+        },
+      );
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(10_000);
+      await timedOutDelivery;
+      apnsMock.stallResponseBody = false;
+      const timedOutWakeup = await t.run((ctx) =>
+        ctx.db.query('microsoftGraphWakeupStates').unique(),
+      );
+
+      const previousScheduledAt = timedOutWakeup!.scheduledAt;
       await t.run(async (ctx) => {
-        // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-        await ctx.db.patch(retainedWakeups[0]!._id, { attemptCount: 4 });
+        await ctx.db.patch(
+          'microsoftGraphWakeupStates',
+          retainedWakeups[0]!._id,
+          { attemptCount: 4 },
+        );
       });
       await vi.advanceTimersByTimeAsync(1);
       const newerNotification = await t.fetch(pushURL, {
@@ -3636,10 +3806,15 @@ describe('gmail push relay', () => {
         scheduledAtChanged:
           refreshedWakeup?.scheduledAt !== previousScheduledAt,
         status: newerNotification.status,
+        timedOutAttemptCount: timedOutWakeup?.attemptCount,
+        timedOutRetryWasRescheduled:
+          previousScheduledAt > retainedWakeups[0]!.scheduledAt,
       }).toStrictEqual({
         attemptCount: 0,
         scheduledAtChanged: false,
         status: 202,
+        timedOutAttemptCount: 2,
+        timedOutRetryWasRescheduled: true,
       });
 
       apnsMock.status = 200;
@@ -3694,7 +3869,8 @@ describe('gmail push relay', () => {
         payloadContainsProviderData: false,
         remainingAfterPermanentFailure: [],
         remainingAfterSuccessfulRetry: [],
-        requestCount: 3,
+        // Failed, timed-out, successful retry and permanent-failure requests.
+        requestCount: 4,
       });
     } finally {
       vi.useRealTimers();
@@ -4106,7 +4282,9 @@ describe('gmail push relay', () => {
       opaqueConnectionId: 'opaque-graph-replacement',
       trustedDeviceId: device.trustedDeviceId,
     });
-    const prepared = await t.run((ctx) => ctx.db.get(route.routeId));
+    const prepared = await t.run((ctx) =>
+      ctx.db.get('mailProviderConnections', route.routeId),
+    );
     expect(prepared).toMatchObject({
       microsoftClientStateDigest: firstDigest,
       microsoftPendingClientStateDigest: replacementDigest,
@@ -4140,7 +4318,9 @@ describe('gmail push relay', () => {
       subscriptionId: 'active-subscription',
       trustedDeviceId: device.trustedDeviceId,
     });
-    const renewed = await t.run((ctx) => ctx.db.get(route.routeId));
+    const renewed = await t.run((ctx) =>
+      ctx.db.get('mailProviderConnections', route.routeId),
+    );
     expect(renewed).toMatchObject({
       microsoftClientStateDigest: firstDigest,
       microsoftPendingClientStateDigest: replacementDigest,
@@ -4154,7 +4334,9 @@ describe('gmail push relay', () => {
       subscriptionId: 'replacement-subscription',
       trustedDeviceId: device.trustedDeviceId,
     });
-    const confirmed = await t.run((ctx) => ctx.db.get(route.routeId));
+    const confirmed = await t.run((ctx) =>
+      ctx.db.get('mailProviderConnections', route.routeId),
+    );
     const retainedWakeup = await t.run((ctx) =>
       ctx.db.query('microsoftGraphWakeupStates').unique(),
     );
@@ -4219,7 +4401,9 @@ describe('gmail push relay', () => {
         trustedDeviceId: device.trustedDeviceId,
       }),
     ).resolves.toStrictEqual({ rolledBack: true });
-    const retained = await t.run((ctx) => ctx.db.get(route.routeId));
+    const retained = await t.run((ctx) =>
+      ctx.db.get('mailProviderConnections', route.routeId),
+    );
     expect(retained).toMatchObject({
       microsoftClientStateDigest: firstDigest,
       microsoftSubscriptionId: 'active-subscription',
@@ -4242,7 +4426,9 @@ describe('gmail push relay', () => {
       }),
     ).resolves.toStrictEqual({ rolledBack: true });
     await expect(
-      t.run((ctx) => ctx.db.get(unconfirmed.routeId)),
+      t.run((ctx) =>
+        ctx.db.get('mailProviderConnections', unconfirmed.routeId),
+      ),
     ).resolves.toBeNull();
   });
 });

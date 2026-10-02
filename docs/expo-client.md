@@ -23,14 +23,14 @@ Select an explicit Mock Mail Session to run the synthetic Inbox journeys.
 - React Native `StyleSheet` and framework-independent light/dark tokens in
   `packages/mail-core`. System text, accessible buttons, selection state and
   focus borders form the initial UI; there is no additional component library.
-- Effect 4.0.0-rc.118 owns the mock mailbox service and application effects.
-  React owns presentation state. An application-scoped `ManagedRuntime` owns
-  persistent Inbox operations; opening a message does not mutate mailbox read state.
+- Effect 4.0.0-rc.118 runs the shared Persistent Inbox and Registration stores,
+  following the [Effect conventions](agents/effect.md). React owns presentation
+  state. Opening a message does not mutate mailbox read state.
 - TypeScript 7.0.2, `@effect/tsgo` 0.46.1, Oxlint 1.85.0 and Oxfmt 0.71.0.
   Install runs `effect-tsgo patch --oxlint` once at the workspace root. Every
   TypeScript config includes the `@effect/language-service` plugin configuration;
-  its diagnostics run once through Oxlint. Effect correctness rules apply
-  throughout; recommended rules apply to the mobile app and shared mailbox implementation.
+  its diagnostics run once through Oxlint. The shared
+  [Effect lint policy](agents/effect.md#enforcement) applies to every configuration.
 - Vitest tests the shared core; Jest Expo and React Native Testing Library test
   message selection and unavailable routes. Fallow scans the root and mobile entry points separately.
 
@@ -62,8 +62,8 @@ All host and root Oxlint configurations enforce `effect-imports/namespace-import
 imports fail lint, including named type imports. Namespace type imports are
 allowed. The TypeScript Effect plugin also suggests namespace imports for the
 installed Effect packages; Oxlint is the enforcement layer. Run
-`pnpm test:tooling` from the root to check both configurations against accepted
-and rejected import forms.
+`pnpm test:tooling` from the root to check every configuration against accepted
+and rejected import forms and the [boundary rules](agents/effect.md#enforcement).
 
 ### Compatibility pins
 

@@ -4,10 +4,11 @@ import { createMockMailSession } from '@private-email/mail-core/testing/mock-ses
 import { fireEvent, render, screen } from '@testing-library/react-native';
 import { useState } from 'react';
 
+import type { inbox } from '../src/private-storage.ts';
+
 import { Inbox } from '../src/inbox.tsx';
 import { InboxProvider } from '../src/mailbox.tsx';
 import { MessageDetail } from '../src/message-detail.tsx';
-import { inbox } from '../src/private-storage.ts';
 
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Jest's host adapter boundary.
 jest.mock('../src/private-storage.ts', () => ({
@@ -44,11 +45,6 @@ describe('preview Inbox', () => {
         createMockMailSession('open-read-relaunch').mail.list,
       ),
     );
-  });
-
-  // oxlint-disable-next-line vitest/no-hooks -- Dispose each test's application runtime after cleanup.
-  afterEach(async () => {
-    await inbox.dispose();
   });
 
   it('opens the activated message and exposes its selected state', async () => {
@@ -133,23 +129,17 @@ describe('preview Inbox', () => {
       ...storage,
       open: () => currentOpen(),
     });
-    try {
-      await render(
-        <InboxProvider store={store}>
-          <MessageDetail id="studio-review" />
-        </InboxProvider>,
-      );
-      await expect(screen.findByRole('alert')).resolves.toHaveTextContent(
-        /Private storage is locked/u,
-      );
-      expect(screen.queryByText('maya@example.com')).toBeNull();
-      currentOpen = () => storage.open('[]');
-      await fireEvent.press(screen.getByRole('button', { name: 'Try again' }));
-      await expect(
-        screen.findByText('maya@example.com'),
-      ).resolves.toBeVisible();
-    } finally {
-      await store.dispose();
-    }
+    await render(
+      <InboxProvider store={store}>
+        <MessageDetail id="studio-review" />
+      </InboxProvider>,
+    );
+    await expect(screen.findByRole('alert')).resolves.toHaveTextContent(
+      /Private storage is locked/u,
+    );
+    expect(screen.queryByText('maya@example.com')).toBeNull();
+    currentOpen = () => storage.open('[]');
+    await fireEvent.press(screen.getByRole('button', { name: 'Try again' }));
+    await expect(screen.findByText('maya@example.com')).resolves.toBeVisible();
   });
 });

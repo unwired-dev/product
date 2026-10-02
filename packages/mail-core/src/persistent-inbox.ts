@@ -1,10 +1,12 @@
-import * as Context from 'effect/Context';
 import * as Effect from 'effect/Effect';
-import * as Layer from 'effect/Layer';
-import * as ManagedRuntime from 'effect/ManagedRuntime';
 import * as Schema from 'effect/Schema';
 import * as Semaphore from 'effect/Semaphore';
 
+import {
+  decodeDiagnostic,
+  rejectionDiagnostic,
+  runLogged,
+} from './diagnostics.ts';
 import { fixtureMessages, MessageSchema } from './index.ts';
 
 const Snapshot = Schema.Struct({
@@ -22,16 +24,13 @@ export interface NativeInboxStorage {
   readonly setUnread: (id: string, unread: boolean) => Promise<unknown>;
 }
 
-class PrivateStorage extends Context.Service<
-  PrivateStorage,
-  NativeInboxStorage
->()('@private-email/mail-core/PrivateStorage') {}
-
-// oxlint-disable-next-line unicorn/throw-new-error -- Schema's tagged-error class factory.
 class StorageFailure extends Schema.TaggedError<StorageFailure>()(
   'StorageFailure',
   {
     kind: Schema.Literals(['locked', 'failed']),
+    cause: Schema.Defect(),
+    // Logged instead of the cause; see rejectionDiagnostic.
+    diagnostic: Schema.String,
   },
 ) {}
 
@@ -42,13 +41,45 @@ export type InboxState =
       readonly messages: typeof Snapshot.Type.messages;
     };
 
+// A locked store is expected while the device is locked; any other failure is logged.
+const synchronize = Effect.fnUntraced(
+  function* (operation: () => Promise<unknown>) {
+    const value = yield* Effect.tryPromise({
+      try: operation,
+      catch: (cause) =>
+        new StorageFailure({
+          kind: isLocked(cause) ? 'locked' : 'failed',
+          cause,
+          diagnostic: rejectionDiagnostic(cause),
+        }),
+    });
+    const snapshot = yield* decodeSnapshot(value).pipe(
+      Effect.mapError(
+        (error) =>
+          new StorageFailure({
+            kind: 'failed',
+            cause: error,
+            diagnostic: decodeDiagnostic(error),
+          }),
+      ),
+    );
+    return { kind: 'ready', messages: snapshot.messages } as const;
+  },
+  // oxlint-disable-next-line promise/prefer-await-to-callbacks -- Effect's typed error channel.
+  Effect.catchTag('StorageFailure', (error) =>
+    (error.kind === 'failed'
+      ? Effect.logError('Private Inbox storage failed:', error.diagnostic)
+      : Effect.void
+    ).pipe(Effect.as({ kind: error.kind })),
+  ),
+);
+
 export function createPersistentInbox(
   storage: NativeInboxStorage,
   initialMessages: () => Promise<
     ReadonlyArray<typeof MessageSchema.Type>
   > = () => Promise.resolve(fixtureMessages),
 ) {
-  const runtime = ManagedRuntime.make(Layer.succeed(PrivateStorage, storage));
   const semaphore = Semaphore.makeUnsafe(1);
   let state: InboxState = { kind: 'loading' };
   const listeners = new Set<() => void>();
@@ -58,26 +89,12 @@ export function createPersistentInbox(
       listener();
     }
   };
-  const execute = (
-    operation: (native: NativeInboxStorage) => Promise<unknown>,
-  ) =>
-    runtime.runPromise(
-      Effect.gen(function* () {
-        const native = yield* PrivateStorage;
-        const value = yield* Effect.tryPromise({
-          try: () => operation(native),
-          catch: (error) =>
-            new StorageFailure({ kind: isLocked(error) ? 'locked' : 'failed' }),
-        });
-        const snapshot = yield* decodeSnapshot(value).pipe(
-          Effect.mapError(() => new StorageFailure({ kind: 'failed' })),
-        );
-        publish({ kind: 'ready', messages: snapshot.messages });
-      }).pipe(
-        // oxlint-disable-next-line promise/prefer-await-to-callbacks -- Effect's typed error channel.
-        Effect.catchTag('StorageFailure', (error) =>
+  const execute = (operation: () => Promise<unknown>) =>
+    runLogged(
+      synchronize(operation).pipe(
+        Effect.flatMap((next) =>
           Effect.sync(() => {
-            publish({ kind: error.kind });
+            publish(next);
           }),
         ),
         semaphore.withPermit,
@@ -92,12 +109,11 @@ export function createPersistentInbox(
       };
     },
     load: () =>
-      execute(async (native) =>
-        native.open(JSON.stringify(await initialMessages())),
+      execute(async () =>
+        storage.open(JSON.stringify(await initialMessages())),
       ),
     setUnread: (id: string, unread: boolean) =>
-      execute((native) => native.setUnread(id, unread)),
-    dispose: () => runtime.dispose(),
+      execute(() => storage.setUnread(id, unread)),
   };
 }
 

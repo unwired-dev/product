@@ -33,7 +33,7 @@ function requireUnreservedPayloadIdentifier(payloadIdentifier: string): void {
 }
 
 function serializePayload(
-  payload: Readonly<Doc<'encryptedProductSyncPayloads'>>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents contain generated mutable fields.
+  payload: Readonly<Doc<'encryptedProductSyncPayloads'>>,
 ): EncryptedProductSyncPayload {
   return {
     encryptedPayload: payload.encryptedPayload,
@@ -43,7 +43,7 @@ function serializePayload(
 }
 
 async function findPayload(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is generated mutable framework state.
+  ctx: MutationCtx,
   productAccountId: Doc<'encryptedProductSyncPayloads'>['productAccountId'],
   payloadIdentifier: string,
 ) {
@@ -58,8 +58,7 @@ async function findPayload(
 }
 
 async function insertPayload(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is generated mutable framework state.
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Encrypted payloads are generated mutable contract types.
+  ctx: MutationCtx,
   args: {
     encryptedPayload: EncryptedProductSyncPayload['encryptedPayload'];
     payloadIdentifier: string;
@@ -77,7 +76,7 @@ async function insertPayload(
     updatedAt: now,
     writtenAt: now,
   });
-  const payload = await ctx.db.get(payloadId);
+  const payload = await ctx.db.get('encryptedProductSyncPayloads', payloadId);
   if (payload === null) {
     throw new Error('Encrypted Product Sync payload was not stored');
   }
@@ -85,8 +84,7 @@ async function insertPayload(
 }
 
 async function preparePayloadWrite(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is generated mutable framework state.
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Encrypted payloads are generated mutable contract types.
+  ctx: MutationCtx,
   args: Readonly<{
     encryptedPayload: EncryptedProductSyncPayload['encryptedPayload'];
     payloadIdentifier: string;
@@ -115,17 +113,15 @@ async function preparePayloadWrite(
 }
 
 async function updatePayload(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
-  existingPayload: Doc<'encryptedProductSyncPayloads'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents are immutable inputs here.
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Encrypted payloads are generated mutable contract types.
+  ctx: MutationCtx,
+  existingPayload: Doc<'encryptedProductSyncPayloads'>,
   args: {
     encryptedPayload: EncryptedProductSyncPayload['encryptedPayload'];
     trustedDeviceId: Doc<'encryptedProductSyncPayloads'>['trustedDeviceId'];
   },
 ): Promise<EncryptedProductSyncPayload> {
   const now = Math.max(Date.now(), existingPayload.updatedAt + 1);
-  // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-  await ctx.db.patch(existingPayload._id, {
+  await ctx.db.patch('encryptedProductSyncPayloads', existingPayload._id, {
     encryptedPayload: args.encryptedPayload,
     trustedDeviceId: args.trustedDeviceId,
     updatedAt: now,
@@ -151,7 +147,6 @@ export const putEncryptedPayloadIfUnchanged = mutation({
   },
   handler: async (ctx, args) => {
     requireUnreservedPayloadIdentifier(args.payloadIdentifier);
-    // oxlint-disable-next-line eslint/no-use-before-define -- Shared CAS implementation is declared below the public mutations.
     return writeEncryptedPayloadIfUnchanged(ctx, args);
   },
   returns: encryptedProductSyncPayloadValidator,
@@ -284,7 +279,6 @@ type EncryptedPayloadAtomicMutation = Readonly<{
 }>;
 
 function requireValidAtomicMutationCount(
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Encrypted payloads are generated mutable contract types.
   args: EncryptedPayloadAtomicMutation,
 ): void {
   const mutationCount =
@@ -300,7 +294,6 @@ function requireValidAtomicMutationCount(
 }
 
 function validateAtomicPayloadIdentifiers(
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Encrypted payloads are generated mutable contract types.
   args: EncryptedPayloadAtomicMutation,
 ): string[] {
   requireValidAtomicMutationCount(args);
@@ -321,7 +314,7 @@ function validateAtomicPayloadIdentifiers(
 }
 
 async function findAtomicPayloads(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
+  ctx: MutationCtx,
   productAccountId: Id<'productAccounts'>,
   identifiers: readonly string[],
 ): Promise<{
@@ -344,7 +337,6 @@ async function findAtomicPayloads(
 }
 
 function atomicPayloadRevisionsMatch(
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Encrypted payloads are generated mutable contract types.
   args: EncryptedPayloadAtomicMutation,
   existingByIdentifier: ReadonlyMap<
     string,
@@ -359,7 +351,7 @@ function atomicPayloadRevisionsMatch(
 }
 
 async function deleteAtomicPayloads(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
+  ctx: MutationCtx,
   deletions: readonly EncryptedPayloadRevision[],
   existingByIdentifier: ReadonlyMap<
     string,
@@ -373,8 +365,7 @@ async function deleteAtomicPayloads(
         'Encrypted Product Sync transaction lost a deletion target',
       );
     }
-    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-    await ctx.db.delete(existing._id);
+    await ctx.db.delete('encryptedProductSyncPayloads', existing._id);
   }
 }
 
@@ -388,8 +379,7 @@ type EncryptedPayloadAtomicWriteContext = Readonly<{
 }>;
 
 async function writeAtomicPayload(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Encrypted payloads and Convex documents are generated mutable contract types.
+  ctx: MutationCtx,
   writeContext: EncryptedPayloadAtomicWriteContext,
   write: EncryptedPayloadAtomicWrite,
 ): Promise<EncryptedProductSyncPayload> {
@@ -415,8 +405,7 @@ async function writeAtomicPayload(
 }
 
 async function writeAtomicPayloads(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Encrypted payloads and Convex documents are generated mutable contract types.
+  ctx: MutationCtx,
   writeContext: EncryptedPayloadAtomicWriteContext,
 ): Promise<EncryptedProductSyncPayload[]> {
   const writtenPayloads: EncryptedProductSyncPayload[] = [];
@@ -497,7 +486,6 @@ export const replaceRecoveryMaterialIfUnchanged = internalMutation({
     if (account.productSyncPendingKeyEpoch !== undefined) {
       throw new Error('Product Sync key rotation already in progress');
     }
-    // oxlint-disable-next-line eslint/no-use-before-define -- Shared CAS implementation is declared below the public mutations.
     return writeEncryptedPayloadIfUnchanged(ctx, {
       ...args,
       payloadIdentifier: recoveryPayloadIdentifier,
@@ -508,8 +496,7 @@ export const replaceRecoveryMaterialIfUnchanged = internalMutation({
 });
 
 async function writeEncryptedPayloadIfUnchanged(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Encrypted payloads are generated mutable contract types.
+  ctx: MutationCtx,
   args: Readonly<{
     encryptedPayload: EncryptedProductSyncPayload['encryptedPayload'];
     expectedUpdatedAt?: number;
@@ -536,7 +523,7 @@ async function writeEncryptedPayloadIfUnchanged(
 }
 
 async function listEncryptedPayloadsForProductAccount(
-  ctx: QueryCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex query context is generated mutable framework state.
+  ctx: QueryCtx,
   args: Readonly<{
     paginationOpts?: Readonly<{ cursor: string | null; numItems: number }>;
     payloadIdentifierPrefix?: string;
@@ -548,7 +535,7 @@ async function listEncryptedPayloadsForProductAccount(
     payloadIdentifierPrefix === undefined
       ? ctx.db
           .query('encryptedProductSyncPayloads')
-          .withIndex('by_productAccountId', (q) =>
+          .withIndex('by_productAccountId_and_payloadIdentifier', (q) =>
             q.eq('productAccountId', productAccountId),
           )
       : ctx.db
@@ -589,7 +576,7 @@ const encryptedPayloadListArgs = {
 };
 
 async function requireLegacyProductSyncReadAccount(
-  ctx: QueryCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex query context is generated mutable framework state.
+  ctx: QueryCtx,
 ): Promise<Id<'productAccounts'>> {
   const account = await requireProductAccount(ctx);
   if (account.deviceCredentialEnforcementActivatedAt !== undefined) {
@@ -597,7 +584,7 @@ async function requireLegacyProductSyncReadAccount(
   }
   const revocation = await ctx.db
     .query('revokedTrustedDevices')
-    .withIndex('by_productAccountId', (q) =>
+    .withIndex('by_productAccountId_and_deviceIdentifier', (q) =>
       q.eq('productAccountId', account.productAccountId),
     )
     .first();
@@ -634,7 +621,7 @@ export const listEncryptedPayloadsForTrustedDevice = query({
 });
 
 async function getEncryptedPayloadForProductAccount(
-  ctx: QueryCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex query context is generated mutable framework state.
+  ctx: QueryCtx,
   productAccountId: Id<'productAccounts'>,
   payloadIdentifier: string,
 ): Promise<EncryptedProductSyncPayload | null> {
@@ -687,7 +674,7 @@ export const getEncryptedPayloadForTrustedDevice = query({
 });
 
 async function getEncryptedPayloadsForProductAccount(
-  ctx: QueryCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex query context is generated mutable framework state.
+  ctx: QueryCtx,
   productAccountId: Id<'productAccounts'>,
   payloadIdentifiers: readonly string[],
 ): Promise<EncryptedProductSyncPayload[]> {

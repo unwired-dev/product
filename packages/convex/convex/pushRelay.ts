@@ -1,13 +1,19 @@
 import type { Infer } from 'convex/values';
+import type * as Option from 'effect/Option';
 
 import {
   devicePushRegistrationResponseValidator,
   gmailPushVerificationResponseValidator,
 } from '@private-email/contracts/pushRelay';
 import { v } from 'convex/values';
+import * as Clock from 'effect/Clock';
+import * as Config from 'effect/Config';
+import * as Effect from 'effect/Effect';
+import * as Schema from 'effect/Schema';
 
 import type { Doc, Id } from './_generated/dataModel.js';
 import type { MutationCtx, QueryCtx } from './_generated/server.js';
+import type { CallFailed } from './effectRuntime.js';
 
 import { internal } from './_generated/api.js';
 import {
@@ -18,6 +24,7 @@ import {
   mutation,
   query,
 } from './_generated/server.js';
+import { call, runConvexProgram } from './effectRuntime.js';
 import {
   gmailIdentityBindingDigest,
   gmailRoutingDigests,
@@ -98,27 +105,79 @@ type VerifiedGoogleIdentity = Readonly<{
   providerAccountIdentifier: string;
 }>;
 
-function stringField(
-  value: Readonly<Record<string, unknown>>,
-  field: string,
-): string | null {
-  const candidate = value[field];
-  return typeof candidate === 'string' && candidate.length > 0
-    ? candidate
-    : null;
+const decodeGoogleIdentityTokenHeader = Schema.decodeUnknownOption(
+  Schema.fromJsonString(
+    Schema.Struct({
+      alg: Schema.Literal('RS256'),
+      kid: Schema.NonEmptyString,
+    }),
+  ),
+);
+
+const decodeGoogleIdentityTokenClaims = Schema.decodeUnknownOption(
+  Schema.fromJsonString(
+    Schema.Struct({
+      aud: Schema.NonEmptyString,
+      email: Schema.NonEmptyString,
+      email_verified: Schema.Literals([true, 'true']),
+      exp: Schema.Union([Schema.Finite, Schema.FiniteFromString]),
+      iss: Schema.Literals([
+        'accounts.google.com',
+        'https://accounts.google.com',
+      ]),
+      sub: Schema.NonEmptyString,
+    }),
+  ),
+);
+
+const decodeGoogleSigningKeySet = Schema.decodeUnknownOption(
+  Schema.Struct({ keys: Schema.Array(Schema.Unknown) }),
+);
+
+// Google publishes RS256 signature keys; the accepted key is passed to Web Crypto unchanged.
+const isGoogleSigningKey = Schema.is(
+  Schema.Struct({
+    alg: Schema.Literal('RS256'),
+    kid: Schema.NonEmptyString,
+    kty: Schema.Literal('RSA'),
+    use: Schema.optionalKey(Schema.Literals(['', 'sig'])),
+  }),
+);
+
+// The Gmail request or its mailbox ownership proof is refused.
+class GmailRequestRejected extends Schema.TaggedError<GmailRequestRejected>()(
+  'GmailRequestRejected',
+  {
+    message: Schema.Literals([
+      'Gmail mailbox ownership proof is not configured',
+      'Gmail mailbox ownership proof rejected',
+      'Gmail mailbox ownership proof required',
+      'Opaque Gmail connection id required',
+    ]),
+  },
+) {}
+
+// Google's signing keys could not be fetched or read, or the signature could not be
+// checked; handlers rethrow the cause.
+class GoogleVerificationFailed extends Schema.TaggedError<GoogleVerificationFailed>()(
+  'GoogleVerificationFailed',
+  { cause: Schema.Defect() },
+) {}
+
+type GmailProofFailure = GmailRequestRejected | GoogleVerificationFailed;
+
+function proofRejected(): GmailRequestRejected {
+  return new GmailRequestRejected({
+    message: 'Gmail mailbox ownership proof rejected',
+  });
 }
 
-function requiredString(value: string | null | undefined): string {
-  if (value === null || value === undefined) {
-    throw new Error('Gmail mailbox ownership proof rejected');
-  }
-  return value;
-}
-
-function isUnknownRecord(
-  value: unknown,
-): value is Readonly<Record<string, unknown>> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
+function thrownGmailError(
+  error: CallFailed | GmailRequestRejected | GoogleVerificationFailed,
+): unknown {
+  return error._tag === 'GmailRequestRejected'
+    ? new Error(error.message)
+    : error.cause;
 }
 
 function decodeBase64Url(value: string): ArrayBuffer {
@@ -132,18 +191,17 @@ function decodeBase64Url(value: string): ArrayBuffer {
   return bytes.buffer;
 }
 
-function decodeJwtRecord(value: string): Readonly<Record<string, unknown>> {
-  try {
-    const decoded: unknown = JSON.parse(
-      new TextDecoder().decode(decodeBase64Url(value)),
-    );
-    if (isUnknownRecord(decoded)) {
-      return decoded;
-    }
-  } catch {
-    // The common rejection below intentionally does not disclose token contents.
-  }
-  throw new Error('Gmail mailbox ownership proof rejected');
+// Every malformed segment gets the common rejection, which does not disclose token contents.
+function decodeJwtSegment<A>(
+  decode: (json: string) => Option.Option<A>,
+  segment: string,
+): Effect.Effect<A, GmailRequestRejected> {
+  return Effect.try(() =>
+    new TextDecoder().decode(decodeBase64Url(segment)),
+  ).pipe(
+    Effect.flatMap((json) => Effect.fromOption(decode(json))),
+    Effect.mapError(proofRejected),
+  );
 }
 
 function googleCacheMaxAge(cacheControl: string): string | undefined {
@@ -166,209 +224,178 @@ function googleSigningKeyLifetimeMs(response: Response): number {
   );
 }
 
-function googleSigningKeyFields(candidate: unknown): Readonly<{
-  algorithm: string | null;
-  keyId: string;
-  keyType: string | null;
-  keyUse: string;
-}> | null {
-  if (!isUnknownRecord(candidate)) {
-    return null;
-  }
-  const algorithm = stringField(candidate, 'alg');
-  const keyId = stringField(candidate, 'kid');
-  const keyType = stringField(candidate, 'kty');
-  const keyUse = stringField(candidate, 'use');
-  if (keyId === null) {
-    return null;
-  }
-  return {
-    algorithm,
-    keyId,
-    keyType,
-    keyUse: keyUse ?? '',
-  };
+function googleSigningKeys(
+  value: unknown,
+): Effect.Effect<ReadonlyMap<string, JsonWebKey>, GmailRequestRejected> {
+  return Effect.fromOption(decodeGoogleSigningKeySet(value)).pipe(
+    Effect.mapError(proofRejected),
+    Effect.flatMap(({ keys: candidates }) => {
+      const keys = new Map(
+        candidates
+          .filter(isGoogleSigningKey)
+          .map((key): readonly [string, JsonWebKey] => [key.kid, key]),
+      );
+      return keys.size === 0
+        ? Effect.fail(proofRejected())
+        : Effect.succeed(keys);
+    }),
+  );
 }
 
-function googleSigningKeyEntry(
-  candidate: unknown,
-): readonly [string, JsonWebKey] | null {
-  const fields = googleSigningKeyFields(candidate);
-  if (fields === null) {
-    return null;
-  }
-  const validKey = [
-    fields.algorithm === 'RS256',
-    fields.keyType === 'RSA',
-    ['', 'sig'].includes(fields.keyUse),
-  ].every(Boolean);
-  if (!validKey) {
-    return null;
-  }
-  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- The accepted JWK fields are validated above.
-  return [fields.keyId, candidate as JsonWebKey];
-}
-
-function googleSigningKeyCandidates(value: unknown): readonly unknown[] {
-  const candidates = isUnknownRecord(value) ? value.keys : undefined;
-  if (!Array.isArray(candidates)) {
-    // oxlint-disable-next-line unicorn/prefer-type-error -- Preserve the proof rejection error contract.
-    throw new Error('Gmail mailbox ownership proof rejected');
-  }
-  return candidates;
-}
-
-function googleSigningKeys(value: unknown): ReadonlyMap<string, JsonWebKey> {
-  const entries = googleSigningKeyCandidates(value).flatMap((candidate) => {
-    const entry = googleSigningKeyEntry(candidate);
-    return entry === null ? [] : [entry];
-  });
-  const keys = new Map(entries);
-  if (keys.size === 0) {
-    throw new Error('Gmail mailbox ownership proof rejected');
-  }
-  return keys;
-}
-
-async function fetchGoogleSigningKeys(): Promise<CachedGoogleSigningKeys> {
-  const response = await fetch(googleJsonWebKeySetUrl, {
-    signal: AbortSignal.timeout(googleSigningKeyFetchTimeoutMs),
-  });
+// The deadline covers the key set body as well as the response headers.
+async function fetchGoogleKeySet(
+  signal: AbortSignal,
+): Promise<Readonly<{ body?: unknown; response: Response }>> {
+  const response = await fetch(googleJsonWebKeySetUrl, { signal });
   if (!response.ok) {
-    throw new Error('Gmail mailbox ownership proof rejected');
+    return { response };
   }
-  return {
-    expiresAt: Date.now() + googleSigningKeyLifetimeMs(response),
-    keys: googleSigningKeys(await response.json()),
+  const body: unknown = await response.json();
+  return { body, response };
+}
+
+// A timed-out key fetch fails with the error fetch reports for an aborted timeout.
+const fetchGoogleSigningKeys = Effect.gen(function* () {
+  const { body, response } = yield* Effect.tryPromise({
+    try: fetchGoogleKeySet,
+    catch: (cause) => new GoogleVerificationFailed({ cause }),
+  }).pipe(
+    Effect.timeoutOrElse({
+      duration: googleSigningKeyFetchTimeoutMs,
+      orElse: () =>
+        Effect.fail(
+          new GoogleVerificationFailed({
+            cause: new DOMException(
+              'The operation was aborted due to timeout',
+              'TimeoutError',
+            ),
+          }),
+        ),
+    }),
+  );
+  if (!response.ok) {
+    return yield* proofRejected();
+  }
+  const fetchedAt = yield* Clock.currentTimeMillis;
+  const keys = yield* googleSigningKeys(body);
+  const refreshed: CachedGoogleSigningKeys = {
+    expiresAt: fetchedAt + googleSigningKeyLifetimeMs(response),
+    keys,
   };
-}
+  return refreshed;
+});
 
-function cachedGoogleSigningKey(keyId: string): JsonWebKey | undefined {
+function cachedGoogleSigningKey(
+  keyId: string,
+  now: number,
+): JsonWebKey | undefined {
   const cached = cachedGoogleSigningKeys;
-  if (cached === null || cached.expiresAt <= Date.now()) {
-    return undefined;
-  }
-  return cached.keys.get(keyId);
+  return cached === null || cached.expiresAt <= now
+    ? undefined
+    : cached.keys.get(keyId);
 }
 
-async function googleSigningKey(keyId: string): Promise<JsonWebKey> {
-  const cachedKey = cachedGoogleSigningKey(keyId);
+// Signing keys are cached for the isolate until Google's cache lifetime ends.
+const googleSigningKey = Effect.fnUntraced(function* (keyId: string) {
+  const cachedKey = cachedGoogleSigningKey(
+    keyId,
+    yield* Clock.currentTimeMillis,
+  );
   if (cachedKey !== undefined) {
     return cachedKey;
   }
-  const refreshed = await fetchGoogleSigningKeys();
+  const refreshed = yield* fetchGoogleSigningKeys;
   cachedGoogleSigningKeys = refreshed;
   const key = refreshed.keys.get(keyId);
   if (key === undefined) {
-    throw new Error('Gmail mailbox ownership proof rejected');
+    return yield* proofRejected();
   }
   return key;
-}
+});
 
-async function hasValidGoogleSignature(
+const hasValidGoogleSignature = Effect.fnUntraced(function* (
   signingInput: string,
   signature: ArrayBuffer,
   keyId: string,
-): Promise<boolean> {
-  const key = await crypto.subtle.importKey(
-    'jwk',
-    await googleSigningKey(keyId),
-    { hash: 'SHA-256', name: 'RSASSA-PKCS1-v1_5' },
-    false,
-    ['verify'],
-  );
-  return crypto.subtle.verify(
-    'RSASSA-PKCS1-v1_5',
-    key,
-    signature,
-    new TextEncoder().encode(signingInput),
-  );
-}
+) {
+  const signingKey = yield* googleSigningKey(keyId);
+  return yield* Effect.tryPromise({
+    try: async () => {
+      const key = await crypto.subtle.importKey(
+        'jwk',
+        signingKey,
+        { hash: 'SHA-256', name: 'RSASSA-PKCS1-v1_5' },
+        false,
+        ['verify'],
+      );
+      return crypto.subtle.verify(
+        'RSASSA-PKCS1-v1_5',
+        key,
+        signature,
+        new TextEncoder().encode(signingInput),
+      );
+    },
+    catch: (cause) => new GoogleVerificationFailed({ cause }),
+  });
+});
 
-function googleIdentityTokenSegments(
+// fallow-ignore-next-line complexity -- Every proof condition is required before a mailbox is bound.
+const verifyGoogleIdentityToken = Effect.fnUntraced(function* (
   identityToken: string,
-): readonly [string, string, string] {
-  const segments = identityToken.split('.');
-  if (segments.length !== 3) {
-    throw new Error('Gmail mailbox ownership proof rejected');
-  }
-  return [
-    requiredString(segments.at(0)),
-    requiredString(segments.at(1)),
-    requiredString(segments.at(2)),
-  ];
-}
-
-function googleIdentityTokenKeyId(headerSegment: string): string {
-  const header = decodeJwtRecord(headerSegment);
-  const algorithm = stringField(header, 'alg');
-  const keyId = stringField(header, 'kid');
-  if (algorithm !== 'RS256' || keyId === null) {
-    throw new Error('Gmail mailbox ownership proof rejected');
-  }
-  return keyId;
-}
-
-function verifiedGoogleIdentity(
-  claimsSegment: string,
-  clientId: string,
-): VerifiedGoogleIdentity {
-  const claims = decodeJwtRecord(claimsSegment);
-  const audience = stringField(claims, 'aud');
-  const emailAddress = requiredString(stringField(claims, 'email'));
-  const expiresAt = Number(claims.exp);
-  const issuer = stringField(claims, 'iss');
-  const providerAccountIdentifier = requiredString(stringField(claims, 'sub'));
-  const emailVerified =
-    claims.email_verified === true || claims.email_verified === 'true';
-  const validIssuer =
-    issuer === 'accounts.google.com' ||
-    issuer === 'https://accounts.google.com';
-  const validClaims = [
-    audience === clientId,
-    emailVerified,
-    Number.isFinite(expiresAt),
-    expiresAt > Math.floor(Date.now() / 1000),
-    validIssuer,
-  ].every(Boolean);
-  if (!validClaims) {
-    throw new Error('Gmail mailbox ownership proof rejected');
-  }
-  return {
-    emailAddress,
-    providerAccountIdentifier,
-  };
-}
-
-function gmailOauthClientId(): string {
-  // oxlint-disable-next-line node/no-process-env -- The deployment owns the expected Google OAuth audience.
-  const clientId = process.env.GMAIL_OAUTH_CLIENT_ID;
-  if (clientId === undefined || clientId.length === 0) {
-    throw new Error('Gmail mailbox ownership proof is not configured');
-  }
-  return clientId;
-}
-
-async function verifyGoogleIdentityToken(
-  identityToken: string,
-): Promise<VerifiedGoogleIdentity> {
-  const clientId = gmailOauthClientId();
+): Effect.fn.Return<VerifiedGoogleIdentity, GmailProofFailure> {
+  const clientId = yield* Config.NonEmptyString('GMAIL_OAUTH_CLIENT_ID').pipe(
+    Effect.mapError(
+      () =>
+        new GmailRequestRejected({
+          message: 'Gmail mailbox ownership proof is not configured',
+        }),
+    ),
+  );
   if (identityToken.length === 0) {
-    throw new Error('Gmail mailbox ownership proof required');
+    return yield* new GmailRequestRejected({
+      message: 'Gmail mailbox ownership proof required',
+    });
   }
-  const [headerSegment, claimsSegment, signatureSegment] =
-    googleIdentityTokenSegments(identityToken);
+  const segments = identityToken.split('.');
+  const [headerSegment, claimsSegment, signatureSegment] = segments;
   if (
-    !(await hasValidGoogleSignature(
+    segments.length !== 3 ||
+    headerSegment === undefined ||
+    claimsSegment === undefined ||
+    signatureSegment === undefined
+  ) {
+    return yield* proofRejected();
+  }
+  const signature = yield* Effect.try({
+    try: () => decodeBase64Url(signatureSegment),
+    catch: proofRejected,
+  });
+  const { kid: keyId } = yield* decodeJwtSegment(
+    decodeGoogleIdentityTokenHeader,
+    headerSegment,
+  );
+  if (
+    !(yield* hasValidGoogleSignature(
       `${headerSegment}.${claimsSegment}`,
-      decodeBase64Url(signatureSegment),
-      googleIdentityTokenKeyId(headerSegment),
+      signature,
+      keyId,
     ))
   ) {
-    throw new Error('Gmail mailbox ownership proof rejected');
+    return yield* proofRejected();
   }
-  return verifiedGoogleIdentity(claimsSegment, clientId);
-}
+  const claims = yield* decodeJwtSegment(
+    decodeGoogleIdentityTokenClaims,
+    claimsSegment,
+  );
+  const now = yield* Clock.currentTimeMillis;
+  if (claims.aud !== clientId || claims.exp <= Math.floor(now / 1000)) {
+    return yield* proofRejected();
+  }
+  return {
+    emailAddress: claims.email,
+    providerAccountIdentifier: claims.sub,
+  };
+});
 
 function gmailHistoryIdAtOrAfter(
   candidateHistoryId: string,
@@ -385,8 +412,8 @@ function gmailHistoryIdAtOrAfter(
 }
 
 async function legacyGmailRecipient(
-  ctx: QueryCtx | MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
-  connection: Doc<'mailProviderConnections'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents are immutable inputs here.
+  ctx: QueryCtx | MutationCtx,
+  connection: Doc<'mailProviderConnections'>,
   routingDigest: string,
 ): Promise<ApnsRecipient | null> {
   if (connection.emailAddress === undefined) {
@@ -402,9 +429,7 @@ async function legacyGmailRecipient(
   ) {
     return null;
   }
-  // oxlint-disable-next-line eslint/no-use-before-define -- Function declarations are hoisted.
   return apnsRecipientForDevice(ctx, {
-    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
     routeId: connection._id,
     ownershipVerifiedAt: connection.pushOwnershipVerifiedAt ?? 0,
     pushVerifiedAt: connection.pushVerifiedAt ?? 0,
@@ -414,7 +439,7 @@ async function legacyGmailRecipient(
 
 // fallow-ignore-next-line complexity
 async function productAccountDeletionIsFenced(
-  ctx: QueryCtx | MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
+  ctx: QueryCtx | MutationCtx,
   productAccountId: Id<'productAccounts'>,
 ): Promise<boolean> {
   const request = await ctx.db
@@ -442,7 +467,7 @@ async function productAccountDeletionIsFenced(
 
 // fallow-ignore-next-line complexity
 async function gmailRecipients(
-  ctx: QueryCtx | MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
+  ctx: QueryCtx | MutationCtx,
   routingDigest: string,
   emailAddress?: string,
 ): Promise<ApnsRecipient[]> {
@@ -459,9 +484,7 @@ async function gmailRecipients(
       connection.productAccountId,
     ))
       ? null
-      : // oxlint-disable-next-line eslint/no-use-before-define -- Function declarations are hoisted.
-        await apnsRecipientForDevice(ctx, {
-          // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+      : await apnsRecipientForDevice(ctx, {
           routeId: connection._id,
           ownershipVerifiedAt: connection.pushOwnershipVerifiedAt ?? 0,
           pushVerifiedAt: connection.pushVerifiedAt ?? 0,
@@ -510,8 +533,7 @@ async function gmailRecipients(
 }
 
 async function apnsRecipientForDevice(
-  ctx: QueryCtx | MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Request data is immutable input.
+  ctx: QueryCtx | MutationCtx,
   request: Readonly<{
     ownershipVerifiedAt: number;
     routeId: Id<'mailProviderConnections'>;
@@ -519,8 +541,7 @@ async function apnsRecipientForDevice(
     trustedDeviceId: Id<'trustedDevices'>;
   }>,
 ): Promise<ApnsRecipient | null> {
-  const device = await ctx.db.get(request.trustedDeviceId);
-  // oxlint-disable-next-line eslint/no-use-before-define -- Helper narrows the route fields.
+  const device = await ctx.db.get('trustedDevices', request.trustedDeviceId);
   if (!hasActiveApnsRoute(device)) {
     return null;
   }
@@ -531,12 +552,10 @@ async function apnsRecipientForDevice(
   if (proofTimestamp <= (device.gmailPushProofsInvalidatedAt ?? 0)) {
     return null;
   }
-  // oxlint-disable-next-line eslint/no-use-before-define -- Helper builds the recipient after route validation.
   return apnsRecipient(device, request.routeId);
 }
 
 function apnsRecipient(
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Convex documents are immutable inputs here.
   device: Readonly<
     Doc<'trustedDevices'> & {
       apnsEnvironment: Infer<typeof apnsEnvironmentValidator>;
@@ -550,13 +569,12 @@ function apnsRecipient(
     apnsToken: device.apnsToken,
     pushCleanupGeneration: device.pushCleanupGeneration ?? 0,
     routeId,
-    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
     trustedDeviceId: device._id,
   };
 }
 
 function hasActiveApnsRoute(
-  device: Doc<'trustedDevices'> | null, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents are immutable inputs here.
+  device: Doc<'trustedDevices'> | null,
 ): device is Doc<'trustedDevices'> & {
   apnsEnvironment: Infer<typeof apnsEnvironmentValidator>;
   apnsToken: string;
@@ -567,7 +585,7 @@ function hasActiveApnsRoute(
 }
 
 function isOtherVerifiedGmailRoute(
-  connection: Doc<'mailProviderConnections'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents are immutable inputs here.
+  connection: Doc<'mailProviderConnections'>,
   trustedDeviceId: Id<'trustedDevices'>,
 ): boolean {
   return (
@@ -578,14 +596,14 @@ function isOtherVerifiedGmailRoute(
 }
 
 async function isActiveOtherGmailRoute(
-  ctx: QueryCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
-  connection: Doc<'mailProviderConnections'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents are immutable inputs here.
+  ctx: QueryCtx,
+  connection: Doc<'mailProviderConnections'>,
   trustedDeviceId: Id<'trustedDevices'>,
 ): Promise<boolean> {
   if (!isOtherVerifiedGmailRoute(connection, trustedDeviceId)) {
     return false;
   }
-  const device = await ctx.db.get(connection.trustedDeviceId);
+  const device = await ctx.db.get('trustedDevices', connection.trustedDeviceId);
   return (
     hasActiveApnsRoute(device) &&
     (connection.pushVerifiedAt ?? 0) >
@@ -598,8 +616,7 @@ async function isActiveOtherGmailRoute(
 // The query must distinguish another device's currently routable Gmail proof.
 // fallow-ignore-next-line complexity
 async function hasOtherActiveGmailRoute(
-  ctx: QueryCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Convex ids are immutable branded strings.
+  ctx: QueryCtx,
   request: Readonly<{
     emailAddress?: string;
     routingDigests: readonly string[];
@@ -668,13 +685,13 @@ async function hasOtherActiveGmailRoute(
 }
 
 function gmailConnectionsForDevice(
-  ctx: QueryCtx | MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
+  ctx: QueryCtx | MutationCtx,
   productAccountId: Id<'productAccounts'>,
   trustedDeviceId: Id<'trustedDevices'>,
 ) {
   return ctx.db
     .query('mailProviderConnections')
-    .withIndex('by_productAccountId_and_provider_and_trustedDeviceId', (q) =>
+    .withIndex('by_productId_provider_deviceId_providerAccountId', (q) =>
       q
         .eq('productAccountId', productAccountId)
         .eq('provider', 'gmail')
@@ -683,8 +700,7 @@ function gmailConnectionsForDevice(
 }
 
 async function gmailConnection(
-  ctx: QueryCtx | MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Convex ids are immutable branded strings.
+  ctx: QueryCtx | MutationCtx,
   request: Readonly<{
     opaqueConnectionId: string;
     productAccountId: Id<'productAccounts'>;
@@ -704,8 +720,7 @@ async function gmailConnection(
 }
 
 async function legacyGmailConnection(
-  ctx: QueryCtx | MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Convex ids are immutable branded strings.
+  ctx: QueryCtx | MutationCtx,
   request: Readonly<{
     opaqueConnectionId: string;
     productAccountId: Id<'productAccounts'>;
@@ -716,7 +731,7 @@ async function legacyGmailConnection(
     request.trustedDeviceId === undefined
       ? ctx.db
           .query('mailProviderConnections')
-          .withIndex('by_productAccountId_and_provider', (q) =>
+          .withIndex('by_productAccountId_and_provider_and_emailAddress', (q) =>
             q
               .eq('productAccountId', request.productAccountId)
               .eq('provider', 'gmail'),
@@ -763,8 +778,7 @@ async function requiredGmailWatchOpaqueConnectionId(
 }
 
 async function requiredGmailWatchConnection(
-  ctx: QueryCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex query context is mutated by design.
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Convex ids are immutable branded strings.
+  ctx: QueryCtx,
   request: Readonly<{
     opaqueConnectionId: string;
     productAccountId: Id<'productAccounts'>;
@@ -781,7 +795,6 @@ async function requiredGmailWatchConnection(
 }
 
 async function gmailWatchRoutingDigests(
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Convex documents are immutable inputs here.
   connection: Doc<'mailProviderConnections'>,
 ): Promise<string[]> {
   if (connection.gmailRoutingDigest === undefined) {
@@ -799,8 +812,7 @@ async function gmailWatchRoutingDigests(
 }
 
 async function hasRemainingLegacyGmailConnection(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Convex ids are immutable branded strings.
+  ctx: MutationCtx,
   request: Readonly<{
     opaqueConnectionId: string;
     productAccountId: Id<'productAccounts'>;
@@ -808,7 +820,7 @@ async function hasRemainingLegacyGmailConnection(
 ): Promise<boolean> {
   const connections = await ctx.db
     .query('mailProviderConnections')
-    .withIndex('by_productAccountId_and_provider', (q) =>
+    .withIndex('by_productAccountId_and_provider_and_emailAddress', (q) =>
       q
         .eq('productAccountId', request.productAccountId)
         .eq('provider', 'gmail'),
@@ -838,7 +850,7 @@ async function hasRemainingLegacyGmailConnection(
 }
 
 function hasMatchingVerificationSignal(
-  signals: ReadonlyArray<Doc<'gmailPushVerificationSignals'>>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents are immutable inputs here.
+  signals: ReadonlyArray<Doc<'gmailPushVerificationSignals'>>,
   request: Readonly<{ historyId: string; invalidatedAt: number; now: number }>,
 ): boolean {
   return signals.some(
@@ -851,7 +863,7 @@ function hasMatchingVerificationSignal(
 }
 
 function nextVerifiedHistoryId(
-  connection: Doc<'mailProviderConnections'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents are immutable inputs here.
+  connection: Doc<'mailProviderConnections'>,
   historyId: string,
 ): string {
   if (connection.pushVerifiedHistoryId === undefined) {
@@ -863,7 +875,7 @@ function nextVerifiedHistoryId(
 }
 
 function gmailVerificationPatch(
-  connection: Doc<'mailProviderConnections'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents are immutable inputs here.
+  connection: Doc<'mailProviderConnections'>,
   request: Readonly<{ historyId: string; now: number; verified: boolean }>,
 ) {
   if (request.verified) {
@@ -890,8 +902,8 @@ function gmailVerificationPatch(
 }
 
 function gmailPushProofUpdatedAt(
-  device: Doc<'trustedDevices'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents are immutable inputs here.
-  connection: Doc<'mailProviderConnections'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents are immutable inputs here.
+  device: Doc<'trustedDevices'>,
+  connection: Doc<'mailProviderConnections'>,
   now: number,
 ): number {
   return Math.max(
@@ -902,7 +914,7 @@ function gmailPushProofUpdatedAt(
 }
 
 async function recordGmailVerificationSignal(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
+  ctx: MutationCtx,
   signal: Readonly<{ historyId: string; now: number; routingDigest: string }>,
 ): Promise<void> {
   const existingSignal = await ctx.db
@@ -920,9 +932,11 @@ async function recordGmailVerificationSignal(
           receivedAt: signal.now,
           routingDigest: signal.routingDigest,
         })
-      : existingSignal._id; // oxlint-disable-line eslint/no-underscore-dangle -- Convex document id field
+      : existingSignal._id;
   if (existingSignal !== null) {
-    await ctx.db.patch(signalId, { receivedAt: signal.now });
+    await ctx.db.patch('gmailPushVerificationSignals', signalId, {
+      receivedAt: signal.now,
+    });
   }
   await ctx.scheduler.runAfter(
     gmailPushVerificationSignalLifetimeMs,
@@ -937,7 +951,7 @@ async function recordGmailVerificationSignal(
 // Each guard validates an independent Gmail proof requirement.
 // fallow-ignore-next-line complexity
 function pendingVerificationMatches(
-  connection: Doc<'mailProviderConnections'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents are immutable inputs here.
+  connection: Doc<'mailProviderConnections'>,
   request: Readonly<{ historyId: string; invalidatedAt: number; now: number }>,
 ): boolean {
   if (connection.pushVerificationHistoryId === undefined) {
@@ -964,7 +978,7 @@ function pendingVerificationMatches(
 // Pending proofs must be checked independently for every matching Gmail connection.
 // fallow-ignore-next-line complexity
 async function verifyPendingGmailConnections(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
+  ctx: MutationCtx,
   request: Readonly<{
     cursor?: string | null;
     historyId: string;
@@ -974,7 +988,7 @@ async function verifyPendingGmailConnections(
 ): Promise<ApnsRecipient[]> {
   const page = await ctx.db
     .query('mailProviderConnections')
-    .withIndex('by_gmailRoutingDigest', (q) =>
+    .withIndex('by_gmailRoutingDigest_and_pushVerifiedAt', (q) =>
       q.eq('gmailRoutingDigest', request.routingDigest),
     )
     .order('desc')
@@ -984,7 +998,10 @@ async function verifyPendingGmailConnections(
     });
   const recipients: ApnsRecipient[] = [];
   for (const connection of page.page) {
-    const device = await ctx.db.get(connection.trustedDeviceId);
+    const device = await ctx.db.get(
+      'trustedDevices',
+      connection.trustedDeviceId,
+    );
     if (
       device !== null &&
       pendingVerificationMatches(connection, {
@@ -998,8 +1015,7 @@ async function verifyPendingGmailConnections(
         connection,
         request.now,
       );
-      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-      await ctx.db.patch(connection._id, {
+      await ctx.db.patch('mailProviderConnections', connection._id, {
         pushVerificationHistoryId: undefined,
         pushVerificationOwnershipVerifiedAt: undefined,
         pushVerificationRequestedAt: undefined,
@@ -1008,7 +1024,6 @@ async function verifyPendingGmailConnections(
         pushVerifiedAt: proofUpdatedAt,
       });
       const recipient = await apnsRecipientForDevice(ctx, {
-        // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
         routeId: connection._id,
         ownershipVerifiedAt: proofUpdatedAt,
         pushVerifiedAt: proofUpdatedAt,
@@ -1035,9 +1050,9 @@ async function verifyPendingGmailConnections(
 }
 
 async function scheduleGmailWakeups(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
+  ctx: MutationCtx,
   historyId: string,
-  recipients: readonly ApnsRecipient[], // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Recipient data is treated as immutable input.
+  recipients: readonly ApnsRecipient[],
 ): Promise<void> {
   if (recipients.length === 0) {
     return;
@@ -1049,8 +1064,7 @@ async function scheduleGmailWakeups(
 }
 
 async function clearGmailPushProofs(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Convex ids are immutable branded strings.
+  ctx: MutationCtx,
   request: Readonly<{
     cleanupStartedAt: number;
     cursor?: string | null;
@@ -1068,7 +1082,6 @@ async function clearGmailPushProofs(
   });
   await Promise.all(
     page.page.map((connection) =>
-      // oxlint-disable-next-line eslint/no-use-before-define -- Helper keeps pagination orchestration small.
       clearGmailPushProof(ctx, connection, request.cleanupStartedAt),
     ),
   );
@@ -1087,16 +1100,14 @@ async function clearGmailPushProofs(
 }
 
 async function clearGmailPushProof(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context patches proof records.
-  connection: Doc<'mailProviderConnections'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents are immutable inputs here.
+  ctx: MutationCtx,
+  connection: Doc<'mailProviderConnections'>,
   cleanupStartedAt: number,
 ): Promise<void> {
-  // oxlint-disable-next-line eslint/no-use-before-define -- Helper isolates timestamp comparison.
   const clearPendingProof = shouldClearGmailPushProof(
     connection.pushVerificationRequestedAt,
     cleanupStartedAt,
   );
-  // oxlint-disable-next-line eslint/no-use-before-define -- Helper isolates timestamp comparison.
   const clearVerifiedProof = shouldClearGmailPushProof(
     connection.pushVerifiedAt,
     cleanupStartedAt,
@@ -1105,8 +1116,8 @@ async function clearGmailPushProof(
     return;
   }
   await ctx.db.patch(
-    connection._id, // oxlint-disable-line eslint/no-underscore-dangle -- Convex document id field
-    // oxlint-disable-next-line eslint/no-use-before-define -- Helper centralizes the conditional patch.
+    'mailProviderConnections',
+    connection._id,
     gmailPushProofPatch(clearPendingProof, clearVerifiedProof),
   );
 }
@@ -1141,7 +1152,7 @@ function gmailPushProofPatch(
 }
 
 async function devicePushRouteHeartbeat(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
+  ctx: MutationCtx,
   trustedDeviceId: Id<'trustedDevices'>,
 ): Promise<Doc<'devicePushRouteHeartbeats'> | null> {
   return ctx.db
@@ -1153,7 +1164,7 @@ async function devicePushRouteHeartbeat(
 }
 
 async function refreshDevicePushRouteHeartbeat(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
+  ctx: MutationCtx,
   trustedDeviceId: Id<'trustedDevices'>,
   refreshedAt: number,
 ): Promise<void> {
@@ -1165,28 +1176,24 @@ async function refreshDevicePushRouteHeartbeat(
     });
     return;
   }
-  await ctx.db.patch(
-    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-    heartbeat._id,
-    { refreshedAt },
-  );
+  await ctx.db.patch('devicePushRouteHeartbeats', heartbeat._id, {
+    refreshedAt,
+  });
 }
 
 async function clearDevicePushRoute(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
-  device: Doc<'trustedDevices'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents are immutable inputs here.
+  ctx: MutationCtx,
+  device: Doc<'trustedDevices'>,
   request?: Readonly<{
     lastSeenAt?: number;
     preservePushCleanupGeneration?: boolean;
   }>,
 ): Promise<void> {
   const cleanupStartedAt = Date.now();
-  // oxlint-disable-next-line eslint/no-use-before-define -- Helper removes the route heartbeat first.
-  await deleteDevicePushRouteHeartbeat(ctx, device._id); // oxlint-disable-line eslint/no-underscore-dangle -- Convex document id field
+  await deleteDevicePushRouteHeartbeat(ctx, device._id);
   await ctx.db.patch(
-    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+    'trustedDevices',
     device._id,
-    // oxlint-disable-next-line eslint/no-use-before-define -- Helper builds the route-clear patch.
     clearedDevicePushRoutePatch(device, request, cleanupStartedAt),
   );
   await ctx.scheduler.runAfter(
@@ -1195,14 +1202,13 @@ async function clearDevicePushRoute(
     {
       cleanupStartedAt,
       productAccountId: device.productAccountId,
-      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
       trustedDeviceId: device._id,
     },
   );
 }
 
 function clearedDevicePushRoutePatch(
-  device: Doc<'trustedDevices'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents are immutable inputs here.
+  device: Doc<'trustedDevices'>,
   request:
     | Readonly<{
         lastSeenAt?: number;
@@ -1217,13 +1223,12 @@ function clearedDevicePushRoutePatch(
     apnsTokenRegisteredAt: undefined,
     gmailPushProofsInvalidatedAt: cleanupStartedAt,
     lastSeenAt: request?.lastSeenAt ?? device.lastSeenAt,
-    // oxlint-disable-next-line eslint/no-use-before-define -- Helper preserves monotonic cleanup generations.
     pushCleanupGeneration: nextPushCleanupGeneration(device, request),
   };
 }
 
 function nextPushCleanupGeneration(
-  device: Doc<'trustedDevices'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents are immutable inputs here.
+  device: Doc<'trustedDevices'>,
   request: Readonly<{ preservePushCleanupGeneration?: boolean }> | undefined,
 ): number | undefined {
   if (request?.preservePushCleanupGeneration) {
@@ -1233,18 +1238,17 @@ function nextPushCleanupGeneration(
 }
 
 async function deleteDevicePushRouteHeartbeat(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context deletes heartbeat records.
+  ctx: MutationCtx,
   trustedDeviceId: Id<'trustedDevices'>,
 ): Promise<void> {
   const heartbeat = await devicePushRouteHeartbeat(ctx, trustedDeviceId);
   if (heartbeat !== null) {
-    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-    await ctx.db.delete(heartbeat._id);
+    await ctx.db.delete('devicePushRouteHeartbeats', heartbeat._id);
   }
 }
 
 function pushCleanupGenerationForRegistration(
-  device: Doc<'trustedDevices'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents are immutable inputs here.
+  device: Doc<'trustedDevices'>,
   args: Readonly<{
     apnsEnvironment: Infer<typeof apnsEnvironmentValidator>;
     apnsToken: string;
@@ -1258,7 +1262,7 @@ function pushCleanupGenerationForRegistration(
 }
 
 async function registeredTrustedDevice(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context reads authentication state.
+  ctx: MutationCtx,
   trustedDeviceId: Id<'trustedDevices'>,
   trustedDeviceCredential: string | undefined,
 ): Promise<Doc<'trustedDevices'>> {
@@ -1267,7 +1271,7 @@ async function registeredTrustedDevice(
     trustedDeviceId,
     trustedDeviceCredential,
   );
-  const device = await ctx.db.get(trustedDeviceId);
+  const device = await ctx.db.get('trustedDevices', trustedDeviceId);
   if (device === null) {
     throw new Error('Trusted device required');
   }
@@ -1275,8 +1279,7 @@ async function registeredTrustedDevice(
 }
 
 async function clearReusedApnsToken(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Convex ids are immutable branded strings.
+  ctx: MutationCtx,
   request: Readonly<{
     apnsToken: string;
     cleanupStartedAt: number;
@@ -1286,11 +1289,12 @@ async function clearReusedApnsToken(
 ): Promise<void> {
   const devices = await ctx.db
     .query('trustedDevices')
-    .withIndex('by_apnsToken', (q) => q.eq('apnsToken', request.apnsToken))
+    .withIndex('by_apnsToken_and_apnsTokenRegisteredAt', (q) =>
+      q.eq('apnsToken', request.apnsToken),
+    )
     .take(devicePushTokenCleanupBatchSize);
   await Promise.all(
     devices
-      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
       .filter((device) => device._id !== request.trustedDeviceId)
       .filter(
         (device) =>
@@ -1342,7 +1346,7 @@ export const registerDevice = mutation({
       cleanupStartedAt: now,
       pushCleanupGeneration,
     });
-    await ctx.db.patch(args.trustedDeviceId, {
+    await ctx.db.patch('trustedDevices', args.trustedDeviceId, {
       apnsEnvironment: args.apnsEnvironment,
       apnsToken: args.apnsToken,
       apnsTokenRegisteredAt: now,
@@ -1367,7 +1371,7 @@ export const unregisterDevice = mutation({
       args.trustedDeviceId,
       args.trustedDeviceCredential,
     );
-    const device = await ctx.db.get(args.trustedDeviceId);
+    const device = await ctx.db.get('trustedDevices', args.trustedDeviceId);
     if (device === null) {
       throw new Error('Trusted device required');
     }
@@ -1388,49 +1392,63 @@ export const registerGmailConnection = action({
     opaqueConnectionId: v.string(),
     trustedDeviceId: v.id('trustedDevices'),
   },
-  handler: async (ctx, args): Promise<GmailOperationalConnectionStatus> => {
-    await ctx.runQuery(internal.pushRelay.authenticateGmailWatch, {
-      trustedDeviceCredential: args.trustedDeviceCredential,
-      trustedDeviceId: args.trustedDeviceId,
-    });
-    if (args.opaqueConnectionId.length === 0) {
-      throw new Error('Opaque Gmail connection id required');
-    }
-    const identity = await verifyGoogleIdentityToken(args.gmailIdentityToken);
-    const [routing, previousRouting] = await gmailRoutingDigests(
-      identity.emailAddress,
-    );
-    if (routing === undefined) {
-      throw new Error('Gmail mailbox ownership proof rejected');
-    }
-    while (
-      await ctx.runMutation(
-        internal.pushRelay.clearLegacyGmailSignalsForRegistration,
-        {
-          emailAddress: identity.emailAddress,
-          providerAccountIdentifier: identity.providerAccountIdentifier,
-          trustedDeviceCredential: args.trustedDeviceCredential,
-          trustedDeviceId: args.trustedDeviceId,
-        },
-      )
-    ) {
-      // Each bounded mutation commits progress before the next batch.
-    }
-    const status: GmailOperationalConnectionStatus = await ctx.runMutation(
-      internal.pushRelay.registerGmailConnectionForIdentity,
-      {
-        emailAddress: identity.emailAddress,
-        gmailPreviousRoutingDigest: previousRouting?.digest,
-        gmailRoutingDigest: routing.digest,
-        gmailRoutingKeyVersion: routing.keyVersion,
-        opaqueConnectionId: args.opaqueConnectionId,
-        providerAccountIdentifier: identity.providerAccountIdentifier,
-        trustedDeviceCredential: args.trustedDeviceCredential,
-        trustedDeviceId: args.trustedDeviceId,
-      },
-    );
-    return status;
-  },
+  handler: async (ctx, args): Promise<GmailOperationalConnectionStatus> =>
+    runConvexProgram(
+      Effect.gen(function* () {
+        yield* call(async () =>
+          ctx.runQuery(internal.pushRelay.authenticateGmailWatch, {
+            trustedDeviceCredential: args.trustedDeviceCredential,
+            trustedDeviceId: args.trustedDeviceId,
+          }),
+        );
+        if (args.opaqueConnectionId.length === 0) {
+          return yield* new GmailRequestRejected({
+            message: 'Opaque Gmail connection id required',
+          });
+        }
+        const identity = yield* verifyGoogleIdentityToken(
+          args.gmailIdentityToken,
+        );
+        const [routing, previousRouting] = yield* call(async () =>
+          gmailRoutingDigests(identity.emailAddress),
+        );
+        if (routing === undefined) {
+          return yield* proofRejected();
+        }
+        while (
+          yield* call(async (): Promise<boolean> =>
+            ctx.runMutation(
+              internal.pushRelay.clearLegacyGmailSignalsForRegistration,
+              {
+                emailAddress: identity.emailAddress,
+                providerAccountIdentifier: identity.providerAccountIdentifier,
+                trustedDeviceCredential: args.trustedDeviceCredential,
+                trustedDeviceId: args.trustedDeviceId,
+              },
+            ),
+          )
+        ) {
+          // Each bounded mutation commits progress before the next batch.
+        }
+        return yield* call(
+          async (): Promise<GmailOperationalConnectionStatus> =>
+            ctx.runMutation(
+              internal.pushRelay.registerGmailConnectionForIdentity,
+              {
+                emailAddress: identity.emailAddress,
+                gmailPreviousRoutingDigest: previousRouting?.digest,
+                gmailRoutingDigest: routing.digest,
+                gmailRoutingKeyVersion: routing.keyVersion,
+                opaqueConnectionId: args.opaqueConnectionId,
+                providerAccountIdentifier: identity.providerAccountIdentifier,
+                trustedDeviceCredential: args.trustedDeviceCredential,
+                trustedDeviceId: args.trustedDeviceId,
+              },
+            ),
+        );
+      }),
+      thrownGmailError,
+    ),
   returns: gmailOperationalConnectionStatusValidator,
 });
 
@@ -1465,15 +1483,16 @@ export const clearLegacyGmailSignalsForRegistration = internalMutation({
     }
     const legacySignals = await ctx.db
       .query('gmailPushVerificationSignals')
-      .withIndex('by_emailAddress', (q) =>
+      .withIndex('by_emailAddress_and_historyId', (q) =>
         q.eq('emailAddress', args.emailAddress),
       )
       .take(gmailLegacySignalMigrationLimit + 1);
     await Promise.all(
-      legacySignals.slice(0, gmailLegacySignalMigrationLimit).map((signal) =>
-        // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-        ctx.db.delete(signal._id),
-      ),
+      legacySignals
+        .slice(0, gmailLegacySignalMigrationLimit)
+        .map((signal) =>
+          ctx.db.delete('gmailPushVerificationSignals', signal._id),
+        ),
     );
     return legacySignals.length > gmailLegacySignalMigrationLimit;
   },
@@ -1553,7 +1572,7 @@ export const registerGmailConnectionForIdentity = internalMutation({
       const { _id: connectionId, connectedAt: existingConnectedAt } =
         currentConnection;
       connectedAt = existingConnectedAt;
-      await ctx.db.patch(connectionId, {
+      await ctx.db.patch('mailProviderConnections', connectionId, {
         emailAddress: undefined,
         gmailPreviousRoutingDigest: args.gmailPreviousRoutingDigest,
         gmailRoutingDigest: args.gmailRoutingDigest,
@@ -1562,13 +1581,8 @@ export const registerGmailConnectionForIdentity = internalMutation({
         providerAccountIdentifier: undefined,
         updatedAt: now,
       });
-      if (
-        legacyConnection !== null &&
-        // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-        legacyConnection._id !== connectionId
-      ) {
-        // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-        await ctx.db.delete(legacyConnection._id);
+      if (legacyConnection !== null && legacyConnection._id !== connectionId) {
+        await ctx.db.delete('mailProviderConnections', legacyConnection._id);
       }
     } else if (legacyConnection === null) {
       const deviceConnections = await gmailConnectionsForDevice(
@@ -1595,7 +1609,7 @@ export const registerGmailConnectionForIdentity = internalMutation({
       const { _id: connectionId, connectedAt: existingConnectedAt } =
         legacyConnection;
       connectedAt = existingConnectedAt;
-      await ctx.db.patch(connectionId, {
+      await ctx.db.patch('mailProviderConnections', connectionId, {
         emailAddress: undefined,
         gmailPreviousRoutingDigest: args.gmailPreviousRoutingDigest,
         gmailRoutingDigest: args.gmailRoutingDigest,
@@ -1643,8 +1657,7 @@ export const removeGmailConnection = mutation({
         trustedDeviceId: args.trustedDeviceId,
       }));
     if (connection !== null) {
-      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-      await ctx.db.delete(connection._id);
+      await ctx.db.delete('mailProviderConnections', connection._id);
       const remainingOpaqueConnection = await ctx.db
         .query('mailProviderConnections')
         .withIndex(
@@ -1671,8 +1684,10 @@ export const removeGmailConnection = mutation({
           )
           .unique();
         if (identityBinding !== null) {
-          // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-          await ctx.db.delete(identityBinding._id);
+          await ctx.db.delete(
+            'gmailOpaqueIdentityBindings',
+            identityBinding._id,
+          );
         }
       }
     }
@@ -1737,31 +1752,47 @@ export const verifyGmailWatch = action({
     opaqueConnectionId: v.optional(v.string()),
     trustedDeviceId: v.id('trustedDevices'),
   },
-  handler: async (ctx, args) => {
-    await ctx.runQuery(internal.pushRelay.authenticateGmailWatch, {
-      trustedDeviceCredential: args.trustedDeviceCredential,
-      trustedDeviceId: args.trustedDeviceId,
-    });
-    const identity = await verifyGoogleIdentityToken(args.gmailIdentityToken);
-    const routings = await gmailRoutingDigests(identity.emailAddress);
-    const [currentRouting] = routings;
-    if (currentRouting === undefined) {
-      throw new Error('Gmail mailbox ownership proof rejected');
-    }
-    const result: Infer<typeof gmailPushVerificationResponseValidator> =
-      await ctx.runMutation(internal.pushRelay.verifyGmailWatchForIdentity, {
-        acceptedRoutingDigests: routings.map((routing) => routing.digest),
-        currentRoutingDigest: currentRouting.digest,
-        currentRoutingKeyVersion: currentRouting.keyVersion,
-        emailAddress: identity.emailAddress,
-        historyId: args.historyId,
-        opaqueConnectionId: args.opaqueConnectionId,
-        providerAccountIdentifier: identity.providerAccountIdentifier,
-        trustedDeviceCredential: args.trustedDeviceCredential,
-        trustedDeviceId: args.trustedDeviceId,
-      });
-    return result;
-  },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<Infer<typeof gmailPushVerificationResponseValidator>> =>
+    runConvexProgram(
+      Effect.gen(function* () {
+        yield* call(async () =>
+          ctx.runQuery(internal.pushRelay.authenticateGmailWatch, {
+            trustedDeviceCredential: args.trustedDeviceCredential,
+            trustedDeviceId: args.trustedDeviceId,
+          }),
+        );
+        const identity = yield* verifyGoogleIdentityToken(
+          args.gmailIdentityToken,
+        );
+        const routings = yield* call(async () =>
+          gmailRoutingDigests(identity.emailAddress),
+        );
+        const [currentRouting] = routings;
+        if (currentRouting === undefined) {
+          return yield* proofRejected();
+        }
+        return yield* call(
+          async (): Promise<
+            Infer<typeof gmailPushVerificationResponseValidator>
+          > =>
+            ctx.runMutation(internal.pushRelay.verifyGmailWatchForIdentity, {
+              acceptedRoutingDigests: routings.map((routing) => routing.digest),
+              currentRoutingDigest: currentRouting.digest,
+              currentRoutingKeyVersion: currentRouting.keyVersion,
+              emailAddress: identity.emailAddress,
+              historyId: args.historyId,
+              opaqueConnectionId: args.opaqueConnectionId,
+              providerAccountIdentifier: identity.providerAccountIdentifier,
+              trustedDeviceCredential: args.trustedDeviceCredential,
+              trustedDeviceId: args.trustedDeviceId,
+            }),
+        );
+      }),
+      thrownGmailError,
+    ),
   returns: gmailPushVerificationResponseValidator,
 });
 
@@ -1880,11 +1911,10 @@ export const verifyGmailWatchForIdentity = internalMutation({
         updatedAt: bindingUpdatedAt,
       });
     }
-    const device = await ctx.db.get(args.trustedDeviceId);
+    const device = await ctx.db.get('trustedDevices', args.trustedDeviceId);
     if (device === null) {
       throw new Error('Trusted device required');
     }
-    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
     const routeId = connection._id;
     if (
       connection.pushVerifiedHistoryId === args.historyId &&
@@ -1893,7 +1923,7 @@ export const verifyGmailWatchForIdentity = internalMutation({
       (connection.pushOwnershipVerifiedAt ?? 0) >
         (device.gmailPushProofsInvalidatedAt ?? 0)
     ) {
-      await ctx.db.patch(routeId, {
+      await ctx.db.patch('mailProviderConnections', routeId, {
         ...(preservesLegacyIdentity ? {} : { emailAddress: undefined }),
         gmailPreviousRoutingDigest: args.acceptedRoutingDigests.at(1),
         gmailRoutingDigest: args.currentRoutingDigest,
@@ -1910,7 +1940,7 @@ export const verifyGmailWatchForIdentity = internalMutation({
 
     const signals = await ctx.db
       .query('gmailPushVerificationSignals')
-      .withIndex('by_routingDigest', (q) =>
+      .withIndex('by_routingDigest_and_receivedAt', (q) =>
         q.eq('routingDigest', args.currentRoutingDigest),
       )
       .order('desc')
@@ -1921,26 +1951,22 @@ export const verifyGmailWatchForIdentity = internalMutation({
       invalidatedAt: device.gmailPushProofsInvalidatedAt ?? 0,
       now,
     });
-    await ctx.db.patch(
-      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-      connection._id,
-      {
-        ...(preservesLegacyIdentity ? {} : { emailAddress: undefined }),
-        ...gmailVerificationPatch(connection, {
-          historyId: args.historyId,
-          now,
-          verified,
-        }),
-        gmailPreviousRoutingDigest: args.acceptedRoutingDigests.at(1),
-        gmailRoutingDigest: args.currentRoutingDigest,
-        gmailRoutingKeyVersion: args.currentRoutingKeyVersion,
-        lastVerifiedAt: now,
-        opaqueConnectionId,
-        ...(preservesLegacyIdentity
-          ? {}
-          : { providerAccountIdentifier: undefined }),
-      },
-    );
+    await ctx.db.patch('mailProviderConnections', connection._id, {
+      ...(preservesLegacyIdentity ? {} : { emailAddress: undefined }),
+      ...gmailVerificationPatch(connection, {
+        historyId: args.historyId,
+        now,
+        verified,
+      }),
+      gmailPreviousRoutingDigest: args.acceptedRoutingDigests.at(1),
+      gmailRoutingDigest: args.currentRoutingDigest,
+      gmailRoutingKeyVersion: args.currentRoutingKeyVersion,
+      lastVerifiedAt: now,
+      opaqueConnectionId,
+      ...(preservesLegacyIdentity
+        ? {}
+        : { providerAccountIdentifier: undefined }),
+    });
     return { routeId, verified };
   },
   /* oxlint-enable complexity */
@@ -1971,7 +1997,10 @@ export const revalidateGmailRecipients = internalQuery({
           if (routeId === null) {
             return null;
           }
-          const connection = await ctx.db.get(routeId);
+          const connection = await ctx.db.get(
+            'mailProviderConnections',
+            routeId,
+          );
           if (
             connection === null ||
             connection.trustedDeviceId !== recipient.trustedDeviceId
@@ -2084,9 +2113,12 @@ export const expireGmailVerificationSignal = internalMutation({
     signalId: v.id('gmailPushVerificationSignals'),
   },
   handler: async (ctx, args) => {
-    const signal = await ctx.db.get(args.signalId);
+    const signal = await ctx.db.get(
+      'gmailPushVerificationSignals',
+      args.signalId,
+    );
     if (signal?.receivedAt === args.receivedAt) {
-      await ctx.db.delete(args.signalId);
+      await ctx.db.delete('gmailPushVerificationSignals', args.signalId);
     }
     return null;
   },
@@ -2127,7 +2159,6 @@ export const continueReusedApnsTokenCleanup = internalMutation({
     if (
       tokenOwners.some(
         (owner) =>
-          // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
           owner._id !== args.trustedDeviceId &&
           owner.pushCleanupGeneration !== undefined &&
           (owner.apnsTokenRegisteredAt ?? 0) >= args.cleanupStartedAt,
@@ -2151,19 +2182,15 @@ export const reconcileStaleDevicePushRoutes = internalMutation({
       args.staleBefore ?? Date.now() - devicePushRouteInactivityLifetimeMs;
     const page = await ctx.db
       .query('trustedDevices')
-      .withIndex('by_apnsToken', (q) => q.gt('apnsToken', ''))
+      .withIndex('by_apnsToken_and_apnsTokenRegisteredAt', (q) =>
+        q.gt('apnsToken', ''),
+      )
       .paginate({
         cursor: args.cursor ?? null,
         numItems: devicePushRouteReconciliationBatchSize,
       });
     const heartbeats = await Promise.all(
-      page.page.map((device) =>
-        devicePushRouteHeartbeat(
-          ctx,
-          // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-          device._id,
-        ),
-      ),
+      page.page.map((device) => devicePushRouteHeartbeat(ctx, device._id)),
     );
     const staleDeviceIds = new Set(
       page.page
@@ -2171,12 +2198,10 @@ export const reconcileStaleDevicePushRoutes = internalMutation({
           (device, index) =>
             (heartbeats[index]?.refreshedAt ?? device.lastSeenAt) < staleBefore,
         )
-        // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
         .map((device) => device._id),
     );
     await Promise.all(
       page.page.map(async (device, index) => {
-        // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
         if (staleDeviceIds.has(device._id)) {
           await clearDevicePushRoute(ctx, device);
           return;
@@ -2184,7 +2209,6 @@ export const reconcileStaleDevicePushRoutes = internalMutation({
         if (heartbeats[index] === null) {
           await refreshDevicePushRouteHeartbeat(
             ctx,
-            // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
             device._id,
             device.lastSeenAt,
           );
@@ -2211,8 +2235,7 @@ export const clearStaleDevice = internalMutation({
     trustedDeviceId: v.id('trustedDevices'),
   },
   handler: async (ctx, args) => {
-    const device = await ctx.db.get(args.trustedDeviceId);
-    // oxlint-disable-next-line eslint/no-use-before-define -- Helper validates the current route identity.
+    const device = await ctx.db.get('trustedDevices', args.trustedDeviceId);
     if (isCurrentPushRoute(device, args)) {
       await clearDevicePushRoute(ctx, device);
     }
@@ -2226,7 +2249,7 @@ const microsoftGraphRouteResponseValidator = v.object({
 });
 
 async function microsoftGraphWakeupState(
-  ctx: QueryCtx | MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
+  ctx: QueryCtx | MutationCtx,
   routeId: Id<'mailProviderConnections'>,
 ): Promise<Doc<'microsoftGraphWakeupStates'> | null> {
   return ctx.db
@@ -2236,13 +2259,12 @@ async function microsoftGraphWakeupState(
 }
 
 async function deleteMicrosoftGraphWakeupState(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
+  ctx: MutationCtx,
   routeId: Id<'mailProviderConnections'>,
 ): Promise<void> {
   const state = await microsoftGraphWakeupState(ctx, routeId);
   if (state !== null) {
-    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-    await ctx.db.delete(state._id);
+    await ctx.db.delete('microsoftGraphWakeupStates', state._id);
   }
 }
 
@@ -2269,7 +2291,7 @@ type MicrosoftGraphWakeupArgs = Readonly<{
 }>;
 
 function requireMicrosoftGraphRouteIdentifiers(
-  args: PrepareMicrosoftGraphRouteArgs, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex identifiers are branded values.
+  args: PrepareMicrosoftGraphRouteArgs,
 ): void {
   if (
     args.clientStateDigest.length === 0 ||
@@ -2280,9 +2302,9 @@ function requireMicrosoftGraphRouteIdentifiers(
 }
 
 async function existingMicrosoftGraphRoute(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
+  ctx: MutationCtx,
   productAccountId: Id<'productAccounts'>,
-  args: PrepareMicrosoftGraphRouteArgs, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex identifiers are branded values.
+  args: PrepareMicrosoftGraphRouteArgs,
 ): Promise<Doc<'mailProviderConnections'> | null> {
   return ctx.db
     .query('mailProviderConnections')
@@ -2303,15 +2325,15 @@ type MicrosoftGraphRouteContext = Readonly<{
 }>;
 
 async function requireMicrosoftGraphConnectionCapacity(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
-  routeContext: MicrosoftGraphRouteContext, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents and identifiers are branded values.
+  ctx: MutationCtx,
+  routeContext: MicrosoftGraphRouteContext,
 ): Promise<void> {
   if (routeContext.existing !== null) {
     return;
   }
   const deviceConnections = await ctx.db
     .query('mailProviderConnections')
-    .withIndex('by_productAccountId_and_provider_and_trustedDeviceId', (q) =>
+    .withIndex('by_productId_provider_deviceId_providerAccountId', (q) =>
       q
         .eq('productAccountId', routeContext.productAccountId)
         .eq('provider', 'microsoft-graph')
@@ -2332,7 +2354,7 @@ type SaveMicrosoftGraphRouteOptions = Readonly<{
 }>;
 
 function hasActiveMicrosoftGraphSubscription(
-  route: Doc<'mailProviderConnections'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex document is inspected but not mutated.
+  route: Doc<'mailProviderConnections'>,
   now: number,
 ): boolean {
   return (
@@ -2342,9 +2364,9 @@ function hasActiveMicrosoftGraphSubscription(
 }
 
 async function saveMicrosoftGraphRoute(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
-  args: PrepareMicrosoftGraphRouteArgs, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex identifiers are branded values.
-  options: SaveMicrosoftGraphRouteOptions, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents and identifiers are branded values.
+  ctx: MutationCtx,
+  args: PrepareMicrosoftGraphRouteArgs,
+  options: SaveMicrosoftGraphRouteOptions,
 ): Promise<Id<'mailProviderConnections'>> {
   if (options.existing === null) {
     return ctx.db.insert('mailProviderConnections', {
@@ -2358,10 +2380,9 @@ async function saveMicrosoftGraphRoute(
       updatedAt: options.now,
     });
   }
-  // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
   const routeId = options.existing._id;
   if (hasActiveMicrosoftGraphSubscription(options.existing, options.now)) {
-    await ctx.db.patch(routeId, {
+    await ctx.db.patch('mailProviderConnections', routeId, {
       lastVerifiedAt: options.now,
       microsoftPendingClientStateDigest: args.clientStateDigest,
       updatedAt: options.now,
@@ -2369,7 +2390,7 @@ async function saveMicrosoftGraphRoute(
     return routeId;
   }
   await deleteMicrosoftGraphWakeupState(ctx, routeId);
-  await ctx.db.patch(routeId, {
+  await ctx.db.patch('mailProviderConnections', routeId, {
     lastVerifiedAt: options.now,
     microsoftClientStateDigest: args.clientStateDigest,
     microsoftPendingClientStateDigest: undefined,
@@ -2381,8 +2402,8 @@ async function saveMicrosoftGraphRoute(
 }
 
 async function prepareMicrosoftGraphRouteForDevice(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
-  args: PrepareMicrosoftGraphRouteArgs, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex identifiers are branded values.
+  ctx: MutationCtx,
+  args: PrepareMicrosoftGraphRouteArgs,
 ): Promise<{ routeId: Id<'mailProviderConnections'> }> {
   const account = await requireAuthenticatedTrustedDevice(
     ctx,
@@ -2422,7 +2443,7 @@ export const prepareMicrosoftGraphRoute = mutation({
 });
 
 function requireMicrosoftGraphRoute(
-  route: Doc<'mailProviderConnections'> | null, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex document is inspected but not mutated.
+  route: Doc<'mailProviderConnections'> | null,
 ): asserts route is Doc<'mailProviderConnections'> {
   if (route === null || route.provider !== 'microsoft-graph') {
     throw new Error('Microsoft Graph route rejected');
@@ -2430,7 +2451,7 @@ function requireMicrosoftGraphRoute(
 }
 
 function requireMicrosoftGraphRouteOwnership(
-  route: Doc<'mailProviderConnections'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex document is inspected but not mutated.
+  route: Doc<'mailProviderConnections'>,
   productAccountId: Id<'productAccounts'>,
   trustedDeviceId: Id<'trustedDevices'>,
 ): void {
@@ -2443,8 +2464,8 @@ function requireMicrosoftGraphRouteOwnership(
 }
 
 function hasMatchingMicrosoftGraphConfirmation(
-  route: Doc<'mailProviderConnections'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex document is inspected but not mutated.
-  args: ConfirmMicrosoftGraphRouteArgs, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex identifiers are branded values.
+  route: Doc<'mailProviderConnections'>,
+  args: ConfirmMicrosoftGraphRouteArgs,
 ): boolean {
   if (route.microsoftClientStateDigest === undefined) {
     return false;
@@ -2456,8 +2477,8 @@ function hasMatchingMicrosoftGraphConfirmation(
 }
 
 function requireValidMicrosoftGraphConfirmation(
-  route: Doc<'mailProviderConnections'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex document is inspected but not mutated.
-  args: ConfirmMicrosoftGraphRouteArgs, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex identifiers are branded values.
+  route: Doc<'mailProviderConnections'>,
+  args: ConfirmMicrosoftGraphRouteArgs,
 ): void {
   if (args.subscriptionId.length === 0 || args.expiresAt <= Date.now()) {
     throw new Error('Microsoft Graph route rejected');
@@ -2473,16 +2494,16 @@ type MicrosoftGraphTrustedDeviceAuthentication = Readonly<{
 }>;
 
 async function ownedMicrosoftGraphRoute(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by authentication.
+  ctx: MutationCtx,
   routeId: Id<'mailProviderConnections'>,
-  trustedDevice: MicrosoftGraphTrustedDeviceAuthentication, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex identifiers are branded values.
+  trustedDevice: MicrosoftGraphTrustedDeviceAuthentication,
 ): Promise<Doc<'mailProviderConnections'>> {
   const account = await requireAuthenticatedTrustedDevice(
     ctx,
     trustedDevice.id,
     trustedDevice.credential,
   );
-  const route = await ctx.db.get(routeId);
+  const route = await ctx.db.get('mailProviderConnections', routeId);
   requireMicrosoftGraphRoute(route);
   requireMicrosoftGraphRouteOwnership(
     route,
@@ -2493,8 +2514,8 @@ async function ownedMicrosoftGraphRoute(
 }
 
 function confirmedMicrosoftGraphClientState(
-  route: Doc<'mailProviderConnections'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex document is inspected but not mutated.
-  args: ConfirmMicrosoftGraphRouteArgs, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex identifiers are branded values.
+  route: Doc<'mailProviderConnections'>,
+  args: ConfirmMicrosoftGraphRouteArgs,
 ): Readonly<{
   clientStateDigest: string | undefined;
   confirmsPendingReplacement: boolean;
@@ -2526,8 +2547,8 @@ type ConfirmedMicrosoftGraphWakeupArgs = Readonly<{
 }>;
 
 function isConfirmedMicrosoftGraphWakeup(
-  wakeup: Doc<'microsoftGraphWakeupStates'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex document is inspected but not mutated.
-  args: ConfirmedMicrosoftGraphWakeupArgs, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex identifiers are branded values.
+  wakeup: Doc<'microsoftGraphWakeupStates'>,
+  args: ConfirmedMicrosoftGraphWakeupArgs,
 ): boolean {
   return (
     wakeup.clientStateDigest === args.clientStateDigest &&
@@ -2536,8 +2557,8 @@ function isConfirmedMicrosoftGraphWakeup(
 }
 
 async function activateConfirmedMicrosoftGraphWakeup(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
-  args: ConfirmedMicrosoftGraphWakeupArgs, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex identifiers are branded values.
+  ctx: MutationCtx,
+  args: ConfirmedMicrosoftGraphWakeupArgs,
 ): Promise<void> {
   const stagedWakeup = await microsoftGraphWakeupState(ctx, args.routeId);
   if (stagedWakeup === null) {
@@ -2547,8 +2568,7 @@ async function activateConfirmedMicrosoftGraphWakeup(
     isConfirmedMicrosoftGraphWakeup(stagedWakeup, args) ||
     args.activateMismatchedWakeup
   ) {
-    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-    await ctx.db.patch(stagedWakeup._id, {
+    await ctx.db.patch('microsoftGraphWakeupStates', stagedWakeup._id, {
       clientStateDigest: args.clientStateDigest,
       pendingAt: args.now,
       scheduledAt: args.now,
@@ -2562,8 +2582,8 @@ async function activateConfirmedMicrosoftGraphWakeup(
 }
 
 async function confirmMicrosoftGraphRouteForDevice(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
-  args: ConfirmMicrosoftGraphRouteArgs, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex identifiers are branded values.
+  ctx: MutationCtx,
+  args: ConfirmMicrosoftGraphRouteArgs,
 ): Promise<{ routeId: Id<'mailProviderConnections'> }> {
   const route = await ownedMicrosoftGraphRoute(ctx, args.routeId, {
     credential: args.trustedDeviceCredential,
@@ -2572,7 +2592,7 @@ async function confirmMicrosoftGraphRouteForDevice(
   requireValidMicrosoftGraphConfirmation(route, args);
   const now = Date.now();
   const confirmedState = confirmedMicrosoftGraphClientState(route, args);
-  await ctx.db.patch(args.routeId, {
+  await ctx.db.patch('mailProviderConnections', args.routeId, {
     lastVerifiedAt: now,
     microsoftClientStateDigest: confirmedState.clientStateDigest,
     microsoftPendingClientStateDigest: confirmedState.pendingClientStateDigest,
@@ -2617,7 +2637,7 @@ export const rollbackMicrosoftGraphRoute = mutation({
       id: args.trustedDeviceId,
     });
     if (route.microsoftPendingClientStateDigest === args.clientStateDigest) {
-      await ctx.db.patch(args.routeId, {
+      await ctx.db.patch('mailProviderConnections', args.routeId, {
         microsoftPendingClientStateDigest: undefined,
         updatedAt: Date.now(),
       });
@@ -2628,7 +2648,7 @@ export const rollbackMicrosoftGraphRoute = mutation({
       route.microsoftSubscriptionId === undefined
     ) {
       await deleteMicrosoftGraphWakeupState(ctx, args.routeId);
-      await ctx.db.delete(args.routeId);
+      await ctx.db.delete('mailProviderConnections', args.routeId);
       return { rolledBack: true };
     }
     return { rolledBack: false };
@@ -2659,10 +2679,8 @@ export const removeMicrosoftGraphRoute = mutation({
       )
       .unique();
     if (route !== null) {
-      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
       await deleteMicrosoftGraphWakeupState(ctx, route._id);
-      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-      await ctx.db.delete(route._id);
+      await ctx.db.delete('mailProviderConnections', route._id);
     }
     return { removed: route !== null };
   },
@@ -2670,7 +2688,7 @@ export const removeMicrosoftGraphRoute = mutation({
 });
 
 function isActiveMicrosoftGraphRoute(
-  route: Doc<'mailProviderConnections'> | null, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex document is inspected but not mutated.
+  route: Doc<'mailProviderConnections'> | null,
   now: number,
 ): route is Doc<'mailProviderConnections'> {
   return (
@@ -2681,7 +2699,7 @@ function isActiveMicrosoftGraphRoute(
 }
 
 function matchesMicrosoftGraphSubscription(
-  route: Doc<'mailProviderConnections'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex document is inspected but not mutated.
+  route: Doc<'mailProviderConnections'>,
   args: MicrosoftGraphWakeupArgs,
 ): boolean {
   return (
@@ -2691,7 +2709,7 @@ function matchesMicrosoftGraphSubscription(
 }
 
 function isInitialMicrosoftGraphSubscription(
-  route: Doc<'mailProviderConnections'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex document is inspected but not mutated.
+  route: Doc<'mailProviderConnections'>,
   clientStateDigest: string,
 ): boolean {
   return (
@@ -2701,7 +2719,7 @@ function isInitialMicrosoftGraphSubscription(
 }
 
 function canStageMicrosoftGraphSubscription(
-  route: Doc<'mailProviderConnections'> | null, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex document is inspected but not mutated.
+  route: Doc<'mailProviderConnections'> | null,
   clientStateDigest: string,
 ): route is Doc<'mailProviderConnections'> {
   return (
@@ -2712,7 +2730,7 @@ function canStageMicrosoftGraphSubscription(
 }
 
 function acceptsMicrosoftGraphWakeup(
-  route: Doc<'mailProviderConnections'> | null, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex document is inspected but not mutated.
+  route: Doc<'mailProviderConnections'> | null,
   args: MicrosoftGraphWakeupArgs,
   now: number,
 ): boolean {
@@ -2727,7 +2745,7 @@ function acceptsMicrosoftGraphWakeup(
 
 // fallow-ignore-next-line complexity -- Wakeup acceptance keeps subscription and account-deletion fences in one transaction.
 async function acceptedMicrosoftGraphWakeupRoute(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
+  ctx: MutationCtx,
   args: MicrosoftGraphWakeupArgs,
   now: number,
 ): Promise<Id<'mailProviderConnections'> | null> {
@@ -2735,7 +2753,7 @@ async function acceptedMicrosoftGraphWakeupRoute(
   if (routeId === null) {
     return null;
   }
-  const route = await ctx.db.get(routeId);
+  const route = await ctx.db.get('mailProviderConnections', routeId);
   if (
     route === null ||
     !acceptsMicrosoftGraphWakeup(route, args, now) ||
@@ -2747,7 +2765,7 @@ async function acceptedMicrosoftGraphWakeupRoute(
 }
 
 async function enqueueMicrosoftGraphWakeupForRoute(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
+  ctx: MutationCtx,
   args: MicrosoftGraphWakeupArgs,
 ): Promise<{ accepted: boolean }> {
   const now = Date.now();
@@ -2757,8 +2775,7 @@ async function enqueueMicrosoftGraphWakeupForRoute(
   }
   const existing = await microsoftGraphWakeupState(ctx, routeId);
   if (existing !== null) {
-    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-    await ctx.db.patch(existing._id, {
+    await ctx.db.patch('microsoftGraphWakeupStates', existing._id, {
       attemptCount: 0,
       clientStateDigest: args.clientStateDigest,
       pendingAt: now,
@@ -2798,15 +2815,15 @@ type MicrosoftGraphWakeupScheduleArgs = Readonly<{
 }>;
 
 function isMatchingMicrosoftGraphWakeupState(
-  state: Doc<'microsoftGraphWakeupStates'> | null, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex document is inspected but not mutated.
+  state: Doc<'microsoftGraphWakeupStates'> | null,
   scheduledAt: number,
 ): state is Doc<'microsoftGraphWakeupStates'> {
   return state !== null && state.scheduledAt === scheduledAt;
 }
 
 function matchesActiveMicrosoftGraphWakeup(
-  state: Doc<'microsoftGraphWakeupStates'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex document is inspected but not mutated.
-  route: Doc<'mailProviderConnections'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex document is inspected but not mutated.
+  state: Doc<'microsoftGraphWakeupStates'>,
+  route: Doc<'mailProviderConnections'>,
 ): boolean {
   return (
     state.clientStateDigest === undefined ||
@@ -2822,13 +2839,12 @@ type ActiveMicrosoftGraphWakeupArgs = Readonly<{
 }>;
 
 async function claimActiveMicrosoftGraphWakeup(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
-  args: ActiveMicrosoftGraphWakeupArgs, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents are inspected but not mutated.
+  ctx: MutationCtx,
+  args: ActiveMicrosoftGraphWakeupArgs,
 ): Promise<ApnsRecipient | null> {
-  const device = await ctx.db.get(args.route.trustedDeviceId);
+  const device = await ctx.db.get('trustedDevices', args.route.trustedDeviceId);
   if (!hasActiveApnsRoute(device)) {
-    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-    await ctx.db.delete(args.state._id);
+    await ctx.db.delete('microsoftGraphWakeupStates', args.state._id);
     return null;
   }
   await ctx.scheduler.runAfter(
@@ -2840,8 +2856,8 @@ async function claimActiveMicrosoftGraphWakeup(
 }
 
 function isClaimableMicrosoftGraphWakeup(
-  route: Doc<'mailProviderConnections'> | null, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex document is inspected but not mutated.
-  state: Doc<'microsoftGraphWakeupStates'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex document is inspected but not mutated.
+  route: Doc<'mailProviderConnections'> | null,
+  state: Doc<'microsoftGraphWakeupStates'>,
   now: number,
 ): route is Doc<'mailProviderConnections'> {
   return (
@@ -2851,8 +2867,8 @@ function isClaimableMicrosoftGraphWakeup(
 }
 
 function shouldStageMicrosoftGraphWakeup(
-  route: Doc<'mailProviderConnections'> | null, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex document is inspected but not mutated.
-  state: Doc<'microsoftGraphWakeupStates'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex document is inspected but not mutated.
+  route: Doc<'mailProviderConnections'> | null,
+  state: Doc<'microsoftGraphWakeupStates'>,
 ): boolean {
   return (
     state.clientStateDigest !== undefined &&
@@ -2862,10 +2878,10 @@ function shouldStageMicrosoftGraphWakeup(
 
 // fallow-ignore-next-line complexity -- Wakeup claims atomically validate schedule, subscription, device, and deletion state.
 async function claimMicrosoftGraphWakeupForRoute(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
-  args: MicrosoftGraphWakeupScheduleArgs, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex identifiers are branded values.
+  ctx: MutationCtx,
+  args: MicrosoftGraphWakeupScheduleArgs,
 ): Promise<ApnsRecipient | null> {
-  const route = await ctx.db.get(args.routeId);
+  const route = await ctx.db.get('mailProviderConnections', args.routeId);
   const state = await microsoftGraphWakeupState(ctx, args.routeId);
   if (!isMatchingMicrosoftGraphWakeupState(state, args.scheduledAt)) {
     return null;
@@ -2874,8 +2890,7 @@ async function claimMicrosoftGraphWakeupForRoute(
     route !== null &&
     (await productAccountDeletionIsFenced(ctx, route.productAccountId))
   ) {
-    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-    await ctx.db.delete(state._id);
+    await ctx.db.delete('microsoftGraphWakeupStates', state._id);
     return null;
   }
   if (isClaimableMicrosoftGraphWakeup(route, state, Date.now())) {
@@ -2888,8 +2903,7 @@ async function claimMicrosoftGraphWakeupForRoute(
   if (shouldStageMicrosoftGraphWakeup(route, state)) {
     return null;
   }
-  // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-  await ctx.db.delete(state._id);
+  await ctx.db.delete('microsoftGraphWakeupStates', state._id);
   return null;
 }
 
@@ -2906,13 +2920,13 @@ type CompleteMicrosoftGraphWakeupArgs = MicrosoftGraphWakeupScheduleArgs &
   Readonly<{ delivered: boolean; terminalFailure?: boolean }>;
 
 async function microsoftGraphRouteDevice(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
-  route: Doc<'mailProviderConnections'> | null, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex document is inspected but not mutated.
+  ctx: MutationCtx,
+  route: Doc<'mailProviderConnections'> | null,
 ): Promise<Doc<'trustedDevices'> | null> {
   if (route?.provider !== 'microsoft-graph') {
     return null;
   }
-  return ctx.db.get(route.trustedDeviceId);
+  return ctx.db.get('trustedDevices', route.trustedDeviceId);
 }
 
 type MicrosoftGraphWakeupCompletionContext = Readonly<{
@@ -2922,19 +2936,19 @@ type MicrosoftGraphWakeupCompletionContext = Readonly<{
 }>;
 
 function microsoftGraphWakeupAttemptCount(
-  state: Doc<'microsoftGraphWakeupStates'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex document is inspected but not mutated.
+  state: Doc<'microsoftGraphWakeupStates'>,
 ): number {
   return state.attemptCount ?? 0;
 }
 
 function microsoftGraphWakeupPendingAt(
-  state: Doc<'microsoftGraphWakeupStates'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex document is inspected but not mutated.
+  state: Doc<'microsoftGraphWakeupStates'>,
 ): number {
   return state.pendingAt ?? state.scheduledAt;
 }
 
 function hasUsableMicrosoftGraphWakeupRoute(
-  context: MicrosoftGraphWakeupCompletionContext, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents are inspected but not mutated.
+  context: MicrosoftGraphWakeupCompletionContext,
 ): boolean {
   if (!isActiveMicrosoftGraphRoute(context.route, Date.now())) {
     return false;
@@ -2943,8 +2957,8 @@ function hasUsableMicrosoftGraphWakeupRoute(
 }
 
 function shouldDiscardMicrosoftGraphWakeup(
-  context: MicrosoftGraphWakeupCompletionContext, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents are inspected but not mutated.
-  args: CompleteMicrosoftGraphWakeupArgs, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex identifiers are branded values.
+  context: MicrosoftGraphWakeupCompletionContext,
+  args: CompleteMicrosoftGraphWakeupArgs,
 ): boolean {
   if (args.terminalFailure === true) {
     return true;
@@ -2969,7 +2983,7 @@ function microsoftGraphWakeupRetryDelay(attemptCount: number): number {
 }
 
 function nextMicrosoftGraphWakeupAttemptCount(
-  state: Doc<'microsoftGraphWakeupStates'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex document is inspected but not mutated.
+  state: Doc<'microsoftGraphWakeupStates'>,
   delivered: boolean,
 ): number {
   return delivered ? 0 : microsoftGraphWakeupAttemptCount(state) + 1;
@@ -2983,9 +2997,9 @@ function nextMicrosoftGraphWakeupDelay(
 }
 
 async function scheduleMicrosoftGraphWakeupRetry(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
-  state: Doc<'microsoftGraphWakeupStates'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex document is mutated through the database.
-  args: CompleteMicrosoftGraphWakeupArgs, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex identifiers are branded values.
+  ctx: MutationCtx,
+  state: Doc<'microsoftGraphWakeupStates'>,
+  args: CompleteMicrosoftGraphWakeupArgs,
 ): Promise<void> {
   const attemptCount = nextMicrosoftGraphWakeupAttemptCount(
     state,
@@ -2993,8 +3007,7 @@ async function scheduleMicrosoftGraphWakeupRetry(
   );
   const delay = nextMicrosoftGraphWakeupDelay(args.delivered, attemptCount);
   const retryScheduledAt = Math.max(Date.now(), args.scheduledAt + delay);
-  // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-  await ctx.db.patch(state._id, {
+  await ctx.db.patch('microsoftGraphWakeupStates', state._id, {
     attemptCount,
     scheduledAt: retryScheduledAt,
   });
@@ -3006,18 +3019,17 @@ async function scheduleMicrosoftGraphWakeupRetry(
 }
 
 async function completeMicrosoftGraphWakeupForRoute(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
-  args: CompleteMicrosoftGraphWakeupArgs, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex identifiers are branded values.
+  ctx: MutationCtx,
+  args: CompleteMicrosoftGraphWakeupArgs,
 ): Promise<null> {
   const state = await microsoftGraphWakeupState(ctx, args.routeId);
   if (state?.scheduledAt !== args.scheduledAt) {
     return null;
   }
-  const route = await ctx.db.get(args.routeId);
+  const route = await ctx.db.get('mailProviderConnections', args.routeId);
   const device = await microsoftGraphRouteDevice(ctx, route);
   if (shouldDiscardMicrosoftGraphWakeup({ device, route, state }, args)) {
-    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-    await ctx.db.delete(state._id);
+    await ctx.db.delete('microsoftGraphWakeupStates', state._id);
     return null;
   }
   await scheduleMicrosoftGraphWakeupRetry(ctx, state, args);
@@ -3036,7 +3048,7 @@ export const completeMicrosoftGraphWakeup = internalMutation({
 });
 
 function isCurrentPushRoute(
-  device: Doc<'trustedDevices'> | null, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents are immutable inputs here.
+  device: Doc<'trustedDevices'> | null,
   request: Readonly<{
     apnsToken: string;
     pushCleanupGeneration: number;

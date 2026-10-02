@@ -220,10 +220,9 @@ async function expectLegacyIdentifierMigration(
     if (legacyHistory === null) {
       throw new Error('Legacy identifier history required');
     }
-    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-    await ctx.db.delete(legacyHistory._id);
-    await ctx.db.delete(legacyDevice.trustedDeviceId);
-    await ctx.db.patch(legacyDevice.productAccountId, {
+    await ctx.db.delete('trustedDeviceIdentifierHistory', legacyHistory._id);
+    await ctx.db.delete('trustedDevices', legacyDevice.trustedDeviceId);
+    await ctx.db.patch('productAccounts', legacyDevice.productAccountId, {
       legacyTrustedDeviceIdentifierMigrationCompletedAt: undefined,
     });
     if (scenario.existingRevocationTombstone) {
@@ -234,7 +233,7 @@ async function expectLegacyIdentifierMigration(
         revokedAt: Date.now(),
         trustedDeviceId: revokedDevice.trustedDeviceId,
       });
-      await ctx.db.delete(revokedDevice.trustedDeviceId);
+      await ctx.db.delete('trustedDevices', revokedDevice.trustedDeviceId);
     }
   });
 
@@ -294,7 +293,7 @@ async function expectLegacyIdentifierMigration(
         revokedAt: Date.now(),
         trustedDeviceId: revokedDevice.trustedDeviceId,
       });
-      await ctx.db.delete(revokedDevice.trustedDeviceId);
+      await ctx.db.delete('trustedDevices', revokedDevice.trustedDeviceId);
     });
   }
 
@@ -340,7 +339,7 @@ describe('productAccount.connect', () => {
 
     expect(firstCredential).toMatch(/^[0-9a-f]{64}$/u);
     const storedDevice = await t.run((ctx) =>
-      ctx.db.get(firstConnect.trustedDeviceId),
+      ctx.db.get('trustedDevices', firstConnect.trustedDeviceId),
     );
     expect(storedDevice?.credentialDigest).toMatch(/^[0-9a-f]{64}$/u);
     expect(storedDevice?.credentialDigest).toBe(
@@ -385,7 +384,7 @@ describe('productAccount.connect', () => {
         revokedAt: Date.now(),
         trustedDeviceId: revokedDevice.trustedDeviceId,
       });
-      await ctx.db.delete(revokedDevice.trustedDeviceId);
+      await ctx.db.delete('trustedDevices', revokedDevice.trustedDeviceId);
     });
 
     await expect(
@@ -712,7 +711,7 @@ describe('productAccount.connect', () => {
     });
     await t.run(async (ctx) => {
       const now = Date.now();
-      await ctx.db.patch(otherDevice.trustedDeviceId, {
+      await ctx.db.patch('trustedDevices', otherDevice.trustedDeviceId, {
         apnsEnvironment: 'production',
         apnsToken: 'revoked-device-token',
         apnsTokenRegisteredAt: now,
@@ -765,13 +764,11 @@ describe('productAccount.connect', () => {
           .collect(),
         routes: await ctx.db
           .query('mailProviderConnections')
-          .withIndex(
-            'by_productAccountId_and_provider_and_trustedDeviceId',
-            (q) =>
-              q
-                .eq('productAccountId', currentDevice.productAccountId)
-                .eq('provider', 'gmail')
-                .eq('trustedDeviceId', otherDevice.trustedDeviceId),
+          .withIndex('by_productId_provider_deviceId_providerAccountId', (q) =>
+            q
+              .eq('productAccountId', currentDevice.productAccountId)
+              .eq('provider', 'gmail')
+              .eq('trustedDeviceId', otherDevice.trustedDeviceId),
           )
           .collect(),
       })),
@@ -1916,9 +1913,8 @@ describe('productAccount.connect', () => {
         )
         .collect();
       await Promise.all(
-        legacyIdentifierHistory.map(
-          // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-          async (history) => ctx.db.delete(history._id),
+        legacyIdentifierHistory.map(async (history) =>
+          ctx.db.delete('trustedDeviceIdentifierHistory', history._id),
         ),
       );
     });
@@ -1992,7 +1988,7 @@ describe('productAccount.connect', () => {
       platform: 'macos',
     });
     await t.run(async (ctx) =>
-      ctx.db.patch(currentDevice.productAccountId, {
+      ctx.db.patch('productAccounts', currentDevice.productAccountId, {
         legacyTrustedDeviceIdentifierMigrationCompletedAt: undefined,
       }),
     );
@@ -2728,13 +2724,11 @@ describe('gmail operational connection registration', () => {
     const stored = await t.run(async (ctx) =>
       ctx.db
         .query('mailProviderConnections')
-        .withIndex(
-          'by_productAccountId_and_provider_and_trustedDeviceId',
-          (q) =>
-            q
-              .eq('productAccountId', connect.productAccountId)
-              .eq('provider', 'gmail')
-              .eq('trustedDeviceId', connect.trustedDeviceId),
+        .withIndex('by_productId_provider_deviceId_providerAccountId', (q) =>
+          q
+            .eq('productAccountId', connect.productAccountId)
+            .eq('provider', 'gmail')
+            .eq('trustedDeviceId', connect.trustedDeviceId),
         )
         .take(3),
     );
@@ -2840,10 +2834,10 @@ describe('gmail operational connection registration', () => {
     });
 
     const migrated = await t.run(async (ctx) => ({
-      connection: await ctx.db.get(legacyId),
+      connection: await ctx.db.get('mailProviderConnections', legacyId),
       signals: await ctx.db
         .query('gmailPushVerificationSignals')
-        .withIndex('by_emailAddress', (q) =>
+        .withIndex('by_emailAddress_and_historyId', (q) =>
           q.eq('emailAddress', 'user@example.com'),
         )
         .take(1),
@@ -2977,7 +2971,7 @@ describe('gmail operational connection registration', () => {
     });
     await t.run(async (ctx) => {
       const now = Date.now();
-      await ctx.db.patch(otherDevice.trustedDeviceId, {
+      await ctx.db.patch('trustedDevices', otherDevice.trustedDeviceId, {
         apnsEnvironment: 'production',
         apnsToken: 'other-device-token',
         apnsTokenRegisteredAt: now,
@@ -3208,46 +3202,61 @@ describe('gmail operational connection registration', () => {
     ).resolves.toStrictEqual({ deleted: true });
   });
 
-  it.each([429, 503])(
-    'retains the deletion attempt when Apple signing keys return %i',
-    async (status) => {
-      expect.assertions(2);
-
-      const t = convexTest(schema, modules);
-      const asUser = t.withIdentity(appleIdentity);
-      const currentDevice = await asUser.mutation(api.productAccount.connect, {
-        deviceIdentifier: 'device-001',
-        platform: 'ios',
-      });
-      const fetchMock = vi.mocked(fetch);
-      fetchMock.mockImplementationOnce(async () => appleTokenResponse());
-      fetchMock.mockImplementationOnce(
-        async () => new Response(null, { status }),
-      );
-
-      await expect(
-        asUser.action(api.productAccountDeletion.deleteProductAccount, {
-          authorizationCode: 'recent-apple-authorization-code',
-          trustedDeviceId: currentDevice.trustedDeviceId,
-        }),
-      ).rejects.toThrow(
-        'Apple authorization revocation is temporarily unavailable',
-      );
-      await expect(
-        t.run((ctx) =>
-          ctx.db.query('productAccountDeletionRequests').collect(),
-        ),
-      ).resolves.toMatchObject([
-        {
-          phase: 'revocation-pending',
-          revocationMaterial: {
-            kind: 'authorization-code',
-            value: 'recent-apple-authorization-code',
-          },
+  it.each<readonly [string, ReadonlyArray<() => Response>]>([
+    [
+      'Apple signing keys return 429',
+      [appleTokenResponse, () => new Response(null, { status: 429 })],
+    ],
+    [
+      'Apple signing keys return 503',
+      [appleTokenResponse, () => new Response(null, { status: 503 })],
+    ],
+    [
+      'the Apple token endpoint returns 503',
+      [() => new Response(null, { status: 503 })],
+    ],
+    [
+      'Apple cannot be reached',
+      [
+        () => {
+          throw new TypeError('fetch failed');
         },
-      ]);
-    },
-  );
+      ],
+    ],
+  ])('retains the deletion attempt when %s', async (_case, appleResponses) => {
+    expect.assertions(2);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const currentDevice = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+    });
+    const fetchMock = vi.mocked(fetch);
+    for (const appleResponse of appleResponses) {
+      fetchMock.mockImplementationOnce(async () => appleResponse());
+    }
+
+    await expect(
+      asUser.action(api.productAccountDeletion.deleteProductAccount, {
+        authorizationCode: 'recent-apple-authorization-code',
+        trustedDeviceId: currentDevice.trustedDeviceId,
+      }),
+    ).rejects.toThrow(
+      'Apple authorization revocation is temporarily unavailable',
+    );
+    await expect(
+      t.run((ctx) => ctx.db.query('productAccountDeletionRequests').collect()),
+    ).resolves.toMatchObject([
+      {
+        phase: 'revocation-pending',
+        revocationMaterial: {
+          kind: 'authorization-code',
+          value: 'recent-apple-authorization-code',
+        },
+      },
+    ]);
+  });
 
   it('completes deletion when Apple reports a previously attempted revoke as invalid', async () => {
     expect.assertions(3);
@@ -3386,7 +3395,9 @@ describe('gmail operational connection registration', () => {
       internal.productAccountDeletionData.markRevocationSucceeded,
       { attemptId: 'deletion-attempt-001', requestId },
     );
-    const succeededRequest = await t.run(async (ctx) => ctx.db.get(requestId));
+    const succeededRequest = await t.run(async (ctx) =>
+      ctx.db.get('productAccountDeletionRequests', requestId),
+    );
     expect(succeededRequest).not.toHaveProperty('revocationMaterial');
     await expect(
       asUser.mutation(api.productAccount.connect, {
@@ -3412,7 +3423,7 @@ describe('gmail operational connection registration', () => {
     ).resolves.toStrictEqual([]);
   });
 
-  it('resumes a previously attempted Apple revocation without a client', async () => {
+  it('resumes a previously attempted Apple revocation without a client after Apple is unavailable', async () => {
     expect.assertions(3);
     vi.useFakeTimers();
     try {
@@ -3441,6 +3452,10 @@ describe('gmail operational connection registration', () => {
             value: 'already-revoked-refresh-token',
           },
         },
+      );
+      // Apple is unavailable for the first recovery, which keeps the request for the next one.
+      vi.mocked(fetch).mockImplementationOnce(
+        async () => new Response(null, { status: 503 }),
       );
       vi.mocked(fetch).mockImplementationOnce(async (input) => {
         expect(input).toBe('https://appleid.apple.com/auth/revoke');
@@ -3511,7 +3526,7 @@ describe('gmail operational connection registration', () => {
     });
     await t.run(async (ctx) => {
       const now = Date.now();
-      await ctx.db.patch(currentDevice.trustedDeviceId, {
+      await ctx.db.patch('trustedDevices', currentDevice.trustedDeviceId, {
         apnsEnvironment: 'production',
         apnsToken: 'device-token',
         apnsTokenRegisteredAt: now,
@@ -3625,7 +3640,7 @@ describe('gmail operational connection registration', () => {
         revokedAt: Date.now(),
         trustedDeviceId: currentDevice.trustedDeviceId,
       });
-      await ctx.db.delete(currentDevice.trustedDeviceId);
+      await ctx.db.delete('trustedDevices', currentDevice.trustedDeviceId);
     });
     await expect(
       asUser.mutation(internal.productAccountDeletionData.prepareDeletion, {
@@ -3775,7 +3790,9 @@ describe('gmail operational connection registration', () => {
       );
 
       await expect(
-        t.run(async (ctx) => ctx.db.get(requestId)),
+        t.run(async (ctx) =>
+          ctx.db.get('productAccountDeletionRequests', requestId),
+        ),
       ).resolves.toMatchObject({ activeAttemptId: 'deletion-attempt-002' });
     } finally {
       vi.useRealTimers();
@@ -3829,7 +3846,9 @@ describe('gmail operational connection registration', () => {
       );
 
       await expect(
-        t.run(async (ctx) => ctx.db.get(requestId)),
+        t.run(async (ctx) =>
+          ctx.db.get('productAccountDeletionRequests', requestId),
+        ),
       ).resolves.toMatchObject({
         activeAttemptId: 'deletion-attempt-002',
       });
@@ -3869,7 +3888,9 @@ describe('gmail operational connection registration', () => {
       );
 
       await expect(
-        t.run(async (ctx) => ctx.db.get(requestId)),
+        t.run(async (ctx) =>
+          ctx.db.get('productAccountDeletionRequests', requestId),
+        ),
       ).resolves.toBeNull();
     } finally {
       vi.useRealTimers();
@@ -3919,7 +3940,9 @@ describe('gmail operational connection registration', () => {
       );
 
       await expect(
-        t.run(async (ctx) => ctx.db.get(requestId)),
+        t.run(async (ctx) =>
+          ctx.db.get('productAccountDeletionRequests', requestId),
+        ),
       ).resolves.toMatchObject({
         phase: 'revocation-pending',
         revocationAttemptedAt: expect.any(Number),
@@ -3961,7 +3984,9 @@ describe('gmail operational connection registration', () => {
       await t.finishAllScheduledFunctions(vi.runAllTimers);
 
       await expect(
-        t.run(async (ctx) => ctx.db.get(requestId)),
+        t.run(async (ctx) =>
+          ctx.db.get('productAccountDeletionRequests', requestId),
+        ),
       ).resolves.toBeNull();
     } finally {
       vi.useRealTimers();
@@ -3992,8 +4017,8 @@ describe('gmail operational connection registration', () => {
     ).resolves.toHaveLength(1);
   });
 
-  it('rejects an Apple identity token with an invalid signature', async () => {
-    expect.assertions(2);
+  it('rejects a malformed or invalidly signed Apple identity token', async () => {
+    expect.assertions(5);
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
@@ -4004,18 +4029,39 @@ describe('gmail operational connection registration', () => {
     const token = appleIdToken(appleIdentity.subject);
     const [header, claims] = token.split('.');
     const invalidSignature = Buffer.alloc(256).toString('base64url');
-    const invalidToken = `${header}.${claims}.${invalidSignature}`;
-    vi.mocked(fetch).mockImplementationOnce(async () =>
-      Response.json({
-        access_token: 'apple-access-token',
-        id_token: invalidToken,
-        token_type: 'Bearer',
-      }),
-    );
+    const fetchMock = vi.mocked(fetch);
+    const deleteWithAppleTokenResponse = async (body: unknown) => {
+      fetchMock.mockImplementationOnce(async () => Response.json(body));
+      return asUser.action(api.productAccountDeletion.deleteProductAccount, {
+        authorizationCode: 'malformed-authorization-code',
+        trustedDeviceId: currentDevice.trustedDeviceId,
+      });
+    };
 
     await expect(
+      deleteWithAppleTokenResponse({
+        access_token: 'apple-access-token',
+        id_token: `${header}.${claims}.${invalidSignature}`,
+        token_type: 'Bearer',
+      }),
+    ).rejects.toThrow('Apple authorization exchange failed');
+    await expect(
+      deleteWithAppleTokenResponse({
+        id_token: `${header}.${Buffer.from('null').toString('base64url')}.${invalidSignature}`,
+        refresh_token: 'apple-refresh-token',
+      }),
+    ).rejects.toThrow('Apple authorization exchange failed');
+    await expect(
+      deleteWithAppleTokenResponse({ refresh_token: 'apple-refresh-token' }),
+    ).rejects.toThrow('Apple authorization exchange failed');
+    // Apple publishes no usable RSA key for the token's key identifier.
+    fetchMock.mockImplementationOnce(async () => appleTokenResponse());
+    fetchMock.mockImplementationOnce(async () =>
+      Response.json({ keys: [{ ...appleIdentitySigningKey, kty: 'EC' }] }),
+    );
+    await expect(
       asUser.action(api.productAccountDeletion.deleteProductAccount, {
-        authorizationCode: 'invalid-signature-authorization-code',
+        authorizationCode: 'unverifiable-authorization-code',
         trustedDeviceId: currentDevice.trustedDeviceId,
       }),
     ).rejects.toThrow('Apple authorization exchange failed');
