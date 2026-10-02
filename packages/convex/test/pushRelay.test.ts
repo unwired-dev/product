@@ -3260,7 +3260,9 @@ describe('gmail push relay', () => {
         'client-asserted-id',
         overrides,
       );
-    const [, victimClaims, victimSignature] = victimProof({}).split('.');
+    const [victimHeader, victimClaims, victimSignature] = victimProof({}).split(
+      '.',
+    );
     // Only the unknown key identifier refreshes the signing keys, which arrive malformed.
     googleSigningKeyFetch.mockResolvedValueOnce(
       Response.json({ keys: 'not-a-key-set' }),
@@ -3270,11 +3272,12 @@ describe('gmail push relay', () => {
         victimProof({ claims: { email_verified: false } }),
         victimProof({ claims: { exp: 1_783_999_999 } }),
         `${Buffer.from('not-json').toString('base64url')}.${victimClaims}.${victimSignature}`,
+        `${victimHeader}.${victimClaims}.not!base64url`,
         victimProof({ keyId: 'rotated-google-key' }),
       ].map(verifyVictimWatch),
     );
     expect(malformedProofOutcomes).toStrictEqual(
-      Array.from({ length: 4 }, () => ({
+      Array.from({ length: 5 }, () => ({
         reason: expect.objectContaining({
           message: expect.stringContaining(
             'Gmail mailbox ownership proof rejected',

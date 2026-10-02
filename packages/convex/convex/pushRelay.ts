@@ -368,7 +368,7 @@ const verifyGoogleIdentityToken = Effect.fnUntraced(function* (
   }
   const signature = yield* Effect.try({
     try: () => decodeBase64Url(signatureSegment),
-    catch: (cause) => new GoogleVerificationFailed({ cause }),
+    catch: proofRejected,
   });
   const { kid: keyId } = yield* decodeJwtSegment(
     decodeGoogleIdentityTokenHeader,
