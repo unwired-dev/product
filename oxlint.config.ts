@@ -2,6 +2,12 @@ import convexPlugin from '@convex-dev/eslint-plugin';
 import * as EffectPresets from '@effect/tsgo/oxlint-presets';
 import { buildOxlintConfig } from '@rajzik/oxlint-config';
 
+import {
+  boundaryExemptions,
+  boundaryRules,
+  effectRules,
+} from './scripts/oxlint-effect-policy.ts';
+
 export default buildOxlintConfig({
   jsdoc: true,
   node: true,
@@ -12,20 +18,19 @@ export default buildOxlintConfig({
         name: 'effect-imports',
         specifier: './scripts/oxlint-effect-imports.mjs',
       },
+      {
+        name: 'effect-boundaries',
+        specifier: './scripts/oxlint-effect-boundaries.mjs',
+      },
       '@convex-dev/eslint-plugin',
     ],
-    extends: [EffectPresets.correctness],
+    extends: [EffectPresets.recommended],
     ignorePatterns: ['**/convex/_generated/**'],
     rules: {
       'effect-imports/namespace-imports': 'deny',
       'import/no-namespace': ['warn', { ignore: ['effect/**', '@effect/**'] }],
-      // The shared config enables all categories; select Effect rule sets explicitly.
-      ...Object.fromEntries(
-        Object.values(EffectPresets.presets).flatMap((preset) =>
-          Object.keys(preset.rules ?? {}).map((rule) => [rule, 'allow']),
-        ),
-      ),
-      ...EffectPresets.correctness.rules,
+      ...effectRules,
+      ...boundaryRules,
       'unicorn/max-nested-calls': 'allow',
       'eslint/one-var': 'allow',
       // Function declarations are hoisted.
@@ -46,12 +51,10 @@ export default buildOxlintConfig({
         },
       },
       {
-        files: ['packages/mail-core/src/**/*.ts'],
-        rules: EffectPresets.recommended.rules,
-      },
-      {
+        // The legacy prototype harness is retired at cutover (#627).
         files: ['packages/mail-test-harness/**/*.ts'],
         rules: {
+          ...boundaryExemptions,
           'eslint/no-use-before-define': 'allow',
           'node/no-top-level-await': 'allow',
           'promise/avoid-new': 'allow',
@@ -59,10 +62,17 @@ export default buildOxlintConfig({
         },
       },
       {
-        files: ['**/*.test.ts'],
+        // Convex boundaries move to Schema in #687.
+        files: ['packages/convex/**/*.ts'],
+        rules: boundaryExemptions,
+      },
+      {
+        // Tests read trusted fixtures; their assertions check the shape.
+        files: ['**/*.test.ts', '**/*.test.tsx'],
         // Vitest rule settings only apply where an override enables the plugin.
         plugins: ['vitest'],
         rules: {
+          ...boundaryExemptions,
           'node/no-sync': 'allow',
           // Conflicts with vitest/prefer-strict-boolean-matchers.
           'vitest/prefer-to-be-falsy': 'allow',

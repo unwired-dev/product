@@ -1,5 +1,13 @@
+import * as Effect from 'effect/Effect';
 import * as Option from 'effect/Option';
 import * as Schema from 'effect/Schema';
+import * as Semaphore from 'effect/Semaphore';
+
+import {
+  decodeDiagnostic,
+  rejectionDiagnostic,
+  runLogged,
+} from './diagnostics.ts';
 
 const SignInProviderSchema = Schema.Literals(['google', 'apple']);
 export type SignInProvider = typeof SignInProviderSchema.Type;
@@ -88,14 +96,53 @@ const settled = (snapshot: RegistrationSnapshot): RegistrationState => ({
   failed: false,
 });
 
+class RegistrationCancelled extends Schema.TaggedError<RegistrationCancelled>()(
+  'RegistrationCancelled',
+  {},
+) {}
+
+class RegistrationFailed extends Schema.TaggedError<RegistrationFailed>()(
+  'RegistrationFailed',
+  // The diagnostic is logged instead of the cause; see rejectionDiagnostic.
+  { cause: Schema.Defect(), diagnostic: Schema.String },
+) {}
+
+const decodeSnapshot = Schema.decodeUnknownEffect(RegistrationSnapshotSchema);
+
+// Calls a native registration operation and decodes the snapshot it resolves with.
+const request = Effect.fnUntraced(function* (
+  operation: () => Promise<unknown>,
+) {
+  const value = yield* Effect.tryPromise({
+    try: operation,
+    catch: (cause) =>
+      isCancelled(cause)
+        ? new RegistrationCancelled()
+        : new RegistrationFailed({
+            cause,
+            diagnostic: rejectionDiagnostic(cause),
+          }),
+  });
+  return yield* decodeSnapshot(value).pipe(
+    Effect.mapError(
+      (error) =>
+        new RegistrationFailed({
+          cause: error,
+          diagnostic: decodeDiagnostic(error),
+        }),
+    ),
+  );
+});
+
 export function createRegistration(native: NativeRegistration) {
   let state: RegistrationState = {
     snapshot: { kind: 'signed-out' },
     busy: true,
     failed: false,
   };
-  let running = false;
   let restored = false;
+  // One registration operation runs at a time; overlapping requests are ignored.
+  const semaphore = Semaphore.makeUnsafe(1);
   const listeners = new Set<() => void>();
   const publish = (next: RegistrationState) => {
     state = next;
@@ -103,41 +150,49 @@ export function createRegistration(native: NativeRegistration) {
       listener();
     }
   };
-  // oxlint-disable-next-line node/no-sync -- Decode the native response boundary.
-  const decode = Schema.decodeUnknownSync(RegistrationSnapshotSchema);
-  const execute = async (
-    operation: () => Promise<RegistrationSnapshot>,
+  const execute = (
+    operation: Effect.Effect<
+      RegistrationSnapshot,
+      RegistrationCancelled | RegistrationFailed
+    >,
     onFailure: (
       snapshot: RegistrationSnapshot,
-      error: unknown,
+      cause: unknown,
     ) => RegistrationState = (snapshot) => ({
       ...settled(snapshot),
       failed: true,
     }),
-  ) => {
-    if (running) {
-      return;
-    }
-    running = true;
-    publish({ snapshot: state.snapshot, busy: true, failed: false });
-    try {
-      publish(settled(await operation()));
-    } catch (error) {
-      if (isCancelled(error)) {
-        publish(settled(state.snapshot));
-      } else {
-        console.error('Registration failed', error);
-        publish(onFailure(state.snapshot, error));
-      }
-    } finally {
-      running = false;
-    }
-  };
-  const restore = () =>
-    execute(
-      async () => decode(await native.restore()),
-      (snapshot) => ({ ...settled(pending(snapshot)), failed: true }),
+  ) =>
+    runLogged(
+      Effect.sync(() => {
+        publish({ snapshot: state.snapshot, busy: true, failed: false });
+      }).pipe(
+        Effect.andThen(operation),
+        Effect.map(settled),
+        Effect.catchTags({
+          RegistrationCancelled: () =>
+            Effect.sync(() => settled(state.snapshot)),
+          RegistrationFailed: (error) =>
+            Effect.logError('Registration failed:', error.diagnostic).pipe(
+              Effect.andThen(
+                Effect.sync(() => onFailure(state.snapshot, error.cause)),
+              ),
+            ),
+        }),
+        Effect.flatMap((next) =>
+          Effect.sync(() => {
+            publish(next);
+          }),
+        ),
+        Semaphore.withPermitsIfAvailable(semaphore, 1),
+        Effect.asVoid,
+      ),
     );
+  const restore = () =>
+    execute(request(native.restore), (snapshot) => ({
+      ...settled(pending(snapshot)),
+      failed: true,
+    }));
   return {
     getSnapshot: () => state,
     subscribe: (listener: () => void) => {
@@ -156,23 +211,25 @@ export function createRegistration(native: NativeRegistration) {
       return restore();
     },
     register: (provider: SignInProvider) =>
-      execute(async () => {
-        // Commit Product Sign-In before starting the separate Gmail consent session.
-        const snapshot = decode(await native.signIn(provider));
-        publish({ snapshot, busy: true, failed: false });
-        return snapshot.kind === 'mailbox-needed'
-          ? decode(await native.authorizeGmail(false))
-          : snapshot;
-      }),
+      execute(
+        Effect.gen(function* () {
+          // Commit Product Sign-In before starting the separate Gmail consent session.
+          const snapshot = yield* request(() => native.signIn(provider));
+          publish({ snapshot, busy: true, failed: false });
+          return snapshot.kind === 'mailbox-needed'
+            ? yield* request(() => native.authorizeGmail(false))
+            : snapshot;
+        }),
+      ),
     authorizeGmail: (reselect: boolean) =>
-      execute(async () => decode(await native.authorizeGmail(reselect))),
+      execute(request(() => native.authorizeGmail(reselect))),
     link: (provider: SignInProvider) =>
       execute(
-        async () => decode(await native.link(provider)),
-        (snapshot, error) => ({
+        request(() => native.link(provider)),
+        (snapshot, cause) => ({
           ...settled(snapshot),
           linkFailure: Option.getOrElse(
-            Option.map(linkFailureCode(error), ({ code }) => code),
+            Option.map(linkFailureCode(cause), ({ code }) => code),
             (): LinkFailure => 'failed',
           ),
         }),
