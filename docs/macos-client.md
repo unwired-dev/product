@@ -115,8 +115,9 @@ The [Mac CI workflow](../.github/workflows/macos.yml) runs Fallow and the produc
 bundle/autolinking check. The root TypeScript job runs Mac lint, format, types and
 component tests. Native desktop automation currently runs locally.
 
-Two component integration scenarios exercise independent selections, closing one
-view while another remains, and selecting mail after every view unmounts. They
+Three component integration scenarios exercise independent selections, closing one
+view while another remains, selecting mail after every view unmounts, and shared
+read state while each window keeps its selection. They
 run the real shared mock service with React Native's test renderer. They do not
 prove AppKit lifecycle behavior.
 

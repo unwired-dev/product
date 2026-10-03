@@ -17,7 +17,7 @@ agent follows ADR links and reads the separate architecture files. The implement
 architecture interpretation and corrections to that agent.
 
 Check [the documentation index](../README.md) for current scope. ADR 0059 through
-0064 supersede earlier prototype behavior where stated. A glossary entry, old
+0065 supersede earlier prototype behavior where stated. A glossary entry, old
 "v1" rule or historical discussion does not establish replacement launch scope,
 implementation status or passing qualification. Surface conflicts explicitly.
 

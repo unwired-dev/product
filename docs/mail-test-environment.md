@@ -8,7 +8,7 @@ maintenance until cutover. Its implementation and qualification claims do not
 qualify the Expo or native React Native Mac replacement; use
 [the active documentation index](README.md) for that work.
 
-Status: the secure GreenMail smoke foundation, disposable Mail Test Device, Apple app bootstrap, Synthetic Test Message visibility assertions, visible compose, reply, read, organize, and two-mode Send Later coverage, deterministic Scheduled Send release scenarios, on-demand message-content, System Categorization, and incremental-arrival scenarios, a persistent Manual Mail Sandbox, and the affected-path pull-request gate are available. Protected production-provider compatibility runs remain required before Scheduled Send release.
+Status: the secure GreenMail smoke foundation, disposable Mail Test Device, Apple app bootstrap, Synthetic Test Message visibility assertions, visible compose, reply, read, organize, and two-mode Send Later coverage, deterministic Scheduled Send release scenarios, on-demand message-content, System Categorization, and incremental-arrival scenarios, and a persistent Manual Mail Sandbox are available locally. The affected-path pull-request and nightly gate was retired on 2026-09-29 by maintainer decision; see [Continuous integration](#continuous-integration). Protected production-provider compatibility runs remain required before Scheduled Send release.
 
 ## Goal
 
@@ -16,7 +16,7 @@ Give developers and autonomous agents a safe, repeatable way to exercise the Cor
 
 | Tier                        | Purpose                                                                                                     | Gate                                                  |
 | --------------------------- | ----------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
-| Local Mail Test Environment | Deterministic everyday development and pull-request testing through IMAP and SMTP                           | Affected-path pull-request and nightly Core Mail Loop |
+| Local Mail Test Environment | Deterministic everyday development and pull-request testing through IMAP and SMTP                           | Local and on demand; the CI gate is retired           |
 | Provider Compatibility Run  | Gmail-specific compatibility through real Gmail APIs, labels, history, watch registration, and push routing | Deferred; required before Gmail release certification |
 
 The local tier does not claim Gmail compatibility. The Gmail tier does not replace deterministic pull-request coverage and is not a prerequisite for approval of the exact-pinned Mail Engine dependency or generic IMAP/SMTP development.
@@ -53,9 +53,9 @@ mise exec -- pnpm mail:test sandbox stop
 mise exec -- pnpm mail:test doctor
 ```
 
-CI adds `--result-bundle-directory <path>` to `run core-mail-loop` so XCTest
-result bundles can be retained only when the workflow fails. Ordinary local runs
-do not need this option.
+The retired CI gate added `--result-bundle-directory <path>` to `run core-mail-loop`
+to retain XCTest result bundles when the workflow failed. Local runs can still
+use this option when result bundles are needed.
 
 The Mail Test Harness requires host loopback listeners, child processes, and CoreSimulator
 services. When a Codex sandbox denies one of those capabilities during trusted local development
@@ -75,7 +75,7 @@ per visible-client step,
 creates a mapped Sent mailbox, provisions a separate synthetic recipient, and
 seeds a reply source from that recipient,
 creates an owned Mail Test Device using the iPhone 17 Simulator device type,
-installs the generated public certificate authority only there, and launches
+installs the generated self-signed certificate as a trusted root only there, and launches
 the test-only app bootstrap. Focused XCUITests open mail and exercise read,
 archive, move, and trash actions through stable accessibility identifiers.
 Each step is followed by an independent IMAP flag and mailbox-placement
@@ -166,7 +166,7 @@ Local and provider tiers consume the same scenario corpus. Scenario content must
 
 V1 contains four scenario families:
 
-- `core-mail-loop`: initial sync, reading, read state, organization, compose, send, reply, and Sent verification. This is the required pull-request XCUITest.
+- `core-mail-loop`: initial sync, reading, read state, organization, compose, send, reply, and Sent verification. It was the required pull-request XCUITest until the CI gate was retired; it now runs on demand.
 - `message-content`: plain text, HTML alternatives, Unicode, inline images, attachments, remote-image and tracking markers, and provider-tolerated, standards-valid edge cases.
 - `categorization`: available on demand with People, Orders, Newsletters & Promotions, Invites, Flights, and one deliberately ambiguous fixture in Uncategorized State.
 - `incremental-arrival`: available on demand through GreenMail with one initial conversation,
@@ -197,7 +197,7 @@ mailbox names, stable Message-IDs, UIDs, and persistent flags before and after
 presentation. Structured success and failure evidence contains fixture IDs but
 not fixture body text.
 
-Each automated run emits redacted structured Mail Test Evidence. In CI, a failure also retains the harness diagnostics, ownership doctor report, and per-step XCTest result bundles. The result bundles contain XCTest's failure attachments and screenshots for the synthetic Mail Test Device. Credentials, OAuth tokens, certificate private keys, personal mail, and unredacted provider identifiers are excluded. Successful CI runs discard mail evidence and retain only the small phase-timing record; failed CI evidence is retained for 14 days.
+Each automated run emits redacted structured Mail Test Evidence. The retired CI gate also retained, on failure, the harness diagnostics, ownership doctor report, and per-step XCTest result bundles. The result bundles contain XCTest's failure attachments and screenshots for the synthetic Mail Test Device. Credentials, OAuth tokens, certificate private keys, personal mail, and unredacted provider identifiers are excluded. Successful CI runs discarded mail evidence and retained only the small phase-timing record; failed CI evidence was retained for 14 days.
 
 Local failure markers classify the failing boundary as `ui`, `outbox`, `smtp`,
 `recipient-delivery`, `sent`, or `threading`. Synthetic addresses, subjects,
@@ -217,23 +217,15 @@ If ownership is missing, stale, or ambiguous, cleanup fails closed and reports t
 
 ## Continuous integration
 
-The Apple pull-request gate starts the local environment and runs
-`pnpm mail:test run core-mail-loop --json` on an owned iPhone 17
-Mail Test Device when the harness, mail runtime, visible mail shell, UI test, or
-Apple workflow changes. It also runs nightly. The existing adapter, MailEngine,
-lint, format, and conditionally selected Release-performance checks remain
-separate. Superseded pull-request runs are cancelled.
-
-On failure, download the `core-mail-loop-failure-*` artifact and inspect:
-
-- `evidence.json` for the machine-readable outcome;
-- `diagnostics.log` for redacted boundary diagnostics;
-- `doctor.json` for ownership or cleanup findings; and
-- `results/*.xcresult` for XCTest logs, attachments, and failure screenshots.
+The affected-path pull-request and nightly Core Mail Loop gate was retired on
+2026-09-29 by maintainer decision, together with the other legacy Swift CI jobs.
+Run `pnpm mail:test run core-mail-loop --json` locally when changing the harness,
+mail runtime, visible mail shell, UI test, or Apple workflow. Adapter and
+MailEngine tests also run locally through their own commands.
 
 Run `mise exec -- pnpm mail:test doctor` locally when a run reports uncertain
 cleanup. The command only reports ownership findings; it does not delete ambiguous
-resources. Successful CI runs do not upload these diagnostic artifacts.
+resources.
 
 Once Gmail release validation starts, the protected Gmail workflow:
 
@@ -254,4 +246,4 @@ The automated push test proves real Gmail watch registration, Pub/Sub delivery, 
 
 ## Definition of done
 
-The environment is complete when all four phases are documented and runnable, the local Core Mail Loop is a required pull-request check, the protected Gmail workflow runs on its agreed cadence, test-only application code is absent from release builds, no personal or production message content is accepted, evidence is redacted, and uncertain cleanup fails closed.
+The environment is complete when all four phases are documented and runnable, the local Core Mail Loop runs on demand, the protected Gmail workflow runs on its agreed cadence, test-only application code is absent from release builds, no personal or production message content is accepted, evidence is redacted, and uncertain cleanup fails closed. The original requirement for a Core Mail Loop pull-request gate was retired on 2026-09-29; see [Continuous integration](#continuous-integration).

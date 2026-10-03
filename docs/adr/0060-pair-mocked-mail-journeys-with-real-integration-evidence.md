@@ -4,6 +4,15 @@ status: accepted
 
 # Pair mocked mail journeys with real integration evidence
 
+Amended on 2026-09-29 at the maintainer's request: the prototype's required
+checks no longer stay in force until their replacements exist. Legacy Swift
+build, performance, Core Mail Loop, mail-assistance and SwiftMail
+provider-qualification CI jobs are disabled, and the affected-path pull-request
+and nightly Core Mail Loop gate is retired. The replacement hosts' CI is the
+merge gate. Legacy test sources and local commands remain available until
+[cutover #627](https://github.com/unwired-dev/product/issues/627). The final
+paragraph below records the original decision.
+
 The replacement client will provide deterministic Mock Mail Sessions with
 synthetic identity, mail, and AI behavior, plus a smaller integration suite that
 exercises real persistence, native bindings, and provider transport. Mocked UI
@@ -29,7 +38,7 @@ Retain or replace coverage for data loss, duplicate sends, identity isolation,
 encryption, and critical user journeys. Existing backend or provider-contract
 coverage is not obsolete merely because the client is being rewritten.
 This reaffirms the risk-based admission and retirement rules in
-[ADR 0049](0049-use-a-risk-weighted-test-portfolio.md) and
+[ADR 0049: Use a risk-weighted test portfolio](0049-use-a-risk-weighted-test-portfolio.md) and
 [the testing policy](../agents/testing.md).
 
 The mobile and desktop E2E runners, required scenarios, and validation commands

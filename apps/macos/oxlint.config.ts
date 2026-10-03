@@ -48,7 +48,7 @@ export default buildOxlintConfig({
         rules: { 'typescript/prefer-readonly-parameter-types': 'allow' },
       },
       {
-        // Tests read trusted fixtures; their assertions check the shape.
+        // Tests read trusted fixtures; their assertions check the shape. Removed by #716.
         files: ['**/*.test.ts', '**/*.test.tsx'],
         rules: boundaryExemptions,
       },

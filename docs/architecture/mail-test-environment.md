@@ -12,8 +12,8 @@ For each Mail Test Run, the harness:
 1. Validates the selected Mailbox Scenario. The harness currently accepts `core-mail-loop`, `categorization`, `incremental-arrival`, and `message-content`.
 2. Resolves a checksum-pinned GreenMail standalone artifact and mise-managed Java 21.
 3. Allocates dynamic loopback endpoints. Implemented for IMAPS and SMTPS.
-4. Generates a short-lived certificate authority and hostname-valid TLS certificate, then configures IMAPS and SMTPS with TLS 1.2 or newer. Implemented in the TypeScript harness.
-5. Creates a fresh Mail Test Device using the iPhone 17 Simulator device type and installs the generated public certificate authority only there. Implemented in the TypeScript harness.
+4. Generates a short-lived, self-signed, hostname-valid TLS certificate, then configures IMAPS and SMTPS with TLS 1.2 or newer. Implemented in the TypeScript harness.
+5. Creates a fresh Mail Test Device using the iPhone 17 Simulator device type and installs that certificate as a trusted root only there. Implemented in the TypeScript harness.
 6. Starts GreenMail, provisions synthetic users, and seeds the scenario. Implemented in the TypeScript harness.
 7. Builds and launches the explicitly test-only app configuration with Mail Test Bootstrap launch configuration. Implemented for the seeded mailbox presentation path.
 8. Runs the selected focused XCUITest and independently inspects server-visible mailbox state. Implemented for message opening, capability-aware read, archive, move, and trash actions, compose, Outbox admission, SMTP completion, recipient delivery, Sent identity, reply headers, duplicate prevention, visible reply-thread placement, message-content semantic and server invariants, visible System Categorization assignments, the ambiguous uncategorized case, incremental arrival and thread reconciliation, and the existing IMAPS smoke assertions.
@@ -46,7 +46,7 @@ The TypeScript harness provisions the Mail Test Device and passes its run-scoped
 - Available: the `core-mail-loop` scenario, stable accessibility identifiers, focused XCUITest steps, and independent server assertions for opening, read state, archive, move, and trash.
 - Available: issue #280 records passing iCloud Mail and Fastmail certification, so Standards-Based Mailbox Connections are enabled for externally distributed Release builds with the accepted SwiftMail 1.11.0 pin.
 - Available: the on-demand `message-content` raw-message corpus, visible semantic assertions, remote-content connection beacon, and before-and-after IMAP invariants.
-- Available: the affected-path pull-request and nightly Core Mail Loop gate with redacted failure diagnostics and XCTest result bundles.
+- Retired on 2026-09-29: the affected-path pull-request and nightly Core Mail Loop gate, under the [ADR 0060](../adr/0060-pair-mocked-mail-journeys-with-real-integration-evidence.md) amendment. The scenario and its redacted diagnostics remain available locally.
 - Current verification: `pnpm mail:test run core-mail-loop --json` and `pnpm mail:test run message-content --json` run locally, and release builds cannot compile or activate the bootstrap.
 
 ### 3. Scenario breadth and sandbox (partially available)
