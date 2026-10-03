@@ -1,0 +1,102 @@
+name: TestFlight
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: Host to upload
+        type: choice
+        options: [both, ios, macos]
+        default: both
+      ref:
+        description: Branch, tag or commit to build; defaults to the dispatched ref
+        type: string
+        default: ''
+  workflow_call:
+    inputs:
+      platform:
+        type: string
+        default: both
+      ref:
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: testflight-${{ inputs.ref || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  upload:
+    name: Upload ${{ matrix.host }}
+    strategy:
+      fail-fast: false
+      matrix:
+        host: ${{ fromJSON(inputs.platform == 'both' && '["ios","macos"]' || inputs.platform == 'ios' && '["ios"]' || '["macos"]') }}
+    runs-on: xcode-27
+    environment: testflight
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: zsh -e -o pipefail {0}
+    env:
+      CI: '1'
+      EXPO_NO_TELEMETRY: '1'
+      DEVELOPER_DIR: /Applications/Xcode_27.0.app/Contents/Developer
+    steps:
+      - name: Validate host selection
+        env:
+          PLATFORM: ${{ inputs.platform }}
+        run: |
+          case "$PLATFORM" in
+            ios|macos|both) ;;
+            *) print -u2 'Invalid TestFlight platform'; exit 2 ;;
+          esac
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+          persist-credentials: false
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - name: Check native toolchain
+        run: |
+          xcodebuild -version
+          pod --version
+          gem install xcodeproj --version 1.28.1 --no-document --install-dir "$RUNNER_TEMP/native-gems"
+          echo "GEM_PATH=$RUNNER_TEMP/native-gems:$(ruby -e 'puts Gem.path.join(":")')" >> "$GITHUB_ENV"
+      - name: Install workspace dependencies
+        run: pnpm install --frozen-lockfile --strict-peer-dependencies
+      - name: Check release runner contracts without credentials
+        run: node --test scripts/testflight.test.mjs
+      - name: Archive and upload
+        env:
+          APPLE_DEVELOPMENT_TEAM: ${{ vars.APPLE_DEVELOPMENT_TEAM }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
+          UNWIRED_CONVEX_URL: ${{ secrets.CONVEX_URL }}
+          UNWIRED_GOOGLE_CLIENT_ID: ${{ secrets.GMAIL_OAUTH_CLIENT_ID }}
+          HOST: ${{ matrix.host }}
+        run: |
+          export ASC_KEY_PATH="$RUNNER_TEMP/AuthKey.p8"
+          umask 077
+          print -r -- "$ASC_PRIVATE_KEY" > "$ASC_KEY_PATH"
+          unset ASC_PRIVATE_KEY
+          trap 'rm -f "$ASC_KEY_PATH"' EXIT
+          trap 'rm -f "$ASC_KEY_PATH"; trap - EXIT; exit 130' INT
+          trap 'rm -f "$ASC_KEY_PATH"; trap - EXIT; exit 143' TERM
+          zsh scripts/testflight.zsh "$HOST"
+      - name: Upload build status
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: testflight-${{ matrix.host }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/testflight/**/status.txt
+          if-no-files-found: warn
+          retention-days: 7

@@ -2,6 +2,8 @@ import { env } from 'node:process';
 
 import type { ExpoConfig } from 'expo/config';
 
+import * as Schema from 'effect/Schema';
+
 import scenarios from '../../scripts/mock-mail-scenarios.json';
 import manifest from './package.json';
 
@@ -27,6 +29,16 @@ if (
   throw new Error('Invalid native Google OAuth client ID');
 }
 
+// Release uploads stamp their UTC build number and source commit.
+const buildNumber: unknown = env.UNWIRED_BUILD_NUMBER ?? '1';
+const commit: unknown = env.UNWIRED_COMMIT ?? '';
+if (
+  !Schema.is(Schema.String.check(Schema.isPattern(/^[0-9]+$/u)))(buildNumber) ||
+  !Schema.is(Schema.String)(commit)
+) {
+  throw new TypeError('Invalid release build configuration');
+}
+
 const config: ExpoConfig = {
   name: 'Unwired Mail',
   slug: 'unwired-mail',
@@ -36,6 +48,7 @@ const config: ExpoConfig = {
   userInterfaceStyle: 'automatic',
   ios: {
     bundleIdentifier: 'dev.unwired.mail',
+    buildNumber,
     icon: '../../native/app-icon/UnwiredMail.icon',
     supportsTablet: true,
     // Only Apple's system cryptography and HTTPS are used.
@@ -46,6 +59,7 @@ const config: ExpoConfig = {
       ...(mockScenario ? { UnwiredMockScenario: mockScenario } : {}),
       GIDClientID: googleClientID,
       UnwiredConvexURL: convexURL,
+      ...(commit ? { UnwiredCommit: commit } : {}),
     },
   },
   plugins: [
