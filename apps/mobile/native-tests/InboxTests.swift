@@ -90,6 +90,35 @@ final class InboxTests: XCTestCase {
     add(shot)
   }
 
+  // An existing account's keys reach this device only through a trusted device's approval.
+  private func enrollmentJourney(_ app: XCUIApplication) {
+    app.buttons["Sign in with Google"].tap()
+    XCTAssertTrue(app.staticTexts["Approve this device"].waitForExistence(timeout: 15))
+    let code = app.staticTexts["enrollment-code"]
+    XCTAssertTrue(code.exists)
+    XCTAssertEqual(code.label.count, 69)
+    XCTAssertFalse(app.staticTexts["recovery-key"].exists)
+    let mailboxes = app.staticTexts["Encrypted mailbox list: alex@example.invalid."]
+    XCTAssertFalse(mailboxes.exists)
+    // The synthetic trusted device approves with the code shown on this device.
+    app.buttons["Check for approval"].tap()
+    XCTAssertTrue(app.staticTexts["Private sync is on"].waitForExistence(timeout: 15))
+    XCTAssertTrue(mailboxes.exists)
+    XCTAssertFalse(code.exists)
+    // Gmail on this device still needs its own authorization.
+    XCTAssertTrue(app.staticTexts["Connect your Gmail"].exists)
+    XCTAssertTrue(app.buttons["Authorize Gmail"].exists)
+    app.terminate()
+    app.launch()
+    XCTAssertTrue(app.staticTexts["Private sync is on"].waitForExistence(timeout: 15))
+    XCTAssertTrue(mailboxes.waitForExistence(timeout: 15))
+    XCTAssertFalse(app.staticTexts["enrollment-code"].exists)
+    let shot = XCTAttachment(screenshot: app.screenshot())
+    shot.name = "Approved new device"
+    shot.lifetime = .keepAlways
+    add(shot)
+  }
+
   func testSelectAndReplaceMessage() throws {
     continueAfterFailure = false
     let identifier = try XCTUnwrap(ProcessInfo.processInfo.environment["UNWIRED_BUNDLE_ID"])
@@ -103,6 +132,7 @@ final class InboxTests: XCTestCase {
       switch ProcessInfo.processInfo.environment["UNWIRED_TEST_SCENARIO"] {
       case "registration-apple": appleRegistrationJourney(app)
       case "registration-link": linkJourney(app)
+      case "registration-enrollment": enrollmentJourney(app)
       default:
         try registrationJourney(app)
       }

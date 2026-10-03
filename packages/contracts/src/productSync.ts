@@ -24,6 +24,49 @@ export type ProductSyncInitializationResponse = Infer<
   typeof productSyncInitializationResponseValidator
 >;
 
+// A device without Product Sync keys asks a Trusted Device to seal the key ring to its one-time key.
+export const productSyncEnrollmentRequestResponseValidator = v.object({
+  expiresAt: v.number(),
+  requestId: v.string(),
+});
+
+export const productSyncEnrollmentPendingRequestValidator = v.object({
+  createdAt: v.number(),
+  displayName: v.string(),
+  enrollmentPublicKey: v.string(),
+  expiresAt: v.number(),
+  platform: v.string(),
+  requestId: v.string(),
+  requesterTrustedDeviceId: v.string(),
+});
+
+export type ProductSyncEnrollmentPendingRequest = Infer<
+  typeof productSyncEnrollmentPendingRequestValidator
+>;
+
+// The HPKE-sealed key ring; the server never holds the code that authenticates it.
+export const productSyncEnrollmentApprovalValidator = v.object({
+  ciphertextBase64: v.string(),
+  encapsulatedKeyBase64: v.string(),
+  keyVersion: v.number(),
+});
+
+// A missing, foreign, superseded or declined request is indistinguishably cancelled.
+export const productSyncEnrollmentStatusValidator = v.object({
+  approval: v.optional(productSyncEnrollmentApprovalValidator),
+  expiresAt: v.optional(v.number()),
+  state: v.union(
+    v.literal('pending'),
+    v.literal('approved'),
+    v.literal('cancelled'),
+    v.literal('expired'),
+  ),
+});
+
+export type ProductSyncEnrollmentStatus = Infer<
+  typeof productSyncEnrollmentStatusValidator
+>;
+
 export const encryptedProductSyncPayloadValidator = v.object({
   encryptedPayload: encryptedProductSyncPayloadBodyValidator,
   payloadIdentifier: v.string(),

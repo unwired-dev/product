@@ -36,6 +36,8 @@ implemented.
 ## Account identity for Product Sync
 
 - A **Product Account** identifies the user for **Product Sync**
+- **Product Sign-In** on a new device reaches the Product Account but not its Product Sync keys; an existing **Trusted Device** approves it with the device's **Enrollment Code**, or the **Recovery Key** unlocks it
+- An approval opens only on the requesting device for its own request; replayed, expired, declined, superseded, revoked or mismatched approvals are refused without replacing account keys
 
 ## Sign-in and mailbox permission
 

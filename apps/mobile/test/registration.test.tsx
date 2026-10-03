@@ -1,11 +1,20 @@
 import { createRegistration } from '@private-email/mail-core/registration';
 import {
   createMockRegistrationSession,
+  createSyntheticAccount,
+  syntheticEnrollmentCode,
   syntheticRecoveryKey,
 } from '@private-email/mail-core/testing/registration-session';
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 
 import { RegistrationGate } from '../src/registration-gate.tsx';
+
+// Hosts without another device of the account never enroll or approve one.
+const noEnrollment = {
+  approveEnrollment: () => Promise.reject(new Error('No device to approve')),
+  declineEnrollment: () => Promise.reject(new Error('No device to decline')),
+  refreshPrivateSync: () => Promise.reject(new Error('No private sync')),
+};
 
 describe('product registration', () => {
   it('retains setup after declined consent and connects a reselected Gmail account after remount', async () => {
@@ -244,6 +253,7 @@ describe('product registration', () => {
       link: () => Promise.reject(new Error('Not linking')),
       confirmRecoveryKey: () =>
         Promise.reject(new Error('No Recovery Key to confirm')),
+      ...noEnrollment,
     });
     await render(
       <RegistrationGate
@@ -329,32 +339,95 @@ describe('product registration', () => {
     expect(screen.queryByText(syntheticRecoveryKey)).toBeNull();
   });
 
-  it('asks an existing Product Account to unlock this device without creating a Recovery Key', async () => {
+  /* oxlint-disable vitest/max-expects -- One journey proves both devices' sides of an approval. */
+  it('unlocks a new device only after a trusted device approves the code it shows', async () => {
     expect.hasAssertions();
-    const session = createMockRegistrationSession('registration-enrollment');
-    await render(
-      <RegistrationGate
-        store={createRegistration(session.native)}
-        preview={false}>
-        {null}
-      </RegistrationGate>,
+    const account = createSyntheticAccount();
+    const trusted = createRegistration(
+      createMockRegistrationSession('registration-success', account).native,
     );
+    const added = createRegistration(
+      createMockRegistrationSession('registration-enrollment', account).native,
+    );
+    const show = (store: typeof trusted) =>
+      render(
+        <RegistrationGate
+          store={store}
+          preview={false}>
+          {null}
+        </RegistrationGate>,
+      );
+    const press = async (name: string) => {
+      await act(async () => {
+        await fireEvent.press(await screen.findByRole('button', { name }));
+      });
+    };
+    // The first device creates the account keys and synchronizes its mailbox.
+    let view = await show(trusted);
+    await press('Sign in with Google');
+    await expect(
+      screen.findByText('Encrypted mailbox list: alex@example.invalid.'),
+    ).resolves.toBeVisible();
+    await view.unmount();
+
+    // Signing in on another device reaches the account but none of its private data.
+    view = await show(added);
+    await press('Sign in with Google');
+    await expect(
+      screen.findByRole('header', { name: 'Approve this device' }),
+    ).resolves.toBeVisible();
+    expect(screen.getByTestId('enrollment-code')).toHaveTextContent(
+      syntheticEnrollmentCode,
+    );
+    expect(screen.queryByText(/Encrypted mailbox list/u)).toBeNull();
+    expect(screen.queryByLabelText('Last four characters')).toBeNull();
+    await view.unmount();
+
+    // The trusted device approves only with that code; a mistyped one changes nothing.
+    view = await show(trusted);
+    await press('Check for a new device');
+    await expect(
+      screen.findByRole('header', { name: 'Approve a new device' }),
+    ).resolves.toBeVisible();
+    expect(screen.getByText(/Your iPad asked to unlock/u)).toBeVisible();
+    const entry = screen.getByLabelText('Code from the new device');
     await act(async () => {
-      await fireEvent.press(
-        await screen.findByRole('button', { name: 'Sign in with Google' }),
+      await fireEvent.changeText(entry, 'H4KP-9QWE-3TRM-7XB3');
+    });
+    await press('Approve device');
+    expect(screen.getByRole('alert')).toHaveTextContent(/code is not valid/u);
+    await act(async () => {
+      await fireEvent.changeText(
+        entry,
+        syntheticEnrollmentCode.toLowerCase().replaceAll('-', ' '),
       );
     });
+    await press('Approve device');
+    expect(
+      screen.queryByRole('header', { name: 'Approve a new device' }),
+    ).toBeNull();
+    expect(screen.queryByRole('alert')).toBeNull();
+    await view.unmount();
+
+    // The approved device reads the synchronized mailbox list; Gmail still needs its own grant.
+    await show(added);
+    await press('Check for approval');
     await expect(
-      screen.findByRole('header', {
-        name: 'Unlock private data on this device',
-      }),
+      screen.findByRole('header', { name: 'Private sync is on' }),
     ).resolves.toBeVisible();
     expect(
-      screen.getByRole('header', { name: 'Gmail connected' }),
+      screen.getByText('Encrypted mailbox list: alex@example.invalid.'),
     ).toBeVisible();
-    expect(screen.queryByLabelText('Last four characters')).toBeNull();
-    expect(screen.queryByText(/Encrypted mailbox list/u)).toBeNull();
+    expect(screen.queryByTestId('enrollment-code')).toBeNull();
+    expect(
+      screen.getByRole('header', { name: 'Connect your Gmail' }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole('button', { name: 'Authorize Gmail' }),
+    ).toBeVisible();
   });
+
+  /* oxlint-enable vitest/max-expects */
 
   it('offers sign-in again when the connected mailbox is not yet saved to private sync', async () => {
     expect.hasAssertions();
@@ -379,6 +452,7 @@ describe('product registration', () => {
           link: () => Promise.reject(new Error('Not linking')),
           confirmRecoveryKey: () =>
             Promise.reject(new Error('No Recovery Key to confirm')),
+          ...noEnrollment,
         })}
         preview={false}>
         {null}

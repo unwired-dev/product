@@ -684,6 +684,21 @@ async function deleteNextBatchData(
   if (await deleteSignInLinks(ctx, request.productAccountId)) {
     return false;
   }
+  const enrollmentRequests = await ctx.db
+    .query('productSyncEnrollmentRequests')
+    .withIndex('by_productAccountId_and_state_and_expiresAt', (q) =>
+      q.eq('productAccountId', request.productAccountId),
+    )
+    .take(deletionBatchSize);
+  if (enrollmentRequests.length > 0) {
+    for (const enrollmentRequest of enrollmentRequests) {
+      await ctx.db.delete(
+        'productSyncEnrollmentRequests',
+        enrollmentRequest._id,
+      );
+    }
+    return false;
+  }
   const scheduledSends = await ctx.db
     .query('scheduledSends')
     .withIndex('by_productAccountId_and_scheduleId', (q) =>

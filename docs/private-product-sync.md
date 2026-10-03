@@ -7,7 +7,10 @@ The review agent owns the separate [architecture companion](architecture/private
 End-to-End Encrypted Product Sync for a new Product Account on iPhone, iPad and
 Mac. It creates the account keys on the first Trusted Device and presents a
 user-held Recovery Key. A small real record round-trips through Convex: the
-authorized Gmail mailbox descriptor. This follows
+authorized Gmail mailbox descriptor.
+[#600](https://github.com/unwired-dev/product/issues/600) lets an existing
+Trusted Device [approve a new device](#approving-a-new-device), which then
+receives the same keys. This follows
 [ADR 0001](adr/0001-end-to-end-encrypted-product-sync.md) and
 [ADR 0061](adr/0061-separate-product-identity-from-registration-mailbox-authorization.md):
 Product Sign-In alone never yields decryption keys, and missing local keys never
@@ -40,11 +43,57 @@ now. A connected mailbox whose descriptor has not been read back yet, for exampl
 one chosen after an Apple relaunch, shows that it is not saved to private sync yet
 and offers the same action. Signing in again rechecks a saved Gmail mailbox instead
 of restarting Gmail consent. Reopening an account that already
-has Product Sync keys on a device without them shows **Unlock private data on this
-device**. Approval from a trusted device
-([#600](https://github.com/unwired-dev/product/issues/600)) and Recovery Key entry
-([#601](https://github.com/unwired-dev/product/issues/601)) are the later ways to
-unlock it. Nothing is reset, and Gmail can still be authorized locally.
+has Product Sync keys on a device without them never creates keys. Once that device
+reaches Convex it asks for [approval](#approving-a-new-device) and shows **Approve
+this device**; until then it shows **Unlock private data on this device**. Recovery
+Key entry ([#601](https://github.com/unwired-dev/product/issues/601)) is the other
+way to unlock it. Nothing is reset, and Gmail can still be authorized locally.
+
+## Approving a new device
+
+Product Sign-In on another device reaches the Product Account but none of its
+private data. That device shows **Approve this device** with a one-time
+[Enrollment Code](domain/identity.md) of 56 Crockford base32 characters in fourteen
+groups. Copy it or enter it on the trusted device. The code stays on the device; Convex never receives it.
+
+On a Trusted Device that holds the keys, **Check for a new device** lists the
+newest request. **Approve a new device** names the requesting device and asks for
+**Code from the new device**. Case, spaces and the look-alikes O, I and L are
+accepted. The last character is a check digit. An invalid check digit is reported on
+the trusted device and nothing is sent. A different code with a valid check digit
+cannot unlock the requesting device. **Decline** cancels the request.
+
+On the new device, **Check for approval** collects the approval. The device adopts
+the account keys and shows **Private sync is on** with the mailbox list decrypted
+from Product Sync. Gmail on that device still needs its own authorization, and
+the Recovery Key stays with the device that created it. A request expires after
+15 minutes, and an approval must be collected within 15 minutes. When a request
+expires or is declined, the new device shows a new code. When an approval does
+not open on this device, the device says nothing was unlocked and shows a new code.
+
+Google devices renew their Product Sign-In silently for both checks. An Apple
+device uses its current interactive sign-in. After a relaunch, either check asks
+it to sign in with Apple again.
+
+Convex refuses an approval when the request:
+
+- is replayed or already approved;
+- has expired, was declined, or was replaced by a newer request from the same device;
+- comes from a revoked or removed device;
+- was approved by a device that has since been revoked or removed;
+- names another device than the one that asked;
+- is approved by the device that asked;
+- uses a key epoch that is not current, including one superseded before collection.
+
+None of these change the account's keys or recovery envelope. Removing a device
+deletes its requests, and deleting the Product Account deletes them all.
+
+The backend never receives the Enrollment Code, account keys, or the one-time
+private key. Each check evaluates expiry on the server anew. The approval is
+removed after collection; an expired approval is never returned. The native module
+keeps the code and private key in device-only storage until this device holds the
+keys. [Protocol details](architecture/private-product-sync.md#trusted-device-enrollment)
+are maintained in the architecture companion.
 
 ## Keys and envelopes
 
@@ -96,23 +145,36 @@ It checks:
   account, identifier, schema or relabelled epoch;
 - rejection of another account's keys and of prototype recovery schemas;
 - recovery and enrollment envelopes that open only for their key, account,
-  device and request.
+  device, request, key epoch and Enrollment Code, and Enrollment Code parsing
+  with its check digit.
 
 It covers one-time initialization, the Recovery Key opening the published
 envelope, and an encrypted descriptor round trip with no address, subject, token
-or Recovery Key visible to the backend. It also covers confirmation mismatch and
+or Recovery Key visible to the backend. The two-device approval journey uses two
+installations with separate Keychains. A mistyped code, declined, forged, expired,
+replayed and revoked approvals all leave the new device without keys. A forged
+approval is one sealed without the code. The accepted approval then gives the new
+device the account's key ring and decrypted mailbox list, without Gmail access.
+The account's recovery envelope and single initialization stay unchanged. It also covers confirmation mismatch and
 success, rejection of foreign records, and relaunch with unchanged keys. An
 interrupted publication resumes; a device that loses the race discards its keys,
 enters enrollment and writes no records.
 
 Convex tests cover single initialization, idempotent retry, refusal for
 initialized accounts, epoch and device-proof enforcement, and the reserved
-recovery identifier. Shared and rendered host tests cover the Recovery Key
-confirmation, the mismatch and remount paths, and the enrollment-needed state.
+recovery identifier. Enrollment tests cover one collection per approval, untouched
+key material, and refusal of the approval cases listed above. They also cover
+expiry and account isolation. Shared and rendered host tests cover the Recovery Key
+confirmation, the mismatch and remount paths, and two synthetic installations that
+approve, decline and unlock a new device.
 The registration Mock Mail Sessions use a synthetic Product Sync backend
 persisted in the run's Keychain. The packaged Google journey checks the same key
 after relaunch, confirms it, and reads the decrypted mailbox list after another
-relaunch. These are deterministic application checks, not real Convex or provider
+relaunch. The packaged `registration-enrollment` journey signs in to an account
+whose keys belong to a synthetic trusted device. It shows the code and checks for
+approval. It then reads that device's mailbox through real HPKE and AES-GCM, while
+Gmail still needs authorization. The synthetic trusted device reads the code from
+the run's Keychain in place of a person typing it. These are deterministic application checks, not real Convex or provider
 evidence.
 
 ## Protected real qualification
@@ -122,6 +184,8 @@ Use signed hosts, a configured Convex development deployment and the
 account with Google and with Apple on iPhone, iPad and Mac. Confirm the Recovery
 Key, connect Gmail and relaunch. Then confirm in the Convex dashboard that the
 account has one recovery envelope and opaque `mailbox.` records only. Reopen the
-account on a second installation and confirm it reports enrollment without
-creating keys. Do not record Recovery Keys, tokens or addresses in artifacts. No
+account on a second installation and confirm it shows an Enrollment Code without
+creating keys. Approve it from the first device on each Sign-In Provider. Check
+that the second device lists the synchronized mailbox before its own Gmail grant.
+Check that the Convex dashboard shows the request removed after collection. Do not record Recovery Keys, tokens or addresses in artifacts. No
 real Product Sync pass is claimed until this path has run.

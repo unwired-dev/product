@@ -1,6 +1,9 @@
 import { createRegistration } from '../src/registration.ts';
 import {
   createMockRegistrationSession,
+  createSyntheticAccount,
+  syntheticEnrollmentCode,
+  syntheticEnrollmentRequest,
   syntheticRecoveryKey,
 } from '../src/testing/registration-session.ts';
 
@@ -19,6 +22,30 @@ const accounts = {
 } as const;
 
 describe('product registration', () => {
+  it('keeps enrollment and mailbox descriptors isolated between synthetic Product Accounts', async () => {
+    expect.hasAssertions();
+    const accounts = createSyntheticAccount();
+    const trusted = createRegistration(
+      createMockRegistrationSession('registration-success', accounts).native,
+    );
+    const outsider = createRegistration(
+      createMockRegistrationSession('registration-enrollment', accounts).native,
+    );
+    await trusted.register('google');
+    await outsider.register('apple');
+    await trusted.refreshPrivateSync();
+    expect(trusted.getSnapshot().snapshot).not.toHaveProperty(
+      'enrollmentRequest',
+    );
+    await outsider.refreshPrivateSync();
+    expect(outsider.getSnapshot().snapshot).not.toHaveProperty(
+      'privateSyncMailboxes',
+    );
+    expect(outsider.getSnapshot().snapshot).toMatchObject({
+      privateSync: 'enrollment-pending',
+    });
+  });
+
   it.each(
     (['google', 'apple'] as const).flatMap((provider) =>
       [
@@ -264,4 +291,39 @@ describe('product registration', () => {
       expect(store.getSnapshot()).not.toHaveProperty('linkFailure');
     },
   );
+
+  it('keeps both devices unchanged when a trusted device declines a request and reports a later approval as unavailable', async () => {
+    expect.hasAssertions();
+    vi.spyOn(console, 'error').mockReturnValue(undefined);
+    const account = createSyntheticAccount();
+    const trusted = createRegistration(
+      createMockRegistrationSession('registration-success', account).native,
+    );
+    const added = createRegistration(
+      createMockRegistrationSession('registration-enrollment', account).native,
+    );
+    await trusted.register('google');
+    await added.register('google');
+    await trusted.refreshPrivateSync();
+    expect(trusted.getSnapshot().snapshot).toMatchObject({
+      enrollmentRequest: syntheticEnrollmentRequest,
+    });
+    await trusted.declineEnrollment(syntheticEnrollmentRequest);
+    await trusted.approveEnrollment(
+      syntheticEnrollmentRequest,
+      syntheticEnrollmentCode,
+    );
+    expect(trusted.getSnapshot()).toMatchObject({
+      enrollmentFailure: 'unavailable',
+      snapshot: { privateSync: 'recovery-key' },
+    });
+    await added.refreshPrivateSync();
+    expect(added.getSnapshot().snapshot).toMatchObject({
+      privateSync: 'enrollment-pending',
+      enrollmentCode: syntheticEnrollmentCode,
+    });
+    expect(added.getSnapshot().snapshot).not.toHaveProperty(
+      'privateSyncMailboxes',
+    );
+  });
 });

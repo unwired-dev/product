@@ -203,6 +203,35 @@ export default defineSchema({
     'payloadIdentifier',
   ]),
 
+  // A device's request for the key ring, sealed to its one-time key by an approving Trusted Device.
+  productSyncEnrollmentRequests: defineTable({
+    approval: v.optional(
+      v.object({
+        approvedAt: v.number(),
+        approvedByTrustedDeviceId: v.id('trustedDevices'),
+        ciphertextBase64: v.string(),
+        encapsulatedKeyBase64: v.string(),
+        keyVersion: v.number(),
+      }),
+    ),
+    createdAt: v.number(),
+    enrollmentPublicKey: v.string(),
+    expiresAt: v.number(),
+    productAccountId: v.id('productAccounts'),
+    state: v.union(
+      v.literal('pending'),
+      v.literal('approved'),
+      v.literal('cancelled'),
+    ),
+    trustedDeviceId: v.id('trustedDevices'),
+  })
+    .index('by_productAccountId_and_state_and_expiresAt', [
+      'productAccountId',
+      'state',
+      'expiresAt',
+    ])
+    .index('by_trustedDeviceId', ['trustedDeviceId']),
+
   mailProviderConnections: defineTable({
     connectedAt: v.number(),
     emailAddress: v.optional(v.string()),

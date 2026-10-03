@@ -18,6 +18,8 @@ const PrivateSyncSchema = Schema.Literals([
   'recovery-key',
   'ready',
   'enrollment-needed',
+  // Waiting for a trusted device to approve this one with the code it shows.
+  'enrollment-pending',
 ]);
 export type PrivateSync = typeof PrivateSyncSchema.Type;
 
@@ -36,6 +38,15 @@ const Account = Schema.Struct({
   privateSyncMailboxes: Schema.optionalKey(Schema.NonEmptyString),
   // The connected mailbox is not yet saved to Product Sync; a sign-in will save it.
   privateSyncPending: Schema.optionalKey(Schema.Literal('mailbox')),
+  // Shown on a device waiting for approval; it never leaves native device storage otherwise.
+  enrollmentCode: Schema.optionalKey(Schema.NonEmptyString),
+  // Why an earlier request ended without unlocking this device.
+  enrollmentNotice: Schema.optionalKey(
+    Schema.Literals(['renewed', 'rejected']),
+  ),
+  // Another device of this Product Account waiting for this trusted device's approval.
+  enrollmentRequest: Schema.optionalKey(Schema.NonEmptyString),
+  enrollmentDevice: Schema.optionalKey(Schema.NonEmptyString),
 });
 export const RegistrationSnapshotSchema = Schema.Union([
   Schema.Struct({ kind: Schema.Literal('signed-out') }),
@@ -80,6 +91,14 @@ const isRecoveryKeyMismatch = Schema.is(
 );
 export type RecoveryKeyFailure = 'mismatch' | 'failed';
 
+const isEnrollmentCodeInvalid = Schema.is(
+  Schema.Struct({ code: Schema.Literal('enrollment-code-invalid') }),
+);
+const isEnrollmentUnavailable = Schema.is(
+  Schema.Struct({ code: Schema.Literal('enrollment-unavailable') }),
+);
+export type EnrollmentFailure = 'code-invalid' | 'unavailable' | 'failed';
+
 export interface NativeRegistration {
   readonly restore: () => Promise<unknown>;
   readonly signIn: (provider: SignInProvider) => Promise<unknown>;
@@ -88,6 +107,14 @@ export interface NativeRegistration {
   readonly link: (provider: SignInProvider) => Promise<unknown>;
   // Confirms Recovery Key setup with the final group the person wrote down.
   readonly confirmRecoveryKey: (entry: string) => Promise<unknown>;
+  // Seals this device's keys to another device, unlocked by the code that device shows.
+  readonly approveEnrollment: (
+    requestId: string,
+    code: string,
+  ) => Promise<unknown>;
+  readonly declineEnrollment: (requestId: string) => Promise<unknown>;
+  // Checks for an approval of this device, or for another device waiting for one.
+  readonly refreshPrivateSync: () => Promise<unknown>;
 }
 
 type RegistrationState = Readonly<{
@@ -97,6 +124,8 @@ type RegistrationState = Readonly<{
   // A failed link leaves the Product Account and its sign-ins unchanged.
   linkFailure?: LinkFailure;
   recoveryKeyFailure?: RecoveryKeyFailure;
+  // A failed approval leaves this device and the requesting one unchanged.
+  enrollmentFailure?: EnrollmentFailure;
 }>;
 
 // A connected status is only valid while its verification succeeds.
@@ -130,6 +159,12 @@ class RecoveryKeyMismatch extends Schema.TaggedError<RecoveryKeyMismatch>()(
   {},
 ) {}
 
+// A mistyped approval code is caught on this device before anything is sent.
+class EnrollmentCodeInvalid extends Schema.TaggedError<EnrollmentCodeInvalid>()(
+  'EnrollmentCodeInvalid',
+  {},
+) {}
+
 class RegistrationFailed extends Schema.TaggedError<RegistrationFailed>()(
   'RegistrationFailed',
   // The diagnostic is logged instead of the cause; see rejectionDiagnostic.
@@ -148,6 +183,9 @@ const request = Effect.fnUntraced(function* (
       if (isCancelled(cause)) {
         return new RegistrationCancelled();
       }
+      if (isEnrollmentCodeInvalid(cause)) {
+        return new EnrollmentCodeInvalid();
+      }
       return isRecoveryKeyMismatch(cause)
         ? new RecoveryKeyMismatch()
         : new RegistrationFailed({
@@ -165,6 +203,15 @@ const request = Effect.fnUntraced(function* (
         }),
     ),
   );
+});
+
+// A request that expired, was cancelled or was already approved cannot be approved again.
+const enrollmentFailed = (
+  snapshot: RegistrationSnapshot,
+  cause: unknown,
+): RegistrationState => ({
+  ...settled(snapshot),
+  enrollmentFailure: isEnrollmentUnavailable(cause) ? 'unavailable' : 'failed',
 });
 
 export function createRegistration(native: NativeRegistration) {
@@ -186,7 +233,10 @@ export function createRegistration(native: NativeRegistration) {
   const execute = (
     operation: Effect.Effect<
       RegistrationSnapshot,
-      RegistrationCancelled | RecoveryKeyMismatch | RegistrationFailed
+      | RegistrationCancelled
+      | RecoveryKeyMismatch
+      | EnrollmentCodeInvalid
+      | RegistrationFailed
     >,
     onFailure: (
       snapshot: RegistrationSnapshot,
@@ -209,6 +259,11 @@ export function createRegistration(native: NativeRegistration) {
             Effect.sync((): RegistrationState => ({
               ...settled(state.snapshot),
               recoveryKeyFailure: 'mismatch',
+            })),
+          EnrollmentCodeInvalid: () =>
+            Effect.sync((): RegistrationState => ({
+              ...settled(state.snapshot),
+              enrollmentFailure: 'code-invalid',
             })),
           RegistrationFailed: (error) =>
             Effect.logError('Registration failed:', error.diagnostic).pipe(
@@ -277,6 +332,17 @@ export function createRegistration(native: NativeRegistration) {
         request(() => native.confirmRecoveryKey(entry)),
         (snapshot) => ({ ...settled(snapshot), recoveryKeyFailure: 'failed' }),
       ),
+    approveEnrollment: (requestId: string, code: string) =>
+      execute(
+        request(() => native.approveEnrollment(requestId, code)),
+        enrollmentFailed,
+      ),
+    declineEnrollment: (requestId: string) =>
+      execute(
+        request(() => native.declineEnrollment(requestId)),
+        enrollmentFailed,
+      ),
+    refreshPrivateSync: () => execute(request(native.refreshPrivateSync)),
   };
 }
 
@@ -407,67 +473,82 @@ type PrivateSyncState = Readonly<{
   recoveryKey?: string;
   privateSyncMailboxes?: string;
   privateSyncPending?: 'mailbox';
+  enrollmentCode?: string;
+  enrollmentNotice?: 'renewed' | 'rejected';
 }>;
+
+const enrollmentNotices = {
+  renewed:
+    'The previous request expired or was declined, so this device shows a new code.',
+  rejected:
+    'The last approval could not be verified on this device, so nothing was unlocked. Approve it again with the new code.',
+} as const;
+
+const privateSyncText = {
+  'setup-pending': {
+    title: 'Private sync',
+    description:
+      'Private sync setup has not finished. It continues the next time your Product Account is verified. Sign in again to finish it now.',
+  },
+  'recovery-key': {
+    title: 'Save your Recovery Key',
+    description:
+      'Your product data is end-to-end encrypted. If you lose every trusted device, this Recovery Key is the only way to unlock it. Write it down and keep it somewhere safe. Unwired Mail cannot show it to anyone else or reset it.',
+  },
+  ready: {
+    title: 'Private sync is on',
+    description:
+      'Your product data is end-to-end encrypted. Only your trusted devices can read it.',
+  },
+  'enrollment-needed': {
+    title: 'Unlock private data on this device',
+    description:
+      'This Product Account already has end-to-end encrypted data, so this device needs its keys. Approve it from one of your trusted devices or use your Recovery Key. Nothing was reset or replaced.',
+  },
+  'enrollment-pending': {
+    title: 'Approve this device',
+    description:
+      'This Product Account already has end-to-end encrypted data. Signing in does not unlock it. On one of your trusted devices, open Unwired Mail and enter this code to approve this device.',
+  },
+} as const satisfies Record<
+  PrivateSync,
+  Readonly<{ title: string; description: string }>
+>;
 
 // Private product data on this device; mailbox credentials never take part in it.
 export function privateSyncCopy(snapshot: PrivateSyncState) {
-  const mailboxes =
-    snapshot.privateSyncMailboxes === undefined
-      ? undefined
-      : `Encrypted mailbox list: ${snapshot.privateSyncMailboxes.replaceAll('\n', ', ')}.`;
-  const unsavedMailbox =
-    snapshot.privateSyncPending === undefined
-      ? undefined
-      : 'Your connected mailbox is not saved to private sync yet. Sign in again to save it.';
-  switch (snapshot.privateSync) {
-    case undefined: {
-      return undefined;
-    }
-    case 'setup-pending': {
-      return {
-        title: 'Private sync',
-        description:
-          'Private sync setup has not finished. It continues the next time your Product Account is verified. Sign in again to finish it now.',
-        mailboxes,
-        pending: unsavedMailbox,
-        recoveryKey: undefined,
-      };
-    }
-    case 'recovery-key': {
-      return {
-        title: 'Save your Recovery Key',
-        description:
-          'Your product data is end-to-end encrypted. If you lose every trusted device, this Recovery Key is the only way to unlock it. Write it down and keep it somewhere safe. Unwired Mail cannot show it to anyone else or reset it.',
-        mailboxes,
-        pending: unsavedMailbox,
-        recoveryKey: snapshot.recoveryKey,
-      };
-    }
-    case 'ready': {
-      return {
-        title: 'Private sync is on',
-        description:
-          'Your product data is end-to-end encrypted. Only your trusted devices can read it.',
-        mailboxes,
-        pending: unsavedMailbox,
-        recoveryKey: undefined,
-      };
-    }
-    case 'enrollment-needed': {
-      return {
-        title: 'Unlock private data on this device',
-        description:
-          'This Product Account already has end-to-end encrypted data, so this device needs its keys. Approve it from one of your trusted devices or use your Recovery Key. Nothing was reset or replaced.',
-        mailboxes,
-        pending: unsavedMailbox,
-        recoveryKey: undefined,
-      };
-    }
-    default: {
-      const exhaustive: never = snapshot.privateSync;
-      return exhaustive;
-    }
+  if (snapshot.privateSync === undefined) {
+    return undefined;
   }
+  const { title, description } = privateSyncText[snapshot.privateSync];
+  const notice =
+    snapshot.enrollmentNotice === undefined
+      ? ''
+      : ` ${enrollmentNotices[snapshot.enrollmentNotice]}`;
+  return {
+    title,
+    description:
+      snapshot.privateSync === 'enrollment-pending'
+        ? description + notice
+        : description,
+    mailboxes:
+      snapshot.privateSyncMailboxes === undefined
+        ? undefined
+        : `Encrypted mailbox list: ${snapshot.privateSyncMailboxes.replaceAll('\n', ', ')}.`,
+    pending:
+      snapshot.privateSyncPending === undefined
+        ? undefined
+        : 'Your connected mailbox is not saved to private sync yet. Sign in again to save it.',
+    // Each is present only in its own state.
+    recoveryKey:
+      snapshot.privateSync === 'recovery-key'
+        ? snapshot.recoveryKey
+        : undefined,
+    enrollmentCode:
+      snapshot.privateSync === 'enrollment-pending'
+        ? snapshot.enrollmentCode
+        : undefined,
+  };
 }
 
 // Native confirmation ignores case and separators; keep only the four characters that count.
@@ -482,4 +563,22 @@ export const recoveryKeyConfirmationCopy = {
   mismatch:
     'That does not match the end of your Recovery Key. Check your written copy and try again.',
   failed: 'Your Recovery Key could not be confirmed. Try again.',
+} as const;
+
+export const enrollmentCopy = {
+  // On the device waiting for approval.
+  check: 'Check for approval',
+  // On a trusted device.
+  find: 'Check for a new device',
+  title: 'Approve a new device',
+  description: (device: string) =>
+    `Your ${device} asked to unlock your private data. Approve it only if it is your device and shows a code. Enter that code here.`,
+  label: 'Code from the new device',
+  approve: 'Approve device',
+  decline: 'Decline',
+  'code-invalid':
+    'That code is not valid. Check the code shown on the new device and try again.',
+  unavailable:
+    'That request is no longer available. The new device shows a new code; check for it again.',
+  failed: 'The device could not be approved. Try again.',
 } as const;

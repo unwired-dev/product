@@ -21,6 +21,25 @@ const Scenario = Schema.Literals([
 export const syntheticRecoveryKey =
   'K7QM-2VXH-9D4T-RW8B-3NZC-6PJF-1GSA-5EYK-0MQT-4HBV-8XRD-2CWN-7G0P';
 
+// The code a synthetic new device shows for approval; it protects nothing.
+export const syntheticEnrollmentCode =
+  'H4KP-9QWE-3TRM-7XB2-H4KP-9QWE-3TRM-7XB2-H4KP-9QWE-3TRM-7XB2-H4KP-9QW8';
+
+export const syntheticEnrollmentRequest = 'synthetic-enrollment-request';
+const normalizedCode = (code: string) =>
+  code.replaceAll(/[\s-]/gu, '').toUpperCase();
+
+interface SyntheticAccountState {
+  enrollment: undefined | { state: 'pending' | 'approved' | 'cancelled' };
+  mailboxes: Set<string>;
+}
+
+// Installations share transport state, while each verified Product Account keeps its own data.
+export function createSyntheticAccount() {
+  return new Map<string, SyntheticAccountState>();
+}
+type SyntheticAccount = ReturnType<typeof createSyntheticAccount>;
+
 const rejection = (message: string, code: string) =>
   Promise.reject(Object.assign(new Error(message), { code }));
 
@@ -43,15 +62,26 @@ const account = (snapshot: SignedIn) => ({
   ...(snapshot.privateSyncMailboxes === undefined
     ? {}
     : { privateSyncMailboxes: snapshot.privateSyncMailboxes }),
+  ...(snapshot.enrollmentCode === undefined
+    ? {}
+    : { enrollmentCode: snapshot.enrollmentCode }),
 });
 
 // Scenarios whose first Gmail session grants access; the others need another mailbox.
 const grantsFirstMailbox = new Set<typeof Scenario.Type>([
   'registration-success',
   'registration-link',
-  'registration-enrollment',
   'registration-interrupted',
 ]);
+
+const withoutRequest = (snapshot: SignedIn): SignedIn => {
+  const {
+    enrollmentRequest: _request,
+    enrollmentDevice: _device,
+    ...rest
+  } = snapshot;
+  return rest;
+};
 
 const connectedTo = (
   snapshot: SignedIn,
@@ -66,13 +96,16 @@ const connectedTo = (
       : 'synthetic-google-subject',
     address,
     // Only a device holding the account keys reads back the encrypted descriptor.
-    ...(snapshot.privateSync === 'enrollment-needed'
+    ...(snapshot.privateSync === 'enrollment-pending'
       ? {}
       : { privateSyncMailboxes: address }),
   };
 };
 
-export function createMockRegistrationSession(selection: unknown) {
+export function createMockRegistrationSession(
+  selection: unknown,
+  installations: SyntheticAccount = createSyntheticAccount(),
+) {
   // oxlint-disable-next-line node/no-sync -- Fixed test-only scenario selection.
   const scenario = Schema.decodeUnknownSync(Scenario)(selection);
   let snapshot: RegistrationSnapshot = { kind: 'signed-out' };
@@ -86,17 +119,37 @@ export function createMockRegistrationSession(selection: unknown) {
       contactEmail: 'relay@privaterelay.example.invalid',
     },
   } as const satisfies Record<SignInProvider, object>;
+  const syncAccount = (id: string): SyntheticAccountState => {
+    const existing = installations.get(id);
+    if (existing !== undefined) {
+      return existing;
+    }
+    const created: SyntheticAccountState = {
+      enrollment: undefined,
+      mailboxes: new Set<string>(),
+    };
+    installations.set(id, created);
+    return created;
+  };
   const native: NativeRegistration = {
     restore: () => Promise.resolve(snapshot),
     signIn: (provider) => {
       if (snapshot.kind === 'signed-out') {
-        // A new Product Account creates its keys; an existing one needs enrollment instead.
+        // A new Product Account creates its keys; an existing one asks a trusted device.
+        if (scenario === 'registration-enrollment') {
+          syncAccount(accounts[provider].productAccountId).enrollment = {
+            state: 'pending',
+          };
+        }
         snapshot = {
           kind: 'mailbox-needed',
           signInProvider: provider,
           ...accounts[provider],
           ...(scenario === 'registration-enrollment'
-            ? { privateSync: 'enrollment-needed' }
+            ? {
+                privateSync: 'enrollment-pending',
+                enrollmentCode: syntheticEnrollmentCode,
+              }
             : {
                 privateSync: 'recovery-key',
                 recoveryKey: syntheticRecoveryKey,
@@ -137,7 +190,16 @@ export function createMockRegistrationSession(selection: unknown) {
       if (!reselect && !grantsFirstMailbox.has(scenario)) {
         return Promise.resolve(snapshot);
       }
-      snapshot = connectedTo(snapshot, reselect);
+      const connected = connectedTo(snapshot, reselect);
+      if (
+        connected.kind === 'connected' &&
+        connected.privateSyncMailboxes !== undefined
+      ) {
+        syncAccount(connected.productAccountId).mailboxes.add(
+          connected.address,
+        );
+      }
+      snapshot = connected;
       return Promise.resolve(snapshot);
     },
     link: (provider) => {
@@ -171,6 +233,73 @@ export function createMockRegistrationSession(selection: unknown) {
       }
       const { recoveryKey: _recoveryKey, ...confirmed } = snapshot;
       snapshot = { ...confirmed, privateSync: 'ready' };
+      return Promise.resolve(snapshot);
+    },
+    approveEnrollment: (requestId, code) => {
+      if (
+        snapshot.kind === 'signed-out' ||
+        snapshot.enrollmentRequest !== requestId
+      ) {
+        return rejection(
+          'Synthetic request unavailable',
+          'enrollment-unavailable',
+        );
+      }
+      if (normalizedCode(code) !== normalizedCode(syntheticEnrollmentCode)) {
+        return rejection('Synthetic code mismatch', 'enrollment-code-invalid');
+      }
+      syncAccount(snapshot.productAccountId).enrollment = { state: 'approved' };
+      snapshot = withoutRequest(snapshot);
+      return Promise.resolve(snapshot);
+    },
+    declineEnrollment: (requestId) => {
+      if (
+        snapshot.kind === 'signed-out' ||
+        snapshot.enrollmentRequest !== requestId
+      ) {
+        return rejection(
+          'Synthetic request unavailable',
+          'enrollment-unavailable',
+        );
+      }
+      syncAccount(snapshot.productAccountId).enrollment = {
+        state: 'cancelled',
+      };
+      snapshot = withoutRequest(snapshot);
+      return Promise.resolve(snapshot);
+    },
+    refreshPrivateSync: () => {
+      if (snapshot.kind === 'signed-out') {
+        return rejection('Synthetic Product Account required', 'unavailable');
+      }
+      const shared = syncAccount(snapshot.productAccountId);
+      const { enrollment } = shared;
+      if (snapshot.privateSync === 'enrollment-pending') {
+        // The approved device adopts the account keys and reads the synchronized mailboxes.
+        if (enrollment?.state === 'approved') {
+          shared.enrollment = undefined;
+          const { enrollmentCode: _code, ...unlocked } = snapshot;
+          snapshot = {
+            ...unlocked,
+            privateSync: 'ready',
+            ...(shared.mailboxes.size === 0
+              ? {}
+              : {
+                  privateSyncMailboxes: [...shared.mailboxes].join('\n'),
+                }),
+          };
+        }
+        return Promise.resolve(snapshot);
+      }
+      // A trusted device sees another device waiting for approval.
+      snapshot =
+        enrollment?.state === 'pending'
+          ? {
+              ...snapshot,
+              enrollmentRequest: syntheticEnrollmentRequest,
+              enrollmentDevice: 'iPad',
+            }
+          : withoutRequest(snapshot);
       return Promise.resolve(snapshot);
     },
   };
