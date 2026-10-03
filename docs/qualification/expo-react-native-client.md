@@ -1,6 +1,6 @@
 # Expo and React Native platform qualification
 
-Evidence updated: 2026-09-30. Status: **Expo bootstrap builds and launches on
+Evidence updated: 2026-10-03. Status: **Expo bootstrap builds and launches on
 iOS/iPadOS 27 and the native Mac mock Inbox builds and launches on macOS 27;
 full replacement qualification remains incomplete**.
 
@@ -8,6 +8,70 @@ The [mobile bootstrap](../expo-client.md) now uses Expo 57.0.25, React Native
 0.86.3 and React 19.2.3 with Effect 4.0.0-rc.118. Xcode 27 and the iOS 27 runtime
 are available on the development host. The maintainer's earlier native-validation
 deferral still applies to unavailable release checks. Mac host evidence follows.
+
+## Trusted-device enrollment evidence, 2026-10-03
+
+[#600](https://github.com/unwired-dev/product/issues/600) adds
+[trusted-device approval](../private-product-sync.md#approving-a-new-device).
+
+Implementation evidence before review:
+
+- Eighteen app-hosted tests passed on a fresh owned iOS 27 Simulator with real
+  Keychain and CryptoKit. The new journey uses two separate Keychain installations,
+  real HPKE and encrypted mailbox records with a controlled backend. It covers
+  rejection and renewal, adoption of the existing ring without a Recovery Key,
+  descriptors before Gmail consent and unchanged account material.
+- The `registration-enrollment` Release simulator build compiled the real bridge,
+  and the packaged journey passed on fresh iPhone 18 Pro and iPad Pro 11-inch
+  iOS 27 Simulators. A synthetic trusted device reads the code from the run's
+  Keychain in place of a person entering it on a second installation. This is
+  deterministic mock evidence, not approval between two real devices.
+- Workspace lint, format, types and tests, tooling and native-runner contracts
+  passed. Evidence remains local under `artifacts/private-inbox/integration.IdWb9M`
+  and `artifacts/expo-bootstrap/native-1Xn2g0`.
+
+Review changed the Enrollment Code from 75 bits to 275 bits of entropy to meet
+HPKE's PSK requirement, made expiry checks uncached server operations and added
+collection-time approver/epoch fencing. Regression tests first reproduced four
+invalid-collection cases and cross-account leakage in the shared mock transport,
+then passed after fixes. Native checksum tests now alter the check digit so their
+negative cases cannot randomly retain a valid checksum.
+
+The review's native interaction rerun could not create a Simulator because the
+session denied CoreSimulator service and log access. Earlier native results do
+not qualify the corrected code length or bridge endpoint type; those interaction
+checks remain required. Review verification:
+
+- All 24 root workspace lint, format, type and test tasks passed. Convex has
+  236 passing tests, mail-core 29, mobile 14 and Mac 12. Existing contracts and
+  legacy harness coverage also passed and remains intact.
+- Both normal production JavaScript builds and renderer/bundle boundary checks
+  passed, as did Fallow's changed-code gate, all nine tooling tests, Swift
+  formatting and affected documentation links.
+- The two crypto-only SwiftPM tests passed with real CryptoKit on macOS. The
+  Swift library and synthetic native backend type-checked against the iOS 27
+  Simulator SDK. This establishes
+  the corrected code format and cryptographic bindings, not Keychain behavior.
+- Native-runner contracts passed 19 of 20 tests. The remaining cleanup-helper
+  test could not create its disposable directory under the host Application
+  Support folder in this session, so the full command did not pass.
+- Selected native project generation and CocoaPods installation passed using a
+  task-local `CP_CACHE_DIR`. The packaged build stopped before compilation when
+  Xcode could not recognize the workspace in this restricted session, alongside
+  CoreSimulator and file-event service failures. No corrected packaged build or
+  native interaction pass is claimed.
+- Additional strict SwiftLint on the four affected core/bridge/test files still
+  reports five violations also present in the starting commit: the older seal's
+  parameter count, bridge file/store size and two older Data-to-String conversions.
+  This is separate from the passing maintained workspace lint lane.
+
+Review logs and the unavailable packaged-build result are retained locally in
+`artifacts/private-inbox/enrollment-review.EONAFv`. Task-owned probes, compiler and
+CocoaPods caches were removed after verification.
+
+Real Convex/JWT and protected Gmail two-device qualification, signed Mac
+Keychain/E2E without matching disposable-app profiles, and physical-device checks
+remain deferred before release. No legacy coverage is retired by this slice.
 
 ## Private Product Sync evidence, 2026-10-01
 

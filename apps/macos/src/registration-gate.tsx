@@ -1,4 +1,5 @@
 import type {
+  EnrollmentFailure,
   LinkFailure,
   RecoveryKeyFailure,
   Registration,
@@ -7,6 +8,7 @@ import type {
 import type { ReactNode } from 'react';
 
 import {
+  enrollmentCopy,
   linkFailureCopy,
   otherSignInProvider,
   privateSyncCopy,
@@ -132,6 +134,17 @@ function PrivateSync({
           )}
         </>
       )}
+      {copy.enrollmentCode === undefined ? null : (
+        <>
+          <Text
+            selectable
+            testID="enrollment-code"
+            style={[styles.recoveryKey, { color: colors.foreground }]}>
+            {copy.enrollmentCode}
+          </Text>
+          {button(enrollmentCopy.check, store.refreshPrivateSync)}
+        </>
+      )}
       {copy.mailboxes === undefined ? null : (
         <Text style={[styles.text, { color: colors.secondary }]}>
           {copy.mailboxes}
@@ -142,6 +155,82 @@ function PrivateSync({
           {copy.pending}
         </Text>
       )}
+    </>
+  );
+}
+
+// A trusted device approves another device only with the code that device shows.
+function DeviceApproval({
+  account,
+  button,
+  failure,
+  store,
+}: {
+  readonly account: Readonly<{
+    privateSync?: string;
+    enrollmentRequest?: string;
+    enrollmentDevice?: string;
+  }>;
+  readonly button: (label: string, action: () => Promise<void>) => ReactNode;
+  readonly failure: EnrollmentFailure | undefined;
+  readonly store: Registration;
+}) {
+  const colors = usePalette();
+  const [entry, setEntry] = useState('');
+  const { enrollmentRequest: request } = account;
+  if (
+    account.privateSync !== 'ready' &&
+    account.privateSync !== 'recovery-key'
+  ) {
+    return null;
+  }
+  const alert =
+    failure === undefined ? null : (
+      <Text
+        accessibilityRole="alert"
+        style={[styles.text, { color: colors.foreground }]}>
+        {enrollmentCopy[failure]}
+      </Text>
+    );
+  if (request === undefined) {
+    return (
+      <>
+        {alert}
+        {button(enrollmentCopy.find, store.refreshPrivateSync)}
+      </>
+    );
+  }
+  return (
+    <>
+      <Text
+        accessibilityRole="header"
+        style={[styles.heading, { color: colors.foreground }]}>
+        {enrollmentCopy.title}
+      </Text>
+      <Text style={[styles.text, { color: colors.secondary }]}>
+        {enrollmentCopy.description(account.enrollmentDevice ?? 'device')}
+      </Text>
+      <TextInput
+        accessibilityLabel={enrollmentCopy.label}
+        autoCapitalize="characters"
+        autoComplete="off"
+        autoCorrect={false}
+        onChangeText={setEntry}
+        placeholder={enrollmentCopy.label}
+        placeholderTextColor={colors.secondary}
+        style={[
+          styles.input,
+          { borderColor: colors.separator, color: colors.foreground },
+        ]}
+        value={entry}
+      />
+      {alert}
+      {button(enrollmentCopy.approve, () =>
+        store.approveEnrollment(request, entry),
+      )}
+      {button(enrollmentCopy.decline, () => store.declineEnrollment(request))}
+      {/* A request that expired or was handled elsewhere is replaced by the newest one. */}
+      {button(enrollmentCopy.find, store.refreshPrivateSync)}
     </>
   );
 }
@@ -216,8 +305,14 @@ export function RegistrationGate({
   readonly store?: Registration;
   readonly preview?: boolean;
 }) {
-  const { snapshot, busy, failed, linkFailure, recoveryKeyFailure } =
-    useSyncExternalStore(store.subscribe, store.getSnapshot);
+  const {
+    snapshot,
+    busy,
+    failed,
+    linkFailure,
+    recoveryKeyFailure,
+    enrollmentFailure,
+  } = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const colors = usePalette();
   const copy = registrationCopy(snapshot);
   useEffect(() => {
@@ -303,6 +398,16 @@ export function RegistrationGate({
             account={snapshot}
             button={button}
             failure={recoveryKeyFailure}
+            store={store}
+          />
+        )}
+        {snapshot.kind === 'signed-out' ? null : (
+          <DeviceApproval
+            // A code typed for one request never carries over to the next.
+            key={snapshot.enrollmentRequest ?? 'none'}
+            account={snapshot}
+            button={button}
+            failure={enrollmentFailure}
             store={store}
           />
         )}

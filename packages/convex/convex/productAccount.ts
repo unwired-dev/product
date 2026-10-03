@@ -36,6 +36,8 @@ export const gmailLegacyRouteFallbackLimit = 100;
 const trustedDeviceLimitPerProductAccount = 100;
 const trustedDeviceIdentifierMigrationBatchLimit = 100;
 const trustedDeviceNameMaximumLength = 80;
+// Each new enrollment request replaces the device's earlier ones.
+const enrollmentRequestCleanupLimit = 10;
 const recoveryPayloadIdentifier = 'product-account-recovery-v1';
 const recoveryWrappedAccountKeySchemaVersion = 2;
 
@@ -138,6 +140,12 @@ async function preserveOrIssueTrustedDeviceCredential(
   return credential;
 }
 
+export function trustedDeviceDisplayName(
+  device: Readonly<Pick<Doc<'trustedDevices'>, 'displayName' | 'platform'>>,
+): string {
+  return device.displayName ?? defaultTrustedDeviceName(device.platform);
+}
+
 function trustedDeviceSummary(device: Readonly<Doc<'trustedDevices'>>): {
   displayName: string;
   id: string;
@@ -146,8 +154,7 @@ function trustedDeviceSummary(device: Readonly<Doc<'trustedDevices'>>): {
   registeredAt: number;
 } {
   return {
-    displayName:
-      device.displayName ?? defaultTrustedDeviceName(device.platform),
+    displayName: trustedDeviceDisplayName(device),
     id: device._id,
     lastSeenAt: device.lastSeenAt,
     platform: device.platform,
@@ -594,6 +601,22 @@ async function deleteTrustedDeviceHeartbeat(
   }
 }
 
+// A removed device's pending or approved enrollment can no longer be collected.
+async function deleteTrustedDeviceEnrollmentRequests(
+  ctx: MutationCtx,
+  trustedDeviceId: Id<'trustedDevices'>,
+): Promise<void> {
+  const requests = await ctx.db
+    .query('productSyncEnrollmentRequests')
+    .withIndex('by_trustedDeviceId', (q) =>
+      q.eq('trustedDeviceId', trustedDeviceId),
+    )
+    .take(enrollmentRequestCleanupLimit);
+  for (const request of requests) {
+    await ctx.db.delete('productSyncEnrollmentRequests', request._id);
+  }
+}
+
 async function legacyGmailRouteSnapshot(
   ctx: MutationCtx,
   productAccountId: Id<'productAccounts'>,
@@ -792,6 +815,7 @@ async function deleteTrustedDeviceAndRoutes(
     trustedDeviceId,
   );
   await deleteTrustedDeviceHeartbeat(ctx, trustedDeviceId);
+  await deleteTrustedDeviceEnrollmentRequests(ctx, trustedDeviceId);
   if ((await ctx.db.get('trustedDevices', trustedDeviceId)) !== null) {
     await ctx.db.delete('trustedDevices', trustedDeviceId);
   }

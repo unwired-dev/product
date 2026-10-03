@@ -3025,6 +3025,21 @@ describe('gmail operational connection registration', () => {
         productAccountId: currentDevice.productAccountId,
         updatedAt: now,
       });
+      await ctx.db.insert('productSyncEnrollmentRequests', {
+        approval: {
+          approvedAt: now,
+          approvedByTrustedDeviceId: currentDevice.trustedDeviceId,
+          ciphertextBase64: 'c2VhbGVkIGtleSByaW5n',
+          encapsulatedKeyBase64: `${'B'.repeat(43)}=`,
+          keyVersion: 1,
+        },
+        createdAt: now,
+        enrollmentPublicKey: `${'A'.repeat(43)}=`,
+        expiresAt: now + 15 * 60 * 1000,
+        productAccountId: currentDevice.productAccountId,
+        state: 'approved',
+        trustedDeviceId: otherDevice.trustedDeviceId,
+      });
     });
 
     await expect(
@@ -3038,6 +3053,9 @@ describe('gmail operational connection registration', () => {
         accounts: await ctx.db.query('productAccounts').collect(),
         bindings: await ctx.db.query('gmailOpaqueIdentityBindings').collect(),
         devices: await ctx.db.query('trustedDevices').collect(),
+        enrollments: await ctx.db
+          .query('productSyncEnrollmentRequests')
+          .collect(),
         heartbeats: await ctx.db.query('devicePushRouteHeartbeats').collect(),
         payloads: await ctx.db.query('encryptedProductSyncPayloads').collect(),
         routes: await ctx.db.query('mailProviderConnections').collect(),
@@ -3048,6 +3066,7 @@ describe('gmail operational connection registration', () => {
       accounts: [],
       bindings: [],
       devices: [],
+      enrollments: [],
       heartbeats: [],
       payloads: [],
       routes: [],

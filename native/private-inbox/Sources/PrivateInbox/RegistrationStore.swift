@@ -6,6 +6,8 @@ enum RegistrationError: Error {
   case identityOwned, staleAuthentication
   // The entry does not match the end of the Recovery Key shown for setup.
   case recoveryKeyMismatch
+  // Enrollment: a mistyped approval code, or a request that can no longer be approved.
+  case enrollmentCodeInvalid, enrollmentUnavailable
 }
 
 enum SignInProvider: String, Codable {
@@ -116,6 +118,8 @@ struct SavedRegistration: Codable {
   let productSync: ProductSyncBackend?
   // The latest verified Product Sign-In in this process; Apple tokens cannot be renewed silently.
   var session: ProductSignInIdentity?
+  // Other devices' enrollment requests by Product Account, as last listed in this process.
+  var enrollmentRequests: [String: [PendingEnrollment]] = [:]
 
   init(
     keys: DeviceKeychain, deployment: String, clientID: String,
@@ -288,8 +292,7 @@ struct SavedRegistration: Codable {
     product.signInProviders = providers
     saved.product = product
     try save(saved)
-    return try saved.mailbox != nil && saved.mailboxSetupReason == nil
-      ? connected(saved) : pending(saved)
+    return try status(saved)
   }
 
   // Confirms the retained Product Sign-In without an interactive session.
