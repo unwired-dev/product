@@ -1,6 +1,6 @@
 // Changesets rejects a pending changeset for a package outside the workspace only
 // when versioning, which blocks every release. Fail the pull request instead.
-import { readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 
@@ -20,11 +20,18 @@ const packages = new Set(
   ),
 );
 const failures = [];
-for (const file of readdirSync(new URL('.changeset', root))) {
+// Versioning also reads prerelease changesets from .changeset/pre.
+const pre = new URL('.changeset/pre/', root);
+const files = [
+  ...readdirSync(new URL('.changeset', root)),
+  ...(existsSync(pre) ? readdirSync(pre).map((file) => `pre/${file}`) : []),
+];
+for (const file of files) {
+  const name = file.replace(/^pre\//u, '');
   if (
-    file.startsWith('.') ||
-    !file.endsWith('.md') ||
-    /^(?:readme|agents|claude|gemini)\.md$/iu.test(file)
+    name.startsWith('.') ||
+    !name.endsWith('.md') ||
+    /^(?:readme|agents|claude|gemini)\.md$/iu.test(name)
   ) {
     continue;
   }
