@@ -131,8 +131,8 @@ mise exec -- pnpm exec turbo run lint format check-types test \
 
 CI runs synthetic provider/application tests and both native runner contracts
 on Linux. Tool stubs prove orchestration, ownership, failure handling and cleanup;
-they are not native execution. The existing Expo native E2E CI job builds the
-selected synthetic scenario and exercises real storage on iPhone and iPad 27.
+they are not native execution. The existing Expo native CI jobs build the
+selected synthetic scenario and exercise real storage on iPhone and iPad 27.
 Mac execution requires the profile and a logged-in macOS 27 desktop with UI-test
 permission, so it is not added to an unsigned hosted runner.
 
