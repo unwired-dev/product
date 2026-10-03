@@ -79,7 +79,13 @@ generated project retains hardened runtime for distribution signing.
 Google and Apple sign-in, and persistence, require the
 [Keychain signing setup](private-inbox-storage.md#native-wiring-and-signing).
 Google's SDK reports `com.google.GIDSignIn` code `-2` when it cannot store
-credentials in Keychain; ad-hoc builds report locked storage. All
+credentials in Keychain; ad-hoc builds report locked storage. Signed builds
+run in the App Sandbox with outgoing network access only, so their store lives
+in `~/Library/Containers/dev.unwired.mail`. Ad-hoc builds also run in the sandbox
+with outgoing network access, but omit profile-required Apple sign-in and Keychain
+entitlements. Debug connects to Metro as a network client. The bundle ID is `dev.unwired.mail`, shared with the
+iPhone/iPad host, and the version comes from `apps/macos/package.json`. Both
+hosts build their icon from `native/app-icon/UnwiredMail.icon`. All
 configurations target macOS 27. Release embeds `main.jsbundle`; it never falls
 back to Metro. Distribution signing and App Store archives remain
 unqualified.
@@ -134,7 +140,7 @@ and a profile covering `dev.unwired.mock.*`, selected using
 `UNWIRED_SIGNING_IDENTITY` and `UNWIRED_MOCK_PROFILE`. Keep the identity as the
 generic `Apple Development`; the automatically signed build rejects a full
 certificate name. It signs an external cleanup
-helper for the same isolated Keychain group. The ordinary preview app and its
+helper for the same isolated Keychain group. The ordinary app and its
 store are preserved. Without that profile, record native execution as deferred;
 component, bundle and runner contracts remain available.
 
@@ -149,13 +155,13 @@ automation permission. The runner uses its own probe project and result director
 and rejects zero-test success. XCTest terminates its launched app on failure.
 
 Only `Testing` compiles the synthetic application-scoped work timer and JSONL
-probe. The test creates a temporary output file and supplies `UNWIRED_LIFECYCLE_PATH`;
+probe. The runner creates `lifecycle.jsonl` in its evidence directory, and the test supplies `UNWIRED_LIFECYCLE_PATH`;
 the application never creates a test-control server or accepts reset commands.
 Records contain only lifecycle event names, process/session identity, window
 counts and tick counts. Release compiles out the probe and timer. Ordinary local
 OS logs contain lifecycle names and window counts, never message content.
 
-The lifecycle JSONL is an XCTest attachment; the test deletes its temporary file.
+The lifecycle JSONL is an XCTest attachment and remains in the runner's evidence directory.
 Results live in `artifacts/macos-inbox/journey.*`. Capture visual evidence
 separately through native UI automation; XCTest window screenshots fail on the
 qualification host’s multi-display setup. Preserve native,

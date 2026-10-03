@@ -105,7 +105,7 @@ for (const [scenario, expectedExit, testExit, log, cleanupExit, terminate] of ma
       writeFileSync(join(nativeTests, 'WindowTests.swift'), '');
       writeFileSync(join(nativeTests, 'create-project.rb'), '');
       const original = plist({
-        CFBundleIdentifier: 'dev.unwired.mail.macos.preview',
+        CFBundleIdentifier: 'dev.unwired.mail',
         UnwiredMockScenario: 'open-read-relaunch',
       });
       writeFileSync(join(source, 'Contents/Info.plist'), original);
@@ -173,6 +173,10 @@ if (command === 'xcodebuild') {
         `<string>LEGACY1234.${ownership.bundleIdentifier}</string>`,
       ));
       assert.match(entitlements, /<string>SYNTHETIC<\/string>/u);
+      assert.match(
+        entitlements,
+        /<key>com\.apple\.security\.app-sandbox<\/key>\s*<true\/>/u,
+      );
       assert.doesNotMatch(entitlements, /SYNTHETIC\.dev\.unwired\.mock/u);
       assert.equal(
         readFileSync(join(source, 'Contents/Info.plist'), 'utf8'),

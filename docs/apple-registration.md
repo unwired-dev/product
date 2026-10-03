@@ -48,8 +48,8 @@ the Gmail step as remaining, exactly as for Google registration.
 
 ## Configure the hosts
 
-Enable Sign in with Apple for the iPhone/iPad App ID `dev.unwired.mail.preview`
-and the Mac App ID `dev.unwired.mail.macos.preview`. The Expo config
+Both hosts use the bundle ID `dev.unwired.mail`. Enable Sign in with Apple for
+that App ID on iOS and macOS. The Expo config
 declares the entitlement for generated iOS projects. The Mac entitlements file declares
 it for signed builds. Every development profile used to sign the Mac `Testing` build
 must include the capability. Ad-hoc Mac builds compile, but the system rejects
@@ -61,14 +61,10 @@ scheme. Google still needs its reversed client-ID URL scheme and configured
 `UNWIRED_GOOGLE_CLIENT_ID` for the Gmail step. Apple-first registration therefore
 needs the same [Google host configuration](google-registration.md#configure-the-hosts).
 
-Set `APPLE_PRODUCT_CLIENT_IDS` on the Convex deployment to the comma-separated host
-bundle IDs, then deploy the auth configuration. These are public token audiences.
-`APPLE_BUNDLE_ID` continues to name the Swift prototype's audience.
-
-```sh
-npx convex env set APPLE_PRODUCT_CLIENT_IDS \
-  'dev.unwired.mail.preview,dev.unwired.mail.macos.preview'
-```
+`APPLE_BUNDLE_ID` on the Convex deployment names the hosts' token audience and
+defaults to `dev.unwired.mail`, which the Swift prototype shares. Set
+`APPLE_PRODUCT_CLIENT_IDS` only to accept further comma-separated bundle IDs, then
+deploy the auth configuration. These are public token audiences.
 
 ## Deterministic evidence
 
