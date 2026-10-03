@@ -119,6 +119,20 @@ const value = (flag) => args[args.indexOf(flag) + 1];
 const record = (name, text) => fs.appendFileSync(path.join(base, name), text + '\\n');
 if (process.env.UNRELATED_SECRET) throw Error('unrelated dotenv secret reached build');
 if (command === 'git') console.log(${JSON.stringify(sha)});
+if (command === 'pod') {
+  record('commands', 'pod install');
+  if (process.cwd() !== path.join(checkout, 'apps/mobile/ios')) throw Error('Expo Pods require the generated iOS project directory');
+  record('pod-attempts', process.cwd());
+  const attempts = fs.readFileSync(path.join(base, 'pod-attempts'), 'utf8').trim().split('\\n').length;
+  if (scenario === 'pod-failure') {
+    const runs = fs.readdirSync(path.join(checkout, 'artifacts/testflight'));
+    for (const host of ['ios', 'macos']) {
+      fs.mkdirSync(path.join(checkout, 'artifacts/testflight', runs[0], host + '-DerivedData'), { recursive: true });
+    }
+    process.exit(77);
+  }
+  if (scenario === 'pod-retry' && attempts < 3) process.exit(77);
+}
 if (command === 'pnpm' && args.includes('exec')) {
   const { spawnSync } = await import('node:child_process');
   const result = spawnSync(${JSON.stringify(process.execPath)}, args.slice(args.indexOf('node') + 1), { cwd: value('--dir'), env: process.env, stdio: 'inherit' });
@@ -175,6 +189,8 @@ for (const [scenario, platform, expected] of [
   ['success', 'both', 0],
   ['success', 'ios', 0],
   ['success', 'macos', 0],
+  ['pod-retry', 'ios', 0],
+  ['pod-failure', 'both', 1],
   ['archive-failure', 'ios', 1],
   ['export-failure', 'ios', 1],
   ['interrupted', 'ios', 143],
@@ -217,6 +233,21 @@ for (const [scenario, platform, expected] of [
           );
         }
         const commands = readFileSync(path.join(directory, 'commands'), 'utf8');
+        if (scenario.startsWith('pod-')) {
+          assert.equal(
+            readFileSync(path.join(directory, 'pod-attempts'), 'utf8'),
+            `${path.join(checkout, 'apps/mobile/ios')}\n`.repeat(3),
+          );
+        }
+        if (scenario === 'pod-failure') {
+          assert.equal(commands, 'pod install\npod install\npod install\n');
+          const status = readFileSync(path.join(run, 'status.txt'), 'utf8');
+          assert.equal(
+            status,
+            `Source: ${sha}; build: ${number}\nExit status: 1\n`,
+          );
+          assert.ok(!existsSync(path.join(directory, 'notes')));
+        }
         if (expected === 0) {
           assert.ok(commands.includes('-exportArchive'));
           assert.ok(
@@ -228,7 +259,12 @@ for (const [scenario, platform, expected] of [
           assert.ok(!commands.includes('-exportArchive'));
         }
         if (scenario.endsWith('failure')) {
-          assert.match(result.stderr, /Failed:/u);
+          assert.match(
+            result.stderr,
+            scenario === 'pod-failure'
+              ? /CocoaPods installation failed/u
+              : /Failed:/u,
+          );
         }
       } finally {
         rmSync(directory, { recursive: true, force: true });
