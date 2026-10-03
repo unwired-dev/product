@@ -22,6 +22,34 @@ import {
 import type { DataModel } from "./dataModel.js";
 
 /**
+ * Typesafe environment variables.
+ *
+ * This includes platform-provided env vars and any variables declared in
+ * `convex.config.ts`.
+ */
+type Env = {
+  readonly CONVEX_CLOUD_URL: string;
+  readonly CONVEX_SITE_URL: string;
+  readonly APNS_KEY_ID: string | undefined;
+  readonly APNS_PRIVATE_KEY: string | undefined;
+  readonly APNS_TEAM_ID: string | undefined;
+  readonly APNS_TOPIC: string | undefined;
+  readonly APPLE_BUNDLE_ID: string | undefined;
+  readonly APPLE_PRODUCT_CLIENT_IDS: string | undefined;
+  readonly APPLE_SIGN_IN_KEY_ID: string | undefined;
+  readonly APPLE_SIGN_IN_PRIVATE_KEY: string | undefined;
+  readonly APPLE_TEAM_ID: string | undefined;
+  readonly GMAIL_IDENTITY_BINDING_KEY: string | undefined;
+  readonly GMAIL_OAUTH_CLIENT_ID: string | undefined;
+  readonly GMAIL_PUSH_VERIFICATION_TOKEN: string | undefined;
+  readonly GMAIL_ROUTING_KEY: string | undefined;
+  readonly GMAIL_ROUTING_KEY_VERSION: string | undefined;
+  readonly GMAIL_ROUTING_PREVIOUS_KEY: string | undefined;
+  readonly GMAIL_ROUTING_PREVIOUS_KEY_VERSION: string | undefined;
+  readonly GOOGLE_PRODUCT_CLIENT_IDS: string | undefined;
+};
+
+/**
  * Define a query in this Convex app's public API.
  *
  * This function will be allowed to read your Convex database and will be accessible from the client.
@@ -95,7 +123,13 @@ export declare const internalAction: ActionBuilder<DataModel, "internal">;
  */
 export declare const httpAction: HttpActionBuilder;
 
-export declare const env: Record<string, string | undefined>;
+/**
+ * Typesafe environment variables.
+ *
+ * This includes platform-provided env vars and any variables declared in
+ * `convex.config.ts`.
+ */
+export declare const env: Env;
 
 /**
  * A set of services for use within Convex query functions.

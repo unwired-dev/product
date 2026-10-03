@@ -2,12 +2,12 @@ import { env } from './_generated/server.js';
 
 type GmailRoutingKey = Readonly<{ key: string; version: number }>;
 
-function environmentValue(name: string): string | undefined {
+function environmentValue(name: keyof typeof env): string | undefined {
   const value = env[name];
   return value === undefined || value.length === 0 ? undefined : value;
 }
 
-function routingKeyVersion(name: string, fallback?: number): number {
+function routingKeyVersion(name: keyof typeof env, fallback?: number): number {
   const value = environmentValue(name);
   const version = value === undefined ? fallback : Number(value);
   if (version === undefined || !Number.isSafeInteger(version) || version < 1) {

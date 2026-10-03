@@ -27,7 +27,7 @@ Run the Convex backend development environment:
 
 ```sh
 cp .env.example .env.local
-pnpm dev
+pnpm dev:convex
 ```
 
 `convex dev` fills in `CONVEX_DEPLOYMENT` after you log in. Set `CONVEX_URL` for the Apple app to the deployment URL shown by `convex dev`. When the HTTP-action endpoint cannot be derived from that URL, set `CONVEX_SITE_URL` explicitly. Debug builds running on the development Mac or in Simulator read `CONVEX_URL`, `CONVEX_SITE_URL`, the `EWS_OAUTH_*` settings, `GMAIL_OAUTH_CLIENT_ID`, `GMAIL_PUBSUB_TOPIC`, and `MICROSOFT_GRAPH_CLIENT_ID` from the repository-root `.env.local`; backend-only values are ignored. A physical iOS device cannot read the source-tree file. Provide `CONVEX_URL` and, when needed, `CONVEX_SITE_URL` as Xcode scheme environment variables; `LocalSigning.xcconfig` build settings are not bundled for `BackendEnvironment` to read. Other app build settings needed on a physical device can use the untracked `apps/unwired-mail/unwired-mail/LocalSigning.xcconfig` as documented below. Do not commit developer-specific Convex URLs or secrets.
@@ -173,7 +173,7 @@ CI keeps code signing disabled for simulator tests; only local runs that exercis
 
 Manual verification against a running Convex deployment:
 
-1. Start the backend with `pnpm dev` and set `CONVEX_URL` for the Apple app.
+1. Start the backend with `pnpm dev:convex` and set `CONVEX_URL` for the Apple app.
 2. Launch the app, sign in with Apple, and confirm the authenticated screen shows product account and trusted device identifiers.
 3. Sign out, sign in again with the same Apple ID, and confirm the product account identifier stays the same while device registration resumes cleanly.
 4. Automated coverage lives in `packages/convex/test/productAccount.test.ts` and the Apple unit tests under `apps/unwired-mail/unwired-mailTests/`.
