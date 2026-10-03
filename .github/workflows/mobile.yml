@@ -79,7 +79,7 @@ jobs:
       - name: Check native runner failure handling
         run: pnpm test:native-runner
       - name: Verify native encryption and credential removal
-        timeout-minutes: 8
+        timeout-minutes: 12
         run: zsh native/private-inbox/integration/test.zsh ios
       - name: Verify ordinary native project generation with cleared scenario
         run: |

@@ -74,7 +74,7 @@ mock marker. Follow [Mac setup](macos-client.md#build-and-run):
 ```sh
 UNWIRED_MOCK_SCENARIO=open-read-relaunch \
 mise exec -- pnpm --filter @private-email/macos native:build Testing
-UNWIRED_SIGNING_IDENTITY='Apple Development: <configured identity>' \
+UNWIRED_SIGNING_IDENTITY='Apple Development' \
 UNWIRED_MOCK_PROFILE='/absolute/path/to/mock-only.provisionprofile' \
 mise exec -- pnpm --filter @private-email/macos test:native \
   "$PWD/artifacts/macos-inbox/DerivedData/Build/Products/Testing/UnwiredMail.app"
