@@ -73,7 +73,7 @@ not itself restrict filesystem or Git-history access.
 
 1. Read applicable agent guides, the
    [architecture index](../architecture/README.md), [domain policy](domain.md), and architecture
-   docs relevant to the changed behavior. Read ADR 0059 through 0064 for replacement
+   docs relevant to the changed behavior. Read ADR 0059 through 0065 for replacement
    scope and dependencies, plus affected earlier or later decisions. Their
    replacement decisions take precedence where they supersede prototype behavior.
    Historical prototype plans do not expand the approved scope.

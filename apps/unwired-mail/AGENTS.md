@@ -3,7 +3,7 @@
 This directory contains the existing SwiftUI and Mac Catalyst prototype. These
 instructions apply while it remains in use. The Expo and native React Native Mac
 replacement follows [the root guide](../../AGENTS.md). The pinned review agent
-reads ADR 0059 through 0064 under the
+reads ADR 0059 through 0065 under the
 [implementation and review workflow](../../docs/agents/implementation-review.md).
 Do not carry this SwiftUI architecture or its mail engines into the replacement.
 Remove this guide when [cutover #627](https://github.com/unwired-dev/product/issues/627)

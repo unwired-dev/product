@@ -18,7 +18,7 @@ recovery envelope and the publication and confirmation state.
 - **Records.** AES-GCM-256 with a fresh random 96-bit nonce for every seal.
   The authenticated data binds the Product Account ID, the opaque record
   identifier, the algorithm, the key epoch and the record schema. Convex stores
-  only the nonce, ciphertext, tag, key epoch and schema, plus its own row metadata
+  only the algorithm, nonce, ciphertext, tag, key epoch and schema, plus its own row metadata
   such as `updatedAt` for compare-and-set. Changing any sealed field, moving a record
   to another identifier or account, or relabelling its epoch fails authentication;
   row metadata is not authenticated. Records with an unexpected schema are rejected.

@@ -37,7 +37,7 @@ overwrite completed changes using an older snapshot. An error never falls back t
 The synthetic credential fixture creates, uses and removes a random secret only
 in native code, independently of the database key. It has no JavaScript secret getter, network client,
 logging, or Convex integration. Removing it leaves the database key intact. It
-is an integration fixture, not Gmail authorization or a production token API. The app has no provider or backend connection in this slice.
+is an integration fixture, not Gmail authorization or a production token API.
 
 ## Native wiring and signing
 

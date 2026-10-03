@@ -54,7 +54,7 @@ release scopes; a moved passage is not a new requirement or proof of qualificati
 - [Complete ticket and dependency coverage](../qualification/expo-rewrite-ticket-coverage.md)
 
 The review agent checks applicable privacy, encryption, identity-isolation, transport, and
-delivery guarantees in the earlier [ADRs](../adr/). ADR 0059 through 0064 take
+delivery guarantees in the earlier [ADRs](../adr/). ADR 0059 through 0065 take
 precedence where they explicitly replace prototype architecture or release scope.
 Earlier provider support, Profile features, Apple-only login, and cross-device
 scheduled delivery are not implicit first-release requirements.
@@ -63,7 +63,7 @@ scheduled delivery are not implicit first-release requirements.
 
 These directories remain whole reviewer-only sources; use their original filenames.
 
-- [Architecture decision records](../adr/): accepted replacement decisions and earlier privacy, identity, transport and delivery decisions.
+- [Architecture decision records](../adr/README.md): an index of every ADR, with duplicate numbers disambiguated; accepted replacement decisions and earlier privacy, identity, transport and delivery decisions.
 - [Code documentation and architecture patterns](../../.patterns/README.md).
 - [Technical research](../research/expo-react-native-rewrite.md).
 - [Platform and provider qualification](../qualification/).

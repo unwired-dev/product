@@ -9,13 +9,21 @@ and lockfile with named catalogs. This supersedes the original requirement for
 independent workspace roots and lockfiles, while retaining native renderer
 compatibility boundaries.
 
+Amended on 2026-09-29 when the Mac host was added
+([#675](https://github.com/unwired-dev/product/pull/675)): `catalogs.macos` now
+owns the Mac renderer line, and the Mac bundle inventory and autolinking checks
+run in Mac CI. The passages below that describe the Mac catalog and Mac
+qualification as future work record the original decision.
+
 The Expo mobile host and the React Native macOS host have different supported
 React Native and React renderer versions. The default catalog owns shared tooling
 and Effect; `catalogs.mobile` owns the Expo-compatible renderer and native packages.
 Add a separate Mac catalog when its actual host is implemented and qualified.
 Do not force both hosts onto one renderer version. Continue using pnpm 11.5.2.
 
-The mobile bootstrap uses Expo 57.0.25, React Native 0.86.3 and React 19.2.3.
+The mobile bootstrap used Expo 57.0.25, React Native 0.86.3 and React 19.2.3.
+The named catalogs in `pnpm-workspace.yaml` are the source of truth for current
+versions.
 The earlier independent-installation probe used Expo 57.0.21 for mobile and
 React Native macOS 0.81.9, React Native 0.81.6 and React 19.1.4 for Mac. Its
 [qualification record](../qualification/expo-react-native-client.md) is historical;
