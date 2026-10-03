@@ -139,7 +139,8 @@ upload() {
 
 if [[ "$platform" != macos ]]; then
   pnpm --dir "$root" --filter @private-email/mobile native:generate --clean --no-install
-  pods pod install --project-directory="$root/apps/mobile/ios"
+  # The Podfile resolves Expo and its autolinking script from its own directory.
+  (builtin cd -q "$root/apps/mobile/ios" && pods pod install)
   upload ios "$root/apps/mobile/ios/UnwiredMail.xcworkspace" 'generic/platform=iOS' Info.plist
 fi
 if [[ "$platform" != ios ]]; then

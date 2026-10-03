@@ -32,6 +32,7 @@ function fixture(scenario, { dotenv = false } = {}) {
   for (const folder of [
     'scripts',
     'apps/mobile/scripts',
+    'apps/mobile/ios',
     'apps/macos/dist',
     'packages/mail-core/src',
   ]) {
