@@ -110,9 +110,8 @@ final class WindowTests: XCTestCase {
     continueAfterFailure = false
     let environment = ProcessInfo.processInfo.environment
     let appURL = URL(fileURLWithPath: try XCTUnwrap(environment["UNWIRED_APP_PATH"]))
-    let evidence = FileManager.default.temporaryDirectory
-      .appendingPathComponent("unwired-lifecycle-\(UUID().uuidString).jsonl")
-    try Data().write(to: evidence)
+    // The sandboxed session writes the runner-created record; this sandboxed probe only reads it.
+    let evidence = appURL.deletingLastPathComponent().appendingPathComponent("lifecycle.jsonl")
     addTeardownBlock { [self] in
       if let data = try? Data(contentsOf: evidence) {
         let attachment = XCTAttachment(data: data, uniformTypeIdentifier: "public.json")
@@ -120,7 +119,6 @@ final class WindowTests: XCTestCase {
         attachment.lifetime = .keepAlways
         add(attachment)
       }
-      try? FileManager.default.removeItem(at: evidence)
     }
     let app = XCUIApplication(url: appURL)
     app.launchEnvironment["UNWIRED_LIFECYCLE_PATH"] = evidence.path
@@ -207,7 +205,7 @@ final class WindowTests: XCTestCase {
     reopened.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Oliver Park")).firstMatch
       .click()
     XCTAssertTrue(address(reopened, "oliver@example.com").waitForExistence(timeout: 10))
-    app.menuBars.menuBarItems["Unwired Mail Preview"].click()
+    app.menuBars.menuBarItems["Unwired Mail"].click()
     app.menuItems["Quit Unwired Mail"].click()
     XCTAssertTrue(app.wait(for: .notRunning, timeout: 10))
     let records = try events()

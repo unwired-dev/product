@@ -2,7 +2,7 @@
 set -euo pipefail
 
 if [[ $# == 0 || ! -d "$1" || "$1" != *.app ]]; then
-  print -u2 'Usage: pnpm test:native /absolute/path/to/Release-iphonesimulator/UnwiredMailPreview.app [simulator device type ...]'
+  print -u2 'Usage: pnpm test:native /absolute/path/to/Release-iphonesimulator/UnwiredMail.app [simulator device type ...]'
   exit 2
 fi
 source_app="${1:A}"

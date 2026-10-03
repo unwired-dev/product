@@ -3,6 +3,7 @@ import { env } from 'node:process';
 import type { ExpoConfig } from 'expo/config';
 
 import scenarios from '../../scripts/mock-mail-scenarios.json';
+import manifest from './package.json';
 
 const mockScenario: unknown = env.UNWIRED_MOCK_SCENARIO;
 if (
@@ -27,17 +28,18 @@ if (
 }
 
 const config: ExpoConfig = {
-  name: 'Unwired Mail Preview',
-  slug: 'unwired-mail-preview',
-  scheme: googleClientID
-    ? ['unwired-mail-preview', googleScheme]
-    : 'unwired-mail-preview',
-  version: '0.1.0',
+  name: 'Unwired Mail',
+  slug: 'unwired-mail',
+  scheme: googleClientID ? ['unwired-mail', googleScheme] : 'unwired-mail',
+  version: manifest.version,
   platforms: ['ios'],
   userInterfaceStyle: 'automatic',
   ios: {
-    bundleIdentifier: 'dev.unwired.mail.preview',
+    bundleIdentifier: 'dev.unwired.mail',
+    icon: '../../native/app-icon/UnwiredMail.icon',
     supportsTablet: true,
+    // Only Apple's system cryptography and HTTPS are used.
+    config: { usesNonExemptEncryption: false },
     // Native Sign in with Apple; declared directly because no Expo module supplies it.
     entitlements: { 'com.apple.developer.applesignin': ['Default'] },
     infoPlist: {

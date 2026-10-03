@@ -14,8 +14,11 @@ group = project.main_group.new_group('UnwiredMail', 'UnwiredMail')
 target.add_file_references(%w[main.mm AppDelegate.mm].map { |name| group.new_file(name) })
 group.new_file('AppDelegate.h')
 group.new_file('Info.plist')
+icon = project.main_group.new_file('../../../native/app-icon/UnwiredMail.icon')
+target.resources_build_phase.add_file_reference(icon)
 info = Xcodeproj::Plist.read_from_path('UnwiredMail/Info.plist')
 info.delete('UnwiredMockScenario')
+info['CFBundleShortVersionString'] = JSON.parse(File.read('../package.json')).fetch('version')
 client_id = ENV.fetch('UNWIRED_GOOGLE_CLIENT_ID', '')
 raise 'Invalid native Google OAuth client ID' unless client_id.empty? || client_id.match?(/\A[0-9A-Za-z-]+\.apps\.googleusercontent\.com\z/)
 info['GIDClientID'] = client_id
@@ -36,7 +39,8 @@ project.build_configurations.each do |configuration|
 end
 target.build_configurations.each do |configuration|
   configuration.build_settings.merge!({
-    'PRODUCT_BUNDLE_IDENTIFIER' => 'dev.unwired.mail.macos.preview',
+    'PRODUCT_BUNDLE_IDENTIFIER' => 'dev.unwired.mail',
+    'ASSETCATALOG_COMPILER_APPICON_NAME' => 'UnwiredMail',
     'INFOPLIST_FILE' => configuration.name == 'Testing' ? 'UnwiredMail/Info.testing.plist' : 'UnwiredMail/Info.generated.plist',
     'UNWIRED_MOCK_SCENARIO' => configuration.name == 'Testing' ? (scenario || '') : '',
     'CLANG_ENABLE_OBJC_ARC' => 'YES',

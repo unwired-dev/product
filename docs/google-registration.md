@@ -45,8 +45,8 @@ that wins initialization presents the Recovery Key; another device of that accou
 
 ## Configure the hosts
 
-Create separate native OAuth clients for the exact iPhone/iPad and Mac bundle IDs
-in the protected Google project. Both use Google's iOS/macOS SDK configuration,
+Create a native OAuth client for the hosts' shared bundle ID `dev.unwired.mail`
+in the protected Google project. Both hosts use Google's iOS/macOS SDK configuration,
 including the reversed client-ID URL scheme. Enable Gmail API and review the
 consent screen's restricted scope and test-user configuration. Do not provide a
 web client secret or send provider refresh credentials to Convex.

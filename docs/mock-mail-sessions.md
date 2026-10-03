@@ -54,13 +54,13 @@ UNWIRED_MOCK_SCENARIO=open-read-relaunch mise exec -- pnpm --filter @private-ema
 cd apps/mobile/ios
 pod install
 cd ../../..
-xcodebuild build -workspace apps/mobile/ios/UnwiredMailPreview.xcworkspace \
-  -scheme UnwiredMailPreview -configuration Release -sdk iphonesimulator \
+xcodebuild build -workspace apps/mobile/ios/UnwiredMail.xcworkspace \
+  -scheme UnwiredMail -configuration Release -sdk iphonesimulator \
   -destination 'generic/platform=iOS Simulator' \
   -derivedDataPath artifacts/mock-mail/DerivedData \
   CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- ARCHS=arm64
 mise exec -- pnpm --filter @private-email/mobile test:native \
-  "$PWD/artifacts/mock-mail/DerivedData/Build/Products/Release-iphonesimulator/UnwiredMailPreview.app"
+  "$PWD/artifacts/mock-mail/DerivedData/Build/Products/Release-iphonesimulator/UnwiredMail.app"
 ```
 
 The runner copies the marked app, assigns a random `dev.unwired.mock.<run>`
@@ -88,7 +88,10 @@ or the profile's wildcard identifier. The application and Keychain identifiers
 use the profile's App ID prefix, which may differ from its team ID. The runner
 does not create portal resources or request provisioning updates. The disposable app and external cleanup helper
 use an application identifier and Keychain access group for that exact random
-run ID. They never inherit the original app's Keychain access groups. An ad-hoc
+run ID. They never inherit the original app's Keychain access groups. Both run in
+the App Sandbox, as signed hosts do. The session's only extra entitlement is
+write access to its own evidence directory, where the runner creates
+`lifecycle.jsonl` for it. An ad-hoc
 Mac app cannot access the Data Protection Keychain and is insufficient evidence.
 If this profile is unavailable, native Mac E2E remains deferred before release;
 compilation, bundles, deterministic application tests and runner contracts still
@@ -113,7 +116,7 @@ bundle identity before touching another process or storage. It terminates only
 that generated identity,
 deletes every item in its exact database and registration Keychain services, including
 Product Sync keys and synthetic records, and removes its Application Support
-directory. Cleanup failure fails the run. If Mac cleanup fails, the signed cleanup helper
+directory. The runner then removes that identity's sandbox container. Cleanup failure fails the run. If Mac cleanup fails, the signed cleanup helper
 is retained with the ownership record for retry. Evidence remains for diagnosis.
 No system can guarantee trap execution after SIGKILL or power loss; retained
 ownership records identify resources for explicit recovery. Never use global

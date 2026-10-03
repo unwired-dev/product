@@ -79,7 +79,12 @@ generated project retains hardened runtime for distribution signing.
 Google and Apple sign-in, and persistence, require the
 [Keychain signing setup](private-inbox-storage.md#native-wiring-and-signing).
 Google's SDK reports `com.google.GIDSignIn` code `-2` when it cannot store
-credentials in Keychain; ad-hoc builds report locked storage. All
+credentials in Keychain; ad-hoc builds report locked storage. Signed builds
+run in the App Sandbox with outgoing network access only, so their store lives
+in `~/Library/Containers/dev.unwired.mail`; ad-hoc builds carry no entitlements
+and stay unsandboxed. The bundle ID is `dev.unwired.mail`, shared with the
+iPhone/iPad host, and the version comes from `apps/macos/package.json`. Both
+hosts build their icon from `native/app-icon/UnwiredMail.icon`. All
 configurations target macOS 27. Release embeds `main.jsbundle`; it never falls
 back to Metro. Distribution signing and App Store archives remain
 unqualified.
@@ -134,7 +139,7 @@ and a profile covering `dev.unwired.mock.*`, selected using
 `UNWIRED_SIGNING_IDENTITY` and `UNWIRED_MOCK_PROFILE`. Keep the identity as the
 generic `Apple Development`; the automatically signed build rejects a full
 certificate name. It signs an external cleanup
-helper for the same isolated Keychain group. The ordinary preview app and its
+helper for the same isolated Keychain group. The ordinary app and its
 store are preserved. Without that profile, record native execution as deferred;
 component, bundle and runner contracts remain available.
 

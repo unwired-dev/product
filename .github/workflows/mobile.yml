@@ -82,7 +82,7 @@ jobs:
       - name: Verify ordinary native project generation with cleared scenario
         run: |
           UNWIRED_MOCK_SCENARIO='' pnpm --filter @private-email/mobile native:generate --no-install
-          plutil -lint apps/mobile/ios/UnwiredMailPreview.xcodeproj/project.pbxproj
+          plutil -lint apps/mobile/ios/UnwiredMail.xcodeproj/project.pbxproj
           UNWIRED_MOCK_SCENARIO='' UNWIRED_BUILD_CONFIGURATION=Release ruby apps/macos/scripts/create-project.rb
           plutil -lint apps/macos/macos/UnwiredMail.xcodeproj/project.pbxproj
       - name: Upload native test evidence
@@ -135,8 +135,8 @@ jobs:
       - name: Build packaged Release app
         run: |
           xcodebuild build \
-            -workspace apps/mobile/ios/UnwiredMailPreview.xcworkspace \
-            -scheme UnwiredMailPreview -configuration Release -sdk iphonesimulator \
+            -workspace apps/mobile/ios/UnwiredMail.xcworkspace \
+            -scheme UnwiredMail -configuration Release -sdk iphonesimulator \
             -destination 'generic/platform=iOS Simulator' \
             -derivedDataPath artifacts/expo-bootstrap/DerivedData \
             -resultBundlePath artifacts/expo-bootstrap/build.xcresult \
@@ -145,15 +145,15 @@ jobs:
       - name: Package the app for the journey jobs
         # A tar archive keeps the executable bits and symlinks that artifact uploads drop.
         run: |
-          tar -cf artifacts/expo-bootstrap/UnwiredMailPreview.app.tar \
+          tar -cf artifacts/expo-bootstrap/UnwiredMail.app.tar \
             -C artifacts/expo-bootstrap/DerivedData/Build/Products/Release-iphonesimulator \
-            UnwiredMailPreview.app
+            UnwiredMail.app
       - name: Upload packaged app
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           # No attempt suffix: re-run journey jobs reuse the app from the original build.
           name: expo-native-app-${{ github.run_id }}
-          path: artifacts/expo-bootstrap/UnwiredMailPreview.app.tar
+          path: artifacts/expo-bootstrap/UnwiredMail.app.tar
           if-no-files-found: error
           overwrite: true
           retention-days: 7
@@ -207,11 +207,11 @@ jobs:
           path: artifacts/expo-bootstrap
       - name: Unpack packaged app
         run: |
-          tar -xf artifacts/expo-bootstrap/UnwiredMailPreview.app.tar -C "$RUNNER_TEMP"
-          rm artifacts/expo-bootstrap/UnwiredMailPreview.app.tar
+          tar -xf artifacts/expo-bootstrap/UnwiredMail.app.tar -C "$RUNNER_TEMP"
+          rm artifacts/expo-bootstrap/UnwiredMail.app.tar
       - name: Run ${{ matrix.device.name }} interaction journey
         timeout-minutes: 18
-        run: zsh apps/mobile/scripts/test-native.zsh "$RUNNER_TEMP/UnwiredMailPreview.app" "${{ matrix.device.type }}"
+        run: zsh apps/mobile/scripts/test-native.zsh "$RUNNER_TEMP/UnwiredMail.app" "${{ matrix.device.type }}"
       - name: Upload native test evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

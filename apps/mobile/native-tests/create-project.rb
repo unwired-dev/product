@@ -4,7 +4,7 @@ project = Xcodeproj::Project.new('InboxProbe.xcodeproj')
 target = project.new_target(:ui_test_bundle, 'InboxProbe', :ios, '27.0')
 target.add_file_references([project.main_group.new_file('InboxTests.swift')])
 target.build_configurations.each do |configuration|
-  configuration.build_settings['PRODUCT_BUNDLE_IDENTIFIER'] = 'dev.unwired.mail.preview.probe'
+  configuration.build_settings['PRODUCT_BUNDLE_IDENTIFIER'] = 'dev.unwired.mail.probe'
   configuration.build_settings['SWIFT_VERSION'] = '5.0'
   configuration.build_settings['GENERATE_INFOPLIST_FILE'] = 'YES'
   configuration.build_settings['CODE_SIGNING_ALLOWED'] = 'NO'

@@ -42,6 +42,11 @@ if host == 'macos':
     with entitlements_path.open('wb') as stream:
         plistlib.dump({'com.apple.application-identifier': prefix + '.' + identifier,
                       'com.apple.developer.team-identifier': team,
+                      'com.apple.security.app-sandbox': True,
+                      'com.apple.security.network.client': True,
+                      # Test-only signing: the sandboxed session records evidence beside its copy.
+                      'com.apple.security.temporary-exception.files.absolute-path.read-write':
+                          [str(destination.parent) + '/'],
                       'keychain-access-groups': [prefix + '.' + identifier]}, stream)
 # Record ownership before mutation so preparation failures can be cleaned up.
 record = {'version': 1, 'kind': 'mock-mail-session', 'scenario': info['UnwiredMockScenario'],
