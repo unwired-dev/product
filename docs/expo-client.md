@@ -14,8 +14,8 @@ and Swift prototype remain available. The [native Mac host](macos-client.md) con
 Production launches offer [Apple](apple-registration.md) or [Google](google-registration.md)
 registration with separate Gmail consent. Either can later be [linked](linked-sign-in.md)
 as the other sign-in method. A new account [initializes private Product Sync](private-product-sync.md):
-the device that wins initialization presents the Recovery Key, and a competing device
-enters enrollment. Configure the native client ID and Convex deployment when generating the host.
+the device that wins initialization presents the Recovery Key. Another device of
+that account shows a code and [waits for a Trusted Device to approve it](private-product-sync.md#approving-a-new-device). Configure the native client ID and Convex deployment when generating the host.
 Select an explicit Mock Mail Session to run the synthetic Inbox journeys.
 
 ## Dependencies and coding rules
@@ -142,8 +142,9 @@ This is bundle evidence, not a substitute for a native build or interaction test
 The primary CI job runs lint, formatting, types and tests for mobile, core,
 contracts and the retained Convex backend, plus the Effect import-policy tests.
 The Mobile workflow checks Fallow, Expo compatibility and the production bundle.
-Its `Expo native E2E` job also builds the Release app and runs the iPhone/iPad
-interaction journey on pull requests ready for review and pushes to `main`.
+Its native jobs also build the Release app once and run the iPhone and iPad
+interaction journeys in parallel `Expo native E2E` jobs on pull requests ready
+for review and pushes to `main`.
 Legacy Swift CI and manual qualification jobs are disabled by maintainer decision.
 
 A focused native XCTest journey is also available through the
@@ -163,12 +164,13 @@ mise exec -- pnpm test:native ../../artifacts/expo-bootstrap/DerivedData/Build/P
 The runner requires Ruby with CocoaPods' `xcodeproj` gem (`RUBY` may select that
 Ruby executable) and the iOS 27 runtime. It creates and cleans up its own
 iPhone 18 Pro and iPad Pro 11-inch M5 simulators and keeps logs and xcresults
-under `artifacts/expo-bootstrap/`. A testmanagerd socket/CoreSimulator disconnect
+under `artifacts/expo-bootstrap/`. Simulator device type identifiers after the
+app path limit the run to those devices; without them both devices run in turn. A testmanagerd socket/CoreSimulator disconnect
 or zero-test success triggers one retry on a fresh owned device; assertion
 failures fail immediately. The root `pnpm test:native-runner` command exercises
 these retry and cleanup paths with stub tools (requires zsh). It verifies packaged launch, selecting and
 replacing a message, and compact back navigation. It does not claim keyboard,
-VoiceOver, resize or physical-device qualification. Native E2E runs in a separate job from the Linux bundle check; see
+VoiceOver, resize or physical-device qualification. Native E2E runs in separate jobs from the Linux bundle check; see
 [recorded evidence](qualification/expo-react-native-client.md).
 
 The three component tests cover selecting a message, replacing the selected
@@ -183,23 +185,41 @@ delivery and production observability belong to their approved follow-up slices.
 
 The [Mobile workflow](../.github/workflows/mobile.yml) uses GitHub's arm64
 [`xcode-27` image](https://github.com/actions/runner-images/blob/main/images/macos/xcode-27-arm64-Readme.md)
-with Xcode 27.0 selected explicitly and the iOS 27.0 simulator runtime. It performs
-a frozen root installation, generates the iOS project, installs Pods, builds an
-ad-hoc signed arm64 simulator Release app with packaged JavaScript, and passes that
-app to the same `pnpm test:native` runner used locally. No signing credentials,
-provider accounts or running Metro server are required.
+with Xcode 27.0 selected explicitly and the iOS 27.0 simulator runtime. The
+native work is split into jobs that run side by side so that simulator startup,
+which dominates the duration, is not paid serially:
 
-The job verifies the runner's failure handling before native execution. Assertion
-failures fail immediately, zero selected tests never pass, and only recognized
-infrastructure failures or zero-test success receive one fresh-device retry.
-Its 45-minute timeout includes installation and the native build; the interaction
-step has a separate 25-minute limit for harness compilation, two sequential
-simulator startups and both journeys, including the bounded infrastructure retry.
-Superseded pull-request runs are cancelled.
-Build logs and XCTest result bundles, including screenshots, are uploaded as
-`expo-native-e2e-<run id>-<attempt>` with seven-day retention, including on failure. The job selects the test-only `open-read-relaunch` scenario
-and uploads run ownership, simulator IDs and exit results as well.
+- `Expo native build` performs a frozen root installation, generates the iOS
+  project with the test-only `open-read-relaunch` scenario, installs Pods, builds
+  an ad-hoc signed arm64 simulator Release app with packaged JavaScript and
+  uploads it as a tar archive (`expo-native-app-<run id>`).
+- `Expo native E2E (iPhone)` and `Expo native E2E (iPad)` start when the build
+  finishes. Each downloads that app and passes it with one simulator device type
+  to the same `test-native.zsh` runner used locally by `pnpm test:native`. These
+  jobs need no JavaScript installation.
+- `Expo native storage checks` runs the runner's failure-handling contract, the
+  [private storage checks](private-inbox-storage.md#verification) and ordinary
+  project generation with a cleared scenario, independently of the build.
 
-The `Expo native E2E` check covers the mock Inbox on iPhone and iPad. It does not
-qualify the separate native Mac host or real provider integration. Repository
-branch protection must select this check separately if it should block merging.
+No signing credentials, provider accounts or running Metro server are required.
+
+Assertion failures fail immediately, zero selected tests never pass, and only
+recognized infrastructure failures or zero-test success receive one fresh-device
+retry. The build and journey jobs each have a 25-minute timeout; the interaction
+step has a separate 18-minute limit for harness compilation, one simulator startup
+and its journey, including the bounded infrastructure retry. The storage job has
+a 20-minute timeout. Superseded pull-request runs are cancelled.
+Logs and XCTest result bundles, including screenshots, run ownership, simulator
+IDs and exit results, are uploaded with seven-day retention, including on failure,
+as `expo-native-e2e-<device>-<run id>-<attempt>`,
+`expo-native-build-<run id>-<attempt>` and `expo-native-checks-<run id>-<attempt>`.
+Re-running a failed journey job reuses the app from the original build while that
+artifact is retained.
+
+The `Expo native E2E (iPhone)` and `Expo native E2E (iPad)` checks cover the mock
+Inbox. They do not qualify the separate native Mac host or real provider
+integration. Repository branch protection must select both journey checks,
+`Expo native build` and `Expo native storage checks` separately if they should
+block merging. A failed build skips the journey jobs, and GitHub accepts skipped
+required checks, so requiring only the journeys would not enforce a successful
+build.

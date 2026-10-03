@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import GoogleSignIn
 import React
@@ -111,6 +112,8 @@ extension RegistrationError {
     case .identityOwned: "identity-owned"
     case .staleAuthentication: "stale-authentication"
     case .recoveryKeyMismatch: "recovery-key-mismatch"
+    case .enrollmentCodeInvalid: "enrollment-code-invalid"
+    case .enrollmentUnavailable: "enrollment-unavailable"
     }
   }
 }
@@ -129,7 +132,6 @@ final class UnwiredRegistration: NSObject {
     subsystem: Bundle.main.bundleIdentifier ?? "dev.unwired.mail", category: "registration")
   @MainActor private static var busy = false
   @MainActor private static var sharedStore: RegistrationStore?
-  @objc static func requiresMainQueueSetup() -> Bool { true }
 
   @MainActor private func store() throws -> RegistrationStore {
     if let store = Self.sharedStore { return store }
@@ -202,6 +204,7 @@ final class UnwiredRegistration: NSObject {
     "SIGN_IN_RECENT_AUTHENTICATION_REQUIRED": .staleAuthentication,
     "SIGN_IN_LINK_EXPIRED": .staleAuthentication,
     "SIGN_IN_NOT_LINKED": .invalidIdentity,
+    "ENROLLMENT_REQUEST_UNAVAILABLE": .enrollmentUnavailable,
   ]
 
   @MainActor private static func signInLink<Value: Decodable>(
@@ -256,59 +259,6 @@ final class UnwiredRegistration: NSObject {
     throw result.errorData.flatMap { backendErrors[$0.code] } ?? RegistrationError.unavailable
   }
 
-  // Every Product Sync call carries the Trusted Device proof; Convex sees only opaque payloads.
-  @MainActor private static func productSync(base: URL) -> ProductSyncBackend {
-    func proof(_ product: ProductRegistrationReceipt) -> [String: Any] {
-      [
-        "trustedDeviceId": product.trustedDeviceId,
-        "trustedDeviceCredential": product.trustedDeviceCredential,
-      ]
-    }
-    func json(_ payload: EncryptedPayload) throws -> Any {
-      try JSONSerialization.jsonObject(with: JSONEncoder().encode(payload))
-    }
-    return ProductSyncBackend(
-      initialize: { identity, product, envelope in
-        struct Response: Decodable { let initialized: Bool }
-        let response: Response = try await mutation(
-          base: base, identity: identity, path: "productSync:initialize",
-          args: proof(product).merging(["encryptedPayload": try json(envelope)]) { $1 })
-        return response.initialized
-      },
-      list: { identity, product, prefix in
-        struct Page: Decodable {
-          let page: [StoredPayload]
-          let isDone: Bool
-          let continueCursor: String
-        }
-        // Convex serves at most 100 records per page; read every page for a complete set.
-        var records: [StoredPayload] = []
-        var cursor: Any = NSNull()
-        while true {
-          let page: Page = try await mutation(
-            base: base, identity: identity,
-            path: "productSync:listEncryptedPayloadsForTrustedDevice",
-            args: proof(product).merging([
-              "payloadIdentifierPrefix": prefix,
-              "paginationOpts": ["cursor": cursor, "numItems": 100],
-            ]) { $1 },
-            function: "query")
-          records += page.page
-          if page.isDone { return records }
-          cursor = page.continueCursor
-        }
-      },
-      put: { identity, product, identifier, payload, expectedUpdatedAt in
-        var args = proof(product)
-        args["payloadIdentifier"] = identifier
-        args["encryptedPayload"] = try json(payload)
-        if let expectedUpdatedAt { args["expectedUpdatedAt"] = expectedUpdatedAt }
-        return try await mutation(
-          base: base, identity: identity, path: "productSync:putEncryptedPayloadIfUnchanged",
-          args: args)
-      })
-  }
-
   @MainActor private static func connect(
     base: URL, identity: ProductSignInIdentity, deviceIdentifier: String,
     previous: ProductRegistrationReceipt?
@@ -361,6 +311,8 @@ final class UnwiredRegistration: NSObject {
           switch code {
           case "cancelled": "Sign-in was cancelled."
           case "recovery-key-mismatch": "That does not match the end of your Recovery Key."
+          case "enrollment-code-invalid": "That code does not match the new device's code."
+          case "enrollment-unavailable": "That device request is no longer available."
           default: "Registration could not finish. Retry with your saved account."
           }
         reject(code, message, nil)
@@ -404,6 +356,30 @@ final class UnwiredRegistration: NSObject {
   ) {
     perform("confirmRecoveryKey", resolve, reject: reject) { try $0.confirmRecoveryKey(entry) }
   }
+  @objc(approveEnrollment:code:resolver:rejecter:)
+  func approveEnrollment(
+    _ requestId: String, code: String, resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    perform("approveEnrollment", resolve, reject: reject) {
+      try await $0.approveEnrollment(requestId, code: code)
+    }
+  }
+  @objc(declineEnrollment:resolver:rejecter:)
+  func declineEnrollment(
+    _ requestId: String, resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    perform("declineEnrollment", resolve, reject: reject) {
+      try await $0.declineEnrollment(requestId)
+    }
+  }
+  @objc(refreshPrivateSync:rejecter:)
+  func refreshPrivateSync(
+    _ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+  ) {
+    perform("refreshPrivateSync", resolve, reject: reject) { try await $0.refreshPrivateSync() }
+  }
   @objc(authorizeGmail:resolver:rejecter:)
   func authorizeGmail(
     _ reselect: Bool, resolve: @escaping RCTPromiseResolveBlock,
@@ -411,6 +387,156 @@ final class UnwiredRegistration: NSObject {
   ) {
     perform("authorizeGmail", resolve, reject: reject) {
       try await $0.authorizeGmail(reselect: reselect)
+    }
+  }
+}
+
+extension UnwiredRegistration {
+  @objc static func requiresMainQueueSetup() -> Bool { true }
+
+  // Every Product Sync call carries the Trusted Device proof; Convex sees only opaque payloads.
+  // The transport factory assembles all authenticated operations with the same device proof.
+  // swiftlint:disable:next function_body_length
+  @MainActor private static func productSync(base: URL) -> ProductSyncBackend {
+    func proof(_ product: ProductRegistrationReceipt) -> [String: Any] {
+      [
+        "trustedDeviceId": product.trustedDeviceId,
+        "trustedDeviceCredential": product.trustedDeviceCredential,
+      ]
+    }
+    func json(_ payload: EncryptedPayload) throws -> Any {
+      try JSONSerialization.jsonObject(with: JSONEncoder().encode(payload))
+    }
+    return ProductSyncBackend(
+      initialize: { identity, product, envelope in
+        struct Response: Decodable { let initialized: Bool }
+        let response: Response = try await mutation(
+          base: base, identity: identity, path: "productSync:initialize",
+          args: proof(product).merging(["encryptedPayload": try json(envelope)]) { $1 })
+        return response.initialized
+      },
+      list: { identity, product, prefix in
+        struct Page: Decodable {
+          let page: [StoredPayload]
+          let isDone: Bool
+          let continueCursor: String
+        }
+        // Convex serves at most 100 records per page; read every page for a complete set.
+        var records: [StoredPayload] = []
+        var cursor: Any = NSNull()
+        while true {
+          let page: Page = try await mutation(
+            base: base, identity: identity,
+            path: "productSync:listEncryptedPayloadsForTrustedDevice",
+            args: proof(product).merging([
+              "payloadIdentifierPrefix": prefix,
+              "paginationOpts": ["cursor": cursor, "numItems": 100],
+            ]) { $1 },
+            function: "query")
+          records += page.page
+          if page.isDone { return records }
+          cursor = page.continueCursor
+        }
+      },
+      put: { identity, product, identifier, payload, expectedUpdatedAt in
+        var args = proof(product)
+        args["payloadIdentifier"] = identifier
+        args["encryptedPayload"] = try json(payload)
+        if let expectedUpdatedAt { args["expectedUpdatedAt"] = expectedUpdatedAt }
+        return try await mutation(
+          base: base, identity: identity, path: "productSync:putEncryptedPayloadIfUnchanged",
+          args: args)
+      },
+      requestEnrollment: { identity, product, publicKey in
+        struct Response: Decodable { let requestId: String }
+        let response: Response = try await mutation(
+          base: base, identity: identity, path: "productSyncEnrollment:request",
+          args: proof(product).merging([
+            "enrollmentPublicKey": publicKey.rawRepresentation.base64EncodedString()
+          ]) { $1 })
+        return response.requestId
+      },
+      enrollmentStatus: { identity, product, requestId in
+        try await readEnrollmentStatus(
+          base: base, identity: identity,
+          args: proof(product).merging(["requestId": requestId]) { $1 })
+      },
+      completeEnrollment: { identity, product, requestId in
+        struct Response: Decodable { let completed: Bool }
+        let _: Response = try await mutation(
+          base: base, identity: identity, path: "productSyncEnrollment:complete",
+          args: proof(product).merging(["requestId": requestId]) { $1 })
+      },
+      pendingEnrollments: { identity, product in
+        try await readPendingEnrollments(base: base, identity: identity, args: proof(product))
+      },
+      approveEnrollment: { identity, product, request, keyVersion, envelope in
+        struct Response: Decodable { let approved: Bool }
+        let _: Response = try await mutation(
+          base: base, identity: identity, path: "productSyncEnrollment:approve",
+          args: proof(product).merging([
+            "requestId": request.requestId,
+            "requesterTrustedDeviceId": request.trustedDeviceId, "keyVersion": keyVersion,
+            "encapsulatedKeyBase64": envelope.encapsulatedKey.base64EncodedString(),
+            "ciphertextBase64": envelope.ciphertext.base64EncodedString(),
+          ]) { $1 })
+      },
+      declineEnrollment: { identity, product, requestId in
+        struct Response: Decodable { let declined: Bool }
+        let _: Response = try await mutation(
+          base: base, identity: identity, path: "productSyncEnrollment:decline",
+          args: proof(product).merging(["requestId": requestId]) { $1 })
+      })
+  }
+
+  @MainActor fileprivate static func readEnrollmentStatus(
+    base: URL, identity: ProductSignInIdentity, args: [String: Any]
+  ) async throws -> EnrollmentStatus {
+    struct Approval: Decodable {
+      let keyVersion: Int
+      let encapsulatedKeyBase64: String
+      let ciphertextBase64: String
+    }
+    struct Response: Decodable {
+      let state: EnrollmentStatus.State
+      let approval: Approval?
+    }
+    let response: Response = try await mutation(
+      base: base, identity: identity, path: "productSyncEnrollment:status",
+      args: args)
+    // A malformed approval opens nothing; the device asks again.
+    guard let approval = response.approval,
+      let encapsulatedKey = Data(base64Encoded: approval.encapsulatedKeyBase64),
+      let ciphertext = Data(base64Encoded: approval.ciphertextBase64)
+    else { return EnrollmentStatus(state: response.state) }
+    return EnrollmentStatus(
+      state: response.state,
+      approval: (
+        approval.keyVersion,
+        KeyRingEnvelope.Enrollment(encapsulatedKey: encapsulatedKey, ciphertext: ciphertext)
+      ))
+  }
+
+  @MainActor fileprivate static func readPendingEnrollments(
+    base: URL, identity: ProductSignInIdentity, args: [String: Any]
+  ) async throws -> [PendingEnrollment] {
+    struct Request: Decodable {
+      let requestId: String
+      let requesterTrustedDeviceId: String
+      let enrollmentPublicKey: String
+      let displayName: String
+      let expiresAt: Double
+    }
+    let requests: [Request] = try await mutation(
+      base: base, identity: identity, path: "productSyncEnrollment:listPending",
+      args: args)
+    return requests.compactMap { request in
+      guard let raw = Data(base64Encoded: request.enrollmentPublicKey),
+        let publicKey = try? Curve25519.KeyAgreement.PublicKey(rawRepresentation: raw)
+      else { return nil }
+      return PendingEnrollment(
+        requestId: request.requestId, trustedDeviceId: request.requesterTrustedDeviceId,
+        publicKey: publicKey, deviceName: request.displayName, expiresAt: request.expiresAt)
     }
   }
 }

@@ -28,9 +28,21 @@ const scenarios = [
   ['zero', 0, 3],
   ['persistent', 1, 2],
   ['assertion', 1, 1],
+  // CI runs one device per job; a selection must run exactly that device.
+  [
+    'selected-device',
+    0,
+    1,
+    ['com.apple.CoreSimulator.SimDeviceType.iPad-Pro-11-inch-M5-12GB'],
+  ],
 ];
 
-for (const [scenario, expectedExit, expectedDevices] of scenarios) {
+for (const [
+  scenario,
+  expectedExit,
+  expectedDevices,
+  deviceTypes = [],
+] of scenarios) {
   test(`native runner: ${scenario}`, () => {
     mkdirSync(join(root, 'scratchpad'), { recursive: true });
     const directory = mkdtempSync(join(root, 'scratchpad/native-runner-'));
@@ -77,7 +89,7 @@ const next = (name) => {
   fs.writeFileSync(file, String(count));
   return count;
 };
-if (command === 'xcrun' && args[1] === 'create') console.log('owned-' + next('devices'));
+if (command === 'xcrun' && args[1] === 'create') { fs.appendFileSync(path.join(base, 'created'), args[3] + '\\n'); console.log('owned-' + next('devices')); }
 if (command === 'xcrun' && args[1] === 'delete') { fs.appendFileSync(path.join(base, 'deleted'), args[2] + '\\n'); if (scenario === 'delete-failure') process.exit(1); }
 if (command === 'xcodebuild' && args[0] === 'test-without-building') {
   const attempt = next('attempts');
@@ -100,7 +112,11 @@ if (command === 'xcodebuild' && args[0] === 'test-without-building') {
       }
       const result = spawnSync(
         'zsh',
-        [join(scripts, 'test-native.zsh'), join(directory, 'Preview.app')],
+        [
+          join(scripts, 'test-native.zsh'),
+          join(directory, 'Preview.app'),
+          ...deviceTypes,
+        ],
         {
           cwd: root,
           env: {
@@ -117,6 +133,12 @@ if (command === 'xcodebuild' && args[0] === 'test-without-building') {
         Number(readFileSync(join(directory, 'devices'), 'utf8')),
         expectedDevices,
       );
+      if (deviceTypes.length > 0) {
+        assert.deepEqual(
+          readFileSync(join(directory, 'created'), 'utf8').trim().split('\n'),
+          deviceTypes,
+        );
+      }
       const artifacts = join(directory, 'artifacts/expo-bootstrap');
       const entries = readdirSync(artifacts);
       assert.equal(entries.length, 1);

@@ -41,17 +41,105 @@ application lifetime. Registration text now uses accessible parent views because
 plain nonselectable `Text` in React Native macOS 0.81.9 is absent from the native
 accessibility tree. The selectable Recovery Key exposes its native text-view value.
 
-This supersedes the missing-profile deferral below for these four Mac journeys.
-Those earlier sections retain the conditions at the time of their runs. It does
-not qualify live Apple/Google/Convex integration, the complete encrypted-storage
+These four runs predate the merge of trusted-device enrollment in
+[#718](https://github.com/unwired-dev/product/pull/718). They supersede the
+missing-profile deferral below only for these four Mac journeys. The enrollment
+and earlier registration sections retain the conditions at the time of their runs.
+This evidence does not qualify live Apple/Google/Convex integration, the complete encrypted-storage
 contract, VoiceOver interaction, physical devices or distribution signing.
 Mac `registration-cancelled`, `registration-declined` and `registration-no-gmail`
-journeys remain unrun. The reviewer reran Mac lint, format, types and component
-tests, with all 12 tests passing. SwiftLint, swift-format and direct Swift
-typechecking of the journey also passed, using a writable temporary module cache.
+journeys remain unrun. Before the merge, the reviewer reran Mac lint, format,
+types and component tests, with all 12 tests passing. SwiftLint, swift-format and
+direct Swift typechecking of the journey also passed, using a writable temporary
+module cache.
 A reviewer native rerun stopped before test
 execution when the sandbox denied Swift's module-cache write; it supplies no
 additional native evidence.
+
+After the merge, the enrollment UI uses the same accessible labels. Native journey
+queries match selectable keys by their grouped text-view values: the Recovery Key
+has 13 groups of four characters and the Enrollment Code has 14, including its
+check digit. The implementer reports Mac lint, types and all 13 component tests
+passing. The implementer reran packaged, development-signed Mac `Testing` builds
+on the merged tree on macOS 27 with a profile covering `dev.unwired.mock.*`:
+
+- `registration-enrollment` executed one test with zero failures. The log is
+  `/tmp/unwired-fix-journey-registration-enrollment.log`.
+- `registration-apple` initially failed while waiting for "Gmail connected" after
+  relaunch, then passed an immediate rerun with no code change, executing one test
+  with zero failures. The first failure remains unexplained; the implementer
+  suspects desktop interference. The passing rerun log is
+  `/tmp/unwired-fix-journey-registration-apple.log`.
+
+The implementer also reports that the Mac hosted Private Inbox integration suite
+passed on #718's tree after Xcode created a managed profile for
+`dev.unwired.storage-probe.StorageHost`. The `registration-link`,
+`registration-interrupted` and `open-read-relaunch` journeys were not rerun after
+the merge; their evidence above remains from the pre-merge tree.
+
+## Trusted-device enrollment evidence, 2026-10-03
+
+[#600](https://github.com/unwired-dev/product/issues/600) adds
+[trusted-device approval](../private-product-sync.md#approving-a-new-device).
+
+Implementation evidence before review:
+
+- Eighteen app-hosted tests passed on a fresh owned iOS 27 Simulator with real
+  Keychain and CryptoKit. The new journey uses two separate Keychain installations,
+  real HPKE and encrypted mailbox records with a controlled backend. It covers
+  rejection and renewal, adoption of the existing ring without a Recovery Key,
+  descriptors before Gmail consent and unchanged account material.
+- The `registration-enrollment` Release simulator build compiled the real bridge,
+  and the packaged journey passed on fresh iPhone 18 Pro and iPad Pro 11-inch
+  iOS 27 Simulators. A synthetic trusted device reads the code from the run's
+  Keychain in place of a person entering it on a second installation. This is
+  deterministic mock evidence, not approval between two real devices.
+- Workspace lint, format, types and tests, tooling and native-runner contracts
+  passed. Evidence remains local under `artifacts/private-inbox/integration.IdWb9M`
+  and `artifacts/expo-bootstrap/native-1Xn2g0`.
+
+Review changed the Enrollment Code from 75 bits to 275 bits of entropy to meet
+HPKE's PSK requirement, made expiry checks uncached server operations and added
+collection-time approver/epoch fencing. Regression tests first reproduced four
+invalid-collection cases and cross-account leakage in the shared mock transport,
+then passed after fixes. Native checksum tests now alter the check digit so their
+negative cases cannot randomly retain a valid checksum.
+
+The review's native interaction rerun could not create a Simulator because the
+session denied CoreSimulator service and log access. Earlier native results do
+not qualify the corrected code length or bridge endpoint type; those interaction
+checks remain required. Review verification:
+
+- All 24 root workspace lint, format, type and test tasks passed. Convex has
+  236 passing tests, mail-core 29, mobile 14 and Mac 12. Existing contracts and
+  legacy harness coverage also passed and remains intact.
+- Both normal production JavaScript builds and renderer/bundle boundary checks
+  passed, as did Fallow's changed-code gate, all nine tooling tests, Swift
+  formatting and affected documentation links.
+- The two crypto-only SwiftPM tests passed with real CryptoKit on macOS. The
+  Swift library and synthetic native backend type-checked against the iOS 27
+  Simulator SDK. This establishes
+  the corrected code format and cryptographic bindings, not Keychain behavior.
+- Native-runner contracts passed 19 of 20 tests. The remaining cleanup-helper
+  test could not create its disposable directory under the host Application
+  Support folder in this session, so the full command did not pass.
+- Selected native project generation and CocoaPods installation passed using a
+  task-local `CP_CACHE_DIR`. The packaged build stopped before compilation when
+  Xcode could not recognize the workspace in this restricted session, alongside
+  CoreSimulator and file-event service failures. No corrected packaged build or
+  native interaction pass is claimed.
+- Additional strict SwiftLint on the four affected core/bridge/test files still
+  reports five violations also present in the starting commit: the older seal's
+  parameter count, bridge file/store size and two older Data-to-String conversions.
+  This is separate from the passing maintained workspace lint lane.
+
+Review logs and the unavailable packaged-build result are retained locally in
+`artifacts/private-inbox/enrollment-review.EONAFv`. Task-owned probes, compiler and
+CocoaPods caches were removed after verification.
+
+Real Convex/JWT and protected Gmail two-device qualification, signed Mac
+Keychain/E2E without matching disposable-app profiles, and physical-device checks
+remain deferred before release. No legacy coverage is retired by this slice.
 
 ## Private Product Sync evidence, 2026-10-01
 
@@ -312,12 +400,22 @@ The mock Inbox is in-memory; opening mail does not mark it read.
 ## Native E2E automation
 
 The [Mobile workflow](../../.github/workflows/mobile.yml) now defines an
-`Expo native E2E` job for ready pull requests and pushes to `main`. It builds the
-packaged Release app on the `xcode-27` arm64 image, runs the existing iPhone/iPad
-journey, and uploads build logs and XCTest results. The runner rejects zero-test
+`Expo native build` job for ready pull requests and pushes to `main`. It builds
+the packaged Release app once on the `xcode-27` arm64 image and uploads a tar
+archive for the parallel `Expo native E2E (iPhone)` and `Expo native E2E (iPad)`
+jobs. Independent `Expo native storage checks` retain the native runner contracts,
+real storage integration and cleared-scenario project generation. Each job
+uploads its own logs and XCTest results where produced. The runner rejects zero-test
 success and avoids retrying assertion failures even when infrastructure messages
-are also present. This workflow definition does not establish a passing hosted
-run; record that evidence after the updated workflow executes.
+are also present. The app artifact retains its run ID across attempts so failed
+journeys can reuse a successful build within its seven-day retention period.
+The first hosted [run 37123765376](https://github.com/unwired-dev/product/actions/runs/37123765376)
+took 18m10s. The build (8m40s), iPhone journey (9m07s), and iPad journey (7m16s)
+passed. The storage step reached its former eight-minute limit during cleanup,
+after all 17 tests reported success. Its total limit is now 14 minutes, including
+the single infrastructure retry and cleanup, within the 20-minute storage job.
+Hosted validation of this timeout adjustment remains pending; the first run does
+not establish a passing workflow.
 
 ## Earlier dependency probe — 2026-09-09
 

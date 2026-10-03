@@ -1,4 +1,5 @@
 #if UNWIRED_REGISTRATION_MOCK
+  import CryptoKit
   import Foundation
 
   // Compiled only for an externally selected, fixed Mock Mail Session.
@@ -60,12 +61,64 @@
 
   // Convex's Product Sync rules over device-only Keychain storage, so relaunches keep its records.
   @MainActor final class MockProductSyncBackend {
+    struct Request: Codable {
+      let account: String
+      let device: String
+      let publicKey: Data
+      var approved: KeyRingEnvelope.Enrollment?
+      var checks = 0
+    }
     struct State: Codable {
       var recovery: [String: EncryptedPayload] = [:]
       var records: [String: [String: StoredPayload]] = [:]
+      var requests: [String: Request] = [:]
+      // Keys held by the synthetic trusted device of an account that existed before this run.
+      var trusted: [String: ProductSyncKeyRing] = [:]
     }
     let keys: DeviceKeychain
     init(keys: DeviceKeychain) { self.keys = keys }
+
+    // Another device already created this account's keys and saved a mailbox with them.
+    func seedTrustedDevice(_ account: String) throws {
+      try update { state in
+        guard state.trusted[account] == nil else { return }
+        let ring = ProductSyncKeyRing.create()
+        state.trusted[account] = ring
+        state.recovery[account] = try KeyRingEnvelope.recovery(
+          ring, key: .generate(), account: account)
+        let identifier = try ring.identifier("mailbox", "gmail:synthetic-trusted-mailbox")
+        state.records[account] = [
+          identifier: StoredPayload(
+            payloadIdentifier: identifier,
+            encryptedPayload: try ring.seal(
+              record: JSONEncoder().encode(
+                MailboxDescriptor(provider: "gmail", address: "alex@example.invalid")),
+              account: account, identifier: identifier,
+              schemaVersion: MailboxDescriptor.schemaVersion), updatedAt: 1)
+        ]
+      }
+    }
+
+    // The synthetic trusted device approves once the request has been shown, using the code the
+    // person would type from this device's screen; it reads that code from the run's Keychain.
+    func approveIfShown(_ id: String, state: inout State) throws {
+      guard var request = state.requests[id], request.approved == nil,
+        let ring = state.trusted[request.account]
+      else { return }
+      request.checks += 1
+      if request.checks > 1,
+        let data = try keys.read("product-sync-enrollment." + request.account)
+      {
+        let shown = try JSONDecoder().decode(ProductSyncEnrollment.self, from: data)
+        if shown.requestId == id {
+          request.approved = try KeyRingEnvelope.enrollment(
+            ring, to: Curve25519.KeyAgreement.PublicKey(rawRepresentation: request.publicKey),
+            code: EnrollmentCode(parsing: shown.code),
+            binding: .init(account: request.account, device: request.device, request: id))
+        }
+      }
+      state.requests[id] = request
+    }
 
     func state() throws -> State {
       try keys.read("synthetic-product-sync").map {
@@ -106,7 +159,36 @@
             state.records[product.productAccountId, default: [:]][identifier] = stored
             return stored
           }
-        })
+        },
+        requestEnrollment: { [self] _, product, publicKey in
+          try update { state in
+            guard state.recovery[product.productAccountId] != nil else {
+              throw RegistrationError.unavailable
+            }
+            state.requests = state.requests.filter { $0.value.device != product.trustedDeviceId }
+            let id = "synthetic-request-" + UUID().uuidString
+            state.requests[id] = Request(
+              account: product.productAccountId, device: product.trustedDeviceId,
+              publicKey: publicKey.rawRepresentation)
+            return id
+          }
+        },
+        enrollmentStatus: { [self] _, product, id in
+          try update { state in
+            try approveIfShown(id, state: &state)
+            guard let request = state.requests[id], request.device == product.trustedDeviceId
+            else { return EnrollmentStatus(state: .cancelled) }
+            guard let approved = request.approved else { return EnrollmentStatus(state: .pending) }
+            return EnrollmentStatus(state: .approved, approval: (1, approved))
+          }
+        },
+        completeEnrollment: { [self] _, _, id in
+          try update { state in state.requests[id] = nil }
+        },
+        // The synthetic devices in this session never wait for this device's approval.
+        pendingEnrollments: { _, _ in [] },
+        approveEnrollment: { _, _, _, _, _ in throw RegistrationError.enrollmentUnavailable },
+        declineEnrollment: { _, _, _ in throw RegistrationError.enrollmentUnavailable })
     }
   }
 
@@ -117,6 +199,7 @@
       [
         "registration-cancelled", "registration-declined", "registration-no-gmail",
         "registration-interrupted", "registration-apple", "registration-link",
+        "registration-enrollment",
       ].contains(scenario)
     else {
       throw RegistrationError.unavailable
@@ -124,6 +207,10 @@
     let google = MockGoogleRegistrationProvider(scenario: scenario)
     let keys = DeviceKeychain(service: bundle + ".google-registration")
     let productSync = MockProductSyncBackend(keys: keys)
+    // The Google account already exists with keys on a synthetic trusted device.
+    if scenario == "registration-enrollment" {
+      try productSync.seedTrustedDevice("synthetic-product-account")
+    }
     // Each synthetic sign-in identity owns its own Product Account; in the link
     // scenario the Google identity is unregistered and may join the Apple account.
     let accounts = [

@@ -28,14 +28,17 @@ contracts when their application paths exist.
 Native builds can select `open-read-relaunch` or `mail-unavailable` using
 `UNWIRED_MOCK_SCENARIO`. Unselected bundles exclude all mock-provider code;
 source-map checks enforce that boundary and reject backend sources. Unknown
-scenario names fail the build. Native XCTest accepts `open-read-relaunch` and the six registration scenarios
+scenario names fail the build. Native XCTest accepts `open-read-relaunch` and the seven registration scenarios
 described in [Google registration](google-registration.md#deterministic-evidence),
 [Apple registration](apple-registration.md#deterministic-evidence) and
 [linked sign-in](linked-sign-in.md#deterministic-evidence).
 The registration journeys use real Keychain with a fixed synthetic provider compiled only in the selected test build.
 Its synthetic [Product Sync](private-product-sync.md#deterministic-evidence)
 backend keeps the run's encrypted records in the same Keychain service, so new
-accounts present a Recovery Key and relaunches keep their keys.
+accounts present a Recovery Key and relaunches keep their keys. In
+`registration-enrollment`, a synthetic trusted device already holds the account
+keys and an encrypted mailbox. It approves the app's request with the code read
+from that Keychain, standing in for a person typing it on another device.
 The native runners reject builds without a supported test marker. Selection is never
 an app route, URL scheme, runtime setting, control server or reset operation.
 
@@ -131,8 +134,8 @@ mise exec -- pnpm exec turbo run lint format check-types test \
 
 CI runs synthetic provider/application tests and both native runner contracts
 on Linux. Tool stubs prove orchestration, ownership, failure handling and cleanup;
-they are not native execution. The existing Expo native E2E CI job builds the
-selected synthetic scenario and exercises real storage on iPhone and iPad 27.
+they are not native execution. The existing Expo native CI jobs build the
+selected synthetic scenario and exercise real storage on iPhone and iPad 27.
 Mac execution requires the profile and a logged-in macOS 27 desktop with UI-test
 permission, so it is not added to an unsigned hosted runner.
 
@@ -140,7 +143,7 @@ Run normal and selected exports with their matching `verify:bundle` commands.
 [Private Inbox storage integration](private-inbox-storage.md#verification)
 separately qualifies CryptoKit and Keychain. Native mock journeys do not qualify
 real Gmail authorization or transport, assistance engines, delivery, physical-device
-lock behavior or account enrollment. Keep that evidence distinct under
+lock behavior or approval between two real devices. Keep that evidence distinct under
 [ADR 0060](adr/0060-pair-mocked-mail-journeys-with-real-integration-evidence.md).
 No legacy tests are retired by this slice. See the
 [qualification record](qualification/expo-react-native-client.md) for available

@@ -41,11 +41,66 @@ jobs:
       - name: Verify mobile renderer and shared source
         run: pnpm --filter @private-email/mobile verify:bundle
 
-  native-e2e:
-    name: Expo native E2E
+  native-checks:
+    name: Expo native storage checks
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: xcode-27
-    timeout-minutes: 45
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: zsh -e -o pipefail {0}
+    env:
+      CI: '1'
+      EXPO_NO_TELEMETRY: '1'
+      DEVELOPER_DIR: /Applications/Xcode_27.0.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - name: Check native toolchain
+        run: |
+          xcodebuild -version
+          xcrun simctl list runtimes -j | jq -e '.runtimes[] | select(.identifier == "com.apple.CoreSimulator.SimRuntime.iOS-27-0" and .isAvailable) | .identifier'
+          (( $(df -k . | awk 'NR == 2 {print $4}') >= 6 * 1024 * 1024 ))
+          gem install xcodeproj --version 1.28.1 --no-document --install-dir "$RUNNER_TEMP/native-gems"
+          echo "GEM_PATH=$RUNNER_TEMP/native-gems:$(ruby -e 'puts Gem.path.join(":")')" >> "$GITHUB_ENV"
+          echo "RUBY=$(command -v ruby)" >> "$GITHUB_ENV"
+      - name: Install workspace dependencies
+        run: pnpm install --frozen-lockfile --strict-peer-dependencies
+      - name: Check native runner failure handling
+        run: pnpm test:native-runner
+      - name: Verify native encryption and credential removal
+        # Simulator boot and the probe build vary from 5 to over 8 minutes on hosted runners.
+        timeout-minutes: 14
+        run: zsh native/private-inbox/integration/test.zsh ios
+      - name: Verify ordinary native project generation with cleared scenario
+        run: |
+          UNWIRED_MOCK_SCENARIO='' pnpm --filter @private-email/mobile native:generate --no-install
+          plutil -lint apps/mobile/ios/UnwiredMailPreview.xcodeproj/project.pbxproj
+          UNWIRED_MOCK_SCENARIO='' UNWIRED_BUILD_CONFIGURATION=Release ruby apps/macos/scripts/create-project.rb
+          plutil -lint apps/macos/macos/UnwiredMail.xcodeproj/project.pbxproj
+      - name: Upload native test evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: expo-native-checks-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            artifacts/private-inbox/**/*.log
+            artifacts/private-inbox/**/*.xcresult/**
+          if-no-files-found: warn
+          retention-days: 7
+
+  native-build:
+    name: Expo native build
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: xcode-27
+    timeout-minutes: 25
     defaults:
       run:
         shell: zsh -e -o pipefail {0}
@@ -68,25 +123,10 @@ jobs:
         run: |
           mkdir -p artifacts/expo-bootstrap
           xcodebuild -version
-          xcrun simctl list runtimes -j | jq -e '.runtimes[] | select(.identifier == "com.apple.CoreSimulator.SimRuntime.iOS-27-0" and .isAvailable) | .identifier'
           (( $(df -k . | awk 'NR == 2 {print $4}') >= 6 * 1024 * 1024 ))
           pod --version
-          gem install xcodeproj --version 1.28.1 --no-document --install-dir "$RUNNER_TEMP/native-gems"
-          echo "GEM_PATH=$RUNNER_TEMP/native-gems:$(ruby -e 'puts Gem.path.join(":")')" >> "$GITHUB_ENV"
-          echo "RUBY=$(command -v ruby)" >> "$GITHUB_ENV"
       - name: Install workspace dependencies
         run: pnpm install --frozen-lockfile --strict-peer-dependencies
-      - name: Check native runner failure handling
-        run: pnpm test:native-runner
-      - name: Verify native encryption and credential removal
-        timeout-minutes: 12
-        run: zsh native/private-inbox/integration/test.zsh ios
-      - name: Verify ordinary native project generation with cleared scenario
-        run: |
-          UNWIRED_MOCK_SCENARIO='' pnpm --filter @private-email/mobile native:generate --no-install
-          plutil -lint apps/mobile/ios/UnwiredMailPreview.xcodeproj/project.pbxproj
-          UNWIRED_MOCK_SCENARIO='' UNWIRED_BUILD_CONFIGURATION=Release ruby apps/macos/scripts/create-project.rb
-          plutil -lint apps/macos/macos/UnwiredMail.xcodeproj/project.pbxproj
       - name: Generate the iOS project
         run: pnpm --filter @private-email/mobile native:generate --no-install
       - name: Install CocoaPods dependencies
@@ -102,17 +142,82 @@ jobs:
             -resultBundlePath artifacts/expo-bootstrap/build.xcresult \
             CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- ARCHS=arm64 \
             > artifacts/expo-bootstrap/build.log 2>&1
-      - name: Run iPhone and iPad interaction journeys
-        timeout-minutes: 25
-        run: pnpm --filter @private-email/mobile test:native "$GITHUB_WORKSPACE/artifacts/expo-bootstrap/DerivedData/Build/Products/Release-iphonesimulator/UnwiredMailPreview.app"
+      - name: Package the app for the journey jobs
+        # A tar archive keeps the executable bits and symlinks that artifact uploads drop.
+        run: |
+          tar -cf artifacts/expo-bootstrap/UnwiredMailPreview.app.tar \
+            -C artifacts/expo-bootstrap/DerivedData/Build/Products/Release-iphonesimulator \
+            UnwiredMailPreview.app
+      - name: Upload packaged app
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          # No attempt suffix: re-run journey jobs reuse the app from the original build.
+          name: expo-native-app-${{ github.run_id }}
+          path: artifacts/expo-bootstrap/UnwiredMailPreview.app.tar
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 7
+      - name: Upload native build evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: expo-native-build-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            artifacts/expo-bootstrap/build.log
+            artifacts/expo-bootstrap/build.xcresult/**
+          if-no-files-found: warn
+          retention-days: 7
+
+  native-e2e:
+    name: Expo native E2E (${{ matrix.device.name }})
+    needs: native-build
+    runs-on: xcode-27
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        device:
+          - name: iPhone
+            type: com.apple.CoreSimulator.SimDeviceType.iPhone-18-Pro
+          - name: iPad
+            type: com.apple.CoreSimulator.SimDeviceType.iPad-Pro-11-inch-M5-12GB
+    defaults:
+      run:
+        shell: zsh -e -o pipefail {0}
+    env:
+      CI: '1'
+      DEVELOPER_DIR: /Applications/Xcode_27.0.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check native toolchain
+        run: |
+          mkdir -p artifacts/expo-bootstrap
+          xcodebuild -version
+          xcrun simctl list runtimes -j | jq -e '.runtimes[] | select(.identifier == "com.apple.CoreSimulator.SimRuntime.iOS-27-0" and .isAvailable) | .identifier'
+          (( $(df -k . | awk 'NR == 2 {print $4}') >= 6 * 1024 * 1024 ))
+          gem install xcodeproj --version 1.28.1 --no-document --install-dir "$RUNNER_TEMP/native-gems"
+          echo "GEM_PATH=$RUNNER_TEMP/native-gems:$(ruby -e 'puts Gem.path.join(":")')" >> "$GITHUB_ENV"
+          echo "RUBY=$(command -v ruby)" >> "$GITHUB_ENV"
+      - name: Download packaged app
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: expo-native-app-${{ github.run_id }}
+          path: artifacts/expo-bootstrap
+      - name: Unpack packaged app
+        run: |
+          tar -xf artifacts/expo-bootstrap/UnwiredMailPreview.app.tar -C "$RUNNER_TEMP"
+          rm artifacts/expo-bootstrap/UnwiredMailPreview.app.tar
+      - name: Run ${{ matrix.device.name }} interaction journey
+        timeout-minutes: 18
+        run: zsh apps/mobile/scripts/test-native.zsh "$RUNNER_TEMP/UnwiredMailPreview.app" "${{ matrix.device.type }}"
       - name: Upload native test evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: expo-native-e2e-${{ github.run_id }}-${{ github.run_attempt }}
+          name: expo-native-e2e-${{ matrix.device.name }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
-            artifacts/private-inbox/**/*.log
-            artifacts/private-inbox/**/*.xcresult/**
             artifacts/expo-bootstrap/**/result.json
             artifacts/expo-bootstrap/**/ownership.json
             artifacts/expo-bootstrap/**/devices.txt

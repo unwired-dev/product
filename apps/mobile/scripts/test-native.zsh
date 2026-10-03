@@ -1,11 +1,19 @@
 #!/bin/zsh
 set -euo pipefail
 
-if [[ $# != 1 || ! -d "$1" || "$1" != *.app ]]; then
-  print -u2 'Usage: pnpm test:native /absolute/path/to/Release-iphonesimulator/UnwiredMailPreview.app'
+if [[ $# == 0 || ! -d "$1" || "$1" != *.app ]]; then
+  print -u2 'Usage: pnpm test:native /absolute/path/to/Release-iphonesimulator/UnwiredMailPreview.app [simulator device type ...]'
   exit 2
 fi
 source_app="${1:A}"
+# Optional device types let CI run one device per job; the default covers both.
+device_types=("${@:2}")
+if (( $#device_types == 0 )); then
+  device_types=(
+    com.apple.CoreSimulator.SimDeviceType.iPhone-18-Pro
+    com.apple.CoreSimulator.SimDeviceType.iPad-Pro-11-inch-M5-12GB
+  )
+fi
 mobile_root="${0:A:h:h}"
 repo_root="${mobile_root:h:h}"
 mkdir -p "$repo_root/artifacts/expo-bootstrap"
@@ -39,9 +47,7 @@ xcodebuild build-for-testing -project InboxProbe.xcodeproj -scheme InboxProbe \
   -derivedDataPath "$run_dir/DerivedData" CODE_SIGNING_ALLOWED=NO \
   > "$run_dir/build.log" 2>&1
 
-for device_type in \
-  com.apple.CoreSimulator.SimDeviceType.iPhone-18-Pro \
-  com.apple.CoreSimulator.SimDeviceType.iPad-Pro-11-inch-M5-12GB; do
+for device_type in "${device_types[@]}"; do
   for attempt in 1 2; do
     device_id=$(xcrun simctl create "Inbox bootstrap ${run_dir:t}" "$device_type" com.apple.CoreSimulator.SimRuntime.iOS-27-0)
     owned_devices+=("$device_id")

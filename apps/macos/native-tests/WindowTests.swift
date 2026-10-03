@@ -15,11 +15,19 @@ final class WindowTests: XCTestCase {
       .firstMatch
   }
 
-  // The selectable Recovery Key is a native text view holding the grouped key as its value.
-  private func recoveryKey(in window: XCUIElement) -> XCUIElement {
+  // Selectable keys are native text views holding the grouped characters as their value.
+  private func key(groups: Int, in window: XCUIElement) -> XCUIElement {
     window.textViews.matching(
-      NSPredicate(format: "value MATCHES %@", "([0-9A-Z]{4}-){12}[0-9A-Z]{4}")
+      NSPredicate(format: "value MATCHES %@", "([0-9A-Z]{4}-){\(groups - 1)}[0-9A-Z]{4}")
     ).firstMatch
+  }
+
+  private func recoveryKey(in window: XCUIElement) -> XCUIElement {
+    key(groups: 13, in: window)
+  }
+
+  private func enrollmentCode(in window: XCUIElement) -> XCUIElement {
+    key(groups: 14, in: window)
   }
 
   private func registrationJourney(_ app: XCUIApplication, first: XCUIElement, apple: Bool) {
@@ -56,6 +64,29 @@ final class WindowTests: XCTestCase {
     XCTAssertTrue(text("Gmail connected", in: relaunched).waitForExistence(timeout: 15))
     XCTAssertTrue(text("Private sync is on", in: relaunched).exists)
     XCTAssertFalse(recoveryKey(in: relaunched).exists)
+  }
+
+  // An existing account's keys reach this device only through a trusted device's approval.
+  private func enrollmentJourney(_ app: XCUIApplication, first: XCUIElement) {
+    XCTAssertTrue(first.buttons["Sign in with Google"].waitForExistence(timeout: 20))
+    first.buttons["Sign in with Google"].click()
+    XCTAssertTrue(text("Approve this device", in: first).waitForExistence(timeout: 15))
+    XCTAssertTrue(enrollmentCode(in: first).exists)
+    XCTAssertFalse(recoveryKey(in: first).exists)
+    let mailboxes = "Encrypted mailbox list: alex@example.invalid."
+    XCTAssertFalse(text(mailboxes, in: first).exists)
+    // The synthetic trusted device approves with the code shown on this device.
+    first.buttons["Check for approval"].click()
+    XCTAssertTrue(text("Private sync is on", in: first).waitForExistence(timeout: 15))
+    XCTAssertTrue(text(mailboxes, in: first).exists)
+    // Gmail on this device still needs its own authorization.
+    XCTAssertTrue(first.buttons["Authorize Gmail"].exists)
+    app.terminate()
+    app.launch()
+    let relaunched = app.windows["Inbox 1"]
+    XCTAssertTrue(text("Private sync is on", in: relaunched).waitForExistence(timeout: 15))
+    XCTAssertTrue(text(mailboxes, in: relaunched).waitForExistence(timeout: 15))
+    XCTAssertFalse(enrollmentCode(in: relaunched).exists)
   }
 
   // Linking verifies both identities; the Gmail grant never becomes a sign-in method.
@@ -103,6 +134,10 @@ final class WindowTests: XCTestCase {
     XCTAssertTrue(first.waitForExistence(timeout: 30))
     if environment["UNWIRED_TEST_SCENARIO"] == "registration-link" {
       linkJourney(app, first: first)
+      return
+    }
+    if environment["UNWIRED_TEST_SCENARIO"] == "registration-enrollment" {
+      enrollmentJourney(app, first: first)
       return
     }
     if environment["UNWIRED_TEST_SCENARIO"]?.hasPrefix("registration-") == true {

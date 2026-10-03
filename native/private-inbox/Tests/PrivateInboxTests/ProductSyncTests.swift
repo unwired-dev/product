@@ -1,22 +1,63 @@
+// swiftlint:disable file_length function_body_length
+// Integrated security journeys keep their setup, rejected transitions and final outcomes together.
 import CryptoKit
 import Foundation
 import Testing
 
 @testable import PrivateInbox
 
-// Convex's Product Sync rules: one recovery envelope per account and compare-and-set records.
+// Convex's Product Sync rules: one recovery envelope per account, compare-and-set records and
+// enrollment requests that only another live device of the account can approve, once.
 @MainActor final class SyntheticProductSyncBackend {
+  struct Request {
+    let account: String
+    let device: String
+    let publicKey: Curve25519.KeyAgreement.PublicKey
+    var state: EnrollmentStatus.State = .pending
+    var approval: (keyVersion: Int, envelope: KeyRingEnvelope.Enrollment)?
+    var expiresAt: Double
+  }
   var recovery: [String: EncryptedPayload] = [:]
   var records: [String: [String: StoredPayload]] = [:]
+  var requests: [String: Request] = [:]
+  var revoked: Set<String> = []
   var initializations = 0
   var offline = false
   var clock = 1_000.0
 
-  func receipt(_ account: String) -> ProductRegistrationReceipt {
+  func receipt(_ account: String, device: String = "synthetic-device")
+    -> ProductRegistrationReceipt
+  {
     ProductRegistrationReceipt(
-      productAccountId: account, trustedDeviceId: "synthetic-device",
+      productAccountId: account, trustedDeviceId: device,
       trustedDeviceCredential: String(repeating: "a", count: 64),
       productSyncMaterialInitialized: recovery[account] != nil)
+  }
+
+  // Every call presents a live Trusted Device of the account.
+  func device(_ product: ProductRegistrationReceipt) throws {
+    guard !offline else { throw RegistrationError.unavailable }
+    guard !revoked.contains(product.trustedDeviceId) else { throw RegistrationError.unavailable }
+  }
+
+  // The caller's own request; another device's or an unknown one reads as cancelled.
+  func own(_ product: ProductRegistrationReceipt, _ id: String) -> Request? {
+    guard let request = requests[id], request.account == product.productAccountId,
+      request.device == product.trustedDeviceId
+    else { return nil }
+    return request
+  }
+
+  // A pending, unexpired request of the caller's account from another live device.
+  func approvable(_ product: ProductRegistrationReceipt, _ id: String, requester: String? = nil)
+    throws -> Request
+  {
+    guard let request = requests[id], request.account == product.productAccountId,
+      request.state == .pending, request.expiresAt > clock,
+      request.device != product.trustedDeviceId, !revoked.contains(request.device),
+      requester == nil || requester == request.device
+    else { throw RegistrationError.enrollmentUnavailable }
+    return request
   }
 
   var backend: ProductSyncBackend {
@@ -43,16 +84,67 @@ import Testing
           payloadIdentifier: identifier, encryptedPayload: payload, updatedAt: clock)
         records[product.productAccountId, default: [:]][identifier] = stored
         return stored
+      },
+      requestEnrollment: { [self] _, product, publicKey in
+        try device(product)
+        guard recovery[product.productAccountId] != nil else {
+          throw RegistrationError.unavailable
+        }
+        // A new request supersedes the device's earlier ones.
+        requests = requests.filter { $0.value.device != product.trustedDeviceId }
+        let id = "request-\(requests.count)-\(UUID().uuidString)"
+        requests[id] = Request(
+          account: product.productAccountId, device: product.trustedDeviceId,
+          publicKey: publicKey, expiresAt: clock + 900_000)
+        return id
+      },
+      enrollmentStatus: { [self] _, product, id in
+        try device(product)
+        guard let request = own(product, id) else { return EnrollmentStatus(state: .cancelled) }
+        if request.expiresAt <= clock, request.state != .cancelled {
+          return EnrollmentStatus(state: .expired)
+        }
+        return EnrollmentStatus(state: request.state, approval: request.approval)
+      },
+      completeEnrollment: { [self] _, product, id in
+        try device(product)
+        if own(product, id)?.state == .approved { requests[id] = nil }
+      },
+      pendingEnrollments: { [self] _, product in
+        try device(product)
+        return requests.compactMap { id, _ in
+          guard let request = try? approvable(product, id) else { return nil }
+          return PendingEnrollment(
+            requestId: id, trustedDeviceId: request.device, publicKey: request.publicKey,
+            deviceName: "iPad", expiresAt: request.expiresAt)
+        }
+      },
+      approveEnrollment: { [self] _, product, pending, keyVersion, envelope in
+        try device(product)
+        var request = try approvable(
+          product, pending.requestId, requester: pending.trustedDeviceId)
+        request.state = .approved
+        request.approval = (keyVersion, envelope)
+        request.expiresAt = clock + 900_000
+        requests[pending.requestId] = request
+      },
+      declineEnrollment: { [self] _, product, id in
+        try device(product)
+        _ = try approvable(product, id)
+        requests[id]?.state = .cancelled
       })
   }
 
+  // Each installation is its own Trusted Device of the account its sign-in reaches.
   func store(keys: DeviceKeychain, google: SyntheticGoogleRegistrationProvider)
     -> RegistrationStore
   {
     RegistrationStore(
       keys: keys, deployment: "https://synthetic.example.invalid", clientID: "synthetic-client",
       provider: google, productSync: backend,
-      connect: { [self] identity, _, _ in receipt("account-" + identity.subject) })
+      connect: { [self] identity, device, _ in
+        receipt("account-" + identity.subject, device: "device-" + device)
+      })
   }
 }
 
@@ -67,7 +159,10 @@ private func wrongGroup(_ key: RecoveryKey) -> String {
 
 private func remove(_ keys: DeviceKeychain, accounts: [String]) {
   try? keys.remove("registration")
-  for account in accounts { try? keys.remove("product-sync." + account) }
+  for account in accounts {
+    try? keys.remove("product-sync." + account)
+    try? keys.remove("product-sync-enrollment." + account)
+  }
 }
 
 extension PrivateInboxTests {
@@ -196,25 +291,57 @@ extension PrivateInboxTests {
       }
     }
 
+    // The approval code reads back like the Recovery Key and catches a mistyped digit.
+    let code = EnrollmentCode.generate()
+    #expect(code.digits.count == 56)
+    #expect(code.display.count == 69)
+    #expect(try EnrollmentCode(parsing: code.display.lowercased()) == code)
+    #expect(
+      try EnrollmentCode(parsing: code.display.replacingOccurrences(of: "-", with: " ")) == code)
+    let mistyped =
+      String(code.digits.dropLast()) + (code.digits.last == "0" ? "1" : "0")
+    #expect(throws: ProductSyncError.invalidEnrollmentCode) {
+      try EnrollmentCode(parsing: mistyped)
+    }
+    #expect(throws: ProductSyncError.invalidEnrollmentCode) {
+      try EnrollmentCode(parsing: String(code.digits.dropLast()))
+    }
+
+    #expect(throws: ProductSyncError.invalidEnrollmentCode) {
+      try EnrollmentCode(parsing: "H4KP-9QWE-3TRM-7XB2")
+    }
+
     let enrolling = Curve25519.KeyAgreement.PrivateKey()
     let sealed = try KeyRingEnvelope.enrollment(
-      ring, to: enrolling.publicKey, account: "account-a", device: "device-b", request: "request-1")
+      ring, to: enrolling.publicKey, code: code,
+      binding: .init(account: "account-a", device: "device-b", request: "request-1"))
     #expect(
       try KeyRingEnvelope.openEnrollment(
-        sealed, with: enrolling, account: "account-a", device: "device-b", request: "request-1")
-        == ring)
+        sealed, with: enrolling, code: code,
+        binding: .init(account: "account-a", device: "device-b", request: "request-1"),
+        keyVersion: 1) == ring)
     #expect(throws: ProductSyncError.rejected) {
       try KeyRingEnvelope.openEnrollment(
-        sealed, with: Curve25519.KeyAgreement.PrivateKey(), account: "account-a",
-        device: "device-b", request: "request-1")
+        sealed, with: Curve25519.KeyAgreement.PrivateKey(), code: code,
+        binding: .init(account: "account-a", device: "device-b", request: "request-1"),
+        keyVersion: 1)
     }
-    for (account, device, request) in [
-      ("account-b", "device-b", "request-1"), ("account-a", "device-c", "request-1"),
-      ("account-a", "device-b", "request-2"),
+    // Only the code the enrolling device showed opens it, so the backend cannot forge one.
+    #expect(throws: ProductSyncError.rejected) {
+      try KeyRingEnvelope.openEnrollment(
+        sealed, with: enrolling, code: .generate(),
+        binding: .init(account: "account-a", device: "device-b", request: "request-1"),
+        keyVersion: 1)
+    }
+    for (account, device, request, keyVersion) in [
+      ("account-b", "device-b", "request-1", 1), ("account-a", "device-c", "request-1", 1),
+      ("account-a", "device-b", "request-2", 1), ("account-a", "device-b", "request-1", 2),
     ] {
       #expect(throws: ProductSyncError.rejected) {
         try KeyRingEnvelope.openEnrollment(
-          sealed, with: enrolling, account: account, device: device, request: request)
+          sealed, with: enrolling, code: code,
+          binding: .init(account: account, device: device, request: request), keyVersion: keyVersion
+        )
       }
     }
   }
@@ -319,15 +446,16 @@ extension PrivateInboxTests {
     #expect(backend.recovery[account] == published)
     #expect(backend.initializations == 1)
 
-    // Gmail stays authorizable, but no record is written without the account's keys.
+    // Gmail stays authorizable, but no record is written without the account's keys; the next
+    // verified sign-in asks a trusted device for them instead.
     let connected = try await backend.store(keys: first, google: google).authorizeGmail(
       reselect: false)
     #expect(connected["kind"] == "connected")
-    #expect(connected["privateSync"] == "enrollment-needed")
+    #expect(connected["privateSync"] == "enrollment-pending")
     #expect(backend.records[account] == nil)
     #expect(
       try await backend.store(keys: first, google: google).restore()["privateSync"]
-        == "enrollment-needed")
+        == "enrollment-pending")
     #expect(throws: RegistrationError.unavailable) {
       try backend.store(keys: first, google: google).confirmRecoveryKey("0000")
     }
@@ -402,5 +530,133 @@ extension PrivateInboxTests {
     #expect(signedIn["privateSyncPending"] == nil)
     #expect(signedIn["privateSyncMailboxes"] == "other@example.invalid\nsame@example.invalid")
     #expect(backend.records[account]?.count == 2)
+  }
+
+  @Test @MainActor func trustedDeviceApprovalUnlocksANewDeviceWithoutReplacingAccountKeys()
+    async throws
+  {
+    let trusted = device()
+    let new = device()
+    let account = "account-synthetic-product-subject"
+    defer {
+      remove(trusted, accounts: [account])
+      remove(new, accounts: [account])
+    }
+    let google = SyntheticGoogleRegistrationProvider()
+    google.scopes = [RegistrationStore.gmailScope]
+    let backend = SyntheticProductSyncBackend()
+    // The first device creates the account keys and saves its mailbox to Product Sync.
+    let approver = backend.store(keys: trusted, google: google)
+    _ = try await approver.signIn()
+    google.subject = "synthetic-mailbox-subject"
+    #expect(try await approver.authorizeGmail(reselect: false)["kind"] == "connected")
+    google.subject = "synthetic-product-subject"
+    let recovery = try #require(backend.recovery[account])
+    let ring = try #require(try approver.loadVault(account)?.ring)
+
+    // The same Product Sign-In on another installation reaches the account but no keys.
+    let enrolling = backend.store(keys: new, google: google)
+    let requested = try await enrolling.signIn()
+    #expect(requested["kind"] == "mailbox-needed")
+    #expect(requested["privateSync"] == "enrollment-pending")
+    #expect(requested["privateSyncMailboxes"] == nil)
+    let firstCode = try #require(requested["enrollmentCode"])
+    #expect(try enrolling.loadVault(account) == nil)
+
+    // The trusted device sees the request; a mistyped code is caught before anything is sent.
+    let listed = try await approver.refreshPrivateSync()
+    let firstRequest = try #require(listed["enrollmentRequest"])
+    #expect(listed["enrollmentDevice"] == "iPad")
+    let typo = String(firstCode.dropLast()) + (firstCode.last == "0" ? "1" : "0")
+    await #expect(throws: RegistrationError.enrollmentCodeInvalid) {
+      try await approver.approveEnrollment(firstRequest, code: typo)
+    }
+    #expect(backend.requests[firstRequest]?.state == .pending)
+
+    // A declined request ends; the new device asks again with a new code.
+    _ = try await approver.declineEnrollment(firstRequest)
+    let renewed = try await enrolling.refreshPrivateSync()
+    #expect(renewed["privateSync"] == "enrollment-pending")
+    #expect(renewed["enrollmentNotice"] == "renewed")
+    let secondCode = try #require(renewed["enrollmentCode"])
+    #expect(secondCode != firstCode)
+    await #expect(throws: RegistrationError.enrollmentUnavailable) {
+      try await approver.approveEnrollment(firstRequest, code: firstCode)
+    }
+
+    // An approval the backend forges without the code, here with other keys, is rejected.
+    let secondRequest = try #require(try await approver.refreshPrivateSync()["enrollmentRequest"])
+    let target = try #require(backend.requests[secondRequest])
+    backend.requests[secondRequest]?.state = .approved
+    backend.requests[secondRequest]?.approval = (
+      1,
+      try KeyRingEnvelope.enrollment(
+        .create(), to: target.publicKey, code: .generate(),
+        binding: .init(account: account, device: target.device, request: secondRequest))
+    )
+    let rejected = try await enrolling.refreshPrivateSync()
+    #expect(rejected["privateSync"] == "enrollment-pending")
+    #expect(rejected["enrollmentNotice"] == "rejected")
+    #expect(try enrolling.loadVault(account) == nil)
+    let thirdCode = try #require(rejected["enrollmentCode"])
+
+    // An expired request cannot be approved.
+    let thirdRequest = try #require(try await approver.refreshPrivateSync()["enrollmentRequest"])
+    backend.clock += 900_001
+    await #expect(throws: RegistrationError.enrollmentUnavailable) {
+      try await approver.approveEnrollment(thirdRequest, code: thirdCode)
+    }
+    let expired = try await enrolling.refreshPrivateSync()
+    #expect(expired["enrollmentNotice"] == "renewed")
+    let code = try #require(expired["enrollmentCode"])
+
+    // The code shown on the new device, typed loosely, approves exactly its request.
+    let request = try #require(try await approver.refreshPrivateSync()["enrollmentRequest"])
+    let approved = try await approver.approveEnrollment(
+      request, code: code.lowercased().replacingOccurrences(of: "-", with: " "))
+    #expect(approved["enrollmentRequest"] == nil)
+    #expect(approved["privateSync"] == "recovery-key")
+    // Replaying the approval is refused; the backend saw no code and no plaintext keys.
+    await #expect(throws: RegistrationError.enrollmentUnavailable) {
+      try await approver.approveEnrollment(request, code: code)
+    }
+    let sealed = try #require(backend.requests[request]?.approval)
+    let visible = try #require(String(data: JSONEncoder().encode(sealed.envelope), encoding: .utf8))
+    for secret in [code, code.replacingOccurrences(of: "-", with: "")]
+      + ring.keys.map({ $0.key.base64EncodedString() })
+    {
+      #expect(!visible.contains(secret))
+    }
+
+    // The new device adopts the account keys and reads the synchronized mailbox list, while Gmail
+    // on this device still needs its own authorization.
+    let unlocked = try await enrolling.refreshPrivateSync()
+    #expect(unlocked["kind"] == "mailbox-needed")
+    #expect(unlocked["privateSync"] == "ready")
+    #expect(unlocked["recoveryKey"] == nil)
+    #expect(unlocked["enrollmentCode"] == nil)
+    #expect(unlocked["privateSyncMailboxes"] == "same@example.invalid")
+    #expect(try enrolling.loadVault(account)?.ring == ring)
+    #expect(backend.requests[request] == nil)
+    // Nothing replaced the account's key material.
+    #expect(backend.recovery[account] == recovery)
+    #expect(backend.initializations == 1)
+    #expect(try approver.loadVault(account)?.ring == ring)
+    #expect(
+      try await backend.store(keys: new, google: google).restore()["privateSync"] == "ready")
+
+    // A revoked device's request can no longer be approved.
+    let other = device()
+    defer { remove(other, accounts: [account]) }
+    let revoked = backend.store(keys: other, google: google)
+    #expect(try await revoked.signIn()["privateSync"] == "enrollment-pending")
+    let revokedRequest = try #require(
+      try await approver.refreshPrivateSync()["enrollmentRequest"])
+    let revokedCode = try #require(try revoked.privateSync(revoked.load()!)["enrollmentCode"])
+    backend.revoked.insert(try #require(backend.requests[revokedRequest]).device)
+    await #expect(throws: RegistrationError.enrollmentUnavailable) {
+      try await approver.approveEnrollment(revokedRequest, code: revokedCode)
+    }
+    #expect(backend.recovery[account] == recovery)
   }
 }
