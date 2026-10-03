@@ -121,6 +121,7 @@ const record = (name, text) => fs.appendFileSync(path.join(base, name), text + '
 if (process.env.UNRELATED_SECRET) throw Error('unrelated dotenv secret reached build');
 if (command === 'git' && args.includes('rev-parse')) console.log(${JSON.stringify(sha)});
 if (command === 'git' && args.includes('status') && process.env.STUB_DIRTY_WORKTREE) console.log(' M tracked-file');
+if (command === 'git' && args.includes('status') && process.env.STUB_GIT_FAILURE) process.exit(128);
 if (command === 'pod') {
   record('commands', 'pod install');
   if (process.cwd() !== path.join(checkout, 'apps/mobile/ios')) throw Error('Expo Pods require the generated iOS project directory');
@@ -287,6 +288,7 @@ test(
         { UNWIRED_MOCK_SCENARIO: 'open-read-relaunch' },
         { APPLE_DEVELOPMENT_TEAM: '<invalid>' },
         { STUB_DIRTY_WORKTREE: '1' },
+        { STUB_GIT_FAILURE: '1' },
       ]) {
         const result = spawnSync(
           '/bin/zsh',

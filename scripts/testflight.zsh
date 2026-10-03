@@ -34,7 +34,11 @@ if [[ ! "$UNWIRED_BUILD_NUMBER" =~ '^[0-9]{12}$' ]]; then
 fi
 export UNWIRED_COMMIT=$(git -C "$root" rev-parse HEAD)
 # The stamped commit must describe the archive exactly.
-if [[ -n "$(git -C "$root" status --porcelain --untracked-files=no)" ]]; then
+if ! changes=$(git -C "$root" status --porcelain --untracked-files=no); then
+  print -u2 'Could not inspect the worktree'
+  exit 2
+fi
+if [[ -n "$changes" ]]; then
   print -u2 'Commit or discard changes to tracked files before uploading'
   exit 2
 fi
