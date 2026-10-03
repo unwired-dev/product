@@ -16,10 +16,10 @@ Give developers and autonomous agents a safe, repeatable way to exercise the Cor
 
 | Tier                        | Purpose                                                                                                     | Gate                                                  |
 | --------------------------- | ----------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
-| Local Mail Test Environment | Deterministic everyday development and pull-request testing through IMAP and SMTP                           | Local and on demand; the CI gate is retired           |
+| Local Mail Test Environment | Deterministic, on-demand local development testing through IMAP and SMTP                                    | Local and on demand; the CI gate is retired           |
 | Provider Compatibility Run  | Gmail-specific compatibility through real Gmail APIs, labels, history, watch registration, and push routing | Deferred; required before Gmail release certification |
 
-The local tier does not claim Gmail compatibility. The Gmail tier does not replace deterministic pull-request coverage and is not a prerequisite for approval of the exact-pinned Mail Engine dependency or generic IMAP/SMTP development.
+The local tier does not claim Gmail compatibility. The Gmail tier does not replace deterministic local coverage and is not a prerequisite for approval of the exact-pinned Mail Engine dependency or generic IMAP/SMTP development.
 
 ## Available interfaces
 
