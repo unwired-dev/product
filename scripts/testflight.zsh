@@ -39,13 +39,31 @@ cat > "$artifacts/ExportOptions.plist" <<PLIST
 </dict></plist>
 PLIST
 
+# Full logs stay in the evidence directory; a failure prints only its errors.
+report() {
+  /usr/bin/grep -E -A2 '(^|[^a-z])error:|\*\* [A-Z]+ FAILED \*\*' "$1" | tail -40 >&2
+  print -u2 "Failed: $1"
+  exit 1
+}
+
+# CocoaPods intermittently fails Pods project generation in pnpm workspaces
+# (CocoaPods/CocoaPods#12866); a repeat succeeds.
+pods() {
+  for attempt in 1 2 3; do
+    "$@" && return
+  done
+  print -u2 'CocoaPods installation failed'
+  exit 1
+}
+
 upload() {
   local host=$1 workspace=$2 destination=$3 info=$4
   local archive="$artifacts/$host.xcarchive"
   xcodebuild archive -workspace "$workspace" -scheme UnwiredMail -configuration Release \
     -destination "$destination" -archivePath "$archive" \
     -derivedDataPath "$artifacts/$host-DerivedData" "${authentication[@]}" \
-    CODE_SIGN_STYLE=Automatic DEVELOPMENT_TEAM="$team" "${@:5}" > "$artifacts/$host-archive.log" 2>&1
+    CODE_SIGN_STYLE=Automatic DEVELOPMENT_TEAM="$team" "${@:5}" > "$artifacts/$host-archive.log" 2>&1 ||
+    report "$artifacts/$host-archive.log"
   # A distributed artifact must never be able to start a Mock Mail Session.
   local app=("$archive"/Products/Applications/*.app(N))
   if /usr/libexec/PlistBuddy -c 'Print :UnwiredMockScenario' "$app[1]/$info" >/dev/null 2>&1 ||
@@ -55,21 +73,21 @@ upload() {
   fi
   xcodebuild -exportArchive -archivePath "$archive" -exportPath "$artifacts/$host-export" \
     -exportOptionsPlist "$artifacts/ExportOptions.plist" "${authentication[@]}" \
-    > "$artifacts/$host-upload.log" 2>&1
+    > "$artifacts/$host-upload.log" 2>&1 || report "$artifacts/$host-upload.log"
   rm -rf "$artifacts/$host-DerivedData"
   print "Uploaded $host $(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app[1]/$info") ($UNWIRED_BUILD_NUMBER) from $UNWIRED_COMMIT"
 }
 
 if [[ "$platform" != macos ]]; then
   pnpm --dir "$root" --filter @private-email/mobile native:generate --clean --no-install
-  (builtin cd -q "$root/apps/mobile/ios" && pod install)
+  pods pod install --project-directory="$root/apps/mobile/ios"
   upload ios "$root/apps/mobile/ios/UnwiredMail.xcworkspace" 'generic/platform=iOS' Info.plist
 fi
 if [[ "$platform" != ios ]]; then
   export UNWIRED_BUILD_CONFIGURATION=Release UNWIRED_SIGNING_IDENTITY='Apple Development' UNWIRED_DEVELOPMENT_TEAM="$team"
   export PATH="$(ruby -e 'print Gem.bindir'):$PATH"
   pnpm --dir "$root" --filter @private-email/macos native:generate
-  pnpm --dir "$root" --filter @private-email/macos native:pods
+  pods pnpm --dir "$root" --filter @private-email/macos native:pods
   upload macos "$root/apps/macos/macos/UnwiredMail.xcworkspace" 'generic/platform=macOS' Contents/Info.plist ARCHS=arm64
 fi
 print "TestFlight evidence: $artifacts"

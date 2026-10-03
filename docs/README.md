@@ -8,6 +8,7 @@ their scope below; publication of a plan does not prove implementation or releas
 
 - [Expo bootstrap, stack, setup and checks](expo-client.md)
 - [Native Mac windows, setup and checks](macos-client.md)
+- [On-demand TestFlight builds from CI and a Mac](testflight.md)
 
 - [Deterministic Mock Mail Sessions and external runners](mock-mail-sessions.md)
 - [Private preview Inbox storage and credentials](private-inbox-storage.md)
