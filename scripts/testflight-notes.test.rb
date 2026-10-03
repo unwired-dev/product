@@ -1,3 +1,4 @@
+require 'fileutils'
 require 'tmpdir'
 require_relative 'testflight-notes'
 
@@ -7,7 +8,10 @@ def assert(condition, message)
   raise message unless condition
 end
 
-Dir.mktmpdir('testflight-notes-', File.expand_path('../scratchpad', __dir__)) do |directory|
+# Git does not track the empty scratchpad directory.
+scratchpad = File.expand_path('../scratchpad', __dir__)
+FileUtils.mkdir_p(scratchpad)
+Dir.mktmpdir('testflight-notes-', scratchpad) do |directory|
   key = OpenSSL::PKey::EC.generate('prime256v1')
   ENV['ASC_KEY_PATH'] = File.join(directory, 'synthetic.p8')
   ENV['ASC_KEY_ID'] = 'SYNTHETIC1'
