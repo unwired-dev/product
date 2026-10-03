@@ -92,7 +92,7 @@ mise exec -- pnpm ios --device
 Use Xcode 27, an iOS 27 simulator runtime, and CocoaPods. `pnpm ios` generates and
 builds the development client and starts Metro; subsequent JavaScript work can
 use `pnpm dev`. These commands use a development build, not Expo Go. From the
-repository root, `pnpm ios --device` and `pnpm dev:ios` run the same commands
+repository root, `mise exec -- pnpm ios --device` and `mise exec -- pnpm dev:ios` run the same commands
 through Turborepo.
 
 Native projects are generated and ignored. Regenerate with `pnpm native:generate`

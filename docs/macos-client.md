@@ -92,7 +92,7 @@ open ../../artifacts/macos-inbox/DerivedData/Build/Products/Debug/UnwiredMail.ap
 ```
 
 From the repository root, `mise exec -- pnpm macos` starts Metro, builds Debug and
-opens the app in one Turborepo run; `pnpm dev:macos` starts only Metro.
+opens the app in one Turborepo run; `mise exec -- pnpm dev:macos` starts only Metro.
 
 For real sign-in, set `UNWIRED_SIGNING_IDENTITY="Apple Development"` and
 `UNWIRED_DEVELOPMENT_TEAM="<your team ID>"` in that local file, alongside the
