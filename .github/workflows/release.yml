@@ -48,4 +48,7 @@ jobs:
     with:
       platform: both
       ref: ${{ needs.plan.outputs.tag }}
-    secrets: inherit
+    # Only the hosts' public backend configuration; never the personal token.
+    secrets:
+      CONVEX_URL: ${{ secrets.CONVEX_URL }}
+      GMAIL_OAUTH_CLIENT_ID: ${{ secrets.GMAIL_OAUTH_CLIENT_ID }}
