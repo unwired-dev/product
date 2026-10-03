@@ -1,0 +1,51 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+  queue: max
+
+jobs:
+  plan:
+    name: Version pull request or release tag
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      release: ${{ steps.plan.outputs.release }}
+      tag: ${{ steps.plan.outputs.tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - name: Install workspace dependencies
+        run: pnpm install --frozen-lockfile --strict-peer-dependencies
+      - name: Open the version pull request or tag the release
+        id: plan
+        env:
+          # A personal token, so CI runs on the version pull request and its merge.
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: bash scripts/release-plan.sh
+
+  testflight:
+    name: TestFlight
+    needs: plan
+    if: needs.plan.outputs.release == 'true'
+    uses: ./.github/workflows/testflight.yml
+    with:
+      platform: both
+      ref: ${{ needs.plan.outputs.tag }}
+    secrets: inherit
