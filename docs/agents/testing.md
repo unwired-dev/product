@@ -5,6 +5,8 @@ for specific risks those layers cannot cover reliably or efficiently. Choose
 tests for confidence in real behavior and useful failure diagnosis, with
 proportionate execution and maintenance cost.
 
+Keep scenarios deterministic and isolated.
+
 ## Choose the test layer
 
 - **Integration is the default for application behavior.** Exercise real
