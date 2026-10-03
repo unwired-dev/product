@@ -1,6 +1,6 @@
 {
-  "ui": "tui",
   "$schema": "https://turbo.build/schema.json",
+  "ui": "tui",
   "globalEnv": [
     "APPLE_BUNDLE_ID",
     "APPLE_PRODUCT_CLIENT_IDS",
@@ -39,9 +39,46 @@
       "dependsOn": ["^test"]
     },
     "dev": {
-      "interactive": true,
       "cache": false,
-      "persistent": true
+      "persistent": true,
+      "interactive": true,
+      "passThroughEnv": ["*"]
+    },
+    "build": {
+      "dependsOn": ["^build"],
+      "env": ["UNWIRED_MOCK_SCENARIO"],
+      "cache": false
+    },
+    "verify:bundle": {
+      "dependsOn": ["build"],
+      "env": ["UNWIRED_MOCK_SCENARIO"],
+      "cache": false
+    },
+    "ios": {
+      "cache": false,
+      "persistent": true,
+      "interactive": true,
+      "passThroughEnv": ["*"]
+    },
+    "macos": {
+      "cache": false,
+      "passThroughEnv": ["*"]
+    },
+    "native:generate": {
+      "cache": false,
+      "passThroughEnv": ["*"]
+    },
+    "native:pods": {
+      "cache": false,
+      "passThroughEnv": ["*"]
+    },
+    "native:build": {
+      "cache": false,
+      "passThroughEnv": ["*"]
+    },
+    "test:native": {
+      "cache": false,
+      "passThroughEnv": ["*"]
     }
   },
   "globalDependencies": [

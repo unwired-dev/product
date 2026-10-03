@@ -106,9 +106,11 @@ const convexClock = Effect.clockWith((clock) =>
 
 // Convex's default runtime exposes the environment as a get-only Proxy that cannot
 // be enumerated or copied, so each configuration key is read directly when loaded.
+// Configuration paths are dynamic, so lookups go through the untyped view of `env`.
+const environment: Readonly<Record<string, string | undefined>> = env;
 const deploymentEnvironment = ConfigProvider.make((path) =>
   Effect.sync(() => {
-    const value = env[path.join('_')];
+    const value = environment[path.join('_')];
     return value === undefined || value === ''
       ? undefined
       : ConfigProvider.makeValue(value);

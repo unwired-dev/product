@@ -42,13 +42,29 @@ mise exec -- pnpm install
 
 For the replacement app, follow [Expo installation and launch](docs/expo-client.md#install-and-run).
 For Mac, follow [native Mac setup](docs/macos-client.md).
-The commands below start the existing backend.
 
-If `.env.local` does not exist, copy `.env.example` to it. Start Convex with:
+Turborepo runs the app and backend tasks from the repository root:
 
-```sh
-mise exec -- pnpm --filter @private-email/convex dev
-```
+| Command                        | Runs                                                      |
+| ------------------------------ | --------------------------------------------------------- |
+| `pnpm ios`                     | Builds and launches the iOS development client with Metro |
+| `pnpm dev:ios`                 | Metro for an installed iOS development client             |
+| `pnpm macos`                   | Metro while it builds and opens the Debug Mac app         |
+| `pnpm dev:macos`               | Metro for an existing Debug Mac app                       |
+| `pnpm native:build:macos`      | The Release Mac app; pass `Debug` or `Testing` instead    |
+| `pnpm dev:convex`              | Convex development against the root `.env.local`          |
+| `pnpm build`                   | Both production JavaScript bundles                        |
+| `pnpm verify:bundle`           | Both bundles, then their bundle checks                    |
+| `pnpm native:generate`         | Both generated native projects                            |
+| `pnpm test:native:ios <app>`   | The iOS native runner for a built `.app`                  |
+| `pnpm test:native:macos <app>` | The Mac native runner for a built `.app`                  |
+
+Arguments after the script name reach the package command, for example
+`pnpm ios --device`. The iOS and Mac Metro servers both use port 8081, so run one
+at a time. Development servers use Turborepo's terminal UI and need an interactive
+terminal; non-interactive shells run the package scripts directly.
+
+If `.env.local` does not exist, copy `.env.example` to it before starting Convex.
 
 Follow [the Swift prototype setup](docs/swift-client.md) for app environment
 settings, signing, provider configuration, and current behavior. Keep credentials
