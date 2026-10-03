@@ -9,6 +9,74 @@ The [mobile bootstrap](../expo-client.md) now uses Expo 57.0.25, React Native
 are available on the development host. The maintainer's earlier native-validation
 deferral still applies to unavailable release checks. Mac host evidence follows.
 
+## Signed Mac Mock Mail Session journeys, 2026-10-03
+
+The implementer ran the packaged, development-signed Mac `Testing` builds on
+macOS 27.0.1 with Xcode 27.0, Node 24.16.0 and pnpm 11.5.2, after installing a
+development profile covering the runner's disposable `dev.unwired.mock.*` IDs.
+The reviewer inspected each ownership record, runner result and XCTest log.
+Each run executed one test with zero failures and returned exit code zero,
+including cleanup:
+
+| Scenario                   | Local evidence                          |
+| -------------------------- | --------------------------------------- |
+| `registration-apple`       | `artifacts/macos-inbox/journey.c5oVKk/` |
+| `registration-link`        | `artifacts/macos-inbox/journey.56IyIe/` |
+| `registration-interrupted` | `artifacts/macos-inbox/journey.CopRYz/` |
+| `open-read-relaunch`       | `artifacts/macos-inbox/journey.g07ptY/` |
+
+Build each selected scenario with
+`UNWIRED_MOCK_SCENARIO=<scenario> pnpm --filter @private-email/macos native:build Testing`,
+using the development signing setup in the [Mac guide](../macos-client.md#build-and-run).
+Run `pnpm --filter @private-email/macos test:native <Testing-app-path>` with
+`UNWIRED_SIGNING_IDENTITY="Apple Development"` and `UNWIRED_MOCK_PROFILE` exported.
+The corresponding implementer logs are `/tmp/unwired-fix-journey-<scenario>.log`;
+the result bundles and ownership records above are git-ignored local evidence.
+
+The registration journeys exercise the actual AppKit accessibility tree and native
+Keychain-backed setup across process relaunch. Apple and interrupted Google setup
+retain and confirm the presented Recovery Key; linked sign-in retains both sign-in
+methods. The Inbox journey verifies independent windows, read-state relaunch and
+application lifetime. Registration text now uses accessible parent views because
+plain nonselectable `Text` in React Native macOS 0.81.9 is absent from the native
+accessibility tree. The selectable Recovery Key exposes its native text-view value.
+
+These four runs predate the merge of trusted-device enrollment in
+[#718](https://github.com/unwired-dev/product/pull/718). They supersede the
+missing-profile deferral below only for these four Mac journeys. The enrollment
+and earlier registration sections retain the conditions at the time of their runs.
+This evidence does not qualify live Apple/Google/Convex integration, the complete encrypted-storage
+contract, VoiceOver interaction, physical devices or distribution signing.
+Mac `registration-cancelled`, `registration-declined` and `registration-no-gmail`
+journeys remain unrun. Before the merge, the reviewer reran Mac lint, format,
+types and component tests, with all 12 tests passing. SwiftLint, swift-format and
+direct Swift typechecking of the journey also passed, using a writable temporary
+module cache.
+A reviewer native rerun stopped before test
+execution when the sandbox denied Swift's module-cache write; it supplies no
+additional native evidence.
+
+After the merge, the enrollment UI uses the same accessible labels. Native journey
+queries match selectable keys by their grouped text-view values: the Recovery Key
+has 13 groups of four characters and the Enrollment Code has 14, including its
+check digit. The implementer reports Mac lint, types and all 13 component tests
+passing. The implementer reran packaged, development-signed Mac `Testing` builds
+on the merged tree on macOS 27 with a profile covering `dev.unwired.mock.*`:
+
+- `registration-enrollment` executed one test with zero failures. The log is
+  `/tmp/unwired-fix-journey-registration-enrollment.log`.
+- `registration-apple` initially failed while waiting for "Gmail connected" after
+  relaunch, then passed an immediate rerun with no code change, executing one test
+  with zero failures. The first failure remains unexplained; the implementer
+  suspects desktop interference. The passing rerun log is
+  `/tmp/unwired-fix-journey-registration-apple.log`.
+
+The implementer also reports that the Mac hosted Private Inbox integration suite
+passed on #718's tree after Xcode created a managed profile for
+`dev.unwired.storage-probe.StorageHost`. The `registration-link`,
+`registration-interrupted` and `open-read-relaunch` journeys were not rerun after
+the merge; their evidence above remains from the pre-merge tree.
+
 ## Trusted-device enrollment evidence, 2026-10-03
 
 [#600](https://github.com/unwired-dev/product/issues/600) adds

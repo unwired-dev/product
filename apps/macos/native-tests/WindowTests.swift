@@ -9,81 +9,88 @@ final class WindowTests: XCTestCase {
     let workTicks: Int
   }
 
+  // React Native macOS exposes registration text as the label of its enclosing element.
+  private func text(_ value: String, in window: XCUIElement) -> XCUIElement {
+    window.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", value))
+      .firstMatch
+  }
+
+  // Selectable keys are native text views holding the grouped characters as their value.
+  private func key(groups: Int, in window: XCUIElement) -> XCUIElement {
+    window.textViews.matching(
+      NSPredicate(format: "value MATCHES %@", "([0-9A-Z]{4}-){\(groups - 1)}[0-9A-Z]{4}")
+    ).firstMatch
+  }
+
+  private func recoveryKey(in window: XCUIElement) -> XCUIElement {
+    key(groups: 13, in: window)
+  }
+
+  private func enrollmentCode(in window: XCUIElement) -> XCUIElement {
+    key(groups: 14, in: window)
+  }
+
   private func registrationJourney(_ app: XCUIApplication, first: XCUIElement, apple: Bool) {
     // Apple identifies the Product Account; Gmail access still needs its own Google grant.
     let signIn = apple ? "Sign in with Apple" : "Sign in with Google"
     XCTAssertTrue(first.buttons[signIn].waitForExistence(timeout: 20))
     first.buttons[signIn].click()
     XCTAssertTrue(first.buttons["Authorize Gmail"].waitForExistence(timeout: 15))
-    XCTAssertFalse(first.staticTexts["Gmail connected"].exists)
+    XCTAssertFalse(text("Gmail connected", in: first).exists)
     if apple {
-      XCTAssertTrue(
-        first.staticTexts.matching(
-          NSPredicate(
-            format: "label CONTAINS %@ OR value CONTAINS %@", "relay@privaterelay.example.invalid",
-            "relay@privaterelay.example.invalid")
-        ).firstMatch.exists)
+      XCTAssertTrue(text("relay@privaterelay.example.invalid", in: first).exists)
     }
     // A new Product Account presents its Recovery Key until setup is confirmed.
-    func recoveryKey(_ window: XCUIElement) -> String {
-      let text = window.staticTexts["recovery-key"]
-      return text.label.isEmpty ? text.value as? String ?? "" : text.label
-    }
-    XCTAssertTrue(first.staticTexts["recovery-key"].waitForExistence(timeout: 15))
-    let presented = recoveryKey(first)
+    XCTAssertTrue(recoveryKey(in: first).waitForExistence(timeout: 15))
+    let presented = recoveryKey(in: first).value as? String ?? ""
     XCTAssertEqual(presented.count, 64)
     app.terminate()
     app.launch()
     let resumed = app.windows["Inbox 1"]
     XCTAssertTrue(resumed.buttons["Authorize Gmail"].waitForExistence(timeout: 15))
     // Relaunch keeps the device-held keys; nothing is regenerated.
-    XCTAssertEqual(recoveryKey(resumed), presented)
+    XCTAssertEqual(recoveryKey(in: resumed).value as? String, presented)
     resumed.buttons[apple ? "Authorize Gmail" : "Choose another Google mailbox"].click()
-    XCTAssertTrue(resumed.staticTexts["Gmail connected"].waitForExistence(timeout: 15))
+    XCTAssertTrue(text("Gmail connected", in: resumed).waitForExistence(timeout: 15))
     let entry = resumed.textFields["Last four characters"]
     entry.click()
     entry.typeText(String(presented.suffix(4)))
     resumed.buttons["Confirm Recovery Key"].click()
-    XCTAssertTrue(resumed.staticTexts["Private sync is on"].waitForExistence(timeout: 15))
-    XCTAssertFalse(resumed.staticTexts["recovery-key"].exists)
+    XCTAssertTrue(text("Private sync is on", in: resumed).waitForExistence(timeout: 15))
+    XCTAssertFalse(recoveryKey(in: resumed).exists)
     app.terminate()
     app.launch()
     let relaunched = app.windows["Inbox 1"]
-    XCTAssertTrue(relaunched.staticTexts["Gmail connected"].waitForExistence(timeout: 15))
-    XCTAssertTrue(relaunched.staticTexts["Private sync is on"].exists)
-    XCTAssertFalse(relaunched.staticTexts["recovery-key"].exists)
+    XCTAssertTrue(text("Gmail connected", in: relaunched).waitForExistence(timeout: 15))
+    XCTAssertTrue(text("Private sync is on", in: relaunched).exists)
+    XCTAssertFalse(recoveryKey(in: relaunched).exists)
   }
 
   // An existing account's keys reach this device only through a trusted device's approval.
   private func enrollmentJourney(_ app: XCUIApplication, first: XCUIElement) {
     XCTAssertTrue(first.buttons["Sign in with Google"].waitForExistence(timeout: 20))
     first.buttons["Sign in with Google"].click()
-    XCTAssertTrue(first.staticTexts["Approve this device"].waitForExistence(timeout: 15))
-    XCTAssertTrue(first.staticTexts["enrollment-code"].exists)
-    XCTAssertFalse(first.staticTexts["recovery-key"].exists)
+    XCTAssertTrue(text("Approve this device", in: first).waitForExistence(timeout: 15))
+    XCTAssertTrue(enrollmentCode(in: first).exists)
+    XCTAssertFalse(recoveryKey(in: first).exists)
     let mailboxes = "Encrypted mailbox list: alex@example.invalid."
-    XCTAssertFalse(first.staticTexts[mailboxes].exists)
+    XCTAssertFalse(text(mailboxes, in: first).exists)
     // The synthetic trusted device approves with the code shown on this device.
     first.buttons["Check for approval"].click()
-    XCTAssertTrue(first.staticTexts["Private sync is on"].waitForExistence(timeout: 15))
-    XCTAssertTrue(first.staticTexts[mailboxes].exists)
+    XCTAssertTrue(text("Private sync is on", in: first).waitForExistence(timeout: 15))
+    XCTAssertTrue(text(mailboxes, in: first).exists)
     // Gmail on this device still needs its own authorization.
     XCTAssertTrue(first.buttons["Authorize Gmail"].exists)
     app.terminate()
     app.launch()
     let relaunched = app.windows["Inbox 1"]
-    XCTAssertTrue(relaunched.staticTexts["Private sync is on"].waitForExistence(timeout: 15))
-    XCTAssertTrue(relaunched.staticTexts[mailboxes].waitForExistence(timeout: 15))
-    XCTAssertFalse(relaunched.staticTexts["enrollment-code"].exists)
+    XCTAssertTrue(text("Private sync is on", in: relaunched).waitForExistence(timeout: 15))
+    XCTAssertTrue(text(mailboxes, in: relaunched).waitForExistence(timeout: 15))
+    XCTAssertFalse(enrollmentCode(in: relaunched).exists)
   }
 
   // Linking verifies both identities; the Gmail grant never becomes a sign-in method.
   private func linkJourney(_ app: XCUIApplication, first: XCUIElement) {
-    func text(_ value: String, in window: XCUIElement) -> XCUIElement {
-      window.staticTexts.matching(
-        NSPredicate(format: "label CONTAINS %@ OR value CONTAINS %@", value, value)
-      ).firstMatch
-    }
     XCTAssertTrue(first.buttons["Sign in with Apple"].waitForExistence(timeout: 20))
     first.buttons["Sign in with Apple"].click()
     XCTAssertTrue(text("Gmail connected", in: first).waitForExistence(timeout: 15))
