@@ -88,6 +88,20 @@ test('the target gate uses Changesets YAML semantics and the configured workspac
         assert.ok(result.stderr.includes(message), result.stderr);
       }
     }
+    // Versioning reads prerelease changesets too, skipping only exact agent-guide names.
+    writeFileSync(path.join(fixture, '.changeset/probe.md'), '---\n---\n');
+    mkdirSync(path.join(fixture, '.changeset/pre'));
+    writeFileSync(
+      path.join(fixture, '.changeset/pre/agents.md'),
+      '---\n"@deleted/host": patch\n---\nBad prerelease target\n',
+    );
+    const prerelease = spawnSync(
+      process.execPath,
+      ['scripts/check-changesets.mjs'],
+      { cwd: fixture, encoding: 'utf8' },
+    );
+    assert.equal(prerelease.status, 1, prerelease.stderr);
+    assert.ok(prerelease.stderr.includes('pre/agents.md'), prerelease.stderr);
   } finally {
     rmSync(fixture, { recursive: true, force: true });
   }

@@ -20,6 +20,7 @@ const packages = new Set(
   ),
 );
 const failures = [];
+// Skip exactly the files the installed reader skips.
 // Versioning also reads prerelease changesets from .changeset/pre.
 const pre = new URL('.changeset/pre/', root);
 const files = [
@@ -31,7 +32,8 @@ for (const file of files) {
   if (
     name.startsWith('.') ||
     !name.endsWith('.md') ||
-    /^(?:readme|agents|claude|gemini)\.md$/iu.test(name)
+    /^README\.md$/iu.test(name) ||
+    ['AGENTS.md', 'CLAUDE.md', 'GEMINI.md'].includes(name)
   ) {
     continue;
   }
