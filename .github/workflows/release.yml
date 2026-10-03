@@ -1,0 +1,85 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    name: Version pull request or release tag
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      release: ${{ steps.plan.outputs.release }}
+      tag: ${{ steps.plan.outputs.tag }}
+    env:
+      # A personal token, so CI runs on the version pull request and its merge.
+      GH_TOKEN: ${{ secrets.GH_TOKEN }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          token: ${{ secrets.GH_TOKEN }}
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - name: Install workspace dependencies
+        run: pnpm install --frozen-lockfile --strict-peer-dependencies
+      - name: Open the version pull request or tag the release
+        id: plan
+        run: |
+          set -euo pipefail
+          pending=$(find .changeset -maxdepth 1 -name '*.md' ! -name README.md | wc -l)
+          if (( pending > 0 )); then
+            # Pending changesets: keep one pull request that applies them.
+            pnpm version-packages
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git checkout -B changeset-release/main
+            git add .changeset apps packages
+            git commit -m 'Version packages'
+            git push --force origin changeset-release/main
+            version=$(node -p "require('./apps/mobile/package.json').version")
+            body="Merging this pull request tags v$version, creates its GitHub Release and uploads both hosts to TestFlight."
+            if [[ -n "$(gh pr list --head changeset-release/main --state open --json number --jq '.[].number')" ]]; then
+              gh pr edit changeset-release/main --title "Version packages: v$version" --body "$body"
+            else
+              gh pr create --base main --head changeset-release/main --title "Version packages: v$version" --body "$body"
+            fi
+            echo 'release=false' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # No pending changesets: release this version once.
+          mobile=$(node -p "require('./apps/mobile/package.json').version")
+          macos=$(node -p "require('./apps/macos/package.json').version")
+          if [[ "$mobile" != "$macos" ]]; then
+            echo 'The hosts must carry the same version' >&2
+            exit 1
+          fi
+          tag="v$mobile"
+          if [[ -n "$(git ls-remote --tags origin "refs/tags/$tag")" ]]; then
+            echo 'release=false' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          gh release create "$tag" --target "$GITHUB_SHA" --title "$tag" --generate-notes
+          echo 'release=true' >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+  testflight:
+    name: TestFlight
+    needs: plan
+    if: needs.plan.outputs.release == 'true'
+    uses: ./.github/workflows/testflight.yml
+    with:
+      platform: both
+      ref: ${{ needs.plan.outputs.tag }}
+    secrets: inherit

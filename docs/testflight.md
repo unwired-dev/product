@@ -117,6 +117,37 @@ Run the credential-free runner and API-contract checks with
 require macOS and substitute build/upload commands; these are not native build
 or live App Store Connect evidence.
 
+## Versioned releases
+
+The [Release workflow](../.github/workflows/release.yml) runs on every push to
+`main`, tracked in [#725](https://github.com/unwired-dev/product/issues/725).
+
+```text
+push to main
+  pending changesets?
+    yes -> run `changeset version`, force-push `changeset-release/main`,
+           open or update the "Version packages: vX.Y.Z" pull request
+    no  -> tag vX.Y.Z exists? stop
+           otherwise create the tag and GitHub Release,
+           then upload both hosts to TestFlight from that tag
+```
+
+Merging the version pull request is the release decision. Both hosts carry the
+same version: they are a fixed Changesets group, and the workflow refuses to tag
+when they differ. Private packages are versioned but not published or tagged
+individually. App Store review submission stays manual in App Store Connect.
+
+The workflow uses the `GH_TOKEN` repository secret, a fine-grained personal
+access token with contents and pull-request write access to this repository.
+The default workflow token would not start CI on the version pull request.
+
+If an upload fails after the tag exists, rerun the failed job of that Release
+run, or dispatch the TestFlight workflow for the tag:
+
+```sh
+gh workflow run testflight.yml -f platform=macos -f ref=vX.Y.Z
+```
+
 ## One-time setup
 
 1. App Store Connect has an app for `dev.unwired.mail` with the iOS and macOS
