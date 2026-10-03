@@ -35,8 +35,19 @@ class TestFlightNotes
       message['Content-Type'] = 'application/json'
       message.body = JSON.generate(body)
     end
-    response = Net::HTTP.start(uri.hostname, uri.port, use_ssl: true, open_timeout: 20, read_timeout: 30) do |http|
-      http.request(message)
+    # Reads are idempotent: repeat a transient failure instead of failing after a completed upload.
+    attempts = method == 'Get' ? 3 : 1
+    response = nil
+    attempts.times do |attempt|
+      begin
+        response = Net::HTTP.start(uri.hostname, uri.port, use_ssl: true, open_timeout: 20, read_timeout: 30) do |http|
+          http.request(message)
+        end
+        break unless response.code == '429' || response.code.start_with?('5')
+      rescue Net::OpenTimeout, Net::ReadTimeout, Errno::ECONNRESET, SocketError
+        raise 'App Store Connect notes request failed (network)' if attempt == attempts - 1
+      end
+      sleep 5 * (attempt + 1) unless attempt == attempts - 1
     end
     # Never include response bodies or the signed authorization token in errors.
     raise "App Store Connect notes request failed (HTTP #{response.code})" unless response.is_a?(Net::HTTPSuccess)

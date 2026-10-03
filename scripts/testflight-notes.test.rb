@@ -23,6 +23,7 @@ Dir.mktmpdir('testflight-notes-', scratchpad) do |directory|
   localizations = []
   requests = []
   failure = false
+  transient = 0
   sleeps = 0
   TestFlightNotes.define_method(:sleep) { |_seconds| sleeps += 1 }
   transport = Object.new
@@ -40,6 +41,11 @@ Dir.mktmpdir('testflight-notes-', scratchpad) do |directory|
     der = OpenSSL::ASN1::Sequence.new(integers).to_der
     assert(key.dsa_verify_asn1(OpenSSL::Digest::SHA256.digest("#{header}.#{payload}"), der), 'Signature failed independent verification')
     response = failure ? Net::HTTPForbidden.new('1.1', '403', 'Forbidden') : Net::HTTPOK.new('1.1', '200', 'OK')
+    if transient.positive?
+      transient -= 1
+      assert(message.method == 'GET', 'Write unexpectedly reached a transient failure')
+      response = Net::HTTPServiceUnavailable.new('1.1', '503', 'Unavailable')
+    end
     uri = URI(message.path)
     query = URI.decode_www_form(uri.query || '').to_h
     data = case uri.path
@@ -104,6 +110,19 @@ Dir.mktmpdir('testflight-notes-', scratchpad) do |directory|
     assert(error.message.include?('timed out'), 'Processing timeout not reported')
   end
   assert(requests[before..].count { |request| URI(request.path).path == '/v1/builds' } == 40, 'Unbounded processing poll')
+  # A transient read failure is repeated; a persistent one still fails closed.
+  states = ['VALID']
+  transient = 2
+  TestFlightNotes.new('macos', '0.1.0', '202610031234', commit).upload
+  assert(requests.last.method == 'PATCH', 'Transient read failure was not retried')
+  transient = 3
+  begin
+    TestFlightNotes.new('macos', '0.1.0', '202610031234', commit).upload
+    raise 'Persistent read failure unexpectedly accepted'
+  rescue RuntimeError => error
+    assert(error.message == 'App Store Connect notes request failed (HTTP 503)', 'Persistent read failure not reported')
+  end
+  transient = 0
   failure = true
   begin
     TestFlightNotes.new('macos', '0.1.0', '202610031234', commit).upload
@@ -111,5 +130,5 @@ Dir.mktmpdir('testflight-notes-', scratchpad) do |directory|
   rescue RuntimeError => error
     assert(error.message == 'App Store Connect notes request failed (HTTP 403)', 'Sensitive response included in error')
   end
-  puts 'Passed TestFlight notes contracts: JWT, create/update, platform/build scoping, processing rejection, timeout and HTTP failure'
+  puts 'Passed TestFlight notes contracts: JWT, create/update, platform/build scoping, processing rejection, timeout, read retries and HTTP failure'
 end

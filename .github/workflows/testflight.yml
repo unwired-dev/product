@@ -20,6 +20,13 @@ on:
       ref:
         type: string
         default: ''
+    # Callers pass only the hosts' public backend configuration. The signing
+    # key comes from the testflight environment.
+    secrets:
+      CONVEX_URL:
+        required: true
+      GMAIL_OAUTH_CLIENT_ID:
+        required: true
 
 permissions:
   contents: read
