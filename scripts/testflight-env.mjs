@@ -1,12 +1,13 @@
 /* oxlint-disable node/no-sync -- This CLI bootstrap waits for the release script and preserves its exit status. */
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
+import path from 'node:path';
 import { env as inheritedEnv } from 'node:process';
 import { fileURLToPath } from 'node:url';
 import { parseEnv } from 'node:util';
 
 // Load only release configuration; unrelated backend secrets stay out of builds.
-const file = new URL('../.env.local', import.meta.url);
+const file = path.join(import.meta.dirname, '..', '.env.local');
 const local = existsSync(file) ? parseEnv(readFileSync(file, 'utf8')) : {};
 const env = { ...inheritedEnv, UNWIRED_TESTFLIGHT_ENV_LOADED: '1' };
 for (const name of [

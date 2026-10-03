@@ -22,6 +22,7 @@
     "native:generate": "turbo run native:generate",
     "prepare": "effect-tsgo patch --oxlint",
     "test": "turbo run test",
+    "testflight": "node scripts/testflight-env.mjs",
     "test:native-runner": "node --test scripts/native-runner.test.mjs scripts/mock-mail-runner.test.mjs scripts/testflight.test.mjs",
     "test:native:ios": "turbo run test:native --filter=@private-email/mobile --",
     "test:native:macos": "turbo run test:native --filter=@private-email/macos --",

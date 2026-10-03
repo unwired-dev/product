@@ -22,6 +22,7 @@ const sha = 'a'.repeat(40);
 const number = '202610031234';
 const sentinel = 'SYNTHETIC_PRIVATE_KEY_SENTINEL';
 
+// fallow-ignore-next-line complexity -- One fixture builds the whole fake checkout and toolchain every release scenario shares.
 function fixture(scenario, { dotenv = false } = {}) {
   mkdirSync(path.join(root, 'scratchpad'), { recursive: true });
   const directory = mkdtempSync(
@@ -207,6 +208,7 @@ for (const [scenario, platform, expected] of [
   test(
     `TestFlight runner protects release boundary: ${scenario}, ${platform}`,
     { skip: process.platform !== 'darwin' },
+    // fallow-ignore-next-line complexity -- One table-driven case asserts every refusal and its cleanup together.
     () => {
       const { directory, checkout, env } = fixture(scenario, { dotenv: true });
       try {
