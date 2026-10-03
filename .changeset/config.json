@@ -5,6 +5,7 @@
   "fixed": [["@private-email/mobile", "@private-email/macos"]],
   "linked": [],
   "access": "restricted",
+  "privatePackages": { "version": true, "tag": false },
   "baseBranch": "main",
   "updateInternalDependencies": "patch",
   "ignore": []
