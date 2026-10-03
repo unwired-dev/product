@@ -76,7 +76,8 @@ jobs:
       - name: Check native runner failure handling
         run: pnpm test:native-runner
       - name: Verify native encryption and credential removal
-        timeout-minutes: 8
+        # Simulator boot and the probe build vary from 5 to over 8 minutes on hosted runners.
+        timeout-minutes: 14
         run: zsh native/private-inbox/integration/test.zsh ios
       - name: Verify ordinary native project generation with cleared scenario
         run: |

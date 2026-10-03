@@ -277,9 +277,13 @@ uploads its own logs and XCTest results where produced. The runner rejects zero-
 success and avoids retrying assertion failures even when infrastructure messages
 are also present. The app artifact retains its run ID across attempts so failed
 journeys can reuse a successful build within its seven-day retention period.
-This split is intended to reduce CI wall-clock time; neither passing hosted
-execution of the updated workflow nor its duration has been measured yet.
-Record that evidence after the updated workflow executes.
+The first hosted [run 37123765376](https://github.com/unwired-dev/product/actions/runs/37123765376)
+took 18m10s. The build (8m40s), iPhone journey (9m07s), and iPad journey (7m16s)
+passed. The storage step reached its former eight-minute limit during cleanup,
+after all 17 tests reported success. Its total limit is now 14 minutes, including
+the single infrastructure retry and cleanup, within the 20-minute storage job.
+Hosted validation of this timeout adjustment remains pending; the first run does
+not establish a passing workflow.
 
 ## Earlier dependency probe — 2026-09-09
 
