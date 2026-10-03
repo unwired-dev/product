@@ -229,6 +229,8 @@ function DeviceApproval({
         store.approveEnrollment(request, entry),
       )}
       {button(enrollmentCopy.decline, () => store.declineEnrollment(request))}
+      {/* A request that expired or was handled elsewhere is replaced by the newest one. */}
+      {button(enrollmentCopy.find, store.refreshPrivateSync)}
     </>
   );
 }
@@ -401,6 +403,8 @@ export function RegistrationGate({
         )}
         {snapshot.kind === 'signed-out' ? null : (
           <DeviceApproval
+            // A code typed for one request never carries over to the next.
+            key={snapshot.enrollmentRequest ?? 'none'}
             account={snapshot}
             button={button}
             failure={enrollmentFailure}

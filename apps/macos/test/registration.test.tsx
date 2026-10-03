@@ -429,6 +429,68 @@ describe('product registration', () => {
 
   /* oxlint-enable vitest/max-expects */
 
+  it('replaces a request that is no longer available and clears the code typed for it', async () => {
+    expect.hasAssertions();
+    const trusted = {
+      kind: 'connected',
+      productAccountId: 'synthetic-product-account',
+      signInProvider: 'google',
+      privateSync: 'ready',
+      providerSubject: 'synthetic-google-subject',
+      address: 'alex@example.invalid',
+    } as const;
+    let refreshes = 0;
+    const store = createRegistration({
+      restore: () => Promise.resolve(trusted),
+      signIn: () => Promise.reject(new Error('Not signing in')),
+      authorizeGmail: () => Promise.reject(new Error('Not authorizing')),
+      link: () => Promise.reject(new Error('Not linking')),
+      confirmRecoveryKey: () =>
+        Promise.reject(new Error('No Recovery Key to confirm')),
+      // The first request was handled by another trusted device meanwhile.
+      approveEnrollment: () =>
+        Promise.reject(
+          Object.assign(new Error('Request unavailable'), {
+            code: 'enrollment-unavailable',
+          }),
+        ),
+      declineEnrollment: () => Promise.reject(new Error('Not declining')),
+      refreshPrivateSync: () =>
+        Promise.resolve({
+          ...trusted,
+          enrollmentRequest: `synthetic-request-${(refreshes += 1)}`,
+          enrollmentDevice: 'iPad',
+        }),
+    });
+    await store.restoreOnce();
+    await render(
+      <RegistrationGate
+        store={store}
+        preview={false}>
+        {null}
+      </RegistrationGate>,
+    );
+    const press = async (name: string) => {
+      await act(async () => {
+        await fireEvent.press(await screen.findByRole('button', { name }));
+      });
+    };
+    await press('Check for a new device');
+    await act(async () => {
+      await fireEvent.changeText(
+        screen.getByLabelText('Code from the new device'),
+        syntheticEnrollmentCode,
+      );
+    });
+    await press('Approve device');
+    expect(screen.getByRole('alert')).toHaveTextContent(/no longer available/u);
+    await press('Check for a new device');
+    expect(screen.getByLabelText('Code from the new device')).toHaveProp(
+      'value',
+      '',
+    );
+  });
+
   it('offers sign-in again when the connected mailbox is not yet saved to private sync', async () => {
     expect.hasAssertions();
     const connected = {
