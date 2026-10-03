@@ -19,6 +19,12 @@ target.resources_build_phase.add_file_reference(icon)
 info = Xcodeproj::Plist.read_from_path('UnwiredMail/Info.plist')
 info.delete('UnwiredMockScenario')
 info['CFBundleShortVersionString'] = JSON.parse(File.read('../package.json')).fetch('version')
+# Release uploads stamp a unique build number and their source commit.
+build_number = ENV.fetch('UNWIRED_BUILD_NUMBER', '1')
+raise 'Invalid release build number' unless build_number.match?(/\A[0-9]+\z/)
+info['CFBundleVersion'] = build_number
+info.delete('UnwiredCommit')
+info['UnwiredCommit'] = ENV['UNWIRED_COMMIT'] unless ENV.fetch('UNWIRED_COMMIT', '').empty?
 client_id = ENV.fetch('UNWIRED_GOOGLE_CLIENT_ID', '')
 raise 'Invalid native Google OAuth client ID' unless client_id.empty? || client_id.match?(/\A[0-9A-Za-z-]+\.apps\.googleusercontent\.com\z/)
 info['GIDClientID'] = client_id
