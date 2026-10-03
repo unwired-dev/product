@@ -2,6 +2,8 @@ import { env } from 'node:process';
 
 import type { ExpoConfig } from 'expo/config';
 
+import * as Schema from 'effect/Schema';
+
 import scenarios from '../../scripts/mock-mail-scenarios.json';
 import manifest from './package.json';
 
@@ -27,13 +29,12 @@ if (
   throw new Error('Invalid native Google OAuth client ID');
 }
 
-// Release uploads stamp a unique build number and their source commit.
+// Release uploads stamp their UTC build number and source commit.
 const buildNumber: unknown = env.UNWIRED_BUILD_NUMBER ?? '1';
 const commit: unknown = env.UNWIRED_COMMIT ?? '';
 if (
-  typeof buildNumber !== 'string' ||
-  !/^[0-9]+$/u.test(buildNumber) ||
-  typeof commit !== 'string'
+  !Schema.is(Schema.String.check(Schema.isPattern(/^[0-9]+$/u)))(buildNumber) ||
+  !Schema.is(Schema.String)(commit)
 ) {
   throw new TypeError('Invalid release build configuration');
 }

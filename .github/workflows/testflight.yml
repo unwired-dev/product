@@ -46,6 +46,14 @@ jobs:
       EXPO_NO_TELEMETRY: '1'
       DEVELOPER_DIR: /Applications/Xcode_27.0.app/Contents/Developer
     steps:
+      - name: Validate host selection
+        env:
+          PLATFORM: ${{ inputs.platform }}
+        run: |
+          case "$PLATFORM" in
+            ios|macos|both) ;;
+            *) print -u2 'Invalid TestFlight platform'; exit 2 ;;
+          esac
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.ref || github.ref }}
@@ -64,6 +72,8 @@ jobs:
           echo "GEM_PATH=$RUNNER_TEMP/native-gems:$(ruby -e 'puts Gem.path.join(":")')" >> "$GITHUB_ENV"
       - name: Install workspace dependencies
         run: pnpm install --frozen-lockfile --strict-peer-dependencies
+      - name: Check release runner contracts without credentials
+        run: node --test scripts/testflight.test.mjs
       - name: Archive and upload
         env:
           APPLE_DEVELOPMENT_TEAM: ${{ vars.APPLE_DEVELOPMENT_TEAM }}
@@ -75,14 +85,18 @@ jobs:
           HOST: ${{ matrix.host }}
         run: |
           export ASC_KEY_PATH="$RUNNER_TEMP/AuthKey.p8"
+          umask 077
           print -r -- "$ASC_PRIVATE_KEY" > "$ASC_KEY_PATH"
+          unset ASC_PRIVATE_KEY
           trap 'rm -f "$ASC_KEY_PATH"' EXIT
+          trap 'rm -f "$ASC_KEY_PATH"; trap - EXIT; exit 130' INT
+          trap 'rm -f "$ASC_KEY_PATH"; trap - EXIT; exit 143' TERM
           zsh scripts/testflight.zsh "$HOST"
-      - name: Upload build logs
+      - name: Upload build status
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: testflight-${{ matrix.host }}-${{ github.run_id }}-${{ github.run_attempt }}
-          path: artifacts/testflight/**/*.log
+          path: artifacts/testflight/**/status.txt
           if-no-files-found: warn
           retention-days: 7

@@ -19,7 +19,7 @@ target.resources_build_phase.add_file_reference(icon)
 info = Xcodeproj::Plist.read_from_path('UnwiredMail/Info.plist')
 info.delete('UnwiredMockScenario')
 info['CFBundleShortVersionString'] = JSON.parse(File.read('../package.json')).fetch('version')
-# Release uploads stamp a unique build number and their source commit.
+# Release uploads stamp their UTC build number and source commit.
 build_number = ENV.fetch('UNWIRED_BUILD_NUMBER', '1')
 raise 'Invalid release build number' unless build_number.match?(/\A[0-9]+\z/)
 info['CFBundleVersion'] = build_number
@@ -72,6 +72,7 @@ bundle.shell_script = <<~SH
   cd "$SRCROOT/.."
   pnpm build
   pnpm verify:bundle
+  if [ -n "$SOURCEMAP_FILE" ]; then cp dist/main.jsbundle.map "$SOURCEMAP_FILE"; fi
   mkdir -p "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH"
   cp dist/main.jsbundle "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/main.jsbundle"
 SH
