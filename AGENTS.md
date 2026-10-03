@@ -23,6 +23,8 @@ for every implementation, including later implementation fixes.
   `docs/architecture/`, ADRs, `.patterns/`, and the reviewer-only sources listed
   in the workflow. This role boundary takes precedence over architecture-reading
   instructions in other repository guides or skills.
+- Invoke the `ponytail` and `unlazy` skills before implementing, and follow both
+  throughout the implementation.
 - After implementing and running the relevant checks, spawn a separate review
   agent with explicit `model: "gpt-6.1-sol"`, `reasoning_effort: "high"`, and
   `fork_turns: "none"`, regardless of the implementer's model or reasoning effort.
@@ -37,6 +39,7 @@ for every implementation, including later implementation fixes.
   and remove task-owned probes afterward.
 - Invoke `task-observer` for task-oriented work and consult relevant open skill
   observations. Resolve skills through the session catalogue.
+- Use the `find-skills` skill to choose the correct skill for each job.
 
 ## Verify
 
