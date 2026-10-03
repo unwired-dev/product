@@ -108,19 +108,19 @@ Automated native checks follow the
 The maintained checks cover the Expo and Mac apps, shared core/contracts and retained
 Convex backend:
 
-| Lane                | Evidence                                                                                                                                                |
-| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| CI: TypeScript      | Lint, formatting, types and tests for mobile, Mac and Convex with their workspace dependencies; Effect import-policy tests and agent workflow contracts |
-| CI: Fallow          | Root unused-code and complexity audit                                                                                                                   |
-| CI: Expo mobile     | Mobile Fallow scan, Expo compatibility, production Hermes export and bundle boundary checks                                                             |
-| CI: Mac bundle      | Mac production JavaScript export, renderer inventory, shared source and native autolinking scope                                                        |
-| CI: Expo native E2E | Real Keychain/encrypted-store checks, Expo Release build and iPhone/iPad relaunch journeys                                                              |
-| Pre-release         | Real Gmail authorization and transport, encrypted persistence, credentials, APNs, accessibility, physical devices and native Mac qualification          |
+| Lane            | Evidence                                                                                                                                                |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| CI: TypeScript  | Lint, formatting, types and tests for mobile, Mac and Convex with their workspace dependencies; Effect import-policy tests and agent workflow contracts |
+| CI: Fallow      | Root unused-code and complexity audit                                                                                                                   |
+| CI: Expo mobile | Mobile Fallow scan, Expo compatibility, production Hermes export and bundle boundary checks                                                             |
+| CI: Mac bundle  | Mac production JavaScript export, renderer inventory, shared source and native autolinking scope                                                        |
+| CI: Expo native | Real Keychain/encrypted-store checks, Expo Release build and parallel iPhone/iPad relaunch journeys                                                     |
+| Pre-release     | Real Gmail authorization and transport, encrypted persistence, credentials, APNs, accessibility, physical devices and native Mac qualification          |
 
 The workflow files [CI](../../.github/workflows/ci.yml) and
 [Mobile](../../.github/workflows/mobile.yml) and [Mac](../../.github/workflows/macos.yml) define the automated commands.
 [Expo validation](../expo-client.md#validate) documents local commands and their
-limits. The native E2E job runs the iPhone/iPad Inbox journey on hosted macOS;
+limits. The native E2E jobs run the iPhone and iPad Inbox journeys on hosted macOS;
 no nightly validation matrix is currently configured. Legacy Swift jobs and the legacy mail harness
 are excluded from primary CI by maintainer decision.
 
@@ -158,8 +158,10 @@ synchronization, or observable state transitions before removing them.
 | Required pull-request validation after runner allocation | 20-minute p95      |
 | Superseded pull-request runs                             | Cancel immediately |
 
-These are feedback targets. The native E2E job has a 45-minute timeout to
-accommodate a cold build; measure its actual duration against the PR target.
+These are feedback targets. The native build and E2E jobs each have a 25-minute
+timeout to accommodate a cold build or simulator. Measure the slower of the
+independent storage checks and the build followed by the slower journey against
+the PR target.
 Measure setup and build time separately from test execution. Record timing-related or
 flaky failures and classify failures as product, test, or infrastructure defects. Review
 the initial four weeks of evidence before adjusting the budgets, then review trends

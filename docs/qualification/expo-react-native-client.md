@@ -268,12 +268,18 @@ The mock Inbox is in-memory; opening mail does not mark it read.
 ## Native E2E automation
 
 The [Mobile workflow](../../.github/workflows/mobile.yml) now defines an
-`Expo native E2E` job for ready pull requests and pushes to `main`. It builds the
-packaged Release app on the `xcode-27` arm64 image, runs the existing iPhone/iPad
-journey, and uploads build logs and XCTest results. The runner rejects zero-test
+`Expo native build` job for ready pull requests and pushes to `main`. It builds
+the packaged Release app once on the `xcode-27` arm64 image and uploads a tar
+archive for the parallel `Expo native E2E (iPhone)` and `Expo native E2E (iPad)`
+jobs. Independent `Expo native storage checks` retain the native runner contracts,
+real storage integration and cleared-scenario project generation. Each job
+uploads its own logs and XCTest results where produced. The runner rejects zero-test
 success and avoids retrying assertion failures even when infrastructure messages
-are also present. This workflow definition does not establish a passing hosted
-run; record that evidence after the updated workflow executes.
+are also present. The app artifact retains its run ID across attempts so failed
+journeys can reuse a successful build within its seven-day retention period.
+This split is intended to reduce CI wall-clock time; neither passing hosted
+execution of the updated workflow nor its duration has been measured yet.
+Record that evidence after the updated workflow executes.
 
 ## Earlier dependency probe — 2026-09-09
 
