@@ -51,7 +51,9 @@ Quit stops application work; there is no separate helper. This slice establishes
 the host lifecycle, not real synchronization or queued delivery.
 
 Native menus use AppKit accessibility. Message buttons expose labels and selected
-state, support keyboard focus, and show a focus border. Full VoiceOver and
+state, support keyboard focus, and show a focus border. React Native macOS 0.81.9 does
+not expose plain nonselectable `Text` to accessibility: wrap it in an accessible view carrying
+its label, or make it selectable so it becomes a native text view. Full VoiceOver and
 hardware-keyboard qualification remain separate release checks.
 
 ## Build and run
@@ -129,7 +131,9 @@ Build with `UNWIRED_MOCK_SCENARIO=open-read-relaunch` in the optimized,
 packaged `Testing` configuration. The runner copies the app into a random bundle
 identity; Mac Data Protection Keychain requires a development signing identity
 and a profile covering `dev.unwired.mock.*`, selected using
-`UNWIRED_SIGNING_IDENTITY` and `UNWIRED_MOCK_PROFILE`. It signs an external cleanup
+`UNWIRED_SIGNING_IDENTITY` and `UNWIRED_MOCK_PROFILE`. Keep the identity as the
+generic `Apple Development`; the automatically signed build rejects a full
+certificate name. It signs an external cleanup
 helper for the same isolated Keychain group. The ordinary preview app and its
 store are preserved. Without that profile, record native execution as deferred;
 component, bundle and runner contracts remain available.

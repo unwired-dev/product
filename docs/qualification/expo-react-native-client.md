@@ -1,6 +1,6 @@
 # Expo and React Native platform qualification
 
-Evidence updated: 2026-09-30. Status: **Expo bootstrap builds and launches on
+Evidence updated: 2026-10-03. Status: **Expo bootstrap builds and launches on
 iOS/iPadOS 27 and the native Mac mock Inbox builds and launches on macOS 27;
 full replacement qualification remains incomplete**.
 
@@ -8,6 +8,50 @@ The [mobile bootstrap](../expo-client.md) now uses Expo 57.0.25, React Native
 0.86.3 and React 19.2.3 with Effect 4.0.0-rc.118. Xcode 27 and the iOS 27 runtime
 are available on the development host. The maintainer's earlier native-validation
 deferral still applies to unavailable release checks. Mac host evidence follows.
+
+## Signed Mac Mock Mail Session journeys, 2026-10-03
+
+The implementer ran the packaged, development-signed Mac `Testing` builds on
+macOS 27.0.1 with Xcode 27.0, Node 24.16.0 and pnpm 11.5.2, after installing a
+development profile covering the runner's disposable `dev.unwired.mock.*` IDs.
+The reviewer inspected each ownership record, runner result and XCTest log.
+Each run executed one test with zero failures and returned exit code zero,
+including cleanup:
+
+| Scenario                   | Local evidence                          |
+| -------------------------- | --------------------------------------- |
+| `registration-apple`       | `artifacts/macos-inbox/journey.c5oVKk/` |
+| `registration-link`        | `artifacts/macos-inbox/journey.56IyIe/` |
+| `registration-interrupted` | `artifacts/macos-inbox/journey.CopRYz/` |
+| `open-read-relaunch`       | `artifacts/macos-inbox/journey.g07ptY/` |
+
+Build each selected scenario with
+`UNWIRED_MOCK_SCENARIO=<scenario> pnpm --filter @private-email/macos native:build Testing`,
+using the development signing setup in the [Mac guide](../macos-client.md#build-and-run).
+Run `pnpm --filter @private-email/macos test:native <Testing-app-path>` with
+`UNWIRED_SIGNING_IDENTITY="Apple Development"` and `UNWIRED_MOCK_PROFILE` exported.
+The corresponding implementer logs are `/tmp/unwired-fix-journey-<scenario>.log`;
+the result bundles and ownership records above are git-ignored local evidence.
+
+The registration journeys exercise the actual AppKit accessibility tree and native
+Keychain-backed setup across process relaunch. Apple and interrupted Google setup
+retain and confirm the presented Recovery Key; linked sign-in retains both sign-in
+methods. The Inbox journey verifies independent windows, read-state relaunch and
+application lifetime. Registration text now uses accessible parent views because
+plain nonselectable `Text` in React Native macOS 0.81.9 is absent from the native
+accessibility tree. The selectable Recovery Key exposes its native text-view value.
+
+This supersedes the missing-profile deferral below for these four Mac journeys.
+Those earlier sections retain the conditions at the time of their runs. It does
+not qualify live Apple/Google/Convex integration, the complete encrypted-storage
+contract, VoiceOver interaction, physical devices or distribution signing.
+Mac `registration-cancelled`, `registration-declined` and `registration-no-gmail`
+journeys remain unrun. The reviewer reran Mac lint, format, types and component
+tests, with all 12 tests passing. SwiftLint, swift-format and direct Swift
+typechecking of the journey also passed, using a writable temporary module cache.
+A reviewer native rerun stopped before test
+execution when the sandbox denied Swift's module-cache write; it supplies no
+additional native evidence.
 
 ## Private Product Sync evidence, 2026-10-01
 

@@ -5,6 +5,7 @@ import type {
   RegistrationSnapshot,
 } from '@private-email/mail-core/registration';
 import type { ReactNode } from 'react';
+import type { StyleProp, TextStyle } from 'react-native';
 
 import {
   linkFailureCopy,
@@ -64,6 +65,26 @@ const styles = StyleSheet.create({
   },
 });
 
+// React Native macOS exposes plain Text to accessibility only through an accessible parent.
+function Label({
+  children,
+  accessibilityRole = 'text',
+  style,
+}: {
+  readonly children: string;
+  readonly accessibilityRole?: 'alert' | 'header' | 'text';
+  readonly style: StyleProp<TextStyle>;
+}) {
+  return (
+    <View
+      accessible
+      accessibilityRole={accessibilityRole}
+      accessibilityLabel={children}>
+      <Text style={style}>{children}</Text>
+    </View>
+  );
+}
+
 // End-to-End Encrypted Product Sync; the Recovery Key stays visible until its setup is confirmed.
 function PrivateSync({
   account,
@@ -85,14 +106,14 @@ function PrivateSync({
   const { recoveryKey } = copy;
   return (
     <>
-      <Text
+      <Label
         accessibilityRole="header"
         style={[styles.heading, { color: colors.foreground }]}>
         {copy.title}
-      </Text>
-      <Text style={[styles.text, { color: colors.secondary }]}>
+      </Label>
+      <Label style={[styles.text, { color: colors.secondary }]}>
         {copy.description}
-      </Text>
+      </Label>
       {recoveryKey === undefined ? null : (
         <>
           <Text
@@ -101,9 +122,9 @@ function PrivateSync({
             style={[styles.recoveryKey, { color: colors.foreground }]}>
             {recoveryKey}
           </Text>
-          <Text style={[styles.text, { color: colors.secondary }]}>
+          <Label style={[styles.text, { color: colors.secondary }]}>
             {recoveryKeyConfirmationCopy.prompt}
-          </Text>
+          </Label>
           <TextInput
             accessibilityLabel={recoveryKeyConfirmationCopy.label}
             autoCapitalize="characters"
@@ -121,11 +142,11 @@ function PrivateSync({
             value={entry}
           />
           {failure === undefined ? null : (
-            <Text
+            <Label
               accessibilityRole="alert"
               style={[styles.text, { color: colors.foreground }]}>
               {recoveryKeyConfirmationCopy[failure]}
-            </Text>
+            </Label>
           )}
           {button(recoveryKeyConfirmationCopy.confirm, () =>
             store.confirmRecoveryKey(entry),
@@ -133,14 +154,14 @@ function PrivateSync({
         </>
       )}
       {copy.mailboxes === undefined ? null : (
-        <Text style={[styles.text, { color: colors.secondary }]}>
+        <Label style={[styles.text, { color: colors.secondary }]}>
           {copy.mailboxes}
-        </Text>
+        </Label>
       )}
       {copy.pending === undefined ? null : (
-        <Text style={[styles.text, { color: colors.foreground }]}>
+        <Label style={[styles.text, { color: colors.foreground }]}>
           {copy.pending}
-        </Text>
+        </Label>
       )}
     </>
   );
@@ -163,23 +184,23 @@ function SignInMethods({
   const { link } = methods;
   return (
     <>
-      <Text
+      <Label
         accessibilityRole="header"
         style={[styles.heading, { color: colors.foreground }]}>
         Sign-in methods
-      </Text>
-      <Text style={[styles.text, { color: colors.secondary }]}>
+      </Label>
+      <Label style={[styles.text, { color: colors.secondary }]}>
         {methods.description}
-      </Text>
+      </Label>
       {failure === undefined ? null : (
-        <Text
+        <Label
           accessibilityRole="alert"
           style={[styles.text, { color: colors.foreground }]}>
           {linkFailureCopy(
             failure,
             otherSignInProvider(account.signInProvider),
           )}
-        </Text>
+        </Label>
       )}
       {link === undefined
         ? null
@@ -251,26 +272,26 @@ export function RegistrationGate({
       contentContainerStyle={styles.scroll}
       style={[styles.page, { backgroundColor: colors.background }]}>
       <View style={styles.content}>
-        <Text
+        <Label
           accessibilityRole="header"
           style={[styles.title, { color: colors.foreground }]}>
           {copy.title}
-        </Text>
-        <Text style={[styles.text, { color: colors.secondary }]}>
+        </Label>
+        <Label style={[styles.text, { color: colors.secondary }]}>
           {copy.description}
-        </Text>
+        </Label>
         {copy.account === undefined ? null : (
-          <Text style={[styles.text, { color: colors.secondary }]}>
+          <Label style={[styles.text, { color: colors.secondary }]}>
             {copy.account}
-          </Text>
+          </Label>
         )}
         {busy ? <ActivityIndicator accessibilityLabel="Connecting" /> : null}
         {failed ? (
-          <Text
+          <Label
             accessibilityRole="alert"
             style={[styles.text, { color: colors.foreground }]}>
             Setup could not finish. Try again to resume your saved setup.
-          </Text>
+          </Label>
         ) : null}
         {snapshot.kind === 'signed-out' ? (
           <>

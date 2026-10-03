@@ -9,58 +9,57 @@ final class WindowTests: XCTestCase {
     let workTicks: Int
   }
 
+  // React Native macOS exposes registration text as the label of its enclosing element.
+  private func text(_ value: String, in window: XCUIElement) -> XCUIElement {
+    window.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", value))
+      .firstMatch
+  }
+
+  // The selectable Recovery Key is a native text view holding the grouped key as its value.
+  private func recoveryKey(in window: XCUIElement) -> XCUIElement {
+    window.textViews.matching(
+      NSPredicate(format: "value MATCHES %@", "([0-9A-Z]{4}-){12}[0-9A-Z]{4}")
+    ).firstMatch
+  }
+
   private func registrationJourney(_ app: XCUIApplication, first: XCUIElement, apple: Bool) {
     // Apple identifies the Product Account; Gmail access still needs its own Google grant.
     let signIn = apple ? "Sign in with Apple" : "Sign in with Google"
     XCTAssertTrue(first.buttons[signIn].waitForExistence(timeout: 20))
     first.buttons[signIn].click()
     XCTAssertTrue(first.buttons["Authorize Gmail"].waitForExistence(timeout: 15))
-    XCTAssertFalse(first.staticTexts["Gmail connected"].exists)
+    XCTAssertFalse(text("Gmail connected", in: first).exists)
     if apple {
-      XCTAssertTrue(
-        first.staticTexts.matching(
-          NSPredicate(
-            format: "label CONTAINS %@ OR value CONTAINS %@", "relay@privaterelay.example.invalid",
-            "relay@privaterelay.example.invalid")
-        ).firstMatch.exists)
+      XCTAssertTrue(text("relay@privaterelay.example.invalid", in: first).exists)
     }
     // A new Product Account presents its Recovery Key until setup is confirmed.
-    func recoveryKey(_ window: XCUIElement) -> String {
-      let text = window.staticTexts["recovery-key"]
-      return text.label.isEmpty ? text.value as? String ?? "" : text.label
-    }
-    XCTAssertTrue(first.staticTexts["recovery-key"].waitForExistence(timeout: 15))
-    let presented = recoveryKey(first)
+    XCTAssertTrue(recoveryKey(in: first).waitForExistence(timeout: 15))
+    let presented = recoveryKey(in: first).value as? String ?? ""
     XCTAssertEqual(presented.count, 64)
     app.terminate()
     app.launch()
     let resumed = app.windows["Inbox 1"]
     XCTAssertTrue(resumed.buttons["Authorize Gmail"].waitForExistence(timeout: 15))
     // Relaunch keeps the device-held keys; nothing is regenerated.
-    XCTAssertEqual(recoveryKey(resumed), presented)
+    XCTAssertEqual(recoveryKey(in: resumed).value as? String, presented)
     resumed.buttons[apple ? "Authorize Gmail" : "Choose another Google mailbox"].click()
-    XCTAssertTrue(resumed.staticTexts["Gmail connected"].waitForExistence(timeout: 15))
+    XCTAssertTrue(text("Gmail connected", in: resumed).waitForExistence(timeout: 15))
     let entry = resumed.textFields["Last four characters"]
     entry.click()
     entry.typeText(String(presented.suffix(4)))
     resumed.buttons["Confirm Recovery Key"].click()
-    XCTAssertTrue(resumed.staticTexts["Private sync is on"].waitForExistence(timeout: 15))
-    XCTAssertFalse(resumed.staticTexts["recovery-key"].exists)
+    XCTAssertTrue(text("Private sync is on", in: resumed).waitForExistence(timeout: 15))
+    XCTAssertFalse(recoveryKey(in: resumed).exists)
     app.terminate()
     app.launch()
     let relaunched = app.windows["Inbox 1"]
-    XCTAssertTrue(relaunched.staticTexts["Gmail connected"].waitForExistence(timeout: 15))
-    XCTAssertTrue(relaunched.staticTexts["Private sync is on"].exists)
-    XCTAssertFalse(relaunched.staticTexts["recovery-key"].exists)
+    XCTAssertTrue(text("Gmail connected", in: relaunched).waitForExistence(timeout: 15))
+    XCTAssertTrue(text("Private sync is on", in: relaunched).exists)
+    XCTAssertFalse(recoveryKey(in: relaunched).exists)
   }
 
   // Linking verifies both identities; the Gmail grant never becomes a sign-in method.
   private func linkJourney(_ app: XCUIApplication, first: XCUIElement) {
-    func text(_ value: String, in window: XCUIElement) -> XCUIElement {
-      window.staticTexts.matching(
-        NSPredicate(format: "label CONTAINS %@ OR value CONTAINS %@", value, value)
-      ).firstMatch
-    }
     XCTAssertTrue(first.buttons["Sign in with Apple"].waitForExistence(timeout: 20))
     first.buttons["Sign in with Apple"].click()
     XCTAssertTrue(text("Gmail connected", in: first).waitForExistence(timeout: 15))
@@ -111,14 +110,16 @@ final class WindowTests: XCTestCase {
         app, first: first, apple: environment["UNWIRED_TEST_SCENARIO"] == "registration-apple")
       return
     }
-    let maya = first.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Maya Chen")).firstMatch
+    let maya = first.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Maya Chen"))
+      .firstMatch
     XCTAssertTrue(maya.waitForExistence(timeout: 20))
     maya.click()
     XCTAssertTrue(address(first, "maya@example.com").waitForExistence(timeout: 10))
     app.typeKey("n", modifierFlags: .command)
     let second = app.windows["Inbox 2"]
     XCTAssertTrue(second.waitForExistence(timeout: 10))
-    let oliver = second.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Oliver Park")).firstMatch
+    let oliver = second.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Oliver Park"))
+      .firstMatch
     XCTAssertTrue(oliver.waitForExistence(timeout: 10))
     oliver.click()
     XCTAssertTrue(address(second, "oliver@example.com").waitForExistence(timeout: 10))
@@ -127,7 +128,8 @@ final class WindowTests: XCTestCase {
     XCTAssertTrue(second.buttons["Mark as read"].waitForExistence(timeout: 10))
     second.buttons["Mark as read"].click()
     XCTAssertTrue(second.buttons["Mark as unread"].waitForExistence(timeout: 10))
-    XCTAssertTrue(first.buttons["Oliver Park. Saturday, by the river?"].waitForExistence(timeout: 10))
+    XCTAssertTrue(
+      first.buttons["Oliver Park. Saturday, by the river?"].waitForExistence(timeout: 10))
     XCTAssertFalse(address(second, "maya@example.com").exists)
 
     app.menuBars.menuBarItems["Window"].click()
@@ -145,10 +147,13 @@ final class WindowTests: XCTestCase {
       }
     }
     let lastClose = try XCTUnwrap(events().last { $0.event == "window-close" })
-    let workContinues = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-      guard let records = try? events() else { return false }
-      return records.contains { $0.event == "work" && $0.windows == 0 && $0.workTicks > lastClose.workTicks }
-    }, object: nil)
+    let workContinues = XCTNSPredicateExpectation(
+      predicate: NSPredicate { _, _ in
+        guard let records = try? events() else { return false }
+        return records.contains {
+          $0.event == "work" && $0.windows == 0 && $0.workTicks > lastClose.workTicks
+        }
+      }, object: nil)
     XCTAssertEqual(XCTWaiter.wait(for: [workContinues], timeout: 10), .completed)
 
     // Activating an already running app follows the Dock/Finder reopen path.
@@ -160,8 +165,12 @@ final class WindowTests: XCTestCase {
     XCTAssertEqual(opener.terminationStatus, 0)
     let reopened = app.windows["Inbox 3"]
     XCTAssertTrue(reopened.waitForExistence(timeout: 10))
-    XCTAssertTrue(reopened.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Select a message to start reading.")).firstMatch.waitForExistence(timeout: 10))
-    reopened.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Oliver Park")).firstMatch.click()
+    XCTAssertTrue(
+      reopened.descendants(matching: .any).matching(
+        NSPredicate(format: "label == %@", "Select a message to start reading.")
+      ).firstMatch.waitForExistence(timeout: 10))
+    reopened.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Oliver Park")).firstMatch
+      .click()
     XCTAssertTrue(address(reopened, "oliver@example.com").waitForExistence(timeout: 10))
     app.menuBars.menuBarItems["Unwired Mail Preview"].click()
     app.menuItems["Quit Unwired Mail"].click()
