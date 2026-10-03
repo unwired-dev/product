@@ -14,6 +14,7 @@ import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 
+// fallow-ignore-next-line complexity -- One fixture workspace exercises every accepted and rejected target form.
 test('the target gate uses Changesets YAML semantics and the configured workspace', () => {
   mkdirSync(path.join(root, 'scratchpad'), { recursive: true });
   const fixture = mkdtempSync(path.join(root, 'scratchpad/changeset-gate-'));
