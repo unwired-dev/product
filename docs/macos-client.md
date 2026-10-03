@@ -81,8 +81,9 @@ Google and Apple sign-in, and persistence, require the
 Google's SDK reports `com.google.GIDSignIn` code `-2` when it cannot store
 credentials in Keychain; ad-hoc builds report locked storage. Signed builds
 run in the App Sandbox with outgoing network access only, so their store lives
-in `~/Library/Containers/dev.unwired.mail`; ad-hoc builds carry no entitlements
-and stay unsandboxed. The bundle ID is `dev.unwired.mail`, shared with the
+in `~/Library/Containers/dev.unwired.mail`. Ad-hoc builds also run in the sandbox
+with outgoing network access, but omit profile-required Apple sign-in and Keychain
+entitlements. Debug connects to Metro as a network client. The bundle ID is `dev.unwired.mail`, shared with the
 iPhone/iPad host, and the version comes from `apps/macos/package.json`. Both
 hosts build their icon from `native/app-icon/UnwiredMail.icon`. All
 configurations target macOS 27. Release embeds `main.jsbundle`; it never falls
@@ -154,13 +155,13 @@ automation permission. The runner uses its own probe project and result director
 and rejects zero-test success. XCTest terminates its launched app on failure.
 
 Only `Testing` compiles the synthetic application-scoped work timer and JSONL
-probe. The test creates a temporary output file and supplies `UNWIRED_LIFECYCLE_PATH`;
+probe. The runner creates `lifecycle.jsonl` in its evidence directory, and the test supplies `UNWIRED_LIFECYCLE_PATH`;
 the application never creates a test-control server or accepts reset commands.
 Records contain only lifecycle event names, process/session identity, window
 counts and tick counts. Release compiles out the probe and timer. Ordinary local
 OS logs contain lifecycle names and window counts, never message content.
 
-The lifecycle JSONL is an XCTest attachment; the test deletes its temporary file.
+The lifecycle JSONL is an XCTest attachment and remains in the runner's evidence directory.
 Results live in `artifacts/macos-inbox/journey.*`. Capture visual evidence
 separately through native UI automation; XCTest window screenshots fail on the
 qualification host’s multi-display setup. Preserve native,

@@ -52,7 +52,7 @@ target.build_configurations.each do |configuration|
     'CODE_SIGN_IDENTITY' => ENV.fetch('UNWIRED_SIGNING_IDENTITY', '-'),
     'CODE_SIGN_STYLE' => ENV.fetch('UNWIRED_SIGNING_IDENTITY', '-').start_with?('Apple Development') ? 'Automatic' : 'Manual',
     'DEVELOPMENT_TEAM' => ENV.fetch('UNWIRED_DEVELOPMENT_TEAM', ''),
-    'CODE_SIGN_ENTITLEMENTS' => ENV.fetch('UNWIRED_SIGNING_IDENTITY', '-') == '-' ? '' : 'UnwiredMail/UnwiredMail.entitlements',
+    'CODE_SIGN_ENTITLEMENTS' => ENV.fetch('UNWIRED_SIGNING_IDENTITY', '-') == '-' ? 'UnwiredMail/UnwiredMail.adhoc.entitlements' : 'UnwiredMail/UnwiredMail.entitlements',
     'COMBINE_HIDPI_IMAGES' => 'YES',
     'LD_RUNPATH_SEARCH_PATHS' => ['$(inherited)', '@executable_path/../Frameworks'],
     'GCC_PREPROCESSOR_DEFINITIONS' => ['$(inherited)', configuration.name == 'Debug' ? 'DEBUG=1' : 'DEBUG=0',

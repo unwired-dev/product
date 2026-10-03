@@ -110,7 +110,7 @@ final class WindowTests: XCTestCase {
     continueAfterFailure = false
     let environment = ProcessInfo.processInfo.environment
     let appURL = URL(fileURLWithPath: try XCTUnwrap(environment["UNWIRED_APP_PATH"]))
-    // The sandboxed session writes the runner-created record; this sandboxed probe only reads it.
+    // The sandboxed session writes the runner-created record; this external probe only reads it.
     let evidence = appURL.deletingLastPathComponent().appendingPathComponent("lifecycle.jsonl")
     addTeardownBlock { [self] in
       if let data = try? Data(contentsOf: evidence) {

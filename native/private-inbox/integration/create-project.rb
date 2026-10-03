@@ -47,6 +47,7 @@ if platform == :osx
     <plist version="1.0"><dict>
       <key>com.apple.application-identifier</key><string>$(AppIdentifierPrefix)$(PRODUCT_BUNDLE_IDENTIFIER)</string>
       <key>keychain-access-groups</key><array><string>$(AppIdentifierPrefix)$(PRODUCT_BUNDLE_IDENTIFIER)</string></array>
+      <key>com.apple.security.app-sandbox</key><true/>
       <key>com.apple.security.get-task-allow</key><true/>
     </dict></plist>
   PLIST
