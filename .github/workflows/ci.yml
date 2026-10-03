@@ -57,6 +57,12 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --strict-peer-dependencies
 
+      - name: Check changesets target workspace packages
+        run: node scripts/check-changesets.mjs
+
+      - name: Check changeset validation contracts
+        run: node --test scripts/check-changesets.test.mjs
+
       - name: Install native runner contract shell
         run: sudo apt-get update && sudo apt-get install -y zsh
 
