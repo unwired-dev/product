@@ -64,6 +64,10 @@ _Avoid_: User organization data, mailbox content
 A user-approved device authorized to access one **Product Account** and participate in **End-to-End Encrypted Product Sync**.
 _Avoid_: Mailbox Authorization, remembered login
 
+**Pending Device**:
+A signed-in device that is not yet a **Trusted Device**. It can only ask to be approved, prove the **Recovery Key**, or delete the **Product Account**.
+_Avoid_: unverified Trusted Device, registered device
+
 **Enrollment Code**:
 A one-time code shown on a device waiting for **End-to-End Encrypted Product Sync** keys. A person enters it on a **Trusted Device** to approve that device, and the backend never receives it.
 _Avoid_: pairing code, verification code, PIN
