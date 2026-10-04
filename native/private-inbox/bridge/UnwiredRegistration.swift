@@ -114,6 +114,7 @@ extension RegistrationError {
     case .recoveryKeyMismatch: "recovery-key-mismatch"
     case .enrollmentCodeInvalid: "enrollment-code-invalid"
     case .enrollmentUnavailable: "enrollment-unavailable"
+    case .revoked: "revoked"
     }
   }
 }
@@ -187,6 +188,15 @@ final class UnwiredRegistration: NSObject {
             return response.signInProviders
           }),
         productSync: Self.productSync(base: base),
+        deviceRevoked: { product in
+          try await Self.mutation(
+            base: base, identity: nil, path: "productAccount:isTrustedDeviceRevoked",
+            args: [
+              "productAccountId": product.productAccountId,
+              "trustedDeviceId": product.trustedDeviceId,
+              "trustedDeviceCredential": product.trustedDeviceCredential,
+            ], function: "query")
+        },
         connect: { identity, deviceIdentifier, previous in
           try await Self.connect(
             base: base, identity: identity, deviceIdentifier: deviceIdentifier,
@@ -205,18 +215,24 @@ final class UnwiredRegistration: NSObject {
     "SIGN_IN_LINK_EXPIRED": .staleAuthentication,
     "SIGN_IN_NOT_LINKED": .invalidIdentity,
     "ENROLLMENT_REQUEST_UNAVAILABLE": .enrollmentUnavailable,
+    "TRUSTED_DEVICE_REVOKED": .revoked,
   ]
 
-  @MainActor private static func signInLink<Value: Decodable>(
-    base: URL, identity: ProductSignInIdentity, operation: String, args: [String: Any]
-  ) async throws -> Value {
+  // The deployment's HTTP actions live on its .convex.site host.
+  private static func site(_ base: URL, path: String) throws -> URL {
     guard var components = URLComponents(url: base, resolvingAgainstBaseURL: false),
       let host = components.host, host.hasSuffix(".convex.cloud")
     else { throw RegistrationError.unavailable }
     components.host = String(host.dropLast(".convex.cloud".count)) + ".convex.site"
-    components.path = "/sign-in-links/" + operation
+    components.path = path
     guard let url = components.url else { throw RegistrationError.unavailable }
-    var request = URLRequest(url: url)
+    return url
+  }
+
+  @MainActor private static func signInLink<Value: Decodable>(
+    base: URL, identity: ProductSignInIdentity, operation: String, args: [String: Any]
+  ) async throws -> Value {
+    var request = URLRequest(url: try site(base, path: "/sign-in-links/" + operation))
     request.httpMethod = "POST"
     request.timeoutInterval = 30
     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -235,14 +251,29 @@ final class UnwiredRegistration: NSObject {
   }
 
   @MainActor private static func mutation<Value: Decodable>(
-    base: URL, identity: ProductSignInIdentity, path: String, args: [String: Any],
+    base: URL, identity: ProductSignInIdentity?, path: String, args: [String: Any],
     function: String = "mutation"
   ) async throws -> Value {
+    guard
+      let value: Value = try await optionalResult(
+        base: base, identity: identity, path: path, args: args, function: function)
+    else { throw RegistrationError.unavailable }
+    return value
+  }
+
+  // A successful null result is nil. Without an identity, only functions that take the Trusted
+  // Device credential as their proof can succeed.
+  @MainActor private static func optionalResult<Value: Decodable>(
+    base: URL, identity: ProductSignInIdentity?, path: String, args: [String: Any],
+    function: String = "mutation"
+  ) async throws -> Value? {
     var request = URLRequest(url: base.appending(path: "api/" + function))
     request.httpMethod = "POST"
     request.timeoutInterval = 30
     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-    request.setValue("Bearer " + identity.idToken, forHTTPHeaderField: "Authorization")
+    if let identity {
+      request.setValue("Bearer " + identity.idToken, forHTTPHeaderField: "Authorization")
+    }
     request.httpBody = try JSONSerialization.data(withJSONObject: [
       "path": path, "args": args, "format": "json",
     ])
@@ -251,10 +282,8 @@ final class UnwiredRegistration: NSObject {
     guard let result = try? JSONDecoder().decode(ConvexEnvelope<Value>.self, from: data) else {
       throw RegistrationError.unavailable
     }
-    if result.status == "success", let value = result.value,
-      (response as? HTTPURLResponse)?.statusCode == 200
-    {
-      return value
+    if result.status == "success", (response as? HTTPURLResponse)?.statusCode == 200 {
+      return result.value
     }
     throw result.errorData.flatMap { backendErrors[$0.code] } ?? RegistrationError.unavailable
   }
@@ -298,7 +327,7 @@ final class UnwiredRegistration: NSObject {
       }
       Self.busy = true
       defer { Self.busy = false }
-      do { resolve(try await operation(store())) } catch {
+      do { resolve(try await store().purgingIfRevoked(operation)) } catch {
         // Descriptions stay private: SDK and transport errors can echo request details.
         let failure = error as NSError
         Self.logger.error(
@@ -375,6 +404,15 @@ final class UnwiredRegistration: NSObject {
   ) {
     perform("declineEnrollment", resolve, reject: reject) {
       try await $0.declineEnrollment(requestId)
+    }
+  }
+  @objc(revokeTrustedDevice:resolver:rejecter:)
+  func revokeTrustedDevice(
+    _ trustedDeviceId: String, resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    perform("revokeTrustedDevice", resolve, reject: reject) {
+      try await $0.revoke(trustedDeviceId)
     }
   }
   @objc(refreshPrivateSync:rejecter:)
@@ -500,13 +538,72 @@ extension UnwiredRegistration {
       },
       recoveryEnvelope: { identity, product in
         // A missing envelope decodes as no value and reports Product Sync as unavailable.
-        let stored: StoredPayload = try await mutation(
+        try await mutation(
           base: base, identity: identity, path: "productSync:getEncryptedPayloadForTrustedDevice",
           args: proof(product).merging(["payloadIdentifier": "product-account-recovery-v1"]) {
             $1
           },
           function: "query")
-        return stored.encryptedPayload
+      },
+      keyRotation: { identity, product in
+        struct Response: Decodable {
+          let keyEpoch: Int
+          let encryptedTransition: EncryptedPayload
+        }
+        let response: Response? = try await optionalResult(
+          base: base, identity: identity, path: "productAccount:getProductSyncKeyRotation",
+          args: proof(product), function: "query")
+        return response.map {
+          KeyRotation(keyEpoch: $0.keyEpoch, transition: $0.encryptedTransition)
+        }
+      },
+      acknowledgeRotation: { identity, product, keyEpoch in
+        struct Response: Decodable { let keyEpoch: Int }
+        let _: Response = try await mutation(
+          base: base, identity: identity, path: "productAccount:acknowledgeProductSyncKeyRotation",
+          args: proof(product).merging(["keyEpoch": keyEpoch]) { $1 })
+      },
+      trustedDevices: { identity, product in
+        struct Device: Decodable {
+          let id: String
+          let displayName: String
+          let registeredAt: Double
+        }
+        let devices: [Device] = try await mutation(
+          base: base, identity: identity, path: "productAccount:listTrustedDevices",
+          args: proof(product), function: "query")
+        return devices.map {
+          TrustedDevice(id: $0.id, name: $0.displayName, registeredAt: $0.registeredAt)
+        }
+      },
+      revoke: { identity, product, trustedDeviceToRevokeId, transition, recovery, updatedAt in
+        var request = URLRequest(url: try site(base, path: "/trusted-devices/revoke"))
+        request.httpMethod = "POST"
+        request.timeoutInterval = 30
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer " + identity.idToken, forHTTPHeaderField: "Authorization")
+        request.httpBody = try JSONSerialization.data(
+          withJSONObject: proof(product).merging([
+            "trustedDeviceToRevokeId": trustedDeviceToRevokeId,
+            "encryptedTransition": try json(transition),
+            "recoveryWrappedAccountKey": try json(recovery),
+            "expectedRecoveryUpdatedAt": updatedAt,
+          ]) { $1 })
+        let (data, response) = try await URLSession.shared.data(for: request)
+        struct Failure: Decodable { let code: String }
+        switch (response as? HTTPURLResponse)?.statusCode {
+        case 200: return
+        case 401: throw RegistrationError.staleAuthentication
+        case 403:
+          throw (try? JSONDecoder().decode(Failure.self, from: data)).flatMap {
+            backendErrors[$0.code]
+          } ?? RegistrationError.unavailable
+        case 400, 404, 409: throw RegistrationError.unavailable
+        default:
+          // A server/proxy failure can follow a committed mutation. Preserve the pending key
+          // until synchronization compares its exact transition with the authoritative one.
+          throw URLError(.badServerResponse)
+        }
       })
   }
 

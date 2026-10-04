@@ -172,6 +172,36 @@ The revocation mutation is internal, so callers cannot bypass that check. The
 rotated recovery envelope must use the replacement's recovery schema 3; prototype
 schemas are rejected.
 
+## Removing a Trusted Device
+
+A device that holds the account keys lists the account's other Trusted Devices
+and offers to remove each one. The host first explains the consequences: the
+removed device is blocked immediately and the other devices switch to new keys.
+Anything a device that stays offline or is compromised already holds cannot be
+erased remotely. Confirming starts an interactive Product Sign-In with the
+device's own provider, for Google as well as Apple. The fresh token is the bearer
+proof for the revocation route.
+
+Removal presents a new Recovery Key until its final group is confirmed. Confirm
+and keep this key before removing another device. Keep the previous Recovery Key
+until every remaining device has connected and adopted the new keys: during that
+interval recovery still uses the previous key, and the new key becomes usable
+when rotation completes. New synchronized changes use the new key epoch.
+
+Whichever request first learns that this device was removed purges its local
+account keys, enrollment material, identity and mailbox credentials. Restore
+checks revocation before renewing or checking the Sign-In Provider grant, so a
+revoked or unavailable provider grant cannot suppress an established revocation.
+Offline, an Apple relaunch keeps its saved state. The host explains the removal
+and that Gmail mail and previously copied offline data are unaffected.
+
+A fresh identifier is still refused after a removal. The existing backend policy
+prevents identifier substitution, but authorized admission of a genuinely new
+device after revocation remains unresolved against issue #602's enrollment
+criterion. This behavior does not satisfy that criterion. See the
+[architecture companion](architecture/private-product-sync.md#device-revocation)
+for the implementation boundary and decision conflict.
+
 Convex rejects record writes and the legacy initialized marker until the recovery
 envelope exists. The legacy recovery-material route publishes a first envelope
 only for an account that has never had Product Sync material, and successful
@@ -226,6 +256,20 @@ That run predates the unreadable local key item case below; with it, the iOS sto
 run passed all 20 tests, retained in `artifacts/private-inbox/integration.Z5Nl6g/`.
 The read-only mailbox descriptor case below brings the iOS storage run to 21
 passing tests, retained in `artifacts/private-inbox/integration.Egerc5/`.
+The initial removal implementation added three cases, bringing that suite to
+25 passing tests in
+`artifacts/private-inbox/integration.xhIHMG/`. The first removes one of two
+devices that unlocked with the Recovery Key. The survivor adopts the new epoch and
+reads a mailbox saved at it, and the rotation completes with a recovery envelope
+that only the new Recovery Key opens. The removed device purges on its next
+restore, and its fresh sign-in is refused and keeps nothing. A lost reply makes
+the new Recovery Key current only after the next synchronization finds the
+removal applied, and a refused removal leaves none. An Apple restore purges only
+when the credential-only query reports the revocation and stays usable offline.
+The reviewer reran all 25 tests after the restore and backup corrections, with
+zero failures in `artifacts/private-inbox/integration.nWUto3/`. That run also
+checks that an Apple grant rejection cannot hide an established device removal,
+and that another removal cannot replace a Recovery Key awaiting confirmation.
 These runs are real native storage and cryptography evidence with a synthetic Convex
 boundary.
 The two-device approval journey uses two
@@ -254,7 +298,21 @@ envelope and that another account's device does not. Shared and rendered host te
 confirmation, the mismatch and remount paths, and two synthetic installations that
 approve, decline and unlock a new device. They also cover Recovery Key unlock after a
 rejected key and an interrupted attempt, the lost-everything explanation and the
-absence of any reset action.
+absence of any reset action. Removal adds a Convex test showing that only the revoked
+device's credential learns of its revocation. It also adds rendered journeys
+that remove a device after its explanation and confirm the replacement
+Recovery Key, and that explain a removal learned on activation. A shared test
+shows that a malformed device list fails native snapshot decoding.
+The final reviewer `registration-revocation` and `registration-revoked` Release
+Mock Mail journeys each passed on fresh iPhone 18 Pro and iPad Pro 11-inch (M5)
+27 simulators, one test per device and scenario with zero failures. Evidence is
+retained in `artifacts/expo-bootstrap/native-Sb1WZZ/` and
+`artifacts/expo-bootstrap/native-0SbFiJ/`, respectively. The first reviewer
+removal attempt caught a confirmation field retaining the previous key's final
+group; both hosts now reset the field when the presented key changes, and the
+passing removal run includes that correction. These journeys compile the real
+bridge but use a synthetic backend; they do not qualify live provider or Convex
+revocation. Mac native removal and revoked-device journeys remain deferred.
 The registration Mock Mail Sessions use a synthetic Product Sync backend
 persisted in the run's Keychain. The packaged Google journey checks the same key
 after relaunch, confirms it, and reads the decrypted mailbox list after another

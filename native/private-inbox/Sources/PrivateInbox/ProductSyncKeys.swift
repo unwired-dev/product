@@ -246,6 +246,35 @@ enum KeyRingEnvelope {
     return ring
   }
 
+  // A removal's new key ring, sealed to the committed epoch's key so only the account's remaining
+  // devices open it; the removed device can no longer fetch it.
+  static let rotationSchemaVersion = 1
+
+  static func rotation(
+    _ ring: ProductSyncKeyRing, sealedWith current: ProductSyncKeyRing, epoch: Int,
+    account: String
+  ) throws -> EncryptedPayload {
+    try ProductSyncSeal.seal(
+      JSONEncoder().encode(ring), using: current.key(epoch), purpose: "rotation",
+      context: [account], keyVersion: epoch, schemaVersion: rotationSchemaVersion)
+  }
+
+  // The new ring must keep every key this device holds, so no record becomes unreadable.
+  static func openRotation(
+    _ payload: EncryptedPayload, with current: ProductSyncKeyRing, keyEpoch: Int, account: String
+  ) throws -> ProductSyncKeyRing {
+    guard payload.schemaVersion == rotationSchemaVersion else { throw ProductSyncError.rejected }
+    let ring = try JSONDecoder().decode(
+      ProductSyncKeyRing.self,
+      from: ProductSyncSeal.open(
+        payload, using: current.key(payload.keyVersion), purpose: "rotation",
+        context: [account]))
+    guard ring.current == keyEpoch, ring.keys.contains(where: { $0.version == keyEpoch }),
+      ring.keys.allSatisfy({ $0.key.count == 32 }), current.keys.allSatisfy(ring.keys.contains)
+    else { throw ProductSyncError.rejected }
+    return ring
+  }
+
   // Sealed to one enrolling device's key and bound to its account, device, request and key epoch.
   struct Enrollment: Codable, Equatable {
     let encapsulatedKey: Data

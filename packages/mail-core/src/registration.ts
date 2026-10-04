@@ -25,6 +25,26 @@ const PrivateSyncSchema = Schema.Literals([
 ]);
 export type PrivateSync = typeof PrivateSyncSchema.Type;
 
+const TrustedDevicesSchema = Schema.fromJsonString(
+  Schema.Array(
+    Schema.Struct({
+      id: Schema.NonEmptyString,
+      name: Schema.NonEmptyString,
+      // Milliseconds since 1970, within the JavaScript Date range used for display.
+      registeredAt: Schema.Finite.check(
+        Schema.isBetween({
+          minimum: -8_640_000_000_000_000,
+          maximum: 8_640_000_000_000_000,
+        }),
+      ),
+    }),
+  ),
+);
+const decodeTrustedDevices = Schema.decodeOption(TrustedDevicesSchema);
+const trustedDevicesText = Schema.NonEmptyString.check(
+  Schema.makeFilter((value) => Option.isSome(decodeTrustedDevices(value))),
+);
+
 const Account = Schema.Struct({
   productAccountId: Schema.NonEmptyString,
   signInProvider: SignInProviderSchema,
@@ -51,9 +71,17 @@ const Account = Schema.Struct({
   // Another device of this Product Account waiting for this trusted device's approval.
   enrollmentRequest: Schema.optionalKey(Schema.NonEmptyString),
   enrollmentDevice: Schema.optionalKey(Schema.NonEmptyString),
+  // JSON text listing the account's other Trusted Devices that this device can remove.
+  trustedDevices: Schema.optionalKey(trustedDevicesText),
+  // Only in the reply to a removal of another Trusted Device.
+  revocationNotice: Schema.optionalKey(Schema.Literal('removed')),
 });
 export const RegistrationSnapshotSchema = Schema.Union([
-  Schema.Struct({ kind: Schema.Literal('signed-out') }),
+  Schema.Struct({
+    kind: Schema.Literal('signed-out'),
+    // This device purged the Product Account after it was removed, or was refused after a removal.
+    notice: Schema.optionalKey(Schema.Literals(['revoked', 'refused'])),
+  }),
   Schema.Struct({
     kind: Schema.Literal('mailbox-needed'),
     ...Account.fields,
@@ -75,6 +103,20 @@ export const RegistrationSnapshotSchema = Schema.Union([
   }),
 ]);
 export type RegistrationSnapshot = typeof RegistrationSnapshotSchema.Type;
+
+export type TrustedDevice = Readonly<{
+  id: string;
+  name: string;
+  registeredAt: number;
+}>;
+
+// The native snapshot boundary has already validated this JSON text.
+export const trustedDevicesOf = (
+  snapshot: RegistrationSnapshot | Readonly<{ trustedDevices?: string }>,
+): readonly TrustedDevice[] =>
+  !('trustedDevices' in snapshot) || snapshot.trustedDevices === undefined
+    ? []
+    : Option.getOrThrow(decodeTrustedDevices(snapshot.trustedDevices));
 const sameSnapshot = Schema.toEquivalence(RegistrationSnapshotSchema);
 
 // Native hosts reject with the registration failure code; a cancelled session is not a failure.
@@ -123,6 +165,8 @@ export interface NativeRegistration {
     code: string,
   ) => Promise<unknown>;
   readonly declineEnrollment: (requestId: string) => Promise<unknown>;
+  // Removes another Trusted Device after an interactive Product Sign-In and rotates the keys.
+  readonly revokeTrustedDevice: (trustedDeviceId: string) => Promise<unknown>;
   // Checks for an approval of this device, or for another device waiting for one.
   readonly refreshPrivateSync: () => Promise<unknown>;
 }
@@ -140,6 +184,7 @@ type RegistrationState = Readonly<{
   recoveryFailure?: RecoveryFailure;
   // A failed approval leaves this device and the requesting one unchanged.
   enrollmentFailure?: EnrollmentFailure;
+  revocationFailed?: true;
 }>;
 
 // A connected status is only valid while its verification succeeds.
@@ -443,6 +488,11 @@ export function createRegistration(native: NativeRegistration) {
         request(() => native.declineEnrollment(requestId)),
         enrollmentFailed,
       ),
+    revokeTrustedDevice: (trustedDeviceId: string) =>
+      execute(
+        request(() => native.revokeTrustedDevice(trustedDeviceId)),
+        (snapshot) => ({ ...settled(snapshot), revocationFailed: true }),
+      ),
     refreshPrivateSync: () => execute(request(native.refreshPrivateSync)),
   };
 }
@@ -537,9 +587,25 @@ export const lockedCopy = {
     "Unwired Mail cannot read this device's protected data while it is locked. Unlock your device to continue.",
 } as const;
 
+const signedOutNotices = {
+  revoked: {
+    title: 'This device was removed',
+    description:
+      'One of your trusted devices removed this one from your Product Account, so its account data, keys and mailbox access were deleted from this device. Anything copied from it before then cannot be erased remotely. Your mail in Gmail is not affected.',
+  },
+  refused: {
+    title: 'This device cannot join',
+    description:
+      'Your Product Account no longer accepts new devices because a device was removed from it, so nothing was saved on this device. Your mail in Gmail is not affected.',
+  },
+} as const;
+
 export function registrationCopy(snapshot: RegistrationSnapshot) {
   switch (snapshot.kind) {
     case 'signed-out': {
+      if (snapshot.notice !== undefined) {
+        return { ...signedOutNotices[snapshot.notice], account: undefined };
+      }
       return {
         title: 'Welcome to Unwired Mail',
         description:
@@ -713,3 +779,33 @@ export const enrollmentCopy = {
     'That request is no longer available. The new device shows a new code; check for it again.',
   failed: 'The device could not be approved. Try again.',
 } as const;
+
+const addedDate = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' });
+
+// On a device holding the account keys; removal needs a new sign-in and then a new Recovery Key.
+export const revocationCopy = {
+  title: 'Trusted devices',
+  description:
+    'These other devices can read your private data. Remove one you no longer use, or one that was lost or stolen.',
+  added: (registeredAt: number) => `Added ${addedDate.format(registeredAt)}`,
+  remove: (name: string) => `Remove ${name}`,
+  confirm: (name: string) =>
+    `Removing ${name} blocks it from your Product Account, push notifications and private sync right away, and your other devices switch to new keys. It deletes its account data the next time it connects, but anything it already holds while offline or compromised cannot be erased remotely. You sign in again to confirm, then save a new Recovery Key.`,
+  cancel: 'Cancel',
+  removed:
+    'The device was removed. Save your new Recovery Key. Keep your previous key until all remaining devices have connected and switched to the new keys; until then, recovery still uses the previous key.',
+  failed: 'The device could not be removed. Try again.',
+} as const;
+
+export const revocationNotice = (
+  account: Readonly<{ revocationNotice?: 'removed' }>,
+  failed: boolean,
+) => {
+  if (failed) {
+    return revocationCopy.failed;
+  }
+  if (account.revocationNotice === 'removed') {
+    return revocationCopy.removed;
+  }
+  return undefined;
+};

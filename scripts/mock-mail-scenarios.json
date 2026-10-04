@@ -9,7 +9,9 @@
     "registration-apple",
     "registration-link",
     "registration-enrollment",
-    "registration-recovery"
+    "registration-recovery",
+    "registration-revocation",
+    "registration-revoked"
   ],
   "nativeJourney": [
     "open-read-relaunch",
@@ -20,6 +22,8 @@
     "registration-apple",
     "registration-link",
     "registration-enrollment",
-    "registration-recovery"
+    "registration-recovery",
+    "registration-revocation",
+    "registration-revoked"
   ]
 }

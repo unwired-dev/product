@@ -123,6 +123,8 @@ export default defineSchema({
   ]),
 
   trustedDeviceRevocationTargets: defineTable({
+    // Retained on unregister so a later owner removal can still notify the old installation.
+    credentialDigest: v.optional(v.string()),
     deviceIdentifier: v.string(),
     productAccountId: v.id('productAccounts'),
     trustedDeviceId: v.id('trustedDevices'),
@@ -132,6 +134,8 @@ export default defineSchema({
   ]),
 
   revokedTrustedDevices: defineTable({
+    // Lets the revoked device, and only it, learn of its revocation without a Product Sign-In.
+    credentialDigest: v.optional(v.string()),
     deviceIdentifier: v.string(),
     productAccountId: v.id('productAccounts'),
     productSyncKeyEpoch: v.number(),

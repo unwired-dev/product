@@ -4,6 +4,9 @@ import {
   createRegistration,
   offersRecovery,
   privateSyncCopy,
+  revocationCopy,
+  revocationNotice,
+  trustedDevicesOf,
 } from '../src/registration.ts';
 import {
   createMockRegistrationSession,
@@ -11,6 +14,7 @@ import {
   syntheticEnrollmentCode,
   syntheticEnrollmentRequest,
   syntheticRecoveryKey,
+  syntheticTrustedDevice,
 } from '../src/testing/registration-session.ts';
 
 // A new Product Account presents its Recovery Key until setup is confirmed.
@@ -629,6 +633,122 @@ describe('product registration', () => {
         enrollmentCode: renewedCode,
       },
       recoveryFailure: 'rejected',
+    });
+  });
+
+  it.each([
+    '[{"id":"synthetic-ipad"',
+    '[{"id":"","name":"iPad","registeredAt":1}]',
+    '{"id":"synthetic-ipad","name":"iPad","registeredAt":1}',
+    '[{"id":"synthetic-ipad","name":"iPad","registeredAt":8640000000000001}]',
+    '[{"id":"synthetic-ipad","name":"iPad","registeredAt":-8640000000000001}]',
+  ])(
+    'fails registration for a malformed trusted-device list and recovers on retry: %s',
+    async (malformed) => {
+      expect.hasAssertions();
+      const session = createMockRegistrationSession('registration-revocation');
+      let trustedDevices = malformed;
+      const store = createRegistration({
+        ...session.native,
+        signIn: async (provider) => {
+          await session.native.signIn(provider);
+          return {
+            kind: 'mailbox-needed',
+            signInProvider: 'google',
+            ...accounts.google,
+            trustedDevices,
+          };
+        },
+      });
+      await store.register('google');
+      expect(store.getSnapshot()).toStrictEqual({
+        snapshot: { kind: 'signed-out' },
+        busy: false,
+        failed: true,
+      });
+      trustedDevices = JSON.stringify([syntheticTrustedDevice]);
+      await store.register('google');
+      expect(store.getSnapshot()).toStrictEqual({
+        snapshot: {
+          kind: 'mailbox-needed',
+          signInProvider: 'google',
+          ...accounts.google,
+          trustedDevices,
+        },
+        busy: false,
+        failed: false,
+      });
+    },
+  );
+
+  it('keeps the account when a removal fails', async () => {
+    expect.hasAssertions();
+    const session = createMockRegistrationSession('registration-revocation');
+    const store = createRegistration({
+      ...session.native,
+      revokeTrustedDevice: () =>
+        Promise.reject(new Error('Synthetic removal interrupted')),
+    });
+    await store.register('google');
+    const { snapshot } = store.getSnapshot();
+    expect(trustedDevicesOf(snapshot)).toStrictEqual([syntheticTrustedDevice]);
+    await store.revokeTrustedDevice(syntheticTrustedDevice.id);
+    expect(store.getSnapshot()).toStrictEqual({
+      snapshot,
+      busy: false,
+      failed: false,
+      revocationFailed: true,
+    });
+  });
+
+  it('shows a later removal failure instead of the earlier success, while cancellation stays quiet', async () => {
+    expect.hasAssertions();
+    const session = createMockRegistrationSession('registration-revocation');
+    const otherDevice = {
+      ...syntheticTrustedDevice,
+      id: 'synthetic-mac',
+      name: 'Mac',
+    };
+    const initial = {
+      kind: 'mailbox-needed',
+      signInProvider: 'google',
+      ...accounts.google,
+      trustedDevices: JSON.stringify([syntheticTrustedDevice, otherDevice]),
+    } as const;
+    const removed = {
+      ...initial,
+      trustedDevices: JSON.stringify([otherDevice]),
+      revocationNotice: 'removed',
+    } as const;
+    let removal = () => Promise.resolve(removed);
+    const store = createRegistration({
+      ...session.native,
+      signIn: () => Promise.resolve(initial),
+      revokeTrustedDevice: () => removal(),
+    });
+    await store.register('google');
+    await store.revokeTrustedDevice(syntheticTrustedDevice.id);
+    removal = () => Promise.reject(new Error('Synthetic removal interrupted'));
+    await store.revokeTrustedDevice(otherDevice.id);
+    const failed = store.getSnapshot();
+    expect(failed).toStrictEqual({
+      snapshot: removed,
+      busy: false,
+      failed: false,
+      revocationFailed: true,
+    });
+    expect(revocationNotice(removed, failed.revocationFailed === true)).toBe(
+      revocationCopy.failed,
+    );
+    removal = () =>
+      Promise.reject(
+        Object.assign(new Error('Synthetic cancelled'), { code: 'cancelled' }),
+      );
+    await store.revokeTrustedDevice(otherDevice.id);
+    expect(store.getSnapshot()).toStrictEqual({
+      snapshot: removed,
+      busy: false,
+      failed: false,
     });
   });
 });

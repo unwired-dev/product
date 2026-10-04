@@ -15,6 +15,10 @@ const Scenario = Schema.Literals([
   'registration-link',
   // The synthetic Product Account already has Product Sync keys on another device.
   'registration-enrollment',
+  // This device created the keys, and an iPad of the account can be removed.
+  'registration-revocation',
+  // Another device removes this one after sign-in; the next activation learns of it.
+  'registration-revoked',
 ]);
 
 // A well-formed synthetic Recovery Key; it protects nothing.
@@ -26,6 +30,16 @@ export const syntheticEnrollmentCode =
   'H4KP-9QWE-3TRM-7XB2-H4KP-9QWE-3TRM-7XB2-H4KP-9QWE-3TRM-7XB2-H4KP-9QW8';
 
 export const syntheticEnrollmentRequest = 'synthetic-enrollment-request';
+
+// The Recovery Key that replaces the first one after a removal; it protects nothing.
+export const syntheticReplacementRecoveryKey =
+  'M3TR-8KWD-5BXN-2QHF-7CJP-0VGA-9ZEY-4RMS-6TKB-1NDW-3PXH-8QCF-5J0V';
+
+export const syntheticTrustedDevice = {
+  id: 'synthetic-ipad',
+  name: 'iPad',
+  registeredAt: Date.UTC(2026, 8, 1),
+} as const;
 const normalizedCode = (code: string) =>
   code.replaceAll(/[\s-]/gu, '').toUpperCase();
 
@@ -65,6 +79,9 @@ const account = (snapshot: SignedIn) => ({
   ...(snapshot.enrollmentCode === undefined
     ? {}
     : { enrollmentCode: snapshot.enrollmentCode }),
+  ...(snapshot.trustedDevices === undefined
+    ? {}
+    : { trustedDevices: snapshot.trustedDevices }),
 });
 
 // Scenarios whose first Gmail session grants access; the others need another mailbox.
@@ -132,7 +149,16 @@ export function createMockRegistrationSession(
     return created;
   };
   const native: NativeRegistration = {
-    restore: () => Promise.resolve(snapshot),
+    restore: () => {
+      // The other device's removal reaches this one on its next verification.
+      if (
+        scenario === 'registration-revoked' &&
+        snapshot.kind !== 'signed-out'
+      ) {
+        snapshot = { kind: 'signed-out', notice: 'revoked' };
+      }
+      return Promise.resolve(snapshot);
+    },
     signIn: (provider) => {
       if (snapshot.kind === 'signed-out') {
         // A new Product Account creates its keys; an existing one asks a trusted device.
@@ -154,6 +180,9 @@ export function createMockRegistrationSession(
                 privateSync: 'recovery-key',
                 recoveryKey: syntheticRecoveryKey,
               }),
+          ...(scenario === 'registration-revocation'
+            ? { trustedDevices: JSON.stringify([syntheticTrustedDevice]) }
+            : {}),
         };
         return Promise.resolve(snapshot);
       }
@@ -225,13 +254,20 @@ export function createMockRegistrationSession(
       ) {
         return rejection('Synthetic Recovery Key unavailable', 'unavailable');
       }
-      if (entry.trim().toUpperCase() !== syntheticRecoveryKey.slice(-4)) {
+      if (
+        entry.trim().toUpperCase() !==
+        (snapshot.recoveryKey ?? syntheticRecoveryKey).slice(-4)
+      ) {
         return rejection(
           'Synthetic Recovery Key mismatch',
           'recovery-key-mismatch',
         );
       }
-      const { recoveryKey: _recoveryKey, ...confirmed } = snapshot;
+      const {
+        recoveryKey: _recoveryKey,
+        revocationNotice: _notice,
+        ...confirmed
+      } = snapshot;
       snapshot = { ...confirmed, privateSync: 'ready' };
       return Promise.resolve(snapshot);
     },
@@ -293,6 +329,23 @@ export function createMockRegistrationSession(
       };
       snapshot = withoutRequest(snapshot);
       return Promise.resolve(snapshot);
+    },
+    // Removing the iPad rotates the keys, so this device shows a new Recovery Key to save.
+    revokeTrustedDevice: (trustedDeviceId) => {
+      if (
+        snapshot.kind === 'signed-out' ||
+        snapshot.trustedDevices === undefined ||
+        trustedDeviceId !== syntheticTrustedDevice.id
+      ) {
+        return rejection('Synthetic device unavailable', 'unavailable');
+      }
+      const { trustedDevices: _devices, ...rest } = snapshot;
+      snapshot = {
+        ...rest,
+        privateSync: 'recovery-key',
+        recoveryKey: syntheticReplacementRecoveryKey,
+      };
+      return Promise.resolve({ ...snapshot, revocationNotice: 'removed' });
     },
     refreshPrivateSync: () => {
       if (snapshot.kind === 'signed-out') {

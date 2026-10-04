@@ -18,5 +18,7 @@ export const registration = createRegistration({
   approveEnrollment: (requestId, code) =>
     native().approveEnrollment(requestId, code),
   declineEnrollment: (requestId) => native().declineEnrollment(requestId),
+  revokeTrustedDevice: (trustedDeviceId) =>
+    native().revokeTrustedDevice(trustedDeviceId),
   refreshPrivateSync: () => native().refreshPrivateSync(),
 });

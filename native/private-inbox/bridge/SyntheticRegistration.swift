@@ -74,15 +74,30 @@
       var requests: [String: Request] = [:]
       // Keys held by the synthetic trusted device of an account that existed before this run.
       var trusted: [String: ProductSyncKeyRing] = [:]
+      // A removal's pending epoch, transition and recovery envelope, until this device adopts it.
+      var rotations: [String: Rotation] = [:]
+      var removed: Set<String> = []
+      // The launch that first connected; a later launch learns of this device's removal.
+      var connectedLaunch: String?
     }
+    struct Rotation: Codable {
+      let epoch: Int
+      let transition: EncryptedPayload
+      let recovery: EncryptedPayload
+    }
+    // The other device of the `registration-revocation` account, which this device removes.
+    static let iPad = TrustedDevice(id: "synthetic-ipad", name: "iPad", registeredAt: 1_788_220_800_000)
     // The synthetic account's Recovery Key, typed by the `registration-recovery` journey.
     static let recoveryKey = "000G-40R4-0M30-E209-185G-R38E-1W81-24GK-2GAH-C5RR-34D1-P70X-3RFG"
     let keys: DeviceKeychain
     // Whether the synthetic trusted device is available to approve this device.
     let approves: Bool
-    init(keys: DeviceKeychain, approves: Bool) {
+    // Whether the account has an iPad this device can remove.
+    let removable: Bool
+    init(keys: DeviceKeychain, approves: Bool, removable: Bool = false) {
       self.keys = keys
       self.approves = approves
+      self.removable = removable
     }
 
     // Another device already created this account's keys and saved a mailbox with them.
@@ -208,7 +223,37 @@
           guard let envelope = try state().recovery[product.productAccountId] else {
             throw RegistrationError.unavailable
           }
-          return envelope
+          return StoredPayload(
+            payloadIdentifier: "product-account-recovery-v1", encryptedPayload: envelope,
+            updatedAt: 1)
+        },
+        keyRotation: { [self] _, product in
+          try state().rotations[product.productAccountId].map {
+            KeyRotation(keyEpoch: $0.epoch, transition: $0.transition)
+          }
+        },
+        // This device is the only one left, so its adoption completes the rotation.
+        acknowledgeRotation: { [self] _, product, epoch in
+          try update { state in
+            let account = product.productAccountId
+            guard let rotation = state.rotations[account], rotation.epoch == epoch else { return }
+            state.recovery[account] = rotation.recovery
+            state.rotations[account] = nil
+          }
+        },
+        trustedDevices: { [self] _, _ in
+          guard removable else { return [] }
+          return try state().removed.contains(Self.iPad.id) ? [] : [Self.iPad]
+        },
+        revoke: { [self] _, product, target, transition, recovery, _ in
+          try update { state in
+            guard removable, target == Self.iPad.id, !state.removed.contains(target),
+              recovery.schemaVersion == KeyRingEnvelope.recoverySchemaVersion
+            else { throw RegistrationError.unavailable }
+            state.removed.insert(target)
+            state.rotations[product.productAccountId] = Rotation(
+              epoch: recovery.keyVersion, transition: transition, recovery: recovery)
+          }
         })
     }
   }
@@ -220,15 +265,18 @@
       [
         "registration-cancelled", "registration-declined", "registration-no-gmail",
         "registration-interrupted", "registration-apple", "registration-link",
-        "registration-enrollment", "registration-recovery",
+        "registration-enrollment", "registration-recovery", "registration-revocation",
+        "registration-revoked",
       ].contains(scenario)
     else {
       throw RegistrationError.unavailable
     }
     let google = MockGoogleRegistrationProvider(scenario: scenario)
     let keys = DeviceKeychain(service: bundle + ".google-registration")
+    let launch = UUID().uuidString
     let productSync = MockProductSyncBackend(
-      keys: keys, approves: scenario == "registration-enrollment")
+      keys: keys, approves: scenario == "registration-enrollment",
+      removable: scenario == "registration-revocation")
     // The Google account already exists with keys on a synthetic trusted device. In the recovery
     // scenario that device is lost, and the person holds the account's Recovery Key.
     if scenario == "registration-enrollment" || scenario == "registration-recovery" {
@@ -262,6 +310,12 @@
         guard let account = accounts[identity.subject] else {
           throw RegistrationError.invalidIdentity
         }
+        // Another device removes this one after its first sign-in; the relaunch learns of it.
+        let earlier = try productSync.update { state in
+          defer { state.connectedLaunch = state.connectedLaunch ?? launch }
+          return state.connectedLaunch.map { $0 != launch } ?? false
+        }
+        if scenario == "registration-revoked", earlier { throw RegistrationError.revoked }
         return ProductRegistrationReceipt(
           productAccountId: account, trustedDeviceId: "synthetic-device",
           trustedDeviceCredential: String(repeating: "a", count: 64),

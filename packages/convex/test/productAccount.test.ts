@@ -902,6 +902,85 @@ describe('productAccount.connect', () => {
     });
   });
 
+  it.each(['live', 'unregistered', 'reconnected'])(
+    'tells only the revoked device holding its credential that it was revoked, without a sign-in (target state: %s)',
+    async (targetState) => {
+      expect.assertions(4);
+
+      const t = convexTest(schema, modules);
+      const asUser = t.withIdentity(appleIdentity);
+      const currentDevice = await asUser.mutation(api.productAccount.connect, {
+        deviceIdentifier: 'device-001',
+        platform: 'ios',
+        supportsDeviceCredentials: true,
+      });
+      const otherDevice = await asUser.mutation(api.productAccount.connect, {
+        deviceIdentifier: 'device-002',
+        platform: 'macos',
+        supportsDeviceCredentials: true,
+      });
+      let observedDevice = otherDevice;
+      const status = (credential: string) =>
+        t.query(api.productAccount.isTrustedDeviceRevoked, {
+          productAccountId: otherDevice.productAccountId,
+          trustedDeviceCredential: credential,
+          trustedDeviceId: observedDevice.trustedDeviceId,
+        });
+      let otherCredential = requiredTrustedDeviceCredential(otherDevice);
+      await expect(status(otherCredential)).resolves.toBe(false);
+      const recoveryMaterial = await asUser.mutation(
+        internal.productSync.replaceRecoveryMaterialIfUnchanged,
+        {
+          encryptedPayload,
+          trustedDeviceCredential:
+            requiredTrustedDeviceCredential(currentDevice),
+          trustedDeviceId: currentDevice.trustedDeviceId,
+        },
+      );
+      // oxlint-disable-next-line vitest/no-conditional-in-test -- Both live and unregistered target states exercise the same revocation-proof contract.
+      if (targetState !== 'live') {
+        await asUser.mutation(api.productAccount.unregisterTrustedDevice, {
+          deviceIdentifier: 'device-002',
+          trustedDeviceCredential: otherCredential,
+          trustedDeviceId: otherDevice.trustedDeviceId,
+        });
+      }
+      // oxlint-disable-next-line vitest/no-conditional-in-test -- A cached revocation target can reconnect before its owner removes it.
+      if (targetState === 'reconnected') {
+        observedDevice = await asUser.mutation(api.productAccount.connect, {
+          deviceIdentifier: 'device-002',
+          platform: 'macos',
+          supportsDeviceCredentials: true,
+        });
+        otherCredential = requiredTrustedDeviceCredential(observedDevice);
+      }
+      await revokeTrustedDevice(asUser, {
+        encryptedTransition: encryptedPayload,
+        expectedRecoveryUpdatedAt: recoveryMaterial.updatedAt,
+        recoveryWrappedAccountKey: {
+          ...encryptedPayload,
+          keyVersion: 2,
+          schemaVersion: 3,
+        },
+        trustedDeviceCredential: requiredTrustedDeviceCredential(currentDevice),
+        trustedDeviceId: currentDevice.trustedDeviceId,
+        trustedDeviceToRevokeId: otherDevice.trustedDeviceId,
+      });
+      await expect(status(otherCredential)).resolves.toBe(true);
+      // Neither another credential nor a malformed id learns anything.
+      await expect(
+        status(requiredTrustedDeviceCredential(currentDevice)),
+      ).resolves.toBe(false);
+      await expect(
+        t.query(api.productAccount.isTrustedDeviceRevoked, {
+          productAccountId: 'not-an-account',
+          trustedDeviceCredential: otherCredential,
+          trustedDeviceId: otherDevice.trustedDeviceId,
+        }),
+      ).resolves.toBe(false);
+    },
+  );
+
   it('rotates only with recovery material the replacement can open', async () => {
     expect.assertions(3);
 

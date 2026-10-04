@@ -8,6 +8,8 @@ enum RegistrationError: Error {
   case recoveryKeyMismatch
   // Enrollment: a mistyped approval code, or a request that can no longer be approved.
   case enrollmentCodeInvalid, enrollmentUnavailable
+  // Another Trusted Device removed this one, or the account refuses new devices after a removal.
+  case revoked
 }
 
 enum SignInProvider: String, Codable {
@@ -116,15 +118,20 @@ struct SavedRegistration: Codable {
       ProductRegistrationReceipt
   let linking: SignInLinking?
   let productSync: ProductSyncBackend?
+  // Whether the account revoked this device, answered for its credential without a Product Sign-In.
+  let deviceRevoked: ((ProductRegistrationReceipt) async throws -> Bool)?
   // The latest verified Product Sign-In in this process; Apple tokens cannot be renewed silently.
   var session: ProductSignInIdentity?
   // Other devices' enrollment requests by Product Account, as last listed in this process.
   var enrollmentRequests: [String: [PendingEnrollment]] = [:]
+  // The account's other Trusted Devices by Product Account, as last listed in this process.
+  var trustedDevices: [String: [TrustedDevice]] = [:]
 
   init(
     keys: DeviceKeychain, deployment: String, clientID: String,
     provider: any GoogleRegistrationProvider, apple: (any AppleRegistrationProvider)? = nil,
     linking: SignInLinking? = nil, productSync: ProductSyncBackend? = nil,
+    deviceRevoked: ((ProductRegistrationReceipt) async throws -> Bool)? = nil,
     connect:
       @escaping (ProductSignInIdentity, String, ProductRegistrationReceipt?) async throws ->
       ProductRegistrationReceipt
@@ -136,6 +143,7 @@ struct SavedRegistration: Codable {
     self.apple = apple
     self.linking = linking
     self.productSync = productSync
+    self.deviceRevoked = deviceRevoked
     self.connect = connect
   }
 
@@ -204,7 +212,7 @@ struct SavedRegistration: Codable {
     next.product = product
     try save(next)
     session = identity
-    return await synchronize(next)
+    return try await synchronize(next)
   }
 
   func appleProvider() throws -> any AppleRegistrationProvider {
@@ -274,7 +282,7 @@ struct SavedRegistration: Codable {
     next.product = product
     try save(next)
     session = identity
-    return await synchronize(next)
+    return try await synchronize(next)
   }
 
   // Verifies the current Product Account and then the identity being linked, both interactively.
@@ -303,6 +311,10 @@ struct SavedRegistration: Codable {
 
   // Confirms the retained Product Sign-In without an interactive session.
   func reconfirm(_ saved: SavedRegistration) async throws -> SavedRegistration {
+    // A removed device must purge even if its provider grant can no longer be renewed.
+    if let product = saved.product, (try? await deviceRevoked?(product)) == true {
+      throw RegistrationError.revoked
+    }
     switch saved.provider {
     case .google:
       let identity = try await provider.refresh(saved.identityCredential)
@@ -327,6 +339,8 @@ struct SavedRegistration: Codable {
     var next: SavedRegistration
     do {
       next = try await reconfirm(saved)
+    } catch RegistrationError.revoked {
+      throw RegistrationError.revoked
     } catch {
       // Keep any identity credential that establish persisted before the backend failed.
       if saved.product != nil { return try failure((try? load()) ?? saved, reason: "unavailable") }
@@ -350,6 +364,8 @@ struct SavedRegistration: Codable {
       next.mailboxSetupReason = nil
       try save(next)
       return try await connected(synchronize(next))
+    } catch RegistrationError.revoked {
+      throw RegistrationError.revoked
     } catch {
       // Cached consent is never proof of currently usable Gmail access.
       return try failure(next, reason: "gmail-unavailable")
@@ -377,6 +393,8 @@ struct SavedRegistration: Codable {
     var next: SavedRegistration
     do {
       next = try await reconfirm(saved)
+    } catch RegistrationError.revoked {
+      throw RegistrationError.revoked
     } catch {
       // Keep any identity credential that establish persisted before the backend failed.
       return try failure(
@@ -393,6 +411,8 @@ struct SavedRegistration: Codable {
       next.mailboxSetupReason = nil
       try save(next)
       return try await connected(synchronize(next))
+    } catch RegistrationError.revoked {
+      throw RegistrationError.revoked
     } catch {
       // A failed reselection keeps the connected mailbox; the host reports the rejection.
       if reselect, next.mailbox != nil, next.mailboxSetupReason == nil { throw error }
@@ -404,6 +424,28 @@ struct SavedRegistration: Codable {
       default: return try failure(next, reason: "interrupted")
       }
     }
+  }
+
+  // A revoked device keeps nothing of the Product Account: keys, requests and credentials go.
+  // A device that never joined it, refused after another device's removal, was never trusted.
+  func purge() throws -> [String: String] {
+    let saved = try load()
+    if let account = saved?.product?.productAccountId {
+      try keys.remove(vaultAccount(account))
+      try keys.remove(enrollmentAccount(account))
+    }
+    try keys.remove("registration")
+    session = nil
+    enrollmentRequests = [:]
+    trustedDevices = [:]
+    return ["kind": "signed-out", "notice": saved?.product == nil ? "refused" : "revoked"]
+  }
+
+  // Every host operation runs through this, so whichever request learns of a revocation purges.
+  func purgingIfRevoked(_ operation: (RegistrationStore) async throws -> [String: String])
+    async throws -> [String: String]
+  {
+    do { return try await operation(self) } catch RegistrationError.revoked { return try purge() }
   }
 
   func connected(_ saved: SavedRegistration) throws -> [String: String] {

@@ -6,6 +6,7 @@ import type {
   RecoveryKeyFailure,
   Registration,
   RegistrationSnapshot,
+  TrustedDevice,
 } from '@private-email/mail-core/registration';
 import type { ReactNode } from 'react';
 
@@ -21,7 +22,10 @@ import {
   recoveryCopy,
   recoveryKeyEntry,
   registrationCopy,
+  revocationCopy,
+  revocationNotice,
   signInMethodsCopy,
+  trustedDevicesOf,
 } from '@private-email/mail-core/registration';
 import { previewInbox } from '@private-email/mail-core/registration-mode';
 import { useEffect, useState, useSyncExternalStore } from 'react';
@@ -70,6 +74,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     borderCurve: 'continuous',
   },
+  device: { gap: 8 },
 });
 
 // End-to-End Encrypted Product Sync; the Recovery Key stays visible until its setup is confirmed.
@@ -297,6 +302,88 @@ function DeviceApproval({
   );
 }
 
+// Removing another Trusted Device is confirmed here; the native side then asks for a new sign-in.
+function TrustedDevices({
+  account,
+  button,
+  failed,
+  store,
+}: {
+  readonly account: Readonly<{
+    privateSync?: PrivateSyncState;
+    trustedDevices?: string;
+    revocationNotice?: 'removed';
+  }>;
+  readonly button: (label: string, action: () => Promise<void>) => ReactNode;
+  readonly failed: boolean;
+  readonly store: Registration;
+}) {
+  const colors = usePalette();
+  const [confirming, setConfirming] = useState<TrustedDevice['id']>();
+  if (
+    account.privateSync !== 'ready' &&
+    account.privateSync !== 'recovery-key'
+  ) {
+    return null;
+  }
+  const devices =
+    account.privateSync === 'ready' ? trustedDevicesOf(account) : [];
+  const notice = revocationNotice(account, failed);
+  if (devices.length === 0 && notice === undefined) {
+    return null;
+  }
+  return (
+    <>
+      <Text
+        accessibilityRole="header"
+        style={[styles.heading, { color: colors.foreground }]}>
+        {revocationCopy.title}
+      </Text>
+      {notice === undefined ? null : (
+        <Text
+          accessibilityRole="alert"
+          style={[styles.text, { color: colors.foreground }]}>
+          {notice}
+        </Text>
+      )}
+      {devices.length === 0 ? null : (
+        <Text style={[styles.text, { color: colors.secondary }]}>
+          {revocationCopy.description}
+        </Text>
+      )}
+      {devices.map((device) => (
+        <View
+          key={device.id}
+          style={styles.device}>
+          <Text style={[styles.text, { color: colors.foreground }]}>
+            {device.name}
+          </Text>
+          <Text style={[styles.text, { color: colors.secondary }]}>
+            {revocationCopy.added(device.registeredAt)}
+          </Text>
+          {confirming === device.id ? (
+            <>
+              <Text style={[styles.text, { color: colors.foreground }]}>
+                {revocationCopy.confirm(device.name)}
+              </Text>
+              {button(revocationCopy.remove(device.name), () =>
+                store.revokeTrustedDevice(device.id),
+              )}
+              {button(revocationCopy.cancel, async () => {
+                setConfirming(undefined);
+              })}
+            </>
+          ) : (
+            button(revocationCopy.remove(device.name), async () => {
+              setConfirming(device.id);
+            })
+          )}
+        </View>
+      ))}
+    </>
+  );
+}
+
 // Account settings: Linked Sign-Ins never come from a mailbox grant or a matching email.
 function SignInMethods({
   account,
@@ -421,6 +508,7 @@ function RegistrationPage({ store }: { readonly store: Registration }) {
     recoveryKeyFailure,
     recoveryFailure,
     enrollmentFailure,
+    revocationFailed,
   } = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const colors = usePalette();
   const copy = registrationCopy(snapshot);
@@ -496,6 +584,7 @@ function RegistrationPage({ store }: { readonly store: Registration }) {
         {failed ? button('Try again', store.restore) : null}
         {snapshot.kind === 'signed-out' ? null : (
           <PrivateSync
+            key={snapshot.recoveryKey ?? 'confirmed'}
             account={snapshot}
             button={button}
             failure={recoveryKeyFailure}
@@ -517,6 +606,14 @@ function RegistrationPage({ store }: { readonly store: Registration }) {
             account={snapshot}
             button={button}
             failure={enrollmentFailure}
+            store={store}
+          />
+        )}
+        {snapshot.kind === 'signed-out' ? null : (
+          <TrustedDevices
+            account={snapshot}
+            button={button}
+            failed={revocationFailed === true}
             store={store}
           />
         )}

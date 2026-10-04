@@ -179,3 +179,55 @@ Keychain and CryptoKit checks use a synthetic Convex
 boundary; packaged journeys use Mock Mail Sessions. Mac recovery automation and
 hosted storage, physical devices and protected Convex and provider qualification
 remain pending.
+
+## Device revocation
+
+Issue [#602](https://github.com/unwired-dev/product/issues/602) connects the
+replacement hosts to the existing recent-authenticated revocation route for
+Google and Apple. Native code adopts a pending epoch before proposing a fresh
+one, retains every prior epoch, and seals the rotation ring with the committed
+epoch's key using account-bound purpose `rotation`, schema 1. Backend device
+proof and tombstones withhold that transition from the removed device even though
+it held the committed key. Key possession alone never authorizes its retrieval.
+
+Each removal creates a new Recovery Key and schema 3 recovery envelope, so a key
+held by the removed device cannot unwrap the new epoch. Before sending, the
+native vault durably preserves the generated Recovery Key and exact transition.
+A lost connection, cancellation or ambiguous server response keeps this marker;
+a known refusal clears it. Synchronization promotes the preserved Recovery Key
+only when the authoritative pending transition matches. It durably saves the
+adopted ring before acknowledging, and refuses another removal while that
+Recovery Key is unconfirmed. Surviving devices open the transition with a held
+key and require it to retain every held key. The backend publishes the new
+recovery envelope only after every remaining device acknowledges; until then
+backup guidance retains the previous key as well as the new one.
+
+Restore uses `productAccount:isTrustedDeviceRevoked` before provider validation.
+The query authenticates only the device's revocation rejection, using the
+account-scoped tombstone and SHA-256 digest of the credential copied at removal;
+it returns one boolean and grants no account data or API access. It needs no
+renewable Product Sign-In token, which Apple relaunch cannot supply. Invalid IDs
+or a mismatched credential disclose nothing. Transport unavailability retains
+local state. A positive rejection removes the account vault, enrollment item and
+registration record (including identity and mailbox credentials) before later
+provider work. The unrelated encrypted synthetic Inbox fixture has no account
+ownership and is outside this purge; future account-owned mail storage must join
+this boundary. Unregistration retains only the credential digest in the existing minimal
+revocation-target record, so owner removal after sign-out still supplies this
+rejection to the old installation. Removal also retains the digest of any live row with that installation
+identifier. A reconnect between target selection and revocation can change its
+row ID; the credential-only query then matches that retained proof and the
+installation tombstone. The target digest is not a live authorization grant,
+and account deletion already drains these target records.
+
+### Enrollment decision conflict
+
+[ADR 0020](../adr/0020-revoke-devices-with-sync-key-rotation.md) and the existing
+backend deliberately refuse previously unseen identifiers on any account with a
+revocation tombstone. Issue #602 also requires a new authorized enrollment.
+Current replacement enrollment starts after ordinary device registration and
+cannot safely override that lock: sign-in alone plus an invented identifier is
+not an enrollment authorization. This review preserves the lock and records the
+criterion as incomplete. An accepted admission protocol must reconcile the issue
+and ADR before enabling legitimate new identifiers; a proposed follow-up alone
+does not complete #602.
