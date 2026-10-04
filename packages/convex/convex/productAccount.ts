@@ -1518,6 +1518,18 @@ export const markProductSyncMaterialInitialized = mutation({
       args.trustedDeviceId,
       args.trustedDeviceCredential,
     );
+    // The marker only records a published recovery envelope; it never stands in for one.
+    const recoveryMaterial = await ctx.db
+      .query('encryptedProductSyncPayloads')
+      .withIndex('by_productAccountId_and_payloadIdentifier', (q) =>
+        q
+          .eq('productAccountId', account.productAccountId)
+          .eq('payloadIdentifier', recoveryPayloadIdentifier),
+      )
+      .unique();
+    if (recoveryMaterial === null) {
+      throw new Error('Recovery material required');
+    }
     await ctx.db.patch('productAccounts', account.productAccountId, {
       productSyncMaterialInitializedAt:
         account.productSyncMaterialInitializedAt ?? Date.now(),
