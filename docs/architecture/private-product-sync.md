@@ -37,6 +37,17 @@ or recovering device receives only the key ring.
   device, enrollment request and key epoch. The Enrollment Code supplies the PSK.
   [Trusted-device enrollment](#trusted-device-enrollment) defines transport and storage.
 
+Mailbox descriptor reconciliation treats every record it cannot open or decode
+as read-only, including authentication failures at the current schema and a
+known epoch. A newer client may use bindings an older client cannot authenticate
+even at the same schema and epoch; replacing that record could discard a removal
+fence. Preserving it follows the tombstone and downgrade protections in
+[ADR 0001](../adr/0001-end-to-end-encrypted-product-sync.md) and
+[ADR 0010](../adr/0010-device-local-mailbox-authorization.md). The backend can
+already remove ciphertext, so overwriting an authentication failure adds no
+recovery guarantee against backend tampering. The observable write policy remains
+in [the operational guide](../private-product-sync.md#keys-and-envelopes).
+
 ## Initialization and relaunch
 
 `productAccount:connect` reports whether the Product Account already has Product
