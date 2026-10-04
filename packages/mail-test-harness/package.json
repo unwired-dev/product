@@ -5,18 +5,12 @@
   "type": "module",
   "scripts": {
     "check-types": "tsc --noEmit",
-    "format": "oxfmt --ignore-path ../../.gitignore --check .",
-    "format:fix": "oxfmt --ignore-path ../../.gitignore --write .",
-    "lint": "oxlint --type-aware --type-check --deny-warnings --report-unused-disable-directives .",
     "mail:test": "node src/cli.ts",
     "test": "vitest run"
   },
   "devDependencies": {
     "@rajzik/tsconfig": "catalog:",
     "@types/node": "catalog:",
-    "oxfmt": "catalog:",
-    "oxlint": "catalog:",
-    "oxlint-tsgolint": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
   }

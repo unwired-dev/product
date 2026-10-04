@@ -20,21 +20,12 @@
     "UNWIRED_CONVEX_URL"
   ],
   "tasks": {
-    "lint": {
-      "dependsOn": ["^lint"]
+    "//#lint": {},
+    "//#lint:fix": {
+      "cache": false
     },
-    "//#lint:root": {},
-    "lint:fix": {
-      "dependsOn": ["^lint:fix"]
-    },
-    "format": {
-      "dependsOn": ["^format"]
-    },
-    "//#format:root": {},
-    "format:fix": {
-      "dependsOn": ["^format:fix"]
-    },
-    "//#format:fix:root": {
+    "//#format": {},
+    "//#format:fix": {
       "cache": false
     },
     "check-types": {

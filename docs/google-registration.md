@@ -118,7 +118,7 @@ cleanup rules apply; Mac cleanup removes the run's registration Keychain record
 as well as its Inbox key.
 
 ```sh
-mise exec -- pnpm exec turbo run lint format check-types test \
+mise exec -- pnpm exec turbo run lint format check-types test --filter=// \
   --filter=@private-email/mobile... --filter=@private-email/macos... \
   --filter=@private-email/convex...
 mise exec -- pnpm test:native-runner
