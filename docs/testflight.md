@@ -149,7 +149,10 @@ Unchanged reruns preserve the generated branch commit and its CI results.
 Updates use a force-with-lease push, and stale runs never replace a version PR
 prepared from newer `main`. Release runs queue instead of replacing pending runs.
 The personal token is available only to the planning step; checkout and dependency
-installation use the read-only workflow token.
+installation use the read-only workflow token. That step runs
+`scripts/release-plan.sh` and `changeset version` from the pushed commit, so
+code merged to `main` is trusted with the token's contents and pull-request
+write access. Limiting the secret to one step does not isolate that code.
 
 If an upload fails after the tag exists, rerun the failed job of that Release
 run, or dispatch the TestFlight workflow for the tag. Rerunning all jobs of the
