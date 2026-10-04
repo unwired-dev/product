@@ -35,6 +35,12 @@ const encryptedPayload = {
   tagBase64: 'dGFn',
 };
 
+const recoveryEnvelope = {
+  ...encryptedPayload,
+  ciphertextBase64: 'cmVjb3Zlcnk',
+  schemaVersion: 3,
+};
+
 const firstPage = {
   cursor: null,
   numItems: 100,
@@ -53,13 +59,30 @@ function appleIdentityToken(issuedAt: number): string {
   })}.signature`;
 }
 
-async function connectAppleDevice() {
+async function initializeProductSync(
+  asUser: ReturnType<ReturnType<typeof convexTest>['withIdentity']>,
+  proof: Readonly<{
+    trustedDeviceCredential?: string;
+    trustedDeviceId: Id<'trustedDevices'>;
+  }>,
+) {
+  return asUser.mutation(api.productSync.initialize, {
+    encryptedPayload: recoveryEnvelope,
+    trustedDeviceCredential: proof.trustedDeviceCredential,
+    trustedDeviceId: proof.trustedDeviceId,
+  });
+}
+
+async function connectAppleDevice({ initialized = true } = {}) {
   const t = convexTest(schema, modules);
   const asUser = t.withIdentity(appleIdentity);
   const connect = await asUser.mutation(api.productAccount.connect, {
     deviceIdentifier: 'device-001',
     platform: 'ios',
   });
+  if (initialized) {
+    await initializeProductSync(asUser, connect);
+  }
 
   return { asUser, connect, t };
 }
@@ -112,7 +135,13 @@ describe('productSync encrypted payloads', () => {
     });
     expect(listed).toMatchObject({
       isDone: true,
-      page: [stored],
+      page: [
+        stored,
+        {
+          encryptedPayload: recoveryEnvelope,
+          payloadIdentifier: 'product-account-recovery-v1',
+        },
+      ],
     });
   });
 
@@ -149,6 +178,7 @@ describe('productSync encrypted payloads', () => {
       platform: 'ios',
       supportsDeviceCredentials: true,
     });
+    await initializeProductSync(asUser, connect);
     await asUser.mutation(api.productSync.putEncryptedPayloadIfUnchanged, {
       encryptedPayload,
       expectedUpdatedAt: undefined,
@@ -762,10 +792,12 @@ describe('productSync encrypted payloads', () => {
     });
   });
 
-  it('publishes Recovery Key material with a freshly issued Apple bearer token', async () => {
-    expect.assertions(2);
+  it('publishes Recovery Key material and the initialized marker together through the legacy route', async () => {
+    expect.assertions(3);
 
-    const { asUser, connect } = await connectAppleDevice();
+    const { asUser, connect, t } = await connectAppleDevice({
+      initialized: false,
+    });
     const response = await asUser.fetch('/product-sync/recovery-material', {
       body: JSON.stringify({
         encryptedPayload,
@@ -783,6 +815,10 @@ describe('productSync encrypted payloads', () => {
       encryptedPayload,
       payloadIdentifier: 'product-account-recovery-v1',
     });
+    const account = await t.run(async (ctx) =>
+      ctx.db.get('productAccounts', connect.productAccountId),
+    );
+    expect(account?.productSyncMaterialInitializedAt).toBeTypeOf('number');
   });
 
   it('paginates encrypted payload listing past the first page', async () => {
@@ -821,7 +857,8 @@ describe('productSync encrypted payloads', () => {
     expect(pageOneResponse).toMatchObject({ isDone: false });
     expect(pageOneResponse.page).toHaveLength(100);
     expect(pageTwoResponse.isDone).toBe(true);
-    expect(pageTwoResponse.page).toHaveLength(5);
+    // The remaining 5 records plus the recovery envelope.
+    expect(pageTwoResponse.page).toHaveLength(6);
   });
 
   it('paginates only encrypted payloads matching an identifier prefix', async () => {
@@ -982,6 +1019,7 @@ describe('productSync encrypted payloads', () => {
         platform: 'ios',
       },
     );
+    await initializeProductSync(asUser, connect);
 
     await asUser.mutation(api.productSync.putEncryptedPayloadIfUnchanged, {
       encryptedPayload,
@@ -1021,6 +1059,7 @@ describe('productSync encrypted payloads', () => {
         platform: 'ios',
       },
     );
+    await initializeProductSync(asUser, connect);
 
     await putPayload(asUser, connect.trustedDeviceId, 'payload-001');
 
@@ -1073,6 +1112,7 @@ describe('productSync encrypted payloads', () => {
       api.productAccount.connect,
       { deviceIdentifier: 'device-002', platform: 'ios' },
     );
+    await initializeProductSync(asUser, connect);
     await putPayload(asUser, connect.trustedDeviceId, 'payload-001');
 
     await expect(
@@ -1153,11 +1193,6 @@ describe('productSync initialization', () => {
     issuer: 'https://accounts.google.com',
     subject: 'google-user-001',
     tokenIdentifier: 'https://accounts.google.com|google-user-001',
-  };
-  const recoveryEnvelope = {
-    ...encryptedPayload,
-    ciphertextBase64: 'cmVjb3Zlcnk',
-    schemaVersion: 3,
   };
 
   async function connectDevice(
@@ -1240,64 +1275,125 @@ describe('productSync initialization', () => {
     ).rejects.toThrow('Recovery material requires recent authentication');
   });
 
-  it('never initializes an account that already has key material', async () => {
-    expect.assertions(3);
-
-    const t = convexTest(schema, modules);
-    const asUser = t.withIdentity(googleIdentity);
-    const device = await connectDevice(asUser, 'installation-001');
-    await asUser.mutation(
-      api.productAccount.markProductSyncMaterialInitialized,
-      {
-        ...device.proof,
-      },
-    );
-
-    await expect(
-      asUser.mutation(api.productSync.initialize, {
-        ...device.proof,
-        encryptedPayload: recoveryEnvelope,
-      }),
-    ).resolves.toStrictEqual({ initialized: false });
-    await expect(
-      asUser.query(api.productSync.getEncryptedPayloadForTrustedDevice, {
-        ...device.proof,
-        payloadIdentifier: 'product-account-recovery-v1',
-      }),
-    ).resolves.toBeNull();
-    await expect(
-      asUser.mutation(api.productSync.initialize, {
-        ...device.proof,
-        encryptedPayload: { ...recoveryEnvelope, keyVersion: 2 },
-      }),
-    ).rejects.toThrow('Product Sync key rotation required');
-  });
-
-  it('never initializes an account whose records were encrypted under earlier keys', async () => {
+  it('rejects the initialized marker until a recovery envelope is published', async () => {
     expect.assertions(2);
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(googleIdentity);
     const device = await connectDevice(asUser, 'installation-001');
-    await asUser.mutation(api.productSync.putEncryptedPayloadIfUnchanged, {
-      ...device.proof,
-      encryptedPayload,
-      payloadIdentifier: 'mailbox.prototype',
-    });
 
+    await expect(
+      asUser.mutation(api.productAccount.markProductSyncMaterialInitialized, {
+        ...device.proof,
+      }),
+    ).rejects.toThrow('Recovery material required');
+    // The refused marker leaves the account free to publish its first envelope.
     await expect(
       asUser.mutation(api.productSync.initialize, {
         ...device.proof,
         encryptedPayload: recoveryEnvelope,
       }),
-    ).resolves.toStrictEqual({ initialized: false });
-    await expect(
-      asUser.query(api.productSync.getEncryptedPayloadForTrustedDevice, {
-        ...device.proof,
-        payloadIdentifier: 'product-account-recovery-v1',
-      }),
-    ).resolves.toBeNull();
+    ).resolves.toStrictEqual({ initialized: true });
   });
+
+  it('rejects record writes until a recovery envelope is published', async () => {
+    expect.assertions(4);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(googleIdentity);
+    const device = await connectDevice(asUser, 'installation-001');
+
+    await expect(
+      asUser.mutation(api.productSync.putEncryptedPayloadIfUnchanged, {
+        ...device.proof,
+        encryptedPayload,
+        payloadIdentifier: 'mailbox.prototype',
+      }),
+    ).rejects.toThrow('Product Sync is not initialized');
+    await expect(
+      asUser.mutation(api.productSync.putEncryptedPayloadsAtomically, {
+        ...device.proof,
+        checks: [],
+        deletes: [],
+        writes: [{ encryptedPayload, payloadIdentifier: 'mailbox.prototype' }],
+      }),
+    ).rejects.toThrow('Product Sync is not initialized');
+    // The refused writes leave the account free to publish its first envelope.
+    await expect(
+      asUser.mutation(api.productSync.initialize, {
+        ...device.proof,
+        encryptedPayload: recoveryEnvelope,
+      }),
+    ).resolves.toStrictEqual({ initialized: true });
+    await expect(
+      asUser.mutation(api.productSync.putEncryptedPayloadIfUnchanged, {
+        ...device.proof,
+        encryptedPayload,
+        payloadIdentifier: 'mailbox.prototype',
+      }),
+    ).resolves.toMatchObject({ payloadIdentifier: 'mailbox.prototype' });
+  });
+
+  it.each([
+    ['an initialized marker', { productSyncMaterialInitializedAt: 1 }, []],
+    ['records under earlier keys', {}, ['mailbox.prototype']],
+  ])(
+    'never silently replaces key material for an account left with %s but no recovery envelope',
+    async (_name, accountPatch, recordIdentifiers) => {
+      expect.assertions(3);
+
+      const { asUser, connect, t } = await connectAppleDevice({
+        initialized: false,
+      });
+      const proof = { trustedDeviceId: connect.trustedDeviceId };
+      // Seeds the stuck state that earlier backends allowed.
+      await t.run(async (ctx) => {
+        await ctx.db.patch(
+          'productAccounts',
+          connect.productAccountId,
+          accountPatch,
+        );
+        for (const payloadIdentifier of recordIdentifiers) {
+          await ctx.db.insert('encryptedProductSyncPayloads', {
+            encryptedPayload,
+            payloadIdentifier,
+            productAccountId: connect.productAccountId,
+            trustedDeviceId: connect.trustedDeviceId,
+            updatedAt: 1,
+            writtenAt: 1,
+          });
+        }
+      });
+
+      await expect(
+        asUser.mutation(api.productSync.initialize, {
+          ...proof,
+          encryptedPayload: recoveryEnvelope,
+        }),
+      ).resolves.toStrictEqual({ initialized: false });
+      const legacyPublication = await asUser.fetch(
+        '/product-sync/recovery-material',
+        {
+          body: JSON.stringify({
+            ...proof,
+            encryptedPayload: recoveryEnvelope,
+          }),
+          headers: {
+            authorization: `Bearer ${appleIdentityToken(Math.floor(Date.now() / 1000))}`,
+            'content-type': 'application/json',
+          },
+          method: 'POST',
+        },
+      );
+      expect(legacyPublication.status).toBe(409);
+      await expect(
+        asUser.query(api.productSync.getEncryptedPayloadForTrustedDevice, {
+          ...proof,
+          payloadIdentifier: 'product-account-recovery-v1',
+        }),
+      ).resolves.toBeNull();
+    },
+  );
 
   it('initializes only the Product Account of the presenting Trusted Device', async () => {
     expect.assertions(2);

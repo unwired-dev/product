@@ -173,6 +173,14 @@ async function replaceRecoveryMaterialResponse(
     ) {
       return new Response('Trusted device required', { status: 403 });
     }
+    if (
+      error instanceof Error &&
+      error.message.includes('Product Sync key material already exists')
+    ) {
+      return new Response('Product Sync key material already exists', {
+        status: 409,
+      });
+    }
     throw error;
   }
 }

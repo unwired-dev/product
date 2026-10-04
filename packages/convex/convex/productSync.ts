@@ -57,6 +57,18 @@ async function findPayload(
     .unique();
 }
 
+async function requireRecoveryEnvelope(
+  ctx: MutationCtx,
+  productAccountId: Id<'productAccounts'>,
+): Promise<void> {
+  if (
+    (await findPayload(ctx, productAccountId, recoveryPayloadIdentifier)) ===
+    null
+  ) {
+    throw new Error('Product Sync is not initialized');
+  }
+}
+
 async function insertPayload(
   ctx: MutationCtx,
   args: {
@@ -92,23 +104,25 @@ async function preparePayloadWrite(
     trustedDeviceId: Doc<'encryptedProductSyncPayloads'>['trustedDeviceId'];
   }>,
 ): Promise<{
+  account: AuthenticatedProductAccount;
   existingPayload: Doc<'encryptedProductSyncPayloads'> | null;
-  productAccountId: Doc<'encryptedProductSyncPayloads'>['productAccountId'];
 }> {
   const account = await requireAuthenticatedTrustedDevice(
     ctx,
     args.trustedDeviceId,
     args.trustedDeviceCredential,
   );
-  const { productAccountId } = account;
   requireCurrentProductSyncKeyEpoch(account, args.encryptedPayload.keyVersion);
+  if (args.payloadIdentifier !== recoveryPayloadIdentifier) {
+    await requireRecoveryEnvelope(ctx, account.productAccountId);
+  }
   return {
+    account,
     existingPayload: await findPayload(
       ctx,
-      productAccountId,
+      account.productAccountId,
       args.payloadIdentifier,
     ),
-    productAccountId,
   };
 }
 
@@ -193,6 +207,38 @@ async function adoptPublishedRecoveryMaterial(
 
 // Creates Product Sync key material only for an account that has never had any: the first
 // recovery envelope and the initialized marker commit together, and exactly one device wins.
+async function publishFirstRecoveryEnvelope(
+  ctx: MutationCtx,
+  account: AuthenticatedProductAccount,
+  args: Readonly<{
+    encryptedPayload: EncryptedProductSyncPayload['encryptedPayload'];
+    trustedDeviceId: Id<'trustedDevices'>;
+  }>,
+): Promise<Doc<'encryptedProductSyncPayloads'> | null> {
+  // Records written under keys that predate the marker also rule out new key material.
+  const existingRecord = await ctx.db
+    .query('encryptedProductSyncPayloads')
+    .withIndex('by_productAccountId_and_payloadIdentifier', (q) =>
+      q.eq('productAccountId', account.productAccountId),
+    )
+    .first();
+  if (
+    existingRecord !== null ||
+    account.productSyncMaterialInitializedAt !== undefined
+  ) {
+    return null;
+  }
+  const payload = await insertPayload(
+    ctx,
+    { ...args, payloadIdentifier: recoveryPayloadIdentifier },
+    account.productAccountId,
+  );
+  await ctx.db.patch('productAccounts', account.productAccountId, {
+    productSyncMaterialInitializedAt: payload.writtenAt,
+  });
+  return payload;
+}
+
 export const initialize = mutation({
   args: {
     ...trustedDeviceCredentialArgs,
@@ -222,28 +268,10 @@ export const initialize = mutation({
         }),
       };
     }
-    // Records written under keys that predate the marker also rule out new key material.
-    const existingRecord = await ctx.db
-      .query('encryptedProductSyncPayloads')
-      .withIndex('by_productAccountId_and_payloadIdentifier', (q) =>
-        q.eq('productAccountId', account.productAccountId),
-      )
-      .first();
-    if (
-      existingRecord !== null ||
-      account.productSyncMaterialInitializedAt !== undefined
-    ) {
-      return { initialized: false };
-    }
-    const payload = await insertPayload(
-      ctx,
-      { ...args, payloadIdentifier: recoveryPayloadIdentifier },
-      account.productAccountId,
-    );
-    await ctx.db.patch('productAccounts', account.productAccountId, {
-      productSyncMaterialInitializedAt: payload.writtenAt,
-    });
-    return { initialized: true };
+    return {
+      initialized:
+        (await publishFirstRecoveryEnvelope(ctx, account, args)) !== null,
+    };
   },
   returns: productSyncInitializationResponseValidator,
 });
@@ -430,6 +458,7 @@ export const putEncryptedPayloadsAtomically = mutation({
       args.trustedDeviceId,
       args.trustedDeviceCredential,
     );
+    await requireRecoveryEnvelope(ctx, account.productAccountId);
     for (const write of args.writes) {
       requireCurrentProductSyncKeyEpoch(
         account,
@@ -495,6 +524,26 @@ export const replaceRecoveryMaterialIfUnchanged = internalMutation({
   returns: encryptedProductSyncPayloadValidator,
 });
 
+// A legacy first recovery envelope follows the same single-initialization rule as initialize.
+async function insertMissingPayload(
+  ctx: MutationCtx,
+  account: AuthenticatedProductAccount,
+  args: Readonly<{
+    encryptedPayload: EncryptedProductSyncPayload['encryptedPayload'];
+    payloadIdentifier: string;
+    trustedDeviceId: Id<'trustedDevices'>;
+  }>,
+): Promise<Doc<'encryptedProductSyncPayloads'>> {
+  if (args.payloadIdentifier !== recoveryPayloadIdentifier) {
+    return insertPayload(ctx, args, account.productAccountId);
+  }
+  const payload = await publishFirstRecoveryEnvelope(ctx, account, args);
+  if (payload === null) {
+    throw new Error('Product Sync key material already exists');
+  }
+  return payload;
+}
+
 async function writeEncryptedPayloadIfUnchanged(
   ctx: MutationCtx,
   args: Readonly<{
@@ -505,15 +554,12 @@ async function writeEncryptedPayloadIfUnchanged(
     trustedDeviceId: Doc<'encryptedProductSyncPayloads'>['trustedDeviceId'];
   }>,
 ): Promise<EncryptedProductSyncPayload> {
-  const { existingPayload, productAccountId } = await preparePayloadWrite(
-    ctx,
-    args,
-  );
+  const { account, existingPayload } = await preparePayloadWrite(ctx, args);
   if (existingPayload === null) {
     if (args.expectedUpdatedAt !== undefined) {
       throw new Error('Encrypted Product Sync payload changed');
     }
-    return serializePayload(await insertPayload(ctx, args, productAccountId));
+    return serializePayload(await insertMissingPayload(ctx, account, args));
   }
   if (existingPayload.updatedAt !== args.expectedUpdatedAt) {
     return serializePayload(existingPayload);

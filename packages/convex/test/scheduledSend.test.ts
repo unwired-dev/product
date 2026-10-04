@@ -91,6 +91,10 @@ async function fixture() {
     deviceIdentifier: 'origin-device',
     platform: 'ios',
   });
+  await asUser.mutation(api.productSync.initialize, {
+    encryptedPayload: { ...encryptedPayload, schemaVersion: 3 },
+    trustedDeviceId: device.trustedDeviceId,
+  });
   const payload = await asUser.mutation(
     api.productSync.putEncryptedPayloadIfUnchanged,
     {

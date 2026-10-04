@@ -2534,7 +2534,7 @@ describe('productAccount.connect', () => {
     ).rejects.toThrow('Trusted Device limit exceeded');
   });
 
-  it('marks Product Sync material initialized for the trusted device', async () => {
+  it('marks Product Sync material initialized once a recovery envelope exists', async () => {
     expect.assertions(2);
 
     const t = convexTest(schema, modules);
@@ -2542,6 +2542,17 @@ describe('productAccount.connect', () => {
     const connect = await asUser.mutation(api.productAccount.connect, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
+    });
+    // Earlier legacy publications stored the envelope without the marker.
+    await t.run(async (ctx) => {
+      await ctx.db.insert('encryptedProductSyncPayloads', {
+        encryptedPayload,
+        payloadIdentifier: 'product-account-recovery-v1',
+        productAccountId: connect.productAccountId,
+        trustedDeviceId: connect.trustedDeviceId,
+        updatedAt: 1,
+        writtenAt: 1,
+      });
     });
 
     await expect(
@@ -2601,11 +2612,16 @@ describe('productAccount.connect', () => {
       deviceIdentifier: 'device-001',
       platform: 'ios',
     });
-    await asUser.mutation(api.productSync.putEncryptedPayloadIfUnchanged, {
-      encryptedPayload,
-      expectedUpdatedAt: undefined,
-      payloadIdentifier: 'payload-001',
-      trustedDeviceId: connect.trustedDeviceId,
+    // Earlier backends accepted records before the recovery envelope.
+    await t.run(async (ctx) => {
+      await ctx.db.insert('encryptedProductSyncPayloads', {
+        encryptedPayload,
+        payloadIdentifier: 'payload-001',
+        productAccountId: connect.productAccountId,
+        trustedDeviceId: connect.trustedDeviceId,
+        updatedAt: 1,
+        writtenAt: 1,
+      });
     });
 
     await expect(
@@ -2962,6 +2978,10 @@ describe('gmail operational connection registration', () => {
     const otherDevice = await asUser.mutation(api.productAccount.connect, {
       deviceIdentifier: 'device-002',
       platform: 'macos',
+    });
+    await asUser.mutation(api.productSync.initialize, {
+      encryptedPayload: { ...encryptedPayload, schemaVersion: 3 },
+      trustedDeviceId: currentDevice.trustedDeviceId,
     });
     await asUser.mutation(api.productSync.putEncryptedPayloadIfUnchanged, {
       encryptedPayload,

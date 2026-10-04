@@ -121,6 +121,13 @@ after a lost response succeeds without replacing its keys. A competing device
 discards only its unpublished keys, needs enrollment and writes no records before
 publication succeeds. Replacing recovery material requires recent authentication.
 
+Convex rejects record writes and the legacy initialized marker until the recovery
+envelope exists. The legacy recovery-material route publishes a first envelope
+only for an account that has never had Product Sync material, and successful
+publication leaves the account initialized. It answers `409` for an account whose
+marker or records predate a missing envelope, because missing keys never reset
+silently.
+
 On relaunch the device loads its existing keys and never regenerates them.
 With Google, restore refreshes the Product Sign-In, reconnects and reads the
 mailbox descriptors back. Native Sign in with Apple cannot renew its identity
@@ -162,7 +169,9 @@ enters enrollment and writes no records.
 
 Convex tests cover single initialization, idempotent retry, refusal for
 initialized accounts, epoch and device-proof enforcement, and the reserved
-recovery identifier. Enrollment tests cover one collection per approval, untouched
+recovery identifier. They also reject record writes and the initialized marker
+before publication, and keep accounts left without an envelope from receiving
+new key material through either initialization path. Enrollment tests cover one collection per approval, untouched
 key material, and refusal of the approval cases listed above. They also cover
 expiry and account isolation. Shared and rendered host tests cover the Recovery Key
 confirmation, the mismatch and remount paths, and two synthetic installations that
