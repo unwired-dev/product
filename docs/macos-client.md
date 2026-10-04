@@ -79,7 +79,7 @@ generated project retains hardened runtime for distribution signing.
 Google and Apple sign-in, and persistence, require the
 [Keychain signing setup](private-inbox-storage.md#native-wiring-and-signing).
 Google's SDK reports `com.google.GIDSignIn` code `-2` when it cannot store
-credentials in Keychain; ad-hoc builds report locked storage. Signed builds
+credentials in Keychain; ad-hoc builds report unavailable storage. Signed builds
 run in the App Sandbox with outgoing network access only, so their store lives
 in `~/Library/Containers/dev.unwired.mail`. Ad-hoc builds also run in the sandbox
 with outgoing network access, but omit profile-required Apple sign-in and Keychain

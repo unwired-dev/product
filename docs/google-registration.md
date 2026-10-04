@@ -35,7 +35,13 @@ Interruption after identity authorization can resume the same subject and instal
 interactive sign-in again when the saved account cannot be verified or authorization
 is interrupted. Cancelling Product Sign-In returns to the previous status without
 an error; other native failures reject with their registration code and are logged
-without credentials. Retry cannot replace
+without credentials. A launch while the device is locked cannot read the saved
+registration from Keychain: the bridge rejects with `locked`, both hosts show a
+locked state instead of onboarding, and the shared store recovers quietly. Every
+activation retries restore, as the Inbox does, including for an unlocked account.
+An activation during a pending registration operation is retained until that
+operation finishes. Unchanged restored state keeps setup and linking feedback;
+changed verification results replace the previous status. Retry cannot replace
 an existing Product identity with a different subject. Product Accounts remain
 identified by verified issuer and subject, never by matching email. No existing
 backend rows, Inbox files or Product Sync keys are reset or regenerated. A new

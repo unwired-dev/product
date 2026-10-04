@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import Security
 import Testing
 
 @testable import PrivateInbox
@@ -42,8 +43,9 @@ struct PrivateInboxTests {
         authenticating: Data("dev.unwired.private-inbox.v1".utf8))
     }
     try keys.remove("encryption-key")
-    #expect(throws: PrivateInboxError.locked) { try reopened.open(seed: seed) }
-    #expect(throws: PrivateInboxError.locked) {
+    // Unlocking never restores a missing key, so the store must not ask the person to unlock.
+    #expect(throws: PrivateInboxError.unavailable) { try reopened.open(seed: seed) }
+    #expect(throws: PrivateInboxError.unavailable) {
       try reopened.setUnread(id: "second", unread: false)
     }
     #expect(try keys.read("encryption-key") == nil)
@@ -58,6 +60,13 @@ struct PrivateInboxTests {
     #expect(throws: PrivateInboxError.invalidStore) { try reopened.open(seed: seed) }
     #expect(try Data(contentsOf: path) == damaged)
     try ciphertext.write(to: path)
+  }
+
+  // A locked Keychain cannot be produced in tests; only it may report a state that unlock recovers.
+  @Test func onlyUnavailableProtectedDataReportsLocked() {
+    #expect(DeviceKeychain.failure(errSecInteractionNotAllowed) == .locked)
+    #expect(DeviceKeychain.failure(errSecMissingEntitlement) == .unavailable)
+    #expect(DeviceKeychain.failure(errSecDecode) == .unavailable)
   }
 
   @Test func protectedDataLockPreservesStorageAndRetriesAfterUnlock() throws {

@@ -83,7 +83,8 @@ public final class PrivateInboxStore {
         try save(snapshot, key: key)
         return try encode(snapshot)
       }
-      guard let key = availableKey, key.count == 32 else { throw PrivateInboxError.locked }
+      // A missing key never returns on unlock; a locked device fails the transaction's check.
+      guard let key = availableKey, key.count == 32 else { throw PrivateInboxError.unavailable }
       return try encode(decrypt(encrypted, key: key))
     }
   }
@@ -105,7 +106,7 @@ public final class PrivateInboxStore {
 
   private func existingKey() throws -> Data {
     guard let key = try keychain.read("encryption-key"), key.count == 32 else {
-      throw PrivateInboxError.locked
+      throw PrivateInboxError.unavailable
     }
     return key
   }
@@ -136,7 +137,7 @@ public final class PrivateInboxStore {
   }
 
   private func save(_ snapshot: InboxSnapshot, key: Data) throws {
-    guard key.count == 32 else { throw PrivateInboxError.locked }
+    guard key.count == 32 else { throw PrivateInboxError.unavailable }
     let plaintext = try JSONEncoder().encode(snapshot)
     let box = try AES.GCM.seal(
       plaintext, using: SymmetricKey(data: key), authenticating: associatedData)

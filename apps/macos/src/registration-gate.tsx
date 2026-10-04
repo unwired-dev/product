@@ -13,6 +13,7 @@ import type { StyleProp, TextStyle } from 'react-native';
 import {
   enrollmentCopy,
   linkFailureCopy,
+  lockedCopy,
   offersRecovery,
   otherSignInProvider,
   privateSyncCopy,
@@ -27,6 +28,7 @@ import { previewInbox } from '@private-email/mail-core/registration-mode';
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import {
   ActivityIndicator,
+  AppState,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -386,6 +388,52 @@ export function RegistrationGate({
   readonly store?: Registration;
   readonly preview?: boolean;
 }) {
+  const { busy, locked } = useSyncExternalStore(
+    store.subscribe,
+    store.getSnapshot,
+  );
+  const colors = usePalette();
+  useEffect(() => {
+    if (preview) {
+      return;
+    }
+    void store.restoreOnce();
+    // Like the Inbox, restore on every activation, including after protected storage unlocks.
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') {
+        void store.resume();
+      }
+    });
+    return () => {
+      subscription.remove();
+    };
+  }, [preview, store]);
+  if (preview) {
+    return children;
+  }
+  if (!locked) {
+    return <RegistrationPage store={store} />;
+  }
+  return (
+    <ScrollView
+      contentContainerStyle={styles.scroll}
+      style={[styles.page, { backgroundColor: colors.background }]}>
+      <View style={styles.content}>
+        <Label
+          accessibilityRole="header"
+          style={[styles.title, { color: colors.foreground }]}>
+          {lockedCopy.title}
+        </Label>
+        <Label style={[styles.text, { color: colors.secondary }]}>
+          {lockedCopy.description}
+        </Label>
+        {busy ? <ActivityIndicator accessibilityLabel="Connecting" /> : null}
+      </View>
+    </ScrollView>
+  );
+}
+
+function RegistrationPage({ store }: { readonly store: Registration }) {
   const {
     snapshot,
     busy,
@@ -397,14 +445,6 @@ export function RegistrationGate({
   } = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const colors = usePalette();
   const copy = registrationCopy(snapshot);
-  useEffect(() => {
-    if (!preview) {
-      void store.restoreOnce();
-    }
-  }, [preview, store]);
-  if (preview) {
-    return children;
-  }
   const recovering = offersSignInAgain(snapshot, failed);
   // Offered even when this device has not seen the link; Convex decides.
   const alternate =

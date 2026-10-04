@@ -75,11 +75,13 @@ export const RegistrationSnapshotSchema = Schema.Union([
   }),
 ]);
 export type RegistrationSnapshot = typeof RegistrationSnapshotSchema.Type;
+const sameSnapshot = Schema.toEquivalence(RegistrationSnapshotSchema);
 
 // Native hosts reject with the registration failure code; a cancelled session is not a failure.
 const isCancelled = Schema.is(
   Schema.Struct({ code: Schema.Literal('cancelled') }),
 );
+const isLocked = Schema.is(Schema.Struct({ code: Schema.Literal('locked') }));
 
 const LinkFailureSchema = Schema.Literals([
   'identity-owned',
@@ -129,6 +131,8 @@ type RegistrationState = Readonly<{
   snapshot: RegistrationSnapshot;
   busy: boolean;
   failed: boolean;
+  // Saved registration cannot be read until the device is unlocked; the snapshot is not its status.
+  locked?: true;
   // A failed link leaves the Product Account and its sign-ins unchanged.
   linkFailure?: LinkFailure;
   recoveryKeyFailure?: RecoveryKeyFailure;
@@ -160,6 +164,12 @@ const settled = (snapshot: RegistrationSnapshot): RegistrationState => ({
 
 class RegistrationCancelled extends Schema.TaggedError<RegistrationCancelled>()(
   'RegistrationCancelled',
+  {},
+) {}
+
+// Protected device data is unavailable while the device is locked; it is an expected state.
+class RegistrationLocked extends Schema.TaggedError<RegistrationLocked>()(
+  'RegistrationLocked',
   {},
 ) {}
 
@@ -199,6 +209,9 @@ const request = Effect.fnUntraced(function* (
     catch: (cause) => {
       if (isCancelled(cause)) {
         return new RegistrationCancelled();
+      }
+      if (isLocked(cause)) {
+        return new RegistrationLocked();
       }
       if (isEnrollmentCodeInvalid(cause)) {
         return new EnrollmentCodeInvalid();
@@ -248,7 +261,9 @@ export function createRegistration(native: NativeRegistration) {
     failed: false,
   };
   let restored = false;
-  // One registration operation runs at a time; overlapping requests are ignored.
+  // The verification queued for the activation currently being reported, if any.
+  let activation: Promise<void> | null = null;
+  // One operation runs at a time; foreground verification queues behind interactive work.
   const semaphore = Semaphore.makeUnsafe(1);
   const listeners = new Set<() => void>();
   const publish = (next: RegistrationState) => {
@@ -261,6 +276,7 @@ export function createRegistration(native: NativeRegistration) {
     operation: Effect.Effect<
       RegistrationSnapshot,
       | RegistrationCancelled
+      | RegistrationLocked
       | RecoveryKeyMismatch
       | RecoveryKeyRejected
       | EnrollmentCodeInvalid
@@ -273,52 +289,86 @@ export function createRegistration(native: NativeRegistration) {
       ...settled(snapshot),
       failed: true,
     }),
+    foreground = false,
   ) =>
     runLogged(
-      Effect.sync(() => {
-        publish({ snapshot: state.snapshot, busy: true, failed: false });
-      }).pipe(
-        Effect.andThen(operation),
-        Effect.map(settled),
-        Effect.catchTags({
-          RegistrationCancelled: () =>
-            Effect.sync(() => settled(state.snapshot)),
-          RecoveryKeyMismatch: () =>
-            Effect.sync((): RegistrationState => ({
-              ...settled(state.snapshot),
-              recoveryKeyFailure: 'mismatch',
-            })),
-          RecoveryKeyRejected: ({ snapshot }) =>
-            Effect.sync((): RegistrationState => ({
-              ...settled(snapshot),
-              recoveryFailure: 'rejected',
-            })),
-          EnrollmentCodeInvalid: () =>
-            Effect.sync((): RegistrationState => ({
-              ...settled(state.snapshot),
-              enrollmentFailure: 'code-invalid',
-            })),
-          RegistrationFailed: (error) =>
-            Effect.logError('Registration failed:', error.diagnostic).pipe(
-              Effect.andThen(
-                Effect.sync(() => onFailure(state.snapshot, error.cause)),
+      Effect.gen(function* () {
+        const previous = state;
+        // A retry keeps the locked state rather than revealing a snapshot it could not read.
+        if (foreground) {
+          publish({ ...state, busy: true });
+        } else {
+          publish(
+            state.locked
+              ? {
+                  snapshot: state.snapshot,
+                  busy: true,
+                  failed: false,
+                  locked: true,
+                }
+              : { snapshot: state.snapshot, busy: true, failed: false },
+          );
+        }
+        const next = yield* operation.pipe(
+          Effect.map(settled),
+          Effect.catchTags({
+            RegistrationCancelled: () =>
+              Effect.sync(() => settled(state.snapshot)),
+            RegistrationLocked: () =>
+              Effect.sync((): RegistrationState => ({
+                ...settled(state.snapshot),
+                locked: true,
+              })),
+            RecoveryKeyMismatch: () =>
+              Effect.sync((): RegistrationState => ({
+                ...settled(state.snapshot),
+                recoveryKeyFailure: 'mismatch',
+              })),
+            RecoveryKeyRejected: ({ snapshot }) =>
+              Effect.sync((): RegistrationState => ({
+                ...settled(snapshot),
+                recoveryFailure: 'rejected',
+              })),
+            EnrollmentCodeInvalid: () =>
+              Effect.sync((): RegistrationState => ({
+                ...settled(state.snapshot),
+                enrollmentFailure: 'code-invalid',
+              })),
+            RegistrationFailed: (error) =>
+              Effect.logError('Registration failed:', error.diagnostic).pipe(
+                Effect.andThen(
+                  Effect.sync(() => onFailure(state.snapshot, error.cause)),
+                ),
               ),
-            ),
-        }),
-        Effect.flatMap((next) =>
-          Effect.sync(() => {
-            publish(next);
           }),
-        ),
-        Semaphore.withPermitsIfAvailable(semaphore, 1),
-        Effect.asVoid,
+        );
+        // Returning from an authorization sheet must not erase unchanged setup feedback.
+        publish(
+          foreground &&
+            !previous.locked &&
+            !next.locked &&
+            !next.failed &&
+            sameSnapshot(previous.snapshot, next.snapshot)
+            ? { ...previous, busy: false }
+            : next,
+        );
+      }).pipe(
+        // An activation can arrive before a pending operation reports that storage was locked.
+        (program) =>
+          foreground
+            ? program.pipe(Semaphore.withPermits(semaphore, 1), Effect.asVoid)
+            : program.pipe(
+                Semaphore.withPermitsIfAvailable(semaphore, 1),
+                Effect.asVoid,
+              ),
       ),
     );
-  const restore = () =>
-    execute(request(native.restore), (snapshot) => ({
-      ...settled(pending(snapshot)),
-      failed: true,
-    }));
+  const restore = (foreground = false) =>
+    execute(
+      request(native.restore),
+      (snapshot) => ({ ...settled(pending(snapshot)), failed: true }),
+      foreground,
+    );
   return {
     getSnapshot: () => state,
     subscribe: (listener: () => void) => {
@@ -327,7 +377,7 @@ export function createRegistration(native: NativeRegistration) {
         listeners.delete(listener);
       };
     },
-    restore,
+    restore: () => restore(),
     // Every mounted host view restores through the same store; only the first mount verifies.
     restoreOnce: () => {
       if (restored) {
@@ -335,6 +385,17 @@ export function createRegistration(native: NativeRegistration) {
       }
       restored = true;
       return restore();
+    },
+    // Every activation verifies the saved account and retries unavailable protected storage.
+    // Each Mac window's gate reports the same activation synchronously; they share one restore.
+    resume: () => {
+      if (activation === null) {
+        activation = restore(true);
+        queueMicrotask(() => {
+          activation = null;
+        });
+      }
+      return activation;
     },
     register: (provider: SignInProvider) =>
       execute(
@@ -469,6 +530,12 @@ export function linkFailureCopy(
     }
   }
 }
+
+export const lockedCopy = {
+  title: 'Unlock your device',
+  description:
+    "Unwired Mail cannot read this device's protected data while it is locked. Unlock your device to continue.",
+} as const;
 
 export function registrationCopy(snapshot: RegistrationSnapshot) {
   switch (snapshot.kind) {
