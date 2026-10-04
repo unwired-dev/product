@@ -107,7 +107,14 @@ export async function cleanupOwnedRun(
   }
 
   let processStopped = actual.process === null;
-  if (actual.process !== null) {
+  if (
+    actual.process !== null &&
+    child === undefined &&
+    !isProcessAlive(actual.process.pid)
+  ) {
+    // Recovery without the original child: the recorded process is gone.
+    processStopped = true;
+  } else if (actual.process !== null) {
     if (child?.pid !== actual.process.pid) {
       throw new Error('Mail test cleanup refused an unowned process.');
     }
@@ -374,8 +381,13 @@ function isProcessAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
     return true;
-  } catch {
-    return false;
+  } catch (error) {
+    // Only ESRCH proves absence; permission and other probe failures are uncertain.
+    return !(
+      error instanceof Error &&
+      'code' in error &&
+      error.code === 'ESRCH'
+    );
   }
 }
 
