@@ -30,19 +30,30 @@ const decodeRecentAuthenticationClaims = Schema.decodeUnknownOption(
 );
 
 // Numbers keep the receiving mutation's v.number() domain, which admits non-finite values.
+const EncryptedPayloadSchema = Schema.Struct({
+  algorithm: Schema.Literal('AES-GCM-256'),
+  ciphertextBase64: Schema.String,
+  keyVersion: Schema.Number, // oxlint-disable-line effecttsgo/schema-number -- Matches v.number().
+  nonceBase64: Schema.String,
+  schemaVersion: Schema.Number, // oxlint-disable-line effecttsgo/schema-number -- Matches v.number().
+  tagBase64: Schema.String,
+});
 const decodeRecoveryMaterialRequest = Schema.decodeUnknownOption(
   Schema.Struct({
-    encryptedPayload: Schema.Struct({
-      algorithm: Schema.Literal('AES-GCM-256'),
-      ciphertextBase64: Schema.String,
-      keyVersion: Schema.Number, // oxlint-disable-line effecttsgo/schema-number -- Matches v.number().
-      nonceBase64: Schema.String,
-      schemaVersion: Schema.Number, // oxlint-disable-line effecttsgo/schema-number -- Matches v.number().
-      tagBase64: Schema.String,
-    }),
+    encryptedPayload: EncryptedPayloadSchema,
     expectedUpdatedAt: Schema.optionalKey(Schema.Number), // oxlint-disable-line effecttsgo/schema-number -- Matches v.number().
     trustedDeviceCredential: Schema.optionalKey(Schema.String),
     trustedDeviceId: Schema.String,
+  }),
+);
+const decodeTrustedDeviceRevocationRequest = Schema.decodeUnknownOption(
+  Schema.Struct({
+    encryptedTransition: EncryptedPayloadSchema,
+    expectedRecoveryUpdatedAt: Schema.Number, // oxlint-disable-line effecttsgo/schema-number -- Matches v.number().
+    recoveryWrappedAccountKey: EncryptedPayloadSchema,
+    trustedDeviceCredential: Schema.optionalKey(Schema.String),
+    trustedDeviceId: Schema.String,
+    trustedDeviceToRevokeId: Schema.String,
   }),
 );
 
@@ -139,6 +150,22 @@ function recentlyIssuedForIdentity(
   );
 }
 
+// fallow-ignore-next-line complexity -- Each Trusted Device access failure keeps its distinct client response.
+function trustedDeviceFailureResponse(error: unknown): Response | null {
+  const failure: unknown =
+    error instanceof ConvexError ? error.data : undefined;
+  if (isTrustedDeviceAccessFailure(failure)) {
+    return Response.json({ code: failure.code }, { status: 403 });
+  }
+  if (
+    error instanceof Error &&
+    error.message.includes('Trusted device required')
+  ) {
+    return new Response('Trusted device required', { status: 403 });
+  }
+  return null;
+}
+
 // fallow-ignore-next-line complexity -- Authentication and payload failures intentionally remain distinct responses.
 async function replaceRecoveryMaterialResponse(
   ctx: ActionCtx,
@@ -162,16 +189,9 @@ async function replaceRecoveryMaterialResponse(
     );
     return Response.json(payload);
   } catch (error) {
-    const failure: unknown =
-      error instanceof ConvexError ? error.data : undefined;
-    if (isTrustedDeviceAccessFailure(failure)) {
-      return Response.json({ code: failure.code }, { status: 403 });
-    }
-    if (
-      error instanceof Error &&
-      error.message.includes('Trusted device required')
-    ) {
-      return new Response('Trusted device required', { status: 403 });
+    const trustedDeviceFailure = trustedDeviceFailureResponse(error);
+    if (trustedDeviceFailure !== null) {
+      return trustedDeviceFailure;
     }
     if (
       error instanceof Error &&
@@ -180,6 +200,35 @@ async function replaceRecoveryMaterialResponse(
       return new Response('Product Sync key material already exists', {
         status: 409,
       });
+    }
+    throw error;
+  }
+}
+
+// fallow-ignore-next-line complexity -- Authentication, payload and Trusted Device failures intentionally remain distinct responses.
+async function revokeTrustedDeviceResponse(
+  ctx: ActionCtx,
+  request: Request,
+): Promise<Response> {
+  if (!(await recentlyAuthenticatedRequest(ctx, request))) {
+    return new Response('Recent authentication required', { status: 401 });
+  }
+  const body: unknown = await request.json().catch(() => null);
+  const decoded = decodeTrustedDeviceRevocationRequest(body);
+  if (Option.isNone(decoded)) {
+    return new Response('Invalid Trusted Device revocation', { status: 400 });
+  }
+  try {
+    return Response.json(
+      await ctx.runMutation(
+        internal.productAccount.revokeTrustedDevice,
+        decoded.value,
+      ),
+    );
+  } catch (error) {
+    const trustedDeviceFailure = trustedDeviceFailureResponse(error);
+    if (trustedDeviceFailure !== null) {
+      return trustedDeviceFailure;
     }
     throw error;
   }
@@ -410,6 +459,12 @@ http.route({
   path: '/product-sync/recovery-material',
   method: 'POST',
   handler: httpAction(replaceRecoveryMaterialResponse),
+});
+
+http.route({
+  path: '/trusted-devices/revoke',
+  method: 'POST',
+  handler: httpAction(revokeTrustedDeviceResponse),
 });
 
 http.route({

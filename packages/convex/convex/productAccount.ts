@@ -21,7 +21,6 @@ import {
   productAccountForSignIn,
   requireAuthenticatedTrustedDevice,
   requireProductAccount,
-  requireRecentAuthentication,
   requireProductAccountNotDeleted,
   requireTrustedDevice,
   signInProvidersForAccount,
@@ -39,7 +38,8 @@ const trustedDeviceNameMaximumLength = 80;
 // Each new enrollment request replaces the device's earlier ones.
 const enrollmentRequestCleanupLimit = 10;
 const recoveryPayloadIdentifier = 'product-account-recovery-v1';
-const recoveryWrappedAccountKeySchemaVersion = 2;
+// The replacement opens only schema 3 recovery envelopes; prototype schemas 1 and 2 stay rejected.
+const recoveryWrappedAccountKeySchemaVersion = 3;
 
 type TrustedDeviceRegistration = Readonly<{
   deviceIdentifier: string;
@@ -1269,17 +1269,29 @@ async function findTrustedDeviceRevocationTarget(
   return target;
 }
 
-export const revokeTrustedDevice = mutation({
+// Only the HTTP action reaches this, after proving recent authentication from the bearer token.
+export const revokeTrustedDevice = internalMutation({
   args: {
     ...trustedDeviceCredentialArgs,
     encryptedTransition: encryptedProductSyncPayloadBodyValidator,
     expectedRecoveryUpdatedAt: v.number(),
     recoveryWrappedAccountKey: encryptedProductSyncPayloadBodyValidator,
-    trustedDeviceId: v.id('trustedDevices'),
-    trustedDeviceToRevokeId: v.id('trustedDevices'),
+    trustedDeviceId: v.string(),
+    trustedDeviceToRevokeId: v.string(),
   },
-  handler: async (ctx, args) => {
-    await requireRecentAuthentication(ctx);
+  handler: async (ctx, rawArgs) => {
+    const trustedDeviceId = ctx.db.normalizeId(
+      'trustedDevices',
+      rawArgs.trustedDeviceId,
+    );
+    const trustedDeviceToRevokeId = ctx.db.normalizeId(
+      'trustedDevices',
+      rawArgs.trustedDeviceToRevokeId,
+    );
+    if (trustedDeviceId === null || trustedDeviceToRevokeId === null) {
+      throw new Error('Trusted device required');
+    }
+    const args = { ...rawArgs, trustedDeviceId, trustedDeviceToRevokeId };
     const authenticatedAccount = await requireAuthenticatedTrustedDevice(
       ctx,
       args.trustedDeviceId,

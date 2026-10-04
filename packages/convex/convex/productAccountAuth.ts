@@ -138,8 +138,6 @@ export type AuthenticatedProductAccount = Readonly<{
   productSyncPendingKeyEpoch: number | undefined;
 }>;
 
-const recentAuthenticationMaximumAgeSeconds = 5 * 60;
-const recentAuthenticationFutureLeewaySeconds = 60;
 export const initialProductSyncKeyEpoch = 1;
 export const trustedDeviceRevokedErrorCode = 'TRUSTED_DEVICE_REVOKED';
 export const trustedDeviceReconnectRequiredErrorCode =
@@ -206,24 +204,6 @@ export async function requireProductAccount(
     productSyncMaterialInitializedAt: account.productSyncMaterialInitializedAt,
     productSyncPendingKeyEpoch: account.productSyncPendingKeyEpoch,
   };
-}
-
-export async function requireRecentAuthentication(
-  ctx: MutationCtx,
-): Promise<void> {
-  const identity = await ctx.auth.getUserIdentity();
-  // oxlint-disable-next-line typescript/dot-notation -- iat is exposed through UserIdentity's additional-claims index signature.
-  const issuedAt = identity?.['iat'];
-  if (typeof issuedAt !== 'number' || !Number.isFinite(issuedAt)) {
-    throw new TypeError('Recent authentication required');
-  }
-  const now = Math.floor(Date.now() / 1000);
-  if (
-    issuedAt > now + recentAuthenticationFutureLeewaySeconds ||
-    now - issuedAt > recentAuthenticationMaximumAgeSeconds
-  ) {
-    throw new Error('Recent authentication required');
-  }
 }
 
 export function requireCurrentProductSyncKeyEpoch(
