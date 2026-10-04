@@ -14,7 +14,10 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
+import * as Schema from 'effect/Schema';
+
 const root = fileURLToPath(new URL('../', import.meta.url));
+const parseJson = Schema.decodeUnknownSync(Schema.UnknownFromJsonString);
 
 function fixture() {
   mkdirSync(path.join(root, 'scratchpad'), { recursive: true });
@@ -160,11 +163,10 @@ test('version planning consumes real changesets and preserves its branch on a re
     assert.equal(result.status, 0, result.stderr);
     assert.ok(result.output.includes('release=false'));
     const branch = f.git('rev-parse', 'HEAD');
-    // Trusted fixture output, not a production input boundary.
     assert.equal(
-      // oxlint-disable-next-line effect-boundaries/no-json-parse
-      JSON.parse(readFileSync(path.join(f.cwd, 'apps/macos/package.json')))
-        .version,
+      parseJson(
+        readFileSync(path.join(f.cwd, 'apps/macos/package.json'), 'utf8'),
+      ).version,
       '0.2.0',
     );
     assert.equal(existsSync(path.join(f.cwd, '.changeset/host.md')), false);
@@ -219,9 +221,8 @@ test('package-only and empty changesets produce a new shared TestFlight version'
       const result = f.run(f.commit('Add workspace changeset'));
       assert.equal(result.status, 0, result.stderr);
       for (const host of ['mobile', 'macos']) {
-        // oxlint-disable-next-line effect-boundaries/no-json-parse
-        const manifest = JSON.parse(
-          readFileSync(path.join(f.cwd, `apps/${host}/package.json`)),
+        const manifest = parseJson(
+          readFileSync(path.join(f.cwd, `apps/${host}/package.json`), 'utf8'),
         );
         assert.equal(manifest.version, '0.1.1');
       }

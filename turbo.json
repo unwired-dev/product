@@ -23,14 +23,19 @@
     "lint": {
       "dependsOn": ["^lint"]
     },
+    "//#lint:root": {},
     "lint:fix": {
       "dependsOn": ["^lint:fix"]
     },
     "format": {
       "dependsOn": ["^format"]
     },
+    "//#format:root": {},
     "format:fix": {
       "dependsOn": ["^format:fix"]
+    },
+    "//#format:fix:root": {
+      "cache": false
     },
     "check-types": {
       "dependsOn": ["^check-types"]
@@ -85,6 +90,10 @@
     "oxlint.config.ts",
     "oxfmt.config.ts",
     "tsconfig.effect.json",
-    "scripts/oxlint-effect-imports.mjs"
+    "scripts/oxlint-effect-imports.mjs",
+    "scripts/oxlint-effect-boundaries.mjs",
+    "scripts/oxlint-effect-policy.ts",
+    "scripts/mock-mail-build.cjs",
+    "scripts/mock-mail-scenarios.json"
   ]
 }

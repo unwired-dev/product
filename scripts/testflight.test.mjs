@@ -1,4 +1,3 @@
-/* oxlint-disable node/no-sync -- Isolated command-runner fixtures run synchronously and clean up before returning. */
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import {

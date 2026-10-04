@@ -17,6 +17,7 @@ One root pnpm workspace and lockfile serve two native hosts that cannot share a 
 - A lint rule switched to `allow`, an `overrides` block or `ignorePatterns` entry widened, a Fallow `ignorePatterns`/`ignoreDependencies`/`entry` addition, or a TypeScript strictness flag relaxed, without a comment giving the reason and the narrowest file scope. Each existing exemption carries its reason and, where temporary, the issue that removes it.
 - The Effect policy (`scripts/oxlint-effect-policy.ts`) applied to one lint configuration and not the root, mobile and Mac configurations alike.
 - A script renamed or removed while a workflow, `turbo.json` task or documented command still calls it.
+- A shared lint-policy file or root helper imported by workspace configuration missing from the affected Turbo task hashes (`globalDependencies` or task `inputs`), allowing restored cache results to pass with stale policy. Trace transitive imports, including `scripts/oxlint-effect-policy.ts` and the custom lint-rule modules.
 - A Turbo task that reads an environment variable missing from its `env` or `globalEnv`, so a cached result is reused across different values; `UNWIRED_MOCK_SCENARIO` must never let a mock build satisfy a production task from cache.
 - A test runner configuration that narrows `include`, raises a timeout to hide a slow or racing test, or enables `passWithNoTests`.
 

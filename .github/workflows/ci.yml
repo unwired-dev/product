@@ -72,6 +72,9 @@ jobs:
       - name: Check Effect import policy
         run: pnpm test:tooling
 
+      - name: Check root scripts, configuration and documentation
+        run: pnpm exec turbo run lint:root format:root
+
       - name: Check replacement app and retained backend
         run: >-
           pnpm exec turbo run lint format check-types test

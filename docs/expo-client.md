@@ -119,7 +119,7 @@ paths, and shut down/delete only those devices in a failure-safe cleanup trap.
 All workspace checks, including the locally retained legacy harness, run from the root:
 
 ```sh
-mise exec -- pnpm turbo run lint format check-types test
+mise exec -- pnpm turbo run lint lint:root format format:root check-types test
 mise exec -- pnpm fallow
 mise exec -- pnpm test:tooling
 ```
@@ -143,6 +143,9 @@ split view, and rejects the Mac renderer graph, React DOM and backend sources.
 This is bundle evidence, not a substitute for a native build or interaction test.
 The primary CI job runs lint, formatting, types and tests for mobile, core,
 contracts and the retained Convex backend, plus the Effect import-policy tests.
+Its root tasks lint `scripts/` and root TypeScript files, and check formatting
+outside the workspaces covered by package tasks. Changeset Markdown and legacy
+app documentation are included; the generated Icon Composer `icon.json` is excluded.
 The Mobile workflow checks Fallow, Expo compatibility and the production bundle.
 Its native jobs also build the Release app once and run the iPhone and iPad
 interaction journeys in parallel `Expo native E2E` jobs on pull requests ready

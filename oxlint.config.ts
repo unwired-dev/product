@@ -1,3 +1,5 @@
+import type { DummyRuleMap } from 'oxlint';
+
 import convexPlugin from '@convex-dev/eslint-plugin';
 import * as EffectPresets from '@effect/tsgo/oxlint-presets';
 import { buildOxlintConfig } from '@rajzik/oxlint-config';
@@ -7,6 +9,12 @@ import {
   boundaryRules,
   effectRules,
 } from './scripts/oxlint-effect-policy.ts';
+
+// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the plugin declares its recommended configuration as `any`.
+const convexRecommended = convexPlugin.configs.recommended as ReadonlyArray<{
+  files: string[];
+  rules: DummyRuleMap;
+}>;
 
 export default buildOxlintConfig({
   jsdoc: true,
@@ -37,7 +45,7 @@ export default buildOxlintConfig({
       'eslint/no-use-before-define': ['deny', { functions: false }],
     },
     overrides: [
-      ...convexPlugin.configs.recommended.map(({ files, rules }) => ({
+      ...convexRecommended.map(({ files, rules }) => ({
         files,
         rules,
       })),
@@ -59,6 +67,23 @@ export default buildOxlintConfig({
           'node/no-top-level-await': 'allow',
           'promise/avoid-new': 'allow',
           'typescript/prefer-readonly-parameter-types': 'allow',
+        },
+      },
+      {
+        // Metro loads repository build helpers as CommonJS modules.
+        files: ['scripts/**/*.cjs'],
+        rules: {
+          'import/unambiguous': 'allow',
+          'typescript/no-require-imports': 'allow',
+          'typescript/no-var-requires': 'allow',
+        },
+      },
+      {
+        // Repository tooling runs as short-lived Node scripts and configures itself from the environment.
+        files: ['scripts/**'],
+        rules: {
+          'node/no-process-env': 'allow',
+          'node/no-sync': 'allow',
         },
       },
       {

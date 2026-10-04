@@ -95,6 +95,11 @@ mise exec -- node --test scripts/check-changesets.test.mjs scripts/release-plan.
 mise exec -- pnpm fallow
 ```
 
+`pnpm lint` and `pnpm format` also run the root `lint:root` and `format:root`
+tasks for `scripts/`, root configuration and repository documentation.
+`pnpm format:fix` formats the same files.
+Run it after `pnpm changeset` to format generated frontmatter before CI.
+
 Use [the testing policy](docs/agents/testing.md) to select meaningful checks and
 [the native validation guide](docs/agents/native-validation.md) for resource
 ownership during native checks. The [mail test environment](docs/mail-test-environment.md) documents the

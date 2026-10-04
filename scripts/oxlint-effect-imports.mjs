@@ -26,7 +26,7 @@ export default {
             if (source === 'effect') {
               context.report({ node, messageId: 'barrel' });
             } else if (
-              /^(effect\/|@effect\/)/u.test(source) &&
+              /^@?effect\//u.test(source) &&
               !isNamespaceImport(node)
             ) {
               context.report({ node, messageId: 'namespace' });

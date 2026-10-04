@@ -1,11 +1,14 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
+import * as Schema from 'effect/Schema';
+
 const root = fileURLToPath(new URL('..', import.meta.url));
+const parseJson = Schema.decodeUnknownSync(Schema.UnknownFromJsonString);
 const cases = [
   ["export const a = (value: unknown) => typeof value === 'object';", 'guard'],
   ["export const b = (value: unknown) => 'object' !== typeof value;", 'guard'],
@@ -29,19 +32,19 @@ const codes = {
 };
 
 function boundaryDiagnostics(config, name) {
-  const scratchpad = join(root, 'scratchpad');
+  const scratchpad = path.join(root, 'scratchpad');
   mkdirSync(scratchpad, { recursive: true });
-  const directory = mkdtempSync(join(scratchpad, 'effect-boundaries-'));
+  const directory = mkdtempSync(path.join(scratchpad, 'effect-boundaries-'));
   try {
-    const fixture = join(directory, name);
+    const fixture = path.join(directory, name);
     writeFileSync(fixture, cases.map(([source]) => source).join('\n'));
     const result = spawnSync(
-      join(root, 'node_modules/.bin/oxlint'),
-      ['--config', join(root, config), '--format', 'json', fixture],
+      path.join(root, 'node_modules/.bin/oxlint'),
+      ['--config', path.join(root, config), '--format', 'json', fixture],
       { cwd: root, encoding: 'utf8' },
     );
     assert.ifError(result.error);
-    const { diagnostics } = JSON.parse(result.stdout);
+    const { diagnostics } = parseJson(result.stdout);
     return diagnostics
       .filter((diagnostic) => Object.values(codes).includes(diagnostic.code))
       .map((diagnostic) => [
@@ -49,7 +52,7 @@ function boundaryDiagnostics(config, name) {
         diagnostic.code,
         diagnostic.severity,
       ])
-      .sort(([a], [b]) => a - b);
+      .toSorted(([a], [b]) => a - b);
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
