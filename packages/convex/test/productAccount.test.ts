@@ -163,6 +163,38 @@ const encryptedPayload = {
   tagBase64: 'dGFn',
 };
 
+function appleIdentityToken(issuedAt: number): string {
+  const encode = (value: Readonly<Record<string, unknown>>) =>
+    Buffer.from(JSON.stringify(value), 'utf8').toString('base64url');
+  return `${encode({ alg: 'RS256', kid: 'apple-key-fixture' })}.${encode({
+    aud: 'dev.unwired.mail',
+    exp: issuedAt + 600,
+    iat: issuedAt,
+    iss: appleIdentity.issuer,
+    sub: appleIdentity.subject,
+  })}.signature`;
+}
+
+// Convex omits iat from the identity, so freshness comes only from the bearer token.
+async function revokeTrustedDevice(
+  asUser: ReturnType<ReturnType<typeof convexTest>['withIdentity']>,
+  args: Readonly<Record<string, unknown>>,
+  issuedAt = Math.floor(Date.now() / 1000),
+): Promise<unknown> {
+  const response = await asUser.fetch('/trusted-devices/revoke', {
+    body: JSON.stringify(args),
+    headers: {
+      authorization: `Bearer ${appleIdentityToken(issuedAt)}`,
+      'content-type': 'application/json',
+    },
+    method: 'POST',
+  });
+  if (!response.ok) {
+    throw new Error(`${response.status} ${await response.text()}`);
+  }
+  return response.json();
+}
+
 function pendingDeletionRequestId(result: {
   requestId?: Id<'productAccountDeletionRequests'>;
   state: string;
@@ -580,14 +612,11 @@ describe('productAccount.connect', () => {
     ).rejects.toThrow('Trusted device required');
   });
 
-  it('requires recent authentication to revoke a trusted device', async () => {
-    expect.assertions(1);
+  it('requires recent authentication from the bearer token to revoke a trusted device', async () => {
+    expect.assertions(2);
 
     const t = convexTest(schema, modules);
-    const asUser = t.withIdentity({
-      ...appleIdentity,
-      iat: Math.floor(Date.now() / 1000) - 301,
-    });
+    const asUser = t.withIdentity(appleIdentity);
     const currentDevice = await asUser.mutation(api.productAccount.connect, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
@@ -597,38 +626,71 @@ describe('productAccount.connect', () => {
       platform: 'macos',
     });
 
+    const args = {
+      encryptedTransition: encryptedPayload,
+      expectedRecoveryUpdatedAt: 0,
+      recoveryWrappedAccountKey: encryptedPayload,
+      trustedDeviceId: currentDevice.trustedDeviceId,
+      trustedDeviceToRevokeId: otherDevice.trustedDeviceId,
+    };
+    const missingToken = await asUser.fetch('/trusted-devices/revoke', {
+      body: JSON.stringify(args),
+      headers: { 'content-type': 'application/json' },
+      method: 'POST',
+    });
+
+    expect(missingToken.status).toBe(401);
     await expect(
-      asUser.mutation(api.productAccount.revokeTrustedDevice, {
-        encryptedTransition: encryptedPayload,
-        expectedRecoveryUpdatedAt: 0,
-        recoveryWrappedAccountKey: encryptedPayload,
-        trustedDeviceId: currentDevice.trustedDeviceId,
-        trustedDeviceToRevokeId: otherDevice.trustedDeviceId,
-      }),
-    ).rejects.toThrow('Recent authentication required');
+      revokeTrustedDevice(asUser, args, Math.floor(Date.now() / 1000) - 301),
+    ).rejects.toThrow('401 Recent authentication required');
+  });
+
+  it('rejects a malformed revocation request from a recently authenticated device', async () => {
+    expect.assertions(2);
+
+    const asUser = convexTest(schema, modules).withIdentity(appleIdentity);
+    const statuses = await Promise.all(
+      ['not-json', JSON.stringify({ trustedDeviceId: 'device' })].map(
+        async (body) => {
+          const response = await asUser.fetch('/trusted-devices/revoke', {
+            body,
+            headers: {
+              authorization: `Bearer ${appleIdentityToken(Math.floor(Date.now() / 1000))}`,
+              'content-type': 'application/json',
+            },
+            method: 'POST',
+          });
+          return response.status;
+        },
+      ),
+    );
+
+    expect(statuses[0]).toBe(400);
+    expect(statuses[1]).toBe(400);
   });
 
   it('rejects revoking the current trusted device while allowing bounded clock skew', async () => {
     expect.assertions(1);
 
     const t = convexTest(schema, modules);
-    const asUser = t.withIdentity({
-      ...appleIdentity,
-      iat: Math.floor(Date.now() / 1000) + 30,
-    });
+    const asUser = t.withIdentity(appleIdentity);
     const currentDevice = await asUser.mutation(api.productAccount.connect, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
     });
 
     await expect(
-      asUser.mutation(api.productAccount.revokeTrustedDevice, {
-        encryptedTransition: encryptedPayload,
-        expectedRecoveryUpdatedAt: 0,
-        recoveryWrappedAccountKey: encryptedPayload,
-        trustedDeviceId: currentDevice.trustedDeviceId,
-        trustedDeviceToRevokeId: currentDevice.trustedDeviceId,
-      }),
+      revokeTrustedDevice(
+        asUser,
+        {
+          encryptedTransition: encryptedPayload,
+          expectedRecoveryUpdatedAt: 0,
+          recoveryWrappedAccountKey: encryptedPayload,
+          trustedDeviceId: currentDevice.trustedDeviceId,
+          trustedDeviceToRevokeId: currentDevice.trustedDeviceId,
+        },
+        Math.floor(Date.now() / 1000) + 5,
+      ),
     ).rejects.toThrow('Use sign out to remove the current Trusted Device');
   });
 
@@ -636,10 +698,7 @@ describe('productAccount.connect', () => {
     expect.assertions(1);
 
     const t = convexTest(schema, modules);
-    const asUser = t.withIdentity({
-      ...appleIdentity,
-      iat: Math.floor(Date.now() / 1000) + 3600,
-    });
+    const asUser = t.withIdentity(appleIdentity);
     const currentDevice = await asUser.mutation(api.productAccount.connect, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
@@ -650,24 +709,25 @@ describe('productAccount.connect', () => {
     });
 
     await expect(
-      asUser.mutation(api.productAccount.revokeTrustedDevice, {
-        encryptedTransition: encryptedPayload,
-        expectedRecoveryUpdatedAt: 0,
-        recoveryWrappedAccountKey: encryptedPayload,
-        trustedDeviceId: currentDevice.trustedDeviceId,
-        trustedDeviceToRevokeId: otherDevice.trustedDeviceId,
-      }),
-    ).rejects.toThrow('Recent authentication required');
+      revokeTrustedDevice(
+        asUser,
+        {
+          encryptedTransition: encryptedPayload,
+          expectedRecoveryUpdatedAt: 0,
+          recoveryWrappedAccountKey: encryptedPayload,
+          trustedDeviceId: currentDevice.trustedDeviceId,
+          trustedDeviceToRevokeId: otherDevice.trustedDeviceId,
+        },
+        Math.floor(Date.now() / 1000) + 3600,
+      ),
+    ).rejects.toThrow('401 Recent authentication required');
   });
 
   it('rejects revoking a trusted device owned by another Product Account', async () => {
     expect.assertions(1);
 
     const t = convexTest(schema, modules);
-    const asUser = t.withIdentity({
-      ...appleIdentity,
-      iat: Math.floor(Date.now() / 1000),
-    });
+    const asUser = t.withIdentity(appleIdentity);
     const asOtherUser = t.withIdentity({
       issuer: 'https://appleid.apple.com',
       subject: 'apple-user-002',
@@ -683,7 +743,7 @@ describe('productAccount.connect', () => {
     });
 
     await expect(
-      asUser.mutation(api.productAccount.revokeTrustedDevice, {
+      revokeTrustedDevice(asUser, {
         encryptedTransition: encryptedPayload,
         expectedRecoveryUpdatedAt: 0,
         recoveryWrappedAccountKey: encryptedPayload,
@@ -697,10 +757,7 @@ describe('productAccount.connect', () => {
     expect.assertions(8);
 
     const t = convexTest(schema, modules);
-    const asUser = t.withIdentity({
-      ...appleIdentity,
-      iat: Math.floor(Date.now() / 1000),
-    });
+    const asUser = t.withIdentity(appleIdentity);
     const currentDevice = await asUser.mutation(api.productAccount.connect, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
@@ -739,10 +796,10 @@ describe('productAccount.connect', () => {
     const nextRecoveryMaterial = {
       ...encryptedPayload,
       keyVersion: 2,
-      schemaVersion: 2,
+      schemaVersion: 3,
     };
     await expect(
-      asUser.mutation(api.productAccount.revokeTrustedDevice, {
+      revokeTrustedDevice(asUser, {
         encryptedTransition: encryptedPayload,
         expectedRecoveryUpdatedAt: recoveryMaterial.updatedAt,
         recoveryWrappedAccountKey: nextRecoveryMaterial,
@@ -782,7 +839,7 @@ describe('productAccount.connect', () => {
       },
     );
     await expect(
-      asUser.mutation(api.productAccount.revokeTrustedDevice, {
+      revokeTrustedDevice(asUser, {
         encryptedTransition: encryptedPayload,
         expectedRecoveryUpdatedAt: recoveryMaterial.updatedAt,
         recoveryWrappedAccountKey: nextRecoveryMaterial,
@@ -841,14 +898,58 @@ describe('productAccount.connect', () => {
     });
   });
 
+  it('rotates only with recovery material the replacement can open', async () => {
+    expect.assertions(3);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const currentDevice = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+    });
+    const otherDevice = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-002',
+      platform: 'macos',
+    });
+    const recoveryMaterial = await asUser.mutation(
+      internal.productSync.replaceRecoveryMaterialIfUnchanged,
+      {
+        encryptedPayload: { ...encryptedPayload, schemaVersion: 3 },
+        trustedDeviceId: currentDevice.trustedDeviceId,
+      },
+    );
+    const revokeWithRecoverySchema = (schemaVersion: number) =>
+      revokeTrustedDevice(asUser, {
+        encryptedTransition: encryptedPayload,
+        expectedRecoveryUpdatedAt: recoveryMaterial.updatedAt,
+        recoveryWrappedAccountKey: {
+          ...encryptedPayload,
+          keyVersion: 2,
+          schemaVersion,
+        },
+        trustedDeviceId: currentDevice.trustedDeviceId,
+        trustedDeviceToRevokeId: otherDevice.trustedDeviceId,
+      });
+
+    // Prototype schemas 1 and 2 are never opened by the replacement.
+    await expect(revokeWithRecoverySchema(1)).rejects.toThrow(
+      'Product Sync key rotation material is invalid',
+    );
+    await expect(revokeWithRecoverySchema(2)).rejects.toThrow(
+      'Product Sync key rotation material is invalid',
+    );
+    await expect(revokeWithRecoverySchema(3)).resolves.toStrictEqual({
+      keyEpoch: 2,
+      pendingDeviceCount: 1,
+      state: 'pending',
+    });
+  });
+
   it('returns the current rotation state when retrying an older completed revocation', async () => {
     expect.assertions(5);
 
     const t = convexTest(schema, modules);
-    const asUser = t.withIdentity({
-      ...appleIdentity,
-      iat: Math.floor(Date.now() / 1000),
-    });
+    const asUser = t.withIdentity(appleIdentity);
     const currentDevice = await asUser.mutation(api.productAccount.connect, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
@@ -875,9 +976,9 @@ describe('productAccount.connect', () => {
     const secondEpochRecovery = {
       ...encryptedPayload,
       keyVersion: 2,
-      schemaVersion: 2,
+      schemaVersion: 3,
     };
-    await asUser.mutation(api.productAccount.revokeTrustedDevice, {
+    await revokeTrustedDevice(asUser, {
       encryptedTransition: encryptedPayload,
       expectedRecoveryUpdatedAt: recoveryMaterial.updatedAt,
       recoveryWrappedAccountKey: secondEpochRecovery,
@@ -922,11 +1023,11 @@ describe('productAccount.connect', () => {
     const thirdEpochRecovery = {
       ...encryptedPayload,
       keyVersion: 3,
-      schemaVersion: 2,
+      schemaVersion: 3,
     };
 
     await expect(
-      asUser.mutation(api.productAccount.revokeTrustedDevice, {
+      revokeTrustedDevice(asUser, {
         encryptedTransition: { ...encryptedPayload, keyVersion: 2 },
         expectedRecoveryUpdatedAt: committedRecoveryUpdatedAt,
         recoveryWrappedAccountKey: thirdEpochRecovery,
@@ -950,7 +1051,7 @@ describe('productAccount.connect', () => {
         .unique(),
     );
     await expect(
-      asUser.mutation(api.productAccount.revokeTrustedDevice, {
+      revokeTrustedDevice(asUser, {
         encryptedTransition: encryptedPayload,
         expectedRecoveryUpdatedAt: recoveryMaterial.updatedAt,
         recoveryWrappedAccountKey: secondEpochRecovery,
@@ -987,7 +1088,7 @@ describe('productAccount.connect', () => {
       );
     }
     await expect(
-      asUser.mutation(api.productAccount.revokeTrustedDevice, {
+      revokeTrustedDevice(asUser, {
         encryptedTransition: encryptedPayload,
         expectedRecoveryUpdatedAt: recoveryMaterial.updatedAt,
         recoveryWrappedAccountKey: secondEpochRecovery,
@@ -1006,10 +1107,7 @@ describe('productAccount.connect', () => {
     expect.assertions(5);
 
     const t = convexTest(schema, modules);
-    const asUser = t.withIdentity({
-      ...appleIdentity,
-      iat: Math.floor(Date.now() / 1000),
-    });
+    const asUser = t.withIdentity(appleIdentity);
     const currentDevice = await asUser.mutation(api.productAccount.connect, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
@@ -1032,9 +1130,9 @@ describe('productAccount.connect', () => {
     const nextRecoveryMaterial = {
       ...encryptedPayload,
       keyVersion: 2,
-      schemaVersion: 2,
+      schemaVersion: 3,
     };
-    await asUser.mutation(api.productAccount.revokeTrustedDevice, {
+    await revokeTrustedDevice(asUser, {
       encryptedTransition: encryptedPayload,
       expectedRecoveryUpdatedAt: recoveryMaterial.updatedAt,
       recoveryWrappedAccountKey: nextRecoveryMaterial,
@@ -1114,10 +1212,7 @@ describe('productAccount.connect', () => {
     expect.assertions(5);
 
     const t = convexTest(schema, modules);
-    const asUser = t.withIdentity({
-      ...appleIdentity,
-      iat: Math.floor(Date.now() / 1000),
-    });
+    const asUser = t.withIdentity(appleIdentity);
     const currentDevice = await asUser.mutation(api.productAccount.connect, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
@@ -1146,14 +1241,14 @@ describe('productAccount.connect', () => {
     const nextRecoveryMaterial = {
       ...encryptedPayload,
       keyVersion: 2,
-      schemaVersion: 2,
+      schemaVersion: 3,
     };
     const replacementRecoveryMaterial = {
       ...nextRecoveryMaterial,
       ciphertextBase64: 'replacement-ciphertext',
       keyVersion: 3,
     };
-    await asUser.mutation(api.productAccount.revokeTrustedDevice, {
+    await revokeTrustedDevice(asUser, {
       encryptedTransition: encryptedPayload,
       expectedRecoveryUpdatedAt: recoveryMaterial.updatedAt,
       recoveryWrappedAccountKey: nextRecoveryMaterial,
@@ -1179,7 +1274,7 @@ describe('productAccount.connect', () => {
     );
 
     await expect(
-      asUser.mutation(api.productAccount.revokeTrustedDevice, {
+      revokeTrustedDevice(asUser, {
         encryptedTransition: encryptedPayload,
         expectedRecoveryUpdatedAt: recoveryMaterial.updatedAt + 1,
         recoveryWrappedAccountKey: replacementRecoveryMaterial,
@@ -1191,7 +1286,7 @@ describe('productAccount.connect', () => {
     ).rejects.toThrow('Recovery material changed');
 
     await expect(
-      asUser.mutation(api.productAccount.revokeTrustedDevice, {
+      revokeTrustedDevice(asUser, {
         encryptedTransition: encryptedPayload,
         expectedRecoveryUpdatedAt: recoveryMaterial.updatedAt,
         recoveryWrappedAccountKey: replacementRecoveryMaterial,
@@ -1238,10 +1333,7 @@ describe('productAccount.connect', () => {
     expect.assertions(5);
 
     const t = convexTest(schema, modules);
-    const asUser = t.withIdentity({
-      ...appleIdentity,
-      iat: Math.floor(Date.now() / 1000),
-    });
+    const asUser = t.withIdentity(appleIdentity);
     const currentDevice = await asUser.mutation(api.productAccount.connect, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
@@ -1271,19 +1363,19 @@ describe('productAccount.connect', () => {
     const nextRecoveryMaterial = {
       ...encryptedPayload,
       keyVersion: 2,
-      schemaVersion: 2,
+      schemaVersion: 3,
     };
     const finalRecoveryMaterial = {
       ...encryptedPayload,
       ciphertextBase64: 'final-recovery-material',
       keyVersion: 3,
-      schemaVersion: 2,
+      schemaVersion: 3,
     };
     const finalTransition = {
       ...encryptedPayload,
       ciphertextBase64: 'final-transition',
     };
-    await asUser.mutation(api.productAccount.revokeTrustedDevice, {
+    await revokeTrustedDevice(asUser, {
       encryptedTransition: encryptedPayload,
       expectedRecoveryUpdatedAt: recoveryMaterial.updatedAt,
       recoveryWrappedAccountKey: nextRecoveryMaterial,
@@ -1334,7 +1426,7 @@ describe('productAccount.connect', () => {
     );
 
     await expect(
-      asUser.mutation(api.productAccount.revokeTrustedDevice, {
+      revokeTrustedDevice(asUser, {
         encryptedTransition: finalTransition,
         expectedRecoveryUpdatedAt: recoveryMaterial.updatedAt,
         recoveryWrappedAccountKey: finalRecoveryMaterial,
@@ -1425,10 +1517,7 @@ describe('productAccount.connect', () => {
     expect.assertions(1);
 
     const t = convexTest(schema, modules);
-    const asUser = t.withIdentity({
-      ...appleIdentity,
-      iat: Math.floor(Date.now() / 1000),
-    });
+    const asUser = t.withIdentity(appleIdentity);
     const currentDevice = await asUser.mutation(api.productAccount.connect, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
@@ -1451,9 +1540,9 @@ describe('productAccount.connect', () => {
     const nextRecoveryMaterial = {
       ...encryptedPayload,
       keyVersion: 2,
-      schemaVersion: 2,
+      schemaVersion: 3,
     };
-    await asUser.mutation(api.productAccount.revokeTrustedDevice, {
+    await revokeTrustedDevice(asUser, {
       encryptedTransition: encryptedPayload,
       expectedRecoveryUpdatedAt: recoveryMaterial.updatedAt,
       recoveryWrappedAccountKey: nextRecoveryMaterial,
@@ -1470,7 +1559,7 @@ describe('productAccount.connect', () => {
     );
 
     await expect(
-      asUser.mutation(api.productAccount.revokeTrustedDevice, {
+      revokeTrustedDevice(asUser, {
         encryptedTransition: encryptedPayload,
         expectedRecoveryUpdatedAt: recoveryMaterial.updatedAt,
         recoveryWrappedAccountKey: { ...nextRecoveryMaterial, keyVersion: 4 },
@@ -1486,10 +1575,7 @@ describe('productAccount.connect', () => {
     expect.assertions(1);
 
     const t = convexTest(schema, modules);
-    const asUser = t.withIdentity({
-      ...appleIdentity,
-      iat: Math.floor(Date.now() / 1000),
-    });
+    const asUser = t.withIdentity(appleIdentity);
     const currentDevice = await asUser.mutation(api.productAccount.connect, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
@@ -1512,9 +1598,9 @@ describe('productAccount.connect', () => {
     const nextRecoveryMaterial = {
       ...encryptedPayload,
       keyVersion: 2,
-      schemaVersion: 2,
+      schemaVersion: 3,
     };
-    await asUser.mutation(api.productAccount.revokeTrustedDevice, {
+    await revokeTrustedDevice(asUser, {
       encryptedTransition: encryptedPayload,
       expectedRecoveryUpdatedAt: recoveryMaterial.updatedAt,
       recoveryWrappedAccountKey: nextRecoveryMaterial,
@@ -1531,7 +1617,7 @@ describe('productAccount.connect', () => {
     );
 
     await expect(
-      asUser.mutation(api.productAccount.revokeTrustedDevice, {
+      revokeTrustedDevice(asUser, {
         encryptedTransition: {
           ...encryptedPayload,
           ciphertextBase64: 'concurrent-transition',
@@ -1555,10 +1641,7 @@ describe('productAccount.connect', () => {
     expect.assertions(4);
 
     const t = convexTest(schema, modules);
-    const asUser = t.withIdentity({
-      ...appleIdentity,
-      iat: Math.floor(Date.now() / 1000),
-    });
+    const asUser = t.withIdentity(appleIdentity);
     const currentDevice = await asUser.mutation(api.productAccount.connect, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
@@ -1593,13 +1676,13 @@ describe('productAccount.connect', () => {
     });
 
     await expect(
-      asUser.mutation(api.productAccount.revokeTrustedDevice, {
+      revokeTrustedDevice(asUser, {
         encryptedTransition: encryptedPayload,
         expectedRecoveryUpdatedAt: recoveryMaterial.updatedAt,
         recoveryWrappedAccountKey: {
           ...encryptedPayload,
           keyVersion: 2,
-          schemaVersion: 2,
+          schemaVersion: 3,
         },
         trustedDeviceCredential:
           reconnectedCurrentDevice.trustedDeviceCredential,
@@ -1643,10 +1726,7 @@ describe('productAccount.connect', () => {
     expect.assertions(4);
 
     const t = convexTest(schema, modules);
-    const asUser = t.withIdentity({
-      ...appleIdentity,
-      iat: Math.floor(Date.now() / 1000),
-    });
+    const asUser = t.withIdentity(appleIdentity);
     const currentDevice = await asUser.mutation(api.productAccount.connect, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
@@ -1686,13 +1766,13 @@ describe('productAccount.connect', () => {
         supportsDeviceCredentials: true,
       },
     );
-    await asUser.mutation(api.productAccount.revokeTrustedDevice, {
+    await revokeTrustedDevice(asUser, {
       encryptedTransition: encryptedPayload,
       expectedRecoveryUpdatedAt: recoveryMaterial.updatedAt,
       recoveryWrappedAccountKey: {
         ...encryptedPayload,
         keyVersion: 2,
-        schemaVersion: 2,
+        schemaVersion: 3,
       },
       trustedDeviceCredential: reconnectedCurrentDevice.trustedDeviceCredential,
       trustedDeviceId: currentDevice.trustedDeviceId,
@@ -1700,7 +1780,7 @@ describe('productAccount.connect', () => {
     });
 
     await expect(
-      asUser.mutation(api.productAccount.revokeTrustedDevice, {
+      revokeTrustedDevice(asUser, {
         encryptedTransition: {
           ...encryptedPayload,
           ciphertextBase64: 'replacement-transition',
@@ -1710,7 +1790,7 @@ describe('productAccount.connect', () => {
           ...encryptedPayload,
           ciphertextBase64: 'replacement-recovery-material',
           keyVersion: 3,
-          schemaVersion: 2,
+          schemaVersion: 3,
         },
         trustedDeviceCredential:
           reconnectedCurrentDevice.trustedDeviceCredential,
@@ -1749,10 +1829,7 @@ describe('productAccount.connect', () => {
     expect.assertions(3);
 
     const t = convexTest(schema, modules);
-    const asUser = t.withIdentity({
-      ...appleIdentity,
-      iat: Math.floor(Date.now() / 1000),
-    });
+    const asUser = t.withIdentity(appleIdentity);
     const currentDevice = await asUser.mutation(api.productAccount.connect, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
@@ -1768,13 +1845,13 @@ describe('productAccount.connect', () => {
         trustedDeviceId: currentDevice.trustedDeviceId,
       },
     );
-    await asUser.mutation(api.productAccount.revokeTrustedDevice, {
+    await revokeTrustedDevice(asUser, {
       encryptedTransition: encryptedPayload,
       expectedRecoveryUpdatedAt: recoveryMaterial.updatedAt,
       recoveryWrappedAccountKey: {
         ...encryptedPayload,
         keyVersion: 2,
-        schemaVersion: 2,
+        schemaVersion: 3,
       },
       trustedDeviceId: currentDevice.trustedDeviceId,
       trustedDeviceToRevokeId: revokedDevice.trustedDeviceId,
@@ -1801,10 +1878,7 @@ describe('productAccount.connect', () => {
     expect.assertions(3);
 
     const t = convexTest(schema, modules);
-    const asUser = t.withIdentity({
-      ...appleIdentity,
-      iat: Math.floor(Date.now() / 1000),
-    });
+    const asUser = t.withIdentity(appleIdentity);
     const currentDevice = await asUser.mutation(api.productAccount.connect, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
@@ -1827,9 +1901,9 @@ describe('productAccount.connect', () => {
     const nextRecoveryMaterial = {
       ...encryptedPayload,
       keyVersion: 2,
-      schemaVersion: 2,
+      schemaVersion: 3,
     };
-    await asUser.mutation(api.productAccount.revokeTrustedDevice, {
+    await revokeTrustedDevice(asUser, {
       encryptedTransition: encryptedPayload,
       expectedRecoveryUpdatedAt: recoveryMaterial.updatedAt,
       recoveryWrappedAccountKey: nextRecoveryMaterial,
@@ -1891,10 +1965,7 @@ describe('productAccount.connect', () => {
     expect.assertions(1);
 
     const t = convexTest(schema, modules);
-    const asUser = t.withIdentity({
-      ...appleIdentity,
-      iat: Math.floor(Date.now() / 1000),
-    });
+    const asUser = t.withIdentity(appleIdentity);
     const currentDevice = await asUser.mutation(api.productAccount.connect, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
@@ -1925,13 +1996,13 @@ describe('productAccount.connect', () => {
         trustedDeviceId: currentDevice.trustedDeviceId,
       },
     );
-    await asUser.mutation(api.productAccount.revokeTrustedDevice, {
+    await revokeTrustedDevice(asUser, {
       encryptedTransition: encryptedPayload,
       expectedRecoveryUpdatedAt: recoveryMaterial.updatedAt,
       recoveryWrappedAccountKey: {
         ...encryptedPayload,
         keyVersion: 2,
-        schemaVersion: 2,
+        schemaVersion: 3,
       },
       trustedDeviceId: currentDevice.trustedDeviceId,
       trustedDeviceToRevokeId: revokedDevice.trustedDeviceId,
@@ -1975,10 +2046,7 @@ describe('productAccount.connect', () => {
     expect.assertions(1);
 
     const t = convexTest(schema, modules);
-    const asUser = t.withIdentity({
-      ...appleIdentity,
-      iat: Math.floor(Date.now() / 1000),
-    });
+    const asUser = t.withIdentity(appleIdentity);
     const currentDevice = await asUser.mutation(api.productAccount.connect, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
@@ -1994,13 +2062,13 @@ describe('productAccount.connect', () => {
     );
 
     await expect(
-      asUser.mutation(api.productAccount.revokeTrustedDevice, {
+      revokeTrustedDevice(asUser, {
         encryptedTransition: encryptedPayload,
         expectedRecoveryUpdatedAt: Date.now(),
         recoveryWrappedAccountKey: {
           ...encryptedPayload,
           keyVersion: 2,
-          schemaVersion: 2,
+          schemaVersion: 3,
         },
         trustedDeviceId: currentDevice.trustedDeviceId,
         trustedDeviceToRevokeId: targetDevice.trustedDeviceId,
@@ -2078,10 +2146,7 @@ describe('productAccount.connect', () => {
     expect.assertions(3);
 
     const t = convexTest(schema, modules);
-    const asUser = t.withIdentity({
-      ...appleIdentity,
-      iat: Math.floor(Date.now() / 1000),
-    });
+    const asUser = t.withIdentity(appleIdentity);
     const currentDevice = await asUser.mutation(api.productAccount.connect, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
@@ -2099,13 +2164,13 @@ describe('productAccount.connect', () => {
     );
 
     await expect(
-      asUser.mutation(api.productAccount.revokeTrustedDevice, {
+      revokeTrustedDevice(asUser, {
         encryptedTransition: encryptedPayload,
         expectedRecoveryUpdatedAt: recoveryMaterial.updatedAt + 1,
         recoveryWrappedAccountKey: {
           ...encryptedPayload,
           keyVersion: 2,
-          schemaVersion: 2,
+          schemaVersion: 3,
         },
         trustedDeviceId: currentDevice.trustedDeviceId,
         trustedDeviceToRevokeId: otherDevice.trustedDeviceId,
