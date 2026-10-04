@@ -97,7 +97,9 @@ through Turborepo.
 
 Native projects are generated and ignored. Regenerate with `pnpm native:generate`
 after changing native dependencies or app configuration. Keep native changes in
-config plugins. The app sets deployment target 27.0 and
+config plugins. The bundle ID is `dev.unwired.mail`, the version comes from
+`apps/mobile/package.json`, and the icon is the Icon Composer document in
+`native/app-icon/UnwiredMail.icon`. The app sets deployment target 27.0 and
 [`enableSceneSupport: true`](https://docs.expo.dev/versions/latest/sdk/build-properties/#pluginconfigtypeios):
 apps built with the iOS 27 SDK cannot launch with the old application lifecycle.
 
@@ -150,15 +152,15 @@ Legacy Swift CI and manual qualification jobs are disabled by maintainer decisio
 A focused native XCTest journey is also available through the
 [isolated Mock Mail Session runner](mock-mail-sessions.md). Select
 `UNWIRED_MOCK_SCENARIO=open-read-relaunch` when generating the native project
-before building the app. Ordinary preview builds are rejected by this runner. First build a simulator Release
+before building the app. Ordinary builds are rejected by this runner. First build a simulator Release
 app using isolated DerivedData (from `apps/mobile`, after native generation):
 
 ```sh
-xcodebuild build -workspace ios/UnwiredMailPreview.xcworkspace \
-  -scheme UnwiredMailPreview -configuration Release -sdk iphonesimulator \
+xcodebuild build -workspace ios/UnwiredMail.xcworkspace \
+  -scheme UnwiredMail -configuration Release -sdk iphonesimulator \
   -destination 'generic/platform=iOS Simulator' \
   -derivedDataPath ../../artifacts/expo-bootstrap/DerivedData CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=-
-mise exec -- pnpm test:native ../../artifacts/expo-bootstrap/DerivedData/Build/Products/Release-iphonesimulator/UnwiredMailPreview.app
+mise exec -- pnpm test:native ../../artifacts/expo-bootstrap/DerivedData/Build/Products/Release-iphonesimulator/UnwiredMail.app
 ```
 
 The runner requires Ruby with CocoaPods' `xcodeproj` gem (`RUBY` may select that

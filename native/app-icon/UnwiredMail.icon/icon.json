@@ -1,0 +1,69 @@
+{
+  "fill": {
+    "automatic-gradient": "extended-srgb:0.03922,0.29412,0.32157,1.00000"
+  },
+  "groups": [
+    {
+      "name": "03 \u00b7 Envelope front",
+      "layers": [
+        {
+          "image-name": "04-envelope-fold.svg",
+          "name": "Folded front panel",
+          "glass": true
+        },
+        {
+          "image-name": "03-envelope-front.svg",
+          "name": "Mint envelope",
+          "glass": true
+        }
+      ],
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.3
+      },
+      "translucency": {
+        "enabled": false,
+        "value": 0
+      }
+    },
+    {
+      "name": "02 \u00b7 Letter",
+      "layers": [
+        {
+          "image-name": "02-letter.svg",
+          "name": "Ivory letter with apricot corner",
+          "glass": false
+        }
+      ],
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.25
+      },
+      "translucency": {
+        "enabled": false,
+        "value": 0
+      }
+    },
+    {
+      "name": "01 \u00b7 Envelope interior",
+      "layers": [
+        {
+          "image-name": "01-envelope-back.svg",
+          "name": "Open envelope",
+          "glass": false
+        }
+      ],
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.25
+      },
+      "translucency": {
+        "enabled": false,
+        "value": 0
+      }
+    }
+  ],
+  "supported-platforms": {
+    "squares": "shared"
+  }
+}

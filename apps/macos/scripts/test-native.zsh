@@ -18,6 +18,10 @@ cleanup() {
   local cleanup_exit=0
   if [[ -n "$bundle_id" ]]; then
     "$UNWIRED_TEST_ARTIFACTS/Cleanup.app/Contents/MacOS/cleanup" "$bundle_id" || cleanup_exit=$?
+    # The sandbox gives each disposable identity its own container.
+    if [[ "$bundle_id" =~ '^dev\.unwired\.mock\.[0-9a-f]{32}$' ]]; then
+      rm -rf "$HOME/Library/Containers/$bundle_id" || cleanup_exit=1
+    fi
   fi
   rm -rf "$probe_dir" "$UNWIRED_TEST_ARTIFACTS/Mock.app" "$UNWIRED_TEST_ARTIFACTS/cleanup" || cleanup_exit=1
   if (( cleanup_exit == 0 )); then
@@ -33,6 +37,7 @@ trap 'exit 143' TERM
 swiftc ../../scripts/cleanup-mock-macos.swift -o "$UNWIRED_TEST_ARTIFACTS/cleanup"
 bundle_id=$(python3 ../../scripts/prepare-mock-app.py macos "$source_app" "$UNWIRED_TEST_ARTIFACTS/Mock.app" "$UNWIRED_TEST_ARTIFACTS/cleanup")
 export UNWIRED_APP_PATH="$UNWIRED_TEST_ARTIFACTS/Mock.app"
+: > "$UNWIRED_TEST_ARTIFACTS/lifecycle.jsonl"
 export UNWIRED_TEST_SCENARIO=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["scenario"])' "$UNWIRED_TEST_ARTIFACTS/ownership.json")
 cp native-tests/{WindowTests.swift,create-project.rb} "$probe_dir/"
 builtin cd -q "$probe_dir"

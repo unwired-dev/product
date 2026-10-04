@@ -9,6 +9,74 @@ The [mobile bootstrap](../expo-client.md) now uses Expo 57.0.25, React Native
 are available on the development host. The maintainer's earlier native-validation
 deferral still applies to unavailable release checks. Mac host evidence follows.
 
+## Final host identity and sandbox readiness, 2026-10-03
+
+[#723](https://github.com/unwired-dev/product/issues/723) changes both replacement
+hosts to `dev.unwired.mail`, display name **Unwired Mail**, marketing version
+`0.1.0` read from each host's package manifest, exempt-only encryption declarations
+and the shared `native/app-icon/UnwiredMail.icon` document. The owner confirmed one
+App Store Connect product with iOS and macOS platforms in
+[#628](https://github.com/unwired-dev/product/issues/628#issuecomment-5970040414)
+and [#669](https://github.com/unwired-dev/product/issues/669#issuecomment-5970040558).
+Separate archive and upload work remains in
+[#724](https://github.com/unwired-dev/product/issues/724); readiness changes do not
+establish TestFlight acceptance or complete replacement qualification.
+
+Review covered `2941e988..2719ba78` and the subsequent reviewer corrections.
+Project generation now verifies App Sandbox and outgoing network access for
+ad-hoc and profile-backed signing in Debug, Release and Testing. Profile-backed
+builds additionally retain Apple sign-in and Keychain entitlements; ad-hoc builds
+omit those profile-required capabilities. The hosted Mac storage integration
+probe now includes App Sandbox, so its next successful run can qualify storage
+and Keychain under that boundary. No incoming-network entitlement is added:
+Debug's Metro and inspector connections are network clients.
+
+Retained implementer logs show successful development-signed Mac Testing builds
+and one successful XCTest journey each for `open-read-relaunch`,
+`registration-apple` and `registration-enrollment`, with cleanup exit code zero.
+The reviewer inspected the corresponding ownership, result, lifecycle and signing
+input records:
+
+| Scenario                  | Local evidence                          |
+| ------------------------- | --------------------------------------- |
+| `open-read-relaunch`      | `artifacts/macos-inbox/journey.2cu45x/` |
+| `registration-apple`      | `artifacts/macos-inbox/journey.ricYi8/` |
+| `registration-enrollment` | `artifacts/macos-inbox/journey.JisCAO/` |
+
+Logs are `artifacts/mac-build-<scenario>.log` and
+`artifacts/mac-journey-<scenario>.log`. Each disposable signing input enables
+sandboxing and grants file access only to its runner-owned evidence directory.
+The retained Mac source application's signature also decodes sandbox and outgoing
+network entitlements with `codesign -d --entitlements -`. These retained runs
+precede the reviewer fixes; they do not qualify the corrected ad-hoc build or
+newly sandboxed hosted storage probe.
+
+Available review checks passed on Node 24.16.0 and pnpm 11.5.2: all twelve host
+lint, format, type and test tasks (mobile 15 tests, Mac 13, shared core 29), both
+production JavaScript exports and renderer/autolinking boundary checks, Ruby
+generator syntax, generated project/entitlement plist checks and affected
+documentation formatting. The native-runner suite passed 20 of 21 contracts;
+the real Mac cleanup-helper contract could not create its disposable fixture in
+the host Application Support directory under the session's filesystem policy.
+It is unavailable, not a passing suite. Changesets status remains blocked by the
+unchanged non-workspace `unwired-mail` changesets tracked in
+[#701](https://github.com/unwired-dev/product/issues/701).
+
+Fresh reviewer native checks used Xcode 27.0 (27A266a) and writable temporary
+compiler caches. The sandboxed hosted storage attempt stopped before test
+execution because the session could not access the Mac Development signing
+private key; Xcode also reported blocked distributed notifications. Evidence is
+`artifacts/private-inbox/integration.KVaZCz/`. An ad-hoc Mac Release build stopped
+before compilation when Xcode rejected the existing workspace, alongside denied
+CoreSimulator service access; its log is
+`/private/tmp/testflight-review-adhoc-build.log`. No permitted sandbox escape is
+available. Fresh ad-hoc native builds, sandboxed hosted storage/Keychain tests,
+and affected Mac journeys remain deferred. The implementer's earlier iPhone
+Release build and Inbox journey predate the rebase; fresh iPhone/iPad native
+checks remain required. Live sign-in, protected provider integration,
+physical-device checks, distribution signing and archive/upload qualification
+remain separate release gates.
+
 ## Signed Mac Mock Mail Session journeys, 2026-10-03
 
 The implementer ran the packaged, development-signed Mac `Testing` builds on
