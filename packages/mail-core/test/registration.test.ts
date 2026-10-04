@@ -251,6 +251,24 @@ describe('product registration', () => {
     expect(errors).not.toHaveBeenCalled();
   });
 
+  it('verifies once per activation however many Mac windows report it', async () => {
+    expect.hasAssertions();
+    const session = createMockRegistrationSession('registration-success');
+    let restores = 0;
+    const store = createRegistration({
+      ...session.native,
+      restore: () => {
+        restores += 1;
+        return session.native.restore();
+      },
+    });
+    await store.register('google');
+    await Promise.all([store.resume(), store.resume(), store.resume()]);
+    expect(restores).toBe(1);
+    await store.resume();
+    expect(restores).toBe(2);
+  });
+
   it('replaces a connected status when an unlocked foreground restore can no longer verify it', async () => {
     expect.hasAssertions();
     const session = createMockRegistrationSession('registration-success');

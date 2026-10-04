@@ -261,6 +261,8 @@ export function createRegistration(native: NativeRegistration) {
     failed: false,
   };
   let restored = false;
+  // The verification queued for the activation currently being reported, if any.
+  let activation: Promise<void> | null = null;
   // One operation runs at a time; foreground verification queues behind interactive work.
   const semaphore = Semaphore.makeUnsafe(1);
   const listeners = new Set<() => void>();
@@ -385,7 +387,16 @@ export function createRegistration(native: NativeRegistration) {
       return restore();
     },
     // Every activation verifies the saved account and retries unavailable protected storage.
-    resume: () => restore(true),
+    // Each Mac window's gate reports the same activation synchronously; they share one restore.
+    resume: () => {
+      if (activation === null) {
+        activation = restore(true);
+        queueMicrotask(() => {
+          activation = null;
+        });
+      }
+      return activation;
+    },
     register: (provider: SignInProvider) =>
       execute(
         Effect.gen(function* () {
