@@ -261,7 +261,9 @@ extension RegistrationStore {
     if let mailbox = saved.mailbox, saved.mailboxSetupReason == nil {
       let identifier = try vault.ring.identifier("mailbox", "gmail:" + mailbox.subject)
       let descriptor = MailboxDescriptor(provider: "gmail", address: mailbox.address)
-      if stored[identifier]?.descriptor != descriptor {
+      // Only a missing or readable, different record is replaced; a newer client may own the rest.
+      let existing = stored[identifier]
+      if existing == nil || (existing?.descriptor != nil && existing?.descriptor != descriptor) {
         let sealed = try vault.ring.seal(
           record: JSONEncoder().encode(descriptor), account: vault.productAccountId,
           identifier: identifier, schemaVersion: MailboxDescriptor.schemaVersion)
@@ -280,7 +282,7 @@ extension RegistrationStore {
   ) async throws -> [String: (descriptor: MailboxDescriptor?, updatedAt: Double)] {
     var result: [String: (descriptor: MailboxDescriptor?, updatedAt: Double)] = [:]
     for record in try await backend.list(session, product, "mailbox.") {
-      // A record that fails authentication is never shown; a later write replaces it.
+      // A record that fails to open or decode is never shown and never replaced.
       let descriptor = try? JSONDecoder().decode(
         MailboxDescriptor.self,
         from: vault.ring.open(

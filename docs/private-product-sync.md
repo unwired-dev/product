@@ -145,6 +145,12 @@ The mailbox descriptor contains the provider and address. Gmail credentials,
 access tokens, the Google subject and message content never enter it. Mailbox
 credentials stay in the separate device-only registration record.
 
+A device writes its mailbox descriptor only when the record is missing, or when
+the stored record opens at the current schema and holds a different descriptor.
+Every record it cannot open or decode is read-only. This covers a newer schema,
+a key epoch this device lacks and an authentication failure at the current
+schema and epoch. The device neither shows nor replaces such a record.
+
 ## Initialization and relaunch
 
 Account connection reports whether Product Sync material already exists. A device creates keys only when Convex reports it has none and this
@@ -218,7 +224,9 @@ Key final-tree iOS storage run passed all 19 tests, including those reviewer
 assertions. Raw results are retained in `artifacts/private-inbox/integration.zR0adL/`.
 That run predates the unreadable local key item case below; with it, the iOS storage
 run passed all 20 tests, retained in `artifacts/private-inbox/integration.Z5Nl6g/`.
-Both are real native storage and cryptography evidence with a synthetic Convex
+The read-only mailbox descriptor case below brings the iOS storage run to 21
+passing tests, retained in `artifacts/private-inbox/integration.Egerc5/`.
+These runs are real native storage and cryptography evidence with a synthetic Convex
 boundary.
 The two-device approval journey uses two
 installations with separate Keychains. A mistyped code, declined, forged, expired,
@@ -230,7 +238,10 @@ success, rejection of foreign records, and relaunch with unchanged keys. An
 interrupted publication resumes; a device that loses the race discards its keys,
 enters enrollment and writes no records. A malformed or mismatched local key item
 reports Product Sync as unavailable while Gmail authorization, restore and
-sign-in still connect the mailbox, and the item stays unchanged.
+sign-in still connect the mailbox, and the item stays unchanged. A mailbox
+descriptor with a newer schema, an unknown key epoch or a failed authentication
+at the current schema and epoch stays byte-for-byte unchanged and hidden after
+sign-in. A readable, different descriptor is replaced and read back.
 
 Convex tests cover single initialization, idempotent retry, refusal for
 initialized accounts, epoch and device-proof enforcement, and the reserved

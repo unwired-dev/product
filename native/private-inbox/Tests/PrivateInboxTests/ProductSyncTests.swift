@@ -433,6 +433,64 @@ extension PrivateInboxTests {
     #expect(try backend.store(keys: keys, google: google).loadVault(account)?.ring == ring)
   }
 
+  @Test @MainActor func mailboxDescriptorsThisDeviceCannotOpenAreNeverReplaced() async throws {
+    let keys = device()
+    let account = "account-synthetic-product-subject"
+    defer { remove(keys, accounts: [account]) }
+    let google = SyntheticGoogleRegistrationProvider()
+    google.scopes = [RegistrationStore.gmailScope]
+    let backend = SyntheticProductSyncBackend()
+    _ = try await backend.store(keys: keys, google: google).signIn()
+    google.subject = "synthetic-mailbox-subject"
+    _ = try await backend.store(keys: keys, google: google).authorizeGmail(reselect: false)
+    google.subject = "synthetic-product-subject"
+    let ring = try #require(try backend.store(keys: keys, google: google).loadVault(account)?.ring)
+    let identifier = try ring.identifier("mailbox", "gmail:synthetic-mailbox-subject")
+    #expect(backend.records[account]?.keys.sorted() == [identifier])
+
+    func sealed(_ address: String, with keys: ProductSyncKeyRing = ring, schema: Int = 1) throws
+      -> EncryptedPayload
+    {
+      try keys.seal(
+        record: JSONEncoder().encode(MailboxDescriptor(provider: "gmail", address: address)),
+        account: account, identifier: identifier, schemaVersion: schema)
+    }
+    // Stores the record in place of this device's descriptor, then signs in to synchronize.
+    func signInOver(_ payload: EncryptedPayload) async throws -> (StoredPayload, [String: String]) {
+      let stored = StoredPayload(
+        payloadIdentifier: identifier, encryptedPayload: payload, updatedAt: 1)
+      backend.records[account]?[identifier] = stored
+      return (stored, try await backend.store(keys: keys, google: google).signIn())
+    }
+
+    // A newer client's schema, an epoch this device lacks and a record failing authentication at
+    // the current schema and epoch are all read-only: never shown, never replaced.
+    let rotated = ProductSyncKeyRing(
+      current: 2, keys: ring.keys + [.init(version: 2, key: ProductSyncSeal.randomKey())])
+    let current = try sealed("tampered@example.invalid")
+    var ciphertext = try #require(Data(base64Encoded: current.ciphertextBase64))
+    ciphertext[0] ^= 1
+    let tampered = EncryptedPayload(
+      ciphertextBase64: ciphertext.base64EncodedString(), keyVersion: current.keyVersion,
+      nonceBase64: current.nonceBase64, schemaVersion: current.schemaVersion,
+      tagBase64: current.tagBase64)
+    for payload in [
+      try sealed("newer@example.invalid", schema: MailboxDescriptor.schemaVersion + 1),
+      try sealed("rotated@example.invalid", with: rotated), tampered,
+    ] {
+      let (stored, signedIn) = try await signInOver(payload)
+      #expect(backend.records[account]?[identifier] == stored)
+      #expect(signedIn["kind"] == "connected")
+      #expect(signedIn["privateSyncMailboxes"] == nil)
+    }
+
+    // A record that opens at the current schema and differs is replaced and read back.
+    let (stale, signedIn) = try await signInOver(sealed("stale@example.invalid"))
+    let replaced = try #require(backend.records[account]?[identifier])
+    #expect(replaced != stale)
+    #expect(signedIn["privateSyncMailboxes"] == "same@example.invalid")
+  }
+
   @Test @MainActor func missingLocalKeysNeverReplaceAnExistingAccountsKeyMaterial() async throws {
     let first = device()
     let second = device()
