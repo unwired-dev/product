@@ -34,6 +34,7 @@ Documentation here is product truth that agents execute: an implementer follows 
 - A path rule whose first instruction no longer requires `rules/common.md`, or a change to `common.md` that drops a responsibility listed in `docs/architecture/open-code-review.md`.
 - `merge_system_rule` changed for an entry without checking the resolved text with `ocr rules check <path>`; the embedded TypeScript rule contradicts the Effect conventions and is deliberately not merged for Effect-governed code.
 - A rule bullet that a linter or type checker already decides, that names no file, helper or invariant, or that gives no consequence. Such bullets produce noise and dilute the rest.
+- Validated review feedback or an escaped defect in the task with no rule change and no recorded reason for declining one; see R12.
 - An `include` or `exclude` change that hides task-owned source from review or admits dependencies, build output, generated files or secrets.
 
 #### Leave to tooling

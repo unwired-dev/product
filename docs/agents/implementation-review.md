@@ -198,6 +198,20 @@ full-task disposition.
    alone does not satisfy it. Review completion and required CI remain separate
    gates.
 
+## Improve the review rules
+
+The review rules improve over time from the feedback they miss. When pull-request
+review comments from people, CodeRabbit, Codex or another review bot are validated,
+when a defect escapes an earlier review, or when a reviewer finding turns out to be
+a false positive, include those cases in the next reviewer handoff as rule-improvement
+candidates: the comment or defect, its location, and the validated disposition.
+
+The reviewer decides whether each candidate is a defect class the rules should
+name, a wrong or stale rule, or a one-off, then updates `.opencodereview/rules/`
+and reports each rule change or declined candidate. The implementer supplies the
+evidence and never opens the rule files. The same pass covers OCR version updates
+and new code areas that need their own rule.
+
 ## Completion
 
 The implementer delivers only after the required reviewer has finished fixing

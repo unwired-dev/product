@@ -61,7 +61,7 @@ under `.opencodereview/rules/`. OCR reads that file relative to the repository
 root. An unreadable file produces only a `rule file not found` warning and no
 project rule, so `pnpm test:tooling` checks that every entry's file exists.
 
-[`rules/common.md`](../../.opencodereview/rules/common.md) carries R0–R11. The
+[`rules/common.md`](../../.opencodereview/rules/common.md) carries R0–R12. The
 fallback entry resolves it directly. Every path rule opens by requiring it, which
 keeps the common and conditional sections in one file and applies them to every
 task-owned artifact regardless of directory. A path rule adds the concrete
@@ -151,3 +151,27 @@ and dependency/build/generated/secret exclusions. Exercise workspace and pinned
 range modes. This proves resolution and selection behavior, not architecture
 correctness or integration qualification. The host reviewer still reads sources,
 validates findings, fixes confirmed issues and records the evidence.
+
+## Improving the rules
+
+The rules are maintained from evidence, not written once. R12 in
+[`rules/common.md`](../../.opencodereview/rules/common.md) makes the reviewer
+revise them when a review cycle shows a gap:
+
+- validated pull-request review comments from people, CodeRabbit, Codex or
+  another review bot that named a defect class no rule covers;
+- a defect that reached a pull request, CI or a release after an earlier review
+  of the same code;
+- a finding the rules produced that the source or an accepted decision contradicts;
+- a check that a linter, type checker or CI job has taken over, or a bullet whose
+  named file, helper or invariant has changed;
+- an OCR version update that changes the embedded rules or the rule format, and
+  a new package, host or code area that needs its own path rule.
+
+The implementer hands these candidates to the reviewer under the
+[workflow](../agents/implementation-review.md#improve-the-review-rules) without
+reading the rules. The reviewer generalizes each one to its defect class, edits
+the owning path rule, validates resolution with the real CLI and records the
+change or the reason for declining it. This loop is the calibration the initial
+rule set lacks; a rule change follows the same review and delivery gates as any
+other change.
