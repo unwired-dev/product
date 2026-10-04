@@ -394,6 +394,14 @@ final class UnwiredRegistration: NSObject {
 extension UnwiredRegistration {
   @objc static func requiresMainQueueSetup() -> Bool { true }
 
+  @objc(recoverWithRecoveryKey:resolver:rejecter:)
+  func recoverWithRecoveryKey(
+    _ entry: String, resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    perform("recoverWithRecoveryKey", resolve, reject: reject) { try await $0.recover(with: entry) }
+  }
+
   // Every Product Sync call carries the Trusted Device proof; Convex sees only opaque payloads.
   // The transport factory assembles all authenticated operations with the same device proof.
   // swiftlint:disable:next function_body_length
@@ -486,6 +494,16 @@ extension UnwiredRegistration {
         let _: Response = try await mutation(
           base: base, identity: identity, path: "productSyncEnrollment:decline",
           args: proof(product).merging(["requestId": requestId]) { $1 })
+      },
+      recoveryEnvelope: { identity, product in
+        // A missing envelope decodes as no value and reports Product Sync as unavailable.
+        let stored: StoredPayload = try await mutation(
+          base: base, identity: identity, path: "productSync:getEncryptedPayloadForTrustedDevice",
+          args: proof(product).merging(["payloadIdentifier": "product-account-recovery-v1"]) {
+            $1
+          },
+          function: "query")
+        return stored.encryptedPayload
       })
   }
 

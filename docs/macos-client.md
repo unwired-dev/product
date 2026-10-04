@@ -14,7 +14,7 @@ Production launches offer [Apple](apple-registration.md) or [Google](google-regi
 registration with separate Gmail consent. Either can later be [linked](linked-sign-in.md)
 as the other sign-in method. A new account [initializes private Product Sync](private-product-sync.md):
 the device that wins initialization presents the Recovery Key. Another device of
-that account shows a code and [waits for a Trusted Device to approve it](private-product-sync.md#approving-a-new-device). Configure the native client ID and Convex deployment when generating the host.
+that account shows a code and [waits for a Trusted Device to approve it](private-product-sync.md#approving-a-new-device), or [unlocks with the Recovery Key](private-product-sync.md#recovering-with-the-recovery-key). Configure the native client ID and Convex deployment when generating the host.
 Select an explicit Mock Mail Session to run the synthetic Inbox journeys.
 
 ## Window behavior

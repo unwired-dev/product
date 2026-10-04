@@ -40,6 +40,9 @@ struct ProductSyncBackend {
     ) async throws -> Void
   let declineEnrollment:
     (ProductSignInIdentity, ProductRegistrationReceipt, String) async throws -> Void
+  // The account's published recovery envelope, opened only on this device with the Recovery Key.
+  let recoveryEnvelope:
+    (ProductSignInIdentity, ProductRegistrationReceipt) async throws -> EncryptedPayload
 }
 
 // Another device's request to receive this Product Account's keys.
@@ -137,7 +140,7 @@ extension RegistrationStore {
     let account = product.productAccountId
     do {
       var vault = try loadVault(account)
-      // An initialized account's keys reach this device only through a trusted device's approval.
+      // Synchronization can adopt an initialized account's keys through trusted-device approval.
       if vault == nil, product.productSyncMaterialInitialized == true {
         vault = try await enroll(product, backend: backend, session: session)
       }

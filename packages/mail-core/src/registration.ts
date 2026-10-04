@@ -44,6 +44,8 @@ const Account = Schema.Struct({
   enrollmentNotice: Schema.optionalKey(
     Schema.Literals(['renewed', 'rejected']),
   ),
+  // Only in the reply to a Recovery Key attempt that unlocked nothing.
+  recoveryNotice: Schema.optionalKey(Schema.Literal('rejected')),
   // Another device of this Product Account waiting for this trusted device's approval.
   enrollmentRequest: Schema.optionalKey(Schema.NonEmptyString),
   enrollmentDevice: Schema.optionalKey(Schema.NonEmptyString),
@@ -91,6 +93,8 @@ const isRecoveryKeyMismatch = Schema.is(
 );
 export type RecoveryKeyFailure = 'mismatch' | 'failed';
 
+export type RecoveryFailure = 'rejected' | 'failed';
+
 const isEnrollmentCodeInvalid = Schema.is(
   Schema.Struct({ code: Schema.Literal('enrollment-code-invalid') }),
 );
@@ -107,6 +111,8 @@ export interface NativeRegistration {
   readonly link: (provider: SignInProvider) => Promise<unknown>;
   // Confirms Recovery Key setup with the final group the person wrote down.
   readonly confirmRecoveryKey: (entry: string) => Promise<unknown>;
+  // Unlocks this device's private data with the Recovery Key when no trusted device can.
+  readonly recoverWithRecoveryKey: (entry: string) => Promise<unknown>;
   // Seals this device's keys to another device, unlocked by the code that device shows.
   readonly approveEnrollment: (
     requestId: string,
@@ -124,6 +130,8 @@ type RegistrationState = Readonly<{
   // A failed link leaves the Product Account and its sign-ins unchanged.
   linkFailure?: LinkFailure;
   recoveryKeyFailure?: RecoveryKeyFailure;
+  // A failed Recovery Key unlock leaves this device and the account's keys unchanged.
+  recoveryFailure?: RecoveryFailure;
   // A failed approval leaves this device and the requesting one unchanged.
   enrollmentFailure?: EnrollmentFailure;
 }>;
@@ -157,6 +165,13 @@ class RegistrationCancelled extends Schema.TaggedError<RegistrationCancelled>()(
 class RecoveryKeyMismatch extends Schema.TaggedError<RecoveryKeyMismatch>()(
   'RecoveryKeyMismatch',
   {},
+) {}
+
+// A Recovery Key that does not open this account's keys is an expected state. It carries the
+// device's current status, which the sign-in renewed for the attempt may have changed.
+class RecoveryKeyRejected extends Schema.TaggedError<RecoveryKeyRejected>()(
+  'RecoveryKeyRejected',
+  { snapshot: RegistrationSnapshotSchema },
 ) {}
 
 // A mistyped approval code is caught on this device before anything is sent.
@@ -205,6 +220,16 @@ const request = Effect.fnUntraced(function* (
   );
 });
 
+// A rejected Recovery Key arrives as a status with a notice; for example, it can show the new
+// Enrollment Code that replaced an expired request while the key was checked.
+const recoveryOutcome = (snapshot: RegistrationSnapshot) => {
+  if (snapshot.kind === 'signed-out' || snapshot.recoveryNotice === undefined) {
+    return Effect.succeed(snapshot);
+  }
+  const { recoveryNotice: _notice, ...current } = snapshot;
+  return Effect.fail(new RecoveryKeyRejected({ snapshot: current }));
+};
+
 // A request that expired, was cancelled or was already approved cannot be approved again.
 const enrollmentFailed = (
   snapshot: RegistrationSnapshot,
@@ -235,6 +260,7 @@ export function createRegistration(native: NativeRegistration) {
       RegistrationSnapshot,
       | RegistrationCancelled
       | RecoveryKeyMismatch
+      | RecoveryKeyRejected
       | EnrollmentCodeInvalid
       | RegistrationFailed
     >,
@@ -259,6 +285,11 @@ export function createRegistration(native: NativeRegistration) {
             Effect.sync((): RegistrationState => ({
               ...settled(state.snapshot),
               recoveryKeyFailure: 'mismatch',
+            })),
+          RecoveryKeyRejected: ({ snapshot }) =>
+            Effect.sync((): RegistrationState => ({
+              ...settled(snapshot),
+              recoveryFailure: 'rejected',
             })),
           EnrollmentCodeInvalid: () =>
             Effect.sync((): RegistrationState => ({
@@ -331,6 +362,13 @@ export function createRegistration(native: NativeRegistration) {
       execute(
         request(() => native.confirmRecoveryKey(entry)),
         (snapshot) => ({ ...settled(snapshot), recoveryKeyFailure: 'failed' }),
+      ),
+    recoverWithRecoveryKey: (entry: string) =>
+      execute(
+        request(() => native.recoverWithRecoveryKey(entry)).pipe(
+          Effect.flatMap(recoveryOutcome),
+        ),
+        (snapshot) => ({ ...settled(snapshot), recoveryFailure: 'failed' }),
       ),
     approveEnrollment: (requestId: string, code: string) =>
       execute(
@@ -564,6 +602,25 @@ export const recoveryKeyConfirmationCopy = {
     'That does not match the end of your Recovery Key. Check your written copy and try again.',
   failed: 'Your Recovery Key could not be confirmed. Try again.',
 } as const;
+
+// On a device without the account keys; the Recovery Key is checked only on this device.
+export const recoveryCopy = {
+  title: 'Use your Recovery Key',
+  description:
+    'If none of your trusted devices is available, enter the Recovery Key you wrote down when you created your Product Account. It is checked on this device and never sent to Unwired Mail.',
+  label: 'Recovery Key',
+  unlock: 'Unlock with Recovery Key',
+  rejected:
+    'That Recovery Key does not unlock this Product Account. Check each character of your written copy and try again. Your encrypted product data is kept.',
+  failed:
+    'Recovery could not finish. Your encrypted product data is kept. Try again to resume.',
+  // Nothing offers a reset: encrypted product data stays locked, and mail stays with Gmail.
+  lost: 'If you have lost every trusted device and your Recovery Key, your encrypted product data cannot be recovered, and Unwired Mail cannot unlock it for you. Your mail in Gmail is not affected.',
+} as const;
+
+// Recovery Key entry is offered only where the account has keys that this device lacks.
+export const offersRecovery = (privateSync: PrivateSync | undefined) =>
+  privateSync === 'enrollment-needed' || privateSync === 'enrollment-pending';
 
 export const enrollmentCopy = {
   // On the device waiting for approval.

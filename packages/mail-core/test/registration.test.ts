@@ -1,3 +1,5 @@
+import type { RegistrationSnapshot } from '../src/registration.ts';
+
 import { createRegistration } from '../src/registration.ts';
 import {
   createMockRegistrationSession,
@@ -325,5 +327,96 @@ describe('product registration', () => {
     expect(added.getSnapshot().snapshot).not.toHaveProperty(
       'privateSyncMailboxes',
     );
+  });
+
+  it('unlocks a new device with the Recovery Key only after a wrong key and an interruption leave it unchanged', async () => {
+    expect.hasAssertions();
+    vi.spyOn(console, 'error').mockReturnValue(undefined);
+    const account = createSyntheticAccount();
+    const lost = createRegistration(
+      createMockRegistrationSession('registration-success', account).native,
+    );
+    await lost.register('google');
+    const session = createMockRegistrationSession(
+      'registration-enrollment',
+      account,
+    );
+    // The connection drops while the first attempt checks the key.
+    const interrupted = createRegistration({
+      ...session.native,
+      recoverWithRecoveryKey: () =>
+        Promise.reject(
+          Object.assign(new Error('Synthetic connection lost'), {
+            code: 'unavailable',
+          }),
+        ),
+    });
+    await interrupted.register('google');
+    await interrupted.recoverWithRecoveryKey(syntheticRecoveryKey);
+    const waiting = interrupted.getSnapshot().snapshot;
+    expect(interrupted.getSnapshot()).toMatchObject({
+      snapshot: { privateSync: 'enrollment-pending' },
+      recoveryFailure: 'failed',
+    });
+    const relaunched = createRegistration(session.native);
+    await relaunched.restore();
+    expect(relaunched.getSnapshot().snapshot).toStrictEqual(waiting);
+    await relaunched.recoverWithRecoveryKey(syntheticEnrollmentCode);
+    expect(relaunched.getSnapshot()).toStrictEqual({
+      snapshot: waiting,
+      busy: false,
+      failed: false,
+      recoveryFailure: 'rejected',
+    });
+
+    await relaunched.recoverWithRecoveryKey(
+      syntheticRecoveryKey.toLowerCase().replaceAll('-', ' '),
+    );
+    expect(relaunched.getSnapshot()).toStrictEqual({
+      snapshot: {
+        kind: 'mailbox-needed',
+        productAccountId: 'synthetic-product-account',
+        signInProvider: 'google',
+        privateSync: 'ready',
+        privateSyncMailboxes: 'alex@example.invalid',
+      },
+      busy: false,
+      failed: false,
+    });
+    // Its approval request is withdrawn, so the lost device's account lists none.
+    await lost.refreshPrivateSync();
+    expect(lost.getSnapshot().snapshot).not.toHaveProperty('enrollmentRequest');
+  });
+
+  it('shows the Enrollment Code that replaced an expired request when a Recovery Key is rejected', async () => {
+    expect.hasAssertions();
+    const session = createMockRegistrationSession('registration-enrollment');
+    const renewedCode =
+      'Q7XM-2KTD-9RWP-4HVB-Q7XM-2KTD-9RWP-4HVB-Q7XM-2KTD-9RWP-4HVB-Q7XM-2KT8';
+    let shown: RegistrationSnapshot = { kind: 'signed-out' };
+    const store = createRegistration({
+      ...session.native,
+      // The sign-in renewed for the attempt replaced the expired request before the key failed.
+      recoverWithRecoveryKey: () =>
+        Promise.resolve({
+          ...shown,
+          enrollmentCode: renewedCode,
+          recoveryNotice: 'rejected',
+        }),
+    });
+    await store.register('google');
+    shown = store.getSnapshot().snapshot;
+    await store.recoverWithRecoveryKey(syntheticEnrollmentCode);
+    const { snapshot, recoveryFailure } = store.getSnapshot();
+    expect({ snapshot, recoveryFailure }).toStrictEqual({
+      snapshot: {
+        kind: 'mailbox-needed',
+        productAccountId: 'synthetic-product-account',
+        signInProvider: 'google',
+        privateSync: 'enrollment-pending',
+        enrollmentCode: renewedCode,
+      },
+      recoveryFailure: 'rejected',
+    });
   });
 });
