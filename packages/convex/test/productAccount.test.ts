@@ -645,6 +645,30 @@ describe('productAccount.connect', () => {
     ).rejects.toThrow('401 Recent authentication required');
   });
 
+  it('rejects a malformed revocation request from a recently authenticated device', async () => {
+    expect.assertions(2);
+
+    const asUser = convexTest(schema, modules).withIdentity(appleIdentity);
+    const statuses = await Promise.all(
+      ['not-json', JSON.stringify({ trustedDeviceId: 'device' })].map(
+        async (body) => {
+          const response = await asUser.fetch('/trusted-devices/revoke', {
+            body,
+            headers: {
+              authorization: `Bearer ${appleIdentityToken(Math.floor(Date.now() / 1000))}`,
+              'content-type': 'application/json',
+            },
+            method: 'POST',
+          });
+          return response.status;
+        },
+      ),
+    );
+
+    expect(statuses[0]).toBe(400);
+    expect(statuses[1]).toBe(400);
+  });
+
   it('rejects revoking the current trusted device while allowing bounded clock skew', async () => {
     expect.assertions(1);
 

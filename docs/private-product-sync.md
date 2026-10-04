@@ -121,8 +121,8 @@ after a lost response succeeds without replacing its keys. A competing device
 discards only its unpublished keys, needs enrollment and writes no records before
 publication succeeds. Replacing recovery material requires recent authentication.
 
-Revoking another Trusted Device also requires recent authentication. The host
-sends its identity token as the Authorization bearer header on
+Revoking another Trusted Device also requires recent authentication. A
+revocation client must send its identity token as the Authorization bearer header on
 `POST /trusted-devices/revoke`, and the handler applies the same five-minute
 `iat` check as the [sign-in link routes](linked-sign-in.md#identity-boundaries).
 The revocation mutation is internal, so callers cannot bypass that check. The
