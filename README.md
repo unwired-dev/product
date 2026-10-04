@@ -43,6 +43,18 @@ mise exec -- pnpm install
 For the replacement app, follow [Expo installation and launch](docs/expo-client.md#install-and-run).
 For Mac, follow [native Mac setup](docs/macos-client.md).
 
+For [Graft](https://trailhq.com/graft) code navigation, install the CLI once and
+initialize the local graph from the repository root:
+
+```sh
+npm install --global @nanonets/graft
+graft init --agents agents --no-global --no-mcp
+```
+
+This adds Graft instructions to `AGENTS.md` and builds the ignored `graft/` cache.
+`.worktreeinclude` includes the cache when creating worktrees. Run `graft build`
+to regenerate it when needed.
+
 Turborepo runs the app and backend tasks from the repository root:
 
 | Command                                     | Runs                                                      |
