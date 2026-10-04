@@ -42,7 +42,9 @@ if [[ -n "$changes" ]]; then
   print -u2 'Commit or discard tracked changes and non-ignored untracked files before uploading'
   exit 2
 fi
-umask 077
+# App Store validation rejects a Mac package whose files only the owner can read,
+# so builds use the ordinary mask. mktemp keeps the evidence directory owner-only.
+umask 022
 mkdir -p "$root/artifacts/testflight"
 artifacts=$(mktemp -d "$root/artifacts/testflight/$UNWIRED_BUILD_NUMBER.XXXXXX")
 cleanup() {
