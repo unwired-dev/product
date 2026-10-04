@@ -14,6 +14,7 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 - Distinct identities collapsed into one field or a plain `string` passed between roles: Product Account, Trusted Device, Mailbox Connection, provider mailbox, thread and message identities stay separate so one cannot be supplied where another is required.
 - A response that exposes a field the caller does not need, especially a credential, token, email address, another device's identifier or an internal document. `trustedDeviceCredential` is returned only to the device it was issued to.
+- A fixture containing a real email address, token, key, account identifier or message. Fixtures are synthetic.
 - A field that would carry mail content, Product Sync plaintext or a classification through the backend. Payload bodies are opaque ciphertext.
 
 #### Package boundary

@@ -163,7 +163,7 @@ full-task disposition.
    ocr delegate rule --format json <path1> <path2>
    ```
 
-   Confirm every task-owned path resolves a project path rule from
+   Confirm every task-owned reviewable path resolves a project path rule from
    `.opencodereview/rules/`, and read the common checklist those rules require.
    Use `ocr rules check <path>` to inspect the selected source and pattern when
    needed, keeping rule bodies in the reviewer context. A `rule file not found`

@@ -48,12 +48,17 @@
       "merge_system_rule": false
     },
     {
+      "path": "packages/contracts/fixtures/**",
+      "rule": ".opencodereview/rules/contracts.md",
+      "merge_system_rule": false
+    },
+    {
       "path": "**/*.{test,spec}.{ts,tsx,js,jsx,mjs,cjs,rb,py}",
       "rule": ".opencodereview/rules/tests.md",
       "merge_system_rule": false
     },
     {
-      "path": "**/{test,tests,__tests__,native-tests}/**",
+      "path": "**/{test,tests,__tests__,native-tests,fixtures,testdata}/**",
       "rule": ".opencodereview/rules/tests.md",
       "merge_system_rule": true
     },

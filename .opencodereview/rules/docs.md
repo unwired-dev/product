@@ -8,6 +8,7 @@ Documentation here is product truth that agents execute: an implementer follows 
 - Behavior described as shipped that the code does not implement, or planned replacement behavior stated in the present tense. Unavailable or deferred checks are described as deferred.
 - A relative link or heading fragment that does not resolve, or a link left pointing at a moved section.
 - A statement that restates what a config file or command already says, where the copy can go stale. Point to the source.
+- Steps in a workflow guide whose file scopes, prerequisites or completion gates contradict each other, making the documented procedure impossible to complete. Check neighbouring steps, including their exclusion handling.
 
 #### Vocabulary
 
@@ -30,6 +31,7 @@ Documentation here is product truth that agents execute: an implementer follows 
 #### Review rules (`.opencodereview/`)
 
 - A `rule.json` entry placed after a broader pattern that already matches its files; the first match wins and entries never combine.
+- An `include` pattern whose representative owned files resolve to the fallback or an unrelated path rule, skipping the intended checks. Verify selection and resolution with the real CLI, preserving documented exceptions such as contract fixtures.
 - A `rule` path that does not exist or is unreadable. OCR warns on stderr and silently applies no project rule to those files.
 - A path rule whose first instruction no longer requires `rules/common.md`, or a change to `common.md` that drops a responsibility listed in `docs/architecture/open-code-review.md`.
 - `merge_system_rule` changed for an entry without checking the resolved text with `ocr rules check <path>`; the embedded TypeScript rule contradicts the Effect conventions and is deliberately not merged for Effect-governed code.

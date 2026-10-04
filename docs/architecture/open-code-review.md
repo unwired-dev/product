@@ -70,8 +70,9 @@ defects of one area:
 | Entry order and pattern                                          | Path rule            | Embedded rule |
 | ---------------------------------------------------------------- | -------------------- | ------------- |
 | `.opencodereview/**`, `**/*.md`                                  | `docs.md`            | Not merged    |
+| `packages/contracts/fixtures/**`                                 | `contracts.md`       | Not merged    |
 | `**/*.{test,spec}.*`                                             | `tests.md`           | Not merged    |
-| Test directories, `**/*Tests/**`                                 | `tests.md`           | Merged        |
+| Test, fixture and testdata directories, `**/*Tests/**`           | `tests.md`           | Merged        |
 | `.github/**`                                                     | `workflows.md`       | Merged        |
 | Named workspace and build configuration files                    | `workspace.md`       | Merged        |
 | `scripts/`, host `scripts/`, Expo config plugins                 | `tooling.md`         | Merged        |
