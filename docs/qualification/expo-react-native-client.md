@@ -76,6 +76,33 @@ core 30, mobile 16, Mac 14 and Convex 239 passing tests, plus lint, format, type
 and changeset checks. Runner contracts do not qualify native application behavior;
 the iOS storage suite and packaged journeys above supply their separate evidence.
 
+PR #736 rejection-snapshot follow-up, reviewed against `9920fac7`: malformed keys
+resolve with the current native status and `recoveryNotice: "rejected"` before
+sign-in renewal. A well-formed key that cannot open the envelope returns the
+post-renewal status with the same transient notice. The shared store removes the
+notice and publishes the returned snapshot with `recoveryFailure: "rejected"`,
+including a replacement Enrollment Code when the earlier request expired or was
+cancelled. Native promise rejection code `recovery-key-rejected` is removed.
+
+The implementer reran the iOS 27 storage suite after this fix: 19 tests passed.
+The reviewer inspected `artifacts/private-inbox/integration.SVTyZz/test-1.log`,
+including the recovery test and the suite result; `result-1.xcresult` is retained
+there. The recovery assertions now check current-status rejection replies, a new
+Enrollment Code after expiry, and no recovery notice on restore. This remains
+real Keychain/CryptoKit evidence with a synthetic Convex boundary. Packaged
+recovery/enrollment journeys were not rerun for this fix, so their results above
+qualify the earlier tree. The iOS recovery journey enters only the correct key;
+the Mac wrong-key journey still awaits automation access. The implementer reports
+shared core 31, mobile 16, Mac 14 and Convex 239 passing tests, plus lint, format,
+types and Swift formatting. No native build or journey was run by the reviewer
+for this follow-up.
+
+Independent follow-up reviewer checks passed: shared-core, mobile and Mac test
+suites; shared-core lint and types; formatting for the affected documents; 38
+local documentation paths and anchors; strict Swift formatting and syntax
+parsing for all four changed Swift files; and `git diff --check`. The reviewer
+changed only the architecture companion, this record and scratch review notes.
+
 ## Final host identity and sandbox readiness, 2026-10-03
 
 [#723](https://github.com/unwired-dev/product/issues/723) changes both replacement

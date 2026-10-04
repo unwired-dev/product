@@ -112,7 +112,6 @@ extension RegistrationError {
     case .identityOwned: "identity-owned"
     case .staleAuthentication: "stale-authentication"
     case .recoveryKeyMismatch: "recovery-key-mismatch"
-    case .recoveryKeyRejected: "recovery-key-rejected"
     case .enrollmentCodeInvalid: "enrollment-code-invalid"
     case .enrollmentUnavailable: "enrollment-unavailable"
     }
@@ -312,7 +311,6 @@ final class UnwiredRegistration: NSObject {
           switch code {
           case "cancelled": "Sign-in was cancelled."
           case "recovery-key-mismatch": "That does not match the end of your Recovery Key."
-          case "recovery-key-rejected": "That Recovery Key does not unlock this Product Account."
           case "enrollment-code-invalid": "That code does not match the new device's code."
           case "enrollment-unavailable": "That device request is no longer available."
           default: "Registration could not finish. Retry with your saved account."

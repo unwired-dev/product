@@ -6,8 +6,6 @@ enum RegistrationError: Error {
   case identityOwned, staleAuthentication
   // The entry does not match the end of the Recovery Key shown for setup.
   case recoveryKeyMismatch
-  // The entry is not a Recovery Key that opens this Product Account's recovery envelope.
-  case recoveryKeyRejected
   // Enrollment: a mistyped approval code, or a request that can no longer be approved.
   case enrollmentCodeInvalid, enrollmentUnavailable
 }

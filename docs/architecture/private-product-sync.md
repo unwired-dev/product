@@ -127,7 +127,8 @@ encryption boundaries, not deployment JWT verification or two real devices.
 ## Recovery Key adoption
 
 [#601](https://github.com/unwired-dev/product/issues/601) adds explicit Recovery Key
-entry beside trusted-device approval. Before reading the recovery envelope, Google
+entry beside trusted-device approval. A malformed key is rejected before renewing
+Product Sign-In. Before reading the recovery envelope for a well-formed key, Google
 renews its Product Sign-In silently and Apple signs in interactively on every
 attempt. The existing subject and Product Account checks fence the renewed
 identity, including after relaunch. Reusing an in-process Apple token would strand
@@ -144,6 +145,13 @@ It reads the encrypted mailbox descriptors; Gmail credentials remain device-loca
 and require their own authorization.
 
 Reconnect may create or refresh an enrollment request before the key is checked.
+If the key cannot open the envelope, native recovery resolves with the current
+registration status plus a transient `recoveryNotice: "rejected"`. The shared store
+consumes the notice and publishes that snapshot with `recoveryFailure: "rejected"`,
+so an expired or cancelled request's replacement Enrollment Code remains visible.
+Malformed keys use the same status-and-notice reply without reconnecting. The
+notice is not persisted or returned on restore; rejection does not use a native
+promise error code.
 Recovery saves verified keys before withdrawing that request or removing its local
 Keychain item. A crash before the save leaves recovery retryable without keys; a
 crash after it leaves the verified ring available across relaunch. Failed remote
@@ -154,7 +162,9 @@ encrypted product data unrecoverable; this interface offers no reset.
 
 The [qualification record](../qualification/expo-react-native-client.md#recovery-key-evidence-2026-10-04)
 records final-tree iOS storage and packaged recovery/enrollment passes after the
-reviewer corrections. Real Keychain and CryptoKit checks use a synthetic Convex
+initial reviewer corrections, plus a fresh iOS storage pass for the rejection
+snapshot fix. The packaged journeys were not rerun for that follow-up. Real
+Keychain and CryptoKit checks use a synthetic Convex
 boundary; packaged journeys use Mock Mail Sessions. Mac recovery automation and
 hosted storage, physical devices and protected Convex and provider qualification
 remain pending.

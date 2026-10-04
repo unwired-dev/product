@@ -117,8 +117,10 @@ authorization. The device does not keep or show the Recovery Key afterwards.
 
 A key that is mistyped, incomplete, or belongs to another Product Account unlocks
 nothing. The device reports that the Recovery Key does not unlock this Product
-Account and retains its existing account keys and encrypted data. Reconnecting may
-create or renew this device's approval request before checking the key. If the check
+Account and retains its existing account keys and encrypted data. A malformed key
+is rejected before any sign-in. Otherwise reconnecting may create or renew this
+device's approval request before checking the key, and the rejection shows the
+current Enrollment Code, not one that request replaced. If the check
 cannot reach Convex or is interrupted before the keys are saved, the device stays
 waiting, also after relaunch, and the attempt can be repeated. Recovery never
 creates replacement keys, changes the recovery envelope or discards product data.

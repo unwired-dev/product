@@ -707,22 +707,29 @@ extension PrivateInboxTests {
     let recovering = backend.store(keys: new, google: google)
     let requested = try await recovering.signIn()
     #expect(requested["privateSync"] == "enrollment-pending")
-    let request = try #require(backend.requests.keys.first)
 
     // Malformed, unrelated and another account's keys unlock nothing and change nothing, even
-    // when the backend substitutes that account's envelope.
+    // when the backend substitutes that account's envelope. Each reports the current status.
     let other = RecoveryKey.generate()
+    var rejected = requested
+    rejected["recoveryNotice"] = "rejected"
     for entry in [String(shown.dropLast()), "0000", other.display] {
-      await #expect(throws: RegistrationError.recoveryKeyRejected) {
-        try await recovering.recover(with: entry)
-      }
+      #expect(try await recovering.recover(with: entry) == rejected)
     }
     backend.recovery[account] = try KeyRingEnvelope.recovery(
       .create(), key: other, account: "account-other")
-    await #expect(throws: RegistrationError.recoveryKeyRejected) {
-      try await recovering.recover(with: other.display)
-    }
+    #expect(try await recovering.recover(with: other.display) == rejected)
     backend.recovery[account] = recovery
+    #expect(try recovering.loadVault(account) == nil)
+    // When the request expired while the form was open, the sign-in the attempt renews also
+    // replaces it, and the rejection shows the new code rather than the superseded one.
+    backend.clock += 900_001
+    let renewed = try await recovering.recover(with: other.display)
+    #expect(renewed["recoveryNotice"] == "rejected")
+    #expect(renewed["enrollmentNotice"] == "renewed")
+    let code = try #require(renewed["enrollmentCode"])
+    #expect(code != requested["enrollmentCode"])
+    let request = try #require(backend.requests.keys.first)
     // An interrupted recovery leaves the device waiting for approval, also after relaunch.
     backend.offline = true
     await #expect(throws: RegistrationError.unavailable) {
@@ -731,7 +738,8 @@ extension PrivateInboxTests {
     backend.offline = false
     let relaunched = try await backend.store(keys: new, google: google).restore()
     #expect(relaunched["privateSync"] == "enrollment-pending")
-    #expect(relaunched["enrollmentCode"] == requested["enrollmentCode"])
+    #expect(relaunched["enrollmentCode"] == code)
+    #expect(relaunched["recoveryNotice"] == nil)
     #expect(try recovering.loadVault(account) == nil)
     #expect(backend.requests[request]?.state == .pending)
 

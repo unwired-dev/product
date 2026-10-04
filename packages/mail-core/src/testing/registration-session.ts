@@ -244,11 +244,9 @@ export function createMockRegistrationSession(
       ) {
         return rejection('Synthetic recovery unavailable', 'unavailable');
       }
+      // A key that unlocks nothing reports the current status with a notice.
       if (normalizedCode(entry) !== normalizedCode(syntheticRecoveryKey)) {
-        return rejection(
-          'Synthetic Recovery Key rejected',
-          'recovery-key-rejected',
-        );
+        return Promise.resolve({ ...snapshot, recoveryNotice: 'rejected' });
       }
       const shared = syncAccount(snapshot.productAccountId);
       // The open approval request is withdrawn.

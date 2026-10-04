@@ -44,6 +44,8 @@ const Account = Schema.Struct({
   enrollmentNotice: Schema.optionalKey(
     Schema.Literals(['renewed', 'rejected']),
   ),
+  // Only in the reply to a Recovery Key attempt that unlocked nothing.
+  recoveryNotice: Schema.optionalKey(Schema.Literal('rejected')),
   // Another device of this Product Account waiting for this trusted device's approval.
   enrollmentRequest: Schema.optionalKey(Schema.NonEmptyString),
   enrollmentDevice: Schema.optionalKey(Schema.NonEmptyString),
@@ -91,9 +93,6 @@ const isRecoveryKeyMismatch = Schema.is(
 );
 export type RecoveryKeyFailure = 'mismatch' | 'failed';
 
-const isRecoveryKeyRejected = Schema.is(
-  Schema.Struct({ code: Schema.Literal('recovery-key-rejected') }),
-);
 export type RecoveryFailure = 'rejected' | 'failed';
 
 const isEnrollmentCodeInvalid = Schema.is(
@@ -168,10 +167,11 @@ class RecoveryKeyMismatch extends Schema.TaggedError<RecoveryKeyMismatch>()(
   {},
 ) {}
 
-// A Recovery Key that does not open this account's keys is an expected state.
+// A Recovery Key that does not open this account's keys is an expected state. It carries the
+// device's current status, which the sign-in renewed for the attempt may have changed.
 class RecoveryKeyRejected extends Schema.TaggedError<RecoveryKeyRejected>()(
   'RecoveryKeyRejected',
-  {},
+  { snapshot: RegistrationSnapshotSchema },
 ) {}
 
 // A mistyped approval code is caught on this device before anything is sent.
@@ -201,9 +201,6 @@ const request = Effect.fnUntraced(function* (
       if (isEnrollmentCodeInvalid(cause)) {
         return new EnrollmentCodeInvalid();
       }
-      if (isRecoveryKeyRejected(cause)) {
-        return new RecoveryKeyRejected();
-      }
       return isRecoveryKeyMismatch(cause)
         ? new RecoveryKeyMismatch()
         : new RegistrationFailed({
@@ -222,6 +219,16 @@ const request = Effect.fnUntraced(function* (
     ),
   );
 });
+
+// A rejected Recovery Key arrives as a status with a notice; for example, it can show the new
+// Enrollment Code that replaced an expired request while the key was checked.
+const recoveryOutcome = (snapshot: RegistrationSnapshot) => {
+  if (snapshot.kind === 'signed-out' || snapshot.recoveryNotice === undefined) {
+    return Effect.succeed(snapshot);
+  }
+  const { recoveryNotice: _notice, ...current } = snapshot;
+  return Effect.fail(new RecoveryKeyRejected({ snapshot: current }));
+};
 
 // A request that expired, was cancelled or was already approved cannot be approved again.
 const enrollmentFailed = (
@@ -279,9 +286,9 @@ export function createRegistration(native: NativeRegistration) {
               ...settled(state.snapshot),
               recoveryKeyFailure: 'mismatch',
             })),
-          RecoveryKeyRejected: () =>
+          RecoveryKeyRejected: ({ snapshot }) =>
             Effect.sync((): RegistrationState => ({
-              ...settled(state.snapshot),
+              ...settled(snapshot),
               recoveryFailure: 'rejected',
             })),
           EnrollmentCodeInvalid: () =>
@@ -358,7 +365,9 @@ export function createRegistration(native: NativeRegistration) {
       ),
     recoverWithRecoveryKey: (entry: string) =>
       execute(
-        request(() => native.recoverWithRecoveryKey(entry)),
+        request(() => native.recoverWithRecoveryKey(entry)).pipe(
+          Effect.flatMap(recoveryOutcome),
+        ),
         (snapshot) => ({ ...settled(snapshot), recoveryFailure: 'failed' }),
       ),
     approveEnrollment: (requestId: string, code: string) =>

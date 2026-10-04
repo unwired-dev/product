@@ -5,14 +5,17 @@ extension RegistrationStore {
   // Unlocks this device without a trusted device: the Recovery Key opens the account's published
   // recovery envelope here and never leaves the device. A key that does not open it, or an
   // interruption before the keys are saved, leaves the account keys and encrypted data intact.
+  // A rejected key resolves with this device's current status and a notice, because the renewed
+  // sign-in may already have replaced an expired approval request and its Enrollment Code.
   func recover(with entry: String) async throws -> [String: String] {
-    let key: RecoveryKey
-    do { key = try RecoveryKey(parsing: entry) } catch {
-      throw RegistrationError.recoveryKeyRejected
-    }
     guard let backend = productSync, var saved = try load(), saved.product != nil else {
       throw RegistrationError.unavailable
     }
+    func rejected() throws -> [String: String] {
+      try status(saved).merging(["recoveryNotice": "rejected"]) { $1 }
+    }
+    // A malformed key is rejected before any sign-in renewal.
+    guard let key = try? RecoveryKey(parsing: entry) else { return try rejected() }
     // Refresh authentication for every attempt, including a form left open beyond token expiry.
     // Google renews silently; Apple cannot refresh its token without interactive sign-in.
     if saved.provider == .google {
@@ -29,9 +32,8 @@ extension RegistrationStore {
       throw RegistrationError.unavailable
     }
     let envelope = try await backend.recoveryEnvelope(session, product)
-    let ring: ProductSyncKeyRing
-    do { ring = try KeyRingEnvelope.openRecovery(envelope, key: key, account: account) } catch {
-      throw RegistrationError.recoveryKeyRejected
+    guard let ring = try? KeyRingEnvelope.openRecovery(envelope, key: key, account: account) else {
+      return try rejected()
     }
     // The person holds the Recovery Key already, so this device neither keeps nor shows it.
     try saveVault(

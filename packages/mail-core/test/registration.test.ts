@@ -1,3 +1,5 @@
+import type { RegistrationSnapshot } from '../src/registration.ts';
+
 import { createRegistration } from '../src/registration.ts';
 import {
   createMockRegistrationSession,
@@ -384,5 +386,37 @@ describe('product registration', () => {
     // Its approval request is withdrawn, so the lost device's account lists none.
     await lost.refreshPrivateSync();
     expect(lost.getSnapshot().snapshot).not.toHaveProperty('enrollmentRequest');
+  });
+
+  it('shows the Enrollment Code that replaced an expired request when a Recovery Key is rejected', async () => {
+    expect.hasAssertions();
+    const session = createMockRegistrationSession('registration-enrollment');
+    const renewedCode =
+      'Q7XM-2KTD-9RWP-4HVB-Q7XM-2KTD-9RWP-4HVB-Q7XM-2KTD-9RWP-4HVB-Q7XM-2KT8';
+    let shown: RegistrationSnapshot = { kind: 'signed-out' };
+    const store = createRegistration({
+      ...session.native,
+      // The sign-in renewed for the attempt replaced the expired request before the key failed.
+      recoverWithRecoveryKey: () =>
+        Promise.resolve({
+          ...shown,
+          enrollmentCode: renewedCode,
+          recoveryNotice: 'rejected',
+        }),
+    });
+    await store.register('google');
+    shown = store.getSnapshot().snapshot;
+    await store.recoverWithRecoveryKey(syntheticEnrollmentCode);
+    const { snapshot, recoveryFailure } = store.getSnapshot();
+    expect({ snapshot, recoveryFailure }).toStrictEqual({
+      snapshot: {
+        kind: 'mailbox-needed',
+        productAccountId: 'synthetic-product-account',
+        signInProvider: 'google',
+        privateSync: 'enrollment-pending',
+        enrollmentCode: renewedCode,
+      },
+      recoveryFailure: 'rejected',
+    });
   });
 });
