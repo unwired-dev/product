@@ -244,7 +244,8 @@ async function recentlyAuthenticatedRequest(
 ): Promise<boolean> {
   // Convex validates this exact bearer token's signature, issuer and audience.
   // Reserved OIDC claims such as iat are not exposed on getUserIdentity().
-  const identity = await ctx.auth.getUserIdentity();
+  // HTTP actions throw, rather than return null, for a missing or invalid token.
+  const identity = await ctx.auth.getUserIdentity().catch(() => null);
   const token = bearerToken(request);
   const claims = token === null ? null : identityTokenClaims(token);
   return (
