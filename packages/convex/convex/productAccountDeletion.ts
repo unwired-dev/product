@@ -10,11 +10,13 @@ import {
 
 import { productAccountDeletionResponseValidator } from '@private-email/contracts';
 import { v } from 'convex/values';
+import * as Arr from 'effect/Array';
 import * as Clock from 'effect/Clock';
 import * as Config from 'effect/Config';
 import * as Effect from 'effect/Effect';
 import * as Option from 'effect/Option';
 import * as Predicate from 'effect/Predicate';
+import * as Result from 'effect/Result';
 import * as Schema from 'effect/Schema';
 
 import type { Id } from './_generated/dataModel.js';
@@ -163,12 +165,12 @@ const configuredAppleClientIds = Config.all([
   Config.String('APPLE_BUNDLE_ID').pipe(Config.withDefault('')),
   Config.String('APPLE_PRODUCT_CLIENT_IDS').pipe(Config.withDefault('')),
 ]).pipe(
-  Config.map((values) =>
-    values
-      .join(',')
-      .split(',')
-      .map((id) => id.trim())
-      .filter(Boolean),
+  // APPLE_BUNDLE_ID names one client; APPLE_PRODUCT_CLIENT_IDS lists further ones.
+  Config.map(([bundleId, productClientIds]) =>
+    Arr.filterMap([bundleId, ...productClientIds.split(',')], (id) => {
+      const clientId = id.trim();
+      return clientId === '' ? Result.failVoid : Result.succeed(clientId);
+    }),
   ),
 );
 
