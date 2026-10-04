@@ -519,6 +519,36 @@ extension PrivateInboxTests {
     #expect(backend.initializations == 1)
   }
 
+  @Test @MainActor func unreadableProductSyncKeysLeaveRegistrationAndGmailUsable() async throws {
+    let keys = device()
+    let account = "account-synthetic-product-subject"
+    defer { remove(keys, accounts: [account]) }
+    let google = SyntheticGoogleRegistrationProvider()
+    google.scopes = [RegistrationStore.gmailScope]
+    let backend = SyntheticProductSyncBackend()
+    _ = try await backend.store(keys: keys, google: google).signIn()
+    let ring = try #require(try backend.store(keys: keys, google: google).loadVault(account)).ring
+    // A malformed item, then another Product Account's keys stored under this account's item.
+    for vault in [
+      Data("malformed".utf8),
+      try JSONEncoder().encode(ProductSyncVault(productAccountId: "account-other", ring: ring)),
+    ] {
+      try keys.save(vault, account: "product-sync." + account)
+      google.subject = "synthetic-mailbox-subject"
+      let connected = try await backend.store(keys: keys, google: google).authorizeGmail(
+        reselect: false)
+      #expect(connected["kind"] == "connected")
+      #expect(connected["privateSync"] == "unavailable")
+      #expect(try await backend.store(keys: keys, google: google).restore() == connected)
+      google.subject = "synthetic-product-subject"
+      #expect(try await backend.store(keys: keys, google: google).signIn() == connected)
+      #expect(try backend.store(keys: keys, google: google).load()?.mailboxSetupReason == nil)
+      // The unreadable keys are kept, never replaced.
+      #expect(try keys.read("product-sync." + account) == vault)
+    }
+    #expect(backend.initializations == 1)
+  }
+
   @Test @MainActor func appleRelaunchAsksToSignInAgainBeforeSavingANewMailbox() async throws {
     let keys = device()
     let account = "account-synthetic-apple-subject"

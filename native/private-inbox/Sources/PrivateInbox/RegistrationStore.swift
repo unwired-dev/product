@@ -163,7 +163,13 @@ struct SavedRegistration: Codable {
     if let alternate = product.signInProviders?.first(where: { $0 != saved.provider }) {
       result["alternateSignIn"] = alternate.rawValue
     }
-    return try result.merging(privateSync(saved)) { $1 }
+    // Unreadable local Product Sync state never fails registration or the mailbox.
+    let sync: [String: String]
+    do { sync = try privateSync(saved) } catch {
+      Self.logProductSyncFailure("Product Sync state unreadable", error)
+      sync = ["privateSync": "unavailable"]
+    }
+    return result.merging(sync) { $1 }
   }
 
   func pending(_ saved: SavedRegistration) throws -> [String: String] {

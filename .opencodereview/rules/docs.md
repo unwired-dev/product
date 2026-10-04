@@ -6,6 +6,7 @@ Documentation here is product truth that agents execute: an implementer follows 
 
 - A command, script name, path, flag, version or environment variable that does not exist as written. Check it against `package.json`, the workflow files and the tree.
 - Behavior described as shipped that the code does not implement, or planned replacement behavior stated in the present tense. Unavailable or deferred checks are described as deferred.
+- A required test-count gate or suite membership changed while documentation still cites an older run as current or final-tree evidence, falsely qualifying the changed suite. Check every such claim against the owning test runner and cited result log; label earlier runs with their historical scope and cite a passing run for the changed suite, or mark that evidence deferred.
 - A relative link or heading fragment that does not resolve, or a link left pointing at a moved section.
 - A statement that restates what a config file or command already says, where the copy can go stale. Point to the source.
 - Steps in a workflow guide whose file scopes, prerequisites or completion gates contradict each other, making the documented procedure impossible to complete. Check neighbouring steps, including their exclusion handling.

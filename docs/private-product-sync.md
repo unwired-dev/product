@@ -182,8 +182,12 @@ Backend reads and writes resume after the next interactive sign-in. The mailbox 
 therefore reported as unsaved until then.
 
 Convex reads and writes require the Trusted Device Credential and remain fenced to
-its Product Account, as before. A Product Sync failure is logged without details
-and leaves registration and the mailbox usable.
+its Product Account, as before. A Product Sync failure is logged with its error
+domain and code only, and leaves registration and the mailbox usable. When this
+device's keys or enrollment request cannot be read, registration responses report
+Product Sync as `unavailable`. This includes malformed stored data and key items
+saved for another Product Account. The keys are kept, never replaced, and the failure never changes
+the saved mailbox state.
 
 ## Deterministic evidence
 
@@ -209,10 +213,13 @@ key then gives it the account's key ring and decrypted mailbox list without Gmai
 access, withdraws its approval request and leaves the recovery envelope unchanged.
 The backend never receives the key. Additional native assertions reject an
 authenticated envelope with unusable keys and require fresh Apple authentication
-before recovery, rejecting identity changes and cancelled renewal. The final-tree
-iOS storage run passed all 19 tests, including those reviewer assertions. Raw
-results are retained in `artifacts/private-inbox/integration.zR0adL/`; this is real
-native storage and cryptography evidence with a synthetic Convex boundary.
+before recovery, rejecting identity changes and cancelled renewal. The Recovery
+Key final-tree iOS storage run passed all 19 tests, including those reviewer
+assertions. Raw results are retained in `artifacts/private-inbox/integration.zR0adL/`.
+That run predates the unreadable local key item case below; with it, the iOS storage
+run passed all 20 tests, retained in `artifacts/private-inbox/integration.Z5Nl6g/`.
+Both are real native storage and cryptography evidence with a synthetic Convex
+boundary.
 The two-device approval journey uses two
 installations with separate Keychains. A mistyped code, declined, forged, expired,
 replayed and revoked approvals all leave the new device without keys. A forged
@@ -221,7 +228,9 @@ device the account's key ring and decrypted mailbox list, without Gmail access.
 The account's recovery envelope and single initialization stay unchanged. It also covers confirmation mismatch and
 success, rejection of foreign records, and relaunch with unchanged keys. An
 interrupted publication resumes; a device that loses the race discards its keys,
-enters enrollment and writes no records.
+enters enrollment and writes no records. A malformed or mismatched local key item
+reports Product Sync as unavailable while Gmail authorization, restore and
+sign-in still connect the mailbox, and the item stays unchanged.
 
 Convex tests cover single initialization, idempotent retry, refusal for
 initialized accounts, epoch and device-proof enforcement, and the reserved

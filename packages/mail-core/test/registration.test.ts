@@ -1,6 +1,10 @@
 import type { RegistrationSnapshot } from '../src/registration.ts';
 
-import { createRegistration } from '../src/registration.ts';
+import {
+  createRegistration,
+  offersRecovery,
+  privateSyncCopy,
+} from '../src/registration.ts';
 import {
   createMockRegistrationSession,
   createSyntheticAccount,
@@ -24,6 +28,47 @@ const accounts = {
 } as const;
 
 describe('product registration', () => {
+  it('keeps the mailbox connected when native Product Sync state is unavailable', async () => {
+    expect.hasAssertions();
+    const session = createMockRegistrationSession('registration-success');
+    const account = {
+      productAccountId: 'synthetic-product-account',
+      signInProvider: 'google',
+      privateSync: 'unavailable',
+    } as const;
+    const connected = {
+      ...account,
+      kind: 'connected',
+      providerSubject: 'synthetic-google-subject',
+      address: 'alex@example.invalid',
+    } as const;
+    const store = createRegistration({
+      ...session.native,
+      signIn: () => Promise.resolve({ ...account, kind: 'mailbox-needed' }),
+      authorizeGmail: () => Promise.resolve(connected),
+      restore: () => Promise.resolve(connected),
+    });
+    for (const operation of [
+      () => store.register('google'),
+      () => store.restore(),
+      () => store.authorizeGmail(false),
+    ]) {
+      await operation();
+      expect(store.getSnapshot()).toStrictEqual({
+        snapshot: connected,
+        busy: false,
+        failed: false,
+      });
+    }
+    expect(privateSyncCopy(account)).toMatchObject({
+      title: 'Private sync is unavailable',
+      recoveryKey: undefined,
+      enrollmentCode: undefined,
+      pending: undefined,
+    });
+    expect(offersRecovery(account.privateSync)).toBe(false);
+  });
+
   it('keeps enrollment and mailbox descriptors isolated between synthetic Product Accounts', async () => {
     expect.hasAssertions();
     const accounts = createSyntheticAccount();
