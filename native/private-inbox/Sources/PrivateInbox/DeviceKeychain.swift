@@ -10,6 +10,11 @@ public enum PrivateInboxError: Error, Equatable {
 struct DeviceKeychain {
   let service: String
 
+  // Only an unavailable protected-data state recovers on unlock; other failures do not.
+  static func failure(_ status: OSStatus) -> PrivateInboxError {
+    status == errSecInteractionNotAllowed ? .locked : .unavailable
+  }
+
   func query(_ account: String) -> [String: Any] {
     [
       kSecClass as String: kSecClassGenericPassword,
@@ -28,7 +33,7 @@ struct DeviceKeychain {
     let status = SecItemCopyMatching(request as CFDictionary, &result)
     if status == errSecItemNotFound { return nil }
     guard status == errSecSuccess, let data = result as? Data else {
-      throw PrivateInboxError.locked
+      throw Self.failure(status)
     }
     return data
   }
@@ -37,15 +42,14 @@ struct DeviceKeychain {
     var request = query(account)
     request[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
     request[kSecValueData as String] = data
-    guard SecItemAdd(request as CFDictionary, nil) == errSecSuccess else {
-      throw PrivateInboxError.locked
-    }
+    let status = SecItemAdd(request as CFDictionary, nil)
+    guard status == errSecSuccess else { throw Self.failure(status) }
   }
 
   func remove(_ account: String) throws {
     let status = SecItemDelete(query(account) as CFDictionary)
     guard status == errSecSuccess || status == errSecItemNotFound else {
-      throw PrivateInboxError.locked
+      throw Self.failure(status)
     }
   }
 
@@ -56,6 +60,6 @@ struct DeviceKeychain {
       try insert(data, account: account)
       return
     }
-    guard status == errSecSuccess else { throw PrivateInboxError.locked }
+    guard status == errSecSuccess else { throw Self.failure(status) }
   }
 }

@@ -22,7 +22,9 @@ JavaScript can open the store and set one message's unread field. It cannot
 create, read, replace, or remove the encryption key.
 
 Lock-time I/O failures are reported as locked so retry
-can recover after unlock without replacing ciphertext.
+can recover after unlock without replacing ciphertext. Only unavailable protected
+data is locked: a missing or malformed key, or any other Keychain failure, is
+reported as unavailable because unlocking cannot recover it.
 
 Opening an existing file requires its existing key. Missing, inaccessible or
 malformed keys do not generate replacements. Authentication, decoding, version,
@@ -51,7 +53,7 @@ another host's renderer.
 Mac Data Protection Keychain access requires development or distribution signing
 with an application identifier, Keychain access group, and matching provisioning
 profile. Ad-hoc builds can compile but cannot qualify persistent storage; they
-show the locked state when Keychain access is denied. Supply your configured
+report unavailable storage when Keychain access is denied. Supply your configured
 Unwired signing identity and team, with the matching Mac development profile
 already installed:
 

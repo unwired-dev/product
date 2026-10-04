@@ -205,6 +205,92 @@ describe('product registration', () => {
     });
   });
 
+  it('keeps a locked state instead of onboarding when launched while locked, and restores the account after unlock', async () => {
+    expect.hasAssertions();
+    const errors = vi.spyOn(console, 'error').mockReturnValue(undefined);
+    const session = createMockRegistrationSession('registration-success');
+    await createRegistration(session.native).register('google');
+    let nativeRestore = (): Promise<unknown> =>
+      Promise.reject(Object.assign(new Error('locked'), { code: 'locked' }));
+    let restores = 0;
+    const store = createRegistration({
+      ...session.native,
+      restore: () => {
+        restores += 1;
+        return nativeRestore();
+      },
+    });
+    await store.restoreOnce();
+    const locked = {
+      snapshot: { kind: 'signed-out' },
+      busy: false,
+      failed: false,
+      locked: true,
+    };
+    expect(store.getSnapshot()).toStrictEqual(locked);
+    // Becoming active while still locked keeps the locked state.
+    await store.resume();
+    expect(store.getSnapshot()).toStrictEqual(locked);
+    nativeRestore = session.native.restore;
+    await store.resume();
+    expect(store.getSnapshot()).toStrictEqual({
+      snapshot: {
+        kind: 'connected',
+        ...accounts.google,
+        signInProvider: 'google',
+        providerSubject: 'synthetic-google-subject',
+        address: 'alex@example.invalid',
+        privateSyncMailboxes: 'alex@example.invalid',
+      },
+      busy: false,
+      failed: false,
+    });
+    // An unlocked, verified account is not verified again on every activation.
+    await store.resume();
+    expect(restores).toBe(3);
+    expect(errors).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['launch', 'restoreOnce', 0],
+    ['retry', 'resume', 1],
+  ] as const)(
+    'retains an unlock activation while the %s restore is still pending',
+    async (_phase, action, previousAttempts) => {
+      expect.hasAssertions();
+      const session = createMockRegistrationSession('registration-success');
+      await createRegistration(session.native).register('google');
+      const blocked = Promise.withResolvers<unknown>();
+      const started = Promise.withResolvers<boolean>();
+      const locked = Object.assign(new Error('locked'), { code: 'locked' });
+      let nativeRestore = (): Promise<unknown> => Promise.reject(locked);
+      const store = createRegistration({
+        ...session.native,
+        restore: () => nativeRestore(),
+      });
+      for (let attempt = 0; attempt < previousAttempts; attempt += 1) {
+        await store.restoreOnce();
+      }
+      nativeRestore = () => {
+        started.resolve(true);
+        return blocked.promise;
+      };
+      const restoring = store[action]();
+      await started.promise;
+      // Unlock arrives before the pending native rejection crosses the bridge.
+      nativeRestore = session.native.restore;
+      const activating = store.resume();
+      blocked.reject(locked);
+      await Promise.all([restoring, activating]);
+      expect(store.getSnapshot()).toMatchObject({
+        snapshot: { kind: 'connected', signInProvider: 'google' },
+        busy: false,
+        failed: false,
+      });
+      expect(store.getSnapshot()).not.toHaveProperty('locked');
+    },
+  );
+
   it('rejects malformed native connection data and prevents overlapping consent operations', async () => {
     expect.hasAssertions();
     const session = createMockRegistrationSession('registration-success');

@@ -80,6 +80,7 @@ export type RegistrationSnapshot = typeof RegistrationSnapshotSchema.Type;
 const isCancelled = Schema.is(
   Schema.Struct({ code: Schema.Literal('cancelled') }),
 );
+const isLocked = Schema.is(Schema.Struct({ code: Schema.Literal('locked') }));
 
 const LinkFailureSchema = Schema.Literals([
   'identity-owned',
@@ -129,6 +130,8 @@ type RegistrationState = Readonly<{
   snapshot: RegistrationSnapshot;
   busy: boolean;
   failed: boolean;
+  // Saved registration cannot be read until the device is unlocked; the snapshot is not its status.
+  locked?: true;
   // A failed link leaves the Product Account and its sign-ins unchanged.
   linkFailure?: LinkFailure;
   recoveryKeyFailure?: RecoveryKeyFailure;
@@ -160,6 +163,12 @@ const settled = (snapshot: RegistrationSnapshot): RegistrationState => ({
 
 class RegistrationCancelled extends Schema.TaggedError<RegistrationCancelled>()(
   'RegistrationCancelled',
+  {},
+) {}
+
+// Protected device data is unavailable while the device is locked; it is an expected state.
+class RegistrationLocked extends Schema.TaggedError<RegistrationLocked>()(
+  'RegistrationLocked',
   {},
 ) {}
 
@@ -199,6 +208,9 @@ const request = Effect.fnUntraced(function* (
     catch: (cause) => {
       if (isCancelled(cause)) {
         return new RegistrationCancelled();
+      }
+      if (isLocked(cause)) {
+        return new RegistrationLocked();
       }
       if (isEnrollmentCodeInvalid(cause)) {
         return new EnrollmentCodeInvalid();
@@ -261,6 +273,7 @@ export function createRegistration(native: NativeRegistration) {
     operation: Effect.Effect<
       RegistrationSnapshot,
       | RegistrationCancelled
+      | RegistrationLocked
       | RecoveryKeyMismatch
       | RecoveryKeyRejected
       | EnrollmentCodeInvalid
@@ -273,16 +286,32 @@ export function createRegistration(native: NativeRegistration) {
       ...settled(snapshot),
       failed: true,
     }),
+    resumeOnly = false,
   ) =>
     runLogged(
       Effect.sync(() => {
-        publish({ snapshot: state.snapshot, busy: true, failed: false });
+        // A retry keeps the locked state rather than revealing a snapshot it could not read.
+        publish(
+          state.locked
+            ? {
+                snapshot: state.snapshot,
+                busy: true,
+                failed: false,
+                locked: true,
+              }
+            : { snapshot: state.snapshot, busy: true, failed: false },
+        );
       }).pipe(
         Effect.andThen(operation),
         Effect.map(settled),
         Effect.catchTags({
           RegistrationCancelled: () =>
             Effect.sync(() => settled(state.snapshot)),
+          RegistrationLocked: () =>
+            Effect.sync((): RegistrationState => ({
+              ...settled(state.snapshot),
+              locked: true,
+            })),
           RecoveryKeyMismatch: () =>
             Effect.sync((): RegistrationState => ({
               ...settled(state.snapshot),
@@ -310,15 +339,23 @@ export function createRegistration(native: NativeRegistration) {
             publish(next);
           }),
         ),
-        Semaphore.withPermitsIfAvailable(semaphore, 1),
-        Effect.asVoid,
+        // An activation can arrive before a pending operation reports that storage was locked.
+        Effect.when(Effect.sync(() => !resumeOnly || state.locked === true)),
+        (program) =>
+          resumeOnly
+            ? program.pipe(Semaphore.withPermits(semaphore, 1), Effect.asVoid)
+            : program.pipe(
+                Semaphore.withPermitsIfAvailable(semaphore, 1),
+                Effect.asVoid,
+              ),
       ),
     );
-  const restore = () =>
-    execute(request(native.restore), (snapshot) => ({
-      ...settled(pending(snapshot)),
-      failed: true,
-    }));
+  const restore = (resumeOnly = false) =>
+    execute(
+      request(native.restore),
+      (snapshot) => ({ ...settled(pending(snapshot)), failed: true }),
+      resumeOnly,
+    );
   return {
     getSnapshot: () => state,
     subscribe: (listener: () => void) => {
@@ -327,7 +364,7 @@ export function createRegistration(native: NativeRegistration) {
         listeners.delete(listener);
       };
     },
-    restore,
+    restore: () => restore(),
     // Every mounted host view restores through the same store; only the first mount verifies.
     restoreOnce: () => {
       if (restored) {
@@ -336,6 +373,8 @@ export function createRegistration(native: NativeRegistration) {
       restored = true;
       return restore();
     },
+    // Hosts call this when the app becomes active; unlocking the device ends a locked state.
+    resume: () => restore(true),
     register: (provider: SignInProvider) =>
       execute(
         Effect.gen(function* () {
@@ -469,6 +508,12 @@ export function linkFailureCopy(
     }
   }
 }
+
+export const lockedCopy = {
+  title: 'Unlock your device',
+  description:
+    "Unwired Mail cannot read this device's protected data while it is locked. Unlock your device to continue.",
+} as const;
 
 export function registrationCopy(snapshot: RegistrationSnapshot) {
   switch (snapshot.kind) {

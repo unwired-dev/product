@@ -306,13 +306,16 @@ final class UnwiredRegistration: NSObject {
           \(name, privacy: .public) failed: \(failure.domain, privacy: .public) \
           \(failure.code, privacy: .public) \(failure.localizedDescription, privacy: .private)
           """)
-        let code = (error as? RegistrationError)?.code ?? "unavailable"
+        let code =
+          (error as? RegistrationError)?.code
+          ?? ((error as? PrivateInboxError) == .locked ? "locked" : "unavailable")
         let message =
           switch code {
           case "cancelled": "Sign-in was cancelled."
           case "recovery-key-mismatch": "That does not match the end of your Recovery Key."
           case "enrollment-code-invalid": "That code does not match the new device's code."
           case "enrollment-unavailable": "That device request is no longer available."
+          case "locked": "Unlock your device to open your saved account."
           default: "Registration could not finish. Retry with your saved account."
           }
         reject(code, message, nil)

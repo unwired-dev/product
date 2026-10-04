@@ -6,6 +6,7 @@ import {
   syntheticRecoveryKey,
 } from '@private-email/mail-core/testing/registration-session';
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
+import { AppState } from 'react-native';
 
 import { RegistrationGate } from '../src/registration-gate.tsx';
 
@@ -574,6 +575,46 @@ describe('product registration', () => {
       'value',
       '',
     );
+  });
+
+  it('shows a locked state instead of onboarding after a locked launch and restores the account once active', async () => {
+    expect.hasAssertions();
+    const listenersBeforeRender = jest.mocked(AppState.addEventListener).mock
+      .calls.length;
+    const session = createMockRegistrationSession('registration-success');
+    await session.native.signIn('google');
+    await session.native.authorizeGmail(false);
+    let restore = (): Promise<unknown> =>
+      Promise.reject(Object.assign(new Error('locked'), { code: 'locked' }));
+    await render(
+      <RegistrationGate
+        store={createRegistration({
+          ...session.native,
+          restore: () => restore(),
+        })}
+        preview={false}>
+        {null}
+      </RegistrationGate>,
+    );
+    await expect(
+      screen.findByRole('header', { name: 'Unlock your device' }),
+    ).resolves.toBeVisible();
+    expect(screen.queryByText('Welcome to Unwired Mail')).toBeNull();
+    expect(screen.queryByRole('button')).toBeNull();
+    expect(screen.queryByRole('alert')).toBeNull();
+    ({ restore } = session.native);
+    // The React Native Jest preset records AppState listeners on its mock.
+    await act(async () => {
+      for (const [, activate] of jest
+        .mocked(AppState.addEventListener)
+        .mock.calls.slice(listenersBeforeRender)) {
+        activate('active');
+      }
+      await Promise.resolve();
+    });
+    await expect(
+      screen.findByRole('header', { name: 'Gmail connected' }),
+    ).resolves.toBeVisible();
   });
 
   it('offers sign-in again when the connected mailbox is not yet saved to private sync', async () => {
