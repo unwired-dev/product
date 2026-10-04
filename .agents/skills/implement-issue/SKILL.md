@@ -1,6 +1,6 @@
 ---
 name: implement-issue
-description: Implement a GitHub issue in this repository when the user asks to implement, fix, or work on an issue by URL or number. Carry it through verification and a ready-for-review pull request, then invoke babysit-pr. Do not use for issue triage, explanation, or planning-only requests.
+description: Implement a GitHub issue in this repository when asked to implement, fix, or work on an issue by URL or number, or to implement the next unblocked issue ranked by GitHub priority then oldest first. Carry it through verification and a ready-for-review pull request, then invoke babysit-pr. Do not use for issue triage, explanation, or planning-only requests.
 ---
 
 # Implement issue
@@ -8,6 +8,7 @@ description: Implement a GitHub issue in this repository when the user asks to i
 Internal workflow for this repository. A request such as “implement issue #123”
 or “implement https://github.com/unwired-dev/product/issues/123” starts the
 implementation-to-PR workflow without requiring an explicit skill invocation.
+“Implement the next unblocked issue” first selects one issue using the rules below.
 Respect explicit limits such as “local changes only” or “do not push.”
 
 Use the current checkout, its configured GitHub remote, authenticated `gh`, and
@@ -19,7 +20,9 @@ accurately; do not substitute a different reviewer or claim a completed handoff.
 
 ## Establish the issue and scope
 
-1. Resolve a bare issue number against the current repository. For a URL, verify
+1. For a request to implement the next unblocked issue, select it using
+   [Next unblocked issue](#next-unblocked-issue), then continue with that issue.
+   Otherwise resolve a bare issue number against the current repository. For a URL, verify
    its repository matches the checkout before editing; ask the user to resolve
    a mismatch. If no issue is identifiable from the request or conversation,
    ask for its URL or number.
@@ -40,6 +43,42 @@ accurately; do not substitute a different reviewer or claim a completed handoff.
    default branch. Identify the acceptance criteria and the checks that will
    demonstrate them. Ask early about material missing requirements while
    continuing independent work.
+
+## Next unblocked issue
+
+Select exactly one issue from the current repository; this mode does not start a
+backlog-draining loop. An explicitly named issue bypasses automatic selection.
+
+1. Enumerate all open issues labelled `ready-for-agent`, following every page.
+   Exclude pull requests, `ready-for-human`, `human needed`, `wontfix`, and
+   `in progress` issues, plus issues with an open implementation PR or other
+   clear evidence of active implementation. Apply any narrower scope the user
+   supplied. Do not infer readiness from age or priority alone.
+2. Read the organization's native **Priority issue field**, not a GitHub Projects
+   field or a guessed label. Discover its field and option IDs through
+   `GET /orgs/{org}/issue-fields`, and match each issue's `issue_field_values`
+   by `issue_field_id` and selected option ID. Use the field's configured option
+   `priority` order, ascending: currently Urgent, High, Medium, Low. Put issues
+   with a confirmed unset priority after all assigned priorities. Within each
+   priority, sort by `created_at` ascending (oldest first), then issue number
+   ascending for an exact tie. Do not use last-updated time or API response order.
+3. In that order, check each candidate's native incoming dependencies through
+   `GET /repos/{owner}/{repo}/issues/{issue_number}/dependencies/blocked_by`,
+   following every page. Read explicit “Blocked by” references in its body and
+   relevant comments too. An open blocker makes it ineligible. A closed blocker
+   only satisfies the dependency when completed or explicitly waived; closure
+   as not planned alone is insufficient. Check cross-repository blockers in
+   their own repositories. Ordinary related links are not automatically blockers.
+4. Select the first candidate whose blockers are satisfied and whose requirements
+   are actionable. Recheck its live state, readiness, dependencies and active PRs
+   immediately before starting. State its URL, priority (or unset), creation date,
+   and why higher-ranked candidates were skipped, then proceed with implementation.
+
+Treat failed or incomplete reads as unknown, not as an unset priority or an empty
+blocker list. If missing access or ambiguous priority ordering could change the
+winner, resolve it or report selection blocked; do not silently fall back to age.
+If no eligible issue remains, report that outcome and the relevant blockers without
+starting unrelated work or changing priorities, labels, or dependencies to qualify it.
 
 ## Implement, verify, and review
 
