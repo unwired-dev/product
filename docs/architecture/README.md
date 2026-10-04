@@ -6,6 +6,9 @@ Implementers use the [operational documentation index](../README.md), topic
 vocabulary, observable requirements and coding conventions. The reviewer reads
 the companions and relevant decisions, fixes validated issues and returns
 operational outcomes without copying architecture into the implementer's context.
+Architecture checking runs through the resolved repository OCR rules during that
+handoff; [the coverage map](open-code-review.md) records rule ownership, source
+authority and preserved review responsibilities.
 
 The companions below contain extracted architecture and internal implementation
 passages. Their source files retain setup, commands, validation and observable
@@ -53,8 +56,9 @@ release scopes; a moved passage is not a new requirement or proof of qualificati
 - [Platform qualification and deferred native evidence](../qualification/expo-react-native-client.md)
 - [Complete ticket and dependency coverage](../qualification/expo-rewrite-ticket-coverage.md)
 
-The review agent checks applicable privacy, encryption, identity-isolation, transport, and
-delivery guarantees in the earlier [ADRs](../adr/). ADR 0059 through 0065 take
+The resolved OCR checklist requires the review agent to check applicable privacy,
+encryption, identity-isolation, transport and delivery guarantees in the earlier
+[ADRs](../adr/). ADR 0059 through 0065 take
 precedence where they explicitly replace prototype architecture or release scope.
 Earlier provider support, Profile features, Apple-only login, and cross-device
 scheduled delivery are not implicit first-release requirements.

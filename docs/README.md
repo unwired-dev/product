@@ -20,7 +20,7 @@ their scope below; publication of a plan does not prove implementation or releas
 ## Shared policies
 
 - [Root agent guide](../AGENTS.md) and [backend guide](../packages/convex/AGENTS.md)
-- [Implementation handoff, pinned review agent, Open Code Review and architecture ownership](agents/implementation-review.md)
+- [Implementation handoff, pinned review agent and OCR architecture review](agents/implementation-review.md)
 - [Domain vocabulary by topic](../GLOSSARY.md) and [maintenance policy](agents/domain.md)
 - [Test admission, retirement, and feedback budgets](agents/testing.md)
 - [Effect conventions and lint enforcement](agents/effect.md)
