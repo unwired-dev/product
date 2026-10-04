@@ -103,6 +103,13 @@ extension RegistrationStore {
   static let productSyncLogger = Logger(
     subsystem: Bundle.main.bundleIdentifier ?? "dev.unwired.mail", category: "product-sync")
 
+  // Logs the error's domain and code only; descriptions can carry account or key details.
+  static func logProductSyncFailure(_ event: String, _ error: any Error) {
+    let error = error as NSError
+    productSyncLogger.error(
+      "\(event, privacy: .public): \(error.domain, privacy: .public) \(error.code)")
+  }
+
   func vaultAccount(_ productAccountId: String) -> String { "product-sync." + productAccountId }
 
   func loadVault(_ productAccountId: String) throws -> ProductSyncVault? {
@@ -134,7 +141,7 @@ extension RegistrationStore {
 
   // Only uninitialized accounts create keys; losing initialization discards unpublished keys.
   // Initialization, enrollment and descriptor publication share one ordered account/session flow.
-  // swiftlint:disable:next cyclomatic_complexity function_body_length
+  // swiftlint:disable:next cyclomatic_complexity
   func synchronize(_ saved: SavedRegistration) async -> SavedRegistration {
     guard let backend = productSync, let session, var product = saved.product else { return saved }
     let account = product.productAccountId
@@ -186,8 +193,7 @@ extension RegistrationStore {
       enrollmentRequests[account] = try await backend.pendingEnrollments(session, product)
     } catch {
       // Product Sync stays pending; registration and the mailbox remain usable.
-      Self.productSyncLogger.error(
-        "Product Sync failed: \(String(describing: error), privacy: .private)")
+      Self.logProductSyncFailure("Product Sync failed", error)
     }
     return saved
   }
@@ -223,8 +229,7 @@ extension RegistrationStore {
             try await backend.completeEnrollment(session, product, pending.requestId)
           } catch {
             // The approval expires on its own; this device already holds the keys.
-            Self.productSyncLogger.error(
-              "Enrollment completion failed: \(String(describing: error), privacy: .private)")
+            Self.logProductSyncFailure("Enrollment completion failed", error)
           }
           return vault
         }

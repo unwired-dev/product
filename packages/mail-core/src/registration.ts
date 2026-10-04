@@ -20,6 +20,8 @@ const PrivateSyncSchema = Schema.Literals([
   'enrollment-needed',
   // Waiting for a trusted device to approve this one with the code it shows.
   'enrollment-pending',
+  // This device's Product Sync state cannot be read; registration and mail stay usable.
+  'unavailable',
 ]);
 export type PrivateSync = typeof PrivateSyncSchema.Type;
 
@@ -547,6 +549,11 @@ const privateSyncText = {
     title: 'Approve this device',
     description:
       'This Product Account already has end-to-end encrypted data. Signing in does not unlock it. On one of your trusted devices, open Unwired Mail and enter this code to approve this device.',
+  },
+  unavailable: {
+    title: 'Private sync is unavailable',
+    description:
+      'Private sync data on this device could not be read, so private sync is paused here. Your sign-in and mailbox keep working, and nothing was reset or replaced.',
   },
 } as const satisfies Record<
   PrivateSync,

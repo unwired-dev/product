@@ -44,8 +44,7 @@ extension RegistrationStore {
         try await backend.declineEnrollment(session, product, pending.requestId)
       } catch {
         // The request expires on its own; this device already holds the keys.
-        Self.productSyncLogger.error(
-          "Enrollment cancellation failed: \(String(describing: error), privacy: .private)")
+        Self.logProductSyncFailure("Enrollment cancellation failed", error)
       }
     }
     try keys.remove(enrollmentAccount(account))
