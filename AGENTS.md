@@ -20,7 +20,7 @@ Follow the [implementation and review workflow](docs/agents/implementation-revie
 for every implementation, including later implementation fixes.
 
 - The implementer never reads repository architecture documentation, including
-  `docs/architecture/`, ADRs, `.patterns/`, `.opencodereview/rule.json`, and the reviewer-only sources listed
+  `docs/architecture/`, ADRs, `.patterns/`, `.opencodereview/rule.json`, `.opencodereview/rules/`, and the reviewer-only sources listed
   in the workflow. This role boundary takes precedence over architecture-reading
   instructions in other repository guides or skills.
 - Invoke the `ponytail` and `unlazy` skills before implementing, and follow both

@@ -27,8 +27,8 @@ Repository architecture documentation belongs exclusively to the review agent:
 - `docs/architecture/`, including the reviewer-only architecture index.
 - `docs/adr/` and any other architecture decision records.
 - `.patterns/` and any other repository architecture guides.
-- `.opencodereview/rule.json` and resolved rule bodies, which contain architecture
-  review instructions. Its routing `AGENTS.md` remains implementer-readable.
+- `.opencodereview/rule.json`, `.opencodereview/rules/` and resolved rule bodies,
+  which contain architecture review instructions. Its routing `AGENTS.md` remains implementer-readable.
 - `docs/research/`, `docs/qualification/`, and `docs/archive/` for technical design,
   qualification evidence and historical decisions.
 
@@ -127,9 +127,12 @@ Do not substitute a `--rule` override or saved global rules for this project
 checklist. The reviewer may read the config and resolved bodies; the implementer
 receives coverage and findings without their architecture content. The
 [upstream rule format](https://github.com/alibaba/open-code-review/blob/main/pages/src/content/docs/en/review-rules.md)
-describes first-match resolution and `merge_system_rule`. This repository uses
-one common rule with conditional sections and merges embedded language rules.
-Its targeted includes admit owned documentation and tests; explicit excludes
+describes first-match resolution and `merge_system_rule`. This repository
+resolves one path rule per file. Each path rule requires the common checklist
+`.opencodereview/rules/common.md` as its first instruction; read that checklist
+once per review and apply it to every task-owned file. Embedded language rules
+are merged except where they contradict the repository's conventions.
+The config's targeted includes admit owned documentation and tests; explicit excludes
 keep dependencies, generated/build output and task probes out. Inclusion is a
 bypass of default filters, not a whitelist; exclusions still require a recorded
 full-task disposition.
@@ -160,10 +163,11 @@ full-task disposition.
    ocr delegate rule --format json <path1> <path2>
    ```
 
-   Confirm every task-owned path resolves the project checklist together with
-   its embedded rule. Use `ocr rules check <path>` to inspect the selected source
-   and pattern when needed, keeping rule bodies in the reviewer context. A
-   missing, invalid or overridden repository checklist leaves this step
+   Confirm every task-owned path resolves a project path rule from
+   `.opencodereview/rules/`, and read the common checklist those rules require.
+   Use `ocr rules check <path>` to inspect the selected source and pattern when
+   needed, keeping rule bodies in the reviewer context. A `rule file not found`
+   warning, or a missing, invalid or overridden repository rule, leaves this step
    incomplete; fix its resolution before proceeding. Read the authoritative
    sources required by the common rules and the conditional sections applicable
    to the changed behavior and collaborating modules.

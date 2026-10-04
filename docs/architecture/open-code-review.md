@@ -29,7 +29,7 @@ carries a second architecture checklist beside OCR.
 
 ## Conditional source routing
 
-The common sections R1–R3 apply to every task-owned artifact. Conditional sections
+The common sections R0–R3 apply to every task-owned artifact. Conditional sections
 follow the changed behavior and its collaborators, not only a path prefix.
 A cross-cutting change can require several sections. Record applicable sections,
 source references and outcomes in the review; explain an exclusion or an
@@ -54,11 +54,87 @@ an authorized decision changes their scope.
 
 ## Rule matching and selection
 
-One `**/*` project entry supplies all common and conditional sections. OCR uses
-the first matching project entry, so adding a specialized entry does not combine
-it with the common entry. `merge_system_rule: true` retains the embedded rule
-selected for each file's language; it does not merge two project entries.
-The project entry takes precedence over user-global rules and must not be
+OCR uses the first matching project entry and never combines entries, and one
+entry resolves one rule. `rule.json` therefore orders its entries from most
+specific to the `**/*` fallback, and each entry's `rule` names a Markdown file
+under `.opencodereview/rules/`. OCR reads that file relative to the repository
+root. An unreadable file produces only a `rule file not found` warning and no
+project rule, so `pnpm test:tooling` checks that every entry's file exists.
+
+[`rules/common.md`](../../.opencodereview/rules/common.md) carries R0–R11. The
+fallback entry resolves it directly. Every path rule opens by requiring it, which
+keeps the common and conditional sections in one file and applies them to every
+task-owned artifact regardless of directory. A path rule adds the concrete
+defects of one area:
+
+| Entry order and pattern                                          | Path rule            | Embedded rule |
+| ---------------------------------------------------------------- | -------------------- | ------------- |
+| `.opencodereview/**`, `**/*.md`                                  | `docs.md`            | Not merged    |
+| `**/*.{test,spec}.*`                                             | `tests.md`           | Not merged    |
+| Test directories, `**/*Tests/**`                                 | `tests.md`           | Merged        |
+| `.github/**`                                                     | `workflows.md`       | Merged        |
+| Named workspace and build configuration files                    | `workspace.md`       | Merged        |
+| `scripts/`, host `scripts/`, Expo config plugins                 | `tooling.md`         | Merged        |
+| `packages/convex/**`                                             | `convex.md`          | Not merged    |
+| `packages/contracts/**`                                          | `contracts.md`       | Not merged    |
+| `packages/mail-core/**`                                          | `mail-core.md`       | Not merged    |
+| Host TypeScript in `apps/mobile` and `apps/macos`                | `hosts.md`           | Not merged    |
+| `native/**`, `apps/macos/macos/**`                               | `native.md`          | Merged        |
+| `apps/unwired-mail/**`, `tools/swiftmail-provider-qualification` | `swift-prototype.md` | Merged        |
+| `**/*`, including the legacy mail harness                        | `common.md`          | Merged        |
+
+`merge_system_rule: true` prepends the embedded rule selected for each file's
+language. The embedded Swift, Objective-C, workflow and `package.json` rules
+state real defect classes and stay merged. The embedded TypeScript rule prefers
+`async`/`await` and `Promise.all`, asks for user-facing error text and repeats
+what oxlint enforces; that contradicts the [Effect conventions](../agents/effect.md),
+so Effect-governed TypeScript resolves its path rule alone. The embedded fallback
+for Markdown is a generic code checklist and is not merged either.
+
+## Research basis and transfer limits
+
+Sources checked on 2026-10-04:
+
+| Source                                                                                                                          | Practice used here                                                                                                  |
+| ------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| [OCR v1.12.11 rule format](https://github.com/alibaba/open-code-review/blob/v1.12.11/pages/src/content/docs/en/review-rules.md) | First-match path routing, an explicit embedded-rule merge choice, and selection/exclusion checks with the real CLI. |
+| [CodeRabbit path instructions](https://docs.coderabbit.ai/configuration/path-instructions)                                      | Focused instructions for an area, with references to existing standards rather than another complete copy.          |
+| [Sentry agent guide](https://github.com/getsentry/sentry/blob/master/AGENTS.md)                                                 | Area-specific source routing and diff-first review; avoid duplicate long instruction sets.                          |
+| [Next.js agent guide](https://github.com/vercel/next.js/blob/canary/AGENTS.md)                                                  | Read local source guidance and choose tests that exercise the actual mode, fixtures and observable behavior.        |
+
+The requested local T3 Code comparison used `~/git/github/t3code` at
+`54084ae1e6c32809db040e4fa571c80fdf2d8ae4`. Its
+[architecture overview](https://github.com/pingdotgg/t3code/blob/54084ae1e6c32809db040e4fa571c80fdf2d8ae4/docs/internals/overview.md),
+[Effect service guide](https://github.com/pingdotgg/t3code/blob/54084ae1e6c32809db040e4fa571c80fdf2d8ae4/docs/internals/effect-services.md),
+and scoped [Effect review](https://github.com/pingdotgg/t3code/blob/54084ae1e6c32809db040e4fa571c80fdf2d8ae4/.macroscope/check-run-agents/effect-service-conventions.md)
+and [UI review](https://github.com/pingdotgg/t3code/blob/54084ae1e6c32809db040e4fa571c80fdf2d8ae4/.macroscope/check-run-agents/ui-consistency.md)
+provide the comparison. That checkout has no `.opencodereview` configuration.
+The transferable practices are shared state with platform adapters, explicit
+wire compatibility, durable completion before publication, runtimes at execution
+boundaries, tests of real collaboration, and findings scoped to introduced defects.
+These support this repository's existing decisions; they do not create new ones.
+
+T3 Code puts workspace execution and provider credentials on its server and uses
+an event log for orchestration. This mail product keeps provider credentials and
+decryption in native device code and uses an opaque Convex backend. Its rules do
+not import T3 Code's event sourcing, Bun toolchain, Electron isolation strategy,
+web UI primitives, review model settings or universal server-service structure.
+This repository's accepted ADRs and Effect service constructor conventions win.
+
+When writing another rule, scope it to an owned boundary, name the file, helper or
+invariant, and give the reachable failure and its consequence. Preserve documented
+exceptions and replacement/prototype scope. Remove a bullet that tooling already
+decides; review changes to the enforcement itself. In particular, Inbox snapshots,
+registration display data and the user-held Recovery Key setup presentation may
+cross the local bridge, while native encryption keys and provider/device credentials
+may not. Diagnostic and rejection channels retain their separate privacy limits.
+
+Selection and resolution probes establish configuration behavior only. The new
+rules have not been calibrated against historical pull requests or measured for
+finding precision; this review checks their claims against source and accepted
+decisions, without presenting that as calibration evidence.
+
+The project entries take precedence over user-global rules and must not be
 replaced by a CLI override during the required review.
 
 Includes target repository Markdown and owned test names/directories. They bypass
@@ -69,7 +145,7 @@ all task-owned excluded artifacts through their appropriate boundaries, applying
 the repository checklist directly without reading or exposing secret material.
 Account for every preview entry, including duplicate paths with different status.
 
-When changing rules, use the real CLI to check project discovery, the common and
+When changing rules, use the real CLI to check project discovery, each path rule, the common and
 applicable conditional sections, embedded-language merging, owned docs/tests,
 and dependency/build/generated/secret exclusions. Exercise workspace and pinned
 range modes. This proves resolution and selection behavior, not architecture
