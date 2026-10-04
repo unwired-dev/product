@@ -318,6 +318,81 @@ test(
   },
 );
 
+test('TestFlight rejects tracked changes and untracked source files before generation', () => {
+  const { directory, checkout, env } = fixture('success');
+  try {
+    // Exercise real Git status, including a user setting that hides untracked files.
+    rmSync(path.join(directory, 'bin/git'));
+    const git = (...args) => {
+      const result = spawnSync('git', args, {
+        cwd: checkout,
+        env,
+        encoding: 'utf8',
+      });
+      assert.equal(result.status, 0, result.stderr);
+    };
+    writeFileSync(
+      path.join(checkout, '.gitignore'),
+      'node_modules/\nartifacts/\n.env.local\n',
+    );
+    git('init');
+    git('add', '.');
+    git(
+      '-c',
+      'user.name=TestFlight fixture',
+      '-c',
+      'user.email=testflight@example.invalid',
+      '-c',
+      'commit.gpgsign=false',
+      'commit',
+      '-m',
+      'Fixture',
+    );
+    git('config', 'status.showUntrackedFiles', 'no');
+    // Stop at generation so no Apple tools or provider credentials are needed.
+    writeFileSync(
+      path.join(directory, 'bin/pnpm'),
+      '#!/bin/sh\necho GENERATION_REACHED\nexit 77\n',
+    );
+    const run = (expected) => {
+      const result = spawnSync('/bin/zsh', ['scripts/testflight.zsh', 'ios'], {
+        cwd: checkout,
+        env: { ...env, UNWIRED_TESTFLIGHT_ENV_LOADED: '1' },
+        encoding: 'utf8',
+      });
+      assert.equal(result.status, expected, result.stdout + result.stderr);
+      assert.equal(
+        result.stdout.includes('GENERATION_REACHED'),
+        expected === 77,
+      );
+      if (expected === 2) {
+        assert.match(
+          result.stderr,
+          /tracked changes and non-ignored untracked files/u,
+        );
+        assert.ok(!existsSync(path.join(checkout, 'artifacts')));
+      } else {
+        rmSync(path.join(checkout, 'artifacts'), { recursive: true });
+      }
+    };
+    run(77);
+    writeFileSync(path.join(checkout, '.env.local'), 'IGNORED_FIXTURE=1\n');
+    run(77);
+    const source = path.join(checkout, 'new-source');
+    mkdirSync(source);
+    writeFileSync(path.join(source, 'input.js'), 'export const input = 1;\n');
+    run(2);
+    git('add', 'new-source');
+    run(2);
+    git('reset', '--', 'new-source');
+    rmSync(source, { recursive: true });
+    writeFileSync(path.join(checkout, 'apps/mobile/package.json'), '{}\n');
+    run(2);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test('TestFlight notes authenticate and update the exact build without network access', () => {
   const result = spawnSync('ruby', ['scripts/testflight-notes.test.rb'], {
     cwd: root,

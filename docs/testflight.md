@@ -65,8 +65,9 @@ fields in the file do not enter builds. A selected mock scenario is rejected.
 
 The script needs Xcode 27, CocoaPods and the `xcodeproj` gem, as for the
 [Mac host](macos-client.md). It regenerates both ignored native projects from
-the current checkout and refuses to run while tracked files have uncommitted
-changes, so the stamped commit describes the build exactly. `UNWIRED_DEVELOPMENT_TEAM`
+the current checkout and refuses to run while tracked changes or non-ignored
+untracked files are present. Non-ignored source inputs must match the stamped
+commit. `UNWIRED_DEVELOPMENT_TEAM`
 is accepted in place of `APPLE_DEVELOPMENT_TEAM`. Keep the `.p8` file outside
 the repository. Archives and logs are written to
 `artifacts/testflight/<build number>.<run>/`. Each invocation owns its build
