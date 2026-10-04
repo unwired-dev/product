@@ -28,6 +28,7 @@ for every implementation, including later implementation fixes.
 - After implementing and running the relevant checks, spawn a separate review
   agent with explicit `model: "gpt-6.1-sol"`, `reasoning_effort: "high"`, and
   `fork_turns: "none"`, regardless of the implementer's model or reasoning effort.
+  Use the workflow's Open Code Review delegation step inside that review agent.
   Pause writes until its final report; later implementer edits need another review.
 
 ## Work
