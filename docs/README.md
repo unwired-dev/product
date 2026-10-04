@@ -20,6 +20,7 @@ their scope below; publication of a plan does not prove implementation or releas
 ## Shared policies
 
 - [Root agent guide](../AGENTS.md) and [backend guide](../packages/convex/AGENTS.md)
+- [Implement a GitHub issue through PR babysitting](../.agents/skills/implement-issue/SKILL.md)
 - [Implementation handoff, pinned review agent and OCR architecture review](agents/implementation-review.md)
 - [Domain vocabulary by topic](../GLOSSARY.md) and [maintenance policy](agents/domain.md)
 - [Test admission, retirement, and feedback budgets](agents/testing.md)
