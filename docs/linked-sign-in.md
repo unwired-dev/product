@@ -84,9 +84,22 @@ does not resolve to that account, sign-in is rejected. It creates no account and
 Deleting a Product Account tombstones every Linked Sign-In with it. A linked
 identity can then neither reopen the account nor create a new one. A deletion
 request made through a Linked Sign-In is keyed by the account's original identity.
-The existing deletion action still revokes Sign in with Apple only. It requires
-an Apple authorization for the Apple subject. Deletion through a linked Google
-identity on an Apple-created account therefore fails closed until
+Deletion support differs by provider:
+
+- **Apple sign-in:** the existing backend deletion action exchanges and revokes a recent Apple
+  authorization for the authenticated Apple subject. That identity must own or be
+  explicitly linked to the Product Account, including an account created with Google.
+  It uses the configured bundle ID
+  that issued the authorization, including replacement-host
+  [client IDs](apple-registration.md#configure-the-hosts). Only the Swift
+  prototype calls it today.
+- **Google sign-in:** no Google deletion or revocation path exists. An account with
+  only Google sign-in cannot be deleted. Deletion through a linked Google identity
+  on an Apple-created account also fails closed, because the action requires Apple
+  authentication and authorization.
+
+The replacement hosts do not yet expose Product Account deletion for either provider.
+
 [#603](https://github.com/unwired-dev/product/issues/603) replaces the deletion
 and revocation flows for both providers.
 

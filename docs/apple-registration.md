@@ -61,10 +61,18 @@ scheme. Google still needs its reversed client-ID URL scheme and configured
 `UNWIRED_GOOGLE_CLIENT_ID` for the Gmail step. Apple-first registration therefore
 needs the same [Google host configuration](google-registration.md#configure-the-hosts).
 
-`APPLE_BUNDLE_ID` on the Convex deployment names the hosts' token audience and
-defaults to `dev.unwired.mail`, which the Swift prototype shares. Set
-`APPLE_PRODUCT_CLIENT_IDS` only to accept further comma-separated bundle IDs, then
-deploy the auth configuration. These are public token audiences.
+`APPLE_BUNDLE_ID` on the Convex deployment names the hosts' token audience,
+`dev.unwired.mail`, which the Swift prototype shares. It has no default: a
+deployment without `APPLE_BUNDLE_ID` or `APPLE_PRODUCT_CLIENT_IDS` accepts no Apple
+token. Set `APPLE_PRODUCT_CLIENT_IDS` only to accept further comma-separated bundle
+IDs, then deploy the auth configuration. These are public token audiences.
+
+Product Account deletion exchanges and revokes Apple authorization with the client
+that issued it. A host passes its bundle ID as `appleClientId`, which must be one of
+the configured audiences; without it, deletion requires `APPLE_BUNDLE_ID`. All configured bundle IDs
+share the deployment's Sign in with Apple key (`APPLE_SIGN_IN_KEY_ID`,
+`APPLE_SIGN_IN_PRIVATE_KEY` and `APPLE_TEAM_ID`), so they must belong to that key's
+App ID group.
 
 ## Deterministic evidence
 

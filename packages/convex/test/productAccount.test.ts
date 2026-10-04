@@ -7,6 +7,7 @@ import { convexTest } from 'convex-test';
 import type { Id } from '../convex/_generated/dataModel.js';
 
 import { api, internal } from '../convex/_generated/api.js';
+import { env } from '../convex/_generated/server.js';
 import { opaqueGmailConnectionId } from '../convex/gmailRouting.js';
 import { gmailLegacyRouteFallbackLimit } from '../convex/productAccount.js';
 import schema from '../convex/schema.js';
@@ -82,13 +83,13 @@ const userIdentityToken = createGoogleIdentityToken(
   'gmail-user-001',
 );
 
-function appleIdToken(subject: string): string {
+function appleIdToken(subject: string, audience = 'dev.unwired.mail'): string {
   const header = Buffer.from(
     JSON.stringify({ alg: 'RS256', kid: 'apple-identity-test-key' }),
   ).toString('base64url');
   const claims = Buffer.from(
     JSON.stringify({
-      aud: 'dev.unwired.mail',
+      aud: audience,
       exp: Math.floor(Date.now() / 1000) + 300,
       iss: 'https://appleid.apple.com',
       sub: subject,
@@ -103,11 +104,14 @@ function appleIdToken(subject: string): string {
   return `${signingInput}.${signature.toString('base64url')}`;
 }
 
-function appleTokenResponse(subject = appleIdentity.subject): Response {
+function appleTokenResponse(
+  subject = appleIdentity.subject,
+  audience?: string,
+): Response {
   return Response.json({
     access_token: 'apple-access-token',
     expires_in: 3600,
-    id_token: appleIdToken(subject),
+    id_token: appleIdToken(subject, audience),
     refresh_token: 'apple-refresh-token',
     token_type: 'Bearer',
   });
@@ -4097,29 +4101,134 @@ describe('gmail operational connection registration', () => {
     }
   });
 
-  it('rejects an Apple authorization code for another identity', async () => {
-    expect.assertions(2);
+  it('deletes an Apple account registered through a replacement client ID', async () => {
+    expect.assertions(5);
+    const replacementClientId = 'dev.unwired.mail.replacement';
+    const previousBundleId = env.APPLE_BUNDLE_ID;
+    const previousClientIds = env.APPLE_PRODUCT_CLIENT_IDS;
+    vi.stubEnv('APPLE_BUNDLE_ID', '');
+    vi.stubEnv('APPLE_PRODUCT_CLIENT_IDS', ` ${replacementClientId} ,`);
+    vi.useFakeTimers();
+    try {
+      const t = convexTest(schema, modules);
+      const asUser = t.withIdentity(appleIdentity);
+      const currentDevice = await asUser.mutation(api.productAccount.connect, {
+        deviceIdentifier: 'device-001',
+        platform: 'ios',
+      });
+      const fetchMock = vi.mocked(fetch);
+      const earlierFetches = fetchMock.mock.calls.length;
+      fetchMock
+        .mockImplementationOnce(async () =>
+          appleTokenResponse(appleIdentity.subject, replacementClientId),
+        )
+        .mockImplementationOnce(async () =>
+          Response.json({ keys: [appleIdentitySigningKey] }),
+        )
+        // Apple is unavailable for the first revocation, so recovery revokes the stored token.
+        .mockImplementationOnce(
+          async () => new Response(null, { status: 503 }),
+        );
 
-    const t = convexTest(schema, modules);
-    const asUser = t.withIdentity(appleIdentity);
-    const currentDevice = await asUser.mutation(api.productAccount.connect, {
-      deviceIdentifier: 'device-001',
-      platform: 'ios',
-    });
-    vi.mocked(fetch).mockImplementationOnce(async () =>
-      appleTokenResponse('apple-user-002'),
-    );
+      // An unconfigured client is rejected before Apple is contacted.
+      await expect(
+        asUser.action(api.productAccountDeletion.deleteProductAccount, {
+          appleClientId: 'dev.unwired.mail.unconfigured',
+          authorizationCode: 'recent-apple-authorization-code',
+          trustedDeviceId: currentDevice.trustedDeviceId,
+        }),
+      ).rejects.toThrow('Recent authentication must match the Product Account');
+      await expect(
+        asUser.action(api.productAccountDeletion.deleteProductAccount, {
+          appleClientId: replacementClientId,
+          authorizationCode: 'recent-apple-authorization-code',
+          trustedDeviceId: currentDevice.trustedDeviceId,
+        }),
+      ).rejects.toThrow(
+        'Apple authorization revocation is temporarily unavailable',
+      );
+      await t.finishAllScheduledFunctions(() => vi.advanceTimersByTime(60_000));
 
-    await expect(
-      asUser.action(api.productAccountDeletion.deleteProductAccount, {
-        authorizationCode: 'other-users-authorization-code',
-        trustedDeviceId: currentDevice.trustedDeviceId,
-      }),
-    ).rejects.toThrow('Recent authentication must match the Product Account');
-    await expect(
-      t.run(async (ctx) => ctx.db.query('productAccounts').collect()),
-    ).resolves.toHaveLength(1);
+      // The exchange, the failed revocation and its recovery each use the replacement client.
+      const appleForms = fetchMock.mock.calls
+        .slice(earlierFetches)
+        .map(([, init]) => init?.body)
+        .filter((body) => body instanceof URLSearchParams)
+        .map((form) => {
+          const [, clientSecretClaims] = String(
+            form.get('client_secret'),
+          ).split('.');
+          return {
+            clientId: form.get('client_id'),
+            clientSecretSubject: JSON.parse(
+              Buffer.from(String(clientSecretClaims), 'base64url').toString(),
+            ).sub,
+          };
+        });
+      expect(appleForms).toStrictEqual(
+        Array.from({ length: 3 }, () => ({
+          clientId: replacementClientId,
+          clientSecretSubject: replacementClientId,
+        })),
+      );
+      await expect(
+        t.run(async (ctx) => ctx.db.query('productAccounts').collect()),
+      ).resolves.toStrictEqual([]);
+      await expect(
+        t.run(async (ctx) =>
+          ctx.db.query('productAccountDeletionRequests').collect(),
+        ),
+      ).resolves.toStrictEqual([]);
+    } finally {
+      vi.useRealTimers();
+      vi.stubEnv('APPLE_BUNDLE_ID', previousBundleId);
+      vi.stubEnv('APPLE_PRODUCT_CLIENT_IDS', previousClientIds);
+    }
   });
+
+  it.each([
+    ['another identity', 'apple-user-002', 'dev.unwired.mail'],
+    [
+      'another configured client',
+      appleIdentity.subject,
+      'dev.unwired.mail.replacement',
+    ],
+  ])(
+    'rejects an Apple authorization code for %s',
+    async (_case, subject, audience) => {
+      expect.assertions(2);
+      const previousClientIds = env.APPLE_PRODUCT_CLIENT_IDS;
+      vi.stubEnv('APPLE_PRODUCT_CLIENT_IDS', 'dev.unwired.mail.replacement');
+      try {
+        const t = convexTest(schema, modules);
+        const asUser = t.withIdentity(appleIdentity);
+        const currentDevice = await asUser.mutation(
+          api.productAccount.connect,
+          {
+            deviceIdentifier: 'device-001',
+            platform: 'ios',
+          },
+        );
+        vi.mocked(fetch).mockImplementationOnce(async () =>
+          appleTokenResponse(subject, audience),
+        );
+
+        await expect(
+          asUser.action(api.productAccountDeletion.deleteProductAccount, {
+            authorizationCode: 'other-users-authorization-code',
+            trustedDeviceId: currentDevice.trustedDeviceId,
+          }),
+        ).rejects.toThrow(
+          'Recent authentication must match the Product Account',
+        );
+        await expect(
+          t.run(async (ctx) => ctx.db.query('productAccounts').collect()),
+        ).resolves.toHaveLength(1);
+      } finally {
+        vi.stubEnv('APPLE_PRODUCT_CLIENT_IDS', previousClientIds);
+      }
+    },
+  );
 
   it('rejects a malformed or invalidly signed Apple identity token', async () => {
     expect.assertions(5);
