@@ -19,10 +19,16 @@ const deletionContinuationRetryMilliseconds = 5000;
 const deletionContinuationMaxRetryMilliseconds = 5 * 60 * 1000;
 const revocationRequestLifetimeMilliseconds = 24 * 60 * 60 * 1000;
 
+// A revocation token keeps the Apple client it was issued to.
+const revocationTokenValidator = v.object({
+  clientId: v.optional(v.string()),
+  kind: v.union(v.literal('access-token'), v.literal('refresh-token')),
+  value: v.string(),
+});
+
 const revocationMaterialValidator = v.union(
   v.object({ kind: v.literal('authorization-code'), value: v.string() }),
-  v.object({ kind: v.literal('access-token'), value: v.string() }),
-  v.object({ kind: v.literal('refresh-token'), value: v.string() }),
+  revocationTokenValidator,
 );
 
 async function authenticatedIdentity(ctx: MutationCtx) {
@@ -214,10 +220,7 @@ export const storeRevocationToken = internalMutation({
   args: {
     attemptId: v.string(),
     requestId: v.id('productAccountDeletionRequests'),
-    token: v.object({
-      kind: v.union(v.literal('access-token'), v.literal('refresh-token')),
-      value: v.string(),
-    }),
+    token: revocationTokenValidator,
   },
   handler: async (ctx, args) => {
     const request = await ownedDeletionRequest(ctx, args.requestId);
@@ -399,10 +402,7 @@ export const prepareRevocationRecovery = internalMutation({
     v.null(),
     v.object({
       revocationPreviouslySucceeded: v.boolean(),
-      token: v.object({
-        kind: v.union(v.literal('access-token'), v.literal('refresh-token')),
-        value: v.string(),
-      }),
+      token: revocationTokenValidator,
     }),
   ),
 });

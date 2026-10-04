@@ -10,11 +10,13 @@ import {
 
 import { productAccountDeletionResponseValidator } from '@private-email/contracts';
 import { v } from 'convex/values';
+import * as Arr from 'effect/Array';
 import * as Clock from 'effect/Clock';
 import * as Config from 'effect/Config';
 import * as Effect from 'effect/Effect';
 import * as Option from 'effect/Option';
 import * as Predicate from 'effect/Predicate';
+import * as Result from 'effect/Result';
 import * as Schema from 'effect/Schema';
 
 import type { Id } from './_generated/dataModel.js';
@@ -32,10 +34,12 @@ const appleTokenUrl = `${appleAudience}/auth/token`;
 const applePublicKeysUrl = `${appleAudience}/auth/keys`;
 const deletionBatchLimit = 25;
 
+// A token records the Apple client it was issued to; tokens stored before
+// clients were recorded belong to APPLE_BUNDLE_ID.
 type RevocationMaterial =
   | Readonly<{ kind: 'authorization-code'; value: string }>
-  | Readonly<{ kind: 'access-token'; value: string }>
-  | Readonly<{ kind: 'refresh-token'; value: string }>;
+  | Readonly<{ clientId?: string; kind: 'access-token'; value: string }>
+  | Readonly<{ clientId?: string; kind: 'refresh-token'; value: string }>;
 
 type RevocationToken = Exclude<
   RevocationMaterial,
@@ -157,15 +161,44 @@ function appleSetting(name: string): Effect.Effect<string, AppleFailed> {
   );
 }
 
+const configuredAppleClientIds = Config.all([
+  Config.String('APPLE_BUNDLE_ID').pipe(Config.withDefault('')),
+  Config.String('APPLE_PRODUCT_CLIENT_IDS').pipe(Config.withDefault('')),
+]).pipe(
+  // APPLE_BUNDLE_ID names one client; APPLE_PRODUCT_CLIENT_IDS lists further ones.
+  Config.map(([bundleId, productClientIds]) =>
+    Arr.filterMap([bundleId, ...productClientIds.split(',')], (id) => {
+      const clientId = id.trim();
+      return clientId === '' ? Result.failVoid : Result.succeed(clientId);
+    }),
+  ),
+);
+
+// A host names the Apple client that issued its authorization; a host that
+// names none is the Swift prototype, which uses APPLE_BUNDLE_ID.
+const appleClientId = Effect.fnUntraced(function* (
+  requested: string | undefined,
+) {
+  const clientId = requested ?? (yield* appleSetting('APPLE_BUNDLE_ID'));
+  const configured = yield* configuredAppleClientIds.pipe(
+    Effect.mapError((cause) => new AppleFailed({ cause })),
+  );
+  if (!configured.includes(clientId)) {
+    return yield* new AppleRejected({
+      message: 'Recent authentication must match the Product Account',
+    });
+  }
+  return clientId;
+});
+
 function encodeJson(value: Readonly<Record<string, string | number>>): string {
   return Buffer.from(JSON.stringify(value)).toString('base64url');
 }
 
-const appleClientSecret = Effect.gen(function* () {
+const appleClientSecret = Effect.fnUntraced(function* (clientId: string) {
   const now = Math.floor((yield* Clock.currentTimeMillis) / 1000);
   const keyId = yield* appleSetting('APPLE_SIGN_IN_KEY_ID');
   const teamId = yield* appleSetting('APPLE_TEAM_ID');
-  const bundleId = yield* appleSetting('APPLE_BUNDLE_ID');
   const privateKey = yield* appleSetting('APPLE_SIGN_IN_PRIVATE_KEY');
   const header = encodeJson({ alg: 'ES256', kid: keyId });
   const payload = encodeJson({
@@ -173,7 +206,7 @@ const appleClientSecret = Effect.gen(function* () {
     exp: now + 300,
     iat: now,
     iss: teamId,
-    sub: bundleId,
+    sub: clientId,
   });
   const unsignedToken = `${header}.${payload}`;
   const signature = yield* Effect.try({
@@ -241,6 +274,7 @@ function decodedJwtPart(encoded: string): Effect.Effect<object, AppleRejected> {
 const verifyAppleIdentityToken = Effect.fnUntraced(function* (
   identityToken: string,
   expectedSubject: string,
+  clientId: string,
 ) {
   const parts = identityToken.split('.');
   const [encodedHeader, encodedClaims, encodedSignature] = parts;
@@ -255,12 +289,11 @@ const verifyAppleIdentityToken = Effect.fnUntraced(function* (
   }
   const header = yield* decodedJwtPart(encodedHeader);
   const claims = yield* decodedJwtPart(encodedClaims);
-  const bundleId = yield* appleSetting('APPLE_BUNDLE_ID');
   const now = yield* Clock.currentTimeMillis;
   if (
     !isAppleIdentityTokenHeader(header) ||
     !isAppleIdentityTokenClaims(claims) ||
-    claims.aud !== bundleId ||
+    claims.aud !== clientId ||
     claims.exp <= now / 1000 ||
     claims.sub !== expectedSubject
   ) {
@@ -305,14 +338,14 @@ const verifyAppleIdentityToken = Effect.fnUntraced(function* (
 const exchangeAuthorizationCode = Effect.fnUntraced(function* (
   authorizationCode: string,
   expectedSubject: string,
+  clientId: string,
 ) {
-  const bundleId = yield* appleSetting('APPLE_BUNDLE_ID');
-  const clientSecret = yield* appleClientSecret;
+  const clientSecret = yield* appleClientSecret(clientId);
   const response = yield* requestApple(async (signal) =>
     postAppleForm(
       appleTokenUrl,
       {
-        client_id: bundleId,
+        client_id: clientId,
         client_secret: clientSecret,
         code: authorizationCode,
         grant_type: 'authorization_code',
@@ -330,11 +363,12 @@ const exchangeAuthorizationCode = Effect.fnUntraced(function* (
   const { id_token: identityToken } = yield* Effect.fromOption(
     decodeAppleIdentityTokenResponse(body),
   ).pipe(Effect.mapError(exchangeFailed));
-  yield* verifyAppleIdentityToken(identityToken, expectedSubject);
+  yield* verifyAppleIdentityToken(identityToken, expectedSubject, clientId);
   const { refresh_token: refreshToken } = yield* Effect.fromOption(
     decodeAppleRefreshTokenResponse(body),
   ).pipe(Effect.mapError(exchangeFailed));
   const revocationToken: RevocationToken = {
+    clientId,
     kind: 'refresh-token',
     value: refreshToken,
   };
@@ -356,13 +390,13 @@ const revokeAppleToken = Effect.fnUntraced(function* (
   token: RevocationToken,
   acceptAlreadyRevoked: boolean,
 ) {
-  const bundleId = yield* appleSetting('APPLE_BUNDLE_ID');
-  const clientSecret = yield* appleClientSecret;
+  const clientId = yield* appleClientId(token.clientId);
+  const clientSecret = yield* appleClientSecret(clientId);
   const response = yield* requestApple(async (signal) =>
     postAppleForm(
       appleRevokeUrl,
       {
-        client_id: bundleId,
+        client_id: clientId,
         client_secret: clientSecret,
         token: token.value,
         token_type_hint:
@@ -499,7 +533,11 @@ type PendingDeletion = Extract<PreparedDeletion, { state: 'pending' }>;
 const revokeForDeletion = Effect.fnUntraced(function* (
   ctx: ActionCtx,
   prepared: PendingDeletion,
-  attempt: Readonly<{ attemptId: string; subject: string }>,
+  attempt: Readonly<{
+    appleClientId?: string;
+    attemptId: string;
+    subject: string;
+  }>,
 ) {
   const { attemptId, subject } = attempt;
   const { requestId, revocationMaterial: material } = prepared;
@@ -507,7 +545,11 @@ const revokeForDeletion = Effect.fnUntraced(function* (
   if (material?.kind === 'refresh-token' || material?.kind === 'access-token') {
     token = material;
   } else if (material?.kind === 'authorization-code') {
-    token = yield* exchangeAuthorizationCode(material.value, subject);
+    token = yield* exchangeAuthorizationCode(
+      material.value,
+      subject,
+      yield* appleClientId(attempt.appleClientId),
+    );
   }
   if (token === undefined) {
     return yield* new DeletionRejected({
@@ -552,6 +594,7 @@ const revokeForDeletion = Effect.fnUntraced(function* (
 const deleteAccount = Effect.fnUntraced(function* (
   ctx: ActionCtx,
   args: Readonly<{
+    appleClientId?: string;
     authorizationCode: string;
     trustedDeviceCredential?: string;
     trustedDeviceId: Id<'trustedDevices'>;
@@ -562,9 +605,10 @@ const deleteAccount = Effect.fnUntraced(function* (
   if (!identity) {
     return yield* new DeletionRejected({ message: 'Authentication required' });
   }
+  const { appleClientId: requestedClientId, ...deletion } = args;
   const prepared = yield* call(async (): Promise<PreparedDeletion> =>
     ctx.runMutation(internal.productAccountDeletionData.prepareDeletion, {
-      ...args,
+      ...deletion,
       attemptId,
     }),
   );
@@ -589,6 +633,7 @@ const deleteAccount = Effect.fnUntraced(function* (
     > = prepared.revocationPreviouslySucceeded
       ? Effect.void
       : revokeForDeletion(ctx, prepared, {
+          appleClientId: requestedClientId,
           attemptId,
           subject: identity.subject,
         });
@@ -635,6 +680,8 @@ const deleteAccount = Effect.fnUntraced(function* (
 export const deleteProductAccount = action({
   args: {
     ...trustedDeviceCredentialArgs,
+    // The bundle ID of the host whose Sign in with Apple issued the authorization code.
+    appleClientId: v.optional(v.string()),
     authorizationCode: v.string(),
     trustedDeviceId: v.id('trustedDevices'),
   },

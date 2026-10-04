@@ -9,11 +9,10 @@ const audiences = (value: string | undefined) =>
     .map((id) => id.trim())
     .filter(Boolean);
 
-// Must match the unwired-mail bundle identifier in Xcode (or APPLE_BUNDLE_ID in Convex env).
-const appleBundleId = env.APPLE_BUNDLE_ID ?? 'dev.unwired.mail';
 // Sign in with Apple uses each native host's bundle identifier as the token audience.
+// Without configured bundle IDs, no Apple token is accepted.
 const appleAudiences = new Set([
-  appleBundleId,
+  ...audiences(env.APPLE_BUNDLE_ID),
   ...audiences(env.APPLE_PRODUCT_CLIENT_IDS),
 ]);
 const googleClientIds = audiences(env.GOOGLE_PRODUCT_CLIENT_IDS);

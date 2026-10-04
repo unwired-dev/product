@@ -56,8 +56,16 @@ export default defineSchema({
     revocationMaterial: v.optional(
       v.union(
         v.object({ kind: v.literal('authorization-code'), value: v.string() }),
-        v.object({ kind: v.literal('access-token'), value: v.string() }),
-        v.object({ kind: v.literal('refresh-token'), value: v.string() }),
+        v.object({
+          clientId: v.optional(v.string()),
+          kind: v.literal('access-token'),
+          value: v.string(),
+        }),
+        v.object({
+          clientId: v.optional(v.string()),
+          kind: v.literal('refresh-token'),
+          value: v.string(),
+        }),
       ),
     ),
     revocationRecoveryScheduledAt: v.optional(v.number()),
