@@ -14,5 +14,4 @@ Apply pending changesets when preparing a release:
 pnpm version-packages
 ```
 
-Publishing is intentionally not wired yet because current packages are private. Add the publish command and registry credentials when the first public package or app release process is defined.
-
+Packages are private: they are versioned but never published. The [Release workflow](../docs/testflight.md#versioned-releases) applies pending changesets in a version pull request; merging it tags the release and uploads both hosts to TestFlight. CI rejects a changeset that targets a package outside the workspace.
