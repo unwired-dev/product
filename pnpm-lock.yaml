@@ -422,15 +422,6 @@ importers:
       '@types/node':
         specifier: 'catalog:'
         version: 24.19.0
-      oxfmt:
-        specifier: 'catalog:'
-        version: 0.71.0
-      oxlint:
-        specifier: 'catalog:'
-        version: 1.85.0(oxlint-tsgolint@7.0.2003)
-      oxlint-tsgolint:
-        specifier: 'catalog:'
-        version: 7.0.2003
       typescript:
         specifier: 'catalog:'
         version: 7.0.2
@@ -462,15 +453,6 @@ importers:
       convex-test:
         specifier: ^0.0.60
         version: 0.0.60(convex@1.46.0(react@19.2.3))
-      oxfmt:
-        specifier: 'catalog:'
-        version: 0.71.0
-      oxlint:
-        specifier: 'catalog:'
-        version: 1.85.0(oxlint-tsgolint@7.0.2003)
-      oxlint-tsgolint:
-        specifier: 'catalog:'
-        version: 7.0.2003
       typescript:
         specifier: 'catalog:'
         version: 7.0.2
@@ -493,15 +475,6 @@ importers:
       '@types/node':
         specifier: 'catalog:'
         version: 24.19.0
-      oxfmt:
-        specifier: 'catalog:'
-        version: 0.71.0
-      oxlint:
-        specifier: 'catalog:'
-        version: 1.85.0(oxlint-tsgolint@7.0.2003)
-      oxlint-tsgolint:
-        specifier: 'catalog:'
-        version: 7.0.2003
       typescript:
         specifier: 'catalog:'
         version: 7.0.2
@@ -517,15 +490,6 @@ importers:
       '@types/node':
         specifier: 'catalog:'
         version: 24.19.0
-      oxfmt:
-        specifier: 'catalog:'
-        version: 0.71.0
-      oxlint:
-        specifier: 'catalog:'
-        version: 1.85.0(oxlint-tsgolint@7.0.2003)
-      oxlint-tsgolint:
-        specifier: 'catalog:'
-        version: 7.0.2003
       typescript:
         specifier: 'catalog:'
         version: 7.0.2

@@ -133,7 +133,7 @@ or missing journey results.
 
 ```sh
 mise exec -- pnpm test:native-runner
-mise exec -- pnpm exec turbo run lint format check-types test \
+mise exec -- pnpm exec turbo run lint format check-types test --filter=// \
   --filter=@private-email/mobile... --filter=@private-email/macos...
 ```
 

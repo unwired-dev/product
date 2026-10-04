@@ -1,11 +1,14 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
+import * as Schema from 'effect/Schema';
+
 const root = fileURLToPath(new URL('..', import.meta.url));
+const parseJson = Schema.decodeUnknownSync(Schema.UnknownFromJsonString);
 const cases = [
   ["import * as Effect from 'effect/Effect';", false],
   ["import type * as EffectTypes from 'effect/Effect';", false],
@@ -27,27 +30,29 @@ for (const config of [
   'apps/macos/oxlint.config.ts',
 ]) {
   test(`${config} enforces Effect namespace imports`, () => {
-    const scratchpad = join(root, 'scratchpad');
+    const scratchpad = path.join(root, 'scratchpad');
     mkdirSync(scratchpad, { recursive: true });
-    const directory = mkdtempSync(join(scratchpad, 'effect-import-policy-'));
+    const directory = mkdtempSync(
+      path.join(scratchpad, 'effect-import-policy-'),
+    );
     try {
-      const fixture = join(directory, 'imports.ts');
+      const fixture = path.join(directory, 'imports.ts');
       writeFileSync(fixture, cases.map(([source]) => source).join('\n'));
       const result = spawnSync(
-        join(root, 'node_modules/.bin/oxlint'),
-        ['--config', join(root, config), '--format', 'json', fixture],
+        path.join(root, 'node_modules/.bin/oxlint'),
+        ['--config', path.join(root, config), '--format', 'json', fixture],
         { cwd: root, encoding: 'utf8' },
       );
       assert.ifError(result.error);
       assert.equal(result.status, 1, result.stderr);
-      const output = JSON.parse(result.stdout);
+      const output = parseJson(result.stdout);
       const violations = output.diagnostics.filter(
         (diagnostic) => diagnostic.code === 'effect-imports(namespace-imports)',
       );
       assert.deepEqual(
         violations
           .map((diagnostic) => diagnostic.labels[0].span.line)
-          .sort((a, b) => a - b),
+          .toSorted((a, b) => a - b),
         cases.flatMap(([, rejected], index) => (rejected ? [index + 1] : [])),
       );
       assert.ok(

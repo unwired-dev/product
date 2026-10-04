@@ -12,29 +12,34 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
+import * as Schema from 'effect/Schema';
+
 const root = fileURLToPath(new URL('..', import.meta.url));
+const parseJson = Schema.decodeUnknownSync(Schema.UnknownFromJsonString);
 const plist = (values) =>
   `<?xml version="1.0"?><plist version="1.0"><dict>${Object.entries(values)
     .map(([key, value]) => `<key>${key}</key><string>${value}</string>`)
     .join('')}</dict></plist>`;
 
 function workspace() {
-  mkdirSync(join(root, 'scratchpad'), { recursive: true });
-  const directory = mkdtempSync(join(root, 'scratchpad/mock-mail-runner-'));
-  mkdirSync(join(directory, 'bin'));
+  mkdirSync(path.join(root, 'scratchpad'), { recursive: true });
+  const directory = mkdtempSync(
+    path.join(root, 'scratchpad/mock-mail-runner-'),
+  );
+  mkdirSync(path.join(directory, 'bin'));
   return directory;
 }
 
-function run(directory, command, args, extra = {}) {
+function run(directory, [command, ...args], extra = {}) {
   return spawnSync(command, args, {
     cwd: directory,
     env: {
       ...process.env,
-      PATH: `${join(directory, 'bin')}:${process.env.PATH}`,
+      PATH: `${path.join(directory, 'bin')}:${process.env.PATH}`,
       ...extra,
     },
     encoding: 'utf8',
@@ -44,22 +49,23 @@ function run(directory, command, args, extra = {}) {
 test('preparation refuses production builds before copying or signing', () => {
   const directory = workspace();
   try {
-    const source = join(directory, 'Production.app');
+    const source = path.join(directory, 'Production.app');
     mkdirSync(source);
     writeFileSync(
-      join(source, 'Info.plist'),
+      path.join(source, 'Info.plist'),
       plist({ CFBundleIdentifier: 'real.product' }),
     );
-    const result = run(directory, 'python3', [
-      join(root, 'scripts/prepare-mock-app.py'),
+    const result = run(directory, [
+      'python3',
+      path.join(root, 'scripts/prepare-mock-app.py'),
       'mobile',
       source,
-      join(directory, 'Mock.app'),
+      path.join(directory, 'Mock.app'),
     ]);
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, /test-only build/u);
-    assert.equal(existsSync(join(directory, 'Mock.app')), false);
-    assert.equal(existsSync(join(directory, 'ownership.json')), false);
+    assert.equal(existsSync(path.join(directory, 'Mock.app')), false);
+    assert.equal(existsSync(path.join(directory, 'ownership.json')), false);
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
@@ -74,42 +80,50 @@ const macScenarios = [
   ['terminated', 143, 143, '', 0, true],
 ];
 
-for (const [scenario, expectedExit, testExit, log, cleanupExit, terminate] of macScenarios) {
+for (const [
+  scenario,
+  expectedExit,
+  testExit,
+  log,
+  cleanupExit,
+  terminate,
+] of macScenarios) {
   test(`Mac runner preserves evidence and cleans only its disposable resources: ${scenario}`, () => {
     const directory = workspace();
     try {
-      const scripts = join(directory, 'apps/macos/scripts');
-      const nativeTests = join(directory, 'apps/macos/native-tests');
-      const sharedScripts = join(directory, 'scripts');
-      const source = join(directory, 'Preview.app');
-      for (const path of [
+      const scripts = path.join(directory, 'apps/macos/scripts');
+      const nativeTests = path.join(directory, 'apps/macos/native-tests');
+      const sharedScripts = path.join(directory, 'scripts');
+      const source = path.join(directory, 'Preview.app');
+      for (const directoryPath of [
         scripts,
         nativeTests,
         sharedScripts,
-        join(source, 'Contents'),
-      ])
-        mkdirSync(path, { recursive: true });
+        path.join(source, 'Contents'),
+      ]) {
+        mkdirSync(directoryPath, { recursive: true });
+      }
       cpSync(
-        join(root, 'apps/macos/scripts/test-native.zsh'),
-        join(scripts, 'test-native.zsh'),
+        path.join(root, 'apps/macos/scripts/test-native.zsh'),
+        path.join(scripts, 'test-native.zsh'),
       );
       cpSync(
-        join(root, 'scripts/prepare-mock-app.py'),
-        join(sharedScripts, 'prepare-mock-app.py'),
+        path.join(root, 'scripts/prepare-mock-app.py'),
+        path.join(sharedScripts, 'prepare-mock-app.py'),
       );
       cpSync(
-        join(root, 'scripts/mock-mail-scenarios.json'),
-        join(sharedScripts, 'mock-mail-scenarios.json'),
+        path.join(root, 'scripts/mock-mail-scenarios.json'),
+        path.join(sharedScripts, 'mock-mail-scenarios.json'),
       );
-      writeFileSync(join(sharedScripts, 'cleanup-mock-macos.swift'), '');
-      writeFileSync(join(nativeTests, 'WindowTests.swift'), '');
-      writeFileSync(join(nativeTests, 'create-project.rb'), '');
+      writeFileSync(path.join(sharedScripts, 'cleanup-mock-macos.swift'), '');
+      writeFileSync(path.join(nativeTests, 'WindowTests.swift'), '');
+      writeFileSync(path.join(nativeTests, 'create-project.rb'), '');
       const original = plist({
         CFBundleIdentifier: 'dev.unwired.mail',
         UnwiredMockScenario: 'open-read-relaunch',
       });
-      writeFileSync(join(source, 'Contents/Info.plist'), original);
-      writeFileSync(join(directory, 'profile'), 'synthetic-profile');
+      writeFileSync(path.join(source, 'Contents/Info.plist'), original);
+      writeFileSync(path.join(directory, 'profile'), 'synthetic-profile');
       const stub = `#!${process.execPath}
 import fs from 'node:fs';
 import path from 'node:path';
@@ -132,46 +146,46 @@ if (command === 'xcodebuild') {
         'security',
         'codesign',
         'xcodebuild',
-      ])
-        writeFileSync(join(directory, 'bin', command), stub, { mode: 0o755 });
+      ]) {
+        writeFileSync(path.join(directory, 'bin', command), stub, {
+          mode: 0o755,
+        });
+      }
       const result = run(
         directory,
-        'zsh',
-        [join(scripts, 'test-native.zsh'), source],
+        ['zsh', path.join(scripts, 'test-native.zsh'), source],
         {
-          RUBY: join(directory, 'bin/ruby'),
+          RUBY: path.join(directory, 'bin/ruby'),
           UNWIRED_SIGNING_IDENTITY: 'Synthetic signer',
-          UNWIRED_MOCK_PROFILE: join(directory, 'profile'),
+          UNWIRED_MOCK_PROFILE: path.join(directory, 'profile'),
         },
       );
       assert.ifError(result.error);
-      assert.equal(
-        result.status,
-        expectedExit,
-        result.stdout + result.stderr,
-      );
-      const artifacts = join(directory, 'artifacts/macos-inbox');
+      assert.equal(result.status, expectedExit, result.stdout + result.stderr);
+      const artifacts = path.join(directory, 'artifacts/macos-inbox');
       const entries = readdirSync(artifacts);
       assert.equal(entries.length, 1);
-      const evidence = join(artifacts, entries[0]);
-      const ownership = JSON.parse(
-        readFileSync(join(evidence, 'ownership.json'), 'utf8'),
+      const evidence = path.join(artifacts, entries[0]);
+      const ownership = parseJson(
+        readFileSync(path.join(evidence, 'ownership.json'), 'utf8'),
       );
       assert.match(
         ownership.bundleIdentifier,
         /^dev\.unwired\.mock\.[0-9a-f]{32}$/u,
       );
       assert.equal(
-        readFileSync(join(directory, 'cleaned'), 'utf8'),
+        readFileSync(path.join(directory, 'cleaned'), 'utf8'),
         ownership.bundleIdentifier,
       );
       const entitlements = readFileSync(
-        join(evidence, 'mock-entitlements.plist'),
+        path.join(evidence, 'mock-entitlements.plist'),
         'utf8',
       );
-      assert.ok(entitlements.includes(
-        `<string>LEGACY1234.${ownership.bundleIdentifier}</string>`,
-      ));
+      assert.ok(
+        entitlements.includes(
+          `<string>LEGACY1234.${ownership.bundleIdentifier}</string>`,
+        ),
+      );
       assert.match(entitlements, /<string>SYNTHETIC<\/string>/u);
       assert.match(
         entitlements,
@@ -179,20 +193,20 @@ if (command === 'xcodebuild') {
       );
       assert.doesNotMatch(entitlements, /SYNTHETIC\.dev\.unwired\.mock/u);
       assert.equal(
-        readFileSync(join(source, 'Contents/Info.plist'), 'utf8'),
+        readFileSync(path.join(source, 'Contents/Info.plist'), 'utf8'),
         original,
       );
-      assert.equal(existsSync(join(evidence, 'Mock.app')), false);
+      assert.equal(existsSync(path.join(evidence, 'Mock.app')), false);
       assert.equal(
-        existsSync(join(evidence, 'Cleanup.app')),
+        existsSync(path.join(evidence, 'Cleanup.app')),
         cleanupExit !== 0,
       );
       assert.equal(
-        JSON.parse(readFileSync(join(evidence, 'result.json'), 'utf8'))
+        parseJson(readFileSync(path.join(evidence, 'result.json'), 'utf8'))
           .exitCode,
         result.status,
       );
-      assert.ok(existsSync(join(evidence, 'xcodebuild.log')));
+      assert.ok(existsSync(path.join(evidence, 'xcodebuild.log')));
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
@@ -220,7 +234,7 @@ test('build selection resolves only explicit test scenarios and production keeps
       encoding: 'utf8',
     });
     assert.equal(result.status, 0, result.stderr);
-    assert.equal(JSON.parse(result.stdout).type, expected);
+    assert.equal(parseJson(result.stdout).type, expected);
   }
   const invalid = spawnSync(process.execPath, ['-e', script], {
     cwd: root,
@@ -230,43 +244,63 @@ test('build selection resolves only explicit test scenarios and production keeps
   assert.notEqual(invalid.status, 0);
 });
 
-test('cleanup helper rejects another session before removing its storage', {
-  skip: process.platform !== 'darwin',
-}, () => {
-  const directory = workspace();
-  const identifier = 'dev.unwired.mock.' + randomUUID().replaceAll('-', '');
-  const otherIdentifier = 'dev.unwired.mock.' + randomUUID().replaceAll('-', '');
-  const otherStorage = join(homedir(), 'Library/Application Support', otherIdentifier);
-  try {
-    const contents = join(directory, 'Cleanup.app/Contents');
-    mkdirSync(join(contents, 'MacOS'), { recursive: true });
-    writeFileSync(join(contents, 'Info.plist'), plist({
-      CFBundleIdentifier: identifier,
-      CFBundleExecutable: 'cleanup',
-      CFBundlePackageType: 'APPL',
-    }));
-    const executable = join(contents, 'MacOS/cleanup');
-    const build = run(directory, 'swiftc', [
-      join(root, 'scripts/cleanup-mock-macos.swift'), '-o', executable,
-    ]);
-    assert.equal(build.status, 0, build.stdout + build.stderr);
-    mkdirSync(otherStorage);
-    const sentinel = join(otherStorage, 'sentinel');
-    writeFileSync(sentinel, 'another session');
-    for (const args of [[], [otherIdentifier]]) {
-      const result = run(directory, executable, args);
-      assert.ifError(result.error);
-      assert.notEqual(result.status, 0);
-      assert.match(result.stderr, /Expected this helper|Refusing cleanup outside/u);
+test(
+  'cleanup helper rejects another session before removing its storage',
+  {
+    skip: process.platform !== 'darwin',
+  },
+  () => {
+    const directory = workspace();
+    const identifier = `dev.unwired.mock.${randomUUID().replaceAll('-', '')}`;
+    const otherIdentifier = `dev.unwired.mock.${randomUUID().replaceAll('-', '')}`;
+    const otherStorage = path.join(
+      homedir(),
+      'Library/Application Support',
+      otherIdentifier,
+    );
+    try {
+      const contents = path.join(directory, 'Cleanup.app/Contents');
+      mkdirSync(path.join(contents, 'MacOS'), { recursive: true });
+      writeFileSync(
+        path.join(contents, 'Info.plist'),
+        plist({
+          CFBundleIdentifier: identifier,
+          CFBundleExecutable: 'cleanup',
+          CFBundlePackageType: 'APPL',
+        }),
+      );
+      const executable = path.join(contents, 'MacOS/cleanup');
+      const build = run(directory, [
+        'swiftc',
+        path.join(root, 'scripts/cleanup-mock-macos.swift'),
+        '-o',
+        executable,
+      ]);
+      assert.equal(build.status, 0, build.stdout + build.stderr);
+      mkdirSync(otherStorage);
+      const sentinel = path.join(otherStorage, 'sentinel');
+      writeFileSync(sentinel, 'another session');
+      for (const args of [[], [otherIdentifier]]) {
+        const result = run(directory, [executable, ...args]);
+        assert.ifError(result.error);
+        assert.notEqual(result.status, 0);
+        assert.match(
+          result.stderr,
+          /Expected this helper|Refusing cleanup outside/u,
+        );
+        assert.equal(readFileSync(sentinel, 'utf8'), 'another session');
+      }
+      // The unsigned helper can reach the Keychain boundary for its own session.
+      const ownSession = run(directory, [executable, identifier]);
+      assert.ifError(ownSession.error);
+      assert.doesNotMatch(
+        ownSession.stderr,
+        /Expected this helper|Refusing cleanup outside/u,
+      );
       assert.equal(readFileSync(sentinel, 'utf8'), 'another session');
+    } finally {
+      rmSync(otherStorage, { recursive: true, force: true });
+      rmSync(directory, { recursive: true, force: true });
     }
-    // The unsigned helper can reach the Keychain boundary for its own session.
-    const ownSession = run(directory, executable, [identifier]);
-    assert.ifError(ownSession.error);
-    assert.doesNotMatch(ownSession.stderr, /Expected this helper|Refusing cleanup outside/u);
-    assert.equal(readFileSync(sentinel, 'utf8'), 'another session');
-  } finally {
-    rmSync(otherStorage, { recursive: true, force: true });
-    rmSync(directory, { recursive: true, force: true });
-  }
-});
+  },
+);

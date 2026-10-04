@@ -18,7 +18,7 @@ Do not add JSDoc just to restate names, primitive types, or implementation steps
 
 Prefer this structure:
 
-```ts
+````ts
 /**
  * Short contract-focused summary.
  *
@@ -43,7 +43,7 @@ export const healthPayload = (serverTime: number) => ({
   bootstrapVersion: 1,
   serverTime,
 });
-```
+````
 
 ## Rules
 
@@ -53,4 +53,3 @@ export const healthPayload = (serverTime: number) => ({
 - Mention privacy boundaries when a function intentionally excludes sensitive data.
 - Avoid long lifecycle narratives; use ADRs for durable architecture reasoning.
 - Do not document private one-line helpers unless they carry a domain rule.
-

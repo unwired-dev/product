@@ -10,11 +10,14 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
-import { join } from 'node:path';
+import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
+import * as Schema from 'effect/Schema';
+
 const root = fileURLToPath(new URL('..', import.meta.url));
+const parseJson = Schema.decodeUnknownSync(Schema.UnknownFromJsonString);
 const scenarios = [
   ['success', 0, 2],
   ['delete-failure', 1, 2],
@@ -44,36 +47,36 @@ for (const [
   deviceTypes = [],
 ] of scenarios) {
   test(`native runner: ${scenario}`, () => {
-    mkdirSync(join(root, 'scratchpad'), { recursive: true });
-    const directory = mkdtempSync(join(root, 'scratchpad/native-runner-'));
+    mkdirSync(path.join(root, 'scratchpad'), { recursive: true });
+    const directory = mkdtempSync(path.join(root, 'scratchpad/native-runner-'));
     try {
-      const scripts = join(directory, 'apps/mobile/scripts');
-      const nativeTests = join(directory, 'apps/mobile/native-tests');
-      const bin = join(directory, 'bin');
-      for (const path of [
+      const scripts = path.join(directory, 'apps/mobile/scripts');
+      const nativeTests = path.join(directory, 'apps/mobile/native-tests');
+      const bin = path.join(directory, 'bin');
+      for (const directoryPath of [
         scripts,
         nativeTests,
         bin,
-        join(directory, 'Preview.app'),
-        join(directory, 'scripts'),
+        path.join(directory, 'Preview.app'),
+        path.join(directory, 'scripts'),
       ]) {
-        mkdirSync(path, { recursive: true });
+        mkdirSync(directoryPath, { recursive: true });
       }
       cpSync(
-        join(root, 'apps/mobile/scripts/test-native.zsh'),
-        join(scripts, 'test-native.zsh'),
+        path.join(root, 'apps/mobile/scripts/test-native.zsh'),
+        path.join(scripts, 'test-native.zsh'),
       );
-      writeFileSync(join(nativeTests, 'InboxTests.swift'), '');
+      writeFileSync(path.join(nativeTests, 'InboxTests.swift'), '');
       cpSync(
-        join(root, 'scripts/prepare-mock-app.py'),
-        join(directory, 'scripts/prepare-mock-app.py'),
+        path.join(root, 'scripts/prepare-mock-app.py'),
+        path.join(directory, 'scripts/prepare-mock-app.py'),
       );
       cpSync(
-        join(root, 'scripts/mock-mail-scenarios.json'),
-        join(directory, 'scripts/mock-mail-scenarios.json'),
+        path.join(root, 'scripts/mock-mail-scenarios.json'),
+        path.join(directory, 'scripts/mock-mail-scenarios.json'),
       );
       writeFileSync(
-        join(directory, 'Preview.app/Info.plist'),
+        path.join(directory, 'Preview.app/Info.plist'),
         `<?xml version="1.0"?><plist version="1.0"><dict><key>UnwiredMockScenario</key><string>open-read-relaunch</string></dict></plist>`,
       );
       const stub = `#!${process.execPath}
@@ -108,13 +111,13 @@ if (command === 'xcodebuild' && args[0] === 'test-without-building') {
 }
 `;
       for (const command of ['xcrun', 'xcodebuild', 'ruby', 'codesign']) {
-        writeFileSync(join(bin, command), stub, { mode: 0o755 });
+        writeFileSync(path.join(bin, command), stub, { mode: 0o755 });
       }
       const result = spawnSync(
         'zsh',
         [
-          join(scripts, 'test-native.zsh'),
-          join(directory, 'Preview.app'),
+          path.join(scripts, 'test-native.zsh'),
+          path.join(directory, 'Preview.app'),
           ...deviceTypes,
         ],
         {
@@ -122,7 +125,7 @@ if (command === 'xcodebuild' && args[0] === 'test-without-building') {
           env: {
             ...process.env,
             PATH: `${bin}:${process.env.PATH}`,
-            RUBY: join(bin, 'ruby'),
+            RUBY: path.join(bin, 'ruby'),
           },
           encoding: 'utf8',
         },
@@ -130,29 +133,33 @@ if (command === 'xcodebuild' && args[0] === 'test-without-building') {
       assert.ifError(result.error);
       assert.equal(result.status, expectedExit, result.stdout + result.stderr);
       assert.equal(
-        Number(readFileSync(join(directory, 'devices'), 'utf8')),
+        Number(readFileSync(path.join(directory, 'devices'), 'utf8')),
         expectedDevices,
       );
       if (deviceTypes.length > 0) {
         assert.deepEqual(
-          readFileSync(join(directory, 'created'), 'utf8').trim().split('\n'),
+          readFileSync(path.join(directory, 'created'), 'utf8')
+            .trim()
+            .split('\n'),
           deviceTypes,
         );
       }
-      const artifacts = join(directory, 'artifacts/expo-bootstrap');
+      const artifacts = path.join(directory, 'artifacts/expo-bootstrap');
       const entries = readdirSync(artifacts);
       assert.equal(entries.length, 1);
-      const evidence = join(artifacts, entries[0]);
-      const ownership = JSON.parse(
-        readFileSync(join(evidence, 'ownership.json'), 'utf8'),
+      const evidence = path.join(artifacts, entries[0]);
+      const ownership = parseJson(
+        readFileSync(path.join(evidence, 'ownership.json'), 'utf8'),
       );
       assert.match(
         ownership.bundleIdentifier,
         /^dev\.unwired\.mock\.[0-9a-f]{32}$/u,
       );
-      assert.equal(existsSync(join(evidence, 'Mock.app')), false);
+      assert.equal(existsSync(path.join(evidence, 'Mock.app')), false);
       const deleted = new Set(
-        readFileSync(join(directory, 'deleted'), 'utf8').trim().split('\n'),
+        readFileSync(path.join(directory, 'deleted'), 'utf8')
+          .trim()
+          .split('\n'),
       );
       assert.deepEqual(
         deleted,

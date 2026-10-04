@@ -27,16 +27,16 @@ const files = [
   ...readdirSync(new URL('.changeset', root)),
   ...(existsSync(pre) ? readdirSync(pre).map((file) => `pre/${file}`) : []),
 ];
-for (const file of files) {
+const changesets = files.filter((file) => {
   const name = file.replace(/^pre\//u, '');
-  if (
-    name.startsWith('.') ||
-    !name.endsWith('.md') ||
-    /^README\.md$/iu.test(name) ||
-    ['AGENTS.md', 'CLAUDE.md', 'GEMINI.md'].includes(name)
-  ) {
-    continue;
-  }
+  return (
+    !name.startsWith('.') &&
+    name.endsWith('.md') &&
+    !/^README\.md$/iu.test(name) &&
+    !['AGENTS.md', 'CLAUDE.md', 'GEMINI.md'].includes(name)
+  );
+});
+for (const file of changesets) {
   const text = readFileSync(new URL(`.changeset/${file}`, root), 'utf8');
   try {
     for (const { name } of parseChangesetFile(text).releases) {

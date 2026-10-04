@@ -20,17 +20,13 @@
     "UNWIRED_CONVEX_URL"
   ],
   "tasks": {
-    "lint": {
-      "dependsOn": ["^lint"]
+    "//#lint": {},
+    "//#lint:fix": {
+      "cache": false
     },
-    "lint:fix": {
-      "dependsOn": ["^lint:fix"]
-    },
-    "format": {
-      "dependsOn": ["^format"]
-    },
-    "format:fix": {
-      "dependsOn": ["^format:fix"]
+    "//#format": {},
+    "//#format:fix": {
+      "cache": false
     },
     "check-types": {
       "dependsOn": ["^check-types"]
@@ -85,6 +81,10 @@
     "oxlint.config.ts",
     "oxfmt.config.ts",
     "tsconfig.effect.json",
-    "scripts/oxlint-effect-imports.mjs"
+    "scripts/oxlint-effect-imports.mjs",
+    "scripts/oxlint-effect-boundaries.mjs",
+    "scripts/oxlint-effect-policy.ts",
+    "scripts/mock-mail-build.cjs",
+    "scripts/mock-mail-scenarios.json"
   ]
 }

@@ -18,7 +18,7 @@ Do not add documentation comments that only repeat property names or obvious Swi
 
 Prefer this structure:
 
-```swift
+````swift
 /// Fetches backend health without sending account, mailbox, provider, or device data.
 ///
 /// Use this service boundary from smoke-path views instead of constructing
@@ -34,7 +34,7 @@ Prefer this structure:
 protocol BackendHealthChecking {
   func health() async throws -> HealthResponse
 }
-```
+````
 
 ## Rules
 
@@ -44,4 +44,3 @@ protocol BackendHealthChecking {
 - Name required environment variables and setup assumptions.
 - Mention privacy boundaries when code intentionally avoids mailbox data, provider tokens, categories, or encrypted user data.
 - Prefer `///` for symbols and `//` only for implementation notes inside complex bodies.
-

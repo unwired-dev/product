@@ -18,7 +18,9 @@ module.exports = {
         '@private-email/mail-core/registration-mode': 'registration-mode',
         '@private-email/mail-core/inbox-seed': scenario,
       }[moduleName];
-    if (!source) return context.resolveRequest(context, moduleName, platform);
+    if (!source) {
+      return context.resolveRequest(context, moduleName, platform);
+    }
     return {
       type: 'sourceFile',
       filePath: path.resolve(

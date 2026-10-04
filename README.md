@@ -95,6 +95,12 @@ mise exec -- node --test scripts/check-changesets.test.mjs scripts/release-plan.
 mise exec -- pnpm fallow
 ```
 
+`pnpm lint` and `pnpm format` run Oxlint and Oxfmt once from the root over the
+whole repository; the app configurations apply to their own files. `pnpm lint:fix`
+and `pnpm format:fix` apply fixes. Turborepo caches them as the root `lint` and
+`format` tasks; add `--filter=//` when filtering `turbo run` to packages.
+Run `pnpm format:fix` after `pnpm changeset` to format generated frontmatter before CI.
+
 Use [the testing policy](docs/agents/testing.md) to select meaningful checks and
 [the native validation guide](docs/agents/native-validation.md) for resource
 ownership during native checks. The [mail test environment](docs/mail-test-environment.md) documents the

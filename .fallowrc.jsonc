@@ -22,6 +22,7 @@
   "ignoreUnresolvedImports": ["**/_generated/**", "./_generated/dataModel.js"],
   "ignoreDependencies": [
     // Used by prepare and the ignored Oxlint configuration files.
+    "@convex-dev/eslint-plugin",
     "@effect/tsgo",
     "@edge-runtime/vm",
     "@rajzik/oxfmt-config",

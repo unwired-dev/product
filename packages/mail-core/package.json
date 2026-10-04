@@ -16,9 +16,6 @@
   },
   "scripts": {
     "check-types": "tsc --noEmit",
-    "format": "oxfmt --check .",
-    "format:fix": "oxfmt --write .",
-    "lint": "oxlint --type-aware --type-check --deny-warnings --report-unused-disable-directives .",
     "test": "vitest run"
   },
   "dependencies": {
@@ -27,9 +24,6 @@
   "devDependencies": {
     "@rajzik/tsconfig": "catalog:",
     "@types/node": "catalog:",
-    "oxfmt": "catalog:",
-    "oxlint": "catalog:",
-    "oxlint-tsgolint": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
   }

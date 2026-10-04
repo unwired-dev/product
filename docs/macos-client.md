@@ -114,8 +114,8 @@ native setup or dependencies.
 ## Verification
 
 ```sh
-mise exec -- pnpm --filter @private-email/macos lint
-mise exec -- pnpm --filter @private-email/macos format
+mise exec -- pnpm lint
+mise exec -- pnpm format
 mise exec -- pnpm --filter @private-email/macos check-types
 mise exec -- pnpm --filter @private-email/macos test
 mise exec -- pnpm --filter @private-email/macos build
@@ -123,7 +123,7 @@ mise exec -- pnpm --filter @private-email/macos verify:bundle
 ```
 
 The [Mac CI workflow](../.github/workflows/macos.yml) runs Fallow and the production
-bundle/autolinking check. The root TypeScript job runs Mac lint, format, types and
+bundle/autolinking check. The root TypeScript job runs repository lint and format, plus Mac types and
 component tests. Native desktop automation currently runs locally.
 
 Three component integration scenarios exercise independent selections, closing one

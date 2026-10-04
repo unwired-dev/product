@@ -124,11 +124,10 @@ mise exec -- pnpm fallow
 mise exec -- pnpm test:tooling
 ```
 
-Run mobile checks from `apps/mobile`:
+Lint and formatting run once from the root (`pnpm lint`, `pnpm format`). Run the
+remaining mobile checks from `apps/mobile`:
 
 ```sh
-mise exec -- pnpm lint
-mise exec -- pnpm format
 mise exec -- pnpm check-types
 mise exec -- pnpm test
 mise exec -- pnpm fallow
@@ -141,8 +140,10 @@ mise exec -- pnpm verify:bundle
 checks the mobile React/native versions, shared mailbox source, Effect and native
 split view, and rejects the Mac renderer graph, React DOM and backend sources.
 This is bundle evidence, not a substitute for a native build or interaction test.
-The primary CI job runs lint, formatting, types and tests for mobile, core,
-contracts and the retained Convex backend, plus the Effect import-policy tests.
+The primary CI job lints and formats the whole repository from the root, and
+runs types and tests for mobile, core, contracts and the retained Convex backend,
+plus the Effect import-policy tests. Formatting skips `AGENTS.md` files, whose
+managed blocks agent tools rewrite, and the generated Icon Composer `icon.json`.
 The Mobile workflow checks Fallow, Expo compatibility and the production bundle.
 Its native jobs also build the Release app once and run the iPhone and iPad
 interaction journeys in parallel `Expo native E2E` jobs on pull requests ready
