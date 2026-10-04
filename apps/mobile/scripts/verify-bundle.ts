@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 
 import * as Schema from 'effect/Schema';
 
-const dist = new URL('../dist/', import.meta.url);
+const dist = new URL(process.argv[2] ?? '../dist/', import.meta.url);
 const files = await readdir(dist, { recursive: true });
 const maps = files.filter((file) => file.endsWith('.map'));
 assert.ok(
