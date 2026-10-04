@@ -96,6 +96,9 @@ not itself restrict filesystem or Git-history access.
    Use the installed `code-review` guidance where applicable, with the handoff's
    actual comparison and specification. For OCR-excluded task-owned files, apply
    the same repository checklist through the appropriate artifact review.
+   When the task touches React, React Native or Expo code, invoke
+   `vercel-react-native-skills` and `vercel-composition-patterns` and review
+   that code against both.
 4. Independently validate each finding. Fix confirmed issues directly in the
    checkout, preserving unrelated work. Update affected tests and documentation,
    including architecture docs when needed. This assignment includes fixes,
