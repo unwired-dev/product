@@ -1,7 +1,14 @@
 import type { ChildProcess } from 'node:child_process';
 
 import { spawn } from 'node:child_process';
-import { mkdtemp, realpath, rm, stat, writeFile } from 'node:fs/promises';
+import {
+  mkdtemp,
+  readFile,
+  realpath,
+  rm,
+  stat,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -14,6 +21,14 @@ import {
   persistOwnershipRecord,
   runDirectoryPrefix,
 } from '../src/ownership.ts';
+
+vi.mock(import('node:fs/promises'), async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    writeFile: vi.fn<typeof actual.writeFile>(actual.writeFile),
+  };
+});
 
 async function createRunDirectory(): Promise<string> {
   const base = await realpath(tmpdir());
@@ -119,34 +134,112 @@ describe('run ownership cleanup', () => {
     }
   });
 
-  it('removes the run directory after simulator cleanup fails', async () => {
-    expect.assertions(3);
-    const root = await createRunDirectory();
-    let record = await createOwnershipRecord(root);
-    record = {
-      ...record,
-      resources: {
-        ...record.resources,
-        simulatorIntents: [
-          { name: `Unwired Mail Test ${record.runId}` },
-          { name: `Unwired Mail Test ${record.runId}` },
-        ],
-      },
-    };
-    await persistOwnershipRecord(record);
-    const deleteSimulator = vi
-      .fn<(simulator: unknown) => Promise<void>>()
-      .mockRejectedValueOnce(new Error('simulator deletion failed'))
-      .mockResolvedValueOnce();
+  it('keeps the ownership record for doctor and recovery after simulator cleanup fails', async () => {
+    expect.assertions(5);
+    const base = await realpath(
+      await mkdtemp(path.join(await realpath(tmpdir()), 'mail-test-orphan-')),
+    );
+    const root = await mkdtemp(path.join(base, runDirectoryPrefix()));
+    const { child, pid } = spawnCancellationFixture();
+    try {
+      let record = await createOwnershipRecord(root);
+      const simulator = { name: `Unwired Mail Test ${record.runId}` };
+      record = {
+        ...record,
+        process: { commandMarker: 'setInterval', pid },
+        resources: {
+          ...record.resources,
+          simulatorIntents: [simulator, simulator],
+        },
+      };
+      await persistOwnershipRecord(record);
+      const failingDelete = vi
+        .fn<(simulator: unknown) => Promise<void>>()
+        .mockRejectedValueOnce(new Error('simulator deletion failed'))
+        .mockResolvedValueOnce();
 
-    await expect(
-      cleanupOwnedRun(record, undefined, deleteSimulator),
-    ).rejects.toThrow('simulator deletion failed');
-    expect(deleteSimulator.mock.calls).toStrictEqual([
-      [{ name: `Unwired Mail Test ${record.runId}` }],
-      [{ name: `Unwired Mail Test ${record.runId}` }],
-    ]);
-    await expect(stat(root)).rejects.toMatchObject({ code: 'ENOENT' });
+      await expect(
+        cleanupOwnedRun(record, child, failingDelete),
+      ).rejects.toThrow('simulator deletion failed');
+      expect(failingDelete.mock.calls).toStrictEqual([
+        [simulator],
+        [simulator],
+      ]);
+      await expect(inspectOwnedRuns(base)).resolves.toStrictEqual([
+        {
+          createdAt: record.createdAt,
+          root,
+          runId: record.runId,
+          status: 'stale',
+        },
+      ]);
+
+      // Explicit recovery no longer needs the original child process.
+      const recoveryDelete = vi.fn<() => Promise<void>>().mockResolvedValue();
+      await expect(
+        cleanupOwnedRun(record, undefined, recoveryDelete),
+      ).resolves.toStrictEqual({
+        processStopped: true,
+        runDirectoryRemoved: true,
+      });
+      await expect(stat(root)).rejects.toMatchObject({ code: 'ENOENT' });
+    } finally {
+      child.kill('SIGKILL');
+      await rm(base, { force: true, recursive: true });
+    }
+  });
+
+  it('preserves recovery ownership when the cleanup record update fails partway through writing', async () => {
+    expect.assertions(5);
+    const base = await realpath(
+      await mkdtemp(path.join(await realpath(tmpdir()), 'mail-test-orphan-')),
+    );
+    const root = await mkdtemp(path.join(base, runDirectoryPrefix()));
+    try {
+      const record = await createOwnershipRecord(root);
+      record.resources.simulatorIntents = [
+        { name: `Unwired Mail Test ${record.runId}` },
+      ];
+      await persistOwnershipRecord(record);
+      const original = await readFile(
+        path.join(root, 'ownership.json'),
+        'utf8',
+      );
+      const actual = await vi.importActual<{ writeFile: typeof writeFile }>(
+        'node:fs/promises',
+      );
+      vi.mocked(writeFile).mockImplementationOnce(async (file) => {
+        await actual.writeFile(file, '{');
+        throw new Error('ownership write failed');
+      });
+
+      await expect(
+        cleanupOwnedRun(record, undefined, async () => {
+          throw new Error('simulator deletion failed');
+        }),
+      ).rejects.toThrow('ownership write failed');
+      await expect(
+        readFile(path.join(root, 'ownership.json'), 'utf8'),
+      ).resolves.toBe(original);
+      await expect(inspectOwnedRuns(base)).resolves.toStrictEqual([
+        {
+          createdAt: record.createdAt,
+          root,
+          runId: record.runId,
+          status: 'stale',
+        },
+      ]);
+      await expect(
+        cleanupOwnedRun(record, undefined, () => Promise.resolve()),
+      ).resolves.toStrictEqual({
+        processStopped: true,
+        runDirectoryRemoved: true,
+      });
+      await expect(stat(root)).rejects.toMatchObject({ code: 'ENOENT' });
+    } finally {
+      vi.mocked(writeFile).mockReset();
+      await rm(base, { force: true, recursive: true });
+    }
   });
 
   it('refuses a recorded simulator that is not bound to its run', async () => {

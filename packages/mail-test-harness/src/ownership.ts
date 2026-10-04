@@ -1,7 +1,14 @@
 import type { ChildProcess } from 'node:child_process';
 
 import { randomUUID } from 'node:crypto';
-import { readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises';
+import {
+  readFile,
+  readdir,
+  realpath,
+  rename,
+  rm,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -69,13 +76,19 @@ export async function createOwnershipRecord(
 export async function persistOwnershipRecord(
   record: Readonly<OwnershipRecord>,
 ): Promise<void> {
-  await writeFile(
-    path.join(record.root, OWNERSHIP_FILE),
-    `${JSON.stringify(record, null, 2)}\n`,
-    {
-      mode: 0o600,
-    },
+  const temporaryFile = path.join(
+    record.root,
+    `${OWNERSHIP_FILE}.${randomUUID()}.tmp`,
   );
+  try {
+    await writeFile(temporaryFile, `${JSON.stringify(record, null, 2)}\n`, {
+      flag: 'wx',
+      mode: 0o600,
+    });
+    await rename(temporaryFile, path.join(record.root, OWNERSHIP_FILE));
+  } finally {
+    await rm(temporaryFile, { force: true });
+  }
 }
 
 export async function cleanupOwnedRun(
@@ -108,19 +121,21 @@ export async function cleanupOwnedRun(
     ...(actual.resources.simulators ?? []),
     ...(actual.resources.simulatorIntents ?? []),
   ];
-  let cleanupError = await cleanupOwnedSimulators(
+  const simulatorError = await cleanupOwnedSimulators(
     simulatorResources,
     deleteSimulator,
   );
+  if (simulatorError !== undefined) {
+    // Keep the record so doctor reports the orphan and a later cleanup can
+    // prove ownership; the process is already stopped.
+    await persistOwnershipRecord({ ...actual, process: null });
+    throw new Error(
+      `Mail test cleanup preserved ${actual.root} after Simulator cleanup failed: ${simulatorError.message}`,
+      { cause: simulatorError },
+    );
+  }
 
-  try {
-    await rm(actual.root, { force: true, recursive: true });
-  } catch (error) {
-    cleanupError ??= error instanceof Error ? error : new Error(String(error));
-  }
-  if (cleanupError !== undefined) {
-    throw cleanupError;
-  }
+  await rm(actual.root, { force: true, recursive: true });
   return { processStopped, runDirectoryRemoved: true };
 }
 
