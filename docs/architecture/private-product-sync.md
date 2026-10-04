@@ -11,7 +11,7 @@ Each Product Account has a
 device-only Keychain item (`WhenUnlockedThisDeviceOnly`, not synchronizable, Data
 Protection Keychain on Mac). It holds the account key ring and publication state. The initializing device
 also holds the Recovery Key, recovery envelope and confirmation state; an enrolled
-device receives only the key ring.
+or recovering device receives only the key ring.
 
 - **Key ring.** A random 256-bit AES key per epoch, starting at epoch 1. Earlier
   epochs stay in the ring for older records, matching
@@ -123,3 +123,38 @@ only in memory. Google can renew silently, while Apple requires interactive
 sign-in after relaunch. Mock journeys use isolated synthetic identities and
 controlled transport. Real Keychain and CryptoKit evidence establishes local
 encryption boundaries, not deployment JWT verification or two real devices.
+
+## Recovery Key adoption
+
+[#601](https://github.com/unwired-dev/product/issues/601) adds explicit Recovery Key
+entry beside trusted-device approval. Before reading the recovery envelope, Google
+renews its Product Sign-In silently and Apple signs in interactively on every
+attempt. The existing subject and Product Account checks fence the renewed
+identity, including after relaunch. Reusing an in-process Apple token would strand
+retries after expiry and violate [ADR 0001](../adr/0001-end-to-end-encrypted-product-sync.md)'s
+recovery authentication requirement.
+
+The existing authenticated, device-scoped query returns only the reserved recovery
+envelope. Native CryptoKit opens schema 3 using the entered Recovery Key and the
+Product Account binding. Adoption also requires the declared current epoch to
+match the ring, its key to exist, and every key to have 32 bytes. Only then does
+the device save a published, confirmed vault with the account's existing ring.
+It neither stores the Recovery Key nor initializes or replaces recovery material.
+It reads the encrypted mailbox descriptors; Gmail credentials remain device-local
+and require their own authorization.
+
+Reconnect may create or refresh an enrollment request before the key is checked.
+Recovery saves verified keys before withdrawing that request or removing its local
+Keychain item. A crash before the save leaves recovery retryable without keys; a
+crash after it leaves the verified ring available across relaunch. Failed remote
+withdrawal leaves the request to expire. A stale local enrollment item is ignored
+once keys exist. These transport and cleanup changes do not reset encrypted data
+or touch provider mail. Losing every key-holding device and the Recovery Key leaves
+encrypted product data unrecoverable; this interface offers no reset.
+
+The [qualification record](../qualification/expo-react-native-client.md#recovery-key-evidence-2026-10-04)
+records final-tree iOS storage and packaged recovery/enrollment passes after the
+reviewer corrections. Real Keychain and CryptoKit checks use a synthetic Convex
+boundary; packaged journeys use Mock Mail Sessions. Mac recovery automation and
+hosted storage, physical devices and protected Convex and provider qualification
+remain pending.

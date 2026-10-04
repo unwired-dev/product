@@ -212,6 +212,7 @@ test('build selection resolves only explicit test scenarios and production keeps
     ['registration-apple', 'normal'],
     ['registration-link', 'normal'],
     ['registration-enrollment', 'normal'],
+    ['registration-recovery', 'normal'],
   ]) {
     const result = spawnSync(process.execPath, ['-e', script], {
       cwd: root,

@@ -239,7 +239,10 @@ enum KeyRingEnvelope {
       from: ProductSyncSeal.open(
         payload, using: recoveryKey(key, account: account), purpose: "recovery",
         context: [account]))
-    guard ring.current == payload.keyVersion else { throw ProductSyncError.rejected }
+    guard ring.current == payload.keyVersion,
+      ring.keys.contains(where: { $0.version == ring.current }),
+      ring.keys.allSatisfy({ $0.key.count == 32 })
+    else { throw ProductSyncError.rejected }
     return ring
   }
 

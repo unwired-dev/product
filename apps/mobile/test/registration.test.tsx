@@ -9,8 +9,10 @@ import { act, fireEvent, render, screen } from '@testing-library/react-native';
 
 import { RegistrationGate } from '../src/registration-gate.tsx';
 
-// Hosts without another device of the account never enroll or approve one.
+// Hosts without another device of the account never enroll, approve or recover one.
 const noEnrollment = {
+  recoverWithRecoveryKey: () =>
+    Promise.reject(new Error('No device to recover')),
   approveEnrollment: () => Promise.reject(new Error('No device to approve')),
   declineEnrollment: () => Promise.reject(new Error('No device to decline')),
   refreshPrivateSync: () => Promise.reject(new Error('No private sync')),
@@ -427,6 +429,87 @@ describe('product registration', () => {
     ).toBeVisible();
   });
 
+  it('unlocks a new device with the Recovery Key after a wrong key changes nothing, and offers no reset', async () => {
+    expect.hasAssertions();
+    const account = createSyntheticAccount();
+    const lost = createRegistration(
+      createMockRegistrationSession('registration-success', account).native,
+    );
+    const added = createRegistration(
+      createMockRegistrationSession('registration-enrollment', account).native,
+    );
+    const show = (store: typeof lost) =>
+      render(
+        <RegistrationGate
+          store={store}
+          preview={false}>
+          {null}
+        </RegistrationGate>,
+      );
+    const press = async (name: string) => {
+      await act(async () => {
+        await fireEvent.press(await screen.findByRole('button', { name }));
+      });
+    };
+    // The device that created the account keys and saved a mailbox is later lost.
+    let view = await show(lost);
+    await press('Sign in with Google');
+    await expect(
+      screen.findByText('Encrypted mailbox list: alex@example.invalid.'),
+    ).resolves.toBeVisible();
+    await view.unmount();
+
+    // A new device offers the Recovery Key beside approval, and explains that losing both
+    // leaves the encrypted data locked; nothing offers to reset it.
+    view = await show(added);
+    await press('Sign in with Google');
+    await expect(
+      screen.findByRole('header', { name: 'Use your Recovery Key' }),
+    ).resolves.toBeVisible();
+    expect(screen.getByTestId('enrollment-code')).toBeVisible();
+    expect(
+      screen.getByText(/encrypted product data cannot be recovered/u),
+    ).toBeVisible();
+    expect(screen.queryByRole('button', { name: /reset/iu })).toBeNull();
+    const entry = screen.getByLabelText('Recovery Key');
+    await act(async () => {
+      await fireEvent.changeText(entry, syntheticEnrollmentCode);
+    });
+    await press('Unlock with Recovery Key');
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      /does not unlock this Product Account/u,
+    );
+    expect(
+      screen.getByRole('header', { name: 'Approve this device' }),
+    ).toBeVisible();
+    await act(async () => {
+      await fireEvent.changeText(
+        entry,
+        syntheticRecoveryKey.toLowerCase().replaceAll('-', ' '),
+      );
+    });
+    await press('Unlock with Recovery Key');
+
+    // The device reads the synchronized mailbox list; Gmail still needs its own grant.
+    await expect(
+      screen.findByRole('header', { name: 'Private sync is on' }),
+    ).resolves.toBeVisible();
+    expect(
+      screen.getByText('Encrypted mailbox list: alex@example.invalid.'),
+    ).toBeVisible();
+    expect(screen.queryByTestId('enrollment-code')).toBeNull();
+    expect(screen.queryByLabelText('Recovery Key')).toBeNull();
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(
+      screen.getByRole('button', { name: 'Authorize Gmail' }),
+    ).toBeVisible();
+    await view.unmount();
+    await show(added);
+    await expect(
+      screen.findByRole('header', { name: 'Private sync is on' }),
+    ).resolves.toBeVisible();
+  });
+
   /* oxlint-enable vitest/max-expects */
 
   it('replaces a request that is no longer available and clears the code typed for it', async () => {
@@ -447,6 +530,8 @@ describe('product registration', () => {
       link: () => Promise.reject(new Error('Not linking')),
       confirmRecoveryKey: () =>
         Promise.reject(new Error('No Recovery Key to confirm')),
+      recoverWithRecoveryKey: () =>
+        Promise.reject(new Error('No device to recover')),
       // The first request was handled by another trusted device meanwhile.
       approveEnrollment: () =>
         Promise.reject(

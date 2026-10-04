@@ -75,8 +75,15 @@
       // Keys held by the synthetic trusted device of an account that existed before this run.
       var trusted: [String: ProductSyncKeyRing] = [:]
     }
+    // The synthetic account's Recovery Key, typed by the `registration-recovery` journey.
+    static let recoveryKey = "000G-40R4-0M30-E209-185G-R38E-1W81-24GK-2GAH-C5RR-34D1-P70X-3RFG"
     let keys: DeviceKeychain
-    init(keys: DeviceKeychain) { self.keys = keys }
+    // Whether the synthetic trusted device is available to approve this device.
+    let approves: Bool
+    init(keys: DeviceKeychain, approves: Bool) {
+      self.keys = keys
+      self.approves = approves
+    }
 
     // Another device already created this account's keys and saved a mailbox with them.
     func seedTrustedDevice(_ account: String) throws {
@@ -85,7 +92,7 @@
         let ring = ProductSyncKeyRing.create()
         state.trusted[account] = ring
         state.recovery[account] = try KeyRingEnvelope.recovery(
-          ring, key: .generate(), account: account)
+          ring, key: RecoveryKey(parsing: Self.recoveryKey), account: account)
         let identifier = try ring.identifier("mailbox", "gmail:synthetic-trusted-mailbox")
         state.records[account] = [
           identifier: StoredPayload(
@@ -102,7 +109,7 @@
     // The synthetic trusted device approves once the request has been shown, using the code the
     // person would type from this device's screen; it reads that code from the run's Keychain.
     func approveIfShown(_ id: String, state: inout State) throws {
-      guard var request = state.requests[id], request.approved == nil,
+      guard approves, var request = state.requests[id], request.approved == nil,
         let ring = state.trusted[request.account]
       else { return }
       request.checks += 1
@@ -188,7 +195,21 @@
         // The synthetic devices in this session never wait for this device's approval.
         pendingEnrollments: { _, _ in [] },
         approveEnrollment: { _, _, _, _, _ in throw RegistrationError.enrollmentUnavailable },
-        declineEnrollment: { _, _, _ in throw RegistrationError.enrollmentUnavailable })
+        // Only this device's own request can be cancelled, as after Recovery Key unlock.
+        declineEnrollment: { [self] _, product, id in
+          try update { state in
+            guard state.requests[id]?.device == product.trustedDeviceId else {
+              throw RegistrationError.enrollmentUnavailable
+            }
+            state.requests[id] = nil
+          }
+        },
+        recoveryEnvelope: { [self] _, product in
+          guard let envelope = try state().recovery[product.productAccountId] else {
+            throw RegistrationError.unavailable
+          }
+          return envelope
+        })
     }
   }
 
@@ -199,16 +220,18 @@
       [
         "registration-cancelled", "registration-declined", "registration-no-gmail",
         "registration-interrupted", "registration-apple", "registration-link",
-        "registration-enrollment",
+        "registration-enrollment", "registration-recovery",
       ].contains(scenario)
     else {
       throw RegistrationError.unavailable
     }
     let google = MockGoogleRegistrationProvider(scenario: scenario)
     let keys = DeviceKeychain(service: bundle + ".google-registration")
-    let productSync = MockProductSyncBackend(keys: keys)
-    // The Google account already exists with keys on a synthetic trusted device.
-    if scenario == "registration-enrollment" {
+    let productSync = MockProductSyncBackend(
+      keys: keys, approves: scenario == "registration-enrollment")
+    // The Google account already exists with keys on a synthetic trusted device. In the recovery
+    // scenario that device is lost, and the person holds the account's Recovery Key.
+    if scenario == "registration-enrollment" || scenario == "registration-recovery" {
       try productSync.seedTrustedDevice("synthetic-product-account")
     }
     // Each synthetic sign-in identity owns its own Product Account; in the link

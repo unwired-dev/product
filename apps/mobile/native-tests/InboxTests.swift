@@ -119,6 +119,34 @@ final class InboxTests: XCTestCase {
     add(shot)
   }
 
+  // Without a trusted device, the Recovery Key unlocks the account's keys on this device.
+  private func recoveryJourney(_ app: XCUIApplication) {
+    app.buttons["Sign in with Google"].tap()
+    XCTAssertTrue(app.staticTexts["Use your Recovery Key"].waitForExistence(timeout: 15))
+    XCTAssertTrue(app.staticTexts["enrollment-code"].exists)
+    let mailboxes = app.staticTexts["Encrypted mailbox list: alex@example.invalid."]
+    XCTAssertFalse(mailboxes.exists)
+    // The synthetic account's written Recovery Key, typed as the person would.
+    let entry = app.textFields["Recovery Key"]
+    entry.tap()
+    entry.typeText("000G-40R4-0M30-E209-185G-R38E-1W81-24GK-2GAH-C5RR-34D1-P70X-3RFG\n")
+    app.buttons["Unlock with Recovery Key"].tap()
+    XCTAssertTrue(app.staticTexts["Private sync is on"].waitForExistence(timeout: 15))
+    XCTAssertTrue(mailboxes.exists)
+    XCTAssertFalse(app.staticTexts["enrollment-code"].exists)
+    // Gmail on this device still needs its own authorization.
+    XCTAssertTrue(app.buttons["Authorize Gmail"].exists)
+    app.terminate()
+    app.launch()
+    XCTAssertTrue(app.staticTexts["Private sync is on"].waitForExistence(timeout: 15))
+    XCTAssertTrue(mailboxes.waitForExistence(timeout: 15))
+    XCTAssertFalse(app.textFields["Recovery Key"].exists)
+    let shot = XCTAttachment(screenshot: app.screenshot())
+    shot.name = "Recovered with the Recovery Key"
+    shot.lifetime = .keepAlways
+    add(shot)
+  }
+
   func testSelectAndReplaceMessage() throws {
     continueAfterFailure = false
     let identifier = try XCTUnwrap(ProcessInfo.processInfo.environment["UNWIRED_BUNDLE_ID"])
@@ -133,6 +161,7 @@ final class InboxTests: XCTestCase {
       case "registration-apple": appleRegistrationJourney(app)
       case "registration-link": linkJourney(app)
       case "registration-enrollment": enrollmentJourney(app)
+      case "registration-recovery": recoveryJourney(app)
       default:
         try registrationJourney(app)
       }

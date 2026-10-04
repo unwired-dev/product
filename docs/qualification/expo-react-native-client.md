@@ -1,6 +1,6 @@
 # Expo and React Native platform qualification
 
-Evidence updated: 2026-10-03. Status: **Expo bootstrap builds and launches on
+Evidence updated: 2026-10-04. Status: **Expo bootstrap builds and launches on
 iOS/iPadOS 27 and the native Mac mock Inbox builds and launches on macOS 27;
 full replacement qualification remains incomplete**.
 
@@ -8,6 +8,73 @@ The [mobile bootstrap](../expo-client.md) now uses Expo 57.0.25, React Native
 0.86.3 and React 19.2.3 with Effect 4.0.0-rc.118. Xcode 27 and the iOS 27 runtime
 are available on the development host. The maintainer's earlier native-validation
 deferral still applies to unavailable release checks. Mac host evidence follows.
+
+## Recovery Key evidence, 2026-10-04
+
+[#601](https://github.com/unwired-dev/product/issues/601) adds explicit recovery
+with the user-held Recovery Key to both replacement hosts. Review covers the
+uncommitted task diff from `35850faf`, including the new native recovery source
+and changeset. No native builds or simulator journeys were rerun by the reviewer,
+as instructed in the handoff.
+
+Final-tree implementer evidence and retained records, using Node 24, Xcode 27
+and fresh iOS 27 simulators after the reviewer corrections:
+
+- `zsh native/private-inbox/integration/test.zsh ios` passed 19 tests in one suite,
+  including `recoveryKeyUnlocksANewDeviceWithoutReplacingAccountKeys` and
+  `recoveryAndEnrollmentEnvelopesOpenOnlyForTheirAccountAndRecipient` with the
+  reviewer corrections. The reviewer inspected their passing entries and the
+  suite result in `artifacts/private-inbox/integration.zR0adL/test-1.log`;
+  `result-1.xcresult` is retained in that directory. This suite uses real Keychain,
+  CryptoKit and filesystem storage with a synthetic Convex boundary.
+- The packaged `registration-recovery` Release simulator build passed one XCTest
+  journey each on fresh iPhone 18 Pro and iPad Pro 11-inch (M5) 27 simulators, with
+  zero failures. Local evidence: `artifacts/expo-bootstrap/native-aToLs5/`.
+- The packaged `registration-enrollment` journey with the changed fixture passed
+  on both devices under the same conditions, one test each with zero failures.
+  Local evidence: `artifacts/expo-bootstrap/native-Lt94WW/`. For both packaged
+  journeys, the reviewer inspected passing XCTest logs, runner exit code zero
+  and ownership records identifying the scenario and isolated mock bundle.
+- The Mac recovery `Testing` build succeeded. Both journey attempts failed before
+  UI testing began with "Timed out while enabling automation mode";
+  `automationmodetool` reports that this device requires user authentication to
+  enable Automation Mode. This is unavailable journey evidence, not a
+  passing test or a demonstrated application failure.
+- The Mac hosted storage build stopped because `StorageHost` needs a provisioning
+  profile. Mac Keychain recovery remains unqualified.
+
+Reviewer corrections require fresh interactive Apple authentication on every
+recovery attempt, reject authenticated recovery rings with missing or incorrectly
+sized keys, and correct failure copy that promised no changes despite enrollment
+refresh or an interruption after verified keys are saved. The native regression
+assertions were extended for invalid ring contents, renewed Apple identity
+mismatch, cancellation and retry. The 19-test iOS storage run above executes these
+assertions against the final native source. Earlier recovery passes preceded the
+corrections; their unavailable raw storage results are superseded by this retained
+final-tree run.
+
+The shared mock backend also changed `registration-enrollment` seeding and approval
+selection. The final-tree packaged enrollment run above covers that revision.
+The new Mac wrong-key journey, Mac hosted storage, physical-device behavior
+and protected recovery through real
+Convex, Google and Apple remain required release qualification. Deterministic
+Mock Mail Sessions and controlled native transport are distinct from real provider
+evidence. Follow the [protected recovery procedure](../private-product-sync.md#protected-real-qualification)
+without recording keys, tokens or mailbox addresses.
+
+Available reviewer checks pass on Node 24.16.0 and pnpm 11.5.2: shared core 30
+tests, mobile 16, Mac 14, and Convex 239; all six workspace lint, format and type
+tasks; affected-document formatting and 102 local links; changeset validation;
+both production JavaScript exports and renderer/autolinking checks; Fallow's exit
+gate; Swift formatting and syntax parsing for the corrected files. SwiftLint exits
+zero with existing warnings and the task's two additional length warnings in
+`ProductSync.swift` and `UnwiredRegistration`; it is not a warning-free result.
+The implementer reran `pnpm test:native-runner` outside the reviewer sandbox
+against the final tree: 41 passed, zero failed, including the cleanup-helper
+contract previously blocked by compiler-cache access. It also reconfirmed shared
+core 30, mobile 16, Mac 14 and Convex 239 passing tests, plus lint, format, types
+and changeset checks. Runner contracts do not qualify native application behavior;
+the iOS storage suite and packaged journeys above supply their separate evidence.
 
 ## Final host identity and sandbox readiness, 2026-10-03
 

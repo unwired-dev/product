@@ -128,10 +128,20 @@ import Testing
         request.expiresAt = clock + 900_000
         requests[pending.requestId] = request
       },
+      // Any live device of the account, including the requester, cancels an open request.
       declineEnrollment: { [self] _, product, id in
         try device(product)
-        _ = try approvable(product, id)
+        guard let request = requests[id], request.account == product.productAccountId,
+          request.state == .pending, request.expiresAt > clock
+        else { throw RegistrationError.enrollmentUnavailable }
         requests[id]?.state = .cancelled
+      },
+      recoveryEnvelope: { [self] _, product in
+        try device(product)
+        guard let envelope = recovery[product.productAccountId] else {
+          throw RegistrationError.unavailable
+        }
+        return envelope
       })
   }
 
@@ -275,6 +285,17 @@ extension PrivateInboxTests {
     let envelope = try KeyRingEnvelope.recovery(ring, key: key, account: "account-a")
     #expect(envelope.schemaVersion == KeyRingEnvelope.recoverySchemaVersion)
     #expect(try KeyRingEnvelope.openRecovery(envelope, key: key, account: "account-a") == ring)
+    // An authenticated but unusable ring must not make a recovering device appear unlocked.
+    for invalid in [
+      ProductSyncKeyRing(current: 1, keys: []),
+      ProductSyncKeyRing(current: 2, keys: ring.keys),
+      ProductSyncKeyRing(current: 1, keys: [.init(version: 1, key: Data(repeating: 0, count: 31))]),
+    ] {
+      let malformed = try KeyRingEnvelope.recovery(invalid, key: key, account: "account-a")
+      #expect(throws: ProductSyncError.rejected) {
+        try KeyRingEnvelope.openRecovery(malformed, key: key, account: "account-a")
+      }
+    }
     #expect(throws: ProductSyncError.rejected) {
       try KeyRingEnvelope.openRecovery(envelope, key: .generate(), account: "account-a")
     }
@@ -658,5 +679,122 @@ extension PrivateInboxTests {
       try await approver.approveEnrollment(revokedRequest, code: revokedCode)
     }
     #expect(backend.recovery[account] == recovery)
+  }
+
+  @Test @MainActor func recoveryKeyUnlocksANewDeviceWithoutReplacingAccountKeys() async throws {
+    let trusted = device()
+    let new = device()
+    let appleDevice = device()
+    let account = "account-synthetic-product-subject"
+    defer {
+      remove(trusted, accounts: [account])
+      remove(new, accounts: [account])
+      remove(appleDevice, accounts: [account])
+    }
+    let google = SyntheticGoogleRegistrationProvider()
+    google.scopes = [RegistrationStore.gmailScope]
+    let backend = SyntheticProductSyncBackend()
+    // The lost device created the account keys, showed the Recovery Key and saved its mailbox.
+    let lost = backend.store(keys: trusted, google: google)
+    let shown = try #require(try await lost.signIn()["recoveryKey"])
+    google.subject = "synthetic-mailbox-subject"
+    #expect(try await lost.authorizeGmail(reselect: false)["kind"] == "connected")
+    google.subject = "synthetic-product-subject"
+    let recovery = try #require(backend.recovery[account])
+    let ring = try #require(try lost.loadVault(account)?.ring)
+
+    // Product Sign-In on a new installation reaches the account but none of its keys.
+    let recovering = backend.store(keys: new, google: google)
+    let requested = try await recovering.signIn()
+    #expect(requested["privateSync"] == "enrollment-pending")
+    let request = try #require(backend.requests.keys.first)
+
+    // Malformed, unrelated and another account's keys unlock nothing and change nothing, even
+    // when the backend substitutes that account's envelope.
+    let other = RecoveryKey.generate()
+    for entry in [String(shown.dropLast()), "0000", other.display] {
+      await #expect(throws: RegistrationError.recoveryKeyRejected) {
+        try await recovering.recover(with: entry)
+      }
+    }
+    backend.recovery[account] = try KeyRingEnvelope.recovery(
+      .create(), key: other, account: "account-other")
+    await #expect(throws: RegistrationError.recoveryKeyRejected) {
+      try await recovering.recover(with: other.display)
+    }
+    backend.recovery[account] = recovery
+    // An interrupted recovery leaves the device waiting for approval, also after relaunch.
+    backend.offline = true
+    await #expect(throws: RegistrationError.unavailable) {
+      try await recovering.recover(with: shown)
+    }
+    backend.offline = false
+    let relaunched = try await backend.store(keys: new, google: google).restore()
+    #expect(relaunched["privateSync"] == "enrollment-pending")
+    #expect(relaunched["enrollmentCode"] == requested["enrollmentCode"])
+    #expect(try recovering.loadVault(account) == nil)
+    #expect(backend.requests[request]?.state == .pending)
+
+    // The written key, typed loosely, adopts the account keys and reads the synchronized mailbox
+    // list; Gmail on this device still needs its own authorization.
+    let unlocked = try await backend.store(keys: new, google: google).recover(
+      with: shown.lowercased().replacingOccurrences(of: "-", with: " "))
+    #expect(unlocked["kind"] == "mailbox-needed")
+    #expect(unlocked["privateSync"] == "ready")
+    #expect(unlocked["recoveryKey"] == nil)
+    #expect(unlocked["enrollmentCode"] == nil)
+    #expect(unlocked["privateSyncMailboxes"] == "same@example.invalid")
+    #expect(try recovering.loadVault(account)?.ring == ring)
+    #expect(try recovering.loadVault(account)?.recoveryKey == nil)
+    // Its approval request is withdrawn; nothing replaced the account's key material.
+    #expect(backend.requests[request]?.state == .cancelled)
+    #expect(backend.recovery[account] == recovery)
+    #expect(backend.initializations == 1)
+    #expect(try lost.loadVault(account)?.ring == ring)
+    let restored = try await backend.store(keys: new, google: google).restore()
+    #expect(restored["privateSync"] == "ready")
+    #expect(restored["privateSyncMailboxes"] == "same@example.invalid")
+
+    // This account's synthetic Apple sign-in reaches the same account on another installation.
+    let apple = SyntheticAppleRegistrationProvider()
+    func appleStore() -> RegistrationStore {
+      RegistrationStore(
+        keys: appleDevice, deployment: "https://synthetic.example.invalid",
+        clientID: "synthetic-client", provider: google, apple: apple, productSync: backend.backend,
+        connect: { _, device, _ in backend.receipt(account, device: "device-" + device) })
+    }
+    let appleRecovery = appleStore()
+    #expect(try await appleRecovery.signIn(with: .apple)["privateSync"] == "enrollment-pending")
+    // Recovery must reauthenticate even with a process session. A different identity or a
+    // cancelled renewal cannot adopt the account keys, and a later retry uses fresh sign-in.
+    let subject = apple.subject
+    apple.subject = "another-apple-subject"
+    await #expect(throws: RegistrationError.invalidIdentity) {
+      try await appleRecovery.recover(with: shown)
+    }
+    #expect(try appleRecovery.loadVault(account) == nil)
+    apple.subject = subject
+    apple.outcome = .cancelled
+    await #expect(throws: RegistrationError.cancelled) {
+      try await appleRecovery.recover(with: shown)
+    }
+    #expect(try appleRecovery.loadVault(account) == nil)
+    apple.outcome = nil
+    #expect(try await appleRecovery.recover(with: shown)["privateSync"] == "ready")
+    #expect(try appleRecovery.loadVault(account)?.ring == ring)
+    #expect(try await appleStore().restore()["privateSyncMailboxes"] == "same@example.invalid")
+    #expect(backend.recovery[account] == recovery)
+    #expect(backend.initializations == 1)
+
+    // The backend never received the Recovery Key or the account keys.
+    let visible = try #require(
+      String(
+        data: JSONEncoder().encode(backend.records) + JSONEncoder().encode(backend.recovery),
+        encoding: .utf8))
+    for secret in [shown, shown.replacingOccurrences(of: "-", with: "")]
+      + ring.keys.map({ $0.key.base64EncodedString() })
+    {
+      #expect(!visible.contains(secret))
+    }
   }
 }

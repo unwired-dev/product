@@ -1,6 +1,8 @@
 import type {
   EnrollmentFailure,
   LinkFailure,
+  PrivateSync as PrivateSyncState,
+  RecoveryFailure,
   RecoveryKeyFailure,
   Registration,
   RegistrationSnapshot,
@@ -10,10 +12,12 @@ import type { ReactNode } from 'react';
 import {
   enrollmentCopy,
   linkFailureCopy,
+  offersRecovery,
   otherSignInProvider,
   privateSyncCopy,
   providerNames,
   recoveryKeyConfirmationCopy,
+  recoveryCopy,
   recoveryKeyEntry,
   registrationCopy,
   signInMethodsCopy,
@@ -155,6 +159,62 @@ function PrivateSync({
           {copy.pending}
         </Text>
       )}
+    </>
+  );
+}
+
+// Without an available trusted device, the Recovery Key unlocks this one; nothing offers a reset.
+function RecoveryKeyUnlock({
+  account,
+  button,
+  failure,
+  store,
+}: {
+  readonly account: Readonly<{ privateSync?: PrivateSyncState }>;
+  readonly button: (label: string, action: () => Promise<void>) => ReactNode;
+  readonly failure: RecoveryFailure | undefined;
+  readonly store: Registration;
+}) {
+  const colors = usePalette();
+  const [entry, setEntry] = useState('');
+  if (!offersRecovery(account.privateSync)) {
+    return null;
+  }
+  return (
+    <>
+      <Text
+        accessibilityRole="header"
+        style={[styles.heading, { color: colors.foreground }]}>
+        {recoveryCopy.title}
+      </Text>
+      <Text style={[styles.text, { color: colors.secondary }]}>
+        {recoveryCopy.description}
+      </Text>
+      <TextInput
+        accessibilityLabel={recoveryCopy.label}
+        autoCapitalize="characters"
+        autoComplete="off"
+        autoCorrect={false}
+        onChangeText={setEntry}
+        placeholder={recoveryCopy.label}
+        placeholderTextColor={colors.secondary}
+        style={[
+          styles.input,
+          { borderColor: colors.separator, color: colors.foreground },
+        ]}
+        value={entry}
+      />
+      {failure === undefined ? null : (
+        <Text
+          accessibilityRole="alert"
+          style={[styles.text, { color: colors.foreground }]}>
+          {recoveryCopy[failure]}
+        </Text>
+      )}
+      {button(recoveryCopy.unlock, () => store.recoverWithRecoveryKey(entry))}
+      <Text style={[styles.text, { color: colors.secondary }]}>
+        {recoveryCopy.lost}
+      </Text>
     </>
   );
 }
@@ -311,6 +371,7 @@ export function RegistrationGate({
     failed,
     linkFailure,
     recoveryKeyFailure,
+    recoveryFailure,
     enrollmentFailure,
   } = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const colors = usePalette();
@@ -398,6 +459,14 @@ export function RegistrationGate({
             account={snapshot}
             button={button}
             failure={recoveryKeyFailure}
+            store={store}
+          />
+        )}
+        {snapshot.kind === 'signed-out' ? null : (
+          <RecoveryKeyUnlock
+            account={snapshot}
+            button={button}
+            failure={recoveryFailure}
             store={store}
           />
         )}

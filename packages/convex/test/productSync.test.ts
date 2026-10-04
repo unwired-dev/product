@@ -950,6 +950,38 @@ describe('productSync encrypted payloads', () => {
     expect(listed).toHaveLength(100);
   });
 
+  it('returns the recovery envelope to a new device of its Product Account only', async () => {
+    expect.assertions(3);
+
+    const { asUser, t } = await connectAppleDevice();
+    // Another installation of the account holds no keys yet; the Recovery Key opens the envelope there.
+    const added = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-002',
+      platform: 'macos',
+    });
+    const asOther = t.withIdentity(otherAppleIdentity);
+    const outsider = await asOther.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-003',
+      platform: 'ios',
+    });
+    const read = (
+      caller: typeof asUser,
+      trustedDeviceId: Id<'trustedDevices'>,
+    ) =>
+      caller.query(api.productSync.getEncryptedPayloadForTrustedDevice, {
+        payloadIdentifier: 'product-account-recovery-v1',
+        trustedDeviceId,
+      });
+
+    await expect(read(asUser, added.trustedDeviceId)).resolves.toMatchObject({
+      encryptedPayload: recoveryEnvelope,
+    });
+    await expect(read(asOther, outsider.trustedDeviceId)).resolves.toBeNull();
+    await expect(read(asOther, added.trustedDeviceId)).rejects.toThrow(
+      'Trusted device required',
+    );
+  });
+
   it('gets an encrypted payload by opaque payload identifier', async () => {
     expect.assertions(2);
 

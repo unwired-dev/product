@@ -8,7 +8,8 @@
     "registration-interrupted",
     "registration-apple",
     "registration-link",
-    "registration-enrollment"
+    "registration-enrollment",
+    "registration-recovery"
   ],
   "nativeJourney": [
     "open-read-relaunch",
@@ -18,6 +19,7 @@
     "registration-interrupted",
     "registration-apple",
     "registration-link",
-    "registration-enrollment"
+    "registration-enrollment",
+    "registration-recovery"
   ]
 }

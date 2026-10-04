@@ -89,6 +89,39 @@ final class WindowTests: XCTestCase {
     XCTAssertFalse(enrollmentCode(in: relaunched).exists)
   }
 
+  // Without a trusted device, the Recovery Key unlocks the account's keys on this device.
+  private func recoveryJourney(_ app: XCUIApplication, first: XCUIElement) {
+    XCTAssertTrue(first.buttons["Sign in with Google"].waitForExistence(timeout: 20))
+    first.buttons["Sign in with Google"].click()
+    XCTAssertTrue(text("Use your Recovery Key", in: first).waitForExistence(timeout: 15))
+    XCTAssertTrue(enrollmentCode(in: first).exists)
+    let mailboxes = "Encrypted mailbox list: alex@example.invalid."
+    XCTAssertFalse(text(mailboxes, in: first).exists)
+    let entry = first.textFields["Recovery Key"]
+    // A key with one changed character unlocks nothing.
+    entry.click()
+    entry.typeText("100G-40R4-0M30-E209-185G-R38E-1W81-24GK-2GAH-C5RR-34D1-P70X-3RFG")
+    first.buttons["Unlock with Recovery Key"].click()
+    XCTAssertTrue(
+      text("does not unlock this Product Account", in: first).waitForExistence(timeout: 15))
+    XCTAssertTrue(text("Approve this device", in: first).exists)
+    entry.click()
+    entry.typeKey("a", modifierFlags: .command)
+    entry.typeText("000G-40R4-0M30-E209-185G-R38E-1W81-24GK-2GAH-C5RR-34D1-P70X-3RFG")
+    first.buttons["Unlock with Recovery Key"].click()
+    XCTAssertTrue(text("Private sync is on", in: first).waitForExistence(timeout: 15))
+    XCTAssertTrue(text(mailboxes, in: first).exists)
+    XCTAssertFalse(enrollmentCode(in: first).exists)
+    // Gmail on this device still needs its own authorization.
+    XCTAssertTrue(first.buttons["Authorize Gmail"].exists)
+    app.terminate()
+    app.launch()
+    let relaunched = app.windows["Inbox 1"]
+    XCTAssertTrue(text("Private sync is on", in: relaunched).waitForExistence(timeout: 15))
+    XCTAssertTrue(text(mailboxes, in: relaunched).waitForExistence(timeout: 15))
+    XCTAssertFalse(relaunched.textFields["Recovery Key"].exists)
+  }
+
   // Linking verifies both identities; the Gmail grant never becomes a sign-in method.
   private func linkJourney(_ app: XCUIApplication, first: XCUIElement) {
     XCTAssertTrue(first.buttons["Sign in with Apple"].waitForExistence(timeout: 20))
@@ -136,6 +169,10 @@ final class WindowTests: XCTestCase {
     }
     if environment["UNWIRED_TEST_SCENARIO"] == "registration-enrollment" {
       enrollmentJourney(app, first: first)
+      return
+    }
+    if environment["UNWIRED_TEST_SCENARIO"] == "registration-recovery" {
+      recoveryJourney(app, first: first)
       return
     }
     if environment["UNWIRED_TEST_SCENARIO"]?.hasPrefix("registration-") == true {

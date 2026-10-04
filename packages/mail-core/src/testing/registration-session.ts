@@ -235,6 +235,34 @@ export function createMockRegistrationSession(
       snapshot = { ...confirmed, privateSync: 'ready' };
       return Promise.resolve(snapshot);
     },
+    // The Recovery Key the account's lost trusted device showed unlocks this one instead.
+    recoverWithRecoveryKey: (entry) => {
+      if (
+        snapshot.kind === 'signed-out' ||
+        (snapshot.privateSync !== 'enrollment-needed' &&
+          snapshot.privateSync !== 'enrollment-pending')
+      ) {
+        return rejection('Synthetic recovery unavailable', 'unavailable');
+      }
+      if (normalizedCode(entry) !== normalizedCode(syntheticRecoveryKey)) {
+        return rejection(
+          'Synthetic Recovery Key rejected',
+          'recovery-key-rejected',
+        );
+      }
+      const shared = syncAccount(snapshot.productAccountId);
+      // The open approval request is withdrawn.
+      shared.enrollment = undefined;
+      const { enrollmentCode: _code, ...unlocked } = snapshot;
+      snapshot = {
+        ...unlocked,
+        privateSync: 'ready',
+        ...(shared.mailboxes.size === 0
+          ? {}
+          : { privateSyncMailboxes: [...shared.mailboxes].join('\n') }),
+      };
+      return Promise.resolve(snapshot);
+    },
     approveEnrollment: (requestId, code) => {
       if (
         snapshot.kind === 'signed-out' ||

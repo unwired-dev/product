@@ -10,7 +10,10 @@ user-held Recovery Key. A small real record round-trips through Convex: the
 authorized Gmail mailbox descriptor.
 [#600](https://github.com/unwired-dev/product/issues/600) lets an existing
 Trusted Device [approve a new device](#approving-a-new-device), which then
-receives the same keys. This follows
+receives the same keys.
+[#601](https://github.com/unwired-dev/product/issues/601) lets a device without an
+available Trusted Device [unlock with the Recovery Key](#recovering-with-the-recovery-key).
+This follows
 [ADR 0001](adr/0001-end-to-end-encrypted-product-sync.md) and
 [ADR 0061](adr/0061-separate-product-identity-from-registration-mailbox-authorization.md):
 Product Sign-In alone never yields decryption keys, and missing local keys never
@@ -45,9 +48,9 @@ and offers the same action. Signing in again rechecks a saved Gmail mailbox inst
 of restarting Gmail consent. Reopening an account that already
 has Product Sync keys on a device without them never creates keys. Once that device
 reaches Convex it asks for [approval](#approving-a-new-device) and shows **Approve
-this device**; until then it shows **Unlock private data on this device**. Recovery
-Key entry ([#601](https://github.com/unwired-dev/product/issues/601)) is the other
-way to unlock it. Nothing is reset, and Gmail can still be authorized locally.
+this device**; until then it shows **Unlock private data on this device**. Both
+states also offer [Recovery Key entry](#recovering-with-the-recovery-key). Nothing
+is reset, and Gmail can still be authorized locally.
 
 ## Approving a new device
 
@@ -94,6 +97,38 @@ removed after collection; an expired approval is never returned. The native modu
 keeps the code and private key in device-only storage until this device holds the
 keys. [Protocol details](architecture/private-product-sync.md#trusted-device-enrollment)
 are maintained in the architecture companion.
+
+## Recovering with the Recovery Key
+
+A device that shows **Approve this device** or **Unlock private data on this
+device** also shows **Use your Recovery Key**. Enter the written Recovery Key under
+**Recovery Key** and choose **Unlock with Recovery Key**. Case, spaces, hyphens and
+the look-alikes O, I and L are accepted. Google devices renew their Product Sign-In
+silently first. Apple devices ask to sign in with Apple again on every recovery
+attempt, so a form left open beyond token expiry can still be retried. The renewed
+sign-in must reach the same Product Account.
+
+The device reads the account's recovery envelope from Convex and opens it with the
+key. The Recovery Key never leaves the device. Only after the envelope opens does the device save the account
+keys, so this device becomes trusted only by successful verification. It then
+withdraws its approval request and shows **Private sync is on** with the mailbox
+list decrypted from Product Sync. Gmail on this device still needs its own
+authorization. The device does not keep or show the Recovery Key afterwards.
+
+A key that is mistyped, incomplete, or belongs to another Product Account unlocks
+nothing. The device reports that the Recovery Key does not unlock this Product
+Account and retains its existing account keys and encrypted data. Reconnecting may
+create or renew this device's approval request before checking the key. If the check
+cannot reach Convex or is interrupted before the keys are saved, the device stays
+waiting, also after relaunch, and the attempt can be repeated. Recovery never
+creates replacement keys, changes the recovery envelope or discards product data.
+An interruption after verified keys are saved keeps those keys across relaunch.
+If withdrawing the approval request fails, the request expires on its own; a stale
+local request is ignored once this device holds the keys.
+
+The section also explains that losing every Trusted Device and the Recovery Key
+means the encrypted product data cannot be recovered, and that Unwired Mail cannot
+unlock it for you. Nothing offers a reset, and mail in Gmail is not affected.
 
 ## Keys and envelopes
 
@@ -157,7 +192,18 @@ It checks:
 
 It covers one-time initialization, the Recovery Key opening the published
 envelope, and an encrypted descriptor round trip with no address, subject, token
-or Recovery Key visible to the backend. The two-device approval journey uses two
+or Recovery Key visible to the backend. The Recovery Key journey adds a new installation that rejects malformed and
+unrelated keys and another account's key and envelope substituted by the backend.
+It also stays unchanged after an interrupted attempt and a relaunch. The written
+key then gives it the account's key ring and decrypted mailbox list without Gmail
+access, withdraws its approval request and leaves the recovery envelope unchanged.
+The backend never receives the key. Additional native assertions reject an
+authenticated envelope with unusable keys and require fresh Apple authentication
+before recovery, rejecting identity changes and cancelled renewal. The final-tree
+iOS storage run passed all 19 tests, including those reviewer assertions. Raw
+results are retained in `artifacts/private-inbox/integration.zR0adL/`; this is real
+native storage and cryptography evidence with a synthetic Convex boundary.
+The two-device approval journey uses two
 installations with separate Keychains. A mistyped code, declined, forged, expired,
 replayed and revoked approvals all leave the new device without keys. A forged
 approval is one sealed without the code. The accepted approval then gives the new
@@ -173,9 +219,12 @@ recovery identifier. They also reject record writes and the initialized marker
 before publication, and keep accounts left without an envelope from receiving
 new key material through either initialization path. Enrollment tests cover one collection per approval, untouched
 key material, and refusal of the approval cases listed above. They also cover
-expiry and account isolation. Shared and rendered host tests cover the Recovery Key
+expiry and account isolation. Another test shows that a new device of the account reads the recovery
+envelope and that another account's device does not. Shared and rendered host tests cover the Recovery Key
 confirmation, the mismatch and remount paths, and two synthetic installations that
-approve, decline and unlock a new device.
+approve, decline and unlock a new device. They also cover Recovery Key unlock after a
+rejected key and an interrupted attempt, the lost-everything explanation and the
+absence of any reset action.
 The registration Mock Mail Sessions use a synthetic Product Sync backend
 persisted in the run's Keychain. The packaged Google journey checks the same key
 after relaunch, confirms it, and reads the decrypted mailbox list after another
@@ -183,8 +232,19 @@ relaunch. The packaged `registration-enrollment` journey signs in to an account
 whose keys belong to a synthetic trusted device. It shows the code and checks for
 approval. It then reads that device's mailbox through real HPKE and AES-GCM, while
 Gmail still needs authorization. The synthetic trusted device reads the code from
-the run's Keychain in place of a person typing it. These are deterministic application checks, not real Convex or provider
+the run's Keychain in place of a person typing it. The packaged `registration-recovery`
+journey starts from the same account, whose trusted device is lost. It types the
+synthetic account's written Recovery Key and reads the mailbox after relaunch.
+The Mac journey first types a key with one changed character and sees it rejected. These are deterministic application checks, not real Convex or provider
 evidence.
+
+Both packaged journeys passed against the final tree on fresh iPhone 18 Pro and
+iPad Pro 11-inch (M5) 27 simulators using a Release build, one test per device
+and scenario with zero failures. Recovery evidence is retained in
+`artifacts/expo-bootstrap/native-aToLs5/`, and enrollment evidence with the changed
+fixture in `artifacts/expo-bootstrap/native-Lt94WW/`. Mac recovery automation and
+hosted storage, physical devices and real Convex/Google/Apple recovery remain
+unavailable. See the [qualification record](qualification/expo-react-native-client.md#recovery-key-evidence-2026-10-04).
 
 ## Protected real qualification
 
@@ -196,5 +256,8 @@ account has one recovery envelope and opaque `mailbox.` records only. Reopen the
 account on a second installation and confirm it shows an Enrollment Code without
 creating keys. Approve it from the first device on each Sign-In Provider. Check
 that the second device lists the synchronized mailbox before its own Gmail grant.
-Check that the Convex dashboard shows the request removed after collection. Do not record Recovery Keys, tokens or addresses in artifacts. No
+Check that the Convex dashboard shows the request removed after collection.
+On a third installation, unlock with the written Recovery Key instead. Enter a wrong
+key first and confirm that it unlocks nothing. Then confirm that the mailbox list
+appears and that the account still has one unchanged recovery envelope. Do not record Recovery Keys, tokens or addresses in artifacts. No
 real Product Sync pass is claimed until this path has run.

@@ -26,6 +26,7 @@ implemented.
 - **Product Sync** shares **Synced Categories** across the user's devices
 - **End-to-End Encrypted Product Sync** prevents the product backend from reading **Synced Categories**
 - A **Recovery Key** can restore access to data protected by **End-to-End Encrypted Product Sync**
+- When every **Trusted Device** and the **Recovery Key** are lost, encrypted product data cannot be recovered; nothing resets it, and provider mail is unaffected
 
 ## Local storage and background freshness
 

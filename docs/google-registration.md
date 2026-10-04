@@ -41,7 +41,8 @@ identified by verified issuer and subject, never by matching email. No existing
 backend rows, Inbox files or Product Sync keys are reset or regenerated. A new
 Product Account then [initializes private Product Sync](private-product-sync.md). The device
 that wins initialization presents the Recovery Key; another device of that account
-[waits for approval](private-product-sync.md#approving-a-new-device) from a Trusted Device.
+[waits for approval](private-product-sync.md#approving-a-new-device) from a Trusted Device
+or [unlocks with the Recovery Key](private-product-sync.md#recovering-with-the-recovery-key).
 
 ## Configure the hosts
 
@@ -98,8 +99,9 @@ native application integration evidence, not real OAuth evidence.
 
 External Mock Mail Sessions also accept `registration-cancelled`,
 `registration-declined`, `registration-no-gmail`, `registration-interrupted`,
-the Apple-first [`registration-apple`](apple-registration.md#deterministic-evidence)
-and [`registration-link`](linked-sign-in.md#deterministic-evidence).
+the Apple-first [`registration-apple`](apple-registration.md#deterministic-evidence),
+[`registration-link`](linked-sign-in.md#deterministic-evidence), and the Product Sync
+[`registration-enrollment` and `registration-recovery`](private-product-sync.md#deterministic-evidence).
 Their native provider is compiled only with `UNWIRED_REGISTRATION_MOCK` in an
 explicitly selected build, accepts only its fixed scenario, and has no network or
 real credential inputs. Their JavaScript bundle stays production-equivalent; the
