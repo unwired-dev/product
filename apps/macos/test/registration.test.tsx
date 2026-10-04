@@ -599,9 +599,11 @@ describe('product registration', () => {
     await expect(
       screen.findByRole('header', { name: 'Unlock your device' }),
     ).resolves.toBeVisible();
-    expect(screen.queryByText('Welcome to Unwired Mail')).toBeNull();
-    expect(screen.queryByRole('button')).toBeNull();
-    expect(screen.queryByRole('alert')).toBeNull();
+    expect([
+      screen.queryByText('Welcome to Unwired Mail'),
+      screen.queryByRole('button'),
+      screen.queryByRole('alert'),
+    ]).toStrictEqual([null, null, null]);
     ({ restore } = session.native);
     // The React Native Jest preset records AppState listeners on its mock.
     await act(async () => {
@@ -615,6 +617,27 @@ describe('product registration', () => {
     await expect(
       screen.findByRole('header', { name: 'Gmail connected' }),
     ).resolves.toBeVisible();
+    restore = () =>
+      Promise.resolve({
+        kind: 'mailbox-needed',
+        productAccountId: 'synthetic-product-account',
+        signInProvider: 'google',
+        reason: 'unavailable',
+      });
+    await act(async () => {
+      for (const [, activate] of jest
+        .mocked(AppState.addEventListener)
+        .mock.calls.slice(listenersBeforeRender)) {
+        activate('active');
+      }
+      await Promise.resolve();
+    });
+    await expect(
+      screen.findByRole('header', { name: 'Connect your Gmail' }),
+    ).resolves.toBeVisible();
+    expect(
+      screen.queryByRole('header', { name: 'Gmail connected' }),
+    ).toBeNull();
   });
 
   it('offers sign-in again when the connected mailbox is not yet saved to private sync', async () => {

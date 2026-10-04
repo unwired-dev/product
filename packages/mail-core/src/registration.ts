@@ -75,6 +75,7 @@ export const RegistrationSnapshotSchema = Schema.Union([
   }),
 ]);
 export type RegistrationSnapshot = typeof RegistrationSnapshotSchema.Type;
+const sameSnapshot = Schema.toEquivalence(RegistrationSnapshotSchema);
 
 // Native hosts reject with the registration failure code; a cancelled session is not a failure.
 const isCancelled = Schema.is(
@@ -260,7 +261,7 @@ export function createRegistration(native: NativeRegistration) {
     failed: false,
   };
   let restored = false;
-  // One registration operation runs at a time; overlapping requests are ignored.
+  // One operation runs at a time; foreground verification queues behind interactive work.
   const semaphore = Semaphore.makeUnsafe(1);
   const listeners = new Set<() => void>();
   const publish = (next: RegistrationState) => {
@@ -286,63 +287,73 @@ export function createRegistration(native: NativeRegistration) {
       ...settled(snapshot),
       failed: true,
     }),
-    resumeOnly = false,
+    foreground = false,
   ) =>
     runLogged(
-      Effect.sync(() => {
+      Effect.gen(function* () {
+        const previous = state;
         // A retry keeps the locked state rather than revealing a snapshot it could not read.
-        publish(
-          state.locked
-            ? {
-                snapshot: state.snapshot,
-                busy: true,
-                failed: false,
+        if (foreground) {
+          publish({ ...state, busy: true });
+        } else {
+          publish(
+            state.locked
+              ? {
+                  snapshot: state.snapshot,
+                  busy: true,
+                  failed: false,
+                  locked: true,
+                }
+              : { snapshot: state.snapshot, busy: true, failed: false },
+          );
+        }
+        const next = yield* operation.pipe(
+          Effect.map(settled),
+          Effect.catchTags({
+            RegistrationCancelled: () =>
+              Effect.sync(() => settled(state.snapshot)),
+            RegistrationLocked: () =>
+              Effect.sync((): RegistrationState => ({
+                ...settled(state.snapshot),
                 locked: true,
-              }
-            : { snapshot: state.snapshot, busy: true, failed: false },
+              })),
+            RecoveryKeyMismatch: () =>
+              Effect.sync((): RegistrationState => ({
+                ...settled(state.snapshot),
+                recoveryKeyFailure: 'mismatch',
+              })),
+            RecoveryKeyRejected: ({ snapshot }) =>
+              Effect.sync((): RegistrationState => ({
+                ...settled(snapshot),
+                recoveryFailure: 'rejected',
+              })),
+            EnrollmentCodeInvalid: () =>
+              Effect.sync((): RegistrationState => ({
+                ...settled(state.snapshot),
+                enrollmentFailure: 'code-invalid',
+              })),
+            RegistrationFailed: (error) =>
+              Effect.logError('Registration failed:', error.diagnostic).pipe(
+                Effect.andThen(
+                  Effect.sync(() => onFailure(state.snapshot, error.cause)),
+                ),
+              ),
+          }),
+        );
+        // Returning from an authorization sheet must not erase unchanged setup feedback.
+        publish(
+          foreground &&
+            !previous.locked &&
+            !next.locked &&
+            !next.failed &&
+            sameSnapshot(previous.snapshot, next.snapshot)
+            ? { ...previous, busy: false }
+            : next,
         );
       }).pipe(
-        Effect.andThen(operation),
-        Effect.map(settled),
-        Effect.catchTags({
-          RegistrationCancelled: () =>
-            Effect.sync(() => settled(state.snapshot)),
-          RegistrationLocked: () =>
-            Effect.sync((): RegistrationState => ({
-              ...settled(state.snapshot),
-              locked: true,
-            })),
-          RecoveryKeyMismatch: () =>
-            Effect.sync((): RegistrationState => ({
-              ...settled(state.snapshot),
-              recoveryKeyFailure: 'mismatch',
-            })),
-          RecoveryKeyRejected: ({ snapshot }) =>
-            Effect.sync((): RegistrationState => ({
-              ...settled(snapshot),
-              recoveryFailure: 'rejected',
-            })),
-          EnrollmentCodeInvalid: () =>
-            Effect.sync((): RegistrationState => ({
-              ...settled(state.snapshot),
-              enrollmentFailure: 'code-invalid',
-            })),
-          RegistrationFailed: (error) =>
-            Effect.logError('Registration failed:', error.diagnostic).pipe(
-              Effect.andThen(
-                Effect.sync(() => onFailure(state.snapshot, error.cause)),
-              ),
-            ),
-        }),
-        Effect.flatMap((next) =>
-          Effect.sync(() => {
-            publish(next);
-          }),
-        ),
         // An activation can arrive before a pending operation reports that storage was locked.
-        Effect.when(Effect.sync(() => !resumeOnly || state.locked === true)),
         (program) =>
-          resumeOnly
+          foreground
             ? program.pipe(Semaphore.withPermits(semaphore, 1), Effect.asVoid)
             : program.pipe(
                 Semaphore.withPermitsIfAvailable(semaphore, 1),
@@ -350,11 +361,11 @@ export function createRegistration(native: NativeRegistration) {
               ),
       ),
     );
-  const restore = (resumeOnly = false) =>
+  const restore = (foreground = false) =>
     execute(
       request(native.restore),
       (snapshot) => ({ ...settled(pending(snapshot)), failed: true }),
-      resumeOnly,
+      foreground,
     );
   return {
     getSnapshot: () => state,
@@ -373,7 +384,7 @@ export function createRegistration(native: NativeRegistration) {
       restored = true;
       return restore();
     },
-    // Hosts call this when the app becomes active; unlocking the device ends a locked state.
+    // Every activation verifies the saved account and retries unavailable protected storage.
     resume: () => restore(true),
     register: (provider: SignInProvider) =>
       execute(

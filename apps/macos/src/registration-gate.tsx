@@ -398,7 +398,7 @@ export function RegistrationGate({
       return;
     }
     void store.restoreOnce();
-    // Like the Inbox, a restore that found the device locked retries once it is active again.
+    // Like the Inbox, restore on every activation, including after protected storage unlocks.
     const subscription = AppState.addEventListener('change', (state) => {
       if (state === 'active') {
         void store.resume();

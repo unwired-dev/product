@@ -245,10 +245,64 @@ describe('product registration', () => {
       busy: false,
       failed: false,
     });
-    // An unlocked, verified account is not verified again on every activation.
+    // An unlocked account still verifies on every activation.
     await store.resume();
-    expect(restores).toBe(3);
+    expect(restores).toBe(4);
     expect(errors).not.toHaveBeenCalled();
+  });
+
+  it('replaces a connected status when an unlocked foreground restore can no longer verify it', async () => {
+    expect.hasAssertions();
+    const session = createMockRegistrationSession('registration-success');
+    let { restore } = session.native;
+    const store = createRegistration({
+      ...session.native,
+      restore: () => restore(),
+    });
+    await store.register('google');
+    await store.restoreOnce();
+    expect(store.getSnapshot().snapshot.kind).toBe('connected');
+    restore = () =>
+      Promise.resolve({
+        ...accounts.google,
+        signInProvider: 'google',
+        kind: 'mailbox-needed',
+        reason: 'unavailable',
+      });
+    await store.resume();
+    expect(store.getSnapshot()).toMatchObject({
+      snapshot: { kind: 'mailbox-needed', reason: 'unavailable' },
+      busy: false,
+      failed: false,
+    });
+  });
+
+  it('retains failed setup feedback when an activation queued during consent restores unchanged state', async () => {
+    expect.hasAssertions();
+    vi.spyOn(console, 'error').mockReturnValue(undefined);
+    const session = createMockRegistrationSession('registration-success');
+    const blocked = Promise.withResolvers<unknown>();
+    const started = Promise.withResolvers<boolean>();
+    const store = createRegistration({
+      ...session.native,
+      authorizeGmail: () => {
+        started.resolve(true);
+        return blocked.promise;
+      },
+    });
+    const registering = store.register('google');
+    await started.promise;
+    const activating = store.resume();
+    blocked.reject(
+      Object.assign(new Error('Interrupted'), { code: 'unavailable' }),
+    );
+    await registering;
+    await activating;
+    expect(store.getSnapshot()).toMatchObject({
+      snapshot: { kind: 'mailbox-needed', signInProvider: 'google' },
+      busy: false,
+      failed: true,
+    });
   });
 
   it.each([
@@ -365,6 +419,9 @@ describe('product registration', () => {
       failed: false,
       recoveryKeyFailure: 'mismatch',
     });
+    const feedback = store.getSnapshot();
+    await store.resume();
+    expect(store.getSnapshot()).toStrictEqual(feedback);
     const relaunched = createRegistration(session.native);
     await relaunched.restore();
     expect(relaunched.getSnapshot().snapshot).toStrictEqual(presented);
@@ -419,6 +476,9 @@ describe('product registration', () => {
       });
       expect(logged).toContain(`code ${code}`);
       expect(String(logged)).not.toMatch(/sealed@/u);
+      const feedback = store.getSnapshot();
+      await store.resume();
+      expect(store.getSnapshot()).toStrictEqual(feedback);
       // The failure clears once another operation finishes.
       await store.restore();
       expect(store.getSnapshot()).not.toHaveProperty('linkFailure');
@@ -450,6 +510,9 @@ describe('product registration', () => {
       enrollmentFailure: 'unavailable',
       snapshot: { privateSync: 'recovery-key' },
     });
+    const feedback = trusted.getSnapshot();
+    await trusted.resume();
+    expect(trusted.getSnapshot()).toStrictEqual(feedback);
     await added.refreshPrivateSync();
     expect(added.getSnapshot().snapshot).toMatchObject({
       privateSync: 'enrollment-pending',
@@ -493,13 +556,13 @@ describe('product registration', () => {
     await relaunched.restore();
     expect(relaunched.getSnapshot().snapshot).toStrictEqual(waiting);
     await relaunched.recoverWithRecoveryKey(syntheticEnrollmentCode);
+    await relaunched.resume();
     expect(relaunched.getSnapshot()).toStrictEqual({
       snapshot: waiting,
       busy: false,
       failed: false,
       recoveryFailure: 'rejected',
     });
-
     await relaunched.recoverWithRecoveryKey(
       syntheticRecoveryKey.toLowerCase().replaceAll('-', ' '),
     );
