@@ -1,0 +1,121 @@
+{
+  "include": [
+    "{AGENTS,GLOSSARY,README}.md",
+    "docs/**/*.md",
+    ".patterns/**/*.md",
+    ".changeset/*.md",
+    ".opencodereview/**/*.md",
+    "{apps,packages,tools,native}/**/*.md",
+    "{apps,packages,scripts,tools,native}/**/*.{test,spec}.{ts,tsx,js,jsx,mjs,cjs,rb,py}",
+    "{apps,packages,scripts,tools,native}/**/{test,tests,__tests__,fixtures,testdata}/**/*.{ts,tsx,js,jsx,mjs,cjs,rb,py,swift,mm,h,json,md,yaml,yml}",
+    "{apps,packages,scripts,tools,native}/**/*{Test,Tests}.swift"
+  ],
+  "exclude": [
+    "scratchpad/**",
+    "artifacts/**",
+    "**/node_modules/**",
+    "**/vendor/**",
+    "**/bower_components/**",
+    "**/Pods/**",
+    "**/Carthage/**",
+    "**/dist/**",
+    "**/build/**",
+    "**/target/**",
+    "**/DerivedData/**",
+    "**/.build/**",
+    "**/.expo/**",
+    "**/.next/**",
+    "**/.turbo/**",
+    "**/__pycache__/**",
+    "**/.venv/**",
+    "**/site-packages/**",
+    "**/generated/**",
+    "**/_generated/**",
+    "**/*.generated.*",
+    "**/*.gen.*",
+    "**/*.pb.*",
+    "**/coverage/**"
+  ],
+  "rules": [
+    {
+      "path": ".opencodereview/**",
+      "rule": ".opencodereview/rules/docs.md",
+      "merge_system_rule": false
+    },
+    {
+      "path": "**/*.md",
+      "rule": ".opencodereview/rules/docs.md",
+      "merge_system_rule": false
+    },
+    {
+      "path": "packages/contracts/fixtures/**",
+      "rule": ".opencodereview/rules/contracts.md",
+      "merge_system_rule": false
+    },
+    {
+      "path": "**/*.{test,spec}.{ts,tsx,js,jsx,mjs,cjs,rb,py}",
+      "rule": ".opencodereview/rules/tests.md",
+      "merge_system_rule": false
+    },
+    {
+      "path": "**/{test,tests,__tests__,native-tests,fixtures,testdata}/**",
+      "rule": ".opencodereview/rules/tests.md",
+      "merge_system_rule": true
+    },
+    {
+      "path": "**/*Tests/**",
+      "rule": ".opencodereview/rules/tests.md",
+      "merge_system_rule": true
+    },
+    {
+      "path": ".github/**",
+      "rule": ".opencodereview/rules/workflows.md",
+      "merge_system_rule": true
+    },
+    {
+      "path": "**/{package.json,pnpm-workspace.yaml,turbo.json,.mise.toml,.fallowrc.jsonc,.changeset/config.json,tsconfig.json,tsconfig.effect.json,oxlint.config.ts,oxfmt.config.ts,vitest.config.ts,jest.config.cjs,babel.config.cjs,metro.config.cjs,react-native.config.cjs,app.config.ts}",
+      "rule": ".opencodereview/rules/workspace.md",
+      "merge_system_rule": true
+    },
+    {
+      "path": "{scripts,apps/mobile/scripts,apps/macos/scripts,apps/mobile/plugins}/**",
+      "rule": ".opencodereview/rules/tooling.md",
+      "merge_system_rule": true
+    },
+    {
+      "path": "packages/convex/**",
+      "rule": ".opencodereview/rules/convex.md",
+      "merge_system_rule": false
+    },
+    {
+      "path": "packages/contracts/**",
+      "rule": ".opencodereview/rules/contracts.md",
+      "merge_system_rule": false
+    },
+    {
+      "path": "packages/mail-core/**",
+      "rule": ".opencodereview/rules/mail-core.md",
+      "merge_system_rule": false
+    },
+    {
+      "path": "apps/{mobile,macos}/**/*.{ts,tsx,js}",
+      "rule": ".opencodereview/rules/hosts.md",
+      "merge_system_rule": false
+    },
+    {
+      "path": "{native,apps/macos/macos}/**",
+      "rule": ".opencodereview/rules/native.md",
+      "merge_system_rule": true
+    },
+    {
+      "path": "{apps/unwired-mail,tools/swiftmail-provider-qualification}/**",
+      "rule": ".opencodereview/rules/swift-prototype.md",
+      "merge_system_rule": true
+    },
+    {
+      "path": "**/*",
+      "rule": ".opencodereview/rules/common.md",
+      "merge_system_rule": true
+    }
+  ]
+}

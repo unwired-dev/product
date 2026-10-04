@@ -20,7 +20,7 @@ Follow the [implementation and review workflow](docs/agents/implementation-revie
 for every implementation, including later implementation fixes.
 
 - The implementer never reads repository architecture documentation, including
-  `docs/architecture/`, ADRs, `.patterns/`, and the reviewer-only sources listed
+  `docs/architecture/`, ADRs, `.patterns/`, `.opencodereview/rule.json`, `.opencodereview/rules/`, and the reviewer-only sources listed
   in the workflow. This role boundary takes precedence over architecture-reading
   instructions in other repository guides or skills.
 - Invoke the `ponytail` and `unlazy` skills before implementing, and follow both
@@ -28,6 +28,8 @@ for every implementation, including later implementation fixes.
 - After implementing and running the relevant checks, spawn a separate review
   agent with explicit `model: "gpt-6.1-sol"`, `reasoning_effort: "high"`, and
   `fork_turns: "none"`, regardless of the implementer's model or reasoning effort.
+  Use the workflow's Open Code Review delegation step and resolved repository
+  rules for architecture checking inside that review agent.
   Pause writes until its final report; later implementer edits need another review.
 
 ## Work

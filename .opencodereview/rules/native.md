@@ -1,0 +1,52 @@
+Apply every section of `.opencodereview/rules/common.md` to this file first; read it now if it is not in context. The rules below add the defects specific to the replacement's native code: `native/private-inbox` (Swift package and React Native bridge) and the AppKit host in `apps/macos/macos`.
+
+This code owns what TypeScript must never hold: Keychain items, the storage encryption key, Product Sync account-key material, sign-in tokens and file protection. The bridge is the only path between it and JavaScript. The replacement targets iOS, iPadOS and macOS 27.
+
+#### Keys, credentials and storage
+
+- A Keychain item that drops or weakens `kSecAttrAccessibleWhenUnlockedThisDeviceOnly` on creation, `kSecAttrSynchronizable: false` or the Mac Data Protection Keychain selection, or a new item that bypasses `DeviceKeychain` without preserving its policy. These keep keys on the device and out of iCloud Keychain and backups.
+- Native database keys, Product Sync account-key material or provider/device credentials returned across the bridge. The intended local presentation payloads are permitted: decrypted Inbox snapshots and registration display fields, including the user-held Recovery Key during setup (`RegistrationSnapshotSchema`). None may enter logs, crash annotations, unprotected persistence or plaintext temporary files; temporary storage writes hold ciphertext only.
+- A new key generated when the expected one is missing on an initialized account. A missing key means trusted-device approval or the user-held Recovery Key; a replacement key makes existing ciphertext unreadable.
+- Ciphertext written without atomic replacement and file synchronization before the call resolves, without complete file protection on iOS, or into a directory included in backup.
+- A read-modify-write, including first-run seeding, performed outside the native file lock, or that rewrites more than the requested record from a stale in-memory copy.
+- AES-GCM used with a reused or predictable nonce, or a failed authentication treated as empty data rather than an error. Product Sync records and envelopes must retain their purpose-specific account, record/request/device, schema and epoch binding in `ProductSyncSeal`; the separate synthetic Inbox fixture retains its `dev.unwired.private-inbox.v1` context and is not account-scoped Product Sync storage.
+- Filesystem access on iOS before the protected-data availability check, or a locked device reported as a generic failure rather than `locked`.
+- Cleanup of old keys, envelopes or credentials ordered before the replacement is durably adopted.
+
+#### Bridge contract
+
+- A rejection code that TypeScript does not know. `packages/mail-core/src/diagnostics.ts` allow-lists the codes; a new code needs the matching store handling and allow-list entry in the same task.
+- A rejection or diagnostic that carries a foreign error description, account identifier, email address, token or path. JavaScript logs can leave the device; reject with a fixed code and fixed text, as `UnwiredPrivateInbox.perform` does. Successful values may contain the documented local presentation data consumed by the shared store; they must not be logged.
+- A resolved payload whose shape changed without the `Schema` that decodes it in `mail-core` changing with it.
+- A promise that can resolve twice, never resolve, or resolve after its owner is gone; blocking native work on the main queue that demonstrably stalls the UI. Registration presentation is `@MainActor`; that annotation alone is not a defect.
+- A security decision moved to JavaScript: token validation, nonce and expiry checks, identity matching, lock state. The native host decides; TypeScript decoding complements it.
+- A method exported to JavaScript that performs a privileged action on arguments it does not validate.
+
+#### Identity and registration
+
+- An identity token accepted without the expected issuer, audience, subject and expiry checks, or an interactive sign-in result accepted without its session nonce check. SDK token refresh follows its owning refresh boundary; it does not reuse an interactive nonce requirement. Claims trusted after only client-side parsing where the backend must verify are also a defect.
+- State from one Product Account, sign-in provider, device or deployment reused after any of them changes; an enrollment or recovery step that proceeds on a stale epoch or a stale authentication.
+- Recovery Key verification that sends the key or anything derived from it off the device, or a rejected key that leaves the device without its current enrollment status.
+- A recent-authentication requirement removed from an operation that needs it.
+
+#### Mock sessions stay out of production
+
+- Synthetic registration providers reachable without the `UNWIRED_REGISTRATION_MOCK` compilation guard, or a Mock Mail Session selected from runtime input rather than the fixed build-time `UNWIRED_MOCK_SCENARIO` list. Other mock journeys and the isolated native `SyntheticCredential` integration fixture have their own test-only boundaries; preserve those instead of requiring the registration flag for every fixture. `SyntheticCredential` keeps its own Keychain service and never shares the production one.
+- A reset, seed or backdoor added to production code to make a journey testable.
+
+#### AppKit host
+
+- Window identity, menu routing or lifetime moved out of AppKit; more than one React factory or JavaScript runtime per process; a window root that survives its window; Quit that leaves work running or closing the last window that terminates the app.
+- An entitlement, sandbox exception, `Info.plist` privacy key or `PrivacyInfo.xcprivacy` entry added or broadened without the feature that needs it.
+- A deployment target lowered, or a newer API used without the availability the target requires.
+- A native module added to the Mac host without updating the autolinking assertion in `apps/macos/scripts/verify-bundle.ts`.
+
+#### Tests in the same change
+
+Apply `docs/agents/testing.md`'s admission and proportionate-verification policy: existing meaningful coverage may suffice; document unavailable automation or protected/native evidence with its required follow-up. The cases below identify missing evidence for a named risk, not a requirement to add a test for every edit.
+
+- Changed storage, key or registration behavior with no Swift test in `native/private-inbox/Tests` or the on-device suite in `native/private-inbox/integration`. Package tests do not prove real Keychain or file-protection behavior on a device; say which evidence exists and which is deferred.
+
+#### Leave to tooling
+
+swift-format and SwiftLint findings, compiler diagnostics and Xcode analyzer results. The merged Swift and Objective-C rules cover language-level ownership, concurrency and error handling; apply them to runtime-derived values, not to fixed fixtures.

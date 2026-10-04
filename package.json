@@ -22,11 +22,11 @@
     "native:generate": "turbo run native:generate",
     "prepare": "effect-tsgo patch --oxlint",
     "test": "turbo run test",
-    "testflight": "node scripts/testflight-env.mjs",
     "test:native-runner": "node --test scripts/native-runner.test.mjs scripts/mock-mail-runner.test.mjs scripts/testflight.test.mjs",
     "test:native:ios": "turbo run test:native --filter=@private-email/mobile --",
     "test:native:macos": "turbo run test:native --filter=@private-email/macos --",
-    "test:tooling": "node --test scripts/oxlint-effect-imports.test.mjs scripts/oxlint-effect-boundaries.test.mjs",
+    "test:tooling": "node --test scripts/oxlint-effect-imports.test.mjs scripts/oxlint-effect-boundaries.test.mjs scripts/opencodereview-rules.test.mjs",
+    "testflight": "node scripts/testflight-env.mjs",
     "verify:bundle": "turbo run verify:bundle",
     "version-packages": "changeset version"
   },
