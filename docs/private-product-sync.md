@@ -213,10 +213,13 @@ key then gives it the account's key ring and decrypted mailbox list without Gmai
 access, withdraws its approval request and leaves the recovery envelope unchanged.
 The backend never receives the key. Additional native assertions reject an
 authenticated envelope with unusable keys and require fresh Apple authentication
-before recovery, rejecting identity changes and cancelled renewal. The final-tree
-iOS storage run passed all 19 tests, including those reviewer assertions. Raw
-results are retained in `artifacts/private-inbox/integration.zR0adL/`; this is real
-native storage and cryptography evidence with a synthetic Convex boundary.
+before recovery, rejecting identity changes and cancelled renewal. The Recovery
+Key final-tree iOS storage run passed all 19 tests, including those reviewer
+assertions. Raw results are retained in `artifacts/private-inbox/integration.zR0adL/`.
+That run predates the unreadable local key item case below; with it, the iOS storage
+run passed all 20 tests, retained in `artifacts/private-inbox/integration.Z5Nl6g/`.
+Both are real native storage and cryptography evidence with a synthetic Convex
+boundary.
 The two-device approval journey uses two
 installations with separate Keychains. A mistyped code, declined, forged, expired,
 replayed and revoked approvals all leave the new device without keys. A forged
