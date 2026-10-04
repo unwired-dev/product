@@ -67,22 +67,23 @@ keeps the common and conditional sections in one file and applies them to every
 task-owned artifact regardless of directory. A path rule adds the concrete
 defects of one area:
 
-| Entry order and pattern                                          | Path rule            | Embedded rule |
-| ---------------------------------------------------------------- | -------------------- | ------------- |
-| `.opencodereview/**`, `**/*.md`                                  | `docs.md`            | Not merged    |
-| `packages/contracts/fixtures/**`                                 | `contracts.md`       | Not merged    |
-| `**/*.{test,spec}.*`                                             | `tests.md`           | Not merged    |
-| Test, fixture and testdata directories, `**/*Tests/**`           | `tests.md`           | Merged        |
-| `.github/**`                                                     | `workflows.md`       | Merged        |
-| Named workspace and build configuration files                    | `workspace.md`       | Merged        |
-| `scripts/`, host `scripts/`, Expo config plugins                 | `tooling.md`         | Merged        |
-| `packages/convex/**`                                             | `convex.md`          | Not merged    |
-| `packages/contracts/**`                                          | `contracts.md`       | Not merged    |
-| `packages/mail-core/**`                                          | `mail-core.md`       | Not merged    |
-| Host TypeScript in `apps/mobile` and `apps/macos`                | `hosts.md`           | Not merged    |
-| `native/**`, `apps/macos/macos/**`                               | `native.md`          | Merged        |
-| `apps/unwired-mail/**`, `tools/swiftmail-provider-qualification` | `swift-prototype.md` | Merged        |
-| `**/*`, including the legacy mail harness                        | `common.md`          | Merged        |
+| Entry order and pattern                                          | Path rule              | Embedded rule |
+| ---------------------------------------------------------------- | ---------------------- | ------------- |
+| `.opencodereview/**`, `**/*.md`                                  | `docs.md`              | Not merged    |
+| `packages/contracts/fixtures/**`                                 | `contracts.md`         | Not merged    |
+| `**/*.{test,spec}.*`                                             | `tests.md`             | Not merged    |
+| Test, fixture and testdata directories, `**/*Tests/**`           | `tests.md`             | Merged        |
+| `.github/**`                                                     | `workflows.md`         | Merged        |
+| Named workspace and build configuration files                    | `workspace.md`         | Merged        |
+| `scripts/`, host `scripts/`, Expo config plugins                 | `tooling.md`           | Merged        |
+| `packages/mail-test-harness/**`                                  | `mail-test-harness.md` | Merged        |
+| `packages/convex/**`                                             | `convex.md`            | Not merged    |
+| `packages/contracts/**`                                          | `contracts.md`         | Not merged    |
+| `packages/mail-core/**`                                          | `mail-core.md`         | Not merged    |
+| Host TypeScript in `apps/mobile` and `apps/macos`                | `hosts.md`             | Not merged    |
+| `native/**`, `apps/macos/macos/**`                               | `native.md`            | Merged        |
+| `apps/unwired-mail/**`, `tools/swiftmail-provider-qualification` | `swift-prototype.md`   | Merged        |
+| `**/*`                                                           | `common.md`            | Merged        |
 
 `merge_system_rule: true` prepends the embedded rule selected for each file's
 language. The embedded Swift, Objective-C, workflow and `package.json` rules
