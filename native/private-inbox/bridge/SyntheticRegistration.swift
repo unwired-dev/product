@@ -77,6 +77,8 @@
       // A removal's pending epoch, transition and recovery envelope, until this device adopts it.
       var rotations: [String: Rotation] = [:]
       var removed: Set<String> = []
+      // Product Accounts this device deleted; their sign-ins are refused afterwards.
+      var deleted: Set<String> = []
       // The launch that first connected; a later launch learns of this device's removal.
       var connectedLaunch: String?
     }
@@ -266,7 +268,7 @@
         "registration-cancelled", "registration-declined", "registration-no-gmail",
         "registration-interrupted", "registration-apple", "registration-link",
         "registration-enrollment", "registration-recovery", "registration-revocation",
-        "registration-revoked",
+        "registration-revoked", "registration-removal",
       ].contains(scenario)
     else {
       throw RegistrationError.unavailable
@@ -306,9 +308,17 @@
           return (product.signInProviders ?? []) + [identity.provider]
         }),
       productSync: productSync.backend,
+      removal: AccountRemoval(
+        unregister: { _, _, _ in },
+        delete: { _, product in
+          try productSync.update { $0.deleted.insert(product.productAccountId) }
+        }),
       connect: { identity, _, _ in
         guard let account = accounts[identity.subject] else {
           throw RegistrationError.invalidIdentity
+        }
+        if try productSync.state().deleted.contains(account) {
+          throw RegistrationError.deleted
         }
         // Another device removes this one after its first sign-in; the relaunch learns of it.
         let earlier = try productSync.update { state in

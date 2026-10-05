@@ -203,6 +203,43 @@ final class InboxTests: XCTestCase {
     add(shot)
   }
 
+  // Sign-out keeps nothing of the account on this device; deletion ends the account everywhere.
+  private func removalJourney(_ app: XCUIApplication) {
+    app.buttons["Sign in with Google"].tap()
+    XCTAssertTrue(app.staticTexts["recovery-key"].waitForExistence(timeout: 15))
+    let key = app.staticTexts["recovery-key"].label
+    let entry = app.textFields["Last four characters"]
+    entry.tap()
+    entry.typeText(String(key.suffix(4)) + "\n")
+    app.buttons["Confirm Recovery Key"].tap()
+    XCTAssertTrue(app.staticTexts["Private sync is on"].waitForExistence(timeout: 15))
+    app.buttons["Sign out of this device"].tap()
+    XCTAssertTrue(text("Your other devices", in: app).waitForExistence(timeout: 15))
+    app.buttons["Sign out of this device"].tap()
+    XCTAssertTrue(app.staticTexts["Welcome to Unwired Mail"].waitForExistence(timeout: 15))
+    app.terminate()
+    app.launch()
+    XCTAssertTrue(app.staticTexts["Welcome to Unwired Mail"].waitForExistence(timeout: 20))
+    // The keys left with the sign-out, so the account must approve this device again.
+    app.buttons["Sign in with Google"].tap()
+    XCTAssertTrue(app.staticTexts["Approve this device"].waitForExistence(timeout: 15))
+    XCTAssertFalse(app.staticTexts["recovery-key"].exists)
+    app.buttons["Delete Product Account"].tap()
+    XCTAssertTrue(text("cannot be undone", in: app).waitForExistence(timeout: 15))
+    app.buttons["Delete permanently"].tap()
+    XCTAssertTrue(app.staticTexts["Product Account deleted"].waitForExistence(timeout: 15))
+    app.terminate()
+    app.launch()
+    XCTAssertTrue(app.staticTexts["Welcome to Unwired Mail"].waitForExistence(timeout: 20))
+    // The deleted account cannot be reopened, and this device keeps nothing of it.
+    app.buttons["Sign in with Google"].tap()
+    XCTAssertTrue(app.staticTexts["Product Account deleted"].waitForExistence(timeout: 15))
+    let shot = XCTAttachment(screenshot: app.screenshot())
+    shot.name = "Deleted Product Account"
+    shot.lifetime = .keepAlways
+    add(shot)
+  }
+
   func testSelectAndReplaceMessage() throws {
     continueAfterFailure = false
     let identifier = try XCTUnwrap(ProcessInfo.processInfo.environment["UNWIRED_BUNDLE_ID"])
@@ -220,6 +257,7 @@ final class InboxTests: XCTestCase {
       case "registration-recovery": recoveryJourney(app)
       case "registration-revocation": revocationJourney(app)
       case "registration-revoked": revokedJourney(app)
+      case "registration-removal": removalJourney(app)
       default:
         try registrationJourney(app)
       }

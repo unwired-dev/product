@@ -76,6 +76,37 @@ final class WindowTests: XCTestCase {
     XCTAssertTrue(text("This device cannot join", in: resumed).waitForExistence(timeout: 15))
   }
 
+  // Sign-out keeps nothing of the account on this device; deletion ends the account everywhere.
+  private func removalJourney(_ app: XCUIApplication, first: XCUIElement) {
+    first.buttons["Sign in with Google"].click()
+    XCTAssertTrue(recoveryKey(in: first).waitForExistence(timeout: 15))
+    let key = recoveryKey(in: first).value as? String ?? ""
+    let entry = first.textFields["Last four characters"]
+    entry.click()
+    entry.typeText(String(key.suffix(4)))
+    first.buttons["Confirm Recovery Key"].click()
+    XCTAssertTrue(text("Private sync is on", in: first).waitForExistence(timeout: 15))
+    first.buttons["Sign out of this device"].click()
+    XCTAssertTrue(text("Your other devices", in: first).waitForExistence(timeout: 15))
+    first.buttons["Sign out of this device"].click()
+    XCTAssertTrue(text("Welcome to Unwired Mail", in: first).waitForExistence(timeout: 15))
+    app.terminate()
+    app.launch()
+    let resumed = app.windows["Inbox 1"]
+    XCTAssertTrue(text("Welcome to Unwired Mail", in: resumed).waitForExistence(timeout: 20))
+    // The keys left with the sign-out, so the account must approve this device again.
+    resumed.buttons["Sign in with Google"].click()
+    XCTAssertTrue(text("Approve this device", in: resumed).waitForExistence(timeout: 15))
+    XCTAssertFalse(recoveryKey(in: resumed).exists)
+    resumed.buttons["Delete Product Account"].click()
+    XCTAssertTrue(text("cannot be undone", in: resumed).waitForExistence(timeout: 15))
+    resumed.buttons["Delete permanently"].click()
+    XCTAssertTrue(text("Product Account deleted", in: resumed).waitForExistence(timeout: 15))
+    // The deleted account cannot be reopened, and this device keeps nothing of it.
+    resumed.buttons["Sign in with Google"].click()
+    XCTAssertTrue(text("Product Account deleted", in: resumed).waitForExistence(timeout: 15))
+  }
+
   private func registrationJourney(_ app: XCUIApplication, first: XCUIElement, apple: Bool) {
     // Apple identifies the Product Account; Gmail access still needs its own Google grant.
     let signIn = apple ? "Sign in with Apple" : "Sign in with Google"
@@ -227,6 +258,10 @@ final class WindowTests: XCTestCase {
     }
     if environment["UNWIRED_TEST_SCENARIO"] == "registration-revoked" {
       revokedJourney(app, first: first)
+      return
+    }
+    if environment["UNWIRED_TEST_SCENARIO"] == "registration-removal" {
+      removalJourney(app, first: first)
       return
     }
     if environment["UNWIRED_TEST_SCENARIO"]?.hasPrefix("registration-") == true {

@@ -63,7 +63,8 @@ import Testing
     if let outcome { throw outcome }
     defer { email = nil }
     return AppleRegistrationIdentity(
-      subject: subject, idToken: "synthetic-apple-token-" + subject, email: email)
+      subject: subject, idToken: "synthetic-apple-token-" + subject, email: email,
+      authorizationCode: "synthetic-apple-code-\(signIns)")
   }
   func credentialState(_ subject: String) async -> AppleCredentialState { state }
   // Records every Product Sign-In presented to the synthetic backend.

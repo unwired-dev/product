@@ -1,4 +1,5 @@
 import {
+  accountRemovalCopy,
   createRegistration,
   revocationCopy,
 } from '@private-email/mail-core/registration';
@@ -23,6 +24,8 @@ const noEnrollment = {
   declineEnrollment: () => Promise.reject(new Error('No device to decline')),
   revokeTrustedDevice: () => Promise.reject(new Error('No device to remove')),
   refreshPrivateSync: () => Promise.reject(new Error('No private sync')),
+  signOut: () => Promise.reject(new Error('Not signing out')),
+  deleteProductAccount: () => Promise.reject(new Error('Not deleting')),
 };
 
 describe('product registration', () => {
@@ -548,6 +551,8 @@ describe('product registration', () => {
         ),
       declineEnrollment: () => Promise.reject(new Error('Not declining')),
       revokeTrustedDevice: () => Promise.reject(new Error('Not removing')),
+      signOut: () => Promise.reject(new Error('Not signing out')),
+      deleteProductAccount: () => Promise.reject(new Error('Not deleting')),
       refreshPrivateSync: () =>
         Promise.resolve({
           ...trusted,
@@ -808,4 +813,189 @@ describe('product registration', () => {
       screen.getByRole('button', { name: 'Sign in with Google' }),
     ).toBeVisible();
   });
+
+  /* oxlint-disable vitest/max-expects -- Each journey proves the explanation, cancellation and outcome. */
+  it('signs this device out only after confirmation and keeps nothing of the account', async () => {
+    expect.hasAssertions();
+    const session = createMockRegistrationSession('registration-success');
+    await render(
+      <RegistrationGate
+        store={createRegistration(session.native)}
+        preview={false}>
+        {null}
+      </RegistrationGate>,
+    );
+    await act(async () => {
+      await fireEvent.press(
+        await screen.findByRole('button', { name: 'Sign in with Google' }),
+      );
+    });
+    await expect(
+      screen.findByRole('header', { name: accountRemovalCopy.title }),
+    ).resolves.toBeVisible();
+    await act(async () => {
+      await fireEvent.changeText(
+        screen.getByLabelText('Last four characters'),
+        syntheticRecoveryKey.slice(-4),
+      );
+    });
+    await act(async () => {
+      await fireEvent.press(
+        screen.getByRole('button', { name: 'Confirm Recovery Key' }),
+      );
+    });
+    const signOut = { name: accountRemovalCopy.signOut };
+    // The first press explains what sign-out removes; cancelling keeps the account.
+    await act(async () => {
+      await fireEvent.press(screen.getByRole('button', signOut));
+    });
+    expect(screen.getByText(accountRemovalCopy.signOutConfirm)).toBeVisible();
+    expect(
+      screen.queryByRole('button', { name: accountRemovalCopy.delete }),
+    ).toBeNull();
+    await act(async () => {
+      await fireEvent.press(
+        screen.getByRole('button', { name: accountRemovalCopy.cancel }),
+      );
+    });
+    expect(screen.queryByText(accountRemovalCopy.signOutConfirm)).toBeNull();
+    expect(screen.getByText('Signed in with Google.')).toBeVisible();
+    await act(async () => {
+      await fireEvent.press(screen.getByRole('button', signOut));
+    });
+    await act(async () => {
+      await fireEvent.press(screen.getByRole('button', signOut));
+    });
+    await expect(
+      screen.findByRole('header', { name: 'Welcome to Unwired Mail' }),
+    ).resolves.toBeVisible();
+    expect(screen.queryByText('Signed in with Google.')).toBeNull();
+    expect(screen.queryByText(syntheticRecoveryKey)).toBeNull();
+  });
+
+  it.each([
+    {
+      removalPending: 'sign-out' as const,
+      title: 'Finish signing out',
+      action: accountRemovalCopy.signOut,
+      result: 'Welcome to Unwired Mail',
+    },
+    {
+      removalPending: 'deletion' as const,
+      title: 'Confirm account deletion',
+      action: accountRemovalCopy.deletePermanently,
+      result: 'Product Account deleted',
+    },
+  ])(
+    'resumes a pending $removalPending after relaunch without offering mailbox or sign-in work',
+    async ({ removalPending, title, action, result }) => {
+      expect.hasAssertions();
+      const session = createMockRegistrationSession('registration-success');
+      const store = createRegistration({
+        ...session.native,
+        restore: () =>
+          Promise.resolve({
+            kind: 'mailbox-needed',
+            productAccountId: 'synthetic-product-account',
+            signInProvider: 'google',
+            privateSync: 'unavailable',
+            reason: 'unavailable',
+            removalPending,
+          }),
+        signOut: () => Promise.resolve({ kind: 'signed-out' }),
+        deleteProductAccount: () =>
+          Promise.resolve({ kind: 'signed-out', notice: 'deleted' }),
+      });
+      await render(
+        <RegistrationGate
+          store={store}
+          preview={false}>
+          {null}
+        </RegistrationGate>,
+      );
+      await expect(
+        screen.findByRole('header', {
+          name: title,
+        }),
+      ).resolves.toBeVisible();
+      expect(
+        screen.queryByRole('button', { name: 'Authorize Gmail' }),
+      ).toBeNull();
+      expect(
+        screen.queryByRole('button', { name: 'Sign in again with Google' }),
+      ).toBeNull();
+      expect(
+        screen.queryByRole('button', { name: accountRemovalCopy.cancel }),
+      ).toBeNull();
+      await act(async () => {
+        await fireEvent.press(
+          screen.getByRole('button', {
+            name: action,
+          }),
+        );
+      });
+      await expect(
+        screen.findByRole('header', {
+          name: result,
+        }),
+      ).resolves.toBeVisible();
+    },
+  );
+
+  it('deletes the Product Account only after explicit confirmation, keeping it when deletion fails', async () => {
+    expect.hasAssertions();
+    const session = createMockRegistrationSession('registration-success');
+    let deletion: () => Promise<unknown> = () =>
+      Promise.reject(new Error('Synthetic deletion offline'));
+    await render(
+      <RegistrationGate
+        store={createRegistration({
+          ...session.native,
+          deleteProductAccount: () => deletion(),
+        })}
+        preview={false}>
+        {null}
+      </RegistrationGate>,
+    );
+    await act(async () => {
+      await fireEvent.press(
+        await screen.findByRole('button', { name: 'Sign in with Google' }),
+      );
+    });
+    await act(async () => {
+      await fireEvent.press(
+        await screen.findByRole('button', { name: accountRemovalCopy.delete }),
+      );
+    });
+    expect(screen.getByText(accountRemovalCopy.deleteConfirm)).toBeVisible();
+    const permanently = { name: accountRemovalCopy.deletePermanently };
+    await act(async () => {
+      await fireEvent.press(screen.getByRole('button', permanently));
+    });
+    await expect(
+      screen.findByRole('alert', { name: accountRemovalCopy.deletion }),
+    ).resolves.toBeVisible();
+    expect(screen.getByText('Signed in with Google.')).toBeVisible();
+    deletion = session.native.deleteProductAccount;
+    await act(async () => {
+      await fireEvent.press(screen.getByRole('button', permanently));
+    });
+    await expect(
+      screen.findByRole('header', { name: 'Product Account deleted' }),
+    ).resolves.toBeVisible();
+    expect(
+      screen.getByText(/Your mail in Gmail is not affected/u),
+    ).toBeVisible();
+    // A deleted account cannot be reopened.
+    await act(async () => {
+      await fireEvent.press(
+        screen.getByRole('button', { name: 'Sign in with Google' }),
+      );
+    });
+    expect(
+      screen.getByRole('header', { name: 'Product Account deleted' }),
+    ).toBeVisible();
+  });
+
+  /* oxlint-enable vitest/max-expects */
 });

@@ -21,4 +21,6 @@ export const registration = createRegistration({
   revokeTrustedDevice: (trustedDeviceId) =>
     native().revokeTrustedDevice(trustedDeviceId),
   refreshPrivateSync: () => native().refreshPrivateSync(),
+  signOut: () => native().signOut(),
+  deleteProductAccount: () => native().deleteProductAccount(),
 });

@@ -115,6 +115,8 @@ extension RegistrationError {
     case .enrollmentCodeInvalid: "enrollment-code-invalid"
     case .enrollmentUnavailable: "enrollment-unavailable"
     case .revoked: "revoked"
+    case .deleted: "deleted"
+    case .removalRefused, .appleAuthorizationRequired: "removal-refused"
     }
   }
 }
@@ -188,6 +190,7 @@ final class UnwiredRegistration: NSObject {
             return response.signInProviders
           }),
         productSync: Self.productSync(base: base),
+        removal: Self.removal(base: base, bundle: bundle),
         deviceRevoked: { product in
           try await Self.mutation(
             base: base, identity: nil, path: "productAccount:isTrustedDeviceRevoked",
@@ -216,6 +219,7 @@ final class UnwiredRegistration: NSObject {
     "SIGN_IN_NOT_LINKED": .invalidIdentity,
     "ENROLLMENT_REQUEST_UNAVAILABLE": .enrollmentUnavailable,
     "TRUSTED_DEVICE_REVOKED": .revoked,
+    "PRODUCT_ACCOUNT_DELETED": .deleted,
   ]
 
   // The deployment's HTTP actions live on its .convex.site host.
@@ -327,7 +331,11 @@ final class UnwiredRegistration: NSObject {
       }
       Self.busy = true
       defer { Self.busy = false }
-      do { resolve(try await store().purgingIfRevoked(operation)) } catch {
+      do {
+        let removal: AccountRemovalState.Operation? =
+          name == "signOut" ? .signOut : name == "deleteProductAccount" ? .deletion : nil
+        resolve(try await store().purgingIfRevoked(operation, removing: removal))
+      } catch {
         // Descriptions stay private: SDK and transport errors can echo request details.
         let failure = error as NSError
         Self.logger.error(
@@ -414,6 +422,17 @@ final class UnwiredRegistration: NSObject {
     perform("revokeTrustedDevice", resolve, reject: reject) {
       try await $0.revoke(trustedDeviceId)
     }
+  }
+  @objc(signOut:rejecter:)
+  func signOut(_ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock)
+  {
+    perform("signOut", resolve, reject: reject) { try await $0.signOut() }
+  }
+  @objc(deleteProductAccount:rejecter:)
+  func deleteProductAccount(
+    _ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+  ) {
+    perform("deleteProductAccount", resolve, reject: reject) { try await $0.deleteAccount() }
   }
   @objc(refreshPrivateSync:rejecter:)
   func refreshPrivateSync(
@@ -603,6 +622,57 @@ extension UnwiredRegistration {
           // A server/proxy failure can follow a committed mutation. Preserve the pending key
           // until synchronization compares its exact transition with the authoritative one.
           throw URLError(.badServerResponse)
+        }
+      })
+  }
+
+  @MainActor private static func removal(base: URL, bundle: String) -> AccountRemoval {
+    AccountRemoval(
+      unregister: { identity, product, deviceIdentifier in
+        struct Response: Decodable { let registered: Bool }
+        let _: Response = try await mutation(
+          base: base, identity: identity, path: "productAccount:unregisterTrustedDevice",
+          args: [
+            "trustedDeviceId": product.trustedDeviceId,
+            "trustedDeviceCredential": product.trustedDeviceCredential,
+            "deviceIdentifier": deviceIdentifier,
+          ])
+      },
+      delete: { identity, product in
+        var request = URLRequest(url: try site(base, path: "/product-account/delete"))
+        request.httpMethod = "POST"
+        request.timeoutInterval = 30
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        // The fresh token is the recent-authentication proof.
+        request.setValue("Bearer " + identity.idToken, forHTTPHeaderField: "Authorization")
+        var args: [String: Any] = [
+          "trustedDeviceId": product.trustedDeviceId,
+          "trustedDeviceCredential": product.trustedDeviceCredential,
+        ]
+        if let code = identity.authorizationCode {
+          // Convex exchanges and revokes it with the client that issued it.
+          args["authorizationCode"] = code
+          args["appleClientId"] = bundle
+        }
+        request.httpBody = try JSONSerialization.data(withJSONObject: args)
+        let (data, response) = try await URLSession.shared.data(for: request)
+        struct Failure: Decodable { let code: String }
+        switch (response as? HTTPURLResponse)?.statusCode {
+        // Complete, or continuing on the backend; the account is fenced either way.
+        case 200:
+          struct Response: Decodable { let deleted: Bool }
+          _ = try JSONDecoder().decode(Response.self, from: data)
+          return
+        case 401: throw RegistrationError.staleAuthentication
+        // Refusals Convex returns before fencing the account.
+        case 400: throw RegistrationError.removalRefused
+        case 403:
+          throw (try? JSONDecoder().decode(Failure.self, from: data)).flatMap {
+            backendErrors[$0.code]
+          } ?? RegistrationError.removalRefused
+        case 409: throw RegistrationError.appleAuthorizationRequired
+        // Repeating the deletion after a lost reply reports it as complete.
+        default: throw RegistrationError.unavailable
         }
       })
   }

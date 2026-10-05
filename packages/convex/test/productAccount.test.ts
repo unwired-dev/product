@@ -199,6 +199,58 @@ async function revokeTrustedDevice(
   return response.json();
 }
 
+const googleIdentity = {
+  issuer: 'https://accounts.google.com',
+  subject: 'google-user-001',
+  tokenIdentifier: 'https://accounts.google.com|google-user-001',
+};
+
+// Convex omits iat from the identity, so freshness comes only from the bearer token.
+async function deleteRecentlyAuthenticated(
+  asUser: ReturnType<ReturnType<typeof convexTest>['withIdentity']>,
+  args: Readonly<Record<string, unknown>>,
+  {
+    identity = googleIdentity,
+    issuedAt = Math.floor(Date.now() / 1000),
+  }: Readonly<{
+    identity?: Readonly<{ issuer: string; subject: string }>;
+    issuedAt?: number;
+  }> = {},
+): Promise<Response> {
+  const encode = (value: Readonly<Record<string, unknown>>) =>
+    Buffer.from(JSON.stringify(value), 'utf8').toString('base64url');
+  const token = `${encode({ alg: 'RS256' })}.${encode({
+    iat: issuedAt,
+    iss: identity.issuer,
+    sub: identity.subject,
+  })}.signature`;
+  return asUser.fetch('/product-account/delete', {
+    body: JSON.stringify(args),
+    headers: {
+      authorization: `Bearer ${token}`,
+      'content-type': 'application/json',
+    },
+    method: 'POST',
+  });
+}
+
+async function storedAccountData(t: ReturnType<typeof convexTest>) {
+  return t.run(async (ctx) => {
+    const [accounts, linked, payloads, tombstones] = await Promise.all([
+      ctx.db.query('productAccounts').collect(),
+      ctx.db.query('linkedSignIns').collect(),
+      ctx.db.query('encryptedProductSyncPayloads').collect(),
+      ctx.db.query('productAccountDeletionTombstones').collect(),
+    ]);
+    return {
+      accounts: accounts.length,
+      linked: linked.length,
+      payloads: payloads.length,
+      tombstones: tombstones.length,
+    };
+  });
+}
+
 function pendingDeletionRequestId(result: {
   requestId?: Id<'productAccountDeletionRequests'>;
   state: string;
@@ -3409,6 +3461,175 @@ describe('gmail operational connection registration', () => {
     ).resolves.toStrictEqual({ deleted: true });
   });
 
+  it('deletes a Google Product Account after a recent sign-in and fences it', async () => {
+    expect.assertions(5);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(googleIdentity);
+    const device = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+      supportsDeviceCredentials: true,
+    });
+    const proof = {
+      trustedDeviceCredential: requiredTrustedDeviceCredential(device),
+      trustedDeviceId: device.trustedDeviceId,
+    };
+    await asUser.mutation(api.productSync.initialize, {
+      ...proof,
+      encryptedPayload: { ...encryptedPayload, schemaVersion: 3 },
+    });
+
+    const stale = await deleteRecentlyAuthenticated(asUser, proof, {
+      issuedAt: Math.floor(Date.now() / 1000) - 301,
+    });
+    const missingProof = await deleteRecentlyAuthenticated(asUser, {
+      trustedDeviceId: device.trustedDeviceId,
+    });
+
+    expect([stale.status, missingProof.status]).toStrictEqual([401, 403]);
+    await expect(storedAccountData(t)).resolves.toStrictEqual({
+      accounts: 1,
+      linked: 0,
+      payloads: 1,
+      tombstones: 0,
+    });
+
+    const deleted = await deleteRecentlyAuthenticated(asUser, proof);
+
+    await expect(
+      Promise.all([deleted.json(), storedAccountData(t)]),
+    ).resolves.toStrictEqual([
+      { deleted: true },
+      { accounts: 0, linked: 0, payloads: 0, tombstones: 1 },
+    ]);
+    await expect(
+      asUser.mutation(api.productAccount.connect, {
+        deviceIdentifier: 'device-002',
+        platform: 'ios',
+        supportsDeviceCredentials: true,
+      }),
+    ).rejects.toMatchObject({ data: { code: 'PRODUCT_ACCOUNT_DELETED' } });
+
+    // A retry after a lost reply reports the completed deletion.
+    const retried = await deleteRecentlyAuthenticated(asUser, proof);
+
+    await expect(retried.json()).resolves.toStrictEqual({ deleted: true });
+  });
+
+  it('resumes authorized deletion after device cleanup without allowing another account to resume it', async () => {
+    expect.hasAssertions();
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(googleIdentity);
+    const asOther = t.withIdentity({
+      ...googleIdentity,
+      subject: 'google-other',
+      tokenIdentifier: 'https://accounts.google.com|google-other',
+    });
+    const device = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'deleting-device',
+      platform: 'ios',
+      supportsDeviceCredentials: true,
+    });
+    const other = await asOther.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'other-device',
+      platform: 'ios',
+      supportsDeviceCredentials: true,
+    });
+    const proof = {
+      trustedDeviceId: device.trustedDeviceId,
+      trustedDeviceCredential: requiredTrustedDeviceCredential(device),
+    };
+    const malformed = await deleteRecentlyAuthenticated(asUser, {
+      trustedDeviceId: 42,
+    });
+    const unauthenticated = await t.fetch('/product-account/delete', {
+      method: 'POST',
+      body: JSON.stringify(proof),
+    });
+    const foreignProof = await deleteRecentlyAuthenticated(asUser, {
+      trustedDeviceId: other.trustedDeviceId,
+      trustedDeviceCredential: requiredTrustedDeviceCredential(other),
+    });
+    // Stop at the durable deletion checkpoint after its requesting device was drained.
+    await asUser.mutation(internal.productAccountDeletionData.prepareDeletion, {
+      ...proof,
+      attemptId: 'interrupted-cleanup',
+    });
+    await t.run(async (ctx) =>
+      ctx.db.delete('trustedDevices', device.trustedDeviceId),
+    );
+    const forbidden = await deleteRecentlyAuthenticated(asOther, proof, {
+      identity: { issuer: googleIdentity.issuer, subject: 'google-other' },
+    });
+    expect([
+      malformed.status,
+      unauthenticated.status,
+      foreignProof.status,
+      forbidden.status,
+    ]).toStrictEqual([400, 401, 403, 403]);
+    const resumed = await deleteRecentlyAuthenticated(asUser, proof);
+    await expect(resumed.json()).resolves.toStrictEqual({ deleted: true });
+    await expect(storedAccountData(t)).resolves.toStrictEqual({
+      accounts: 1,
+      linked: 0,
+      payloads: 0,
+      tombstones: 1,
+    });
+    await expect(
+      asOther.query(api.productAccount.listTrustedDevices, {
+        trustedDeviceId: other.trustedDeviceId,
+        trustedDeviceCredential: requiredTrustedDeviceCredential(other),
+      }),
+    ).resolves.toHaveLength(1);
+  });
+
+  it('requires Apple authorization to delete an account Sign in with Apple opens', async () => {
+    expect.assertions(3);
+
+    const t = convexTest(schema, modules);
+    const asGoogle = t.withIdentity(googleIdentity);
+    const device = await asGoogle.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+    });
+    await t.run(async (ctx) => {
+      await ctx.db.insert('linkedSignIns', {
+        linkedAt: Date.now(),
+        productAccountId: device.productAccountId,
+        provider: 'apple',
+        tokenIdentifier: appleIdentity.tokenIdentifier,
+      });
+    });
+    const proof = { trustedDeviceId: device.trustedDeviceId };
+
+    const viaGoogle = await deleteRecentlyAuthenticated(asGoogle, proof);
+    const asApple = t.withIdentity(appleIdentity);
+    const withoutCode = await deleteRecentlyAuthenticated(asApple, proof, {
+      identity: appleIdentity,
+    });
+
+    expect([viaGoogle.status, withoutCode.status]).toStrictEqual([409, 409]);
+    await expect(storedAccountData(t)).resolves.toMatchObject({
+      accounts: 1,
+      linked: 1,
+    });
+
+    const withCode = await deleteRecentlyAuthenticated(
+      asApple,
+      {
+        ...proof,
+        appleClientId: 'dev.unwired.mail',
+        authorizationCode: 'recent-apple-authorization-code',
+      },
+      { identity: appleIdentity },
+    );
+
+    await expect(
+      Promise.all([withCode.json(), storedAccountData(t)]),
+    ).resolves.toMatchObject([{ deleted: true }, { accounts: 0, linked: 0 }]);
+  });
+
   it('keeps account data when Apple token revocation fails terminally', async () => {
     expect.assertions(3);
 
@@ -3982,7 +4203,7 @@ describe('gmail operational connection registration', () => {
     ).rejects.toMatchObject({ data: { code: 'TRUSTED_DEVICE_REVOKED' } });
   });
 
-  it('rejects a deletion retry after its trusted device was already removed', async () => {
+  it('resumes committed deletion after cleanup already removed its trusted device', async () => {
     expect.assertions(3);
 
     const t = convexTest(schema, modules);
@@ -4016,7 +4237,7 @@ describe('gmail operational connection registration', () => {
         authorizationCode: 'unused-retry-authorization-code',
         trustedDeviceId: currentDevice.trustedDeviceId,
       }),
-    ).rejects.toThrow('Trusted device required');
+    ).resolves.toStrictEqual({ deleted: true });
   });
 
   it('does not let a superseded revocation attempt cancel deletion', async () => {

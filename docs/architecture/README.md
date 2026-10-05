@@ -22,6 +22,7 @@ release scopes; a moved passage is not a new requirement or proof of qualificati
 | [README.md](../../README.md)                                                     | [repository.md](repository.md)                                           |
 | [docs/agents/effect.md](../agents/effect.md)                                     | [agents/effect.md](agents/effect.md)                                     |
 | [docs/apple-registration.md](../apple-registration.md)                           | [apple-registration.md](apple-registration.md)                           |
+| [docs/account-removal.md](../account-removal.md)                                 | [account-removal.md](account-removal.md)                                 |
 | [docs/domain/identity.md](../domain/identity.md)                                 | [domain/identity.md](domain/identity.md)                                 |
 | [docs/domain/mailboxes.md](../domain/mailboxes.md)                               | [domain/mailboxes.md](domain/mailboxes.md)                               |
 | [docs/domain/messages-and-delivery.md](../domain/messages-and-delivery.md)       | [domain/messages-and-delivery.md](domain/messages-and-delivery.md)       |

@@ -28,10 +28,11 @@ contracts when their application paths exist.
 Native builds can select `open-read-relaunch` or `mail-unavailable` using
 `UNWIRED_MOCK_SCENARIO`. Unselected bundles exclude all mock-provider code;
 source-map checks enforce that boundary and reject backend sources. Unknown
-scenario names fail the build. Native XCTest accepts `open-read-relaunch` and the ten registration scenarios
+scenario names fail the build. Native XCTest accepts `open-read-relaunch` and the eleven registration scenarios
 described in [Google registration](google-registration.md#deterministic-evidence),
-[Apple registration](apple-registration.md#deterministic-evidence) and
-[linked sign-in](linked-sign-in.md#deterministic-evidence).
+[Apple registration](apple-registration.md#deterministic-evidence),
+[linked sign-in](linked-sign-in.md#deterministic-evidence) and
+[sign-out and deletion](account-removal.md#deterministic-evidence).
 The registration journeys use real Keychain with a fixed synthetic provider compiled only in the selected test build.
 Its synthetic [Product Sync](private-product-sync.md#deterministic-evidence)
 backend keeps the run's encrypted records in the same Keychain service, so new
@@ -45,6 +46,10 @@ In `registration-revocation`, the new account also has a synthetic iPad. The
 journey removes it, confirms the replacement Recovery Key and relaunches without
 it. In `registration-revoked`, another device removes this one after its first
 sign-in. The relaunch purges the account, and signing in again is refused.
+In `registration-removal`, the journey saves and confirms its Recovery Key, then
+signs out and relaunches with nothing kept.
+Signing in again leads to an approval request. It then deletes the account,
+relaunches, and finds signing in refused as deleted.
 The native runners reject builds without a supported test marker. Selection is never
 an app route, URL scheme, runtime setting, control server or reset operation.
 
