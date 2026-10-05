@@ -232,8 +232,8 @@ extension RegistrationStore {
       trustedDevices[account] = try await backend.trustedDevices(session, product).filter {
         $0.id != product.trustedDeviceId
       }
-    } catch RegistrationError.revoked {
-      throw RegistrationError.revoked
+    } catch let error as RegistrationError where error.endsAccess {
+      throw error
     } catch {
       // Product Sync stays pending; registration and the mailbox remain usable.
       Self.logProductSyncFailure("Product Sync failed", error)

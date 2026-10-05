@@ -30,6 +30,9 @@ session after Apple sign-in starts without a Google account hint.
 ## Native verification and restore
 
 Native Sign in with Apple cannot renew an identity token without user interaction.
+A pending [sign-out or deletion](account-removal.md) takes precedence: unanswered
+removal offers only its retry, and acknowledged cleanup resumes before any
+provider verification.
 Restore and Gmail authorization first check whether this Trusted Device was
 removed from its Product Account, then check the Apple credential state for
 the saved subject instead of reconnecting to Convex. A revoked, missing or
@@ -71,8 +74,8 @@ deployment without `APPLE_BUNDLE_ID` or `APPLE_PRODUCT_CLIENT_IDS` accepts no Ap
 token. Set `APPLE_PRODUCT_CLIENT_IDS` only to accept further comma-separated bundle
 IDs, then deploy the auth configuration. These are public token audiences.
 
-Product Account deletion exchanges and revokes Apple authorization with the client
-that issued it. A host passes its bundle ID as `appleClientId`, which must be one of
+[Product Account deletion](account-removal.md) exchanges and revokes Apple
+authorization with the client that issued it. A host passes its bundle ID as `appleClientId`, which must be one of
 the configured audiences; without it, deletion requires `APPLE_BUNDLE_ID`. All configured bundle IDs
 share the deployment's Sign in with Apple key (`APPLE_SIGN_IN_KEY_ID`,
 `APPLE_SIGN_IN_PRIVATE_KEY` and `APPLE_TEAM_ID`), so they must belong to that key's

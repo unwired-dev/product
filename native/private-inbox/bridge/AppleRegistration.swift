@@ -81,7 +81,8 @@ private final class AppleAuthorizationSession: NSObject, ASAuthorizationControll
       token, issuers: IdentityTokenClaims.apple, audience: audience, subject: credential.user,
       nonce: nonce)
     return AppleRegistrationIdentity(
-      subject: credential.user, idToken: token, email: credential.email ?? claims.email)
+      subject: credential.user, idToken: token, email: credential.email ?? claims.email,
+      authorizationCode: credential.authorizationCode.flatMap { String(data: $0, encoding: .utf8) })
   }
 
   func credentialState(_ subject: String) async -> AppleCredentialState {

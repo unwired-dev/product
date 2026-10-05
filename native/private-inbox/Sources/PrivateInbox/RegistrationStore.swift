@@ -10,6 +10,11 @@ enum RegistrationError: Error {
   case enrollmentCodeInvalid, enrollmentUnavailable
   // Another Trusted Device removed this one, or the account refuses new devices after a removal.
   case revoked
+  // The Product Account was deleted, from this device or another.
+  case deleted
+
+  // This device's access to the Product Account has ended; it keeps none of its data.
+  var endsAccess: Bool { self == .revoked || self == .deleted }
 }
 
 enum SignInProvider: String, Codable {
@@ -29,6 +34,8 @@ struct AppleRegistrationIdentity {
   let idToken: String
   // Possibly a private relay address; display and contact information only.
   let email: String?
+  // Single-use proof Convex exchanges and revokes when the Product Account is deleted.
+  var authorizationCode: String? = nil
 }
 
 enum AppleCredentialState {
@@ -42,6 +49,8 @@ struct ProductSignInIdentity {
   let idToken: String
   let credential: Data
   let contactEmail: String?
+  // Sign in with Apple only: lets Convex revoke this authorization when deleting the account.
+  var authorizationCode: String? = nil
 }
 
 struct GmailRegistrationReceipt: Codable {
@@ -101,6 +110,8 @@ struct SavedRegistration: Codable {
   var mailboxCredential: Data?
   var mailbox: GmailRegistrationReceipt?
   var mailboxSetupReason: String?
+  // Stored before remote removal; acknowledgement precedes every local cleanup step.
+  var accountRemoval: AccountRemovalState?
 
   var provider: SignInProvider { signInProvider ?? .google }
 }
@@ -118,6 +129,7 @@ struct SavedRegistration: Codable {
       ProductRegistrationReceipt
   let linking: SignInLinking?
   let productSync: ProductSyncBackend?
+  let removal: AccountRemoval?
   // Whether the account revoked this device, answered for its credential without a Product Sign-In.
   let deviceRevoked: ((ProductRegistrationReceipt) async throws -> Bool)?
   // The latest verified Product Sign-In in this process; Apple tokens cannot be renewed silently.
@@ -131,6 +143,7 @@ struct SavedRegistration: Codable {
     keys: DeviceKeychain, deployment: String, clientID: String,
     provider: any GoogleRegistrationProvider, apple: (any AppleRegistrationProvider)? = nil,
     linking: SignInLinking? = nil, productSync: ProductSyncBackend? = nil,
+    removal: AccountRemoval? = nil,
     deviceRevoked: ((ProductRegistrationReceipt) async throws -> Bool)? = nil,
     connect:
       @escaping (ProductSignInIdentity, String, ProductRegistrationReceipt?) async throws ->
@@ -143,6 +156,7 @@ struct SavedRegistration: Codable {
     self.apple = apple
     self.linking = linking
     self.productSync = productSync
+    self.removal = removal
     self.deviceRevoked = deviceRevoked
     self.connect = connect
   }
@@ -233,7 +247,8 @@ struct SavedRegistration: Codable {
       let identity = try await appleProvider().signIn()
       return ProductSignInIdentity(
         provider: .apple, subject: identity.subject, idToken: identity.idToken,
-        credential: Data(), contactEmail: identity.email)
+        credential: Data(), contactEmail: identity.email,
+        authorizationCode: identity.authorizationCode)
     }
   }
 
@@ -336,13 +351,14 @@ struct SavedRegistration: Codable {
 
   func restore() async throws -> [String: String] {
     guard let saved = try load() else { return ["kind": "signed-out"] }
+    if let removal = try removalStatus(saved) { return removal }
     // Apple Product Sign-In finishes interactively; an uncommitted one starts again.
     if saved.provider == .apple, saved.product == nil { return ["kind": "signed-out"] }
     var next: SavedRegistration
     do {
       next = try await reconfirm(saved)
-    } catch RegistrationError.revoked {
-      throw RegistrationError.revoked
+    } catch let error as RegistrationError where error.endsAccess {
+      throw error
     } catch {
       // Keep any identity credential that establish persisted before the backend failed.
       if saved.product != nil { return try failure((try? load()) ?? saved, reason: "unavailable") }
@@ -366,8 +382,8 @@ struct SavedRegistration: Codable {
       next.mailboxSetupReason = nil
       try save(next)
       return try await connected(synchronize(next))
-    } catch RegistrationError.revoked {
-      throw RegistrationError.revoked
+    } catch let error as RegistrationError where error.endsAccess {
+      throw error
     } catch {
       // Cached consent is never proof of currently usable Gmail access.
       return try failure(next, reason: "gmail-unavailable")
@@ -395,8 +411,8 @@ struct SavedRegistration: Codable {
     var next: SavedRegistration
     do {
       next = try await reconfirm(saved)
-    } catch RegistrationError.revoked {
-      throw RegistrationError.revoked
+    } catch let error as RegistrationError where error.endsAccess {
+      throw error
     } catch {
       // Keep any identity credential that establish persisted before the backend failed.
       return try failure(
@@ -413,8 +429,8 @@ struct SavedRegistration: Codable {
       next.mailboxSetupReason = nil
       try save(next)
       return try await connected(synchronize(next))
-    } catch RegistrationError.revoked {
-      throw RegistrationError.revoked
+    } catch let error as RegistrationError where error.endsAccess {
+      throw error
     } catch {
       // A failed reselection keeps the connected mailbox; the host reports the rejection.
       if reselect, next.mailbox != nil, next.mailboxSetupReason == nil { throw error }
@@ -431,11 +447,18 @@ struct SavedRegistration: Codable {
   // A revoked device keeps nothing of the Product Account: keys, requests and credentials go.
   // A device that never joined it, refused after another device's removal, was never trusted.
   // Every item is attempted; the registration record goes last, so a failed purge is retried.
-  func purge() throws -> [String: String] {
+  func purge(notice: String? = nil) throws -> [String: String] {
     session = nil
     enrollmentRequests = [:]
     trustedDevices = [:]
     let saved = try load()
+    let removalOperation: AccountRemovalState.Operation =
+      notice == "deleted" ? .deletion : notice == "signed-out" ? .signOut : .revoked
+    if var saved {
+      saved.accountRemoval = AccountRemovalState(
+        operation: removalOperation, acknowledged: true)
+      try save(saved)
+    }
     var failure: (any Error)?
     if let account = saved?.product?.productAccountId {
       for item in [vaultAccount(account), enrollmentAccount(account)] {
@@ -444,20 +467,36 @@ struct SavedRegistration: Codable {
     }
     if let failure { throw failure }
     try keys.remove("registration")
-    return ["kind": "signed-out", "notice": saved?.product == nil ? "refused" : "revoked"]
+    if removalOperation == .signOut { return ["kind": "signed-out"] }
+    return [
+      "kind": "signed-out", "notice": notice ?? (saved?.product == nil ? "refused" : "revoked"),
+    ]
   }
 
   // Every host operation runs through this, so whichever request learns of a revocation purges.
   // A saved account is checked first: an operation may open a provider prompt before any backend
   // request, and cancelling that prompt must not keep a removed device's keys and credentials.
-  func purgingIfRevoked(_ operation: (RegistrationStore) async throws -> [String: String])
+  func purgingIfRevoked(
+    _ operation: (RegistrationStore) async throws -> [String: String],
+    removing: AccountRemovalState.Operation? = nil
+  )
     async throws -> [String: String]
   {
     do {
+      if let saved = try? load(), let removal = saved.accountRemoval,
+        removal.acknowledged || removal.operation != removing,
+        let status = try removalStatus(saved)
+      {
+        return status
+      }
       // An unreadable record skips the check; the operation reports that failure itself.
       if let product = (try? load())?.product { try await requireNotRevoked(product) }
       return try await operation(self)
-    } catch RegistrationError.revoked { return try purge() }
+    } catch RegistrationError.revoked {
+      return try purge()
+    } catch RegistrationError.deleted {
+      return try purge(notice: "deleted")
+    }
   }
 
   func connected(_ saved: SavedRegistration) throws -> [String: String] {

@@ -681,6 +681,83 @@ describe('product registration', () => {
     },
   );
 
+  it('deletes the Product Account everywhere: other installations purge on their next verification', async () => {
+    expect.hasAssertions();
+    const installations = createSyntheticAccount();
+    const current = createRegistration(
+      createMockRegistrationSession('registration-success', installations)
+        .native,
+    );
+    const other = createRegistration(
+      createMockRegistrationSession('registration-success', installations)
+        .native,
+    );
+    await current.register('google');
+    await other.register('google');
+    const deleted = {
+      snapshot: { kind: 'signed-out', notice: 'deleted' },
+      busy: false,
+      failed: false,
+    } as const;
+    await current.deleteProductAccount();
+    expect(current.getSnapshot()).toStrictEqual(deleted);
+    expect(other.getSnapshot().snapshot.kind).toBe('connected');
+    await other.restore();
+    expect(other.getSnapshot()).toStrictEqual(deleted);
+    // The deleted account cannot be reopened.
+    await current.register('google');
+    expect(current.getSnapshot()).toStrictEqual(deleted);
+  });
+
+  it('keeps the account when sign-out or deletion fails, and a cancelled sign-in stays quiet', async () => {
+    expect.hasAssertions();
+    const session = createMockRegistrationSession('registration-success');
+    let outcome: () => Promise<unknown> = () =>
+      Promise.reject(new Error('Synthetic request interrupted'));
+    const store = createRegistration({
+      ...session.native,
+      signOut: () => outcome(),
+      deleteProductAccount: () => outcome(),
+    });
+    await store.register('google');
+    const { snapshot } = store.getSnapshot();
+    await store.signOut();
+    expect(store.getSnapshot()).toStrictEqual({
+      snapshot,
+      busy: false,
+      failed: false,
+      removalFailure: 'sign-out',
+    });
+    await store.deleteProductAccount();
+    expect(store.getSnapshot()).toStrictEqual({
+      snapshot,
+      busy: false,
+      failed: false,
+      removalFailure: 'deletion',
+    });
+    outcome = () =>
+      Promise.reject(
+        Object.assign(new Error('Synthetic cancel'), { code: 'cancelled' }),
+      );
+    await store.deleteProductAccount();
+    expect(store.getSnapshot()).toStrictEqual({
+      snapshot,
+      busy: false,
+      failed: false,
+    });
+    outcome = session.native.signOut;
+    await store.signOut();
+    expect(store.getSnapshot().snapshot).toStrictEqual(snapshot);
+    await store.confirmRecoveryKey(syntheticRecoveryKey.slice(-4));
+    outcome = session.native.signOut;
+    await store.signOut();
+    expect(store.getSnapshot()).toStrictEqual({
+      snapshot: { kind: 'signed-out' },
+      busy: false,
+      failed: false,
+    });
+  });
+
   it('keeps the account when a removal fails', async () => {
     expect.hasAssertions();
     const session = createMockRegistrationSession('registration-revocation');

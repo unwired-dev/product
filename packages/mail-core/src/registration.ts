@@ -48,6 +48,8 @@ const trustedDevicesText = Schema.NonEmptyString.check(
 const Account = Schema.Struct({
   productAccountId: Schema.NonEmptyString,
   signInProvider: SignInProviderSchema,
+  // An unanswered removal stays resumable instead of reopening account access.
+  removalPending: Schema.optionalKey(Schema.Literals(['sign-out', 'deletion'])),
   // The other Sign-In Provider explicitly linked to the same Product Account.
   alternateSignIn: Schema.optionalKey(SignInProviderSchema),
   // Display and contact information only; it never links identities or selects a mailbox.
@@ -82,8 +84,11 @@ const Account = Schema.Struct({
 export const RegistrationSnapshotSchema = Schema.Union([
   Schema.Struct({
     kind: Schema.Literal('signed-out'),
-    // This device purged the Product Account after it was removed, or was refused after a removal.
-    notice: Schema.optionalKey(Schema.Literals(['revoked', 'refused'])),
+    // This device purged the Product Account after it was removed, or was refused after a removal,
+    // or after the Product Account was deleted from this device or another.
+    notice: Schema.optionalKey(
+      Schema.Literals(['revoked', 'refused', 'deleted']),
+    ),
   }),
   Schema.Struct({
     kind: Schema.Literal('mailbox-needed'),
@@ -172,6 +177,10 @@ export interface NativeRegistration {
   readonly revokeTrustedDevice: (trustedDeviceId: string) => Promise<unknown>;
   // Checks for an approval of this device, or for another device waiting for one.
   readonly refreshPrivateSync: () => Promise<unknown>;
+  // Unregisters this Trusted Device, then removes the Product Account's data from this device.
+  readonly signOut: () => Promise<unknown>;
+  // Permanently deletes the Product Account after an interactive Product Sign-In.
+  readonly deleteProductAccount: () => Promise<unknown>;
 }
 
 type RegistrationState = Readonly<{
@@ -188,7 +197,11 @@ type RegistrationState = Readonly<{
   // A failed approval leaves this device and the requesting one unchanged.
   enrollmentFailure?: EnrollmentFailure;
   revocationFailed?: true;
+  // Removal may have applied before its reply or local cleanup failed; retry confirms it.
+  removalFailure?: AccountRemoval;
 }>;
+
+export type AccountRemoval = 'sign-out' | 'deletion';
 
 // A connected status is only valid while its verification succeeds.
 const pending = (snapshot: RegistrationSnapshot): RegistrationSnapshot => {
@@ -497,6 +510,16 @@ export function createRegistration(native: NativeRegistration) {
         (snapshot) => ({ ...settled(snapshot), revocationFailed: true }),
       ),
     refreshPrivateSync: () => execute(request(native.refreshPrivateSync)),
+    signOut: () =>
+      execute(request(native.signOut), (snapshot) => ({
+        ...settled(snapshot),
+        removalFailure: 'sign-out',
+      })),
+    deleteProductAccount: () =>
+      execute(request(native.deleteProductAccount), (snapshot) => ({
+        ...settled(snapshot),
+        removalFailure: 'deletion',
+      })),
   };
 }
 
@@ -596,11 +619,33 @@ const signedOutNotices = {
     description:
       'One of your trusted devices removed this one from your Product Account, so its account data, keys and mailbox access were deleted from this device. Anything copied from it before then cannot be erased remotely. Your mail in Gmail is not affected.',
   },
+  deleted: {
+    title: 'Product Account deleted',
+    description:
+      'This Product Account was permanently deleted, so its account data, keys and mailbox access were removed from this device. Anything copied from another device while it was offline cannot be erased remotely. Your mail in Gmail is not affected.',
+  },
   refused: {
     title: 'This device cannot join',
     description:
       'Your Product Account currently does not accept new devices because a device was removed from it, so nothing was saved on this device. Your mail in Gmail is not affected.',
   },
+} as const;
+
+// Leaving this device is distinct from deleting the Product Account everywhere.
+export const accountRemovalCopy = {
+  title: 'This device and your account',
+  signOut: 'Sign out of this device',
+  signOutConfirm:
+    'Signing out removes this device from your Product Account and deletes its account data, keys and mailbox access from this device. Save and confirm any Recovery Key shown first. Your other devices and your mail in Gmail are not affected. To use this device again, sign in and approve it from a trusted device or with your Recovery Key.',
+  delete: 'Delete Product Account',
+  deleteConfirm:
+    'Deleting your Product Account permanently removes it, its private data and its sign-ins from Unwired Mail. Other devices remove their local data when they reconnect; copies on offline or compromised devices cannot be erased remotely. It cannot be undone. Your mail stays in Gmail, and authorization you gave Google is not revoked. You sign in again to confirm.',
+  deletePermanently: 'Delete permanently',
+  cancel: 'Cancel',
+  'sign-out':
+    'Sign-out could not be confirmed. Retry sign-out when you are online to finish removing this device and its local account data. Save and confirm any Recovery Key shown before signing out.',
+  deletion:
+    'Deletion could not be confirmed. Your Product Account may already be deleted. Retry deletion when you are online to confirm it and finish removing local account data.',
 } as const;
 
 export function registrationCopy(snapshot: RegistrationSnapshot) {
@@ -617,6 +662,16 @@ export function registrationCopy(snapshot: RegistrationSnapshot) {
       };
     }
     case 'mailbox-needed': {
+      if (snapshot.removalPending !== undefined) {
+        return {
+          title:
+            snapshot.removalPending === 'sign-out'
+              ? 'Finish signing out'
+              : 'Confirm account deletion',
+          description: accountRemovalCopy[snapshot.removalPending],
+          account: accountLine(snapshot),
+        };
+      }
       const { reason, signInProvider } = snapshot;
       let description: string = mailboxNeeded[signInProvider];
       if (reason === 'unavailable') {

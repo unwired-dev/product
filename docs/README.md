@@ -16,6 +16,7 @@ their scope below; publication of a plan does not prove implementation or releas
 - [Apple registration continuing into Gmail authorization](apple-registration.md)
 - [Linked Google and Apple sign-in](linked-sign-in.md)
 - [Private Product Sync and the Recovery Key](private-product-sync.md)
+- [Sign-out and Product Account deletion](account-removal.md)
 
 ## Shared policies
 

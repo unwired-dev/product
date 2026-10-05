@@ -46,6 +46,8 @@ const normalizedCode = (code: string) =>
 interface SyntheticAccountState {
   enrollment: undefined | { state: 'pending' | 'approved' | 'cancelled' };
   mailboxes: Set<string>;
+  // Deleted from one installation; the others learn of it on their next verification.
+  deleted?: true;
 }
 
 // Installations share transport state, while each verified Product Account keeps its own data.
@@ -148,8 +150,15 @@ export function createMockRegistrationSession(
     installations.set(id, created);
     return created;
   };
+  const deleted = (id: string) => installations.get(id)?.deleted === true;
   const native: NativeRegistration = {
     restore: () => {
+      if (
+        snapshot.kind !== 'signed-out' &&
+        deleted(snapshot.productAccountId)
+      ) {
+        snapshot = { kind: 'signed-out', notice: 'deleted' };
+      }
       // The other device's removal reaches this one on its next verification.
       if (
         scenario === 'registration-revoked' &&
@@ -160,6 +169,10 @@ export function createMockRegistrationSession(
       return Promise.resolve(snapshot);
     },
     signIn: (provider) => {
+      if (deleted(accounts[provider].productAccountId)) {
+        snapshot = { kind: 'signed-out', notice: 'deleted' };
+        return Promise.resolve(snapshot);
+      }
       if (snapshot.kind === 'signed-out') {
         // A new Product Account creates its keys; an existing one asks a trusted device.
         if (scenario === 'registration-enrollment') {
@@ -346,6 +359,24 @@ export function createMockRegistrationSession(
         recoveryKey: syntheticReplacementRecoveryKey,
       };
       return Promise.resolve({ ...snapshot, revocationNotice: 'removed' });
+    },
+    signOut: () => {
+      if (
+        snapshot.kind !== 'signed-out' &&
+        snapshot.privateSync === 'recovery-key'
+      ) {
+        return Promise.resolve(snapshot);
+      }
+      snapshot = { kind: 'signed-out' };
+      return Promise.resolve(snapshot);
+    },
+    deleteProductAccount: () => {
+      if (snapshot.kind === 'signed-out') {
+        return rejection('Synthetic Product Account required', 'unavailable');
+      }
+      syncAccount(snapshot.productAccountId).deleted = true;
+      snapshot = { kind: 'signed-out', notice: 'deleted' };
+      return Promise.resolve(snapshot);
     },
     refreshPrivateSync: () => {
       if (snapshot.kind === 'signed-out') {

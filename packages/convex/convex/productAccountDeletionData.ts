@@ -9,6 +9,7 @@ import {
   accountTokenIdentifier,
   productAccountForSignIn,
   requireTrustedDeviceProof,
+  signInProvidersForAccount,
   trustedDeviceCredentialArgs,
 } from './productAccountAuth.js';
 
@@ -83,8 +84,10 @@ export const prepareDeletion = internalMutation({
   args: {
     ...trustedDeviceCredentialArgs,
     attemptId: v.string(),
-    authorizationCode: v.string(),
-    trustedDeviceId: v.id('trustedDevices'),
+    // Omitted only after the HTTP route verified a recent Product Sign-In.
+    authorizationCode: v.optional(v.string()),
+    // A string, because the HTTP route forwards it unvalidated.
+    trustedDeviceId: v.string(),
   },
   // fallow-ignore-next-line complexity -- One transaction arbitrates tombstones, leases, retries, and device ownership.
   handler: async (ctx, args) => {
@@ -107,6 +110,32 @@ export const prepareDeletion = internalMutation({
     if (account === null) {
       throw new Error('Product Account required');
     }
+    const existing = await ctx.db
+      .query('productAccountDeletionRequests')
+      .withIndex('by_tokenIdentifier', (q) =>
+        q.eq('tokenIdentifier', tokenIdentifier),
+      )
+      .unique();
+    // Authentication owns this already-authorized deletion. Cleanup may have removed the
+    // requesting device, so resuming it cannot depend on that device still existing.
+    if (existing?.phase === 'deleting-data') {
+      return {
+        phase: existing.phase,
+        requestId: existing._id,
+        revocationPreviouslyAttempted:
+          existing.revocationAttemptedAt !== undefined,
+        revocationPreviouslySucceeded:
+          existing.revocationSucceededAt !== undefined,
+        state: 'pending' as const,
+      };
+    }
+    const trustedDeviceId = ctx.db.normalizeId(
+      'trustedDevices',
+      args.trustedDeviceId,
+    );
+    if (trustedDeviceId === null) {
+      throw new Error('Trusted device required');
+    }
     await requireTrustedDeviceProof(
       ctx,
       {
@@ -116,21 +145,24 @@ export const prepareDeletion = internalMutation({
       },
       {
         trustedDeviceCredential: args.trustedDeviceCredential,
-        trustedDeviceId: args.trustedDeviceId,
+        trustedDeviceId,
       },
     );
-    if (args.authorizationCode.length === 0) {
+    // An account Sign in with Apple opens revokes that authorization, so it needs a fresh code.
+    const { authorizationCode } = args;
+    const signInProviders =
+      authorizationCode === undefined
+        ? await signInProvidersForAccount(ctx, account)
+        : [];
+    if (
+      authorizationCode === undefined
+        ? signInProviders.includes('apple')
+        : authorizationCode.length === 0
+    ) {
       throw new Error('Recent Sign in with Apple authorization is required');
     }
-    const existing = await ctx.db
-      .query('productAccountDeletionRequests')
-      .withIndex('by_tokenIdentifier', (q) =>
-        q.eq('tokenIdentifier', tokenIdentifier),
-      )
-      .unique();
     if (existing !== null) {
       if (
-        existing.phase === 'revocation-pending' &&
         existing.activeAttemptId !== undefined &&
         existing.activeAttemptId !== args.attemptId &&
         Date.now() - existing.updatedAt < deletionAttemptLeaseMilliseconds
@@ -139,21 +171,18 @@ export const prepareDeletion = internalMutation({
       }
       let { revocationMaterial } = existing;
       if (
-        existing.phase === 'revocation-pending' &&
+        authorizationCode !== undefined &&
         existing.revocationSucceededAt === undefined &&
         (revocationMaterial === undefined ||
           revocationMaterial.kind === 'authorization-code')
       ) {
         revocationMaterial = {
           kind: 'authorization-code' as const,
-          value: args.authorizationCode,
+          value: authorizationCode,
         };
       }
       await ctx.db.patch('productAccountDeletionRequests', existing._id, {
-        activeAttemptId:
-          existing.phase === 'revocation-pending'
-            ? args.attemptId
-            : existing.activeAttemptId,
+        activeAttemptId: args.attemptId,
         revocationMaterial,
         updatedAt: Date.now(),
       });
@@ -169,16 +198,39 @@ export const prepareDeletion = internalMutation({
       };
     }
     const now = Date.now();
+    if (authorizationCode === undefined) {
+      // Nothing to revoke: fence the account now and delete its data durably.
+      const requestId = await ctx.db.insert('productAccountDeletionRequests', {
+        phase: 'deleting-data',
+        productAccountId: account._id,
+        requestedAt: now,
+        requestedByTrustedDeviceId: trustedDeviceId,
+        tokenIdentifier,
+        updatedAt: now,
+      });
+      await ctx.scheduler.runAfter(
+        0,
+        internal.productAccountDeletionData.continueProductAccountDeletion,
+        { requestId },
+      );
+      return {
+        phase: 'deleting-data' as const,
+        requestId,
+        revocationPreviouslyAttempted: false,
+        revocationPreviouslySucceeded: false,
+        state: 'pending' as const,
+      };
+    }
     const revocationMaterial = {
       kind: 'authorization-code' as const,
-      value: args.authorizationCode,
+      value: authorizationCode,
     };
     const requestId = await ctx.db.insert('productAccountDeletionRequests', {
       activeAttemptId: args.attemptId,
       phase: 'revocation-pending',
       productAccountId: account._id,
       requestedAt: now,
-      requestedByTrustedDeviceId: args.trustedDeviceId,
+      requestedByTrustedDeviceId: trustedDeviceId,
       revocationMaterial,
       tokenIdentifier,
       updatedAt: now,

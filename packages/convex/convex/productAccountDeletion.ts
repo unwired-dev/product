@@ -595,9 +595,9 @@ const deleteAccount = Effect.fnUntraced(function* (
   ctx: ActionCtx,
   args: Readonly<{
     appleClientId?: string;
-    authorizationCode: string;
+    authorizationCode?: string;
     trustedDeviceCredential?: string;
-    trustedDeviceId: Id<'trustedDevices'>;
+    trustedDeviceId: string;
   }>,
   attemptId: string,
 ) {
@@ -675,6 +675,23 @@ const deleteAccount = Effect.fnUntraced(function* (
     );
   }
   return { deleted: complete };
+});
+
+// Reached only through the HTTP route, after it verified a recent Product Sign-In. Without an
+// authorization code, an account no Sign in with Apple identity opens is deleted without revocation.
+export const deleteRecentlyAuthenticatedProductAccount = internalAction({
+  args: {
+    ...trustedDeviceCredentialArgs,
+    appleClientId: v.optional(v.string()),
+    authorizationCode: v.optional(v.string()),
+    trustedDeviceId: v.string(),
+  },
+  handler: async (ctx, args): Promise<{ deleted: boolean }> =>
+    runConvexProgram(
+      deleteAccount(ctx, args, randomUUID()),
+      thrownDeletionError,
+    ),
+  returns: productAccountDeletionResponseValidator,
 });
 
 export const deleteProductAccount = action({

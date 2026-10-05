@@ -13,6 +13,7 @@ This code owns what TypeScript must never hold: Keychain items, the storage encr
 - Filesystem access on iOS before the protected-data availability check, or a locked device reported as a generic failure rather than `locked`.
 - Cleanup of old keys, envelopes or credentials ordered before the replacement is durably adopted.
 - A revocation purge such as `RegistrationStore.purge` that stops account-item cleanup at the first failure, clears in-memory authorization only after a throwing read, or deletes the registration/retry locator before every dependent item is removed. Attempt every known item, retain the first failure and remove the locator last; otherwise credentials remain live in memory or a partial purge loses its account scope and cannot resume.
+- `AccountRemoval.signOut` or `deleteAccount` sending irreversible remote work without durable local intent, or `purge` deleting dependent items before recording acknowledgement. Relaunch must finish acknowledged cleanup before provider work and keep unanswered removal from reconnecting an unregistered device; a lost reply is not proof that nothing was removed. Sign-out must reconcile rotation and retain any unconfirmed Recovery Key instead of discarding its sole backup.
 
 #### Bridge contract
 

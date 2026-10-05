@@ -1,4 +1,5 @@
 import type {
+  AccountRemoval,
   EnrollmentFailure,
   LinkFailure,
   PrivateSync as PrivateSyncState,
@@ -11,6 +12,7 @@ import type {
 import type { ReactNode } from 'react';
 
 import {
+  accountRemovalCopy,
   enrollmentCopy,
   linkFailureCopy,
   lockedCopy,
@@ -426,13 +428,81 @@ function SignInMethods({
   );
 }
 
+// Leaving this device and deleting the Product Account everywhere are distinct, each confirmed
+// here first; deletion then asks for a new sign-in.
+function AccountActions({
+  button,
+  failure,
+  pending,
+  store,
+}: {
+  readonly button: (label: string, action: () => Promise<void>) => ReactNode;
+  readonly failure: AccountRemoval | undefined;
+  readonly pending: AccountRemoval | undefined;
+  readonly store: Registration;
+}) {
+  const colors = usePalette();
+  const [confirming, setConfirming] = useState<AccountRemoval>();
+  const selected = pending ?? confirming;
+  const confirmation =
+    selected === 'sign-out'
+      ? {
+          description: accountRemovalCopy.signOutConfirm,
+          label: accountRemovalCopy.signOut,
+          action: store.signOut,
+        }
+      : {
+          description: accountRemovalCopy.deleteConfirm,
+          label: accountRemovalCopy.deletePermanently,
+          action: store.deleteProductAccount,
+        };
+  return (
+    <>
+      <Text
+        accessibilityRole="header"
+        style={[styles.heading, { color: colors.foreground }]}>
+        {accountRemovalCopy.title}
+      </Text>
+      {failure === undefined ? null : (
+        <Text
+          accessibilityRole="alert"
+          style={[styles.text, { color: colors.foreground }]}>
+          {accountRemovalCopy[failure]}
+        </Text>
+      )}
+      {selected === undefined ? (
+        <>
+          {button(accountRemovalCopy.signOut, async () => {
+            setConfirming('sign-out');
+          })}
+          {button(accountRemovalCopy.delete, async () => {
+            setConfirming('deletion');
+          })}
+        </>
+      ) : (
+        <>
+          <Text style={[styles.text, { color: colors.foreground }]}>
+            {confirmation.description}
+          </Text>
+          {button(confirmation.label, confirmation.action)}
+          {pending === undefined
+            ? button(accountRemovalCopy.cancel, async () => {
+                setConfirming(undefined);
+              })
+            : null}
+        </>
+      )}
+    </>
+  );
+}
+
 // A retained account can be reopened with its own or its linked Sign-In Provider,
 // which also finishes Product Sync setup that could not reach the backend.
 function offersSignInAgain(
   snapshot: RegistrationSnapshot,
   failed: boolean,
 ): snapshot is Exclude<RegistrationSnapshot, { kind: 'signed-out' }> {
-  if (snapshot.kind === 'signed-out') {
+  if (snapshot.kind === 'signed-out' || snapshot.removalPending !== undefined) {
     return false;
   }
   return (
@@ -509,6 +579,7 @@ function RegistrationPage({ store }: { readonly store: Registration }) {
     recoveryFailure,
     enrollmentFailure,
     revocationFailed,
+    removalFailure,
   } = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const colors = usePalette();
   const copy = registrationCopy(snapshot);
@@ -562,10 +633,11 @@ function RegistrationPage({ store }: { readonly store: Registration }) {
             {button('Sign in with Google', () => store.register('google'))}
           </>
         ) : null}
-        {snapshot.kind === 'mailbox-needed'
+        {snapshot.kind === 'mailbox-needed' &&
+        snapshot.removalPending === undefined
           ? button('Authorize Gmail', () => store.authorizeGmail(false))
           : null}
-        {snapshot.kind === 'signed-out'
+        {snapshot.kind === 'signed-out' || snapshot.removalPending !== undefined
           ? null
           : button('Choose another Google mailbox', () =>
               store.authorizeGmail(true),
@@ -582,46 +654,49 @@ function RegistrationPage({ store }: { readonly store: Registration }) {
             )
           : null}
         {failed ? button('Try again', store.restore) : null}
-        {snapshot.kind === 'signed-out' ? null : (
-          <PrivateSync
-            key={snapshot.recoveryKey ?? 'confirmed'}
-            account={snapshot}
-            button={button}
-            failure={recoveryKeyFailure}
-            store={store}
-          />
+        {snapshot.kind === 'signed-out' ||
+        snapshot.removalPending !== undefined ? null : (
+          <>
+            <PrivateSync
+              key={snapshot.recoveryKey ?? 'confirmed'}
+              account={snapshot}
+              button={button}
+              failure={recoveryKeyFailure}
+              store={store}
+            />
+            <RecoveryKeyUnlock
+              account={snapshot}
+              button={button}
+              failure={recoveryFailure}
+              store={store}
+            />
+            <DeviceApproval
+              // A code typed for one request never carries over to the next.
+              key={snapshot.enrollmentRequest ?? 'none'}
+              account={snapshot}
+              button={button}
+              failure={enrollmentFailure}
+              store={store}
+            />
+            <TrustedDevices
+              account={snapshot}
+              button={button}
+              failed={revocationFailed === true}
+              store={store}
+            />
+            <SignInMethods
+              account={snapshot}
+              button={button}
+              failure={linkFailure}
+              store={store}
+            />
+          </>
         )}
         {snapshot.kind === 'signed-out' ? null : (
-          <RecoveryKeyUnlock
-            account={snapshot}
+          <AccountActions
             button={button}
-            failure={recoveryFailure}
-            store={store}
-          />
-        )}
-        {snapshot.kind === 'signed-out' ? null : (
-          <DeviceApproval
-            // A code typed for one request never carries over to the next.
-            key={snapshot.enrollmentRequest ?? 'none'}
-            account={snapshot}
-            button={button}
-            failure={enrollmentFailure}
-            store={store}
-          />
-        )}
-        {snapshot.kind === 'signed-out' ? null : (
-          <TrustedDevices
-            account={snapshot}
-            button={button}
-            failed={revocationFailed === true}
-            store={store}
-          />
-        )}
-        {snapshot.kind === 'signed-out' ? null : (
-          <SignInMethods
-            account={snapshot}
-            button={button}
-            failure={linkFailure}
+            failure={removalFailure}
+            pending={snapshot.removalPending}
             store={store}
           />
         )}

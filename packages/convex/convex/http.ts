@@ -57,6 +57,16 @@ const decodeTrustedDeviceRevocationRequest = Schema.decodeUnknownOption(
   }),
 );
 
+const decodeProductAccountDeletionRequest = Schema.decodeUnknownOption(
+  Schema.Struct({
+    appleClientId: Schema.optionalKey(Schema.String),
+    // Required by an account that Sign in with Apple opens, so its authorization is revoked.
+    authorizationCode: Schema.optionalKey(Schema.String),
+    trustedDeviceCredential: Schema.optionalKey(Schema.String),
+    trustedDeviceId: Schema.String,
+  }),
+);
+
 const signInLinkProof = {
   trustedDeviceCredential: Schema.optionalKey(Schema.String),
   trustedDeviceId: Schema.String,
@@ -229,6 +239,47 @@ async function revokeTrustedDeviceResponse(
     const trustedDeviceFailure = trustedDeviceFailureResponse(error);
     if (trustedDeviceFailure !== null) {
       return trustedDeviceFailure;
+    }
+    throw error;
+  }
+}
+
+// fallow-ignore-next-line complexity -- Authentication, payload and Trusted Device failures intentionally remain distinct responses.
+async function deleteProductAccountResponse(
+  ctx: ActionCtx,
+  request: Request,
+): Promise<Response> {
+  if (!(await recentlyAuthenticatedRequest(ctx, request))) {
+    return new Response('Recent authentication required', { status: 401 });
+  }
+  const body: unknown = await request.json().catch(() => null);
+  const decoded = decodeProductAccountDeletionRequest(body);
+  if (Option.isNone(decoded)) {
+    return new Response('Invalid Product Account deletion', { status: 400 });
+  }
+  try {
+    return Response.json(
+      await ctx.runAction(
+        internal.productAccountDeletion
+          .deleteRecentlyAuthenticatedProductAccount,
+        decoded.value,
+      ),
+    );
+  } catch (error) {
+    const trustedDeviceFailure = trustedDeviceFailureResponse(error);
+    if (trustedDeviceFailure !== null) {
+      return trustedDeviceFailure;
+    }
+    if (
+      error instanceof Error &&
+      error.message.includes(
+        'Recent Sign in with Apple authorization is required',
+      )
+    ) {
+      return new Response(
+        'Recent Sign in with Apple authorization is required',
+        { status: 409 },
+      );
     }
     throw error;
   }
@@ -466,6 +517,12 @@ http.route({
   path: '/trusted-devices/revoke',
   method: 'POST',
   handler: httpAction(revokeTrustedDeviceResponse),
+});
+
+http.route({
+  path: '/product-account/delete',
+  method: 'POST',
+  handler: httpAction(deleteProductAccountResponse),
 });
 
 http.route({

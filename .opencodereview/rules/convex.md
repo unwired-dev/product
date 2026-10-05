@@ -36,6 +36,7 @@ Before reviewing, read `packages/convex/convex/_generated/ai/guidelines.md`; it 
 
 - `.collect()` or an unpaginated loop over a table that grows with accounts, devices, payloads or routes; a `.filter` scan where an index exists or should; a list argument with no maximum length (see `requireValidAtomicMutationCount`).
 - A deletion or migration that processes an unbounded set in one transaction rather than in batches that reschedule themselves, as `productAccountDeletionData.ts` does.
+- `productAccountDeletionData.prepareDeletion` requiring a still-live Trusted Device to resume an authenticated account's already-authorized `deleting-data` request. Cleanup removes those device rows before completion, so that requirement strands interrupted deletion; retain account ownership and device proof for initial authorization and revocation-pending work.
 - A new table holding account-owned rows that account deletion in `productAccountDeletion.ts` and `productAccountDeletionData.ts` does not remove. Deletion guarantees are enumerated by hand there.
 - An unbounded array stored inside a document, or high-churn fields added to a document that many queries read.
 
