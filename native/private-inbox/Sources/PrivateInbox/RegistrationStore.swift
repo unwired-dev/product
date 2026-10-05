@@ -310,11 +310,14 @@ struct SavedRegistration: Codable {
   }
 
   // Confirms the retained Product Sign-In without an interactive session.
+  // A removed device purges before any provider renewal or prompt, which may fail or be cancelled.
+  // Offline, the check is skipped and the saved account stays usable.
+  func requireNotRevoked(_ product: ProductRegistrationReceipt) async throws {
+    if (try? await deviceRevoked?(product)) == true { throw RegistrationError.revoked }
+  }
+
   func reconfirm(_ saved: SavedRegistration) async throws -> SavedRegistration {
-    // A removed device must purge even if its provider grant can no longer be renewed.
-    if let product = saved.product, (try? await deviceRevoked?(product)) == true {
-      throw RegistrationError.revoked
-    }
+    if let product = saved.product { try await requireNotRevoked(product) }
     switch saved.provider {
     case .google:
       let identity = try await provider.refresh(saved.identityCredential)

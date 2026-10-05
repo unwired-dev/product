@@ -217,7 +217,10 @@ key and require it to retain every held key. The backend publishes the new
 recovery envelope only after every remaining device acknowledges; until then
 backup guidance retains the previous key as well as the new one.
 
-Restore uses `productAccount:isTrustedDeviceRevoked` before provider validation.
+Restore and removal attempts use `productAccount:isTrustedDeviceRevoked` before
+provider validation or an interactive Product Sign-In prompt. The shared
+`RegistrationStore.requireNotRevoked` check prevents failed provider renewal or
+prompt cancellation from suppressing a credential-proven revocation.
 The query authenticates only the device's revocation rejection, using the
 account-scoped tombstone and SHA-256 digest of the credential copied at removal;
 it returns one boolean and grants no account data or API access. It needs no

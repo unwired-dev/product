@@ -197,6 +197,8 @@ Whichever request first learns that this device was removed purges its local
 account keys, enrollment material, identity and mailbox credentials. Restore
 checks revocation before renewing or checking the Sign-In Provider grant, so a
 revoked or unavailable provider grant cannot suppress an established revocation.
+Attempting another device's removal also checks before opening Product Sign-In,
+so cancelling that prompt cannot prevent a removed device's purge.
 Offline, an Apple relaunch keeps its saved state. The host explains the removal
 and that Gmail mail and previously copied offline data are unaffected.
 
@@ -275,6 +277,11 @@ The reviewer reran all 25 tests after the restore and backup corrections, with
 zero failures in `artifacts/private-inbox/integration.nWUto3/`. That run also
 checks that an Apple grant rejection cannot hide an established device removal,
 and that another removal cannot replace a Recovery Key awaiting confirmation.
+The subsequent reviewer run passed all 25 tests in
+`artifacts/private-inbox/integration.CjYdFM/`. It replaces the removed device's
+restore attempt in the main removal scenario with a removal attempt while its
+Google prompt is configured to cancel: the device purges before opening the
+prompt. The Apple credential-only restore and offline assertions remain.
 These runs are real native storage and cryptography evidence with a synthetic Convex
 boundary.
 The two-device approval journey uses two

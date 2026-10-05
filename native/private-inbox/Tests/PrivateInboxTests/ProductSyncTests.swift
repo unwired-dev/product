@@ -232,6 +232,7 @@ import Testing
     RegistrationStore(
       keys: keys, deployment: "https://synthetic.example.invalid", clientID: "synthetic-client",
       provider: google, productSync: backend,
+      deviceRevoked: { [self] product in revoked.contains(product.trustedDeviceId) },
       connect: { [self] identity, device, _ in
         let account = "account-" + identity.subject
         // A revoked device, or any new one after a removal, is refused.
@@ -1052,9 +1053,15 @@ extension PrivateInboxTests {
     #expect(try lost.read("registration") != nil)
     #expect(try lost.read("product-sync." + account) != nil)
     try lost.save(registration, account: "registration")
+    // Still open, the removed device tries a removal of its own: it purges before any sign-in
+    // prompt, so cancelling that prompt cannot keep its keys.
+    let prompts = google.hints.count
+    google.outcome = .cancelled
     #expect(
-      try await removed.purgingIfRevoked { try await $0.restore() }
+      try await removed.purgingIfRevoked { try await $0.revoke(survivorId) }
         == ["kind": "signed-out", "notice": "revoked"])
+    #expect(google.hints.count == prompts)
+    google.outcome = nil
     for item in ["registration", "product-sync." + account, "product-sync-enrollment." + account] {
       #expect(try lost.read(item) == nil)
     }
