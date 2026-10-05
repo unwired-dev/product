@@ -80,9 +80,13 @@ export interface NativeGmailMailbox {
     mailbox: Readonly<{ address: string; generation: string }>,
     ids: readonly string[],
   ) => Promise<unknown>;
-  // Removes cached bodies of messages that left the cached Inbox.
+  // Removes cached bodies only if the named Inbox revision is still current.
   readonly retainMessageBodies: (
-    mailbox: Readonly<{ address: string; generation: string }>,
+    mailbox: Readonly<{
+      address: string;
+      generation: string;
+      revision: number;
+    }>,
     ids: readonly string[],
   ) => Promise<unknown>;
 }
@@ -753,6 +757,30 @@ export function createGmailInbox(native: NativeGmailMailbox) {
       ),
     );
 
+  // Bodies of messages that left the cached Inbox leave the device with them. A failed prune is
+  // retried at the end of the next synchronization, even when it commits nothing.
+  const retainBodies = (
+    { address, generation, revision }: Cache,
+    messages: readonly GmailMessage[],
+  ) =>
+    Effect.tryPromise({
+      try: () =>
+        native.retainMessageBodies(
+          { address, generation, revision },
+          messages.map(({ id }) => id),
+        ),
+      catch: (cause) => rejected(cause, 'failed'),
+    }).pipe(
+      Effect.catchTag('SyncFailure', (failure) =>
+        failure.kind === 'conflict' || failure.kind === 'invalidated'
+          ? Effect.fail(failure)
+          : Effect.logError(
+              'Message bodies were not pruned:',
+              failure.diagnostic,
+            ),
+      ),
+    );
+
   // Commits a document over the revision this synchronization read.
   const commit = Effect.fnUntraced(function* (
     { address, revision, generation }: Cache,
@@ -764,19 +792,7 @@ export function createGmailInbox(native: NativeGmailMailbox) {
     const committed = yield* storage(() =>
       native.commitMailbox({ address, generation }, revision, text),
     );
-    // Bodies of messages that left the cached Inbox leave the device with them.
-    yield* Effect.tryPromise({
-      try: () =>
-        native.retainMessageBodies(
-          { address, generation },
-          document.messages.map(({ id }) => id),
-        ),
-      catch: (cause) => rejected(cause, 'failed'),
-    }).pipe(
-      Effect.catch((error) =>
-        Effect.logError('Message bodies were not pruned:', error.diagnostic),
-      ),
-    );
+    yield* retainBodies(committed, document.messages);
     return committed;
   });
 
@@ -1420,7 +1436,12 @@ export function createGmailInbox(native: NativeGmailMailbox) {
       yield* schedulePrefetch;
       next = yield* advance(cache, document);
     }
-    yield* ready(cache.address, messagesOf(document), 'current');
+    const current = cache;
+    yield* publication.withPermit(
+      retainBodies(current, messagesOf(document)).pipe(
+        Effect.andThen(ready(current.address, messagesOf(document), 'current')),
+      ),
+    );
     yield* schedulePrefetch;
     // Bodies Gmail could not provide before are read again now that it answers.
     yield* Effect.sync(() => {

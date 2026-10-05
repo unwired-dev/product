@@ -92,6 +92,17 @@ Namespace-import style, `JSON.parse`, `typeof … === 'object'` guards, untagged
   malformed or attachment metadata must not turn speculation into a multipart
   or attachment download. Resolve CIDs only within the selected alternative's
   eligible related/mixed scope, never from a discarded alternative.
+- `message-body.ts` treating a present empty or whitespace-only disposition as
+  absent. Only a recognized inline token may admit a present disposition; otherwise
+  malformed body or CID leaves can be fetched or shown as ordinary content.
+- `sanitizeHtml` deciding renderability from text and CIDs alone while retaining
+  blocked-image placeholders. Placeholder-only mail must keep its rich document
+  and readable images notice, including after rendering failure.
+- `createGmailInbox` abandoning failed best-effort body pruning when later
+  synchronization commits nothing, or pruning from a stale metadata revision.
+  Retry after successful synchronization, preserve cache-only access, and require
+  revision validation inside native pruning's storage transaction; otherwise
+  removed mail stays cached or a competing store's still-listed body is deleted.
 - `gmail-inbox.ts` charging image data once per CID while rendering repeated
   references, retaining reservations after renderer failure or last-reader
   closure, or racing an explicit open with speculative work for the same ID.

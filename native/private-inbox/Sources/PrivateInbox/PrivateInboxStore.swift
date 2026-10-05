@@ -262,8 +262,12 @@ public final class PrivateInboxStore {
 
   // Removes the bodies of every message not named, such as those that left the cached Inbox,
   // and reconciles a cache an interrupted writer left over the limit.
-  public func retainMessageBodies(address: String, subject: String, ids: [String]) throws {
-    try unlockedTransaction {
+  public func retainMessageBodies(
+    address: String, subject: String, expectedRevision: Int, ids: [String]
+  ) throws {
+    try transaction {
+      let cache = try readMailbox()
+      guard (cache?.revision ?? 0) == expectedRevision else { throw PrivateInboxError.conflict }
       let kept = Set(ids.map { bodyName(address: address, subject: subject, id: $0).0 })
       for entry in try bodies() where !kept.contains(entry.name) {
         try FileManager.default.removeItem(at: entry.file)

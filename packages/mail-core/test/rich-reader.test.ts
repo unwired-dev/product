@@ -84,6 +84,27 @@ const readable = (state: MessageBodyState | undefined) => {
   return state.presentation.readable;
 };
 
+// Holds one already-completed provider reply so another store can commit before it is applied.
+const holdNextHistory = (gmail: ReturnType<typeof createSyntheticGmail>) => {
+  const captured = Promise.withResolvers<undefined>();
+  const release = Promise.withResolvers<undefined>();
+  const request = gmail.native.gmailRequest;
+  let waiting = true;
+  gmail.native.gmailRequest = async (path, query, scope) => {
+    const reply = await request(path, query, scope);
+    if (path === 'history' && waiting) {
+      waiting = false;
+      captured.resolve(undefined);
+      await release.promise;
+    }
+    return reply;
+  };
+  return {
+    captured: captured.promise,
+    release: () => release.resolve(undefined),
+  };
+};
+
 // Wraps Gmail reads to count concurrent body loads, and refuses the prefetch preflight once
 // `refuse` is set, as Gmail does after a revoked grant.
 function observeBodyLoads(gmail: ReturnType<typeof createSyntheticGmail>) {
@@ -272,6 +293,118 @@ describe('the isolated rich reader', () => {
     expect(
       gmail.requests.filter(({ path }) => path.includes('/attachments/')),
     ).toHaveLength(0);
+  });
+
+  it('keeps attachment-like parts out of the body and shows image-only remote mail', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    const now = Date.now();
+    const excluded = ['', ' \t', 'attachment (unterminated', 'x-file'].map(
+      (disposition) =>
+        gmail.deliver({
+          at: now - 60_000,
+          content: { text: 'Attached notes', single: true, disposition },
+        }),
+    );
+    const allowed = [undefined, 'InLiNe; filename="notes.txt"'].map(
+      (disposition) =>
+        gmail.deliver({
+          at: now - 60_000,
+          content: { text: 'Readable notes', single: true, disposition },
+        }),
+    );
+    const imageOnly = gmail.deliver({
+      content: {
+        html: '<p><img src="https://sender.invalid/poster.png" alt="" width="400"></p>',
+      },
+    });
+    const inbox = createGmailInbox(gmail.native);
+    await inbox.load();
+    // Prefetch records an exclusion marker instead of caching the attachment-like part.
+    await vi.waitFor(() => {
+      expect(gmail.bodyCommits).toHaveLength(excluded.length + allowed.length);
+    });
+    for (const id of excluded) {
+      expect(JSON.parse(String(gmail.cachedBodies().get(id)))).toMatchObject({
+        excluded: true,
+      });
+      expect(
+        gmail.requests
+          .filter(({ path }) => path === `messages/${id}`)
+          .filter(({ query }) => query.get('format') === 'full'),
+      ).toHaveLength(0);
+      expect(readable(await read(inbox, id)).paragraphs).toStrictEqual([]);
+    }
+    for (const id of allowed) {
+      expect(readable(await read(inbox, id)).paragraphs).not.toStrictEqual([]);
+    }
+    // The placeholder alone is visible content, with the blocked-image notice.
+    const shown = await read(inbox, imageOnly);
+    expect(rich(shown).document).toContain('class="blocked-image"');
+    expect(readable(shown)).toMatchObject({
+      paragraphs: [],
+      hidesImages: true,
+    });
+    inbox.discardRichMessage(imageOnly, ready(shown).presentation);
+    expect(
+      ready(inbox.messageBody(imageOnly)).presentation.rich,
+    ).toBeUndefined();
+    expect(readable(inbox.messageBody(imageOnly))).toMatchObject({
+      paragraphs: [],
+      hidesImages: true,
+    });
+  });
+
+  it('prunes bodies after a failed prune even when the next synchronization commits nothing', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    const archived = gmail.deliver({ subject: 'Archived' });
+    const kept = gmail.deliver({ subject: 'Kept' });
+    const inbox = createGmailInbox(gmail.native);
+    await inbox.load();
+    await read(inbox, archived);
+    await read(inbox, kept);
+    gmail.archive(archived);
+    gmail.failRetain('unavailable');
+    gmail.failRetain('unavailable');
+    await inbox.load();
+    expect(gmail.cachedBodies().has(archived)).toBe(true);
+    const commits = gmail.commits.length;
+    const open = gmail.native.openMailbox;
+    gmail.native.openMailbox = async () => ({
+      ...(await open()),
+      availability: 'retry',
+    });
+    const relaunched = createGmailInbox(gmail.native);
+    await relaunched.load();
+    expect(gmail.cachedBodies().has(archived)).toBe(true);
+    gmail.native.openMailbox = open;
+    // A verified synchronization after relaunch commits nothing but still retries pruning.
+    await relaunched.load();
+    expect(gmail.commits).toHaveLength(commits);
+    expect([...gmail.cachedBodies().keys()]).toStrictEqual([kept]);
+  });
+
+  it('keeps a newer listed body when another store finishes an older no-change synchronization', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    const at = Date.now() - 31 * 24 * 60 * 60 * 1000;
+    gmail.deliver({ at });
+    const earlier = createGmailInbox(gmail.native);
+    const newer = createGmailInbox(gmail.native);
+    await earlier.load();
+    await newer.load();
+    const history = holdNextHistory(gmail);
+    const loading = earlier.load();
+    await history.captured;
+    const added = gmail.deliver({ at, subject: 'Newer listed message' });
+    await newer.load();
+    await read(newer, added);
+    expect(gmail.cachedBodies().has(added)).toBe(true);
+    history.release();
+    await loading;
+    expect(gmail.cachedBodies().has(added)).toBe(true);
+    expect(listedIds(earlier)).toContain(added);
   });
 
   it('resolves visible inline images within bounds and keeps them for provider-free opens', async () => {

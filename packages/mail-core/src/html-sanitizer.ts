@@ -29,7 +29,7 @@ export interface SanitizedHtml {
   readonly document: string;
   // The same content as readable text: the fallback when rich presentation is unavailable.
   readonly readable: ReadableBody;
-  // Readable text, or an image the message references by Content-ID.
+  // Readable text, a referenced Content-ID image, or a blocked-image placeholder.
   readonly renderable: boolean;
   // Visible `cid:` references, in document order, for MIME resolution.
   readonly contentIds: readonly string[];
@@ -719,7 +719,9 @@ export function sanitizeHtml(
       `<meta name="viewport" content="width=device-width, initial-scale=1">` +
       `<style>${readerStyle}</style></head><body>${output}</body></html>`,
     readable,
-    renderable: hasReadableText(readable) || contentIds.length > 0,
+    // A blocked-image placeholder is visible content too, so an image-only message renders.
+    renderable:
+      hasReadableText(readable) || contentIds.length > 0 || hidesImages,
     contentIds,
     contentIdOccurrences,
     links,

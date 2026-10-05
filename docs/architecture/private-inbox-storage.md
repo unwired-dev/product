@@ -83,6 +83,8 @@ that old file removed, so interrupted writes cannot exceed the hard limit.
 Only the exact atomic-replacement target is discounted before admission.
 Verified reads update access time; retention/pruning reconciles an over-budget
 directory left by an older interrupted writer. Metadata is never evicted.
+Pruning also compares the expected metadata revision under the same file lock
+before any body deletion, rejecting a competing store's stale list with conflict.
 Registration wrappers validate the opened mailbox generation; offline cache-only
 access is read-only, including for corrupt files, and refuses writes or pruning.
 Listing returns IDs without decrypting stored bodies. Mailbox removal and account

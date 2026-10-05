@@ -640,7 +640,11 @@ extension UnwiredRegistration {
   ) {
     mailbox("retainMessageBodies", resolve, reject: reject) {
       let (address, generation) = try Self.bodyMailbox(scope)
-      return try $0.retainMessageBodies(address: address, generation: generation, ids: ids)
+      guard let value = scope["revision"] as? Double,
+        let revision = Int(exactly: value), revision >= 0
+      else { throw RegistrationError.unavailable }
+      return try $0.retainMessageBodies(
+        address: address, generation: generation, expectedRevision: revision, ids: ids)
     }
   }
 

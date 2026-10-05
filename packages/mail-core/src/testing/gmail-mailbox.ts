@@ -26,6 +26,8 @@ export interface SyntheticContent {
   readonly charset?: 'utf8' | 'latin1';
   readonly separate?: boolean;
   readonly single?: boolean;
+  // A Content-Disposition header on the readable parts, as some senders send.
+  readonly disposition?: string;
   readonly images?: ReadonlyArray<{
     readonly contentId: string;
     readonly mimeType: string;
@@ -106,6 +108,7 @@ export function createSyntheticGmail({
   // The Bounded Encrypted Body Cache, keyed by address and message ID.
   const bodies = new Map<string, string>();
   const bodyFailures: string[] = [];
+  const retainFailures: string[] = [];
   // Each body commit's tier and protected working set, as native admission receives them.
   const bodyCommits: Array<{
     id: string;
@@ -194,6 +197,9 @@ export function createSyntheticGmail({
           name: 'Content-Type',
           value: `${mimeType}; charset="${content.charset ?? 'utf8'}"`,
         },
+        ...(content.disposition === undefined
+          ? []
+          : [{ name: 'Content-Disposition', value: content.disposition }]),
       ],
       body: content.separate
         ? {
@@ -289,7 +295,9 @@ export function createSyntheticGmail({
           mimeType: payload.mimeType,
           headers:
             'headers' in payload
-              ? payload.headers.filter(({ name }) => name === 'Content-Type')
+              ? payload.headers.filter(({ name }) =>
+                  params.getAll('metadataHeaders').includes(name),
+                )
               : [],
         },
       });
@@ -443,8 +451,15 @@ export function createSyntheticGmail({
           })
         : rejection('mailbox-invalidated'),
     retainMessageBodies: (owner, ids) => {
+      const code = retainFailures.shift();
+      if (code !== undefined) {
+        return rejection(code);
+      }
       if (!current(owner)) {
         return rejection('mailbox-invalidated');
+      }
+      if (owner.revision !== (cache?.revision ?? 0)) {
+        return rejection('conflict');
       }
       const kept = new Set(ids.map((id) => bodyKey(owner.address, id)));
       for (const key of bodies.keys()) {
@@ -505,6 +520,9 @@ export function createSyntheticGmail({
     },
     failBodyOpen: (code: string) => {
       bodyFailures.push(code);
+    },
+    failRetain: (code: string) => {
+      retainFailures.push(code);
     },
     // The decoded body documents this device holds, by message ID.
     cachedBodies: () =>

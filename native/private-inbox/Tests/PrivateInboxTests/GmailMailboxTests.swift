@@ -387,7 +387,7 @@ extension PrivateInboxTests {
       try small.openMessageBody(
         address: google.address, subject: google.subject, id: "prefetched") == text)
     try small.retainMessageBodies(
-      address: google.address, subject: google.subject, ids: ["prefetched"])
+      address: google.address, subject: google.subject, expectedRevision: 1, ids: ["prefetched"])
     #expect(try admit("prefetched", .opened, protecting: ["prefetched"]))
     #expect(try files().count == 1)
     #expect(try files().first?.pathExtension == "o")
@@ -401,13 +401,26 @@ extension PrivateInboxTests {
         tier: .opened, protectedIds: []))
     #expect(try files().count == 3)
     try small.retainMessageBodies(
-      address: google.address, subject: google.subject, ids: ["prefetched", "protected", "d"])
+      address: google.address, subject: google.subject, expectedRevision: 1,
+      ids: ["prefetched", "protected", "d"])
     #expect(try files().reduce(0) { $0 + (try Data(contentsOf: $1).count) } <= 200)
     #expect(try stored(["prefetched", "protected", "d"]) == ["prefetched", "protected"])
 
     // A message that left the Inbox takes its body; the cache-only path reads but never writes.
+    let locked = PrivateInboxStore(
+      directory: directory, service: service, protectedDataAvailable: { false })
+    #expect(throws: PrivateInboxError.locked) {
+      try locked.retainMessageBodies(
+        address: google.address, subject: google.subject, expectedRevision: 1, ids: [])
+    }
+    #expect(try files().count == 2)
+    #expect(throws: PrivateInboxError.conflict) {
+      _ = try store.retainMessageBodies(
+        address: google.address, generation: generation, expectedRevision: 0, ids: [])
+    }
+    #expect(try files().count == 2)
     _ = try store.retainMessageBodies(
-      address: google.address, generation: generation, ids: ["protected"])
+      address: google.address, generation: generation, expectedRevision: 1, ids: ["protected"])
     #expect(try files().count == 1)
     google.refreshFailure = URLError(.notConnectedToInternet)
     #expect(try await store.restore()["kind"] == "cached")

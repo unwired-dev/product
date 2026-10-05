@@ -169,8 +169,16 @@ const mimeType = (part: GmailPart) => {
     : headerToken(contentType.value);
 };
 
-const isAttachment = (part: GmailPart) =>
-  headerToken(header(part, 'content-disposition')) === 'attachment';
+// Any present disposition other than a recognized inline one, including a malformed or
+// extension value, keeps a part out of the body and out of prefetch.
+const isAttachment = (part: GmailPart) => {
+  const disposition = part.headers?.find(
+    (candidate) => candidate.name.toLowerCase() === 'content-disposition',
+  );
+  return (
+    disposition !== undefined && headerToken(disposition.value) !== 'inline'
+  );
+};
 
 // Attached messages and attachment subtrees never supply the body or its inline images.
 const isContainerOutsideBody = (part: GmailPart) =>
