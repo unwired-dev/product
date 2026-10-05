@@ -52,6 +52,14 @@ never silently reconnects the device. Once removal is acknowledged, any
 interrupted local cleanup resumes on relaunch without provider authentication.
 A deletion whose reply was lost is reported as complete when repeated.
 
+Convex can refuse a deletion before it removes anything. That happens when the
+sign-in is stale, when it belongs to another account, or when it is a Google
+sign-in for an account Sign in with Apple also opens. A refused first attempt leaves
+the account open, not pending, and the screen says nothing was deleted. A refusal
+after an earlier unanswered attempt keeps deletion pending: the account may already
+be deleted, so retry to confirm it and finish local cleanup. After an Apple link
+this device had not seen, the next attempt asks for Sign in with Apple.
+
 ## What is removed
 
 On this device, sign-out and deletion remove:
@@ -139,13 +147,25 @@ these with the real Keychain and synthetic backends:
 - For both providers, an unanswered removal remains unavailable across relaunch
   until retried; acknowledged partial cleanup finishes before provider prompts.
 - An account Sign in with Apple also opens sends Apple's code.
+- A refused first attempt clears the pending state; a refused retry preserves
+  earlier uncertainty and cannot reopen account access. Another identity of the same
+  provider is rejected before any request. An unseen Apple link moves the next
+  attempt to Apple.
 
 The implementer's iOS run passed its earlier 29-test suite in
 `artifacts/private-inbox/integration.ddqPp6/`. It predates the reviewer fixes.
 The reviewer ran the corrected 30-test suite in
 `artifacts/private-inbox/integration.rhDjQS/`, including the pending-removal
-presentation and interrupted cleanup checks. Earlier reviewer runs in
+presentation and interrupted cleanup checks. With the refused-deletion fix the
+30-test suite passed in `artifacts/private-inbox/integration.f6nCfj/`. Earlier reviewer runs in
 `artifacts/private-inbox/integration.KHkhDD/` predate the final presentation field.
+
+The round-2 reviewer ran the corrected 30-test suite in
+`artifacts/private-inbox/integration.NpXma7/`. It adds refused-retry checks after
+an applied deletion loses its reply and the device-revocation check is unavailable,
+for both Google and Apple. Those retries retain pending deletion across relaunch;
+fresh refusals still leave the account usable. The boundary remains synthetic;
+the suite exercises the real native store and Keychain.
 
 The `registration-removal` [Mock Mail Session](mock-mail-sessions.md) journey
 signs out, relaunches, signs in again to an approval request, deletes the account,

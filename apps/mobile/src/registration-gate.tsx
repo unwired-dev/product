@@ -7,6 +7,7 @@ import type {
   RecoveryKeyFailure,
   Registration,
   RegistrationSnapshot,
+  RemovalFailure,
   TrustedDevice,
 } from '@private-email/mail-core/registration';
 import type { ReactNode } from 'react';
@@ -437,7 +438,7 @@ function AccountActions({
   store,
 }: {
   readonly button: (label: string, action: () => Promise<void>) => ReactNode;
-  readonly failure: AccountRemoval | undefined;
+  readonly failure: RemovalFailure | undefined;
   readonly pending: AccountRemoval | undefined;
   readonly store: Registration;
 }) {

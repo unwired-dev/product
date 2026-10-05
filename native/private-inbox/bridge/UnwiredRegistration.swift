@@ -116,6 +116,7 @@ extension RegistrationError {
     case .enrollmentUnavailable: "enrollment-unavailable"
     case .revoked: "revoked"
     case .deleted: "deleted"
+    case .removalRefused, .appleAuthorizationRequired: "removal-refused"
     }
   }
 }
@@ -663,10 +664,13 @@ extension UnwiredRegistration {
           _ = try JSONDecoder().decode(Response.self, from: data)
           return
         case 401: throw RegistrationError.staleAuthentication
+        // Refusals Convex returns before fencing the account.
+        case 400: throw RegistrationError.removalRefused
         case 403:
           throw (try? JSONDecoder().decode(Failure.self, from: data)).flatMap {
             backendErrors[$0.code]
-          } ?? RegistrationError.unavailable
+          } ?? RegistrationError.removalRefused
+        case 409: throw RegistrationError.appleAuthorizationRequired
         // Repeating the deletion after a lost reply reports it as complete.
         default: throw RegistrationError.unavailable
         }

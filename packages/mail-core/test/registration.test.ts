@@ -711,6 +711,10 @@ describe('product registration', () => {
 
   it('keeps the account when sign-out or deletion fails, and a cancelled sign-in stays quiet', async () => {
     expect.hasAssertions();
+    const logged: unknown[] = [];
+    vi.spyOn(console, 'error').mockImplementation((...values) => {
+      logged.push(...values);
+    });
     const session = createMockRegistrationSession('registration-success');
     let outcome: () => Promise<unknown> = () =>
       Promise.reject(new Error('Synthetic request interrupted'));
@@ -721,6 +725,25 @@ describe('product registration', () => {
     });
     await store.register('google');
     const { snapshot } = store.getSnapshot();
+    // Native reports a definite refusal only when there is no earlier unanswered deletion.
+    for (const code of ['removal-refused', 'stale-authentication']) {
+      outcome = () =>
+        Promise.reject(
+          Object.assign(new Error('Synthetic refusal sealed@example.invalid'), {
+            code,
+          }),
+        );
+      await store.deleteProductAccount();
+      expect(store.getSnapshot()).toStrictEqual({
+        snapshot,
+        busy: false,
+        failed: false,
+        removalFailure: 'deletion-refused',
+      });
+      expect(logged).toContain(`code ${code}`);
+      expect(String(logged)).not.toMatch(/sealed@/u);
+    }
+    outcome = () => Promise.reject(new Error('Synthetic request interrupted'));
     await store.signOut();
     expect(store.getSnapshot()).toStrictEqual({
       snapshot,
@@ -729,12 +752,19 @@ describe('product registration', () => {
       removalFailure: 'sign-out',
     });
     await store.deleteProductAccount();
-    expect(store.getSnapshot()).toStrictEqual({
-      snapshot,
-      busy: false,
-      failed: false,
-      removalFailure: 'deletion',
-    });
+    const uncertain = store.getSnapshot();
+    // A refused retry of an unanswered deletion remains unavailable at the native boundary.
+    outcome = () =>
+      Promise.reject(
+        Object.assign(new Error('Synthetic unresolved deletion'), {
+          code: 'unavailable',
+        }),
+      );
+    await store.deleteProductAccount();
+    expect([uncertain, store.getSnapshot().removalFailure]).toStrictEqual([
+      { snapshot, busy: false, failed: false, removalFailure: 'deletion' },
+      'deletion',
+    ]);
     outcome = () =>
       Promise.reject(
         Object.assign(new Error('Synthetic cancel'), { code: 'cancelled' }),

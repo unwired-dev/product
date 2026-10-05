@@ -132,6 +132,11 @@ const isCancelled = Schema.is(
   Schema.Struct({ code: Schema.Literal('cancelled') }),
 );
 const isLocked = Schema.is(Schema.Struct({ code: Schema.Literal('locked') }));
+const isRemovalRefused = Schema.is(
+  Schema.Struct({
+    code: Schema.Literals(['removal-refused', 'stale-authentication']),
+  }),
+);
 
 const LinkFailureSchema = Schema.Literals([
   'identity-owned',
@@ -198,10 +203,12 @@ type RegistrationState = Readonly<{
   enrollmentFailure?: EnrollmentFailure;
   revocationFailed?: true;
   // Removal may have applied before its reply or local cleanup failed; retry confirms it.
-  removalFailure?: AccountRemoval;
+  removalFailure?: RemovalFailure;
 }>;
 
 export type AccountRemoval = 'sign-out' | 'deletion';
+// Convex refused the deletion before removing anything, for example after a stale sign-in.
+export type RemovalFailure = AccountRemoval | 'deletion-refused';
 
 // A connected status is only valid while its verification succeeds.
 const pending = (snapshot: RegistrationSnapshot): RegistrationSnapshot => {
@@ -516,9 +523,11 @@ export function createRegistration(native: NativeRegistration) {
         removalFailure: 'sign-out',
       })),
     deleteProductAccount: () =>
-      execute(request(native.deleteProductAccount), (snapshot) => ({
+      execute(request(native.deleteProductAccount), (snapshot, cause) => ({
         ...settled(snapshot),
-        removalFailure: 'deletion',
+        removalFailure: isRemovalRefused(cause)
+          ? 'deletion-refused'
+          : 'deletion',
       })),
   };
 }
@@ -644,6 +653,8 @@ export const accountRemovalCopy = {
   cancel: 'Cancel',
   'sign-out':
     'Sign-out could not be confirmed. Retry sign-out when you are online to finish removing this device and its local account data. Save and confirm any Recovery Key shown before signing out.',
+  'deletion-refused':
+    'Your Product Account was not deleted, and nothing was removed. Try again and sign in with the Apple or Google account that opens it.',
   deletion:
     'Deletion could not be confirmed. Your Product Account may already be deleted. Retry deletion when you are online to confirm it and finish removing local account data.',
 } as const;

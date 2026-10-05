@@ -12,6 +12,7 @@ import Testing
   var unregistered: [(identity: ProductSignInIdentity, device: String, installation: String)] = []
   var deletions: [ProductSignInIdentity] = []
   var failure: (any Error)?
+  var deviceCheckFailure: (any Error)?
   var loseReply = false
 
   func store(
@@ -33,6 +34,10 @@ import Testing
           deleted.insert(product.productAccountId)
           if loseReply { throw URLError(.networkConnectionLost) }
         }),
+      deviceRevoked: { [self] _ in
+        if let deviceCheckFailure { throw deviceCheckFailure }
+        return false
+      },
       connect: { [self] identity, device, _ in
         let account = "account-" + identity.subject
         if deleted.contains(account) { throw RegistrationError.deleted }
@@ -102,6 +107,28 @@ extension PrivateInboxTests {
         google.outcome = nil
         apple.outcome = nil
         removal.loseReply = false
+        if operation == .deletion {
+          // A failed revocation probe and a refusal of this retry prove nothing about the
+          // earlier deletion whose reply was lost, for either Product Sign-In provider.
+          removal.deviceCheckFailure = URLError(.cannotConnectToHost)
+          for refusal in [
+            RegistrationError.staleAuthentication, .removalRefused,
+            .appleAuthorizationRequired,
+          ] {
+            removal.failure = refusal
+            await #expect(throws: RegistrationError.unavailable) {
+              try await relaunched.purgingIfRevoked(
+                { try await $0.deleteAccount() }, removing: .deletion)
+            }
+            #expect(try relaunched.load()?.accountRemoval?.operation == .deletion)
+            let restored = removal.store(keys, google: google, apple: apple)
+            #expect(try await restored.purgingIfRevoked { try await $0.restore() } == paused)
+            #expect(try await restored.purgingIfRevoked { try await $0.signIn() } == paused)
+            #expect(restored.session == nil)
+          }
+          removal.failure = nil
+          removal.deviceCheckFailure = nil
+        }
         let done = try await relaunched.purgingIfRevoked(
           {
             if operation == .signOut { return try await $0.signOut() }
@@ -241,13 +268,29 @@ extension PrivateInboxTests {
       try await perform(current, removing: .deletion) { try await $0.deleteAccount() }
     }
     google.outcome = nil
+    #expect(removal.deletions.isEmpty)
+    #expect(try !holdsNothing(current, account: account))
+    // A refusal Convex returns before fencing anything leaves the account open, not pending.
+    google.subject = "synthetic-other-subject"
+    await #expect(throws: RegistrationError.invalidIdentity) {
+      try await perform(current, removing: .deletion) { try await $0.deleteAccount() }
+    }
+    #expect(try removal.store(current, google: google).load()?.accountRemoval == nil)
+    google.subject = "synthetic-product-subject"
+    for refusal in [RegistrationError.staleAuthentication, .removalRefused] {
+      removal.failure = refusal
+      await #expect(throws: refusal) {
+        try await perform(current, removing: .deletion) { try await $0.deleteAccount() }
+      }
+      #expect(try removal.store(current, google: google).load()?.accountRemoval == nil)
+      #expect(try await perform(current) { try await $0.restore() }["removalPending"] == nil)
+    }
+    removal.failure = nil
     removal.failure = URLError(.networkConnectionLost)
     await #expect(throws: URLError.self) {
       try await perform(current, removing: .deletion) { try await $0.deleteAccount() }
     }
     removal.failure = nil
-    #expect(removal.deletions.isEmpty)
-    #expect(try !holdsNothing(current, account: account))
 
     // Google deletion is confirmed by an interactive sign-in, not a silent renewal.
     let sessions = google.hints.count
@@ -270,10 +313,19 @@ extension PrivateInboxTests {
         == ["kind": "signed-out", "notice": "deleted"])
     #expect(try holdsNothing(current, account: account))
 
-    // An account Sign in with Apple also opens is deleted through Apple, with its code.
+    // An account Sign in with Apple also opens is deleted through Apple, with its code. An Apple
+    // link this device had not seen is learned from Convex's refusal and used on the next attempt.
     google.subject = "synthetic-linked-subject"
-    removal.linkedApple.insert(linkedAccount)
     _ = try await perform(linked) { try await $0.signIn() }
+    removal.linkedApple.insert(linkedAccount)
+    removal.failure = RegistrationError.appleAuthorizationRequired
+    await #expect(throws: RegistrationError.appleAuthorizationRequired) {
+      try await perform(linked, removing: .deletion) { try await $0.deleteAccount() }
+    }
+    removal.failure = nil
+    let refused = try removal.store(linked, google: google).load()
+    #expect(refused?.accountRemoval == nil)
+    #expect(refused?.product?.signInProviders == [.google, .apple])
     let signIns = apple.signIns
     #expect(
       try await perform(linked, removing: .deletion) { try await $0.deleteAccount() }

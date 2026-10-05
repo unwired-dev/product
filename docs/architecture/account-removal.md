@@ -35,6 +35,14 @@ authorization on restore, and offers only that removal's retry through the bridg
 It cannot reconnect a potentially unregistered installation. The pending status
 crosses the bridge as presentation metadata, without keys or provider credentials.
 
+Definite HTTP refusals (401, 400, unstructured 403 and Apple-required 409) clear
+intent only when this attempt created it. They establish that this request did not
+start deletion, not that an earlier unanswered request did nothing. A refused
+retry preserves pending deletion and reports an uncertain outcome. Structured
+revocation and deletion rejections still purge. An Apple-required refusal also
+adds Apple to the saved provider list, so the next deletion signs in through Apple
+even when this device had not observed the link.
+
 `purge` durably records acknowledgement before attempting dependent Keychain
 removals, attempts every known account item, and deletes registration last. A crash
 or failed dependent removal therefore leaves a locator and acknowledged cleanup

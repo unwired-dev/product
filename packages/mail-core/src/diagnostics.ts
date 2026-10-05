@@ -15,6 +15,7 @@ const nativeCodes = new Set([
   'identity-owned',
   'invalid-identity',
   'locked',
+  'removal-refused',
   'stale-authentication',
   'unavailable',
 ]);

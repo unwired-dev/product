@@ -12,6 +12,9 @@ enum RegistrationError: Error {
   case revoked
   // The Product Account was deleted, from this device or another.
   case deleted
+  // Convex refused a deletion before fencing anything: a malformed request or a device proof for
+  // another account. Apple authorization is required because Sign in with Apple opens the account.
+  case removalRefused, appleAuthorizationRequired
 
   // This device's access to the Product Account has ended; it keeps none of its data.
   var endsAccess: Bool { self == .revoked || self == .deleted }

@@ -113,9 +113,30 @@ extension RegistrationStore {
     let apple = saved.provider == .apple || product.signInProviders?.contains(.apple) == true
     let identity = try await productIdentity(
       apple ? .apple : .google, hint: saved.provider == .google ? saved.subject : nil)
+    // Another identity of the same provider cannot open this account; Convex would refuse it.
+    if identity.provider == saved.provider, identity.subject != saved.subject {
+      throw RegistrationError.invalidIdentity
+    }
+    let wasPending = saved.accountRemoval != nil
     saved.accountRemoval = AccountRemovalState(operation: .deletion)
     try save(saved)
-    try await removal.delete(identity, product)
+    do {
+      try await removal.delete(identity, product)
+    } catch let error as RegistrationError
+      where [.staleAuthentication, .removalRefused, .appleAuthorizationRequired].contains(error)
+    {
+      // This attempt was refused before fencing anything. A refusal cannot settle an earlier
+      // unanswered deletion; keep its intent and report uncertainty until cleanup is acknowledged.
+      if !wasPending { saved.accountRemoval = nil }
+      if error == .appleAuthorizationRequired, var refreshed = saved.product {
+        let providers = refreshed.signInProviders ?? [saved.provider]
+        refreshed.signInProviders = providers.contains(.apple) ? providers : providers + [.apple]
+        saved.product = refreshed
+      }
+      try save(saved)
+      if wasPending { throw RegistrationError.unavailable }
+      throw error
+    }
     return try purge(notice: "deleted")
   }
 }
