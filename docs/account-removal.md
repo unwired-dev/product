@@ -20,9 +20,10 @@ press of either one only explains what it does and offers **Cancel**.
 **Sign out of this device** explains that this device leaves the Product Account
 and loses its account data, keys and mailbox access. The person's other devices
 and their Gmail mail are unaffected. Pressing **Sign out of this device** again
-unregisters this Trusted Device and its push routes, then removes the account
-from this device. Save and confirm any Recovery Key shown before signing out;
-an unconfirmed key keeps its backup screen and prevents sign-out. The screen
+unregisters this Trusted Device and its push routes, or drops this Pending
+Device, then removes the account from this device. Save and confirm any Recovery Key shown before signing out;
+an unconfirmed key keeps its backup screen and prevents sign-out. A Pending
+Device has no account keys to confirm and can sign out from its enrollment gate. The screen
 returns to **Welcome to Unwired Mail**. Google
 renews its Product Sign-In silently for this. Sign in with Apple cannot, so an
 Apple device asks to sign in with Apple again, and that must be the same Apple
@@ -92,7 +93,8 @@ Hosts delete through `POST /product-account/delete` on the deployment's
 `.convex.site` host. The identity token from the fresh sign-in is the
 `Authorization` bearer. The JSON body carries:
 
-- `trustedDeviceId` and `trustedDeviceCredential`, the device proof;
+- `trustedDeviceId` and `trustedDeviceCredential`, or `pendingDeviceId` and
+  `pendingDeviceCredential`, the device proof;
 - with Sign in with Apple only, the `authorizationCode` and the host's bundle ID
   as `appleClientId`.
 
@@ -105,12 +107,19 @@ follows:
 | 200    | `{ deleted }`; `false` means cleanup continues in the background        |
 | 400    | The body is malformed                                                   |
 | 401    | The sign-in is stale or missing                                         |
-| 403    | The Trusted Device proof failed                                         |
+| 403    | The device proof failed                                                 |
 | 409    | An account that Sign in with Apple opens was asked without Apple's code |
 
 The existing `productAccountDeletion:deleteProductAccount` action still requires an
 Apple authorization code; the Swift prototype uses it. Sign-out calls
-`productAccount:unregisterTrustedDevice`.
+`productAccount:unregisterTrustedDevice` for a Trusted Device, or
+`productAccount:unregisterPendingDevice` with the installation identifier for a
+Pending Device. If admission succeeded but its reply was lost, the latter removes
+the admitted device using the credential carried over from its pending record.
+Before a first deletion attempt, a Pending Device checks whether its proof still
+exists and reconnects only when it must renew a missing or invalid proof. An
+existing expired proof still permits deletion without creating another pending
+record. An unanswered deletion retries its recorded intent without reconnecting.
 
 ## Deterministic evidence
 

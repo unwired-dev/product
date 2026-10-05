@@ -106,7 +106,8 @@ final class InboxTests: XCTestCase {
     add(shot)
   }
 
-  // An existing account's keys reach this device only through a trusted device's approval.
+  // A new device of an existing account waits until a trusted device approves it; signing in alone
+  // admits nothing, so Gmail authorization appears only afterwards.
   private func enrollmentJourney(_ app: XCUIApplication) {
     app.buttons["Sign in with Google"].tap()
     XCTAssertTrue(app.staticTexts["Approve this device"].waitForExistence(timeout: 15))
@@ -114,6 +115,8 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(code.exists)
     XCTAssertEqual(code.label.count, 69)
     XCTAssertFalse(app.staticTexts["recovery-key"].exists)
+    XCTAssertFalse(app.buttons["Authorize Gmail"].exists)
+    XCTAssertFalse(app.buttons["Choose another Google mailbox"].exists)
     let mailboxes = app.staticTexts["Encrypted mailbox list: alex@example.invalid."]
     XCTAssertFalse(mailboxes.exists)
     // The synthetic trusted device approves with the code shown on this device.
@@ -135,11 +138,12 @@ final class InboxTests: XCTestCase {
     add(shot)
   }
 
-  // Without a trusted device, the Recovery Key unlocks the account's keys on this device.
+  // Without a trusted device, the Recovery Key admits this device and unlocks the account's keys.
   private func recoveryJourney(_ app: XCUIApplication) {
     app.buttons["Sign in with Google"].tap()
     XCTAssertTrue(app.staticTexts["Use your Recovery Key"].waitForExistence(timeout: 15))
     XCTAssertTrue(app.staticTexts["enrollment-code"].exists)
+    XCTAssertFalse(app.buttons["Authorize Gmail"].exists)
     let mailboxes = app.staticTexts["Encrypted mailbox list: alex@example.invalid."]
     XCTAssertFalse(mailboxes.exists)
     // The synthetic account's written Recovery Key, typed as the person would.
@@ -210,13 +214,28 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(app.staticTexts["This device was removed"].waitForExistence(timeout: 20))
     XCTAssertTrue(text("cannot be erased remotely", in: app).exists)
     XCTAssertFalse(app.staticTexts["recovery-key"].exists)
-    // A fresh sign-in mints a new device identifier, which the account refuses.
+    let removed = XCTAttachment(screenshot: app.screenshot())
+    removed.name = "Removed by another trusted device"
+    removed.lifetime = .keepAlways
+    add(removed)
+    // A fresh sign-in mints a new device identifier, which waits for a trusted device or the
+    // Recovery Key like any new device; it gets no mailbox access meanwhile.
     app.buttons["Sign in with Google"].tap()
-    XCTAssertTrue(app.staticTexts["This device cannot join"].waitForExistence(timeout: 15))
-    let shot = XCTAttachment(screenshot: app.screenshot())
-    shot.name = "Removed by another trusted device"
-    shot.lifetime = .keepAlways
-    add(shot)
+    XCTAssertTrue(app.staticTexts["Approve this device"].waitForExistence(timeout: 15))
+    XCTAssertTrue(app.staticTexts["enrollment-code"].exists)
+    XCTAssertTrue(app.staticTexts["Use your Recovery Key"].exists)
+    XCTAssertTrue(app.buttons["Check for approval"].exists)
+    XCTAssertFalse(app.buttons["Authorize Gmail"].exists)
+    XCTAssertFalse(text("This device cannot join", in: app).exists)
+    let gate = XCTAttachment(screenshot: app.screenshot())
+    gate.name = "New device waiting for approval after a removal"
+    gate.lifetime = .keepAlways
+    add(gate)
+    // Signing out of the gate leaves nothing of the account on this device.
+    app.buttons["Sign out of this device"].tap()
+    XCTAssertTrue(text("Your other devices", in: app).waitForExistence(timeout: 15))
+    app.buttons["Sign out of this device"].tap()
+    XCTAssertTrue(app.staticTexts["Welcome to Unwired Mail"].waitForExistence(timeout: 15))
   }
 
   // Sign-out keeps nothing of the account on this device; deletion ends the account everywhere.

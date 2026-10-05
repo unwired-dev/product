@@ -18,8 +18,7 @@ import { internalMutation, mutation, query } from './_generated/server.js';
 import {
   requireCurrentProductSyncKeyEpoch,
   requireAuthenticatedTrustedDevice,
-  requireProductAccount,
-  throwTrustedDeviceReconnectRequired,
+  requireRecoveryVerifier,
   trustedDeviceCredentialArgs,
 } from './productAccountAuth.js';
 
@@ -212,6 +211,7 @@ async function publishFirstRecoveryEnvelope(
   account: AuthenticatedProductAccount,
   args: Readonly<{
     encryptedPayload: EncryptedProductSyncPayload['encryptedPayload'];
+    recoveryVerifier: string;
     trustedDeviceId: Id<'trustedDevices'>;
   }>,
 ): Promise<Doc<'encryptedProductSyncPayloads'> | null> {
@@ -235,6 +235,7 @@ async function publishFirstRecoveryEnvelope(
   );
   await ctx.db.patch('productAccounts', account.productAccountId, {
     productSyncMaterialInitializedAt: payload.writtenAt,
+    productSyncRecoveryVerifier: args.recoveryVerifier,
   });
   return payload;
 }
@@ -243,9 +244,12 @@ export const initialize = mutation({
   args: {
     ...trustedDeviceCredentialArgs,
     encryptedPayload: encryptedProductSyncPayloadBodyValidator,
+    // Published with the first recovery envelope so the Recovery Key can admit a Pending Device.
+    recoveryVerifier: v.string(),
     trustedDeviceId: v.id('trustedDevices'),
   },
   handler: async (ctx, args) => {
+    requireRecoveryVerifier(args.recoveryVerifier);
     const account = await requireAuthenticatedTrustedDevice(
       ctx,
       args.trustedDeviceId,
@@ -497,9 +501,11 @@ export const replaceRecoveryMaterialIfUnchanged = internalMutation({
     ...trustedDeviceCredentialArgs,
     encryptedPayload: encryptedProductSyncPayloadBodyValidator,
     expectedUpdatedAt: v.optional(v.number()),
+    recoveryVerifier: v.string(),
     trustedDeviceId: v.string(),
   },
   handler: async (ctx, args) => {
+    requireRecoveryVerifier(args.recoveryVerifier);
     const trustedDeviceId = ctx.db.normalizeId(
       'trustedDevices',
       args.trustedDeviceId,
@@ -515,11 +521,18 @@ export const replaceRecoveryMaterialIfUnchanged = internalMutation({
     if (account.productSyncPendingKeyEpoch !== undefined) {
       throw new Error('Product Sync key rotation already in progress');
     }
-    return writeEncryptedPayloadIfUnchanged(ctx, {
+    const payload = await writeEncryptedPayloadIfUnchanged(ctx, {
       ...args,
       payloadIdentifier: recoveryPayloadIdentifier,
       trustedDeviceId,
     });
+    // The verifier follows the envelope that won; a lost compare-and-set publishes nothing.
+    if (sameEncryptedPayload(payload.encryptedPayload, args.encryptedPayload)) {
+      await ctx.db.patch('productAccounts', account.productAccountId, {
+        productSyncRecoveryVerifier: args.recoveryVerifier,
+      });
+    }
+    return payload;
   },
   returns: encryptedProductSyncPayloadValidator,
 });
@@ -531,13 +544,21 @@ async function insertMissingPayload(
   args: Readonly<{
     encryptedPayload: EncryptedProductSyncPayload['encryptedPayload'];
     payloadIdentifier: string;
+    recoveryVerifier?: string;
     trustedDeviceId: Id<'trustedDevices'>;
   }>,
 ): Promise<Doc<'encryptedProductSyncPayloads'>> {
+  const { recoveryVerifier } = args;
   if (args.payloadIdentifier !== recoveryPayloadIdentifier) {
     return insertPayload(ctx, args, account.productAccountId);
   }
-  const payload = await publishFirstRecoveryEnvelope(ctx, account, args);
+  if (recoveryVerifier === undefined) {
+    throw new Error('Recovery Key verifier is invalid');
+  }
+  const payload = await publishFirstRecoveryEnvelope(ctx, account, {
+    ...args,
+    recoveryVerifier,
+  });
   if (payload === null) {
     throw new Error('Product Sync key material already exists');
   }
@@ -550,6 +571,7 @@ async function writeEncryptedPayloadIfUnchanged(
     encryptedPayload: EncryptedProductSyncPayload['encryptedPayload'];
     expectedUpdatedAt?: number;
     payloadIdentifier: string;
+    recoveryVerifier?: string;
     trustedDeviceCredential?: string;
     trustedDeviceId: Doc<'encryptedProductSyncPayloads'>['trustedDeviceId'];
   }>,
@@ -621,34 +643,6 @@ const encryptedPayloadListArgs = {
   payloadIdentifierPrefix: v.optional(v.string()),
 };
 
-async function requireLegacyProductSyncReadAccount(
-  ctx: QueryCtx,
-): Promise<Id<'productAccounts'>> {
-  const account = await requireProductAccount(ctx);
-  if (account.deviceCredentialEnforcementActivatedAt !== undefined) {
-    throwTrustedDeviceReconnectRequired();
-  }
-  const revocation = await ctx.db
-    .query('revokedTrustedDevices')
-    .withIndex('by_productAccountId_and_deviceIdentifier', (q) =>
-      q.eq('productAccountId', account.productAccountId),
-    )
-    .first();
-  if (revocation !== null) {
-    throw new Error('Trusted device required');
-  }
-  return account.productAccountId;
-}
-
-export const listEncryptedPayloads = query({
-  args: encryptedPayloadListArgs,
-  handler: async (ctx, args) => {
-    const productAccountId = await requireLegacyProductSyncReadAccount(ctx);
-    return listEncryptedPayloadsForProductAccount(ctx, args, productAccountId);
-  },
-  returns: encryptedProductSyncPayloadListResponseValidator,
-});
-
 export const listEncryptedPayloadsForTrustedDevice = query({
   args: {
     ...encryptedPayloadListArgs,
@@ -682,21 +676,6 @@ async function getEncryptedPayloadForProductAccount(
 
   return payload === null ? null : serializePayload(payload);
 }
-
-export const getEncryptedPayload = query({
-  args: {
-    payloadIdentifier: v.string(),
-  },
-  handler: async (ctx, args) => {
-    const productAccountId = await requireLegacyProductSyncReadAccount(ctx);
-    return getEncryptedPayloadForProductAccount(
-      ctx,
-      productAccountId,
-      args.payloadIdentifier,
-    );
-  },
-  returns: maybeEncryptedProductSyncPayloadValidator,
-});
 
 export const getEncryptedPayloadForTrustedDevice = query({
   args: {
@@ -739,21 +718,6 @@ async function getEncryptedPayloadsForProductAccount(
 
   return payloads.filter((payload) => payload !== null).map(serializePayload);
 }
-
-export const getEncryptedPayloads = query({
-  args: {
-    payloadIdentifiers: v.array(v.string()),
-  },
-  handler: async (ctx, args) => {
-    const productAccountId = await requireLegacyProductSyncReadAccount(ctx);
-    return getEncryptedPayloadsForProductAccount(
-      ctx,
-      productAccountId,
-      args.payloadIdentifiers,
-    );
-  },
-  returns: v.array(encryptedProductSyncPayloadValidator),
-});
 
 export const getEncryptedPayloadsForTrustedDevice = query({
   args: {

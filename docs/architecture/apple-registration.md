@@ -22,7 +22,7 @@ the Google slice have no provider field and are read as Google.
 The deletion action accepts an optional `appleClientId` to select the host's
 configured bundle ID before exchanging its single-use authorization code. The
 selector grants no account access: the action still requires the authenticated
-Product Account and Trusted Device proof, and verifies the exchanged Apple token's
+Product Account and a Trusted Device or Pending Device proof, and verifies the exchanged Apple token's
 signature, issuer, expiry, subject and exact selected audience before revocation.
 The same client is the client-secret subject and the exchange/revocation `client_id`.
 

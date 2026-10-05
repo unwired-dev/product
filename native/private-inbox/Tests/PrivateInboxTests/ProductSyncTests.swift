@@ -6,34 +6,45 @@ import Testing
 
 @testable import PrivateInbox
 
-// Convex's Product Sync rules: one recovery envelope per account, compare-and-set records and
-// enrollment requests that only another live device of the account can approve, once.
+// Convex's Product Sync rules: one recovery envelope per account, compare-and-set records, Pending
+// Devices that only a live Trusted Device at the newest key epoch or the Recovery Key admits.
 @MainActor final class SyntheticProductSyncBackend {
-  struct Request {
+  struct PendingDevice {
     let account: String
-    let device: String
-    let publicKey: Curve25519.KeyAgreement.PublicKey
-    var state: EnrollmentStatus.State = .pending
-    var approval: (keyVersion: Int, envelope: KeyRingEnvelope.Enrollment)?
+    let installation: String
+    var publicKey: Curve25519.KeyAgreement.PublicKey?
+    var approval: (keyVersion: Int, envelope: KeyRingEnvelope.Enrollment, approver: String)?
     var expiresAt: Double
+    // The key epoch a matching Recovery Key proof authorized.
+    var recovered: Int?
   }
   var recovery: [String: EncryptedPayload] = [:]
+  // The digest of the proof of the Recovery Key that opens the committed recovery envelope.
+  var verifiers: [String: String] = [:]
   var records: [String: [String: StoredPayload]] = [:]
-  var requests: [String: Request] = [:]
+  // Pending Devices by id; each ends with its request unless it is renewed or approved.
+  var pending: [String: PendingDevice] = [:]
   var revoked: Set<String> = []
   var initializations = 0
   var offline = false
+  // A Pending Device's admission cannot reach the backend, which admits nobody.
+  var failCompletion = false
+  // Admission commits, but the Pending Device never receives its Trusted Device receipt.
+  var loseCompletionReply = false
   var clock = 1_000.0
   // Key rotation: the committed epoch and recovery record time, at most one pending epoch with its
-  // transition and recovery envelope, and the epoch each device acknowledged.
+  // transition, recovery envelope and verifier, and the epoch each Trusted Device acknowledged.
   var committed: [String: Int] = [:]
   var recoveryUpdatedAt: [String: Double] = [:]
-  var rotations: [String: (epoch: Int, transition: EncryptedPayload, recovery: EncryptedPayload)] =
-    [:]
+  struct Rotation {
+    let epoch: Int
+    let transition: EncryptedPayload
+    let recovery: EncryptedPayload
+    let verifier: String
+  }
+  var rotations: [String: Rotation] = [:]
   var epochs: [String: Int] = [:]
   var devices: [String: [String]] = [:]
-  // Accounts with a removal refuse every device identifier they have not seen before.
-  var tombstoned: Set<String> = []
   // The next removal applies but its reply is lost.
   var loseReply = false
   // The removal reply arrives, but the following synchronization cannot reach the backend.
@@ -41,63 +52,92 @@ import Testing
 
   func epoch(_ account: String) -> Int { rotations[account]?.epoch ?? committed[account] ?? 1 }
 
-  func receipt(_ account: String, device: String = "synthetic-device")
-    -> ProductRegistrationReceipt
+  // Product Sign-In admits a returning Trusted Device, or the first device of an account without
+  // keys or Trusted Devices. Any other device waits as a Pending Device; a removed one is refused.
+  func connect(_ account: String, device installation: String) throws -> ProductRegistrationReceipt
   {
-    if devices[account]?.contains(device) != true {
-      devices[account, default: []].append(device)
-      epochs[device] = committed[account] ?? 1
+    let id = "device-" + installation
+    guard !revoked.contains(id) else { throw RegistrationError.revoked }
+    func receipt(_ id: String, pending: Bool? = nil) -> ProductRegistrationReceipt {
+      ProductRegistrationReceipt(
+        productAccountId: account, trustedDeviceId: id,
+        trustedDeviceCredential: String(repeating: "a", count: 64), pending: pending,
+        productSyncMaterialInitialized: recovery[account] != nil)
     }
-    return ProductRegistrationReceipt(
-      productAccountId: account, trustedDeviceId: device,
-      trustedDeviceCredential: String(repeating: "a", count: 64),
-      productSyncMaterialInitialized: recovery[account] != nil)
+    if devices[account]?.contains(id) == true { return receipt(id) }
+    if devices[account, default: []].isEmpty, recovery[account] == nil {
+      devices[account, default: []].append(id)
+      epochs[id] = committed[account] ?? 1
+      return receipt(id)
+    }
+    // A record that ended is replaced by a new Pending Device.
+    if let open = pending.first(where: {
+      $0.value.installation == installation && $0.value.expiresAt > clock
+    }) {
+      return receipt(open.key, pending: true)
+    }
+    let pendingId = "pending-" + UUID().uuidString
+    pending = pending.filter { $0.value.installation != installation }
+    pending[pendingId] = PendingDevice(
+      account: account, installation: installation, expiresAt: clock + 900_000)
+    return receipt(pendingId, pending: true)
   }
 
   // Every call presents a live Trusted Device of the account.
-  func device(_ product: ProductRegistrationReceipt) throws {
+  func trusted(_ product: ProductRegistrationReceipt) throws {
     guard !offline else { throw RegistrationError.unavailable }
     guard !revoked.contains(product.trustedDeviceId) else { throw RegistrationError.revoked }
+    guard product.pending != true,
+      devices[product.productAccountId]?.contains(product.trustedDeviceId) == true
+    else { throw RegistrationError.unavailable }
   }
 
-  // The caller's own request; another device's or an unknown one reads as cancelled.
-  func own(_ product: ProductRegistrationReceipt, _ id: String) -> Request? {
-    guard let request = requests[id], request.account == product.productAccountId,
-      request.device == product.trustedDeviceId
-    else { return nil }
-    return request
-  }
-
-  // A pending, unexpired request of the caller's account from another live device.
-  func approvable(_ product: ProductRegistrationReceipt, _ id: String, requester: String? = nil)
-    throws -> Request
+  // Admission calls present the caller's own Pending Device, unexpired unless it reads its status.
+  func pendingDevice(_ product: ProductRegistrationReceipt, expired: Bool = false) throws
+    -> PendingDevice
   {
-    guard let request = requests[id], request.account == product.productAccountId,
-      request.state == .pending, request.expiresAt > clock,
-      request.device != product.trustedDeviceId, !revoked.contains(request.device),
-      requester == nil || requester == request.device
+    guard !offline else { throw RegistrationError.unavailable }
+    guard product.pending == true, let device = pending[product.trustedDeviceId],
+      device.account == product.productAccountId, expired || device.expiresAt > clock
+    else { throw RegistrationError.pendingDeviceUnavailable }
+    return device
+  }
+
+  // An approval authorizes only while its approver is trusted and its epoch is still the newest.
+  func approvalStillTrusted(_ device: PendingDevice) -> Bool {
+    guard let approval = device.approval else { return false }
+    return approval.keyVersion == epoch(device.account)
+      && devices[device.account]?.contains(approval.approver) == true
+  }
+
+  // An open request of the caller's account that a Trusted Device can still approve or decline.
+  func openRequest(_ product: ProductRegistrationReceipt, _ id: String) throws -> PendingDevice {
+    guard let device = pending[id], device.account == product.productAccountId,
+      device.expiresAt > clock, device.publicKey != nil
     else { throw RegistrationError.enrollmentUnavailable }
-    return request
+    return device
   }
 
   var backend: ProductSyncBackend {
     ProductSyncBackend(
-      initialize: { [self] _, product, envelope in
-        guard !offline else { throw RegistrationError.unavailable }
-        if let existing = recovery[product.productAccountId] { return existing == envelope }
-        recovery[product.productAccountId] = envelope
-        recoveryUpdatedAt[product.productAccountId] = clock
+      initialize: { [self] _, product, envelope, verifier in
+        try trusted(product)
+        let account = product.productAccountId
+        if let existing = recovery[account] { return existing == envelope }
+        recovery[account] = envelope
+        verifiers[account] = verifier
+        recoveryUpdatedAt[account] = clock
         initializations += 1
         return true
       },
       list: { [self] _, product, prefix in
-        guard !offline else { throw RegistrationError.unavailable }
+        try trusted(product)
         return (records[product.productAccountId] ?? [:]).values
           .filter { $0.payloadIdentifier.hasPrefix(prefix) }
           .sorted { $0.payloadIdentifier < $1.payloadIdentifier }
       },
       put: { [self] _, product, identifier, payload, expected in
-        guard !offline else { throw RegistrationError.unavailable }
+        try trusted(product)
         guard payload.keyVersion == epoch(product.productAccountId) else {
           throw RegistrationError.unavailable
         }
@@ -109,62 +149,93 @@ import Testing
         records[product.productAccountId, default: [:]][identifier] = stored
         return stored
       },
+      // A new request replaces the earlier key, so an approval sealed to it is never collected.
       requestEnrollment: { [self] _, product, publicKey in
-        try device(product)
+        var device = try pendingDevice(product)
         guard recovery[product.productAccountId] != nil else {
           throw RegistrationError.unavailable
         }
-        // A new request supersedes the device's earlier ones.
-        requests = requests.filter { $0.value.device != product.trustedDeviceId }
-        let id = "request-\(requests.count)-\(UUID().uuidString)"
-        requests[id] = Request(
-          account: product.productAccountId, device: product.trustedDeviceId,
-          publicKey: publicKey, expiresAt: clock + 900_000)
+        device.publicKey = publicKey
+        device.approval = nil
+        device.expiresAt = clock + 900_000
+        pending[product.trustedDeviceId] = device
+      },
+      // A declined request, or an approval whose approver left or whose epoch was superseded,
+      // reads as cancelled.
+      enrollmentStatus: { [self] _, product in
+        let device = try pendingDevice(product, expired: true)
+        if device.expiresAt <= clock { return EnrollmentStatus(state: .expired) }
+        guard device.publicKey != nil else { return EnrollmentStatus(state: .cancelled) }
+        guard let approval = device.approval else { return EnrollmentStatus(state: .pending) }
+        guard approvalStillTrusted(device) else { return EnrollmentStatus(state: .cancelled) }
+        return EnrollmentStatus(
+          state: .approved, approval: (approval.keyVersion, approval.envelope))
+      },
+      // Admits at the newest epoch, which the approval or the Recovery Key proof authorized.
+      completeEnrollment: { [self] _, product, keyVersion in
+        let device = try pendingDevice(product)
+        guard !failCompletion else { throw URLError(.notConnectedToInternet) }
+        let keyEpoch = epoch(product.productAccountId)
+        guard keyVersion == keyEpoch,
+          device.recovered == keyEpoch || approvalStillTrusted(device)
+        else { return nil }
+        pending[product.trustedDeviceId] = nil
+        let id = "device-" + device.installation
+        devices[product.productAccountId, default: []].append(id)
+        epochs[id] = keyEpoch
+        if loseCompletionReply {
+          loseCompletionReply = false
+          throw URLError(.networkConnectionLost)
+        }
         return id
       },
-      enrollmentStatus: { [self] _, product, id in
-        try device(product)
-        guard let request = own(product, id) else { return EnrollmentStatus(state: .cancelled) }
-        if request.expiresAt <= clock, request.state != .cancelled {
-          return EnrollmentStatus(state: .expired)
-        }
-        return EnrollmentStatus(state: request.state, approval: request.approval)
-      },
-      completeEnrollment: { [self] _, product, id in
-        try device(product)
-        if own(product, id)?.state == .approved { requests[id] = nil }
+      // During a pending rotation only the removal's replacement Recovery Key admits a device.
+      recoverPending: { [self] _, product, proof in
+        _ = try pendingDevice(product)
+        let account = product.productAccountId
+        let rotation = rotations[account]
+        guard let verifier = rotation?.verifier ?? verifiers[account],
+          let envelope = rotation?.recovery ?? recovery[account],
+          SHA256.hash(data: Data(proof.utf8)).map({ String(format: "%02x", $0) }).joined()
+            == verifier
+        else { return nil }
+        pending[product.trustedDeviceId]?.recovered = envelope.keyVersion
+        return envelope
       },
       pendingEnrollments: { [self] _, product in
-        try device(product)
-        return requests.compactMap { id, _ in
-          guard let request = try? approvable(product, id) else { return nil }
+        try trusted(product)
+        return pending.compactMap { id, device in
+          guard let request = try? openRequest(product, id), request.approval == nil,
+            let publicKey = device.publicKey
+          else { return nil }
           return PendingEnrollment(
-            requestId: id, trustedDeviceId: request.device, publicKey: request.publicKey,
-            deviceName: "iPad", expiresAt: request.expiresAt)
+            pendingDeviceId: id, publicKey: publicKey, deviceName: "iPad",
+            expiresAt: device.expiresAt)
         }
       },
-      approveEnrollment: { [self] _, product, pending, keyVersion, envelope in
-        try device(product)
-        guard keyVersion == epoch(product.productAccountId) else {
-          throw RegistrationError.unavailable
-        }
-        var request = try approvable(
-          product, pending.requestId, requester: pending.trustedDeviceId)
-        request.state = .approved
-        request.approval = (keyVersion, envelope)
-        request.expiresAt = clock + 900_000
-        requests[pending.requestId] = request
-      },
-      // Any live device of the account, including the requester, cancels an open request.
-      declineEnrollment: { [self] _, product, id in
-        try device(product)
-        guard let request = requests[id], request.account == product.productAccountId,
-          request.state == .pending, request.expiresAt > clock
+      // Only a Trusted Device holding the newest epoch approves, once, the key the device showed.
+      approveEnrollment: { [self] _, product, request, keyVersion, envelope in
+        try trusted(product)
+        guard keyVersion == epoch(product.productAccountId),
+          epochs[product.trustedDeviceId] == keyVersion
+        else { throw RegistrationError.unavailable }
+        var device = try openRequest(product, request.pendingDeviceId)
+        guard device.approval == nil,
+          device.publicKey?.rawRepresentation == request.publicKey.rawRepresentation
         else { throw RegistrationError.enrollmentUnavailable }
-        requests[id]?.state = .cancelled
+        device.approval = (keyVersion, envelope, product.trustedDeviceId)
+        device.expiresAt = clock + 900_000
+        pending[request.pendingDeviceId] = device
+      },
+      // Any Trusted Device of the account cancels an open request; the device asks again.
+      declineEnrollment: { [self] _, product, id in
+        try trusted(product)
+        _ = try openRequest(product, id)
+        pending[id]?.publicKey = nil
+        pending[id]?.approval = nil
       },
       recoveryEnvelope: { [self] _, product in
-        try device(product)
+        try trusted(product)
         guard let envelope = recovery[product.productAccountId] else {
           throw RegistrationError.unavailable
         }
@@ -173,14 +244,15 @@ import Testing
           updatedAt: recoveryUpdatedAt[product.productAccountId] ?? 0)
       },
       keyRotation: { [self] _, product in
-        try device(product)
+        try trusted(product)
         return rotations[product.productAccountId].map {
           KeyRotation(keyEpoch: $0.epoch, transition: $0.transition)
         }
       },
-      // The pending recovery envelope is committed once every remaining device holds the epoch.
+      // The pending recovery envelope and verifier are committed once every remaining device holds
+      // the epoch.
       acknowledgeRotation: { [self] _, product, keyEpoch in
-        try device(product)
+        try trusted(product)
         let account = product.productAccountId
         guard let rotation = rotations[account] else {
           guard committed[account] == keyEpoch else { throw RegistrationError.unavailable }
@@ -191,19 +263,20 @@ import Testing
         if (devices[account] ?? []).allSatisfy({ epochs[$0] == keyEpoch }) {
           clock += 1
           recovery[account] = rotation.recovery
+          verifiers[account] = rotation.verifier
           recoveryUpdatedAt[account] = clock
           committed[account] = keyEpoch
           rotations[account] = nil
         }
       },
       trustedDevices: { [self] _, product in
-        try device(product)
+        try trusted(product)
         return (devices[product.productAccountId] ?? []).map {
           TrustedDevice(id: $0, name: "Device " + $0.suffix(4), registeredAt: 1_000)
         }
       },
-      revoke: { [self] _, product, target, transition, wrapped, updatedAt in
-        try device(product)
+      revoke: { [self] _, product, target, transition, wrapped, verifier, updatedAt in
+        try trusted(product)
         let account = product.productAccountId
         // A completed removal answers with the current state and applies nothing new.
         if revoked.contains(target) { return }
@@ -213,10 +286,9 @@ import Testing
           wrapped.schemaVersion == KeyRingEnvelope.recoverySchemaVersion
         else { throw RegistrationError.unavailable }
         revoked.insert(target)
-        tombstoned.insert(account)
         devices[account]?.removeAll { $0 == target }
-        requests = requests.filter { $0.value.device != target }
-        rotations[account] = (wrapped.keyVersion, transition, wrapped)
+        rotations[account] = Rotation(
+          epoch: wrapped.keyVersion, transition: transition, recovery: wrapped, verifier: verifier)
         offline = offlineAfterRevocation
         if loseReply {
           loseReply = false
@@ -225,7 +297,7 @@ import Testing
       })
   }
 
-  // Each installation is its own Trusted Device of the account its sign-in reaches.
+  // Each installation is its own device of the account its sign-in reaches.
   func store(keys: DeviceKeychain, google: SyntheticGoogleRegistrationProvider)
     -> RegistrationStore
   {
@@ -234,12 +306,7 @@ import Testing
       provider: google, productSync: backend,
       deviceRevoked: { [self] product in revoked.contains(product.trustedDeviceId) },
       connect: { [self] identity, device, _ in
-        let account = "account-" + identity.subject
-        // A revoked device, or any new one after a removal, is refused.
-        guard !revoked.contains("device-" + device),
-          !tombstoned.contains(account) || devices[account]?.contains("device-" + device) == true
-        else { throw RegistrationError.revoked }
-        return receipt(account, device: "device-" + device)
+        try connect("account-" + identity.subject, device: device)
       })
   }
 }
@@ -388,6 +455,14 @@ extension PrivateInboxTests {
     #expect(throws: ProductSyncError.rejected) {
       try KeyRingEnvelope.openRecovery(envelope, key: key, account: "account-b")
     }
+    // Convex compares the SHA-256 of the 64-hex proof with the verifier it stores; the proof is
+    // bound to the account.
+    let proof = KeyRingEnvelope.recoveryProof(key, account: "account-a")
+    #expect(proof.wholeMatch(of: /[0-9a-f]{64}/) != nil)
+    #expect(
+      KeyRingEnvelope.recoveryVerifier(key, account: "account-a")
+        == SHA256.hash(data: Data(proof.utf8)).map { String(format: "%02x", $0) }.joined())
+    #expect(proof != KeyRingEnvelope.recoveryProof(key, account: "account-b"))
     for (keyVersion, schemaVersion) in [(2, 3), (1, 2)] {
       #expect(throws: ProductSyncError.rejected) {
         try KeyRingEnvelope.openRecovery(
@@ -421,34 +496,32 @@ extension PrivateInboxTests {
     let enrolling = Curve25519.KeyAgreement.PrivateKey()
     let sealed = try KeyRingEnvelope.enrollment(
       ring, to: enrolling.publicKey, code: code,
-      binding: .init(account: "account-a", device: "device-b", request: "request-1"))
+      binding: .init(account: "account-a", device: "device-b"))
     #expect(
       try KeyRingEnvelope.openEnrollment(
         sealed, with: enrolling, code: code,
-        binding: .init(account: "account-a", device: "device-b", request: "request-1"),
+        binding: .init(account: "account-a", device: "device-b"),
         keyVersion: 1) == ring)
     #expect(throws: ProductSyncError.rejected) {
       try KeyRingEnvelope.openEnrollment(
         sealed, with: Curve25519.KeyAgreement.PrivateKey(), code: code,
-        binding: .init(account: "account-a", device: "device-b", request: "request-1"),
+        binding: .init(account: "account-a", device: "device-b"),
         keyVersion: 1)
     }
     // Only the code the enrolling device showed opens it, so the backend cannot forge one.
     #expect(throws: ProductSyncError.rejected) {
       try KeyRingEnvelope.openEnrollment(
         sealed, with: enrolling, code: .generate(),
-        binding: .init(account: "account-a", device: "device-b", request: "request-1"),
+        binding: .init(account: "account-a", device: "device-b"),
         keyVersion: 1)
     }
-    for (account, device, request, keyVersion) in [
-      ("account-b", "device-b", "request-1", 1), ("account-a", "device-c", "request-1", 1),
-      ("account-a", "device-b", "request-2", 1), ("account-a", "device-b", "request-1", 2),
+    for (account, device, keyVersion) in [
+      ("account-b", "device-b", 1), ("account-a", "device-c", 1), ("account-a", "device-b", 2),
     ] {
       #expect(throws: ProductSyncError.rejected) {
         try KeyRingEnvelope.openEnrollment(
-          sealed, with: enrolling, code: code,
-          binding: .init(account: account, device: device, request: request), keyVersion: keyVersion
-        )
+          sealed, with: enrolling, code: code, binding: .init(account: account, device: device),
+          keyVersion: keyVersion)
       }
     }
   }
@@ -467,6 +540,8 @@ extension PrivateInboxTests {
       try #require(backend.recovery[account]), key: shown, account: account)
     #expect(try backend.store(keys: keys, google: google).loadVault(account)?.ring == ring)
     #expect(backend.initializations == 1)
+    // Its verifier, published with it, lets the Recovery Key admit a Pending Device later.
+    #expect(backend.verifiers[account] == KeyRingEnvelope.recoveryVerifier(shown, account: account))
 
     google.scopes = [RegistrationStore.gmailScope]
     google.subject = "synthetic-mailbox-subject"
@@ -596,39 +671,54 @@ extension PrivateInboxTests {
     let saved = try #require(try backend.store(keys: first, google: google).loadVault(account))
     #expect(backend.recovery[account] == nil)
 
-    // Meanwhile another installation finds the account uninitialized and wins publication.
+    // Another installation waits as a Pending Device and never creates keys of its own.
     backend.offline = false
-    let winner = try await backend.store(keys: second, google: google).signIn()
-    #expect(winner["privateSync"] == "recovery-key")
+    let waiting = try await backend.store(keys: second, google: google).signIn()
+    #expect(waiting["kind"] == "device-pending")
+    #expect(waiting["privateSync"] == "setup-pending")
+    #expect(waiting["enrollmentCode"] == nil)
+    #expect(try backend.store(keys: second, google: google).loadVault(account) == nil)
+    #expect(backend.initializations == 0)
+
+    // Meanwhile the backend reports key material this device did not publish.
+    let key = RecoveryKey.generate()
+    let ring = ProductSyncKeyRing.create()
+    backend.recovery[account] = try KeyRingEnvelope.recovery(ring, key: key, account: account)
+    backend.verifiers[account] = KeyRingEnvelope.recoveryVerifier(key, account: account)
     let published = try #require(backend.recovery[account])
     #expect(published != saved.recoveryEnvelope)
 
-    // The first device discards its unpublished keys and needs enrollment instead.
+    // The first device discards its unpublished keys instead of replacing the account's.
     let resumed = try await backend.store(keys: first, google: google).restore()
     #expect(resumed["privateSync"] == "enrollment-needed")
     #expect(resumed["recoveryKey"] == nil)
     #expect(try backend.store(keys: first, google: google).loadVault(account) == nil)
     #expect(backend.recovery[account] == published)
-    #expect(backend.initializations == 1)
+    #expect(backend.initializations == 0)
 
-    // Gmail stays authorizable, but no record is written without the account's keys; the next
-    // verified sign-in asks a trusted device for them instead.
+    // Gmail stays authorizable, but no record is written without the account's keys.
     let connected = try await backend.store(keys: first, google: google).authorizeGmail(
       reselect: false)
     #expect(connected["kind"] == "connected")
-    #expect(connected["privateSync"] == "enrollment-pending")
+    #expect(connected["privateSync"] == "enrollment-needed")
     #expect(backend.records[account] == nil)
-    #expect(
-      try await backend.store(keys: first, google: google).restore()["privateSync"]
-        == "enrollment-pending")
     #expect(throws: RegistrationError.unavailable) {
       try backend.store(keys: first, google: google).confirmRecoveryKey("0000")
     }
 
-    // The winning device resumes with its own keys after relaunch.
-    let restored = try await backend.store(keys: second, google: google).restore()
-    #expect(restored["recoveryKey"] == winner["recoveryKey"])
-    #expect(backend.initializations == 1)
+    // The account's Recovery Key unlocks this Trusted Device from the recovery envelope directly.
+    let unlocked = try await backend.store(keys: first, google: google).recover(with: key.display)
+    #expect(unlocked["privateSync"] == "ready")
+    #expect(unlocked["privateSyncMailboxes"] == "same@example.invalid")
+    #expect(try backend.store(keys: first, google: google).loadVault(account)?.ring == ring)
+    #expect(backend.recovery[account] == published)
+
+    // The waiting installation now asks a Trusted Device for the keys.
+    let requested = try await backend.store(keys: second, google: google).refreshPrivateSync()
+    #expect(requested["kind"] == "device-pending")
+    #expect(requested["privateSync"] == "enrollment-pending")
+    #expect(requested["enrollmentCode"] != nil)
+    #expect(backend.initializations == 0)
   }
 
   @Test @MainActor func unknownProductSyncStateWaitsForVerificationWithoutCreatingKeys()
@@ -645,8 +735,8 @@ extension PrivateInboxTests {
       RegistrationStore(
         keys: keys, deployment: "https://synthetic.example.invalid", clientID: "synthetic-client",
         provider: google, apple: apple, productSync: backend.backend,
-        connect: { identity, _, _ in
-          var receipt = backend.receipt("account-" + identity.subject)
+        connect: { identity, device, _ in
+          var receipt = try backend.connect("account-" + identity.subject, device: device)
           if legacy { receipt.productSyncMaterialInitialized = nil }
           return receipt
         })
@@ -705,7 +795,9 @@ extension PrivateInboxTests {
       RegistrationStore(
         keys: keys, deployment: "https://synthetic.example.invalid", clientID: "synthetic-client",
         provider: google, apple: apple, productSync: backend.backend,
-        connect: { identity, _, _ in backend.receipt("account-" + identity.subject) })
+        connect: { identity, device, _ in
+          try backend.connect("account-" + identity.subject, device: device)
+        })
     }
     let first = store()
     _ = try await first.signIn(with: .apple)
@@ -749,64 +841,65 @@ extension PrivateInboxTests {
     let recovery = try #require(backend.recovery[account])
     let ring = try #require(try approver.loadVault(account)?.ring)
 
-    // The same Product Sign-In on another installation reaches the account but no keys.
+    // The same Product Sign-In on another installation only waits as a Pending Device: it holds no
+    // keys and cannot authorize Gmail.
     let enrolling = backend.store(keys: new, google: google)
     let requested = try await enrolling.signIn()
-    #expect(requested["kind"] == "mailbox-needed")
+    #expect(requested["kind"] == "device-pending")
     #expect(requested["privateSync"] == "enrollment-pending")
     #expect(requested["privateSyncMailboxes"] == nil)
     let firstCode = try #require(requested["enrollmentCode"])
     #expect(try enrolling.loadVault(account) == nil)
+    let pendingId = try #require(try enrolling.load()?.product?.trustedDeviceId)
+    await #expect(throws: RegistrationError.unavailable) {
+      try await enrolling.authorizeGmail(reselect: false)
+    }
 
     // The trusted device sees the request; a mistyped code is caught before anything is sent.
     let listed = try await approver.refreshPrivateSync()
-    let firstRequest = try #require(listed["enrollmentRequest"])
+    #expect(listed["enrollmentRequest"] == pendingId)
     #expect(listed["enrollmentDevice"] == "iPad")
     let typo = String(firstCode.dropLast()) + (firstCode.last == "0" ? "1" : "0")
     await #expect(throws: RegistrationError.enrollmentCodeInvalid) {
-      try await approver.approveEnrollment(firstRequest, code: typo)
+      try await approver.approveEnrollment(pendingId, code: typo)
     }
-    #expect(backend.requests[firstRequest]?.state == .pending)
+    #expect(backend.pending[pendingId]?.approval == nil)
 
     // A declined request ends; the new device asks again with a new code.
-    _ = try await approver.declineEnrollment(firstRequest)
+    _ = try await approver.declineEnrollment(pendingId)
     let renewed = try await enrolling.refreshPrivateSync()
     #expect(renewed["privateSync"] == "enrollment-pending")
     #expect(renewed["enrollmentNotice"] == "renewed")
     let secondCode = try #require(renewed["enrollmentCode"])
     #expect(secondCode != firstCode)
-    await #expect(throws: RegistrationError.enrollmentUnavailable) {
-      try await approver.approveEnrollment(firstRequest, code: firstCode)
-    }
 
-    // An approval the backend forges without the code, here with other keys, is rejected.
-    let secondRequest = try #require(try await approver.refreshPrivateSync()["enrollmentRequest"])
-    let target = try #require(backend.requests[secondRequest])
-    backend.requests[secondRequest]?.state = .approved
-    backend.requests[secondRequest]?.approval = (
-      1,
-      try KeyRingEnvelope.enrollment(
-        .create(), to: target.publicKey, code: .generate(),
-        binding: .init(account: account, device: target.device, request: secondRequest))
-    )
+    // An approval sealed with the previous code does not open: the device stays pending, asks with
+    // a new code and keeps no keys.
+    #expect(try await approver.refreshPrivateSync()["enrollmentRequest"] == pendingId)
+    _ = try await approver.approveEnrollment(pendingId, code: firstCode)
     let rejected = try await enrolling.refreshPrivateSync()
-    #expect(rejected["privateSync"] == "enrollment-pending")
+    #expect(rejected["kind"] == "device-pending")
     #expect(rejected["enrollmentNotice"] == "rejected")
     #expect(try enrolling.loadVault(account) == nil)
     let thirdCode = try #require(rejected["enrollmentCode"])
+    #expect(![firstCode, secondCode].contains(thirdCode))
 
-    // An expired request cannot be approved.
-    let thirdRequest = try #require(try await approver.refreshPrivateSync()["enrollmentRequest"])
+    // An expired request cannot be approved; reconnecting replaces the ended Pending Device.
+    #expect(try await approver.refreshPrivateSync()["enrollmentRequest"] == pendingId)
     backend.clock += 900_001
     await #expect(throws: RegistrationError.enrollmentUnavailable) {
-      try await approver.approveEnrollment(thirdRequest, code: thirdCode)
+      try await approver.approveEnrollment(pendingId, code: thirdCode)
     }
     let expired = try await enrolling.refreshPrivateSync()
-    #expect(expired["enrollmentNotice"] == "renewed")
+    #expect(expired["privateSync"] == "enrollment-pending")
     let code = try #require(expired["enrollmentCode"])
+    #expect(code != thirdCode)
+    let request = try #require(try enrolling.load()?.product?.trustedDeviceId)
+    #expect(request != pendingId)
+    #expect(backend.pending[pendingId] == nil)
 
     // The code shown on the new device, typed loosely, approves exactly its request.
-    let request = try #require(try await approver.refreshPrivateSync()["enrollmentRequest"])
+    #expect(try await approver.refreshPrivateSync()["enrollmentRequest"] == request)
     let approved = try await approver.approveEnrollment(
       request, code: code.lowercased().replacingOccurrences(of: "-", with: " "))
     #expect(approved["enrollmentRequest"] == nil)
@@ -815,7 +908,7 @@ extension PrivateInboxTests {
     await #expect(throws: RegistrationError.enrollmentUnavailable) {
       try await approver.approveEnrollment(request, code: code)
     }
-    let sealed = try #require(backend.requests[request]?.approval)
+    let sealed = try #require(backend.pending[request]?.approval)
     let visible = try #require(String(data: JSONEncoder().encode(sealed.envelope), encoding: .utf8))
     for secret in [code, code.replacingOccurrences(of: "-", with: "")]
       + ring.keys.map({ $0.key.base64EncodedString() })
@@ -823,8 +916,8 @@ extension PrivateInboxTests {
       #expect(!visible.contains(secret))
     }
 
-    // The new device adopts the account keys and reads the synchronized mailbox list, while Gmail
-    // on this device still needs its own authorization.
+    // The new device adopts the account keys, becomes a Trusted Device with the same credential
+    // and reads the synchronized mailbox list; Gmail on this device still needs its own consent.
     let unlocked = try await enrolling.refreshPrivateSync()
     #expect(unlocked["kind"] == "mailbox-needed")
     #expect(unlocked["privateSync"] == "ready")
@@ -832,27 +925,21 @@ extension PrivateInboxTests {
     #expect(unlocked["enrollmentCode"] == nil)
     #expect(unlocked["privateSyncMailboxes"] == "same@example.invalid")
     #expect(try enrolling.loadVault(account)?.ring == ring)
-    #expect(backend.requests[request] == nil)
+    #expect(try new.read("product-sync-enrollment." + account) == nil)
+    let admitted = try #require(try enrolling.load()?.product)
+    #expect(admitted.pending == nil)
+    #expect(admitted.trustedDeviceId == backend.devices[account]?.last)
+    #expect(admitted.trustedDeviceCredential == String(repeating: "a", count: 64))
+    #expect(backend.pending[request] == nil)
+    google.subject = "synthetic-mailbox-subject"
+    #expect(try await enrolling.authorizeGmail(reselect: false)["kind"] == "connected")
+    google.subject = "synthetic-product-subject"
     // Nothing replaced the account's key material.
     #expect(backend.recovery[account] == recovery)
     #expect(backend.initializations == 1)
     #expect(try approver.loadVault(account)?.ring == ring)
     #expect(
       try await backend.store(keys: new, google: google).restore()["privateSync"] == "ready")
-
-    // A revoked device's request can no longer be approved.
-    let other = device()
-    defer { remove(other, accounts: [account]) }
-    let revoked = backend.store(keys: other, google: google)
-    #expect(try await revoked.signIn()["privateSync"] == "enrollment-pending")
-    let revokedRequest = try #require(
-      try await approver.refreshPrivateSync()["enrollmentRequest"])
-    let revokedCode = try #require(try revoked.privateSync(revoked.load()!)["enrollmentCode"])
-    backend.revoked.insert(try #require(backend.requests[revokedRequest]).device)
-    await #expect(throws: RegistrationError.enrollmentUnavailable) {
-      try await approver.approveEnrollment(revokedRequest, code: revokedCode)
-    }
-    #expect(backend.recovery[account] == recovery)
   }
 
   @Test @MainActor func recoveryKeyUnlocksANewDeviceWithoutReplacingAccountKeys() async throws {
@@ -877,13 +964,15 @@ extension PrivateInboxTests {
     let recovery = try #require(backend.recovery[account])
     let ring = try #require(try lost.loadVault(account)?.ring)
 
-    // Product Sign-In on a new installation reaches the account but none of its keys.
+    // Product Sign-In on a new installation only waits as a Pending Device.
     let recovering = backend.store(keys: new, google: google)
     let requested = try await recovering.signIn()
+    #expect(requested["kind"] == "device-pending")
     #expect(requested["privateSync"] == "enrollment-pending")
 
     // Malformed, unrelated and another account's keys unlock nothing and change nothing, even
-    // when the backend substitutes that account's envelope. Each reports the current status.
+    // when the backend accepts that key's proof and substitutes that account's envelope. Each
+    // reports the current status.
     let other = RecoveryKey.generate()
     var rejected = requested
     rejected["recoveryNotice"] = "rejected"
@@ -892,18 +981,21 @@ extension PrivateInboxTests {
     }
     backend.recovery[account] = try KeyRingEnvelope.recovery(
       .create(), key: other, account: "account-other")
+    backend.verifiers[account] = KeyRingEnvelope.recoveryVerifier(other, account: account)
     #expect(try await recovering.recover(with: other.display) == rejected)
     backend.recovery[account] = recovery
+    backend.verifiers[account] = KeyRingEnvelope.recoveryVerifier(
+      try RecoveryKey(parsing: shown), account: account)
     #expect(try recovering.loadVault(account) == nil)
-    // When the request expired while the form was open, the sign-in the attempt renews also
+    #expect(try recovering.load()?.product?.pending == true)
+    // When the Pending Device ended while the form was open, the sign-in the attempt renews also
     // replaces it, and the rejection shows the new code rather than the superseded one.
     backend.clock += 900_001
     let renewed = try await recovering.recover(with: other.display)
     #expect(renewed["recoveryNotice"] == "rejected")
-    #expect(renewed["enrollmentNotice"] == "renewed")
     let code = try #require(renewed["enrollmentCode"])
     #expect(code != requested["enrollmentCode"])
-    let request = try #require(backend.requests.keys.first)
+    let request = try #require(try recovering.load()?.product?.trustedDeviceId)
     // An interrupted recovery leaves the device waiting for approval, also after relaunch.
     backend.offline = true
     await #expect(throws: RegistrationError.unavailable) {
@@ -915,10 +1007,10 @@ extension PrivateInboxTests {
     #expect(relaunched["enrollmentCode"] == code)
     #expect(relaunched["recoveryNotice"] == nil)
     #expect(try recovering.loadVault(account) == nil)
-    #expect(backend.requests[request]?.state == .pending)
+    #expect(backend.pending[request]?.publicKey != nil)
 
-    // The written key, typed loosely, adopts the account keys and reads the synchronized mailbox
-    // list; Gmail on this device still needs its own authorization.
+    // The written key, typed loosely, adopts the account keys and admits this device; it reads
+    // the synchronized mailbox list, while Gmail on this device still needs its own authorization.
     let unlocked = try await backend.store(keys: new, google: google).recover(
       with: shown.lowercased().replacingOccurrences(of: "-", with: " "))
     #expect(unlocked["kind"] == "mailbox-needed")
@@ -928,8 +1020,10 @@ extension PrivateInboxTests {
     #expect(unlocked["privateSyncMailboxes"] == "same@example.invalid")
     #expect(try recovering.loadVault(account)?.ring == ring)
     #expect(try recovering.loadVault(account)?.recoveryKey == nil)
-    // Its approval request is withdrawn; nothing replaced the account's key material.
-    #expect(backend.requests[request]?.state == .cancelled)
+    #expect(try recovering.load()?.product?.pending == nil)
+    // Its Pending Device and request are gone; nothing replaced the account's key material.
+    #expect(backend.pending[request] == nil)
+    #expect(try new.read("product-sync-enrollment." + account) == nil)
     #expect(backend.recovery[account] == recovery)
     #expect(backend.initializations == 1)
     #expect(try lost.loadVault(account)?.ring == ring)
@@ -943,7 +1037,7 @@ extension PrivateInboxTests {
       RegistrationStore(
         keys: appleDevice, deployment: "https://synthetic.example.invalid",
         clientID: "synthetic-client", provider: google, apple: apple, productSync: backend.backend,
-        connect: { _, device, _ in backend.receipt(account, device: "device-" + device) })
+        connect: { _, device, _ in try backend.connect(account, device: device) })
     }
     let appleRecovery = appleStore()
     #expect(try await appleRecovery.signIn(with: .apple)["privateSync"] == "enrollment-pending")
@@ -971,8 +1065,8 @@ extension PrivateInboxTests {
     // The backend never received the Recovery Key or the account keys.
     let visible = try #require(
       String(
-        data: JSONEncoder().encode(backend.records) + JSONEncoder().encode(backend.recovery),
-        encoding: .utf8))
+        data: JSONEncoder().encode(backend.records) + JSONEncoder().encode(backend.recovery)
+          + JSONEncoder().encode(backend.verifiers), encoding: .utf8))
     for secret in [shown, shown.replacingOccurrences(of: "-", with: "")]
       + ring.keys.map({ $0.key.base64EncodedString() })
     {
@@ -980,13 +1074,47 @@ extension PrivateInboxTests {
     }
   }
 
+  @Test @MainActor func interruptedRecoveryDoesNotAcknowledgeANewerApprovalWithOlderKeys()
+    async throws
+  {
+    let (creator, kept, lost, joining) = (device(), device(), device(), device())
+    let account = "account-synthetic-product-subject"
+    defer { for keys in [creator, kept, lost, joining] { remove(keys, accounts: [account]) } }
+    let google = SyntheticGoogleRegistrationProvider()
+    let backend = SyntheticProductSyncBackend()
+    let remover = backend.store(keys: creator, google: google)
+    let shown = try #require(try await remover.signIn()["recoveryKey"])
+    _ = try remover.confirmRecoveryKey(String(shown.suffix(4)))
+    let survivor = backend.store(keys: kept, google: google)
+    _ = try await survivor.signIn()
+    _ = try await survivor.recover(with: shown)
+    let removed = backend.store(keys: lost, google: google)
+    _ = try await removed.signIn()
+    _ = try await removed.recover(with: shown)
+    let newcomer = backend.store(keys: joining, google: google)
+    let code = try #require(try await newcomer.signIn()["enrollmentCode"])
+    backend.failCompletion = true
+    await #expect(throws: URLError.self) { try await newcomer.recover(with: shown) }
+    backend.failCompletion = false
+    #expect(try newcomer.loadVault(account)?.ring.current == 1)
+    let removedId = try #require(try removed.load()?.product?.trustedDeviceId)
+    _ = try await remover.revoke(removedId)
+    let request = try #require(try await survivor.refreshPrivateSync()["enrollmentRequest"])
+    _ = try await survivor.approveEnrollment(request, code: code)
+    // Refresh must open and persist the epoch-2 approval before admitting/acknowledging it.
+    #expect(try await newcomer.refreshPrivateSync()["privateSync"] == "ready")
+    #expect(try newcomer.load()?.product?.pending == nil)
+    #expect(try newcomer.loadVault(account)?.ring == survivor.loadVault(account)?.ring)
+    #expect(try newcomer.loadVault(account)?.ring.current == 2)
+  }
+
   @Test @MainActor func revokingADeviceRotatesKeysForRemainingDevicesAndPurgesItOnReconnect()
     async throws
   {
-    let (creator, kept, lost) = (device(), device(), device())
+    let (creator, kept, lost, joining) = (device(), device(), device(), device())
     let account = "account-synthetic-product-subject"
     defer {
-      for keys in [creator, kept, lost] { remove(keys, accounts: [account]) }
+      for keys in [creator, kept, lost, joining] { remove(keys, accounts: [account]) }
     }
     let google = SyntheticGoogleRegistrationProvider()
     google.scopes = [RegistrationStore.gmailScope]
@@ -1008,6 +1136,17 @@ extension PrivateInboxTests {
     let oldRing = try #require(try removed.loadVault(account)?.ring)
     let oldRecovery = try #require(backend.recovery[account])
 
+    // Just before its removal, the lost device approves a new installation, which stores the keys
+    // but cannot confirm its admission yet.
+    let newcomer = backend.store(keys: joining, google: google)
+    let firstCode = try #require(try await newcomer.signIn()["enrollmentCode"])
+    let request = try #require(try await removed.refreshPrivateSync()["enrollmentRequest"])
+    _ = try await removed.approveEnrollment(request, code: firstCode)
+    backend.failCompletion = true
+    #expect(try await newcomer.refreshPrivateSync()["kind"] == "device-pending")
+    backend.failCompletion = false
+    #expect(try newcomer.loadVault(account)?.ring == oldRing)
+
     // The trusted device lists the other two and removes one after signing in again.
     let listed = try #require(try await remover.refreshPrivateSync()["trustedDevices"])
     let devices = try JSONDecoder().decode([TrustedDevice].self, from: Data(listed.utf8))
@@ -1026,6 +1165,18 @@ extension PrivateInboxTests {
     let ring = try #require(try remover.loadVault(account)?.ring)
     #expect(ring.current == 2)
     #expect(oldRing.keys.allSatisfy(ring.keys.contains))
+    #expect(
+      try backend.rotations[account]?.verifier
+        == KeyRingEnvelope.recoveryVerifier(RecoveryKey(parsing: newKey), account: account))
+    // The approval ended with its approver and the epoch it sealed: the device discards the keys
+    // it stored and asks again.
+    let renewed = try await newcomer.refreshPrivateSync()
+    #expect(renewed["kind"] == "device-pending")
+    #expect(renewed["enrollmentNotice"] == "renewed")
+    let code = try #require(renewed["enrollmentCode"])
+    #expect(code != firstCode)
+    #expect(try newcomer.loadVault(account) == nil)
+    #expect(try newcomer.load()?.product?.pending == true)
     // Another removal must not discard the sole new Recovery Key before it was backed up: it
     // shows that key again and removes nothing.
     let survivorId = try #require(try survivor.load()?.product?.trustedDeviceId)
@@ -1066,21 +1217,33 @@ extension PrivateInboxTests {
     for item in ["registration", "product-sync." + account, "product-sync-enrollment." + account] {
       #expect(try lost.read(item) == nil)
     }
-    // Signing in again mints a new device identifier, which the account refuses.
-    #expect(
-      try await removed.purgingIfRevoked { try await $0.signIn() }
-        == ["kind": "signed-out", "notice": "refused"])
-    #expect(try lost.read("registration") == nil)
+    // Signing in again mints a new device identifier, which only waits as a Pending Device. The
+    // previous Recovery Key admits nobody while the removal's rotation is pending.
+    let returned = try await removed.purgingIfRevoked { try await $0.signIn() }
+    #expect(returned["kind"] == "device-pending")
+    #expect(returned["privateSync"] == "enrollment-pending")
+    #expect(try await removed.recover(with: shown)["recoveryNotice"] == "rejected")
+    #expect(try lost.read("product-sync." + account) == nil)
 
     // The survivor adopts the new epoch from a key it holds; then the rotation completes.
     #expect(try await survivor.refreshPrivateSync()["privateSync"] == "ready")
     #expect(try survivor.loadVault(account)?.ring == ring)
     #expect(backend.rotations[account] == nil)
     let committed = try #require(backend.recovery[account])
-    #expect(try KeyRingEnvelope.openRecovery(committed, key: RecoveryKey(parsing: newKey), account: account) == ring)
+    #expect(
+      try KeyRingEnvelope.openRecovery(
+        committed, key: RecoveryKey(parsing: newKey), account: account) == ring)
     #expect(throws: ProductSyncError.rejected) {
-      try KeyRingEnvelope.openRecovery(committed, key: RecoveryKey(parsing: shown), account: account)
+      try KeyRingEnvelope.openRecovery(
+        committed, key: RecoveryKey(parsing: shown), account: account)
     }
+    #expect(try await removed.recover(with: shown)["recoveryNotice"] == "rejected")
+    #expect(try lost.read("product-sync." + account) == nil)
+    // The survivor, which listed it while adopting, seals the new epoch to the waiting device; it
+    // is admitted at that epoch.
+    _ = try await survivor.approveEnrollment(request, code: code)
+    #expect(try await newcomer.refreshPrivateSync()["privateSync"] == "ready")
+    #expect(try newcomer.loadVault(account)?.ring == ring)
 
     // A mailbox saved at the new epoch reaches the survivor, but not the removed device's keys.
     google.subject = "synthetic-other-mailbox"
@@ -1113,10 +1276,12 @@ extension PrivateInboxTests {
     let replacement = try #require(adopted["recoveryKey"])
     #expect(replacement != newKey)
     #expect(try remover.loadVault(account)?.revocation == nil)
+    _ = try await newcomer.refreshPrivateSync()
     #expect(backend.rotations[account] == nil)
     #expect(
       try KeyRingEnvelope.openRecovery(
-        #require(backend.recovery[account]), key: RecoveryKey(parsing: replacement), account: account)
+        #require(backend.recovery[account]), key: RecoveryKey(parsing: replacement),
+        account: account)
         == remover.loadVault(account)?.ring)
   }
 
@@ -1124,10 +1289,10 @@ extension PrivateInboxTests {
   func aLostRevocationReplyKeepsTheNewRecoveryKeyOnlyIfTheRemovalApplied(
     retryAnotherDevice: Bool
   ) async throws {
-    let (creator, other, kept) = (device(), device(), device())
+    let (creator, other, kept, joining) = (device(), device(), device(), device())
     let account = "account-synthetic-product-subject"
     defer {
-      for keys in [creator, other, kept] { remove(keys, accounts: [account]) }
+      for keys in [creator, other, kept, joining] { remove(keys, accounts: [account]) }
     }
     let google = SyntheticGoogleRegistrationProvider()
     let backend = SyntheticProductSyncBackend()
@@ -1166,7 +1331,14 @@ extension PrivateInboxTests {
     let newKey = try #require(synced["recoveryKey"])
     #expect(newKey != shown)
     #expect(try remover.loadVault(account)?.revocation == nil)
-    // Both remaining devices adopt the epoch, so its recovery envelope opens with the new key.
+    // Until the rotation completes, only this replacement Recovery Key admits a new installation,
+    // which receives the new epoch with it.
+    let newcomer = backend.store(keys: joining, google: google)
+    _ = try await newcomer.signIn()
+    #expect(try await newcomer.recover(with: newKey)["privateSync"] == "ready")
+    #expect(try newcomer.loadVault(account)?.ring == remover.loadVault(account)?.ring)
+    #expect(backend.rotations[account] != nil)
+    // Every remaining device adopts the epoch, so its recovery envelope opens with the new key.
     #expect(try await survivor.refreshPrivateSync()["privateSync"] == "ready")
     #expect(backend.rotations[account] == nil)
     #expect(
@@ -1210,7 +1382,9 @@ extension PrivateInboxTests {
         guard let revoked else { throw URLError(.notConnectedToInternet) }
         return revoked
       },
-      connect: { identity, _, _ in backend.receipt("account-" + identity.subject) })
+      connect: { identity, device, _ in
+        try backend.connect("account-" + identity.subject, device: device)
+      })
     let registered = try await store.signIn(with: signInProvider)
     let recoveryKey = try #require(registered["recoveryKey"])
     google.scopes = [RegistrationStore.gmailScope]
@@ -1263,13 +1437,17 @@ extension PrivateInboxTests {
           guard let revoked else { throw URLError(.notConnectedToInternet) }
           return revoked
         },
-        connect: { identity, _, _ in backend.receipt("account-" + identity.subject) })
+        connect: { identity, device, _ in
+          try backend.connect("account-" + identity.subject, device: device)
+        })
     }
     _ = try await store().signIn(with: .apple)
-    #expect(try await store().purgingIfRevoked { try await $0.restore() }["kind"] == "mailbox-needed")
+    #expect(
+      try await store().purgingIfRevoked { try await $0.restore() }["kind"] == "mailbox-needed")
     // Offline, an Apple relaunch keeps the saved account usable.
     revoked = nil
-    #expect(try await store().purgingIfRevoked { try await $0.restore() }["kind"] == "mailbox-needed")
+    #expect(
+      try await store().purgingIfRevoked { try await $0.restore() }["kind"] == "mailbox-needed")
     revoked = true
     // An unavailable provider grant must not hide the backend's positive revocation proof.
     apple.state = .revoked

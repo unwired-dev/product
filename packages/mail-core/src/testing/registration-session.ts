@@ -17,7 +17,8 @@ const Scenario = Schema.Literals([
   'registration-enrollment',
   // This device created the keys, and an iPad of the account can be removed.
   'registration-revocation',
-  // Another device removes this one after sign-in; the next activation learns of it.
+  // Another device removes this one after sign-in; the next activation learns of it, and a new
+  // sign-in waits for approval like any other device after the first.
   'registration-revoked',
 ]);
 
@@ -114,10 +115,24 @@ const connectedTo = (
       ? 'synthetic-alternate-google-subject'
       : 'synthetic-google-subject',
     address,
-    // Only a device holding the account keys reads back the encrypted descriptor.
-    ...(snapshot.privateSync === 'enrollment-pending'
+    privateSyncMailboxes: address,
+  };
+};
+
+// The admitted device adopts the account keys and reads the synchronized mailboxes; Gmail still
+// needs its own authorization.
+const admitted = (
+  snapshot: SignedIn,
+  mailboxes: ReadonlySet<string>,
+): RegistrationSnapshot => {
+  const { enrollmentCode: _code, ...unlocked } = account(snapshot);
+  return {
+    kind: 'mailbox-needed',
+    ...unlocked,
+    privateSync: 'ready',
+    ...(mailboxes.size === 0
       ? {}
-      : { privateSyncMailboxes: address }),
+      : { privateSyncMailboxes: [...mailboxes].join('\n') }),
   };
 };
 
@@ -129,6 +144,7 @@ export function createMockRegistrationSession(
   const scenario = Schema.decodeUnknownSync(Scenario)(selection);
   let snapshot: RegistrationSnapshot = { kind: 'signed-out' };
   let attempted = false;
+  let removed = false;
   // Each synthetic sign-in identity owns its own Product Account, except the
   // unregistered identity that the link scenario adds to the first account.
   const accounts = {
@@ -162,37 +178,41 @@ export function createMockRegistrationSession(
       // The other device's removal reaches this one on its next verification.
       if (
         scenario === 'registration-revoked' &&
+        !removed &&
         snapshot.kind !== 'signed-out'
       ) {
+        removed = true;
         snapshot = { kind: 'signed-out', notice: 'revoked' };
       }
       return Promise.resolve(snapshot);
     },
+    // fallow-ignore-next-line complexity -- One fixed scenario table decides each synthetic sign-in outcome.
     signIn: (provider) => {
       if (deleted(accounts[provider].productAccountId)) {
         snapshot = { kind: 'signed-out', notice: 'deleted' };
         return Promise.resolve(snapshot);
       }
       if (snapshot.kind === 'signed-out') {
-        // A new Product Account creates its keys; an existing one asks a trusted device.
-        if (scenario === 'registration-enrollment') {
+        // A new Product Account creates its keys; any later device asks a trusted device.
+        if (scenario === 'registration-enrollment' || removed) {
           syncAccount(accounts[provider].productAccountId).enrollment = {
             state: 'pending',
           };
+          snapshot = {
+            kind: 'device-pending',
+            signInProvider: provider,
+            ...accounts[provider],
+            privateSync: 'enrollment-pending',
+            enrollmentCode: syntheticEnrollmentCode,
+          };
+          return Promise.resolve(snapshot);
         }
         snapshot = {
           kind: 'mailbox-needed',
           signInProvider: provider,
           ...accounts[provider],
-          ...(scenario === 'registration-enrollment'
-            ? {
-                privateSync: 'enrollment-pending',
-                enrollmentCode: syntheticEnrollmentCode,
-              }
-            : {
-                privateSync: 'recovery-key',
-                recoveryKey: syntheticRecoveryKey,
-              }),
+          privateSync: 'recovery-key',
+          recoveryKey: syntheticRecoveryKey,
           ...(scenario === 'registration-revocation'
             ? { trustedDevices: JSON.stringify([syntheticTrustedDevice]) }
             : {}),
@@ -200,8 +220,11 @@ export function createMockRegistrationSession(
         return Promise.resolve(snapshot);
       }
       if (snapshot.signInProvider === provider) {
-        // A saved mailbox that still verifies stays connected.
-        if (snapshot.kind !== 'connected') {
+        // A saved mailbox that still verifies stays connected, and a pending device stays pending.
+        if (
+          snapshot.kind !== 'connected' &&
+          snapshot.kind !== 'device-pending'
+        ) {
           snapshot = { kind: 'mailbox-needed', ...account(snapshot) };
         }
         return Promise.resolve(snapshot);
@@ -224,6 +247,10 @@ export function createMockRegistrationSession(
     authorizeGmail: (reselect) => {
       if (snapshot.kind === 'signed-out') {
         return Promise.reject(new Error('Synthetic Product Account required'));
+      }
+      // Gmail authorization waits until this device is admitted.
+      if (snapshot.kind === 'device-pending') {
+        return rejection('Synthetic device not admitted', 'unavailable');
       }
       if (scenario === 'registration-interrupted' && !attempted) {
         attempted = true;
@@ -300,14 +327,7 @@ export function createMockRegistrationSession(
       const shared = syncAccount(snapshot.productAccountId);
       // The open approval request is withdrawn.
       shared.enrollment = undefined;
-      const { enrollmentCode: _code, ...unlocked } = snapshot;
-      snapshot = {
-        ...unlocked,
-        privateSync: 'ready',
-        ...(shared.mailboxes.size === 0
-          ? {}
-          : { privateSyncMailboxes: [...shared.mailboxes].join('\n') }),
-      };
+      snapshot = admitted(snapshot, shared.mailboxes);
       return Promise.resolve(snapshot);
     },
     approveEnrollment: (requestId, code) => {
@@ -384,20 +404,10 @@ export function createMockRegistrationSession(
       }
       const shared = syncAccount(snapshot.productAccountId);
       const { enrollment } = shared;
-      if (snapshot.privateSync === 'enrollment-pending') {
-        // The approved device adopts the account keys and reads the synchronized mailboxes.
+      if (snapshot.kind === 'device-pending') {
         if (enrollment?.state === 'approved') {
           shared.enrollment = undefined;
-          const { enrollmentCode: _code, ...unlocked } = snapshot;
-          snapshot = {
-            ...unlocked,
-            privateSync: 'ready',
-            ...(shared.mailboxes.size === 0
-              ? {}
-              : {
-                  privateSyncMailboxes: [...shared.mailboxes].join('\n'),
-                }),
-          };
+          snapshot = admitted(snapshot, shared.mailboxes);
         }
         return Promise.resolve(snapshot);
       }

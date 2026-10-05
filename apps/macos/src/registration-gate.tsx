@@ -537,6 +537,85 @@ function AccountActions({
   );
 }
 
+// A signed-in account's settings; until a trusted device or the Recovery Key admits this device,
+// it offers only that.
+function AccountSettings({
+  button,
+  store,
+}: {
+  readonly button: (label: string, action: () => Promise<void>) => ReactNode;
+  readonly store: Registration;
+}) {
+  const {
+    snapshot,
+    linkFailure,
+    recoveryKeyFailure,
+    recoveryFailure,
+    enrollmentFailure,
+    revocationFailed,
+  } = useSyncExternalStore(store.subscribe, store.getSnapshot);
+  if (snapshot.kind === 'signed-out') {
+    return null;
+  }
+  const recovery = (
+    <RecoveryKeyUnlock
+      account={snapshot}
+      button={button}
+      failure={recoveryFailure}
+      store={store}
+    />
+  );
+  if (snapshot.kind === 'device-pending') {
+    return (
+      <>
+        {privateSyncCopy(snapshot)?.enrollmentCode === undefined ? (
+          button(enrollmentCopy.check, store.refreshPrivateSync)
+        ) : (
+          <PrivateSync
+            account={snapshot}
+            button={button}
+            failure={recoveryKeyFailure}
+            store={store}
+          />
+        )}
+        {recovery}
+      </>
+    );
+  }
+  return (
+    <>
+      <PrivateSync
+        key={snapshot.recoveryKey ?? 'confirmed'}
+        account={snapshot}
+        button={button}
+        failure={recoveryKeyFailure}
+        store={store}
+      />
+      {recovery}
+      <DeviceApproval
+        // A code typed for one request never carries over to the next.
+        key={snapshot.enrollmentRequest ?? 'none'}
+        account={snapshot}
+        button={button}
+        failure={enrollmentFailure}
+        store={store}
+      />
+      <TrustedDevices
+        account={snapshot}
+        button={button}
+        failed={revocationFailed === true}
+        store={store}
+      />
+      <SignInMethods
+        account={snapshot}
+        button={button}
+        failure={linkFailure}
+        store={store}
+      />
+    </>
+  );
+}
+
 // A retained account can be reopened with its own or its linked Sign-In Provider,
 // which also finishes Product Sync setup that could not reach the backend.
 function offersSignInAgain(
@@ -545,6 +624,10 @@ function offersSignInAgain(
 ): snapshot is Exclude<RegistrationSnapshot, { kind: 'signed-out' }> {
   if (snapshot.kind === 'signed-out' || snapshot.removalPending !== undefined) {
     return false;
+  }
+  // A Pending Device is admitted by approval or the Recovery Key, not by another sign-in.
+  if (snapshot.kind === 'device-pending') {
+    return failed;
   }
   return (
     snapshot.privateSync === 'setup-pending' ||
@@ -664,17 +747,10 @@ function RegistrationPage({
   // Returns to the connected Inbox, when it can open.
   readonly onInbox: (() => void) | undefined;
 }) {
-  const {
-    snapshot,
-    busy,
-    failed,
-    linkFailure,
-    recoveryKeyFailure,
-    recoveryFailure,
-    enrollmentFailure,
-    revocationFailed,
-    removalFailure,
-  } = useSyncExternalStore(store.subscribe, store.getSnapshot);
+  const { snapshot, busy, failed, removalFailure } = useSyncExternalStore(
+    store.subscribe,
+    store.getSnapshot,
+  );
   const colors = usePalette();
   const copy = registrationCopy(snapshot);
   const recovering = offersSignInAgain(snapshot, failed);
@@ -737,7 +813,9 @@ function RegistrationPage({
         snapshot.removalPending === undefined
           ? button('Authorize Gmail', () => store.authorizeGmail(false))
           : null}
-        {snapshot.kind === 'signed-out' || snapshot.removalPending !== undefined
+        {snapshot.kind === 'signed-out' ||
+        snapshot.kind === 'device-pending' ||
+        snapshot.removalPending !== undefined
           ? null
           : button('Choose another Google mailbox', () =>
               store.authorizeGmail(true),
@@ -756,41 +834,10 @@ function RegistrationPage({
         {failed ? button('Try again', store.restore) : null}
         {snapshot.kind === 'signed-out' ||
         snapshot.removalPending !== undefined ? null : (
-          <>
-            <PrivateSync
-              key={snapshot.recoveryKey ?? 'confirmed'}
-              account={snapshot}
-              button={button}
-              failure={recoveryKeyFailure}
-              store={store}
-            />
-            <RecoveryKeyUnlock
-              account={snapshot}
-              button={button}
-              failure={recoveryFailure}
-              store={store}
-            />
-            <DeviceApproval
-              // A code typed for one request never carries over to the next.
-              key={snapshot.enrollmentRequest ?? 'none'}
-              account={snapshot}
-              button={button}
-              failure={enrollmentFailure}
-              store={store}
-            />
-            <TrustedDevices
-              account={snapshot}
-              button={button}
-              failed={revocationFailed === true}
-              store={store}
-            />
-            <SignInMethods
-              account={snapshot}
-              button={button}
-              failure={linkFailure}
-              store={store}
-            />
-          </>
+          <AccountSettings
+            button={button}
+            store={store}
+          />
         )}
         {snapshot.kind === 'signed-out' ? null : (
           <AccountActions

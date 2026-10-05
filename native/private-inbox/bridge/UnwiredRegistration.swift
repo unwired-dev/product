@@ -153,6 +153,7 @@ extension RegistrationError {
     case .enrollmentCodeInvalid: "enrollment-code-invalid"
     case .enrollmentUnavailable: "enrollment-unavailable"
     case .revoked: "revoked"
+    case .pendingDeviceUnavailable: "unavailable"
     case .deleted: "deleted"
     case .removalRefused, .appleAuthorizationRequired: "removal-refused"
     }
@@ -259,6 +260,7 @@ final class UnwiredRegistration: NSObject {
     "SIGN_IN_LINK_EXPIRED": .staleAuthentication,
     "SIGN_IN_NOT_LINKED": .invalidIdentity,
     "ENROLLMENT_REQUEST_UNAVAILABLE": .enrollmentUnavailable,
+    "PENDING_DEVICE_UNAVAILABLE": .pendingDeviceUnavailable,
     "TRUSTED_DEVICE_REVOKED": .revoked,
     "PRODUCT_ACCOUNT_DELETED": .deleted,
   ]
@@ -347,17 +349,35 @@ final class UnwiredRegistration: NSObject {
       "supportsDeviceCredentials": true,
     ]
     if let previous {
-      args["trustedDeviceCredential"] = previous.trustedDeviceCredential
+      args[previous.pending == true ? "pendingDeviceCredential" : "trustedDeviceCredential"] =
+        previous.trustedDeviceCredential
       // A reconnect never creates or reaches another Product Account.
       args["expectedProductAccountId"] = previous.productAccountId
     }
-    let product: ProductRegistrationReceipt = try await mutation(
+    // A device the account has not admitted connects as a Pending Device.
+    struct Response: Decodable {
+      let productAccountId: String
+      let trustedDeviceId: String?
+      let trustedDeviceCredential: String?
+      let pendingDeviceId: String?
+      let pendingDeviceCredential: String?
+      let signInProviders: [SignInProvider]?
+      let productSyncMaterialInitialized: Bool?
+    }
+    let response: Response = try await mutation(
       base: base, identity: identity, path: "productAccount:connect", args: args)
-    guard !product.productAccountId.isEmpty, !product.trustedDeviceId.isEmpty,
-      product.trustedDeviceCredential.range(of: "^[0-9a-f]{64}$", options: .regularExpression)
-        != nil
+    let pending = response.pendingDeviceId != nil
+    guard
+      let deviceId = response.trustedDeviceId ?? response.pendingDeviceId,
+      let credential = response.trustedDeviceCredential ?? response.pendingDeviceCredential,
+      !response.productAccountId.isEmpty, !deviceId.isEmpty,
+      credential.range(of: "^[0-9a-f]{64}$", options: .regularExpression) != nil
     else { throw RegistrationError.unavailable }
-    return product
+    return ProductRegistrationReceipt(
+      productAccountId: response.productAccountId, trustedDeviceId: deviceId,
+      trustedDeviceCredential: credential, pending: pending ? true : nil,
+      signInProviders: response.signInProviders,
+      productSyncMaterialInitialized: response.productSyncMaterialInitialized)
   }
 
   private func perform(
@@ -580,25 +600,24 @@ extension UnwiredRegistration {
     perform("recoverWithRecoveryKey", resolve, reject: reject) { try await $0.recover(with: entry) }
   }
 
-  // Every Product Sync call carries the Trusted Device proof; Convex sees only opaque payloads.
+  // Every Product Sync call carries the device proof; Convex sees only opaque payloads.
   // The transport factory assembles all authenticated operations with the same device proof.
   // swiftlint:disable:next function_body_length
   @MainActor private static func productSync(base: URL) -> ProductSyncBackend {
     func proof(_ product: ProductRegistrationReceipt) -> [String: Any] {
-      [
-        "trustedDeviceId": product.trustedDeviceId,
-        "trustedDeviceCredential": product.trustedDeviceCredential,
-      ]
+      Self.proof(product)
     }
     func json(_ payload: EncryptedPayload) throws -> Any {
       try JSONSerialization.jsonObject(with: JSONEncoder().encode(payload))
     }
     return ProductSyncBackend(
-      initialize: { identity, product, envelope in
+      initialize: { identity, product, envelope, verifier in
         struct Response: Decodable { let initialized: Bool }
         let response: Response = try await mutation(
           base: base, identity: identity, path: "productSync:initialize",
-          args: proof(product).merging(["encryptedPayload": try json(envelope)]) { $1 })
+          args: proof(product).merging([
+            "encryptedPayload": try json(envelope), "recoveryVerifier": verifier,
+          ]) { $1 })
         return response.initialized
       },
       list: { identity, product, prefix in
@@ -634,24 +653,31 @@ extension UnwiredRegistration {
           args: args)
       },
       requestEnrollment: { identity, product, publicKey in
-        struct Response: Decodable { let requestId: String }
-        let response: Response = try await mutation(
+        struct Response: Decodable { let expiresAt: Double }
+        let _: Response = try await mutation(
           base: base, identity: identity, path: "productSyncEnrollment:request",
           args: proof(product).merging([
             "enrollmentPublicKey": publicKey.rawRepresentation.base64EncodedString()
           ]) { $1 })
-        return response.requestId
       },
-      enrollmentStatus: { identity, product, requestId in
-        try await readEnrollmentStatus(
-          base: base, identity: identity,
-          args: proof(product).merging(["requestId": requestId]) { $1 })
+      enrollmentStatus: { identity, product in
+        try await readEnrollmentStatus(base: base, identity: identity, args: proof(product))
       },
-      completeEnrollment: { identity, product, requestId in
-        struct Response: Decodable { let completed: Bool }
-        let _: Response = try await mutation(
+      completeEnrollment: { identity, product, keyVersion in
+        struct Response: Decodable {
+          let admitted: Bool
+          let trustedDeviceId: String?
+        }
+        let response: Response = try await mutation(
           base: base, identity: identity, path: "productSyncEnrollment:complete",
-          args: proof(product).merging(["requestId": requestId]) { $1 })
+          args: proof(product).merging(["keyVersion": keyVersion]) { $1 })
+        return response.admitted ? response.trustedDeviceId : nil
+      },
+      recoverPending: { identity, product, recoveryProof in
+        // A successful null result is a proof that matches no Recovery Key of the account.
+        try await optionalResult(
+          base: base, identity: identity, path: "productSyncEnrollment:recover",
+          args: proof(product).merging(["recoveryProof": recoveryProof]) { $1 })
       },
       pendingEnrollments: { identity, product in
         try await readPendingEnrollments(base: base, identity: identity, args: proof(product))
@@ -661,17 +687,18 @@ extension UnwiredRegistration {
         let _: Response = try await mutation(
           base: base, identity: identity, path: "productSyncEnrollment:approve",
           args: proof(product).merging([
-            "requestId": request.requestId,
-            "requesterTrustedDeviceId": request.trustedDeviceId, "keyVersion": keyVersion,
+            "pendingDeviceId": request.pendingDeviceId,
+            "enrollmentPublicKey": request.publicKey.rawRepresentation.base64EncodedString(),
+            "keyVersion": keyVersion,
             "encapsulatedKeyBase64": envelope.encapsulatedKey.base64EncodedString(),
             "ciphertextBase64": envelope.ciphertext.base64EncodedString(),
           ]) { $1 })
       },
-      declineEnrollment: { identity, product, requestId in
+      declineEnrollment: { identity, product, pendingDeviceId in
         struct Response: Decodable { let declined: Bool }
         let _: Response = try await mutation(
           base: base, identity: identity, path: "productSyncEnrollment:decline",
-          args: proof(product).merging(["requestId": requestId]) { $1 })
+          args: proof(product).merging(["pendingDeviceId": pendingDeviceId]) { $1 })
       },
       recoveryEnvelope: { identity, product in
         // A missing envelope decodes as no value and reports Product Sync as unavailable.
@@ -713,7 +740,8 @@ extension UnwiredRegistration {
           TrustedDevice(id: $0.id, name: $0.displayName, registeredAt: $0.registeredAt)
         }
       },
-      revoke: { identity, product, trustedDeviceToRevokeId, transition, recovery, updatedAt in
+      revoke: {
+        identity, product, trustedDeviceToRevokeId, transition, recovery, verifier, updatedAt in
         var request = URLRequest(url: try site(base, path: "/trusted-devices/revoke"))
         request.httpMethod = "POST"
         request.timeoutInterval = 30
@@ -724,6 +752,7 @@ extension UnwiredRegistration {
             "trustedDeviceToRevokeId": trustedDeviceToRevokeId,
             "encryptedTransition": try json(transition),
             "recoveryWrappedAccountKey": try json(recovery),
+            "recoveryVerifier": verifier,
             "expectedRecoveryUpdatedAt": updatedAt,
           ]) { $1 })
         let (data, response) = try await URLSession.shared.data(for: request)
@@ -744,17 +773,29 @@ extension UnwiredRegistration {
       })
   }
 
+  // A Trusted Device's proof, or a Pending Device's for its own admission and removal.
+  @MainActor private static func proof(_ product: ProductRegistrationReceipt) -> [String: Any] {
+    product.pending == true
+      ? [
+        "pendingDeviceId": product.trustedDeviceId,
+        "pendingDeviceCredential": product.trustedDeviceCredential,
+      ]
+      : [
+        "trustedDeviceId": product.trustedDeviceId,
+        "trustedDeviceCredential": product.trustedDeviceCredential,
+      ]
+  }
+
   @MainActor private static func removal(base: URL, bundle: String) -> AccountRemoval {
     AccountRemoval(
       unregister: { identity, product, deviceIdentifier in
         struct Response: Decodable { let registered: Bool }
         let _: Response = try await mutation(
-          base: base, identity: identity, path: "productAccount:unregisterTrustedDevice",
-          args: [
-            "trustedDeviceId": product.trustedDeviceId,
-            "trustedDeviceCredential": product.trustedDeviceCredential,
-            "deviceIdentifier": deviceIdentifier,
-          ])
+          base: base, identity: identity,
+          path: product.pending == true
+            ? "productAccount:unregisterPendingDevice" : "productAccount:unregisterTrustedDevice",
+          args: proof(product).merging(["deviceIdentifier": deviceIdentifier]) { $1 }
+        )
       },
       delete: { identity, product in
         var request = URLRequest(url: try site(base, path: "/product-account/delete"))
@@ -763,10 +804,7 @@ extension UnwiredRegistration {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         // The fresh token is the recent-authentication proof.
         request.setValue("Bearer " + identity.idToken, forHTTPHeaderField: "Authorization")
-        var args: [String: Any] = [
-          "trustedDeviceId": product.trustedDeviceId,
-          "trustedDeviceCredential": product.trustedDeviceCredential,
-        ]
+        var args = proof(product)
         if let code = identity.authorizationCode {
           // Convex exchanges and revokes it with the client that issued it.
           args["authorizationCode"] = code
@@ -827,8 +865,7 @@ extension UnwiredRegistration {
     base: URL, identity: ProductSignInIdentity, args: [String: Any]
   ) async throws -> [PendingEnrollment] {
     struct Request: Decodable {
-      let requestId: String
-      let requesterTrustedDeviceId: String
+      let pendingDeviceId: String
       let enrollmentPublicKey: String
       let displayName: String
       let expiresAt: Double
@@ -841,8 +878,8 @@ extension UnwiredRegistration {
         let publicKey = try? Curve25519.KeyAgreement.PublicKey(rawRepresentation: raw)
       else { return nil }
       return PendingEnrollment(
-        requestId: request.requestId, trustedDeviceId: request.requesterTrustedDeviceId,
-        publicKey: publicKey, deviceName: request.displayName, expiresAt: request.expiresAt)
+        pendingDeviceId: request.pendingDeviceId, publicKey: publicKey,
+        deviceName: request.displayName, expiresAt: request.expiresAt)
     }
   }
 }

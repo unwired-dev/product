@@ -3,6 +3,7 @@ import { convexTest } from 'convex-test';
 
 import { api } from '../convex/_generated/api.js';
 import schema from '../convex/schema.js';
+import { connectTrusted } from './devices.js';
 
 const modules = import.meta.glob('../convex/**/*.ts');
 
@@ -30,9 +31,9 @@ describe('product registration', () => {
       platform: 'ios',
       supportsDeviceCredentials: true,
     };
-    const first = await google.mutation(api.productAccount.connect, args);
-    const second = await apple.mutation(api.productAccount.connect, args);
-    const third = await otherGoogle.mutation(api.productAccount.connect, args);
+    const first = await connectTrusted(t, google, args);
+    const second = await connectTrusted(t, apple, args);
+    const third = await connectTrusted(t, otherGoogle, args);
     expect(
       new Set([
         first.productAccountId,
@@ -44,7 +45,7 @@ describe('product registration', () => {
       accountCreated: true,
       productSyncMaterialInitialized: false,
     });
-    const resumed = await google.mutation(api.productAccount.connect, {
+    const resumed = await connectTrusted(t, google, {
       ...args,
       trustedDeviceCredential: first.trustedDeviceCredential,
     });
@@ -86,8 +87,8 @@ describe('product registration', () => {
       platform: 'macos',
       supportsDeviceCredentials: true,
     };
-    const registered = await apple.mutation(api.productAccount.connect, args);
-    const other = await google.mutation(api.productAccount.connect, args);
+    const registered = await connectTrusted(t, apple, args);
+    const other = await connectTrusted(t, google, args);
     expect(other.productAccountId).not.toBe(registered.productAccountId);
     await expect(
       google.query(api.productAccount.listTrustedDevices, {
@@ -97,7 +98,7 @@ describe('product registration', () => {
     ).rejects.toThrow('Trusted device required');
     // Reauthenticating the Apple identity resumes the same account and device.
     await expect(
-      apple.mutation(api.productAccount.connect, {
+      connectTrusted(t, apple, {
         ...args,
         trustedDeviceCredential: registered.trustedDeviceCredential,
       }),

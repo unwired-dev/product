@@ -11,6 +11,7 @@ import { env } from '../convex/_generated/server.js';
 import { opaqueGmailConnectionId } from '../convex/gmailRouting.js';
 import { gmailLegacyRouteFallbackLimit } from '../convex/productAccount.js';
 import schema from '../convex/schema.js';
+import { connectTrusted, recoveryVerifier } from './devices.js';
 
 const modules = import.meta.glob('../convex/**/*.ts');
 
@@ -186,7 +187,7 @@ async function revokeTrustedDevice(
   issuedAt = Math.floor(Date.now() / 1000),
 ): Promise<unknown> {
   const response = await asUser.fetch('/trusted-devices/revoke', {
-    body: JSON.stringify(args),
+    body: JSON.stringify({ recoveryVerifier, ...args }),
     headers: {
       authorization: `Bearer ${appleIdentityToken(issuedAt)}`,
       'content-type': 'application/json',
@@ -271,154 +272,13 @@ function requiredTrustedDeviceCredential(response: {
   return trustedDeviceCredential;
 }
 
-type LegacyIdentifierMigrationScenario = Readonly<
-  | { existingRevocationTombstone: boolean; migrationComplete: true }
-  | {
-      completeAfterFirstBatch: (actions: {
-        completeMigration: () => Promise<unknown>;
-        reconnectLegacyDevice: () => Promise<unknown>;
-      }) => Promise<void>;
-      existingRevocationTombstone: boolean;
-      migrationComplete: false;
-    }
->;
-
-async function expectLegacyIdentifierMigration(
-  scenario: LegacyIdentifierMigrationScenario,
-): Promise<void> {
-  const t = convexTest(schema, modules);
-  const asUser = t.withIdentity(appleIdentity);
-  const legacyDevice = await asUser.mutation(api.productAccount.connect, {
-    deviceIdentifier: 'device-legacy-signed-out',
-    platform: 'ios',
-  });
-  const revokedDevice = await asUser.mutation(api.productAccount.connect, {
-    deviceIdentifier: 'device-revoked',
-    platform: 'macos',
-  });
-  await t.run(async (ctx) => {
-    const legacyHistory = await ctx.db
-      .query('trustedDeviceIdentifierHistory')
-      .withIndex('by_productAccountId_and_deviceIdentifier', (q) =>
-        q
-          .eq('productAccountId', legacyDevice.productAccountId)
-          .eq('deviceIdentifier', 'device-legacy-signed-out'),
-      )
-      .unique();
-    if (legacyHistory === null) {
-      throw new Error('Legacy identifier history required');
-    }
-    await ctx.db.delete('trustedDeviceIdentifierHistory', legacyHistory._id);
-    await ctx.db.delete('trustedDevices', legacyDevice.trustedDeviceId);
-    await ctx.db.patch('productAccounts', legacyDevice.productAccountId, {
-      legacyTrustedDeviceIdentifierMigrationCompletedAt: undefined,
-    });
-    if (scenario.existingRevocationTombstone) {
-      await ctx.db.insert('revokedTrustedDevices', {
-        deviceIdentifier: 'device-revoked',
-        productAccountId: legacyDevice.productAccountId,
-        productSyncKeyEpoch: 1,
-        revokedAt: Date.now(),
-        trustedDeviceId: revokedDevice.trustedDeviceId,
-      });
-      await ctx.db.delete('trustedDevices', revokedDevice.trustedDeviceId);
-    }
-  });
-
-  await expect(
-    t.mutation(internal.productAccount.migrateLegacyTrustedDeviceIdentifiers, {
-      identifiers: [
-        {
-          deviceIdentifier: 'device-legacy-signed-out',
-          firstRegisteredAt: 1,
-        },
-      ],
-      migrationComplete: scenario.migrationComplete,
-      tokenIdentifier: appleIdentity.tokenIdentifier,
-    }),
-  ).resolves.toMatchObject({
-    migrationComplete: scenario.migrationComplete,
-    migratedIdentifierCount: 1,
-    productAccountId: legacyDevice.productAccountId,
-  });
-  if (!scenario.migrationComplete) {
-    await scenario.completeAfterFirstBatch({
-      completeMigration: () =>
-        t.mutation(
-          internal.productAccount.migrateLegacyTrustedDeviceIdentifiers,
-          {
-            identifiers: [],
-            migrationComplete: true,
-            tokenIdentifier: appleIdentity.tokenIdentifier,
-          },
-        ),
-      reconnectLegacyDevice: () =>
-        asUser.mutation(api.productAccount.connect, {
-          deviceIdentifier: 'device-legacy-signed-out',
-          platform: 'ios',
-        }),
-    });
-  }
-  await expect(
-    t.mutation(internal.productAccount.migrateLegacyTrustedDeviceIdentifiers, {
-      identifiers: [
-        {
-          deviceIdentifier: 'device-genuinely-unseen',
-          firstRegisteredAt: 2,
-        },
-      ],
-      migrationComplete: true,
-      tokenIdentifier: appleIdentity.tokenIdentifier,
-    }),
-  ).rejects.toThrow('Trusted Device identifier migration is complete');
-
-  if (!scenario.existingRevocationTombstone) {
-    await t.run(async (ctx) => {
-      await ctx.db.insert('revokedTrustedDevices', {
-        deviceIdentifier: 'device-revoked',
-        productAccountId: legacyDevice.productAccountId,
-        productSyncKeyEpoch: 1,
-        revokedAt: Date.now(),
-        trustedDeviceId: revokedDevice.trustedDeviceId,
-      });
-      await ctx.db.delete('trustedDevices', revokedDevice.trustedDeviceId);
-    });
-  }
-
-  await expect(
-    asUser.mutation(api.productAccount.connect, {
-      deviceIdentifier: 'device-legacy-signed-out',
-      platform: 'ios',
-    }),
-  ).resolves.toMatchObject({
-    deviceRegistered: true,
-    productAccountId: legacyDevice.productAccountId,
-  });
-  await expect(
-    asUser.mutation(api.productAccount.connect, {
-      deviceIdentifier: 'device-genuinely-unseen',
-      platform: 'ios',
-    }),
-  ).rejects.toMatchObject({
-    data: { code: 'TRUSTED_DEVICE_REVOKED' },
-  });
-  await expect(
-    asUser.mutation(api.productAccount.connect, {
-      deviceIdentifier: 'device-revoked',
-      platform: 'macos',
-    }),
-  ).rejects.toMatchObject({
-    data: { code: 'TRUSTED_DEVICE_REVOKED' },
-  });
-}
-
 describe('productAccount.connect', () => {
   it('preserves a valid device credential without exposing it in device summaries', async () => {
     expect.assertions(5);
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
-    const firstConnect = await asUser.mutation(api.productAccount.connect, {
+    const firstConnect = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
       supportsDeviceCredentials: true,
@@ -434,7 +294,7 @@ describe('productAccount.connect', () => {
       createHash('sha256').update(firstCredential).digest('hex'),
     );
 
-    const secondConnect = await asUser.mutation(api.productAccount.connect, {
+    const secondConnect = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
       supportsDeviceCredentials: true,
@@ -454,12 +314,12 @@ describe('productAccount.connect', () => {
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
-    const revokedDevice = await asUser.mutation(api.productAccount.connect, {
+    const revokedDevice = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-revoked',
       platform: 'ios',
       supportsDeviceCredentials: true,
     });
-    const survivingDevice = await asUser.mutation(api.productAccount.connect, {
+    const survivingDevice = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-surviving',
       platform: 'macos',
       supportsDeviceCredentials: true,
@@ -494,15 +354,15 @@ describe('productAccount.connect', () => {
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
-    const firstDevice = await asUser.mutation(api.productAccount.connect, {
+    const firstDevice = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
     });
-    const legacyDevice = await asUser.mutation(api.productAccount.connect, {
+    const legacyDevice = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-002',
       platform: 'macos',
     });
-    await asUser.mutation(api.productAccount.connect, {
+    await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
       supportsDeviceCredentials: true,
@@ -513,7 +373,7 @@ describe('productAccount.connect', () => {
         trustedDeviceId: legacyDevice.trustedDeviceId,
       }),
     ).rejects.toThrow('Reconnect this Trusted Device');
-    const reconnected = await asUser.mutation(api.productAccount.connect, {
+    const reconnected = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-002',
       platform: 'macos',
       supportsDeviceCredentials: true,
@@ -536,7 +396,7 @@ describe('productAccount.connect', () => {
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
 
-    const firstConnect = await asUser.mutation(api.productAccount.connect, {
+    const firstConnect = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
     });
@@ -547,7 +407,7 @@ describe('productAccount.connect', () => {
       productSyncMaterialInitialized: false,
     });
 
-    const secondConnect = await asUser.mutation(api.productAccount.connect, {
+    const secondConnect = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
     });
@@ -565,12 +425,12 @@ describe('productAccount.connect', () => {
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
 
-    const firstConnect = await asUser.mutation(api.productAccount.connect, {
+    const firstConnect = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
     });
 
-    const resumedConnect = await asUser.mutation(api.productAccount.connect, {
+    const resumedConnect = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-002',
       platform: 'macos',
     });
@@ -584,12 +444,12 @@ describe('productAccount.connect', () => {
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
-    const currentDevice = await asUser.mutation(api.productAccount.connect, {
+    const currentDevice = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-001',
       deviceName: 'Jans iPhone',
       platform: 'ios',
     });
-    const otherDevice = await asUser.mutation(api.productAccount.connect, {
+    const otherDevice = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-002',
       deviceName: 'Desk Mac',
       platform: 'macos',
@@ -618,11 +478,11 @@ describe('productAccount.connect', () => {
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
-    const currentDevice = await asUser.mutation(api.productAccount.connect, {
+    const currentDevice = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
     });
-    const otherDevice = await asUser.mutation(api.productAccount.connect, {
+    const otherDevice = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-002',
       platform: 'macos',
     });
@@ -650,11 +510,11 @@ describe('productAccount.connect', () => {
       subject: 'apple-user-002',
       tokenIdentifier: 'https://appleid.apple.com|apple-user-002',
     });
-    const currentDevice = await asUser.mutation(api.productAccount.connect, {
+    const currentDevice = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
     });
-    const otherDevice = await asOtherUser.mutation(api.productAccount.connect, {
+    const otherDevice = await connectTrusted(t, asOtherUser, {
       deviceIdentifier: 'device-002',
       platform: 'macos',
     });
@@ -673,11 +533,11 @@ describe('productAccount.connect', () => {
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
-    const currentDevice = await asUser.mutation(api.productAccount.connect, {
+    const currentDevice = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
     });
-    const otherDevice = await asUser.mutation(api.productAccount.connect, {
+    const otherDevice = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-002',
       platform: 'macos',
     });
@@ -730,7 +590,7 @@ describe('productAccount.connect', () => {
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
-    const currentDevice = await asUser.mutation(api.productAccount.connect, {
+    const currentDevice = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
     });
@@ -755,11 +615,11 @@ describe('productAccount.connect', () => {
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
-    const currentDevice = await asUser.mutation(api.productAccount.connect, {
+    const currentDevice = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
     });
-    const otherDevice = await asUser.mutation(api.productAccount.connect, {
+    const otherDevice = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-002',
       platform: 'macos',
     });
@@ -789,11 +649,11 @@ describe('productAccount.connect', () => {
       subject: 'apple-user-002',
       tokenIdentifier: 'https://appleid.apple.com|apple-user-002',
     });
-    const currentDevice = await asUser.mutation(api.productAccount.connect, {
+    const currentDevice = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
     });
-    const otherDevice = await asOtherUser.mutation(api.productAccount.connect, {
+    const otherDevice = await connectTrusted(t, asOtherUser, {
       deviceIdentifier: 'device-002',
       platform: 'macos',
     });
@@ -814,11 +674,11 @@ describe('productAccount.connect', () => {
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
-    const currentDevice = await asUser.mutation(api.productAccount.connect, {
+    const currentDevice = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
     });
-    const otherDevice = await asUser.mutation(api.productAccount.connect, {
+    const otherDevice = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-002',
       platform: 'macos',
     });
@@ -845,6 +705,7 @@ describe('productAccount.connect', () => {
     const recoveryMaterial = await asUser.mutation(
       internal.productSync.replaceRecoveryMaterialIfUnchanged,
       {
+        recoveryVerifier,
         encryptedPayload,
         trustedDeviceId: currentDevice.trustedDeviceId,
       },
@@ -886,14 +747,11 @@ describe('productAccount.connect', () => {
           .collect(),
       })),
     ).resolves.toStrictEqual({ heartbeats: [], routes: [] });
-    const reconnectedCurrentDevice = await asUser.mutation(
-      api.productAccount.connect,
-      {
-        deviceIdentifier: 'device-001',
-        platform: 'ios',
-        supportsDeviceCredentials: true,
-      },
-    );
+    const reconnectedCurrentDevice = await connectTrusted(t, asUser, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+      supportsDeviceCredentials: true,
+    });
     await expect(
       revokeTrustedDevice(asUser, {
         encryptedTransition: encryptedPayload,
@@ -915,18 +773,19 @@ describe('productAccount.connect', () => {
       }),
     ).rejects.toMatchObject({ data: { code: 'TRUSTED_DEVICE_REVOKED' } });
     await expect(
-      asUser.mutation(api.productAccount.connect, {
+      connectTrusted(t, asUser, {
         deviceIdentifier: 'device-002',
         platform: 'macos',
       }),
     ).rejects.toMatchObject({ data: { code: 'TRUSTED_DEVICE_REVOKED' } });
+    // A removed device that mints a new identifier waits like any other Pending Device.
     // oxlint-disable-next-line vitest/max-expects -- Full revocation contract includes identifier-minting bypass coverage.
     await expect(
       asUser.mutation(api.productAccount.connect, {
         deviceIdentifier: 'device-reenrollment-attempt',
         platform: 'macos',
       }),
-    ).rejects.toMatchObject({ data: { code: 'TRUSTED_DEVICE_REVOKED' } });
+    ).resolves.toMatchObject({ pendingDeviceId: expect.any(String) });
     // oxlint-disable-next-line vitest/max-expects -- Full revocation contract spans fencing and rotated writes.
     await expect(
       asUser.mutation(api.productSync.putEncryptedPayloadIfUnchanged, {
@@ -961,12 +820,12 @@ describe('productAccount.connect', () => {
 
       const t = convexTest(schema, modules);
       const asUser = t.withIdentity(appleIdentity);
-      const currentDevice = await asUser.mutation(api.productAccount.connect, {
+      const currentDevice = await connectTrusted(t, asUser, {
         deviceIdentifier: 'device-001',
         platform: 'ios',
         supportsDeviceCredentials: true,
       });
-      const otherDevice = await asUser.mutation(api.productAccount.connect, {
+      const otherDevice = await connectTrusted(t, asUser, {
         deviceIdentifier: 'device-002',
         platform: 'macos',
         supportsDeviceCredentials: true,
@@ -983,6 +842,7 @@ describe('productAccount.connect', () => {
       const recoveryMaterial = await asUser.mutation(
         internal.productSync.replaceRecoveryMaterialIfUnchanged,
         {
+          recoveryVerifier,
           encryptedPayload,
           trustedDeviceCredential:
             requiredTrustedDeviceCredential(currentDevice),
@@ -999,7 +859,7 @@ describe('productAccount.connect', () => {
       }
       // oxlint-disable-next-line vitest/no-conditional-in-test -- A cached revocation target can reconnect before its owner removes it.
       if (targetState === 'reconnected') {
-        observedDevice = await asUser.mutation(api.productAccount.connect, {
+        observedDevice = await connectTrusted(t, asUser, {
           deviceIdentifier: 'device-002',
           platform: 'macos',
           supportsDeviceCredentials: true,
@@ -1038,17 +898,18 @@ describe('productAccount.connect', () => {
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
-    const currentDevice = await asUser.mutation(api.productAccount.connect, {
+    const currentDevice = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
     });
-    const otherDevice = await asUser.mutation(api.productAccount.connect, {
+    const otherDevice = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-002',
       platform: 'macos',
     });
     const recoveryMaterial = await asUser.mutation(
       internal.productSync.replaceRecoveryMaterialIfUnchanged,
       {
+        recoveryVerifier,
         encryptedPayload: { ...encryptedPayload, schemaVersion: 3 },
         trustedDeviceId: currentDevice.trustedDeviceId,
       },
@@ -1085,25 +946,26 @@ describe('productAccount.connect', () => {
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
-    const currentDevice = await asUser.mutation(api.productAccount.connect, {
+    const currentDevice = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
     });
-    const firstTarget = await asUser.mutation(api.productAccount.connect, {
+    const firstTarget = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-002',
       platform: 'macos',
     });
-    const secondTarget = await asUser.mutation(api.productAccount.connect, {
+    const secondTarget = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-003',
       platform: 'ios',
     });
-    await asUser.mutation(api.productAccount.connect, {
+    await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-004',
       platform: 'macos',
     });
     const recoveryMaterial = await asUser.mutation(
       internal.productSync.replaceRecoveryMaterialIfUnchanged,
       {
+        recoveryVerifier,
         encryptedPayload,
         trustedDeviceId: currentDevice.trustedDeviceId,
       },
@@ -1126,7 +988,7 @@ describe('productAccount.connect', () => {
         ['device-003', 'ios'],
         ['device-004', 'macos'],
       ].map(async ([deviceIdentifier, platform]) =>
-        asUser.mutation(api.productAccount.connect, {
+        connectTrusted(t, asUser, {
           deviceIdentifier: deviceIdentifier!,
           platform: platform!,
           supportsDeviceCredentials: true,
@@ -1243,21 +1105,22 @@ describe('productAccount.connect', () => {
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
-    const currentDevice = await asUser.mutation(api.productAccount.connect, {
+    const currentDevice = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
     });
-    const remainingDevice = await asUser.mutation(api.productAccount.connect, {
+    const remainingDevice = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-002',
       platform: 'macos',
     });
-    const revokedDevice = await asUser.mutation(api.productAccount.connect, {
+    const revokedDevice = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-003',
       platform: 'ios',
     });
     const recoveryMaterial = await asUser.mutation(
       internal.productSync.replaceRecoveryMaterialIfUnchanged,
       {
+        recoveryVerifier,
         encryptedPayload,
         trustedDeviceId: currentDevice.trustedDeviceId,
       },
@@ -1274,22 +1137,16 @@ describe('productAccount.connect', () => {
       trustedDeviceId: currentDevice.trustedDeviceId,
       trustedDeviceToRevokeId: revokedDevice.trustedDeviceId,
     });
-    const reconnectedCurrentDevice = await asUser.mutation(
-      api.productAccount.connect,
-      {
-        deviceIdentifier: 'device-001',
-        platform: 'ios',
-        supportsDeviceCredentials: true,
-      },
-    );
-    const reconnectedRemainingDevice = await asUser.mutation(
-      api.productAccount.connect,
-      {
-        deviceIdentifier: 'device-002',
-        platform: 'macos',
-        supportsDeviceCredentials: true,
-      },
-    );
+    const reconnectedCurrentDevice = await connectTrusted(t, asUser, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+      supportsDeviceCredentials: true,
+    });
+    const reconnectedRemainingDevice = await connectTrusted(t, asUser, {
+      deviceIdentifier: 'device-002',
+      platform: 'macos',
+      supportsDeviceCredentials: true,
+    });
 
     await expect(
       asUser.query(api.productAccount.getProductSyncKeyRotation, {
@@ -1348,27 +1205,22 @@ describe('productAccount.connect', () => {
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
-    const currentDevice = await asUser.mutation(api.productAccount.connect, {
+    const currentDevice = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
     });
-    const firstOfflineDevice = await asUser.mutation(
-      api.productAccount.connect,
-      {
-        deviceIdentifier: 'device-002',
-        platform: 'macos',
-      },
-    );
-    const secondOfflineDevice = await asUser.mutation(
-      api.productAccount.connect,
-      {
-        deviceIdentifier: 'device-003',
-        platform: 'ios',
-      },
-    );
+    const firstOfflineDevice = await connectTrusted(t, asUser, {
+      deviceIdentifier: 'device-002',
+      platform: 'macos',
+    });
+    const secondOfflineDevice = await connectTrusted(t, asUser, {
+      deviceIdentifier: 'device-003',
+      platform: 'ios',
+    });
     const recoveryMaterial = await asUser.mutation(
       internal.productSync.replaceRecoveryMaterialIfUnchanged,
       {
+        recoveryVerifier,
         encryptedPayload,
         trustedDeviceId: currentDevice.trustedDeviceId,
       },
@@ -1390,14 +1242,11 @@ describe('productAccount.connect', () => {
       trustedDeviceId: currentDevice.trustedDeviceId,
       trustedDeviceToRevokeId: firstOfflineDevice.trustedDeviceId,
     });
-    const reconnectedCurrentDevice = await asUser.mutation(
-      api.productAccount.connect,
-      {
-        deviceIdentifier: 'device-001',
-        platform: 'ios',
-        supportsDeviceCredentials: true,
-      },
-    );
+    const reconnectedCurrentDevice = await connectTrusted(t, asUser, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+      supportsDeviceCredentials: true,
+    });
     await asUser.mutation(
       api.productAccount.acknowledgeProductSyncKeyRotation,
       {
@@ -1469,28 +1318,26 @@ describe('productAccount.connect', () => {
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
-    const currentDevice = await asUser.mutation(api.productAccount.connect, {
+    const currentDevice = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
     });
-    const targetDevice = await asUser.mutation(api.productAccount.connect, {
+    const targetDevice = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-002',
       platform: 'macos',
     });
-    const remainingDevice = await asUser.mutation(api.productAccount.connect, {
+    const remainingDevice = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-003',
       platform: 'ios',
     });
-    const initiallyRevokedDevice = await asUser.mutation(
-      api.productAccount.connect,
-      {
-        deviceIdentifier: 'device-004',
-        platform: 'macos',
-      },
-    );
+    const initiallyRevokedDevice = await connectTrusted(t, asUser, {
+      deviceIdentifier: 'device-004',
+      platform: 'macos',
+    });
     const recoveryMaterial = await asUser.mutation(
       internal.productSync.replaceRecoveryMaterialIfUnchanged,
       {
+        recoveryVerifier,
         encryptedPayload,
         trustedDeviceId: currentDevice.trustedDeviceId,
       },
@@ -1517,30 +1364,21 @@ describe('productAccount.connect', () => {
       trustedDeviceId: currentDevice.trustedDeviceId,
       trustedDeviceToRevokeId: initiallyRevokedDevice.trustedDeviceId,
     });
-    const reconnectedCurrentDevice = await asUser.mutation(
-      api.productAccount.connect,
-      {
-        deviceIdentifier: 'device-001',
-        platform: 'ios',
-        supportsDeviceCredentials: true,
-      },
-    );
-    const reconnectedTargetDevice = await asUser.mutation(
-      api.productAccount.connect,
-      {
-        deviceIdentifier: 'device-002',
-        platform: 'macos',
-        supportsDeviceCredentials: true,
-      },
-    );
-    const reconnectedRemainingDevice = await asUser.mutation(
-      api.productAccount.connect,
-      {
-        deviceIdentifier: 'device-003',
-        platform: 'ios',
-        supportsDeviceCredentials: true,
-      },
-    );
+    const reconnectedCurrentDevice = await connectTrusted(t, asUser, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+      supportsDeviceCredentials: true,
+    });
+    const reconnectedTargetDevice = await connectTrusted(t, asUser, {
+      deviceIdentifier: 'device-002',
+      platform: 'macos',
+      supportsDeviceCredentials: true,
+    });
+    const reconnectedRemainingDevice = await connectTrusted(t, asUser, {
+      deviceIdentifier: 'device-003',
+      platform: 'ios',
+      supportsDeviceCredentials: true,
+    });
     await asUser.mutation(
       api.productAccount.acknowledgeProductSyncKeyRotation,
       {
@@ -1653,21 +1491,22 @@ describe('productAccount.connect', () => {
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
-    const currentDevice = await asUser.mutation(api.productAccount.connect, {
+    const currentDevice = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
     });
-    const firstTarget = await asUser.mutation(api.productAccount.connect, {
+    const firstTarget = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-002',
       platform: 'macos',
     });
-    const secondTarget = await asUser.mutation(api.productAccount.connect, {
+    const secondTarget = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-003',
       platform: 'ios',
     });
     const recoveryMaterial = await asUser.mutation(
       internal.productSync.replaceRecoveryMaterialIfUnchanged,
       {
+        recoveryVerifier,
         encryptedPayload,
         trustedDeviceId: currentDevice.trustedDeviceId,
       },
@@ -1684,14 +1523,11 @@ describe('productAccount.connect', () => {
       trustedDeviceId: currentDevice.trustedDeviceId,
       trustedDeviceToRevokeId: firstTarget.trustedDeviceId,
     });
-    const reconnectedCurrentDevice = await asUser.mutation(
-      api.productAccount.connect,
-      {
-        deviceIdentifier: 'device-001',
-        platform: 'ios',
-        supportsDeviceCredentials: true,
-      },
-    );
+    const reconnectedCurrentDevice = await connectTrusted(t, asUser, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+      supportsDeviceCredentials: true,
+    });
 
     await expect(
       revokeTrustedDevice(asUser, {
@@ -1711,21 +1547,22 @@ describe('productAccount.connect', () => {
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
-    const currentDevice = await asUser.mutation(api.productAccount.connect, {
+    const currentDevice = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
     });
-    const firstTarget = await asUser.mutation(api.productAccount.connect, {
+    const firstTarget = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-002',
       platform: 'macos',
     });
-    const secondTarget = await asUser.mutation(api.productAccount.connect, {
+    const secondTarget = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-003',
       platform: 'ios',
     });
     const recoveryMaterial = await asUser.mutation(
       internal.productSync.replaceRecoveryMaterialIfUnchanged,
       {
+        recoveryVerifier,
         encryptedPayload,
         trustedDeviceId: currentDevice.trustedDeviceId,
       },
@@ -1742,14 +1579,11 @@ describe('productAccount.connect', () => {
       trustedDeviceId: currentDevice.trustedDeviceId,
       trustedDeviceToRevokeId: firstTarget.trustedDeviceId,
     });
-    const reconnectedCurrentDevice = await asUser.mutation(
-      api.productAccount.connect,
-      {
-        deviceIdentifier: 'device-001',
-        platform: 'ios',
-        supportsDeviceCredentials: true,
-      },
-    );
+    const reconnectedCurrentDevice = await connectTrusted(t, asUser, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+      supportsDeviceCredentials: true,
+    });
 
     await expect(
       revokeTrustedDevice(asUser, {
@@ -1777,17 +1611,18 @@ describe('productAccount.connect', () => {
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
-    const currentDevice = await asUser.mutation(api.productAccount.connect, {
+    const currentDevice = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
     });
-    const signedOutDevice = await asUser.mutation(api.productAccount.connect, {
+    const signedOutDevice = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-002',
       platform: 'macos',
     });
     const recoveryMaterial = await asUser.mutation(
       internal.productSync.replaceRecoveryMaterialIfUnchanged,
       {
+        recoveryVerifier,
         encryptedPayload,
         trustedDeviceId: currentDevice.trustedDeviceId,
       },
@@ -1796,15 +1631,12 @@ describe('productAccount.connect', () => {
       deviceIdentifier: 'device-002',
       trustedDeviceId: signedOutDevice.trustedDeviceId,
     });
-    const reconnectedCurrentDevice = await asUser.mutation(
-      api.productAccount.connect,
-      {
-        deviceIdentifier: 'device-001',
-        platform: 'ios',
-        supportsDeviceCredentials: true,
-      },
-    );
-    await asUser.mutation(api.productAccount.connect, {
+    const reconnectedCurrentDevice = await connectTrusted(t, asUser, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+      supportsDeviceCredentials: true,
+    });
+    await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-002',
       platform: 'macos',
       supportsDeviceCredentials: true,
@@ -1850,7 +1682,7 @@ describe('productAccount.connect', () => {
       ),
     ).resolves.toStrictEqual([]);
     await expect(
-      asUser.mutation(api.productAccount.connect, {
+      connectTrusted(t, asUser, {
         deviceIdentifier: 'device-002',
         platform: 'macos',
       }),
@@ -1862,17 +1694,18 @@ describe('productAccount.connect', () => {
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
-    const staleDevice = await asUser.mutation(api.productAccount.connect, {
+    const staleDevice = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
     });
-    await asUser.mutation(api.productAccount.connect, {
+    await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-002',
       platform: 'macos',
     });
     const recoveryMaterial = await asUser.mutation(
       internal.productSync.replaceRecoveryMaterialIfUnchanged,
       {
+        recoveryVerifier,
         encryptedPayload,
         trustedDeviceId: staleDevice.trustedDeviceId,
       },
@@ -1881,7 +1714,7 @@ describe('productAccount.connect', () => {
       deviceIdentifier: 'device-001',
       trustedDeviceId: staleDevice.trustedDeviceId,
     });
-    const currentDevice = await asUser.mutation(api.productAccount.connect, {
+    const currentDevice = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
       supportsDeviceCredentials: true,
@@ -1919,17 +1752,18 @@ describe('productAccount.connect', () => {
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
-    const currentDevice = await asUser.mutation(api.productAccount.connect, {
+    const currentDevice = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
     });
-    const staleDevice = await asUser.mutation(api.productAccount.connect, {
+    const staleDevice = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-002',
       platform: 'macos',
     });
     const recoveryMaterial = await asUser.mutation(
       internal.productSync.replaceRecoveryMaterialIfUnchanged,
       {
+        recoveryVerifier,
         encryptedPayload,
         trustedDeviceId: currentDevice.trustedDeviceId,
       },
@@ -1938,22 +1772,16 @@ describe('productAccount.connect', () => {
       deviceIdentifier: 'device-002',
       trustedDeviceId: staleDevice.trustedDeviceId,
     });
-    const reconnectedCurrentDevice = await asUser.mutation(
-      api.productAccount.connect,
-      {
-        deviceIdentifier: 'device-001',
-        platform: 'ios',
-        supportsDeviceCredentials: true,
-      },
-    );
-    const reconnectedDevice = await asUser.mutation(
-      api.productAccount.connect,
-      {
-        deviceIdentifier: 'device-002',
-        platform: 'macos',
-        supportsDeviceCredentials: true,
-      },
-    );
+    const reconnectedCurrentDevice = await connectTrusted(t, asUser, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+      supportsDeviceCredentials: true,
+    });
+    const reconnectedDevice = await connectTrusted(t, asUser, {
+      deviceIdentifier: 'device-002',
+      platform: 'macos',
+      supportsDeviceCredentials: true,
+    });
     const removal = {
       encryptedTransition: encryptedPayload,
       expectedRecoveryUpdatedAt: recoveryMaterial.updatedAt,
@@ -2005,24 +1833,22 @@ describe('productAccount.connect', () => {
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
-    const currentDevice = await asUser.mutation(api.productAccount.connect, {
+    const currentDevice = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
     });
-    const firstRevokedDevice = await asUser.mutation(
-      api.productAccount.connect,
-      {
-        deviceIdentifier: 'device-002',
-        platform: 'macos',
-      },
-    );
-    const signedOutDevice = await asUser.mutation(api.productAccount.connect, {
+    const firstRevokedDevice = await connectTrusted(t, asUser, {
+      deviceIdentifier: 'device-002',
+      platform: 'macos',
+    });
+    const signedOutDevice = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-003',
       platform: 'ios',
     });
     const recoveryMaterial = await asUser.mutation(
       internal.productSync.replaceRecoveryMaterialIfUnchanged,
       {
+        recoveryVerifier,
         encryptedPayload,
         trustedDeviceId: currentDevice.trustedDeviceId,
       },
@@ -2031,19 +1857,16 @@ describe('productAccount.connect', () => {
       deviceIdentifier: 'device-003',
       trustedDeviceId: signedOutDevice.trustedDeviceId,
     });
-    await asUser.mutation(api.productAccount.connect, {
+    await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-003',
       platform: 'ios',
       supportsDeviceCredentials: true,
     });
-    const reconnectedCurrentDevice = await asUser.mutation(
-      api.productAccount.connect,
-      {
-        deviceIdentifier: 'device-001',
-        platform: 'ios',
-        supportsDeviceCredentials: true,
-      },
-    );
+    const reconnectedCurrentDevice = await connectTrusted(t, asUser, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+      supportsDeviceCredentials: true,
+    });
     await revokeTrustedDevice(asUser, {
       encryptedTransition: encryptedPayload,
       expectedRecoveryUpdatedAt: recoveryMaterial.updatedAt,
@@ -2096,7 +1919,7 @@ describe('productAccount.connect', () => {
       t.run(async (ctx) => ctx.db.query('revokedTrustedDevices').collect()),
     ).resolves.toHaveLength(2);
     await expect(
-      asUser.mutation(api.productAccount.connect, {
+      connectTrusted(t, asUser, {
         deviceIdentifier: 'device-003',
         platform: 'ios',
       }),
@@ -2108,17 +1931,18 @@ describe('productAccount.connect', () => {
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
-    const currentDevice = await asUser.mutation(api.productAccount.connect, {
+    const currentDevice = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
     });
-    const revokedDevice = await asUser.mutation(api.productAccount.connect, {
+    const revokedDevice = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-002',
       platform: 'macos',
     });
     const recoveryMaterial = await asUser.mutation(
       internal.productSync.replaceRecoveryMaterialIfUnchanged,
       {
+        recoveryVerifier,
         encryptedPayload,
         trustedDeviceId: currentDevice.trustedDeviceId,
       },
@@ -2145,7 +1969,7 @@ describe('productAccount.connect', () => {
       t.run(async (ctx) => ctx.db.query('revokedTrustedDevices').collect()),
     ).resolves.toHaveLength(1);
     await expect(
-      asUser.mutation(api.productAccount.connect, {
+      connectTrusted(t, asUser, {
         deviceIdentifier: 'device-002',
         platform: 'macos',
       }),
@@ -2157,21 +1981,22 @@ describe('productAccount.connect', () => {
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
-    const currentDevice = await asUser.mutation(api.productAccount.connect, {
+    const currentDevice = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
     });
-    const signingOutDevice = await asUser.mutation(api.productAccount.connect, {
+    const signingOutDevice = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-002',
       platform: 'macos',
     });
-    const revokedDevice = await asUser.mutation(api.productAccount.connect, {
+    const revokedDevice = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-003',
       platform: 'ios',
     });
     const recoveryMaterial = await asUser.mutation(
       internal.productSync.replaceRecoveryMaterialIfUnchanged,
       {
+        recoveryVerifier,
         encryptedPayload,
         trustedDeviceId: currentDevice.trustedDeviceId,
       },
@@ -2188,22 +2013,16 @@ describe('productAccount.connect', () => {
       trustedDeviceId: currentDevice.trustedDeviceId,
       trustedDeviceToRevokeId: revokedDevice.trustedDeviceId,
     });
-    const reconnectedCurrentDevice = await asUser.mutation(
-      api.productAccount.connect,
-      {
-        deviceIdentifier: 'device-001',
-        platform: 'ios',
-        supportsDeviceCredentials: true,
-      },
-    );
-    const reconnectedSigningOutDevice = await asUser.mutation(
-      api.productAccount.connect,
-      {
-        deviceIdentifier: 'device-002',
-        platform: 'macos',
-        supportsDeviceCredentials: true,
-      },
-    );
+    const reconnectedCurrentDevice = await connectTrusted(t, asUser, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+      supportsDeviceCredentials: true,
+    });
+    const reconnectedSigningOutDevice = await connectTrusted(t, asUser, {
+      deviceIdentifier: 'device-002',
+      platform: 'macos',
+      supportsDeviceCredentials: true,
+    });
     await asUser.mutation(
       api.productAccount.acknowledgeProductSyncKeyRotation,
       {
@@ -2239,37 +2058,23 @@ describe('productAccount.connect', () => {
     ).resolves.toMatchObject({ encryptedPayload: nextRecoveryMaterial });
   });
 
-  it('allows a non-revoked device to reconnect after signing out', async () => {
+  it('signs a device back in as a Pending Device after its sign-out', async () => {
     expect.assertions(1);
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
-    const currentDevice = await asUser.mutation(api.productAccount.connect, {
+    const currentDevice = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
     });
-    const revokedDevice = await asUser.mutation(api.productAccount.connect, {
+    const revokedDevice = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-002',
       platform: 'macos',
-    });
-    await t.run(async (ctx) => {
-      const legacyIdentifierHistory = await ctx.db
-        .query('trustedDeviceIdentifierHistory')
-        .withIndex('by_productAccountId_and_deviceIdentifier', (q) =>
-          q
-            .eq('productAccountId', currentDevice.productAccountId)
-            .eq('deviceIdentifier', 'device-001'),
-        )
-        .collect();
-      await Promise.all(
-        legacyIdentifierHistory.map(async (history) =>
-          ctx.db.delete('trustedDeviceIdentifierHistory', history._id),
-        ),
-      );
     });
     const recoveryMaterial = await asUser.mutation(
       internal.productSync.replaceRecoveryMaterialIfUnchanged,
       {
+        recoveryVerifier,
         encryptedPayload,
         trustedDeviceId: currentDevice.trustedDeviceId,
       },
@@ -2285,14 +2090,11 @@ describe('productAccount.connect', () => {
       trustedDeviceId: currentDevice.trustedDeviceId,
       trustedDeviceToRevokeId: revokedDevice.trustedDeviceId,
     });
-    const reconnectedCurrentDevice = await asUser.mutation(
-      api.productAccount.connect,
-      {
-        deviceIdentifier: 'device-001',
-        platform: 'ios',
-        supportsDeviceCredentials: true,
-      },
-    );
+    const reconnectedCurrentDevice = await connectTrusted(t, asUser, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+      supportsDeviceCredentials: true,
+    });
     await asUser.mutation(
       api.productAccount.acknowledgeProductSyncKeyRotation,
       {
@@ -2308,6 +2110,7 @@ describe('productAccount.connect', () => {
       trustedDeviceId: currentDevice.trustedDeviceId,
     });
 
+    // Signing out left no Trusted Device record; only an approval or the Recovery Key admits it.
     await expect(
       asUser.mutation(api.productAccount.connect, {
         deviceIdentifier: 'device-001',
@@ -2315,108 +2118,8 @@ describe('productAccount.connect', () => {
         supportsDeviceCredentials: true,
       }),
     ).resolves.toMatchObject({
-      deviceRegistered: true,
+      pendingDeviceId: expect.any(String),
       productAccountId: currentDevice.productAccountId,
-    });
-  });
-
-  it('requires legacy identifier migration before the first revocation', async () => {
-    expect.assertions(1);
-
-    const t = convexTest(schema, modules);
-    const asUser = t.withIdentity(appleIdentity);
-    const currentDevice = await asUser.mutation(api.productAccount.connect, {
-      deviceIdentifier: 'device-001',
-      platform: 'ios',
-    });
-    const targetDevice = await asUser.mutation(api.productAccount.connect, {
-      deviceIdentifier: 'device-002',
-      platform: 'macos',
-    });
-    await t.run(async (ctx) =>
-      ctx.db.patch('productAccounts', currentDevice.productAccountId, {
-        legacyTrustedDeviceIdentifierMigrationCompletedAt: undefined,
-      }),
-    );
-
-    await expect(
-      revokeTrustedDevice(asUser, {
-        encryptedTransition: encryptedPayload,
-        expectedRecoveryUpdatedAt: Date.now(),
-        recoveryWrappedAccountKey: {
-          ...encryptedPayload,
-          keyVersion: 2,
-          schemaVersion: 3,
-        },
-        trustedDeviceId: currentDevice.trustedDeviceId,
-        trustedDeviceToRevokeId: targetDevice.trustedDeviceId,
-      }),
-    ).rejects.toThrow('Trusted Device identifier migration required');
-  });
-
-  it('rejects an oversized legacy identifier migration batch', async () => {
-    expect.assertions(1);
-
-    const t = convexTest(schema, modules);
-
-    await expect(
-      t.mutation(
-        internal.productAccount.migrateLegacyTrustedDeviceIdentifiers,
-        {
-          identifiers: Array.from({ length: 101 }, (_unused, index) => ({
-            deviceIdentifier: `device-legacy-${index}`,
-            firstRegisteredAt: index + 1,
-          })),
-          migrationComplete: false,
-          tokenIdentifier: appleIdentity.tokenIdentifier,
-        },
-      ),
-    ).rejects.toThrow('Trusted Device identifier migration batch is too large');
-  });
-
-  it('rejects legacy identifier migration for an unknown Product Account', async () => {
-    expect.assertions(1);
-
-    const t = convexTest(schema, modules);
-
-    await expect(
-      t.mutation(
-        internal.productAccount.migrateLegacyTrustedDeviceIdentifiers,
-        {
-          identifiers: [],
-          migrationComplete: true,
-          tokenIdentifier: 'unknown-token-identifier',
-        },
-      ),
-    ).rejects.toThrow('Product Account required');
-  });
-
-  it('migrates a legacy signed-out identifier before the first tombstone', async () => {
-    expect.assertions(5);
-
-    await expectLegacyIdentifierMigration({
-      existingRevocationTombstone: false,
-      migrationComplete: true,
-    });
-  });
-
-  it('migrates a legacy signed-out identifier after an existing tombstone', async () => {
-    expect.assertions(7);
-
-    await expectLegacyIdentifierMigration({
-      completeAfterFirstBatch: async ({
-        completeMigration,
-        reconnectLegacyDevice,
-      }) => {
-        await expect(reconnectLegacyDevice()).rejects.toMatchObject({
-          data: { code: 'TRUSTED_DEVICE_REVOKED' },
-        });
-        await expect(completeMigration()).resolves.toMatchObject({
-          migrationComplete: true,
-        });
-      },
-      existingRevocationTombstone: true,
-      migrationComplete: false,
     });
   });
 
@@ -2425,17 +2128,18 @@ describe('productAccount.connect', () => {
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
-    const currentDevice = await asUser.mutation(api.productAccount.connect, {
+    const currentDevice = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
     });
-    const otherDevice = await asUser.mutation(api.productAccount.connect, {
+    const otherDevice = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-002',
       platform: 'macos',
     });
     const recoveryMaterial = await asUser.mutation(
       internal.productSync.replaceRecoveryMaterialIfUnchanged,
       {
+        recoveryVerifier,
         encryptedPayload,
         trustedDeviceId: currentDevice.trustedDeviceId,
       },
@@ -2476,11 +2180,11 @@ describe('productAccount.connect', () => {
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
-    const currentDevice = await asUser.mutation(api.productAccount.connect, {
+    const currentDevice = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
     });
-    const otherDevice = await asUser.mutation(api.productAccount.connect, {
+    const otherDevice = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-002',
       platform: 'macos',
     });
@@ -2519,11 +2223,11 @@ describe('productAccount.connect', () => {
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
-    const currentDevice = await asUser.mutation(api.productAccount.connect, {
+    const currentDevice = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
     });
-    const otherDevice = await asUser.mutation(api.productAccount.connect, {
+    const otherDevice = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-002',
       platform: 'macos',
     });
@@ -2576,11 +2280,11 @@ describe('productAccount.connect', () => {
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
-    const currentDevice = await asUser.mutation(api.productAccount.connect, {
+    const currentDevice = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
     });
-    const otherDevice = await asUser.mutation(api.productAccount.connect, {
+    const otherDevice = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-002',
       platform: 'macos',
     });
@@ -2641,11 +2345,11 @@ describe('productAccount.connect', () => {
 
       const t = convexTest(schema, modules);
       const asUser = t.withIdentity(appleIdentity);
-      const currentDevice = await asUser.mutation(api.productAccount.connect, {
+      const currentDevice = await connectTrusted(t, asUser, {
         deviceIdentifier: 'device-001',
         platform: 'ios',
       });
-      const otherDevice = await asUser.mutation(api.productAccount.connect, {
+      const otherDevice = await connectTrusted(t, asUser, {
         deviceIdentifier: 'device-002',
         platform: 'macos',
       });
@@ -2734,7 +2438,7 @@ describe('productAccount.connect', () => {
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
-    const currentDevice = await asUser.mutation(api.productAccount.connect, {
+    const currentDevice = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
     });
@@ -2779,7 +2483,7 @@ describe('productAccount.connect', () => {
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
-    const currentDevice = await asUser.mutation(api.productAccount.connect, {
+    const currentDevice = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
     });
@@ -2813,11 +2517,11 @@ describe('productAccount.connect', () => {
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
-    await asUser.mutation(api.productAccount.connect, {
+    await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
     });
-    const otherDevice = await asUser.mutation(api.productAccount.connect, {
+    const otherDevice = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-002',
       platform: 'macos',
     });
@@ -2840,11 +2544,11 @@ describe('productAccount.connect', () => {
       subject: 'apple-user-002',
       tokenIdentifier: 'https://appleid.apple.com|apple-user-002',
     });
-    const otherDevice = await asOtherUser.mutation(api.productAccount.connect, {
+    const otherDevice = await connectTrusted(t, asOtherUser, {
       deviceIdentifier: 'device-002',
       platform: 'macos',
     });
-    await asUser.mutation(api.productAccount.connect, {
+    await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
     });
@@ -2857,32 +2561,12 @@ describe('productAccount.connect', () => {
     ).rejects.toThrow('Trusted device required');
   });
 
-  it('rejects registration beyond the Trusted Device list limit', async () => {
-    expect.assertions(1);
-
-    const t = convexTest(schema, modules);
-    const asUser = t.withIdentity(appleIdentity);
-    for (let index = 0; index < 100; index += 1) {
-      await asUser.mutation(api.productAccount.connect, {
-        deviceIdentifier: `device-${index}`,
-        platform: 'ios',
-      });
-    }
-
-    await expect(
-      asUser.mutation(api.productAccount.connect, {
-        deviceIdentifier: 'device-over-limit',
-        platform: 'ios',
-      }),
-    ).rejects.toThrow('Trusted Device limit exceeded');
-  });
-
   it('marks Product Sync material initialized once a recovery envelope exists', async () => {
     expect.assertions(2);
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
-    const connect = await asUser.mutation(api.productAccount.connect, {
+    const connect = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
     });
@@ -2907,7 +2591,7 @@ describe('productAccount.connect', () => {
     });
 
     await expect(
-      asUser.mutation(api.productAccount.connect, {
+      connectTrusted(t, asUser, {
         deviceIdentifier: 'device-001',
         platform: 'ios',
       }),
@@ -2926,15 +2610,12 @@ describe('productAccount.connect', () => {
       subject: 'apple-user-002',
       tokenIdentifier: 'https://appleid.apple.com|apple-user-002',
     });
-    const otherConnect = await asOtherUser.mutation(
-      api.productAccount.connect,
-      {
-        deviceIdentifier: 'device-002',
-        platform: 'ios',
-      },
-    );
+    const otherConnect = await connectTrusted(t, asOtherUser, {
+      deviceIdentifier: 'device-002',
+      platform: 'ios',
+    });
 
-    await asUser.mutation(api.productAccount.connect, {
+    await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
     });
@@ -2951,7 +2632,7 @@ describe('productAccount.connect', () => {
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
-    const connect = await asUser.mutation(api.productAccount.connect, {
+    const connect = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
     });
@@ -2968,7 +2649,7 @@ describe('productAccount.connect', () => {
     });
 
     await expect(
-      asUser.mutation(api.productAccount.connect, {
+      connectTrusted(t, asUser, {
         deviceIdentifier: 'device-001',
         platform: 'ios',
       }),
@@ -2983,7 +2664,7 @@ describe('productAccount.connect', () => {
     const t = convexTest(schema, modules);
 
     await expect(
-      t.mutation(api.productAccount.connect, {
+      connectTrusted(t, t, {
         deviceIdentifier: 'device-001',
         platform: 'ios',
       }),
@@ -2997,7 +2678,7 @@ describe('gmail operational connection registration', () => {
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
-    const connect = await asUser.mutation(api.productAccount.connect, {
+    const connect = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
     });
@@ -3052,7 +2733,7 @@ describe('gmail operational connection registration', () => {
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
-    const connect = await asUser.mutation(api.productAccount.connect, {
+    const connect = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
     });
@@ -3108,7 +2789,7 @@ describe('gmail operational connection registration', () => {
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
-    const connect = await asUser.mutation(api.productAccount.connect, {
+    const connect = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
     });
@@ -3132,11 +2813,11 @@ describe('gmail operational connection registration', () => {
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
-    const firstDevice = await asUser.mutation(api.productAccount.connect, {
+    const firstDevice = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
     });
-    const secondDevice = await asUser.mutation(api.productAccount.connect, {
+    const secondDevice = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-002',
       platform: 'ios',
     });
@@ -3160,7 +2841,7 @@ describe('gmail operational connection registration', () => {
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
-    const connect = await asUser.mutation(api.productAccount.connect, {
+    const connect = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
     });
@@ -3224,7 +2905,7 @@ describe('gmail operational connection registration', () => {
     try {
       const t = convexTest(schema, modules);
       const asUser = t.withIdentity(appleIdentity);
-      const currentDevice = await asUser.mutation(api.productAccount.connect, {
+      const currentDevice = await connectTrusted(t, asUser, {
         deviceIdentifier: 'device-001',
         platform: 'ios',
       });
@@ -3246,7 +2927,7 @@ describe('gmail operational connection registration', () => {
     try {
       const t = convexTest(schema, modules);
       const asUser = t.withIdentity(appleIdentity);
-      const currentDevice = await asUser.mutation(api.productAccount.connect, {
+      const currentDevice = await connectTrusted(t, asUser, {
         deviceIdentifier: 'device-001',
         platform: 'ios',
       });
@@ -3270,14 +2951,11 @@ describe('gmail operational connection registration', () => {
           });
         }
       });
-      const reconnectedCurrentDevice = await asUser.mutation(
-        api.productAccount.connect,
-        {
-          deviceIdentifier: 'device-001',
-          platform: 'ios',
-          supportsDeviceCredentials: true,
-        },
-      );
+      const reconnectedCurrentDevice = await connectTrusted(t, asUser, {
+        deviceIdentifier: 'device-001',
+        platform: 'ios',
+        supportsDeviceCredentials: true,
+      });
 
       await expect(
         asUser.action(api.productAccountDeletion.deleteProductAccount, {
@@ -3295,9 +2973,7 @@ describe('gmail operational connection registration', () => {
         t.run(async (ctx) => ctx.db.query('revokedTrustedDevices').collect()),
       ).resolves.toStrictEqual([]);
       await expect(
-        t.run(async (ctx) =>
-          ctx.db.query('trustedDeviceIdentifierHistory').collect(),
-        ),
+        t.run(async (ctx) => ctx.db.query('pendingDevices').collect()),
       ).resolves.toStrictEqual([]);
       await expect(
         t.run(async (ctx) =>
@@ -3314,15 +2990,16 @@ describe('gmail operational connection registration', () => {
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
-    const currentDevice = await asUser.mutation(api.productAccount.connect, {
+    const currentDevice = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
     });
-    const otherDevice = await asUser.mutation(api.productAccount.connect, {
+    const otherDevice = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-002',
       platform: 'macos',
     });
     await asUser.mutation(api.productSync.initialize, {
+      recoveryVerifier,
       encryptedPayload: { ...encryptedPayload, schemaVersion: 3 },
       trustedDeviceId: currentDevice.trustedDeviceId,
     });
@@ -3388,7 +3065,7 @@ describe('gmail operational connection registration', () => {
         productAccountId: currentDevice.productAccountId,
         updatedAt: now,
       });
-      await ctx.db.insert('productSyncEnrollmentRequests', {
+      await ctx.db.insert('pendingDevices', {
         approval: {
           approvedAt: now,
           approvedByTrustedDeviceId: currentDevice.trustedDeviceId,
@@ -3397,11 +3074,12 @@ describe('gmail operational connection registration', () => {
           keyVersion: 1,
         },
         createdAt: now,
+        credentialDigest: 'c'.repeat(64),
+        deviceIdentifier: 'device-pending',
         enrollmentPublicKey: `${'A'.repeat(43)}=`,
         expiresAt: now + 15 * 60 * 1000,
+        platform: 'ios',
         productAccountId: currentDevice.productAccountId,
-        state: 'approved',
-        trustedDeviceId: otherDevice.trustedDeviceId,
       });
     });
 
@@ -3416,9 +3094,7 @@ describe('gmail operational connection registration', () => {
         accounts: await ctx.db.query('productAccounts').collect(),
         bindings: await ctx.db.query('gmailOpaqueIdentityBindings').collect(),
         devices: await ctx.db.query('trustedDevices').collect(),
-        enrollments: await ctx.db
-          .query('productSyncEnrollmentRequests')
-          .collect(),
+        enrollments: await ctx.db.query('pendingDevices').collect(),
         heartbeats: await ctx.db.query('devicePushRouteHeartbeats').collect(),
         payloads: await ctx.db.query('encryptedProductSyncPayloads').collect(),
         routes: await ctx.db.query('mailProviderConnections').collect(),
@@ -3448,7 +3124,7 @@ describe('gmail operational connection registration', () => {
       }),
     ).resolves.toStrictEqual({ signals: 1, tombstones: 1 });
     await expect(
-      asUser.mutation(api.productAccount.connect, {
+      connectTrusted(t, asUser, {
         deviceIdentifier: 'device-003',
         platform: 'ios',
       }),
@@ -3466,7 +3142,7 @@ describe('gmail operational connection registration', () => {
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(googleIdentity);
-    const device = await asUser.mutation(api.productAccount.connect, {
+    const device = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
       supportsDeviceCredentials: true,
@@ -3476,6 +3152,7 @@ describe('gmail operational connection registration', () => {
       trustedDeviceId: device.trustedDeviceId,
     };
     await asUser.mutation(api.productSync.initialize, {
+      recoveryVerifier,
       ...proof,
       encryptedPayload: { ...encryptedPayload, schemaVersion: 3 },
     });
@@ -3504,7 +3181,7 @@ describe('gmail operational connection registration', () => {
       { accounts: 0, linked: 0, payloads: 0, tombstones: 1 },
     ]);
     await expect(
-      asUser.mutation(api.productAccount.connect, {
+      connectTrusted(t, asUser, {
         deviceIdentifier: 'device-002',
         platform: 'ios',
         supportsDeviceCredentials: true,
@@ -3526,12 +3203,12 @@ describe('gmail operational connection registration', () => {
       subject: 'google-other',
       tokenIdentifier: 'https://accounts.google.com|google-other',
     });
-    const device = await asUser.mutation(api.productAccount.connect, {
+    const device = await connectTrusted(t, asUser, {
       deviceIdentifier: 'deleting-device',
       platform: 'ios',
       supportsDeviceCredentials: true,
     });
-    const other = await asOther.mutation(api.productAccount.connect, {
+    const other = await connectTrusted(t, asOther, {
       deviceIdentifier: 'other-device',
       platform: 'ios',
       supportsDeviceCredentials: true,
@@ -3589,7 +3266,7 @@ describe('gmail operational connection registration', () => {
 
     const t = convexTest(schema, modules);
     const asGoogle = t.withIdentity(googleIdentity);
-    const device = await asGoogle.mutation(api.productAccount.connect, {
+    const device = await connectTrusted(t, asGoogle, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
     });
@@ -3635,7 +3312,7 @@ describe('gmail operational connection registration', () => {
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
-    const currentDevice = await asUser.mutation(api.productAccount.connect, {
+    const currentDevice = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
     });
@@ -3669,7 +3346,7 @@ describe('gmail operational connection registration', () => {
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
-    const currentDevice = await asUser.mutation(api.productAccount.connect, {
+    const currentDevice = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
     });
@@ -3699,7 +3376,7 @@ describe('gmail operational connection registration', () => {
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
-    const currentDevice = await asUser.mutation(api.productAccount.connect, {
+    const currentDevice = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
     });
@@ -3734,7 +3411,7 @@ describe('gmail operational connection registration', () => {
       },
     ]);
     await expect(
-      asUser.mutation(api.productAccount.connect, {
+      connectTrusted(t, asUser, {
         deviceIdentifier: 'device-001',
         platform: 'ios',
       }),
@@ -3779,7 +3456,7 @@ describe('gmail operational connection registration', () => {
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
-    const currentDevice = await asUser.mutation(api.productAccount.connect, {
+    const currentDevice = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
     });
@@ -3814,7 +3491,7 @@ describe('gmail operational connection registration', () => {
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
-    const currentDevice = await asUser.mutation(api.productAccount.connect, {
+    const currentDevice = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
     });
@@ -3867,7 +3544,7 @@ describe('gmail operational connection registration', () => {
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
-    const currentDevice = await asUser.mutation(api.productAccount.connect, {
+    const currentDevice = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
     });
@@ -3917,7 +3594,7 @@ describe('gmail operational connection registration', () => {
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
-    const currentDevice = await asUser.mutation(api.productAccount.connect, {
+    const currentDevice = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
     });
@@ -3951,7 +3628,7 @@ describe('gmail operational connection registration', () => {
     );
     expect(succeededRequest).not.toHaveProperty('revocationMaterial');
     await expect(
-      asUser.mutation(api.productAccount.connect, {
+      connectTrusted(t, asUser, {
         deviceIdentifier: 'device-002',
         platform: 'ios',
       }),
@@ -3980,7 +3657,7 @@ describe('gmail operational connection registration', () => {
     try {
       const t = convexTest(schema, modules);
       const asUser = t.withIdentity(appleIdentity);
-      const currentDevice = await asUser.mutation(api.productAccount.connect, {
+      const currentDevice = await connectTrusted(t, asUser, {
         deviceIdentifier: 'device-001',
         platform: 'ios',
       });
@@ -4038,7 +3715,7 @@ describe('gmail operational connection registration', () => {
     try {
       const t = convexTest(schema, modules);
       const asUser = t.withIdentity(appleIdentity);
-      const currentDevice = await asUser.mutation(api.productAccount.connect, {
+      const currentDevice = await connectTrusted(t, asUser, {
         deviceIdentifier: 'device-001',
         platform: 'ios',
       });
@@ -4071,7 +3748,7 @@ describe('gmail operational connection registration', () => {
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
-    const currentDevice = await asUser.mutation(api.productAccount.connect, {
+    const currentDevice = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
     });
@@ -4138,12 +3815,12 @@ describe('gmail operational connection registration', () => {
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
-    const currentDevice = await asUser.mutation(api.productAccount.connect, {
+    const currentDevice = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
       supportsDeviceCredentials: true,
     });
-    const otherDevice = await asUser.mutation(api.productAccount.connect, {
+    const otherDevice = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-002',
       platform: 'macos',
       supportsDeviceCredentials: true,
@@ -4208,7 +3885,7 @@ describe('gmail operational connection registration', () => {
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
-    const currentDevice = await asUser.mutation(api.productAccount.connect, {
+    const currentDevice = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
     });
@@ -4245,7 +3922,7 @@ describe('gmail operational connection registration', () => {
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
-    const currentDevice = await asUser.mutation(api.productAccount.connect, {
+    const currentDevice = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
     });
@@ -4289,7 +3966,7 @@ describe('gmail operational connection registration', () => {
     try {
       const t = convexTest(schema, modules);
       const asUser = t.withIdentity(appleIdentity);
-      const currentDevice = await asUser.mutation(api.productAccount.connect, {
+      const currentDevice = await connectTrusted(t, asUser, {
         deviceIdentifier: 'device-001',
         platform: 'ios',
       });
@@ -4356,7 +4033,7 @@ describe('gmail operational connection registration', () => {
     try {
       const t = convexTest(schema, modules);
       const asUser = t.withIdentity(appleIdentity);
-      const device = await asUser.mutation(api.productAccount.connect, {
+      const device = await connectTrusted(t, asUser, {
         deviceIdentifier: 'device-001',
         platform: 'ios',
       });
@@ -4414,7 +4091,7 @@ describe('gmail operational connection registration', () => {
     try {
       const t = convexTest(schema, modules);
       const asUser = t.withIdentity(appleIdentity);
-      const device = await asUser.mutation(api.productAccount.connect, {
+      const device = await connectTrusted(t, asUser, {
         deviceIdentifier: 'device-001',
         platform: 'ios',
       });
@@ -4454,7 +4131,7 @@ describe('gmail operational connection registration', () => {
     try {
       const t = convexTest(schema, modules);
       const asUser = t.withIdentity(appleIdentity);
-      const device = await asUser.mutation(api.productAccount.connect, {
+      const device = await connectTrusted(t, asUser, {
         deviceIdentifier: 'device-001',
         platform: 'ios',
       });
@@ -4509,7 +4186,7 @@ describe('gmail operational connection registration', () => {
     try {
       const t = convexTest(schema, modules);
       const asUser = t.withIdentity(appleIdentity);
-      const device = await asUser.mutation(api.productAccount.connect, {
+      const device = await connectTrusted(t, asUser, {
         deviceIdentifier: 'device-001',
         platform: 'ios',
       });
@@ -4555,7 +4232,7 @@ describe('gmail operational connection registration', () => {
     try {
       const t = convexTest(schema, modules);
       const asUser = t.withIdentity(appleIdentity);
-      const currentDevice = await asUser.mutation(api.productAccount.connect, {
+      const currentDevice = await connectTrusted(t, asUser, {
         deviceIdentifier: 'device-001',
         platform: 'ios',
       });
@@ -4645,13 +4322,10 @@ describe('gmail operational connection registration', () => {
       try {
         const t = convexTest(schema, modules);
         const asUser = t.withIdentity(appleIdentity);
-        const currentDevice = await asUser.mutation(
-          api.productAccount.connect,
-          {
-            deviceIdentifier: 'device-001',
-            platform: 'ios',
-          },
-        );
+        const currentDevice = await connectTrusted(t, asUser, {
+          deviceIdentifier: 'device-001',
+          platform: 'ios',
+        });
         vi.mocked(fetch).mockImplementationOnce(async () =>
           appleTokenResponse(subject, audience),
         );
@@ -4678,7 +4352,7 @@ describe('gmail operational connection registration', () => {
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
-    const currentDevice = await asUser.mutation(api.productAccount.connect, {
+    const currentDevice = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
     });

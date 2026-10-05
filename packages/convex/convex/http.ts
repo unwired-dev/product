@@ -9,6 +9,7 @@ import { internal } from './_generated/api.js';
 import { env, httpAction } from './_generated/server.js';
 import { decodeGmailPushEnvelope } from './gmailPushPayload.js';
 import {
+  pendingDeviceUnavailableErrorCode,
   trustedDeviceReconnectRequiredErrorCode,
   trustedDeviceRevokedErrorCode,
 } from './productAccountAuth.js';
@@ -42,6 +43,7 @@ const decodeRecoveryMaterialRequest = Schema.decodeUnknownOption(
   Schema.Struct({
     encryptedPayload: EncryptedPayloadSchema,
     expectedUpdatedAt: Schema.optionalKey(Schema.Number), // oxlint-disable-line effecttsgo/schema-number -- Matches v.number().
+    recoveryVerifier: Schema.String,
     trustedDeviceCredential: Schema.optionalKey(Schema.String),
     trustedDeviceId: Schema.String,
   }),
@@ -50,6 +52,7 @@ const decodeTrustedDeviceRevocationRequest = Schema.decodeUnknownOption(
   Schema.Struct({
     encryptedTransition: EncryptedPayloadSchema,
     expectedRecoveryUpdatedAt: Schema.Number, // oxlint-disable-line effecttsgo/schema-number -- Matches v.number().
+    recoveryVerifier: Schema.String,
     recoveryWrappedAccountKey: EncryptedPayloadSchema,
     trustedDeviceCredential: Schema.optionalKey(Schema.String),
     trustedDeviceId: Schema.String,
@@ -62,8 +65,11 @@ const decodeProductAccountDeletionRequest = Schema.decodeUnknownOption(
     appleClientId: Schema.optionalKey(Schema.String),
     // Required by an account that Sign in with Apple opens, so its authorization is revoked.
     authorizationCode: Schema.optionalKey(Schema.String),
+    // A Pending Device may delete the Product Account; any other caller is a Trusted Device.
+    pendingDeviceCredential: Schema.optionalKey(Schema.String),
+    pendingDeviceId: Schema.optionalKey(Schema.String),
     trustedDeviceCredential: Schema.optionalKey(Schema.String),
-    trustedDeviceId: Schema.String,
+    trustedDeviceId: Schema.optionalKey(Schema.String),
   }),
 );
 
@@ -87,6 +93,7 @@ const isSignInLinkFailure = Schema.is(
 const isTrustedDeviceAccessFailure = Schema.is(
   Schema.Struct({
     code: Schema.Literals([
+      pendingDeviceUnavailableErrorCode,
       trustedDeviceRevokedErrorCode,
       trustedDeviceReconnectRequiredErrorCode,
     ]),

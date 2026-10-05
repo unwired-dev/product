@@ -84,11 +84,15 @@ const Account = Schema.Struct({
 export const RegistrationSnapshotSchema = Schema.Union([
   Schema.Struct({
     kind: Schema.Literal('signed-out'),
-    // This device purged the Product Account after it was removed, or was refused after a removal,
-    // or after the Product Account was deleted from this device or another.
-    notice: Schema.optionalKey(
-      Schema.Literals(['revoked', 'refused', 'deleted']),
-    ),
+    // This device purged the Product Account after it was removed, or after the Product Account
+    // was deleted from this device or another.
+    notice: Schema.optionalKey(Schema.Literals(['revoked', 'deleted'])),
+  }),
+  // Signed in but not admitted: until a Trusted Device approves it or the Recovery Key unlocks
+  // it, this device has no account data, no Product Sync and no mailbox.
+  Schema.Struct({
+    kind: Schema.Literal('device-pending'),
+    ...Account.fields,
   }),
   Schema.Struct({
     kind: Schema.Literal('mailbox-needed'),
@@ -645,11 +649,6 @@ const signedOutNotices = {
     description:
       'This Product Account was permanently deleted, so its account data, keys and mailbox access were removed from this device. Anything copied from another device while it was offline cannot be erased remotely. Your mail in Gmail is not affected.',
   },
-  refused: {
-    title: 'This device cannot join',
-    description:
-      'Your Product Account currently does not accept new devices because a device was removed from it, so nothing was saved on this device. Your mail in Gmail is not affected.',
-  },
 } as const;
 
 // Leaving this device is distinct from deleting the Product Account everywhere.
@@ -671,20 +670,31 @@ export const accountRemovalCopy = {
     'Deletion could not be confirmed. Your Product Account may already be deleted. Retry deletion when you are online to confirm it and finish removing local account data.',
 } as const;
 
-// A retained account without a usable mailbox, or one whose removal has not finished.
+// An account whose sign-out or deletion has not finished; that replaces any other setup.
+function removalPendingCopy(
+  snapshot: Readonly<{
+    removalPending?: AccountRemoval;
+    signInProvider: SignInProvider;
+    contactEmail?: string;
+  }>,
+) {
+  if (snapshot.removalPending === undefined) {
+    return undefined;
+  }
+  return {
+    title:
+      snapshot.removalPending === 'sign-out'
+        ? 'Finish signing out'
+        : 'Confirm account deletion',
+    description: accountRemovalCopy[snapshot.removalPending],
+    account: accountLine(snapshot),
+  };
+}
+
+// A retained account without a usable mailbox.
 function mailboxNeededCopy(
   snapshot: Extract<RegistrationSnapshot, { kind: 'mailbox-needed' }>,
 ) {
-  if (snapshot.removalPending !== undefined) {
-    return {
-      title:
-        snapshot.removalPending === 'sign-out'
-          ? 'Finish signing out'
-          : 'Confirm account deletion',
-      description: accountRemovalCopy[snapshot.removalPending],
-      account: accountLine(snapshot),
-    };
-  }
   const { reason, signInProvider } = snapshot;
   let description: string = mailboxNeeded[signInProvider];
   if (reason === 'unavailable') {
@@ -697,6 +707,25 @@ function mailboxNeededCopy(
     description,
     account: accountLine(snapshot),
   };
+}
+
+const devicePending = {
+  approval:
+    'Signing in does not add a device to your Product Account. Approve this device from one of your trusted devices with the code below, or unlock it with your Recovery Key. Until then this device cannot read your private data or connect a mailbox.',
+  'setup-pending':
+    'Your Product Account is still being set up on the device that created it, so this device cannot ask to be added yet. Check again later. Until then this device cannot read your private data or connect a mailbox.',
+  retry:
+    'This device could not ask your trusted devices to approve it yet. Check again when you are online. Until then this device cannot read your private data or connect a mailbox.',
+} as const;
+
+// A device after the Product Account's first waits for a Trusted Device or the Recovery Key.
+function devicePendingDescription(privateSync: PrivateSync | undefined) {
+  if (privateSync === 'setup-pending') {
+    return devicePending['setup-pending'];
+  }
+  return privateSync === 'enrollment-pending'
+    ? devicePending.approval
+    : devicePending.retry;
 }
 
 export function registrationCopy(snapshot: RegistrationSnapshot) {
@@ -713,7 +742,16 @@ export function registrationCopy(snapshot: RegistrationSnapshot) {
       };
     }
     case 'mailbox-needed': {
-      return mailboxNeededCopy(snapshot);
+      return removalPendingCopy(snapshot) ?? mailboxNeededCopy(snapshot);
+    }
+    case 'device-pending': {
+      return (
+        removalPendingCopy(snapshot) ?? {
+          title: 'Add this device',
+          description: devicePendingDescription(snapshot.privateSync),
+          account: accountLine(snapshot),
+        }
+      );
     }
     case 'connected': {
       return {
@@ -771,7 +809,7 @@ const privateSyncText = {
   'enrollment-needed': {
     title: 'Unlock private data on this device',
     description:
-      'This Product Account already has end-to-end encrypted data, so this device needs its keys. Approve it from one of your trusted devices or use your Recovery Key. Nothing was reset or replaced.',
+      'This device no longer has the keys to your end-to-end encrypted data. Unlock it with your Recovery Key, or sign out and sign in again so one of your trusted devices can approve it. Nothing was reset or replaced.',
   },
   'enrollment-pending': {
     title: 'Approve this device',

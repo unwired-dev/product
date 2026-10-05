@@ -36,8 +36,12 @@ implemented.
 ## Account identity for Product Sync
 
 - A **Product Account** identifies the user for **Product Sync**
-- **Product Sign-In** on a new device reaches the Product Account but not its Product Sync keys; an existing **Trusted Device** approves it with the device's **Enrollment Code**, or the **Recovery Key** unlocks it
-- An approval opens only on the requesting device for its own request; replayed, expired, declined, superseded, revoked or mismatched approvals are refused without replacing account keys
+- **Product Sign-In** admits only the device that creates the account's keys. Every later device, on every account, signs in as a **Pending Device**: it reaches the Product Account but not its Product Sync keys, account operations, push routing or **Mailbox Authorization**
+- A **Pending Device** may only ask for approval, read its own request, receive the key ring sealed to it, prove the **Recovery Key**, confirm it stored the keys, sign out, and delete the **Product Account** after a recent interactive **Product Sign-In**
+- An existing **Trusted Device** holding the account's newest key epoch approves a **Pending Device** with that device's **Enrollment Code**, or the **Recovery Key** unlocks it. The device becomes a **Trusted Device** at that epoch only when it confirms after storing the keys; an approval whose approving device was removed, or whose epoch a removal superseded, is void and the device stays pending
+- An approval opens only on the requesting device for its current request; replayed, expired, declined, superseded, revoked or mismatched approvals are refused without replacing account keys
+- While a **Device Revocation**'s key rotation is pending, only the replacement **Recovery Key** that it issued admits a **Pending Device**; the previous Recovery Key keeps working for already-trusted devices until rotation completes. A person who loses every **Trusted Device** and holds only the previous Recovery Key during that interval cannot regain access, and deleting the **Product Account** is the only path left
+- A device installation has at most one **Pending Device** and a **Product Account** at most three; a **Pending Device** ends with its **Enrollment Code**, does not count toward the **Trusted Device** limit or a pending key rotation, and the **Trusted Device** limit is enforced at admission
 
 ## Sign-in and mailbox permission
 
@@ -49,8 +53,7 @@ implemented.
 - **Device Revocation** immediately blocks the revoked device from Product Account APIs and push routing
 - Device Revocation preserves its durable block despite sign-out, reconnect or late unregister.
 - Every **Trusted Device** whose client supports device credentials presents its device-only **Trusted Device Credential** to Product Account, Product Sync, and push-relay APIs; a Trusted Device ID alone is not authentication proof. Routine reconnects preserve a valid credential so concurrent in-flight requests remain authorized; a missing or stale credential is replaced.
-- Legacy devices may reconnect after account-wide credential enforcement only when their exact pre-enforcement installation identifier was imported before that Product Account's identifier migration was marked complete.
-- Existing Product Accounts cannot perform a new **Device Revocation** until deployment operators import the full retained pre-enforcement **Trusted Device** inventory and mark that Product Account's identifier migration complete. Already-tombstoned accounts remain fail-closed during migration; newly created accounts are complete immediately, and a completed migration cannot admit another retained-device identifier.
+- A revoked device's own installation identifier and **Trusted Device Credential** stay refused ("This device was removed"). Under a new identifier it is a **Pending Device** like any other: it never receives a rotation transition, a recovery envelope or a newer key epoch unless it is admitted. A removed device with a live **Product Sign-In** can delete the **Product Account**'s synchronized data but can read none of it.
 - **Device Revocation** rotates Product Sync key material for the remaining **Trusted Devices**, preventing the revoked device from reading future synchronized changes
 - A revoked device purges local product data and mailbox credentials when it next connects, but revocation cannot guarantee erasure of data already copied from an offline or compromised device
 - Provider authorization must be revoked separately through the **Mail Provider** when its device-local credential may be compromised

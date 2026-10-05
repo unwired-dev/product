@@ -8,6 +8,7 @@ import { internalMutation } from './_generated/server.js';
 import {
   accountTokenIdentifier,
   productAccountForSignIn,
+  requirePendingDeviceProof,
   requireTrustedDeviceProof,
   signInProvidersForAccount,
   trustedDeviceCredentialArgs,
@@ -80,14 +81,74 @@ async function scheduleAuthorizationCodeExpiry(
   }
 }
 
+type DeletingDevice = Readonly<{
+  pendingDeviceCredential?: string;
+  pendingDeviceId?: string;
+  trustedDeviceCredential?: string;
+  trustedDeviceId?: string;
+}>;
+
+// fallow-ignore-next-line complexity -- Each malformed or mixed device proof fails closed.
+async function requireDeletingDevice(
+  ctx: MutationCtx,
+  account: Readonly<Doc<'productAccounts'>>,
+  device: DeletingDevice,
+): Promise<
+  | { requestedByPendingDeviceId: Id<'pendingDevices'> }
+  | { requestedByTrustedDeviceId: Id<'trustedDevices'> }
+> {
+  if (device.pendingDeviceId !== undefined) {
+    const pendingDeviceId = ctx.db.normalizeId(
+      'pendingDevices',
+      device.pendingDeviceId,
+    );
+    if (
+      pendingDeviceId === null ||
+      device.trustedDeviceId !== undefined ||
+      device.pendingDeviceCredential === undefined
+    ) {
+      throw new Error('Trusted device required');
+    }
+    await requirePendingDeviceProof(ctx, account._id, {
+      allowExpired: true,
+      pendingDeviceCredential: device.pendingDeviceCredential,
+      pendingDeviceId,
+    });
+    return { requestedByPendingDeviceId: pendingDeviceId };
+  }
+  const trustedDeviceId =
+    device.trustedDeviceId === undefined
+      ? null
+      : ctx.db.normalizeId('trustedDevices', device.trustedDeviceId);
+  if (trustedDeviceId === null) {
+    throw new Error('Trusted device required');
+  }
+  await requireTrustedDeviceProof(
+    ctx,
+    {
+      deviceCredentialEnforcementActivatedAt:
+        account.deviceCredentialEnforcementActivatedAt,
+      productAccountId: account._id,
+    },
+    {
+      trustedDeviceCredential: device.trustedDeviceCredential,
+      trustedDeviceId,
+    },
+  );
+  return { requestedByTrustedDeviceId: trustedDeviceId };
+}
+
 export const prepareDeletion = internalMutation({
   args: {
     ...trustedDeviceCredentialArgs,
     attemptId: v.string(),
     // Omitted only after the HTTP route verified a recent Product Sign-In.
     authorizationCode: v.optional(v.string()),
-    // A string, because the HTTP route forwards it unvalidated.
-    trustedDeviceId: v.string(),
+    // Strings, because the HTTP route forwards them unvalidated. Exactly one device asks: a
+    // Trusted Device, or a Pending Device, which may delete the account but read none of it.
+    pendingDeviceCredential: v.optional(v.string()),
+    pendingDeviceId: v.optional(v.string()),
+    trustedDeviceId: v.optional(v.string()),
   },
   // fallow-ignore-next-line complexity -- One transaction arbitrates tombstones, leases, retries, and device ownership.
   handler: async (ctx, args) => {
@@ -129,25 +190,7 @@ export const prepareDeletion = internalMutation({
         state: 'pending' as const,
       };
     }
-    const trustedDeviceId = ctx.db.normalizeId(
-      'trustedDevices',
-      args.trustedDeviceId,
-    );
-    if (trustedDeviceId === null) {
-      throw new Error('Trusted device required');
-    }
-    await requireTrustedDeviceProof(
-      ctx,
-      {
-        deviceCredentialEnforcementActivatedAt:
-          account.deviceCredentialEnforcementActivatedAt,
-        productAccountId: account._id,
-      },
-      {
-        trustedDeviceCredential: args.trustedDeviceCredential,
-        trustedDeviceId,
-      },
-    );
+    const requestedBy = await requireDeletingDevice(ctx, account, args);
     // An account Sign in with Apple opens revokes that authorization, so it needs a fresh code.
     const { authorizationCode } = args;
     const signInProviders =
@@ -204,7 +247,7 @@ export const prepareDeletion = internalMutation({
         phase: 'deleting-data',
         productAccountId: account._id,
         requestedAt: now,
-        requestedByTrustedDeviceId: trustedDeviceId,
+        ...requestedBy,
         tokenIdentifier,
         updatedAt: now,
       });
@@ -230,7 +273,7 @@ export const prepareDeletion = internalMutation({
       phase: 'revocation-pending',
       productAccountId: account._id,
       requestedAt: now,
-      requestedByTrustedDeviceId: trustedDeviceId,
+      ...requestedBy,
       revocationMaterial,
       tokenIdentifier,
       updatedAt: now,
@@ -736,18 +779,15 @@ async function deleteNextBatchData(
   if (await deleteSignInLinks(ctx, request.productAccountId)) {
     return false;
   }
-  const enrollmentRequests = await ctx.db
-    .query('productSyncEnrollmentRequests')
-    .withIndex('by_productAccountId_and_state_and_expiresAt', (q) =>
+  const pendingDevices = await ctx.db
+    .query('pendingDevices')
+    .withIndex('by_productAccountId_and_expiresAt', (q) =>
       q.eq('productAccountId', request.productAccountId),
     )
     .take(deletionBatchSize);
-  if (enrollmentRequests.length > 0) {
-    for (const enrollmentRequest of enrollmentRequests) {
-      await ctx.db.delete(
-        'productSyncEnrollmentRequests',
-        enrollmentRequest._id,
-      );
+  if (pendingDevices.length > 0) {
+    for (const pendingDevice of pendingDevices) {
+      await ctx.db.delete('pendingDevices', pendingDevice._id);
     }
     return false;
   }
@@ -812,18 +852,6 @@ async function deleteNextBatchData(
   if (revocationTargets.length > 0) {
     for (const target of revocationTargets) {
       await ctx.db.delete('trustedDeviceRevocationTargets', target._id);
-    }
-    return false;
-  }
-  const deviceIdentifierHistory = await ctx.db
-    .query('trustedDeviceIdentifierHistory')
-    .withIndex('by_productAccountId_and_deviceIdentifier', (q) =>
-      q.eq('productAccountId', request.productAccountId),
-    )
-    .take(deletionBatchSize);
-  if (deviceIdentifierHistory.length > 0) {
-    for (const history of deviceIdentifierHistory) {
-      await ctx.db.delete('trustedDeviceIdentifierHistory', history._id);
     }
     return false;
   }

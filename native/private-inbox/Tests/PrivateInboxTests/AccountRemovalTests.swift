@@ -11,6 +11,7 @@ import Testing
   var linkedApple: Set<String> = []
   var unregistered: [(identity: ProductSignInIdentity, device: String, installation: String)] = []
   var deletions: [ProductSignInIdentity] = []
+  var connectFailure: (any Error)?
   var failure: (any Error)?
   var deviceCheckFailure: (any Error)?
   var loseReply = false
@@ -26,10 +27,20 @@ import Testing
         unregister: { [self] identity, product, installation in
           if let failure { throw failure }
           unregistered.append((identity, product.trustedDeviceId, installation))
+          // The backend resolves sign-out even when admission committed without its reply.
+          if product.pending == true {
+            backend.pending[product.trustedDeviceId] = nil
+          }
+          let id = "device-" + installation
+          backend.devices[product.productAccountId]?.removeAll { $0 == id }
+          backend.epochs[id] = nil
           if loseReply { throw URLError(.networkConnectionLost) }
         },
         delete: { [self] identity, product in
           if let failure { throw failure }
+          if product.pending == true {
+            _ = try backend.pendingDevice(product, expired: true)
+          }
           deletions.append(identity)
           deleted.insert(product.productAccountId)
           if loseReply { throw URLError(.networkConnectionLost) }
@@ -39,9 +50,10 @@ import Testing
         return false
       },
       connect: { [self] identity, device, _ in
+        if let connectFailure { throw connectFailure }
         let account = "account-" + identity.subject
         if deleted.contains(account) { throw RegistrationError.deleted }
-        var receipt = backend.receipt(account, device: "device-" + device)
+        var receipt = try backend.connect(account, device: device)
         if linkedApple.contains(account) { receipt.signInProviders = [identity.provider, .apple] }
         return receipt
       })
@@ -113,7 +125,7 @@ extension PrivateInboxTests {
           removal.deviceCheckFailure = URLError(.cannotConnectToHost)
           for refusal in [
             RegistrationError.staleAuthentication, .removalRefused,
-            .appleAuthorizationRequired,
+            .appleAuthorizationRequired, .pendingDeviceUnavailable,
           ] {
             removal.failure = refusal
             await #expect(throws: RegistrationError.unavailable) {
@@ -159,9 +171,13 @@ extension PrivateInboxTests {
     async throws
   {
     let keys = removalDevice()
+    let waiting = removalDevice()
     let first = "account-synthetic-product-subject"
     let second = "account-synthetic-other-subject"
-    defer { removeItems(keys, accounts: [first, second]) }
+    defer {
+      removeItems(keys, accounts: [first, second])
+      removeItems(waiting, accounts: [first])
+    }
     let google = SyntheticGoogleRegistrationProvider()
     google.scopes = [RegistrationStore.gmailScope]
     let removal = SyntheticAccountRemoval()
@@ -193,6 +209,26 @@ extension PrivateInboxTests {
     #expect(removal.deletions.isEmpty)
     #expect(try holdsNothing(keys, account: first))
     #expect(try await removal.store(keys, google: google).restore() == ["kind": "signed-out"])
+
+    // A Pending Device has no keys or Recovery Key to protect; it signs out with its record.
+    let pending = removal.store(waiting, google: google)
+    #expect(try await pending.signIn()["kind"] == "device-pending")
+    let pendingId = try #require(try pending.load()?.product?.trustedDeviceId)
+    #expect(try waiting.read("product-sync-enrollment." + first) != nil)
+    #expect(try await pending.signOut() == ["kind": "signed-out"])
+    #expect(removal.unregistered.last?.device == pendingId)
+    #expect(try holdsNothing(waiting, account: first))
+
+    // Admission commits but its reply is lost; sign-out with the saved Pending Device proof
+    // still removes the admitted Trusted Device before discarding the durably stored keys.
+    _ = try await pending.signIn()
+    removal.backend.loseCompletionReply = true
+    await #expect(throws: URLError.self) { try await pending.recover(with: recoveryKey) }
+    #expect(try pending.load()?.product?.pending == true)
+    #expect(removal.backend.devices[first]?.count == 1)
+    #expect(try await pending.signOut() == ["kind": "signed-out"])
+    #expect(removal.backend.devices[first]?.isEmpty == true)
+    #expect(try holdsNothing(waiting, account: first))
 
     // Another Product Account on this device gets none of the previous account's data.
     google.subject = "synthetic-other-subject"
@@ -238,6 +274,41 @@ extension PrivateInboxTests {
     #expect(try holdsNothing(keys, account: account))
   }
 
+  @Test @MainActor func expiredPendingDeviceDeletesWithExistingProofOrRenewsMissingProof()
+    async throws
+  {
+    for cleanedUp in [false, true] {
+      let creator = removalDevice()
+      let joining = removalDevice()
+      let account = "account-synthetic-product-subject"
+      defer { for keys in [creator, joining] { removeItems(keys, accounts: [account]) } }
+      let google = SyntheticGoogleRegistrationProvider()
+      let removal = SyntheticAccountRemoval()
+      _ = try await removal.store(creator, google: google).signIn()
+      let pending = removal.store(joining, google: google)
+      #expect(try await pending.signIn()["kind"] == "device-pending")
+      let expiredId = try #require(try pending.load()?.product?.trustedDeviceId)
+      removal.backend.clock += 900_001
+      if cleanedUp {
+        // Another connection's bounded cleanup removed this expired record.
+        removal.backend.pending[expiredId] = nil
+        removal.failure = RegistrationError.pendingDeviceUnavailable
+        await #expect(throws: RegistrationError.pendingDeviceUnavailable) {
+          try await pending.deleteAccount()
+        }
+        #expect(try pending.load()?.accountRemoval == nil)
+        #expect(try pending.load()?.product?.trustedDeviceId != expiredId)
+        removal.failure = nil
+      } else {
+        // An existing expired proof still permits deletion even when admission is unavailable.
+        removal.connectFailure = RegistrationError.unavailable
+      }
+      #expect(try await pending.deleteAccount() == ["kind": "signed-out", "notice": "deleted"])
+      #expect(removal.deleted.contains(account))
+      #expect(try holdsNothing(joining, account: account))
+    }
+  }
+
   @Test @MainActor func deletionNeedsAFreshSignInAndEveryReachableDevicePurges() async throws {
     let current = removalDevice()
     let other = removalDevice()
@@ -277,7 +348,9 @@ extension PrivateInboxTests {
     }
     #expect(try removal.store(current, google: google).load()?.accountRemoval == nil)
     google.subject = "synthetic-product-subject"
-    for refusal in [RegistrationError.staleAuthentication, .removalRefused] {
+    for refusal in [
+      RegistrationError.staleAuthentication, .removalRefused, .pendingDeviceUnavailable,
+    ] {
       removal.failure = refusal
       await #expect(throws: refusal) {
         try await perform(current, removing: .deletion) { try await $0.deleteAccount() }

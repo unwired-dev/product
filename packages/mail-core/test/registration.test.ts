@@ -75,6 +75,7 @@ describe('product registration', () => {
 
   it('keeps enrollment and mailbox descriptors isolated between synthetic Product Accounts', async () => {
     expect.hasAssertions();
+    vi.spyOn(console, 'error').mockReturnValue(undefined);
     const accounts = createSyntheticAccount();
     const trusted = createRegistration(
       createMockRegistrationSession('registration-success', accounts).native,
@@ -84,6 +85,16 @@ describe('product registration', () => {
     );
     await trusted.register('google');
     await outsider.register('apple');
+    // A Pending Device never starts Gmail authorization, by sign-in or on its own.
+    expect(outsider.getSnapshot()).toMatchObject({
+      snapshot: { kind: 'device-pending' },
+      failed: false,
+    });
+    await outsider.authorizeGmail(true);
+    expect(outsider.getSnapshot()).toMatchObject({
+      snapshot: { kind: 'device-pending' },
+      failed: true,
+    });
     await trusted.refreshPrivateSync();
     expect(trusted.getSnapshot().snapshot).not.toHaveProperty(
       'enrollmentRequest',
@@ -626,7 +637,7 @@ describe('product registration', () => {
     const { snapshot, recoveryFailure } = store.getSnapshot();
     expect({ snapshot, recoveryFailure }).toStrictEqual({
       snapshot: {
-        kind: 'mailbox-needed',
+        kind: 'device-pending',
         productAccountId: 'synthetic-product-account',
         signInProvider: 'google',
         privateSync: 'enrollment-pending',
