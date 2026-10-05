@@ -244,6 +244,13 @@ describe('synchronizing a Gmail Inbox', () => {
         },
         'retry',
       ],
+      [
+        {
+          status: 403,
+          body: '{"error":{"errors":[{"reason":"dailyLimitExceeded"}]}}',
+        },
+        'retry',
+      ],
       [{ status: 429 }, 'retry'],
       [{ status: 500 }, 'retry'],
       [{ code: 'unavailable' }, 'retry'],
@@ -283,7 +290,12 @@ describe('synchronizing a Gmail Inbox', () => {
     await inbox.load();
     expect(ready(inbox.getSnapshot()).messages).toStrictEqual(cached);
 
-    gmail.fail({ code: 'mailbox-invalidated' });
+    // A synchronization restarts after an invalidation, but not indefinitely.
+    gmail.fail(
+      { code: 'mailbox-invalidated' },
+      { code: 'mailbox-invalidated' },
+      { code: 'mailbox-invalidated' },
+    );
     await inbox.load();
     expect(inbox.getSnapshot()).toStrictEqual({ kind: 'failed' });
     await inbox.load();
@@ -429,12 +441,26 @@ describe('synchronizing a Gmail Inbox', () => {
       gmail.deliver({ subject: 'New mailbox' });
       reselect = () => undefined;
     };
+    const published: GmailInboxState[] = [];
+    inbox.subscribe(() => {
+      published.push(inbox.getSnapshot());
+    });
+    // The invalidated synchronization starts again for the selected mailbox only.
     await inbox.load();
-    expect(inbox.getSnapshot()).toStrictEqual({ kind: 'failed' });
-    await inbox.load();
-    expect(ready(inbox.getSnapshot()).messages).toStrictEqual([
-      expect.objectContaining({ subject: 'New mailbox' }),
-    ]);
+    expect(inbox.getSnapshot()).toMatchObject({
+      address: 'new@example.invalid',
+      messages: [expect.objectContaining({ subject: 'New mailbox' })],
+      sync: 'current',
+    });
+    expect(ready(inbox.getSnapshot()).messages).toHaveLength(1);
+    expect(published).not.toContainEqual(
+      expect.objectContaining({
+        address: 'new@example.invalid',
+        messages: expect.arrayContaining([
+          expect.objectContaining({ subject: 'Synthetic message 0' }),
+        ]),
+      }),
+    );
   });
 
   it('reconciles competing stores and never shows another mailbox cache', async () => {
@@ -511,6 +537,9 @@ describe('synchronizing a Gmail Inbox', () => {
     const running = inbox.load();
     await registration.signOut();
     expect(inbox.getSnapshot()).toStrictEqual({ kind: 'loading' });
+    // Even a restart after the late native rejection must keep the signed-out mail forgotten.
+    gmail.fail({ code: 'mailbox-invalidated' });
+    paused = false;
     release();
     await running;
     expect(inbox.getSnapshot()).toStrictEqual({ kind: 'loading' });
@@ -525,6 +554,31 @@ describe('synchronizing a Gmail Inbox', () => {
     };
     await registration.restore();
     expect(inbox.getSnapshot()).toStrictEqual({ kind: 'loading' });
+  });
+
+  it('restarts a synchronization a foreground restore invalidated, keeping the Inbox visible', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ messages: 60 });
+    const inbox = createGmailInbox(gmail.native);
+    await inbox.load();
+    const cached = ready(inbox.getSnapshot()).messages;
+    gmail.deliver({ subject: 'Arrived during foreground verification' });
+    const published: GmailInboxState[] = [];
+    inbox.subscribe(() => {
+      published.push(inbox.getSnapshot());
+    });
+    // Registration renewed the mailbox's native generation before the history update committed.
+    gmail.failCommit('mailbox-invalidated');
+    await inbox.load();
+    const synced = ready(inbox.getSnapshot());
+    expect(synced.sync).toBe('current');
+    expect(new Set(synced.messages.map(({ id }) => id)).size).toBe(61);
+    for (const state of published) {
+      expect(state).toMatchObject({
+        kind: 'ready',
+        messages: expect.arrayContaining([...cached]),
+      });
+    }
   });
   /* oxlint-enable vitest/max-expects */
 });

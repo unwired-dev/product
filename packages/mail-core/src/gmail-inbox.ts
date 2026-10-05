@@ -139,6 +139,7 @@ const decodeHistory = json(
     historyId: HistoryId,
   }),
 );
+// Gmail's documented 403 usage limits; authorizing Gmail again cannot resolve them.
 const rateLimited = Schema.decodeUnknownOption(
   Schema.fromJsonString(
     Schema.Struct({
@@ -146,6 +147,7 @@ const rateLimited = Schema.decodeUnknownOption(
         errors: Schema.Array(
           Schema.Struct({
             reason: Schema.Literals([
+              'dailyLimitExceeded',
               'rateLimitExceeded',
               'userRateLimitExceeded',
             ]),
@@ -163,6 +165,8 @@ class SyncFailure extends Schema.TaggedError<SyncFailure>()('SyncFailure', {
     'retry',
     'locked',
     'conflict',
+    // Native work started before a registration change; a new synchronization opens the cache again.
+    'invalidated',
     'failed',
   ]),
   cause: Schema.Defect(),
@@ -197,7 +201,7 @@ const rejected = (
   } else if (code === 'locked' || code === 'conflict') {
     kind = code;
   } else if (code === 'mailbox-invalidated') {
-    kind = 'failed';
+    kind = 'invalidated';
   }
   return new SyncFailure({
     kind,
@@ -700,11 +704,14 @@ export function createGmailInbox(native: NativeGmailMailbox) {
           }),
         ),
     }),
-    // Another store instance committed first; start again from its document.
+    // Another store instance committed first, or a foreground restore renewed the mailbox's native
+    // generation; start again from the committed cache. Native mailbox access waits for the
+    // registration change, and a purge or another mailbox keeps the forgotten mail hidden.
     Effect.retry({
       times: 2,
       while: (error) =>
-        error instanceof SyncFailure && error.kind === 'conflict',
+        error instanceof SyncFailure &&
+        (error.kind === 'conflict' || error.kind === 'invalidated'),
     }),
     Effect.catchTag('SyncFailure', recover),
   );

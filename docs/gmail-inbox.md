@@ -48,6 +48,11 @@ applied by Gmail message ID, so nothing is lost or duplicated. Two windows or
 store instances cannot overwrite each other's newer commit; the later one starts
 again from the committed cache.
 
+If a foreground account check interrupts synchronization and verifies the same
+mailbox again, synchronization starts again from its committed cache, at most
+twice. Its saved Inbox stays visible. Repeated interruptions make the Inbox
+unavailable until **Try again** or the next activation.
+
 ## Mailbox Sync Status
 
 The cached list stays visible while Gmail work proceeds. A known network outage
@@ -65,7 +70,7 @@ The Inbox reports:
 - **Gmail needs your permission again** after Gmail refuses the mailbox's grant.
   **Allow Gmail access** runs Gmail authorization for the same mailbox and
   synchronizes again.
-- **Gmail could not be reached** after a network failure, rate limit, server
+- **Gmail could not be reached** after a network failure, quota or rate limit, server
   error or malformed Gmail response. **Try again** resumes from the last commit;
   so does the next activation.
 

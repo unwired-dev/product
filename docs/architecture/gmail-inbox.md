@@ -52,7 +52,10 @@ unchanged older message. An unreadable document fails closed without replacement
 
 The [native cache companion](private-inbox-storage.md#gmail-mailbox-cache) owns
 encryption and compare-and-swap. Shared store operations serialize with a
-semaphore, publish only durable commits and retry conflicts at most twice.
+semaphore, publish only durable commits and restart revision conflicts or native
+mailbox invalidations at most twice, reopening the committed cache each time.
+Documented Gmail 403 usage-limit reasons, including `dailyLimitExceeded`, retain
+the cached list with a retry notice rather than prompting reauthorization.
 
 ## Authorization and suspended work
 
@@ -73,8 +76,13 @@ Each read and commit carries the address and opaque native generation returned b
 the synchronization's cache open. Reselection between successive operations,
 including another Google subject reusing the address after revision reset,
 rejects mailbox-invalidated.
-Mailbox invalidation clears shared Inbox state rather than retaining it as an
-authentication retry. Both hosts filter ready state against the selected mailbox
+An invalidated synchronization reopens through the FIFO gate after the
+registration operation, obtaining its renewed generation. Same-mailbox foreground
+verification can therefore resume from the committed cache without publishing
+`failed`. Persistent invalidation exhausts the bounded restarts and hides the
+mail. Ownership changes and purge still clear and fence the in-memory Inbox
+immediately; retrying the native open cannot restore access to the former
+mailbox. Both hosts filter ready state against the selected mailbox
 address before rendering, including the first frame while its cache opens.
 The process-owned Gmail store also subscribes to registration: a Product Account,
 Google subject or address change, or loss of Inbox eligibility, immediately clears
