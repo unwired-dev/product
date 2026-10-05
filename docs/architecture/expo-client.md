@@ -14,7 +14,7 @@ replacement requirements or release qualification.
   `packages/mail-core`. System text, accessible buttons, selection state and
   focus borders form the initial UI; there is no additional component library.
 
-- Effect 4.0.0-rc.118 runs the shared Persistent Inbox and Registration stores,
+- Effect from the shared catalog runs the Persistent Inbox and Registration stores,
   following the [Effect conventions](../agents/effect.md). React owns presentation
   state. Opening a message does not mutate mailbox read state.
 

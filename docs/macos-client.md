@@ -20,7 +20,8 @@ Select an explicit Mock Mail Session to run the synthetic Inbox journeys.
 ## Window behavior
 
 The `macos` catalog pins React Native macOS 0.81.9, React Native 0.81.6 and React
-19.1.4 in the root workspace and lockfile. Keep React and native imports out of
+19.1.4 in the root workspace and lockfile. React Native Testing Library 14 uses
+`test-renderer` 1.1.0, the line that matches React 19.1. Keep React and native imports out of
 `mail-core`. Mac views and native adapters live in `apps/macos`.
 
 Load the approved `fast-text-encoding@1.0.6` polyfill in the entry point before

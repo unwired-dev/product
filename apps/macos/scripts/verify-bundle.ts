@@ -34,7 +34,7 @@ const { sources, sourcesContent } = Schema.decodeSync(sourceMap)(
 for (const pattern of [
   /react@19\.1\.4[/_]/u,
   /react-native-macos@0\.81\.9[/_]/u,
-  /effect@4\.0\.0-rc\.118[/_]/u,
+  /effect@4\.0\.0[/_]/u,
   /fast-text-encoding@1\.0\.6[/_]/u,
 ]) {
   assert.ok(

@@ -168,7 +168,7 @@ if (command === 'xcodebuild') {
   fs.mkdirSync(resources, { recursive: true }); fs.mkdirSync(path.dirname(executable), { recursive: true });
   fs.writeFileSync(executable, scenario === 'native-test-path' ? 'UNWIRED_LIFECYCLE_PATH' : 'Production executable');
   fs.writeFileSync(path.join(resources, 'main.jsbundle'), 'production bundle');
-  const sources = ['react@19.2.3/node_modules/react/index.js', 'react-native@0.86.3/node_modules/react-native/index.js', 'effect@4.0.0-rc.118/index.js', 'expo-router/build/split-view/index.js', '/mail-core/src/index.ts', '/mail-core/src/theme.ts'];
+  const sources = ['react@19.2.3/node_modules/react/index.js', 'react-native@0.86.3/node_modules/react-native/index.js', 'effect@4.0.0/index.js', 'expo-router/build/split-view/index.js', '/mail-core/src/index.ts', '/mail-core/src/theme.ts'];
   if (scenario === 'mock-bundle') sources.push('/mail-core/src/testing/mock.ts');
   const sourcesContent = sources.map(source => source.endsWith('/mail-core/src/index.ts') ? fs.readFileSync(path.join(checkout, 'packages/mail-core/src/index.ts'), 'utf8') : source.endsWith('/mail-core/src/theme.ts') ? fs.readFileSync(path.join(checkout, 'packages/mail-core/src/theme.ts'), 'utf8') : null);
   const map = args.find(arg => arg.startsWith('SOURCEMAP_FILE='))?.slice('SOURCEMAP_FILE='.length);
