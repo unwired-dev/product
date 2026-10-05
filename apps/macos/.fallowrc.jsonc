@@ -11,6 +11,7 @@
     "@react-native/babel-preset",
     "@react-native-community/cli",
     "@react-native-community/cli-platform-ios",
-    "react-test-renderer",
+    // React Native Testing Library consumes this renderer peer indirectly.
+    "test-renderer",
   ],
 }

@@ -42,7 +42,7 @@
     "oxfmt": "catalog:",
     "oxlint": "catalog:",
     "oxlint-tsgolint": "catalog:",
-    "react-test-renderer": "catalog:macos",
+    "test-renderer": "catalog:macos",
     "typescript": "catalog:"
   }
 }

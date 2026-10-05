@@ -48,7 +48,7 @@ for (const map of maps) {
 const inventory = [
   ['React 19.2.3', /react@19\.2\.3[/_]/u],
   ['React Native 0.86.3', /react-native@0\.86\.3[/_]/u],
-  ['Effect v4', /effect@4\.0\.0-rc\.118[/_]/u],
+  ['Effect v4', /effect@4\.0\.0[/_]/u],
   ['Shared mail core', /mail-core.*[/\\]src[/\\]index\.ts$/u],
   ['Native split view', /expo-router[/\\]build[/\\]split-view[/\\]/u],
 ] satisfies ReadonlyArray<readonly [string, RegExp]>;

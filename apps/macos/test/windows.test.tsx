@@ -4,12 +4,7 @@ import { createPersistentInbox } from '@private-email/mail-core/persistent-inbox
 import { createRegistration } from '@private-email/mail-core/registration';
 import { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mailbox';
 import { createMockMailSession } from '@private-email/mail-core/testing/mock-session';
-import {
-  act,
-  fireEvent,
-  renderAsync,
-  within,
-} from '@testing-library/react-native';
+import { act, fireEvent, render, within } from '@testing-library/react-native';
 import { View } from 'react-native';
 
 import type { inbox } from '../src/private-storage.ts';
@@ -66,7 +61,7 @@ describe('mac window selection with the shared mock mailbox', () => {
 
   it('keeps selections independent and preserves the remaining window when another closes', async () => {
     expect.hasAssertions();
-    const app = await renderAsync(
+    const app = await render(
       <Windows
         first
         second
@@ -74,18 +69,18 @@ describe('mac window selection with the shared mock mailbox', () => {
     );
     const first = within(app.getByTestId('inbox-window-first'));
     const second = within(app.getByTestId('inbox-window-second'));
-    fireEvent.press(await first.findByRole('button', { name: maya }));
-    fireEvent.press(await second.findByRole('button', { name: oliver }));
+    await fireEvent.press(await first.findByRole('button', { name: maya }));
+    await fireEvent.press(await second.findByRole('button', { name: oliver }));
     expect(first.getByText('maya@example.com')).toBeVisible();
     expect(second.getByText('oliver@example.com')).toBeVisible();
-    await app.rerenderAsync(
+    await app.rerender(
       <Windows
         first={false}
         second
       />,
     );
     expect(app.getByText('oliver@example.com')).toBeVisible();
-    await app.rerenderAsync(
+    await app.rerender(
       <Windows
         first
         second
@@ -104,21 +99,21 @@ describe('mac window selection with the shared mock mailbox', () => {
 
   it('can read the same fixture after all views unmount, without carrying a closed selection', async () => {
     expect.hasAssertions();
-    const app = await renderAsync(
+    const app = await render(
       <Windows
         first
         second={false}
       />,
     );
-    fireEvent.press(await app.findByRole('button', { name: maya }));
+    await fireEvent.press(await app.findByRole('button', { name: maya }));
     expect(app.getByText('maya@example.com')).toBeVisible();
-    await app.rerenderAsync(
+    await app.rerender(
       <Windows
         first={false}
         second={false}
       />,
     );
-    await app.rerenderAsync(
+    await app.rerender(
       <Windows
         first={false}
         second
@@ -127,14 +122,14 @@ describe('mac window selection with the shared mock mailbox', () => {
     await expect(
       app.findByText('Select a message to start reading.'),
     ).resolves.toBeVisible();
-    fireEvent.press(await app.findByRole('button', { name: oliver }));
+    await fireEvent.press(await app.findByRole('button', { name: oliver }));
     expect(app.getByText('oliver@example.com')).toBeVisible();
     expect(app.queryByText('maya@example.com')).toBeNull();
   });
 
   it('shares committed read state while each window keeps its selection', async () => {
     expect.hasAssertions();
-    const app = await renderAsync(
+    const app = await render(
       <Windows
         first
         second
@@ -142,27 +137,27 @@ describe('mac window selection with the shared mock mailbox', () => {
     );
     const first = within(app.getByTestId('inbox-window-first'));
     const second = within(app.getByTestId('inbox-window-second'));
-    fireEvent.press(await first.findByRole('button', { name: maya }));
-    fireEvent.press(await second.findByRole('button', { name: oliver }));
-    fireEvent.press(first.getByRole('button', { name: 'Mark as read' }));
+    await fireEvent.press(await first.findByRole('button', { name: maya }));
+    await fireEvent.press(await second.findByRole('button', { name: oliver }));
+    await fireEvent.press(first.getByRole('button', { name: 'Mark as read' }));
     await second.findByRole('button', {
       name: 'Maya Chen. A little more room to think',
     });
     expect(first.getByText('maya@example.com')).toBeVisible();
     expect(second.getByText('oliver@example.com')).toBeVisible();
-    fireEvent.press(second.getByRole('button', { name: 'Mark as read' }));
+    await fireEvent.press(second.getByRole('button', { name: 'Mark as read' }));
     await expect(
       first.findByRole('button', {
         name: 'Oliver Park. Saturday, by the river?',
       }),
     ).resolves.toBeVisible();
-    await app.rerenderAsync(
+    await app.rerender(
       <Windows
         first={false}
         second={false}
       />,
     );
-    await app.rerenderAsync(
+    await app.rerender(
       <Windows
         first
         second={false}
@@ -221,7 +216,7 @@ describe('mac windows over a connected Gmail mailbox', () => {
       signOut: () => Promise.reject(new Error('Not signing out')),
       deleteProductAccount: () => Promise.reject(new Error('Not deleting')),
     });
-    const app = await renderAsync(
+    const app = await render(
       <View>
         {['first', 'second'].map((windowId) => (
           <RegistrationGate
@@ -235,8 +230,8 @@ describe('mac windows over a connected Gmail mailbox', () => {
     );
     const first = within(await app.findByTestId('inbox-window-first'));
     const second = within(app.getByTestId('inbox-window-second'));
-    fireEvent.press(await first.findByRole('button', { name: maya }));
-    fireEvent.press(await second.findByRole('button', { name: oliver }));
+    await fireEvent.press(await first.findByRole('button', { name: maya }));
+    await fireEvent.press(await second.findByRole('button', { name: oliver }));
     expect(first.getByText('maya@example.invalid')).toBeVisible();
     expect(second.getByText('oliver@example.invalid')).toBeVisible();
     // Read state belongs to Gmail; this slice shows it without changing it.
@@ -248,7 +243,7 @@ describe('mac windows over a connected Gmail mailbox', () => {
       second.getByRole('button', { name: 'Allow Gmail access' }),
     ).toBeVisible();
     await act(async () => {
-      fireEvent.press(
+      await fireEvent.press(
         first.getByRole('button', { name: 'Allow Gmail access' }),
       );
       await Promise.resolve();
