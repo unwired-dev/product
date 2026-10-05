@@ -89,3 +89,4 @@ ADRs take the next number after the highest in this index.
 | 0064   | [Isolate mobile and macOS native dependencies](0064-isolate-mobile-and-macos-native-dependencies.md)                                           |
 | 0065   | [Scope Effect adoption](0065-scope-effect-adoption.md)                                                                                         |
 | 0066   | [Admit devices only through authorized enrollment](0066-admit-devices-only-through-authorized-enrollment.md)                                   |
+| 0067   | [Keep native code to a minimal vault](0067-keep-native-code-to-a-minimal-vault.md)                                                             |
