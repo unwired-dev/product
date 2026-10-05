@@ -73,8 +73,11 @@ const Account = Schema.Struct({
   enrollmentDevice: Schema.optionalKey(Schema.NonEmptyString),
   // JSON text listing the account's other Trusted Devices that this device can remove.
   trustedDevices: Schema.optionalKey(trustedDevicesText),
-  // Only in the reply to a removal of another Trusted Device.
-  revocationNotice: Schema.optionalKey(Schema.Literal('removed')),
+  // Only in the reply to a removal of another Trusted Device: 'unconfirmed' when this device has
+  // not adopted its own new keys, for example because another device removed it first.
+  revocationNotice: Schema.optionalKey(
+    Schema.Literals(['removed', 'unconfirmed']),
+  ),
 });
 export const RegistrationSnapshotSchema = Schema.Union([
   Schema.Struct({
@@ -794,18 +797,19 @@ export const revocationCopy = {
   cancel: 'Cancel',
   removed:
     'The device was removed. Save your new Recovery Key. Keep your previous key until all remaining devices have connected and switched to the new keys; until then, recovery still uses the previous key.',
+  unconfirmed:
+    'The device is removed, but this device has not confirmed new keys for it. If another of your devices removed it first, save the Recovery Key that device shows. Otherwise check again when you are online.',
   failed: 'The device could not be removed. Try again.',
 } as const;
 
 export const revocationNotice = (
-  account: Readonly<{ revocationNotice?: 'removed' }>,
+  account: Readonly<{ revocationNotice?: 'removed' | 'unconfirmed' }>,
   failed: boolean,
 ) => {
   if (failed) {
     return revocationCopy.failed;
   }
-  if (account.revocationNotice === 'removed') {
-    return revocationCopy.removed;
-  }
-  return undefined;
+  return account.revocationNotice === undefined
+    ? undefined
+    : revocationCopy[account.revocationNotice];
 };

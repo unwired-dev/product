@@ -36,6 +36,8 @@ import Testing
   var tombstoned: Set<String> = []
   // The next removal applies but its reply is lost.
   var loseReply = false
+  // The removal reply arrives, but the following synchronization cannot reach the backend.
+  var offlineAfterRevocation = false
 
   func epoch(_ account: String) -> Int { rotations[account]?.epoch ?? committed[account] ?? 1 }
 
@@ -203,6 +205,8 @@ import Testing
       revoke: { [self] _, product, target, transition, wrapped, updatedAt in
         try device(product)
         let account = product.productAccountId
+        // A completed removal answers with the current state and applies nothing new.
+        if revoked.contains(target) { return }
         guard target != product.trustedDeviceId, devices[account]?.contains(target) == true,
           updatedAt == recoveryUpdatedAt[account], transition.keyVersion == committed[account] ?? 1,
           wrapped.keyVersion == epoch(account) + 1,
@@ -213,6 +217,7 @@ import Testing
         devices[account]?.removeAll { $0 == target }
         requests = requests.filter { $0.value.device != target }
         rotations[account] = (wrapped.keyVersion, transition, wrapped)
+        offline = offlineAfterRevocation
         if loseReply {
           loseReply = false
           throw URLError(.networkConnectionLost)
@@ -1033,6 +1038,20 @@ extension PrivateInboxTests {
     #expect(backend.recovery[account] == oldRecovery)
 
     // The removed device purges its account data and credentials when it next reconnects.
+    // A failed registration read must still drop the in-process session and lists. Keep the
+    // durable registration locator so a later successful read can retry the account cleanup.
+    let registration = try #require(try lost.read("registration"))
+    #expect(removed.session != nil)
+    try lost.save(Data("invalid-registration".utf8), account: "registration")
+    await #expect(throws: DecodingError.self) {
+      try await removed.purgingIfRevoked { _ in throw RegistrationError.revoked }
+    }
+    #expect(removed.session == nil)
+    #expect(removed.enrollmentRequests.isEmpty)
+    #expect(removed.trustedDevices.isEmpty)
+    #expect(try lost.read("registration") != nil)
+    #expect(try lost.read("product-sync." + account) != nil)
+    try lost.save(registration, account: "registration")
     #expect(
       try await removed.purgingIfRevoked { try await $0.restore() }
         == ["kind": "signed-out", "notice": "revoked"])
@@ -1070,6 +1089,27 @@ extension PrivateInboxTests {
         record: saved.encryptedPayload, account: account, identifier: saved.payloadIdentifier,
         schemaVersion: MailboxDescriptor.schemaVersion)
     }
+
+    // Success from removal is not success adopting its keys. Preserve the pending transition
+    // and the confirmed Recovery Key until synchronization can adopt this exact removal.
+    backend.offlineAfterRevocation = true
+    let unconfirmed = try await remover.revoke(survivorId)
+    #expect(unconfirmed["revocationNotice"] == "unconfirmed")
+    #expect(unconfirmed["recoveryKey"] == nil)
+    #expect(backend.revoked.contains(survivorId))
+    #expect(try remover.loadVault(account)?.recoveryKey == RecoveryKey(parsing: newKey).bytes)
+    #expect(try remover.loadVault(account)?.revocation != nil)
+    backend.offline = false
+    let adopted = try await remover.refreshPrivateSync()
+    #expect(adopted["privateSync"] == "recovery-key")
+    let replacement = try #require(adopted["recoveryKey"])
+    #expect(replacement != newKey)
+    #expect(try remover.loadVault(account)?.revocation == nil)
+    #expect(backend.rotations[account] == nil)
+    #expect(
+      try KeyRingEnvelope.openRecovery(
+        #require(backend.recovery[account]), key: RecoveryKey(parsing: replacement), account: account)
+        == remover.loadVault(account)?.ring)
   }
 
   @Test @MainActor func aLostRevocationReplyKeepsTheNewRecoveryKeyOnlyIfTheRemovalApplied()
@@ -1113,6 +1153,14 @@ extension PrivateInboxTests {
       try KeyRingEnvelope.openRecovery(
         #require(backend.recovery[account]), key: RecoveryKey(parsing: newKey), account: account)
         == remover.loadVault(account)?.ring)
+
+    // Removing a device that is already gone applies nothing, so no new Recovery Key is claimed.
+    _ = try remover.confirmRecoveryKey(String(newKey.suffix(4)))
+    let repeated = try await remover.revoke(target)
+    #expect(repeated["revocationNotice"] == "unconfirmed")
+    #expect(repeated["privateSync"] == "ready")
+    #expect(try remover.loadVault(account)?.recoveryKey == RecoveryKey(parsing: newKey).bytes)
+    #expect(try remover.loadVault(account)?.revocation == nil)
   }
 
   @Test @MainActor func appleRestoreLearnsOfRevocationFromTheDeviceCredentialAlone() async throws {

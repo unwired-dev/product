@@ -720,7 +720,7 @@ describe('product registration', () => {
       trustedDevices: JSON.stringify([otherDevice]),
       revocationNotice: 'removed',
     } as const;
-    let removal = () => Promise.resolve(removed);
+    let removal: () => Promise<unknown> = () => Promise.resolve(removed);
     const store = createRegistration({
       ...session.native,
       signIn: () => Promise.resolve(initial),
@@ -750,5 +750,13 @@ describe('product registration', () => {
       busy: false,
       failed: false,
     });
+    // A removal this device did not complete itself reports no new Recovery Key.
+    const unconfirmed = {
+      ...removed,
+      revocationNotice: 'unconfirmed',
+    } as const;
+    removal = () => Promise.resolve(unconfirmed);
+    await store.revokeTrustedDevice(otherDevice.id);
+    expect(store.getSnapshot().snapshot).toStrictEqual(unconfirmed);
   });
 });

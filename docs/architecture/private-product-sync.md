@@ -190,13 +190,28 @@ epoch's key using account-bound purpose `rotation`, schema 1. Backend device
 proof and tombstones withhold that transition from the removed device even though
 it held the committed key. Key possession alone never authorizes its retrieval.
 
-Each removal creates a new Recovery Key and schema 3 recovery envelope, so a key
-held by the removed device cannot unwrap the new epoch. Before sending, the
-native vault durably preserves the generated Recovery Key and exact transition.
+This is an authorization fence, not cryptographic exclusion from stored
+transitions. The removed device's committed epoch key plus read access to Convex
+storage can open the pending transition and obtain the new ring. Per-device
+sealing to secrets the removed device never held requires a protocol change and
+is tracked in [#753](https://github.com/unwired-dev/product/issues/753), blocked
+by #602. This slice does not establish that stronger guarantee.
+
+Each applied removal creates a new Recovery Key and schema 3 recovery envelope,
+so the previous Recovery Key cannot open the replacement recovery envelope.
+Before sending, the native vault durably preserves the generated Recovery Key
+and exact transition.
 A lost connection, cancellation or ambiguous server response keeps this marker;
 a known refusal clears it. Synchronization promotes the preserved Recovery Key
-only when the authoritative pending transition matches. It durably saves the
-adopted ring before acknowledging, and refuses another removal while that
+only when the authoritative pending transition matches. A successful idempotent
+revocation reply alone proves no adoption: the target may already be revoked
+without applying this request. The host emits `revocationNotice: "removed"`
+only when the stored Recovery Key matches this removal's generated key after
+synchronization; otherwise it emits `unconfirmed` and preserves the confirmed
+key. A failed transition read retains the pending marker for the next
+synchronization; an authoritative mismatch clears it without promoting the
+unapplied key. It durably saves the adopted ring before acknowledging, and
+refuses another removal while that
 Recovery Key is unconfirmed. Surviving devices open the transition with a held
 key and require it to retain every held key. The backend publishes the new
 recovery envelope only after every remaining device acknowledges; until then
@@ -212,22 +227,29 @@ local state. A positive rejection removes the account vault, enrollment item and
 registration record (including identity and mailbox credentials) before later
 provider work. The unrelated encrypted synthetic Inbox fixture has no account
 ownership and is outside this purge; future account-owned mail storage must join
-this boundary. Unregistration retains only the credential digest in the existing minimal
-revocation-target record, so owner removal after sign-out still supplies this
+this boundary. Purge clears in-memory authorization before reading the persisted
+registration, attempts every known account item despite a deletion failure and
+throws the first failure before deleting registration. Registration is removed
+last, preserving the account locator for a later cleanup retry. Unregistration
+retains only the credential digest in the existing minimal revocation-target
+record, so owner removal after sign-out still supplies this
 rejection to the old installation. Removal also retains the digest of any live row with that installation
 identifier. A reconnect between target selection and revocation can change its
 row ID; the credential-only query then matches that retained proof and the
 installation tombstone. The target digest is not a live authorization grant,
 and account deletion already drains these target records.
 
-### Enrollment decision conflict
+### Enrollment scope split
 
 [ADR 0020](../adr/0020-revoke-devices-with-sync-key-rotation.md) and the existing
 backend deliberately refuse previously unseen identifiers on any account with a
-revocation tombstone. Issue #602 also requires a new authorized enrollment.
+revocation tombstone. Issue #602's amended criterion requires preventing bypass
+through an invented identifier; authorized admission of a legitimate new device
+is split into [#750](https://github.com/unwired-dev/product/issues/750), blocked
+by #602.
+
 Current replacement enrollment starts after ordinary device registration and
 cannot safely override that lock: sign-in alone plus an invented identifier is
-not an enrollment authorization. This review preserves the lock and records the
-criterion as incomplete. An accepted admission protocol must reconcile the issue
-and ADR before enabling legitimate new identifiers; a proposed follow-up alone
-does not complete #602.
+not an enrollment authorization. This slice preserves the lock and satisfies
+the amended bypass-prevention criterion. The admission protocol and its owning
+decision are tracked by #750; they are outside #602's current acceptance scope.

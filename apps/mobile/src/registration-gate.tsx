@@ -312,7 +312,7 @@ function TrustedDevices({
   readonly account: Readonly<{
     privateSync?: PrivateSyncState;
     trustedDevices?: string;
-    revocationNotice?: 'removed';
+    revocationNotice?: 'removed' | 'unconfirmed';
   }>;
   readonly button: (label: string, action: () => Promise<void>) => ReactNode;
   readonly failed: boolean;

@@ -3,7 +3,8 @@ import Foundation
 extension RegistrationStore {
   // Removes another Trusted Device after a fresh interactive Product Sign-In. A new key epoch
   // reaches the remaining devices sealed to the account key they already hold, and a new Recovery
-  // Key wraps it, so neither the removed device's keys nor a Recovery Key it held open new data.
+  // Key wraps it. Backend authorization withholds the transition from the removed device; sealing
+  // it to secrets that device never held is tracked in #753.
   func revoke(_ trustedDeviceId: String) async throws -> [String: String] {
     guard let backend = productSync, let saved = try load(), let product = saved.product,
       trustedDeviceId != product.trustedDeviceId,
@@ -46,7 +47,11 @@ extension RegistrationStore {
       throw error
     }
     trustedDevices[account]?.removeAll { $0.id == trustedDeviceId }
-    return try status(await synchronize(saved)).merging(["revocationNotice": "removed"]) { $1 }
+    let current = try status(await synchronize(saved))
+    // Only this removal's own transition, once adopted, makes its new Recovery Key current. A removal
+    // another device completed first, or a synchronization that failed just now, leaves it unconfirmed.
+    let adopted = try loadVault(account)?.recoveryKey == recoveryKey.bytes
+    return current.merging(["revocationNotice": adopted ? "removed" : "unconfirmed"]) { $1 }
   }
 
   // Adopts the epoch a removal started, sealed to a key this device holds, and reports it so the

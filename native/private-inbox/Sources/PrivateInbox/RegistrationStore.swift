@@ -428,16 +428,20 @@ struct SavedRegistration: Codable {
 
   // A revoked device keeps nothing of the Product Account: keys, requests and credentials go.
   // A device that never joined it, refused after another device's removal, was never trusted.
+  // Every item is attempted; the registration record goes last, so a failed purge is retried.
   func purge() throws -> [String: String] {
-    let saved = try load()
-    if let account = saved?.product?.productAccountId {
-      try keys.remove(vaultAccount(account))
-      try keys.remove(enrollmentAccount(account))
-    }
-    try keys.remove("registration")
     session = nil
     enrollmentRequests = [:]
     trustedDevices = [:]
+    let saved = try load()
+    var failure: (any Error)?
+    if let account = saved?.product?.productAccountId {
+      for item in [vaultAccount(account), enrollmentAccount(account)] {
+        do { try keys.remove(item) } catch { failure = failure ?? error }
+      }
+    }
+    if let failure { throw failure }
+    try keys.remove("registration")
     return ["kind": "signed-out", "notice": saved?.product == nil ? "refused" : "revoked"]
   }
 

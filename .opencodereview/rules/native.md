@@ -12,6 +12,7 @@ This code owns what TypeScript must never hold: Keychain items, the storage encr
 - AES-GCM used with a reused or predictable nonce, or a failed authentication treated as empty data rather than an error. Product Sync records and envelopes must retain their purpose-specific account, record/request/device, schema and epoch binding in `ProductSyncSeal`; the separate synthetic Inbox fixture retains its `dev.unwired.private-inbox.v1` context and is not account-scoped Product Sync storage.
 - Filesystem access on iOS before the protected-data availability check, or a locked device reported as a generic failure rather than `locked`.
 - Cleanup of old keys, envelopes or credentials ordered before the replacement is durably adopted.
+- A revocation purge such as `RegistrationStore.purge` that stops account-item cleanup at the first failure, clears in-memory authorization only after a throwing read, or deletes the registration/retry locator before every dependent item is removed. Attempt every known item, retain the first failure and remove the locator last; otherwise credentials remain live in memory or a partial purge loses its account scope and cannot resume.
 
 #### Bridge contract
 
@@ -29,6 +30,7 @@ This code owns what TypeScript must never hold: Keychain items, the storage encr
 - State from one Product Account, sign-in provider, device or deployment reused after any of them changes; an enrollment or recovery step that proceeds on a stale epoch or a stale authentication.
 - Recovery Key verification that sends the key or anything derived from it off the device, or a rejected key that leaves the device without its current enrollment status.
 - A recent-authentication requirement removed from an operation that needs it.
+- A client treating success from an idempotent backend operation as proof that its own proposal applied. `RegistrationStore.revoke` must verify exact-transition adoption through `adoptRotation` before presenting its generated Recovery Key or claiming that key is current; an already-completed removal may return success without applying this request, and post-success synchronization can fail. Promoting unmatched material can strand recovery, while an unconditional completion notice asks the user to save a key the client never adopted.
 
 #### Mock sessions stay out of production
 

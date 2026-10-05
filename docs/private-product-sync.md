@@ -187,6 +187,11 @@ and keep this key before removing another device. Keep the previous Recovery Key
 until every remaining device has connected and adopted the new keys: during that
 interval recovery still uses the previous key, and the new key becomes usable
 when rotation completes. New synchronized changes use the new key epoch.
+The host reports the removal as complete only after this device has adopted its
+own new keys. When another device removed the same device first, or
+synchronization could not adopt this removal's new keys, the host reports the
+removal as unconfirmed and shows no new Recovery Key. The next synchronization
+resolves it.
 
 Whichever request first learns that this device was removed purges its local
 account keys, enrollment material, identity and mailbox credentials. Restore
@@ -196,11 +201,11 @@ Offline, an Apple relaunch keeps its saved state. The host explains the removal
 and that Gmail mail and previously copied offline data are unaffected.
 
 A fresh identifier is still refused after a removal. The existing backend policy
-prevents identifier substitution, but authorized admission of a genuinely new
-device after revocation remains unresolved against issue #602's enrollment
-criterion. This behavior does not satisfy that criterion. See the
+prevents identifier substitution, so a genuinely new device cannot join an
+account after a removal either. Admitting one through a new authorized enrollment
+is tracked in [issue #750](https://github.com/unwired-dev/product/issues/750). See the
 [architecture companion](architecture/private-product-sync.md#device-revocation)
-for the implementation boundary and decision conflict.
+for the implementation boundary and tracked limitations.
 
 Convex rejects record writes and the legacy initialized marker until the recovery
 envelope exists. The legacy recovery-material route publishes a first envelope
