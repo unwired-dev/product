@@ -71,6 +71,7 @@ type TrustedDeviceCredentialConnection = Readonly<{
 }>;
 
 type TrustedDeviceRevocationTarget = Readonly<{
+  credentialDigest?: string;
   deviceIdentifier: string;
   productAccountId: Id<'productAccounts'>;
 }>;
@@ -479,6 +480,7 @@ async function registerTrustedDevice(
 async function preserveTrustedDeviceRevocationTarget(
   ctx: MutationCtx,
   target: Readonly<{
+    credentialDigest?: string;
     deviceIdentifier: string;
     productAccountId: Id<'productAccounts'>;
     trustedDeviceId: Id<'trustedDevices'>;
@@ -494,6 +496,10 @@ async function preserveTrustedDeviceRevocationTarget(
     .unique();
   if (existingTarget === null) {
     await ctx.db.insert('trustedDeviceRevocationTargets', target);
+  } else if (target.credentialDigest !== undefined) {
+    await ctx.db.patch('trustedDeviceRevocationTargets', existingTarget._id, {
+      credentialDigest: target.credentialDigest,
+    });
   }
 }
 
@@ -846,6 +852,14 @@ async function deleteRevocationTargetDevicesAndRoutes(
   let selectedDeviceDeleted = false;
   for (const device of matchingDevices) {
     selectedDeviceDeleted ||= device._id === trustedDeviceId;
+    await preserveTrustedDeviceRevocationTarget(ctx, {
+      ...(device.credentialDigest === undefined
+        ? {}
+        : { credentialDigest: device.credentialDigest }),
+      deviceIdentifier: device.deviceIdentifier,
+      productAccountId,
+      trustedDeviceId: device._id,
+    });
     await deleteTrustedDeviceAndRoutes(ctx, productAccountId, device._id);
   }
   if (!selectedDeviceDeleted) {
@@ -1154,6 +1168,9 @@ async function applyTrustedDeviceRevocation(
     productAccountId,
   });
   await ctx.db.insert('revokedTrustedDevices', {
+    ...(target.credentialDigest === undefined
+      ? {}
+      : { credentialDigest: target.credentialDigest }),
     deviceIdentifier: target.deviceIdentifier,
     productAccountId,
     productSyncKeyEpoch: nextKeyEpoch,
@@ -1269,6 +1286,36 @@ async function findTrustedDeviceRevocationTarget(
   return target;
 }
 
+// Compares installations, not row ids, which a sign-out and reconnect replace. A retained id of
+// the caller's own installation would remove its current row too, so it is refused. An installation
+// already removed under another id is complete: another rotation would only replace the Recovery
+// Key and add a second tombstone for the installation.
+async function installationAlreadyRevoked(
+  ctx: MutationCtx,
+  request: Readonly<{
+    currentTrustedDeviceId: Id<'trustedDevices'>;
+    productAccountId: Id<'productAccounts'>;
+    target: TrustedDeviceRevocationTarget;
+  }>,
+): Promise<boolean> {
+  const currentDevice = await ctx.db.get(
+    'trustedDevices',
+    request.currentTrustedDeviceId,
+  );
+  if (currentDevice?.deviceIdentifier === request.target.deviceIdentifier) {
+    throw new Error('Use sign out to remove the current Trusted Device');
+  }
+  const revocation = await ctx.db
+    .query('revokedTrustedDevices')
+    .withIndex('by_productAccountId_and_deviceIdentifier', (q) =>
+      q
+        .eq('productAccountId', request.productAccountId)
+        .eq('deviceIdentifier', request.target.deviceIdentifier),
+    )
+    .first();
+  return revocation !== null;
+}
+
 // Only the HTTP action reaches this, after proving recent authentication from the bearer token.
 export const revokeTrustedDevice = internalMutation({
   args: {
@@ -1329,6 +1376,15 @@ export const revokeTrustedDevice = internalMutation({
       productAccountId,
       trustedDeviceId: args.trustedDeviceToRevokeId,
     });
+    if (
+      await installationAlreadyRevoked(ctx, {
+        currentTrustedDeviceId: args.trustedDeviceId,
+        productAccountId,
+        target,
+      })
+    ) {
+      return completedRevocationResponse(ctx, account);
+    }
     if (account.productSyncPendingKeyEpoch !== undefined) {
       return revokeDuringPendingKeyRotation(ctx, {
         account,
@@ -1340,6 +1396,67 @@ export const revokeTrustedDevice = internalMutation({
     return startProductSyncKeyRotation(ctx, { account, args, target });
   },
   returns: productSyncKeyRotationResponseValidator,
+});
+
+// Without a Product Sign-In, as on an Apple relaunch: only the device holding the revoked
+// credential learns of its revocation, so it can purge its account data.
+export const isTrustedDeviceRevoked = query({
+  args: {
+    productAccountId: v.string(),
+    trustedDeviceCredential: v.string(),
+    trustedDeviceId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const productAccountId = ctx.db.normalizeId(
+      'productAccounts',
+      args.productAccountId,
+    );
+    const trustedDeviceId = ctx.db.normalizeId(
+      'trustedDevices',
+      args.trustedDeviceId,
+    );
+    if (productAccountId === null || trustedDeviceId === null) {
+      return false;
+    }
+    const revocation = await ctx.db
+      .query('revokedTrustedDevices')
+      .withIndex('by_productAccountId_and_trustedDeviceId', (q) =>
+        q
+          .eq('productAccountId', productAccountId)
+          .eq('trustedDeviceId', trustedDeviceId),
+      )
+      .unique();
+    const digest = await trustedDeviceCredentialDigest(
+      args.trustedDeviceCredential,
+    );
+    if (revocation?.credentialDigest === digest) {
+      return true;
+    }
+    // A selected installation can unregister and reconnect under a new row ID before removal.
+    // Its retained proof identifies only that installation's rejection, never live account access.
+    const target = await ctx.db
+      .query('trustedDeviceRevocationTargets')
+      .withIndex('by_productAccountId_and_trustedDeviceId', (q) =>
+        q
+          .eq('productAccountId', productAccountId)
+          .eq('trustedDeviceId', trustedDeviceId),
+      )
+      .unique();
+    if (target?.credentialDigest !== digest) {
+      return false;
+    }
+    return (
+      (await ctx.db
+        .query('revokedTrustedDevices')
+        .withIndex('by_productAccountId_and_deviceIdentifier', (q) =>
+          q
+            .eq('productAccountId', productAccountId)
+            .eq('deviceIdentifier', target.deviceIdentifier),
+        )
+        .first()) !== null
+    );
+  },
+  returns: v.boolean(),
 });
 
 export const getProductSyncKeyRotation = query({
@@ -1487,6 +1604,9 @@ export const unregisterTrustedDevice = mutation({
       });
     }
     await preserveTrustedDeviceRevocationTarget(ctx, {
+      ...(device.credentialDigest === undefined
+        ? {}
+        : { credentialDigest: device.credentialDigest }),
       deviceIdentifier: device.deviceIdentifier,
       productAccountId: account.productAccountId,
       trustedDeviceId: args.trustedDeviceId,

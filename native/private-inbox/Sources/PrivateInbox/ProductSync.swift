@@ -42,7 +42,34 @@ struct ProductSyncBackend {
     (ProductSignInIdentity, ProductRegistrationReceipt, String) async throws -> Void
   // The account's published recovery envelope, opened only on this device with the Recovery Key.
   let recoveryEnvelope:
-    (ProductSignInIdentity, ProductRegistrationReceipt) async throws -> EncryptedPayload
+    (ProductSignInIdentity, ProductRegistrationReceipt) async throws -> StoredPayload
+  // The key epoch a revocation started and the remaining devices have not all adopted yet.
+  let keyRotation:
+    (ProductSignInIdentity, ProductRegistrationReceipt) async throws -> KeyRotation?
+  let acknowledgeRotation:
+    (ProductSignInIdentity, ProductRegistrationReceipt, Int) async throws -> Void
+  let trustedDevices:
+    (ProductSignInIdentity, ProductRegistrationReceipt) async throws -> [TrustedDevice]
+  // Removes another device with a recent Product Sign-In: the new key ring sealed to the account's
+  // committed key, the new recovery envelope, and the recovery record time it replaces.
+  let revoke:
+    (
+      ProductSignInIdentity, ProductRegistrationReceipt, String, EncryptedPayload, EncryptedPayload,
+      Double
+    ) async throws -> Void
+}
+
+struct KeyRotation: Equatable {
+  let keyEpoch: Int
+  // The new key ring, sealed to the committed epoch's key that every remaining device holds.
+  let transition: EncryptedPayload
+}
+
+struct TrustedDevice: Codable, Equatable {
+  let id: String
+  let name: String
+  // Milliseconds since 1970, as Convex records it.
+  let registeredAt: Double
 }
 
 // Another device's request to receive this Product Account's keys.
@@ -79,8 +106,8 @@ struct ProductSyncEnrollment: Codable {
 struct ProductSyncVault: Codable {
   var version = 1
   let productAccountId: String
-  let ring: ProductSyncKeyRing
-  // Held only by the device that created the keys; an enrolled device never receives them.
+  var ring: ProductSyncKeyRing
+  // Held by the device that created the keys or last removed a device; others never receive it.
   var recoveryKey: Data?
   var recoveryEnvelope: EncryptedPayload?
   // Convex accepted this device's recovery envelope as the account's key material.
@@ -90,6 +117,15 @@ struct ProductSyncVault: Codable {
   var savedMailboxes: [String: String]?
   // Every mailbox address last read back and decrypted, shown when no session is available.
   var readMailboxes: [String]?
+  // A removal sent without a reply yet: its target, new Recovery Key and exact transition.
+  var revocation: PendingRevocation?
+}
+
+struct PendingRevocation: Codable {
+  let recoveryKey: Data
+  let transition: EncryptedPayload
+  // Older saved attempts have no target; their key can be adopted without attributing a removal.
+  let trustedDeviceId: String?
 }
 
 // The synchronized description of an authorized mailbox; credentials never enter it.
@@ -142,7 +178,7 @@ extension RegistrationStore {
   // Only uninitialized accounts create keys; losing initialization discards unpublished keys.
   // Initialization, enrollment and descriptor publication share one ordered account/session flow.
   // swiftlint:disable:next cyclomatic_complexity
-  func synchronize(_ saved: SavedRegistration) async -> SavedRegistration {
+  func synchronize(_ saved: SavedRegistration) async throws -> SavedRegistration {
     guard let backend = productSync, let session, var product = saved.product else { return saved }
     let account = product.productAccountId
     do {
@@ -163,7 +199,9 @@ extension RegistrationStore {
         vault = created
       }
       guard var current = vault else { return saved }
-      if !current.published {
+      if current.published {
+        current = try await adoptRotation(current, backend: backend, session: session, product)
+      } else {
         guard let envelope = current.recoveryEnvelope else { throw RegistrationError.unavailable }
         guard try await backend.initialize(session, product, envelope) else {
           try keys.remove(vaultAccount(account))
@@ -191,6 +229,11 @@ extension RegistrationStore {
         try saveVault(next)
       }
       enrollmentRequests[account] = try await backend.pendingEnrollments(session, product)
+      trustedDevices[account] = try await backend.trustedDevices(session, product).filter {
+        $0.id != product.trustedDeviceId
+      }
+    } catch RegistrationError.revoked {
+      throw RegistrationError.revoked
     } catch {
       // Product Sync stays pending; registration and the mailbox remain usable.
       Self.logProductSyncFailure("Product Sync failed", error)
@@ -326,6 +369,10 @@ extension RegistrationStore {
     {
       result["enrollmentRequest"] = request.requestId
       result["enrollmentDevice"] = request.deviceName
+    }
+    // Other devices this one can remove; it re-encrypts with keys and a Recovery Key it holds.
+    if vault.published, let devices = trustedDevices[product.productAccountId], !devices.isEmpty {
+      result["trustedDevices"] = String(decoding: try JSONEncoder().encode(devices), as: UTF8.self)
     }
     if let mailboxes = vault.readMailboxes, !mailboxes.isEmpty {
       result["privateSyncMailboxes"] = mailboxes.joined(separator: "\n")

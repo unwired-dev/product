@@ -24,11 +24,31 @@ import Testing
   var initializations = 0
   var offline = false
   var clock = 1_000.0
+  // Key rotation: the committed epoch and recovery record time, at most one pending epoch with its
+  // transition and recovery envelope, and the epoch each device acknowledged.
+  var committed: [String: Int] = [:]
+  var recoveryUpdatedAt: [String: Double] = [:]
+  var rotations: [String: (epoch: Int, transition: EncryptedPayload, recovery: EncryptedPayload)] =
+    [:]
+  var epochs: [String: Int] = [:]
+  var devices: [String: [String]] = [:]
+  // Accounts with a removal refuse every device identifier they have not seen before.
+  var tombstoned: Set<String> = []
+  // The next removal applies but its reply is lost.
+  var loseReply = false
+  // The removal reply arrives, but the following synchronization cannot reach the backend.
+  var offlineAfterRevocation = false
+
+  func epoch(_ account: String) -> Int { rotations[account]?.epoch ?? committed[account] ?? 1 }
 
   func receipt(_ account: String, device: String = "synthetic-device")
     -> ProductRegistrationReceipt
   {
-    ProductRegistrationReceipt(
+    if devices[account]?.contains(device) != true {
+      devices[account, default: []].append(device)
+      epochs[device] = committed[account] ?? 1
+    }
+    return ProductRegistrationReceipt(
       productAccountId: account, trustedDeviceId: device,
       trustedDeviceCredential: String(repeating: "a", count: 64),
       productSyncMaterialInitialized: recovery[account] != nil)
@@ -37,7 +57,7 @@ import Testing
   // Every call presents a live Trusted Device of the account.
   func device(_ product: ProductRegistrationReceipt) throws {
     guard !offline else { throw RegistrationError.unavailable }
-    guard !revoked.contains(product.trustedDeviceId) else { throw RegistrationError.unavailable }
+    guard !revoked.contains(product.trustedDeviceId) else { throw RegistrationError.revoked }
   }
 
   // The caller's own request; another device's or an unknown one reads as cancelled.
@@ -66,6 +86,7 @@ import Testing
         guard !offline else { throw RegistrationError.unavailable }
         if let existing = recovery[product.productAccountId] { return existing == envelope }
         recovery[product.productAccountId] = envelope
+        recoveryUpdatedAt[product.productAccountId] = clock
         initializations += 1
         return true
       },
@@ -77,6 +98,9 @@ import Testing
       },
       put: { [self] _, product, identifier, payload, expected in
         guard !offline else { throw RegistrationError.unavailable }
+        guard payload.keyVersion == epoch(product.productAccountId) else {
+          throw RegistrationError.unavailable
+        }
         let existing = records[product.productAccountId]?[identifier]
         if let existing, existing.updatedAt != expected { return existing }
         clock += 1
@@ -121,6 +145,9 @@ import Testing
       },
       approveEnrollment: { [self] _, product, pending, keyVersion, envelope in
         try device(product)
+        guard keyVersion == epoch(product.productAccountId) else {
+          throw RegistrationError.unavailable
+        }
         var request = try approvable(
           product, pending.requestId, requester: pending.trustedDeviceId)
         request.state = .approved
@@ -141,7 +168,60 @@ import Testing
         guard let envelope = recovery[product.productAccountId] else {
           throw RegistrationError.unavailable
         }
-        return envelope
+        return StoredPayload(
+          payloadIdentifier: "product-account-recovery-v1", encryptedPayload: envelope,
+          updatedAt: recoveryUpdatedAt[product.productAccountId] ?? 0)
+      },
+      keyRotation: { [self] _, product in
+        try device(product)
+        return rotations[product.productAccountId].map {
+          KeyRotation(keyEpoch: $0.epoch, transition: $0.transition)
+        }
+      },
+      // The pending recovery envelope is committed once every remaining device holds the epoch.
+      acknowledgeRotation: { [self] _, product, keyEpoch in
+        try device(product)
+        let account = product.productAccountId
+        guard let rotation = rotations[account] else {
+          guard committed[account] == keyEpoch else { throw RegistrationError.unavailable }
+          return
+        }
+        guard rotation.epoch == keyEpoch else { throw RegistrationError.unavailable }
+        epochs[product.trustedDeviceId] = keyEpoch
+        if (devices[account] ?? []).allSatisfy({ epochs[$0] == keyEpoch }) {
+          clock += 1
+          recovery[account] = rotation.recovery
+          recoveryUpdatedAt[account] = clock
+          committed[account] = keyEpoch
+          rotations[account] = nil
+        }
+      },
+      trustedDevices: { [self] _, product in
+        try device(product)
+        return (devices[product.productAccountId] ?? []).map {
+          TrustedDevice(id: $0, name: "Device " + $0.suffix(4), registeredAt: 1_000)
+        }
+      },
+      revoke: { [self] _, product, target, transition, wrapped, updatedAt in
+        try device(product)
+        let account = product.productAccountId
+        // A completed removal answers with the current state and applies nothing new.
+        if revoked.contains(target) { return }
+        guard target != product.trustedDeviceId, devices[account]?.contains(target) == true,
+          updatedAt == recoveryUpdatedAt[account], transition.keyVersion == committed[account] ?? 1,
+          wrapped.keyVersion == epoch(account) + 1,
+          wrapped.schemaVersion == KeyRingEnvelope.recoverySchemaVersion
+        else { throw RegistrationError.unavailable }
+        revoked.insert(target)
+        tombstoned.insert(account)
+        devices[account]?.removeAll { $0 == target }
+        requests = requests.filter { $0.value.device != target }
+        rotations[account] = (wrapped.keyVersion, transition, wrapped)
+        offline = offlineAfterRevocation
+        if loseReply {
+          loseReply = false
+          throw URLError(.networkConnectionLost)
+        }
       })
   }
 
@@ -152,8 +232,14 @@ import Testing
     RegistrationStore(
       keys: keys, deployment: "https://synthetic.example.invalid", clientID: "synthetic-client",
       provider: google, productSync: backend,
+      deviceRevoked: { [self] product in revoked.contains(product.trustedDeviceId) },
       connect: { [self] identity, device, _ in
-        receipt("account-" + identity.subject, device: "device-" + device)
+        let account = "account-" + identity.subject
+        // A revoked device, or any new one after a removal, is refused.
+        guard !revoked.contains("device-" + device),
+          !tombstoned.contains(account) || devices[account]?.contains("device-" + device) == true
+        else { throw RegistrationError.revoked }
+        return receipt(account, device: "device-" + device)
       })
   }
 }
@@ -892,5 +978,305 @@ extension PrivateInboxTests {
     {
       #expect(!visible.contains(secret))
     }
+  }
+
+  @Test @MainActor func revokingADeviceRotatesKeysForRemainingDevicesAndPurgesItOnReconnect()
+    async throws
+  {
+    let (creator, kept, lost) = (device(), device(), device())
+    let account = "account-synthetic-product-subject"
+    defer {
+      for keys in [creator, kept, lost] { remove(keys, accounts: [account]) }
+    }
+    let google = SyntheticGoogleRegistrationProvider()
+    google.scopes = [RegistrationStore.gmailScope]
+    let backend = SyntheticProductSyncBackend()
+    // The first device creates the keys and saves its mailbox; two more unlock with the Recovery Key.
+    let remover = backend.store(keys: creator, google: google)
+    let shown = try #require(try await remover.signIn()["recoveryKey"])
+    _ = try remover.confirmRecoveryKey(String(shown.suffix(4)))
+    google.subject = "synthetic-mailbox-subject"
+    #expect(try await remover.authorizeGmail(reselect: false)["kind"] == "connected")
+    google.subject = "synthetic-product-subject"
+    let survivor = backend.store(keys: kept, google: google)
+    _ = try await survivor.signIn()
+    #expect(try await survivor.recover(with: shown)["privateSync"] == "ready")
+    let removed = backend.store(keys: lost, google: google)
+    _ = try await removed.signIn()
+    #expect(try await removed.recover(with: shown)["privateSync"] == "ready")
+    let removedId = try #require(try removed.load()?.product?.trustedDeviceId)
+    let oldRing = try #require(try removed.loadVault(account)?.ring)
+    let oldRecovery = try #require(backend.recovery[account])
+
+    // The trusted device lists the other two and removes one after signing in again.
+    let listed = try #require(try await remover.refreshPrivateSync()["trustedDevices"])
+    let devices = try JSONDecoder().decode([TrustedDevice].self, from: Data(listed.utf8))
+    #expect(devices.count == 2)
+    #expect(devices.contains { $0.id == removedId })
+    let signIns = google.hints.count
+    let result = try await remover.revoke(removedId)
+    #expect(google.hints.count == signIns + 1)
+    #expect(result["revocationNotice"] == "removed")
+    // A new Recovery Key wraps the new epoch; the old one stops opening new data.
+    #expect(result["privateSync"] == "recovery-key")
+    let newKey = try #require(result["recoveryKey"])
+    #expect(newKey != shown)
+    let remaining = try #require(result["trustedDevices"])
+    #expect(!remaining.contains(removedId))
+    let ring = try #require(try remover.loadVault(account)?.ring)
+    #expect(ring.current == 2)
+    #expect(oldRing.keys.allSatisfy(ring.keys.contains))
+    // Another removal must not discard the sole new Recovery Key before it was backed up: it
+    // shows that key again and removes nothing.
+    let survivorId = try #require(try survivor.load()?.product?.trustedDeviceId)
+    let blocked = try await remover.revoke(survivorId)
+    #expect(blocked["recoveryKey"] == newKey)
+    #expect(blocked["revocationNotice"] == nil)
+    #expect(try remover.loadVault(account)?.recoveryKey == RecoveryKey(parsing: newKey).bytes)
+    #expect(!backend.revoked.contains(survivorId))
+    _ = try remover.confirmRecoveryKey(String(newKey.suffix(4)))
+    // The survivor has not adopted it yet, so the account keeps its committed recovery envelope.
+    #expect(backend.rotations[account]?.epoch == 2)
+    #expect(backend.recovery[account] == oldRecovery)
+
+    // The removed device purges its account data and credentials when it next reconnects.
+    // A failed registration read must still drop the in-process session and lists. Keep the
+    // durable registration locator so a later successful read can retry the account cleanup.
+    let registration = try #require(try lost.read("registration"))
+    #expect(removed.session != nil)
+    try lost.save(Data("invalid-registration".utf8), account: "registration")
+    await #expect(throws: DecodingError.self) {
+      try await removed.purgingIfRevoked { _ in throw RegistrationError.revoked }
+    }
+    #expect(removed.session == nil)
+    #expect(removed.enrollmentRequests.isEmpty)
+    #expect(removed.trustedDevices.isEmpty)
+    #expect(try lost.read("registration") != nil)
+    #expect(try lost.read("product-sync." + account) != nil)
+    try lost.save(registration, account: "registration")
+    // Still open, the removed device tries a removal of its own: it purges before any sign-in
+    // prompt, so cancelling that prompt cannot keep its keys.
+    let prompts = google.hints.count
+    google.outcome = .cancelled
+    #expect(
+      try await removed.purgingIfRevoked { try await $0.revoke(survivorId) }
+        == ["kind": "signed-out", "notice": "revoked"])
+    #expect(google.hints.count == prompts)
+    google.outcome = nil
+    for item in ["registration", "product-sync." + account, "product-sync-enrollment." + account] {
+      #expect(try lost.read(item) == nil)
+    }
+    // Signing in again mints a new device identifier, which the account refuses.
+    #expect(
+      try await removed.purgingIfRevoked { try await $0.signIn() }
+        == ["kind": "signed-out", "notice": "refused"])
+    #expect(try lost.read("registration") == nil)
+
+    // The survivor adopts the new epoch from a key it holds; then the rotation completes.
+    #expect(try await survivor.refreshPrivateSync()["privateSync"] == "ready")
+    #expect(try survivor.loadVault(account)?.ring == ring)
+    #expect(backend.rotations[account] == nil)
+    let committed = try #require(backend.recovery[account])
+    #expect(try KeyRingEnvelope.openRecovery(committed, key: RecoveryKey(parsing: newKey), account: account) == ring)
+    #expect(throws: ProductSyncError.rejected) {
+      try KeyRingEnvelope.openRecovery(committed, key: RecoveryKey(parsing: shown), account: account)
+    }
+
+    // A mailbox saved at the new epoch reaches the survivor, but not the removed device's keys.
+    google.subject = "synthetic-other-mailbox"
+    google.address = "other@example.invalid"
+    #expect(try await remover.authorizeGmail(reselect: true)["kind"] == "connected")
+    google.subject = "synthetic-product-subject"
+    #expect(
+      try await survivor.refreshPrivateSync()["privateSyncMailboxes"]
+        == "other@example.invalid\nsame@example.invalid")
+    let saved = try #require(
+      backend.records[account]?.values.first { $0.encryptedPayload.keyVersion == 2 })
+    #expect(throws: ProductSyncError.rejected) {
+      try oldRing.open(
+        record: saved.encryptedPayload, account: account, identifier: saved.payloadIdentifier,
+        schemaVersion: MailboxDescriptor.schemaVersion)
+    }
+
+    // Success from removal is not success adopting its keys. Preserve the pending transition
+    // and the confirmed Recovery Key until synchronization can adopt this exact removal.
+    backend.offlineAfterRevocation = true
+    let unconfirmed = try await remover.revoke(survivorId)
+    #expect(unconfirmed["revocationNotice"] == "unconfirmed")
+    #expect(unconfirmed["recoveryKey"] == nil)
+    #expect(backend.revoked.contains(survivorId))
+    #expect(try remover.loadVault(account)?.recoveryKey == RecoveryKey(parsing: newKey).bytes)
+    #expect(try remover.loadVault(account)?.revocation != nil)
+    backend.offline = false
+    let adopted = try await remover.refreshPrivateSync()
+    #expect(adopted["privateSync"] == "recovery-key")
+    let replacement = try #require(adopted["recoveryKey"])
+    #expect(replacement != newKey)
+    #expect(try remover.loadVault(account)?.revocation == nil)
+    #expect(backend.rotations[account] == nil)
+    #expect(
+      try KeyRingEnvelope.openRecovery(
+        #require(backend.recovery[account]), key: RecoveryKey(parsing: replacement), account: account)
+        == remover.loadVault(account)?.ring)
+  }
+
+  @Test(arguments: [false, true]) @MainActor
+  func aLostRevocationReplyKeepsTheNewRecoveryKeyOnlyIfTheRemovalApplied(
+    retryAnotherDevice: Bool
+  ) async throws {
+    let (creator, other, kept) = (device(), device(), device())
+    let account = "account-synthetic-product-subject"
+    defer {
+      for keys in [creator, other, kept] { remove(keys, accounts: [account]) }
+    }
+    let google = SyntheticGoogleRegistrationProvider()
+    let backend = SyntheticProductSyncBackend()
+    let remover = backend.store(keys: creator, google: google)
+    let shown = try #require(try await remover.signIn()["recoveryKey"])
+    _ = try remover.confirmRecoveryKey(String(shown.suffix(4)))
+    let enrolled = backend.store(keys: other, google: google)
+    _ = try await enrolled.signIn()
+    _ = try await enrolled.recover(with: shown)
+    let target = try #require(try enrolled.load()?.product?.trustedDeviceId)
+    let survivor = backend.store(keys: kept, google: google)
+    _ = try await survivor.signIn()
+    _ = try await survivor.recover(with: shown)
+    let survivorId = try #require(try survivor.load()?.product?.trustedDeviceId)
+
+    // A refused removal changes nothing and leaves no pending Recovery Key.
+    await #expect(throws: RegistrationError.unavailable) {
+      try await remover.revoke("device-unknown")
+    }
+    #expect(try remover.loadVault(account)?.revocation == nil)
+    #expect(backend.rotations[account] == nil)
+
+    // The reply is lost after the removal applied. Trying again learns that it applied and shows
+    // its new Recovery Key, rather than refusing to replace an unconfirmed key or removing again.
+    backend.loseReply = true
+    await #expect(throws: URLError.self) { try await remover.revoke(target) }
+    #expect(try remover.loadVault(account)?.revocation != nil)
+    #expect(try remover.privateSync(remover.load()!)["privateSync"] == "ready")
+    let synced = try await remover.revoke(retryAnotherDevice ? survivorId : target)
+    #expect(synced["revocationNotice"] == (retryAnotherDevice ? nil : "removed"))
+    #expect(synced["privateSync"] == "recovery-key")
+    #expect(!backend.revoked.contains(survivorId))
+    let remaining = try #require(synced["trustedDevices"])
+    #expect(!remaining.contains(target))
+    #expect(remaining.contains(survivorId))
+    let newKey = try #require(synced["recoveryKey"])
+    #expect(newKey != shown)
+    #expect(try remover.loadVault(account)?.revocation == nil)
+    // Both remaining devices adopt the epoch, so its recovery envelope opens with the new key.
+    #expect(try await survivor.refreshPrivateSync()["privateSync"] == "ready")
+    #expect(backend.rotations[account] == nil)
+    #expect(
+      try KeyRingEnvelope.openRecovery(
+        #require(backend.recovery[account]), key: RecoveryKey(parsing: newKey), account: account)
+        == remover.loadVault(account)?.ring)
+
+    // Removing a device that is already gone applies nothing, so no new Recovery Key is claimed.
+    _ = try remover.confirmRecoveryKey(String(newKey.suffix(4)))
+    let repeated = try await remover.revoke(target)
+    #expect(repeated["revocationNotice"] == "unconfirmed")
+    #expect(repeated["privateSync"] == "ready")
+    #expect(try remover.loadVault(account)?.recoveryKey == RecoveryKey(parsing: newKey).bytes)
+    #expect(try remover.loadVault(account)?.revocation == nil)
+  }
+
+  @Test(arguments: [
+    (SignInProvider.google, "link"), (.apple, "link"),
+    (.google, "sign-in"), (.apple, "sign-in"),
+    (.google, "switch"), (.apple, "switch"), (.apple, "recovery"),
+  ])
+  @MainActor func savedAccountPromptsPurgeRevokedDevicesBeforeCancellation(
+    _ scenario: (SignInProvider, String)
+  ) async throws {
+    let (signInProvider, operation) = scenario
+    let keys = device()
+    let google = SyntheticGoogleRegistrationProvider()
+    let apple = SyntheticAppleRegistrationProvider()
+    let backend = SyntheticProductSyncBackend()
+    let account = "account-" + (signInProvider == .apple ? apple.subject : google.subject)
+    defer { remove(keys, accounts: [account]) }
+    var revoked: Bool? = false
+    let store = RegistrationStore(
+      keys: keys, deployment: "https://synthetic.example.invalid", clientID: "synthetic-client",
+      provider: google, apple: apple,
+      linking: SignInLinking(
+        request: { _, _, _ in throw RegistrationError.unavailable },
+        complete: { _, _, _ in throw RegistrationError.unavailable }),
+      productSync: backend.backend,
+      deviceRevoked: { _ in
+        guard let revoked else { throw URLError(.notConnectedToInternet) }
+        return revoked
+      },
+      connect: { identity, _, _ in backend.receipt("account-" + identity.subject) })
+    let registered = try await store.signIn(with: signInProvider)
+    let recoveryKey = try #require(registered["recoveryKey"])
+    google.scopes = [RegistrationStore.gmailScope]
+    _ = try await store.authorizeGmail(reselect: false)
+    #expect(try store.load()?.mailboxCredential != nil)
+    #expect(try keys.read("product-sync." + account) != nil)
+    let other: SignInProvider = signInProvider == .apple ? .google : .apple
+    func perform(_ current: RegistrationStore) async throws -> [String: String] {
+      switch operation {
+      case "link": return try await current.link(other)
+      case "sign-in": return try await current.signIn(with: signInProvider)
+      case "switch": return try await current.signIn(with: other)
+      default: return try await current.recover(with: recoveryKey)
+      }
+    }
+    google.outcome = .cancelled
+    apple.outcome = .cancelled
+    // A missing revocation reply retains the resumable account when the prompt is cancelled.
+    revoked = nil
+    await #expect(throws: RegistrationError.cancelled) {
+      try await store.purgingIfRevoked(perform)
+    }
+    #expect(try store.load()?.mailboxCredential != nil)
+    #expect(try keys.read("product-sync." + account) != nil)
+    let prompts = google.hints.count + apple.signIns
+    revoked = true
+    #expect(
+      try await store.purgingIfRevoked(perform)
+        == ["kind": "signed-out", "notice": "revoked"])
+    #expect(google.hints.count + apple.signIns == prompts)
+    #expect(store.session == nil)
+    for item in ["registration", "product-sync." + account, "product-sync-enrollment." + account] {
+      #expect(try keys.read(item) == nil)
+    }
+  }
+
+  @Test @MainActor func appleRestoreLearnsOfRevocationFromTheDeviceCredentialAlone() async throws {
+    let keys = device()
+    let account = "account-synthetic-apple-subject"
+    defer { remove(keys, accounts: [account]) }
+    let google = SyntheticGoogleRegistrationProvider()
+    let apple = SyntheticAppleRegistrationProvider()
+    let backend = SyntheticProductSyncBackend()
+    var revoked: Bool? = false
+    func store() -> RegistrationStore {
+      RegistrationStore(
+        keys: keys, deployment: "https://synthetic.example.invalid", clientID: "synthetic-client",
+        provider: google, apple: apple, productSync: backend.backend,
+        deviceRevoked: { _ in
+          guard let revoked else { throw URLError(.notConnectedToInternet) }
+          return revoked
+        },
+        connect: { identity, _, _ in backend.receipt("account-" + identity.subject) })
+    }
+    _ = try await store().signIn(with: .apple)
+    #expect(try await store().purgingIfRevoked { try await $0.restore() }["kind"] == "mailbox-needed")
+    // Offline, an Apple relaunch keeps the saved account usable.
+    revoked = nil
+    #expect(try await store().purgingIfRevoked { try await $0.restore() }["kind"] == "mailbox-needed")
+    revoked = true
+    // An unavailable provider grant must not hide the backend's positive revocation proof.
+    apple.state = .revoked
+    #expect(
+      try await store().purgingIfRevoked { try await $0.restore() }
+        == ["kind": "signed-out", "notice": "revoked"])
+    #expect(try keys.read("registration") == nil)
+    #expect(try keys.read("product-sync." + account) == nil)
   }
 }

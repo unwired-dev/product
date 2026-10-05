@@ -227,6 +227,8 @@ test('build selection resolves only explicit test scenarios and production keeps
     ['registration-link', 'normal'],
     ['registration-enrollment', 'normal'],
     ['registration-recovery', 'normal'],
+    ['registration-revocation', 'normal'],
+    ['registration-revoked', 'normal'],
   ]) {
     const result = spawnSync(process.execPath, ['-e', script], {
       cwd: root,

@@ -83,6 +83,12 @@ which descriptors this device read back.
 
 ## Trusted-device enrollment
 
+Until [#750](https://github.com/unwired-dev/product/issues/750) implements
+[ADR 0066](../adr/0066-admit-devices-only-through-authorized-enrollment.md), the
+registration and enrollment behavior below remains the current implementation.
+ADR 0066's separate Pending Device and authorization-before-admission guarantees
+are accepted follow-up work, not behavior delivered by #602.
+
 [#600](https://github.com/unwired-dev/product/issues/600) adds the replacement
 client's approval path. Product Sign-In registers a device and its backend
 credential independently of possession of Product Sync keys. The client offers
@@ -138,7 +144,12 @@ encryption boundaries, not deployment JWT verification or two real devices.
 ## Recovery Key adoption
 
 [#601](https://github.com/unwired-dev/product/issues/601) adds explicit Recovery Key
-entry beside trusted-device approval. A malformed key is rejected before renewing
+entry beside trusted-device approval. The current route described below serves
+already-registered Trusted Devices; ADR 0066 changes new-device recovery in #750
+to require proof before envelope access and durable adoption before admission.
+During a pending rotation, only the replacement Recovery Key will admit a
+Pending Device, while the previous key remains usable by already-trusted devices
+until completion. A malformed key is rejected before renewing
 Product Sign-In. Before reading the recovery envelope for a well-formed key, Google
 renews its Product Sign-In silently and Apple signs in interactively on every
 attempt. The existing subject and Product Account checks fence the renewed
@@ -179,3 +190,109 @@ Keychain and CryptoKit checks use a synthetic Convex
 boundary; packaged journeys use Mock Mail Sessions. Mac recovery automation and
 hosted storage, physical devices and protected Convex and provider qualification
 remain pending.
+
+## Device revocation
+
+Issue [#602](https://github.com/unwired-dev/product/issues/602) connects the
+replacement hosts to the existing recent-authenticated revocation route for
+Google and Apple. Native code adopts a pending epoch before proposing a fresh
+one, retains every prior epoch, and seals the rotation ring with the committed
+epoch's key using account-bound purpose `rotation`, schema 1. Backend device
+proof and tombstones withhold that transition from the removed device even though
+it held the committed key. Key possession alone never authorizes its retrieval.
+
+This is an authorization fence, not cryptographic exclusion from stored
+transitions. The removed device's committed epoch key plus read access to Convex
+storage can open the pending transition and obtain the new ring. Per-device
+sealing to secrets the removed device never held requires a protocol change and
+is tracked in [#753](https://github.com/unwired-dev/product/issues/753), blocked
+by #602. This slice does not establish that stronger guarantee.
+
+Each applied removal creates a new Recovery Key and schema 3 recovery envelope,
+so the previous Recovery Key cannot open the replacement recovery envelope.
+Revocation is idempotent by installation within the Product Account, including
+retained row IDs from before sign-out and reconnect. After authenticating the
+caller and resolving the account-owned live or retained target,
+`productAccount.revokeTrustedDevice` compares the authenticated live device's
+`deviceIdentifier` with the target's identifier and refuses self-removal with the
+existing sign-out error, including through an earlier retained row ID. This guard
+precedes the installation tombstone check and either rotation path, so an alias
+cannot remove the caller's current row or strand rotation without a surviving
+device. The mutation then checks the installation's `deviceIdentifier` tombstone.
+A previously removed installation returns
+the current pending or committed rotation status without replacing the transition
+or recovery envelope and without adding another tombstone. The exact-ID retry
+check remains available even when no retained target exists.
+Before sending, the native vault durably preserves the generated Recovery Key,
+exact transition and requested target ID.
+A lost connection, cancellation or ambiguous server response keeps this marker;
+a known refusal clears it. Synchronization promotes the preserved Recovery Key
+only when the authoritative pending transition matches. A successful idempotent
+revocation reply alone proves no adoption: the target may already be revoked
+without applying this request. The host emits `revocationNotice: "removed"`
+only when the stored Recovery Key matches this removal's generated key after
+synchronization; otherwise it emits `unconfirmed` and preserves the confirmed
+key. A failed transition read retains the pending marker for the next
+synchronization; an authoritative mismatch clears it without promoting the
+unapplied key. It durably saves the adopted ring before acknowledging. A retried
+`revoke` that adopts its unanswered attempt returns the `recovery-key` snapshot
+instead of throwing on the unconfirmed-key guard; it emits `removed` only when
+the saved target ID matches the requested target. A different target, or an older
+marker without a target ID, still surfaces the adopted key but claims no removal
+for that request. An already shown, unconfirmed key likewise returns its status
+without a notice. Neither path sends another removal or replaces the key before
+confirmation. Surviving devices open the transition with a held
+key and require it to retain every held key. The backend publishes the new
+recovery envelope only after every remaining device acknowledges; until then
+backup guidance retains the previous key as well as the new one.
+
+Every registration bridge operation enters `RegistrationStore.purgingIfRevoked`.
+When a readable saved registration contains a Product Account, this boundary calls
+`requireNotRevoked` using `productAccount:isTrustedDeviceRevoked` before invoking
+the requested operation. Restore, Linked Sign-In, signing in again, provider
+switching, Recovery Key unlock and removal therefore check before provider
+validation or an interactive prompt. Failed provider renewal or prompt
+cancellation cannot suppress credential-proven revocation. An unreadable
+registration skips the preflight and leaves the operation to report its own
+failure; this preserves purge's clearing of in-memory authorization before its
+throwing registration read. Transport unavailability likewise leaves the
+requested operation's resumable/offline and cancellation behavior intact.
+The query authenticates only the device's revocation rejection, using the
+account-scoped tombstone and SHA-256 digest of the credential copied at removal;
+it returns one boolean and grants no account data or API access. It needs no
+renewable Product Sign-In token, which Apple relaunch cannot supply. Invalid IDs
+or a mismatched credential disclose nothing. Transport unavailability retains
+local state. A positive rejection removes the account vault, enrollment item and
+registration record (including identity and mailbox credentials) before later
+provider work. The unrelated encrypted synthetic Inbox fixture has no account
+ownership and is outside this purge; future account-owned mail storage must join
+this boundary. Purge clears in-memory authorization before reading the persisted
+registration, attempts every known account item despite a deletion failure and
+throws the first failure before deleting registration. Registration is removed
+last, preserving the account locator for a later cleanup retry. Unregistration
+retains only the credential digest in the existing minimal revocation-target
+record, so owner removal after sign-out still supplies this
+rejection to the old installation. Removal also retains the digest of any live row with that installation
+identifier. A reconnect between target selection and revocation can change its
+row ID; the credential-only query then matches that retained proof and the
+installation tombstone. The target digest is not a live authorization grant,
+and account deletion already drains these target records.
+
+### Enrollment scope split
+
+The existing backend continues ADR 0020's refusal of previously unseen identifiers
+on any account with a revocation tombstone until
+[#750](https://github.com/unwired-dev/product/issues/750), blocked by #602, lands.
+Issue #602's amended criterion requires preventing bypass through an invented
+identifier; this slice preserves that lock. Current enrollment starts after
+ordinary Trusted Device registration and cannot safely override it.
+
+[ADR 0066](../adr/0066-admit-devices-only-through-authorized-enrollment.md) now
+supersedes that lock and its identifier-history migration with authorized
+admission for every account. Issue #750 owns the separate Pending Device record,
+its restricted access, approval or Recovery Key proof, newest-epoch fences and
+durable key adoption before Trusted Device creation. It also removes the lock,
+migration gate, migration mutation and registration history kept for the lock.
+The removed identifier and credential remain refused. These are accepted
+follow-up requirements, outside #602's current acceptance scope; the current
+"This device cannot join" refusal does not claim to implement them.

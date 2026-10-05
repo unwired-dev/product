@@ -31,7 +31,7 @@ extension RegistrationStore {
     guard product.productSyncMaterialInitialized == true else {
       throw RegistrationError.unavailable
     }
-    let envelope = try await backend.recoveryEnvelope(session, product)
+    let envelope = try await backend.recoveryEnvelope(session, product).encryptedPayload
     guard let ring = try? KeyRingEnvelope.openRecovery(envelope, key: key, account: account) else {
       return try rejected()
     }

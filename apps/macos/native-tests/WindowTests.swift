@@ -30,6 +30,52 @@ final class WindowTests: XCTestCase {
     key(groups: 14, in: window)
   }
 
+  // This device created the keys; removing the account's iPad rotates them and replaces the
+  // Recovery Key, which is confirmed like the first one.
+  private func revocationJourney(_ app: XCUIApplication, first: XCUIElement) {
+    first.buttons["Sign in with Google"].click()
+    XCTAssertTrue(recoveryKey(in: first).waitForExistence(timeout: 15))
+    let presented = recoveryKey(in: first).value as? String ?? ""
+    let initialEntry = first.textFields["Last four characters"]
+    initialEntry.click()
+    initialEntry.typeText(String(presented.suffix(4)))
+    first.buttons["Confirm Recovery Key"].click()
+    XCTAssertTrue(first.buttons["Remove iPad"].waitForExistence(timeout: 15))
+    first.buttons["Remove iPad"].click()
+    XCTAssertTrue(text("cannot be erased remotely", in: first).waitForExistence(timeout: 15))
+    first.buttons["Remove iPad"].click()
+    XCTAssertTrue(text("The device was removed.", in: first).waitForExistence(timeout: 15))
+    XCTAssertFalse(first.buttons["Remove iPad"].exists)
+    let replaced = recoveryKey(in: first).value as? String ?? ""
+    XCTAssertEqual(replaced.count, 64)
+    XCTAssertNotEqual(replaced, presented)
+    let entry = first.textFields["Last four characters"]
+    entry.click()
+    entry.typeText(String(replaced.suffix(4)))
+    first.buttons["Confirm Recovery Key"].click()
+    XCTAssertTrue(text("Private sync is on", in: first).waitForExistence(timeout: 15))
+    app.terminate()
+    app.launch()
+    let resumed = app.windows["Inbox 1"]
+    XCTAssertTrue(text("Private sync is on", in: resumed).waitForExistence(timeout: 15))
+    XCTAssertFalse(resumed.buttons["Remove iPad"].exists)
+  }
+
+  // Another device removed this one: the relaunch purges the account and explains it.
+  private func revokedJourney(_ app: XCUIApplication, first: XCUIElement) {
+    first.buttons["Sign in with Google"].click()
+    XCTAssertTrue(first.buttons["Authorize Gmail"].waitForExistence(timeout: 15))
+    app.terminate()
+    app.launch()
+    let resumed = app.windows["Inbox 1"]
+    XCTAssertTrue(text("This device was removed", in: resumed).waitForExistence(timeout: 20))
+    XCTAssertTrue(text("cannot be erased remotely", in: resumed).exists)
+    XCTAssertFalse(recoveryKey(in: resumed).exists)
+    // A fresh sign-in mints a new device identifier, which the account refuses.
+    resumed.buttons["Sign in with Google"].click()
+    XCTAssertTrue(text("This device cannot join", in: resumed).waitForExistence(timeout: 15))
+  }
+
   private func registrationJourney(_ app: XCUIApplication, first: XCUIElement, apple: Bool) {
     // Apple identifies the Product Account; Gmail access still needs its own Google grant.
     let signIn = apple ? "Sign in with Apple" : "Sign in with Google"
@@ -173,6 +219,14 @@ final class WindowTests: XCTestCase {
     }
     if environment["UNWIRED_TEST_SCENARIO"] == "registration-recovery" {
       recoveryJourney(app, first: first)
+      return
+    }
+    if environment["UNWIRED_TEST_SCENARIO"] == "registration-revocation" {
+      revocationJourney(app, first: first)
+      return
+    }
+    if environment["UNWIRED_TEST_SCENARIO"] == "registration-revoked" {
+      revokedJourney(app, first: first)
       return
     }
     if environment["UNWIRED_TEST_SCENARIO"]?.hasPrefix("registration-") == true {

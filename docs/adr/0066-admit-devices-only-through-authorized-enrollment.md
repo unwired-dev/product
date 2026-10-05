@@ -12,8 +12,8 @@ account-wide rule in
 previously unseen device identifier once an account has a revocation tombstone.
 That rule stopped a removed device from rejoining under an invented identifier,
 and it also stopped every legitimate new device. It also supersedes ADR 0020's
-second paragraph, the identifier migration that served that rule. The rest of
-ADR 0020 stands. Issue #750 owns the implementation.
+identifier migration, which served that rule. The rest of ADR 0020 stands.
+Issue #750 owns the implementation.
 
 ## Decision
 

@@ -30,11 +30,15 @@ session after Apple sign-in starts without a Google account hint.
 ## Native verification and restore
 
 Native Sign in with Apple cannot renew an identity token without user interaction.
-Restore and Gmail authorization therefore check the Apple credential state for
+Restore and Gmail authorization first check whether this Trusted Device was
+removed from its Product Account, then check the Apple credential state for
 the saved subject instead of reconnecting to Convex. A revoked, missing or
 unverifiable credential keeps the Product Account and mailbox-setup record. The
 host then reports that the account could not be verified and offers Sign in again
-with Apple. Backend operations that need a current Apple token must reauthenticate
+with Apple. A positive
+[Device Revocation](private-product-sync.md#removing-a-trusted-device) result
+purges the account even when the Apple grant is unavailable. Offline, it keeps
+the saved account. Backend operations that need a current Apple token must reauthenticate
 interactively or add a server-side token exchange. [Private Product Sync](private-product-sync.md#initialization-and-relaunch)
 uses the token from the current interactive sign-in and keeps its local state on relaunch.
 
