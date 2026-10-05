@@ -1,8 +1,10 @@
+import { createGmailInbox } from '@private-email/mail-core/gmail-inbox';
 import {
   accountRemovalCopy,
   createRegistration,
   revocationCopy,
 } from '@private-email/mail-core/registration';
+import { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mailbox';
 import {
   createMockRegistrationSession,
   createSyntheticAccount,
@@ -14,7 +16,33 @@ import {
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { AppState } from 'react-native';
 
-import { RegistrationGate } from '../src/registration-gate.tsx';
+import type { InboxStore } from '../src/private-storage.ts';
+
+import { Inbox } from '../src/inbox.tsx';
+import { AccountContext, RegistrationGate } from '../src/registration-gate.tsx';
+
+// oxlint-disable-next-line vitest/prefer-import-in-mock -- Jest's host adapter boundary.
+jest.mock('../src/private-storage.ts', () => ({
+  __esModule: true,
+  inbox: undefined,
+}));
+
+// The Inbox a connected account opens; every window shares the synthetic Gmail mailbox's store.
+function ConnectedInbox() {
+  return (
+    <Inbox
+      onSelect={() => undefined}
+      selectedId={undefined}
+    />
+  );
+}
+
+const openAccount = async () => {
+  const account = await screen.findByRole('button', { name: 'Account' });
+  await act(async () => {
+    await fireEvent.press(account);
+  });
+};
 
 // Hosts without another device of the account never enroll, approve or recover one.
 const noEnrollment = {
@@ -29,6 +57,199 @@ const noEnrollment = {
 };
 
 describe('product registration', () => {
+  // oxlint-disable-next-line vitest/no-hooks -- Each test owns a fresh native-boundary store.
+  beforeEach(() => {
+    jest.replaceProperty(
+      jest.requireMock<{ inbox: InboxStore }>('../src/private-storage.ts'),
+      'inbox',
+      createGmailInbox(
+        createSyntheticGmail({ address: 'alex@example.invalid', messages: 2 })
+          .native,
+      ),
+    );
+  });
+
+  it('opens saved Gmail mail offline and verifies registration before retrying', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ messages: 2 });
+    await createGmailInbox(gmail.native).load();
+    const session = createMockRegistrationSession('registration-success');
+    const connected = {
+      kind: 'connected',
+      productAccountId: 'synthetic-product-account',
+      signInProvider: 'google',
+      providerSubject: 'synthetic-google-subject',
+      address: 'alex@example.invalid',
+      privateSync: 'ready',
+    } as const;
+    let snapshot: unknown = { ...connected, kind: 'cached' };
+    let openMailbox: () => Promise<unknown> = async () => ({
+      ...(await gmail.native.openMailbox()),
+      availability: 'retry',
+    });
+    const inbox = createGmailInbox({
+      ...gmail.native,
+      openMailbox: () => openMailbox(),
+    });
+    jest.replaceProperty(
+      jest.requireMock<{ inbox: InboxStore }>('../src/private-storage.ts'),
+      'inbox',
+      inbox,
+    );
+    const store = createRegistration({
+      ...session.native,
+      restore: () => Promise.resolve(snapshot),
+    });
+    await render(
+      <RegistrationGate
+        store={store}
+        preview={false}>
+        <ConnectedInbox />
+      </RegistrationGate>,
+    );
+    await expect(
+      screen.findByText('Synthetic message 1'),
+    ).resolves.toBeVisible();
+    expect(
+      screen.getByText(
+        'Gmail could not be reached. Showing mail saved on this device.',
+      ),
+    ).toBeVisible();
+    await openAccount();
+    expect(
+      screen.getByRole('header', { name: 'Saved Gmail Inbox' }),
+    ).toBeVisible();
+    await act(async () => {
+      await fireEvent.press(screen.getByRole('button', { name: 'Open Inbox' }));
+    });
+    gmail.deliver({ subject: 'After verification' });
+    snapshot = connected;
+    ({ openMailbox } = gmail.native);
+    await act(async () => {
+      await fireEvent.press(screen.getByRole('button', { name: 'Try again' }));
+    });
+    await expect(
+      screen.findByText('After verification'),
+    ).resolves.toBeVisible();
+    expect(store.getSnapshot().snapshot).toStrictEqual(connected);
+  });
+
+  it('hides the previous mailbox while the selected mailbox cache opens', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    gmail.deliver({ subject: 'Previous mailbox private subject' });
+    let openMailbox: () => Promise<unknown> = () => gmail.native.openMailbox();
+    const inbox = createGmailInbox({
+      ...gmail.native,
+      openMailbox: () => openMailbox(),
+    });
+    await inbox.load();
+    gmail.reselect('selected@example.invalid');
+    gmail.deliver({ subject: 'Selected mailbox message' });
+    let finish: (cache: unknown) => void = () => undefined;
+    // oxlint-disable-next-line promise/avoid-new -- Hold the vault response to inspect the first rendered frame.
+    const opening = new Promise<unknown>((resolve) => {
+      finish = resolve;
+    });
+    openMailbox = () => opening;
+    jest.replaceProperty(
+      jest.requireMock<{ inbox: InboxStore }>('../src/private-storage.ts'),
+      'inbox',
+      inbox,
+    );
+    await render(
+      <AccountContext
+        value={{
+          address: 'selected@example.invalid',
+          openAccount: () => undefined,
+          authorizeGmail: async () => undefined,
+          refreshInbox: async (load) => {
+            await load();
+          },
+        }}>
+        <ConnectedInbox />
+      </AccountContext>,
+    );
+    expect(screen.queryByText('Previous mailbox private subject')).toBeNull();
+    await act(async () => {
+      ({ openMailbox } = gmail.native);
+      finish(await gmail.native.openMailbox());
+    });
+    await expect(
+      screen.findByText('Selected mailbox message'),
+    ).resolves.toBeVisible();
+  });
+
+  it('waits for registration verification before loading Gmail on activation', async () => {
+    expect.hasAssertions();
+    const listenersBeforeRender = jest.mocked(AppState.addEventListener).mock
+      .calls.length;
+    const connected = {
+      kind: 'connected',
+      productAccountId: 'synthetic-product-account',
+      signInProvider: 'google',
+      providerSubject: 'synthetic-google-subject',
+      address: 'alex@example.invalid',
+    } as const;
+    let finish: (snapshot: unknown) => void = () => undefined;
+    // oxlint-disable-next-line promise/avoid-new -- Hold the native restore response to prove foreground ordering.
+    const resumed = new Promise<unknown>((resolve) => {
+      finish = resolve;
+    });
+    let restore = () => Promise.resolve<unknown>(connected);
+    let prematureReads = 0;
+    const gmail = createSyntheticGmail({ messages: 1 });
+    let openMailbox = () => gmail.native.openMailbox();
+    const inbox = createGmailInbox({
+      ...gmail.native,
+      openMailbox: () => openMailbox(),
+    });
+    jest.replaceProperty(
+      jest.requireMock<{ inbox: InboxStore }>('../src/private-storage.ts'),
+      'inbox',
+      inbox,
+    );
+    const store = createRegistration({
+      ...noEnrollment,
+      ...createMockRegistrationSession('registration-success').native,
+      restore: () => restore(),
+    });
+    await render(
+      <RegistrationGate
+        store={store}
+        preview={false}>
+        <ConnectedInbox />
+      </RegistrationGate>,
+    );
+    await expect(
+      screen.findByText('Synthetic message 0'),
+    ).resolves.toBeVisible();
+    gmail.deliver({ subject: 'After foreground verification' });
+    restore = () => resumed;
+    openMailbox = () => {
+      prematureReads += 1;
+      return Promise.reject(
+        Object.assign(new Error('Not verified'), { code: 'gmail-unavailable' }),
+      );
+    };
+    await act(async () => {
+      for (const [, activate] of jest
+        .mocked(AppState.addEventListener)
+        .mock.calls.slice(listenersBeforeRender)) {
+        activate('active');
+      }
+      await Promise.resolve();
+    });
+    expect(prematureReads).toBe(0);
+    await act(async () => {
+      ({ openMailbox } = gmail.native);
+      finish(connected);
+    });
+    await expect(
+      screen.findByText('After foreground verification'),
+    ).resolves.toBeVisible();
+  });
+
   it('retains setup after declined consent and connects a reselected Gmail account after remount', async () => {
     expect.hasAssertions();
     const session = createMockRegistrationSession('registration-declined');
@@ -271,7 +492,7 @@ describe('product registration', () => {
       <RegistrationGate
         store={store}
         preview={false}>
-        {null}
+        <ConnectedInbox />
       </RegistrationGate>,
     );
     await act(async () => {
@@ -281,6 +502,7 @@ describe('product registration', () => {
         }),
       );
     });
+    await openAccount();
     await expect(
       screen.findByRole('header', { name: 'Gmail connected' }),
     ).resolves.toBeVisible();
@@ -291,6 +513,7 @@ describe('product registration', () => {
     });
   });
 
+  /* oxlint-disable vitest/max-expects -- One journey proves setup confirmation and the Inbox it opens. */
   it('presents the Recovery Key until its final group is confirmed, then shows the encrypted mailbox list', async () => {
     expect.hasAssertions();
     const session = createMockRegistrationSession('registration-success');
@@ -327,7 +550,7 @@ describe('product registration', () => {
       <RegistrationGate
         store={createRegistration(session.native)}
         preview={false}>
-        {null}
+        <ConnectedInbox />
       </RegistrationGate>,
     );
     await expect(
@@ -345,12 +568,27 @@ describe('product registration', () => {
         screen.getByRole('button', { name: 'Confirm Recovery Key' }),
       );
     });
+    // Confirmed setup opens the synchronized Gmail Inbox; the account page stays reachable.
+    await expect(
+      screen.findByRole('button', {
+        name: 'Unread. Maya Chen. Synthetic message 0',
+      }),
+    ).resolves.toBeVisible();
+    expect(screen.getByText('alex@example.invalid')).toBeVisible();
+    await openAccount();
     await expect(
       screen.findByRole('header', { name: 'Private sync is on' }),
     ).resolves.toBeVisible();
     expect(screen.queryByText(syntheticRecoveryKey)).toBeNull();
+    await act(async () => {
+      await fireEvent.press(screen.getByRole('button', { name: 'Open Inbox' }));
+    });
+    await expect(
+      screen.findByRole('button', { name: 'Account' }),
+    ).resolves.toBeVisible();
   });
 
+  /* oxlint-enable vitest/max-expects */
   /* oxlint-disable vitest/max-expects -- One journey proves both devices' sides of an approval. */
   it('unlocks a new device only after a trusted device approves the code it shows', async () => {
     expect.hasAssertions();
@@ -565,9 +803,10 @@ describe('product registration', () => {
       <RegistrationGate
         store={store}
         preview={false}>
-        {null}
+        <ConnectedInbox />
       </RegistrationGate>,
     );
+    await openAccount();
     const press = async (name: string) => {
       await act(async () => {
         await fireEvent.press(await screen.findByRole('button', { name }));
@@ -822,7 +1061,7 @@ describe('product registration', () => {
       <RegistrationGate
         store={createRegistration(session.native)}
         preview={false}>
-        {null}
+        <ConnectedInbox />
       </RegistrationGate>,
     );
     await act(async () => {
@@ -844,6 +1083,7 @@ describe('product registration', () => {
         screen.getByRole('button', { name: 'Confirm Recovery Key' }),
       );
     });
+    await openAccount();
     const signOut = { name: accountRemovalCopy.signOut };
     // The first press explains what sign-out removes; cancelling keeps the account.
     await act(async () => {

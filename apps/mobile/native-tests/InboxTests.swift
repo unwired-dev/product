@@ -24,10 +24,26 @@ final class InboxTests: XCTestCase {
     entry.tap()
     entry.typeText(String(presented.suffix(4)) + "\n")
     app.buttons["Confirm Recovery Key"].tap()
-    XCTAssertTrue(app.staticTexts["Private sync is on"].waitForExistence(timeout: 15))
+    // Confirmed setup opens the synchronized Gmail Inbox, listed over two Gmail pages.
+    let rowan = app.buttons["Unread. Rowan Hale. Garden plans for spring"]
+    XCTAssertTrue(rowan.waitForExistence(timeout: 20))
+    XCTAssertTrue(
+      app.buttons["test@example.invalid. Welcome to your synthetic Inbox"].waitForExistence(
+        timeout: 15))
     XCTAssertFalse(app.staticTexts["recovery-key"].exists)
+    rowan.tap()
+    XCTAssertTrue(app.staticTexts["rowan@example.invalid"].waitForExistence(timeout: 10))
+    XCTAssertFalse(app.buttons["Mark as read"].exists)
+    let inbox = XCTAttachment(screenshot: app.screenshot())
+    inbox.name = "Synchronized Gmail Inbox"
+    inbox.lifetime = .keepAlways
+    add(inbox)
     app.terminate()
     app.launch()
+    // Relaunch reopens the encrypted cache, then setup stays reachable from the Inbox.
+    XCTAssertTrue(
+      app.buttons["Unread. Rowan Hale. Garden plans for spring"].waitForExistence(timeout: 20))
+    app.buttons["Account"].tap()
     XCTAssertTrue(app.staticTexts["Gmail connected"].waitForExistence(timeout: 15))
     XCTAssertTrue(app.staticTexts["Private sync is on"].exists)
     // The mailbox descriptor is read back and decrypted from Product Sync after relaunch.

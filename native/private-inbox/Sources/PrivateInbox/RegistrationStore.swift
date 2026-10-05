@@ -91,6 +91,8 @@ struct SignInLinking {
   func signIn(mail: Bool, hint: String?) async throws -> GoogleRegistrationIdentity
   func refresh(_ credential: Data) async throws -> GoogleRegistrationIdentity
   func verifyGmail(_ identity: GoogleRegistrationIdentity) async throws -> GmailRegistrationReceipt
+  // One Gmail API read with this identity's access token; HTTP failures are returned, not thrown.
+  func gmail(_ identity: GoogleRegistrationIdentity, url: URL) async throws -> (Int, Data)
 }
 
 @MainActor protocol AppleRegistrationProvider {
@@ -135,6 +137,12 @@ struct SavedRegistration: Codable {
   let removal: AccountRemoval?
   // Whether the account revoked this device, answered for its credential without a Product Sign-In.
   let deviceRevoked: ((ProductRegistrationReceipt) async throws -> Bool)?
+  // The connected mailbox's encrypted cache; account removal and mailbox changes clear it.
+  let mailCache: PrivateInboxStore?
+  // Invalidates suspended mailbox work without treating concurrent token renewal as reselection.
+  var mailboxGeneration = UUID()
+  var mailboxVerified = false
+  var mailboxCacheOnly = false
   // The latest verified Product Sign-In in this process; Apple tokens cannot be renewed silently.
   var session: ProductSignInIdentity?
   // Other devices' enrollment requests by Product Account, as last listed in this process.
@@ -148,6 +156,7 @@ struct SavedRegistration: Codable {
     linking: SignInLinking? = nil, productSync: ProductSyncBackend? = nil,
     removal: AccountRemoval? = nil,
     deviceRevoked: ((ProductRegistrationReceipt) async throws -> Bool)? = nil,
+    mailCache: PrivateInboxStore? = nil,
     connect:
       @escaping (ProductSignInIdentity, String, ProductRegistrationReceipt?) async throws ->
       ProductRegistrationReceipt
@@ -161,6 +170,7 @@ struct SavedRegistration: Codable {
     self.productSync = productSync
     self.removal = removal
     self.deviceRevoked = deviceRevoked
+    self.mailCache = mailCache
     self.connect = connect
   }
 
@@ -353,6 +363,9 @@ struct SavedRegistration: Codable {
   }
 
   func restore() async throws -> [String: String] {
+    mailboxGeneration = UUID()
+    mailboxVerified = false
+    mailboxCacheOnly = false
     guard let saved = try load() else { return ["kind": "signed-out"] }
     if let removal = try removalStatus(saved) { return removal }
     // Apple Product Sign-In finishes interactively; an uncommitted one starts again.
@@ -364,6 +377,9 @@ struct SavedRegistration: Codable {
       throw error
     } catch {
       // Keep any identity credential that establish persisted before the backend failed.
+      if Self.transientMailboxFailure(error), let cached = try cachedMailbox((try? load()) ?? saved) {
+        return cached
+      }
       if saved.product != nil { return try failure((try? load()) ?? saved, reason: "unavailable") }
       throw error
     }
@@ -384,11 +400,15 @@ struct SavedRegistration: Codable {
       next.mailbox = receipt
       next.mailboxSetupReason = nil
       try save(next)
+      mailboxVerified = true
+      mailboxCacheOnly = false
       return try await connected(synchronize(next))
     } catch let error as RegistrationError where error.endsAccess {
       throw error
     } catch {
       // Cached consent is never proof of currently usable Gmail access.
+      mailboxVerified = false
+      if Self.transientMailboxFailure(error), let cached = try cachedMailbox(next) { return cached }
       return try failure(next, reason: "gmail-unavailable")
     }
   }
@@ -427,10 +447,16 @@ struct SavedRegistration: Codable {
     do {
       let gmail = try await provider.signIn(mail: true, hint: hint)
       let receipt = try await checkedGmail(gmail)
+      let previous = next.mailbox
       next.mailboxCredential = gmail.credential
       next.mailbox = receipt
       next.mailboxSetupReason = nil
       try save(next)
+      mailboxGeneration = UUID()
+      mailboxVerified = true
+      mailboxCacheOnly = false
+      // Another mailbox's cache is never shown for this one; its next commit would replace it.
+      if previous != nil, previous?.address != receipt.address { try? mailCache?.removeMailbox() }
       return try await connected(synchronize(next))
     } catch let error as RegistrationError where error.endsAccess {
       throw error
@@ -451,6 +477,9 @@ struct SavedRegistration: Codable {
   // A device that never joined it, refused after another device's removal, was never trusted.
   // Every item is attempted; the registration record goes last, so a failed purge is retried.
   func purge(notice: String? = nil) throws -> [String: String] {
+    mailboxGeneration = UUID()
+    mailboxVerified = false
+    mailboxCacheOnly = false
     session = nil
     enrollmentRequests = [:]
     trustedDevices = [:]
@@ -463,6 +492,7 @@ struct SavedRegistration: Codable {
       try save(saved)
     }
     var failure: (any Error)?
+    do { try mailCache?.removeMailbox() } catch { failure = error }
     if let account = saved?.product?.productAccountId {
       for item in [vaultAccount(account), enrollmentAccount(account)] {
         do { try keys.remove(item) } catch { failure = failure ?? error }

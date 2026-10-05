@@ -9,7 +9,9 @@ replacement requirements or release qualification.
 
 `createMockMailSession` accepts only a fixed scenario name.
 
-Mail comes from the existing synthetic Inbox fixture. Assistance
+Preview mail comes from the existing synthetic Inbox fixture. Registration
+journeys use a three-message synthetic Gmail mailbox over two pages through the
+new Gmail adapter and its real encrypted cache. Assistance
 returns a fixed summary.
 
 Metro resolves the normal seed module to the selected

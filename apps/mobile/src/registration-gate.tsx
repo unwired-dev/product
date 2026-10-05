@@ -17,7 +17,9 @@ import {
   enrollmentCopy,
   linkFailureCopy,
   lockedCopy,
+  canOpenInbox,
   offersRecovery,
+  opensInbox,
   otherSignInProvider,
   privateSyncCopy,
   providerNames,
@@ -31,7 +33,13 @@ import {
   trustedDevicesOf,
 } from '@private-email/mail-core/registration';
 import { previewInbox } from '@private-email/mail-core/registration-mode';
-import { useEffect, useState, useSyncExternalStore } from 'react';
+import {
+  createContext,
+  useEffect,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 import {
   ActivityIndicator,
   AppState,
@@ -79,6 +87,17 @@ const styles = StyleSheet.create({
   },
   device: { gap: 8 },
 });
+
+// The connected Inbox opens the account page and asks for Gmail permission again through this.
+export const AccountContext = createContext<
+  | Readonly<{
+      address: string | undefined;
+      openAccount: () => void;
+      authorizeGmail: () => Promise<void>;
+      refreshInbox: (load: () => Promise<void>) => Promise<void>;
+    }>
+  | undefined
+>(undefined);
 
 // End-to-End Encrypted Product Sync; the Recovery Key stays visible until its setup is confirmed.
 function PrivateSync({
@@ -525,11 +544,27 @@ export function RegistrationGate({
   readonly store?: Registration;
   readonly preview?: boolean;
 }) {
-  const { busy, locked } = useSyncExternalStore(
+  const { snapshot, busy, locked } = useSyncExternalStore(
     store.subscribe,
     store.getSnapshot,
   );
   const colors = usePalette();
+  // The person's choice between the account page and a connected Inbox outlasts status updates.
+  const [choice, setChoice] = useState<'inbox' | 'account'>();
+  const actions = useMemo(
+    () => ({
+      address:
+        snapshot.kind === 'connected' || snapshot.kind === 'cached'
+          ? snapshot.address
+          : undefined,
+      openAccount: () => {
+        setChoice('account');
+      },
+      authorizeGmail: () => store.authorizeGmail(false),
+      refreshInbox: store.refreshInbox,
+    }),
+    [store, snapshot],
+  );
   useEffect(() => {
     if (preview) {
       return;
@@ -548,8 +583,25 @@ export function RegistrationGate({
   if (preview) {
     return children;
   }
+  const inbox =
+    canOpenInbox(snapshot) &&
+    (choice ?? (opensInbox(snapshot) ? 'inbox' : 'account')) === 'inbox';
+  if (!locked && inbox) {
+    return <AccountContext value={actions}>{children}</AccountContext>;
+  }
   if (!locked) {
-    return <RegistrationPage store={store} />;
+    return (
+      <RegistrationPage
+        store={store}
+        onInbox={
+          canOpenInbox(snapshot)
+            ? () => {
+                setChoice('inbox');
+              }
+            : undefined
+        }
+      />
+    );
   }
   return (
     <ScrollView
@@ -570,7 +622,14 @@ export function RegistrationGate({
   );
 }
 
-function RegistrationPage({ store }: { readonly store: Registration }) {
+function RegistrationPage({
+  store,
+  onInbox,
+}: {
+  readonly store: Registration;
+  // Returns to the connected Inbox, when it can open.
+  readonly onInbox: (() => void) | undefined;
+}) {
   const {
     snapshot,
     busy,
@@ -621,6 +680,12 @@ function RegistrationPage({ store }: { readonly store: Registration }) {
           </Text>
         )}
         {busy ? <ActivityIndicator accessibilityLabel="Connecting" /> : null}
+        {onInbox === undefined
+          ? null
+          : button('Open Inbox', () => {
+              onInbox();
+              return Promise.resolve();
+            })}
         {failed ? (
           <Text
             accessibilityRole="alert"

@@ -109,6 +109,12 @@ export const RegistrationSnapshotSchema = Schema.Union([
     providerSubject: Schema.NonEmptyString,
     address: Schema.NonEmptyString,
   }),
+  Schema.Struct({
+    kind: Schema.Literal('cached'),
+    ...Account.fields,
+    providerSubject: Schema.NonEmptyString,
+    address: Schema.NonEmptyString,
+  }),
 ]);
 export type RegistrationSnapshot = typeof RegistrationSnapshotSchema.Type;
 
@@ -437,6 +443,15 @@ export function createRegistration(native: NativeRegistration) {
       (snapshot) => ({ ...settled(pending(snapshot)), failed: true }),
       foreground,
     );
+  const resume = () => {
+    if (activation === null) {
+      activation = restore(true);
+      queueMicrotask(() => {
+        activation = null;
+      });
+    }
+    return activation;
+  };
   return {
     getSnapshot: () => state,
     subscribe: (listener: () => void) => {
@@ -456,14 +471,11 @@ export function createRegistration(native: NativeRegistration) {
     },
     // Every activation verifies the saved account and retries unavailable protected storage.
     // Each Mac window's gate reports the same activation synchronously; they share one restore.
-    resume: () => {
-      if (activation === null) {
-        activation = restore(true);
-        queueMicrotask(() => {
-          activation = null;
-        });
-      }
-      return activation;
+    resume,
+    // Cache-only retry verifies registration before attempting provider synchronization.
+    refreshInbox: async (load: () => Promise<void>) => {
+      await resume();
+      await load();
     },
     register: (provider: SignInProvider) =>
       execute(
@@ -703,6 +715,13 @@ export function registrationCopy(snapshot: RegistrationSnapshot) {
         account: accountLine(snapshot),
       };
     }
+    case 'cached': {
+      return {
+        title: 'Saved Gmail Inbox',
+        description: `${snapshot.address} could not be verified. Mail saved on this device is available; try again when connected.`,
+        account: accountLine(snapshot),
+      };
+    }
     default: {
       const exhaustive: never = snapshot;
       return exhaustive;
@@ -830,6 +849,23 @@ export const recoveryCopy = {
 // Recovery Key entry is offered only where the account has keys that this device lacks.
 export const offersRecovery = (privateSync: PrivateSync | undefined) =>
   privateSync === 'enrollment-needed' || privateSync === 'enrollment-pending';
+
+// A connected mailbox's Inbox can open unless a sign-out or deletion is unfinished.
+export const canOpenInbox = (snapshot: RegistrationSnapshot) =>
+  (snapshot.kind === 'connected' || snapshot.kind === 'cached') &&
+  snapshot.removalPending === undefined;
+
+// Launch lands on the Inbox unless account setup needs the person first: a Recovery Key to
+// confirm or enter, a device approval on either side, or a mailbox not yet saved to private sync.
+export const opensInbox = (snapshot: RegistrationSnapshot) =>
+  canOpenInbox(snapshot) &&
+  (snapshot.kind === 'connected' || snapshot.kind === 'cached') &&
+  snapshot.recoveryKey === undefined &&
+  snapshot.enrollmentCode === undefined &&
+  snapshot.enrollmentRequest === undefined &&
+  snapshot.privateSyncPending === undefined &&
+  snapshot.privateSync !== 'setup-pending' &&
+  !offersRecovery(snapshot.privateSync);
 
 export const enrollmentCopy = {
   // On the device waiting for approval.

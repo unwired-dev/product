@@ -61,8 +61,8 @@ restore reconnects; Apple relaunch checks its provider grant and learns deletion
 on its next interactive sign-in or authenticated backend operation. No public
 account-ID tombstone oracle or retained device credentials are added. Offline or
 compromised copies remain outside remote-erasure guarantees. The synthetic Inbox
-fixture has no Product Account ownership; future account-owned caches and Drafts
-must join the purge boundary.
+fixture has no Product Account ownership; the Gmail mailbox cache joins the purge boundary in #604. Future Drafts must
+join it too.
 
 ## Evidence
 

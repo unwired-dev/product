@@ -13,9 +13,12 @@ Adding that mailbox does not link its Google identity as another Product Sign-In
 only [explicit linking](linked-sign-in.md) does.
 
 Production builds open onboarding. Explicit `open-read-relaunch` and
-`mail-unavailable` builds retain the synthetic Inbox preview. A connected Gmail
-status confirms authorization only; mailbox synchronization belongs to the later
-Gmail slices. No synthetic message is presented as mail from the connected account.
+`mail-unavailable` builds retain the synthetic Inbox preview. Once the mailbox is
+connected and setup needs nothing more, the [Gmail Inbox](gmail-inbox.md) opens and
+synchronizes it. A known network outage can open the last verified mailbox's
+saved Inbox with a retry notice, while provider access stays closed until
+verification succeeds. Rejected grants and unknown verification errors retain
+resumable account setup. No synthetic message is presented as mail from the connected account.
 [Apple registration](apple-registration.md) offers the other Product Sign-In and
 continues into this Gmail authorization flow.
 
