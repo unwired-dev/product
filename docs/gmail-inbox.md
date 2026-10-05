@@ -172,6 +172,9 @@ and values are checked. Remove `url()` values, `@import`, executable expressions
 external fonts, clipping and other unapproved declarations. Remove sender-defined
 foreground and background colors, including legacy color/background attributes.
 The app controls both colors together so stripped backgrounds cannot hide text.
+Image width and height preserve literal lengths, percentages and supported sizing
+keywords, including `auto`. Unvalidated sizing functions and invalid values are
+discarded; discarded declarations do not override HTML tracking-pixel attributes.
 The accepted sanitizer's fixed light canvas is valid in dark app chrome; matching
 rich content to a dark theme requires app-controlled readable foreground,
 background and link colors, never restored sender colors. Dark rich-content

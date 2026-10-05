@@ -204,6 +204,76 @@ describe('the isolated rich reader', () => {
     expect(readable(opened)).toMatchObject({ hidesImages: true });
   });
 
+  it('inspects image-only links by their description and keeps images CSS enlarges', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    const id = gmail.deliver({
+      content: {
+        html: [
+          '<p><a href="https://phish.invalid/login"><img src="https://phish.invalid/logo.png" alt="https://bank.invalid"></a></p>',
+          '<img src="https://sender.invalid/banner.png" width="1" height="1" style="width:100%;height:auto" alt="Banner">',
+          '<img src="https://sender.invalid/logo.png" width="1" height="1" style="width:.5em;height:+.5em" alt="Enlarged logo">',
+          '<img src="https://sender.invalid/photo.png" width="100" height="100" style="max-width:+1;max-height:1e0" alt="Photo">',
+        ].join(''),
+      },
+    });
+    const inbox = createGmailInbox(gmail.native);
+    await inbox.load();
+    const { document, links } = rich(await read(inbox, id));
+    expect(links).toStrictEqual([
+      { href: 'https://phish.invalid/login', text: 'https://bank.invalid' },
+    ]);
+    // CSS overrides the one-pixel attributes, so this is a visible image, not a tracker.
+    expect(document).toContain('aria-label="Banner"');
+    expect(document).toContain('aria-label="Enlarged logo"');
+    expect(document).toContain('aria-label="Photo"');
+  });
+
+  it('keeps CID tracking pixels excluded when CSS dimensions are discarded or zero', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    const styles = [
+      'width:;height:',
+      'width:bogus;height:bogus',
+      'width:var(--missing);height:var(--missing)',
+      'width:url(https://sender.invalid);height:url(https://sender.invalid)',
+      'width:expression(x);height:expression(x)',
+      'width:calc(bogus);height:calc(bogus)',
+      'width:+100;height:+100',
+      'width:1e2;height:1e2',
+      'width:.0em;height:+.0%',
+      'width:+0px;height:auto',
+      'width:+1px;height:1e0px',
+    ];
+    const id = gmail.deliver({
+      at: Date.UTC(2020, 0, 1),
+      content: {
+        html: `<p>Body</p>${styles
+          .map(
+            (style, index) =>
+              `<img src="cid:pixel-${index}" width="1" height="1" style="${style}" alt="Pixel">`,
+          )
+          .join('')}`,
+        images: styles.map((_, index) => ({
+          contentId: `pixel-${index}`,
+          mimeType: 'image/png',
+          bytes: png(40, 30),
+        })),
+      },
+    });
+    const inbox = createGmailInbox(gmail.native);
+    await inbox.load();
+    const opened = await read(inbox, id);
+    expect(rich(opened).document).not.toContain('Pixel');
+    expect(readable(opened)).toStrictEqual({
+      paragraphs: [[{ text: 'Body' }]],
+      hidesImages: false,
+    });
+    expect(
+      gmail.requests.filter(({ path }) => path.includes('/attachments/')),
+    ).toHaveLength(0);
+  });
+
   it('resolves visible inline images within bounds and keeps them for provider-free opens', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail();

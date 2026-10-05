@@ -306,16 +306,27 @@ const unsafeValue =
 const displays =
   /^(?:block|inline|inline-block|list-item|table|table-row|table-cell|table-row-group|table-header-group|table-footer-group|table-column|table-column-group|table-caption)$/iu;
 
+// Keep sizing to literal lengths and keywords; unvalidated CSS functions cannot mask pixels.
+const dimensionValue =
+  /^(?:\+?(?<amount>(?:\d+(?:\.\d+)?|\.\d+)(?:e[+-]?\d+)?)(?<unit>%|px|em|rem|ex|ch|vw|vh|vmin|vmax|cm|mm|in|pt|pc)?|auto|min-content|max-content|fit-content|stretch|inherit|initial|unset|revert(?:-layer)?)$/iu;
+
+const cssDimension = (value: string) => {
+  const match = dimensionValue.exec(value);
+  return (
+    match !== null &&
+    (match[1] === undefined || match[2] !== undefined || Number(match[1]) === 0)
+  );
+};
+
 const pixels = (value: string | undefined) => {
-  if (
-    /^\s*0(?:\.0+)?(?:%|em|rem|ex|ch|vw|vh|vmin|vmax|cm|mm|in|pt|pc)\s*$/iu.test(
-      value ?? '',
-    )
-  ) {
-    return 0;
+  const match = dimensionValue.exec(value?.trim() ?? '');
+  if (match?.[1] === undefined) {
+    return undefined;
   }
-  const match = /^\s*(?<amount>\d+(?:\.\d+)?)(?:px)?\s*$/iu.exec(value ?? '');
-  return match === null ? undefined : Number(match[1]);
+  const amount = Number(match[1]);
+  return amount === 0 || match[2] === undefined || /^px$/iu.test(match[2])
+    ? amount
+    : undefined;
 };
 
 interface FilteredStyle {
@@ -385,6 +396,7 @@ const keptDeclaration = ([name, value]: readonly [string, string]) =>
   properties.has(name) &&
   value !== '' &&
   !unsafeValue.test(value) &&
+  ((name !== 'width' && name !== 'height') || cssDimension(value)) &&
   (name !== 'display' || displays.test(value));
 
 function filterStyle(style: string): FilteredStyle {
@@ -429,9 +441,17 @@ const isElement = (node: Node): node is Element => 'tagName' in node;
 // Declared 1×1 or zero-sized images are tracking pixels, removed rather than shown as blocked.
 const isTrackingPixel = (element: Element, style: FilteredStyle) => {
   const size = (name: 'width' | 'height') => {
-    const dimension =
-      pixels(style.declared.get(name)) ?? pixels(attributeOf(element, name));
-    const maximum = pixels(style.declared.get(`max-${name}`));
+    // An admitted CSS dimension overrides the HTML attribute, even when it is not in pixels.
+    const declared = style.declared.get(name);
+    const dimension = pixels(
+      declared !== undefined && keptDeclaration([name, declared])
+        ? declared
+        : attributeOf(element, name),
+    );
+    const maximumDeclaration = style.declared.get(`max-${name}`);
+    const maximum = pixels(
+      cssDimension(maximumDeclaration ?? '') ? maximumDeclaration : undefined,
+    );
     return maximum === undefined
       ? dimension
       : Math.min(dimension ?? maximum, maximum);
@@ -542,11 +562,19 @@ export function sanitizeHtml(
     output += escapeText(value);
   };
 
-  const placeholder = (alt: string) => {
-    hidesImages = true;
+  // An image description reads as text, including in its enclosing link's inspected text.
+  const describeImage = (alt: string) => {
     if (unreadable === 0) {
       builder.add(altText(alt), link?.href);
+      if (link !== undefined) {
+        link.text += altText(alt);
+      }
     }
+  };
+
+  const placeholder = (alt: string) => {
+    hidesImages = true;
+    describeImage(alt);
     output += `<span class="blocked-image" role="img" aria-label="${escapeAttribute(alt === '' ? 'Image not loaded' : alt)}">${escapeText(alt === '' ? 'Image' : alt)}</span>`;
   };
 
@@ -576,9 +604,7 @@ export function sanitizeHtml(
       return;
     }
     output += `<img${attributes(element, style)} src="data:${admittedImage.mimeType};base64,${admittedImage.data}">`;
-    if (unreadable === 0) {
-      builder.add(altText(alt), link?.href);
-    }
+    describeImage(alt);
   };
 
   const anchor = (element: Element, style: FilteredStyle) => {

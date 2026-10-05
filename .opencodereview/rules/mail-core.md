@@ -113,6 +113,14 @@ Namespace-import style, `JSON.parse`, `typeof … === 'object'` guards, untagged
   internationalized hosts and compact/hexadecimal IPv4 spellings are interpreted
   by the platform, so inspect their decoded signal form while retaining the exact
   original destination for handoff; otherwise required cautions disappear.
+- `sanitizeHtml` omitting visible image descriptions from their enclosing link's
+  inspected text. Include descriptions for placeholders and admitted CID images,
+  normalize link whitespace and respect unreadable contexts; otherwise image-only
+  deceptive links bypass the destination mismatch caution.
+- `isTrackingPixel` ignoring admitted nonpixel CSS dimensions or allowing invalid,
+  empty or filtered-out declarations to mask HTML dimensions. Rendering and
+  classification must use the same admitted width/height values; otherwise visible
+  images are removed or declared trackers become eligible for CID resolution.
 - `inspectImage` trusting a signature/header before validating the complete bounded
   PNG/JPEG/GIF/WebP container, frame count and frame/canvas geometry. Truncated or
   inconsistent data must not supply trusted dimensions or bypass decoded-cost
