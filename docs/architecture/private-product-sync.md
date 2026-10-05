@@ -223,8 +223,8 @@ A previously removed installation returns
 the current pending or committed rotation status without replacing the transition
 or recovery envelope and without adding another tombstone. The exact-ID retry
 check remains available even when no retained target exists.
-Before sending, the native vault durably preserves the generated Recovery Key
-and exact transition.
+Before sending, the native vault durably preserves the generated Recovery Key,
+exact transition and requested target ID.
 A lost connection, cancellation or ambiguous server response keeps this marker;
 a known refusal clears it. Synchronization promotes the preserved Recovery Key
 only when the authoritative pending transition matches. A successful idempotent
@@ -234,9 +234,14 @@ only when the stored Recovery Key matches this removal's generated key after
 synchronization; otherwise it emits `unconfirmed` and preserves the confirmed
 key. A failed transition read retains the pending marker for the next
 synchronization; an authoritative mismatch clears it without promoting the
-unapplied key. It durably saves the adopted ring before acknowledging, and
-refuses another removal while that
-Recovery Key is unconfirmed. Surviving devices open the transition with a held
+unapplied key. It durably saves the adopted ring before acknowledging. A retried
+`revoke` that adopts its unanswered attempt returns the `recovery-key` snapshot
+instead of throwing on the unconfirmed-key guard; it emits `removed` only when
+the saved target ID matches the requested target. A different target, or an older
+marker without a target ID, still surfaces the adopted key but claims no removal
+for that request. An already shown, unconfirmed key likewise returns its status
+without a notice. Neither path sends another removal or replaces the key before
+confirmation. Surviving devices open the transition with a held
 key and require it to retain every held key. The backend publishes the new
 recovery envelope only after every remaining device acknowledges; until then
 backup guidance retains the previous key as well as the new one.

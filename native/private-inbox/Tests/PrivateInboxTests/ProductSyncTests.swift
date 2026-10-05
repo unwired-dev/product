@@ -1026,11 +1026,12 @@ extension PrivateInboxTests {
     let ring = try #require(try remover.loadVault(account)?.ring)
     #expect(ring.current == 2)
     #expect(oldRing.keys.allSatisfy(ring.keys.contains))
-    // Another removal must not discard the sole new Recovery Key before it was backed up.
+    // Another removal must not discard the sole new Recovery Key before it was backed up: it
+    // shows that key again and removes nothing.
     let survivorId = try #require(try survivor.load()?.product?.trustedDeviceId)
-    await #expect(throws: RegistrationError.recoveryKeyMismatch) {
-      try await remover.revoke(survivorId)
-    }
+    let blocked = try await remover.revoke(survivorId)
+    #expect(blocked["recoveryKey"] == newKey)
+    #expect(blocked["revocationNotice"] == nil)
     #expect(try remover.loadVault(account)?.recoveryKey == RecoveryKey(parsing: newKey).bytes)
     #expect(!backend.revoked.contains(survivorId))
     _ = try remover.confirmRecoveryKey(String(newKey.suffix(4)))
@@ -1119,13 +1120,14 @@ extension PrivateInboxTests {
         == remover.loadVault(account)?.ring)
   }
 
-  @Test @MainActor func aLostRevocationReplyKeepsTheNewRecoveryKeyOnlyIfTheRemovalApplied()
-    async throws
-  {
-    let (creator, other) = (device(), device())
+  @Test(arguments: [false, true]) @MainActor
+  func aLostRevocationReplyKeepsTheNewRecoveryKeyOnlyIfTheRemovalApplied(
+    retryAnotherDevice: Bool
+  ) async throws {
+    let (creator, other, kept) = (device(), device(), device())
     let account = "account-synthetic-product-subject"
     defer {
-      for keys in [creator, other] { remove(keys, accounts: [account]) }
+      for keys in [creator, other, kept] { remove(keys, accounts: [account]) }
     }
     let google = SyntheticGoogleRegistrationProvider()
     let backend = SyntheticProductSyncBackend()
@@ -1136,6 +1138,10 @@ extension PrivateInboxTests {
     _ = try await enrolled.signIn()
     _ = try await enrolled.recover(with: shown)
     let target = try #require(try enrolled.load()?.product?.trustedDeviceId)
+    let survivor = backend.store(keys: kept, google: google)
+    _ = try await survivor.signIn()
+    _ = try await survivor.recover(with: shown)
+    let survivorId = try #require(try survivor.load()?.product?.trustedDeviceId)
 
     // A refused removal changes nothing and leaves no pending Recovery Key.
     await #expect(throws: RegistrationError.unavailable) {
@@ -1144,17 +1150,24 @@ extension PrivateInboxTests {
     #expect(try remover.loadVault(account)?.revocation == nil)
     #expect(backend.rotations[account] == nil)
 
-    // The reply is lost after the removal applied: this device learns it on its next sync.
+    // The reply is lost after the removal applied. Trying again learns that it applied and shows
+    // its new Recovery Key, rather than refusing to replace an unconfirmed key or removing again.
     backend.loseReply = true
     await #expect(throws: URLError.self) { try await remover.revoke(target) }
     #expect(try remover.loadVault(account)?.revocation != nil)
     #expect(try remover.privateSync(remover.load()!)["privateSync"] == "ready")
-    let synced = try await remover.refreshPrivateSync()
+    let synced = try await remover.revoke(retryAnotherDevice ? survivorId : target)
+    #expect(synced["revocationNotice"] == (retryAnotherDevice ? nil : "removed"))
     #expect(synced["privateSync"] == "recovery-key")
+    #expect(!backend.revoked.contains(survivorId))
+    let remaining = try #require(synced["trustedDevices"])
+    #expect(!remaining.contains(target))
+    #expect(remaining.contains(survivorId))
     let newKey = try #require(synced["recoveryKey"])
     #expect(newKey != shown)
     #expect(try remover.loadVault(account)?.revocation == nil)
-    // The only remaining device adopted the epoch, so its recovery envelope opens with the new key.
+    // Both remaining devices adopt the epoch, so its recovery envelope opens with the new key.
+    #expect(try await survivor.refreshPrivateSync()["privateSync"] == "ready")
     #expect(backend.rotations[account] == nil)
     #expect(
       try KeyRingEnvelope.openRecovery(

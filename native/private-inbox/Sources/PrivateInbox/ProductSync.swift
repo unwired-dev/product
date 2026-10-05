@@ -117,13 +117,15 @@ struct ProductSyncVault: Codable {
   var savedMailboxes: [String: String]?
   // Every mailbox address last read back and decrypted, shown when no session is available.
   var readMailboxes: [String]?
-  // A removal sent without a reply yet: its new Recovery Key and the transition that identifies it.
+  // A removal sent without a reply yet: its target, new Recovery Key and exact transition.
   var revocation: PendingRevocation?
 }
 
 struct PendingRevocation: Codable {
   let recoveryKey: Data
   let transition: EncryptedPayload
+  // Older saved attempts have no target; their key can be adopted without attributing a removal.
+  let trustedDeviceId: String?
 }
 
 // The synchronized description of an authorized mailbox; credentials never enter it.

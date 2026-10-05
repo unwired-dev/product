@@ -31,6 +31,7 @@ This code owns what TypeScript must never hold: Keychain items, the storage encr
 - Recovery Key verification that sends the key or anything derived from it off the device, or a rejected key that leaves the device without its current enrollment status.
 - A recent-authentication requirement removed from an operation that needs it.
 - A client treating success from an idempotent backend operation as proof that its own proposal applied. `RegistrationStore.revoke` must verify exact-transition adoption through `adoptRotation` before presenting its generated Recovery Key or claiming that key is current; an already-completed removal may return success without applying this request, and post-success synchronization can fail. Promoting unmatched material can strand recovery, while an unconditional completion notice asks the user to save a key the client never adopted.
+- A retry that reconciles an unanswered write but throws on a precondition the adopted effects created, leaving the caller's snapshot stale. `RegistrationStore.revoke` must return its adopted, unconfirmed Recovery Key for presentation before refusing a new removal. Attribute a completion notice to the saved attempt's target as well as its exact transition; adopting device A's removal while the caller requests device B cannot claim B was removed. Preserve the adopted key and start no new removal until confirmation.
 
 #### Mock sessions stay out of production
 

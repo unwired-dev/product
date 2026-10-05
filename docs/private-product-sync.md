@@ -193,6 +193,14 @@ synchronization could not adopt this removal's new keys, the host reports the
 removal as unconfirmed and shows no new Recovery Key. The next synchronization
 resolves it.
 
+If a removal applies but its reply is lost, trying to remove that same listed
+device again shows the adopted replacement Recovery Key and reports the earlier
+removal as complete. It does not remove again or replace that key. Choosing
+another device while the earlier removal is unresolved shows the earlier key
+without reporting the newly chosen device as removed; confirm the key before
+removing that device. An already shown, unconfirmed key likewise stays visible
+without a new removal notice or another removal.
+
 Sign-out and reconnect can change a device's listed ID. Repeating removal through
 an earlier ID of the same installation returns the existing rotation status;
 it does not start another rotation or replace the Recovery Key again.

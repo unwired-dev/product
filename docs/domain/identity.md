@@ -65,7 +65,7 @@ A user-approved device authorized to access one **Product Account** and particip
 _Avoid_: Mailbox Authorization, remembered login
 
 **Pending Device**:
-A signed-in device awaiting authorization as a **Trusted Device**, with access limited to enrollment, **Recovery Key** proof and **Delete Product Account**. Its admission flow is accepted follow-up work in [#750](https://github.com/unwired-dev/product/issues/750); current registration does not yet create Pending Devices.
+A signed-in device that is not yet a **Trusted Device**. It can only ask to be approved, prove the **Recovery Key**, or delete the **Product Account**.
 _Avoid_: unverified Trusted Device, registered device
 
 **Enrollment Code**:

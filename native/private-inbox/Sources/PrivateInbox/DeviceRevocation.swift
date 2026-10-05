@@ -18,10 +18,19 @@ extension RegistrationStore {
     session = identity
     let account = product.productAccountId
     // An epoch another removal started joins this ring first, so the new ring carries it too.
+    let unanswered = vault.revocation
     vault = try await adoptRotation(vault, backend: backend, session: identity, product)
-    // Never replace a Recovery Key the person has not backed up yet, including one reconciled
-    // after a lost reply. Another removal may proceed once that exact key is confirmed.
-    guard vault.recoveryKeyConfirmed else { throw RegistrationError.recoveryKeyMismatch }
+    // Never replace a Recovery Key the person has not backed up yet. When this attempt finds that
+    // an earlier removal without a reply applied after all, it shows that removal's new key instead.
+    guard vault.recoveryKeyConfirmed else {
+      let adopted =
+        unanswered.map {
+          vault.recoveryKey == $0.recoveryKey && $0.trustedDeviceId == trustedDeviceId
+        } ?? false
+      return try status(await synchronize(saved)).merging(
+        adopted ? ["revocationNotice": "removed"] : [:]
+      ) { $1 }
+    }
     let recovery = try await backend.recoveryEnvelope(identity, product)
     let committed = recovery.encryptedPayload.keyVersion
     let epoch = (vault.ring.keys.map(\.version).max() ?? committed) + 1
@@ -32,7 +41,8 @@ extension RegistrationStore {
     let transition = try KeyRingEnvelope.rotation(
       ring, sealedWith: vault.ring, epoch: committed, account: account)
     // Kept before sending: if the reply is lost, the next synchronization learns whether it applied.
-    vault.revocation = PendingRevocation(recoveryKey: recoveryKey.bytes, transition: transition)
+    vault.revocation = PendingRevocation(
+      recoveryKey: recoveryKey.bytes, transition: transition, trustedDeviceId: trustedDeviceId)
     try saveVault(vault)
     do {
       try await backend.revoke(
