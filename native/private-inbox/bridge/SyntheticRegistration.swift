@@ -49,16 +49,22 @@
         "from": "Rowan Hale <rowan@example.invalid>", "subject": "Garden plans for spring",
         "snippet": "The seed order arrived. Shall we plan the beds this weekend?",
         "internalDate": "1759219200000", "labelIds": ["INBOX", "UNREAD"],
+        "html":
+          "<p>The seed order arrived. Shall we plan the beds this weekend?</p>"
+          + "<p>Planting notes: <a href=\"https://example.invalid/garden\">garden plan</a></p>"
+          + "<img src=\"https://example.invalid/pixel.gif\" alt=\"\">",
       ],
       "19a0c0ffee000002": [
         "from": "\"Ada Brook\" <ada@example.invalid>", "subject": "Notes from Tuesday",
         "snippet": "Thanks for the thoughtful questions &amp; the follow-up.",
         "internalDate": "1759132800000", "labelIds": ["INBOX"],
+        "text": "Thanks for the thoughtful questions & the follow-up.\n\nAda",
       ],
       "19a0c0ffee000003": [
         "from": "test@example.invalid", "subject": "Welcome to your synthetic Inbox",
         "snippet": "Nothing here came from a real mailbox.",
         "internalDate": "1759046400000", "labelIds": ["INBOX", "CATEGORY_UPDATES"],
+        "text": "Nothing here came from a real mailbox.",
       ],
     ]
 
@@ -78,6 +84,32 @@
         body = [
           "messages": ["19a0c0ffee000001", "19a0c0ffee000002"].map { ["id": $0, "threadId": $0] },
           "nextPageToken": "2",
+        ]
+      // The body-free preflight prefetch makes: each synthetic message is one readable part.
+      case let id where query["metadataHeaders"] == "Content-Type":
+        guard let message = Self.syntheticMessages[id] else { return (404, Data()) }
+        let mimeType = message["html"] == nil ? "text/plain" : "text/html"
+        body = [
+          "id": id, "threadId": id, "labelIds": message["labelIds"] ?? [],
+          "payload": [
+            "mimeType": mimeType,
+            "headers": [["name": "Content-Type", "value": mimeType + "; charset=UTF-8"]],
+          ],
+        ]
+      case let id where query["format"] == "full":
+        guard let message = Self.syntheticMessages[id] else { return (404, Data()) }
+        let html = message["html"] as? String
+        let content = html ?? message["text"] as? String ?? ""
+        let data = Data(content.utf8).base64EncodedString()
+          .replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_")
+        let mimeType = html == nil ? "text/plain" : "text/html"
+        body = [
+          "id": id, "threadId": id, "labelIds": message["labelIds"] ?? [],
+          "payload": [
+            "mimeType": mimeType,
+            "headers": [["name": "Content-Type", "value": mimeType + "; charset=UTF-8"]],
+            "body": ["size": content.utf8.count, "data": data],
+          ],
         ]
       case let id:
         guard let message = Self.syntheticMessages[id] else { return (404, Data()) }

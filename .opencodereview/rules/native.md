@@ -42,6 +42,12 @@ This code owns what TypeScript must never hold: Keychain items, the storage encr
   generation on every operation; a same-address subject change or purge/reconnect
   must reject old work before provider access or ciphertext replacement.
 
+- `PrivateInboxStore` body admission that discounts an opposite-tier file before
+  its replacement is durably published and the old ciphertext removed. Count
+  both during that interval and plan eviction before deletion, or a crash can
+  break the hard stored-byte limit. Cache-only reads must not update access times
+  or delete corrupt bodies; otherwise presentation-only access mutates storage.
+
 #### Mock sessions stay out of production
 
 - Synthetic registration providers reachable without the `UNWIRED_REGISTRATION_MOCK` compilation guard, or a Mock Mail Session selected from runtime input rather than the fixed build-time `UNWIRED_MOCK_SCENARIO` list. Other mock journeys and the isolated native `SyntheticCredential` integration fixture have their own test-only boundaries; preserve those instead of requiring the registration flag for every fixture. `SyntheticCredential` keeps its own Keychain service and never shares the production one.

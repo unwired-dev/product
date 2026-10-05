@@ -16,4 +16,8 @@ RCT_EXTERN_METHOD(authorizeGmail:(BOOL)reselect resolver:(RCTPromiseResolveBlock
 RCT_EXTERN_METHOD(gmailRequest:(NSString *)path query:(NSArray *)query mailbox:(NSDictionary *)mailbox resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(openMailbox:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(commitMailbox:(NSDictionary *)mailbox expectedRevision:(double)expectedRevision document:(NSString *)document resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
+RCT_EXTERN_METHOD(openMessageBody:(NSDictionary *)mailbox id:(NSString *)id resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
+RCT_EXTERN_METHOD(commitMessageBody:(NSDictionary *)mailbox id:(NSString *)id admission:(NSDictionary *)admission resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
+RCT_EXTERN_METHOD(listMessageBodies:(NSDictionary *)mailbox ids:(NSArray *)ids resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
+RCT_EXTERN_METHOD(retainMessageBodies:(NSDictionary *)mailbox ids:(NSArray *)ids resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 @end

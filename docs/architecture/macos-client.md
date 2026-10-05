@@ -17,8 +17,9 @@ Metro redirects React and React Native imports, including subpaths, to this
 host's packages. Its startup module also comes from React Native macOS. The
 production source-map check rejects the mobile renderer, Expo, React DOM and
 backend code, checks the shared fixture against disk, and verifies native
-autolinking. The host currently autolinks no additional native modules. Adding
-one requires an explicit update to that check.
+autolinking. The host admits `react-native-webview` as its only additional native module
+for the isolated message reader. Adding another requires an explicit update to
+that check.
 
 AppKit owns stable window identities and menu routing. One React factory and one
 JavaScript mailbox runtime live for the application process. Each window mounts

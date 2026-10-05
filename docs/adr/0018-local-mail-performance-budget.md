@@ -1,5 +1,20 @@
 # Set a local mail performance budget
 
+## Amendment — 2026-10-06
+
+The product owner's
+[#605](https://github.com/unwired-dev/product/issues/605) review-round-3 decision
+supersedes only the inline-image portion of the image viewport rule below.
+Explicit opens resolve every visible, sanitized CID reference within existing
+per-message and shared presentation bounds, without viewport admission, under the
+[ADR 0029 amendment](0029-sanitize-html-before-webkit-rendering.md#amendment--2026-10-06).
+Remote Message Content retains viewport-plus-one-viewport-margin loading and its
+authorization rules under [#763](https://github.com/unwired-dev/product/issues/763).
+Body prioritization, scroll anchoring, interactivity and performance budgets are
+unchanged. The following text preserves the prior decision.
+
+## Prior decision
+
 At the 95th percentile on an iPhone 17 reference device running a release build with a warm encrypted cache, the sidebar and initial thread list must appear within one second from app-launch entry to first rendered content; cached mailbox switching, cached Mail View switching, cached body opening, and opening a warm Draft composer must complete within 200 milliseconds from user selection to rendered interactive content, while opening an empty Draft composer must complete within 300 milliseconds. Direct input and formatting actions must produce visible feedback in the next rendered frame. The fixture contains at least two populated mailbox connections, each with 50 initially available messages and a completed historical metadata backfill; each body-opening measurement uses a cached body. Synchronization, Category filtering, unread counting, formatting, and Draft autosave must not cause any main-thread stall of 100 milliseconds or longer, measured by main-thread responsiveness instrumentation as an absolute cap rather than a percentile. Message-body loading, HTML preparation, inline- and remote-image loading, prefetch, and historical metadata backfill must not disable navigation, Settings, composing, or actions on already available mail. Provider and network latency will be measured and reported separately rather than counted against local rendering. These budgets make the local store the presentation source of truth and require synchronization, decryption, parsing, persistence, and other potentially expensive work to stay off the main thread.
 
 Refreshes never replace cached content with a loading state. A cold thread list uses localized row-shaped skeletons, and a cold message body uses a stable message-shaped placeholder without replacing or blocking the surrounding reader. Synchronization appears only as passive per-connection Mailbox Sync Status, while failures appear inline beside the affected mailbox or message with a retry action. The client has no global loading spinner or blocking loading overlay; progress indicators remain local to the explicit operation they describe.

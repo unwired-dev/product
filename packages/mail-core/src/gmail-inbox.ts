@@ -1,12 +1,19 @@
 import * as Arr from 'effect/Array';
 import * as DateTime from 'effect/DateTime';
+import * as Deferred from 'effect/Deferred';
 import * as Effect from 'effect/Effect';
+import * as Latch from 'effect/Latch';
 import * as Option from 'effect/Option';
 import * as Order from 'effect/Order';
 import * as Predicate from 'effect/Predicate';
 import * as Schema from 'effect/Schema';
 import * as Semaphore from 'effect/Semaphore';
 
+import type {
+  BodyDocument,
+  GmailPart,
+  MessagePresentation,
+} from './message-body.ts';
 import type { Registration } from './registration.ts';
 
 import {
@@ -14,6 +21,24 @@ import {
   rejectionDiagnostic,
   runLogged,
 } from './diagnostics.ts';
+import { sanitizeHtml } from './html-sanitizer.ts';
+import { inlineImageLimits } from './inline-images.ts';
+import {
+  bodyParts,
+  contentIdsOf,
+  decodeAttachment,
+  decodeBodyDocument,
+  decodeCachedBody,
+  decodeFullMessage,
+  encodeBodyDocument,
+  imageTally,
+  inlineImageParts,
+  partText,
+  presentation,
+  recentWorkingSet,
+  singleReadablePart,
+  unescapeHtml,
+} from './message-body.ts';
 import { canOpenInbox } from './registration.ts';
 
 // The native Registration module's mailbox operations. Native code attaches the Gmail credential
@@ -32,6 +57,33 @@ export interface NativeGmailMailbox {
     mailbox: Readonly<{ address: string; generation: string }>,
     expectedRevision: number,
     document: string,
+  ) => Promise<unknown>;
+  // The Bounded Encrypted Body Cache, bound to the mailbox and message ID. Opening resolves
+  // `{ document }`, null when absent; an unreadable entry is discarded and reads as null.
+  readonly openMessageBody: (
+    mailbox: Readonly<{ address: string; generation: string }>,
+    id: string,
+  ) => Promise<unknown>;
+  // Stores a body in the 'opened' or 'prefetched' eviction tier, evicting least recently read
+  // bodies outside the protected working set; resolves `{ admitted }`, false when it cannot fit.
+  readonly commitMessageBody: (
+    mailbox: Readonly<{ address: string; generation: string }>,
+    id: string,
+    admission: Readonly<{
+      document: string;
+      tier: 'opened' | 'prefetched';
+      protectedIds: readonly string[];
+    }>,
+  ) => Promise<unknown>;
+  // Resolves `{ stored }`: which of these messages have a cached body or exclusion marker.
+  readonly listMessageBodies: (
+    mailbox: Readonly<{ address: string; generation: string }>,
+    ids: readonly string[],
+  ) => Promise<unknown>;
+  // Removes cached bodies of messages that left the cached Inbox.
+  readonly retainMessageBodies: (
+    mailbox: Readonly<{ address: string; generation: string }>,
+    ids: readonly string[],
   ) => Promise<unknown>;
 }
 
@@ -223,29 +275,38 @@ export type GmailInboxState =
       readonly sync: 'syncing' | 'current' | 'authentication' | 'retry';
     };
 
-const entities = new Map([
-  ['amp', '&'],
-  ['lt', '<'],
-  ['gt', '>'],
-  ['quot', '"'],
-  ['apos', "'"],
-  ['nbsp', ' '],
-]);
+// An opened message's body. 'download' means it is not on this device and Gmail could not
+// provide it now; 'missing' means Gmail no longer has the message.
+export type MessageBodyState =
+  | { readonly kind: 'loading' }
+  | { readonly kind: 'ready'; readonly presentation: MessagePresentation }
+  | {
+      readonly kind: 'unavailable';
+      readonly reason:
+        | 'download'
+        | 'authentication'
+        | 'missing'
+        | 'locked'
+        | 'failed';
+    };
 
-// Gmail snippets are HTML-escaped plain text.
-const unescape = (text: string) =>
-  text.replaceAll(/&#?[\da-z]{1,8};/giu, (whole) => {
-    const body = whole.slice(1, -1).toLowerCase();
-    let code = Number.NaN;
-    if (/^#\d+$/u.test(body)) {
-      code = Number(body.slice(1));
-    } else if (/^#x[\da-f]+$/u.test(body)) {
-      code = Number.parseInt(body.slice(2), 16);
-    } else {
-      return entities.get(body) ?? whole;
-    }
-    return code <= 1_114_111 ? String.fromCodePoint(code) : whole;
-  });
+const loadingBody: MessageBodyState = { kind: 'loading' };
+
+const decodeStoredBodies = Schema.decodeUnknownEffect(
+  Schema.Struct({ stored: Schema.Array(Schema.String) }),
+);
+
+const bodyFailure = (kind: SyncFailure['kind']): MessageBodyState => {
+  let reason: Extract<MessageBodyState, { kind: 'unavailable' }>['reason'] =
+    'download';
+  if (kind === 'authentication' || kind === 'locked' || kind === 'failed') {
+    reason = kind;
+  }
+  return { kind: 'unavailable', reason };
+};
+
+// ponytail: opened bodies held in memory; reopening an older one reads the encrypted cache again.
+const bodiesInMemory = 20;
 
 const mailbox = /^\s*(?:"?(?<name>[^"<]*?)"?\s*)?<(?<address>[^<>]+)>\s*$/u;
 
@@ -454,16 +515,20 @@ export function createGmailInbox(native: NativeGmailMailbox) {
           message.payload?.headers?.find(
             (candidate) => candidate.name.toLowerCase() === name,
           )?.value;
-        const received = labels.includes('INBOX')
-          ? DateTime.make(Number(message.internalDate))
-          : Option.none();
+        // Spam and Trash never count as Inbox mail, even when Gmail keeps the INBOX label.
+        const received =
+          labels.includes('INBOX') &&
+          !labels.includes('SPAM') &&
+          !labels.includes('TRASH')
+            ? DateTime.make(Number(message.internalDate))
+            : Option.none();
         return received.pipe(
           Option.map((date): GmailMessage => ({
             id: message.id,
             threadId: message.threadId,
             ...sender(header('from') ?? ''),
             subject: header('subject') ?? '',
-            preview: unescape(message.snippet ?? ''),
+            preview: unescapeHtml(message.snippet ?? ''),
             receivedAt: DateTime.formatIso(date),
             unread: labels.includes('UNREAD'),
           })),
@@ -625,12 +690,44 @@ export function createGmailInbox(native: NativeGmailMailbox) {
       notify(next);
     }
   };
+  // Bodies opened in this Inbox, in the order they were requested.
+  const bodies = new Map<string, MessageBodyState>();
+  const readers = new Map<string, number>();
+  const legacyReaders = new Map<string, number>();
+  const viewReaders = new Map<symbol, string>();
+  const viewBodies = new Map<symbol, MessageBodyState>();
+  const documents = new Map<string, BodyDocument>();
+  const endedReaders = new Set<string>();
+  // Each independent WebView owns a reservation and an immutable prepared presentation.
+  const imageReservations = new Map<
+    string | symbol,
+    { bytes: number; pixels: number }
+  >();
+  const readingBodies = new Map<string, Promise<void>>();
+  const releaseBody = (id: string) => {
+    bodies.delete(id);
+    documents.delete(id);
+    imageReservations.delete(id);
+    for (const [reader, message] of viewReaders) {
+      if (message === id) {
+        viewBodies.delete(reader);
+        imageReservations.delete(reader);
+      }
+    }
+  };
+
   const ready = (
     address: string | undefined,
     messages: readonly GmailMessage[],
     sync: Extract<GmailInboxState, { kind: 'ready' }>['sync'],
   ) =>
     Effect.sync(() => {
+      const listed = new Set(messages.map(({ id }) => id));
+      for (const id of bodies.keys()) {
+        if (!listed.has(id)) {
+          releaseBody(id);
+        }
+      }
       publish(
         address === undefined
           ? { kind: 'ready', messages, sync }
@@ -661,13 +758,637 @@ export function createGmailInbox(native: NativeGmailMailbox) {
     const text = yield* encodeDocument(document).pipe(
       Effect.mapError((error) => malformed(error, 'failed')),
     );
-    return yield* storage(() =>
+    const committed = yield* storage(() =>
       native.commitMailbox({ address, generation }, revision, text),
+    );
+    // Bodies of messages that left the cached Inbox leave the device with them.
+    yield* Effect.tryPromise({
+      try: () =>
+        native.retainMessageBodies(
+          { address, generation },
+          document.messages.map(({ id }) => id),
+        ),
+      catch: (cause) => rejected(cause, 'failed'),
+    }).pipe(
+      Effect.catch((error) =>
+        Effect.logError('Message bodies were not pruned:', error.diagnostic),
+      ),
+    );
+    return committed;
+  });
+
+  // The mailbox whose cache the current Inbox shows; body reads use its native generation.
+  let opened: MailboxScope | undefined = undefined;
+  // Advances when the open Inbox closes, so a body read for the previous owner is dropped.
+  let owner = 0;
+  // ponytail: two concurrent body loads, the per-connection limit; one connection per device, so
+  // the four-load account limit is never reached.
+  const bodyLoads = Semaphore.makeUnsafe(2);
+  // Open while no explicit read is waiting or running; speculative prefetch waits on it.
+  const interactiveIdle = Latch.makeUnsafe(true);
+  let interactive = 0;
+  // The recent working set of the latest selection; its stored bodies are protected from eviction.
+  let selection: readonly string[] = [];
+  let selectionReference: DateTime.Utc | undefined = undefined;
+  const speculativeBodies = new Map<string, Deferred.Deferred<undefined>>();
+
+  const releaseLegacyReader = (id: string) => {
+    const previous = legacyReaders.get(id) ?? 1;
+    const reservation = imageReservations.get(id);
+    if (previous === 1) {
+      legacyReaders.delete(id);
+      imageReservations.delete(id);
+    } else {
+      legacyReaders.set(id, previous - 1);
+      if (reservation !== undefined) {
+        imageReservations.set(id, {
+          bytes: (reservation.bytes * (previous - 1)) / previous,
+          pixels: (reservation.pixels * (previous - 1)) / previous,
+        });
+      }
+    }
+  };
+
+  const setBody = (id: string, next: MessageBodyState) => {
+    bodies.delete(id);
+    bodies.set(id, next);
+    for (const [stale, body] of bodies) {
+      if (bodies.size <= bodiesInMemory) {
+        break;
+      }
+      if (!readers.has(stale) && body.kind !== 'loading' && stale !== id) {
+        releaseBody(stale);
+      }
+    }
+    notify(state);
+  };
+
+  // Admits a body's inline images in document order while the budget shared by every displayed
+  // body allows; the rest stay placeholders.
+  const present = (key: string | symbol, document: BodyDocument, count = 1) => {
+    const { id } = document;
+    let bytes = 0;
+    let pixels = 0;
+    for (const [other, reserved] of imageReservations) {
+      if (other !== key) {
+        bytes += reserved.bytes;
+        pixels += reserved.pixels;
+      }
+    }
+    let occurrences: readonly string[] = [];
+    try {
+      occurrences =
+        document.html === undefined
+          ? []
+          : sanitizeHtml(document.html).contentIdOccurrences;
+    } catch {
+      imageReservations.delete(key);
+      return presentation({
+        version: 2,
+        id,
+        ...(document.text === undefined ? {} : { text: document.text }),
+      });
+    }
+    let reservedBytes = 0;
+    let reservedPixels = 0;
+    const shown = (document.images?.admitted ?? []).filter((image) => {
+      const occurrencesCount = occurrences.filter(
+        (contentId) => contentId === image.contentId,
+      ).length;
+      const size =
+        ((image.data.length * 3) / 4 -
+          (/=+$/u.exec(image.data)?.[0].length ?? 0)) *
+        occurrencesCount;
+      const area = image.width * image.height * occurrencesCount;
+      if (
+        bytes + size * count > inlineImageLimits.aggregateBytes ||
+        pixels + area * count > inlineImageLimits.aggregatePixels
+      ) {
+        return false;
+      }
+      bytes += size * count;
+      pixels += area * count;
+      reservedBytes += size * count;
+      reservedPixels += area * count;
+      return true;
+    });
+    imageReservations.set(key, {
+      bytes: reservedBytes,
+      pixels: reservedPixels,
+    });
+    return presentation(document, shown);
+  };
+
+  const prepareReaders = (id: string, document: BodyDocument) => {
+    documents.set(id, document);
+    const count = legacyReaders.get(id) ?? 0;
+    const prepared =
+      count > 0 || !readers.has(id)
+        ? present(id, document, Math.max(1, count))
+        : presentation(document, []);
+    for (const [reader, message] of viewReaders) {
+      if (message === id) {
+        viewBodies.set(reader, {
+          kind: 'ready',
+          presentation: present(reader, document),
+        });
+      }
+    }
+    return prepared;
+  };
+
+  const listed = (id: string) =>
+    state.kind === 'ready' &&
+    state.messages.some((message) => message.id === id);
+
+  // One Gmail body read; listing-page token errors cannot occur for these resources.
+  const gmailRead =
+    (scope: MailboxScope) =>
+    <A>(
+      path: string,
+      query: ReadonlyArray<readonly [string, string]>,
+      decode: (body: unknown) => Effect.Effect<A, Schema.SchemaError>,
+    ) =>
+      gmail(scope)(path, query, decode).pipe(
+        Effect.catchTag('GmailInvalidPage', Effect.die),
+      );
+
+  // A part's bytes: inline in the message, or served separately when Gmail splits a large part.
+  // Only complete data matching Gmail's declared size is returned.
+  const partData = Effect.fnUntraced(function* (
+    scope: MailboxScope,
+    id: string,
+    part: GmailPart,
+  ) {
+    const { attachmentId } = part.body ?? {};
+    const downloaded =
+      attachmentId === undefined
+        ? { data: part.body?.data ?? '', size: part.body?.size }
+        : yield* gmailRead(scope)(
+            `messages/${id}/attachments/${attachmentId}`,
+            [],
+            decodeAttachment,
+          );
+    if (downloaded.size !== part.body?.size) {
+      return yield* new SyncFailure({
+        kind: 'retry',
+        cause: 'body size',
+        diagnostic: 'incomplete body',
+      });
+    }
+    return downloaded.data;
+  });
+
+  const fetchPart = Effect.fnUntraced(function* (
+    scope: MailboxScope,
+    id: string,
+    part: GmailPart,
+  ) {
+    const data = yield* partData(scope, id, part);
+    return yield* partText(part, data, part.body?.size).pipe(
+      Effect.mapError(
+        (cause) =>
+          new SyncFailure({
+            kind: 'retry',
+            cause,
+            diagnostic: 'invalid body encoding',
+          }),
+      ),
+    );
+  });
+
+  const fullMessage = Effect.fnUntraced(function* (
+    scope: MailboxScope,
+    id: string,
+    query: ReadonlyArray<readonly [string, string]>,
+  ) {
+    const message = yield* gmailRead(scope)(
+      `messages/${id}`,
+      query,
+      decodeFullMessage,
+    );
+    if (message.id !== id) {
+      return yield* new SyncFailure({
+        kind: 'retry',
+        cause: 'message',
+        diagnostic: 'another message',
+      });
+    }
+    return message.payload;
+  });
+
+  // Resolves visible Content-ID references against the message's MIME scopes. Each image fails
+  // independently; a transient failure leaves the resolution unrecorded so a later open retries.
+  const resolveImages = Effect.fnUntraced(function* (
+    scope: MailboxScope,
+    id: string,
+    wanted: Readonly<{
+      path: readonly GmailPart[];
+      references: readonly string[];
+    }>,
+  ) {
+    const parts = inlineImageParts(wanted.path);
+    const tally = imageTally();
+    for (const [index, contentId] of wanted.references.entries()) {
+      const part = parts.get(contentId);
+      if (part === undefined || !tally.requestable(part, index)) {
+        tally.refuse(contentId);
+      } else {
+        const data = yield* partData(scope, id, part).pipe(Effect.option);
+        tally.receive(contentId, part, Option.getOrUndefined(data));
+      }
+    }
+    return tally.result();
+  });
+
+  // An explicit open's body from Gmail: both readable alternatives and its inline images.
+  const fetchBody = Effect.fnUntraced(function* (
+    scope: MailboxScope,
+    id: string,
+  ): Effect.fn.Return<BodyDocument, SyncFailure | GmailNotFound> {
+    const payload = yield* fullMessage(scope, id, [['format', 'full']]);
+    const { html, text, path } = bodyParts(payload);
+    const document: BodyDocument = {
+      version: 2,
+      id,
+      ...(text === undefined
+        ? {}
+        : { text: yield* fetchPart(scope, id, text) }),
+      ...(html === undefined
+        ? {}
+        : { html: yield* fetchPart(scope, id, html) }),
+    };
+    const references = contentIdsOf(document);
+    if (references.length === 0) {
+      return { ...document, images: { admitted: [], refused: [] } };
+    }
+    const resolved = yield* resolveImages(scope, id, { path, references });
+    return resolved.complete
+      ? { ...document, images: resolved.images }
+      : document;
+  });
+
+  // A cached body opened explicitly before its inline images were resolved resolves them now,
+  // when Gmail answers; offline, it opens with placeholders.
+  const completeImages = Effect.fnUntraced(function* (
+    scope: MailboxScope,
+    document: BodyDocument,
+  ) {
+    const references = contentIdsOf(document);
+    if (document.images !== undefined || references.length === 0) {
+      return { document, changed: false };
+    }
+    const payload = yield* fullMessage(scope, document.id, [
+      ['format', 'full'],
+    ]);
+    const resolved = yield* resolveImages(scope, document.id, {
+      path: bodyParts(payload).path,
+      references,
+    });
+    return resolved.complete
+      ? { document: { ...document, images: resolved.images }, changed: true }
+      : { document, changed: false };
+  });
+
+  const cachedDocument = Effect.fnUntraced(function* (
+    scope: MailboxScope,
+    id: string,
+  ) {
+    const cached = yield* Effect.tryPromise({
+      try: () => native.openMessageBody(scope, id),
+      catch: (cause) => rejected(cause, 'failed'),
+    });
+    const reply = yield* decodeCachedBody(cached).pipe(
+      Effect.mapError((error) => malformed(error, 'failed')),
+    );
+    return Option.fromNullishOr(reply.document).pipe(
+      Option.flatMap(decodeBodyDocument),
+      Option.filter((document) => document.id === id),
+    );
+  });
+
+  // Stores a body under the current working set's protection. Commits are fenced like mailbox
+  // commits: a message that left the Inbox, or a closed Inbox, stores nothing.
+  const store = (
+    document: BodyDocument,
+    {
+      scope,
+      tier,
+      reading,
+    }: Readonly<{
+      scope: MailboxScope;
+      tier: 'opened' | 'prefetched';
+      reading: number;
+    }>,
+  ) =>
+    encodeBodyDocument(document).pipe(
+      // oxlint-disable-next-line promise/prefer-await-to-callbacks -- Effect's typed error channel.
+      Effect.mapError((error) => malformed(error, 'failed')),
+      Effect.flatMap((text) =>
+        semaphore.withPermit(
+          Effect.suspend(() =>
+            owner === reading && listed(document.id)
+              ? Effect.tryPromise({
+                  try: () =>
+                    native.commitMessageBody(scope, document.id, {
+                      document: text,
+                      tier,
+                      protectedIds: selection,
+                    }),
+                  catch: (cause) => rejected(cause, 'failed'),
+                }).pipe(
+                  Effect.flatMap((reply) =>
+                    Schema.decodeUnknownEffect(
+                      Schema.Struct({ admitted: Schema.Boolean }),
+                    )(reply).pipe(
+                      // oxlint-disable-next-line promise/prefer-await-to-callbacks -- Effect's typed decoding channel.
+                      Effect.mapError((error) => malformed(error, 'failed')),
+                    ),
+                  ),
+                )
+              : Effect.fail(
+                  new SyncFailure({
+                    kind: 'invalidated',
+                    cause: 'message left',
+                    diagnostic: 'message left Inbox',
+                  }),
+                ),
+          ),
+        ),
+      ),
+    );
+
+  // The cached body when this device has one, otherwise Gmail's, which is then cached when it fits.
+  const loadBody = Effect.fnUntraced(function* (
+    scope: MailboxScope,
+    id: string,
+    reading: number,
+  ) {
+    if (reading !== owner || !listed(id)) {
+      return yield* new SyncFailure({
+        kind: 'invalidated',
+        cause: 'closed reader',
+        diagnostic: 'message left Inbox',
+      });
+    }
+    const stored = (yield* cachedDocument(scope, id)).pipe(
+      Option.filter((document) => document.excluded !== true),
+    );
+    const tier = selection.includes(id) ? 'prefetched' : 'opened';
+    if (Option.isSome(stored)) {
+      const completed = yield* completeImages(scope, stored.value).pipe(
+        Effect.orElseSucceed(() => ({
+          document: stored.value,
+          changed: false,
+        })),
+      );
+      if (completed.changed) {
+        yield* store(completed.document, { scope, tier, reading }).pipe(
+          Effect.ignore,
+        );
+      }
+      return completed.document;
+    }
+    const document = yield* fetchBody(scope, id);
+    yield* store(document, { scope, tier, reading }).pipe(
+      // A body that could not be kept is still shown, unless its mailbox changed meanwhile.
+      Effect.catchIf(
+        (failure) => failure.kind !== 'invalidated',
+        (failure) =>
+          Effect.logError('Message body was not cached:', failure.diagnostic),
+      ),
+    );
+    return document;
+  });
+
+  const beginInteractive = Effect.sync(() => {
+    interactive += 1;
+    interactiveIdle.closeUnsafe();
+  });
+  const endInteractive = Effect.sync(() => {
+    interactive -= 1;
+    if (interactive === 0) {
+      interactiveIdle.openUnsafe();
+    }
+  });
+
+  const readMessage = (id: string) => {
+    const pending = readingBodies.get(id);
+    if (pending !== undefined) {
+      return pending;
+    }
+    const current = bodies.get(id);
+    const scope = opened;
+    // Only messages in the open Inbox are read, so no body outlives its listing.
+    if (
+      scope === undefined ||
+      !listed(id) ||
+      current?.kind === 'loading' ||
+      current?.kind === 'ready'
+    ) {
+      return Promise.resolve();
+    }
+    const reading = owner;
+    setBody(id, loadingBody);
+    const run = runLogged(
+      Effect.acquireUseRelease(
+        beginInteractive,
+        () =>
+          Effect.gen(function* () {
+            const speculative = speculativeBodies.get(id);
+            if (speculative !== undefined) {
+              yield* Deferred.await(speculative);
+            }
+            return yield* bodyLoads.withPermit(loadBody(scope, id, reading));
+          }),
+        () => endInteractive,
+      ).pipe(
+        Effect.map((document): MessageBodyState => {
+          if (owner !== reading || !listed(id) || endedReaders.has(id)) {
+            return loadingBody;
+          }
+          return { kind: 'ready', presentation: prepareReaders(id, document) };
+        }),
+        Effect.catchTags({
+          GmailNotFound: () =>
+            Effect.succeed<MessageBodyState>({
+              kind: 'unavailable',
+              reason: 'missing',
+            }),
+          SyncFailure: ({ kind, diagnostic }) =>
+            (kind === 'authentication' || kind === 'locked'
+              ? Effect.void
+              : Effect.logError('Message body failed:', diagnostic)
+            ).pipe(Effect.as(bodyFailure(kind))),
+        }),
+        Effect.flatMap((next) =>
+          Effect.sync(() => {
+            if (owner === reading && listed(id)) {
+              if (endedReaders.has(id)) {
+                endedReaders.delete(id);
+                releaseBody(id);
+                notify(state);
+              } else {
+                setBody(id, next);
+              }
+            }
+          }),
+        ),
+        Effect.ensuring(
+          Effect.sync(() => {
+            if (owner === reading) {
+              readingBodies.delete(id);
+            }
+          }),
+        ),
+      ),
+    );
+    readingBodies.set(id, run);
+    return run;
+  };
+
+  // Prefetch reads only single-part plain-text or HTML messages; others get an exclusion marker
+  // so later selections skip them without asking Gmail again.
+  const prefetchBody = Effect.fnUntraced(function* (
+    scope: MailboxScope,
+    id: string,
+    reading: number,
+  ) {
+    const admission = { scope, tier: 'prefetched', reading } as const;
+    const excluded: BodyDocument = { version: 2, id, excluded: true };
+    const preflight = yield* fullMessage(scope, id, [
+      ['format', 'metadata'],
+      ['metadataHeaders', 'Content-Type'],
+      ['metadataHeaders', 'Content-Disposition'],
+    ]);
+    if (!singleReadablePart(preflight)) {
+      return yield* store(excluded, admission);
+    }
+    const payload = yield* fullMessage(scope, id, [['format', 'full']]);
+    if (!singleReadablePart(payload)) {
+      return yield* store(excluded, admission);
+    }
+    const content = yield* fetchPart(scope, id, payload);
+    const html = bodyParts(payload).html !== undefined;
+    return yield* store(
+      { version: 2, id, ...(html ? { html: content } : { text: content }) },
+      admission,
+    );
+  });
+
+  const prefetchItem = Effect.fnUntraced(function* (
+    scope: MailboxScope,
+    id: string,
+    reading: number,
+  ) {
+    const pending = yield* Deferred.make<undefined>();
+    speculativeBodies.set(id, pending);
+    yield* bodyLoads.withPermit(prefetchBody(scope, id, reading)).pipe(
+      Effect.catchTag('GmailNotFound', () => Effect.void),
+      Effect.ensuring(
+        Effect.gen(function* () {
+          if (speculativeBodies.get(id) === pending) {
+            speculativeBodies.delete(id);
+          }
+          yield* Deferred.succeed(pending, undefined);
+        }),
+      ),
+    );
+  });
+
+  const prefetchPaused = (reading: number, id: string) =>
+    owner !== reading ||
+    !listed(id) ||
+    state.kind !== 'ready' ||
+    state.sync === 'authentication' ||
+    state.sync === 'retry';
+
+  // One speculative lane: selections run one at a time, and each body waits while an explicit
+  // read is waiting or running, then holds one of the connection's two loads.
+  const prefetch = Effect.fnUntraced(function* (reading: number) {
+    const scope = opened;
+    if (scope === undefined || state.kind !== 'ready' || owner !== reading) {
+      return;
+    }
+    selection = recentWorkingSet(
+      state.messages,
+      selectionReference ?? (yield* DateTime.now),
+    );
+    const reply = yield* Effect.tryPromise({
+      try: () => native.listMessageBodies(scope, selection),
+      catch: (cause) => rejected(cause, 'failed'),
+    });
+    const stored = new Set(
+      (yield* decodeStoredBodies(reply).pipe(
+        Effect.mapError((error) => malformed(error, 'failed')),
+      )).stored,
+    );
+    for (const id of selection) {
+      yield* interactiveIdle.await;
+      if (prefetchPaused(reading, id)) {
+        return;
+      }
+      if (!stored.has(id) && !readingBodies.has(id)) {
+        yield* prefetchItem(scope, id, reading);
+      }
+    }
+  });
+
+  let prefetching = false;
+  let prefetchAgain = false;
+  // Authentication stops provider work and asks for Gmail again; offline, quota and server
+  // failures pause prefetch until the next synchronization.
+  const prefetchFailure =
+    (reading: number) =>
+    ({
+      kind,
+      diagnostic,
+    }: Readonly<Pick<SyncFailure, 'kind' | 'diagnostic'>>) => {
+      if (kind === 'authentication') {
+        return Effect.sync(() => {
+          if (owner === reading) {
+            publish(failureState(state, kind));
+          }
+        });
+      }
+      return kind === 'invalidated' || kind === 'retry'
+        ? Effect.void
+        : Effect.logError('Body prefetch failed:', diagnostic);
+    };
+  // Starts the lane, or asks a running lane to select again after its current pass.
+  const schedulePrefetch = Effect.sync(() => {
+    if (prefetching) {
+      prefetchAgain = true;
+      return;
+    }
+    prefetching = true;
+    const reading = owner;
+    void runLogged(
+      Effect.gen(function* () {
+        let again = true;
+        while (again) {
+          prefetchAgain = false;
+          yield* prefetch(reading);
+          again = prefetchAgain && owner === reading;
+        }
+      }).pipe(
+        Effect.catchTag('SyncFailure', prefetchFailure(reading)),
+        Effect.ensuring(
+          Effect.sync(() => {
+            prefetching = false;
+          }),
+        ),
+      ),
     );
   });
 
   const synchronize = Effect.gen(function* () {
     let cache = yield* storage(native.openMailbox);
+    const { address, generation } = cache;
+    selectionReference = yield* DateTime.now;
+    if (!forgotten) {
+      opened = { address, generation };
+    }
     let document = Option.getOrUndefined(yield* documentOf(cache));
     if (cache.availability === 'retry') {
       return yield* ready(cache.address, messagesOf(document), 'retry');
@@ -681,9 +1402,20 @@ export function createGmailInbox(native: NativeGmailMailbox) {
       cache = yield* commit(cache, next.value);
       document = next.value;
       yield* ready(cache.address, document.messages, 'syncing');
+      // Committed Inbox pages make recent bodies eligible after Initial Mailbox Availability.
+      yield* schedulePrefetch;
       next = yield* advance(cache, document);
     }
     yield* ready(cache.address, messagesOf(document), 'current');
+    yield* schedulePrefetch;
+    // Bodies Gmail could not provide before are read again now that it answers.
+    yield* Effect.sync(() => {
+      for (const [id, body] of bodies) {
+        if (body.kind === 'unavailable' && body.reason !== 'missing') {
+          void readMessage(id);
+        }
+      }
+    });
   }).pipe(
     // The profile and Inbox listing always exist; their absence is a provider failure to retry.
     Effect.catchTags({
@@ -726,6 +1458,20 @@ export function createGmailInbox(native: NativeGmailMailbox) {
     },
     // Clears the mail held in memory when its account or mailbox leaves the open Inbox.
     forget: () => {
+      owner += 1;
+      opened = undefined;
+      bodies.clear();
+      readers.clear();
+      legacyReaders.clear();
+      viewReaders.clear();
+      viewBodies.clear();
+      documents.clear();
+      endedReaders.clear();
+      readingBodies.clear();
+      imageReservations.clear();
+      selection = [];
+      selectionReference = undefined;
+      speculativeBodies.clear();
       if (!forgotten || state.kind !== 'loading') {
         forgotten = true;
         notify({ kind: 'loading' });
@@ -752,6 +1498,106 @@ export function createGmailInbox(native: NativeGmailMailbox) {
         waiting = run;
       }
       return run;
+    },
+    // The body of a listed message, once readMessage has asked for it.
+    messageBody: (id: string, reader?: symbol) => {
+      const body = bodies.get(id);
+      if (reader === undefined) {
+        return body;
+      }
+      if (viewReaders.get(reader) !== id) {
+        return undefined;
+      }
+      return (
+        viewBodies.get(reader) ?? (body?.kind === 'ready' ? loadingBody : body)
+      );
+    },
+    // Visible readers keep their body while other windows open additional mail.
+    retainMessage: (id: string, reader?: symbol) => {
+      const retainedOwner = owner;
+      endedReaders.delete(id);
+      readers.set(id, (readers.get(id) ?? 0) + 1);
+      if (reader === undefined) {
+        legacyReaders.set(id, (legacyReaders.get(id) ?? 0) + 1);
+      } else {
+        viewReaders.set(reader, id);
+      }
+      const document = documents.get(id);
+      if (document !== undefined && bodies.get(id)?.kind === 'ready') {
+        if (reader === undefined) {
+          setBody(id, {
+            kind: 'ready',
+            presentation: present(id, document, legacyReaders.get(id)),
+          });
+        } else {
+          if (!legacyReaders.has(id)) {
+            imageReservations.delete(id);
+          }
+          viewBodies.set(reader, {
+            kind: 'ready',
+            presentation: present(reader, document),
+          });
+          notify(state);
+        }
+      }
+      return () => {
+        if (owner !== retainedOwner) {
+          return;
+        }
+        if (reader === undefined) {
+          releaseLegacyReader(id);
+        } else {
+          viewReaders.delete(reader);
+          viewBodies.delete(reader);
+          imageReservations.delete(reader);
+        }
+        const count = (readers.get(id) ?? 1) - 1;
+        if (count === 0) {
+          readers.delete(id);
+          // The presentation ended: its image budget returns, and a later open reads the cache.
+          if (bodies.get(id)?.kind === 'loading') {
+            endedReaders.add(id);
+          } else {
+            releaseBody(id);
+          }
+        } else {
+          readers.set(id, count);
+        }
+      };
+    },
+    // Opens a body from this device, or downloads it from Gmail; a failed read can be tried again.
+    // Windows opening the same message share one read.
+    readMessage,
+    // A failed rich view discards its document immediately and returns its image reservation.
+    discardRichMessage: (
+      id: string,
+      expected: MessagePresentation,
+      reader?: symbol,
+    ) => {
+      if (reader !== undefined) {
+        const current = viewBodies.get(reader);
+        if (
+          viewReaders.get(reader) === id &&
+          current?.kind === 'ready' &&
+          current.presentation === expected
+        ) {
+          imageReservations.delete(reader);
+          viewBodies.set(reader, {
+            kind: 'ready',
+            presentation: { readable: expected.readable },
+          });
+          notify(state);
+        }
+        return;
+      }
+      const current = bodies.get(id);
+      if (current?.kind === 'ready' && current.presentation === expected) {
+        imageReservations.delete(id);
+        setBody(id, {
+          kind: 'ready',
+          presentation: { readable: expected.readable },
+        });
+      }
     },
   };
 }
@@ -790,4 +1636,18 @@ export const gmailSyncCopy = {
   current: undefined,
   authentication: 'Gmail needs your permission again to show new mail.',
   retry: 'Gmail could not be reached. Showing mail saved on this device.',
+} as const;
+
+// What the reader says when an opened message's body cannot be shown.
+export const messageBodyCopy = {
+  download:
+    'This message is not saved on this device, and Gmail could not be reached to download it.',
+  authentication: 'Gmail needs your permission again to download this message.',
+  missing: 'This message is no longer in Gmail.',
+  locked: 'Private storage is locked. Unlock your device and try again.',
+  failed: 'This message could not be opened. Your saved mail has been kept.',
+  empty: 'This message has no text.',
+  images: 'Images in this message are not loaded.',
+  confirmLink: 'Open this link in your browser?',
+  cautionLink: 'Check this link before opening it:',
 } as const;

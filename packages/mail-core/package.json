@@ -14,14 +14,17 @@
     "./testing/mock-session": "./src/testing/mock-session.ts",
     "./registration": "./src/registration.ts",
     "./registration-mode": "./src/registration-mode.ts",
-    "./testing/registration-session": "./src/testing/registration-session.ts"
+    "./testing/registration-session": "./src/testing/registration-session.ts",
+    "./message-body": "./src/message-body.ts",
+    "./link-inspection": "./src/link-inspection.ts"
   },
   "scripts": {
     "check-types": "tsc --noEmit",
     "test": "vitest run"
   },
   "dependencies": {
-    "effect": "catalog:"
+    "effect": "catalog:",
+    "parse5": "catalog:"
   },
   "devDependencies": {
     "@rajzik/tsconfig": "catalog:",

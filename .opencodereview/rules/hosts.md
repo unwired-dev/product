@@ -32,11 +32,26 @@ A host owns views and native adapters. It renders shared stores from `@private-e
 #### Platform behavior
 
 - A pressable without an accessible role and name, text that does not scale with Dynamic Type, a color taken from a literal rather than the light/dark tokens in `mail-core`'s `theme`, or selection and focus shown by color alone.
-- A component library, navigation library or native module added to either host. Mobile uses Router's split view and React Native `StyleSheet`; the Mac host autolinks no additional native modules, and adding one requires updating `apps/macos/scripts/verify-bundle.ts`.
+- A component library, navigation library or native module added to either host. Mobile uses Router's split view and React Native `StyleSheet`; the Mac host admits `react-native-webview` only, and adding another requires updating `apps/macos/scripts/verify-bundle.ts`.
 - Mac window identity, menu routing, focus or application lifetime handled in JavaScript. AppKit owns them; closing the last window keeps the app running.
 - A route, deep link or window identifier used before validation, or used to select a message in a store that has not confirmed it exists; the unavailable route must render.
 - A deployment target, entitlement, Info.plist privacy string or App Transport Security setting lowered or broadened in `app.config.ts`, a config plugin or the Mac project.
 - A Metro, Babel or config-plugin change that lets mock-session code (`UNWIRED_MOCK_SCENARIO`, `UNWIRED_REGISTRATION_MOCK`) into a build that did not select a scenario.
+
+- A message WebView that relies on the wrapper's default origin whitelist. In
+  `react-native-webview`, an unmatched URL can reach `Linking.openURL` before
+  `onShouldStartLoadWithRequest`, bypassing confirmation. Pin the whitelist so
+  every sender navigation reaches the cancelling delegate; check redirects and
+  new-window links too. Keep a stable app-owned link identity through WebKit
+  normalization; matching a callback URL to the raw sender string can lose the
+  visible text and suppress mismatch warnings. Verify page-JavaScript disabling on the final native
+  preferences object after any wrapper replacements, not just its initial value.
+- Treating the owner-approved client-world measurement in ADR 0029's 2026-10-06
+  amendment as permission for page scripts or sender-controlled bridge calls.
+  The patched WebView on both hosts may run only its application-owned layout
+  measurement through `callAsyncJavaScript` in `WKContentWorld.defaultClientWorld`
+  while page JavaScript stays disabled; measurement failure must reach retained
+  readable-text fallback rather than an indefinite loader.
 
 #### Bundle and workspace boundary
 

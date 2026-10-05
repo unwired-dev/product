@@ -1,0 +1,663 @@
+import { setImmediate } from 'node:timers/promises';
+import { deflateSync } from 'node:zlib';
+
+import type { GmailInbox, MessageBodyState } from '../src/gmail-inbox.ts';
+
+import { createGmailInbox } from '../src/gmail-inbox.ts';
+import { inspectImage } from '../src/inline-images.ts';
+import { inspectLink, linkWarnings } from '../src/link-inspection.ts';
+import { createSyntheticGmail } from '../src/testing/gmail-mailbox.ts';
+
+const read = async (inbox: GmailInbox, id: string, reader?: symbol) => {
+  await inbox.readMessage(id);
+  return inbox.messageBody(id, reader);
+};
+
+const ready = (state: MessageBodyState | undefined) => {
+  if (state?.kind !== 'ready') {
+    throw new Error('Expected a ready body');
+  }
+  return state;
+};
+
+const rich = (state: MessageBodyState | undefined) => {
+  if (state?.kind !== 'ready' || state.presentation.rich === undefined) {
+    throw new Error(`Expected a rich body, received ${state?.kind}`);
+  }
+  return state.presentation.rich;
+};
+
+const ascii = (text: string) => [...Buffer.from(text, 'latin1')];
+const u32 = (value: number) => {
+  const bytes = Buffer.alloc(4);
+  bytes.writeUInt32BE(value);
+  return [...bytes];
+};
+/* oxlint-disable no-bitwise -- PNG fixtures require their binary CRC. */
+const crc32 = (bytes: readonly number[]) => {
+  let crc = 4_294_967_295;
+  for (const byte of bytes) {
+    crc ^= byte;
+    for (let bit = 0; bit < 8; bit += 1) {
+      crc = (crc >>> 1) ^ ((crc & 1) === 0 ? 0 : 3_988_292_384);
+    }
+  }
+  return (crc ^ 4_294_967_295) >>> 0;
+};
+/* oxlint-enable no-bitwise */
+const chunk = (type: string, data: readonly number[]) => {
+  const content = [...ascii(type), ...data];
+  return [...u32(data.length), ...content, ...u32(crc32(content))];
+};
+const png = (width: number, height: number) => [
+  ...ascii('\u0089PNG\r\n\u001A\n'),
+  ...chunk('IHDR', [...u32(width), ...u32(height), 8, 6, 0, 0, 0]),
+  ...chunk('IDAT', [...deflateSync(Buffer.alloc((width * 4 + 1) * height))]),
+  ...chunk('IEND', []),
+];
+// Two image descriptors (44) between the header and the trailer (59) make an animation.
+const frame = [44, 0, 0, 0, 0, 2, 0, 2, 0, 0, 2, 2, 68, 1, 0];
+const animatedGif = [
+  ...ascii('GIF89a'),
+  2,
+  0,
+  2,
+  0,
+  0,
+  0,
+  0,
+  ...frame,
+  ...frame,
+  59,
+];
+
+// The listed message IDs, or none before the Inbox is ready.
+const listedIds = (inbox: GmailInbox) => {
+  const state = inbox.getSnapshot();
+  return state.kind === 'ready' ? state.messages.map(({ id }) => id) : [];
+};
+
+const readable = (state: MessageBodyState | undefined) => {
+  if (state?.kind !== 'ready') {
+    throw new Error(`Expected a ready body, received ${state?.kind}`);
+  }
+  return state.presentation.readable;
+};
+
+// Wraps Gmail reads to count concurrent body loads, and refuses the prefetch preflight once
+// `refuse` is set, as Gmail does after a revoked grant.
+function observeBodyLoads(gmail: ReturnType<typeof createSyntheticGmail>) {
+  const { gmailRequest } = gmail.native;
+  const observed = { active: 0, most: 0, refuse: false };
+  const bodyLoad = (query: ReadonlyArray<readonly [string, string]>) =>
+    query.some(([, value]) => value === 'full' || value === 'Content-Type');
+  gmail.native.gmailRequest = async (path, query, owner) => {
+    if (
+      observed.refuse &&
+      query.some(([, value]) => value === 'Content-Type')
+    ) {
+      return { status: 401, body: '{}' };
+    }
+    if (!bodyLoad(query)) {
+      return gmailRequest(path, query, owner);
+    }
+    observed.active += 1;
+    observed.most = Math.max(observed.most, observed.active);
+    await setImmediate();
+    observed.active -= 1;
+    return gmailRequest(path, query, owner);
+  };
+  return observed;
+}
+
+const day = 86_400_000;
+
+describe('the isolated rich reader', () => {
+  /* oxlint-disable vitest/max-expects -- Each journey proves one reader contract end to end. */
+  it('admits only passive markup, app colors, vetted links and non-loading placeholders', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    const id = gmail.deliver({
+      content: {
+        html: [
+          '<html><head><base href="https://sender.invalid/"><meta http-equiv="refresh" content="0;url=https://sender.invalid">',
+          '<link rel="stylesheet" href="https://sender.invalid/a.css"><style>@import url(https://sender.invalid/b.css);</style></head>',
+          '<body bgcolor="#000" style="background:#000">',
+          '<div style="display:none">Hidden preheader</div>',
+          '<table bgcolor="#123" width="600" onload="x()"><tr><td style="color:#fff;background-image:url(https://sender.invalid/bg.png);padding:4px;font-weight:bold" align="center">Cell text</td></tr></table>',
+          '<p><font color="red">Red words</font> and <a href="tel:+15551234" target="_blank">call us</a>.</p>',
+          '<form action="https://sender.invalid/post"><input name="q" value="secret"><button>Send</button>Form note</form>',
+          '<svg><a href="https://sender.invalid/svg"><text>SVG</text></a></svg>',
+          '<img src="https://sender.invalid/photo.jpg" alt="Team photo">',
+          '<img src="https://sender.invalid/open.gif" width="1" height="1">',
+          '<img src="data:image/png;base64,AAAA" alt="Inline data">',
+          '<img src="http://sender.invalid/plain.png">',
+          '</body></html>',
+        ].join(''),
+      },
+    });
+    const inbox = createGmailInbox(gmail.native);
+    await inbox.load();
+    const opened = await read(inbox, id);
+    const { document, links } = rich(opened);
+    expect(document.slice(document.indexOf('<body>'))).not.toMatch(
+      /sender\.invalid|<base|refresh|<link|@import|bgcolor|onload|#fff|background-image|<font|<form|<input|<button|secret|<svg|target=|data:image\/png;base64,AAAA|Hidden preheader/u,
+    );
+    expect(document).toContain(
+      '<td align="center" style="padding: 4px; font-weight: bold">Cell text</td>',
+    );
+    expect(document).toContain('<span>Red words</span>');
+    expect(document).toContain(
+      '<a href="about:blank#unwired-link-0" rel="noreferrer noopener">call us</a>',
+    );
+    expect(document).toContain('<div>Form note</div>');
+    // The remote image keeps its description as a placeholder; the declared 1×1 pixel is gone.
+    expect(document).toContain(
+      '<span class="blocked-image" role="img" aria-label="Team photo">Team photo</span>',
+    );
+    expect(document.match(/blocked-image" role="img"/gu)).toHaveLength(3);
+    expect(links).toStrictEqual([{ href: 'tel:+15551234', text: 'call us' }]);
+    expect(readable(opened)).toMatchObject({ hidesImages: true });
+  });
+
+  it('resolves visible inline images within bounds and keeps them for provider-free opens', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    const logo = png(40, 30);
+    const id = gmail.deliver({
+      content: {
+        text: 'Logo alternative.',
+        html: [
+          '<p>Logo <img src="cid:logo%40example" alt="Logo"></p>',
+          '<p><img src="cid:anim@example" alt="Animation"></p>',
+          '<img src="cid:big@example" alt="Big"><img src="cid:short@example" alt="Short">',
+          '<div hidden><img src="cid:hidden@example"></div>',
+        ].join(''),
+        images: [
+          { contentId: 'logo@example', mimeType: 'image/png', bytes: logo },
+          {
+            contentId: 'anim@example',
+            mimeType: 'image/gif',
+            bytes: animatedGif,
+          },
+          {
+            contentId: 'big@example',
+            mimeType: 'image/png',
+            bytes: logo,
+            size: 6 * 1024 * 1024,
+          },
+          {
+            contentId: 'short@example',
+            mimeType: 'image/png',
+            bytes: logo.slice(0, 20),
+            size: logo.length,
+          },
+          { contentId: 'hidden@example', mimeType: 'image/png', bytes: logo },
+          { contentId: 'unused@example', mimeType: 'image/png', bytes: logo },
+        ],
+      },
+    });
+    const inbox = createGmailInbox(gmail.native);
+    await inbox.load();
+    const { document } = rich(await read(inbox, id));
+    expect(document.match(/src="data:image\/png;base64,/gu)).toHaveLength(1);
+    expect(document).toContain('aria-label="Animation"');
+    expect(document).toContain('aria-label="Big"');
+    expect(document).toContain('aria-label="Short"');
+    // Oversized, hidden and unreferenced parts were never requested.
+    const imageRequests = () =>
+      gmail.requests
+        .map(({ path }) => path)
+        .filter((path) => path.includes('/attachments/image-'));
+    expect(imageRequests()).toStrictEqual([
+      `messages/${id}/attachments/image-0`,
+      `messages/${id}/attachments/image-1`,
+      `messages/${id}/attachments/image-3`,
+    ]);
+
+    // A relaunch without Gmail shows the admitted image from the encrypted cache.
+    const relaunched = createGmailInbox(gmail.native);
+    gmail.fail({ code: 'unavailable' });
+    await relaunched.load();
+    expect(rich(await read(relaunched, id)).document).toBe(document);
+    expect(imageRequests()).toHaveLength(3);
+
+    // A body cached before its images were resolved resolves them on the next online open.
+    await gmail.native.commitMessageBody(
+      { address: 'alex@example.invalid', generation: '0' },
+      id,
+      {
+        document: JSON.stringify({
+          version: 2,
+          id,
+          html: '<p><img src="cid:logo@example" alt="Logo"></p>',
+        }),
+        tier: 'opened',
+        protectedIds: [],
+      },
+    );
+    const online = createGmailInbox(gmail.native);
+    await online.load();
+    expect(rich(await read(online, id)).document).toContain(
+      'src="data:image/png;base64,',
+    );
+    expect(JSON.parse(String(gmail.cachedBodies().get(id)))).toMatchObject({
+      images: { refused: [] },
+    });
+  });
+
+  it('shares one image budget across displayed bodies and returns it when a reader closes', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    const ids = [1, 2, 3].map(() =>
+      gmail.deliver({
+        content: {
+          html: '<p>Photo <img src="cid:photo@example" alt="Photo"></p>',
+          images: [
+            {
+              contentId: 'photo@example',
+              mimeType: 'image/png',
+              bytes: png(4096, 4096),
+            },
+          ],
+        },
+      }),
+    );
+    const [first = '', second = '', third = ''] = ids;
+    const inbox = createGmailInbox(gmail.native);
+    await inbox.load();
+    const releaseFirst = inbox.retainMessage(first);
+    inbox.retainMessage(second);
+    expect(rich(await read(inbox, first)).document).toContain('data:image/png');
+    expect(rich(await read(inbox, second)).document).toContain(
+      'data:image/png',
+    );
+    // Two 16 Mi-pixel images fill the shared 32 Mi-pixel budget.
+    const releaseThird = inbox.retainMessage(third);
+    expect(rich(await read(inbox, third)).document).not.toContain('data:image');
+    releaseFirst();
+    releaseThird();
+    inbox.retainMessage(third);
+    expect(rich(await read(inbox, third)).document).toContain('data:image/png');
+  });
+
+  it('charges every window showing the same message and releases a closing reader independently', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    const content = {
+      html: '<p>Photo <img src="cid:photo@example" alt="Photo"></p>',
+      images: [
+        {
+          contentId: 'photo@example',
+          mimeType: 'image/png',
+          bytes: png(4096, 4096),
+        },
+      ],
+    };
+    const first = gmail.deliver({ content });
+    const second = gmail.deliver({ content });
+    const inbox = createGmailInbox(gmail.native);
+    await inbox.load();
+    const firstReader = Symbol('first');
+    const duplicateReader = Symbol('duplicate');
+    const secondReader = Symbol('second message');
+    const thirdReader = Symbol('third');
+    const closeFirst = inbox.retainMessage(first, firstReader);
+    const closeDuplicate = inbox.retainMessage(first, duplicateReader);
+    const original = rich(await read(inbox, first, firstReader));
+    expect(original.document).toContain('data:image/png');
+    expect(rich(inbox.messageBody(first, duplicateReader)).document).toContain(
+      'data:image/png',
+    );
+    const closeSecond = inbox.retainMessage(second, secondReader);
+    expect(
+      rich(await read(inbox, second, secondReader)).document,
+    ).not.toContain('data:image');
+    closeDuplicate();
+    closeSecond();
+    inbox.retainMessage(second, secondReader);
+    expect(rich(await read(inbox, second, secondReader)).document).toContain(
+      'data:image/png',
+    );
+    // Joining a ready body must also account for every independent WebView.
+    const closeThirdReader = inbox.retainMessage(first, thirdReader);
+    expect(rich(inbox.messageBody(first, thirdReader)).document).not.toContain(
+      'data:image',
+    );
+    // An established WebView receives exactly the same source and keeps its position.
+    expect(rich(inbox.messageBody(first, firstReader))).toBe(original);
+    expect(rich(inbox.messageBody(second, secondReader)).document).toContain(
+      'data:image/png',
+    );
+    closeThirdReader();
+    closeFirst();
+    inbox.retainMessage(first, firstReader);
+    expect(rich(await read(inbox, first, firstReader)).document).toContain(
+      'data:image/png',
+    );
+  });
+
+  it('keeps current reservations when an earlier owner generation finishes or closes its reader', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    const first = gmail.deliver({ at: Date.UTC(2020, 0, 1) });
+    const second = gmail.deliver({ at: Date.UTC(2020, 0, 1) });
+    const bytes = Buffer.from(png(4096, 4096)).toString('base64');
+    const entered = Promise.withResolvers<undefined>();
+    const delayed = Promise.withResolvers<{ document: string | null }>();
+    vi.spyOn(gmail.native, 'openMessageBody')
+      .mockImplementation((_scope, id) => {
+        const body = {
+          document: JSON.stringify({
+            version: 2,
+            id,
+            html: '<p>Photo</p><img src="cid:photo"><img src="cid:photo">',
+            images: {
+              admitted: [
+                {
+                  contentId: 'photo',
+                  mimeType: 'image/png',
+                  data: bytes,
+                  width: 4096,
+                  height: 4096,
+                },
+              ],
+              refused: [],
+            },
+          }),
+        };
+        return Promise.resolve(body);
+      })
+      .mockImplementationOnce(() => {
+        entered.resolve(undefined);
+        return delayed.promise;
+      });
+    const inbox = createGmailInbox(gmail.native);
+    await inbox.load();
+    const closeOldReader = inbox.retainMessage(first);
+    const oldRead = inbox.readMessage(first);
+    await entered.promise;
+    inbox.forget();
+    await inbox.load();
+    inbox.retainMessage(first);
+    const current = rich(await read(inbox, first));
+    expect(current.document.split('data:image/png')).toHaveLength(3);
+    closeOldReader();
+    // Even a valid old cache reply must not mutate the newer owner's ledger.
+    delayed.resolve(
+      await gmail.native.openMessageBody(
+        { address: '', generation: '' },
+        first,
+      ),
+    );
+    await oldRead;
+    expect(rich(inbox.messageBody(first))).toBe(current);
+    inbox.retainMessage(second);
+    expect(rich(await read(inbox, second)).document).not.toContain(
+      'data:image',
+    );
+  });
+
+  it('prefetches recent single-part bodies after the Inbox is available, and only those', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    const now = Date.now();
+    const recentHtml = gmail.deliver({
+      at: now - 60_000,
+      content: { html: '<p>Recent HTML</p>', single: true },
+    });
+    const recentText = gmail.deliver({
+      at: now - 120_000,
+      content: { text: 'Recent text', single: true },
+    });
+    const multipart = gmail.deliver({
+      at: now - day,
+      content: { text: 'Has parts', html: '<p>Has parts</p>' },
+    });
+    const old = gmail.deliver({
+      at: now - 31 * day,
+      content: { text: 'Old', single: true },
+    });
+    const trashed = gmail.deliver({
+      at: now - 180_000,
+      content: { text: 'Trashed', single: true },
+    });
+    gmail.label(trashed, 'TRASH');
+    const inbox = createGmailInbox(gmail.native);
+    await inbox.load();
+    await vi.waitFor(() => {
+      expect(gmail.bodyCommits).toHaveLength(3);
+    });
+    expect(listedIds(inbox)).not.toContain(trashed);
+    expect(gmail.bodyCommits).toStrictEqual(
+      [recentHtml, recentText, multipart].map((id) => ({
+        id,
+        tier: 'prefetched',
+        protectedIds: [recentHtml, recentText, multipart],
+      })),
+    );
+    const requested = (id: string) =>
+      gmail.requests.filter(({ path }) => path.startsWith(`messages/${id}`));
+    // A multipart message gets an exclusion marker after the body-free preflight only.
+    expect(
+      requested(multipart).map(({ query }) => query.getAll('metadataHeaders')),
+    ).toStrictEqual([
+      ['From', 'Subject'],
+      ['Content-Type', 'Content-Disposition'],
+    ]);
+    expect(
+      JSON.parse(String(gmail.cachedBodies().get(multipart))),
+    ).toMatchObject({
+      excluded: true,
+    });
+    expect(
+      requested(old).every(({ query }) => query.get('format') === 'metadata'),
+    ).toBe(true);
+
+    // Prefetched bodies open from the device; the excluded one downloads when opened.
+    const before = gmail.requests.length;
+    expect(rich(await read(inbox, recentHtml)).document).toContain(
+      'Recent HTML',
+    );
+    expect(gmail.requests).toHaveLength(before);
+    expect(rich(await read(inbox, multipart)).document).toContain('Has parts');
+    expect(gmail.bodyCommits.at(-1)).toMatchObject({
+      id: multipart,
+      tier: 'prefetched',
+    });
+
+    // Later synchronizations neither repeat the preflight nor download stored bodies again.
+    const preflights = gmail.requests.filter(({ query }) =>
+      query.getAll('metadataHeaders').includes('Content-Type'),
+    ).length;
+    await inbox.load();
+    await vi.waitFor(() => {
+      expect(
+        gmail.requests.filter(({ query }) =>
+          query.getAll('metadataHeaders').includes('Content-Type'),
+        ),
+      ).toHaveLength(preflights);
+    });
+  });
+
+  it('stops prefetch when Gmail needs permission again and limits loads to two', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    const now = Date.now();
+    const ids = [1, 2, 3, 4].map((index) =>
+      gmail.deliver({
+        at: now - index * 60_000,
+        content: { text: `Recent ${index}`, single: true },
+      }),
+    );
+    const observed = observeBodyLoads(gmail);
+    const inbox = createGmailInbox(gmail.native);
+    const opening = inbox.load();
+    await Promise.all([opening, inbox.readMessage(String(ids[3]))]);
+    await vi.waitFor(() => {
+      expect(gmail.bodyCommits).toHaveLength(4);
+    });
+    expect(observed.most).toBeLessThanOrEqual(2);
+
+    observed.refuse = true;
+    gmail.deliver({
+      at: now - 1000,
+      content: { text: 'Newest', single: true },
+    });
+    await inbox.load();
+    await vi.waitFor(() => {
+      expect(inbox.getSnapshot()).toMatchObject({ sync: 'authentication' });
+    });
+  });
+
+  it('charges repeated image occurrences and releases rich reservations after render failure', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    const first = gmail.deliver({
+      content: {
+        html: `<p>Repeated</p>${'<img src="cid:photo">'.repeat(3)}`,
+        images: [
+          { contentId: 'photo', mimeType: 'image/png', bytes: png(4096, 4096) },
+        ],
+      },
+    });
+    const second = gmail.deliver({
+      content: {
+        html: '<p>Second</p><img src="cid:photo">',
+        images: [
+          { contentId: 'photo', mimeType: 'image/png', bytes: png(4096, 4096) },
+        ],
+      },
+    });
+    const inbox = createGmailInbox(gmail.native);
+    await inbox.load();
+    inbox.retainMessage(first);
+    inbox.retainMessage(second);
+    const body = await read(inbox, first);
+    // Three occurrences would decode to 48 Mi pixels, so this CID remains a placeholder.
+    expect(rich(body).document).not.toContain('src="data:');
+    expect(rich(await read(inbox, second)).document).toContain('src="data:');
+    const current = ready(inbox.messageBody(second));
+    inbox.discardRichMessage(second, current.presentation);
+    expect(inbox.messageBody(second)).toMatchObject({
+      kind: 'ready',
+      presentation: { readable: { paragraphs: [[{ text: 'Second' }]] } },
+    });
+    expect(inbox.messageBody(second)).not.toHaveProperty('presentation.rich');
+  });
+
+  it('joins an in-flight recent prefetch and drops a presentation closed before completion', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    const id = gmail.deliver({
+      at: Date.now() - 1000,
+      content: { text: 'Shared body', single: true },
+    });
+    const request = gmail.native.gmailRequest;
+    const start = Promise.withResolvers<undefined>();
+    const gate = Promise.withResolvers<undefined>();
+    let fulls = 0;
+    // oxlint-disable vitest/no-conditional-in-test -- Route only the full-body transport through the deterministic gate.
+    const holdFullRead: typeof request = async (...args) => {
+      if (
+        args[0] === `messages/${id}` &&
+        args[1].some(([name, value]) => name === 'format' && value === 'full')
+      ) {
+        fulls += 1;
+        start.resolve(undefined);
+        await gate.promise;
+      }
+      return request(...args);
+    };
+    // oxlint-enable vitest/no-conditional-in-test
+    gmail.native.gmailRequest = holdFullRead;
+    const inbox = createGmailInbox(gmail.native);
+    await inbox.load();
+    await start.promise;
+    const release = inbox.retainMessage(id);
+    const opening = inbox.readMessage(id);
+    gate.resolve(undefined);
+    await opening;
+    expect(readable(inbox.messageBody(id))).toMatchObject({
+      paragraphs: [[{ text: 'Shared body' }]],
+    });
+    expect(fulls).toBe(1);
+    release();
+    // A later cached read closed before its queued completion retains no hidden presentation.
+    const end = inbox.retainMessage(id);
+    const pending = inbox.readMessage(id);
+    end();
+    await pending;
+    expect(inbox.messageBody(id)).toBeUndefined();
+  });
+
+  it('rejects incomplete image containers before local data reaches WebKit', () => {
+    expect.hasAssertions();
+    const valid = png(20, 20);
+    const missingData = [
+      ...ascii('\u0089PNG\r\n\u001A\n'),
+      ...chunk('IHDR', [...u32(20), ...u32(20), 8, 6, 0, 0, 0]),
+      ...chunk('IEND', []),
+    ];
+    const badSignature = [...valid];
+    badSignature[4] = 0;
+    const badCrc = [...valid];
+    badCrc[29] = 1;
+    expect(inspectImage(Uint8Array.from(valid))).toMatchObject({
+      mimeType: 'image/png',
+      width: 20,
+      height: 20,
+    });
+    for (const bytes of [
+      missingData,
+      badSignature,
+      badCrc,
+      valid.slice(0, -1),
+      [
+        ...ascii('RIFF'),
+        22,
+        0,
+        0,
+        0,
+        ...ascii('WEBPVP8X'),
+        10,
+        0,
+        0,
+        0,
+        ...Array.from({ length: 10 }, () => 0),
+      ],
+    ]) {
+      expect(inspectImage(Uint8Array.from(bytes))).toBeUndefined();
+    }
+  });
+  /* oxlint-enable vitest/max-expects */
+});
+
+describe('link inspection', () => {
+  it.each([
+    ['https://example.invalid/a', 'Example', []],
+    ['https://example.invalid/a', 'www.example.invalid', []],
+    ['https://phish.invalid/a', 'https://bank.invalid', [linkWarnings.text]],
+    ['http://bank.invalid/', 'https://bank.invalid', [linkWarnings.insecure]],
+    ['https://xn--bnk-sna.invalid/', 'Bank', [linkWarnings.international]],
+    ['https://192.0.2.7/login', 'Login', [linkWarnings.numeric]],
+    ['https://127.1/login', 'Login', [linkWarnings.numeric]],
+    ['https://0x7f.1/login', 'Login', [linkWarnings.numeric]],
+    ['https://%C3%A9.invalid/', 'Login', [linkWarnings.international]],
+    [
+      'https://example.invalid/%E2%80%AEgnp.exe',
+      'File',
+      [linkWarnings.direction],
+    ],
+    ['https://bank.invalid@phish.invalid/', 'Bank', [linkWarnings.credentials]],
+    ['https://example.invalid/‮gnp.exe', 'File', [linkWarnings.direction]],
+    [
+      'https://tracker.invalid/r?u=https%3A%2F%2Fother.invalid%2F',
+      'Read more',
+      [linkWarnings.forwards],
+    ],
+  ] as const)('inspects %s shown as %s', (href, text, reasons) => {
+    expect.hasAssertions();
+    expect(inspectLink(href, text)).toStrictEqual(reasons);
+  });
+});

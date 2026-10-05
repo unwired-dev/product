@@ -60,7 +60,8 @@ extension PrivateInboxTests {
     _ = try await store.authorizeGmail(reselect: false)
 
     for path in [
-      "../../oauth2/v3/tokeninfo", "messages/1/attachments/2", "drafts", "https://example.invalid",
+      "../../oauth2/v3/tokeninfo", "messages/1/attachments/a.b", "messages/1/modify", "drafts",
+      "https://example.invalid",
       "profile?alt=media", "messages/../../settings",
     ] {
       await #expect(throws: RegistrationError.unavailable) {
@@ -270,5 +271,192 @@ extension PrivateInboxTests {
         generation: store.mailboxGeneration.uuidString)
     }
     #expect(try DeviceKeychain(service: service + ".database").read("encryption-key") == nil)
+  }
+
+  // Bodies are sealed to their mailbox and message, open offline from the saved cache, keep
+  // within the device limit by least recent reading, and leave with their message or mailbox.
+  @Test @MainActor func messageBodiesStaySealedToTheirMailboxAndMessage() async throws {
+    let service = "dev.unwired.registration.tests.\(UUID().uuidString)"
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    let keys = DeviceKeychain(service: service)
+    defer {
+      try? keys.remove("registration")
+      try? DeviceKeychain(service: service + ".database").remove("encryption-key")
+      try? FileManager.default.removeItem(at: directory)
+    }
+    let google = SyntheticGoogleRegistrationProvider()
+    google.scopes = [RegistrationStore.gmailScope]
+    let store = google.store(
+      keys: keys, mailCache: PrivateInboxStore(directory: directory, service: service),
+      deviceRevoked: { _ in false })
+    let bodies = directory.appendingPathComponent("bodies")
+    func files() throws -> [URL] {
+      (try? FileManager.default.contentsOfDirectory(at: bodies, includingPropertiesForKeys: nil))
+        ?? []
+    }
+    _ = try await store.signIn()
+    _ = try await store.authorizeGmail(reselect: false)
+    let generation = store.mailboxGeneration.uuidString
+    _ = try store.commitMailbox(
+      address: google.address, expectedRevision: 0, document: "{}", generation: generation)
+    #expect(
+      try store.openMessageBody(address: google.address, generation: generation, id: "a")[
+        "document"] is NSNull)
+    let body = "Private synthetic body"
+    _ = try store.commitMessageBody(
+      address: google.address, generation: generation, id: "a",
+      admission: ["document": body, "tier": "opened", "protectedIds": [String]()])
+    _ = try store.commitMessageBody(
+      address: google.address, generation: generation, id: "b",
+      admission: ["document": body + " b", "tier": "opened", "protectedIds": [String]()])
+    #expect(
+      try store.openMessageBody(address: google.address, generation: generation, id: "a")[
+        "document"] as? String == body)
+    #expect(try files().count == 2)
+    for file in try files() {
+      #expect(try Data(contentsOf: file).range(of: Data("Private synthetic".utf8)) == nil)
+    }
+    // Stale work and other mailboxes neither read nor write bodies.
+    #expect(throws: PrivateInboxError.mailboxInvalidated) {
+      _ = try store.openMessageBody(address: "other@example.invalid", generation: generation, id: "a")
+    }
+    #expect(throws: PrivateInboxError.mailboxInvalidated) {
+      _ = try store.commitMessageBody(
+        address: google.address, generation: UUID().uuidString, id: "c",
+        admission: ["document": body, "tier": "opened", "protectedIds": [String]()])
+    }
+
+    // A body moved to another message's file, or damaged, is discarded rather than shown.
+    let cache = PrivateInboxStore(directory: directory, service: service)
+    let sealed = try files()
+    let first = try #require(sealed.first)
+    let second = try #require(sealed.last)
+    try FileManager.default.removeItem(at: second)
+    try FileManager.default.copyItem(at: first, to: second)
+    let opened = try ["a", "b"].map {
+      try cache.openMessageBody(address: google.address, subject: google.subject, id: $0)
+    }
+    #expect(opened.compactMap { $0 }.count == 1)
+    #expect(try files().map(\.lastPathComponent) == [first.lastPathComponent])
+    try Data([1, 2, 3]).write(to: first)
+    #expect(
+      try store.openMessageBody(address: google.address, generation: generation, id: "a")[
+        "document"] is NSNull)
+    #expect(
+      try store.openMessageBody(address: google.address, generation: generation, id: "b")[
+        "document"] is NSNull)
+    #expect(try files().isEmpty)
+
+    // Opened bodies go before prefetched ones, least recently read first; protected bodies stay,
+    // and a body that cannot fit without evicting them is refused.
+    let small = PrivateInboxStore(
+      directory: directory, service: service, protectedDataAvailable: { true }, bodyLimit: 200)
+    let text = String(repeating: "x", count: 60)
+    func admit(_ id: String, _ tier: PrivateInboxStore.BodyTier, protecting: [String] = [])
+      throws -> Bool
+    {
+      try small.commitMessageBody(
+        address: google.address, subject: google.subject, id: id, document: text, tier: tier,
+        protectedIds: protecting)
+    }
+    func stored(_ ids: [String]) throws -> [String] {
+      try small.listMessageBodies(address: google.address, subject: google.subject, ids: ids)
+    }
+    #expect(try admit("prefetched", .prefetched))
+    #expect(try admit("older", .opened))
+    #expect(try admit("newer", .opened))
+    #expect(try stored(["prefetched", "older", "newer"]) == ["prefetched", "newer"])
+    #expect(Set(try files().map(\.pathExtension)) == ["o", "p"])
+    #expect(try !admit("refused", .prefetched, protecting: ["prefetched", "newer", "refused"]))
+    #expect(try stored(["prefetched", "newer", "refused"]) == ["prefetched", "newer"])
+    #expect(try admit("protected", .prefetched, protecting: ["prefetched", "protected"]))
+    #expect(try stored(["prefetched", "newer", "protected"]) == ["prefetched", "protected"])
+    // A body larger than the entire budget is refused without evicting usable mail.
+    #expect(
+      try !small.commitMessageBody(
+        address: google.address, subject: google.subject, id: "oversized",
+        document: String(repeating: "x", count: 201), tier: .opened, protectedIds: []))
+    #expect(try stored(["prefetched", "protected"]) == ["prefetched", "protected"])
+
+    // Changing eviction tier writes a second file before deleting the first. Admission must
+    // reserve both ciphertexts so a crash after publication cannot leave an over-budget cache.
+    #expect(try !admit("prefetched", .opened, protecting: ["prefetched", "protected"]))
+    #expect(try files().count == 2)
+    #expect(try stored(["prefetched", "protected"]) == ["prefetched", "protected"])
+    #expect(
+      try small.openMessageBody(
+        address: google.address, subject: google.subject, id: "prefetched") == text)
+    try small.retainMessageBodies(
+      address: google.address, subject: google.subject, ids: ["prefetched"])
+    #expect(try admit("prefetched", .opened, protecting: ["prefetched"]))
+    #expect(try files().count == 1)
+    #expect(try files().first?.pathExtension == "o")
+    #expect(try admit("prefetched", .prefetched, protecting: ["prefetched"]))
+    #expect(try admit("protected", .prefetched, protecting: ["prefetched", "protected"]))
+
+    // Pruning reconciles an over-budget directory left by an interrupted older writer.
+    #expect(
+      try cache.commitMessageBody(
+        address: google.address, subject: google.subject, id: "d", document: text,
+        tier: .opened, protectedIds: []))
+    #expect(try files().count == 3)
+    try small.retainMessageBodies(
+      address: google.address, subject: google.subject, ids: ["prefetched", "protected", "d"])
+    #expect(try files().reduce(0) { $0 + (try Data(contentsOf: $1).count) } <= 200)
+    #expect(try stored(["prefetched", "protected", "d"]) == ["prefetched", "protected"])
+
+    // A message that left the Inbox takes its body; the cache-only path reads but never writes.
+    _ = try store.retainMessageBodies(
+      address: google.address, generation: generation, ids: ["protected"])
+    #expect(try files().count == 1)
+    google.refreshFailure = URLError(.notConnectedToInternet)
+    #expect(try await store.restore()["kind"] == "cached")
+    let cached = store.mailboxGeneration.uuidString
+    let cachedFile = try #require(files().first)
+    let cachedReadTime = Date(timeIntervalSince1970: 123)
+    try FileManager.default.setAttributes(
+      [.modificationDate: cachedReadTime], ofItemAtPath: cachedFile.path)
+    #expect(
+      try store.openMessageBody(address: google.address, generation: cached, id: "protected")[
+        "document"] as? String == text)
+    #expect(
+      try FileManager.default.attributesOfItem(atPath: cachedFile.path)[.modificationDate] as? Date
+        == cachedReadTime)
+    #expect(
+      try store.listMessageBodies(address: google.address, generation: cached, ids: ["protected"])[
+        "stored"] as? [String] == ["protected"])
+    #expect(throws: RegistrationError.unavailable) {
+      _ = try store.commitMessageBody(
+        address: google.address, generation: cached, id: "d",
+        admission: ["document": body, "tier": "opened", "protectedIds": [String]()])
+    }
+    // Cache-only access returns absence for corrupt ciphertext without pruning or touching it.
+    let damaged = Data([1, 2, 3])
+    try damaged.write(to: cachedFile)
+    try FileManager.default.setAttributes(
+      [.modificationDate: cachedReadTime], ofItemAtPath: cachedFile.path)
+    #expect(
+      try store.openMessageBody(address: google.address, generation: cached, id: "protected")[
+        "document"] is NSNull)
+    #expect(try Data(contentsOf: cachedFile) == damaged)
+    #expect(
+      try FileManager.default.attributesOfItem(atPath: cachedFile.path)[.modificationDate] as? Date
+        == cachedReadTime)
+    google.refreshFailure = nil
+    #expect(try await store.restore()["kind"] == "connected")
+
+    // Another mailbox, or the account leaving, removes every body.
+    google.subject = "synthetic-other-mailbox"
+    google.address = "other@example.invalid"
+    _ = try await store.authorizeGmail(reselect: true)
+    #expect(try files().isEmpty)
+    _ = try store.commitMailbox(
+      address: google.address, expectedRevision: 0, document: "{}",
+      generation: store.mailboxGeneration.uuidString)
+    _ = try store.commitMessageBody(
+      address: google.address, generation: store.mailboxGeneration.uuidString, id: "a",
+      admission: ["document": body, "tier": "prefetched", "protectedIds": ["a"]])
+    _ = try store.purge()
+    #expect(!FileManager.default.fileExists(atPath: bodies.path))
   }
 }

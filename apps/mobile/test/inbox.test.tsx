@@ -6,6 +6,7 @@ import { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mai
 import { createMockMailSession } from '@private-email/mail-core/testing/mock-session';
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { useState } from 'react';
+import { Clipboard, Linking } from 'react-native';
 
 import type { inbox } from '../src/private-storage.ts';
 
@@ -206,7 +207,8 @@ describe('connected Gmail Inbox', () => {
     );
     expect(screen.getByText('alex@example.invalid')).toBeVisible();
     expect(screen.getByText('oliver@example.invalid')).toBeVisible();
-    // The row and the detail both show Gmail's snippet; message content is not downloaded.
+    // The detail downloads the body; the row keeps Gmail's snippet.
+    await expect(screen.findByText('Synthetic body.')).resolves.toBeVisible();
     expect(
       screen.getAllByText('Coffee first, then the long way home?'),
     ).toHaveLength(2);
@@ -244,6 +246,173 @@ describe('connected Gmail Inbox', () => {
       await fireEvent.press(screen.getByRole('button', { name: 'Try again' }));
     });
     expect(screen.queryByText(/could not be reached/u)).toBeNull();
+  });
+
+  it('reads message bodies from Gmail or this device and opens links only after confirmation', async () => {
+    expect.hasAssertions();
+    const openURL = jest.spyOn(Linking, 'openURL').mockResolvedValue(true);
+    const gmail = createSyntheticGmail();
+    gmail.deliver({
+      from: 'Maya Chen <maya@example.invalid>',
+      subject: 'Garden plan',
+      content: {
+        html: '<p>See <a href="https://example.invalid/plan">the plan</a>.</p><img src="https://example.invalid/pixel.gif">',
+      },
+    });
+    const store = createGmailInbox(gmail.native);
+    function Journey() {
+      const [selectedId, setSelectedId] = useState<string>();
+      return (
+        <InboxProvider store={store}>
+          <Inbox
+            onSelect={setSelectedId}
+            selectedId={selectedId}
+          />
+          <MessageDetail id={selectedId} />
+        </InboxProvider>
+      );
+    }
+    await render(<Journey />);
+    await fireEvent.press(
+      await screen.findByRole('button', { name: /Garden plan/u }),
+    );
+    // The sanitized document renders in an isolated WebKit view, hidden until measured.
+    const webview = await screen.findByTestId('message-webview');
+    expect(webview.props).toMatchObject({
+      javaScriptEnabled: false,
+      incognito: true,
+      allowsLinkPreview: false,
+      cacheEnabled: false,
+      originWhitelist: ['*'],
+      setSupportMultipleWindows: false,
+    });
+    expect(webview.props.source.html).toContain("default-src 'none'");
+    expect(screen.getByLabelText('Opening message')).toBeVisible();
+    await act(async () => {
+      fireEvent(webview, 'contentSizeChange', {
+        nativeEvent: { contentSize: { width: 320, height: 480 } },
+      });
+      await Promise.resolve();
+    });
+    expect(screen.queryByLabelText('Opening message')).toBeNull();
+    expect(
+      screen.getByText('Images in this message are not loaded.'),
+    ).toBeVisible();
+    // Only the app's own initial document loads; a chosen link is cancelled and confirmed.
+    expect(
+      webview.props.onShouldStartLoadWithRequest({
+        url: 'about:blank',
+        navigationType: 'other',
+      }),
+    ).toBe(true);
+    let started: unknown = undefined;
+    await act(async () => {
+      started = webview.props.onShouldStartLoadWithRequest({
+        url: 'about:blank#unwired-link-0',
+        navigationType: 'click',
+      });
+      await Promise.resolve();
+    });
+    expect([started]).toStrictEqual([false]);
+    expect(screen.getByText('Open this link in your browser?')).toBeVisible();
+    expect(screen.getByText('https://example.invalid/plan')).toBeVisible();
+    expect(openURL).not.toHaveBeenCalled();
+    await fireEvent.press(screen.getByRole('button', { name: 'Open link' }));
+    expect(openURL).toHaveBeenCalledWith('https://example.invalid/plan');
+    expect(screen.queryByText('Open this link in your browser?')).toBeNull();
+    // Keyboard access reaches the same confirmation.
+    const keyboardLink = screen.getByRole('link', {
+      name: 'Open link: the plan',
+    });
+    expect(keyboardLink.props.focusable).toBe(true);
+    await fireEvent.press(keyboardLink);
+    expect(screen.getByText('Open this link in your browser?')).toBeVisible();
+    await fireEvent.press(screen.getByRole('button', { name: 'Cancel' }));
+    // A WebKit failure falls back to the readable text, never to unsanitized HTML.
+    await act(async () => {
+      fireEvent(webview, 'error', { nativeEvent: {} });
+      await Promise.resolve();
+    });
+    expect(screen.queryByTestId('message-webview')).toBeNull();
+    expect(screen.getByRole('link', { name: 'the plan' })).toBeVisible();
+
+    // Without Gmail, a saved body still opens and another one says it needs downloading.
+    gmail.deliver({ subject: 'Not downloaded yet' });
+    await act(store.load);
+    gmail.fail({ code: 'unavailable' }, { code: 'unavailable' });
+    await fireEvent.press(
+      screen.getByRole('button', { name: /Not downloaded yet/u }),
+    );
+    await expect(
+      screen.findByText(
+        'This message is not saved on this device, and Gmail could not be reached to download it.',
+      ),
+    ).resolves.toBeVisible();
+    await fireEvent.press(screen.getByRole('button', { name: /Garden plan/u }));
+    await expect(
+      screen.findByTestId('message-webview'),
+    ).resolves.toBeOnTheScreen();
+    await fireEvent.press(
+      screen.getByRole('button', { name: /Not downloaded yet/u }),
+    );
+    await act(async () => {
+      await fireEvent.press(screen.getByRole('button', { name: 'Try again' }));
+    });
+    await expect(screen.findByText('Synthetic body.')).resolves.toBeVisible();
+
+    // A queued confirmation must not hand off the previous owner's destination.
+    await fireEvent.press(screen.getByRole('button', { name: /Garden plan/u }));
+    await fireEvent.press(
+      screen.getByRole('link', { name: 'Open link: the plan' }),
+    );
+    const previousOwnerConfirmation = screen.getByRole('button', {
+      name: 'Open link',
+    });
+    openURL.mockClear();
+    await act(async () => {
+      store.forget();
+      await fireEvent.press(previousOwnerConfirmation);
+    });
+    expect(openURL).not.toHaveBeenCalled();
+  });
+
+  it('explains a deceptive link and offers copying it instead of opening it', async () => {
+    expect.hasAssertions();
+    const openURL = jest.spyOn(Linking, 'openURL').mockResolvedValue(true);
+    // oxlint-disable-next-line typescript/no-deprecated -- The reader copies through core Clipboard.
+    const copy = jest.spyOn(Clipboard, 'setString').mockReturnValue(undefined);
+    const gmail = createSyntheticGmail();
+    const id = gmail.deliver({
+      subject: 'Account notice',
+      content: {
+        html: '<p>Sign in at <a href="https://PHISH.invalid:443">https://bank.invalid</a></p>',
+      },
+    });
+    const store = createGmailInbox(gmail.native);
+    await render(
+      <InboxProvider store={store}>
+        <MessageDetail id={id} />
+      </InboxProvider>,
+    );
+    await act(store.load);
+    const webview = await screen.findByTestId('message-webview');
+    await act(async () => {
+      webview.props.onShouldStartLoadWithRequest({
+        url: 'about:blank#unwired-link-0',
+        navigationType: 'click',
+      });
+      await Promise.resolve();
+    });
+    expect(
+      screen.getByText('Check this link before opening it:'),
+    ).toBeVisible();
+    expect(
+      screen.getByText('• The link text shows a different address.'),
+    ).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Open link' })).toBeNull();
+    await fireEvent.press(screen.getByRole('button', { name: 'Copy link' }));
+    expect(copy).toHaveBeenCalledWith('https://PHISH.invalid:443');
+    expect(openURL).not.toHaveBeenCalled();
   });
   /* oxlint-enable vitest/max-expects */
 });

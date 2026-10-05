@@ -234,6 +234,16 @@ describe('mac windows over a connected Gmail mailbox', () => {
     await fireEvent.press(await second.findByRole('button', { name: oliver }));
     expect(first.getByText('maya@example.invalid')).toBeVisible();
     expect(second.getByText('oliver@example.invalid')).toBeVisible();
+    // Each window reads its own message's body; a body another window opened is not read again.
+    await expect(first.findByText('Synthetic body.')).resolves.toBeVisible();
+    await expect(second.findByText('Synthetic body.')).resolves.toBeVisible();
+    await fireEvent.press(second.getByRole('button', { name: maya }));
+    expect(second.getByText('maya@example.invalid')).toBeVisible();
+    expect(second.getByText('Synthetic body.')).toBeVisible();
+    expect(
+      gmail.requests.filter(({ query }) => query.get('format') === 'full'),
+    ).toHaveLength(2);
+    await fireEvent.press(second.getByRole('button', { name: oliver }));
     // Read state belongs to Gmail; this slice shows it without changing it.
     expect(first.queryByRole('button', { name: 'Mark as read' })).toBeNull();
 

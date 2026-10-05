@@ -23,9 +23,11 @@
     "fast-text-encoding": "catalog:macos",
     "react": "catalog:macos",
     "react-native": "catalog:macos",
-    "react-native-macos": "catalog:macos"
+    "react-native-macos": "catalog:macos",
+    "react-native-webview": "catalog:macos"
   },
   "devDependencies": {
+    "@babel/plugin-transform-export-namespace-from": "catalog:macos",
     "@effect/tsgo": "catalog:",
     "@rajzik/oxfmt-config": "catalog:",
     "@rajzik/oxlint-config": "catalog:",

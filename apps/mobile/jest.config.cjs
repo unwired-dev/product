@@ -12,6 +12,7 @@ module.exports = {
   testMatch: ['<rootDir>/test/**/*.test.tsx'],
   clearMocks: true,
   moduleNameMapper: {
+    '^react-native-webview$': '<rootDir>/test/webview.tsx',
     '^react-native($|/.*)': `${path.dirname(require.resolve('react-native/package.json'))}$1`,
     '^react($|/.*)': `${path.dirname(require.resolve('react/package.json'))}$1`,
     '^@react-native/virtualized-lists($|/.*)': `${path.dirname(nativeRequire.resolve('@react-native/virtualized-lists/package.json'))}$1`,
@@ -19,7 +20,7 @@ module.exports = {
   transformIgnorePatterns: expoPreset.transformIgnorePatterns.map((pattern) =>
     pattern.replace(
       '|standard-navigation',
-      '|standard-navigation|@private-email|effect',
+      '|standard-navigation|@private-email|effect|parse5|entities',
     ),
   ),
 };

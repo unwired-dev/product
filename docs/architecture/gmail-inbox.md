@@ -18,7 +18,9 @@ state as an Effect program in `packages/mail-core`.
 Native code adds value at credential custody. Under
 [ADR 0067](../adr/0067-keep-native-code-to-a-minimal-vault.md), provider tokens never
 leave native code. One purpose-specific Gmail read accepts only `profile`,
-`history`, `messages` and alphanumeric `messages/<id>` paths below
+`history`, `messages`, alphanumeric `messages/<id>` paths and
+`messages/<id>/attachments/<part>` with alphanumeric, underscore or hyphen part
+identifiers below
 `https://gmail.googleapis.com/gmail/v1/users/me/`. It renews and attaches the
 mailbox credential, preserves repeated query parameters, refuses redirects and
 returns only status/body. The ephemeral URL session keeps HTTP response caches
@@ -105,6 +107,85 @@ opens the encrypted cache with a retry notice; retry restores registration first
 OAuth grant refusal, identity/TLS failure, unknown errors, removal and locked
 storage do not gain this exception. Product Sign-In and mailbox authorization
 remain distinct under [ADR 0061](../adr/0061-separate-product-identity-from-registration-mailbox-authorization.md).
+
+## Message reading
+
+Issue #605 adds `format=full` message reads and separately served body-part
+reads through the same native credential and generation boundary. The body
+decoder excludes filename-bearing attachments and `message/rfc822` containers,
+selects HTML before plain text within the outer message, and checks decoded
+bytes against the declared part size. HTML with no readable paragraphs falls
+back to a plain alternative. Native cache envelopes fail closed on malformed
+shape; an absent or corrupt body document may be downloaded again.
+
+The shared store keeps two body pipelines per current connection and coalesces
+duplicate reads. Cache publication briefly acquires the synchronization semaphore
+and rechecks owner and list membership, so a late body cannot repopulate a pruned
+message. Completion uses the same membership fence. Visible readers retain their
+body; the twenty-entry memory target evicts only undisplayed completed entries.
+Forget clears body state and fences previous-owner completions. Host-local link
+confirmations also bind to the current body presentation and recheck it immediately
+before system handoff, so queued input cannot disclose a previous owner's destination. Selectable link
+text has a separate keyboard-focusable control.
+
+The isolated renderer now uses an app-owned `parse5` document and patched
+`react-native-webview` on both hosts. Element, attribute, CSS and URL allowlists
+strip active content, sender colors and hidden content before discovering CID
+references. Remote images remain non-loading placeholders with a notice; remote
+consent, policies and the Authorized Remote Content Cache are assigned to
+[#763](https://github.com/unwired-dev/product/issues/763), blocked by #605.
+Images are admitted from the selected MIME scope only after bounded container
+validation. Presentation charges every repeated occurrence against the shared
+encoded-byte and decoded-pixel budget, and releases it on close or render failure.
+Each reader's opaque token owns its reservation and prepared presentation,
+including multiple windows showing the same provider message. Joining a ready
+body admits a new presentation against remaining capacity; images that cannot
+fit stay placeholders only in the new reader. Established readers keep their
+document identity, avoiding navigation and scroll resets. Owner generation fences precede ledger mutation,
+and a closing reader from an earlier generation cannot release the current
+owner's reservation.
+Sanitizer or renderer failure retains the readable-text fallback.
+
+Page JavaScript is disabled on the final `defaultWebpagePreferences` instance,
+including after the mobile wrapper replaces that object. The non-persistent
+WebKit instance has no base URL or remote-resource permissions and enforces the
+app-owned CSP. `originWhitelist={['*']}` prevents the wrapper's automatic system
+handoff for unmatched origins; the reader cancels every subsequent navigation
+and confirms user links outside WebKit. Anchors carry app-owned stable markers,
+so URL normalization cannot strip their visible-text inspection context. Exact
+vetted destinations remain in memory outside the document. Keyboard link controls provide the same
+confirmation path. Rich content uses the accepted fixed light canvas.
+
+Recent-body prefetch runs in one lane per Inbox, sharing the two-load semaphore
+and coalescing an explicit open with an in-flight speculative read of the same
+ID. It samples the selection instant once per synchronization, selects an
+inclusive 30-day window with newest-first/ascending-ID order and a 500-item cap,
+and uses Content-Type and Content-Disposition metadata before any full download.
+Only single-part text/plain or text/html messages qualify; multipart and attachment
+messages receive exclusion markers. An explicit open closes the interactive
+latch; an already active speculative item completes, while later items wait.
+Retry, authentication failure and invalidation pause speculation. Native admission
+receives tier and protected working-set IDs; refusal keeps an on-demand body.
+
+On 2026-10-06 the product owner accepted bounded all-reference CID loading and
+isolated client-world measurement for #605 in the
+[ADR 0029 amendment](../adr/0029-sanitize-html-before-webkit-rendering.md#amendment--2026-10-06).
+An explicit open resolves every visible, sanitized CID reference within the
+existing per-message bounds and shared presentation budget, without a geometric
+viewport gate. Recent-body prefetch still never loads Inline Images.
+Both hosts measure once after navigation with an application-owned
+`callAsyncJavaScript` script in `WKContentWorld.defaultClientWorld`, while page
+JavaScript remains disabled on the final preferences object. Invalid measurement
+uses retained-text fallback. This supersedes the earlier native-only observation
+method; it does not enable sender scripts or an application bridge for message
+content. These accepted choices resolve the round-2 B1/B2 requirement conflicts.
+
+The amendments to [ADR 0012](../adr/0012-bounded-encrypted-body-cache.md#amendment--2026-10-06)
+and [ADR 0018](../adr/0018-local-mail-performance-budget.md#amendment--2026-10-06)
+preserve remote-image viewport loading and all other coordinator, cache and
+performance constraints. Remote Message Content remains owned by #763; its
+consent, policy, viewport-plus-margin, isolated transport and separate encrypted
+cache rules are unchanged and do not authorize retrieval in #605.
 
 ## Evidence limits
 

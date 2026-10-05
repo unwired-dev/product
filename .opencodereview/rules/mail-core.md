@@ -9,6 +9,14 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 - A module hosts need that has no subpath in `package.json` `exports`, or a host reaching it through a relative path into `src/`. The exports map is the package's public interface.
 - Native capability passed in as a concrete module rather than as an interface the host supplies (as `NativeInboxStorage` is supplied to `createPersistentInbox`). The interface keeps the store testable with real logic and a substituted boundary.
 
+#### Shared runtime compatibility
+
+- Regex extraction in `message-body.ts` or another shared decoder that assumes
+  `matchAll` results retain `.groups` after a host's Babel named-group transform.
+  Hermes can omit that property while Node tests pass, silently dropping message
+  content or link destinations. Read captures portably and validate changed
+  parsing in the packaged host when its transform differs from the test runtime.
+
 #### Untrusted boundaries fail closed
 
 - A native bridge result, seed, persisted JSON value, HTTP body, token or route parameter used before a `Schema` decode, or narrowed with `as`, a hand-written property check or a truthiness test. The Apple host's checks do not make its results trusted in TypeScript.
@@ -65,3 +73,36 @@ Apply `docs/agents/testing.md`'s admission and proportionate-verification policy
 #### Leave to tooling
 
 Namespace-import style, `JSON.parse`, `typeof … === 'object'` guards, untagged error classes, and console, time, randomness, `fetch`, timers and `process.env` inside Effect code are lint errors (`scripts/oxlint-effect-policy.ts`). Unused exports and complexity belong to Fallow. Formatting belongs to oxfmt.
+
+#### Rich-body admission and speculative reads
+
+- MIME preflight in `message-body.ts` that trusts payload `mimeType` over a
+  present Content-Type header or ignores Content-Disposition. Contradictory,
+  malformed or attachment metadata must not turn speculation into a multipart
+  or attachment download. Resolve CIDs only within the selected alternative's
+  eligible related/mixed scope, never from a discarded alternative.
+- `gmail-inbox.ts` charging image data once per CID while rendering repeated
+  references, retaining reservations after renderer failure or last-reader
+  closure, or racing an explicit open with speculative work for the same ID.
+  Count independent readers of the same message, including a window joining an
+  already-ready body; a message-ID-only reservation must not let each WebView
+  decode another uncharged copy. Admit new readers independently without
+  replacing an established reader's document: changing its WebView source starts
+  another navigation and resets its position. Fence reservation mutations and release
+  callbacks by owner generation, so a stale read or old reader cannot erase a
+  new owner's reservation for a reused provider ID.
+  Count every rendered occurrence and join the existing pipeline; otherwise
+  actual presentation exceeds its bounds or downloads a body twice.
+- Applying geometric viewport admission to Inline Images after the 2026-10-06
+  ADR 0029 amendment. Explicit opens resolve all visible, sanitized CID
+  references within the existing bounds and shared presentation budget;
+  speculative prefetch still excludes them. Remote Message Content retains
+  its viewport-plus-margin and authorization rules under #763.
+- `inspectLink` matching only raw host text or dotted-quad IPv4. Percent-encoded
+  internationalized hosts and compact/hexadecimal IPv4 spellings are interpreted
+  by the platform, so inspect their decoded signal form while retaining the exact
+  original destination for handoff; otherwise required cautions disappear.
+- `inspectImage` trusting a signature/header before validating the complete bounded
+  PNG/JPEG/GIF/WebP container, frame count and frame/canvas geometry. Truncated or
+  inconsistent data must not supply trusted dimensions or bypass decoded-cost
+  admission; ordinary type checks cannot establish those binary invariants.

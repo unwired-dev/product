@@ -154,6 +154,13 @@ final class WindowTests: XCTestCase {
     XCTAssertTrue(
       resumed.textViews.matching(NSPredicate(format: "value == %@", "rowan@example.invalid"))
         .firstMatch.waitForExistence(timeout: 10))
+    // The opened body arrives from Gmail as text; its image is not loaded.
+    XCTAssertTrue(
+      text("Images in this message are not loaded.", in: resumed).waitForExistence(timeout: 15))
+    // The sanitized HTML renders inside the isolated WebKit view.
+    XCTAssertTrue(
+      resumed.webViews.staticTexts.matching(NSPredicate(format: "value CONTAINS %@", "seed order"))
+        .firstMatch.waitForExistence(timeout: 15))
     XCTAssertFalse(resumed.buttons["Mark as read"].exists)
     XCTAssertFalse(recoveryKey(in: resumed).exists)
     app.terminate()

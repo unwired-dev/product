@@ -70,7 +70,8 @@ extension RegistrationStore {
   static func gmailURL(path: String, query: [URLQueryItem]) throws -> URL {
     guard
       path.range(
-        of: "^(profile|history|messages(/[0-9A-Za-z]+)?)$", options: .regularExpression) != nil,
+        of: "^(profile|history|messages(/[0-9A-Za-z]+(/attachments/[0-9A-Za-z_-]+)?)?)$",
+        options: .regularExpression) != nil,
       var components = URLComponents(
         string: "https://gmail.googleapis.com/gmail/v1/users/me/" + path)
     else { throw RegistrationError.unavailable }
@@ -156,5 +157,64 @@ extension RegistrationStore {
       document: document)
     result["generation"] = generation
     return result
+  }
+
+  // The connected mailbox's Google account, when the caller's mailbox is still the open one.
+  // Saved bodies open in cache-only mode; storing and pruning need the verified mailbox.
+  private func bodyOwner(address: String, generation: String, verified: Bool) throws -> String {
+    guard mailCache != nil else { throw RegistrationError.unavailable }
+    guard mailboxVerified || mailboxCacheOnly else { throw RegistrationError.gmailUnavailable }
+    guard mailboxVerified || !verified else { throw RegistrationError.unavailable }
+    let mailbox = try connectedMailbox().1
+    guard mailbox.address == address, mailboxGeneration.uuidString == generation else {
+      throw PrivateInboxError.mailboxInvalidated
+    }
+    return mailbox.subject
+  }
+
+  func openMessageBody(address: String, generation: String, id: String) throws -> [String: Any] {
+    let subject = try bodyOwner(address: address, generation: generation, verified: false)
+    let body = try mailCache?.openMessageBody(
+      address: address, subject: subject, id: id, readOnly: !mailboxVerified)
+    return ["document": body ?? NSNull()]
+  }
+
+  func commitMessageBody(
+    address: String, generation: String, id: String, admission: [String: Any]
+  ) throws -> [String: Any] {
+    guard let document = admission["document"] as? String,
+      let tier = (admission["tier"] as? String).flatMap(PrivateInboxStore.BodyTier.init(rawName:)),
+      let protectedIds = admission["protectedIds"] as? [String]
+    else { throw RegistrationError.unavailable }
+    let subject = try bodyOwner(address: address, generation: generation, verified: true)
+    let admitted = try mailCache?.commitMessageBody(
+      address: address, subject: subject, id: id, document: document, tier: tier,
+      protectedIds: protectedIds) ?? false
+    return ["admitted": admitted]
+  }
+
+  func listMessageBodies(address: String, generation: String, ids: [String]) throws -> [String: Any]
+  {
+    let subject = try bodyOwner(address: address, generation: generation, verified: false)
+    return ["stored": try mailCache?.listMessageBodies(address: address, subject: subject, ids: ids) ?? []]
+  }
+
+  func retainMessageBodies(address: String, generation: String, ids: [String]) throws
+    -> [String: Any]
+  {
+    let subject = try bodyOwner(address: address, generation: generation, verified: true)
+    try mailCache?.retainMessageBodies(address: address, subject: subject, ids: ids)
+    return [:]
+  }
+}
+
+extension PrivateInboxStore.BodyTier {
+  // TypeScript names tiers by their meaning; files carry the short suffix.
+  init?(rawName: String) {
+    switch rawName {
+    case "opened": self = .opened
+    case "prefetched": self = .prefetched
+    default: return nil
+    }
   }
 }

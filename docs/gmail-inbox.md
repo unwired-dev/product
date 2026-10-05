@@ -20,9 +20,10 @@ loss of mailbox access or a different Product Account forgets the earlier choice
 ## Behavior
 
 The Inbox lists **Durable Message Metadata** for Gmail's `INBOX` label: sender,
-address, subject, Gmail's snippet, received time and unread state. Message content
-is not downloaded. The detail view shows the snippet and offers no read toggle,
-because read state belongs to Gmail and organizing mail is a later slice.
+address, subject, Gmail's snippet, received time and unread state. Opening a
+message shows its body, as described in [Reading messages](#reading-messages). The
+detail view offers no read toggle, because read state belongs to Gmail and
+organizing mail is a later slice.
 
 A first synchronization reads the mailbox's current history ID, then lists the
 Inbox newest first, 50 messages per page. Each page is shown as soon as it is
@@ -52,6 +53,354 @@ If a foreground account check interrupts synchronization and verifies the same
 mailbox again, synchronization starts again from its committed cache, at most
 twice. Its saved Inbox stays visible. Repeated interruptions make the Inbox
 unavailable until **Try again** or the next activation.
+
+## Reading messages
+
+[#605](https://github.com/unwired-dev/product/issues/605) requires isolated rich
+HTML presentation and recent-body prefetch on iPhone, iPad and Mac. The requirements
+below cover the current single-mailbox Inbox with its newest 200 cached metadata
+entries. They do not add Sent Mailbox, pins, multiple Profiles or a complete
+historical metadata backfill.
+
+Opening a listed message first reads the **Bounded Encrypted Body Cache** on this
+device. A valid hit, including after an offline relaunch, contacts nothing and
+restores its rich presentation. A miss downloads through the authorized mailbox,
+saves the complete body when capacity permits, and shows it. An explicit open and
+prefetch of the same message share one load. Opening or prefetching never changes
+Gmail's read state.
+
+The reader selects a renderable HTML alternative before plain text, decoded from
+the part's charset. Image-only HTML with an admissible CID reference remains
+renderable. Attached files and `message/rfc822` containers are excluded from body
+selection. A separately served body part is shown and saved only after all bytes
+arrive and the decoded byte count matches Gmail's declared size. Interrupted or
+incomplete downloads publish no partial cache entry. Retained bodies include
+readable text and the original decoded HTML alternative; sanitization changes
+only the presentation, never the encrypted source body. The current decoder's
+qualified charset coverage is UTF-8 and Latin-1; its UTF-8 fallback for other legacy
+charsets remains a compatibility limit, not evidence of correct decoding.
+
+### Isolated rich presentation
+
+Both hosts render only a sanitized, app-generated document in a `WKWebView`
+boundary. The Expo host uses UIKit-backed WebKit on iOS and iPadOS 27; the native
+React Native macOS host uses AppKit-backed WebKit on macOS 27. Mac Catalyst and
+the prototype's older deployment floors do not qualify the replacement Mac host.
+The approved WebView dependency must support the following boundary on both hosts.
+
+- Page JavaScript is disabled with
+  `WKWebViewConfiguration.defaultWebpagePreferences.allowsContentJavaScript = false`.
+  Message content cannot install scripts or call an application bridge. Layout
+  measurement may use only an application-owned script in WebKit's isolated
+  client content world; it never enables page JavaScript.
+- `WKWebViewConfiguration.websiteDataStore` is non-persistent. No persistent
+  cookies, website storage, browser cache or shared authenticated browser session
+  is available to the message. Remote requests cannot carry cookies or credentials.
+- WebKit makes no network or remote-resource loads. Images reach it only as local
+  `data:` values assembled from admitted bytes after sanitization. Fonts, media,
+  frames, objects, stylesheets and connection requests cannot load externally.
+- The generated document enforces this CSP, or an equivalently restrictive boundary:
+  `default-src 'none'; img-src data:; media-src 'none'; style-src 'unsafe-inline'; font-src 'none'; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'`.
+  Inline styles are safe only after filtering.
+- The initial app-owned document loads with no base URL. A message cannot supply a
+  `base` element, inherit a sender's origin or resolve relative references against
+  a network or filesystem location. Relative references remain non-loading.
+- Only the initial app-owned document navigation is allowed. The navigation delegate
+  cancels every message-originated navigation, redirect and new-window request.
+  A user-activated allowed link goes through the separate confirmation below,
+  including links that request another window. Automatic navigation is blocked.
+  Link previews cannot make an unconfirmed remote request; disable them on iOS
+  and iPadOS and enforce the same behavior on Mac.
+
+These are native configuration requirements, not assumptions about a wrapper's
+`incognito` or JavaScript flags. A host that cannot enforce them uses the safe
+plain-text fallback. On-device MIME decoding and presentation sanitization belong
+in shared TypeScript; native code supplies the platform WebKit boundary.
+
+Both hosts render with `react-native-webview` 13.16.1 under the repository patch
+`patches/react-native-webview@13.16.1.patch`. The patch disables page JavaScript
+through `allowsContentJavaScript` and reports the laid-out document size. It
+measures with an app-owned script in WebKit's isolated client content world after
+load; page JavaScript stays disabled. This is the owner-approved measurement
+boundary on both hosts. The [architecture companion](architecture/gmail-inbox.md#message-reading)
+records the accepted decision. The reader passes `javaScriptEnabled={false}`, `incognito`,
+`allowsLinkPreview={false}`, no base URL, and `originWhitelist={['*']}`. With that
+origin list, every navigation reaches the reader, which cancels it; otherwise the
+wrapper would open unlisted origins itself. The sanitizer parses HTML as a
+document with `parse5`.
+
+### Sanitization contract
+
+Sanitization runs on this device before any untrusted HTML reaches WebKit,
+including cached HTML and before discovery of resolvable CID image references.
+It uses explicit element, attribute, CSS-property and URL allowlists. Parse HTML
+as a document; malformed markup cannot escape cleaning. Cancelled preparation
+stops without revealing a stale presentation.
+
+The existing reviewed rich-rendering contract admits these passive elements:
+`a`, `b`, `blockquote`, `br`, `caption`, `center`, `cite`, `code`, `col`, `colgroup`,
+`dd`, `div`, `dl`, `dt`, `em`, `h1` through `h6`, `hr`, `i`, `img`, `li`, `ol`, `p`,
+`pre`, `q`, `s`, `small`, `span`, `strike`, `strong`, `sub`, `sup`, `table`, `tbody`,
+`td`, `tfoot`, `th`, `thead`, `tr`, `u` and `ul`. Preserve paragraphs, lists,
+formatting and table reading order. Active or unsupported elements cannot become
+executable output. Remove scripts, event handlers, forms and their controls,
+frames, embedded objects, author metadata including refresh, `base`, SVG and
+MathML, external stylesheets and author `style` blocks.
+
+The passive attribute boundary is:
+
+| Elements              | Allowed attributes                                                                                          |
+| --------------------- | ----------------------------------------------------------------------------------------------------------- |
+| All admitted elements | `dir`, `lang`, `title`, filtered `style`; consume `hidden` to exclude hidden content                        |
+| `a`                   | Vetted `href`; app-enforced `rel="noreferrer noopener"`                                                     |
+| `blockquote`, `q`     | `cite` restricted to `http` and `https`, never fetched                                                      |
+| `col`, `colgroup`     | `align`, `span`, `valign`, `width`                                                                          |
+| `img`                 | `alt`, `height`, `width`, sanitized `cid:` source or an app-generated opaque marker                         |
+| `li`; `ol`; `ul`      | `value`; `start` and `type`; `type`, respectively                                                           |
+| `table`               | `align`, `border`, `cellpadding`, `cellspacing`, `role`, `summary`, `width`                                 |
+| `td`, `th`            | `abbr`, `align`, `colspan`, `headers`, `height`, `rowspan`, `valign`, `width`; `th` may also retain `scope` |
+
+Drop other attributes, including `on*`, `srcset`, background URLs and sender-supplied
+application markers. Attribute values still require validation; an allowed name
+does not authorize an unsafe value or URL.
+
+Filtered inline CSS may preserve borders and border spacing/collapse, display,
+font family/size/style/weight, dimensions and min/max dimensions, letter spacing,
+line height, margins, padding, alignment, decoration, indent, text transform,
+vertical alignment, white space and word wrapping/breaking. Both property names
+and values are checked. Remove `url()` values, `@import`, executable expressions,
+external fonts, clipping and other unapproved declarations. Remove sender-defined
+foreground and background colors, including legacy color/background attributes.
+The app controls both colors together so stripped backgrounds cannot hide text.
+The accepted sanitizer's fixed light canvas is valid in dark app chrome; matching
+rich content to a dark theme requires app-controlled readable foreground,
+background and link colors, never restored sender colors. Dark rich-content
+styling and configurable reading appearance have no assigned replacement slice.
+
+Author-supplied `data:` URLs are not trusted image bytes. They are removed, as are
+unsafe schemes and remote image sources. Only sanitized `cid:` references may
+enter MIME resolution. Only the app may replace an admitted image with a local
+`data:` source after validating its bytes. HTTPS remote-image references become
+opaque non-loading placeholders, with destinations held outside the document.
+HTTP and other non-HTTPS image sources are removed and never become consent or
+retry references. Hidden preheaders, zero-sized or off-canvas text, and text made
+only of non-rendering format/combining characters do not establish readability.
+
+### Links and blocked remote content
+
+HTML and detected plain-text links allow only `http`, `https`, `mailto` and `tel`.
+Other sender schemes and automatic opening remain blocked. Sanitized anchors use
+app-owned opaque navigation markers; their exact vetted destinations and visible
+text remain outside the document for confirmation. Choosing a link shows its
+exact full destination with **Open link** and **Cancel**; system handoff occurs
+only after **Open link**. Confirmation is discarded when the body presentation
+or Inbox owner changes, and the current ownership boundary is checked again
+immediately before handoff. No link inspection needs a network lookup, backend,
+persistence or URL logging.
+
+The accepted link inspection additionally compares URL-like visible anchor text
+with the destination and checks scheme mismatch, internationalized or numeric
+hosts, embedded credentials, bidirectional controls and cross-site redirect-query
+signals. A flagged link shows concise reasons and offers Cancel, Copy Link and
+Proceed. Copy and Proceed recheck current access before revealing the destination.
+An unflagged link is never labelled safe. The exact destination goes to the
+system; its subsequent redirects are outside this inspection.
+
+**Remote Message Content** stays blocked without authorized retrieval. Preserve
+image descriptions and non-loading placeholders and visibly explain that images
+are not loaded. Known **Tracking Pixels** remain blocked even if other images are
+authorized. Zero-dimension and declared 1×1 remote images are rejected using HTML
+and inline CSS dimensions, including max dimensions and CSS overrides.
+
+Rich rendering alone does not authorize a **Load images** action. The accepted
+remote-loading feature requires a notice explaining disclosure of the device's
+IP address and message-open time, explicit presentation-scoped consent under
+Ask, a separate isolated bounded HTTPS fetch outside WebKit, and encrypted reuse
+in the separate **Authorized Remote Content Cache**. Its device-local policies
+are Ask by default, Never and Always Load, with per-connection overrides. Known
+tracking pixels never become loadable. Consent, policies and the remote-content
+cache belong to [#763](https://github.com/unwired-dev/product/issues/763). Until
+that retrieval boundary is implemented, the reader shows placeholders and the
+blocked-content notice without a load action.
+Remote Message Content retains its viewport or one-viewport-margin loading rule,
+including Always Load; the Inline Images decision below does not change it.
+
+### MIME Inline Images
+
+Explicitly opening a message resolves every visible, sanitized `cid:` reference
+within the per-message bounds and shared presentation budget below, without
+viewport admission. Sanitizer visibility excludes hidden and non-rendering
+content; it does not mean geometric visibility within the reader viewport.
+This is the owner-approved rule recorded in the
+[ADR 0029 amendment](adr/0029-sanitize-html-before-webkit-rendering.md#amendment--2026-10-06);
+this is part of #605 rich presentation, separate from received attachment
+controls in [#610](https://github.com/unwired-dev/product/issues/610).
+Normalize Content-ID comments and folding whitespace, URI-decode references,
+and preserve MIME header literals. Search the selected MIME alternative first,
+then its nearest enclosing related scope, then eligible outer scopes. Do not
+traverse attachment-disposition or `message/rfc822` containers, or filename-bearing
+attachment subtrees. An inline image leaf may have a filename; a filename-less CID
+image sibling without a disposition in a mixed scope is eligible. Unreferenced,
+hidden, zero-sized and non-rendering image parts are never fetched.
+
+Admit only complete, signature-valid, single-frame PNG, JPEG, GIF or WebP images.
+The reviewed image bounds are 5 MiB per image, at most 20 attempts and 20 admitted
+images, 20 MiB aggregate image bytes, at most 8,192 pixels on either axis, 16 Mi
+pixels per image and 32 Mi pixels in aggregate. Check provider-declared sizes
+before requests and bound received and decoded data. Missing, malformed,
+unsupported or oversized parts remain placeholders without failing the readable
+body. The presentation also shares a 20 MiB encoded-image-byte and 32 Mi-pixel
+budget across simultaneously displayed messages; charge every resolved occurrence,
+including duplicates, and release reservations when presentation ends, is
+cancelled or fails. Inline Images are not viewport-scoped; references outside the
+viewport remain eligible on that explicit open within these same bounds.
+Count every independent reader, including multiple Mac windows displaying the
+same message. Each reader admits its own prepared presentation; if adding a
+reader would exceed the budget, images that do not fit remain placeholders only
+in that new reader. Existing readers keep their document and position. Closing
+one reader returns only its own cost. A stale
+load or close from an earlier Inbox owner cannot change the current budget.
+
+Save admitted inline bytes and their validated resolution state with the encrypted
+body so later opens remain provider-free. A legacy entry without resolution state
+must be checked against sanitized CID references before an explicit online
+refresh. A cancelled explicit refresh remains cancelled. Speculative recent-body
+prefetch never fetches Inline Images.
+
+### Presentation, accessibility and fallback
+
+Keep a stable loading placeholder until sanitization, styling and initial WebKit
+layout finish, then reveal one representation. A cache hit must not flash plain
+text before switching to rich HTML. Preserve the reader's text position when
+content resolves and reserve validated image dimensions when available.
+
+Measure content size after navigation finishes using only the application-owned
+`callAsyncJavaScript` script in `WKContentWorld.defaultClientWorld` on both hosts,
+with page JavaScript disabled. Fit the view to the detail column and bound its
+height. Invalid or failed measurement uses the retained readable-text fallback.
+Normal-height documents stay pinned to the top of WebKit and use the
+reader's outer vertical scroll; horizontal overflow cannot introduce a second
+vertical scroll. Only a document above the presentation height cap scrolls
+vertically inside WebKit. The reader's cap is 20,000 points on both hosts, and a
+document above it stays fully reachable by scrolling inside the view.
+
+Rich and plain text remain selectable. VoiceOver can read content in order,
+identify links and image descriptions, and reach confirmation and retry actions.
+Text respects supported accessibility sizing. Links have an accessible name and
+a keyboard activation path; the current separate **Open link: …** control may
+provide it. **Try again**, **Open link**, **Cancel**, and any flagged-link actions
+are focusable. iPad Full Keyboard Access and Mac keyboard navigation can enter,
+read, scroll, activate links and leave the rich view without a focus trap.
+
+Plain-text bodies render as selectable readable text with preserved line breaks
+and vetted URL detection. Missing HTML, an empty sanitized result, sanitizer
+failure, unavailable isolated rendering, WebKit load failure or content-process
+termination use retained readable text as the terminal fallback. Release HTML
+and image reservations on failure. Never fall back to unsanitized HTML or relax
+isolation to make a message render. If no readable text remains, show the empty
+body state rather than an indefinite loader.
+
+### Recent-body prefetch
+
+Prefetch begins after **Initial Mailbox Availability**, without delaying the
+first usable newest-50 list. It follows committed synchronized metadata, can
+continue as later Inbox pages commit and recomputes selection at later
+synchronizations. It does not require completion of all metadata work. Use one
+reference instant per synchronization selection, not a moving per-message clock.
+
+The general rule selects at most 500 distinct messages per connection across
+Inbox and Sent Mailbox in the inclusive interval from that reference instant
+minus 30 days through the instant. Order by newest applicable timestamp first,
+then ascending **Stable Provider Message Identity**. A message in both roles
+counts once using its later applicable timestamp. For #605, select only the
+currently cached newest 200 Inbox entries using their received timestamp;
+there is no extra listing to discover 500 bodies, Sent query or historical scan.
+Exclude Spam and Trash even when they also carry `INBOX`. Future-dated and older
+messages are outside the window. Multiple connections and a unified Inbox belong
+to [#606](https://github.com/unwired-dev/product/issues/606); Sent and pinned-Thread
+expansion have no assigned scope in this slice, and advanced Profiles are deferred.
+
+Each connection has at most one speculative prefetch/historical-work lane. All
+body pipelines together permit at most two concurrent loads per connection and
+four account-wide, shared across windows, explicit opens and prefetch. A provider
+may lower only its own limit if its transport cannot safely multiplex. Explicit
+opens and visible reader content take priority; speculative work yields immediately,
+and interactive requests can overtake or cancel queued speculative requests.
+The remaining general priority order is authorized remote images, then speculative
+prefetch/historical work. No mail-loading task creates an account-wide busy state
+or disables navigation or interaction with already available mail.
+
+Prefetch saves readable body text and any decoded HTML alternative, not attachments
+or Inline Images. Gmail first checks body-free Content-Type metadata and fetches
+only single-part `text/plain` or `text/html` messages. If the optional header is
+absent, use the provider payload MIME type. Multipart or attachment bodies remain
+on demand; speculative fetching must neither request nor receive their embedded
+resources. An encrypted exclusion marker avoids repeating the preflight for an
+unchanged excluded message. Refuse that marker if admitting it would evict a
+protected readable body. A later changed revision is eligible for reevaluation.
+
+Offline or network loss stops provider prefetch; cached reading remains usable.
+Cache-only registration permits reads but no prefetch, cache write or pruning
+until registration verifies again. Authentication failure stops authorized provider
+work and uses **Gmail needs your permission again**. Gmail quota/rate-limit and
+server failures pause speculative work and follow the existing retry/activation
+path without a tight retry loop. A usage-limit 403 must not trigger reauthorization.
+Ownership changes, Inbox closure and removal invalidate speculative work and
+fence late completions just as they do explicit downloads.
+
+Prefetch is entirely device-local. It uses only the authorized Gmail connection
+and never asks Convex per message, uploads bodies or exposes mail activity to a
+backend. Logs contain only allow-listed codes, HTTP statuses and decode paths,
+never content, addresses, message identifiers, destinations or raw failures.
+
+### Cache admission and eviction
+
+The hard body-cache limit remains 500 MB device-wide, shared across windows and
+connections. Count all stored body bytes, encrypted inline bytes and cache
+bookkeeping toward it. Lists remain separate and are never evicted to admit a
+body. Reserve capacity before publication and reconcile interrupted over-budget
+state only when cache writes/pruning are authorized.
+
+Each selection admits recent candidates in the working-set order above into a
+cache-fitting protected set. Only candidates that fit receive protection. A
+candidate may evict eligible bodies outside that set, but admitted candidates
+from one selection never evict each other. If no eligible space suffices, refuse
+admission and leave that body on demand until a later synchronization finds space.
+Do not cycle through selected bodies by repeatedly evicting protected peers.
+
+Evict eligible opened older non-pinned bodies first, then eligible non-pinned
+prefetched bodies. Within a tier, use least-recently-read order with the current
+opaque cache-entry identifier's lexicographic tie-break. The general final tier
+is least-recently-read pinned-Thread bodies outside the cache-fitting protected
+set; #605 has no pins and therefore no such tier. Opening a selected cached body
+does not demote its protection or prefetch status. An oversized on-demand body
+may be shown for the current open but is not saved.
+
+A prefetched body leaving the 30-day/selected set loses protection and becomes
+eligible for the prefetched eviction tier; leaving the set alone does not require
+immediate deletion. A message leaving the cached Inbox removes its saved body,
+including a late download that finishes after the metadata was removed. Pruning,
+mailbox removal, sign-out and account removal retain the existing ownership and
+cache-only fences. A valid cached body is not re-fetched just because it was
+opened or selected for prefetch. Invalidate it only for a changed provider revision
+or identity, security/rendering-version change, explicit reload or cache removal;
+read-state and other metadata changes alone do not invalidate it. Damaged or
+mismatched bodies read as absent and may be downloaded again.
+
+### Unavailable bodies
+
+A body that cannot be shown says why, beside **Try again**:
+
+- **This message is not saved on this device, and Gmail could not be reached to
+  download it.** This appears offline, or after a network, quota or server
+  failure. Retry or the next eligible synchronization can download it again.
+- **Gmail needs your permission again to download this message.**
+- **This message is no longer in Gmail.** This one has no **Try again**.
+- Locked or unreadable storage shows the storage message, as the Inbox does.
+
+Packaged keyboard, VoiceOver, native WebKit isolation and real Gmail qualification
+remain required under the protected checks below. The earlier structured-text
+reader's results do not qualify rich rendering, CID resolution or recent prefetch.
 
 ## Mailbox Sync Status
 
@@ -85,11 +434,16 @@ including when another Google account reuses the same address. Stale work cannot
 read from the new mailbox or repopulate its cache.
 
 Gmail tokens and refresh credentials never enter JavaScript or Convex. Message
-metadata stays on the device and is never uploaded. Logs carry only allow-listed
+metadata and bodies stay on the device and are never uploaded. Logs carry only allow-listed
 codes, HTTP statuses and failing decode paths, never mail content or addresses.
 
+Each saved body is sealed to its Google account, address and Gmail message ID. A
+saved body that does not match the message being opened is discarded and downloaded
+again, never shown. Bodies held in memory are forgotten with the rest of the open
+Inbox's mail, and a download that finishes after its Inbox closed is dropped.
+
 Choosing another mailbox, or another Google account that reuses the same address,
-removes the previous mailbox's cache and hides its in-memory list while the
+removes the previous mailbox's cache and bodies and hides its in-memory list while the
 selected mailbox opens. A synchronization that loses mailbox ownership stops and
 clears its displayed mail. Sign-out, deletion and a removal by another device
 remove the cache with the rest of the account's data. Mail held in memory is
@@ -107,15 +461,68 @@ The shared integration tests drive the real synchronization through a controlled
 Gmail API and mailbox cache (`@private-email/mail-core/testing/gmail-mailbox`).
 They cover pagination, relaunch with history only, interrupted pages and commits,
 expired history, authorization and retry classification, competing stores,
-mailbox reselection and log privacy. Rendered host tests cover the Inbox states,
-the account page round trip and two Mac windows over one store.
+mailbox reselection and log privacy. The #605 body reading cases cover:
+
+- untrusted HTML sanitized into the CSP-bound document, with vetted links, sender
+  colors and remote loads removed, tracking pixels dropped and hidden preheaders
+  excluded;
+- plain text, Latin-1, separately served parts, partial-body rejection, plain
+  fallback and forwarded-part exclusion;
+- inline images within their bounds (animated, oversized, truncated, hidden and
+  unreferenced parts refused or never fetched), kept for provider-free opens and
+  resolved later for bodies cached without them; explicit opens resolve all
+  visible, sanitized CID references without viewport admission;
+- the image budget shared by displayed bodies and independent readers of the
+  same message, stable existing documents when another reader joins, and
+  owner-generation fencing of reservation mutations and reader closure;
+- recent-body prefetch: selection, the Content-Type preflight and exclusion
+  markers, the eviction tier and protected set, two concurrent loads, and
+  authentication failure;
+- link inspection signals;
+- offline reopening, failures and recovery, mismatched cached bodies, removal with
+  a message or mailbox, and late results after the Inbox closes.
+
+Rendered host tests drive the isolated reader's configuration, measurement, link
+cancellation and confirmation, flagged-link copying, keyboard link access and
+WebKit failure fallback. They also cover the Inbox states, the account page round
+trip, and two Mac windows over one store.
+The owner-approved isolated client-world measurement and bounded all-reference
+CID loading satisfy the amended requirements. Component tests exercise height
+events and fallback; they do not alone prove native content-world isolation.
+The patched native source, iOS Release and Mac Testing builds, and packaged
+iPhone/iPad WebKit journeys supply the native evidence described below. Mac
+runtime and protected accessibility qualification remain deferred.
 
 The hosted native storage suite checks the Gmail path allow-list, query encoding,
-cache revision and address rules, ciphertext and removal on reselection and
-purge. Registration Mock Mail Sessions answer Gmail reads from a fixed synthetic
-mailbox of three Inbox messages over two pages, compiled only into the selected
-test build. Their journeys confirm setup, open the synchronized Inbox, relaunch
-from the encrypted cache and return to the account page.
+cache revision and address rules, ciphertext, and removal on reselection and
+purge. For bodies, it checks:
+
+- sealing to the mailbox and message, and discarding of moved or damaged files;
+- eviction of opened bodies before prefetched ones under a small limit;
+- refusal when only protected bodies could make room, and oversized-body refusal;
+- over-budget reconciliation when pruning;
+- cache-only reading and listing without writing;
+- removal with the message, mailbox or account.
+
+All 34 tests passed on a fresh iOS 27 simulator.
+
+Registration Mock Mail Sessions answer Gmail reads, including the prefetch
+preflight, from a fixed synthetic mailbox of three Inbox messages over two pages.
+Each message has an HTML or plain-text body, and the session is compiled only into
+the selected test build. The packaged iPhone and iPad journeys confirm setup, open
+the synchronized Inbox, render the opened HTML body in WebKit, confirm and cancel
+a link destination, relaunch from the encrypted cache and return to the account
+page. Both passed on iOS 27 simulators.
+
+The Mac `Testing` build compiles the patched WebView. The packaged Mac journey
+remains deferred while the desktop is locked, and hosted Mac storage tests remain
+deferred pending a provisioning profile.
+
+Those native builds, storage checks and packaged journeys are round-2 evidence
+for their then-current artifacts. Round 3's per-reader admission and
+owner-generation fixes are covered by updated public-store regressions, host
+component suites and production bundle checks. They do not claim a new packaged
+native journey or completed release qualification.
 
 ```sh
 mise exec -- pnpm exec turbo run lint format check-types test --filter=// \
@@ -137,7 +544,18 @@ verify on iPhone, iPad and Mac before release:
 - recovery after Gmail expires the stored history ID;
 - a revoked grant reaching **Gmail needs your permission again**, then recovering;
 - offline launch from the encrypted cache, and rate-limit handling;
-- non-ASCII senders and subjects, as Gmail returns them in metadata headers.
+- non-ASCII senders and subjects, as Gmail returns them in metadata headers;
+- opening real HTML, plain-text and non-UTF-8 bodies, including a large body Gmail
+  serves separately, then reopening them offline;
+- isolated rich HTML with scripts, external CSS, remote images, unsafe URLs,
+  navigation and storage attempts blocked on both native hosts;
+- bounded CID images on explicit open, independent invalid-image placeholders,
+  and a provider-free cached reopen;
+- recent prefetch after initial availability, interactive priority, inclusive
+  date/identity ordering and protected-set admission under the hard cache limit;
+- that opening and prefetching mail make no request other than Gmail's while
+  remote content is blocked, and that links open only after confirmation, with
+  VoiceOver, Full Keyboard Access and Mac keyboard focus.
 
 Do not record mailbox content, addresses or tokens in screenshots, logs or test
 artifacts. No real Gmail synchronization pass is claimed until this protected

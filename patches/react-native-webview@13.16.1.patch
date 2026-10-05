@@ -1,0 +1,147 @@
+diff --git a/apple/RNCWebView.mm b/apple/RNCWebView.mm
+index c0816b6..9c631e9 100644
+--- a/apple/RNCWebView.mm
++++ b/apple/RNCWebView.mm
+@@ -204,6 +204,19 @@ static inline std::string nullSafeStringWithLength(id value) {
+                 webViewEventEmitter->onContentProcessDidTerminate(data);
+             }
+         };
++        _view.onContentSizeChange = [self](NSDictionary* dictionary) {
++            if (_eventEmitter) {
++                auto webViewEventEmitter = std::static_pointer_cast<RNCWebViewEventEmitter const>(_eventEmitter);
++                NSDictionary *size = [dictionary valueForKey:@"contentSize"];
++                facebook::react::RNCWebViewEventEmitter::OnContentSizeChange data = {
++                    .contentSize = {
++                        .width = [[size valueForKey:@"width"] doubleValue],
++                        .height = [[size valueForKey:@"height"] doubleValue]
++                    }
++                };
++                webViewEventEmitter->onContentSizeChange(data);
++            }
++        };
+         _view.onCustomMenuSelection = [self](NSDictionary* dictionary) {
+             if (_eventEmitter) {
+                 auto webViewEventEmitter = std::static_pointer_cast<RNCWebViewEventEmitter const>(_eventEmitter);
+diff --git a/apple/RNCWebViewImpl.h b/apple/RNCWebViewImpl.h
+index 1f6bbfd..72691e2 100644
+--- a/apple/RNCWebViewImpl.h
++++ b/apple/RNCWebViewImpl.h
+@@ -63,6 +63,7 @@ shouldStartLoadForRequest:(NSMutableDictionary<NSString *, id> *)request
+ @property (nonatomic, copy) RCTDirectEventBlock onMessage;
+ @property (nonatomic, copy) RCTDirectEventBlock onScroll;
+ @property (nonatomic, copy) RCTDirectEventBlock onContentProcessDidTerminate;
++@property (nonatomic, copy) RCTDirectEventBlock onContentSizeChange;
+ @property (nonatomic, copy) RCTDirectEventBlock onOpenWindow;
+ 
+ 
+diff --git a/apple/RNCWebViewImpl.m b/apple/RNCWebViewImpl.m
+index 7f5c24d..e50ea52 100644
+--- a/apple/RNCWebViewImpl.m
++++ b/apple/RNCWebViewImpl.m
+@@ -425,10 +425,6 @@ RCTAutoInsetsProtocol>
+   WKWebViewConfiguration *wkWebViewConfig = [WKWebViewConfiguration new];
+   WKPreferences *prefs = [[WKPreferences alloc]init];
+   BOOL _prefsUsed = NO;
+-  if (!_javaScriptEnabled) {
+-    prefs.javaScriptEnabled = NO;
+-    _prefsUsed = YES;
+-  }
+ #if defined(__IPHONE_OS_VERSION_MAX_ALLOWED) && __IPHONE_OS_VERSION_MAX_ALLOWED >= 130000 /* iOS 13 */
+   if (@available(iOS 13.0, *)) {
+     if (!_fraudulentWebsiteWarningEnabled) {
+@@ -477,6 +473,10 @@ RCTAutoInsetsProtocol>
+   }
+ #endif
+ 
++  // Set the final preferences after the mobile content-mode block replaces them.
++  // App-owned scripts in the isolated client world remain available.
++  wkWebViewConfig.defaultWebpagePreferences.allowsContentJavaScript = _javaScriptEnabled;
++
+ #if defined(__IPHONE_OS_VERSION_MAX_ALLOWED) && __IPHONE_OS_VERSION_MAX_ALLOWED >= 140000 /* iOS 14 */
+   if (@available(iOS 14.0, *)) {
+     if ([wkWebViewConfig respondsToSelector:@selector(limitsNavigationsToAppBoundDomains)]) {
+@@ -1575,6 +1575,48 @@ didFinishNavigation:(WKNavigation *)navigation
+   if (_onLoadingFinish) {
+     _onLoadingFinish([self baseEvent]);
+   }
++  [self reportContentSize];
++}
++
++// Product patch: measures the laid-out document in the app's isolated client world, so page
++// JavaScript stays disabled and the page cannot observe or alter the measurement.
++- (void)reportContentSize
++{
++  if (!_onContentSizeChange) {
++    return;
++  }
++  __weak RNCWebViewImpl *weakSelf = self;
++  [_webView callAsyncJavaScript:@"const root = document.documentElement; return [root.scrollWidth, root.scrollHeight];"
++                      arguments:nil
++                        inFrame:nil
++                 inContentWorld:WKContentWorld.defaultClientWorld
++              completionHandler:^(id result, NSError *error) {
++    RNCWebViewImpl *strongSelf = weakSelf;
++    if (strongSelf == nil || strongSelf->_webView == nil || strongSelf->_onContentSizeChange == nil) {
++      return;
++    }
++    NSArray *size = [result isKindOfClass:[NSArray class]] ? result : nil;
++    BOOL valid = error == nil && size.count == 2 &&
++      [size[0] isKindOfClass:[NSNumber class]] && [size[1] isKindOfClass:[NSNumber class]] &&
++      isfinite([size[0] doubleValue]) && isfinite([size[1] doubleValue]) &&
++      [size[0] doubleValue] > 0 && [size[1] doubleValue] > 0;
++    if (!valid) {
++      // A failed measurement must reveal the reader's terminal plain-text fallback.
++      // No foreign error, document title, URL or message content crosses this event.
++      if (strongSelf->_onLoadingError) {
++        strongSelf->_onLoadingError(@{
++          @"url": @"about:blank", @"title": @"", @"loading": @NO,
++          @"canGoBack": @NO, @"canGoForward": @NO, @"lockIdentifier": @0,
++          @"domain": @"UnwiredMessageRendering", @"code": @1,
++          @"description": @"Message layout could not be measured."
++        });
++      }
++      return;
++    }
++    strongSelf->_onContentSizeChange(@{
++      @"contentSize": @{@"width": size[0], @"height": size[1]}
++    });
++  }];
+ }
+ 
+ - (void)cookiesDidChangeInCookieStore:(WKHTTPCookieStore *)cookieStore
+diff --git a/apple/RNCWebViewManager.mm b/apple/RNCWebViewManager.mm
+index f8f375f..e1c8592 100644
+--- a/apple/RNCWebViewManager.mm
++++ b/apple/RNCWebViewManager.mm
+@@ -51,6 +51,7 @@ RCT_EXPORT_VIEW_PROPERTY(onLoadingProgress, RCTDirectEventBlock)
+ RCT_EXPORT_VIEW_PROPERTY(onHttpError, RCTDirectEventBlock)
+ RCT_EXPORT_VIEW_PROPERTY(onShouldStartLoadWithRequest, RCTDirectEventBlock)
+ RCT_EXPORT_VIEW_PROPERTY(onContentProcessDidTerminate, RCTDirectEventBlock)
++RCT_EXPORT_VIEW_PROPERTY(onContentSizeChange, RCTDirectEventBlock)
+ RCT_EXPORT_VIEW_PROPERTY(onOpenWindow, RCTDirectEventBlock)
+ RCT_EXPORT_VIEW_PROPERTY(injectedJavaScript, NSString)
+ RCT_EXPORT_VIEW_PROPERTY(injectedJavaScriptBeforeContentLoaded, NSString)
+diff --git a/src/RNCWebViewNativeComponent.ts b/src/RNCWebViewNativeComponent.ts
+index 7f4e6c4..049f08c 100644
+--- a/src/RNCWebViewNativeComponent.ts
++++ b/src/RNCWebViewNativeComponent.ts
+@@ -16,6 +16,10 @@ export type WebViewNativeEvent = Readonly<{
+   canGoForward: boolean;
+   lockIdentifier: Double;
+ }>;
++// Product patch: the document size measured without page JavaScript, on Apple platforms too.
++export type WebViewContentSizeEvent = Readonly<{
++  contentSize: Readonly<{ width: Double; height: Double }>;
++}>;
+ export type WebViewCustomMenuSelectionEvent = Readonly<{
+   label: string;
+   key: string;
+@@ -164,7 +168,7 @@ export interface NativeProps extends ViewProps {
+   minimumFontSize?: Int32;
+   mixedContentMode?: WithDefault<'never' | 'always' | 'compatibility', 'never'>;
+   nestedScrollEnabled?: boolean;
+-  onContentSizeChange?: DirectEventHandler<WebViewNativeEvent>;
++  onContentSizeChange?: DirectEventHandler<WebViewContentSizeEvent>;
+   onRenderProcessGone?: DirectEventHandler<WebViewRenderProcessGoneEvent>;
+   overScrollMode?: string;
+   saveFormDataDisabled?: boolean;

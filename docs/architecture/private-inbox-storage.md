@@ -59,3 +59,34 @@ is not an indexed general mail database or the replacement body cache.
 
 The [Gmail companion](gmail-inbox.md) records transport ownership and suspension
 fences. Observable cache requirements remain in the operational storage guide.
+
+## Gmail body cache
+
+Issue #605 adds per-message ciphertext under `bodies/`, separate from both
+metadata documents. Filenames are SHA-256 digests of the Google subject, mailbox
+address and Gmail ID; AES-GCM associated data authenticates that exact tuple
+under the `dev.unwired.private-inbox.body.v1` context. The existing device-only
+database key, file lock, backup exclusion, atomic replacement, synchronization
+and complete file protection still apply. Keys never cross the bridge. A failed
+body authentication returns absence. When writes are authorized it removes only
+that disposable body; cache-only access preserves ciphertext and access times.
+
+The native vault enforces a 500 MB stored-byte budget across its body directory.
+Admission includes the nonce and authentication-tag overhead, plans all eviction
+before deleting anything, and refuses an entry that cannot fit. Tier suffixes
+separate opened and prefetched files. Eviction considers opened entries first,
+then prefetched entries, each least recently read with filename tie-breaking;
+the current recent working set is protected. During a tier transition the old
+opposite-tier ciphertext counts until the replacement has been published and
+that old file removed, so interrupted writes cannot exceed the hard limit.
+Only the exact atomic-replacement target is discounted before admission.
+Verified reads update access time; retention/pruning reconciles an over-budget
+directory left by an older interrupted writer. Metadata is never evicted.
+Registration wrappers validate the opened mailbox generation; offline cache-only
+access is read-only, including for corrupt files, and refuses writes or pruning.
+Listing returns IDs without decrypting stored bodies. Mailbox removal and account
+purge remove bodies with the metadata cache.
+
+This adds platform storage operations permitted by
+[ADR 0067](../adr/0067-keep-native-code-to-a-minimal-vault.md); MIME decoding,
+presentation preparation and application sequencing remain in TypeScript.

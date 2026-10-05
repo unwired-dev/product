@@ -4,6 +4,40 @@ status: accepted
 
 # Sanitize message HTML before isolated WebKit rendering
 
+## Amendment — 2026-10-06
+
+The product owner approved these changes during
+[#605](https://github.com/unwired-dev/product/issues/605) review round 3:
+
+- An explicit message open resolves every visible, sanitized `cid:` reference
+  within the existing attempted-image, admitted-image-count, per-image and
+  aggregate byte, axis and decoded-pixel limits and the shared presentation
+  budget. Inline Images are not viewport-scoped. Sanitizer visibility excludes
+  hidden or non-rendering references; it does not require geometric proximity to
+  the viewport. Missing or refused parts remain non-loading placeholders, and
+  speculative recent-body prefetch still never loads Inline Images.
+- Both the UIKit and AppKit hosts may measure the laid-out document after
+  navigation finishes with an application-owned `callAsyncJavaScript` script in
+  `WKContentWorld.defaultClientWorld`. Page JavaScript remains disabled through
+  `allowsContentJavaScript = false`; message content cannot supply the script or
+  use an application bridge. This supersedes the native-scroll-content-size-only
+  measurement clause below. Invalid measurement or rendering failure uses the
+  retained readable-text fallback.
+
+These are accepted choices, not temporary implementation exceptions. Bounded
+all-reference CID resolution avoids a viewport-position admission protocol;
+isolated client-world measurement supplies the same layout boundary on both
+hosts without enabling sender scripts. All other sanitization, isolation,
+navigation, cache and resource constraints remain applicable.
+
+Remote Message Content is unchanged: its consent, policy and isolated retrieval
+requirements belong to [#763](https://github.com/unwired-dev/product/issues/763),
+including the viewport or one-viewport-margin rule for Always Load. This amendment
+does not authorize remote loading in #605. The following text preserves the prior
+decision; only the clauses explicitly superseded here have changed.
+
+## Prior decision
+
 Remote-image normalization treats an empty URL path as `/` before deduplication, CSS `height` and `max-height` symmetrically identify declared tracking pixels, inline CSS dimensions override matching HTML attributes during that classification, and permanently unloadable non-HTTPS image sources are not retained as consent or retry references.
 
 Image-only remote messages retain their consent control when sibling preheader text is removed by
