@@ -101,7 +101,7 @@ import os
       throw CancellationError()
     } catch is CancellationError {
       throw CancellationError()
-    } catch where RegistrationStore.transientMailboxFailure(error) {
+    } catch  where RegistrationStore.transientMailboxFailure(error) {
       throw error
     } catch {
       throw RegistrationError.gmailUnavailable
@@ -133,7 +133,8 @@ import os
 // A redirect could carry the mailbox's bearer token to another host; Gmail reads never redirect.
 private final class RefusingRedirects: NSObject, URLSessionTaskDelegate {
   func urlSession(
-    _ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+    _ session: URLSession, task: URLSessionTask,
+    willPerformHTTPRedirection response: HTTPURLResponse,
     newRequest request: URLRequest
   ) async -> URLRequest? { nil }
 }
@@ -374,9 +375,10 @@ final class UnwiredRegistration: NSObject {
       do {
         let removal: AccountRemovalState.Operation? =
           name == "signOut" ? .signOut : name == "deleteProductAccount" ? .deletion : nil
-        resolve(try await Self.operations.perform {
-          try await store().purgingIfRevoked(operation, removing: removal)
-        })
+        resolve(
+          try await Self.operations.perform {
+            try await store().purgingIfRevoked(operation, removing: removal)
+          })
       } catch {
         // Descriptions stay private: SDK and transport errors can echo request details.
         let failure = error as NSError
@@ -521,12 +523,16 @@ extension UnwiredRegistration {
     }
   }
 
-  @objc(gmailRequest:query:address:resolver:rejecter:)
+  @objc(gmailRequest:query:mailbox:resolver:rejecter:)
   func gmailRequest(
-    _ path: String, query: [Any], address: String, resolve: @escaping RCTPromiseResolveBlock,
+    _ path: String, query: [Any], mailbox scope: [String: Any],
+    resolve: @escaping RCTPromiseResolveBlock,
     reject: @escaping RCTPromiseRejectBlock
   ) {
     mailbox("gmailRequest", resolve, reject: reject) {
+      guard let address = scope["address"] as? String,
+        let generation = scope["generation"] as? String
+      else { throw RegistrationError.unavailable }
       // Name-value pairs, so repeated parameters keep their order.
       let items = try query.map { pair in
         guard let pair = pair as? [String], pair.count == 2 else {
@@ -534,7 +540,7 @@ extension UnwiredRegistration {
         }
         return URLQueryItem(name: pair[0], value: pair[1])
       }
-      return try await $0.gmail(path: path, query: items, address: address)
+      return try await $0.gmail(path: path, query: items, address: address, generation: generation)
     }
   }
 
@@ -550,16 +556,19 @@ extension UnwiredRegistration {
 
   @objc(commitMailbox:expectedRevision:document:resolver:rejecter:)
   func commitMailbox(
-    _ address: String, expectedRevision: Double, document: String,
+    _ scope: [String: Any], expectedRevision: Double, document: String,
     resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
   ) {
     mailbox("commitMailbox", resolve, reject: reject) {
       try await $0.prepareMailbox()
-      guard let revision = Int(exactly: expectedRevision) else {
+      guard let address = scope["address"] as? String,
+        let generation = scope["generation"] as? String,
+        let revision = Int(exactly: expectedRevision)
+      else {
         throw RegistrationError.unavailable
       }
       return try $0.commitMailbox(
-        address: address, expectedRevision: revision, document: document)
+        address: address, expectedRevision: revision, document: document, generation: generation)
     }
   }
 

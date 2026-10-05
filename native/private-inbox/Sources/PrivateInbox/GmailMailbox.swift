@@ -7,11 +7,9 @@ import Foundation
   public init() {}
 
   public func perform<Value>(_ operation: () async throws -> Value) async rethrows -> Value {
-    if active { await withCheckedContinuation { waiting.append($0) } }
-    else { active = true }
+    if active { await withCheckedContinuation { waiting.append($0) } } else { active = true }
     defer {
-      if waiting.isEmpty { active = false }
-      else { waiting.removeFirst().resume() }
+      if waiting.isEmpty { active = false } else { waiting.removeFirst().resume() }
     }
     return try await operation()
   }
@@ -43,12 +41,21 @@ extension RegistrationStore {
     return result
   }
 
-  // A failed revocation query permits offline cache access. A positive rejection purges first.
-  func prepareMailbox() async throws {
-    let generation = mailboxGeneration
+  // The account this device still holds; a purged or removing one invalidates mailbox work.
+  func mailboxAccount() throws -> ProductRegistrationReceipt {
     guard let saved = try load(), saved.accountRemoval == nil, let product = saved.product else {
       throw PrivateInboxError.mailboxInvalidated
     }
+    _ = try connectedMailbox()
+    return product
+  }
+
+  // Runs when a synchronization opens or commits the cache, not for each Gmail read, so the backend
+  // sees no per-message activity. A failed revocation query permits offline cache access; a
+  // positive rejection purges first.
+  func prepareMailbox() async throws {
+    let generation = mailboxGeneration
+    let product = try mailboxAccount()
     do {
       try await requireNotRevoked(product)
     } catch RegistrationError.revoked {
@@ -56,7 +63,7 @@ extension RegistrationStore {
       throw PrivateInboxError.mailboxInvalidated
     }
     guard generation == mailboxGeneration else { throw PrivateInboxError.mailboxInvalidated }
-    _ = try connectedMailbox()
+    _ = try mailboxAccount()
   }
 
   // Only reads of the connected mailbox's own resources reach the credential.
@@ -81,13 +88,17 @@ extension RegistrationStore {
 
   // Resolves the HTTP status and body. A grant Google refuses to renew is gmailUnavailable, which
   // asks for authorization again; a renewal that cannot reach Google is unavailable, a retry.
-  func gmail(path: String, query: [URLQueryItem], address: String) async throws -> [String: Any] {
+  func gmail(
+    path: String, query: [URLQueryItem], address: String, generation expectedGeneration: String
+  ) async throws -> [String: Any] {
     let url = try Self.gmailURL(path: path, query: query)
     let generation = mailboxGeneration
-    try await prepareMailbox()
+    _ = try mailboxAccount()
     guard mailboxVerified else { throw RegistrationError.unavailable }
     let (credential, mailbox) = try connectedMailbox()
-    guard mailbox.address == address else { throw PrivateInboxError.mailboxInvalidated }
+    guard mailbox.address == address, generation.uuidString == expectedGeneration else {
+      throw PrivateInboxError.mailboxInvalidated
+    }
     let identity: GoogleRegistrationIdentity
     do {
       identity = try await provider.refresh(credential)
@@ -95,7 +106,7 @@ extension RegistrationStore {
       throw CancellationError()
     } catch is RegistrationError {
       throw RegistrationError.gmailUnavailable
-    } catch where (error as NSError).domain == "org.openid.appauth.oauth_token" {
+    } catch  where (error as NSError).domain == "org.openid.appauth.oauth_token" {
       throw RegistrationError.gmailUnavailable
     } catch {
       throw RegistrationError.unavailable
@@ -121,21 +132,29 @@ extension RegistrationStore {
   func openMailbox() throws -> [String: Any] {
     guard let mailCache else { throw RegistrationError.unavailable }
     guard mailboxVerified || mailboxCacheOnly else { throw RegistrationError.gmailUnavailable }
-    var result = try mailCache.openMailbox(address: connectedMailbox().1.address)
+    let mailbox = try connectedMailbox().1
+    var result = try mailCache.openMailbox(address: mailbox.address, subject: mailbox.subject)
+    result["generation"] = mailboxGeneration.uuidString
     if mailboxCacheOnly { result["availability"] = "retry" }
     return result
   }
 
   // A commit read for another mailbox, or after removal began, changes nothing.
-  func commitMailbox(address: String, expectedRevision: Int, document: String) throws
+  func commitMailbox(
+    address: String, expectedRevision: Int, document: String, generation: String
+  ) throws
     -> [String: Any]
   {
     guard let mailCache else { throw RegistrationError.unavailable }
     guard mailboxVerified else { throw RegistrationError.unavailable }
-    guard try connectedMailbox().1.address == address else {
+    let mailbox = try connectedMailbox().1
+    guard mailbox.address == address, mailboxGeneration.uuidString == generation else {
       throw PrivateInboxError.mailboxInvalidated
     }
-    return try mailCache.commitMailbox(
-      address: address, expectedRevision: expectedRevision, document: document)
+    var result = try mailCache.commitMailbox(
+      address: address, subject: mailbox.subject, expectedRevision: expectedRevision,
+      document: document)
+    result["generation"] = generation
+    return result
   }
 }

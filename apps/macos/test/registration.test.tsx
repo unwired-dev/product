@@ -458,6 +458,47 @@ describe('product registration', () => {
     expect(store.getSnapshot().snapshot).toStrictEqual(before);
   });
 
+  it('forgets the account page choice when the Product Account signs out', async () => {
+    expect.hasAssertions();
+    const connected = {
+      kind: 'connected',
+      productAccountId: 'synthetic-product-account',
+      signInProvider: 'google',
+      privateSync: 'ready',
+      providerSubject: 'synthetic-google-subject',
+      address: 'other@example.invalid',
+    } as const;
+    const store = createRegistration({
+      restore: () => Promise.resolve(connected),
+      signIn: () => Promise.resolve(connected),
+      authorizeGmail: () => Promise.resolve(connected),
+      link: () => Promise.reject(new Error('Not linking')),
+      confirmRecoveryKey: () => Promise.reject(new Error('No key')),
+      ...noEnrollment,
+      signOut: () => Promise.resolve({ kind: 'signed-out' }),
+    });
+    await render(
+      <RegistrationGate
+        store={store}
+        preview={false}>
+        <ConnectedInbox />
+      </RegistrationGate>,
+    );
+    await openAccount();
+    await act(async () => {
+      await store.signOut();
+    });
+    await act(async () => {
+      await fireEvent.press(
+        await screen.findByRole('button', { name: 'Sign in with Google' }),
+      );
+    });
+    // The next sign-in lands where its setup decides, not on the page chosen before.
+    await expect(
+      screen.findByRole('button', { name: 'Account' }),
+    ).resolves.toBeVisible();
+  });
+
   it('recovers an unverifiable Apple account through a Google link made on another device without new Gmail consent', async () => {
     expect.hasAssertions();
     const account = {

@@ -69,14 +69,26 @@ Locked or unreadable storage hides the cached mail, as the
 
 ## Boundaries
 
+Reselecting a mailbox invalidates synchronization work already in progress,
+including when another Google account reuses the same address. Stale work cannot
+read from the new mailbox or repopulate its cache.
+
 Gmail tokens and refresh credentials never enter JavaScript or Convex. Message
 metadata stays on the device and is never uploaded. Logs carry only allow-listed
 codes, HTTP statuses and failing decode paths, never mail content or addresses.
 
-Choosing another mailbox removes the previous mailbox's cache and hides its
-in-memory list while the selected mailbox opens. A synchronization that loses
-mailbox ownership stops and clears its displayed mail. Sign-out, deletion
-and a removal by another device remove it with the rest of the account's data.
+Choosing another mailbox, or another Google account that reuses the same address,
+removes the previous mailbox's cache and hides its in-memory list while the
+selected mailbox opens. A synchronization that loses mailbox ownership stops and
+clears its displayed mail. Sign-out, deletion and a removal by another device
+remove the cache with the rest of the account's data. Mail held in memory is
+forgotten as soon as the open Inbox changes Product Account, Google account or
+address, or closes, so another account never renders it, even from a
+synchronization that was still running.
+
+Gmail reads do not ask Convex about this device. The removal check runs when a
+synchronization opens or commits the cache, so the backend learns nothing about
+per-message mail activity.
 
 ## Deterministic evidence
 

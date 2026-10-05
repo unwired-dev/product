@@ -49,6 +49,11 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 - Registration, enrollment or recovery state from one Product Account, device or deployment reused after the identity changes.
 - Product Sync account-key material, a provider/device credential or a native database encryption key passed into TypeScript. These stay in the native host. The user-held Recovery Key shown during setup is an explicit presentation field in `RegistrationSnapshotSchema`; keep it transient and out of logs and non-native persistence.
 
+- `createGmailInbox` retaining ready mail or synchronization checkpoints in memory after
+  its Product Account, provider subject or address changes, or after `canOpenInbox`
+  becomes false. Invalidate the snapshot immediately and fence late publications;
+  address-only rendering checks can expose a previous account's mail.
+
 #### Tests in the same change
 
 Apply `docs/agents/testing.md`'s admission and proportionate-verification policy: existing meaningful coverage may suffice; document unavailable automation or protected/native evidence with its required follow-up. The cases below identify missing evidence for a named risk, not a requirement to add a test for every edit.

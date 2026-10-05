@@ -571,7 +571,17 @@ export function RegistrationGate({
   );
   const colors = usePalette();
   // The person's choice between the account page and a connected Inbox outlasts status updates.
-  const [choice, setChoice] = useState<'inbox' | 'account'>();
+  // It belongs to one open Inbox: sign-out, removal or another Product Account forgets it, so
+  // their next destination is decided by the setup they still need.
+  const inboxAccount =
+    canOpenInbox(snapshot) && snapshot.kind !== 'signed-out'
+      ? snapshot.productAccountId
+      : undefined;
+  const [choice, setChoice] =
+    useState<Readonly<{ account: string; destination: 'inbox' | 'account' }>>();
+  if (choice !== undefined && choice.account !== inboxAccount) {
+    setChoice(undefined);
+  }
   const actions = useMemo(
     () => ({
       address:
@@ -579,12 +589,14 @@ export function RegistrationGate({
           ? snapshot.address
           : undefined,
       openAccount: () => {
-        setChoice('account');
+        if (inboxAccount !== undefined) {
+          setChoice({ account: inboxAccount, destination: 'account' });
+        }
       },
       authorizeGmail: () => store.authorizeGmail(false),
       refreshInbox: store.refreshInbox,
     }),
-    [store, snapshot],
+    [store, snapshot, inboxAccount],
   );
   useEffect(() => {
     if (preview) {
@@ -604,9 +616,13 @@ export function RegistrationGate({
   if (preview) {
     return children;
   }
+  const chosen =
+    choice !== undefined && choice.account === inboxAccount
+      ? choice.destination
+      : undefined;
   const inbox =
-    canOpenInbox(snapshot) &&
-    (choice ?? (opensInbox(snapshot) ? 'inbox' : 'account')) === 'inbox';
+    inboxAccount !== undefined &&
+    (chosen ?? (opensInbox(snapshot) ? 'inbox' : 'account')) === 'inbox';
   if (!locked && inbox) {
     return <AccountContext value={actions}>{children}</AccountContext>;
   }
@@ -615,11 +631,11 @@ export function RegistrationGate({
       <RegistrationPage
         store={store}
         onInbox={
-          canOpenInbox(snapshot)
-            ? () => {
-                setChoice('inbox');
+          inboxAccount === undefined
+            ? undefined
+            : () => {
+                setChoice({ account: inboxAccount, destination: 'inbox' });
               }
-            : undefined
         }
       />
     );

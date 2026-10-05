@@ -28,6 +28,8 @@ struct InboxSnapshot: Codable {
 struct MailboxCache: Codable {
   let revision: Int
   let address: String
+  // The Google account behind the address, which a recycled address does not share.
+  let subject: String?
   let document: String
 }
 
@@ -113,20 +115,22 @@ public final class PrivateInboxStore {
     }
   }
 
-  // Another mailbox's cache reads as empty; its first commit replaces it.
-  public func openMailbox(address: String) throws -> [String: Any] {
+  // Another mailbox's cache, including another Google account at the same address, reads as
+  // empty; its first commit replaces it. Cache replies do not include the subject.
+  public func openMailbox(address: String, subject: String) throws -> [String: Any] {
     try transaction {
       let cache = try readMailbox()
+      let owned = cache.flatMap { $0.address == address && $0.subject == subject ? $0 : nil }
       return [
         "revision": cache?.revision ?? 0, "address": address,
-        "document": cache.flatMap { $0.address == address ? $0.document : nil } ?? NSNull(),
+        "document": owned?.document ?? NSNull(),
       ]
     }
   }
 
-  public func commitMailbox(address: String, expectedRevision: Int, document: String) throws
-    -> [String: Any]
-  {
+  public func commitMailbox(
+    address: String, subject: String, expectedRevision: Int, document: String
+  ) throws -> [String: Any] {
     try transaction {
       let cache = try readMailbox()
       guard (cache?.revision ?? 0) == expectedRevision else { throw PrivateInboxError.conflict }
@@ -141,7 +145,8 @@ public final class PrivateInboxStore {
         key = SymmetricKey(size: .bits256).withUnsafeBytes { Data($0) }
         try keychain.insert(key, account: "encryption-key")
       }
-      let next = MailboxCache(revision: expectedRevision + 1, address: address, document: document)
+      let next = MailboxCache(
+        revision: expectedRevision + 1, address: address, subject: subject, document: document)
       try write(
         JSONEncoder().encode(next), file: "mailbox.enc", key: key,
         authenticating: mailboxAssociatedData)

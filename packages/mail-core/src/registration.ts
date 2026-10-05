@@ -671,6 +671,34 @@ export const accountRemovalCopy = {
     'Deletion could not be confirmed. Your Product Account may already be deleted. Retry deletion when you are online to confirm it and finish removing local account data.',
 } as const;
 
+// A retained account without a usable mailbox, or one whose removal has not finished.
+function mailboxNeededCopy(
+  snapshot: Extract<RegistrationSnapshot, { kind: 'mailbox-needed' }>,
+) {
+  if (snapshot.removalPending !== undefined) {
+    return {
+      title:
+        snapshot.removalPending === 'sign-out'
+          ? 'Finish signing out'
+          : 'Confirm account deletion',
+      description: accountRemovalCopy[snapshot.removalPending],
+      account: accountLine(snapshot),
+    };
+  }
+  const { reason, signInProvider } = snapshot;
+  let description: string = mailboxNeeded[signInProvider];
+  if (reason === 'unavailable') {
+    description = mailboxReasons.unavailable(signInProvider);
+  } else if (reason !== undefined) {
+    description = mailboxReasons[reason];
+  }
+  return {
+    title: 'Connect your Gmail',
+    description,
+    account: accountLine(snapshot),
+  };
+}
+
 export function registrationCopy(snapshot: RegistrationSnapshot) {
   switch (snapshot.kind) {
     case 'signed-out': {
@@ -685,28 +713,7 @@ export function registrationCopy(snapshot: RegistrationSnapshot) {
       };
     }
     case 'mailbox-needed': {
-      if (snapshot.removalPending !== undefined) {
-        return {
-          title:
-            snapshot.removalPending === 'sign-out'
-              ? 'Finish signing out'
-              : 'Confirm account deletion',
-          description: accountRemovalCopy[snapshot.removalPending],
-          account: accountLine(snapshot),
-        };
-      }
-      const { reason, signInProvider } = snapshot;
-      let description: string = mailboxNeeded[signInProvider];
-      if (reason === 'unavailable') {
-        description = mailboxReasons.unavailable(signInProvider);
-      } else if (reason !== undefined) {
-        description = mailboxReasons[reason];
-      }
-      return {
-        title: 'Connect your Gmail',
-        description,
-        account: accountLine(snapshot),
-      };
+      return mailboxNeededCopy(snapshot);
     }
     case 'connected': {
       return {

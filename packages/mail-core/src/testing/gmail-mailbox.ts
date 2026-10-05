@@ -27,6 +27,8 @@ type Failure =
 const respond = (body: unknown) =>
   Promise.resolve({ status: 200, body: JSON.stringify(body) });
 
+const notFound = () => Promise.resolve({ status: 404, body: '{}' });
+
 const rejection = (code: string) =>
   Promise.reject(Object.assign(new Error('Synthetic failure'), { code }));
 
@@ -95,74 +97,51 @@ export function createSyntheticGmail({
     }
   };
 
-  const readGmail = (
-    path: string,
-    query: ReadonlyArray<readonly [string, string]>,
-  ) => {
-    const params = new URLSearchParams(
-      query.map(([name, value]) => [name, value]),
-    );
-    requests.push({ path, query: params });
-    const listed = path === 'messages' ? (params.get('pageToken') ?? '') : null;
-    const pageFailure = listed === null ? undefined : pageFailures.get(listed);
-    if (listed !== null) {
-      pageFailures.delete(listed);
-    }
-    const failure = pageFailure ?? failures.shift();
-    if (failure !== undefined) {
-      return 'code' in failure
-        ? rejection(failure.code)
-        : Promise.resolve({
-            status: failure.status,
-            body: failure.body ?? '{}',
-          });
-    }
-    if (path === 'profile') {
-      return respond({ emailAddress: address, historyId: String(historyId) });
-    }
-    if (path === 'messages') {
-      const inbox = Arr.sort(
-        [...messages.values()].filter((message) => message.labels.has('INBOX')),
-        Order.flip(
-          Order.mapInput(
-            Order.Number,
-            (message: SyntheticMessage) => message.internalDate,
-          ),
+  const newestInbox = () =>
+    Arr.sort(
+      [...messages.values()].filter((message) => message.labels.has('INBOX')),
+      Order.flip(
+        Order.mapInput(
+          Order.Number,
+          (message: SyntheticMessage) => message.internalDate,
         ),
-      );
-      const start = Number(params.get('pageToken') ?? 0);
-      const end = start + Number(params.get('maxResults') ?? 100);
-      return respond({
-        messages: inbox
-          .slice(start, end)
-          .map(({ id }) => ({ id, threadId: id })),
-        ...(end < inbox.length ? { nextPageToken: String(end) } : {}),
-      });
+      ),
+    );
+  const listPage = (params: URLSearchParams) => {
+    const inbox = newestInbox();
+    const start = Number(params.get('pageToken') ?? 0);
+    const end = start + Number(params.get('maxResults') ?? 100);
+    return respond({
+      messages: inbox.slice(start, end).map(({ id }) => ({ id, threadId: id })),
+      ...(end < inbox.length ? { nextPageToken: String(end) } : {}),
+    });
+  };
+  const metadata = (id: string) => {
+    const message = messages.get(id);
+    if (message === undefined) {
+      return notFound();
     }
-    if (path.startsWith('messages/')) {
-      const message = messages.get(path.slice('messages/'.length));
-      return message === undefined
-        ? Promise.resolve({ status: 404, body: '{}' })
-        : respond({
-            id: message.id,
-            threadId: message.id,
-            labelIds: [...message.labels],
-            snippet: message.snippet,
-            historyId: String(historyId),
-            internalDate: String(message.internalDate),
-            payload: {
-              headers: [
-                { name: 'From', value: message.from },
-                { name: 'Subject', value: message.subject },
-              ],
-            },
-          });
-    }
+    return respond({
+      id: message.id,
+      threadId: message.id,
+      labelIds: [...message.labels],
+      snippet: message.snippet,
+      historyId: String(historyId),
+      internalDate: String(message.internalDate),
+      payload: {
+        headers: [
+          { name: 'From', value: message.from },
+          { name: 'Subject', value: message.subject },
+        ],
+      },
+    });
+  };
+  // Three records per page, so long histories are paginated.
+  const historyPage = (params: URLSearchParams) => {
     const start = Number(params.get('startHistoryId'));
-    if (path !== 'history' || start < expiredBefore) {
-      return Promise.resolve({ status: 404, body: '{}' });
+    if (start < expiredBefore) {
+      return notFound();
     }
-    // Three records per page, so long histories are paginated.
     const records = history.filter((entry) => entry.id > start);
     const page = records.slice(0, 3);
     return respond({
@@ -178,9 +157,47 @@ export function createSyntheticGmail({
       historyId: String(historyId),
     });
   };
+  // A queued failure, or one registered for the requested list page.
+  const nextFailure = (path: string, params: URLSearchParams) => {
+    const listed = path === 'messages' ? (params.get('pageToken') ?? '') : null;
+    const pageFailure = listed === null ? undefined : pageFailures.get(listed);
+    if (listed !== null) {
+      pageFailures.delete(listed);
+    }
+    return pageFailure ?? failures.shift();
+  };
+  const respondTo = (path: string, params: URLSearchParams) => {
+    if (path === 'profile') {
+      return respond({ emailAddress: address, historyId: String(historyId) });
+    }
+    if (path === 'messages') {
+      return listPage(params);
+    }
+    if (path.startsWith('messages/')) {
+      return metadata(path.slice('messages/'.length));
+    }
+    return path === 'history' ? historyPage(params) : notFound();
+  };
+  const readGmail = (
+    path: string,
+    query: ReadonlyArray<readonly [string, string]>,
+  ) => {
+    const params = new URLSearchParams(
+      query.map(([name, value]) => [name, value]),
+    );
+    requests.push({ path, query: params });
+    const failure = nextFailure(path, params);
+    if (failure === undefined) {
+      return respondTo(path, params);
+    }
+    return 'code' in failure
+      ? rejection(failure.code)
+      : Promise.resolve({ status: failure.status, body: failure.body ?? '{}' });
+  };
+  let generation = 0;
   const native = {
     gmailRequest: (path, query, owner) =>
-      owner === address
+      owner.address === address && owner.generation === String(generation)
         ? readGmail(path, query)
         : rejection('mailbox-invalidated'),
     openMailbox: () => {
@@ -189,6 +206,7 @@ export function createSyntheticGmail({
         ? Promise.resolve({
             revision: cache?.revision ?? 0,
             address,
+            generation: String(generation),
             document: cache?.address === address ? cache.document : null,
           })
         : rejection(code);
@@ -198,15 +216,22 @@ export function createSyntheticGmail({
       if (code !== undefined) {
         return rejection(code);
       }
-      if (owner !== address) {
+      if (
+        owner.address !== address ||
+        owner.generation !== String(generation)
+      ) {
         return rejection('mailbox-invalidated');
       }
       if ((cache?.revision ?? 0) !== expectedRevision) {
         return rejection('conflict');
       }
-      cache = { revision: expectedRevision + 1, address: owner, document };
+      cache = {
+        revision: expectedRevision + 1,
+        address: owner.address,
+        document,
+      };
       commits.push(document);
-      return Promise.resolve({ ...cache });
+      return Promise.resolve({ ...cache, generation: String(generation) });
     },
   } satisfies NativeGmailMailbox;
 
@@ -232,6 +257,8 @@ export function createSyntheticGmail({
     // Another Gmail mailbox is connected on the device.
     reselect: (next: string) => {
       address = next;
+      generation += 1;
+      cache = null;
       messages.clear();
     },
     fail: (...next: readonly Failure[]) => {

@@ -7,11 +7,14 @@ import * as Predicate from 'effect/Predicate';
 import * as Schema from 'effect/Schema';
 import * as Semaphore from 'effect/Semaphore';
 
+import type { Registration } from './registration.ts';
+
 import {
   decodeDiagnostic,
   rejectionDiagnostic,
   runLogged,
 } from './diagnostics.ts';
+import { canOpenInbox } from './registration.ts';
 
 // The native Registration module's mailbox operations. Native code attaches the Gmail credential
 // and keeps the cache encrypted; this module chooses the Gmail reads and owns the cached document.
@@ -20,13 +23,13 @@ export interface NativeGmailMailbox {
   readonly gmailRequest: (
     path: string,
     query: ReadonlyArray<readonly [string, string]>,
-    address: string,
+    mailbox: Readonly<{ address: string; generation: string }>,
   ) => Promise<unknown>;
-  // Resolves `{ revision, address, document }`; another mailbox's document reads as null.
+  // Resolves `{ revision, address, generation, document }`; another mailbox's document reads as null.
   readonly openMailbox: () => Promise<unknown>;
   // Replaces the document read at `expectedRevision`, or rejects with `conflict`.
   readonly commitMailbox: (
-    address: string,
+    mailbox: Readonly<{ address: string; generation: string }>,
     expectedRevision: number,
     document: string,
   ) => Promise<unknown>;
@@ -79,10 +82,12 @@ const encodeDocument = Schema.encodeEffect(
 const CacheSchema = Schema.Struct({
   revision: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
   address: Schema.NonEmptyString,
+  generation: Schema.NonEmptyString,
   document: Schema.NullOr(Schema.String),
   availability: Schema.optionalKey(Schema.Literal('retry')),
 });
 type Cache = typeof CacheSchema.Type;
+type MailboxScope = Pick<Cache, 'address' | 'generation'>;
 const decodeCache = Schema.decodeUnknownEffect(CacheSchema);
 
 const decodeResponse = Schema.decodeUnknownEffect(
@@ -120,19 +125,16 @@ const decodeMetadata = json(
 const HistoryMessages = Schema.optionalKey(
   Schema.Array(Schema.Struct({ message: Schema.Struct({ id: GmailId }) })),
 );
+const HistoryRecord = Schema.Struct({
+  id: HistoryId,
+  messagesAdded: HistoryMessages,
+  messagesDeleted: HistoryMessages,
+  labelsAdded: HistoryMessages,
+  labelsRemoved: HistoryMessages,
+});
 const decodeHistory = json(
   Schema.Struct({
-    history: Schema.optionalKey(
-      Schema.Array(
-        Schema.Struct({
-          id: HistoryId,
-          messagesAdded: HistoryMessages,
-          messagesDeleted: HistoryMessages,
-          labelsAdded: HistoryMessages,
-          labelsRemoved: HistoryMessages,
-        }),
-      ),
-    ),
+    history: Schema.optionalKey(Schema.Array(HistoryRecord)),
     nextPageToken: Schema.optionalKey(Schema.String),
     historyId: HistoryId,
   }),
@@ -299,10 +301,100 @@ const documentOf = (cache: Cache) =>
         Effect.mapError((error) => malformed(error, 'failed')),
       );
 
+// The messages a listing page leaves cached, and whether the listing continues.
+const listedPage = (
+  messages: readonly GmailMessage[],
+  found: ReadonlyArray<readonly [string, GmailMessage | undefined]>,
+  { seen, more }: Readonly<{ seen: readonly string[]; more: boolean }>,
+) => {
+  const merged = merge(messages, found);
+  const listed = new Set(seen);
+  const verified = merged.filter((message) => listed.has(message.id));
+  if (more && verified.length < cacheLimit) {
+    // Newly verified entries take priority over stale entries retained during a relisting.
+    const retained = merged.filter((message) => !listed.has(message.id));
+    return {
+      done: false,
+      messages: Arr.sort(
+        [...verified, ...retained].slice(0, cacheLimit),
+        newestFirst,
+      ),
+    };
+  }
+  // Messages kept from before this listing that it never saw have left the Inbox.
+  return { done: true, messages: verified.slice(0, cacheLimit) };
+};
+
+// The deleted message IDs a history page names, and the others whose state may have changed.
+const historyChanges = (records: ReadonlyArray<typeof HistoryRecord.Type>) => {
+  const deleted = new Set(
+    records.flatMap((record) =>
+      (record.messagesDeleted ?? []).map(({ message }) => message.id),
+    ),
+  );
+  const changed = Arr.dedupe(
+    records.flatMap((record) =>
+      [
+        ...(record.messagesAdded ?? []),
+        ...(record.labelsAdded ?? []),
+        ...(record.labelsRemoved ?? []),
+      ].map(({ message }) => message.id),
+    ),
+  ).filter((id) => !deleted.has(id));
+  return { deleted, changed };
+};
+
+// A listing that started again from its first page after Gmail rejected a saved page token.
+const restartedListing = (
+  previous: MailboxDocument | undefined,
+  next: MailboxDocument,
+) =>
+  previous?.checkpoint.kind === 'backfill' &&
+  previous.checkpoint.pageToken !== undefined &&
+  next.checkpoint.kind === 'backfill' &&
+  next.checkpoint.pageToken === undefined;
+
+// Authentication and retry keep the shown mail; locked or unreadable storage hides it.
+const failureState = (
+  shown: GmailInboxState,
+  kind: SyncFailure['kind'],
+): GmailInboxState => {
+  if (kind === 'authentication' || kind === 'retry') {
+    return shown.kind === 'ready'
+      ? { ...shown, sync: kind }
+      : { kind: 'ready', messages: [], sync: kind };
+  }
+  return { kind: kind === 'locked' ? 'locked' : 'failed' };
+};
+
+// Within a history page, the last record is a valid start for the next one.
+const nextHistoryId = (
+  page: Readonly<{ nextPageToken?: string; historyId: string }>,
+  records: ReadonlyArray<Readonly<{ id: string }>>,
+) =>
+  page.nextPageToken === undefined
+    ? page.historyId
+    : (records.at(-1)?.id ?? page.historyId);
+
+const messagesOf = (document: MailboxDocument | undefined) =>
+  document?.messages ?? [];
+
+// Gmail rejecting a saved page token repeatedly ends this synchronization as a retry.
+const restartLimit = (restarts: number) =>
+  restarts > 2
+    ? Effect.fail(
+        new SyncFailure({
+          kind: 'retry',
+          cause: 400,
+          diagnostic: 'rejected page token',
+        }),
+      )
+    : Effect.void;
+
 export function createGmailInbox(native: NativeGmailMailbox) {
   // One Gmail read; a missing resource is GmailNotFound and other HTTP failures are classified.
   const gmail =
-    (address: string) =>
+    (scope: MailboxScope) =>
     <A>(
       path: string,
       query: ReadonlyArray<readonly [string, string]>,
@@ -310,7 +402,7 @@ export function createGmailInbox(native: NativeGmailMailbox) {
     ) =>
       Effect.gen(function* () {
         const value = yield* Effect.tryPromise({
-          try: () => native.gmailRequest(path, query, address),
+          try: () => native.gmailRequest(path, query, scope),
           catch: (cause) => rejected(cause, 'retry'),
         });
         const { status, body } = yield* decodeResponse(value).pipe(
@@ -342,8 +434,8 @@ export function createGmailInbox(native: NativeGmailMailbox) {
         );
       });
 
-  const metadata = (address: string, id: string) =>
-    gmail(address)(
+  const metadata = (scope: MailboxScope, id: string) =>
+    gmail(scope)(
       `messages/${id}`,
       [
         ['format', 'metadata'],
@@ -377,19 +469,19 @@ export function createGmailInbox(native: NativeGmailMailbox) {
       Effect.catchTag('GmailNotFound', () => Effect.succeedNone),
       Effect.map((message) => [id, Option.getOrUndefined(message)] as const),
     );
-  const fetchAll = (address: string, ids: readonly string[]) =>
-    Effect.forEach(ids, (id) => metadata(address, id), { concurrency: 4 });
+  const fetchAll = (scope: MailboxScope, ids: readonly string[]) =>
+    Effect.forEach(ids, (id) => metadata(scope, id), { concurrency: 4 });
 
   // A new listing starts from the current history ID, so changes during it are replayed after.
   const startListing = Effect.fnUntraced(function* (
-    address: string,
+    scope: MailboxScope,
     messages: readonly GmailMessage[],
   ): Effect.fn.Return<
     MailboxDocument,
     SyncFailure | GmailNotFound | GmailInvalidPage
   > {
-    const profile = yield* gmail(address)('profile', [], decodeProfile);
-    if (profile.emailAddress.toLowerCase() !== address.toLowerCase()) {
+    const profile = yield* gmail(scope)('profile', [], decodeProfile);
+    if (profile.emailAddress.toLowerCase() !== scope.address.toLowerCase()) {
       return yield* new SyncFailure({
         kind: 'authentication',
         cause: 'mailbox',
@@ -403,71 +495,59 @@ export function createGmailInbox(native: NativeGmailMailbox) {
     };
   });
 
-  // The next document to commit, or none when the cache is current.
-  const advance = Effect.fnUntraced(function* (
-    address: string,
-    document: MailboxDocument | undefined,
-  ): Effect.fn.Return<
+  type Step = Effect.fn.Return<
     Option.Option<MailboxDocument>,
     SyncFailure | GmailNotFound | GmailInvalidPage
-  > {
-    if (document === undefined) {
-      return Option.some(yield* startListing(address, []));
+  >;
+
+  // Lists the next Inbox page from a backfill checkpoint.
+  const continueListing = Effect.fnUntraced(function* (
+    scope: MailboxScope,
+    document: MailboxDocument,
+    checkpoint: Extract<MailboxDocument['checkpoint'], { kind: 'backfill' }>,
+  ): Step {
+    const page = yield* gmail(scope)(
+      'messages',
+      [
+        ['labelIds', 'INBOX'],
+        ['maxResults', String(pageSize)],
+        ...(checkpoint.pageToken === undefined
+          ? []
+          : [['pageToken', checkpoint.pageToken] as const]),
+      ],
+      decodeList,
+    ).pipe(
+      Effect.asSome,
+      Effect.catchTag('GmailInvalidPage', () => Effect.succeedNone),
+    );
+    if (Option.isNone(page)) {
+      return Option.some(yield* startListing(scope, document.messages));
     }
-    const { checkpoint, messages } = document;
-    if (checkpoint.kind === 'backfill') {
-      const page = yield* gmail(address)(
-        'messages',
-        [
-          ['labelIds', 'INBOX'],
-          ['maxResults', String(pageSize)],
-          ...(checkpoint.pageToken === undefined
-            ? []
-            : [['pageToken', checkpoint.pageToken] as const]),
-        ],
-        decodeList,
-      ).pipe(
-        Effect.asSome,
-        Effect.catchTag('GmailInvalidPage', () => Effect.succeedNone),
-      );
-      if (Option.isNone(page)) {
-        return Option.some(yield* startListing(address, messages));
-      }
-      const ids = (page.value.messages ?? []).map(({ id }) => id);
-      const found = yield* fetchAll(address, ids);
-      const seen = Arr.dedupe([...checkpoint.seen, ...ids]);
-      const merged = merge(messages, found);
-      const listed = new Set(seen);
-      const verified = merged.filter((message) => listed.has(message.id));
-      if (
-        page.value.nextPageToken !== undefined &&
-        verified.length < cacheLimit
-      ) {
-        // Newly verified entries take priority over stale entries retained during a relisting.
-        const retained = merged.filter((message) => !listed.has(message.id));
-        return Option.some({
-          ...document,
-          messages: Arr.sort(
-            [...verified, ...retained].slice(0, cacheLimit),
-            newestFirst,
-          ),
-          checkpoint: {
-            ...checkpoint,
-            pageToken: page.value.nextPageToken,
-            seen,
-          },
-        });
-      }
-      // Messages kept from before this listing that it never saw have left the Inbox.
-      return Option.some({
-        ...document,
-        messages: merged
-          .filter((message) => listed.has(message.id))
-          .slice(0, cacheLimit),
-        checkpoint: { kind: 'current', historyId: checkpoint.historyId },
-      });
-    }
-    const history = yield* gmail(address)(
+    const ids = (page.value.messages ?? []).map(({ id }) => id);
+    const seen = Arr.dedupe([...checkpoint.seen, ...ids]);
+    const { nextPageToken } = page.value;
+    const listed = listedPage(document.messages, yield* fetchAll(scope, ids), {
+      seen,
+      more: nextPageToken !== undefined,
+    });
+    return Option.some({
+      ...document,
+      messages: listed.messages,
+      checkpoint:
+        listed.done || nextPageToken === undefined
+          ? { kind: 'current', historyId: checkpoint.historyId }
+          : { ...checkpoint, pageToken: nextPageToken, seen },
+    });
+  });
+
+  // Applies one Gmail history page from a current checkpoint.
+  const applyHistory = Effect.fnUntraced(function* (
+    scope: MailboxScope,
+    document: MailboxDocument,
+    checkpoint: Extract<MailboxDocument['checkpoint'], { kind: 'current' }>,
+  ): Step {
+    const { messages } = document;
+    const history = yield* gmail(scope)(
       'history',
       [
         ['startHistoryId', checkpoint.historyId],
@@ -483,32 +563,15 @@ export function createGmailInbox(native: NativeGmailMailbox) {
     );
     if (Option.isNone(history)) {
       // An expired or invalid history ID lists the Inbox again; cached messages stay visible.
-      return Option.some(yield* startListing(address, messages));
+      return Option.some(yield* startListing(scope, messages));
     }
     const records = history.value.history ?? [];
-    const deleted = new Set(
-      records.flatMap((record) =>
-        (record.messagesDeleted ?? []).map(({ message }) => message.id),
-      ),
-    );
-    const changed = Arr.dedupe(
-      records.flatMap((record) =>
-        [
-          ...(record.messagesAdded ?? []),
-          ...(record.labelsAdded ?? []),
-          ...(record.labelsRemoved ?? []),
-        ].map(({ message }) => message.id),
-      ),
-    ).filter((id) => !deleted.has(id));
-    // Within a page, the last record is a valid start for the next one.
-    const historyId =
-      history.value.nextPageToken === undefined
-        ? history.value.historyId
-        : (records.at(-1)?.id ?? history.value.historyId);
+    const historyId = nextHistoryId(history.value, records);
     if (records.length === 0 && historyId === checkpoint.historyId) {
       return Option.none();
     }
-    const merged = merge(messages, yield* fetchAll(address, changed), deleted);
+    const { deleted, changed } = historyChanges(records);
+    const merged = merge(messages, yield* fetchAll(scope, changed), deleted);
     const remaining = new Set(merged.map(({ id }) => id));
     const updated = merged.slice(0, cacheLimit);
     // History cannot name the unchanged older message that now fits after an entry leaves.
@@ -516,7 +579,7 @@ export function createGmailInbox(native: NativeGmailMailbox) {
       messages.length === cacheLimit &&
       messages.some(({ id }) => !remaining.has(id))
     ) {
-      return Option.some(yield* startListing(address, updated));
+      return Option.some(yield* startListing(scope, updated));
     }
     return Option.some({
       ...document,
@@ -525,15 +588,37 @@ export function createGmailInbox(native: NativeGmailMailbox) {
     });
   });
 
+  // The next document to commit, or none when the cache is current.
+  const advance = (
+    scope: MailboxScope,
+    document: MailboxDocument | undefined,
+  ) => {
+    if (document === undefined) {
+      return startListing(scope, []).pipe(Effect.asSome);
+    }
+    const { checkpoint } = document;
+    return checkpoint.kind === 'backfill'
+      ? continueListing(scope, document, checkpoint)
+      : applyHistory(scope, document, checkpoint);
+  };
+
   const semaphore = Semaphore.makeUnsafe(1);
   let state: GmailInboxState = { kind: 'loading' };
   // A synchronization queued behind the running one.
   let waiting: Promise<void> | null = null;
+  // Set when the open Inbox closes, until the next synchronization starts; synchronizations run one
+  // at a time, so this drops the late results of one started for the previous account.
+  let forgotten = false;
   const listeners = new Set<() => void>();
-  const publish = (next: GmailInboxState) => {
+  const notify = (next: GmailInboxState) => {
     state = next;
     for (const listener of listeners) {
       listener();
+    }
+  };
+  const publish = (next: GmailInboxState) => {
+    if (!forgotten) {
+      notify(next);
     }
   };
   const ready = (
@@ -549,45 +634,52 @@ export function createGmailInbox(native: NativeGmailMailbox) {
       );
     });
 
+  const recover = ({
+    kind,
+    diagnostic,
+  }: Readonly<Pick<SyncFailure, 'kind' | 'diagnostic'>>) =>
+    (kind === 'authentication' || kind === 'locked'
+      ? Effect.void
+      : Effect.logError('Gmail Inbox failed:', diagnostic)
+    ).pipe(
+      Effect.andThen(
+        Effect.sync(() => {
+          publish(failureState(state, kind));
+        }),
+      ),
+    );
+
+  // Commits a document over the revision this synchronization read.
+  const commit = Effect.fnUntraced(function* (
+    { address, revision, generation }: Cache,
+    document: MailboxDocument,
+  ) {
+    const text = yield* encodeDocument(document).pipe(
+      Effect.mapError((error) => malformed(error, 'failed')),
+    );
+    return yield* storage(() =>
+      native.commitMailbox({ address, generation }, revision, text),
+    );
+  });
+
   const synchronize = Effect.gen(function* () {
     let cache = yield* storage(native.openMailbox);
     let document = Option.getOrUndefined(yield* documentOf(cache));
     if (cache.availability === 'retry') {
-      return yield* ready(cache.address, document?.messages ?? [], 'retry');
+      return yield* ready(cache.address, messagesOf(document), 'retry');
     }
-    yield* ready(cache.address, document?.messages ?? [], 'syncing');
+    yield* ready(cache.address, messagesOf(document), 'syncing');
     let restarts = 0;
-    while (true) {
-      const next = yield* advance(cache.address, document);
-      if (Option.isNone(next)) {
-        break;
-      }
-      if (
-        document?.checkpoint.kind === 'backfill' &&
-        document.checkpoint.pageToken !== undefined &&
-        next.value.checkpoint.kind === 'backfill' &&
-        next.value.checkpoint.pageToken === undefined
-      ) {
-        restarts += 1;
-        if (restarts > 2) {
-          return yield* new SyncFailure({
-            kind: 'retry',
-            cause: 400,
-            diagnostic: 'rejected page token',
-          });
-        }
-      }
-      const text = yield* encodeDocument(next.value).pipe(
-        Effect.mapError((error) => malformed(error, 'failed')),
-      );
-      const { address, revision } = cache;
-      cache = yield* storage(() =>
-        native.commitMailbox(address, revision, text),
-      );
+    let next = yield* advance(cache, document);
+    while (Option.isSome(next)) {
+      restarts += restartedListing(document, next.value) ? 1 : 0;
+      yield* restartLimit(restarts);
+      cache = yield* commit(cache, next.value);
       document = next.value;
       yield* ready(cache.address, document.messages, 'syncing');
+      next = yield* advance(cache, document);
     }
-    yield* ready(cache.address, document?.messages ?? [], 'current');
+    yield* ready(cache.address, messagesOf(document), 'current');
   }).pipe(
     // The profile and Inbox listing always exist; their absence is a provider failure to retry.
     Effect.catchTags({
@@ -614,24 +706,7 @@ export function createGmailInbox(native: NativeGmailMailbox) {
       while: (error) =>
         error instanceof SyncFailure && error.kind === 'conflict',
     }),
-    Effect.catchTags({
-      SyncFailure: (error) =>
-        Effect.gen(function* () {
-          if (error.kind !== 'authentication' && error.kind !== 'locked') {
-            yield* Effect.logError('Gmail Inbox failed:', error.diagnostic);
-          }
-          const shown = state.kind === 'ready' ? state : undefined;
-          if (error.kind === 'authentication' || error.kind === 'retry') {
-            return yield* ready(
-              shown?.address,
-              shown?.messages ?? [],
-              error.kind,
-            );
-          }
-          // Locked or unreadable storage hides cached mail rather than showing it stale.
-          publish({ kind: error.kind === 'locked' ? 'locked' : 'failed' });
-        }),
-    }),
+    Effect.catchTag('SyncFailure', recover),
   );
 
   return {
@@ -641,6 +716,13 @@ export function createGmailInbox(native: NativeGmailMailbox) {
       return () => {
         listeners.delete(listener);
       };
+    },
+    // Clears the mail held in memory when its account or mailbox leaves the open Inbox.
+    forget: () => {
+      if (!forgotten || state.kind !== 'loading') {
+        forgotten = true;
+        notify({ kind: 'loading' });
+      }
     },
     // Opens the cache and synchronizes it; requests during a synchronization share one more.
     load: () => {
@@ -653,6 +735,7 @@ export function createGmailInbox(native: NativeGmailMailbox) {
           Effect.suspend(() => {
             started = true;
             waiting = null;
+            forgotten = false;
             return synchronize;
           }),
         ),
@@ -667,6 +750,32 @@ export function createGmailInbox(native: NativeGmailMailbox) {
 }
 
 export type GmailInbox = ReturnType<typeof createGmailInbox>;
+
+// Mail held in memory belongs to one open Inbox: its Product Account, Google account and address.
+// It is forgotten as soon as registration reports another owner or no open Inbox, before the
+// next account or mailbox can render it.
+export function forgetMailOutsideInbox(
+  registration: Pick<Registration, 'subscribe' | 'getSnapshot'>,
+  inbox: Pick<GmailInbox, 'forget'>,
+) {
+  let owner: string | null = null;
+  return registration.subscribe(() => {
+    const { snapshot } = registration.getSnapshot();
+    const next =
+      canOpenInbox(snapshot) &&
+      (snapshot.kind === 'connected' || snapshot.kind === 'cached')
+        ? [
+            snapshot.productAccountId,
+            snapshot.providerSubject,
+            snapshot.address,
+          ].join('\n')
+        : null;
+    if (next !== owner) {
+      owner = next;
+      inbox.forget();
+    }
+  });
+}
 
 // What the Inbox says about synchronization while it keeps showing the cached messages.
 export const gmailSyncCopy = {

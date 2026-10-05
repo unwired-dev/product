@@ -24,10 +24,10 @@ mailbox credential, preserves repeated query parameters, refuses redirects and
 returns only status/body. The ephemeral URL session keeps HTTP response caches
 off disk. Native and TypeScript diagnostics use fixed allow-listed values.
 
-The bridge exposes `gmailRequest(path, query, address)`, `openMailbox()` and
-`commitMailbox(address, expectedRevision, document)`. The cache reply contains
-revision, address and an optional document, with `availability: retry` only for
-cache-only access. Native errors distinguish grant rejection, protected storage,
+The bridge exposes `gmailRequest(path, query, mailbox)`, `openMailbox()` and
+`commitMailbox(mailbox, expectedRevision, document)`. The cache reply contains
+revision, address, an opaque native generation and an optional document, with `availability: retry` only for
+cache-only access. The mailbox argument pairs the opened address and generation. Native errors distinguish grant rejection, protected storage,
 revision conflict, mailbox invalidation and ordinary unavailability.
 
 ## Synchronization and cache
@@ -60,17 +60,27 @@ Native mailbox operations and registration changes share a FIFO operation gate
 across suspension points. Revocation cleanup cannot interleave with captured
 registration writes and resurrect removed credentials. Host foreground loads
 await the shared registration activation before accessing Gmail. A generation changes on
-restore, successful mailbox authorization and purge. Reads validate it after
-revocation preflight, token renewal and provider response, preventing a suspended
+restore, successful mailbox authorization and purge. Cache operations validate it after
+revocation preflight; Gmail reads validate it before token renewal and after
+renewal and provider response, preventing a suspended
 operation from using or returning the previous mailbox after cleanup or
 reselection. Token renewal itself does not change the generation, so concurrent
-metadata reads can refresh without invalidating each other. A positive device
-revocation purges before exposing cache data or renewing the provider credential.
-Each read also carries the address from the synchronization's opened cache;
-reselection between successive reads or before commit rejects mailbox-invalidated.
+metadata reads can refresh without invalidating each other. Revocation preflight runs when opening the cache and before each committed page,
+so the backend receives no per-message read activity. A positive device revocation
+purges before cache access or commit. Gmail reads perform local account,
+verification, address and generation checks without a backend query.
+Each read and commit carries the address and opaque native generation returned by
+the synchronization's cache open. Reselection between successive operations,
+including another Google subject reusing the address after revision reset,
+rejects mailbox-invalidated.
 Mailbox invalidation clears shared Inbox state rather than retaining it as an
 authentication retry. Both hosts filter ready state against the selected mailbox
 address before rendering, including the first frame while its cache opens.
+The process-owned Gmail store also subscribes to registration: a Product Account,
+Google subject or address change, or loss of Inbox eligibility, immediately clears
+its in-memory mail and suppresses late publications until the next serialized
+synchronization starts. The hosts discard Account/Inbox presentation choices when
+the Product Account changes or Inbox eligibility is lost.
 
 Known transient network failures may restore a separate `cached` registration
 snapshot for the last verified mailbox with retained account ownership and no

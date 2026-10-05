@@ -2,7 +2,11 @@ import { inspect } from 'node:util';
 
 import type { GmailInboxState } from '../src/gmail-inbox.ts';
 
-import { createGmailInbox } from '../src/gmail-inbox.ts';
+import {
+  createGmailInbox,
+  forgetMailOutsideInbox,
+} from '../src/gmail-inbox.ts';
+import { createRegistration } from '../src/registration.ts';
 import { createSyntheticGmail } from '../src/testing/gmail-mailbox.ts';
 
 const ready = (state: GmailInboxState) => {
@@ -96,13 +100,13 @@ describe('synchronizing a Gmail Inbox', () => {
     let disappeared = false;
     const inbox = createGmailInbox({
       ...gmail.native,
-      gmailRequest: (path, query, address) => {
+      gmailRequest: (path, query, mailbox) => {
         // oxlint-disable-next-line vitest/no-conditional-in-test -- The provider race occurs only at the first metadata read.
         if (!disappeared && path.startsWith('messages/')) {
           disappeared = true;
           gmail.archive(path.slice('messages/'.length));
         }
-        return gmail.native.gmailRequest(path, query, address);
+        return gmail.native.gmailRequest(path, query, mailbox);
       },
     });
     await inbox.load();
@@ -346,7 +350,7 @@ describe('synchronizing a Gmail Inbox', () => {
       messages: 'private-mail',
     });
     const cache = await gmail.native.commitMailbox(
-      'alex@example.invalid',
+      { address: 'alex@example.invalid', generation: '0' },
       0,
       malformedDocument,
     );
@@ -356,6 +360,31 @@ describe('synchronizing a Gmail Inbox', () => {
     expect(gmail.requests).toHaveLength(0);
     await expect(gmail.native.openMailbox()).resolves.toStrictEqual(cache);
     expect(gmail.commits).toStrictEqual([malformedDocument]);
+  });
+
+  it('rejects a stale synchronization commit after same-address mailbox reselection', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ messages: 1 });
+    const inbox = createGmailInbox({
+      ...gmail.native,
+      commitMailbox: (mailbox, revision, document) => {
+        gmail.reselect(mailbox.address);
+        gmail.deliver({ subject: 'Replacement mailbox' });
+        return gmail.native.commitMailbox(mailbox, revision, document);
+      },
+    });
+    await inbox.load();
+    expect(inbox.getSnapshot()).toStrictEqual({ kind: 'failed' });
+    expect(gmail.commits).toHaveLength(0);
+    await expect(gmail.native.openMailbox()).resolves.toMatchObject({
+      revision: 0,
+      document: null,
+    });
+    const replacement = createGmailInbox(gmail.native);
+    await replacement.load();
+    expect(
+      ready(replacement.getSnapshot()).messages.map(({ subject }) => subject),
+    ).toStrictEqual(['Replacement mailbox']);
   });
 
   it('opens a cache-only mailbox without using unverified provider access', async () => {
@@ -389,9 +418,9 @@ describe('synchronizing a Gmail Inbox', () => {
     let reselect = () => undefined;
     const inbox = createGmailInbox({
       ...gmail.native,
-      gmailRequest: (path, query, address) => {
+      gmailRequest: (path, query, mailbox) => {
         reselect();
-        return gmail.native.gmailRequest(path, query, address);
+        return gmail.native.gmailRequest(path, query, mailbox);
       },
     });
     await inbox.load();
@@ -430,6 +459,72 @@ describe('synchronizing a Gmail Inbox', () => {
       messages: [{ subject: 'Only in the other mailbox' }],
       sync: 'current',
     });
+  });
+
+  it('forgets mail in memory when its account leaves, including a late synchronization result', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ messages: 2 });
+    let snapshot: unknown = {
+      kind: 'connected',
+      productAccountId: 'account-a',
+      signInProvider: 'google',
+      providerSubject: 'subject-a',
+      address: 'alex@example.invalid',
+    };
+    const unused = () => Promise.reject(new Error('Not used'));
+    const registration = createRegistration({
+      restore: () => Promise.resolve(snapshot),
+      signIn: unused,
+      authorizeGmail: unused,
+      link: unused,
+      confirmRecoveryKey: unused,
+      recoverWithRecoveryKey: unused,
+      approveEnrollment: unused,
+      declineEnrollment: unused,
+      revokeTrustedDevice: unused,
+      refreshPrivateSync: unused,
+      signOut: () => Promise.resolve({ kind: 'signed-out' }),
+      deleteProductAccount: unused,
+    });
+    let release: () => void = () => undefined;
+    let paused = false;
+    const inbox = createGmailInbox({
+      ...gmail.native,
+      gmailRequest: async (path, query, mailbox) => {
+        // oxlint-disable-next-line vitest/no-conditional-in-test -- Only the paused history read is held.
+        if (paused && path === 'history') {
+          // oxlint-disable-next-line promise/avoid-new -- Hold the history response across sign-out.
+          await new Promise<void>((resolve) => {
+            release = resolve;
+          });
+        }
+        return gmail.native.gmailRequest(path, query, mailbox);
+      },
+    });
+    forgetMailOutsideInbox(registration, inbox);
+    await registration.restore();
+    await inbox.load();
+    expect(ready(inbox.getSnapshot()).messages).toHaveLength(2);
+
+    // Signing out forgets the mail at once; a synchronization still running cannot bring it back.
+    paused = true;
+    const running = inbox.load();
+    await registration.signOut();
+    expect(inbox.getSnapshot()).toStrictEqual({ kind: 'loading' });
+    release();
+    await running;
+    expect(inbox.getSnapshot()).toStrictEqual({ kind: 'loading' });
+
+    // Another Product Account connecting the same address starts from nothing in memory.
+    snapshot = {
+      kind: 'connected',
+      productAccountId: 'account-b',
+      signInProvider: 'google',
+      providerSubject: 'subject-b',
+      address: 'alex@example.invalid',
+    };
+    await registration.restore();
+    expect(inbox.getSnapshot()).toStrictEqual({ kind: 'loading' });
   });
   /* oxlint-enable vitest/max-expects */
 });

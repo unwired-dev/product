@@ -455,8 +455,11 @@ struct SavedRegistration: Codable {
       mailboxGeneration = UUID()
       mailboxVerified = true
       mailboxCacheOnly = false
-      // Another mailbox's cache is never shown for this one; its next commit would replace it.
-      if previous != nil, previous?.address != receipt.address { try? mailCache?.removeMailbox() }
+      // Another mailbox's cache, including another Google account that reuses the address, is
+      // never shown for this one; its next commit would replace it.
+      if let previous, previous.subject != receipt.subject || previous.address != receipt.address {
+        try? mailCache?.removeMailbox()
+      }
       return try await connected(synchronize(next))
     } catch let error as RegistrationError where error.endsAccess {
       throw error

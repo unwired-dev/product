@@ -39,15 +39,21 @@ extension PrivateInboxTests {
     let google = SyntheticGoogleRegistrationProvider()
     google.scopes = [RegistrationStore.gmailScope]
     var revoked = false
+    var revocationQueries = 0
     let store = google.store(
       keys: keys, mailCache: PrivateInboxStore(directory: directory, service: service),
-      deviceRevoked: { _ in revoked })
+      deviceRevoked: { _ in
+        revocationQueries += 1
+        return revoked
+      })
     let file = directory.appendingPathComponent("mailbox.enc")
     _ = try await store.signIn()
     google.gmailRequests = []
     // Before any mailbox is connected, nothing reaches Gmail or the cache.
     await #expect(throws: RegistrationError.gmailUnavailable) {
-      _ = try await store.gmail(path: "profile", query: [], address: google.address)
+      _ = try await store.gmail(
+        path: "profile", query: [], address: google.address,
+        generation: store.mailboxGeneration.uuidString)
     }
 
     #expect(throws: RegistrationError.gmailUnavailable) { _ = try store.openMailbox() }
@@ -58,21 +64,27 @@ extension PrivateInboxTests {
       "profile?alt=media", "messages/../../settings",
     ] {
       await #expect(throws: RegistrationError.unavailable) {
-        _ = try await store.gmail(path: path, query: [], address: google.address)
+        _ = try await store.gmail(
+          path: path, query: [], address: google.address,
+          generation: store.mailboxGeneration.uuidString)
       }
     }
     #expect(google.gmailRequests.isEmpty)
     await #expect(throws: PrivateInboxError.mailboxInvalidated) {
-      _ = try await store.gmail(path: "profile", query: [], address: "previous@example.invalid")
+      _ = try await store.gmail(
+        path: "profile", query: [], address: "previous@example.invalid",
+        generation: store.mailboxGeneration.uuidString)
     }
     #expect(google.gmailRequests.isEmpty)
+    // Gmail reads never ask the backend about this device; opening and committing the cache do.
+    let queriesBeforeReads = revocationQueries
     let response = try await store.gmail(
       path: "messages/19a0c0ffee000001",
       query: [
         URLQueryItem(name: "format", value: "metadata"),
         URLQueryItem(name: "metadataHeaders", value: "From"),
         URLQueryItem(name: "metadataHeaders", value: "Subject"),
-      ], address: google.address)
+      ], address: google.address, generation: store.mailboxGeneration.uuidString)
     #expect(response["status"] as? Int == 200)
     #expect(response["body"] as? String == #"{"historyId":"7"}"#)
     #expect(
@@ -80,6 +92,10 @@ extension PrivateInboxTests {
         "https://gmail.googleapis.com/gmail/v1/users/me/messages/19a0c0ffee000001"
           + "?format=metadata&metadataHeaders=From&metadataHeaders=Subject"
       ])
+    _ = try await store.gmail(
+      path: "profile", query: [], address: google.address,
+      generation: store.mailboxGeneration.uuidString)
+    #expect(revocationQueries == queriesBeforeReads)
 
     let empty = try store.openMailbox()
     #expect(empty["revision"] as? Int == 0)
@@ -87,17 +103,20 @@ extension PrivateInboxTests {
     #expect(empty["document"] is NSNull)
     let document = #"{"subject":"Private synthetic subject"}"#
     let committed = try store.commitMailbox(
-      address: "same@example.invalid", expectedRevision: 0, document: document)
+      address: "same@example.invalid", expectedRevision: 0, document: document,
+      generation: store.mailboxGeneration.uuidString)
     #expect(committed["revision"] as? Int == 1)
     #expect(try Data(contentsOf: file).range(of: Data("Private synthetic".utf8)) == nil)
     // A commit from an older read, or for another mailbox, changes nothing.
     #expect(throws: PrivateInboxError.conflict) {
       _ = try store.commitMailbox(
-        address: "same@example.invalid", expectedRevision: 0, document: "{}")
+        address: "same@example.invalid", expectedRevision: 0, document: "{}",
+        generation: store.mailboxGeneration.uuidString)
     }
     #expect(throws: PrivateInboxError.mailboxInvalidated) {
       _ = try store.commitMailbox(
-        address: "other@example.invalid", expectedRevision: 1, document: "{}")
+        address: "other@example.invalid", expectedRevision: 1, document: "{}",
+        generation: store.mailboxGeneration.uuidString)
     }
     #expect(try store.openMailbox()["document"] as? String == document)
 
@@ -110,27 +129,66 @@ extension PrivateInboxTests {
     #expect(other["address"] as? String == "other@example.invalid")
     #expect(other["document"] is NSNull)
     _ = try store.commitMailbox(
-      address: "other@example.invalid", expectedRevision: 0, document: document)
+      address: "other@example.invalid", expectedRevision: 0, document: document,
+      generation: store.mailboxGeneration.uuidString)
+    let beforeReselection = other
+    // Another Google account that reuses the address does not inherit the cache, and a cache left
+    // behind by a failed removal still reads as empty for it.
+    google.subject = "synthetic-recycled-mailbox"
+    _ = try await store.authorizeGmail(reselect: true)
+    #expect(!FileManager.default.fileExists(atPath: file.path))
+    #expect(try store.openMailbox()["document"] is NSNull)
+    #expect(throws: PrivateInboxError.mailboxInvalidated) {
+      _ = try store.commitMailbox(
+        address: "other@example.invalid", expectedRevision: 0, document: document,
+        generation: try #require(beforeReselection["generation"] as? String))
+    }
+    let readsBeforeStaleRequest = google.gmailRequests.count
+    await #expect(throws: PrivateInboxError.mailboxInvalidated) {
+      _ = try await store.gmail(
+        path: "profile", query: [], address: "other@example.invalid",
+        generation: try #require(beforeReselection["generation"] as? String))
+    }
+    #expect(google.gmailRequests.count == readsBeforeStaleRequest)
+    #expect(try store.openMailbox()["document"] is NSNull)
+    let shared = PrivateInboxStore(directory: directory, service: service)
+    _ = try shared.commitMailbox(
+      address: "other@example.invalid", subject: "synthetic-other-mailbox", expectedRevision: 0,
+      document: document)
+    #expect(
+      try shared.openMailbox(
+        address: "other@example.invalid", subject: "synthetic-recycled-mailbox")[
+          "document"] is NSNull)
+    #expect(try store.openMailbox()["document"] is NSNull)
+    try shared.removeMailbox()
 
     // The account leaves with its mailbox cache, and a removed account reaches no Gmail.
     _ = try store.purge()
     #expect(!FileManager.default.fileExists(atPath: file.path))
     await #expect(throws: PrivateInboxError.mailboxInvalidated) {
-      _ = try await store.gmail(path: "profile", query: [], address: google.address)
+      _ = try await store.gmail(
+        path: "profile", query: [], address: google.address,
+        generation: store.mailboxGeneration.uuidString)
     }
     // A transport outage permits only the verified mailbox's cache, never provider access.
     _ = try await store.signIn()
     _ = try await store.authorizeGmail(reselect: false)
-    _ = try store.commitMailbox(address: google.address, expectedRevision: 0, document: document)
+    _ = try store.commitMailbox(
+      address: google.address, expectedRevision: 0, document: document,
+      generation: store.mailboxGeneration.uuidString)
     google.refreshFailure = URLError(.notConnectedToInternet)
     #expect(try await store.restore()["kind"] == "cached")
     #expect(try store.openMailbox()["document"] as? String == document)
     #expect(try store.openMailbox()["availability"] as? String == "retry")
     await #expect(throws: RegistrationError.unavailable) {
-      _ = try await store.gmail(path: "profile", query: [], address: google.address)
+      _ = try await store.gmail(
+        path: "profile", query: [], address: google.address,
+        generation: store.mailboxGeneration.uuidString)
     }
     #expect(throws: RegistrationError.unavailable) {
-      _ = try store.commitMailbox(address: google.address, expectedRevision: 1, document: "{}")
+      _ = try store.commitMailbox(
+        address: google.address, expectedRevision: 1, document: "{}",
+        generation: store.mailboxGeneration.uuidString)
     }
     google.refreshFailure = nil
     #expect(try await store.restore()["kind"] == "connected")
@@ -155,15 +213,24 @@ extension PrivateInboxTests {
       _ = try await store.authorizeGmail(reselect: false)
       google.gmailRequests = []
       let pause = MailboxPause()
-      if stage == "response" { google.beforeGmail = { await pause.wait() } }
-      else { google.beforeRefresh = { await pause.wait() } }
-      let reading = Task { _ = try await store.gmail(path: "profile", query: [], address: google.address) }
+      if stage == "response" {
+        google.beforeGmail = { await pause.wait() }
+      } else {
+        google.beforeRefresh = { await pause.wait() }
+      }
+      let reading = Task {
+        _ = try await store.gmail(
+          path: "profile", query: [], address: google.address,
+          generation: store.mailboxGeneration.uuidString)
+      }
       await pause.reached()
       if stage == "reselect" {
         google.subject = "synthetic-final-mailbox"
         google.address = "final@example.invalid"
         _ = try await store.authorizeGmail(reselect: true)
-      } else { _ = try store.purge() }
+      } else {
+        _ = try store.purge()
+      }
       pause.resume()
       await #expect(throws: PrivateInboxError.mailboxInvalidated) { _ = try await reading.value }
       #expect(google.gmailRequests.count == (stage == "response" ? 1 : 0))
@@ -198,7 +265,9 @@ extension PrivateInboxTests {
     try DeviceKeychain(service: service + ".database").remove("encryption-key")
     try Data([1, 2, 3]).write(to: directory.appendingPathComponent("inbox.enc"))
     #expect(throws: PrivateInboxError.unavailable) {
-      _ = try store.commitMailbox(address: google.address, expectedRevision: 0, document: document)
+      _ = try store.commitMailbox(
+        address: google.address, expectedRevision: 0, document: document,
+        generation: store.mailboxGeneration.uuidString)
     }
     #expect(try DeviceKeychain(service: service + ".database").read("encryption-key") == nil)
   }

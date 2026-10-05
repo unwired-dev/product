@@ -2,7 +2,10 @@ import type { NativeGmailMailbox } from '@private-email/mail-core/gmail-inbox';
 import type { NativeRegistration } from '@private-email/mail-core/registration';
 import type { TurboModule } from 'react-native';
 
-import { createGmailInbox } from '@private-email/mail-core/gmail-inbox';
+import {
+  createGmailInbox,
+  forgetMailOutsideInbox,
+} from '@private-email/mail-core/gmail-inbox';
 import { createRegistration } from '@private-email/mail-core/registration';
 import { TurboModuleRegistry } from 'react-native';
 
@@ -29,9 +32,11 @@ export const registration = createRegistration({
 });
 
 export const gmailInbox = createGmailInbox({
-  gmailRequest: (path, query, address) =>
-    native().gmailRequest(path, query, address),
+  gmailRequest: (path, query, mailbox) =>
+    native().gmailRequest(path, query, mailbox),
   openMailbox: () => native().openMailbox(),
-  commitMailbox: (address, expectedRevision, document) =>
-    native().commitMailbox(address, expectedRevision, document),
+  commitMailbox: (mailbox, expectedRevision, document) =>
+    native().commitMailbox(mailbox, expectedRevision, document),
 });
+
+forgetMailOutsideInbox(registration, gmailInbox);

@@ -20,6 +20,10 @@ A host owns views and native adapters. It renders shared stores from `@private-e
 - Per-row work in the Inbox `FlatList` that grows with the mailbox: an unstable `keyExtractor`, a row that subscribes to the whole store, or sorting and filtering repeated on every render.
 - Selection held anywhere but its owner: route parameters on mobile, the window on Mac. A Mac window opened after another must start with no selection, and a read/unread change must reach every window without changing any selection.
 
+- `RegistrationGate` retaining an Inbox/Account destination choice after the Product
+  Account changes or Inbox eligibility is lost. Discard that choice before
+  rendering so new Recovery Key, enrollment or authorization steps govern landing.
+
 #### Platform behavior
 
 - A pressable without an accessible role and name, text that does not scale with Dynamic Type, a color taken from a literal rather than the light/dark tokens in `mail-core`'s `theme`, or selection and focus shown by color alone.

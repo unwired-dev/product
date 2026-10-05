@@ -48,11 +48,12 @@ checkpoint atomically in an encrypted device-only cache. Its keys stay native,
 its files stay out of backups, and locked or unreadable storage exposes no mail.
 A missing key for existing encrypted data is an error, never a replacement key.
 
-The cache belongs to one mailbox address. Opening it for another mailbox reads as
-empty, and each commit replaces only the revision its caller read. JavaScript
+The cache belongs to one mailbox: its address and the Google account behind it.
+Cache access adds no Google account identity field to the bridge. Opening it for another mailbox, including another
+Google account that reuses the address, reads as empty, and each commit replaces only the revision its caller read. JavaScript
 reaches it only through the registration module, which checks that the address is
 the connected mailbox and that no account removal is under way. Choosing another
-mailbox removes the file. Every account purge removes it before any key, and a
+mailbox or Google account removes the file. Every account purge removes it before any key, and a
 failed removal fails the purge so it is retried. Removal needs no key, so it also
 runs while the device is locked.
 
