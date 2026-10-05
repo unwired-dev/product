@@ -98,4 +98,5 @@ credentials stays exactly where [ADR 0001](0001-end-to-end-encrypted-product-syn
   native ownership of a flow, such as
   [private Product Sync](../architecture/private-product-sync.md) and
   [Mock Mail Sessions](../architecture/mock-mail-sessions.md), change when that
-  flow moves.
+  flow moves. Issues #756, #757, #758 and #759 own the migration, in that
+  order.
