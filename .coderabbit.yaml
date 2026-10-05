@@ -2,7 +2,7 @@
 
 language: en-US
 early_access: true
-enable_free_tier: false
+enable_free_tier: true
 
 reviews:
   slop_detection:
@@ -100,6 +100,7 @@ reviews:
     ignore_title_keywords:
       - '[WIP]'
       - '[skip review]'
+      - 'Version packages'
     labels:
       - '!do-not-review'
     ignore_usernames:
