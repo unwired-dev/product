@@ -1346,6 +1346,19 @@ export const revokeTrustedDevice = internalMutation({
       productAccountId,
       trustedDeviceId: args.trustedDeviceToRevokeId,
     });
+    // A stale id of an installation already removed under its newer id is complete too: another
+    // rotation would only replace the Recovery Key and add a second tombstone for the installation.
+    const installationRevocation = await ctx.db
+      .query('revokedTrustedDevices')
+      .withIndex('by_productAccountId_and_deviceIdentifier', (q) =>
+        q
+          .eq('productAccountId', productAccountId)
+          .eq('deviceIdentifier', target.deviceIdentifier),
+      )
+      .first();
+    if (installationRevocation !== null) {
+      return completedRevocationResponse(ctx, account);
+    }
     if (account.productSyncPendingKeyEpoch !== undefined) {
       return revokeDuringPendingKeyRotation(ctx, {
         account,

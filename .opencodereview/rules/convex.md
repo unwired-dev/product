@@ -28,6 +28,7 @@ Before reviewing, read `packages/convex/convex/_generated/ai/guidelines.md`; it 
 - An ownership claim, admission, enrollment adoption or rotation split across several `ctx.runMutation` calls from an action. Each mutation is its own transaction, so a concurrent caller interleaves between them; the invariant belongs in one mutation.
 - Destructive cleanup (old key material, routes, credentials, enrollment requests) ordered before the replacement is durably adopted, or with no recovery for a crash between the two.
 - A scheduled function, cron or retry that is not idempotent, or a provider submission retried automatically after an uncertain outcome.
+- A removal replay check keyed only by a replaceable row ID when retained aliases identify the same account-owned entity. In `productAccount.revokeTrustedDevice`, resolve the selected live or retained target and check the account-scoped installation `deviceIdentifier` before changing rotation state; sign-out and reconnect can give that installation another Trusted Device ID. Removing an already-tombstoned installation through any retained ID must return the existing rotation status without replacing recovery material or inserting another tombstone, or retries can rotate the Recovery Key again and break unique tombstone lookups.
 - A reserved payload identifier or prefix made writable by clients (`requireUnreservedPayloadIdentifier`).
 
 #### Bounded work

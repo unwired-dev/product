@@ -193,6 +193,10 @@ synchronization could not adopt this removal's new keys, the host reports the
 removal as unconfirmed and shows no new Recovery Key. The next synchronization
 resolves it.
 
+Sign-out and reconnect can change a device's listed ID. Repeating removal through
+an earlier ID of the same installation returns the existing rotation status;
+it does not start another rotation or replace the Recovery Key again.
+
 Whichever request first learns that this device was removed purges its local
 account keys, enrollment material, identity and mailbox credentials. Restore
 checks revocation before renewing or checking the Sign-In Provider grant, so a

@@ -199,6 +199,14 @@ by #602. This slice does not establish that stronger guarantee.
 
 Each applied removal creates a new Recovery Key and schema 3 recovery envelope,
 so the previous Recovery Key cannot open the replacement recovery envelope.
+Revocation is idempotent by installation within the Product Account, including
+retained row IDs from before sign-out and reconnect. After authenticating the
+caller and resolving the account-owned live or retained target,
+`productAccount.revokeTrustedDevice` checks the installation's `deviceIdentifier`
+tombstone before either rotation path. A previously removed installation returns
+the current pending or committed rotation status without replacing the transition
+or recovery envelope and without adding another tombstone. The exact-ID retry
+check remains available even when no retained target exists.
 Before sending, the native vault durably preserves the generated Recovery Key
 and exact transition.
 A lost connection, cancellation or ambiguous server response keeps this marker;
