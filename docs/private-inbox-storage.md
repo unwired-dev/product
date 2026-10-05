@@ -12,8 +12,9 @@ each window or route and is never persisted.
 ## Failure behavior
 
 The complete fixture, including metadata and bodies, remains encrypted on the
-device. This small fixture store is not a general mail database or the future
-500 MB body cache. Temporary writes contain ciphertext, not fixture plaintext.
+device. This small fixture store is not a general mail database, and it is separate
+from the Gmail [message body cache](#message-body-cache). Temporary writes contain
+ciphertext, not fixture plaintext.
 The encrypted store is excluded from backup; iOS writes use complete file protection.
 Its encryption key is device-only, never synchronized and accessible only while
 unlocked. Locked data stays inaccessible without replacing stored ciphertext.

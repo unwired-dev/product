@@ -119,9 +119,12 @@ back to a plain alternative. Native cache envelopes fail closed on malformed
 shape; an absent or corrupt body document may be downloaded again.
 
 The shared store keeps two body pipelines per current connection and coalesces
-duplicate reads. Cache publication briefly acquires the synchronization semaphore
-and rechecks owner and list membership, so a late body cannot repopulate a pruned
-message. Completion uses the same membership fence. Visible readers retain their
+duplicate reads. A dedicated publication semaphore orders body admission against
+each page's durable metadata commit, body pruning and ready-state publication.
+Body admission rechecks owner and list membership under that permit, so a late
+body cannot repopulate a pruned message or wait for an entire synchronization.
+Provider listing runs outside the publication permit. Completion uses the same
+membership fence. Visible readers retain their
 body; the twenty-entry memory target evicts only undisplayed completed entries.
 Forget clears body state and fences previous-owner completions. Host-local link
 confirmations also bind to the current body presentation and recheck it immediately

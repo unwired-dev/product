@@ -76,6 +76,17 @@ Namespace-import style, `JSON.parse`, `typeof … === 'object'` guards, untagged
 
 #### Rich-body admission and speculative reads
 
+- `createGmailInbox.store` waiting for an entire synchronization while holding a
+  body-load permit, blocking explicit opens or speculative progress behind provider
+  listing. Serialize body membership checks and admission against each page's
+  durable commit, pruning and ready publication, with provider reads outside that
+  permit; otherwise slow synchronization stalls reading, or late downloads
+  repopulate removed messages.
+- `createGmailInbox.schedulePrefetch` dropping a queued selection for a newer owner
+  when the previous owner's speculative lane finishes or fails. Restart queued
+  work under the current owner while retaining publication fences and the
+  same-owner retry/authentication pause; otherwise a newly opened mailbox silently
+  receives no recent-body prefetch until another synchronization.
 - MIME preflight in `message-body.ts` that trusts payload `mimeType` over a
   present Content-Type header or ignores Content-Disposition. Contradictory,
   malformed or attachment metadata must not turn speculation into a multipart

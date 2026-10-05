@@ -34,13 +34,19 @@ const u32le = (bytes: Uint8Array, at: number) =>
   u16le(bytes, at) + u16le(bytes, at + 2) * 65_536;
 
 // PNG chunk integrity and required image data; a header and trailer alone are not an image.
+// A precomputed table keeps up to 20 MiB of admitted image bytes to one lookup per byte.
+const crcTable = Uint32Array.from({ length: 256 }, (_, index) => {
+  let crc = index;
+  for (let bit = 0; bit < 8; bit += 1) {
+    crc = (crc >>> 1) ^ ((crc & 1) === 0 ? 0 : 0xed_b8_83_20);
+  }
+  return crc >>> 0;
+});
+
 const crc32 = (bytes: Uint8Array, from: number, to: number) => {
   let crc = 0xff_ff_ff_ff;
   for (let at = from; at < to; at += 1) {
-    crc ^= bytes[at] ?? 0;
-    for (let bit = 0; bit < 8; bit += 1) {
-      crc = (crc >>> 1) ^ ((crc & 1) === 0 ? 0 : 0xed_b8_83_20);
-    }
+    crc = (crc >>> 8) ^ (crcTable[(crc ^ (bytes[at] ?? 0)) & 0xff] ?? 0);
   }
   return (crc ^ 0xff_ff_ff_ff) >>> 0;
 };

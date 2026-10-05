@@ -9,8 +9,9 @@ replacement requirements or release qualification.
 
 `native/private-inbox` owns a versioned AES-256-GCM encrypted snapshot, using
 CryptoKit and Security without a third-party database dependency. This small
-fixture store is not a general mail database or the future 500 MB body cache.
-The complete fixture, including metadata and bodies, is encrypted in `inbox.enc`
+fixture store is not a general mail database and is separate from the
+[Gmail body cache](#gmail-body-cache). The complete preview fixture, including
+metadata and bodies, is encrypted in `inbox.enc`
 under the host's Application Support directory. The directory is excluded from
 backup; iOS writes also use complete file protection. Atomic ciphertext replacement
 and file synchronization finish before an update resolves. Temporary writes

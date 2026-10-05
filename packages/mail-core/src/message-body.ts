@@ -314,16 +314,18 @@ const decodeText = (
   if (bytes === undefined) {
     return undefined;
   }
+  // Western labels decode here, never through a host decoder that may only know UTF-8.
+  if (westernLabels.has(charset)) {
+    return Array.from(bytes, (byte) =>
+      byte >= 128 && byte < 160
+        ? windows1252.charAt(byte - 128)
+        : String.fromCodePoint(byte),
+    ).join('');
+  }
   try {
     return new TextDecoder(charset).decode(bytes);
   } catch {
-    return westernLabels.has(charset)
-      ? Array.from(bytes, (byte) =>
-          byte >= 128 && byte < 160
-            ? windows1252.charAt(byte - 128)
-            : String.fromCodePoint(byte),
-        ).join('')
-      : new TextDecoder().decode(bytes);
+    return new TextDecoder().decode(bytes);
   }
 };
 

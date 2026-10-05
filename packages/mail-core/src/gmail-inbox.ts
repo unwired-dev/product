@@ -672,6 +672,9 @@ export function createGmailInbox(native: NativeGmailMailbox) {
   };
 
   const semaphore = Semaphore.makeUnsafe(1);
+  // Orders body admission against a page's commit, pruning and publication only, so a body
+  // save never waits for a whole synchronization.
+  const publication = Semaphore.makeUnsafe(1);
   let state: GmailInboxState = { kind: 'loading' };
   // A synchronization queued behind the running one.
   let waiting: Promise<void> | null = null;
@@ -1085,7 +1088,7 @@ export function createGmailInbox(native: NativeGmailMailbox) {
       // oxlint-disable-next-line promise/prefer-await-to-callbacks -- Effect's typed error channel.
       Effect.mapError((error) => malformed(error, 'failed')),
       Effect.flatMap((text) =>
-        semaphore.withPermit(
+        publication.withPermit(
           Effect.suspend(() =>
             owner === reading && listed(document.id)
               ? Effect.tryPromise({
@@ -1373,9 +1376,14 @@ export function createGmailInbox(native: NativeGmailMailbox) {
         }
       }).pipe(
         Effect.catchTag('SyncFailure', prefetchFailure(reading)),
+        // A request from a newer Inbox owner arrived while this lane ran; start it for that
+        // owner. The same owner's paused lane waits for its next synchronization.
         Effect.ensuring(
-          Effect.sync(() => {
+          Effect.suspend(() => {
             prefetching = false;
+            return prefetchAgain && owner !== reading
+              ? schedulePrefetch
+              : Effect.void;
           }),
         ),
       ),
@@ -1399,9 +1407,15 @@ export function createGmailInbox(native: NativeGmailMailbox) {
     while (Option.isSome(next)) {
       restarts += restartedListing(document, next.value) ? 1 : 0;
       yield* restartLimit(restarts);
-      cache = yield* commit(cache, next.value);
-      document = next.value;
-      yield* ready(cache.address, document.messages, 'syncing');
+      const committed = next.value;
+      cache = yield* publication.withPermit(
+        commit(cache, committed).pipe(
+          Effect.tap((stored) =>
+            ready(stored.address, committed.messages, 'syncing'),
+          ),
+        ),
+      );
+      document = committed;
       // Committed Inbox pages make recent bodies eligible after Initial Mailbox Availability.
       yield* schedulePrefetch;
       next = yield* advance(cache, document);

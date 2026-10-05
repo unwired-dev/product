@@ -112,6 +112,50 @@ function observeBodyLoads(gmail: ReturnType<typeof createSyntheticGmail>) {
 
 const day = 86_400_000;
 
+// Holds the first prefetch preflight until released, as a slow Gmail reply would.
+function holdFirstPreflight(gmail: ReturnType<typeof createSyntheticGmail>) {
+  const { gmailRequest } = gmail.native;
+  const reached = Promise.withResolvers<undefined>();
+  const release = Promise.withResolvers<undefined>();
+  let held = false;
+  gmail.native.gmailRequest = async (path, query, owner) => {
+    if (!held && query.some(([, value]) => value === 'Content-Type')) {
+      held = true;
+      reached.resolve(undefined);
+      await release.promise;
+    }
+    return gmailRequest(path, query, owner);
+  };
+  return {
+    reached: reached.promise,
+    release: () => release.resolve(undefined),
+  };
+}
+
+// Holds the listing page that resumes at `pageToken` until released.
+function holdListPage(
+  gmail: ReturnType<typeof createSyntheticGmail>,
+  pageToken: string,
+) {
+  const { gmailRequest } = gmail.native;
+  const reached = Promise.withResolvers<undefined>();
+  const release = Promise.withResolvers<undefined>();
+  gmail.native.gmailRequest = async (path, query, owner) => {
+    if (
+      path === 'messages' &&
+      query.some(([name, value]) => name === 'pageToken' && value === pageToken)
+    ) {
+      reached.resolve(undefined);
+      await release.promise;
+    }
+    return gmailRequest(path, query, owner);
+  };
+  return {
+    reached: reached.promise,
+    release: () => release.resolve(undefined),
+  };
+}
+
 describe('the isolated rich reader', () => {
   /* oxlint-disable vitest/max-expects -- Each journey proves one reader contract end to end. */
   it('admits only passive markup, app colors, vetted links and non-loading placeholders', async () => {
@@ -629,6 +673,47 @@ describe('the isolated rich reader', () => {
     ]) {
       expect(inspectImage(Uint8Array.from(bytes))).toBeUndefined();
     }
+  });
+
+  it('prefetches for a newly opened mailbox while the previous mailbox is still prefetching', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    const now = Date.now();
+    gmail.deliver({
+      at: now - 60_000,
+      content: { text: 'Previous mailbox', single: true },
+    });
+    const preflight = holdFirstPreflight(gmail);
+    const inbox = createGmailInbox(gmail.native);
+    await inbox.load();
+    await preflight.reached;
+
+    inbox.forget();
+    gmail.reselect('sam@example.invalid');
+    const next = gmail.deliver({
+      at: now - 60_000,
+      content: { text: 'Selected mailbox', single: true },
+    });
+    await inbox.load();
+    preflight.release();
+    await vi.waitFor(() => {
+      expect(gmail.cachedBodies().has(next)).toBe(true);
+    });
+  });
+
+  it('saves and shows an opened body while a long synchronization is still listing', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ messages: 60 });
+    const page = holdListPage(gmail, '50');
+    const inbox = createGmailInbox(gmail.native);
+    const synchronizing = inbox.load();
+    await page.reached;
+    const [first = ''] = listedIds(inbox);
+    await inbox.readMessage(first);
+    expect(inbox.messageBody(first)?.kind).toBe('ready');
+    expect(gmail.cachedBodies().has(first)).toBe(true);
+    page.release();
+    await synchronizing;
   });
   /* oxlint-enable vitest/max-expects */
 });

@@ -51,7 +51,21 @@ const resolveSecond = (active: number, resolve: (value: undefined) => void) => {
   }
 };
 
+// A lax host decoder that accepts any label and always decodes UTF-8.
+const HostTextDecoder = TextDecoder;
+class Utf8OnlyDecoder {
+  readonly #decoder = new HostTextDecoder();
+  public decode(bytes: Uint8Array) {
+    return this.#decoder.decode(bytes);
+  }
+}
+
 describe('reading Gmail message bodies', () => {
+  // oxlint-disable-next-line vitest/no-hooks -- One test replaces the host decoder.
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   /* oxlint-disable vitest/max-expects -- Each journey proves one reading path end to end. */
   it('renders untrusted HTML as text with vetted links and reopens it offline from the cache', async () => {
     expect.hasAssertions();
@@ -144,6 +158,8 @@ describe('reading Gmail message bodies', () => {
     });
     const inbox = createGmailInbox(gmail.native);
     await inbox.load();
+    // The Mac host's decoder polyfill knows only UTF-8; Latin-1 must not depend on it.
+    vi.stubGlobal('TextDecoder', Utf8OnlyDecoder);
 
     expect(readyBody(await read(inbox, plain))).toStrictEqual({
       paragraphs: [
