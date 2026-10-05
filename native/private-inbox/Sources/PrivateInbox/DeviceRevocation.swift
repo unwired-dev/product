@@ -10,7 +10,6 @@ extension RegistrationStore {
       trustedDeviceId != product.trustedDeviceId,
       var vault = try loadVault(product.productAccountId), vault.published
     else { throw RegistrationError.unavailable }
-    try await requireNotRevoked(product)
     let identity = try await productIdentity(
       saved.provider, hint: saved.provider == .google ? saved.subject : nil)
     guard identity.provider == saved.provider, identity.subject == saved.subject else {

@@ -317,7 +317,6 @@ struct SavedRegistration: Codable {
   }
 
   func reconfirm(_ saved: SavedRegistration) async throws -> SavedRegistration {
-    if let product = saved.product { try await requireNotRevoked(product) }
     switch saved.provider {
     case .google:
       let identity = try await provider.refresh(saved.identityCredential)
@@ -449,10 +448,16 @@ struct SavedRegistration: Codable {
   }
 
   // Every host operation runs through this, so whichever request learns of a revocation purges.
+  // A saved account is checked first: an operation may open a provider prompt before any backend
+  // request, and cancelling that prompt must not keep a removed device's keys and credentials.
   func purgingIfRevoked(_ operation: (RegistrationStore) async throws -> [String: String])
     async throws -> [String: String]
   {
-    do { return try await operation(self) } catch RegistrationError.revoked { return try purge() }
+    do {
+      // An unreadable record skips the check; the operation reports that failure itself.
+      if let product = (try? load())?.product { try await requireNotRevoked(product) }
+      return try await operation(self)
+    } catch RegistrationError.revoked { return try purge() }
   }
 
   func connected(_ saved: SavedRegistration) throws -> [String: String] {

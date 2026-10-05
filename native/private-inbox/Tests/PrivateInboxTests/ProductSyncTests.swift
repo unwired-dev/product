@@ -1170,6 +1170,70 @@ extension PrivateInboxTests {
     #expect(try remover.loadVault(account)?.revocation == nil)
   }
 
+  @Test(arguments: [
+    (SignInProvider.google, "link"), (.apple, "link"),
+    (.google, "sign-in"), (.apple, "sign-in"),
+    (.google, "switch"), (.apple, "switch"), (.apple, "recovery"),
+  ])
+  @MainActor func savedAccountPromptsPurgeRevokedDevicesBeforeCancellation(
+    _ scenario: (SignInProvider, String)
+  ) async throws {
+    let (signInProvider, operation) = scenario
+    let keys = device()
+    let google = SyntheticGoogleRegistrationProvider()
+    let apple = SyntheticAppleRegistrationProvider()
+    let backend = SyntheticProductSyncBackend()
+    let account = "account-" + (signInProvider == .apple ? apple.subject : google.subject)
+    defer { remove(keys, accounts: [account]) }
+    var revoked: Bool? = false
+    let store = RegistrationStore(
+      keys: keys, deployment: "https://synthetic.example.invalid", clientID: "synthetic-client",
+      provider: google, apple: apple,
+      linking: SignInLinking(
+        request: { _, _, _ in throw RegistrationError.unavailable },
+        complete: { _, _, _ in throw RegistrationError.unavailable }),
+      productSync: backend.backend,
+      deviceRevoked: { _ in
+        guard let revoked else { throw URLError(.notConnectedToInternet) }
+        return revoked
+      },
+      connect: { identity, _, _ in backend.receipt("account-" + identity.subject) })
+    let registered = try await store.signIn(with: signInProvider)
+    let recoveryKey = try #require(registered["recoveryKey"])
+    google.scopes = [RegistrationStore.gmailScope]
+    _ = try await store.authorizeGmail(reselect: false)
+    #expect(try store.load()?.mailboxCredential != nil)
+    #expect(try keys.read("product-sync." + account) != nil)
+    let other: SignInProvider = signInProvider == .apple ? .google : .apple
+    func perform(_ current: RegistrationStore) async throws -> [String: String] {
+      switch operation {
+      case "link": return try await current.link(other)
+      case "sign-in": return try await current.signIn(with: signInProvider)
+      case "switch": return try await current.signIn(with: other)
+      default: return try await current.recover(with: recoveryKey)
+      }
+    }
+    google.outcome = .cancelled
+    apple.outcome = .cancelled
+    // A missing revocation reply retains the resumable account when the prompt is cancelled.
+    revoked = nil
+    await #expect(throws: RegistrationError.cancelled) {
+      try await store.purgingIfRevoked(perform)
+    }
+    #expect(try store.load()?.mailboxCredential != nil)
+    #expect(try keys.read("product-sync." + account) != nil)
+    let prompts = google.hints.count + apple.signIns
+    revoked = true
+    #expect(
+      try await store.purgingIfRevoked(perform)
+        == ["kind": "signed-out", "notice": "revoked"])
+    #expect(google.hints.count + apple.signIns == prompts)
+    #expect(store.session == nil)
+    for item in ["registration", "product-sync." + account, "product-sync-enrollment." + account] {
+      #expect(try keys.read(item) == nil)
+    }
+  }
+
   @Test @MainActor func appleRestoreLearnsOfRevocationFromTheDeviceCredentialAlone() async throws {
     let keys = device()
     let account = "account-synthetic-apple-subject"

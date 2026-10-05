@@ -54,10 +54,12 @@ import Testing
   var subject = "synthetic-apple-subject"
   var outcome: RegistrationError?
   var state = AppleCredentialState.authorized
+  var signIns = 0
   // Apple returns the address on first authorization only.
   var email: String? = "relay@privaterelay.example.invalid"
 
   func signIn() async throws -> AppleRegistrationIdentity {
+    signIns += 1
     if let outcome { throw outcome }
     defer { email = nil }
     return AppleRegistrationIdentity(

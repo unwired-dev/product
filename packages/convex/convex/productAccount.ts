@@ -1286,6 +1286,36 @@ async function findTrustedDeviceRevocationTarget(
   return target;
 }
 
+// Compares installations, not row ids, which a sign-out and reconnect replace. A retained id of
+// the caller's own installation would remove its current row too, so it is refused. An installation
+// already removed under another id is complete: another rotation would only replace the Recovery
+// Key and add a second tombstone for the installation.
+async function installationAlreadyRevoked(
+  ctx: MutationCtx,
+  request: Readonly<{
+    currentTrustedDeviceId: Id<'trustedDevices'>;
+    productAccountId: Id<'productAccounts'>;
+    target: TrustedDeviceRevocationTarget;
+  }>,
+): Promise<boolean> {
+  const currentDevice = await ctx.db.get(
+    'trustedDevices',
+    request.currentTrustedDeviceId,
+  );
+  if (currentDevice?.deviceIdentifier === request.target.deviceIdentifier) {
+    throw new Error('Use sign out to remove the current Trusted Device');
+  }
+  const revocation = await ctx.db
+    .query('revokedTrustedDevices')
+    .withIndex('by_productAccountId_and_deviceIdentifier', (q) =>
+      q
+        .eq('productAccountId', request.productAccountId)
+        .eq('deviceIdentifier', request.target.deviceIdentifier),
+    )
+    .first();
+  return revocation !== null;
+}
+
 // Only the HTTP action reaches this, after proving recent authentication from the bearer token.
 export const revokeTrustedDevice = internalMutation({
   args: {
@@ -1346,25 +1376,13 @@ export const revokeTrustedDevice = internalMutation({
       productAccountId,
       trustedDeviceId: args.trustedDeviceToRevokeId,
     });
-    // A retained id of the caller's own installation would remove its current row too.
-    const currentDevice = await ctx.db.get(
-      'trustedDevices',
-      args.trustedDeviceId,
-    );
-    if (currentDevice?.deviceIdentifier === target.deviceIdentifier) {
-      throw new Error('Use sign out to remove the current Trusted Device');
-    }
-    // A stale id of an installation already removed under its newer id is complete too: another
-    // rotation would only replace the Recovery Key and add a second tombstone for the installation.
-    const installationRevocation = await ctx.db
-      .query('revokedTrustedDevices')
-      .withIndex('by_productAccountId_and_deviceIdentifier', (q) =>
-        q
-          .eq('productAccountId', productAccountId)
-          .eq('deviceIdentifier', target.deviceIdentifier),
-      )
-      .first();
-    if (installationRevocation !== null) {
+    if (
+      await installationAlreadyRevoked(ctx, {
+        currentTrustedDeviceId: args.trustedDeviceId,
+        productAccountId,
+        target,
+      })
+    ) {
       return completedRevocationResponse(ctx, account);
     }
     if (account.productSyncPendingKeyEpoch !== undefined) {

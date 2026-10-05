@@ -200,11 +200,15 @@ Removing the current installation through one of its earlier IDs is refused too;
 use sign-out to remove the current Trusted Device.
 
 Whichever request first learns that this device was removed purges its local
-account keys, enrollment material, identity and mailbox credentials. Restore
-checks revocation before renewing or checking the Sign-In Provider grant, so a
-revoked or unavailable provider grant cannot suppress an established revocation.
-Attempting another device's removal also checks before opening Product Sign-In,
-so cancelling that prompt cannot prevent a removed device's purge.
+account keys, enrollment material, identity and mailbox credentials. Every
+registration operation with a saved Product Account checks revocation before
+renewing or checking the Sign-In Provider grant or opening a provider prompt.
+This includes restore, Linked Sign-In, signing in again, switching Sign-In
+Providers, Recovery Key unlock and removing another Trusted Device. A failed
+provider renewal or cancelled prompt cannot suppress a credential-proven
+revocation; the removed device purges before that provider work begins.
+An unavailable revocation check retains local state and lets the requested
+operation continue with its usual offline or cancellation behavior.
 Offline, an Apple relaunch keeps its saved state. The host explains the removal
 and that Gmail mail and previously copied offline data are unaffected.
 
@@ -292,6 +296,14 @@ The subsequent reviewer run passed all 25 tests in
 restore attempt in the main removal scenario with a removal attempt while its
 Google prompt is configured to cancel: the device purges before opening the
 prompt. The Apple credential-only restore and offline assertions remain.
+The saved-account prompt regression adds a parameterized test, bringing the
+hosted suite to 26 tests. It covers Linked Sign-In, signing in again and switching
+Sign-In Providers on Google and Apple, plus Apple Recovery Key unlock. An
+unavailable credential check followed by prompt cancellation retains the account;
+a proven revocation purges its keys and credentials before any prompt opens.
+The reviewer independently reran all 26 tests with zero failures in
+`artifacts/private-inbox/integration.uVjPEg/`. The earlier 25-test runs predate
+this regression. Packaged journeys were not rerun for this follow-up.
 These runs are real native storage and cryptography evidence with a synthetic Convex
 boundary.
 The two-device approval journey uses two
