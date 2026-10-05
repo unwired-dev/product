@@ -202,8 +202,13 @@ so the previous Recovery Key cannot open the replacement recovery envelope.
 Revocation is idempotent by installation within the Product Account, including
 retained row IDs from before sign-out and reconnect. After authenticating the
 caller and resolving the account-owned live or retained target,
-`productAccount.revokeTrustedDevice` checks the installation's `deviceIdentifier`
-tombstone before either rotation path. A previously removed installation returns
+`productAccount.revokeTrustedDevice` compares the authenticated live device's
+`deviceIdentifier` with the target's identifier and refuses self-removal with the
+existing sign-out error, including through an earlier retained row ID. This guard
+precedes the installation tombstone check and either rotation path, so an alias
+cannot remove the caller's current row or strand rotation without a surviving
+device. The mutation then checks the installation's `deviceIdentifier` tombstone.
+A previously removed installation returns
 the current pending or committed rotation status without replacing the transition
 or recovery envelope and without adding another tombstone. The exact-ID retry
 check remains available even when no retained target exists.

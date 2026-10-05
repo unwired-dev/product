@@ -196,6 +196,8 @@ resolves it.
 Sign-out and reconnect can change a device's listed ID. Repeating removal through
 an earlier ID of the same installation returns the existing rotation status;
 it does not start another rotation or replace the Recovery Key again.
+Removing the current installation through one of its earlier IDs is refused too;
+use sign-out to remove the current Trusted Device.
 
 Whichever request first learns that this device was removed purges its local
 account keys, enrollment material, identity and mailbox credentials. Restore

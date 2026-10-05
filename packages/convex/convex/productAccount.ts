@@ -1346,6 +1346,14 @@ export const revokeTrustedDevice = internalMutation({
       productAccountId,
       trustedDeviceId: args.trustedDeviceToRevokeId,
     });
+    // A retained id of the caller's own installation would remove its current row too.
+    const currentDevice = await ctx.db.get(
+      'trustedDevices',
+      args.trustedDeviceId,
+    );
+    if (currentDevice?.deviceIdentifier === target.deviceIdentifier) {
+      throw new Error('Use sign out to remove the current Trusted Device');
+    }
     // A stale id of an installation already removed under its newer id is complete too: another
     // rotation would only replace the Recovery Key and add a second tombstone for the installation.
     const installationRevocation = await ctx.db

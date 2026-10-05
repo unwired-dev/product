@@ -1805,6 +1805,63 @@ describe('productAccount.connect', () => {
     ).rejects.toMatchObject({ data: { code: 'TRUSTED_DEVICE_REVOKED' } });
   });
 
+  it('refuses removing the current installation through its own retained id', async () => {
+    expect.assertions(2);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const staleDevice = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+    });
+    await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-002',
+      platform: 'macos',
+    });
+    const recoveryMaterial = await asUser.mutation(
+      internal.productSync.replaceRecoveryMaterialIfUnchanged,
+      {
+        encryptedPayload,
+        trustedDeviceId: staleDevice.trustedDeviceId,
+      },
+    );
+    await asUser.mutation(api.productAccount.unregisterTrustedDevice, {
+      deviceIdentifier: 'device-001',
+      trustedDeviceId: staleDevice.trustedDeviceId,
+    });
+    const currentDevice = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+      supportsDeviceCredentials: true,
+    });
+    await expect(
+      revokeTrustedDevice(asUser, {
+        encryptedTransition: encryptedPayload,
+        expectedRecoveryUpdatedAt: recoveryMaterial.updatedAt,
+        recoveryWrappedAccountKey: {
+          ...encryptedPayload,
+          keyVersion: 2,
+          schemaVersion: 3,
+        },
+        trustedDeviceCredential: currentDevice.trustedDeviceCredential,
+        trustedDeviceId: currentDevice.trustedDeviceId,
+        trustedDeviceToRevokeId: staleDevice.trustedDeviceId,
+      }),
+    ).rejects.toThrow('Use sign out to remove the current Trusted Device');
+    await expect(
+      t.run(async (ctx) => ({
+        current: await ctx.db.get(
+          'trustedDevices',
+          currentDevice.trustedDeviceId,
+        ),
+        tombstones: await ctx.db.query('revokedTrustedDevices').collect(),
+      })),
+    ).resolves.toMatchObject({
+      current: { deviceIdentifier: 'device-001' },
+      tombstones: [],
+    });
+  });
+
   it('completes a removal by a stale id once the reconnected installation is removed', async () => {
     expect.assertions(3);
 
