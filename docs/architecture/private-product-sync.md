@@ -143,6 +143,14 @@ ring cannot acknowledge a newer approval. Only a valid confirmation creates the
 Trusted Device acknowledged at that epoch and deletes the pending record and
 envelope. No rotation transition is returned during admission.
 
+Removal through a retained Trusted Device ID also deletes any Pending Device
+with that installation's identifier in the same Product Account. An installation
+that signed out and returned to wait cannot survive its removal as a pending
+record. `productSyncEnrollment.complete` independently rechecks the account-scoped
+identifier tombstone before creating a Trusted Device; a pending record that
+outlived removal is deleted and receives `admitted: false`, even with a current
+approval or Recovery Key authorization.
+
 An unreadable ring, removed approver or superseded epoch leaves the device pending;
 the client discards unusable saved keys and asks again with a fresh key and code.
 Credential reissue after a lost connection reply likewise clears old authorization.

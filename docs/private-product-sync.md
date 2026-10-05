@@ -298,7 +298,7 @@ It checks:
   account, identifier, schema or relabelled epoch;
 - rejection of another account's keys and of prototype recovery schemas;
 - recovery and enrollment envelopes that open only for their key, account,
-  device, request, key epoch and Enrollment Code, and Enrollment Code parsing
+  Pending Device, key epoch and Enrollment Code, and Enrollment Code parsing
   with its check digit.
 
 It covers one-time initialization, the Recovery Key opening the published

@@ -5,6 +5,7 @@ import { convexTest } from 'convex-test';
 import type { Id } from '../convex/_generated/dataModel.js';
 
 import { api, internal } from '../convex/_generated/api.js';
+import { trustedDeviceCredentialDigest } from '../convex/productAccountAuth.js';
 import schema from '../convex/schema.js';
 import {
   pendingConnection,
@@ -636,6 +637,59 @@ describe('pending device admission', () => {
     await expect(
       recover(asUser, later, replacementRecoveryProof),
     ).resolves.toStrictEqual({ ...recoveryEnvelope, keyVersion: 2 });
+  });
+
+  it('never admits an installation removed through its retained id while it waited again after signing out', async () => {
+    expect.hasAssertions();
+
+    const { asUser, holder, newcomer, t } = await enrollmentAccount();
+    await recover(asUser, newcomer);
+    const signedOut = await admit(asUser, newcomer);
+    await asUser.mutation(api.productAccount.unregisterTrustedDevice, {
+      ...signedOut.proof,
+      deviceIdentifier: signedOut.deviceIdentifier,
+    });
+    // The same installation signs in again and waits.
+    const waiting = await pendingDevice(asUser, newcomer.deviceIdentifier);
+
+    // Removing it through its retained Trusted Device id refuses the waiting record too, so the
+    // replacement Recovery Key cannot admit it.
+    await revoke(asUser, holder, signedOut);
+    await expect(
+      recover(asUser, waiting, replacementRecoveryProof),
+    ).rejects.toMatchObject(pendingUnavailable);
+    await expect(complete(asUser, waiting, 2)).rejects.toMatchObject(
+      pendingUnavailable,
+    );
+    await expect(
+      connect(asUser, newcomer.deviceIdentifier),
+    ).rejects.toMatchObject({ data: { code: 'TRUSTED_DEVICE_REVOKED' } });
+
+    // Even a record that outlived the removal is refused at admission and dropped.
+    const outlivedId = await t.run(async (ctx) =>
+      ctx.db.insert('pendingDevices', {
+        createdAt: Date.now(),
+        credentialDigest: await trustedDeviceCredentialDigest(
+          waiting.proof.pendingDeviceCredential,
+        ),
+        deviceIdentifier: newcomer.deviceIdentifier,
+        expiresAt: Date.now() + enrollmentLifetime,
+        platform: 'macos',
+        productAccountId: holder.productAccountId,
+        recoveryKeyVersion: 2,
+      }),
+    );
+    const outlived = {
+      ...waiting,
+      proof: { ...waiting.proof, pendingDeviceId: outlivedId },
+    };
+    await expect(complete(asUser, outlived, 2)).resolves.toStrictEqual({
+      admitted: false,
+    });
+    await expect(
+      t.run(async (ctx) => ctx.db.query('pendingDevices').collect()),
+    ).resolves.toStrictEqual([]);
+    await expect(listTrusted(asUser, holder)).resolves.toHaveLength(1);
   });
 
   it('completes a pending rotation without waiting for a Pending Device', async () => {

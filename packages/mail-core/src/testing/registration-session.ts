@@ -186,6 +186,7 @@ export function createMockRegistrationSession(
       }
       return Promise.resolve(snapshot);
     },
+    // fallow-ignore-next-line complexity -- One fixed scenario table decides each synthetic sign-in outcome.
     signIn: (provider) => {
       if (deleted(accounts[provider].productAccountId)) {
         snapshot = { kind: 'signed-out', notice: 'deleted' };

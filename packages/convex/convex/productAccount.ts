@@ -819,6 +819,18 @@ async function deleteRevocationTargetDevicesAndRoutes(
   if (!selectedDeviceDeleted) {
     await deleteTrustedDeviceAndRoutes(ctx, productAccountId, trustedDeviceId);
   }
+  // The installation may be waiting again after a sign-out; its identifier is now refused.
+  const pendingDevice = await ctx.db
+    .query('pendingDevices')
+    .withIndex('by_productAccountId_and_deviceIdentifier', (q) =>
+      q
+        .eq('productAccountId', productAccountId)
+        .eq('deviceIdentifier', target.deviceIdentifier),
+    )
+    .unique();
+  if (pendingDevice !== null) {
+    await ctx.db.delete('pendingDevices', pendingDevice._id);
+  }
 }
 
 async function pendingRotationDeviceCount(

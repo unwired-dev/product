@@ -87,6 +87,7 @@ async function liveTrustedDevice(
 }
 
 // An open request another device of the same account can still approve or decline.
+// fallow-ignore-next-line complexity -- Every unusable request fails closed with the same unavailable response.
 async function openRequest(
   ctx: MutationCtx,
   account: AuthenticatedProductAccount,
@@ -216,6 +217,7 @@ export const approve = mutation({
     keyVersion: v.number(),
     pendingDeviceId: v.string(),
   },
+  // fallow-ignore-next-line complexity -- Each refused approval fails closed before the ring is stored.
   handler: async (ctx, args) => {
     requireSealedKeyRing(args);
     const account = await requireAuthenticatedTrustedDevice(
@@ -276,6 +278,7 @@ export const decline = mutation({
 // left or whose epoch was superseded, reads as cancelled.
 export const status = mutation({
   args: pendingDeviceProofArgs,
+  // fallow-ignore-next-line complexity -- Expiry, authorization and request state determine the response.
   handler: async (ctx, args): Promise<ProductSyncEnrollmentStatus> => {
     const { account, pendingDevice } = await requireAuthenticatedPendingDevice(
       ctx,
@@ -310,6 +313,7 @@ export const status = mutation({
 
 // The newest recovery envelope and the verifier of the Recovery Key that opens it. While a
 // rotation is pending, only the replacement Recovery Key that the removal issued admits a device.
+// fallow-ignore-next-line complexity -- Missing committed or pending material admits nobody.
 async function admittingRecoveryEnvelope(
   ctx: MutationCtx,
   productAccountId: Id<'productAccounts'>,
@@ -377,12 +381,26 @@ export const recover = mutation({
 // at the authorized epoch, so it never fetches a transition, and keeps its credential.
 export const complete = mutation({
   args: { ...pendingDeviceProofArgs, keyVersion: v.number() },
+  // fallow-ignore-next-line complexity -- Refused identifiers, stale epochs and void authorizations cannot admit a device.
   handler: async (ctx, args) => {
     const { account, pendingDevice } = await requireAuthenticatedPendingDevice(
       ctx,
       args,
     );
     const keyEpoch = newestProductSyncKeyEpoch(account);
+    // A removed installation's identifier stays refused, even if it waited again after a sign-out.
+    const revocation = await ctx.db
+      .query('revokedTrustedDevices')
+      .withIndex('by_productAccountId_and_deviceIdentifier', (q) =>
+        q
+          .eq('productAccountId', account.productAccountId)
+          .eq('deviceIdentifier', pendingDevice.deviceIdentifier),
+      )
+      .first();
+    if (revocation !== null) {
+      await ctx.db.delete('pendingDevices', pendingDevice._id);
+      return { admitted: false as const };
+    }
     if (
       args.keyVersion !== keyEpoch ||
       (pendingDevice.recoveryKeyVersion !== keyEpoch &&
