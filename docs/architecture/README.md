@@ -60,7 +60,7 @@ release scopes; a moved passage is not a new requirement or proof of qualificati
 
 The resolved OCR checklist requires the review agent to check applicable privacy,
 encryption, identity-isolation, transport and delivery guarantees in the earlier
-[ADRs](../adr/). ADR 0059 through 0065 take
+[ADRs](../adr/). ADR 0059 through 0067 take
 precedence where they explicitly replace prototype architecture or release scope.
 Earlier provider support, Profile features, Apple-only login, and cross-device
 scheduled delivery are not implicit first-release requirements.

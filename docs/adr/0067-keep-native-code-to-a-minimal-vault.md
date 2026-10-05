@@ -29,10 +29,22 @@ Native code owns:
   Enrollment Code into key bytes stays native too.
 - **Provider SDKs and credentials**: Google Sign-In, Gmail authorization and
   Sign in with Apple. Provider tokens never leave native code.
-- **Credentialed backend calls**: one generic primitive that attaches the Product
-  identity credential and the Trusted Device Credential to a Convex call.
-  TypeScript chooses the function and arguments and decodes the response. Neither
-  credential crosses the bridge.
+- **Credentialed backend calls**: every credential and provider proof a Convex
+  call carries, in either direction:
+  - A generic primitive for ordinary calls attaches the credentials the call
+    requires: the Product identity credential, plus the Pending Device
+    credential or the Trusted Device Credential, according to the device's
+    authorization state. TypeScript chooses the function and the non-secret
+    arguments and decodes the response.
+  - Purpose-specific operations handle calls that carry a provider proof, such as
+    registering a Gmail connection with its transient identity token.
+  - Purpose-specific operations also handle calls whose response issues a
+    credential, such as connecting the device. Native code stores the issued
+    Pending Device credential or Trusted Device Credential durably, then returns
+    only the non-secret fields.
+
+  No credential or provider proof crosses the bridge in either direction.
+
 - **Persist-then-return steps**: operations that must store keys durably before
   anything is acknowledged complete that storage before they return.
 
@@ -78,9 +90,10 @@ credentials stays exactly where [ADR 0001](0001-end-to-end-encrypted-product-syn
 - **Move encryption to TypeScript** with a JavaScript crypto library. Rejected:
   key material would sit in the JavaScript heap, Hermes offers no platform
   cryptography, and it adds a production dependency.
-- **Give TypeScript the Product identity and Trusted Device credentials** so it
-  can call Convex directly. Rejected: JavaScript logs can leave the device, and
-  the native call primitive that keeps the credentials native is small.
+- **Give TypeScript the device credentials and provider proofs** so it can call
+  Convex directly. Rejected: JavaScript logs can leave the device, and the native
+  call primitive and the few purpose-specific calls that keep them native are
+  small.
 
 ## Consequences
 
