@@ -222,6 +222,22 @@ enum KeyRingEnvelope {
       info: ProductSyncSeal.binding("recovery-key", [account]), outputByteCount: 32)
   }
 
+  // A value the Recovery Key derives only to admit a Pending Device. The device presents it; the
+  // backend keeps only its digest, the verifier, published with each recovery envelope. Neither
+  // opens the envelope.
+  static func recoveryProof(_ key: RecoveryKey, account: String) -> String {
+    HKDF<SHA256>.deriveKey(
+      inputKeyMaterial: SymmetricKey(data: key.bytes),
+      info: ProductSyncSeal.binding("recovery-verifier", [account]), outputByteCount: 32
+    ).withUnsafeBytes { Data($0) }.map { String(format: "%02x", $0) }.joined()
+  }
+
+  static func recoveryVerifier(_ key: RecoveryKey, account: String) -> String {
+    SHA256.hash(data: Data(recoveryProof(key, account: account).utf8)).map {
+      String(format: "%02x", $0)
+    }.joined()
+  }
+
   static func recovery(_ ring: ProductSyncKeyRing, key: RecoveryKey, account: String) throws
     -> EncryptedPayload
   {
@@ -275,7 +291,7 @@ enum KeyRingEnvelope {
     return ring
   }
 
-  // Sealed to one enrolling device's key and bound to its account, device, request and key epoch.
+  // Sealed to one Pending Device's current key and bound to its account, device and key epoch.
   struct Enrollment: Codable, Equatable {
     let encapsulatedKey: Data
     let ciphertext: Data
@@ -284,10 +300,9 @@ enum KeyRingEnvelope {
   struct EnrollmentBinding {
     let account: String
     let device: String
-    let request: String
 
     func context(keyVersion: Int) -> Data {
-      ProductSyncSeal.binding("enrollment", [account, device, request, String(keyVersion)])
+      ProductSyncSeal.binding("enrollment", [account, device, String(keyVersion)])
     }
   }
 

@@ -145,6 +145,14 @@ export const trustedDeviceReconnectRequiredErrorCode =
 export const trustedDeviceCredentialArgs = {
   trustedDeviceCredential: v.optional(v.string()),
 };
+export const pendingDeviceUnavailableErrorCode = 'PENDING_DEVICE_UNAVAILABLE';
+// Long enough to read an Enrollment Code from one screen and type it on another. A Pending Device
+// ends with its code unless it asks again.
+export const enrollmentLifetimeMilliseconds = 15 * 60 * 1000;
+export const pendingDeviceProofArgs = {
+  pendingDeviceCredential: v.string(),
+  pendingDeviceId: v.id('pendingDevices'),
+};
 
 const trustedDeviceCredentialByteCount = 32;
 
@@ -169,6 +177,13 @@ export async function trustedDeviceCredentialDigest(
       ),
     ),
   );
+}
+
+// A SHA-256 digest, as hex, of the value the Recovery Key derives for admitting a Pending Device.
+export function requireRecoveryVerifier(verifier: string): void {
+  if (!/^[0-9a-f]{64}$/u.test(verifier)) {
+    throw new Error('Recovery Key verifier is invalid');
+  }
 }
 
 export function throwTrustedDeviceRevoked(): never {
@@ -210,11 +225,7 @@ export function requireCurrentProductSyncKeyEpoch(
   account: AuthenticatedProductAccount,
   keyVersion: number,
 ): void {
-  const requiredKeyEpoch =
-    account.productSyncPendingKeyEpoch ??
-    account.productSyncKeyEpoch ??
-    initialProductSyncKeyEpoch;
-  if (keyVersion !== requiredKeyEpoch) {
+  if (keyVersion !== newestProductSyncKeyEpoch(account)) {
     throw new Error('Product Sync key rotation required');
   }
 }
@@ -307,4 +318,74 @@ export async function requireAuthenticatedTrustedDevice(
     trustedDeviceId,
   });
   return account;
+}
+
+// A missing, foreign, expired or wrongly proven Pending Device fails the same way; the device
+// signs in again for a new record.
+function throwPendingDeviceUnavailable(): never {
+  throw new ConvexError({ code: pendingDeviceUnavailableErrorCode });
+}
+
+export function newestProductSyncKeyEpoch(
+  account: Readonly<{
+    productSyncKeyEpoch?: number;
+    productSyncPendingKeyEpoch?: number;
+  }>,
+): number {
+  return (
+    account.productSyncPendingKeyEpoch ??
+    account.productSyncKeyEpoch ??
+    initialProductSyncKeyEpoch
+  );
+}
+
+type PendingDeviceProof = Readonly<{
+  pendingDeviceCredential: string;
+  pendingDeviceId: Id<'pendingDevices'>;
+}>;
+
+// The Pending Device's own credential for its record in this Product Account.
+export async function requirePendingDeviceProof(
+  ctx: QueryCtx | MutationCtx,
+  productAccountId: Id<'productAccounts'>,
+  proof: PendingDeviceProof & Readonly<{ allowExpired?: boolean }>,
+): Promise<Doc<'pendingDevices'>> {
+  const pendingDevice = await ctx.db.get(
+    'pendingDevices',
+    proof.pendingDeviceId,
+  );
+  if (
+    pendingDevice === null ||
+    pendingDevice.productAccountId !== productAccountId ||
+    (proof.allowExpired !== true && pendingDevice.expiresAt <= Date.now()) ||
+    !/^[0-9a-f]{64}$/u.test(proof.pendingDeviceCredential) ||
+    (await trustedDeviceCredentialDigest(proof.pendingDeviceCredential)) !==
+      pendingDevice.credentialDigest
+  ) {
+    throwPendingDeviceUnavailable();
+  }
+  return pendingDevice;
+}
+
+// A Pending Device proves Product Sign-In and its own credential. It reaches only its own
+// enrollment, and an expired one only to leave.
+export async function requireAuthenticatedPendingDevice(
+  ctx: MutationCtx,
+  proof: PendingDeviceProof,
+  options: Readonly<{ allowExpired?: boolean }> = {},
+): Promise<
+  Readonly<{
+    account: AuthenticatedProductAccount;
+    pendingDevice: Doc<'pendingDevices'>;
+  }>
+> {
+  const account = await requireProductAccount(ctx);
+  return {
+    account,
+    pendingDevice: await requirePendingDeviceProof(
+      ctx,
+      account.productAccountId,
+      { ...proof, ...options },
+    ),
+  };
 }

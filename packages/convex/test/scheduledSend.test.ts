@@ -8,6 +8,7 @@ import type { Id } from '../convex/_generated/dataModel.js';
 
 import { api, internal } from '../convex/_generated/api.js';
 import schema from '../convex/schema.js';
+import { connectTrusted, recoveryVerifier } from './devices.js';
 
 const modules = import.meta.glob('../convex/**/*.ts');
 
@@ -87,11 +88,12 @@ const encryptedPayload = {
 async function fixture() {
   const t = convexTest(schema, modules);
   const asUser = t.withIdentity(appleIdentity);
-  const device = await asUser.mutation(api.productAccount.connect, {
+  const device = await connectTrusted(t, asUser, {
     deviceIdentifier: 'origin-device',
     platform: 'ios',
   });
   await asUser.mutation(api.productSync.initialize, {
+    recoveryVerifier,
     encryptedPayload: { ...encryptedPayload, schemaVersion: 3 },
     trustedDeviceId: device.trustedDeviceId,
   });
@@ -109,7 +111,7 @@ async function fixture() {
 
 async function claimFixture() {
   const base = await fixture();
-  const secondDevice = await base.asUser.mutation(api.productAccount.connect, {
+  const secondDevice = await connectTrusted(base.t, base.asUser, {
     deviceIdentifier: 'second-device',
     platform: 'macos',
   });

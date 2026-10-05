@@ -9,27 +9,34 @@ struct StoredPayload: Codable, Equatable {
   let updatedAt: Double
 }
 
-// Backend steps for End-to-End Encrypted Product Sync; every call presents a Trusted Device proof.
+// Backend steps for End-to-End Encrypted Product Sync. Every call presents this device's proof:
+// a Trusted Device's, or for its own admission, a Pending Device's.
 struct ProductSyncBackend {
-  // Stores the first recovery envelope and marks the account initialized in one step.
-  // False when the account already holds other key material, which this device must not replace.
+  // Stores the first recovery envelope with its Recovery Key verifier and marks the account
+  // initialized in one step. False when the account already holds other key material, which this
+  // device must not replace.
   let initialize:
-    (ProductSignInIdentity, ProductRegistrationReceipt, EncryptedPayload) async throws -> Bool
+    (ProductSignInIdentity, ProductRegistrationReceipt, EncryptedPayload, String) async throws ->
+      Bool
   let list:
     (ProductSignInIdentity, ProductRegistrationReceipt, String) async throws -> [StoredPayload]
   // Compare-and-set: returns the stored record, which differs from ours when another write won.
   let put:
     (ProductSignInIdentity, ProductRegistrationReceipt, String, EncryptedPayload, Double?)
       async throws -> StoredPayload
-  // Device enrollment: the new device asks with a one-time public key and returns the request.
+  // A Pending Device asks with a one-time public key, replacing any earlier one.
   let requestEnrollment:
     (ProductSignInIdentity, ProductRegistrationReceipt, Curve25519.KeyAgreement.PublicKey)
-      async throws -> String
+      async throws -> Void
   let enrollmentStatus:
-    (ProductSignInIdentity, ProductRegistrationReceipt, String) async throws -> EnrollmentStatus
-  // Removes the sealed approval from the backend once this device holds the keys.
+    (ProductSignInIdentity, ProductRegistrationReceipt) async throws -> EnrollmentStatus
+  // Sent once the Pending Device stored its keys: its new Trusted Device id, or nil when the
+  // authorization became void and it stays pending.
   let completeEnrollment:
-    (ProductSignInIdentity, ProductRegistrationReceipt, String) async throws -> Void
+    (ProductSignInIdentity, ProductRegistrationReceipt, Int) async throws -> String?
+  // A Pending Device's Recovery Key proof: the newest recovery envelope, or nil for another key.
+  let recoverPending:
+    (ProductSignInIdentity, ProductRegistrationReceipt, String) async throws -> EncryptedPayload?
   // Requests from other devices of the account that are still waiting for approval.
   let pendingEnrollments:
     (ProductSignInIdentity, ProductRegistrationReceipt) async throws -> [PendingEnrollment]
@@ -44,18 +51,18 @@ struct ProductSyncBackend {
   let recoveryEnvelope:
     (ProductSignInIdentity, ProductRegistrationReceipt) async throws -> StoredPayload
   // The key epoch a revocation started and the remaining devices have not all adopted yet.
-  let keyRotation:
-    (ProductSignInIdentity, ProductRegistrationReceipt) async throws -> KeyRotation?
+  let keyRotation: (ProductSignInIdentity, ProductRegistrationReceipt) async throws -> KeyRotation?
   let acknowledgeRotation:
     (ProductSignInIdentity, ProductRegistrationReceipt, Int) async throws -> Void
   let trustedDevices:
     (ProductSignInIdentity, ProductRegistrationReceipt) async throws -> [TrustedDevice]
   // Removes another device with a recent Product Sign-In: the new key ring sealed to the account's
-  // committed key, the new recovery envelope, and the recovery record time it replaces.
+  // committed key, the new recovery envelope and its Recovery Key verifier, and the recovery
+  // record time it replaces.
   let revoke:
     (
       ProductSignInIdentity, ProductRegistrationReceipt, String, EncryptedPayload, EncryptedPayload,
-      Double
+      String, Double
     ) async throws -> Void
 }
 
@@ -72,10 +79,9 @@ struct TrustedDevice: Codable, Equatable {
   let registeredAt: Double
 }
 
-// Another device's request to receive this Product Account's keys.
+// A Pending Device's request to receive this Product Account's keys.
 struct PendingEnrollment {
-  let requestId: String
-  let trustedDeviceId: String
+  let pendingDeviceId: String
   let publicKey: Curve25519.KeyAgreement.PublicKey
   let deviceName: String
   let expiresAt: Double
@@ -90,12 +96,12 @@ struct EnrollmentStatus {
   var approval: (keyVersion: Int, envelope: KeyRingEnvelope.Enrollment)?
 }
 
-// This device's open enrollment request, kept in a device-only Keychain item until approved.
+// This Pending Device's open enrollment request, kept in a device-only Keychain item until it is
+// admitted.
 struct ProductSyncEnrollment: Codable {
-  var version = 1
+  var version = 2
   let productAccountId: String
-  let trustedDeviceId: String
-  let requestId: String
+  let pendingDeviceId: String
   let privateKey: Data
   let code: String
   // Why the previous request ended without unlocking this device: renewed or rejected.
@@ -165,12 +171,15 @@ extension RegistrationStore {
     "product-sync-enrollment." + productAccountId
   }
 
-  // This device's open request, only while it belongs to the same account and Trusted Device.
+  // This device's open request, only while it belongs to the same account and Pending Device.
   func loadEnrollment(_ product: ProductRegistrationReceipt) throws -> ProductSyncEnrollment? {
-    guard let data = try keys.read(enrollmentAccount(product.productAccountId)) else { return nil }
-    let enrollment = try JSONDecoder().decode(ProductSyncEnrollment.self, from: data)
-    guard enrollment.version == 1, enrollment.productAccountId == product.productAccountId,
-      enrollment.trustedDeviceId == product.trustedDeviceId
+    guard product.pending == true,
+      let data = try keys.read(enrollmentAccount(product.productAccountId))
+    else { return nil }
+    let enrollment = try? JSONDecoder().decode(ProductSyncEnrollment.self, from: data)
+    guard let enrollment, enrollment.version == 2,
+      enrollment.productAccountId == product.productAccountId,
+      enrollment.pendingDeviceId == product.trustedDeviceId
     else { return nil }
     return enrollment
   }
@@ -181,12 +190,18 @@ extension RegistrationStore {
   func synchronize(_ saved: SavedRegistration) async throws -> SavedRegistration {
     guard let backend = productSync, let session, var product = saved.product else { return saved }
     let account = product.productAccountId
+    var saved = saved
     do {
-      var vault = try loadVault(account)
-      // Synchronization can adopt an initialized account's keys through trusted-device approval.
-      if vault == nil, product.productSyncMaterialInitialized == true {
-        vault = try await enroll(product, backend: backend, session: session)
+      // A Pending Device first has to be admitted; until then it reads and writes nothing.
+      if product.pending == true {
+        guard product.productSyncMaterialInitialized == true,
+          let admitted = try await admit(saved, backend: backend, session: session),
+          let receipt = admitted.product
+        else { return saved }
+        saved = admitted
+        product = receipt
       }
+      var vault = try loadVault(account)
       if vault == nil {
         guard product.productSyncMaterialInitialized == false else { return saved }
         let ring = ProductSyncKeyRing.create()
@@ -202,8 +217,12 @@ extension RegistrationStore {
       if current.published {
         current = try await adoptRotation(current, backend: backend, session: session, product)
       } else {
-        guard let envelope = current.recoveryEnvelope else { throw RegistrationError.unavailable }
-        guard try await backend.initialize(session, product, envelope) else {
+        guard let envelope = current.recoveryEnvelope, let recoveryKey = current.recoveryKey else {
+          throw RegistrationError.unavailable
+        }
+        let verifier = try KeyRingEnvelope.recoveryVerifier(
+          RecoveryKey(bytes: recoveryKey), account: account)
+        guard try await backend.initialize(session, product, envelope, verifier) else {
           try keys.remove(vaultAccount(account))
           var next = saved
           product.productSyncMaterialInitialized = true
@@ -241,16 +260,24 @@ extension RegistrationStore {
     return saved
   }
 
-  // Asks a trusted device to approve this one and adopts the keys sealed to it. An approval that
-  // does not open with this device's key and code changes nothing; a new request replaces it.
-  func enroll(
-    _ product: ProductRegistrationReceipt, backend: ProductSyncBackend,
-    session: ProductSignInIdentity
-  ) async throws -> ProductSyncVault? {
+  // Asks a Trusted Device to approve this Pending Device, and adopts the keys sealed to it once they
+  // open with this device's key and code. Admission follows only after the keys are stored. An
+  // approval that does not open, or that became void, changes nothing; a new request replaces it.
+  // Returns the registration of the admitted Trusted Device, or nil while it still waits.
+  func admit(
+    _ saved: SavedRegistration, backend: ProductSyncBackend, session: ProductSignInIdentity
+  ) async throws -> SavedRegistration? {
+    guard let product = saved.product else { throw RegistrationError.unavailable }
     let account = product.productAccountId
+    // Keys stored by an attempt that did not hear back whether it was admitted.
+    if try loadVault(account) != nil {
+      if let admitted = try await confirmAdmission(saved, backend: backend, session: session) {
+        return admitted
+      }
+    }
     var notice: String?
     if let pending = try loadEnrollment(product) {
-      let status = try await backend.enrollmentStatus(session, product, pending.requestId)
+      let status = try await backend.enrollmentStatus(session, product)
       switch status.state {
       case .pending: return nil
       case .approved:
@@ -259,22 +286,16 @@ extension RegistrationStore {
             approval.envelope,
             with: Curve25519.KeyAgreement.PrivateKey(rawRepresentation: pending.privateKey),
             code: EnrollmentCode(parsing: pending.code),
-            binding: .init(
-              account: account, device: product.trustedDeviceId, request: pending.requestId),
+            binding: .init(account: account, device: product.trustedDeviceId),
             keyVersion: approval.keyVersion)
         {
           // The account keys are adopted as they are; the Recovery Key stays with its owner.
-          let vault = ProductSyncVault(
-            productAccountId: account, ring: ring, published: true, recoveryKeyConfirmed: true)
-          try saveVault(vault)
-          try keys.remove(enrollmentAccount(account))
-          do {
-            try await backend.completeEnrollment(session, product, pending.requestId)
-          } catch {
-            // The approval expires on its own; this device already holds the keys.
-            Self.logProductSyncFailure("Enrollment completion failed", error)
+          try saveVault(
+            ProductSyncVault(
+              productAccountId: account, ring: ring, published: true, recoveryKeyConfirmed: true))
+          if let admitted = try await confirmAdmission(saved, backend: backend, session: session) {
+            return admitted
           }
-          return vault
         }
         notice = "rejected"
       case .cancelled, .expired:
@@ -282,15 +303,40 @@ extension RegistrationStore {
       }
     }
     let key = Curve25519.KeyAgreement.PrivateKey()
-    let request = try await backend.requestEnrollment(session, product, key.publicKey)
+    try await backend.requestEnrollment(session, product, key.publicKey)
     try keys.save(
       JSONEncoder().encode(
         ProductSyncEnrollment(
-          productAccountId: account, trustedDeviceId: product.trustedDeviceId,
-          requestId: request, privateKey: key.rawRepresentation,
-          code: EnrollmentCode.generate().digits, notice: notice)),
+          productAccountId: account, pendingDeviceId: product.trustedDeviceId,
+          privateKey: key.rawRepresentation, code: EnrollmentCode.generate().digits,
+          notice: notice)),
       account: enrollmentAccount(account))
     return nil
+  }
+
+  // Confirms keys this Pending Device stored. The backend admits it as a Trusted Device with the same
+  // credential; a void authorization leaves it pending, and its keys are discarded.
+  func confirmAdmission(
+    _ saved: SavedRegistration, backend: ProductSyncBackend, session: ProductSignInIdentity
+  ) async throws -> SavedRegistration? {
+    guard let product = saved.product else { throw RegistrationError.unavailable }
+    let account = product.productAccountId
+    guard let vault = try loadVault(account) else { throw RegistrationError.unavailable }
+    guard
+      let trustedDeviceId = try await backend.completeEnrollment(
+        session, product, vault.ring.current)
+    else {
+      try keys.remove(vaultAccount(account))
+      return nil
+    }
+    var next = saved
+    next.product = ProductRegistrationReceipt(
+      productAccountId: account, trustedDeviceId: trustedDeviceId,
+      trustedDeviceCredential: product.trustedDeviceCredential,
+      signInProviders: product.signInProviders, productSyncMaterialInitialized: true)
+    try save(next)
+    try keys.remove(enrollmentAccount(account))
+    return next
   }
 
   // Writes this device's verified mailbox descriptor when missing, then reads every descriptor back.
@@ -339,9 +385,8 @@ extension RegistrationStore {
   func privateSync(_ saved: SavedRegistration) throws -> [String: String] {
     guard productSync != nil, let product = saved.product else { return [:] }
     var result: [String: String] = [:]
-    guard let vault = try loadVault(product.productAccountId) else {
-      // Missing local keys for an account with key material never create replacements. An
-      // unknown state, such as a receipt saved before Product Sync, waits for verification.
+    // A Pending Device shows its Enrollment Code until it is admitted, even with keys it stored.
+    if product.pending == true {
       if product.productSyncMaterialInitialized != true {
         result["privateSync"] = "setup-pending"
       } else if let enrollment = try loadEnrollment(product) {
@@ -351,6 +396,14 @@ extension RegistrationStore {
       } else {
         result["privateSync"] = "enrollment-needed"
       }
+      return result
+    }
+    guard let vault = try loadVault(product.productAccountId) else {
+      // A Trusted Device without local keys never creates replacements for existing key material;
+      // its Recovery Key unlocks it. An unknown state, such as a receipt saved before Product Sync,
+      // waits for verification.
+      result["privateSync"] =
+        product.productSyncMaterialInitialized != true ? "setup-pending" : "enrollment-needed"
       return result
     }
     if !vault.published {
@@ -367,7 +420,7 @@ extension RegistrationStore {
         $0.expiresAt < $1.expiresAt
       })
     {
-      result["enrollmentRequest"] = request.requestId
+      result["enrollmentRequest"] = request.pendingDeviceId
       result["enrollmentDevice"] = request.deviceName
     }
     // Other devices this one can remove; it re-encrypts with keys and a Recovery Key it holds.
@@ -410,19 +463,19 @@ extension RegistrationStore {
       throw RegistrationError.enrollmentCodeInvalid
     }
     guard let backend = productSync, let session, let saved = try load(),
-      let product = saved.product, let vault = try loadVault(product.productAccountId),
-      vault.published,
+      let product = saved.product, product.pending != true,
+      var vault = try loadVault(product.productAccountId), vault.published,
       let request = enrollmentRequests[product.productAccountId]?.first(where: {
-        $0.requestId == requestId
+        $0.pendingDeviceId == requestId
       })
     else { throw RegistrationError.enrollmentUnavailable }
+    // Only the account's newest key epoch is sealed; a pending one is adopted first.
+    vault = try await adoptRotation(vault, backend: backend, session: session, product)
     let envelope = try KeyRingEnvelope.enrollment(
       vault.ring, to: request.publicKey, code: code,
-      binding: .init(
-        account: product.productAccountId, device: request.trustedDeviceId,
-        request: request.requestId))
+      binding: .init(account: product.productAccountId, device: request.pendingDeviceId))
     try await backend.approveEnrollment(session, product, request, vault.ring.current, envelope)
-    enrollmentRequests[product.productAccountId]?.removeAll { $0.requestId == requestId }
+    enrollmentRequests[product.productAccountId]?.removeAll { $0.pendingDeviceId == requestId }
     return try status(saved)
   }
 
@@ -431,7 +484,7 @@ extension RegistrationStore {
       let product = saved.product
     else { throw RegistrationError.enrollmentUnavailable }
     try await backend.declineEnrollment(session, product, requestId)
-    enrollmentRequests[product.productAccountId]?.removeAll { $0.requestId == requestId }
+    enrollmentRequests[product.productAccountId]?.removeAll { $0.pendingDeviceId == requestId }
     return try status(saved)
   }
 
@@ -446,7 +499,11 @@ extension RegistrationStore {
       return try await status(reconfirm(saved))
     case .apple:
       // Apple cannot renew silently; without this process's sign-in it asks interactively.
-      guard session != nil else { return try await signIn(with: .apple) }
+      guard let session else { return try await signIn(with: .apple) }
+      // A Pending Device reconnects, which renews a record that ended with its Enrollment Code.
+      if saved.product?.pending == true {
+        return try await status(establish(saved, identity: session))
+      }
       return try await status(synchronize(saved))
     }
   }

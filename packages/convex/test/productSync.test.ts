@@ -11,6 +11,7 @@ import type { Id } from '../convex/_generated/dataModel.js';
 
 import { api } from '../convex/_generated/api.js';
 import schema from '../convex/schema.js';
+import { connectTrusted, recoveryVerifier } from './devices.js';
 
 const modules = import.meta.glob('../convex/**/*.ts');
 
@@ -67,6 +68,7 @@ async function initializeProductSync(
   }>,
 ) {
   return asUser.mutation(api.productSync.initialize, {
+    recoveryVerifier,
     encryptedPayload: recoveryEnvelope,
     trustedDeviceCredential: proof.trustedDeviceCredential,
     trustedDeviceId: proof.trustedDeviceId,
@@ -76,7 +78,7 @@ async function initializeProductSync(
 async function connectAppleDevice({ initialized = true } = {}) {
   const t = convexTest(schema, modules);
   const asUser = t.withIdentity(appleIdentity);
-  const connect = await asUser.mutation(api.productAccount.connect, {
+  const connect = await connectTrusted(t, asUser, {
     deviceIdentifier: 'device-001',
     platform: 'ios',
   });
@@ -143,98 +145,6 @@ describe('productSync encrypted payloads', () => {
         },
       ],
     });
-  });
-
-  it('stages legacy Product Sync reads until the account revokes a device', async () => {
-    expect.assertions(3);
-
-    const { asUser, connect } = await connectAppleDevice();
-    await putPayload(asUser, connect.trustedDeviceId, 'payload-001');
-
-    await expect(
-      asUser.query(api.productSync.getEncryptedPayload, {
-        payloadIdentifier: 'payload-001',
-      }),
-    ).resolves.toMatchObject({ payloadIdentifier: 'payload-001' });
-    await expect(
-      asUser.query(api.productSync.getEncryptedPayloads, {
-        payloadIdentifiers: ['payload-001'],
-      }),
-    ).resolves.toHaveLength(1);
-    await expect(
-      asUser.query(api.productSync.listEncryptedPayloads, {
-        paginationOpts: firstPage,
-      }),
-    ).resolves.toMatchObject({ isDone: true });
-  });
-
-  it('fails legacy Product Sync reads closed after credential activation', async () => {
-    expect.assertions(3);
-
-    const t = convexTest(schema, modules);
-    const asUser = t.withIdentity(appleIdentity);
-    const connect = await asUser.mutation(api.productAccount.connect, {
-      deviceIdentifier: 'device-001',
-      platform: 'ios',
-      supportsDeviceCredentials: true,
-    });
-    await initializeProductSync(asUser, connect);
-    await asUser.mutation(api.productSync.putEncryptedPayloadIfUnchanged, {
-      encryptedPayload,
-      expectedUpdatedAt: undefined,
-      payloadIdentifier: 'payload-001',
-      trustedDeviceCredential: connect.trustedDeviceCredential,
-      trustedDeviceId: connect.trustedDeviceId,
-    });
-
-    await expect(
-      asUser.query(api.productSync.getEncryptedPayload, {
-        payloadIdentifier: 'payload-001',
-      }),
-    ).rejects.toThrow('Reconnect this Trusted Device');
-    await expect(
-      asUser.query(api.productSync.getEncryptedPayloads, {
-        payloadIdentifiers: ['payload-001'],
-      }),
-    ).rejects.toThrow('Reconnect this Trusted Device');
-    await expect(
-      asUser.query(api.productSync.listEncryptedPayloads, {
-        paginationOpts: firstPage,
-      }),
-    ).rejects.toThrow('Reconnect this Trusted Device');
-  });
-
-  it('rejects legacy Product Sync reads after the account revokes a device', async () => {
-    expect.assertions(3);
-
-    const { asUser, connect, t } = await connectAppleDevice();
-    await putPayload(asUser, connect.trustedDeviceId, 'payload-001');
-
-    await t.run(async (ctx) => {
-      await ctx.db.insert('revokedTrustedDevices', {
-        deviceIdentifier: 'revoked-device',
-        productAccountId: connect.productAccountId,
-        productSyncKeyEpoch: 1,
-        revokedAt: Date.now(),
-        trustedDeviceId: connect.trustedDeviceId,
-      });
-    });
-
-    await expect(
-      asUser.query(api.productSync.getEncryptedPayload, {
-        payloadIdentifier: 'payload-001',
-      }),
-    ).rejects.toThrow('Trusted device required');
-    await expect(
-      asUser.query(api.productSync.getEncryptedPayloads, {
-        payloadIdentifiers: ['payload-001'],
-      }),
-    ).rejects.toThrow('Trusted device required');
-    await expect(
-      asUser.query(api.productSync.listEncryptedPayloads, {
-        paginationOpts: firstPage,
-      }),
-    ).rejects.toThrow('Trusted device required');
   });
 
   it('rejects trusted-device reads from unauthenticated callers', async () => {
@@ -577,6 +487,7 @@ describe('productSync encrypted payloads', () => {
     const { asUser, connect } = await connectAppleDevice();
     const body = JSON.stringify({
       encryptedPayload,
+      recoveryVerifier,
       trustedDeviceId: connect.trustedDeviceId,
     });
     const missingToken = await asUser.fetch('/product-sync/recovery-material', {
@@ -625,6 +536,7 @@ describe('productSync encrypted payloads', () => {
     const response = await asUser.fetch('/product-sync/recovery-material', {
       body: JSON.stringify({
         encryptedPayload,
+        recoveryVerifier,
         trustedDeviceId: connect.trustedDeviceId,
       }),
       headers: {
@@ -709,6 +621,7 @@ describe('productSync encrypted payloads', () => {
     const response = await asUser.fetch('/product-sync/recovery-material', {
       body: JSON.stringify({
         encryptedPayload,
+        recoveryVerifier,
         trustedDeviceId: 'not-a-convex-id',
       }),
       headers: {
@@ -739,6 +652,7 @@ describe('productSync encrypted payloads', () => {
     const response = await asUser.fetch('/product-sync/recovery-material', {
       body: JSON.stringify({
         encryptedPayload,
+        recoveryVerifier,
         trustedDeviceId: connect.trustedDeviceId,
       }),
       headers: {
@@ -759,7 +673,7 @@ describe('productSync encrypted payloads', () => {
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
-    const connect = await asUser.mutation(api.productAccount.connect, {
+    const connect = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
       supportsDeviceCredentials: true,
@@ -768,6 +682,7 @@ describe('productSync encrypted payloads', () => {
       asUser.fetch('/product-sync/recovery-material', {
         body: JSON.stringify({
           encryptedPayload,
+          recoveryVerifier,
           trustedDeviceCredential,
           trustedDeviceId: connect.trustedDeviceId,
         }),
@@ -801,6 +716,7 @@ describe('productSync encrypted payloads', () => {
     const response = await asUser.fetch('/product-sync/recovery-material', {
       body: JSON.stringify({
         encryptedPayload,
+        recoveryVerifier,
         trustedDeviceId: connect.trustedDeviceId,
       }),
       headers: {
@@ -955,12 +871,12 @@ describe('productSync encrypted payloads', () => {
 
     const { asUser, t } = await connectAppleDevice();
     // Another installation of the account holds no keys yet; the Recovery Key opens the envelope there.
-    const added = await asUser.mutation(api.productAccount.connect, {
+    const added = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-002',
       platform: 'macos',
     });
     const asOther = t.withIdentity(otherAppleIdentity);
-    const outsider = await asOther.mutation(api.productAccount.connect, {
+    const outsider = await connectTrusted(t, asOther, {
       deviceIdentifier: 'device-003',
       platform: 'ios',
     });
@@ -1040,17 +956,14 @@ describe('productSync encrypted payloads', () => {
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
     const asOtherUser = t.withIdentity(otherAppleIdentity);
-    const connect = await asUser.mutation(api.productAccount.connect, {
+    const connect = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
     });
-    const otherConnect = await asOtherUser.mutation(
-      api.productAccount.connect,
-      {
-        deviceIdentifier: 'device-002',
-        platform: 'ios',
-      },
-    );
+    const otherConnect = await connectTrusted(t, asOtherUser, {
+      deviceIdentifier: 'device-002',
+      platform: 'ios',
+    });
     await initializeProductSync(asUser, connect);
 
     await asUser.mutation(api.productSync.putEncryptedPayloadIfUnchanged, {
@@ -1080,17 +993,14 @@ describe('productSync encrypted payloads', () => {
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
     const asOtherUser = t.withIdentity(otherAppleIdentity);
-    const connect = await asUser.mutation(api.productAccount.connect, {
+    const connect = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
     });
-    const otherConnect = await asOtherUser.mutation(
-      api.productAccount.connect,
-      {
-        deviceIdentifier: 'device-002',
-        platform: 'ios',
-      },
-    );
+    const otherConnect = await connectTrusted(t, asOtherUser, {
+      deviceIdentifier: 'device-002',
+      platform: 'ios',
+    });
     await initializeProductSync(asUser, connect);
 
     await putPayload(asUser, connect.trustedDeviceId, 'payload-001');
@@ -1136,14 +1046,14 @@ describe('productSync encrypted payloads', () => {
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
     const asOtherUser = t.withIdentity(otherAppleIdentity);
-    const connect = await asUser.mutation(api.productAccount.connect, {
+    const connect = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
     });
-    const otherConnect = await asOtherUser.mutation(
-      api.productAccount.connect,
-      { deviceIdentifier: 'device-002', platform: 'ios' },
-    );
+    const otherConnect = await connectTrusted(t, asOtherUser, {
+      deviceIdentifier: 'device-002',
+      platform: 'ios',
+    });
     await initializeProductSync(asUser, connect);
     await putPayload(asUser, connect.trustedDeviceId, 'payload-001');
 
@@ -1167,14 +1077,11 @@ describe('productSync encrypted payloads', () => {
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
     const asOtherUser = t.withIdentity(otherAppleIdentity);
-    const otherConnect = await asOtherUser.mutation(
-      api.productAccount.connect,
-      {
-        deviceIdentifier: 'device-002',
-        platform: 'ios',
-      },
-    );
-    await asUser.mutation(api.productAccount.connect, {
+    const otherConnect = await connectTrusted(t, asOtherUser, {
+      deviceIdentifier: 'device-002',
+      platform: 'ios',
+    });
+    await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
     });
@@ -1228,10 +1135,11 @@ describe('productSync initialization', () => {
   };
 
   async function connectDevice(
+    t: ReturnType<typeof convexTest>,
     asUser: ReturnType<ReturnType<typeof convexTest>['withIdentity']>,
     deviceIdentifier: string,
   ) {
-    const connection = await asUser.mutation(api.productAccount.connect, {
+    const connection = await connectTrusted(t, asUser, {
       deviceIdentifier,
       platform: 'ios',
       supportsDeviceCredentials: true,
@@ -1250,14 +1158,15 @@ describe('productSync initialization', () => {
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(googleIdentity);
-    const first = await connectDevice(asUser, 'installation-001');
-    const second = await connectDevice(asUser, 'installation-002');
+    const first = await connectDevice(t, asUser, 'installation-001');
+    const second = await connectDevice(t, asUser, 'installation-002');
     expect(first.connection).toMatchObject({
       productSyncMaterialInitialized: false,
     });
 
     await expect(
       asUser.mutation(api.productSync.initialize, {
+        recoveryVerifier,
         ...first.proof,
         encryptedPayload: recoveryEnvelope,
       }),
@@ -1265,12 +1174,14 @@ describe('productSync initialization', () => {
     // A lost response retries with the same envelope; another device's material is refused.
     await expect(
       asUser.mutation(api.productSync.initialize, {
+        recoveryVerifier,
         ...first.proof,
         encryptedPayload: recoveryEnvelope,
       }),
     ).resolves.toStrictEqual({ initialized: true });
     await expect(
       asUser.mutation(api.productSync.initialize, {
+        recoveryVerifier,
         ...second.proof,
         encryptedPayload: { ...recoveryEnvelope, ciphertextBase64: 'b3RoZXI' },
       }),
@@ -1282,12 +1193,13 @@ describe('productSync initialization', () => {
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(googleIdentity);
-    const first = await connectDevice(asUser, 'installation-001');
+    const first = await connectDevice(t, asUser, 'installation-001');
     await asUser.mutation(api.productSync.initialize, {
+      recoveryVerifier,
       ...first.proof,
       encryptedPayload: recoveryEnvelope,
     });
-    const second = await connectDevice(asUser, 'installation-002');
+    const second = await connectDevice(t, asUser, 'installation-002');
     expect(second.connection).toMatchObject({
       productSyncMaterialInitialized: true,
     });
@@ -1312,7 +1224,7 @@ describe('productSync initialization', () => {
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(googleIdentity);
-    const device = await connectDevice(asUser, 'installation-001');
+    const device = await connectDevice(t, asUser, 'installation-001');
 
     await expect(
       asUser.mutation(api.productAccount.markProductSyncMaterialInitialized, {
@@ -1322,6 +1234,7 @@ describe('productSync initialization', () => {
     // The refused marker leaves the account free to publish its first envelope.
     await expect(
       asUser.mutation(api.productSync.initialize, {
+        recoveryVerifier,
         ...device.proof,
         encryptedPayload: recoveryEnvelope,
       }),
@@ -1333,7 +1246,7 @@ describe('productSync initialization', () => {
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(googleIdentity);
-    const device = await connectDevice(asUser, 'installation-001');
+    const device = await connectDevice(t, asUser, 'installation-001');
 
     await expect(
       asUser.mutation(api.productSync.putEncryptedPayloadIfUnchanged, {
@@ -1353,6 +1266,7 @@ describe('productSync initialization', () => {
     // The refused writes leave the account free to publish its first envelope.
     await expect(
       asUser.mutation(api.productSync.initialize, {
+        recoveryVerifier,
         ...device.proof,
         encryptedPayload: recoveryEnvelope,
       }),
@@ -1399,6 +1313,7 @@ describe('productSync initialization', () => {
 
       await expect(
         asUser.mutation(api.productSync.initialize, {
+          recoveryVerifier,
           ...proof,
           encryptedPayload: recoveryEnvelope,
         }),
@@ -1409,6 +1324,7 @@ describe('productSync initialization', () => {
           body: JSON.stringify({
             ...proof,
             encryptedPayload: recoveryEnvelope,
+            recoveryVerifier,
           }),
           headers: {
             authorization: `Bearer ${appleIdentityToken(Math.floor(Date.now() / 1000))}`,
@@ -1432,20 +1348,23 @@ describe('productSync initialization', () => {
 
     const t = convexTest(schema, modules);
     const owner = await connectDevice(
+      t,
       t.withIdentity(googleIdentity),
       'installation-001',
     );
     const asOther = t.withIdentity(otherAppleIdentity);
-    await connectDevice(asOther, 'installation-002');
+    await connectDevice(t, asOther, 'installation-002');
 
     await expect(
       asOther.mutation(api.productSync.initialize, {
+        recoveryVerifier,
         ...owner.proof,
         encryptedPayload: recoveryEnvelope,
       }),
     ).rejects.toThrow('Trusted device required');
     await expect(
       t.withIdentity(googleIdentity).mutation(api.productSync.initialize, {
+        recoveryVerifier,
         trustedDeviceId: owner.proof.trustedDeviceId,
         encryptedPayload: recoveryEnvelope,
       }),

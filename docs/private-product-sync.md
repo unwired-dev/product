@@ -13,6 +13,8 @@ Trusted Device [approve a new device](#approving-a-new-device), which then
 receives the same keys.
 [#601](https://github.com/unwired-dev/product/issues/601) lets a device without an
 available Trusted Device [unlock with the Recovery Key](#recovering-with-the-recovery-key).
+[#750](https://github.com/unwired-dev/product/issues/750) makes every device after
+an account's first a Pending Device until one of those two admits it.
 This follows
 [ADR 0001](adr/0001-end-to-end-encrypted-product-sync.md) and
 [ADR 0061](adr/0061-separate-product-identity-from-registration-mailbox-authorization.md):
@@ -46,33 +48,52 @@ now. A connected mailbox whose descriptor has not been read back yet, for exampl
 one chosen after an Apple relaunch, shows that it is not saved to private sync yet
 and offers the same action. Signing in again rechecks a saved Gmail mailbox instead
 of restarting Gmail consent. Reopening an account that already
-has Product Sync keys on a device without them never creates keys. Once that device
-reaches Convex it asks for [approval](#approving-a-new-device) and shows **Approve
-this device**; until then it shows **Unlock private data on this device**. Both
-states also offer [Recovery Key entry](#recovering-with-the-recovery-key). Nothing
-is reset, and Gmail can still be authorized locally.
+has Product Sync keys on a device without them never creates keys. A device that
+signs in to an existing account waits as a [Pending Device](#approving-a-new-device).
+A Trusted Device that lost its local keys shows **Unlock private data on this
+device** and offers [Recovery Key entry](#recovering-with-the-recovery-key), or
+signing out and in again so another device can approve it. Nothing is reset.
 
 ## Approving a new device
 
-Product Sign-In on another device reaches the Product Account but none of its
-private data. That device shows **Approve this device** with a one-time
-[Enrollment Code](domain/identity.md) of 56 Crockford base32 characters in fourteen
-groups. Copy it or enter it on the trusted device. The code stays on the device; Convex never receives it.
+Product Sign-In admits only the device that creates the account's keys. Every
+later device, on every account, signs in as a
+[Pending Device](domain/identity.md). It reaches the Product Account but none of
+its data: no account operations, Product Sync reads or push routing, and no Gmail
+authorization. Its screen, **Add this device**, explains that an existing device
+or the Recovery Key must authorize it. It shows **Approve this device** with a
+one-time [Enrollment Code](domain/identity.md) of 56 Crockford base32 characters in
+fourteen groups, **Check for approval**, **Use your Recovery Key**, sign-out and
+**Delete Product Account**. Copy the code or enter it on the trusted device. The
+code stays on the device; Convex never receives it. A Pending Device can delete
+the Product Account only after a recent interactive Product Sign-In.
 
 On a Trusted Device that holds the keys, **Check for a new device** lists the
 newest request. **Approve a new device** names the requesting device and asks for
 **Code from the new device**. Case, spaces and the look-alikes O, I and L are
 accepted. The last character is a check digit. An invalid check digit is reported on
 the trusted device and nothing is sent. A different code with a valid check digit
-cannot unlock the requesting device. **Decline** cancels the request.
+cannot unlock the requesting device. **Decline** cancels the request. The approving
+device seals the account's newest key epoch; while a removal's rotation is pending,
+it adopts the new epoch first.
 
-On the new device, **Check for approval** collects the approval. The device adopts
-the account keys and shows **Private sync is on** with the mailbox list decrypted
-from Product Sync. Gmail on that device still needs its own authorization, and
-the Recovery Key stays with the device that created it. A request expires after
-15 minutes, and an approval must be collected within 15 minutes. When a request
-expires or is declined, the new device shows a new code. When an approval does
-not open on this device, the device says nothing was unlocked and shows a new code.
+On the new device, **Check for approval** collects the approval. The device stores
+the account keys and then confirms them; only that confirmation makes it a Trusted
+Device, already at the approval's key epoch. It shows **Private sync is on** with
+the mailbox list decrypted from Product Sync, and **Authorize Gmail** appears.
+Gmail on that device still needs its own authorization, and the Recovery Key stays
+with the device that created it. If the approving device is removed, or a removal
+supersedes the approved key epoch, before the new device confirms, the approval is
+void: the new device discards the keys it stored, stays pending and shows a new
+code.
+
+A request and its code expire after 15 minutes, and an approval must be collected
+within 15 minutes. The Pending Device ends with its code; signing in again or
+**Check for approval** starts a new one with a new code. When a request expires or
+is declined, the new device shows a new code. When an approval does not open on
+this device, the device says nothing was unlocked and shows a new code. An
+installation has at most one Pending Device, and a Product Account at most three
+at a time. The Trusted Device limit applies when a device is admitted.
 
 Google devices renew their Product Sign-In silently for both checks. An Apple
 device uses its current interactive sign-in. After a relaunch, either check asks
@@ -81,19 +102,19 @@ it to sign in with Apple again.
 Convex refuses an approval when the request:
 
 - is replayed or already approved;
-- has expired, was declined, or was replaced by a newer request from the same device;
-- comes from a revoked or removed device;
-- was approved by a device that has since been revoked or removed;
-- names another device than the one that asked;
-- is approved by the device that asked;
+- has expired, was declined, or was replaced by a newer request with another key;
+- belongs to another Product Account or to a device that was admitted or signed out;
+- comes from an approving device that does not hold the account's newest key epoch;
 - uses a key epoch that is not current, including one superseded before collection.
 
-None of these change the account's keys or recovery envelope. Removing a device
-deletes its requests, and deleting the Product Account deletes them all.
+An approval whose approving device was later removed opens nothing. None of these
+change the account's keys or recovery envelope. Deleting the Product Account deletes
+every Pending Device.
 
 The backend never receives the Enrollment Code, account keys, or the one-time
 private key. Each check evaluates expiry on the server anew. The approval is
-removed after collection; an expired approval is never returned. The native module
+removed with the Pending Device at admission; an expired approval is never
+returned. The native module
 keeps the code and private key in device-only storage until this device holds the
 keys. [Protocol details](architecture/private-product-sync.md#trusted-device-enrollment)
 are maintained in the architecture companion.
@@ -108,12 +129,23 @@ silently first. Apple devices ask to sign in with Apple again on every recovery
 attempt, so a form left open beyond token expiry can still be retried. The renewed
 sign-in must reach the same Product Account.
 
-The device reads the account's recovery envelope from Convex and opens it with the
-key. The Recovery Key never leaves the device. Only after the envelope opens does the device save the account
-keys, so this device becomes trusted only by successful verification. It then
-withdraws its approval request and shows **Private sync is on** with the mailbox
-list decrypted from Product Sync. Gmail on this device still needs its own
-authorization. The device does not keep or show the Recovery Key afterwards.
+A Pending Device proves the key with a value derived from it for that purpose
+only. Convex compares the value's digest with the verifier published with the
+recovery envelope, and only on a match returns the envelope. The device opens it
+with the key, saves the account keys and confirms them, and only then becomes a
+Trusted Device. A Trusted Device that lost its keys reads its account's envelope
+directly. The Recovery Key never leaves the device, and only after the envelope
+opens does the device save the account keys. The device shows **Private sync is
+on** with the mailbox list decrypted from Product Sync, and **Authorize Gmail**
+appears. Gmail on this device still needs its own authorization. The device does
+not keep or show the Recovery Key afterwards.
+
+While a removal's key rotation is pending, only the replacement Recovery Key that
+the removal issued admits a Pending Device, at the new key epoch. The previous
+Recovery Key keeps working for devices that are already trusted until rotation
+completes, but admits no new device. A person who loses every Trusted Device while
+holding only the previous Recovery Key during that interval cannot regain access;
+deleting the Product Account is the only path left.
 
 A key that is mistyped, incomplete, or belongs to another Product Account unlocks
 nothing. The device reports that the Recovery Key does not unlock this Product
@@ -121,12 +153,10 @@ Account and retains its existing account keys and encrypted data. A malformed ke
 is rejected before any sign-in. Otherwise reconnecting may create or renew this
 device's approval request before checking the key, and the rejection shows the
 current Enrollment Code, not one that request replaced. If the check
-cannot reach Convex or is interrupted before the keys are saved, the device stays
-waiting, also after relaunch, and the attempt can be repeated. Recovery never
-creates replacement keys, changes the recovery envelope or discards product data.
-An interruption after verified keys are saved keeps those keys across relaunch.
-If withdrawing the approval request fails, the request expires on its own; a stale
-local request is ignored once this device holds the keys.
+cannot reach Convex or is interrupted before the device is admitted, it stays
+waiting, also after relaunch, and the attempt can be repeated; a device that
+saved the keys confirms them on its next check. Recovery never creates replacement
+keys, changes the recovery envelope or discards product data.
 
 The section also explains that losing every Trusted Device and the Recovery Key
 means the encrypted product data cannot be recovered, and that Unwired Mail cannot
@@ -139,7 +169,9 @@ Key while unconfirmed, and decrypted mailbox addresses.
 
 Sealed records reject altered ciphertext, account, identifier, epoch and schema.
 Prototype recovery schemas are never opened. Enrollment keys unlock data only
-for the authorized target device and request.
+for the authorized Pending Device and its current one-time key. The first device,
+a Recovery Key replacement and a removal each publish the Recovery Key verifier
+with the recovery envelope they write.
 
 The mailbox descriptor contains the provider and address. Gmail credentials,
 access tokens, the Google subject and message content never enter it. Mailbox
@@ -185,8 +217,9 @@ proof for the revocation route.
 Removal presents a new Recovery Key until its final group is confirmed. Confirm
 and keep this key before removing another device. Keep the previous Recovery Key
 until every remaining device has connected and adopted the new keys: during that
-interval recovery still uses the previous key, and the new key becomes usable
-when rotation completes. New synchronized changes use the new key epoch.
+interval an already-trusted device still recovers with the previous key, and a new
+device is admitted only with the new key. New synchronized changes use the new key
+epoch.
 The host reports the removal as complete only after this device has adopted its
 own new keys. When another device removed the same device first, or
 synchronization could not adopt this removal's new keys, the host reports the
@@ -220,14 +253,13 @@ operation continue with its usual offline or cancellation behavior.
 Offline, an Apple relaunch keeps its saved state. The host explains the removal
 and that Gmail mail and previously copied offline data are unaffected.
 
-Until [issue #750](https://github.com/unwired-dev/product/issues/750) lands, a fresh
-identifier is refused after a removal, including on a legitimate new device. The
-app shows "This device cannot join" and saves nothing on that device. Issue #750
-will let a new device wait for approval by a Trusted Device or prove the Recovery
-Key, then join only after saving the authorized keys. During a pending rotation,
-only the replacement Recovery Key will admit a new device; the previous key
-continues to serve already-trusted devices until rotation completes. This
-admission flow is accepted follow-up work, outside #602. See the
+A removed device's own installation identifier and Trusted Device Credential stay
+refused with **This device was removed**. A fresh sign-in mints a new identifier,
+which is an ordinary [Pending Device](#approving-a-new-device): it never receives a
+rotation transition, a recovery envelope or a newer key epoch unless a Trusted
+Device approves it or the replacement Recovery Key unlocks it. A removed device
+with a live Product Sign-In can still delete the Product Account's synchronized
+data, but it can read none of it. See the
 [architecture companion](architecture/private-product-sync.md#device-revocation)
 for the implementation boundary and tracked limitations.
 
@@ -372,9 +404,45 @@ Both packaged journeys passed against the final tree on fresh iPhone 18 Pro and
 iPad Pro 11-inch (M5) 27 simulators using a Release build, one test per device
 and scenario with zero failures. Recovery evidence is retained in
 `artifacts/expo-bootstrap/native-aToLs5/`, and enrollment evidence with the changed
-fixture in `artifacts/expo-bootstrap/native-Lt94WW/`. Mac recovery automation and
-hosted storage, physical devices and real Convex/Google/Apple recovery remain
-unavailable. See the [qualification record](qualification/expo-react-native-client.md#recovery-key-evidence-2026-10-04).
+fixture in `artifacts/expo-bootstrap/native-Lt94WW/`. That 2026-10-04 run left Mac recovery automation and
+hosted storage, physical devices and real Convex/Google/Apple recovery
+unavailable; the #750 evidence below records the later mocked Mac journeys. See the [qualification record](qualification/expo-react-native-client.md#recovery-key-evidence-2026-10-04).
+
+Pending Device admission ([#750](https://github.com/unwired-dev/product/issues/750))
+updates the hosted storage suite's synthetic Convex boundary to admit only the
+device that created an account's keys and to check Recovery Key proofs against
+the published verifier. Its journeys cover a second device that waits without
+Gmail authorization until it is approved or unlocked. They also cover approvals
+that do not open or become void after a removal, the previous Recovery Key
+admitting nobody during and after a rotation, a removed device returning as a
+Pending Device, and a Pending Device signing out. Reviewer regressions cover an
+older saved ring receiving a newer approval, sign-out after a lost admission
+reply, and deletion with an expired pending proof or one removed by cleanup.
+All 33 tests passed on a fresh iOS 27 simulator in
+`artifacts/private-inbox/integration.vTM2gi/`, superseding the implementation's
+31-test run in `artifacts/private-inbox/integration.7a8VQx/`.
+
+The packaged `registration-revoked`, `registration-enrollment`,
+`registration-recovery` and `registration-removal` journeys each passed one test
+with zero failures on fresh iPhone 18 Pro and iPad Pro 11-inch (M5) 27 simulators
+using Release builds. The revoked journey shows the removal notice, then the
+enrollment gate after a fresh sign-in, and signs out of it.
+
+| Journey                   | iPhone evidence under `artifacts/expo-bootstrap/` | iPad evidence under `artifacts/expo-bootstrap/` |
+| ------------------------- | ------------------------------------------------- | ----------------------------------------------- |
+| `registration-revoked`    | `native-AG36Jy/`                                  | `native-DuEzHg/`                                |
+| `registration-enrollment` | `native-P4MuAT/`                                  | `native-Zk76B0/`                                |
+| `registration-recovery`   | `native-p1KnHK/`                                  | `native-WrhuYr/`                                |
+| `registration-removal`    | `native-ddBzuM/`                                  | `native-WeJpsZ/`                                |
+
+The removal journey is rechecked after the final pending-proof renewal fix;
+its final iPhone evidence is `artifacts/expo-bootstrap/native-SqERao/` and
+iPad evidence is `artifacts/expo-bootstrap/native-h3mwYW/`. Mac Testing builds with the mock-only profile passed the
+same four scenarios; evidence under
+`artifacts/macos-inbox/` is `journey.7fgoBs/`, `journey.PFkPOE/`, `journey.80OM1J/`, `journey.6788hv/`
+in that scenario order. The Mac variant of hosted storage,
+physical devices and protected real Convex/Google/Apple/APNs qualification remain
+deferred. These are synthetic-backend checks, not live Convex or provider evidence.
 
 ## Protected real qualification
 

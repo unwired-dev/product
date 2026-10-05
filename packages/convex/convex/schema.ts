@@ -7,7 +7,6 @@ export default defineSchema({
   productAccounts: defineTable({
     createdAt: v.number(),
     deviceCredentialEnforcementActivatedAt: v.optional(v.number()),
-    legacyTrustedDeviceIdentifierMigrationCompletedAt: v.optional(v.number()),
     lastSeenAt: v.number(),
     productSyncKeyEpoch: v.optional(v.number()),
     productSyncMaterialInitializedAt: v.optional(v.number()),
@@ -18,6 +17,11 @@ export default defineSchema({
     productSyncPendingRecoveryWrappedAccountKey: v.optional(
       encryptedProductSyncPayloadBodyValidator,
     ),
+    // Digests of a value derived from the Recovery Key for this purpose only; a Pending Device that
+    // presents the value receives the recovery envelope. The pending one is the replacement
+    // Recovery Key a removal issued, the only one that admits devices until rotation completes.
+    productSyncPendingRecoveryVerifier: v.optional(v.string()),
+    productSyncRecoveryVerifier: v.optional(v.string()),
     tokenIdentifier: v.string(),
   }).index('by_tokenIdentifier', ['tokenIdentifier']),
 
@@ -50,7 +54,9 @@ export default defineSchema({
     phase: v.union(v.literal('revocation-pending'), v.literal('deleting-data')),
     productAccountId: v.id('productAccounts'),
     requestedAt: v.number(),
-    requestedByTrustedDeviceId: v.id('trustedDevices'),
+    // Exactly one: a Trusted Device, or a Pending Device that may delete the account.
+    requestedByPendingDeviceId: v.optional(v.id('pendingDevices')),
+    requestedByTrustedDeviceId: v.optional(v.id('trustedDevices')),
     revocationAttemptedAt: v.optional(v.number()),
     revocationSucceededAt: v.optional(v.number()),
     revocationMaterial: v.optional(
@@ -112,15 +118,6 @@ export default defineSchema({
       'productAccountId',
       'deviceIdentifier',
     ]),
-
-  trustedDeviceIdentifierHistory: defineTable({
-    deviceIdentifier: v.string(),
-    firstRegisteredAt: v.number(),
-    productAccountId: v.id('productAccounts'),
-  }).index('by_productAccountId_and_deviceIdentifier', [
-    'productAccountId',
-    'deviceIdentifier',
-  ]),
 
   trustedDeviceRevocationTargets: defineTable({
     // Retained on unregister so a later owner removal can still notify the old installation.
@@ -215,8 +212,10 @@ export default defineSchema({
     'payloadIdentifier',
   ]),
 
-  // A device's request for the key ring, sealed to its one-time key by an approving Trusted Device.
-  productSyncEnrollmentRequests: defineTable({
+  // A device signed in to an existing Product Account that is not yet a Trusted Device. Its
+  // enrollment request is part of it, and it ends when its Enrollment Code expires.
+  pendingDevices: defineTable({
+    // Sealed to its one-time key by a Trusted Device holding the newest key epoch.
     approval: v.optional(
       v.object({
         approvedAt: v.number(),
@@ -227,22 +226,26 @@ export default defineSchema({
       }),
     ),
     createdAt: v.number(),
-    enrollmentPublicKey: v.string(),
+    credentialDigest: v.string(),
+    deviceIdentifier: v.string(),
+    displayName: v.optional(v.string()),
+    // Absent until the device asks for approval, and after a Trusted Device declines it.
+    enrollmentPublicKey: v.optional(v.string()),
     expiresAt: v.number(),
+    platform: v.string(),
     productAccountId: v.id('productAccounts'),
-    state: v.union(
-      v.literal('pending'),
-      v.literal('approved'),
-      v.literal('cancelled'),
-    ),
-    trustedDeviceId: v.id('trustedDevices'),
+    // The key epoch of the recovery envelope released to it for a matching Recovery Key proof.
+    recoveryKeyVersion: v.optional(v.number()),
+    requestedAt: v.optional(v.number()),
   })
-    .index('by_productAccountId_and_state_and_expiresAt', [
+    .index('by_productAccountId_and_deviceIdentifier', [
       'productAccountId',
-      'state',
-      'expiresAt',
+      'deviceIdentifier',
     ])
-    .index('by_trustedDeviceId', ['trustedDeviceId']),
+    .index('by_productAccountId_and_expiresAt', [
+      'productAccountId',
+      'expiresAt',
+    ]),
 
   mailProviderConnections: defineTable({
     connectedAt: v.number(),

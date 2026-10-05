@@ -9,16 +9,29 @@ export const signInProviderValidator = v.union(
 
 export type SignInProvider = Infer<typeof signInProviderValidator>;
 
-export const productAccountConnectResponseValidator = v.object({
+const productAccountConnectionFields = {
   accountCreated: v.boolean(),
-  deviceRegistered: v.boolean(),
   productSyncMaterialInitialized: v.boolean(),
   productAccountId: v.string(),
   // Every Sign-In Provider that can open this Product Account, original first.
   signInProviders: v.array(signInProviderValidator),
-  trustedDeviceCredential: v.optional(v.string()),
-  trustedDeviceId: v.string(),
-});
+};
+
+// The device that creates a Product Account, or one already admitted, is a Trusted Device. Any
+// other device is a Pending Device until a Trusted Device approves it or the Recovery Key unlocks it.
+export const productAccountConnectResponseValidator = v.union(
+  v.object({
+    ...productAccountConnectionFields,
+    deviceRegistered: v.boolean(),
+    trustedDeviceCredential: v.optional(v.string()),
+    trustedDeviceId: v.string(),
+  }),
+  v.object({
+    ...productAccountConnectionFields,
+    pendingDeviceCredential: v.string(),
+    pendingDeviceId: v.string(),
+  }),
+);
 
 export type ProductAccountConnectResponse = Infer<
   typeof productAccountConnectResponseValidator

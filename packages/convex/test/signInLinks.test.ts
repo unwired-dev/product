@@ -7,6 +7,7 @@ import type { Id } from '../convex/_generated/dataModel.js';
 
 import { api, internal } from '../convex/_generated/api.js';
 import schema from '../convex/schema.js';
+import { connectTrusted } from './devices.js';
 
 const modules = import.meta.glob('../convex/**/*.ts');
 
@@ -124,13 +125,11 @@ async function registered(
   account: ReturnType<typeof apple>,
   deviceIdentifier = 'installation-001',
 ) {
-  const connected = await t
-    .withIdentity(account)
-    .mutation(api.productAccount.connect, {
-      deviceIdentifier,
-      platform: 'ios',
-      supportsDeviceCredentials: true,
-    });
+  const connected = await connectTrusted(t, t.withIdentity(account), {
+    deviceIdentifier,
+    platform: 'ios',
+    supportsDeviceCredentials: true,
+  });
   return {
     productAccountId: connected.productAccountId,
     proof: {
@@ -271,8 +270,10 @@ describe('linked sign-ins', () => {
         platform: 'macos',
         supportsDeviceCredentials: true,
       });
+    // The Linked Sign-In reaches the account, but the new installation waits for admission.
     expect(alternate).toMatchObject({
       accountCreated: false,
+      pendingDeviceId: expect.any(String),
       productAccountId: owner.productAccountId,
       signInProviders: ['apple', 'google'],
     });
@@ -280,7 +281,7 @@ describe('linked sign-ins', () => {
       t
         .withIdentity(google('google-001'))
         .query(api.productAccount.listTrustedDevices, owner.proof),
-    ).resolves.toHaveLength(2);
+    ).resolves.toHaveLength(1);
     // Requesting an already linked provider reports it without issuing a ticket.
     await expect(
       linkClient(t, google('google-001')).request({

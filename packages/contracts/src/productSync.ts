@@ -24,10 +24,9 @@ export type ProductSyncInitializationResponse = Infer<
   typeof productSyncInitializationResponseValidator
 >;
 
-// A device without Product Sync keys asks a Trusted Device to seal the key ring to its one-time key.
+// A Pending Device asks a Trusted Device to seal the key ring to its one-time key.
 export const productSyncEnrollmentRequestResponseValidator = v.object({
   expiresAt: v.number(),
-  requestId: v.string(),
 });
 
 export const productSyncEnrollmentPendingRequestValidator = v.object({
@@ -35,9 +34,8 @@ export const productSyncEnrollmentPendingRequestValidator = v.object({
   displayName: v.string(),
   enrollmentPublicKey: v.string(),
   expiresAt: v.number(),
+  pendingDeviceId: v.string(),
   platform: v.string(),
-  requestId: v.string(),
-  requesterTrustedDeviceId: v.string(),
 });
 
 export type ProductSyncEnrollmentPendingRequest = Infer<
@@ -66,6 +64,13 @@ export const productSyncEnrollmentStatusValidator = v.object({
 export type ProductSyncEnrollmentStatus = Infer<
   typeof productSyncEnrollmentStatusValidator
 >;
+
+// The Pending Device becomes a Trusted Device only after it stored the keys it was authorized to
+// receive; otherwise the authorization is void and it stays pending.
+export const productSyncEnrollmentCompletionValidator = v.union(
+  v.object({ admitted: v.literal(true), trustedDeviceId: v.string() }),
+  v.object({ admitted: v.literal(false) }),
+);
 
 export const encryptedProductSyncPayloadValidator = v.object({
   encryptedPayload: encryptedProductSyncPayloadBodyValidator,

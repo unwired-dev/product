@@ -32,6 +32,9 @@ Before reviewing, read `packages/convex/convex/_generated/ai/guidelines.md`; it 
 - A self-target prohibition checked only against the caller-supplied row ID before alias resolution. In `productAccount.revokeTrustedDevice`, compare the authenticated live device's installation `deviceIdentifier` with the resolved account-owned target before installation-level completion or rotation. A retained ID of the caller's own installation must receive the existing sign-out refusal; otherwise `deleteRevocationTargetDevicesAndRoutes` removes the authenticated row too and can leave no device able to adopt the rotation. Preserve the separate already-tombstoned installation replay guarantee above.
 - A reserved payload identifier or prefix made writable by clients (`requireUnreservedPayloadIdentifier`).
 
+- `productSyncEnrollment.complete` accepting the epoch of the current approval or recovery grant without matching the epoch the caller actually stored. A saved older ring from an interrupted admission must not acknowledge a newer grant; otherwise the new Trusted Device misses the transition it needs.
+- `productAccount.unregisterPendingDevice` treating an absent pending row as proof that sign-out is complete. Admission may already have carried that credential into a Trusted Device whose reply was lost; authenticate and remove that installation with the same rotation cleanup, or sign-out leaves live access and an orphan that can hold rotation pending.
+
 #### Bounded work
 
 - `.collect()` or an unpaginated loop over a table that grows with accounts, devices, payloads or routes; a `.filter` scan where an index exists or should; a list argument with no maximum length (see `requireValidAtomicMutationCount`).

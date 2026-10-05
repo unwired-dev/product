@@ -15,6 +15,7 @@ import {
 } from '../convex/gmailPushPayload.js';
 import { opaqueGmailConnectionId } from '../convex/gmailRouting.js';
 import schema from '../convex/schema.js';
+import { connectTrusted } from './devices.js';
 
 type ObservedApnsRequest = Readonly<{
   authority: string;
@@ -263,7 +264,7 @@ describe('gmail push relay', () => {
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
-    const device = await asUser.mutation(api.productAccount.connect, {
+    const device = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
     });
@@ -310,12 +311,10 @@ describe('gmail push relay', () => {
     expect.assertions(2);
 
     const t = convexTest(schema, modules);
-    const connection = await t
-      .withIdentity(appleIdentity)
-      .mutation(api.productAccount.connect, {
-        deviceIdentifier: 'device-001',
-        platform: 'ios',
-      });
+    const connection = await connectTrusted(t, t.withIdentity(appleIdentity), {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+    });
     googleSigningKeyFetch.mockClear();
 
     await expect(
@@ -335,7 +334,7 @@ describe('gmail push relay', () => {
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
-    const device = await asUser.mutation(api.productAccount.connect, {
+    const device = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-legacy-watch-verification',
       platform: 'ios',
     });
@@ -391,11 +390,11 @@ describe('gmail push relay', () => {
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
-    const firstDevice = await asUser.mutation(api.productAccount.connect, {
+    const firstDevice = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
     });
-    const secondDevice = await asUser.mutation(api.productAccount.connect, {
+    const secondDevice = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-002',
       platform: 'macos',
     });
@@ -454,7 +453,7 @@ describe('gmail push relay', () => {
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
-    const device = await asUser.mutation(api.productAccount.connect, {
+    const device = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-legacy-watch-stop',
       platform: 'ios',
     });
@@ -485,11 +484,11 @@ describe('gmail push relay', () => {
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
-    const firstDevice = await asUser.mutation(api.productAccount.connect, {
+    const firstDevice = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-first-legacy-watch',
       platform: 'ios',
     });
-    const secondDevice = await asUser.mutation(api.productAccount.connect, {
+    const secondDevice = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-second-legacy-watch',
       platform: 'macos',
     });
@@ -535,11 +534,11 @@ describe('gmail push relay', () => {
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
-    const firstDevice = await asUser.mutation(api.productAccount.connect, {
+    const firstDevice = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
     });
-    const secondDevice = await asUser.mutation(api.productAccount.connect, {
+    const secondDevice = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-002',
       platform: 'macos',
     });
@@ -613,7 +612,7 @@ describe('gmail push relay', () => {
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
-    const connection = await asUser.mutation(api.productAccount.connect, {
+    const connection = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
     });
@@ -667,11 +666,11 @@ describe('gmail push relay', () => {
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
-    const firstDevice = await asUser.mutation(api.productAccount.connect, {
+    const firstDevice = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
     });
-    const secondDevice = await asUser.mutation(api.productAccount.connect, {
+    const secondDevice = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-002',
       platform: 'macos',
     });
@@ -703,11 +702,11 @@ describe('gmail push relay', () => {
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
-    const firstDevice = await asUser.mutation(api.productAccount.connect, {
+    const firstDevice = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
     });
-    const secondDevice = await asUser.mutation(api.productAccount.connect, {
+    const secondDevice = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-002',
       platform: 'macos',
     });
@@ -790,11 +789,11 @@ describe('gmail push relay', () => {
       }
     });
     const asUser = t.withIdentity(appleIdentity);
-    const firstDevice = await asUser.mutation(api.productAccount.connect, {
+    const firstDevice = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
     });
-    const secondDevice = await asUser.mutation(api.productAccount.connect, {
+    const secondDevice = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-002',
       platform: 'macos',
     });
@@ -845,7 +844,7 @@ describe('gmail push relay', () => {
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
-    const connection = await asUser.mutation(api.productAccount.connect, {
+    const connection = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
     });
@@ -867,7 +866,7 @@ describe('gmail push relay', () => {
       subject: 'apple-user-002',
       tokenIdentifier: 'https://appleid.apple.com|apple-user-002',
     });
-    await otherUser.mutation(api.productAccount.connect, {
+    await connectTrusted(t, otherUser, {
       deviceIdentifier: 'device-002',
       platform: 'ios',
     });
@@ -885,25 +884,19 @@ describe('gmail push relay', () => {
 
     const t = convexTest(schema, modules);
     const firstUser = t.withIdentity(appleIdentity);
-    const firstConnection = await firstUser.mutation(
-      api.productAccount.connect,
-      {
-        deviceIdentifier: 'device-001',
-        platform: 'ios',
-      },
-    );
+    const firstConnection = await connectTrusted(t, firstUser, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+    });
     const secondUser = t.withIdentity({
       ...appleIdentity,
       subject: 'apple-user-002',
       tokenIdentifier: 'https://appleid.apple.com|apple-user-002',
     });
-    const secondConnection = await secondUser.mutation(
-      api.productAccount.connect,
-      {
-        deviceIdentifier: 'device-002',
-        platform: 'ios',
-      },
-    );
+    const secondConnection = await connectTrusted(t, secondUser, {
+      deviceIdentifier: 'device-002',
+      platform: 'ios',
+    });
 
     await firstUser.mutation(api.pushRelay.registerDevice, {
       apnsEnvironment: 'sandbox',
@@ -943,18 +936,15 @@ describe('gmail push relay', () => {
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
-    const staleDevice = await asUser.mutation(api.productAccount.connect, {
+    const staleDevice = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-stale',
       platform: 'ios',
     });
-    const legacyStaleDevice = await asUser.mutation(
-      api.productAccount.connect,
-      {
-        deviceIdentifier: 'device-legacy-stale',
-        platform: 'ios',
-      },
-    );
-    const refreshedDevice = await asUser.mutation(api.productAccount.connect, {
+    const legacyStaleDevice = await connectTrusted(t, asUser, {
+      deviceIdentifier: 'device-legacy-stale',
+      platform: 'ios',
+    });
+    const refreshedDevice = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-refreshed',
       platform: 'ios',
     });
@@ -1063,7 +1053,7 @@ describe('gmail push relay', () => {
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
-    const device = await asUser.mutation(api.productAccount.connect, {
+    const device = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
     });
@@ -1102,7 +1092,7 @@ describe('gmail push relay', () => {
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
-    const device = await asUser.mutation(api.productAccount.connect, {
+    const device = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-queued-removal',
       platform: 'ios',
     });
@@ -1150,7 +1140,7 @@ describe('gmail push relay', () => {
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
-    const device = await asUser.mutation(api.productAccount.connect, {
+    const device = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-legacy-route-fallback',
       platform: 'ios',
     });
@@ -1196,7 +1186,7 @@ describe('gmail push relay', () => {
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
-    const device = await asUser.mutation(api.productAccount.connect, {
+    const device = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-legacy-removal',
       platform: 'ios',
     });
@@ -1246,11 +1236,11 @@ describe('gmail push relay', () => {
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
-    const firstDevice = await asUser.mutation(api.productAccount.connect, {
+    const firstDevice = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-current-binding',
       platform: 'ios',
     });
-    const secondDevice = await asUser.mutation(api.productAccount.connect, {
+    const secondDevice = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-legacy-binding',
       platform: 'macos',
     });
@@ -1313,7 +1303,7 @@ describe('gmail push relay', () => {
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
-    const device = await asUser.mutation(api.productAccount.connect, {
+    const device = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-bounded-legacy-binding',
       platform: 'ios',
     });
@@ -1379,7 +1369,7 @@ describe('gmail push relay', () => {
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
-    const device = await asUser.mutation(api.productAccount.connect, {
+    const device = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
     });
@@ -1449,7 +1439,7 @@ describe('gmail push relay', () => {
     try {
       const t = convexTest(schema, modules);
       const asUser = t.withIdentity(appleIdentity);
-      const connection = await asUser.mutation(api.productAccount.connect, {
+      const connection = await connectTrusted(t, asUser, {
         deviceIdentifier: 'device-001',
         platform: 'ios',
       });
@@ -1545,7 +1535,7 @@ describe('gmail push relay', () => {
       vi.setSystemTime(new Date('2026-01-01T00:00:00.000Z'));
       const t = convexTest(schema, modules);
       const asUser = t.withIdentity(appleIdentity);
-      const connection = await asUser.mutation(api.productAccount.connect, {
+      const connection = await connectTrusted(t, asUser, {
         deviceIdentifier: 'device-001',
         platform: 'ios',
       });
@@ -1593,7 +1583,7 @@ describe('gmail push relay', () => {
     try {
       const t = convexTest(schema, modules);
       const asUser = t.withIdentity(appleIdentity);
-      const device = await asUser.mutation(api.productAccount.connect, {
+      const device = await connectTrusted(t, asUser, {
         deviceIdentifier: 'device-001',
         platform: 'ios',
       });
@@ -1658,7 +1648,7 @@ describe('gmail push relay', () => {
     try {
       const t = convexTest(schema, modules);
       const asUser = t.withIdentity(appleIdentity);
-      const device = await asUser.mutation(api.productAccount.connect, {
+      const device = await connectTrusted(t, asUser, {
         deviceIdentifier: 'device-001',
         platform: 'ios',
       });
@@ -1755,7 +1745,7 @@ describe('gmail push relay', () => {
     try {
       const t = convexTest(schema, modules);
       const asUser = t.withIdentity(appleIdentity);
-      const currentDevice = await asUser.mutation(api.productAccount.connect, {
+      const currentDevice = await connectTrusted(t, asUser, {
         deviceIdentifier: 'current-device',
         platform: 'ios',
       });
@@ -1781,7 +1771,7 @@ describe('gmail push relay', () => {
       await asUser.mutation(api.pushRelay.unregisterDevice, {
         trustedDeviceId: currentDevice.trustedDeviceId,
       });
-      await asUser.mutation(api.productAccount.connect, {
+      await connectTrusted(t, asUser, {
         deviceIdentifier: 'old-device-0',
         platform: 'ios',
       });
@@ -1807,7 +1797,7 @@ describe('gmail push relay', () => {
     try {
       const t = convexTest(schema, modules);
       const asUser = t.withIdentity(appleIdentity);
-      const currentDevice = await asUser.mutation(api.productAccount.connect, {
+      const currentDevice = await connectTrusted(t, asUser, {
         deviceIdentifier: 'current-device',
         platform: 'ios',
       });
@@ -1858,11 +1848,11 @@ describe('gmail push relay', () => {
     try {
       const t = convexTest(schema, modules);
       const asUser = t.withIdentity(appleIdentity);
-      const firstDevice = await asUser.mutation(api.productAccount.connect, {
+      const firstDevice = await connectTrusted(t, asUser, {
         deviceIdentifier: 'first-device',
         platform: 'ios',
       });
-      const secondDevice = await asUser.mutation(api.productAccount.connect, {
+      const secondDevice = await connectTrusted(t, asUser, {
         deviceIdentifier: 'second-device',
         platform: 'ios',
       });
@@ -1915,7 +1905,7 @@ describe('gmail push relay', () => {
       const t = convexTest(schema, modules);
       const asUser = t.withIdentity(appleIdentity);
       const connectRoute = async (index: number) => {
-        const device = await asUser.mutation(api.productAccount.connect, {
+        const device = await connectTrusted(t, asUser, {
           deviceIdentifier: `device-${index}`,
           platform: 'ios',
         });
@@ -1990,7 +1980,7 @@ describe('gmail push relay', () => {
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
-    const device = await asUser.mutation(api.productAccount.connect, {
+    const device = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
     });
@@ -2052,7 +2042,7 @@ describe('gmail push relay', () => {
       );
       vi.stubEnv('GMAIL_ROUTING_PREVIOUS_KEY', '');
       vi.stubEnv('GMAIL_ROUTING_PREVIOUS_KEY_VERSION', '');
-      const secondDevice = await asUser.mutation(api.productAccount.connect, {
+      const secondDevice = await connectTrusted(t, asUser, {
         deviceIdentifier: 'device-002',
         platform: 'ios',
       });
@@ -2080,7 +2070,7 @@ describe('gmail push relay', () => {
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
-    const firstDevice = await asUser.mutation(api.productAccount.connect, {
+    const firstDevice = await connectTrusted(t, asUser, {
       deviceIdentifier: 'device-001',
       platform: 'ios',
     });
@@ -2093,7 +2083,7 @@ describe('gmail push relay', () => {
     vi.stubEnv('GMAIL_ROUTING_KEY', 'rotated-routing-test-key');
     vi.stubEnv('GMAIL_ROUTING_KEY_VERSION', '2');
     try {
-      const secondDevice = await asUser.mutation(api.productAccount.connect, {
+      const secondDevice = await connectTrusted(t, asUser, {
         deviceIdentifier: 'device-002',
         platform: 'ios',
       });
@@ -2124,20 +2114,14 @@ describe('gmail push relay', () => {
       subject: 'apple-user-002',
       tokenIdentifier: 'https://appleid.apple.com|apple-user-002',
     });
-    const firstConnection = await firstUser.mutation(
-      api.productAccount.connect,
-      {
-        deviceIdentifier: 'device-001',
-        platform: 'ios',
-      },
-    );
-    const secondConnection = await secondUser.mutation(
-      api.productAccount.connect,
-      {
-        deviceIdentifier: 'device-002',
-        platform: 'macos',
-      },
-    );
+    const firstConnection = await connectTrusted(t, firstUser, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+    });
+    const secondConnection = await connectTrusted(t, secondUser, {
+      deviceIdentifier: 'device-002',
+      platform: 'macos',
+    });
 
     await registerGmailConnection(firstUser, {
       emailAddress: 'matching@example.com',
@@ -2267,13 +2251,10 @@ describe('gmail push relay', () => {
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
-    const productConnection = await asUser.mutation(
-      api.productAccount.connect,
-      {
-        deviceIdentifier: 'device-001',
-        platform: 'ios',
-      },
-    );
+    const productConnection = await connectTrusted(t, asUser, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+    });
     await registerGmailConnection(asUser, {
       emailAddress: 'matching@example.com',
       providerAccountIdentifier: 'gmail-user-001',
@@ -2315,13 +2296,10 @@ describe('gmail push relay', () => {
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
-    const productConnection = await asUser.mutation(
-      api.productAccount.connect,
-      {
-        deviceIdentifier: 'device-001',
-        platform: 'ios',
-      },
-    );
+    const productConnection = await connectTrusted(t, asUser, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+    });
     await registerGmailConnection(asUser, {
       emailAddress: 'matching@example.com',
       providerAccountIdentifier: 'gmail-user-001',
@@ -2376,13 +2354,10 @@ describe('gmail push relay', () => {
       vi.setSystemTime(new Date('2026-01-01T00:00:00.000Z'));
       const t = convexTest(schema, modules);
       const asUser = t.withIdentity(appleIdentity);
-      const productConnection = await asUser.mutation(
-        api.productAccount.connect,
-        {
-          deviceIdentifier: 'device-001',
-          platform: 'ios',
-        },
-      );
+      const productConnection = await connectTrusted(t, asUser, {
+        deviceIdentifier: 'device-001',
+        platform: 'ios',
+      });
       await registerGmailConnection(asUser, {
         emailAddress: 'matching@example.com',
         providerAccountIdentifier: 'gmail-user-001',
@@ -2444,13 +2419,10 @@ describe('gmail push relay', () => {
       vi.setSystemTime(new Date('2026-01-01T00:00:00.000Z'));
       const t = convexTest(schema, modules);
       const asUser = t.withIdentity(appleIdentity);
-      const productConnection = await asUser.mutation(
-        api.productAccount.connect,
-        {
-          deviceIdentifier: 'device-001',
-          platform: 'ios',
-        },
-      );
+      const productConnection = await connectTrusted(t, asUser, {
+        deviceIdentifier: 'device-001',
+        platform: 'ios',
+      });
       await registerGmailConnection(asUser, {
         emailAddress: 'matching@example.com',
         providerAccountIdentifier: 'gmail-user-001',
@@ -2517,20 +2489,14 @@ describe('gmail push relay', () => {
       subject: 'apple-user-002',
       tokenIdentifier: 'https://appleid.apple.com|apple-user-002',
     });
-    const firstConnection = await firstUser.mutation(
-      api.productAccount.connect,
-      {
-        deviceIdentifier: 'device-001',
-        platform: 'ios',
-      },
-    );
-    const secondConnection = await secondUser.mutation(
-      api.productAccount.connect,
-      {
-        deviceIdentifier: 'device-002',
-        platform: 'ios',
-      },
-    );
+    const firstConnection = await connectTrusted(t, firstUser, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+    });
+    const secondConnection = await connectTrusted(t, secondUser, {
+      deviceIdentifier: 'device-002',
+      platform: 'ios',
+    });
     await registerGmailConnection(firstUser, {
       emailAddress: 'matching@example.com',
       providerAccountIdentifier: 'gmail-user-001',
@@ -2573,13 +2539,10 @@ describe('gmail push relay', () => {
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
-    const productConnection = await asUser.mutation(
-      api.productAccount.connect,
-      {
-        deviceIdentifier: 'device-001',
-        platform: 'ios',
-      },
-    );
+    const productConnection = await connectTrusted(t, asUser, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+    });
     await registerGmailConnection(asUser, {
       emailAddress: 'busy@example.com',
       providerAccountIdentifier: 'gmail-user-001',
@@ -2615,13 +2578,10 @@ describe('gmail push relay', () => {
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
-    const productConnection = await asUser.mutation(
-      api.productAccount.connect,
-      {
-        deviceIdentifier: 'device-001',
-        platform: 'ios',
-      },
-    );
+    const productConnection = await connectTrusted(t, asUser, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+    });
     await registerGmailConnection(asUser, {
       emailAddress: 'busy@example.com',
       providerAccountIdentifier: 'gmail-user-001',
@@ -3075,13 +3035,10 @@ describe('gmail push relay', () => {
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
-    const productConnection = await asUser.mutation(
-      api.productAccount.connect,
-      {
-        deviceIdentifier: 'attacker-device',
-        platform: 'ios',
-      },
-    );
+    const productConnection = await connectTrusted(t, asUser, {
+      deviceIdentifier: 'attacker-device',
+      platform: 'ios',
+    });
     await registerGmailConnection(asUser, {
       emailAddress: 'victim@example.com',
       providerAccountIdentifier: 'client-asserted-id',
@@ -3120,13 +3077,10 @@ describe('gmail push relay', () => {
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
-    const productConnection = await asUser.mutation(
-      api.productAccount.connect,
-      {
-        deviceIdentifier: 'device-001',
-        platform: 'ios',
-      },
-    );
+    const productConnection = await connectTrusted(t, asUser, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+    });
     await registerGmailConnection(asUser, {
       emailAddress: 'matching@example.com',
       providerAccountIdentifier: 'gmail-user-001',
@@ -3164,13 +3118,10 @@ describe('gmail push relay', () => {
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
-    const productConnection = await asUser.mutation(
-      api.productAccount.connect,
-      {
-        deviceIdentifier: 'device-001',
-        platform: 'ios',
-      },
-    );
+    const productConnection = await connectTrusted(t, asUser, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+    });
     await registerGmailConnection(asUser, {
       emailAddress: 'matching@example.com',
       providerAccountIdentifier: 'gmail-user-001',
@@ -3222,13 +3173,10 @@ describe('gmail push relay', () => {
     const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(1_784_000_000_000);
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
-    const productConnection = await asUser.mutation(
-      api.productAccount.connect,
-      {
-        deviceIdentifier: 'device-001',
-        platform: 'ios',
-      },
-    );
+    const productConnection = await connectTrusted(t, asUser, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+    });
     await registerGmailConnection(asUser, {
       emailAddress: 'victim@example.com',
       providerAccountIdentifier: 'client-asserted-id',
@@ -3449,11 +3397,11 @@ describe('gmail push relay', () => {
     try {
       const t = convexTest(schema, modules);
       const asUser = t.withIdentity(appleIdentity);
-      const goodDevice = await asUser.mutation(api.productAccount.connect, {
+      const goodDevice = await connectTrusted(t, asUser, {
         deviceIdentifier: 'good-device',
         platform: 'ios',
       });
-      const badDevice = await asUser.mutation(api.productAccount.connect, {
+      const badDevice = await connectTrusted(t, asUser, {
         deviceIdentifier: 'bad-device',
         platform: 'ios',
       });
@@ -3596,7 +3544,7 @@ describe('gmail push relay', () => {
     try {
       const t = convexTest(schema, modules);
       const asUser = t.withIdentity(appleIdentity);
-      const device = await asUser.mutation(api.productAccount.connect, {
+      const device = await connectTrusted(t, asUser, {
         deviceIdentifier: 'stalled-device',
         platform: 'ios',
       });
@@ -3646,7 +3594,7 @@ describe('gmail push relay', () => {
     try {
       const t = convexTest(schema, modules);
       const asUser = t.withIdentity(appleIdentity);
-      const device = await asUser.mutation(api.productAccount.connect, {
+      const device = await connectTrusted(t, asUser, {
         deviceIdentifier: 'graph-device',
         platform: 'ios',
       });
@@ -3883,7 +3831,7 @@ describe('gmail push relay', () => {
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
-    const device = await asUser.mutation(api.productAccount.connect, {
+    const device = await connectTrusted(t, asUser, {
       deviceIdentifier: 'graph-preconfirmation-device',
       platform: 'ios',
     });
@@ -3947,7 +3895,7 @@ describe('gmail push relay', () => {
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
-    const device = await asUser.mutation(api.productAccount.connect, {
+    const device = await connectTrusted(t, asUser, {
       deviceIdentifier: 'graph-deleting-device',
       platform: 'ios',
     });
@@ -4021,7 +3969,7 @@ describe('gmail push relay', () => {
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
-    const device = await asUser.mutation(api.productAccount.connect, {
+    const device = await connectTrusted(t, asUser, {
       deviceIdentifier: 'graph-tombstoned-device',
       platform: 'ios',
     });
@@ -4095,7 +4043,7 @@ describe('gmail push relay', () => {
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
-    const device = await asUser.mutation(api.productAccount.connect, {
+    const device = await connectTrusted(t, asUser, {
       deviceIdentifier: 'graph-route-cap-device',
       platform: 'ios',
     });
@@ -4136,7 +4084,7 @@ describe('gmail push relay', () => {
 
     const t = convexTest(schema, modules);
     const firstUser = t.withIdentity(appleIdentity);
-    const firstDevice = await firstUser.mutation(api.productAccount.connect, {
+    const firstDevice = await connectTrusted(t, firstUser, {
       deviceIdentifier: 'graph-first-device',
       platform: 'ios',
     });
@@ -4145,7 +4093,7 @@ describe('gmail push relay', () => {
       subject: 'apple-user-002',
       tokenIdentifier: 'https://appleid.apple.com|apple-user-002',
     });
-    await otherUser.mutation(api.productAccount.connect, {
+    await connectTrusted(t, otherUser, {
       deviceIdentifier: 'graph-other-device',
       platform: 'ios',
     });
@@ -4199,7 +4147,7 @@ describe('gmail push relay', () => {
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
-    const device = await asUser.mutation(api.productAccount.connect, {
+    const device = await connectTrusted(t, asUser, {
       deviceIdentifier: 'graph-confirmation-device',
       platform: 'ios',
     });
@@ -4251,7 +4199,7 @@ describe('gmail push relay', () => {
     expect.hasAssertions();
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
-    const device = await asUser.mutation(api.productAccount.connect, {
+    const device = await connectTrusted(t, asUser, {
       deviceIdentifier: 'graph-replacement-device',
       platform: 'ios',
     });
@@ -4365,7 +4313,7 @@ describe('gmail push relay', () => {
     expect.hasAssertions();
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
-    const device = await asUser.mutation(api.productAccount.connect, {
+    const device = await connectTrusted(t, asUser, {
       deviceIdentifier: 'graph-rollback-device',
       platform: 'ios',
     });

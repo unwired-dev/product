@@ -741,17 +741,37 @@ describe('product registration', () => {
     ).resolves.toBeVisible();
     await view.unmount();
 
-    // Signing in on another device reaches the account but none of its private data.
+    // Signing in on another device makes it a Pending Device: no private data, mailbox or links.
     view = await show(added);
     await press('Sign in with Google');
     await expect(
-      screen.findByRole('header', { name: 'Approve this device' }),
+      screen.findByRole('header', { name: 'Add this device' }),
     ).resolves.toBeVisible();
+    expect(
+      screen.getByRole('header', { name: 'Approve this device' }),
+    ).toBeVisible();
     expect(screen.getByTestId('enrollment-code')).toHaveTextContent(
       syntheticEnrollmentCode,
     );
+    for (const name of [
+      'Check for approval',
+      'Unlock with Recovery Key',
+      accountRemovalCopy.signOut,
+      accountRemovalCopy.delete,
+    ]) {
+      expect(screen.getByRole('button', { name })).toBeVisible();
+    }
     expect(screen.queryByText(/Encrypted mailbox list/u)).toBeNull();
     expect(screen.queryByLabelText('Last four characters')).toBeNull();
+    for (const name of [
+      'Authorize Gmail',
+      'Choose another Google mailbox',
+      'Link Apple sign-in',
+      'Check for a new device',
+      'Sign in again with Google',
+    ]) {
+      expect(screen.queryByRole('button', { name })).toBeNull();
+    }
     await view.unmount();
 
     // The trusted device approves only with that code; a mistyped one changes nothing.
@@ -1141,7 +1161,8 @@ describe('product registration', () => {
 
   /* oxlint-enable vitest/max-expects */
 
-  it('explains on the next activation that this device was removed and its account data deleted', async () => {
+  /* oxlint-disable vitest/max-expects -- One journey proves removal, the next sign-in and leaving it. */
+  it('explains on the next activation that this device was removed, then admits a new sign-in only as a Pending Device', async () => {
     expect.hasAssertions();
     const store = createRegistration(
       createMockRegistrationSession('registration-revoked').native,
@@ -1169,10 +1190,36 @@ describe('product registration', () => {
     ).resolves.toBeVisible();
     expect(screen.getByText(/cannot be erased remotely/u)).toBeVisible();
     expect(screen.queryByText('Signed in with Google.')).toBeNull();
+    // A fresh sign-in is a new device, which waits for approval instead of being refused.
+    await act(async () => {
+      await fireEvent.press(
+        screen.getByRole('button', { name: 'Sign in with Google' }),
+      );
+    });
+    await expect(
+      screen.findByRole('header', { name: 'Add this device' }),
+    ).resolves.toBeVisible();
+    expect(screen.getByTestId('enrollment-code')).toHaveTextContent(
+      syntheticEnrollmentCode,
+    );
     expect(
-      screen.getByRole('button', { name: 'Sign in with Google' }),
-    ).toBeVisible();
+      screen.queryByRole('button', { name: 'Authorize Gmail' }),
+    ).toBeNull();
+    // Leaving the Pending Device returns to Welcome.
+    const signOut = { name: accountRemovalCopy.signOut };
+    await act(async () => {
+      await fireEvent.press(screen.getByRole('button', signOut));
+    });
+    await act(async () => {
+      await fireEvent.press(screen.getByRole('button', signOut));
+    });
+    await expect(
+      screen.findByRole('header', { name: 'Welcome to Unwired Mail' }),
+    ).resolves.toBeVisible();
+    expect(screen.queryByTestId('enrollment-code')).toBeNull();
   });
+
+  /* oxlint-enable vitest/max-expects */
 
   /* oxlint-disable vitest/max-expects -- Each journey proves the explanation, cancellation and outcome. */
   it('signs this device out only after confirmation and keeps nothing of the account', async () => {

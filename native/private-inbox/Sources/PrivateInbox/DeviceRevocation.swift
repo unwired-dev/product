@@ -47,7 +47,8 @@ extension RegistrationStore {
     do {
       try await backend.revoke(
         identity, product, trustedDeviceId, transition,
-        KeyRingEnvelope.recovery(ring, key: recoveryKey, account: account), recovery.updatedAt)
+        KeyRingEnvelope.recovery(ring, key: recoveryKey, account: account),
+        KeyRingEnvelope.recoveryVerifier(recoveryKey, account: account), recovery.updatedAt)
     } catch {
       // Only a lost connection leaves the outcome unknown; a refusal changed nothing.
       if !(error is URLError || error is CancellationError) {

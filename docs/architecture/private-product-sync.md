@@ -34,7 +34,7 @@ or recovering device receives only the key ring.
   `product-account-recovery-v1` identifier.
 - **Enrollment envelope.** HPKE (X25519, HKDF-SHA-256, ChaCha20-Poly1305) seals
   the key ring to one enrolling device's public key. PSK-mode HPKE info and authenticated data bind the Product Account, target
-  device, enrollment request and key epoch. The Enrollment Code supplies the PSK.
+  Pending Device and key epoch. Its current one-time public key identifies the request; renewing it invalidates earlier approvals. The Enrollment Code supplies the PSK.
   [Trusted-device enrollment](#trusted-device-enrollment) defines transport and storage.
 
 Mailbox descriptor reconciliation treats every record it cannot open or decode
@@ -56,7 +56,7 @@ Sync material.
 Native
 clients read records through every 100-record page.
 
-`productSync:initialize` stores the first recovery envelope and marks the account
+`productSync:initialize` stores the first recovery envelope and its purpose-specific Recovery Key verifier and marks the account
 initialized in one mutation. It requires the authenticated Trusted Device proof
 and the current key epoch. It returns `initialized: false` when the account
 already has other material or any encrypted record, so exactly one device wins. Repeating the winning
@@ -83,19 +83,21 @@ which descriptors this device read back.
 
 ## Trusted-device enrollment
 
-Until [#750](https://github.com/unwired-dev/product/issues/750) implements
-[ADR 0066](../adr/0066-admit-devices-only-through-authorized-enrollment.md), the
-registration and enrollment behavior below remains the current implementation.
-ADR 0066's separate Pending Device and authorization-before-admission guarantees
-are accepted follow-up work, not behavior delivered by #602.
+[#750](https://github.com/unwired-dev/product/issues/750) implements
+[ADR 0066](../adr/0066-admit-devices-only-through-authorized-enrollment.md).
+Product Sign-In admits only the first key-creating device. Every later installation
+starts in `pendingDevices`, separate from the Trusted Device table and invisible
+to ordinary account operations, encrypted-data reads, push routing and rotation counts.
+An account with no initialized keys and no Trusted Device may assign its next
+installation to create the first keys; it cannot replace existing material.
 
-[#600](https://github.com/unwired-dev/product/issues/600) adds the replacement
-client's approval path. Product Sign-In registers a device and its backend
-credential independently of possession of Product Sync keys. The client offers
-approval only when it holds a published key ring; it never creates a replacement
-ring for an initialized account. Convex authenticates the account and device
-credential and enforces the current or pending key epoch. It stores opaque
-approvals and cannot verify possession of the plaintext ring itself.
+The Pending Device authenticates its own request with Product Sign-In and a
+device-only credential whose digest Convex stores. It may request or renew
+approval, read its status, receive a sealed ring, submit Recovery Key proof,
+confirm durable key adoption, sign out, or delete the account after recent
+interactive sign-in. All other entry points require Trusted Device proof.
+Product-Sign-In-only legacy Product Sync reads are removed. There are no existing
+users to migrate, and the legacy Swift host is not adapted.
 
 The requesting device creates a one-time X25519 key and an Enrollment Code with
 55 uniformly random Crockford digits, providing 275 bits of entropy, plus one
@@ -109,8 +111,8 @@ qualified protocol, rather than weakening this PSK.
 The trusted person transfers the code directly from the requesting device to
 the key-holding device. The backend never receives it. The approver seals its
 existing key ring with CryptoKit's Curve25519/SHA-256/ChaChaPoly HPKE PSK mode.
-Length-prefixed info and associated data bind account, target device, request and
-key epoch. A backend public-key substitution yields ciphertext it cannot open
+Length-prefixed info and associated data bind account, Pending Device and key
+epoch. The current one-time public key and code fence renewal of the request. A backend public-key substitution yields ciphertext it cannot open
 without the code, and a forged approval without the code cannot be opened by the
 requester. Native decoding also validates the envelope's declared key epoch and
 key lengths. This flow uses normal authenticated device access and explicit
@@ -120,20 +122,35 @@ sensitive operations, but do not impose a separate authentication-age limit on
 this approval path.
 
 The one-time private key and code live in a device-only Keychain item bound to
-account, device and request. The new device saves the adopted ring before removing
-that item or acknowledging collection. It receives no Recovery Key or recovery
-envelope and cannot initialize or replace the account's existing material.
+account and Pending Device. The new device saves the adopted ring before
+confirming admission or removing that item. This approval path gives it no Recovery
+Key or recovery envelope, and cannot initialize or replace the account's existing
+material.
 
-Requests and approvals each have a 15-minute window. `listPending` and `status`
-are mutations used as explicit refresh operations, so each evaluates server time
-without Convex query caching. Approval is conditional on an open request, a live
-requester, another authenticated device in the same account and the required epoch.
-Collection revalidates the approver and required epoch. Removal or revocation of
-the approver, or an epoch change before collection, withholds the envelope and
-causes the requesting device to renew. Requester removal deletes its requests;
-account deletion drains all requests in bounded batches. Successful collection
-removes the envelope. Expired envelopes are withheld and removed when superseded,
-the requester is removed or the account is deleted.
+The Pending Device and its code have a 15-minute window; approval grants a fresh
+15-minute collection window. Each identifier has one pending record, with at most
+three unexpired records per account. Expired records are cleaned up in bounded
+batches. Pending Devices do not count toward the Trusted Device limit, which the
+admission transaction enforces. `listPending` and `status` are mutations used as
+explicit refresh operations, so each evaluates fresh server time.
+
+Approval requires a live Trusted Device of the same account acknowledged at the
+newest epoch. The native approver adopts a pending rotation first. Approval also
+names the public key it sealed to, so a concurrent request renewal cannot collect
+that ring. Status and confirmation revalidate approver membership and the newest
+epoch. Confirmation names the epoch actually stored in the vault; an older saved
+ring cannot acknowledge a newer approval. Only a valid confirmation creates the
+Trusted Device acknowledged at that epoch and deletes the pending record and
+envelope. No rotation transition is returned during admission.
+
+An unreadable ring, removed approver or superseded epoch leaves the device pending;
+the client discards unusable saved keys and asks again with a fresh key and code.
+Credential reissue after a lost connection reply likewise clears old authorization.
+Sign-out removes the pending record; when confirmation already committed but its
+reply was lost, the same credential unregisters that admitted installation instead.
+The two mutations arbitrate in one transaction order, preserving rotation completion.
+Account deletion drains all pending records in bounded batches. Expired approvals
+are withheld until cleanup, renewal, sign-out or deletion removes them.
 
 Refresh is explicit on both devices; pending requests on the approver are kept
 only in memory. Google can renew silently, while Apple requires interactive
@@ -144,12 +161,12 @@ encryption boundaries, not deployment JWT verification or two real devices.
 ## Recovery Key adoption
 
 [#601](https://github.com/unwired-dev/product/issues/601) adds explicit Recovery Key
-entry beside trusted-device approval. The current route described below serves
-already-registered Trusted Devices; ADR 0066 changes new-device recovery in #750
-to require proof before envelope access and durable adoption before admission.
-During a pending rotation, only the replacement Recovery Key will admit a
-Pending Device, while the previous key remains usable by already-trusted devices
-until completion. A malformed key is rejected before renewing
+entry beside approval. Under ADR 0066, a Pending Device must prove the Recovery
+Key before receiving its recovery envelope. HKDF-SHA-256 derives an account-bound
+value under purpose `recovery-verifier`, distinct from the `recovery-key` encryption
+key. The device sends only that value; Convex compares its SHA-256 hex digest with
+the verifier published atomically with initialization, Recovery Key replacement
+or revocation. The verifier cannot open the envelope. A malformed key is rejected before renewing
 Product Sign-In. Before reading the recovery envelope for a well-formed key, Google
 renews its Product Sign-In silently and Apple signs in interactively on every
 attempt. The existing subject and Product Account checks fence the renewed
@@ -157,11 +174,17 @@ identity, including after relaunch. Reusing an in-process Apple token would stra
 retries after expiry and violate [ADR 0001](../adr/0001-end-to-end-encrypted-product-sync.md)'s
 recovery authentication requirement.
 
-The existing authenticated, device-scoped query returns only the reserved recovery
-envelope. Native CryptoKit opens schema 3 using the entered Recovery Key and the
+Already-trusted devices may read the committed reserved recovery envelope with
+their authenticated device proof. A Pending Device receives only the envelope
+its proof authorized: the pending replacement envelope during rotation, otherwise
+the committed envelope. During a pending rotation the previous Recovery Key
+admits no new device, but remains usable by already-trusted devices until commit.
+On commit the replacement verifier moves with its envelope to committed state.
+
+Native CryptoKit opens schema 3 using the entered Recovery Key and the
 Product Account binding. Adoption also requires the declared current epoch to
 match the ring, its key to exist, and every key to have 32 bytes. Only then does
-the device save a published, confirmed vault with the account's existing ring.
+the device save a published, confirmed vault with the account's existing ring. A Pending Device confirms the stored epoch before becoming trusted.
 It neither stores the Recovery Key nor initializes or replaces recovery material.
 It reads the encrypted mailbox descriptors; Gmail credentials remain device-local
 and require their own authorization.
@@ -174,22 +197,31 @@ so an expired or cancelled request's replacement Enrollment Code remains visible
 Malformed keys use the same status-and-notice reply without reconnecting. The
 notice is not persisted or returned on restore; rejection does not use a native
 promise error code.
-Recovery saves verified keys before withdrawing that request or removing its local
-Keychain item. A crash before the save leaves recovery retryable without keys; a
-crash after it leaves the verified ring available across relaunch. Failed remote
-withdrawal leaves the request to expire. A stale local enrollment item is ignored
-once keys exist. These transport and cleanup changes do not reset encrypted data
-or touch provider mail. Losing every key-holding device and the Recovery Key leaves
-encrypted product data unrecoverable; this interface offers no reset.
+Recovery saves verified keys before confirmation. A crash before that save leaves
+recovery retryable without keys; a crash after it retains the ring for confirmation.
+A lost confirmation reply is reconciled by reconnecting with the same credential,
+which returns the admitted Trusted Device receipt. A stale epoch is refused and
+discarded before renewed approval or proof. The Recovery Key itself is not stored
+by the recovering device. A wrong proof returns nothing and preserves the current
+Enrollment Code. These operations do not reset encrypted data or touch provider mail.
+
+Losing all Trusted Devices while holding only the previous Recovery Key during a
+pending rotation leaves deletion as the only remaining path. A remaining device
+that never reconnects can keep that rotation pending. This is the accepted recovery
+limit, not an implicit reset or authorization bypass. Losing every key-holding
+device and the Recovery Key leaves encrypted product data unrecoverable; this
+interface offers no reset.
 
 The [qualification record](../qualification/expo-react-native-client.md#recovery-key-evidence-2026-10-04)
-records final-tree iOS storage and packaged recovery/enrollment passes after the
-initial reviewer corrections, plus a fresh iOS storage pass for the rejection
+records the 2026-10-04 iOS storage and packaged recovery/enrollment passes after
+the initial reviewer corrections, plus a fresh iOS storage pass for the rejection
 snapshot fix. The packaged journeys were not rerun for that follow-up. Real
 Keychain and CryptoKit checks use a synthetic Convex
-boundary; packaged journeys use Mock Mail Sessions. Mac recovery automation and
-hosted storage, physical devices and protected Convex and provider qualification
-remain pending.
+boundary; packaged journeys use Mock Mail Sessions. That run left Mac recovery
+automation and hosted storage pending. The [operational guide](../private-product-sync.md)
+records #750's later mocked Mac, iPhone and iPad journeys and final hosted iOS
+regressions. Mac hosted storage, physical devices and protected Convex and
+provider qualification remain deferred.
 
 ## Device revocation
 
@@ -278,21 +310,16 @@ row ID; the credential-only query then matches that retained proof and the
 installation tombstone. The target digest is not a live authorization grant,
 and account deletion already drains these target records.
 
-### Enrollment scope split
+### Authorized enrollment after removal
 
-The existing backend continues ADR 0020's refusal of previously unseen identifiers
-on any account with a revocation tombstone until
-[#750](https://github.com/unwired-dev/product/issues/750), blocked by #602, lands.
-Issue #602's amended criterion requires preventing bypass through an invented
-identifier; this slice preserves that lock. Current enrollment starts after
-ordinary Trusted Device registration and cannot safely override it.
+ADR 0066 supersedes ADR 0020's account-wide unseen-identifier lock and its
+identifier-history migration. Issue #750 removes the lock, migration gate,
+migration mutation and registration history. The removed installation identifier
+and credential stay refused; an invented identifier gains only Pending Device
+access. Hosts show the enrollment gate and permit Gmail authorization only after
+admission. The previous key's continued use applies to already-trusted devices.
 
-[ADR 0066](../adr/0066-admit-devices-only-through-authorized-enrollment.md) now
-supersedes that lock and its identifier-history migration with authorized
-admission for every account. Issue #750 owns the separate Pending Device record,
-its restricted access, approval or Recovery Key proof, newest-epoch fences and
-durable key adoption before Trusted Device creation. It also removes the lock,
-migration gate, migration mutation and registration history kept for the lock.
-The removed identifier and credential remain refused. These are accepted
-follow-up requirements, outside #602's current acceptance scope; the current
-"This device cannot join" refusal does not claim to implement them.
+The retained flow still uses the existing native coordinator. ADR 0067 stages its
+move to TypeScript through #756–759; native key custody, credentialed transport
+and persist-before-acknowledge guarantees remain in force during that migration.
+This slice does not claim those later flow migrations or live-provider qualification.

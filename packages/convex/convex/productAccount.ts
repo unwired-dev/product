@@ -16,12 +16,16 @@ import type { MutationCtx, QueryCtx } from './_generated/server.js';
 import { internalMutation, mutation, query } from './_generated/server.js';
 import { opaqueGmailConnectionId } from './gmailRouting.js';
 import {
+  enrollmentLifetimeMilliseconds,
   initialProductSyncKeyEpoch,
   issueTrustedDeviceCredential,
+  pendingDeviceProofArgs,
   productAccountForSignIn,
+  requireAuthenticatedPendingDevice,
   requireAuthenticatedTrustedDevice,
   requireProductAccount,
   requireProductAccountNotDeleted,
+  requireRecoveryVerifier,
   requireTrustedDevice,
   signInProvidersForAccount,
   trustedDeviceCredentialArgs,
@@ -32,11 +36,11 @@ import {
 const gmailConnectionLimitPerTrustedDevice = 20;
 const microsoftGraphConnectionLimitPerTrustedDevice = 20;
 export const gmailLegacyRouteFallbackLimit = 100;
-const trustedDeviceLimitPerProductAccount = 100;
-const trustedDeviceIdentifierMigrationBatchLimit = 100;
+export const trustedDeviceLimitPerProductAccount = 100;
+const pendingDeviceLimitPerProductAccount = 3;
+// Expired Pending Devices removed whenever another one is created.
+const expiredPendingDeviceCleanupLimit = 10;
 const trustedDeviceNameMaximumLength = 80;
-// Each new enrollment request replaces the device's earlier ones.
-const enrollmentRequestCleanupLimit = 10;
 const recoveryPayloadIdentifier = 'product-account-recovery-v1';
 // The replacement opens only schema 3 recovery envelopes; prototype schemas 1 and 2 stay rejected.
 const recoveryWrappedAccountKeySchemaVersion = 3;
@@ -58,11 +62,7 @@ type ProductAccountConnection = Readonly<{
 }>;
 
 export const signInNotLinkedErrorCode = 'SIGN_IN_NOT_LINKED';
-
-type LegacyTrustedDeviceIdentifier = Readonly<{
-  deviceIdentifier: string;
-  firstRegisteredAt: number;
-}>;
+export const pendingDeviceLimitErrorCode = 'PENDING_DEVICE_LIMIT_REACHED';
 
 type TrustedDeviceCredentialConnection = Readonly<{
   presentedCredential: string | undefined;
@@ -142,7 +142,7 @@ async function preserveOrIssueTrustedDeviceCredential(
 }
 
 export function trustedDeviceDisplayName(
-  device: Readonly<Pick<Doc<'trustedDevices'>, 'displayName' | 'platform'>>,
+  device: Readonly<{ displayName?: string; platform: string }>,
 ): string {
   return device.displayName ?? defaultTrustedDeviceName(device.platform);
 }
@@ -314,7 +314,6 @@ async function upsertProductAccount(
       productAccountId: await ctx.db.insert('productAccounts', {
         createdAt: connection.now,
         lastSeenAt: connection.now,
-        legacyTrustedDeviceIdentifierMigrationCompletedAt: connection.now,
         tokenIdentifier: connection.tokenIdentifier,
       }),
     };
@@ -336,111 +335,20 @@ async function upsertProductAccount(
   };
 }
 
-async function migrateLegacyTrustedDeviceIdentifier(
+export async function requireTrustedDeviceCapacity(
   ctx: MutationCtx,
-  account: Doc<'productAccounts'>,
-  identifier: LegacyTrustedDeviceIdentifier,
-): Promise<boolean> {
-  const productAccountId = account._id;
-  const existingHistory = await ctx.db
-    .query('trustedDeviceIdentifierHistory')
+  productAccountId: Id<'productAccounts'>,
+): Promise<void> {
+  const devices = await ctx.db
+    .query('trustedDevices')
     .withIndex('by_productAccountId_and_deviceIdentifier', (q) =>
-      q
-        .eq('productAccountId', productAccountId)
-        .eq('deviceIdentifier', identifier.deviceIdentifier),
+      q.eq('productAccountId', productAccountId),
     )
-    .unique();
-  if (existingHistory === null) {
-    if (
-      account.legacyTrustedDeviceIdentifierMigrationCompletedAt !== undefined
-    ) {
-      throw new Error('Trusted Device identifier migration is complete');
-    }
-    await ctx.db.insert('trustedDeviceIdentifierHistory', {
-      ...identifier,
-      productAccountId,
-    });
-    return true;
+    .take(trustedDeviceLimitPerProductAccount);
+  if (devices.length >= trustedDeviceLimitPerProductAccount) {
+    throw new Error('Trusted Device limit exceeded');
   }
-  if (
-    account.legacyTrustedDeviceIdentifierMigrationCompletedAt === undefined &&
-    identifier.firstRegisteredAt < existingHistory.firstRegisteredAt
-  ) {
-    await ctx.db.patch('trustedDeviceIdentifierHistory', existingHistory._id, {
-      firstRegisteredAt: identifier.firstRegisteredAt,
-    });
-    return true;
-  }
-  return false;
 }
-
-async function migrateLegacyTrustedDeviceIdentifierBatch(
-  ctx: MutationCtx,
-  account: Doc<'productAccounts'>,
-  identifiers: readonly LegacyTrustedDeviceIdentifier[],
-): Promise<number> {
-  let migratedIdentifierCount = 0;
-  for (const identifier of identifiers) {
-    if (await migrateLegacyTrustedDeviceIdentifier(ctx, account, identifier)) {
-      migratedIdentifierCount += 1;
-    }
-  }
-  return migratedIdentifierCount;
-}
-
-export const migrateLegacyTrustedDeviceIdentifiers = internalMutation({
-  args: {
-    identifiers: v.array(
-      v.object({
-        deviceIdentifier: v.string(),
-        firstRegisteredAt: v.number(),
-      }),
-    ),
-    migrationComplete: v.boolean(),
-    tokenIdentifier: v.string(),
-  },
-  handler: async (ctx, args) => {
-    if (args.identifiers.length > trustedDeviceIdentifierMigrationBatchLimit) {
-      throw new Error('Trusted Device identifier migration batch is too large');
-    }
-    const account = await ctx.db
-      .query('productAccounts')
-      .withIndex('by_tokenIdentifier', (q) =>
-        q.eq('tokenIdentifier', args.tokenIdentifier),
-      )
-      .unique();
-    if (account === null) {
-      throw new Error('Product Account required');
-    }
-    const productAccountId = account._id;
-    const migratedIdentifierCount =
-      await migrateLegacyTrustedDeviceIdentifierBatch(
-        ctx,
-        account,
-        args.identifiers,
-      );
-    if (
-      args.migrationComplete &&
-      account.legacyTrustedDeviceIdentifierMigrationCompletedAt === undefined
-    ) {
-      await ctx.db.patch('productAccounts', productAccountId, {
-        legacyTrustedDeviceIdentifierMigrationCompletedAt: Date.now(),
-      });
-    }
-    return {
-      migrationComplete:
-        args.migrationComplete ||
-        account.legacyTrustedDeviceIdentifierMigrationCompletedAt !== undefined,
-      migratedIdentifierCount,
-      productAccountId,
-    };
-  },
-  returns: v.object({
-    migrationComplete: v.boolean(),
-    migratedIdentifierCount: v.number(),
-    productAccountId: v.id('productAccounts'),
-  }),
-});
 
 async function registerTrustedDevice(
   ctx: MutationCtx,
@@ -454,15 +362,7 @@ async function registerTrustedDevice(
     registration.deviceName === undefined
       ? undefined
       : normalizedTrustedDeviceName(registration.deviceName);
-  const devices = await ctx.db
-    .query('trustedDevices')
-    .withIndex('by_productAccountId_and_deviceIdentifier', (q) =>
-      q.eq('productAccountId', productAccountId),
-    )
-    .take(trustedDeviceLimitPerProductAccount);
-  if (devices.length >= trustedDeviceLimitPerProductAccount) {
-    throw new Error('Trusted Device limit exceeded');
-  }
+  await requireTrustedDeviceCapacity(ctx, productAccountId);
   return {
     deviceRegistered: true,
     trustedDeviceId: await ctx.db.insert('trustedDevices', {
@@ -477,7 +377,7 @@ async function registerTrustedDevice(
   };
 }
 
-async function preserveTrustedDeviceRevocationTarget(
+export async function preserveTrustedDeviceRevocationTarget(
   ctx: MutationCtx,
   target: Readonly<{
     credentialDigest?: string;
@@ -529,67 +429,138 @@ async function updateTrustedDevice(
   };
 }
 
-async function upsertTrustedDevice(
+async function reconnectTrustedDevice(
   ctx: MutationCtx,
-  productAccountId: Id<'productAccounts'>,
+  existingDevice: Doc<'trustedDevices'>,
   registration: TrustedDeviceRegistration,
 ): Promise<{
   deviceRegistered: boolean;
   trustedDeviceId: Id<'trustedDevices'>;
 }> {
-  const identifierHistory = await ctx.db
-    .query('trustedDeviceIdentifierHistory')
-    .withIndex('by_productAccountId_and_deviceIdentifier', (q) =>
-      q
-        .eq('productAccountId', productAccountId)
-        .eq('deviceIdentifier', registration.deviceIdentifier),
-    )
-    .unique();
-  const existingDevice = await ctx.db
-    .query('trustedDevices')
-    .withIndex('by_productAccountId_and_deviceIdentifier', (q) =>
-      q
-        .eq('productAccountId', productAccountId)
-        .eq('deviceIdentifier', registration.deviceIdentifier),
-    )
-    .unique();
-
-  if (existingDevice === null) {
-    const priorRevocation = await ctx.db
-      .query('revokedTrustedDevices')
-      .withIndex('by_productAccountId_and_deviceIdentifier', (q) =>
-        q.eq('productAccountId', productAccountId),
-      )
-      .first();
-    if (priorRevocation !== null) {
-      const account = await ctx.db.get('productAccounts', productAccountId);
-      if (
-        identifierHistory === null ||
-        account?.legacyTrustedDeviceIdentifierMigrationCompletedAt === undefined
-      ) {
-        throwTrustedDeviceRevoked();
-      }
-    }
-  }
-
-  if (identifierHistory === null) {
-    await ctx.db.insert('trustedDeviceIdentifierHistory', {
-      deviceIdentifier: registration.deviceIdentifier,
-      firstRegisteredAt: registration.now,
-      productAccountId,
-    });
-  }
-
-  const result =
-    existingDevice === null
-      ? await registerTrustedDevice(ctx, productAccountId, registration)
-      : await updateTrustedDevice(ctx, existingDevice, registration);
+  const result = await updateTrustedDevice(ctx, existingDevice, registration);
   await preserveTrustedDeviceRevocationTarget(ctx, {
     deviceIdentifier: registration.deviceIdentifier,
-    productAccountId,
+    productAccountId: existingDevice.productAccountId,
     trustedDeviceId: result.trustedDeviceId,
   });
   return result;
+}
+
+// Until a device creates the account's keys, the next device to sign in may create them instead.
+async function awaitsFirstDevice(
+  ctx: MutationCtx,
+  account: Readonly<Doc<'productAccounts'>>,
+): Promise<boolean> {
+  if (account.productSyncMaterialInitializedAt !== undefined) {
+    return false;
+  }
+  const trustedDevice = await ctx.db
+    .query('trustedDevices')
+    .withIndex('by_productAccountId_and_deviceIdentifier', (q) =>
+      q.eq('productAccountId', account._id),
+    )
+    .first();
+  return trustedDevice === null;
+}
+
+async function deleteExpiredPendingDevices(
+  ctx: MutationCtx,
+  productAccountId: Id<'productAccounts'>,
+  now: number,
+): Promise<void> {
+  const expired = await ctx.db
+    .query('pendingDevices')
+    .withIndex('by_productAccountId_and_expiresAt', (q) =>
+      q.eq('productAccountId', productAccountId).lte('expiresAt', now),
+    )
+    .take(expiredPendingDeviceCleanupLimit);
+  for (const pendingDevice of expired) {
+    await ctx.db.delete('pendingDevices', pendingDevice._id);
+  }
+}
+
+type PendingDeviceConnection = Readonly<{
+  pendingDeviceCredential: string;
+  pendingDeviceId: Id<'pendingDevices'>;
+}>;
+
+// A device the account has not admitted waits as a Pending Device: one per device identifier,
+// a few per account, each ending with its Enrollment Code.
+// fallow-ignore-next-line complexity -- Resume, credential renewal, expiry and limits share one record.
+async function upsertPendingDevice(
+  ctx: MutationCtx,
+  productAccountId: Id<'productAccounts'>,
+  registration: TrustedDeviceRegistration &
+    Readonly<{ presentedCredential: string | undefined }>,
+): Promise<PendingDeviceConnection> {
+  const { now } = registration;
+  const existing = await ctx.db
+    .query('pendingDevices')
+    .withIndex('by_productAccountId_and_deviceIdentifier', (q) =>
+      q
+        .eq('productAccountId', productAccountId)
+        .eq('deviceIdentifier', registration.deviceIdentifier),
+    )
+    .unique();
+  if (existing !== null && existing.expiresAt > now) {
+    if (
+      registration.presentedCredential !== undefined &&
+      (await trustedDeviceCredentialDigest(
+        registration.presentedCredential,
+      )) === existing.credentialDigest
+    ) {
+      return {
+        pendingDeviceCredential: registration.presentedCredential,
+        pendingDeviceId: existing._id,
+      };
+    }
+    // After a lost reply, a new credential voids everything the earlier one could collect.
+    const credential = issueTrustedDeviceCredential();
+    await ctx.db.patch('pendingDevices', existing._id, {
+      approval: undefined,
+      credentialDigest: await trustedDeviceCredentialDigest(credential),
+      enrollmentPublicKey: undefined,
+      recoveryKeyVersion: undefined,
+      requestedAt: undefined,
+    });
+    return {
+      pendingDeviceCredential: credential,
+      pendingDeviceId: existing._id,
+    };
+  }
+  if (existing !== null) {
+    await ctx.db.delete('pendingDevices', existing._id);
+  }
+  await deleteExpiredPendingDevices(ctx, productAccountId, now);
+  const waiting = await ctx.db
+    .query('pendingDevices')
+    .withIndex('by_productAccountId_and_expiresAt', (q) =>
+      q.eq('productAccountId', productAccountId).gt('expiresAt', now),
+    )
+    .take(pendingDeviceLimitPerProductAccount);
+  if (waiting.length >= pendingDeviceLimitPerProductAccount) {
+    throw new ConvexError({
+      code: pendingDeviceLimitErrorCode,
+      message: 'Too many devices are waiting for approval.',
+    });
+  }
+  const displayName =
+    registration.deviceName === undefined
+      ? undefined
+      : normalizedTrustedDeviceName(registration.deviceName);
+  const credential = issueTrustedDeviceCredential();
+  return {
+    pendingDeviceCredential: credential,
+    pendingDeviceId: await ctx.db.insert('pendingDevices', {
+      createdAt: now,
+      credentialDigest: await trustedDeviceCredentialDigest(credential),
+      deviceIdentifier: registration.deviceIdentifier,
+      ...(displayName === undefined ? {} : { displayName }),
+      expiresAt: now + enrollmentLifetimeMilliseconds,
+      platform: registration.platform,
+      productAccountId,
+    }),
+  };
 }
 
 async function deleteTrustedDeviceHeartbeat(
@@ -604,22 +575,6 @@ async function deleteTrustedDeviceHeartbeat(
     .unique();
   if (heartbeat !== null) {
     await ctx.db.delete('devicePushRouteHeartbeats', heartbeat._id);
-  }
-}
-
-// A removed device's pending or approved enrollment can no longer be collected.
-async function deleteTrustedDeviceEnrollmentRequests(
-  ctx: MutationCtx,
-  trustedDeviceId: Id<'trustedDevices'>,
-): Promise<void> {
-  const requests = await ctx.db
-    .query('productSyncEnrollmentRequests')
-    .withIndex('by_trustedDeviceId', (q) =>
-      q.eq('trustedDeviceId', trustedDeviceId),
-    )
-    .take(enrollmentRequestCleanupLimit);
-  for (const request of requests) {
-    await ctx.db.delete('productSyncEnrollmentRequests', request._id);
   }
 }
 
@@ -821,7 +776,6 @@ async function deleteTrustedDeviceAndRoutes(
     trustedDeviceId,
   );
   await deleteTrustedDeviceHeartbeat(ctx, trustedDeviceId);
-  await deleteTrustedDeviceEnrollmentRequests(ctx, trustedDeviceId);
   if ((await ctx.db.get('trustedDevices', trustedDeviceId)) !== null) {
     await ctx.db.delete('trustedDevices', trustedDeviceId);
   }
@@ -900,6 +854,7 @@ async function commitPendingProductSyncKeyRotation(
   ) {
     throw new Error('Product Sync key rotation material is unavailable');
   }
+  // The replacement Recovery Key now admits devices; the previous one no longer opens anything.
   const recoveryMaterial = await ctx.db
     .query('encryptedProductSyncPayloads')
     .withIndex('by_productAccountId_and_payloadIdentifier', (q) =>
@@ -923,7 +878,10 @@ async function commitPendingProductSyncKeyRotation(
     productSyncKeyEpoch: request.keyEpoch,
     productSyncPendingEncryptedTransition: undefined,
     productSyncPendingKeyEpoch: undefined,
+    productSyncPendingRecoveryVerifier: undefined,
     productSyncPendingRecoveryWrappedAccountKey: undefined,
+    productSyncRecoveryVerifier:
+      request.account.productSyncPendingRecoveryVerifier,
   });
 }
 
@@ -932,11 +890,16 @@ export const connect = mutation({
     deviceIdentifier: v.string(),
     deviceName: v.optional(v.string()),
     expectedProductAccountId: v.optional(v.id('productAccounts')),
+    // A device presents the credential it last received, whether it is trusted or pending.
+    pendingDeviceCredential: v.optional(v.string()),
     platform: v.string(),
     supportsDeviceCredentials: v.optional(v.boolean()),
     trustedDeviceCredential: v.optional(v.string()),
   },
+  // fallow-ignore-next-line complexity -- One transaction decides between a new, returning or Pending Device.
   handler: async (ctx, args) => {
+    const presentedCredential =
+      args.trustedDeviceCredential ?? args.pendingDeviceCredential;
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) {
       throw new Error('Authentication required');
@@ -960,21 +923,57 @@ export const connect = mutation({
     if (productAccount === null) {
       throw new Error('Product Account required');
     }
-    const { deviceRegistered, trustedDeviceId } = await upsertTrustedDevice(
-      ctx,
+    const registration = {
+      deviceIdentifier: args.deviceIdentifier,
+      deviceName: args.deviceName,
+      now,
+      platform: args.platform,
+      productSyncKeyEpoch:
+        productAccount.productSyncKeyEpoch ?? initialProductSyncKeyEpoch,
+    };
+    const connection = {
+      accountCreated,
+      productSyncMaterialInitialized:
+        productAccount.productSyncMaterialInitializedAt !== undefined,
       productAccountId,
-      {
+      signInProviders: await signInProvidersForAccount(ctx, productAccount),
+    };
+    const existingDevice = await ctx.db
+      .query('trustedDevices')
+      .withIndex('by_productAccountId_and_deviceIdentifier', (q) =>
+        q
+          .eq('productAccountId', productAccountId)
+          .eq('deviceIdentifier', args.deviceIdentifier),
+      )
+      .unique();
+    // Product Sign-In alone admits only the device that creates the account's keys.
+    if (
+      existingDevice === null &&
+      !accountCreated &&
+      !(await awaitsFirstDevice(ctx, productAccount))
+    ) {
+      return {
+        ...connection,
+        ...(await upsertPendingDevice(ctx, productAccountId, {
+          ...registration,
+          presentedCredential,
+        })),
+      };
+    }
+    const { deviceRegistered, trustedDeviceId } =
+      existingDevice === null
+        ? await registerTrustedDevice(ctx, productAccountId, registration)
+        : await reconnectTrustedDevice(ctx, existingDevice, registration);
+    if (existingDevice === null) {
+      await preserveTrustedDeviceRevocationTarget(ctx, {
         deviceIdentifier: args.deviceIdentifier,
-        deviceName: args.deviceName,
-        now,
-        platform: args.platform,
-        productSyncKeyEpoch:
-          productAccount.productSyncKeyEpoch ?? initialProductSyncKeyEpoch,
-      },
-    );
+        productAccountId,
+        trustedDeviceId,
+      });
+    }
     const trustedDeviceCredential =
       await preserveOrIssueTrustedDeviceCredential(ctx, {
-        presentedCredential: args.trustedDeviceCredential,
+        presentedCredential,
         supportsDeviceCredentials: args.supportsDeviceCredentials,
         trustedDeviceId,
       });
@@ -988,12 +987,8 @@ export const connect = mutation({
     }
 
     return {
-      accountCreated,
+      ...connection,
       deviceRegistered,
-      productSyncMaterialInitialized:
-        productAccount.productSyncMaterialInitializedAt !== undefined,
-      productAccountId,
-      signInProviders: await signInProvidersForAccount(ctx, productAccount),
       ...(trustedDeviceCredential === undefined
         ? {}
         : { trustedDeviceCredential }),
@@ -1065,6 +1060,7 @@ export const renameTrustedDevice = mutation({
 type RevokeTrustedDeviceArgs = Readonly<{
   encryptedTransition: EncryptedProductSyncPayload['encryptedPayload'];
   expectedRecoveryUpdatedAt: number;
+  recoveryVerifier: string;
   recoveryWrappedAccountKey: EncryptedProductSyncPayload['encryptedPayload'];
   trustedDeviceId: Id<'trustedDevices'>;
   trustedDeviceToRevokeId: Id<'trustedDevices'>;
@@ -1160,6 +1156,7 @@ async function applyTrustedDeviceRevocation(
   ) {
     throw new Error('Product Sync key rotation material is invalid');
   }
+  requireRecoveryVerifier(args.recoveryVerifier);
   const productAccountId = account._id;
   await requireUnchangedRecoveryMaterial(ctx, {
     expectedKeyVersion:
@@ -1208,6 +1205,7 @@ async function revokeDuringPendingKeyRotation(
   await ctx.db.patch('productAccounts', productAccountId, {
     productSyncPendingEncryptedTransition: args.encryptedTransition,
     productSyncPendingKeyEpoch: nextKeyEpoch,
+    productSyncPendingRecoveryVerifier: args.recoveryVerifier,
     productSyncPendingRecoveryWrappedAccountKey: args.recoveryWrappedAccountKey,
   });
 
@@ -1244,6 +1242,7 @@ async function startProductSyncKeyRotation(
     productSyncKeyEpoch: currentKeyEpoch,
     productSyncPendingEncryptedTransition: args.encryptedTransition,
     productSyncPendingKeyEpoch: nextKeyEpoch,
+    productSyncPendingRecoveryVerifier: args.recoveryVerifier,
     productSyncPendingRecoveryWrappedAccountKey: args.recoveryWrappedAccountKey,
   });
 
@@ -1322,6 +1321,7 @@ export const revokeTrustedDevice = internalMutation({
     ...trustedDeviceCredentialArgs,
     encryptedTransition: encryptedProductSyncPayloadBodyValidator,
     expectedRecoveryUpdatedAt: v.number(),
+    recoveryVerifier: v.string(),
     recoveryWrappedAccountKey: encryptedProductSyncPayloadBodyValidator,
     trustedDeviceId: v.string(),
     trustedDeviceToRevokeId: v.string(),
@@ -1365,11 +1365,6 @@ export const revokeTrustedDevice = internalMutation({
       .unique();
     if (completedRevocation !== null) {
       return completedRevocationResponse(ctx, account);
-    }
-    if (
-      account.legacyTrustedDeviceIdentifierMigrationCompletedAt === undefined
-    ) {
-      throw new Error('Trusted Device identifier migration required');
     }
 
     const target = await findTrustedDeviceRevocationTarget(ctx, {
@@ -1565,6 +1560,42 @@ export const acknowledgeProductSyncKeyRotation = mutation({
   returns: productSyncKeyRotationResponseValidator,
 });
 
+// Unregistration also resolves an admission whose reply was lost, with the same cleanup and
+// rotation completion as an ordinary Trusted Device sign-out.
+async function unregisterOwnedTrustedDevice(
+  ctx: MutationCtx,
+  account: Readonly<{ productAccountId: Id<'productAccounts'> }>,
+  device: Doc<'trustedDevices'>,
+): Promise<void> {
+  await preserveTrustedDeviceRevocationTarget(ctx, {
+    ...(device.credentialDigest === undefined
+      ? {}
+      : { credentialDigest: device.credentialDigest }),
+    deviceIdentifier: device.deviceIdentifier,
+    productAccountId: account.productAccountId,
+    trustedDeviceId: device._id,
+  });
+  await deleteTrustedDeviceAndRoutes(ctx, account.productAccountId, device._id);
+  const productAccount = await ctx.db.get(
+    'productAccounts',
+    account.productAccountId,
+  );
+  if (productAccount?.productSyncPendingKeyEpoch !== undefined) {
+    const pendingDeviceCount = await pendingRotationDeviceCount(
+      ctx,
+      account.productAccountId,
+      productAccount.productSyncPendingKeyEpoch,
+    );
+    if (pendingDeviceCount === 0) {
+      await commitPendingProductSyncKeyRotation(ctx, {
+        account: productAccount,
+        keyEpoch: productAccount.productSyncPendingKeyEpoch,
+        trustedDeviceId: device._id,
+      });
+    }
+  }
+}
+
 export const unregisterTrustedDevice = mutation({
   args: {
     ...trustedDeviceCredentialArgs,
@@ -1588,51 +1619,47 @@ export const unregisterTrustedDevice = mutation({
     if (device.deviceIdentifier !== args.deviceIdentifier) {
       throw new Error('Current trusted device required');
     }
-    const identifierHistory = await ctx.db
-      .query('trustedDeviceIdentifierHistory')
-      .withIndex('by_productAccountId_and_deviceIdentifier', (q) =>
-        q
-          .eq('productAccountId', account.productAccountId)
-          .eq('deviceIdentifier', device.deviceIdentifier),
-      )
-      .unique();
-    if (identifierHistory === null) {
-      await ctx.db.insert('trustedDeviceIdentifierHistory', {
-        deviceIdentifier: device.deviceIdentifier,
-        firstRegisteredAt: device.registeredAt,
-        productAccountId: account.productAccountId,
-      });
-    }
-    await preserveTrustedDeviceRevocationTarget(ctx, {
-      ...(device.credentialDigest === undefined
-        ? {}
-        : { credentialDigest: device.credentialDigest }),
-      deviceIdentifier: device.deviceIdentifier,
-      productAccountId: account.productAccountId,
-      trustedDeviceId: args.trustedDeviceId,
-    });
-    await deleteTrustedDeviceAndRoutes(
-      ctx,
-      account.productAccountId,
-      args.trustedDeviceId,
-    );
-    const productAccount = await ctx.db.get(
-      'productAccounts',
-      account.productAccountId,
-    );
-    if (productAccount?.productSyncPendingKeyEpoch !== undefined) {
-      const pendingDeviceCount = await pendingRotationDeviceCount(
-        ctx,
-        account.productAccountId,
-        productAccount.productSyncPendingKeyEpoch,
-      );
-      if (pendingDeviceCount === 0) {
-        await commitPendingProductSyncKeyRotation(ctx, {
-          account: productAccount,
-          keyEpoch: productAccount.productSyncPendingKeyEpoch,
-          trustedDeviceId: args.trustedDeviceId,
-        });
+    await unregisterOwnedTrustedDevice(ctx, account, device);
+    return { registered: false };
+  },
+  returns: trustedDeviceUnregistrationResponseValidator,
+});
+
+// Sign-out races with admission transactionally: either the Pending Device is deleted before
+// confirmation, or its same-credential Trusted Device is unregistered after confirmation.
+export const unregisterPendingDevice = mutation({
+  args: { ...pendingDeviceProofArgs, deviceIdentifier: v.string() },
+  handler: async (ctx, args) => {
+    const account = await requireProductAccount(ctx);
+    if ((await ctx.db.get('pendingDevices', args.pendingDeviceId)) === null) {
+      const device = await ctx.db
+        .query('trustedDevices')
+        .withIndex('by_productAccountId_and_deviceIdentifier', (q) =>
+          q
+            .eq('productAccountId', account.productAccountId)
+            .eq('deviceIdentifier', args.deviceIdentifier),
+        )
+        .unique();
+      if (device !== null) {
+        await requireAuthenticatedTrustedDevice(
+          ctx,
+          device._id,
+          args.pendingDeviceCredential,
+        );
+        await unregisterOwnedTrustedDevice(ctx, account, device);
       }
+    } else {
+      const { pendingDevice } = await requireAuthenticatedPendingDevice(
+        ctx,
+        args,
+        {
+          allowExpired: true,
+        },
+      );
+      if (pendingDevice.deviceIdentifier !== args.deviceIdentifier) {
+        throw new Error('Current pending device required');
+      }
+      await ctx.db.delete('pendingDevices', args.pendingDeviceId);
     }
     return { registered: false };
   },

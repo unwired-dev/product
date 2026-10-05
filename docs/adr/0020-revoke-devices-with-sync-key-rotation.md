@@ -2,8 +2,8 @@
 
 > [ADR 0066](0066-admit-devices-only-through-authorized-enrollment.md) replaces the
 > account-wide refusal of previously unseen device identifiers described below,
-> and supersedes the identifier-history migration below. Until issue
-> #750 lands, the backend still enforces both.
+> and supersedes the identifier-history migration below. Issue #750 removes both;
+> the superseded paragraphs remain here as historical decision context.
 
 Device Revocation removes another installation. After resolving an account-owned
 live or retained Trusted Device ID, the backend compares the target installation

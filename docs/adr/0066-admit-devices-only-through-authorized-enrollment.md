@@ -103,5 +103,5 @@ registration needs to be preserved.
 - The identifier migration in ADR 0020 has no remaining purpose. Issue #750
   removes the unseen-identifier lock, the rule that an existing Product Account
   cannot revoke until its migration is marked complete, the migration mutation
-  and the registration history kept for the lock. Until then the backend and the
-  identity requirements still describe them.
+  and the registration history kept for the lock. The superseded clauses remain
+  in ADR 0020 as historical context; current requirements describe authorized enrollment.

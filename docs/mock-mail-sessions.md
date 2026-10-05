@@ -40,16 +40,21 @@ that confirm setup with a connected mailbox open that synchronized Inbox, relaun
 from its encrypted cache and return to the account page.
 Its synthetic [Product Sync](private-product-sync.md#deterministic-evidence)
 backend keeps the run's encrypted records in the same Keychain service, so new
-accounts present a Recovery Key and relaunches keep their keys. In
+accounts present a Recovery Key and relaunches keep their keys. Like Convex, it
+admits only the device that created an account's keys; any other device waits as a
+Pending Device without Gmail authorization until it is admitted. In
 `registration-enrollment`, a synthetic trusted device already holds the account
 keys and an encrypted mailbox. It approves the app's request with the code read
 from that Keychain, standing in for a person typing it on another device.
 In `registration-recovery`, the same synthetic device is lost and never approves.
-The journey types the account's fixed synthetic Recovery Key instead.
+The journey types the account's fixed synthetic Recovery Key instead, which the
+backend checks against the account's Recovery Key verifier.
 In `registration-revocation`, the new account also has a synthetic iPad. The
 journey removes it, confirms the replacement Recovery Key and relaunches without
 it. In `registration-revoked`, another device removes this one after its first
-sign-in. The relaunch purges the account, and signing in again is refused.
+sign-in. The relaunch purges the account. Signing in again mints a new device
+identifier, which waits for approval as a Pending Device, and the journey signs
+out of that gate.
 In `registration-removal`, the journey saves and confirms its Recovery Key, then
 signs out and relaunches with nothing kept.
 Signing in again leads to an approval request. It then deletes the account,

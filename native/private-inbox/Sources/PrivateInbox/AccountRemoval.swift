@@ -2,7 +2,8 @@ import Foundation
 
 // Backend steps that end this device's access, or the whole Product Account's.
 struct AccountRemoval {
-  // Forgets this Trusted Device, identified by its installation, and its push routes.
+  // Forgets this Trusted Device, identified by its installation, and its push routes, or this
+  // Pending Device.
   let unregister: (ProductSignInIdentity, ProductRegistrationReceipt, String) async throws -> Void
   // Deletes the Product Account after a recent Product Sign-In; Apple adds its authorization code.
   let delete: (ProductSignInIdentity, ProductRegistrationReceipt) async throws -> Void
@@ -62,7 +63,8 @@ extension RegistrationStore {
       guard identity.provider == saved.provider, identity.subject == saved.subject else {
         throw RegistrationError.invalidIdentity
       }
-      if saved.accountRemoval == nil, let backend = productSync,
+      // A Pending Device holds no published keys or Recovery Key of its own to protect.
+      if saved.accountRemoval == nil, product.pending != true, let backend = productSync,
         var vault = try loadVault(product.productAccountId)
       {
         session = identity
@@ -117,13 +119,37 @@ extension RegistrationStore {
     if identity.provider == saved.provider, identity.subject != saved.subject {
       throw RegistrationError.invalidIdentity
     }
+    // An expired Pending Device may have been cleaned up. Renew its proof before recording
+    // deletion intent; a retry of an unanswered deletion must not reconnect the account.
+    if saved.accountRemoval == nil, product.pending == true {
+      var needsProof = productSync == nil
+      if let backend = productSync {
+        do {
+          _ = try await backend.enrollmentStatus(identity, product)
+        } catch RegistrationError.pendingDeviceUnavailable {
+          needsProof = true
+        }
+      }
+      if needsProof {
+        let refreshed = try await connect(identity, saved.deviceIdentifier, product)
+        guard refreshed.productAccountId == product.productAccountId else {
+          throw RegistrationError.invalidIdentity
+        }
+        saved.product = refreshed
+        try save(saved)
+      }
+    }
     let wasPending = saved.accountRemoval != nil
     saved.accountRemoval = AccountRemovalState(operation: .deletion)
     try save(saved)
     do {
-      try await removal.delete(identity, product)
+      try await removal.delete(identity, saved.product ?? product)
     } catch let error as RegistrationError
-      where [.staleAuthentication, .removalRefused, .appleAuthorizationRequired].contains(error)
+      where [
+        .staleAuthentication, .removalRefused, .appleAuthorizationRequired,
+        .pendingDeviceUnavailable,
+      ]
+      .contains(error)
     {
       // This attempt was refused before fencing anything. A refusal cannot settle an earlier
       // unanswered deletion; keep its intent and report uncertainty until cleanup is acknowledged.

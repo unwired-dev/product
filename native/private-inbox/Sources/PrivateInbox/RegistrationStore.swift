@@ -8,8 +8,10 @@ enum RegistrationError: Error {
   case recoveryKeyMismatch
   // Enrollment: a mistyped approval code, or a request that can no longer be approved.
   case enrollmentCodeInvalid, enrollmentUnavailable
-  // Another Trusted Device removed this one, or the account refuses new devices after a removal.
+  // Another Trusted Device removed this one; its identifier stays refused.
   case revoked
+  // This Pending Device's record ended, for example with its Enrollment Code; signing in renews it.
+  case pendingDeviceUnavailable
   // The Product Account was deleted, from this device or another.
   case deleted
   // Convex refused a deletion before fencing anything: a malformed request or a device proof for
@@ -63,8 +65,12 @@ struct GmailRegistrationReceipt: Codable {
 
 struct ProductRegistrationReceipt: Codable {
   let productAccountId: String
+  // While `pending`, these identify this device's Pending Device record and its credential, which
+  // carries over when a Trusted Device approves it or the Recovery Key unlocks it.
   let trustedDeviceId: String
   let trustedDeviceCredential: String
+  // A Pending Device has no Product Account operations beyond its own admission and removal.
+  var pending: Bool? = nil
   // Every Sign-In Provider that opens the Product Account; absent in records before linking.
   var signInProviders: [SignInProvider]? = nil
   // As reported by the latest connect; absent means unknown, which never permits creating keys
@@ -208,6 +214,8 @@ struct SavedRegistration: Codable {
   }
 
   func pending(_ saved: SavedRegistration) throws -> [String: String] {
+    // A device the account has not admitted shows only its enrollment gate.
+    if saved.product?.pending == true { return try account(saved, kind: "device-pending") }
     var result = try account(saved, kind: "mailbox-needed")
     if let reason = saved.mailboxSetupReason { result["reason"] = reason }
     return result
@@ -377,7 +385,8 @@ struct SavedRegistration: Codable {
       throw error
     } catch {
       // Keep any identity credential that establish persisted before the backend failed.
-      if Self.transientMailboxFailure(error), let cached = try cachedMailbox((try? load()) ?? saved) {
+      if Self.transientMailboxFailure(error), let cached = try cachedMailbox((try? load()) ?? saved)
+      {
         return cached
       }
       if saved.product != nil { return try failure((try? load()) ?? saved, reason: "unavailable") }
@@ -389,7 +398,9 @@ struct SavedRegistration: Codable {
   // Reports a retained mailbox as connected only after its Gmail access verifies again.
   func mailboxStatus(_ saved: SavedRegistration) async throws -> [String: String] {
     var next = saved
-    guard let credential = next.mailboxCredential, let mailbox = next.mailbox else {
+    guard let credential = next.mailboxCredential, let mailbox = next.mailbox,
+      next.product?.pending != true
+    else {
       return try pending(next)
     }
     do {
@@ -429,7 +440,10 @@ struct SavedRegistration: Codable {
   }
 
   func authorizeGmail(reselect: Bool) async throws -> [String: String] {
-    guard let saved = try load(), saved.product != nil else { throw RegistrationError.unavailable }
+    // Gmail authorization follows admission; a Pending Device holds no mailbox.
+    guard let saved = try load(), let product = saved.product, product.pending != true else {
+      throw RegistrationError.unavailable
+    }
     // Confirm the retained Product Sign-In independently of the mailbox selection.
     var next: SavedRegistration
     do {
@@ -477,7 +491,6 @@ struct SavedRegistration: Codable {
   }
 
   // A revoked device keeps nothing of the Product Account: keys, requests and credentials go.
-  // A device that never joined it, refused after another device's removal, was never trusted.
   // Every item is attempted; the registration record goes last, so a failed purge is retried.
   func purge(notice: String? = nil) throws -> [String: String] {
     mailboxGeneration = UUID()
@@ -504,9 +517,7 @@ struct SavedRegistration: Codable {
     if let failure { throw failure }
     try keys.remove("registration")
     if removalOperation == .signOut { return ["kind": "signed-out"] }
-    return [
-      "kind": "signed-out", "notice": notice ?? (saved?.product == nil ? "refused" : "revoked"),
-    ]
+    return ["kind": "signed-out", "notice": notice ?? "revoked"]
   }
 
   // Every host operation runs through this, so whichever request learns of a revocation purges.

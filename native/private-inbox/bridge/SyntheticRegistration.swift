@@ -116,20 +116,27 @@
   @MainActor final class MockProductSyncBackend {
     struct Request: Codable {
       let account: String
-      let device: String
       let publicKey: Data
       var approved: KeyRingEnvelope.Enrollment?
-      var checks = 0
     }
     struct State: Codable {
       var recovery: [String: EncryptedPayload] = [:]
+      // The Recovery Key verifier published with each account's recovery envelope.
+      var verifiers: [String: String] = [:]
       var records: [String: [String: StoredPayload]] = [:]
+      // Open enrollment requests by Pending Device id.
       var requests: [String: Request] = [:]
+      // Pending Devices whose Recovery Key proof matched.
+      var recovered: Set<String> = []
+      // Device identifiers each account admitted: the one that created its keys, then others.
+      var admitted: [String: [String]] = [:]
       // Keys held by the synthetic trusted device of an account that existed before this run.
       var trusted: [String: ProductSyncKeyRing] = [:]
       // A removal's pending epoch, transition and recovery envelope, until this device adopts it.
       var rotations: [String: Rotation] = [:]
       var removed: Set<String> = []
+      // This device's identifiers another device removed; they stay refused.
+      var removedIdentifiers: Set<String> = []
       // Product Accounts this device deleted; their sign-ins are refused afterwards.
       var deleted: Set<String> = []
       // The launch that first connected; a later launch learns of this device's removal.
@@ -139,11 +146,14 @@
       let epoch: Int
       let transition: EncryptedPayload
       let recovery: EncryptedPayload
+      let verifier: String
     }
     // The other device of the `registration-revocation` account, which this device removes.
-    static let iPad = TrustedDevice(id: "synthetic-ipad", name: "iPad", registeredAt: 1_788_220_800_000)
+    static let iPad = TrustedDevice(
+      id: "synthetic-ipad", name: "iPad", registeredAt: 1_788_220_800_000)
     // The synthetic account's Recovery Key, typed by the `registration-recovery` journey.
     static let recoveryKey = "000G-40R4-0M30-E209-185G-R38E-1W81-24GK-2GAH-C5RR-34D1-P70X-3RFG"
+    static let pendingPrefix = "synthetic-pending-"
     let keys: DeviceKeychain
     // Whether the synthetic trusted device is available to approve this device.
     let approves: Bool
@@ -160,9 +170,11 @@
       try update { state in
         guard state.trusted[account] == nil else { return }
         let ring = ProductSyncKeyRing.create()
+        let key = try RecoveryKey(parsing: Self.recoveryKey)
         state.trusted[account] = ring
-        state.recovery[account] = try KeyRingEnvelope.recovery(
-          ring, key: RecoveryKey(parsing: Self.recoveryKey), account: account)
+        state.admitted[account] = ["synthetic-trusted-installation"]
+        state.recovery[account] = try KeyRingEnvelope.recovery(ring, key: key, account: account)
+        state.verifiers[account] = KeyRingEnvelope.recoveryVerifier(key, account: account)
         let identifier = try ring.identifier("mailbox", "gmail:synthetic-trusted-mailbox")
         state.records[account] = [
           identifier: StoredPayload(
@@ -176,22 +188,38 @@
       }
     }
 
-    // The synthetic trusted device approves once the request has been shown, using the code the
-    // person would type from this device's screen; it reads that code from the run's Keychain.
+    // A Trusted Device for an admitted identifier; any other device of an account with keys waits.
+    func connect(_ account: String, deviceIdentifier: String) throws -> (id: String, pending: Bool)
+    {
+      try update { state in
+        if state.removedIdentifiers.contains(deviceIdentifier) { throw RegistrationError.revoked }
+        let admitted = state.admitted[account, default: []]
+        if admitted.contains(deviceIdentifier)
+          || (admitted.isEmpty && state.recovery[account] == nil)
+        {
+          if !admitted.contains(deviceIdentifier) {
+            state.admitted[account, default: []].append(deviceIdentifier)
+          }
+          return ("synthetic-device-" + deviceIdentifier, false)
+        }
+        return (Self.pendingPrefix + deviceIdentifier, true)
+      }
+    }
+
+    // The synthetic trusted device approves once the request has been shown and this device checks
+    // for approval, using the code the person would type from this device's screen; it reads that
+    // code from the run's Keychain.
     func approveIfShown(_ id: String, state: inout State) throws {
       guard approves, var request = state.requests[id], request.approved == nil,
         let ring = state.trusted[request.account]
       else { return }
-      request.checks += 1
-      if request.checks > 1,
-        let data = try keys.read("product-sync-enrollment." + request.account)
-      {
+      if let data = try keys.read("product-sync-enrollment." + request.account) {
         let shown = try JSONDecoder().decode(ProductSyncEnrollment.self, from: data)
-        if shown.requestId == id {
+        if shown.pendingDeviceId == id {
           request.approved = try KeyRingEnvelope.enrollment(
             ring, to: Curve25519.KeyAgreement.PublicKey(rawRepresentation: request.publicKey),
             code: EnrollmentCode(parsing: shown.code),
-            binding: .init(account: request.account, device: request.device, request: id))
+            binding: .init(account: request.account, device: id))
         }
       }
       state.requests[id] = request
@@ -212,12 +240,13 @@
 
     var backend: ProductSyncBackend {
       ProductSyncBackend(
-        initialize: { [self] _, product, envelope in
+        initialize: { [self] _, product, envelope, verifier in
           try update { state in
             if let existing = state.recovery[product.productAccountId] {
               return existing == envelope
             }
             state.recovery[product.productAccountId] = envelope
+            state.verifiers[product.productAccountId] = verifier
             return true
           }
         },
@@ -239,41 +268,58 @@
         },
         requestEnrollment: { [self] _, product, publicKey in
           try update { state in
-            guard state.recovery[product.productAccountId] != nil else {
+            guard product.pending == true, state.recovery[product.productAccountId] != nil else {
               throw RegistrationError.unavailable
             }
-            state.requests = state.requests.filter { $0.value.device != product.trustedDeviceId }
-            let id = "synthetic-request-" + UUID().uuidString
-            state.requests[id] = Request(
-              account: product.productAccountId, device: product.trustedDeviceId,
-              publicKey: publicKey.rawRepresentation)
-            return id
+            state.requests[product.trustedDeviceId] = Request(
+              account: product.productAccountId, publicKey: publicKey.rawRepresentation)
           }
         },
-        enrollmentStatus: { [self] _, product, id in
+        enrollmentStatus: { [self] _, product in
           try update { state in
+            let id = product.trustedDeviceId
             try approveIfShown(id, state: &state)
-            guard let request = state.requests[id], request.device == product.trustedDeviceId
-            else { return EnrollmentStatus(state: .cancelled) }
+            guard let request = state.requests[id] else {
+              return EnrollmentStatus(state: .cancelled)
+            }
             guard let approved = request.approved else { return EnrollmentStatus(state: .pending) }
             return EnrollmentStatus(state: .approved, approval: (1, approved))
           }
         },
-        completeEnrollment: { [self] _, _, id in
-          try update { state in state.requests[id] = nil }
+        // Admits a Pending Device that a Trusted Device approved or whose Recovery Key matched.
+        completeEnrollment: { [self] _, product, keyVersion in
+          try update { state in
+            let id = product.trustedDeviceId
+            let epoch = state.rotations[product.productAccountId]?.epoch ?? 1
+            guard keyVersion == epoch, product.pending == true, id.hasPrefix(Self.pendingPrefix),
+              state.requests[id]?.approved != nil || state.recovered.contains(id)
+            else { return nil }
+            let deviceIdentifier = String(id.dropFirst(Self.pendingPrefix.count))
+            state.requests[id] = nil
+            state.recovered.remove(id)
+            state.admitted[product.productAccountId, default: []].append(deviceIdentifier)
+            return "synthetic-device-" + deviceIdentifier
+          }
+        },
+        recoverPending: { [self] _, product, proof in
+          try update { state in
+            let account = product.productAccountId
+            // While a rotation is pending, only its replacement Recovery Key admits a device.
+            let rotation = state.rotations[account]
+            guard product.pending == true,
+              let verifier = rotation?.verifier ?? state.verifiers[account],
+              SHA256.hash(data: Data(proof.utf8)).map({ String(format: "%02x", $0) }).joined()
+                == verifier,
+              let envelope = rotation?.recovery ?? state.recovery[account]
+            else { return nil }
+            state.recovered.insert(product.trustedDeviceId)
+            return envelope
+          }
         },
         // The synthetic devices in this session never wait for this device's approval.
         pendingEnrollments: { _, _ in [] },
         approveEnrollment: { _, _, _, _, _ in throw RegistrationError.enrollmentUnavailable },
-        // Only this device's own request can be cancelled, as after Recovery Key unlock.
-        declineEnrollment: { [self] _, product, id in
-          try update { state in
-            guard state.requests[id]?.device == product.trustedDeviceId else {
-              throw RegistrationError.enrollmentUnavailable
-            }
-            state.requests[id] = nil
-          }
-        },
+        declineEnrollment: { _, _, _ in throw RegistrationError.enrollmentUnavailable },
         recoveryEnvelope: { [self] _, product in
           guard let envelope = try state().recovery[product.productAccountId] else {
             throw RegistrationError.unavailable
@@ -293,6 +339,7 @@
             let account = product.productAccountId
             guard let rotation = state.rotations[account], rotation.epoch == epoch else { return }
             state.recovery[account] = rotation.recovery
+            state.verifiers[account] = rotation.verifier
             state.rotations[account] = nil
           }
         },
@@ -300,14 +347,15 @@
           guard removable else { return [] }
           return try state().removed.contains(Self.iPad.id) ? [] : [Self.iPad]
         },
-        revoke: { [self] _, product, target, transition, recovery, _ in
+        revoke: { [self] _, product, target, transition, recovery, verifier, _ in
           try update { state in
             guard removable, target == Self.iPad.id, !state.removed.contains(target),
               recovery.schemaVersion == KeyRingEnvelope.recoverySchemaVersion
             else { throw RegistrationError.unavailable }
             state.removed.insert(target)
             state.rotations[product.productAccountId] = Rotation(
-              epoch: recovery.keyVersion, transition: transition, recovery: recovery)
+              epoch: recovery.keyVersion, transition: transition, recovery: recovery,
+              verifier: verifier)
           }
         })
     }
@@ -315,8 +363,7 @@
 
   @MainActor func mockRegistrationStore(
     bundle: String, scenario: String, mailCache: PrivateInboxStore?
-  ) throws -> RegistrationStore
-  {
+  ) throws -> RegistrationStore {
     guard
       [
         "registration-cancelled", "registration-declined", "registration-no-gmail",
@@ -363,28 +410,43 @@
         }),
       productSync: productSync.backend,
       removal: AccountRemoval(
-        unregister: { _, _, _ in },
+        // Signing out forgets this device; signing in again makes it wait for admission.
+        unregister: { _, product, deviceIdentifier in
+          try productSync.update { state in
+            state.admitted[product.productAccountId]?.removeAll { $0 == deviceIdentifier }
+            state.requests[product.trustedDeviceId] = nil
+          }
+        },
         delete: { _, product in
           try productSync.update { $0.deleted.insert(product.productAccountId) }
         }),
       mailCache: mailCache,
-      connect: { identity, _, _ in
+      connect: { identity, deviceIdentifier, _ in
         guard let account = accounts[identity.subject] else {
           throw RegistrationError.invalidIdentity
         }
         if try productSync.state().deleted.contains(account) {
           throw RegistrationError.deleted
         }
-        // Another device removes this one after its first sign-in; the relaunch learns of it.
+        // Another device removes this one after its first sign-in; the relaunch learns of it. Its
+        // identifier stays refused, and a new sign-in waits like any other new device.
         let earlier = try productSync.update { state in
           defer { state.connectedLaunch = state.connectedLaunch ?? launch }
           return state.connectedLaunch.map { $0 != launch } ?? false
         }
-        if scenario == "registration-revoked", earlier { throw RegistrationError.revoked }
+        if scenario == "registration-revoked", earlier {
+          try productSync.update { state in
+            if state.admitted[account]?.contains(deviceIdentifier) == true {
+              state.admitted[account]?.removeAll { $0 == deviceIdentifier }
+              state.removedIdentifiers.insert(deviceIdentifier)
+            }
+          }
+        }
+        let device = try productSync.connect(account, deviceIdentifier: deviceIdentifier)
         return ProductRegistrationReceipt(
-          productAccountId: account, trustedDeviceId: "synthetic-device",
+          productAccountId: account, trustedDeviceId: device.id,
           trustedDeviceCredential: String(repeating: "a", count: 64),
-          signInProviders: [identity.provider],
+          pending: device.pending ? true : nil, signInProviders: [identity.provider],
           productSyncMaterialInitialized: try productSync.initialized(account))
       })
   }

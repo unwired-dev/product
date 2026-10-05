@@ -596,8 +596,10 @@ const deleteAccount = Effect.fnUntraced(function* (
   args: Readonly<{
     appleClientId?: string;
     authorizationCode?: string;
+    pendingDeviceCredential?: string;
+    pendingDeviceId?: string;
     trustedDeviceCredential?: string;
-    trustedDeviceId: string;
+    trustedDeviceId?: string;
   }>,
   attemptId: string,
 ) {
@@ -684,7 +686,9 @@ export const deleteRecentlyAuthenticatedProductAccount = internalAction({
     ...trustedDeviceCredentialArgs,
     appleClientId: v.optional(v.string()),
     authorizationCode: v.optional(v.string()),
-    trustedDeviceId: v.string(),
+    pendingDeviceCredential: v.optional(v.string()),
+    pendingDeviceId: v.optional(v.string()),
+    trustedDeviceId: v.optional(v.string()),
   },
   handler: async (ctx, args): Promise<{ deleted: boolean }> =>
     runConvexProgram(

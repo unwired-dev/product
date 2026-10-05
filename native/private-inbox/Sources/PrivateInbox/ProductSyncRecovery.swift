@@ -3,8 +3,10 @@ import os
 
 extension RegistrationStore {
   // Unlocks this device without a trusted device: the Recovery Key opens the account's published
-  // recovery envelope here and never leaves the device. A key that does not open it, or an
-  // interruption before the keys are saved, leaves the account keys and encrypted data intact.
+  // recovery envelope here and never leaves the device. A Pending Device first proves the key with
+  // a value derived from it for this purpose only, receives the newest envelope, stores the keys it
+  // opens and is then admitted. A key that does not open it, or an interruption before the keys are
+  // saved, leaves the account keys and encrypted data intact.
   // A rejected key resolves with this device's current status and a notice, because the renewed
   // sign-in may already have replaced an expired approval request and its Enrollment Code.
   func recover(with entry: String) async throws -> [String: String] {
@@ -27,11 +29,20 @@ extension RegistrationStore {
     guard let session, let product = saved.product else { throw RegistrationError.unavailable }
     let account = product.productAccountId
     // Already unlocked, for example by an approval collected while reconnecting.
-    if try loadVault(account) != nil { return try status(saved) }
+    if product.pending != true, try loadVault(account) != nil { return try status(saved) }
     guard product.productSyncMaterialInitialized == true else {
       throw RegistrationError.unavailable
     }
-    let envelope = try await backend.recoveryEnvelope(session, product).encryptedPayload
+    let envelope: EncryptedPayload
+    if product.pending == true {
+      guard
+        let released = try await backend.recoverPending(
+          session, product, KeyRingEnvelope.recoveryProof(key, account: account))
+      else { return try rejected() }
+      envelope = released
+    } else {
+      envelope = try await backend.recoveryEnvelope(session, product).encryptedPayload
+    }
     guard let ring = try? KeyRingEnvelope.openRecovery(envelope, key: key, account: account) else {
       return try rejected()
     }
@@ -39,15 +50,12 @@ extension RegistrationStore {
     try saveVault(
       ProductSyncVault(
         productAccountId: account, ring: ring, published: true, recoveryKeyConfirmed: true))
-    if let pending = try loadEnrollment(product) {
-      do {
-        try await backend.declineEnrollment(session, product, pending.requestId)
-      } catch {
-        // The request expires on its own; this device already holds the keys.
-        Self.logProductSyncFailure("Enrollment cancellation failed", error)
-      }
+    if product.pending == true {
+      // A rotation that started meanwhile voids the proof; the device stays pending and proves again.
+      guard let admitted = try await confirmAdmission(saved, backend: backend, session: session)
+      else { throw RegistrationError.unavailable }
+      saved = admitted
     }
-    try keys.remove(enrollmentAccount(account))
     return try status(await synchronize(saved))
   }
 }
