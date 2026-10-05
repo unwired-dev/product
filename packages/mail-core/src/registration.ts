@@ -862,17 +862,76 @@ export const canOpenInbox = (snapshot: RegistrationSnapshot) =>
   (snapshot.kind === 'connected' || snapshot.kind === 'cached') &&
   snapshot.removalPending === undefined;
 
-// Launch lands on the Inbox unless account setup needs the person first: a Recovery Key to
-// confirm or enter, a device approval on either side, or a mailbox not yet saved to private sync.
+// The account setup that needs the person before the Inbox, described so that newly appearing
+// setup differs from setup already pending; empty when none: a Recovery Key to confirm or enter,
+// a device approval on either side, or a mailbox not yet saved to private sync.
+export const inboxSetup = (snapshot: RegistrationSnapshot) => {
+  if (snapshot.kind !== 'connected' && snapshot.kind !== 'cached') {
+    return '';
+  }
+  const privateSync =
+    snapshot.privateSync === 'setup-pending' ||
+    offersRecovery(snapshot.privateSync)
+      ? snapshot.privateSync
+      : undefined;
+  return [
+    snapshot.recoveryKey === undefined ? undefined : 'recovery-key',
+    snapshot.enrollmentCode === undefined
+      ? undefined
+      : `enrollment-code:${snapshot.enrollmentCode}`,
+    snapshot.enrollmentRequest,
+    snapshot.privateSyncPending,
+    privateSync,
+  ]
+    .filter((part) => part !== undefined)
+    .join(' ');
+};
+
+// Launch lands on the Inbox unless account setup needs the person first.
 export const opensInbox = (snapshot: RegistrationSnapshot) =>
-  canOpenInbox(snapshot) &&
-  (snapshot.kind === 'connected' || snapshot.kind === 'cached') &&
-  snapshot.recoveryKey === undefined &&
-  snapshot.enrollmentCode === undefined &&
-  snapshot.enrollmentRequest === undefined &&
-  snapshot.privateSyncPending === undefined &&
-  snapshot.privateSync !== 'setup-pending' &&
-  !offersRecovery(snapshot.privateSync);
+  canOpenInbox(snapshot) && inboxSetup(snapshot) === '';
+
+// The person's choice between the account page and a connected Inbox, made for one Product Account
+// with the setup that was pending then.
+export type InboxChoice = Readonly<{
+  account: string;
+  destination: 'inbox' | 'account';
+  setup: string;
+}>;
+
+// The Product Account whose Inbox can open now, if any.
+const openInboxAccount = (snapshot: RegistrationSnapshot) =>
+  canOpenInbox(snapshot) && snapshot.kind !== 'signed-out'
+    ? snapshot.productAccountId
+    : undefined;
+
+// A choice belongs to one open Inbox: sign-out, removal or another Product Account forgets it, and
+// choosing the Inbox over pending setup does not hide setup that appears later.
+const choiceApplies = (
+  choice: InboxChoice,
+  account: string | undefined,
+  setup: string,
+) =>
+  choice.account === account &&
+  (choice.destination === 'account' || setup === '' || setup === choice.setup);
+
+// Where a host lands, and whether an earlier choice still applies.
+export function inboxLanding(
+  snapshot: RegistrationSnapshot,
+  choice: InboxChoice | undefined,
+) {
+  const account = openInboxAccount(snapshot);
+  const setup = inboxSetup(snapshot);
+  const valid = choice !== undefined && choiceApplies(choice, account, setup);
+  // Without an open Inbox the account page shows; otherwise a valid choice, then pending setup.
+  let destination: InboxChoice['destination'] = 'account';
+  if (valid) {
+    ({ destination } = choice);
+  } else if (account !== undefined && setup === '') {
+    destination = 'inbox';
+  }
+  return { account, setup, valid, destination } as const;
+}
 
 export const enrollmentCopy = {
   // On the device waiting for approval.

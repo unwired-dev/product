@@ -11,6 +11,12 @@ returns. The account page opens instead while a Recovery Key needs confirming or
 entering, a device approval is waiting on either side, the mailbox is not yet
 saved to private sync, or a sign-out or deletion is unfinished.
 
+An explicit choice of **Account** stays through status updates. Choosing **Open
+Inbox** can leave already-pending setup for later, but different pending setup
+that appears afterward, including a renewed device approval code, opens the
+account page again. Sign-out, pending removal,
+loss of mailbox access or a different Product Account forgets the earlier choice.
+
 ## Behavior
 
 The Inbox lists **Durable Message Metadata** for Gmail's `INBOX` label: sender,

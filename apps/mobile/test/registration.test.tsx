@@ -1,3 +1,5 @@
+import type { RegistrationSnapshot } from '@private-email/mail-core/registration';
+
 import { createGmailInbox } from '@private-email/mail-core/gmail-inbox';
 import {
   accountRemovalCopy,
@@ -497,6 +499,84 @@ describe('product registration', () => {
     await expect(
       screen.findByRole('button', { name: 'Account' }),
     ).resolves.toBeVisible();
+  });
+
+  it('shows setup that appears after the person returned to the Inbox', async () => {
+    expect.hasAssertions();
+    const connected = {
+      kind: 'connected',
+      productAccountId: 'synthetic-product-account',
+      signInProvider: 'google',
+      privateSync: 'ready',
+      providerSubject: 'synthetic-google-subject',
+      address: 'other@example.invalid',
+    } as const;
+    let current: RegistrationSnapshot = connected;
+    const store = createRegistration({
+      restore: () => Promise.resolve(current),
+      signIn: () => Promise.resolve(current),
+      authorizeGmail: () => Promise.resolve(current),
+      link: () => Promise.reject(new Error('Not linking')),
+      confirmRecoveryKey: () => Promise.reject(new Error('No key')),
+      ...noEnrollment,
+    });
+    await render(
+      <RegistrationGate
+        store={store}
+        preview={false}>
+        <ConnectedInbox />
+      </RegistrationGate>,
+    );
+    await openAccount();
+    await act(async () => {
+      await fireEvent.press(screen.getByRole('button', { name: 'Open Inbox' }));
+    });
+    // Another device asks for approval; the earlier choice of the Inbox does not hide it.
+    current = {
+      ...connected,
+      enrollmentRequest: 'synthetic-request',
+      enrollmentDevice: 'iPad',
+    };
+    await act(async () => {
+      await store.restore();
+    });
+    await expect(
+      screen.findByRole('header', { name: 'Approve a new device' }),
+    ).resolves.toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Account' })).toBeNull();
+
+    // This device can leave its pending approval for later; unchanged setup stays bypassed.
+    current = {
+      ...connected,
+      privateSync: 'enrollment-pending',
+      enrollmentCode: '1111 2222 3333',
+    };
+    await act(async () => {
+      await store.resume();
+    });
+    await act(async () => {
+      await fireEvent.press(screen.getByRole('button', { name: 'Open Inbox' }));
+    });
+    await act(async () => {
+      await store.resume();
+    });
+    await expect(
+      screen.findByRole('button', { name: 'Account' }),
+    ).resolves.toBeVisible();
+
+    // Expiry renews that request while keeping enrollment-pending: the new code needs attention.
+    current = {
+      ...current,
+      enrollmentCode: '4444 5555 6666',
+      enrollmentNotice: 'renewed',
+    };
+    await act(async () => {
+      await store.resume();
+    });
+    await expect(
+      screen.findByRole('header', { name: 'Approve this device' }),
+    ).resolves.toBeVisible();
+    expect(screen.getByText('4444 5555 6666')).toBeVisible();
   });
 
   it('recovers an unverifiable Apple account through a Google link made on another device without new Gmail consent', async () => {

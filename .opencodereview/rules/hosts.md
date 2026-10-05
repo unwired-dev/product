@@ -23,6 +23,11 @@ A host owns views and native adapters. It renders shared stores from `@private-e
 - `RegistrationGate` retaining an Inbox/Account destination choice after the Product
   Account changes or Inbox eligibility is lost. Discard that choice before
   rendering so new Recovery Key, enrollment or authorization steps govern landing.
+  Also invalidate an earlier Inbox choice when different pending setup appears for
+  the same eligible account; `inboxLanding` must compare the current setup with
+  setup when the choice was made, including renewed enrollment codes and changed
+  approval requests, so foreground restore cannot hide new setup.
+  Preserve an explicit Account choice and an Inbox choice over unchanged setup.
 
 #### Platform behavior
 

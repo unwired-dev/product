@@ -80,7 +80,14 @@ The process-owned Gmail store also subscribes to registration: a Product Account
 Google subject or address change, or loss of Inbox eligibility, immediately clears
 its in-memory mail and suppresses late publications until the next serialized
 synchronization starts. The hosts discard Account/Inbox presentation choices when
-the Product Account changes or Inbox eligibility is lost.
+the Product Account changes or Inbox eligibility is lost. The shared
+`inboxLanding` helper also invalidates an Inbox choice when different pending
+setup appears for that same account. A choice records `inboxSetup` at the time
+it is made: setup kind markers, the transient enrollment code and the pending
+enrollment request ID, without copying the Recovery Key. A renewed enrollment
+code therefore differs even while the device remains enrollment-pending. An explicit
+Account choice persists, and choosing the Inbox over already-pending setup
+remains valid while that setup is unchanged or clears.
 
 Known transient network failures may restore a separate `cached` registration
 snapshot for the last verified mailbox with retained account ownership and no

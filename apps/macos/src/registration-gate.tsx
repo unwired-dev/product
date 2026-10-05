@@ -1,5 +1,6 @@
 import type {
   AccountRemoval,
+  InboxChoice,
   EnrollmentFailure,
   LinkFailure,
   PrivateSync as PrivateSyncState,
@@ -18,9 +19,8 @@ import {
   enrollmentCopy,
   linkFailureCopy,
   lockedCopy,
-  canOpenInbox,
+  inboxLanding,
   offersRecovery,
-  opensInbox,
   otherSignInProvider,
   privateSyncCopy,
   providerNames,
@@ -571,15 +571,10 @@ export function RegistrationGate({
   );
   const colors = usePalette();
   // The person's choice between the account page and a connected Inbox outlasts status updates.
-  // It belongs to one open Inbox: sign-out, removal or another Product Account forgets it, so
-  // their next destination is decided by the setup they still need.
-  const inboxAccount =
-    canOpenInbox(snapshot) && snapshot.kind !== 'signed-out'
-      ? snapshot.productAccountId
-      : undefined;
-  const [choice, setChoice] =
-    useState<Readonly<{ account: string; destination: 'inbox' | 'account' }>>();
-  if (choice !== undefined && choice.account !== inboxAccount) {
+  const [choice, setChoice] = useState<InboxChoice>();
+  const landing = inboxLanding(snapshot, choice);
+  const { account: inboxAccount, setup } = landing;
+  if (choice !== undefined && !landing.valid) {
     setChoice(undefined);
   }
   const actions = useMemo(
@@ -590,13 +585,17 @@ export function RegistrationGate({
           : undefined,
       openAccount: () => {
         if (inboxAccount !== undefined) {
-          setChoice({ account: inboxAccount, destination: 'account' });
+          setChoice({
+            account: inboxAccount,
+            destination: 'account',
+            setup,
+          });
         }
       },
       authorizeGmail: () => store.authorizeGmail(false),
       refreshInbox: store.refreshInbox,
     }),
-    [store, snapshot, inboxAccount],
+    [store, snapshot, inboxAccount, setup],
   );
   useEffect(() => {
     if (preview) {
@@ -616,13 +615,7 @@ export function RegistrationGate({
   if (preview) {
     return children;
   }
-  const chosen =
-    choice !== undefined && choice.account === inboxAccount
-      ? choice.destination
-      : undefined;
-  const inbox =
-    inboxAccount !== undefined &&
-    (chosen ?? (opensInbox(snapshot) ? 'inbox' : 'account')) === 'inbox';
+  const inbox = landing.destination === 'inbox';
   if (!locked && inbox) {
     return <AccountContext value={actions}>{children}</AccountContext>;
   }
@@ -634,7 +627,11 @@ export function RegistrationGate({
           inboxAccount === undefined
             ? undefined
             : () => {
-                setChoice({ account: inboxAccount, destination: 'inbox' });
+                setChoice({
+                  account: inboxAccount,
+                  destination: 'inbox',
+                  setup,
+                });
               }
         }
       />
