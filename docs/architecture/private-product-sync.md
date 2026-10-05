@@ -83,6 +83,12 @@ which descriptors this device read back.
 
 ## Trusted-device enrollment
 
+Until [#750](https://github.com/unwired-dev/product/issues/750) implements
+[ADR 0066](../adr/0066-admit-devices-only-through-authorized-enrollment.md), the
+registration and enrollment behavior below remains the current implementation.
+ADR 0066's separate Pending Device and authorization-before-admission guarantees
+are accepted follow-up work, not behavior delivered by #602.
+
 [#600](https://github.com/unwired-dev/product/issues/600) adds the replacement
 client's approval path. Product Sign-In registers a device and its backend
 credential independently of possession of Product Sync keys. The client offers
@@ -138,7 +144,12 @@ encryption boundaries, not deployment JWT verification or two real devices.
 ## Recovery Key adoption
 
 [#601](https://github.com/unwired-dev/product/issues/601) adds explicit Recovery Key
-entry beside trusted-device approval. A malformed key is rejected before renewing
+entry beside trusted-device approval. The current route described below serves
+already-registered Trusted Devices; ADR 0066 changes new-device recovery in #750
+to require proof before envelope access and durable adoption before admission.
+During a pending rotation, only the replacement Recovery Key will admit a
+Pending Device, while the previous key remains usable by already-trusted devices
+until completion. A malformed key is rejected before renewing
 Product Sign-In. Before reading the recovery envelope for a well-formed key, Google
 renews its Product Sign-In silently and Apple signs in interactively on every
 attempt. The existing subject and Product Account checks fence the renewed
@@ -257,15 +268,19 @@ and account deletion already drains these target records.
 
 ### Enrollment scope split
 
-[ADR 0020](../adr/0020-revoke-devices-with-sync-key-rotation.md) and the existing
-backend deliberately refuse previously unseen identifiers on any account with a
-revocation tombstone. Issue #602's amended criterion requires preventing bypass
-through an invented identifier; authorized admission of a legitimate new device
-is split into [#750](https://github.com/unwired-dev/product/issues/750), blocked
-by #602.
+The existing backend continues ADR 0020's refusal of previously unseen identifiers
+on any account with a revocation tombstone until
+[#750](https://github.com/unwired-dev/product/issues/750), blocked by #602, lands.
+Issue #602's amended criterion requires preventing bypass through an invented
+identifier; this slice preserves that lock. Current enrollment starts after
+ordinary Trusted Device registration and cannot safely override it.
 
-Current replacement enrollment starts after ordinary device registration and
-cannot safely override that lock: sign-in alone plus an invented identifier is
-not an enrollment authorization. This slice preserves the lock and satisfies
-the amended bypass-prevention criterion. The admission protocol and its owning
-decision are tracked by #750; they are outside #602's current acceptance scope.
+[ADR 0066](../adr/0066-admit-devices-only-through-authorized-enrollment.md) now
+supersedes that lock and its identifier-history migration with authorized
+admission for every account. Issue #750 owns the separate Pending Device record,
+its restricted access, approval or Recovery Key proof, newest-epoch fences and
+durable key adoption before Trusted Device creation. It also removes the lock,
+migration gate, migration mutation and registration history kept for the lock.
+The removed identifier and credential remain refused. These are accepted
+follow-up requirements, outside #602's current acceptance scope; the current
+"This device cannot join" refusal does not claim to implement them.

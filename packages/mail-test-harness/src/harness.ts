@@ -513,6 +513,7 @@ async function runOwnedMailTest<T>(
   };
   signal?.addEventListener('abort', onAbort, { once: true });
 
+  let cleanupAttempted = false;
   try {
     const endpoints = await allocateMailEndpoints();
     const ca = await prepareGreenMailRun({
@@ -526,6 +527,7 @@ async function runOwnedMailTest<T>(
     signal?.throwIfAborted();
     const context = { ca, endpoints, root, signal, state };
     const value = await exercise(context);
+    cleanupAttempted = true;
     state.cleanup = await cleanupOwnedRun(state.ownership, state.child);
     return { cleanup: state.cleanup, context, value };
   } catch (error) {
@@ -539,7 +541,9 @@ async function runOwnedMailTest<T>(
     throw redactedError(error, state.diagnosticSecrets);
   } finally {
     signal?.removeEventListener('abort', onAbort);
-    await cleanupFailedSmokeRun(state);
+    if (!cleanupAttempted) {
+      await cleanupFailedSmokeRun(state);
+    }
   }
 }
 

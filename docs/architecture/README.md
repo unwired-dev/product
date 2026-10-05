@@ -52,6 +52,7 @@ release scopes; a moved passage is not a new requirement or proof of qualificati
 - [Private new-Inbox notifications](../adr/0063-notify-for-new-inbox-mail-without-categorization.md)
 - [Workspace catalogs and native dependency boundaries](../adr/0064-isolate-mobile-and-macos-native-dependencies.md)
 - [Effect adoption scope](../adr/0065-scope-effect-adoption.md)
+- [Device admission through authorized enrollment](../adr/0066-admit-devices-only-through-authorized-enrollment.md)
 - [Interview decisions and research](../research/expo-react-native-rewrite.md)
 - [Platform qualification and deferred native evidence](../qualification/expo-react-native-client.md)
 - [Complete ticket and dependency coverage](../qualification/expo-rewrite-ticket-coverage.md)

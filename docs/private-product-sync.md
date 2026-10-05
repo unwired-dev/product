@@ -208,10 +208,14 @@ so cancelling that prompt cannot prevent a removed device's purge.
 Offline, an Apple relaunch keeps its saved state. The host explains the removal
 and that Gmail mail and previously copied offline data are unaffected.
 
-A fresh identifier is still refused after a removal. The existing backend policy
-prevents identifier substitution, so a genuinely new device cannot join an
-account after a removal either. Admitting one through a new authorized enrollment
-is tracked in [issue #750](https://github.com/unwired-dev/product/issues/750). See the
+Until [issue #750](https://github.com/unwired-dev/product/issues/750) lands, a fresh
+identifier is refused after a removal, including on a legitimate new device. The
+app shows "This device cannot join" and saves nothing on that device. Issue #750
+will let a new device wait for approval by a Trusted Device or prove the Recovery
+Key, then join only after saving the authorized keys. During a pending rotation,
+only the replacement Recovery Key will admit a new device; the previous key
+continues to serve already-trusted devices until rotation completes. This
+admission flow is accepted follow-up work, outside #602. See the
 [architecture companion](architecture/private-product-sync.md#device-revocation)
 for the implementation boundary and tracked limitations.
 

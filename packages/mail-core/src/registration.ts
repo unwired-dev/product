@@ -599,7 +599,7 @@ const signedOutNotices = {
   refused: {
     title: 'This device cannot join',
     description:
-      'Your Product Account no longer accepts new devices because a device was removed from it, so nothing was saved on this device. Your mail in Gmail is not affected.',
+      'Your Product Account currently does not accept new devices because a device was removed from it, so nothing was saved on this device. Your mail in Gmail is not affected.',
   },
 } as const;
 

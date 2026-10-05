@@ -1,5 +1,10 @@
 # Revoke devices with Product Sync key rotation
 
+> [ADR 0066](0066-admit-devices-only-through-authorized-enrollment.md) replaces the
+> account-wide refusal of previously unseen device identifiers described below,
+> and supersedes the identifier-history migration below. Until issue
+> #750 lands, the backend still enforces both.
+
 Device Revocation removes another installation. After resolving an account-owned
 live or retained Trusted Device ID, the backend compares the target installation
 identifier with the authenticated current device's identifier and refuses a match

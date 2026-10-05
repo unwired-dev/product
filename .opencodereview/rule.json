@@ -83,6 +83,11 @@
       "merge_system_rule": true
     },
     {
+      "path": "packages/mail-test-harness/**",
+      "rule": ".opencodereview/rules/mail-test-harness.md",
+      "merge_system_rule": true
+    },
+    {
       "path": "packages/convex/**",
       "rule": ".opencodereview/rules/convex.md",
       "merge_system_rule": false

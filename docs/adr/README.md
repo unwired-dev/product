@@ -88,3 +88,4 @@ ADRs take the next number after the highest in this index.
 | 0063   | [Notify for new Inbox mail without categorization](0063-notify-for-new-inbox-mail-without-categorization.md)                                   |
 | 0064   | [Isolate mobile and macOS native dependencies](0064-isolate-mobile-and-macos-native-dependencies.md)                                           |
 | 0065   | [Scope Effect adoption](0065-scope-effect-adoption.md)                                                                                         |
+| 0066   | [Admit devices only through authorized enrollment](0066-admit-devices-only-through-authorized-enrollment.md)                                   |
