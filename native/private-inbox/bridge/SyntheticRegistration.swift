@@ -42,6 +42,59 @@
       if identity.subject == "synthetic-no-gmail" { throw RegistrationError.gmailUnavailable }
       return GmailRegistrationReceipt(subject: identity.subject, address: "other@example.invalid")
     }
+
+    // A fixed synthetic Gmail mailbox: three Inbox messages over two list pages, no later changes.
+    static let syntheticMessages: [String: [String: Any]] = [
+      "19a0c0ffee000001": [
+        "from": "Rowan Hale <rowan@example.invalid>", "subject": "Garden plans for spring",
+        "snippet": "The seed order arrived. Shall we plan the beds this weekend?",
+        "internalDate": "1759219200000", "labelIds": ["INBOX", "UNREAD"],
+      ],
+      "19a0c0ffee000002": [
+        "from": "\"Ada Brook\" <ada@example.invalid>", "subject": "Notes from Tuesday",
+        "snippet": "Thanks for the thoughtful questions &amp; the follow-up.",
+        "internalDate": "1759132800000", "labelIds": ["INBOX"],
+      ],
+      "19a0c0ffee000003": [
+        "from": "test@example.invalid", "subject": "Welcome to your synthetic Inbox",
+        "snippet": "Nothing here came from a real mailbox.",
+        "internalDate": "1759046400000", "labelIds": ["INBOX", "CATEGORY_UPDATES"],
+      ],
+    ]
+
+    func gmail(_ identity: GoogleRegistrationIdentity, url: URL) async throws -> (Int, Data) {
+      guard identity.subject == "synthetic-alternate-mailbox" else { return (401, Data()) }
+      let query = Dictionary(
+        (URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []).map {
+          ($0.name, $0.value ?? "")
+        }, uniquingKeysWith: { first, _ in first })
+      let body: Any
+      switch url.lastPathComponent {
+      case "profile": body = ["emailAddress": "other@example.invalid", "historyId": "100"]
+      case "history": body = ["historyId": "100"]
+      case "messages" where query["pageToken"] == "2":
+        body = ["messages": [["id": "19a0c0ffee000003", "threadId": "19a0c0ffee000003"]]]
+      case "messages":
+        body = [
+          "messages": ["19a0c0ffee000001", "19a0c0ffee000002"].map { ["id": $0, "threadId": $0] },
+          "nextPageToken": "2",
+        ]
+      case let id:
+        guard let message = Self.syntheticMessages[id] else { return (404, Data()) }
+        body = [
+          "id": id, "threadId": id, "labelIds": message["labelIds"] ?? [],
+          "snippet": message["snippet"] ?? "", "historyId": "100",
+          "internalDate": message["internalDate"] ?? "",
+          "payload": [
+            "headers": [
+              ["name": "From", "value": message["from"] ?? ""],
+              ["name": "Subject", "value": message["subject"] ?? ""],
+            ]
+          ],
+        ]
+      }
+      return (200, try JSONSerialization.data(withJSONObject: body))
+    }
   }
 
   @MainActor final class MockAppleRegistrationProvider: AppleRegistrationProvider {
@@ -260,8 +313,9 @@
     }
   }
 
-  @MainActor func mockRegistrationStore(bundle: String, scenario: String) throws
-    -> RegistrationStore
+  @MainActor func mockRegistrationStore(
+    bundle: String, scenario: String, mailCache: PrivateInboxStore?
+  ) throws -> RegistrationStore
   {
     guard
       [
@@ -313,6 +367,7 @@
         delete: { _, product in
           try productSync.update { $0.deleted.insert(product.productAccountId) }
         }),
+      mailCache: mailCache,
       connect: { identity, _, _ in
         guard let account = accounts[identity.subject] else {
           throw RegistrationError.invalidIdentity

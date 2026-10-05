@@ -1,7 +1,9 @@
 import type { Message } from '@private-email/mail-core';
+import type { GmailMessage } from '@private-email/mail-core/gmail-inbox';
 
+import { gmailSyncCopy } from '@private-email/mail-core/gmail-inbox';
 import { spacing } from '@private-email/mail-core/theme';
-import { useState } from 'react';
+import { useContext, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -13,11 +15,19 @@ import {
 import { SafeAreaView } from 'react-native-screens/experimental';
 
 import { useInbox, useInboxActions } from './mailbox.tsx';
+import { AccountContext } from './registration-gate.tsx';
 import { usePalette } from './theme.ts';
 
 const styles = StyleSheet.create({
   fill: { flex: 1 },
-  heading: { padding: spacing.large, paddingBottom: spacing.medium },
+  heading: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    padding: spacing.large,
+    paddingBottom: spacing.medium,
+  },
+  headingText: { flex: 1 },
+  account: { fontSize: 16, paddingVertical: 8 },
   title: { fontSize: 34, fontWeight: '700', letterSpacing: -0.8 },
   subtitle: { fontSize: 14, marginTop: 4 },
   list: { paddingHorizontal: spacing.small, gap: 4 },
@@ -64,7 +74,7 @@ function MessageRow({
   selected,
   onSelect,
 }: {
-  readonly message: Message;
+  readonly message: Message | GmailMessage;
   readonly selected: boolean;
   readonly onSelect: (id: string) => void;
 }) {
@@ -122,24 +132,92 @@ function MessageRow({
   );
 }
 
+// Synchronization keeps the cached list visible and says why Gmail may be behind.
+function SyncNotice() {
+  const state = useInbox();
+  const actions = useInboxActions();
+  const account = useContext(AccountContext);
+  const colors = usePalette();
+  if (state.kind !== 'ready' || !('sync' in state)) {
+    return null;
+  }
+  // Synchronizes again once Gmail access is authorized.
+  const handleAllowGmail = async (authorize: () => Promise<void>) => {
+    await authorize();
+    await actions.load();
+  };
+  const notice = gmailSyncCopy[state.sync];
+  if (notice === undefined) {
+    return null;
+  }
+  return (
+    <>
+      <Text
+        accessibilityLiveRegion="polite"
+        style={[styles.footer, { color: colors.secondary }]}>
+        {notice}
+      </Text>
+      {state.sync === 'authentication' && account !== undefined ? (
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => {
+            void handleAllowGmail(account.authorizeGmail);
+          }}>
+          <Text style={[styles.notice, { color: colors.accent }]}>
+            Allow Gmail access
+          </Text>
+        </Pressable>
+      ) : null}
+      {state.sync === 'retry' ? (
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => {
+            void (account === undefined
+              ? actions.load()
+              : account.refreshInbox(actions.load));
+          }}>
+          <Text style={[styles.notice, { color: colors.accent }]}>
+            Try again
+          </Text>
+        </Pressable>
+      ) : null}
+    </>
+  );
+}
+
 export function Inbox({ selectedId, onSelect }: InboxProps) {
   const state = useInbox();
   const actions = useInboxActions();
+  const account = useContext(AccountContext);
   const colors = usePalette();
+  const gmail = state.kind === 'ready' && 'sync' in state;
   return (
     <SafeAreaView
       edges={{ top: true, bottom: true, left: true }}
       style={styles.fill}>
       <View style={[styles.fill, { backgroundColor: colors.sidebar }]}>
         <View style={styles.heading}>
-          <Text
-            accessibilityRole="header"
-            style={[styles.title, { color: colors.foreground }]}>
-            Inbox
-          </Text>
-          <Text style={[styles.subtitle, { color: colors.secondary }]}>
-            Preview mailbox
-          </Text>
+          <View style={styles.headingText}>
+            <Text
+              accessibilityRole="header"
+              style={[styles.title, { color: colors.foreground }]}>
+              Inbox
+            </Text>
+            <Text style={[styles.subtitle, { color: colors.secondary }]}>
+              {gmail ? (state.address ?? 'Gmail') : 'Preview mailbox'}
+            </Text>
+          </View>
+          {account === undefined ? null : (
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => {
+                account.openAccount();
+              }}>
+              <Text style={[styles.account, { color: colors.accent }]}>
+                Account
+              </Text>
+            </Pressable>
+          )}
         </View>
         {state.kind === 'loading' ? (
           <ActivityIndicator accessibilityLabel="Loading Inbox" />
@@ -164,17 +242,22 @@ export function Inbox({ selectedId, onSelect }: InboxProps) {
             </Text>
           </Pressable>
         ) : null}
+        <SyncNotice />
         {state.kind === 'ready' ? (
-          <FlatList
+          <FlatList<Message | GmailMessage>
             accessibilityLabel="Inbox messages"
             contentContainerStyle={styles.list}
             data={state.messages}
             extraData={selectedId}
             keyExtractor={(message) => message.id}
             ListEmptyComponent={
-              <Text style={[styles.notice, { color: colors.secondary }]}>
-                Your inbox is clear.
-              </Text>
+              gmail && state.sync === 'syncing' ? (
+                <ActivityIndicator accessibilityLabel="Loading Inbox" />
+              ) : (
+                <Text style={[styles.notice, { color: colors.secondary }]}>
+                  Your inbox is clear.
+                </Text>
+              )
             }
             renderItem={({ item }) => (
               <MessageRow
@@ -186,7 +269,9 @@ export function Inbox({ selectedId, onSelect }: InboxProps) {
           />
         ) : null}
         <Text style={[styles.footer, { color: colors.secondary }]}>
-          Sample messages · Encrypted on this device
+          {gmail
+            ? 'Gmail · Encrypted on this device'
+            : 'Sample messages · Encrypted on this device'}
         </Text>
       </View>
     </SafeAreaView>

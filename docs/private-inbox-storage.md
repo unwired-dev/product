@@ -41,6 +41,22 @@ in native code, independently of the database key. It has no JavaScript secret g
 logging, or Convex integration. Removing it leaves the database key intact. It
 is an integration fixture, not Gmail authorization or a production token API.
 
+## Gmail mailbox cache
+
+The [connected Gmail Inbox](gmail-inbox.md) persists its messages and synchronization
+checkpoint atomically in an encrypted device-only cache. Its keys stay native,
+its files stay out of backups, and locked or unreadable storage exposes no mail.
+A missing key for existing encrypted data is an error, never a replacement key.
+
+The cache belongs to one mailbox: its address and the Google account behind it.
+Cache access adds no Google account identity field to the bridge. Opening it for another mailbox, including another
+Google account that reuses the address, reads as empty, and each commit replaces only the revision its caller read. JavaScript
+reaches it only through the registration module, which checks that the address is
+the connected mailbox and that no account removal is under way. Choosing another
+mailbox or Google account removes the file. Every account purge removes it before any key, and a
+failed removal fails the purge so it is retried. Removal needs no key, so it also
+runs while the device is locked.
+
 ## Native wiring and signing
 
 The Expo config plugin copies the native sources into its generated iOS project.

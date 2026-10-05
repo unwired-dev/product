@@ -14,6 +14,7 @@ their scope below; publication of a plan does not prove implementation or releas
 - [Private preview Inbox storage and credentials](private-inbox-storage.md)
 - [Google registration, Gmail consent and protected OAuth qualification](google-registration.md)
 - [Apple registration continuing into Gmail authorization](apple-registration.md)
+- [Gmail Inbox synchronization and its encrypted cache](gmail-inbox.md)
 - [Linked Google and Apple sign-in](linked-sign-in.md)
 - [Private Product Sync and the Recovery Key](private-product-sync.md)
 - [Sign-out and Product Account deletion](account-removal.md)

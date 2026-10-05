@@ -109,6 +109,12 @@ export const RegistrationSnapshotSchema = Schema.Union([
     providerSubject: Schema.NonEmptyString,
     address: Schema.NonEmptyString,
   }),
+  Schema.Struct({
+    kind: Schema.Literal('cached'),
+    ...Account.fields,
+    providerSubject: Schema.NonEmptyString,
+    address: Schema.NonEmptyString,
+  }),
 ]);
 export type RegistrationSnapshot = typeof RegistrationSnapshotSchema.Type;
 
@@ -437,6 +443,15 @@ export function createRegistration(native: NativeRegistration) {
       (snapshot) => ({ ...settled(pending(snapshot)), failed: true }),
       foreground,
     );
+  const resume = () => {
+    if (activation === null) {
+      activation = restore(true);
+      queueMicrotask(() => {
+        activation = null;
+      });
+    }
+    return activation;
+  };
   return {
     getSnapshot: () => state,
     subscribe: (listener: () => void) => {
@@ -456,14 +471,11 @@ export function createRegistration(native: NativeRegistration) {
     },
     // Every activation verifies the saved account and retries unavailable protected storage.
     // Each Mac window's gate reports the same activation synchronously; they share one restore.
-    resume: () => {
-      if (activation === null) {
-        activation = restore(true);
-        queueMicrotask(() => {
-          activation = null;
-        });
-      }
-      return activation;
+    resume,
+    // Cache-only retry verifies registration before attempting provider synchronization.
+    refreshInbox: async (load: () => Promise<void>) => {
+      await resume();
+      await load();
     },
     register: (provider: SignInProvider) =>
       execute(
@@ -659,6 +671,34 @@ export const accountRemovalCopy = {
     'Deletion could not be confirmed. Your Product Account may already be deleted. Retry deletion when you are online to confirm it and finish removing local account data.',
 } as const;
 
+// A retained account without a usable mailbox, or one whose removal has not finished.
+function mailboxNeededCopy(
+  snapshot: Extract<RegistrationSnapshot, { kind: 'mailbox-needed' }>,
+) {
+  if (snapshot.removalPending !== undefined) {
+    return {
+      title:
+        snapshot.removalPending === 'sign-out'
+          ? 'Finish signing out'
+          : 'Confirm account deletion',
+      description: accountRemovalCopy[snapshot.removalPending],
+      account: accountLine(snapshot),
+    };
+  }
+  const { reason, signInProvider } = snapshot;
+  let description: string = mailboxNeeded[signInProvider];
+  if (reason === 'unavailable') {
+    description = mailboxReasons.unavailable(signInProvider);
+  } else if (reason !== undefined) {
+    description = mailboxReasons[reason];
+  }
+  return {
+    title: 'Connect your Gmail',
+    description,
+    account: accountLine(snapshot),
+  };
+}
+
 export function registrationCopy(snapshot: RegistrationSnapshot) {
   switch (snapshot.kind) {
     case 'signed-out': {
@@ -673,33 +713,19 @@ export function registrationCopy(snapshot: RegistrationSnapshot) {
       };
     }
     case 'mailbox-needed': {
-      if (snapshot.removalPending !== undefined) {
-        return {
-          title:
-            snapshot.removalPending === 'sign-out'
-              ? 'Finish signing out'
-              : 'Confirm account deletion',
-          description: accountRemovalCopy[snapshot.removalPending],
-          account: accountLine(snapshot),
-        };
-      }
-      const { reason, signInProvider } = snapshot;
-      let description: string = mailboxNeeded[signInProvider];
-      if (reason === 'unavailable') {
-        description = mailboxReasons.unavailable(signInProvider);
-      } else if (reason !== undefined) {
-        description = mailboxReasons[reason];
-      }
-      return {
-        title: 'Connect your Gmail',
-        description,
-        account: accountLine(snapshot),
-      };
+      return mailboxNeededCopy(snapshot);
     }
     case 'connected': {
       return {
         title: 'Gmail connected',
         description: `${snapshot.address} is connected on this device.`,
+        account: accountLine(snapshot),
+      };
+    }
+    case 'cached': {
+      return {
+        title: 'Saved Gmail Inbox',
+        description: `${snapshot.address} could not be verified. Mail saved on this device is available; try again when connected.`,
         account: accountLine(snapshot),
       };
     }
@@ -830,6 +856,82 @@ export const recoveryCopy = {
 // Recovery Key entry is offered only where the account has keys that this device lacks.
 export const offersRecovery = (privateSync: PrivateSync | undefined) =>
   privateSync === 'enrollment-needed' || privateSync === 'enrollment-pending';
+
+// A connected mailbox's Inbox can open unless a sign-out or deletion is unfinished.
+export const canOpenInbox = (snapshot: RegistrationSnapshot) =>
+  (snapshot.kind === 'connected' || snapshot.kind === 'cached') &&
+  snapshot.removalPending === undefined;
+
+// The account setup that needs the person before the Inbox, described so that newly appearing
+// setup differs from setup already pending; empty when none: a Recovery Key to confirm or enter,
+// a device approval on either side, or a mailbox not yet saved to private sync.
+export const inboxSetup = (snapshot: RegistrationSnapshot) => {
+  if (snapshot.kind !== 'connected' && snapshot.kind !== 'cached') {
+    return '';
+  }
+  const privateSync =
+    snapshot.privateSync === 'setup-pending' ||
+    offersRecovery(snapshot.privateSync)
+      ? snapshot.privateSync
+      : undefined;
+  return [
+    snapshot.recoveryKey === undefined ? undefined : 'recovery-key',
+    snapshot.enrollmentCode === undefined
+      ? undefined
+      : `enrollment-code:${snapshot.enrollmentCode}`,
+    snapshot.enrollmentRequest,
+    snapshot.privateSyncPending,
+    privateSync,
+  ]
+    .filter((part) => part !== undefined)
+    .join(' ');
+};
+
+// Launch lands on the Inbox unless account setup needs the person first.
+export const opensInbox = (snapshot: RegistrationSnapshot) =>
+  canOpenInbox(snapshot) && inboxSetup(snapshot) === '';
+
+// The person's choice between the account page and a connected Inbox, made for one Product Account
+// with the setup that was pending then.
+export type InboxChoice = Readonly<{
+  account: string;
+  destination: 'inbox' | 'account';
+  setup: string;
+}>;
+
+// The Product Account whose Inbox can open now, if any.
+const openInboxAccount = (snapshot: RegistrationSnapshot) =>
+  canOpenInbox(snapshot) && snapshot.kind !== 'signed-out'
+    ? snapshot.productAccountId
+    : undefined;
+
+// A choice belongs to one open Inbox: sign-out, removal or another Product Account forgets it, and
+// choosing the Inbox over pending setup does not hide setup that appears later.
+const choiceApplies = (
+  choice: InboxChoice,
+  account: string | undefined,
+  setup: string,
+) =>
+  choice.account === account &&
+  (choice.destination === 'account' || setup === '' || setup === choice.setup);
+
+// Where a host lands, and whether an earlier choice still applies.
+export function inboxLanding(
+  snapshot: RegistrationSnapshot,
+  choice: InboxChoice | undefined,
+) {
+  const account = openInboxAccount(snapshot);
+  const setup = inboxSetup(snapshot);
+  const valid = choice !== undefined && choiceApplies(choice, account, setup);
+  // Without an open Inbox the account page shows; otherwise a valid choice, then pending setup.
+  let destination: InboxChoice['destination'] = 'account';
+  if (valid) {
+    ({ destination } = choice);
+  } else if (account !== undefined && setup === '') {
+    destination = 'inbox';
+  }
+  return { account, setup, valid, destination } as const;
+}
 
 export const enrollmentCopy = {
   // On the device waiting for approval.

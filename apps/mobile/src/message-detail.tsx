@@ -112,15 +112,17 @@ export function MessageDetail({ id }: { readonly id: string | undefined }) {
         </View>
       ) : (
         <ScrollView contentContainerStyle={styles.content}>
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => {
-              void actions.setUnread(message.id, !message.unread);
-            }}>
-            <Text style={[styles.secondary, { color: colors.accent }]}>
-              {message.unread ? 'Mark as read' : 'Mark as unread'}
-            </Text>
-          </Pressable>
+          {'setUnread' in actions ? (
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => {
+                void actions.setUnread(message.id, !message.unread);
+              }}>
+              <Text style={[styles.secondary, { color: colors.accent }]}>
+                {message.unread ? 'Mark as read' : 'Mark as unread'}
+              </Text>
+            </Pressable>
+          ) : null}
           <Text
             accessibilityRole="header"
             selectable
@@ -146,7 +148,7 @@ export function MessageDetail({ id }: { readonly id: string | undefined }) {
           <Text
             selectable
             style={[styles.body, { color: colors.foreground }]}>
-            {message.body}
+            {'body' in message ? message.body : message.preview}
           </Text>
         </ScrollView>
       )}

@@ -5,6 +5,9 @@ public enum PrivateInboxError: Error, Equatable {
   case locked
   case invalidStore
   case unavailable
+  // The mailbox cache changed since the caller read it.
+  case conflict
+  case mailboxInvalidated
 }
 
 struct DeviceKeychain {

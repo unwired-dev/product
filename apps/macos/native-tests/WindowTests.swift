@@ -133,11 +133,24 @@ final class WindowTests: XCTestCase {
     entry.click()
     entry.typeText(String(presented.suffix(4)))
     resumed.buttons["Confirm Recovery Key"].click()
-    XCTAssertTrue(text("Private sync is on", in: resumed).waitForExistence(timeout: 15))
+    // Confirmed setup opens the synchronized Gmail Inbox, listed over two Gmail pages.
+    let rowan = "Unread. Rowan Hale. Garden plans for spring"
+    XCTAssertTrue(resumed.buttons[rowan].waitForExistence(timeout: 20))
+    XCTAssertTrue(
+      resumed.buttons["test@example.invalid. Welcome to your synthetic Inbox"].waitForExistence(
+        timeout: 15))
+    resumed.buttons[rowan].click()
+    XCTAssertTrue(
+      resumed.textViews.matching(NSPredicate(format: "value == %@", "rowan@example.invalid"))
+        .firstMatch.waitForExistence(timeout: 10))
+    XCTAssertFalse(resumed.buttons["Mark as read"].exists)
     XCTAssertFalse(recoveryKey(in: resumed).exists)
     app.terminate()
     app.launch()
+    // Relaunch reopens the encrypted cache, then setup stays reachable from the Inbox.
     let relaunched = app.windows["Inbox 1"]
+    XCTAssertTrue(relaunched.buttons[rowan].waitForExistence(timeout: 20))
+    relaunched.buttons["Account"].click()
     XCTAssertTrue(text("Gmail connected", in: relaunched).waitForExistence(timeout: 15))
     XCTAssertTrue(text("Private sync is on", in: relaunched).exists)
     XCTAssertFalse(recoveryKey(in: relaunched).exists)

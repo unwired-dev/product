@@ -67,12 +67,12 @@ On this device, sign-out and deletion remove:
 - the saved Product Sign-In and the Gmail mailbox credential;
 - the Product Sync keys, any held Recovery Key and the decrypted mailbox list;
 - any open device-approval request;
+- the encrypted [Gmail Inbox cache](gmail-inbox.md);
 - the session state of this launch.
 
 The next Product Account on the device starts from nothing. The replacement has
-no account-scoped mail cache or Drafts yet; the preview Inbox fixture is
-test-only and is not account data. Those slices must add their stores to this
-purge.
+no Drafts yet; the preview Inbox fixture is test-only and is not account data.
+Later slices must add their stores to this purge.
 
 Once deletion is authorized, Convex blocks every Product Account, Product Sync,
 device and push request for the account and finishes removing backend data after

@@ -1,7 +1,10 @@
+import { createGmailInbox } from '@private-email/mail-core/gmail-inbox';
 import { makeMockInboxStorage } from '@private-email/mail-core/mock-storage';
 import { createPersistentInbox } from '@private-email/mail-core/persistent-inbox';
+import { createRegistration } from '@private-email/mail-core/registration';
+import { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mailbox';
 import { createMockMailSession } from '@private-email/mail-core/testing/mock-session';
-import { fireEvent, render, screen } from '@testing-library/react-native';
+import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { useState } from 'react';
 
 import type { inbox } from '../src/private-storage.ts';
@@ -9,6 +12,7 @@ import type { inbox } from '../src/private-storage.ts';
 import { Inbox } from '../src/inbox.tsx';
 import { InboxProvider } from '../src/mailbox.tsx';
 import { MessageDetail } from '../src/message-detail.tsx';
+import { RegistrationGate } from '../src/registration-gate.tsx';
 
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Jest's host adapter boundary.
 jest.mock('../src/private-storage.ts', () => ({
@@ -142,4 +146,104 @@ describe('preview Inbox', () => {
     await fireEvent.press(screen.getByRole('button', { name: 'Try again' }));
     await expect(screen.findByText('maya@example.com')).resolves.toBeVisible();
   });
+});
+
+describe('connected Gmail Inbox', () => {
+  /* oxlint-disable vitest/max-expects -- One journey proves the synchronized list and its recovery states. */
+  it('shows synchronized metadata and recovers from lost Gmail permission and connectivity', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+    gmail.deliver({
+      from: 'Oliver Park <oliver@example.invalid>',
+      subject: 'Saturday, by the river?',
+      snippet: 'Coffee first, then the long way home?',
+    });
+    const store = createGmailInbox(gmail.native);
+    const connected = {
+      kind: 'connected',
+      productAccountId: 'synthetic-product-account',
+      signInProvider: 'google',
+      privateSync: 'ready',
+      providerSubject: 'synthetic-google-subject',
+      address: 'alex@example.invalid',
+    } as const;
+    const authorizeGmail = jest.fn(() => Promise.resolve(connected));
+    const registration = createRegistration({
+      restore: () => Promise.resolve(connected),
+      authorizeGmail,
+      signIn: () => Promise.reject(new Error('Not signing in')),
+      link: () => Promise.reject(new Error('Not linking')),
+      confirmRecoveryKey: () => Promise.reject(new Error('No key')),
+      recoverWithRecoveryKey: () => Promise.reject(new Error('No key')),
+      approveEnrollment: () => Promise.reject(new Error('No device')),
+      declineEnrollment: () => Promise.reject(new Error('No device')),
+      revokeTrustedDevice: () => Promise.reject(new Error('No device')),
+      refreshPrivateSync: () => Promise.reject(new Error('No sync')),
+      signOut: () => Promise.reject(new Error('Not signing out')),
+      deleteProductAccount: () => Promise.reject(new Error('Not deleting')),
+    });
+    function Connected() {
+      const [selectedId, setSelectedId] = useState<string>();
+      return (
+        <RegistrationGate
+          store={registration}
+          preview={false}>
+          <InboxProvider store={store}>
+            <Inbox
+              onSelect={setSelectedId}
+              selectedId={selectedId}
+            />
+            <MessageDetail id={selectedId} />
+          </InboxProvider>
+        </RegistrationGate>
+      );
+    }
+    await render(<Connected />);
+    await fireEvent.press(
+      await screen.findByRole('button', {
+        name: 'Unread. Oliver Park. Saturday, by the river?',
+      }),
+    );
+    expect(screen.getByText('alex@example.invalid')).toBeVisible();
+    expect(screen.getByText('oliver@example.invalid')).toBeVisible();
+    // The row and the detail both show Gmail's snippet; message content is not downloaded.
+    expect(
+      screen.getAllByText('Coffee first, then the long way home?'),
+    ).toHaveLength(2);
+    // Read state belongs to Gmail; this slice shows it without changing it.
+    expect(screen.queryByRole('button', { name: 'Mark as read' })).toBeNull();
+
+    gmail.fail({ status: 401 });
+    gmail.deliver({ subject: 'Arrives after permission returns' });
+    await act(store.load);
+    expect(
+      screen.getByText('Gmail needs your permission again to show new mail.'),
+    ).toBeVisible();
+    expect(screen.queryByText(/Arrives after permission/u)).toBeNull();
+    await act(async () => {
+      await fireEvent.press(
+        screen.getByRole('button', { name: 'Allow Gmail access' }),
+      );
+    });
+    expect(authorizeGmail).toHaveBeenCalledWith(false);
+    await expect(
+      screen.findByText('Arrives after permission returns'),
+    ).resolves.toBeVisible();
+
+    gmail.fail({ code: 'unavailable' });
+    await act(store.load);
+    expect(
+      screen.getByText(
+        'Gmail could not be reached. Showing mail saved on this device.',
+      ),
+    ).toBeVisible();
+    expect(
+      screen.getByRole('header', { name: 'Saturday, by the river?' }),
+    ).toBeVisible();
+    await act(async () => {
+      await fireEvent.press(screen.getByRole('button', { name: 'Try again' }));
+    });
+    expect(screen.queryByText(/could not be reached/u)).toBeNull();
+  });
+  /* oxlint-enable vitest/max-expects */
 });

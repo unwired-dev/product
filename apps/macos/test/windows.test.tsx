@@ -1,11 +1,20 @@
+import { createGmailInbox } from '@private-email/mail-core/gmail-inbox';
 import { makeMockInboxStorage } from '@private-email/mail-core/mock-storage';
 import { createPersistentInbox } from '@private-email/mail-core/persistent-inbox';
+import { createRegistration } from '@private-email/mail-core/registration';
+import { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mailbox';
 import { createMockMailSession } from '@private-email/mail-core/testing/mock-session';
-import { fireEvent, renderAsync, within } from '@testing-library/react-native';
+import {
+  act,
+  fireEvent,
+  renderAsync,
+  within,
+} from '@testing-library/react-native';
 import { View } from 'react-native';
 
 import type { inbox } from '../src/private-storage.ts';
 
+import { RegistrationGate } from '../src/registration-gate.tsx';
 import { PreviewWindow as InboxWindow } from '../src/window.tsx';
 
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Jest's host adapter boundary.
@@ -166,4 +175,93 @@ describe('mac window selection with the shared mock mailbox', () => {
     ).resolves.toBeVisible();
     expect(app.getByText('Select a message to start reading.')).toBeVisible();
   });
+});
+
+describe('mac windows over a connected Gmail mailbox', () => {
+  /* oxlint-disable vitest/max-expects -- One journey proves both windows across the synchronization states. */
+  it('shares the synchronized Inbox and its recovery states while each window keeps its selection', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+    gmail.deliver({
+      from: 'Maya Chen <maya@example.invalid>',
+      subject: 'A little more room to think',
+      snippet: 'Notes for Thursday',
+    });
+    gmail.deliver({
+      from: 'Oliver Park <oliver@example.invalid>',
+      subject: 'Saturday, by the river?',
+      snippet: 'Coffee first',
+    });
+    const store = createGmailInbox(gmail.native);
+    jest.replaceProperty(
+      jest.requireMock<{ inbox: typeof inbox }>('../src/private-storage.ts'),
+      'inbox',
+      store,
+    );
+    const connected = {
+      kind: 'connected',
+      productAccountId: 'synthetic-product-account',
+      signInProvider: 'google',
+      privateSync: 'ready',
+      providerSubject: 'synthetic-google-subject',
+      address: 'alex@example.invalid',
+    } as const;
+    const authorizeGmail = jest.fn(() => Promise.resolve(connected));
+    const registration = createRegistration({
+      restore: () => Promise.resolve(connected),
+      authorizeGmail,
+      signIn: () => Promise.reject(new Error('Not signing in')),
+      link: () => Promise.reject(new Error('Not linking')),
+      confirmRecoveryKey: () => Promise.reject(new Error('No key')),
+      recoverWithRecoveryKey: () => Promise.reject(new Error('No key')),
+      approveEnrollment: () => Promise.reject(new Error('No device')),
+      declineEnrollment: () => Promise.reject(new Error('No device')),
+      revokeTrustedDevice: () => Promise.reject(new Error('No device')),
+      refreshPrivateSync: () => Promise.reject(new Error('No sync')),
+      signOut: () => Promise.reject(new Error('Not signing out')),
+      deleteProductAccount: () => Promise.reject(new Error('Not deleting')),
+    });
+    const app = await renderAsync(
+      <View>
+        {['first', 'second'].map((windowId) => (
+          <RegistrationGate
+            key={windowId}
+            store={registration}
+            preview={false}>
+            <InboxWindow windowId={windowId} />
+          </RegistrationGate>
+        ))}
+      </View>,
+    );
+    const first = within(await app.findByTestId('inbox-window-first'));
+    const second = within(app.getByTestId('inbox-window-second'));
+    fireEvent.press(await first.findByRole('button', { name: maya }));
+    fireEvent.press(await second.findByRole('button', { name: oliver }));
+    expect(first.getByText('maya@example.invalid')).toBeVisible();
+    expect(second.getByText('oliver@example.invalid')).toBeVisible();
+    // Read state belongs to Gmail; this slice shows it without changing it.
+    expect(first.queryByRole('button', { name: 'Mark as read' })).toBeNull();
+
+    gmail.fail({ status: 401 });
+    await act(store.load);
+    expect(
+      second.getByRole('button', { name: 'Allow Gmail access' }),
+    ).toBeVisible();
+    await act(async () => {
+      fireEvent.press(
+        first.getByRole('button', { name: 'Allow Gmail access' }),
+      );
+      await Promise.resolve();
+    });
+    expect(authorizeGmail).toHaveBeenCalledWith(false);
+    gmail.fail({ code: 'unavailable' });
+    await act(store.load);
+    expect(
+      first.getByLabelText(
+        'Gmail could not be reached. Showing mail saved on this device.',
+      ),
+    ).toBeVisible();
+    expect(second.getByText('oliver@example.invalid')).toBeVisible();
+  });
+  /* oxlint-enable vitest/max-expects */
 });

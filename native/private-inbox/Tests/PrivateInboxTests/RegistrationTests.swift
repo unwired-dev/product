@@ -11,6 +11,10 @@ import Testing
   var address = "same@example.invalid"
   var refreshes = 0
   var hints: [String?] = []
+  var refreshFailure: (any Error)?
+  var verificationFailure: (any Error)?
+  var beforeRefresh: (() async -> Void)?
+  var beforeGmail: (() async -> Void)?
 
   func value(_ subject: String) -> GoogleRegistrationIdentity {
     GoogleRegistrationIdentity(
@@ -29,17 +33,33 @@ import Testing
       throw RegistrationError.invalidIdentity
     }
     refreshes += 1
-    return value(String(saved))
+    let identity = value(String(saved))
+    let pause = beforeRefresh
+    beforeRefresh = nil
+    await pause?()
+    if let refreshFailure { throw refreshFailure }
+    return identity
   }
   func verifyGmail(_ identity: GoogleRegistrationIdentity) async throws -> GmailRegistrationReceipt
   {
+    if let verificationFailure { throw verificationFailure }
     guard gmailAvailable else { throw RegistrationError.gmailUnavailable }
     return GmailRegistrationReceipt(subject: identity.subject, address: address)
   }
-  func store(keys: DeviceKeychain) -> RegistrationStore {
+  var gmailRequests: [URL] = []
+  func gmail(_ identity: GoogleRegistrationIdentity, url: URL) async throws -> (Int, Data) {
+    gmailRequests.append(url)
+    let pause = beforeGmail
+    beforeGmail = nil
+    await pause?()
+    return (200, Data(#"{"historyId":"7"}"#.utf8))
+  }
+  func store(keys: DeviceKeychain, mailCache: PrivateInboxStore? = nil,
+    deviceRevoked: ((ProductRegistrationReceipt) async throws -> Bool)? = nil
+  ) -> RegistrationStore {
     RegistrationStore(
       keys: keys, deployment: "https://synthetic.example.invalid", clientID: "synthetic-client",
-      provider: self,
+      provider: self, deviceRevoked: deviceRevoked, mailCache: mailCache,
       connect: { identity, _, _ in
         ProductRegistrationReceipt(
           productAccountId: "account-" + identity.subject,

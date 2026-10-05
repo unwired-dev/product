@@ -265,8 +265,8 @@ or a mismatched credential disclose nothing. Transport unavailability retains
 local state. A positive rejection removes the account vault, enrollment item and
 registration record (including identity and mailbox credentials) before later
 provider work. The unrelated encrypted synthetic Inbox fixture has no account
-ownership and is outside this purge; future account-owned mail storage must join
-this boundary. Purge clears in-memory authorization before reading the persisted
+ownership and is outside this purge; the Gmail mailbox cache joins this boundary in #604. Future account-owned mail
+storage must join it too. Purge clears in-memory authorization before reading the persisted
 registration, attempts every known account item despite a deletion failure and
 throws the first failure before deleting registration. Registration is removed
 last, preserving the account locator for a later cleanup retry. Unregistration

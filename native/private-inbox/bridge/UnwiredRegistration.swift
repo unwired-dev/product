@@ -12,6 +12,7 @@ import os
 
 @MainActor final class NativeGoogleRegistrationProvider: GoogleRegistrationProvider {
   let clientID: String
+  private let mailSession = URLSession(configuration: .ephemeral)
   init(clientID: String) { self.clientID = clientID }
 
   func identity(_ user: GIDGoogleUser, nonce: String? = nil) throws -> GoogleRegistrationIdentity {
@@ -85,8 +86,14 @@ import os
     struct Profile: Decodable { let emailAddress: String }
     let profile: Profile
     do {
-      let (data, response) = try await URLSession.shared.data(for: request)
-      guard let response = response as? HTTPURLResponse, response.statusCode == 200 else {
+      let (data, response) = try await mailSession.data(for: request)
+      guard let response = response as? HTTPURLResponse else {
+        throw RegistrationError.gmailUnavailable
+      }
+      if response.statusCode == 429 || response.statusCode >= 500 {
+        throw URLError(.cannotConnectToHost)
+      }
+      guard response.statusCode == 200 else {
         throw RegistrationError.gmailUnavailable
       }
       profile = try JSONDecoder().decode(Profile.self, from: data)
@@ -94,11 +101,42 @@ import os
       throw CancellationError()
     } catch is CancellationError {
       throw CancellationError()
+    } catch  where RegistrationStore.transientMailboxFailure(error) {
+      throw error
     } catch {
       throw RegistrationError.gmailUnavailable
     }
     return GmailRegistrationReceipt(subject: identity.subject, address: profile.emailAddress)
   }
+
+  func gmail(_ identity: GoogleRegistrationIdentity, url: URL) async throws -> (Int, Data) {
+    var request = URLRequest(url: url)
+    request.setValue("Bearer " + identity.accessToken, forHTTPHeaderField: "Authorization")
+    request.timeoutInterval = 30
+    do {
+      let (data, response) = try await mailSession.data(
+        for: request, delegate: RefusingRedirects())
+      guard let response = response as? HTTPURLResponse else {
+        throw RegistrationError.unavailable
+      }
+      return (response.statusCode, data)
+    } catch let error as URLError where error.code == .cancelled {
+      throw CancellationError()
+    } catch is CancellationError {
+      throw CancellationError()
+    } catch {
+      throw RegistrationError.unavailable
+    }
+  }
+}
+
+// A redirect could carry the mailbox's bearer token to another host; Gmail reads never redirect.
+private final class RefusingRedirects: NSObject, URLSessionTaskDelegate {
+  func urlSession(
+    _ session: URLSession, task: URLSessionTask,
+    willPerformHTTPRedirection response: HTTPURLResponse,
+    newRequest request: URLRequest
+  ) async -> URLRequest? { nil }
 }
 
 extension RegistrationError {
@@ -134,6 +172,7 @@ final class UnwiredRegistration: NSObject {
   private static let logger = Logger(
     subsystem: Bundle.main.bundleIdentifier ?? "dev.unwired.mail", category: "registration")
   @MainActor private static var busy = false
+  @MainActor private static let operations = RegistrationOperationGate()
   @MainActor private static var sharedStore: RegistrationStore?
 
   @MainActor private func store() throws -> RegistrationStore {
@@ -142,7 +181,8 @@ final class UnwiredRegistration: NSObject {
       guard let bundle = Bundle.main.bundleIdentifier,
         let scenario = Bundle.main.object(forInfoDictionaryKey: "UnwiredMockScenario") as? String
       else { throw RegistrationError.unavailable }
-      let store = try mockRegistrationStore(bundle: bundle, scenario: scenario)
+      let store = try mockRegistrationStore(
+        bundle: bundle, scenario: scenario, mailCache: try? UnwiredPrivateInbox.store())
       Self.sharedStore = store
       return store
     #else
@@ -200,6 +240,7 @@ final class UnwiredRegistration: NSObject {
               "trustedDeviceCredential": product.trustedDeviceCredential,
             ], function: "query")
         },
+        mailCache: try? UnwiredPrivateInbox.store(),
         connect: { identity, deviceIdentifier, previous in
           try await Self.connect(
             base: base, identity: identity, deviceIdentifier: deviceIdentifier,
@@ -334,7 +375,10 @@ final class UnwiredRegistration: NSObject {
       do {
         let removal: AccountRemovalState.Operation? =
           name == "signOut" ? .signOut : name == "deleteProductAccount" ? .deletion : nil
-        resolve(try await store().purgingIfRevoked(operation, removing: removal))
+        resolve(
+          try await Self.operations.perform {
+            try await store().purgingIfRevoked(operation, removing: removal)
+          })
       } catch {
         // Descriptions stay private: SDK and transport errors can echo request details.
         let failure = error as NSError
@@ -453,6 +497,80 @@ final class UnwiredRegistration: NSObject {
 
 extension UnwiredRegistration {
   @objc static func requiresMainQueueSetup() -> Bool { true }
+
+  // Mailbox preflight and registration changes share custody across all suspension points.
+  private func mailbox(
+    _ name: String, _ resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock,
+    operation: @escaping @MainActor (RegistrationStore) async throws -> [String: Any]
+  ) {
+    Task { @MainActor in
+      do {
+        resolve(try await Self.operations.perform { try await operation(store()) })
+      } catch {
+        switch error {
+        case RegistrationError.gmailUnavailable:
+          reject("gmail-unavailable", "Gmail needs authorization again.", nil)
+        case PrivateInboxError.locked: reject("locked", "Private storage is locked.", nil)
+        case PrivateInboxError.conflict: reject("conflict", "The mailbox changed.", nil)
+        case PrivateInboxError.mailboxInvalidated:
+          reject("mailbox-invalidated", "The mailbox is no longer available.", nil)
+        default:
+          Self.logger.error("\(name, privacy: .public) failed: unavailable")
+          reject("unavailable", "Gmail could not be reached.", nil)
+        }
+      }
+    }
+  }
+
+  @objc(gmailRequest:query:mailbox:resolver:rejecter:)
+  func gmailRequest(
+    _ path: String, query: [Any], mailbox scope: [String: Any],
+    resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    mailbox("gmailRequest", resolve, reject: reject) {
+      guard let address = scope["address"] as? String,
+        let generation = scope["generation"] as? String
+      else { throw RegistrationError.unavailable }
+      // Name-value pairs, so repeated parameters keep their order.
+      let items = try query.map { pair in
+        guard let pair = pair as? [String], pair.count == 2 else {
+          throw RegistrationError.unavailable
+        }
+        return URLQueryItem(name: pair[0], value: pair[1])
+      }
+      return try await $0.gmail(path: path, query: items, address: address, generation: generation)
+    }
+  }
+
+  @objc(openMailbox:rejecter:)
+  func openMailbox(
+    _ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+  ) {
+    mailbox("openMailbox", resolve, reject: reject) {
+      try await $0.prepareMailbox()
+      return try $0.openMailbox()
+    }
+  }
+
+  @objc(commitMailbox:expectedRevision:document:resolver:rejecter:)
+  func commitMailbox(
+    _ scope: [String: Any], expectedRevision: Double, document: String,
+    resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+  ) {
+    mailbox("commitMailbox", resolve, reject: reject) {
+      try await $0.prepareMailbox()
+      guard let address = scope["address"] as? String,
+        let generation = scope["generation"] as? String,
+        let revision = Int(exactly: expectedRevision)
+      else {
+        throw RegistrationError.unavailable
+      }
+      return try $0.commitMailbox(
+        address: address, expectedRevision: revision, document: document, generation: generation)
+    }
+  }
 
   @objc(recoverWithRecoveryKey:resolver:rejecter:)
   func recoverWithRecoveryKey(

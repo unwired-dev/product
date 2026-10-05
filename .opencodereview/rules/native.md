@@ -34,6 +34,14 @@ This code owns what TypeScript must never hold: Keychain items, the storage encr
 - A client treating success from an idempotent backend operation as proof that its own proposal applied. `RegistrationStore.revoke` must verify exact-transition adoption through `adoptRotation` before presenting its generated Recovery Key or claiming that key is current; an already-completed removal may return success without applying this request, and post-success synchronization can fail. Promoting unmatched material can strand recovery, while an unconditional completion notice asks the user to save a key the client never adopted.
 - A retry that reconciles an unanswered write but throws on a precondition the adopted effects created, leaving the caller's snapshot stale. `RegistrationStore.revoke` must return its adopted, unconfirmed Recovery Key for presentation before refusing a new removal. Attribute a completion notice to the saved attempt's target as well as its exact transition; adopting device A's removal while the caller requests device B cannot claim B was removed. Preserve the adopted key and start no new removal until confirmation.
 
+- `PrivateInboxStore.openMailbox` selecting encrypted cached mail by address alone.
+  Bind the saved owner to the immutable provider subject as well; a recycled
+  address or cache left behind after failed cleanup must expose no previous mail.
+- `RegistrationStore` Gmail reads or cache commits bound only to an address or a
+  resettable cache revision. Carry and validate the cache-open authorization
+  generation on every operation; a same-address subject change or purge/reconnect
+  must reject old work before provider access or ciphertext replacement.
+
 #### Mock sessions stay out of production
 
 - Synthetic registration providers reachable without the `UNWIRED_REGISTRATION_MOCK` compilation guard, or a Mock Mail Session selected from runtime input rather than the fixed build-time `UNWIRED_MOCK_SCENARIO` list. Other mock journeys and the isolated native `SyntheticCredential` integration fixture have their own test-only boundaries; preserve those instead of requiring the registration flag for every fixture. `SyntheticCredential` keeps its own Keychain service and never shares the production one.

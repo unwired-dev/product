@@ -18,7 +18,10 @@ final class UnwiredPrivateInbox: NSObject {
     }
   }
 
-  private func store() throws -> PrivateInboxStore {
+  private func store() throws -> PrivateInboxStore { try Self.store() }
+
+  // Registration clears this store's mailbox cache when the account or mailbox goes.
+  static func store() throws -> PrivateInboxStore {
     guard let identifier = Bundle.main.bundleIdentifier else { throw PrivateInboxError.unavailable }
     let base = try FileManager.default.url(
       for: .applicationSupportDirectory, in: .userDomainMask,

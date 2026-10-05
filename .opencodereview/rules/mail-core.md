@@ -46,8 +46,15 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 - Opening or selecting a message that changes its unread state. Only the explicit read/unread action persists a change, and it must update every subscribed view.
 - A store that reports a connected or ready inbox while mailbox authorization is missing, expired, stale or cancelled, rather than the resumable setup or reconnect state.
+- `createGmailInbox` treating a native `mailbox-invalidated` rejection as a terminal storage failure before bounded reopening of the committed cache through the registration gate. A successful same-mailbox foreground restore renews the native generation and must not hide usable cached mail. Reopening must preserve the `forget` publication fence after an ownership change or purge; recovery cannot resurrect the former owner's mail.
+- Gmail HTTP 403 classification that treats documented usage-limit reasons (`dailyLimitExceeded`, `rateLimitExceeded`, `userRateLimitExceeded`) as missing mailbox authorization. A project quota or user rate limit requires retry presentation with cached mail retained; reauthorization cannot fix it.
 - Registration, enrollment or recovery state from one Product Account, device or deployment reused after the identity changes.
 - Product Sync account-key material, a provider/device credential or a native database encryption key passed into TypeScript. These stay in the native host. The user-held Recovery Key shown during setup is an explicit presentation field in `RegistrationSnapshotSchema`; keep it transient and out of logs and non-native persistence.
+
+- `createGmailInbox` retaining ready mail or synchronization checkpoints in memory after
+  its Product Account, provider subject or address changes, or after `canOpenInbox`
+  becomes false. Invalidate the snapshot immediately and fence late publications;
+  address-only rendering checks can expose a previous account's mail.
 
 #### Tests in the same change
 
