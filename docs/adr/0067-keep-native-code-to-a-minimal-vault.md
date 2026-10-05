@@ -73,6 +73,14 @@ read-key primitives. Values crossing the bridge are ciphertext, opaque
 identifiers, presentation data or fixed error codes. Keys, credentials and
 foreign error descriptions never cross.
 
+The Recovery Key and the Enrollment Code are the one exception, because a person
+must read and type them. They cross only as text: native code returns them for
+display, and receives what the person enters. React Native shows and collects
+them, as it does today. TypeScript holds them only for that screen: it never
+stores, logs or sends them, and passes entered text straight to the native
+operation that uses it. The key ring, keys derived from the Recovery Key,
+enrollment key pairs and the database key never cross.
+
 ## Why
 
 Logic that both hosts run belongs in one language with typed contracts, and its
@@ -94,6 +102,11 @@ credentials stays exactly where [ADR 0001](0001-end-to-end-encrypted-product-syn
   Convex directly. Rejected: JavaScript logs can leave the device, and the native
   call primitive and the few purpose-specific calls that keep them native are
   small.
+- **Native screens for showing and entering the Recovery Key and Enrollment
+  Code**, so their text never reaches JavaScript. Rejected: each host would need
+  separate native screens inside its React Native interface, against the minimal
+  native layer. The text is shown to and typed by a person anyway, and TypeScript
+  never stores, logs or sends it.
 
 ## Consequences
 
