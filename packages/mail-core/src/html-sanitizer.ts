@@ -356,11 +356,6 @@ const parseDeclarations = (style: string) =>
     }),
   );
 
-const declaredZero = (
-  declared: ReadonlyMap<string, string>,
-  names: readonly string[],
-) => names.some((name) => pixels(declared.get(name)) === 0);
-
 // Content no one sees: hidden preheaders, zero-sized or off-canvas text.
 const hiddenBy: ReadonlyArray<
   (declared: ReadonlyMap<string, string>) => boolean
@@ -376,17 +371,37 @@ const hiddenBy: ReadonlyArray<
   },
 ];
 
-// These wrappers may still paint overflowing images. Only their text is unreadable.
+// Model only retained literal font sizes and keywords. Unsupported expressions are discarded
+// before rendering, so invisible expression text cannot mask a link's visible address.
+const relativeSize = /^(?:em|ex|ch|%)$/iu;
+const sizeValue =
+  /^(?<amount>[+-]?(?:\d+(?:\.\d+)?|\.\d+)(?:e[+-]?\d+)?)(?<unit>%|px|em|rem|ex|ch|vw|vh|vmin|vmax|cm|mm|q|in|pt|pc)?$/u;
+const keepsParentSize = /^(?:inherit|unset|revert(?:-layer)?|larger|smaller)$/u;
+const fontKeyword =
+  /^(?:xx-small|x-small|small|medium|large|x-large|xx-large|xxx-large|larger|smaller|inherit|initial|unset|revert(?:-layer)?)$/u;
+const cssFontSize = (raw: string) => {
+  const value = raw.toLowerCase();
+  const size = sizeValue.exec(value);
+  return size === null
+    ? fontKeyword.test(value)
+    : Number(size[1]) >= 0 && (size[2] !== undefined || Number(size[1]) === 0);
+};
+const hidesText = (raw = 'inherit') => {
+  const value = raw.trim().toLowerCase();
+  const size = sizeValue.exec(value);
+  if (size === null) {
+    return keepsParentSize.test(value) ? undefined : false;
+  }
+  const amount = Number(size[1]);
+  if (amount === 0) {
+    return true;
+  }
+  return relativeSize.test(size[2] ?? '') ? undefined : false;
+};
+
+// Large margins can move a text box off canvas. Zero line height and maximum dimensions do not
+// clip glyphs: overflow is visible, because the sanitizer does not retain clipping declarations.
 const unreadableText = (declared: ReadonlyMap<string, string>) =>
-  declaredZero(declared, [
-    'font-size',
-    'line-height',
-    'max-height',
-    'max-width',
-  ]) ||
-  (declaredZero(declared, ['height', 'width']) &&
-    /hidden/iu.test(declared.get('overflow') ?? '')) ||
-  /^-\d{4,}/u.test(declared.get('text-indent') ?? '') ||
   ['margin', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left'].some(
     (name) =>
       (declared.get(name) ?? '')
@@ -441,17 +456,43 @@ const dimensionProperties = new Set([
   'min-height',
 ]);
 
+const validSize = (name: string, value: string) =>
+  name === 'font-size'
+    ? cssFontSize(value)
+    : !dimensionProperties.has(name) || cssDimension(value);
+
 const keptDeclaration = ([name, value]: readonly [string, string]) =>
   properties.has(name) &&
   value !== '' &&
   !unsafeValue.test(value) &&
-  (!dimensionProperties.has(name) || cssDimension(value)) &&
+  validSize(name, value) &&
   (!offsetTokens.has(name) || cssOffset(name, value)) &&
   (name !== 'display' || displays.test(value));
 
-function filterStyle(style: string): FilteredStyle {
+// Retain native table roles: anonymous boxes from sender display overrides would otherwise
+// disagree with the span grid used to exclude collapsed cells before CID discovery.
+const tableDisplays = new Map([
+  ['table', 'table'],
+  ['col', 'table-column'],
+  ['colgroup', 'table-column-group'],
+  ['thead', 'table-header-group'],
+  ['tbody', 'table-row-group'],
+  ['tfoot', 'table-footer-group'],
+  ['tr', 'table-row'],
+  ['td', 'table-cell'],
+  ['th', 'table-cell'],
+]);
+
+function filterStyle(style: string, tag = ''): FilteredStyle {
   const declared = parseDeclarations(style);
   const retained = new Map([...declared].filter(keptDeclaration));
+  const tableDisplay = tableDisplays.get(tag);
+  if (
+    tableDisplay !== undefined &&
+    retained.get('display')?.toLowerCase() !== tableDisplay
+  ) {
+    retained.delete('display');
+  }
   return {
     css: [...retained].map(([name, value]) => `${name}: ${value}`).join('; '),
     hidden: hiddenBy.some((check) => check(declared)),
@@ -487,6 +528,13 @@ const contentIdReference = (source: string) => {
 
 const isElement = (node: Node): node is Element => 'tagName' in node;
 
+// Elements that never reach the output: removed, foreign, or hidden from readers.
+const isDropped = (node: Element, name: string, style: FilteredStyle) =>
+  removed.has(name) ||
+  node.namespaceURI !== htmlSpec.NS.HTML ||
+  attributeOf(node, 'hidden') !== undefined ||
+  style.hidden;
+
 // Declared 1×1 or zero-sized images are tracking pixels, removed rather than shown as blocked.
 const isTrackingPixel = (element: Element, style: FilteredStyle) => {
   const size = (name: 'width' | 'height') => {
@@ -520,6 +568,16 @@ const isTrackingPixel = (element: Element, style: FilteredStyle) => {
   );
 };
 
+// Leading-digit integer attributes as HTML table layout reads them, within its limits.
+const tableSpans = new Set(['span', 'colspan', 'rowspan']);
+const span = (raw: string | undefined, name: string) => {
+  const value = /^\s*\+?(?<digits>\d+)/u.exec(raw ?? '')?.[1];
+  const parsed = value === undefined ? Number.NaN : Number(value);
+  return Number.isNaN(parsed) || parsed < (name === 'rowspan' ? 0 : 1)
+    ? 1
+    : Math.min(parsed, name === 'rowspan' ? 65_534 : 1000);
+};
+
 // One admitted attribute with a valid value, or nothing.
 const keptAttribute =
   (tag: string, allowed: ReadonlySet<string>) =>
@@ -527,6 +585,9 @@ const keptAttribute =
     const attribute = raw.toLowerCase();
     const rule =
       attribute === 'type' ? listTypes[tag] : attributeRules[attribute];
+    if (allowed.has(attribute) && tableSpans.has(attribute)) {
+      return ` ${attribute}="${span(value, attribute)}"`;
+    }
     return allowed.has(attribute) && rule?.test(value.trim()) === true
       ? ` ${attribute}="${escapeAttribute(value.trim())}"`
       : '';
@@ -564,12 +625,142 @@ const outputTag = (name: string) => {
   return asBlock.has(name) ? 'div' : 'span';
 };
 
-// Elements that never reach the output: removed, foreign, or hidden from readers.
-const isDropped = (node: Element, name: string, style: FilteredStyle) =>
-  removed.has(name) ||
-  node.namespaceURI !== htmlSpec.NS.HTML ||
-  attributeOf(node, 'hidden') !== undefined ||
-  style.hidden;
+const childElements = (parent: Element, names: readonly string[]) =>
+  parent.childNodes.filter(
+    (node): node is Element => isElement(node) && names.includes(node.tagName),
+  );
+
+const visibilityOf = (element: Element) =>
+  /^(?:visible|hidden|collapse)$/iu
+    .exec(
+      filterStyle(
+        attributeOf(element, 'style') ?? '',
+        element.tagName,
+      ).declared.get('visibility') ?? '',
+    )?.[0]
+    ?.toLowerCase();
+
+// Elements the walker removes cannot contribute slots to the emitted table's layout. Collapse
+// columns still contribute slots until their hidden cells have been identified.
+const tableElements = (parent: Element, names: readonly string[]) =>
+  childElements(parent, names).filter((node) => {
+    const style = filterStyle(attributeOf(node, 'style') ?? '', node.tagName);
+    return /^(?:col|colgroup)$/u.test(node.tagName)
+      ? attributeOf(node, 'hidden') === undefined &&
+          !/^none$/iu.test(style.declared.get('display') ?? '')
+      : !isDropped(node, node.tagName, style);
+  });
+
+const emptyColumnGroup = (node: Element) =>
+  node.tagName === 'colgroup' &&
+  childElements(node, ['col']).length > 0 &&
+  tableElements(node, ['col']).length === 0;
+
+const droppedColumnGroup = (node: Element) =>
+  node.tagName === 'colgroup' &&
+  childElements(node, ['col']).length > 0 &&
+  childElements(node, ['col']).every((col) =>
+    isDropped(col, 'col', filterStyle(attributeOf(col, 'style') ?? '', 'col')),
+  );
+
+// Column indices a table's colgroup and col elements collapse. A col inherits its group's
+// visibility; hidden columns do not hide their cells.
+const collapsedColumns = (table: Element, spend: (slots: number) => void) => {
+  const collapsed = new Set<number>();
+  let column = 0;
+  for (const group of tableElements(table, ['colgroup']).filter(
+    (candidate) => !emptyColumnGroup(candidate),
+  )) {
+    const groupVisibility = visibilityOf(group);
+    const cols = tableElements(group, ['col']);
+    const tracks =
+      cols.length === 0
+        ? [
+            {
+              count: span(attributeOf(group, 'span'), 'span'),
+              visibility: groupVisibility,
+            },
+          ]
+        : cols.map((col) => ({
+            count: span(attributeOf(col, 'span'), 'span'),
+            visibility: visibilityOf(col) ?? groupVisibility,
+          }));
+    for (const { count, visibility } of tracks) {
+      spend(count);
+      for (let index = 0; index < count; index += 1) {
+        if (visibility === 'collapse') {
+          collapsed.add(column);
+        }
+        column += 1;
+      }
+    }
+  }
+  return collapsed;
+};
+
+const firstFree = (occupied: readonly number[], from: number) => {
+  let column = from;
+  while ((occupied[column] ?? 0) > 0) {
+    column += 1;
+  }
+  return column;
+};
+
+// Places one row's cells after the slots earlier rows still span, recording collapsed ones.
+const placeRow = (
+  row: Element,
+  {
+    occupied,
+    collapsed,
+    cells,
+    spend,
+  }: Readonly<{
+    occupied: number[];
+    collapsed: ReadonlySet<number>;
+    cells: Set<Element>;
+    spend: (slots: number) => void;
+  }>,
+) => {
+  let column = 0;
+  for (const cell of tableElements(row, ['td', 'th'])) {
+    const width = span(attributeOf(cell, 'colspan'), 'colspan');
+    // Account for both free-slot search and the final occupancy sweep before doing either.
+    spend((occupied.length + width) * 2);
+    const start = firstFree(occupied, column);
+    const rows = span(attributeOf(cell, 'rowspan'), 'rowspan');
+    const columns = Array.from({ length: width }, (_, index) => start + index);
+    if (columns.every((index) => collapsed.has(index))) {
+      cells.add(cell);
+    }
+    for (const index of columns) {
+      occupied[index] = Math.max(
+        occupied[index] ?? 0,
+        rows === 0 ? Number.POSITIVE_INFINITY : rows,
+      );
+    }
+    column = start + width;
+  }
+  occupied.forEach((rows, index) => {
+    occupied[index] = Math.max(0, rows - 1);
+  });
+};
+
+// Cells lying entirely in collapsed columns, placed as table layout places them: each row group
+// separately, skipping slots that cells from earlier rows still span.
+const collapsedCells = (table: Element, spend: (slots: number) => void) => {
+  const collapsed = collapsedColumns(table, spend);
+  const cells = new Set<Element>();
+  if (collapsed.size > 0) {
+    for (const group of tableElements(table, ['thead', 'tbody', 'tfoot'])) {
+      const occupied: number[] = [];
+      for (const row of tableElements(group, ['tr'])) {
+        spend(occupied.length);
+        placeRow(row, { occupied, collapsed, cells, spend });
+      }
+    }
+  }
+  return cells;
+};
 
 const contentSecurityPolicy =
   "default-src 'none'; img-src data:; media-src 'none'; style-src 'unsafe-inline'; font-src 'none'; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'";
@@ -603,15 +794,29 @@ export function sanitizeHtml(
   // The link currently open in the readable fallback, and its collected visible text.
   let link: { href: string; text: string } | undefined = undefined;
   let preformatted = 0;
+  // Off-canvas text boxes, and inherited font size and indent states.
   let unreadable = 0;
+  let hiddenFont = false;
+  let hiddenIndent = false;
+  const readableNow = () => unreadable === 0 && !hiddenFont && !hiddenIndent;
+  // Cells of collapsed table columns, which WebKit would not show.
+  const collapsed = new Set<Element>();
+  // One bound across every table, including nested ones, before span expansion or slot scans.
+  let tableWork = 1_000_000;
+  const spendTableWork = (slots: number) => {
+    tableWork -= slots;
+    if (tableWork < 0) {
+      throw new RangeError('Message table layout exceeds its work limit');
+    }
+  };
 
   const addText = (value: string) => {
     const readable =
       preformatted > 0 ? value : value.replaceAll(/[\t\n\f\r ]+/gu, ' ');
-    if (unreadable === 0) {
+    if (readableNow()) {
       builder.add(readable, link?.href);
     }
-    if (link !== undefined && unreadable === 0) {
+    if (link !== undefined && readableNow()) {
       link.text += readable;
     }
     output += escapeText(value);
@@ -619,7 +824,7 @@ export function sanitizeHtml(
 
   // An image description reads as text, including in its enclosing link's inspected text.
   const describeImage = (alt: string) => {
-    if (unreadable === 0) {
+    if (readableNow()) {
       builder.add(altText(alt), link?.href);
       if (link !== undefined) {
         link.text += altText(alt);
@@ -682,7 +887,7 @@ export function sanitizeHtml(
 
   // Readable markers a container adds before its content.
   const marker = (name: string) => {
-    if (unreadable > 0) {
+    if (!readableNow()) {
       return;
     }
     if (name === 'li') {
@@ -714,7 +919,7 @@ export function sanitizeHtml(
     [
       'br',
       () => {
-        if (unreadable === 0) {
+        if (readableNow()) {
           builder.add('\n', link?.href);
         }
         output += '<br>';
@@ -728,20 +933,46 @@ export function sanitizeHtml(
     ],
   ]);
 
+  // Font size and text-indent inherit, and a descendant can reset either one.
+  const withTextState = (style: FilteredStyle, run: () => void) => {
+    const suppressText = unreadableText(style.retained) ? 1 : 0;
+    const font = hiddenFont;
+    const indent = hiddenIndent;
+    const declaredIndent = style.retained.get('text-indent');
+    hiddenFont = hidesText(style.retained.get('font-size')) ?? font;
+    hiddenIndent =
+      declaredIndent === undefined ||
+      /^(?:inherit|unset|revert(?:-layer)?)$/iu.test(declaredIndent)
+        ? indent
+        : /^-\d{4,}/u.test(declaredIndent);
+    unreadable += suppressText;
+    run();
+    unreadable -= suppressText;
+    hiddenFont = font;
+    hiddenIndent = indent;
+  };
+
   const element = (node: Element) => {
     const name = node.tagName.toLowerCase();
-    const style = filterStyle(attributeOf(node, 'style') ?? '');
-    if (isDropped(node, name, style)) {
+    const style = filterStyle(attributeOf(node, 'style') ?? '', name);
+    if (isDropped(node, name, style) || collapsed.has(node)) {
       return;
+    }
+    if (droppedColumnGroup(node)) {
+      return;
+    }
+    if (name === 'table') {
+      for (const cell of collapsedCells(node, spendTableWork)) {
+        collapsed.add(cell);
+      }
     }
     const block = paragraphs.has(name);
     if (block) {
       builder.end();
     }
-    const suppressText = unreadableText(style.retained) ? 1 : 0;
-    unreadable += suppressText;
-    (special.get(name) ?? container)(node, style);
-    unreadable -= suppressText;
+    withTextState(style, () => {
+      (special.get(name) ?? container)(node, style);
+    });
     if (block) {
       builder.end();
     }

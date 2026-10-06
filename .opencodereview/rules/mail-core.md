@@ -174,6 +174,17 @@ Namespace-import style, `JSON.parse`, `typeof … === 'object'` guards, untagged
   or mixed CSS-wide keywords must not suppress a painted label. Whole-element or image exclusion may use declared CSS
   only when it also removes that content from the document. Otherwise painted
   deceptive link labels lose their required caution or readable fallback.
+- `sanitizeHtml` treating inherited zero font size or off-canvas text-indent as
+  an inescapable ancestor box, or treating zero line height and maximum dimensions
+  as clipping when overflow remains visible. Descendant resets must restore
+  inspection. Unsupported font-size expressions must not contribute hidden text
+  that prevents an otherwise visible address from matching `inspectLink`.
+- `sanitizeHtml` collecting CIDs from cells wholly covered by collapsed table
+  columns, or placing cells with raw spans or removed elements that differ from
+  the emitted layout. Normalize and bound span values consistently, isolate row
+  groups and nested tables, and bound cumulative expansion and occupancy scans
+  across all tables; otherwise hidden images download, visible mail disappears,
+  or compact rowspan-heavy input blocks the shared JavaScript runtime.
 - `inspectImage` trusting a signature/header before validating the complete bounded
   PNG/JPEG/GIF/WebP container, frame count and frame/canvas geometry. Truncated or
   inconsistent data must not supply trusted dimensions or bypass decoded-cost

@@ -2,6 +2,8 @@ import type { GmailPart } from '../src/message-body.ts';
 
 import { createGmailInbox } from '../src/gmail-inbox.ts';
 import { sanitizeHtml } from '../src/html-sanitizer.ts';
+import { inspectLink, linkWarnings } from '../src/link-inspection.ts';
+import { contentIdsOf, presentation } from '../src/message-body.ts';
 import { createSyntheticGmail } from '../src/testing/gmail-mailbox.ts';
 
 const textPart = (mimeType: string, content: string): GmailPart => ({
@@ -352,5 +354,142 @@ describe('rich-reader review regressions', () => {
     expect(result.contentIdOccurrences).toStrictEqual(['visible', 'visible']);
     expect(result.renderable).toBe(true);
     expect(result.readable.paragraphs).toStrictEqual([]);
+  });
+
+  it('reads text a descendant size makes visible again and inspects its link', () => {
+    expect.hasAssertions();
+    const result = sanitizeHtml(
+      [
+        '<div style="font-size:0"><a style="font-size:16px" href="https://phish.invalid/a">https://bank.invalid</a></div>',
+        '<div style="font-size:0"><a style="font-size:2em" href="https://phish.invalid/b">https://hidden.invalid</a></div>',
+        '<div style="font-size:0"><span style="font-size:larger">Hidden larger</span></div>',
+        '<div style="line-height:0"><span style="line-height:normal">Visible line</span></div>',
+        '<div style="max-height:0"><span style="font-size:16px">Boxed</span></div>',
+        '<div style="line-height:0"><a href="https://phish.invalid/c">https://line.invalid</a></div>',
+        '<div style="text-indent:-9999px"><div style="text-indent:0"><a href="https://phish.invalid/d">https://indent.invalid</a></div></div>',
+        '<a href="https://phish.invalid/e">https://bank.invalid<span style="font-size:0"><span style="font-size:calc(0px)"> masking text</span></span></a>',
+        '<a href="https://phish.invalid/revert">https://bank.invalid<span style="font-size:0"><span style="font-size:revert-layer"> masking text</span></span></a>',
+        '<div style="max-width:0"><a href="https://phish.invalid/f">https://width.invalid</a></div>',
+      ].join(''),
+    );
+    expect(result.links).toStrictEqual([
+      { href: 'https://phish.invalid/a', text: 'https://bank.invalid' },
+      { href: 'https://phish.invalid/b', text: '' },
+      { href: 'https://phish.invalid/c', text: 'https://line.invalid' },
+      { href: 'https://phish.invalid/d', text: 'https://indent.invalid' },
+      { href: 'https://phish.invalid/e', text: 'https://bank.invalid' },
+      { href: 'https://phish.invalid/revert', text: 'https://bank.invalid' },
+      { href: 'https://phish.invalid/f', text: 'https://width.invalid' },
+    ]);
+    for (const { href, text } of result.links.filter(
+      ({ text }) => text !== '',
+    )) {
+      expect(inspectLink(href, text)).toContain(linkWarnings.text);
+    }
+    expect(
+      result.readable.paragraphs.flat().map(({ text }) => text),
+    ).toStrictEqual([
+      'https://bank.invalid',
+      'Visible line',
+      'Boxed',
+      'https://line.invalid',
+      'https://indent.invalid',
+      'https://bank.invalid',
+      'https://bank.invalid',
+      'https://width.invalid',
+    ]);
+    expect(result.document).not.toContain('calc(0px)');
+    for (const fontSize of [
+      'bogus',
+      'calc(0px)',
+      '-1px',
+      '2',
+      'revert',
+      'revert-layer',
+    ]) {
+      const masked = sanitizeHtml(
+        `<a href="https://phish.invalid">https://bank.invalid<span style="font-size:0"><span style="font-size:${fontSize}"> masking text</span></span></a>`,
+      );
+      expect(masked.links).toStrictEqual([
+        { href: 'https://phish.invalid', text: 'https://bank.invalid' },
+      ]);
+    }
+    const indented = sanitizeHtml(
+      '<div style="text-indent:-9999px"><div style="text-indent:revert"><a href="https://phish.invalid">Off canvas</a></div></div><a href="https://phish.invalid">Sibling visible</a>',
+    );
+    expect(indented.links).toStrictEqual([
+      { href: 'https://phish.invalid', text: '' },
+      { href: 'https://phish.invalid', text: 'Sibling visible' },
+    ]);
+  });
+
+  it('never resolves images in cells of collapsed table columns', () => {
+    expect.hasAssertions();
+    const result = sanitizeHtml(
+      [
+        '<table>',
+        '<colgroup><col><col style="visibility:collapse"></colgroup>',
+        '<colgroup span="2" style="visibility:collapse"></colgroup>',
+        '<colgroup style="visibility:collapse"><col style="visibility:visible"></colgroup>',
+        '<tr><td><img src="cid:shown"></td><td><img src="cid:collapsed"></td>',
+        '<td colspan="2"><img src="cid:group"></td><td><img src="cid:override"></td></tr>',
+        '<tr><td rowspan="2"><img src="cid:tall"></td><td colspan="4"><img src="cid:partial"></td></tr>',
+        '<tr><td><img src="cid:shifted"></td></tr>',
+        '</table>',
+      ].join(''),
+    );
+    expect(result.contentIds).toStrictEqual([
+      'shown',
+      'override',
+      'tall',
+      'partial',
+    ]);
+    expect(result.document.match(/class="blocked-image"/gu)).toHaveLength(4);
+  });
+
+  it('uses emitted table slots and spans for collapse admission across row groups', () => {
+    expect.hasAssertions();
+    const result = sanitizeHtml(
+      [
+        '<table style="display:block"><col style="display:none"><col><col style="visibility:collapse">',
+        '<tfoot><tr><td><img src="cid:footer"></td><td><img src="cid:no-footer"></td></tr></tfoot>',
+        '<thead><tr><th><img src="cid:header"></th><th><img src="cid:no-header"></th></tr></thead>',
+        '<tbody><tr style="visibility:collapse"><td rowspan="0"><img src="cid:no-row"></td></tr>',
+        '<tr><td style="display:none"></td><td style="display:block" rowspan="+2suffix"><img src="cid:rowspan"></td>',
+        '<td><img src="cid:no-first"></td></tr><tr><td><img src="cid:no-shifted"></td></tr></tbody>',
+        '<tbody><tr><td><table><col style="visibility:collapse"><col>',
+        '<tr><td><img src="cid:no-nested"></td><td><img src="cid:nested"></td></tr></table></td>',
+        '<td><img src="cid:no-outer"></td></tr></tbody></table>',
+        '<table><colgroup><col style="display:none"></colgroup><col style="visibility:collapse">',
+        '<tr><td><img src="cid:no-empty-group"></td></tr></table>',
+      ].join(''),
+    );
+    expect(result.contentIds).toStrictEqual([
+      'footer',
+      'header',
+      'rowspan',
+      'nested',
+    ]);
+    expect(result.document).toContain('rowspan="2"');
+    expect(result.document).not.toContain('suffix');
+    expect(result.document).not.toContain('display: block');
+    expect(result.document).not.toContain('<colgroup></colgroup>');
+  });
+
+  it('falls back without CID requests when table spans exhaust bounded layout work', () => {
+    expect.hasAssertions();
+    const document = {
+      version: 2 as const,
+      id: 'bounded-table',
+      html: `<table><col style="visibility:collapse">${'<tr><td colspan="1000" rowspan="0"><img src="cid:excluded"></td></tr>'.repeat(1000)}</table>`,
+      text: 'Retained fallback',
+    };
+    expect(contentIdsOf(document)).toStrictEqual([]);
+    expect(presentation(document)).toStrictEqual({
+      readable: {
+        paragraphs: [[{ text: 'Retained fallback' }]],
+        hidesImages: false,
+      },
+    });
   });
 });

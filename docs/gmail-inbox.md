@@ -196,6 +196,11 @@ opaque non-loading placeholders, with destinations held outside the document.
 HTTP and other non-HTTPS image sources are removed and never become consent or
 retry references. Hidden preheaders, zero-sized or off-canvas text, and text made
 only of non-rendering format/combining characters do not establish readability.
+Descendants can restore readable text by resetting an inherited zero font size
+to an absolute size or size keyword, or resetting an inherited off-canvas indent.
+Relative font sizes still scale a zero parent size to zero. Unsupported font-size
+expressions and invalid values are removed before rendering and inspection. Zero
+line height or maximum box dimensions alone do not clip overflowing text.
 
 ### Links and blocked remote content
 
@@ -258,7 +263,11 @@ then its nearest enclosing related scope, then eligible outer scopes. Do not
 traverse attachment-disposition or `message/rfc822` containers, or filename-bearing
 attachment subtrees. An inline image leaf may have a filename; a filename-less CID
 image sibling without a disposition in a mixed scope is eligible. Unreferenced,
-hidden, zero-sized and non-rendering image parts are never fetched. Conflicting
+hidden, zero-sized and non-rendering image parts, including those in cells of
+collapsed table columns, are never fetched. Native table elements keep their
+table display roles after sanitization. Table spans are normalized before
+rendering and visibility inspection. Excessive table-layout work falls back to
+retained readable text without resolving inline images. Conflicting
 normalized Content-ID values remain unresolved. Image parts with children and
 descendants of unrecognized or conflicting MIME containers are never fetched.
 
