@@ -141,7 +141,9 @@ const commentDelimiters = (value: string) =>
   );
 
 // RFC comments may be nested and may escape parentheses; they are not header tokens.
-const withoutComments = (value: string) => {
+// Comments become the separator, empty by default; a Content-ID passes a space so a comment
+// inside the ID leaves whitespace there instead of joining its halves.
+const withoutComments = (value: string, separator = '') => {
   let from = 0;
   let output = '';
   for (const delimiter of commentDelimiters(value)) {
@@ -153,7 +155,7 @@ const withoutComments = (value: string) => {
       if (end === undefined) {
         return '';
       }
-      output += value.slice(from, delimiter.index);
+      output += value.slice(from, delimiter.index) + separator;
       from = end;
     }
   }
@@ -262,7 +264,7 @@ export function bodyParts(payload: GmailPart): Readonly<{
 // inside the ID is malformed, so it never matches a reference.
 const contentIdOf = (part: GmailPart) => {
   const ids = headerValues(part, 'content-id').map((value) => {
-    const id = withoutComments(value).trim().replaceAll(/^<|>$/gu, '');
+    const id = withoutComments(value, ' ').trim().replaceAll(/^<|>$/gu, '');
     return /\s/u.test(id) ? '' : id;
   });
   return ids.every((id) => id === ids[0]) ? (ids[0] ?? '') : '';

@@ -897,35 +897,114 @@ const acceptedDeclaration = (name: string, value: string) =>
 // and a rejected one changes nothing.
 const trimCSS = (value: string) =>
   value.replaceAll(/^[\t\n\f\r ]+|[\t\n\f\r ]+$/gu, '');
-const importance = /![\t\n\f\r ]*important$/iu;
+// CSS escapes as WebKit decodes them: up to six hex digits and one optional whitespace, or any
+// other character taken literally. Invalid code points become U+FFFD.
+const cssEscape =
+  /\\(?:(?<hex>[\da-f]{1,6})(?:\r\n|[\t\n\f\r ])?|(?<literal>[^\n\f\r\da-f]))/giu;
+const unescapeCSS = (source: string) =>
+  source.replaceAll(
+    cssEscape,
+    (_escape: string, hex: string | undefined, literal: string | undefined) => {
+      if (hex === undefined) {
+        return literal ?? '';
+      }
+      const code = Number.parseInt(hex, 16);
+      // Zero, surrogates and values past U+10FFFF are not characters.
+      return code === 0 ||
+        code > 1_114_111 ||
+        (code >= 55_296 && code <= 57_343)
+        ? '\uFFFD'
+        : String.fromCodePoint(code);
+    },
+  );
+
+// The source token may contain escapes; its decoded spelling must also be an identifier
+// that can be emitted without escapes. Escaped digits remain identifiers, never numbers.
+const plainCSSIdentifier =
+  /^(?:--|-?[a-z_\u0080-\u{10FFFF}])[\w\u0080-\u{10FFFF}-]*$/iu;
+const identEscape = cssEscape.source.replaceAll(/\(\?<[^>]+>/gu, '(?:');
+const identStart = String.raw`(?:[a-z_\u0080-\u{10FFFF}]|${identEscape})`;
+const identRest = String.raw`(?:[\w\u0080-\u{10FFFF}-]|${identEscape})`;
+const identSource = `(?:--|-?${identStart})${identRest}*`;
+const sourceCSSIdentifier = new RegExp(`^${identSource}$`, 'iu');
+const importance = new RegExp(
+  `![\\t\\n\\f\\r ]*(?<identifier>${identSource})$`,
+  'iu',
+);
+
+const readValue = (source: string) => {
+  const marker = importance.exec(source);
+  const important =
+    marker !== null &&
+    unescapeCSS(marker[1] ?? '').toLowerCase() === 'important';
+  const raw = important ? trimCSS(source.slice(0, marker.index)) : source;
+  // Trim only source whitespace: escaped whitespace belongs to the identifier.
+  const value = unescapeCSS(raw);
+  return {
+    value,
+    important,
+    valid:
+      !raw.includes('\\') ||
+      (sourceCSSIdentifier.test(raw) && plainCSSIdentifier.test(value)),
+  };
+};
+
+// A declaration that used escapes is emitted only when its decoded value cannot change how the
+// emitted style splits or quotes.
+const plainEscapedValue = /^[^;:"'\\\n\r\f]*$/u;
+
+// One declaration's decoded name and value, or nothing when WebKit would reject it.
+const readDeclaration = (declaration: string) => {
+  const colon = declaration.indexOf(':');
+  const name = unescapeCSS(trimCSS(declaration.slice(0, colon))).toLowerCase();
+  const { value, important, valid } = readValue(
+    trimCSS(declaration.slice(colon + 1)),
+  );
+  return colon > 0 && valid && acceptedDeclaration(name, value)
+    ? {
+        name,
+        value,
+        important,
+        unsafe: declaration.includes('\\') && !plainEscapedValue.test(value),
+      }
+    : undefined;
+};
+
+// Names and values are decoded before classification, so an escaped name hides what it names.
 const parseDeclarations = (style: string) => {
   const declared = new Map<string, string>();
   const important = new Set<string>();
-  for (const declaration of splitDeclarations(style)) {
-    const colon = declaration.indexOf(':');
-    const name = trimCSS(declaration.slice(0, colon)).toLowerCase();
-    const raw = trimCSS(declaration.slice(colon + 1));
-    const isImportant = importance.test(raw);
-    const value = trimCSS(raw.replace(importance, ''));
+  const unsafe = new Set<string>();
+  for (const declaration of splitDeclarations(style).map(readDeclaration)) {
     if (
-      colon > 0 &&
-      acceptedDeclaration(name, value) &&
-      (isImportant || !important.has(name))
+      declaration !== undefined &&
+      (declaration.important || !important.has(declaration.name))
     ) {
-      if (isImportant) {
+      const { name, value } = declaration;
+      if (declaration.important) {
         important.add(name);
+      }
+      if (declaration.unsafe) {
+        unsafe.add(name);
+      } else {
+        unsafe.delete(name);
       }
       // Keep the last declaration's position as well as its value for shorthand precedence.
       declared.delete(name);
       declared.set(name, value);
     }
   }
-  return declared;
+  return { declared, unsafe };
 };
 
 function filterStyle(style: string, tag = ''): FilteredStyle {
-  const declared = parseDeclarations(style);
-  const retained = new Map([...declared].filter(keptDeclaration));
+  const { declared, unsafe } = parseDeclarations(style);
+  const retained = new Map(
+    [...declared].filter(
+      (declaration) =>
+        !unsafe.has(declaration[0]) && keptDeclaration(declaration),
+    ),
+  );
   const tableDisplay = tableDisplays.get(tag);
   if (
     tableDisplay !== undefined &&

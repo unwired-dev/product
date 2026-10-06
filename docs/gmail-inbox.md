@@ -189,7 +189,13 @@ grammar.
 Retained styles drop importance annotations; shorthand/longhand ordering,
 normalization and label inspection use the resulting emitted CSS.
 
-A backslash escape never ends a quoted string or declaration. Hex escapes consume
+A backslash escape never ends a quoted string or declaration. Declaration names and the importance marker are
+read with escapes decoded after recognizing the source tokens. An escaped value
+counts only when it is one source identifier whose decoded spelling can be
+emitted as an identifier; escaped whitespace and punctuation never become CSS
+syntax, and an escaped digit never forms a number. An escape in the importance
+identifier does not invalidate a literal numeric value. Values with decoded
+delimiters or quotes are not emitted. Hex escapes consume
 up to six digits and one following CSS whitespace character; escaped newlines
 inside strings are continuations. Inline styles split into declarations at semicolons outside quoted strings and
 matching parentheses or square brackets; mismatched closing brackets do not end

@@ -125,7 +125,13 @@ Namespace-import style, `JSON.parse`, `typeof … === 'object'` guards, untagged
   matching ones in `splitDeclarations`. Drop declarations containing broken
   strings and keep matching delimiter types when scanning. Consume complete
   backslash escapes, including hex digits, optional CSS whitespace and string
-  newline continuations, before recognizing delimiters; verify the emitted
+  newline continuations, before recognizing delimiters. Decode semantic names,
+  supported identifier values and the importance identifier only after lexical
+  splitting; escaped whitespace or punctuation must not become trivia or an
+  importance delimiter, and escaped digits must not become number tokens.
+  Escapes in the importance identifier must not invalidate an otherwise literal
+  numeric value. Verify hidden and visible overrides, invalid escaped-number
+  controls, safe emitted identifiers and priority before CID discovery; verify the emitted
   WebKit CSS and inspected link text together. Otherwise reserialization can
   swallow an apparent hiding declaration and leave a painted address uninspected.
 
@@ -167,9 +173,10 @@ Namespace-import style, `JSON.parse`, `typeof … === 'object'` guards, untagged
   legal folding and quoted pairs, stop at malformed parameters and use UTF-8 for
   explicit reads when no complete charset was parsed; otherwise displayed and
   cached text becomes mojibake.
-- `message-body.ts.contentIdOf` collapsing whitespace inside an ID to join its
-  fragments. Normalize surrounding comments, whitespace and brackets while
-  leaving internally spaced IDs unresolvable; preserve literal reference
+- `message-body.ts.contentIdOf` collapsing whitespace or internal comments inside
+  an ID to join its fragments. Internal comments, including nested and empty
+  comments, must leave an identity separator and remain unresolvable. Normalize
+  surrounding comments, whitespace and brackets while leaving internally spaced IDs unresolvable; preserve literal reference
   matching and repeated-header agreement. Otherwise malformed MIME metadata
   authorizes an unintended inline-image download.
 - MIME admission in `message-body.ts` inspecting only the first repeated header.

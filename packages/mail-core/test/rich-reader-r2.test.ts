@@ -3,7 +3,11 @@ import type { GmailPart } from '../src/message-body.ts';
 import { createGmailInbox } from '../src/gmail-inbox.ts';
 import { sanitizeHtml } from '../src/html-sanitizer.ts';
 import { inspectLink, linkWarnings } from '../src/link-inspection.ts';
-import { contentIdsOf, presentation } from '../src/message-body.ts';
+import {
+  contentIdsOf,
+  inlineImageParts,
+  presentation,
+} from '../src/message-body.ts';
 import { messageLinkLimit, readableText } from '../src/readable-text.ts';
 import { createSyntheticGmail } from '../src/testing/gmail-mailbox.ts';
 
@@ -1414,6 +1418,33 @@ describe('rich-reader review regressions', () => {
     for (const [style, visible] of [
       [String.raw`font-family:"foo\"";display:none`, false],
       [String.raw`font-family:'foo\'';display:none`, false],
+      [String.raw`displ\61 y:none`, false],
+      [String.raw`display:n\6f ne`, false],
+      [String.raw`v\69 sibility:h\69 dden`, false],
+      [String.raw`\6f pacity:0`, false],
+      [String.raw`display:none;displ\61 y:block`, true],
+      [String.raw`display:block;displ\61 y:none !impor\74 ant`, false],
+      [
+        String.raw`display:block;displ\61 y:none !important;display:block`,
+        false,
+      ],
+      [String.raw`display:none;displ\61 y:invalid !important`, false],
+      [String.raw`display:none;displ\61 y:flex`, true],
+      [String.raw`opacity:\30`, true],
+      [String.raw`opacity:0!\69mportant;opacity:1`, false],
+      [String.raw`opacity:0!imp\6f rtant;opacity:1`, false],
+      [String.raw`display:none\!important;display:block`, true],
+      [String.raw`display:none\21 important;display:block`, true],
+      [String.raw`display:none!important;display:block\21 important`, false],
+      [String.raw`display:none\20`, true],
+      [String.raw`display:\20 none`, true],
+      [String.raw`display:none\9`, true],
+      [String.raw`visibility:hidden\a`, true],
+      [String.raw`display:none;display:\62 lock\20`, false],
+      [String.raw`display:\00006e one`, false],
+      ['display:n\\6f\r\nne', false],
+      [String.raw`display:n\6f  ne`, true],
+      [String.raw`displ\110000 ay:none`, true],
       ['font-family:"\\66\noo";display:none', false],
       ['font-family:"\\66\r\noo";display:none', false],
       [String.raw`font-family:"foo\";display:none`, true],
@@ -1533,6 +1564,104 @@ describe('rich-reader review regressions', () => {
       expect(inbox.messageBody(id)).toMatchObject({ kind: 'ready' });
       expect(observed.images).toHaveLength(Number(resolves));
     }
+  });
+
+  it('decodes CSS escapes in names and values before classifying declarations', () => {
+    expect.hasAssertions();
+    const image = (contentId: string, style: string) =>
+      `<img src="cid:${contentId}" style="${style.replaceAll('"', '&quot;')}">`;
+    const result = sanitizeHtml(
+      [
+        image('hex-name', String.raw`displ\61 y:none`),
+        image('literal-name', String.raw`di\splay:none`),
+        image('hex-value', String.raw`display:n\6f ne`),
+        image(
+          'important',
+          String.raw`display:n\6f ne!imp\6frtant;display:block`,
+        ),
+        image('opacity', String.raw`op\61 city:0`),
+        image('visibility', String.raw`visibility:hid\64 en`),
+        // A later escaped declaration overrides an earlier plain one.
+        image('reverse', String.raw`display:none;displ\61 y:block`),
+        // An escaped digit is an identifier, so this opacity is invalid and nothing hides.
+        image('escaped-digit', String.raw`opacity:\30`),
+        image(
+          'escaped-importance',
+          String.raw`display:none!\69mportant;display:block`,
+        ),
+        // An escaped delimiter is part of the value, so it hides nothing and is not emitted.
+        image('delimiter', String.raw`font-family:a\3b display\3a none`),
+      ].join(''),
+    );
+    expect(result.contentIds).toStrictEqual([
+      'reverse',
+      'escaped-digit',
+      'delimiter',
+    ]);
+    expect(result.document).not.toContain('display:none');
+  });
+
+  it('emits safe escaped identifiers without manufacturing CSS syntax', () => {
+    expect.hasAssertions();
+    const styled = (style: string) => {
+      const { document } = sanitizeHtml(
+        `<p style="${style.replaceAll('"', '&quot;')}">Visible</p>`,
+      );
+      return document.slice(document.indexOf('<body>'));
+    };
+    for (const [style, family] of [
+      [String.raw`font-family:s\65 rif`, 'serif'],
+      [String.raw`font-family:--f\6f o`, '--foo'],
+      [String.raw`font-family:é\63 ole`, 'école'],
+      [String.raw`font-family:f\0 oo`, 'f\uFFFDoo'],
+      [String.raw`font-family:f\d800 oo`, 'f\uFFFDoo'],
+      [String.raw`font-family:f\110000 oo`, 'f\uFFFDoo'],
+    ] as const) {
+      expect(styled(style)).toContain(`font-family: ${family}`);
+    }
+    for (const style of [
+      String.raw`font-family:\31 foo`,
+      String.raw`font-family:-\31 foo`,
+      String.raw`font-family:"a\22 ;display:none"`,
+      String.raw`font-family:a\3b display\3a none`,
+      String.raw`font-family:\75rl(test)`,
+      String.raw`font-family:serif;f\6f nt-family:"Arial"!important;font-family:sans-serif`,
+    ]) {
+      expect(styled(style)).not.toContain('font-family:');
+      expect(styled(style)).not.toContain('display:none');
+    }
+    // Unsafe winning names follow the same importance and source-order rules as safe ones.
+    expect(
+      styled(String.raw`f\6f nt-family:"Arial";font-family:serif`),
+    ).toContain('font-family: serif');
+    expect(
+      styled(String.raw`font-family:serif!important;f\6f nt-family:"Arial"`),
+    ).toContain('font-family: serif');
+  });
+
+  it('rejects comments inside Content-IDs while keeping surrounding ones', () => {
+    expect.hasAssertions();
+    const resolved = (contentId: string | readonly string[]) => [
+      ...inlineImageParts([
+        {
+          mimeType: 'multipart/related',
+          parts: [
+            textPart('text/html', '<img src="cid:logo">'),
+            imagePart('image', contentId),
+          ],
+        },
+      ]).keys(),
+    ];
+    expect(
+      [
+        '<lo(comment)go>',
+        '<lo(nested(inner))go>',
+        '<lo()go>',
+        ['<logo>', '<lo(comment)go>'],
+        '(before) <logo> (after)',
+        ['<logo>', '(note) <logo>'],
+      ].map(resolved),
+    ).toStrictEqual([[], [], [], [], ['logo'], ['logo']]);
   });
 
   it('never resolves images in cells of collapsed table columns', () => {
