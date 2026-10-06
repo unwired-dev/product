@@ -254,6 +254,12 @@ Namespace-import style, `JSON.parse`, `typeof … === 'object'` guards, untagged
   caution. Ordinary versions, times and dates must not become displayed addresses;
   otherwise deceptive labels lose their caution or equivalent addresses gain a
   false mismatch warning.
+- `looksLikeAddress` limiting a bare domain's final label to letters and excluding
+  punycode (`xn--`) labels. Bare internationalized-domain spellings, including
+  case variants and port/path/query/fragment suffixes, must reach `inspectLink`'s
+  comparison while ordinary version text remains outside it; otherwise deceptive
+  labels targeting another host omit the mismatch caution. Keep exact destinations
+  and the independent internationalized-host signal unchanged.
 - `forwardsElsewhere` comparing raw redirect host spellings instead of the same
   `comparisonHost` keys used for displayed addresses. Equivalent percent-encoded
   names and IPv4/IPv6 forms must not produce a cross-site caution; genuinely

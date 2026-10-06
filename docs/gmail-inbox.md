@@ -318,8 +318,10 @@ signals. A flagged link shows concise reasons and offers Cancel, Copy Link and
 Proceed. Copy and Proceed recheck current access before revealing the destination.
 Displayed web addresses with an explicit HTTP or HTTPS scheme, bare domains,
 dotted-quad IPv4 addresses and bracketed IPv6 addresses participate in the host
-comparison, including an optional port, path, query or fragment. Equivalent
-percent-encoded host spellings and IPv4/IPv6 spellings compare as the same host,
+comparison, including an optional port, path, query or fragment.
+Bare domains with a punycode (`xn--`) final label also participate, including
+uppercase labels and the same port, path, query or fragment suffixes.
+Equivalent percent-encoded host spellings and IPv4/IPv6 spellings compare as the same host,
 both for displayed-address comparison and redirect-query warnings;
 the exact destination remains unchanged. Ordinary version, time and date labels
 and displayed addresses without a host do not produce an address-mismatch caution.

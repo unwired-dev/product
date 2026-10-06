@@ -15,3 +15,6 @@ plain-text links, while keeping surrounding sentence punctuation outside the lin
 Compare redirect hosts using normalized host keys so equivalent spellings do not
 produce a false cross-site caution. Offer rich-message link actions only for
 anchors with retained visible content, preserving the action limit for visible links.
+
+Recognize bare punycode domains in displayed link text so a different destination
+still produces a mismatch caution.

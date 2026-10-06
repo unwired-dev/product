@@ -41,9 +41,10 @@ const parse = (address: string): ParsedAddress | undefined => {
 
 const site = (host: string) => host.replace(/^www\./u, '');
 
-// Link text read as an address: any web address with its scheme, or a bare domain or IP address.
+// Text that reads as a web address: with a scheme, or a bare domain whose final label is letters
+// or punycode (xn--), an IPv4 address or a bracketed IPv6 address.
 const looksLikeAddress =
-  /^\s*(?:https?:\/\/\S+|(?:(?:[\p{L}\p{N}-]+\.)+[\p{L}]{2,}|\d{1,3}(?:\.\d{1,3}){3}|\[[\da-f:.]+\])(?:[/:?#]\S*)?)\s*$/iu;
+  /^\s*(?:https?:\/\/\S+|(?:(?:[\p{L}\p{N}-]+\.)+(?:[\p{L}]{2,}|xn--[\da-z-]+)|\d{1,3}(?:\.\d{1,3}){3}|\[[\da-f:.]+\])(?:[/:?#]\S*)?)\s*$/iu;
 
 const numericHost =
   /^(?:\[[\da-f:.]+\]|(?:0x[\da-f]*|\d+)(?:\.(?:0x[\da-f]*|\d+)){0,3})$/iu;

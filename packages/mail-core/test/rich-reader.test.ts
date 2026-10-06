@@ -1919,6 +1919,16 @@ describe('link inspection', () => {
       'Continue',
       [linkWarnings.numeric],
     ],
+    ['https://phish.invalid/', 'bank.xn--p1ai', [linkWarnings.text]],
+    ['https://bank.xn--p1ai/', 'bank.xn--p1ai', [linkWarnings.international]],
+    ['https://phish.invalid/', 'Version 1.2', []],
+    [
+      'https://phish.invalid/',
+      'BANK.XN--P1AI/login?next=1',
+      [linkWarnings.text],
+    ],
+    ['https://phish.invalid/', 'bank.xn--', []],
+    ['https://phish.invalid/', '2026.10.06', []],
   ] as const)('inspects %s shown as %s', (href, text, reasons) => {
     expect.hasAssertions();
     expect(inspectLink(href, text)).toStrictEqual(reasons);

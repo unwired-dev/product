@@ -86,6 +86,50 @@ const substitutePayload = (
 
 describe('rich-reader review regressions', () => {
   it.each([
+    ['https://phish.invalid', 'bank.xn--p1ai', [linkWarnings.text]],
+    ['https://phish.invalid', 'bank.xn--p1ai/login', [linkWarnings.text]],
+    [
+      'https://phish.invalid',
+      'BANK.XN--P1AI:443/login?ref=1#next',
+      [linkWarnings.text],
+    ],
+    ['https://phish.invalid', 'xn--e1afmkfd.xn--p1ai', [linkWarnings.text]],
+    ['https://bank.xn--p1ai', 'bank.xn--p1ai', [linkWarnings.international]],
+    [
+      'https://bank.xn--p1ai',
+      'www.bank.XN--P1AI',
+      [linkWarnings.international],
+    ],
+    ['https://phish.invalid', 'https://bank.xn--p1ai', [linkWarnings.text]],
+    ['https://phish.invalid', '1.2.3', []],
+    ['https://phish.invalid', 'Version 1.2', []],
+    ['https://phish.invalid', 'bank.xn--', []],
+  ] as const)(
+    'inspects bare punycode labels through the public inbox store: %s shown as %s',
+    async (href, label, reasons) => {
+      expect.hasAssertions();
+      const gmail = createSyntheticGmail();
+      const id = gmail.deliver({ at: Date.UTC(2020, 0, 1) });
+      substitutePayload(
+        gmail,
+        id,
+        textPart('text/html', `<a href="${href}">${label}</a>`),
+      );
+      const inbox = createGmailInbox(gmail.native);
+      await inbox.load();
+      await inbox.readMessage(id);
+      const body = inbox.messageBody(id);
+      expect(body).toMatchObject({
+        kind: 'ready',
+        presentation: { rich: { links: [{ href, text: label }] } },
+      });
+      expect(
+        richLinks(body).map((link) => inspectLink(link.href, link.text)),
+      ).toStrictEqual([reasons]);
+    },
+  );
+
+  it.each([
     ['0x7f000001', '127.0.0.1', [linkWarnings.numeric]],
     ['0177.1', '2130706433', [linkWarnings.numeric]],
     ['[2001:db8::1]', '[2001:0db8:0:0:0:0:0:1]', [linkWarnings.numeric]],
