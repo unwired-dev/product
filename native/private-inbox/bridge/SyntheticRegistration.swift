@@ -439,7 +439,11 @@
       // Gmail writes require a current Trusted Device proof, answered from the synthetic backend's
       // removals so the packaged journeys reach the synthetic Gmail mailbox.
       deviceRevoked: { product in
-        try productSync.state().removed.contains(product.trustedDeviceId)
+        // Another device's removal of this one is recorded by its bare device identifier.
+        let prefix = "synthetic-device-"
+        guard product.trustedDeviceId.hasPrefix(prefix) else { return false }
+        return try productSync.state().removedIdentifiers.contains(
+          String(product.trustedDeviceId.dropFirst(prefix.count)))
       },
       mailCache: mailCache,
       connect: { identity, deviceIdentifier, _ in
