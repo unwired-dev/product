@@ -394,6 +394,43 @@ const unreadableText = (declared: ReadonlyMap<string, string>) =>
         .some((value) => /^-\d{4,}/u.test(value)),
   );
 
+// Signed lengths for offsets; a nonzero number needs a unit, as WebKit requires.
+const offsetValue =
+  /^(?<sign>[+-])?(?<amount>(?:\d+(?:\.\d+)?|\.\d+)(?:e[+-]?\d+)?)(?<unit>%|px|em|rem|ex|ch|vw|vh|vmin|vmax|cm|mm|in|pt|pc)?$/iu;
+
+const cssWideKeyword = /^(?:inherit|initial|unset|revert(?:-layer)?)$/iu;
+
+const offsetTokens = new Map([
+  ['margin', 4],
+  ['margin-top', 1],
+  ['margin-right', 1],
+  ['margin-bottom', 1],
+  ['margin-left', 1],
+  ['text-indent', 1],
+]);
+
+// CSS-wide keywords stand alone; auto belongs only to margins. Keep text-indent to a single
+// length: hanging/each-line require line-sensitive readability that this reader does not model.
+const cssOffset = (name: string, value: string) => {
+  if (cssWideKeyword.test(value)) {
+    return true;
+  }
+  const tokens = value.trim().split(/\s+/u);
+  return (
+    tokens.length <= (offsetTokens.get(name) ?? 0) &&
+    tokens.every((token) => {
+      if (name !== 'text-indent' && /^auto$/iu.test(token)) {
+        return true;
+      }
+      // Positional captures: Hermes leaves `groups` unset on some named-group results.
+      const match = offsetValue.exec(token);
+      return (
+        match !== null && (match[3] !== undefined || Number(match[2]) === 0)
+      );
+    })
+  );
+};
+
 // Sizes WebKit applies only when they follow the validated dimension grammar.
 const dimensionProperties = new Set([
   'width',
@@ -409,6 +446,7 @@ const keptDeclaration = ([name, value]: readonly [string, string]) =>
   value !== '' &&
   !unsafeValue.test(value) &&
   (!dimensionProperties.has(name) || cssDimension(value)) &&
+  (!offsetTokens.has(name) || cssOffset(name, value)) &&
   (name !== 'display' || displays.test(value));
 
 function filterStyle(style: string): FilteredStyle {

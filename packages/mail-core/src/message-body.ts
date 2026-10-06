@@ -257,9 +257,16 @@ const contentIdOf = (part: GmailPart) => {
 
 // Image parts eligible under one MIME scope, skipping attachments and attached messages. An
 // inline image leaf may carry a filename.
-const isOtherAlternative = (part: GmailPart, path: readonly GmailPart[]) =>
-  ['multipart/related', 'multipart/alternative'].includes(mimeType(part)) &&
-  !path.includes(part);
+// Content the reader discarded: every child of an alternative container off the selected path,
+// whatever its type, and any other related or alternative subtree.
+const isOtherAlternative = (
+  part: GmailPart,
+  enclosingType: string,
+  path: readonly GmailPart[],
+) =>
+  !path.includes(part) &&
+  (enclosingType === 'multipart/alternative' ||
+    ['multipart/related', 'multipart/alternative'].includes(mimeType(part)));
 
 const isNamedImageAttachment = (part: GmailPart, enclosingType: string) =>
   (part.filename ?? '') !== '' &&
@@ -279,7 +286,10 @@ const imagesUnder = (
   found: Map<string, GmailPart>,
 ) => {
   const visit = (part: GmailPart, enclosingType: string) => {
-    if (isContainerOutsideBody(part) || isOtherAlternative(part, path)) {
+    if (
+      isContainerOutsideBody(part) ||
+      isOtherAlternative(part, enclosingType, path)
+    ) {
       return;
     }
     const type = mimeType(part);

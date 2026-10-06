@@ -177,6 +177,20 @@ function holdListPage(
   };
 }
 
+// Answers one message's full-format read with a crafted MIME payload.
+function replaceFullPayload(
+  gmail: ReturnType<typeof createSyntheticGmail>,
+  id: string,
+  payload: unknown,
+) {
+  const { gmailRequest } = gmail.native;
+  gmail.native.gmailRequest = async (path, query, owner) =>
+    path === `messages/${id}` &&
+    query.some(([name, value]) => name === 'format' && value === 'full')
+      ? { status: 200, body: JSON.stringify({ id, payload }) }
+      : gmailRequest(path, query, owner);
+}
+
 describe('the isolated rich reader', () => {
   /* oxlint-disable vitest/max-expects -- Each journey proves one reader contract end to end. */
   it('admits only passive markup, app colors, vetted links and non-loading placeholders', async () => {
@@ -507,6 +521,128 @@ describe('the isolated rich reader', () => {
         .map(({ text }) => text)
         .join(''),
     ).toContain('https://bank.invalid');
+  });
+
+  it('never resolves images from a discarded alternative, whatever its container', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    const logo = png(40, 30);
+    const ids = ['mixed', 'signed', 'leaf', 'selected', 'outer'];
+    const id = gmail.deliver({
+      content: {
+        images: ids.map((contentId) => ({
+          contentId,
+          mimeType: 'image/png',
+          bytes: logo,
+        })),
+      },
+    });
+    const html = [
+      '<p>Chosen</p>',
+      ...ids.map(
+        (contentId) => `<img src="cid:${contentId}" alt="${contentId}">`,
+      ),
+    ].join('');
+    const image = (index: number) => ({
+      mimeType: 'image/png',
+      headers: [
+        { name: 'Content-ID', value: `<${ids[index]}>` },
+        { name: 'Content-Disposition', value: 'inline' },
+      ],
+      body: { size: logo.length, attachmentId: `image-${index}` },
+    });
+    replaceFullPayload(gmail, id, {
+      mimeType: 'multipart/mixed',
+      parts: [
+        {
+          mimeType: 'multipart/alternative',
+          parts: [
+            {
+              mimeType: 'multipart/related',
+              parts: [
+                {
+                  mimeType: 'text/html',
+                  body: {
+                    size: Buffer.byteLength(html),
+                    data: Buffer.from(html).toString('base64url'),
+                  },
+                },
+                image(3),
+              ],
+            },
+            { mimeType: 'multipart/mixed', parts: [image(0)] },
+            { mimeType: 'multipart/signed', parts: [image(1)] },
+            image(2),
+          ],
+        },
+        image(4),
+      ],
+    });
+    const inbox = createGmailInbox(gmail.native);
+    await inbox.load();
+    const { document } = rich(await read(inbox, id));
+    expect(document).toContain('aria-label="mixed"');
+    expect(document).toContain('aria-label="signed"');
+    expect(document).toContain('aria-label="leaf"');
+    expect(document.match(/src="data:image\/png/gu)).toHaveLength(2);
+    expect(
+      gmail.requests
+        .map(({ path }) => path)
+        .filter((path) => path.includes('/attachments/')),
+    ).toStrictEqual([
+      `messages/${id}/attachments/image-3`,
+      `messages/${id}/attachments/image-4`,
+    ]);
+  });
+
+  it('keeps link labels with invalid offsets readable and inspectable', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    const styles = [
+      'margin-left:-10000garbage;text-indent:-9999nonsense',
+      'margin:-10000px inherit',
+      'margin:initial -10000px',
+      'margin:-10000px 0 0 0 0',
+      'margin-left:-10000px 0',
+      'text-indent:-10000px auto',
+      'text-indent:auto',
+      'font-size:0garbage;line-height:0nonsense',
+      'font-size:0px initial;line-height:0px initial',
+      'text-indent:-10000px hanging each-line',
+    ];
+    const id = gmail.deliver({
+      content: {
+        html: [
+          ...styles.map(
+            (style, index) =>
+              `<p><a href="https://phish.invalid/${index}"><span style="${style}">https://bank.invalid/${index}</span></a></p>`,
+          ),
+          '<p style="margin:1px auto;text-indent:1em">Control</p><p style="margin:inherit">Keyword control</p>',
+        ].join(''),
+      },
+    });
+    const inbox = createGmailInbox(gmail.native);
+    await inbox.load();
+    const opened = await read(inbox, id);
+    const { document, links } = rich(opened);
+    // Invalid or unsupported offsets are not painted and cannot suppress inspected labels.
+    expect(document).not.toMatch(
+      /style="[^"]*(?:-10000|-9999|text-indent: auto)/u,
+    );
+    expect(document).toContain('style="margin: 1px auto; text-indent: 1em"');
+    expect(document).toContain('style="margin: inherit"');
+    expect(links).toStrictEqual(
+      styles.map((_, index) => ({
+        href: `https://phish.invalid/${index}`,
+        text: `https://bank.invalid/${index}`,
+      })),
+    );
+    expect(
+      readable(opened)
+        .paragraphs.flat()
+        .map(({ text }) => text)
+        .join(''),
+    ).toContain('https://bank.invalid/1');
   });
 
   it('resolves visible inline images within bounds and keeps them for provider-free opens', async () => {

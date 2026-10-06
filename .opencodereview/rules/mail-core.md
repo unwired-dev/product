@@ -91,7 +91,10 @@ Namespace-import style, `JSON.parse`, `typeof … === 'object'` guards, untagged
   present Content-Type header or ignores Content-Disposition. Contradictory,
   malformed or attachment metadata must not turn speculation into a multipart
   or attachment download. Resolve CIDs only within the selected alternative's
-  eligible related/mixed scope, never from a discarded alternative.
+  eligible related/mixed scope, never from a discarded alternative. Prune every
+  off-path child of an alternative container regardless of its MIME type,
+  including mixed/signed subtrees and image leaves; preserve the selected
+  alternative's related resources and eligible inline siblings in outer mixed scopes.
 - `message-body.ts` treating a present empty or whitespace-only disposition as
   absent. Only a recognized inline token may admit a present disposition; otherwise
   malformed body or CID leaves can be fetched or shown as ordinary content.
@@ -148,7 +151,11 @@ Namespace-import style, `JSON.parse`, `typeof … === 'object'` guards, untagged
   eligible for CID resolution.
 - `sanitizeHtml` suppressing readability or inspected link text from declarations
   discarded by `filterStyle`, such as `overflow:hidden`. Classify text using the
-  CSS actually emitted; whole-element or image exclusion may use declared CSS
+  CSS actually emitted, and validate retained offsets against their property
+  grammar before treating text as off-canvas. CSS-wide keywords must stand alone;
+  margin shorthand allows at most four lengths or auto values, while the retained
+  text-indent subset permits one length and no auto. Invalid units, extra tokens
+  or mixed CSS-wide keywords must not suppress a painted label. Whole-element or image exclusion may use declared CSS
   only when it also removes that content from the document. Otherwise painted
   deceptive link labels lose their required caution or readable fallback.
 - `inspectImage` trusting a signature/header before validating the complete bounded
