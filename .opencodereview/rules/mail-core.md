@@ -118,6 +118,11 @@ Namespace-import style, `JSON.parse`, `typeof … === 'object'` guards, untagged
   Retry after successful synchronization, preserve cache-only access, and require
   revision validation inside native pruning's storage transaction; otherwise
   removed mail stays cached or a competing store's still-listed body is deleted.
+- `createGmailInbox.retainBodies` omitting the recent working set during budget
+  reconciliation. Both page-commit and end-of-sync pruning must derive protection
+  from the retained metadata at the synchronization's selection reference, using
+  the Effect clock when no reference remains; otherwise an interrupted writer's
+  over-budget directory can lose recent bodies that admission protects.
 - `gmail-inbox.ts` charging image data once per CID while rendering repeated
   references, retaining reservations after renderer failure or last-reader
   closure, or racing an explicit open with speculative work for the same ID.

@@ -633,10 +633,10 @@ extension UnwiredRegistration {
     }
   }
 
-  @objc(retainMessageBodies:ids:resolver:rejecter:)
+  @objc(retainMessageBodies:ids:protectedIds:resolver:rejecter:)
   func retainMessageBodies(
-    _ scope: [String: Any], ids: [String], resolve: @escaping RCTPromiseResolveBlock,
-    reject: @escaping RCTPromiseRejectBlock
+    _ scope: [String: Any], ids: [String], protectedIds: [String],
+    resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
   ) {
     mailbox("retainMessageBodies", resolve, reject: reject) {
       let (address, generation) = try Self.bodyMailbox(scope)
@@ -644,7 +644,8 @@ extension UnwiredRegistration {
         let revision = Int(exactly: value), revision >= 0
       else { throw RegistrationError.unavailable }
       return try $0.retainMessageBodies(
-        address: address, generation: generation, expectedRevision: revision, ids: ids)
+        address: address, generation: generation, expectedRevision: revision, ids: ids,
+        protectedIds: protectedIds)
     }
   }
 

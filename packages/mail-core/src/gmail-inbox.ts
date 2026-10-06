@@ -80,7 +80,8 @@ export interface NativeGmailMailbox {
     mailbox: Readonly<{ address: string; generation: string }>,
     ids: readonly string[],
   ) => Promise<unknown>;
-  // Removes cached bodies only if the named Inbox revision is still current.
+  // Removes cached bodies only if the named Inbox revision is still current. Reconciling an
+  // over-budget cache keeps the protected bodies that fit, in the order given.
   readonly retainMessageBodies: (
     mailbox: Readonly<{
       address: string;
@@ -88,6 +89,7 @@ export interface NativeGmailMailbox {
       revision: number;
     }>,
     ids: readonly string[],
+    protectedIds: readonly string[],
   ) => Promise<unknown>;
 }
 
@@ -757,20 +759,32 @@ export function createGmailInbox(native: NativeGmailMailbox) {
       ),
     );
 
-  // Bodies of messages that left the cached Inbox leave the device with them. A failed prune is
-  // retried at the end of the next synchronization, even when it commits nothing.
+  // The recent working set of the latest selection; its stored bodies are protected from eviction.
+  let selection: readonly string[] = [];
+  let selectionReference: DateTime.Utc | undefined = undefined;
+  // Bodies of messages that left the cached Inbox leave the device with them; the recent working
+  // set's bodies stay protected as far as they fit. A failed prune is retried at the end of the
+  // next synchronization, even when it commits nothing.
   const retainBodies = (
     { address, generation, revision }: Cache,
     messages: readonly GmailMessage[],
   ) =>
-    Effect.tryPromise({
-      try: () =>
-        native.retainMessageBodies(
-          { address, generation, revision },
-          messages.map(({ id }) => id),
-        ),
-      catch: (cause) => rejected(cause, 'failed'),
-    }).pipe(
+    Effect.suspend(() =>
+      selectionReference === undefined
+        ? DateTime.now
+        : Effect.succeed(selectionReference),
+    ).pipe(
+      Effect.flatMap((reference) =>
+        Effect.tryPromise({
+          try: () =>
+            native.retainMessageBodies(
+              { address, generation, revision },
+              messages.map(({ id }) => id),
+              recentWorkingSet(messages, reference),
+            ),
+          catch: (cause) => rejected(cause, 'failed'),
+        }),
+      ),
       Effect.catchTag('SyncFailure', (failure) =>
         failure.kind === 'conflict' || failure.kind === 'invalidated'
           ? Effect.fail(failure)
@@ -806,9 +820,6 @@ export function createGmailInbox(native: NativeGmailMailbox) {
   // Open while no explicit read is waiting or running; speculative prefetch waits on it.
   const interactiveIdle = Latch.makeUnsafe(true);
   let interactive = 0;
-  // The recent working set of the latest selection; its stored bodies are protected from eviction.
-  let selection: readonly string[] = [];
-  let selectionReference: DateTime.Utc | undefined = undefined;
   const speculativeBodies = new Map<string, Deferred.Deferred<undefined>>();
 
   const releaseLegacyReader = (id: string) => {

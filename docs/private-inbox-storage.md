@@ -72,8 +72,10 @@ within the 500 MB budget before it is published. It removes opened bodies before
 prefetched ones, least recently read first, and never removes a body in the
 current recent working set. A body that cannot fit that way is refused and stays
 on demand, as is one larger than the entire budget. Pruning reconciles any
-over-budget cache left by an older interrupted writer. Reselection and every account
-purge remove the bodies with the mailbox cache.
+over-budget cache left by an older interrupted writer. As in admission, only the
+recent working set's bodies that fit within the budget, in working-set order, stay
+protected; the limit always holds. Reselection and every account purge remove the
+bodies with the mailbox cache.
 
 ## Native wiring and signing
 

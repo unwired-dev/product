@@ -386,7 +386,8 @@ extension PrivateInboxTests {
       try small.openMessageBody(
         address: google.address, subject: google.subject, id: "prefetched") == text)
     try small.retainMessageBodies(
-      address: google.address, subject: google.subject, expectedRevision: 1, ids: ["prefetched"])
+      address: google.address, subject: google.subject, expectedRevision: 1,
+      ids: ["prefetched"], protectedIds: [])
     #expect(try admit("prefetched", .opened, protecting: ["prefetched"]))
     #expect(try files().count == 1)
     #expect(try files().first?.pathExtension == "o")
@@ -415,7 +416,8 @@ extension PrivateInboxTests {
     #expect(try files().first?.pathExtension == "p")
     #expect(try admit("protected", .prefetched, protecting: ["prefetched", "protected"]))
 
-    // Pruning reconciles an over-budget directory left by an interrupted older writer.
+    // Pruning reconciles an over-budget directory left by an interrupted older writer. Protected
+    // bodies that fit, in working-set order, stay; one that no longer fits is evicted.
     #expect(
       try cache.commitMessageBody(
         address: google.address, subject: google.subject, id: "d", document: text,
@@ -423,25 +425,28 @@ extension PrivateInboxTests {
     #expect(try files().count == 3)
     try small.retainMessageBodies(
       address: google.address, subject: google.subject, expectedRevision: 1,
-      ids: ["prefetched", "protected", "d"])
+      ids: ["prefetched", "protected", "d"], protectedIds: ["d", "protected", "prefetched"])
     #expect(try files().reduce(0) { $0 + (try Data(contentsOf: $1).count) } <= 200)
-    #expect(try stored(["prefetched", "protected", "d"]) == ["prefetched", "protected"])
+    #expect(try stored(["prefetched", "protected", "d"]) == ["protected", "d"])
 
     // A message that left the Inbox takes its body; the cache-only path reads but never writes.
     let locked = PrivateInboxStore(
       directory: directory, service: service, protectedDataAvailable: { false })
     #expect(throws: PrivateInboxError.locked) {
       try locked.retainMessageBodies(
-        address: google.address, subject: google.subject, expectedRevision: 1, ids: [])
+        address: google.address, subject: google.subject, expectedRevision: 1,
+        ids: [], protectedIds: [])
     }
     #expect(try files().count == 2)
     #expect(throws: PrivateInboxError.conflict) {
       _ = try store.retainMessageBodies(
-        address: google.address, generation: generation, expectedRevision: 0, ids: [])
+        address: google.address, generation: generation, expectedRevision: 0,
+        ids: [], protectedIds: [])
     }
     #expect(try files().count == 2)
     _ = try store.retainMessageBodies(
-      address: google.address, generation: generation, expectedRevision: 1, ids: ["protected"])
+      address: google.address, generation: generation, expectedRevision: 1,
+      ids: ["protected"], protectedIds: [])
     #expect(try files().count == 1)
     google.refreshFailure = URLError(.notConnectedToInternet)
     #expect(try await store.restore()["kind"] == "cached")

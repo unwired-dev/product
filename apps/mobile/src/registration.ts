@@ -41,8 +41,8 @@ export const gmailInbox = createGmailInbox({
   commitMessageBody: (mailbox, id, admission) =>
     native().commitMessageBody(mailbox, id, admission),
   listMessageBodies: (mailbox, ids) => native().listMessageBodies(mailbox, ids),
-  retainMessageBodies: (mailbox, ids) =>
-    native().retainMessageBodies(mailbox, ids),
+  retainMessageBodies: (mailbox, ids, protectedIds) =>
+    native().retainMessageBodies(mailbox, ids, protectedIds),
 });
 
 forgetMailOutsideInbox(registration, gmailInbox);

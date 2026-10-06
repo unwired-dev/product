@@ -200,13 +200,15 @@ extension RegistrationStore {
   }
 
   func retainMessageBodies(
-    address: String, generation: String, expectedRevision: Int, ids: [String]
+    address: String, generation: String, expectedRevision: Int, ids: [String],
+    protectedIds: [String]
   ) throws
     -> [String: Any]
   {
     let subject = try bodyOwner(address: address, generation: generation, verified: true)
     try mailCache?.retainMessageBodies(
-      address: address, subject: subject, expectedRevision: expectedRevision, ids: ids)
+      address: address, subject: subject, expectedRevision: expectedRevision, ids: ids,
+      protectedIds: protectedIds)
     return [:]
   }
 }

@@ -49,6 +49,13 @@ This code owns what TypeScript must never hold: Keychain items, the storage encr
   valid files and reads can return the older body. A failed replacement may leave
   a refetchable cache miss. Cache-only reads must not update access times
   or delete corrupt bodies; otherwise presentation-only access mutates storage.
+- `PrivateInboxStore.retainMessageBodies` reconciling an over-budget directory
+  with an empty protected set, or losing `protectedIds` between host adapters,
+  the Swift/Objective-C bridge and storage. Keep revision/generation checks and
+  protected-body exclusions through that path; otherwise synchronization deletes
+  recent offline bodies. Check the case where protected bytes alone exceed the
+  budget and report any conflict between protection and the hard-limit contract
+  rather than silently weakening either requirement.
 
 #### Mock sessions stay out of production
 

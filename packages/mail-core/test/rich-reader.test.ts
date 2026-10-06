@@ -999,6 +999,12 @@ describe('the isolated rich reader', () => {
         protectedIds: [recentHtml, recentText, multipart],
       })),
     );
+    // Pruning an over-budget cache keeps the same recent working set.
+    expect(gmail.bodyRetains.at(-1)).toStrictEqual([
+      recentHtml,
+      recentText,
+      multipart,
+    ]);
     const requested = (id: string) =>
       gmail.requests.filter(({ path }) => path.startsWith(`messages/${id}`));
     // A multipart message gets an exclusion marker after the body-free preflight only.

@@ -116,6 +116,8 @@ export function createSyntheticGmail({
     tier: string;
     protectedIds: readonly string[];
   }> = [];
+  // Each prune's protected working set, as native retention receives it.
+  const bodyRetains: Array<readonly string[]> = [];
   // Messages whose bodies native admission refuses, as a full cache would.
   const refusedBodies = new Set<string>();
 
@@ -452,7 +454,8 @@ export function createSyntheticGmail({
             stored: ids.filter((id) => bodies.has(bodyKey(owner.address, id))),
           })
         : rejection('mailbox-invalidated'),
-    retainMessageBodies: (owner, ids) => {
+    retainMessageBodies: (owner, ids, protectedIds) => {
+      bodyRetains.push(protectedIds);
       const code = retainFailures.shift();
       if (code !== undefined) {
         return rejection(code);
@@ -488,6 +491,7 @@ export function createSyntheticGmail({
       relabel(id, label, true);
     },
     bodyCommits,
+    bodyRetains,
     // Native admission refuses this message's body, as when it cannot fit.
     refuseBody: (id: string) => {
       refusedBodies.add(id);

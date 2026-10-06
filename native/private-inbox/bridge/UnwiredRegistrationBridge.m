@@ -19,5 +19,5 @@ RCT_EXTERN_METHOD(commitMailbox:(NSDictionary *)mailbox expectedRevision:(double
 RCT_EXTERN_METHOD(openMessageBody:(NSDictionary *)mailbox id:(NSString *)id resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(commitMessageBody:(NSDictionary *)mailbox id:(NSString *)id admission:(NSDictionary *)admission resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(listMessageBodies:(NSDictionary *)mailbox ids:(NSArray *)ids resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
-RCT_EXTERN_METHOD(retainMessageBodies:(NSDictionary *)mailbox ids:(NSArray *)ids resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
+RCT_EXTERN_METHOD(retainMessageBodies:(NSDictionary *)mailbox ids:(NSArray *)ids protectedIds:(NSArray *)protectedIds resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 @end

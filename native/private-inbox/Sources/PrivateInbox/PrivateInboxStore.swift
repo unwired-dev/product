@@ -263,9 +263,11 @@ public final class PrivateInboxStore {
   }
 
   // Removes the bodies of every message not named, such as those that left the cached Inbox,
-  // and reconciles a cache an interrupted writer left over the limit.
+  // and reconciles a cache an interrupted writer left over the limit. As in admission, only the
+  // protected bodies that fit, in working-set order, keep their protection, so the limit holds.
   public func retainMessageBodies(
-    address: String, subject: String, expectedRevision: Int, ids: [String]
+    address: String, subject: String, expectedRevision: Int, ids: [String],
+    protectedIds: [String]
   ) throws {
     try transaction {
       let cache = try readMailbox()
@@ -274,7 +276,19 @@ public final class PrivateInboxStore {
       for entry in try bodies() where !kept.contains(entry.name) {
         try FileManager.default.removeItem(at: entry.file)
       }
-      _ = try evictBodies(reserving: 0, replacing: nil, protected: [])
+      let sizes = Dictionary(grouping: try bodies(), by: \.name).mapValues {
+        $0.reduce(0) { $0 + $1.size }
+      }
+      var protected = Set<String>()
+      var protectedSize = 0
+      for id in protectedIds {
+        let name = bodyName(address: address, subject: subject, id: id).0
+        let size = sizes[name] ?? 0
+        guard !protected.contains(name), protectedSize + size <= bodyLimit else { continue }
+        protected.insert(name)
+        protectedSize += size
+      }
+      _ = try evictBodies(reserving: 0, replacing: nil, protected: protected)
     }
   }
 
