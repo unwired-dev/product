@@ -77,26 +77,26 @@ struct PrivateInboxTests {
       try? keys.remove("encryption-key")
       try? FileManager.default.removeItem(at: directory)
     }
-    var available = false
+    let protectedData = ProtectedDataSwitch()
     let store = PrivateInboxStore(
-      directory: directory, service: service, protectedDataAvailable: { available })
+      directory: directory, service: service, protectedDataAvailable: { protectedData.available })
     #expect(throws: PrivateInboxError.locked) { try store.open(seed: seed) }
     #expect(!FileManager.default.fileExists(atPath: directory.path))
     #expect(try keys.read("encryption-key") == nil)
-    available = true
+    protectedData.available = true
     _ = try store.open(seed: seed)
     _ = try store.setUnread(id: "first", unread: false)
     let file = directory.appendingPathComponent("inbox.enc")
     let ciphertext = try Data(contentsOf: file)
     let key = try keys.read("encryption-key")
-    available = false
+    protectedData.available = false
     #expect(throws: PrivateInboxError.locked) { try store.open(seed: "[]") }
     #expect(throws: PrivateInboxError.locked) {
       try store.setUnread(id: "second", unread: false)
     }
     #expect(try Data(contentsOf: file) == ciphertext)
     #expect(try keys.read("encryption-key") == key)
-    available = true
+    protectedData.available = true
     let restored = try JSONDecoder().decode(
       InboxSnapshot.self, from: Data(store.open(seed: "[]").utf8))
     #expect(restored.messages.count == 2)
@@ -150,5 +150,15 @@ struct PrivateInboxTests {
       InboxSnapshot.self, from: Data(store.open(seed: seed).utf8))
     #expect(snapshot.revision == 2)
     #expect(snapshot.messages.allSatisfy { !$0.unread })
+  }
+}
+
+// Protected-data availability a test switches while store work may read it from any thread.
+private final class ProtectedDataSwitch: @unchecked Sendable {
+  private let lock = NSLock()
+  private var value = false
+  var available: Bool {
+    get { lock.withLock { value } }
+    set { lock.withLock { value = newValue } }
   }
 }

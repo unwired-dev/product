@@ -177,6 +177,21 @@ function holdListPage(
   };
 }
 
+// Holds every Gmail request except message reads, as a provider that has not answered yet.
+function holdProvider(gmail: ReturnType<typeof createSyntheticGmail>) {
+  const { gmailRequest } = gmail.native;
+  const provider = Promise.withResolvers<undefined>();
+  gmail.native.gmailRequest = async (path, query, owner) => {
+    if (!path.startsWith('messages/')) {
+      await provider.promise;
+    }
+    return gmailRequest(path, query, owner);
+  };
+  return () => {
+    provider.resolve(undefined);
+  };
+}
+
 // Answers one message's full-format read with a crafted MIME payload.
 function replaceFullPayload(
   gmail: ReturnType<typeof createSyntheticGmail>,
@@ -1047,6 +1062,44 @@ describe('the isolated rich reader', () => {
         ),
       ).toHaveLength(preflights);
     });
+  });
+
+  it('protects the recent working set when a body is opened before prefetch starts', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    const now = Date.now();
+    const recent = [1, 2].map((index) =>
+      gmail.deliver({
+        at: now - index * 60_000,
+        content: { text: `Recent ${index}`, single: true },
+      }),
+    );
+    const older = gmail.deliver({
+      at: now - 40 * day,
+      content: { text: 'Older', single: true },
+    });
+    const inbox = createGmailInbox(gmail.native);
+    await inbox.load();
+    await vi.waitFor(() => {
+      expect(gmail.bodyCommits).toHaveLength(2);
+    });
+    // A fresh Inbox shows the cached list while Gmail has not answered yet.
+    inbox.forget();
+    const answer = holdProvider(gmail);
+    const loading = inbox.load();
+    await vi.waitFor(() => {
+      expect(listedIds(inbox)).toContain(older);
+    });
+    expect(readable(await read(inbox, older)).paragraphs).toStrictEqual([
+      [{ text: 'Older' }],
+    ]);
+    expect(gmail.bodyCommits.at(-1)).toStrictEqual({
+      id: older,
+      tier: 'opened',
+      protectedIds: recent,
+    });
+    answer();
+    await loading;
   });
 
   it('stops prefetch when Gmail needs permission again and limits loads to two', async () => {

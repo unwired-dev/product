@@ -33,10 +33,12 @@ struct MailboxCache: Codable {
   let document: String
 }
 
-public final class PrivateInboxStore {
+// Mailbox body work runs off the main actor: state is immutable and every transaction holds the
+// store's file lock, which also serializes threads within this process.
+public final class PrivateInboxStore: @unchecked Sendable {
   private let directory: URL
   private let keychain: DeviceKeychain
-  private let protectedDataAvailable: () -> Bool
+  private let protectedDataAvailable: @Sendable () -> Bool
   // The Bounded Encrypted Body Cache's device-wide limit, in stored bytes.
   private let bodyLimit: Int
   private let associatedData = Data("dev.unwired.private-inbox.v1".utf8)
@@ -49,7 +51,7 @@ public final class PrivateInboxStore {
   }
 
   init(
-    directory: URL, service: String, protectedDataAvailable: @escaping () -> Bool,
+    directory: URL, service: String, protectedDataAvailable: @escaping @Sendable () -> Bool,
     bodyLimit: Int = 500 * 1024 * 1024
   ) {
     self.directory = directory
@@ -58,7 +60,7 @@ public final class PrivateInboxStore {
     self.protectedDataAvailable = protectedDataAvailable
   }
 
-  private static func protectedDataAvailability() -> () -> Bool {
+  private static func protectedDataAvailability() -> @Sendable () -> Bool {
     #if os(iOS)
       let application: UIApplication
       if Thread.isMainThread {
@@ -68,11 +70,18 @@ public final class PrivateInboxStore {
           MainActor.assumeIsolated { UIApplication.shared }
         }
       }
-      return { application.isProtectedDataAvailable }
+      // UIKit answers only on the main thread. Callers that move store work off it check
+      // availability there before and after the work.
+      return {
+        Thread.isMainThread
+          ? MainActor.assumeIsolated { application.isProtectedDataAvailable } : true
+      }
     #else
       return { true }
     #endif
   }
+
+  func isProtectedDataAvailable() -> Bool { protectedDataAvailable() }
 
   private func requireProtectedData() throws {
     guard protectedDataAvailable() else { throw PrivateInboxError.locked }
@@ -175,7 +184,7 @@ public final class PrivateInboxStore {
   // sealed to its mailbox and message ID. The name's suffix records the eviction tier: opened
   // bodies go before prefetched ones, least recently read first, and bodies in the protected
   // working set are never evicted to admit another.
-  public enum BodyTier: String {
+  public enum BodyTier: String, Sendable {
     case opened = "o"
     case prefetched = "p"
   }

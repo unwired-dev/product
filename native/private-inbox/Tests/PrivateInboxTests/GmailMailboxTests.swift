@@ -286,8 +286,12 @@ extension PrivateInboxTests {
     }
     let google = SyntheticGoogleRegistrationProvider()
     google.scopes = [RegistrationStore.gmailScope]
+    let threads = StoreThreads()
     let store = google.store(
-      keys: keys, mailCache: PrivateInboxStore(directory: directory, service: service),
+      keys: keys,
+      mailCache: PrivateInboxStore(
+        directory: directory, service: service,
+        protectedDataAvailable: { threads.check() }),
       deviceRevoked: { _ in false })
     let bodies = directory.appendingPathComponent("bodies")
     func files() throws -> [URL] {
@@ -296,32 +300,54 @@ extension PrivateInboxTests {
     }
     _ = try await store.signIn()
     _ = try await store.authorizeGmail(reselect: false)
-    let generation = store.mailboxGeneration.uuidString
+    var generation = store.mailboxGeneration.uuidString
     _ = try store.commitMailbox(
       address: google.address, expectedRevision: 0, document: "{}", generation: generation)
     #expect(
-      try store.openMessageBody(address: google.address, generation: generation, id: "a")[
+      try await store.openMessageBody(address: google.address, generation: generation, id: "a")[
         "document"] is NSNull)
     let body = "Private synthetic body"
-    _ = try store.commitMessageBody(
+    _ = try await store.commitMessageBody(
       address: google.address, generation: generation, id: "a",
       admission: ["document": body, "tier": "opened", "protectedIds": [String]()])
-    _ = try store.commitMessageBody(
+    _ = try await store.commitMessageBody(
       address: google.address, generation: generation, id: "b",
       admission: ["document": body + " b", "tier": "opened", "protectedIds": [String]()])
     #expect(
-      try store.openMessageBody(address: google.address, generation: generation, id: "a")[
+      try await store.openMessageBody(address: google.address, generation: generation, id: "a")[
         "document"] as? String == body)
     #expect(try files().count == 2)
     for file in try files() {
       #expect(try Data(contentsOf: file).range(of: Data("Private synthetic".utf8)) == nil)
     }
-    // Stale work and other mailboxes neither read nor write bodies.
-    #expect(throws: PrivateInboxError.mailboxInvalidated) {
-      _ = try store.openMessageBody(address: "other@example.invalid", generation: generation, id: "a")
+    // Body files are read, encrypted and written off the main thread.
+    #expect(threads.ranOffMain)
+    // Availability can change after preflight while a worker can still finish its read.
+    threads.lockDuringWork()
+    await #expect(throws: PrivateInboxError.locked) {
+      _ = try await store.openMessageBody(address: google.address, generation: generation, id: "a")
     }
-    #expect(throws: PrivateInboxError.mailboxInvalidated) {
-      _ = try store.commitMessageBody(
+    threads.unlock()
+    #expect(
+      try await store.openMessageBody(address: google.address, generation: generation, id: "a")[
+        "document"] as? String == body)
+    // An owner invalidated during suspension must never receive the worker's plaintext.
+    threads.onWorker = {
+      DispatchQueue.main.sync {
+        MainActor.assumeIsolated { store.mailboxGeneration = UUID() }
+      }
+    }
+    await #expect(throws: PrivateInboxError.mailboxInvalidated) {
+      _ = try await store.openMessageBody(address: google.address, generation: generation, id: "a")
+    }
+    threads.onWorker = nil
+    generation = store.mailboxGeneration.uuidString
+    // Stale work and other mailboxes neither read nor write bodies.
+    await #expect(throws: PrivateInboxError.mailboxInvalidated) {
+      _ = try await store.openMessageBody(address: "other@example.invalid", generation: generation, id: "a")
+    }
+    await #expect(throws: PrivateInboxError.mailboxInvalidated) {
+      _ = try await store.commitMessageBody(
         address: google.address, generation: UUID().uuidString, id: "c",
         admission: ["document": body, "tier": "opened", "protectedIds": [String]()])
     }
@@ -340,10 +366,10 @@ extension PrivateInboxTests {
     #expect(try files().map(\.lastPathComponent) == [first.lastPathComponent])
     try Data([1, 2, 3]).write(to: first)
     #expect(
-      try store.openMessageBody(address: google.address, generation: generation, id: "a")[
+      try await store.openMessageBody(address: google.address, generation: generation, id: "a")[
         "document"] is NSNull)
     #expect(
-      try store.openMessageBody(address: google.address, generation: generation, id: "b")[
+      try await store.openMessageBody(address: google.address, generation: generation, id: "b")[
         "document"] is NSNull)
     #expect(try files().isEmpty)
 
@@ -438,13 +464,13 @@ extension PrivateInboxTests {
         ids: [], protectedIds: [])
     }
     #expect(try files().count == 2)
-    #expect(throws: PrivateInboxError.conflict) {
-      _ = try store.retainMessageBodies(
+    await #expect(throws: PrivateInboxError.conflict) {
+      _ = try await store.retainMessageBodies(
         address: google.address, generation: generation, expectedRevision: 0,
         ids: [], protectedIds: [])
     }
     #expect(try files().count == 2)
-    _ = try store.retainMessageBodies(
+    _ = try await store.retainMessageBodies(
       address: google.address, generation: generation, expectedRevision: 1,
       ids: ["protected"], protectedIds: [])
     #expect(try files().count == 1)
@@ -456,16 +482,16 @@ extension PrivateInboxTests {
     try FileManager.default.setAttributes(
       [.modificationDate: cachedReadTime], ofItemAtPath: cachedFile.path)
     #expect(
-      try store.openMessageBody(address: google.address, generation: cached, id: "protected")[
+      try await store.openMessageBody(address: google.address, generation: cached, id: "protected")[
         "document"] as? String == text)
     #expect(
       try FileManager.default.attributesOfItem(atPath: cachedFile.path)[.modificationDate] as? Date
         == cachedReadTime)
     #expect(
-      try store.listMessageBodies(address: google.address, generation: cached, ids: ["protected"])[
+      try await store.listMessageBodies(address: google.address, generation: cached, ids: ["protected"])[
         "stored"] as? [String] == ["protected"])
-    #expect(throws: RegistrationError.unavailable) {
-      _ = try store.commitMessageBody(
+    await #expect(throws: RegistrationError.unavailable) {
+      _ = try await store.commitMessageBody(
         address: google.address, generation: cached, id: "d",
         admission: ["document": body, "tier": "opened", "protectedIds": [String]()])
     }
@@ -475,7 +501,7 @@ extension PrivateInboxTests {
     try FileManager.default.setAttributes(
       [.modificationDate: cachedReadTime], ofItemAtPath: cachedFile.path)
     #expect(
-      try store.openMessageBody(address: google.address, generation: cached, id: "protected")[
+      try await store.openMessageBody(address: google.address, generation: cached, id: "protected")[
         "document"] is NSNull)
     #expect(try Data(contentsOf: cachedFile) == damaged)
     #expect(
@@ -492,10 +518,40 @@ extension PrivateInboxTests {
     _ = try store.commitMailbox(
       address: google.address, expectedRevision: 0, document: "{}",
       generation: store.mailboxGeneration.uuidString)
-    _ = try store.commitMessageBody(
+    _ = try await store.commitMessageBody(
       address: google.address, generation: store.mailboxGeneration.uuidString, id: "a",
       admission: ["document": body, "tier": "prefetched", "protectedIds": ["a"]])
     _ = try store.purge()
     #expect(!FileManager.default.fileExists(atPath: bodies.path))
   }
+}
+
+// Which threads the store's protected-data checks ran on, as its transactions run them.
+private final class StoreThreads: @unchecked Sendable {
+  private let lock = NSLock()
+  private var offMain = false
+  private var locked = false
+  private var lockOnWorker = false
+  private var worker: (@Sendable () -> Void)?
+  var onWorker: (@Sendable () -> Void)? {
+    get { lock.withLock { worker } }
+    set { lock.withLock { worker = newValue } }
+  }
+  func check() -> Bool {
+    let main = Thread.isMainThread
+    if !main { onWorker?() }
+    return lock.withLock {
+      offMain = offMain || !main
+      if !main && lockOnWorker { locked = true }
+      return !main || !locked
+    }
+  }
+  func lockDuringWork() { lock.withLock { lockOnWorker = true } }
+  func unlock() {
+    lock.withLock {
+      locked = false
+      lockOnWorker = false
+    }
+  }
+  var ranOffMain: Bool { lock.withLock { offMain } }
 }

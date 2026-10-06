@@ -762,6 +762,25 @@ export function createGmailInbox(native: NativeGmailMailbox) {
   // The recent working set of the latest selection; its stored bodies are protected from eviction.
   let selection: readonly string[] = [];
   let selectionReference: DateTime.Utc | undefined = undefined;
+  const referenceInstant = Effect.suspend(() =>
+    selectionReference === undefined
+      ? DateTime.now
+      : Effect.succeed(selectionReference),
+  );
+  // Protection at an admission: the working set of the Inbox shown now, from the first
+  // published cached list on, plus the selection being prefetched, whose bodies never evict one
+  // another.
+  const protectedBodies = referenceInstant.pipe(
+    Effect.map((reference) => [
+      ...new Set([
+        ...selection,
+        ...recentWorkingSet(
+          state.kind === 'ready' ? state.messages : [],
+          reference,
+        ),
+      ]),
+    ]),
+  );
   // Bodies of messages that left the cached Inbox leave the device with them; the recent working
   // set's bodies stay protected as far as they fit. A failed prune is retried at the end of the
   // next synchronization, even when it commits nothing.
@@ -769,11 +788,7 @@ export function createGmailInbox(native: NativeGmailMailbox) {
     { address, generation, revision }: Cache,
     messages: readonly GmailMessage[],
   ) =>
-    Effect.suspend(() =>
-      selectionReference === undefined
-        ? DateTime.now
-        : Effect.succeed(selectionReference),
-    ).pipe(
+    referenceInstant.pipe(
       Effect.flatMap((reference) =>
         Effect.tryPromise({
           try: () =>
@@ -1118,15 +1133,18 @@ export function createGmailInbox(native: NativeGmailMailbox) {
         publication.withPermit(
           Effect.suspend(() =>
             owner === reading && listed(document.id)
-              ? Effect.tryPromise({
-                  try: () =>
-                    native.commitMessageBody(scope, document.id, {
-                      document: text,
-                      tier,
-                      protectedIds: selection,
+              ? protectedBodies.pipe(
+                  Effect.flatMap((protectedIds) =>
+                    Effect.tryPromise({
+                      try: () =>
+                        native.commitMessageBody(scope, document.id, {
+                          document: text,
+                          tier,
+                          protectedIds,
+                        }),
+                      catch: (cause) => rejected(cause, 'failed'),
                     }),
-                  catch: (cause) => rejected(cause, 'failed'),
-                }).pipe(
+                  ),
                   Effect.flatMap((reply) =>
                     Schema.decodeUnknownEffect(
                       Schema.Struct({ admitted: Schema.Boolean }),
@@ -1164,7 +1182,9 @@ export function createGmailInbox(native: NativeGmailMailbox) {
     const stored = (yield* cachedDocument(scope, id)).pipe(
       Option.filter((document) => document.excluded !== true),
     );
-    const tier = selection.includes(id) ? 'prefetched' : 'opened';
+    const tier = (yield* protectedBodies).includes(id)
+      ? 'prefetched'
+      : 'opened';
     if (Option.isSome(stored)) {
       const completed = yield* completeImages(scope, stored.value).pipe(
         Effect.orElseSucceed(() => ({

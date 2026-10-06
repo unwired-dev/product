@@ -76,6 +76,12 @@ Namespace-import style, `JSON.parse`, `typeof … === 'object'` guards, untagged
 
 #### Rich-body admission and speculative reads
 
+- `createGmailInbox.store` protecting only a prefetch selection that has not yet
+  started when cached metadata is already interactive, including after `forget`.
+  Derive protection from the current ready list and selection reference at admission,
+  alongside active speculative selection; otherwise an opened body can evict recent
+  offline bodies during delayed synchronization. Preserve ordered native retention
+  and refusal under the hard budget.
 - `createGmailInbox.store` waiting for an entire synchronization while holding a
   body-load permit, blocking explicit opens or speculative progress behind provider
   listing. Serialize body membership checks and admission against each page's

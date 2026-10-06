@@ -92,6 +92,17 @@ access is read-only, including for corrupt files, and refuses writes or pruning.
 Listing returns IDs without decrypting stored bodies. Mailbox removal and account
 purge remove bodies with the metadata cache.
 
+RegistrationStore body operations check protected-data availability and the mailbox owner
+and generation on the main actor, perform locked file and CryptoKit work in a detached
+task, then repeat those checks before publishing success. Errors are also reclassified
+as locked when protected data became unavailable. The bridge's FIFO registration gate
+remains held across the awaited work, including revocation preflight and purge paths.
+The fixture bridge retains its serial worker queue and checks availability on the main
+actor before dispatch and before resolving or rejecting the worker result. The production
+iOS availability callback reads UIKit only on the main thread; off-main store checks
+rely on these adapters' surrounding checks and on Keychain/file protection, avoiding a
+synchronous hop to the main actor while holding the file lock.
+
 This adds platform storage operations permitted by
 [ADR 0067](../adr/0067-keep-native-code-to-a-minimal-vault.md); MIME decoding,
 presentation preparation and application sequencing remain in TypeScript.

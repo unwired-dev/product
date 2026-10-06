@@ -172,43 +172,73 @@ extension RegistrationStore {
     return mailbox.subject
   }
 
-  func openMessageBody(address: String, generation: String, id: String) throws -> [String: Any] {
-    let subject = try bodyOwner(address: address, generation: generation, verified: false)
-    let body = try mailCache?.openMessageBody(
-      address: address, subject: subject, id: id, readOnly: !mailboxVerified)
+  // Reads, decrypts, encrypts and writes bodies off the main actor. The mailbox operation gate
+  // keeps registration changes out until the work ends, protected data is checked here on the
+  // main actor, and the caller's mailbox is checked again before any result is published.
+  private func bodyWork<Value: Sendable>(
+    address: String, generation: String, verified: Bool,
+    _ work: @escaping @Sendable (PrivateInboxStore, String) throws -> Value
+  ) async throws -> Value {
+    let subject = try bodyOwner(address: address, generation: generation, verified: verified)
+    guard let mailCache else { throw RegistrationError.unavailable }
+    guard mailCache.isProtectedDataAvailable() else { throw PrivateInboxError.locked }
+    let value: Value
+    do {
+      value = try await Task.detached(priority: .userInitiated) {
+        try work(mailCache, subject)
+      }.value
+    } catch {
+      guard mailCache.isProtectedDataAvailable() else { throw PrivateInboxError.locked }
+      throw error
+    }
+    guard mailCache.isProtectedDataAvailable() else { throw PrivateInboxError.locked }
+    _ = try bodyOwner(address: address, generation: generation, verified: verified)
+    return value
+  }
+
+  func openMessageBody(address: String, generation: String, id: String) async throws
+    -> [String: Any]
+  {
+    let readOnly = !mailboxVerified
+    let body = try await bodyWork(address: address, generation: generation, verified: false) {
+      try $0.openMessageBody(address: address, subject: $1, id: id, readOnly: readOnly)
+    }
     return ["document": body ?? NSNull()]
   }
 
   func commitMessageBody(
     address: String, generation: String, id: String, admission: [String: Any]
-  ) throws -> [String: Any] {
+  ) async throws -> [String: Any] {
     guard let document = admission["document"] as? String,
       let tier = (admission["tier"] as? String).flatMap(PrivateInboxStore.BodyTier.init(rawName:)),
       let protectedIds = admission["protectedIds"] as? [String]
     else { throw RegistrationError.unavailable }
-    let subject = try bodyOwner(address: address, generation: generation, verified: true)
-    let admitted = try mailCache?.commitMessageBody(
-      address: address, subject: subject, id: id, document: document, tier: tier,
-      protectedIds: protectedIds) ?? false
+    let admitted = try await bodyWork(address: address, generation: generation, verified: true) {
+      try $0.commitMessageBody(
+        address: address, subject: $1, id: id, document: document, tier: tier,
+        protectedIds: protectedIds)
+    }
     return ["admitted": admitted]
   }
 
-  func listMessageBodies(address: String, generation: String, ids: [String]) throws -> [String: Any]
+  func listMessageBodies(address: String, generation: String, ids: [String]) async throws
+    -> [String: Any]
   {
-    let subject = try bodyOwner(address: address, generation: generation, verified: false)
-    return ["stored": try mailCache?.listMessageBodies(address: address, subject: subject, ids: ids) ?? []]
+    let stored = try await bodyWork(address: address, generation: generation, verified: false) {
+      try $0.listMessageBodies(address: address, subject: $1, ids: ids)
+    }
+    return ["stored": stored]
   }
 
   func retainMessageBodies(
     address: String, generation: String, expectedRevision: Int, ids: [String],
     protectedIds: [String]
-  ) throws
-    -> [String: Any]
-  {
-    let subject = try bodyOwner(address: address, generation: generation, verified: true)
-    try mailCache?.retainMessageBodies(
-      address: address, subject: subject, expectedRevision: expectedRevision, ids: ids,
-      protectedIds: protectedIds)
+  ) async throws -> [String: Any] {
+    try await bodyWork(address: address, generation: generation, verified: true) {
+      try $0.retainMessageBodies(
+        address: address, subject: $1, expectedRevision: expectedRevision, ids: ids,
+        protectedIds: protectedIds)
+    }
     return [:]
   }
 }

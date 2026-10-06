@@ -606,7 +606,7 @@ extension UnwiredRegistration {
   ) {
     mailbox("openMessageBody", resolve, reject: reject) {
       let (address, generation) = try Self.bodyMailbox(scope)
-      return try $0.openMessageBody(address: address, generation: generation, id: id)
+      return try await $0.openMessageBody(address: address, generation: generation, id: id)
     }
   }
 
@@ -617,7 +617,7 @@ extension UnwiredRegistration {
   ) {
     mailbox("commitMessageBody", resolve, reject: reject) {
       let (address, generation) = try Self.bodyMailbox(scope)
-      return try $0.commitMessageBody(
+      return try await $0.commitMessageBody(
         address: address, generation: generation, id: id, admission: admission)
     }
   }
@@ -629,7 +629,7 @@ extension UnwiredRegistration {
   ) {
     mailbox("listMessageBodies", resolve, reject: reject) {
       let (address, generation) = try Self.bodyMailbox(scope)
-      return try $0.listMessageBodies(address: address, generation: generation, ids: ids)
+      return try await $0.listMessageBodies(address: address, generation: generation, ids: ids)
     }
   }
 
@@ -643,7 +643,7 @@ extension UnwiredRegistration {
       guard let value = scope["revision"] as? Double,
         let revision = Int(exactly: value), revision >= 0
       else { throw RegistrationError.unavailable }
-      return try $0.retainMessageBodies(
+      return try await $0.retainMessageBodies(
         address: address, generation: generation, expectedRevision: revision, ids: ids,
         protectedIds: protectedIds)
     }

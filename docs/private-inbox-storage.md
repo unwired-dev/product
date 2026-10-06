@@ -67,7 +67,9 @@ message or mailbox fails to open. A damaged or mismatched body reads as absent a
 are authorized. Cache-only reads preserve files and access times. Opening is
 permitted in the cache-only offline mode; saving
 and pruning need a verified mailbox. Every call carries the mailbox generation, so
-work started before a reselection reaches nothing. Saving a body reserves space
+work started before a reselection reaches nothing. Body-cache work keeps the interface
+responsive. A lock or mailbox change during a read prevents its result from being shown.
+Saving a body reserves space
 within the 500 MB budget before it is published. It removes opened bodies before
 prefetched ones, least recently read first, and never removes a body in the
 current recent working set. A body that cannot fit that way is refused and stays

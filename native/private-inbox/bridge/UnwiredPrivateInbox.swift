@@ -9,16 +9,25 @@ final class UnwiredPrivateInbox: NSObject {
 
   private func perform(
     _ resolve: @escaping RCTPromiseResolveBlock,
-    reject: @escaping RCTPromiseRejectBlock, operation: @escaping () throws -> String
+    reject: @escaping RCTPromiseRejectBlock,
+    operation: @escaping @Sendable (PrivateInboxStore) throws -> String
   ) {
-    Self.queue.async {
-      do { resolve(try operation()) } catch PrivateInboxError.locked {
+    Task { @MainActor in
+      do {
+        let storage = try Self.store()
+        guard storage.isProtectedDataAvailable() else { throw PrivateInboxError.locked }
+        let result: Result<String, any Error> = await withCheckedContinuation { continuation in
+          Self.queue.async {
+            continuation.resume(returning: Result { try operation(storage) })
+          }
+        }
+        guard storage.isProtectedDataAvailable() else { throw PrivateInboxError.locked }
+        resolve(try result.get())
+      } catch PrivateInboxError.locked {
         reject("locked", "Private storage is locked.", nil)
       } catch { reject("unavailable", "Private storage could not be opened or saved.", nil) }
     }
   }
-
-  private func store() throws -> PrivateInboxStore { try Self.store() }
 
   // Registration clears this store's mailbox cache when the account or mailbox goes.
   static func store() throws -> PrivateInboxStore {
@@ -36,7 +45,7 @@ final class UnwiredPrivateInbox: NSObject {
     _ seed: String, resolve: @escaping RCTPromiseResolveBlock,
     reject: @escaping RCTPromiseRejectBlock
   ) {
-    perform(resolve, reject: reject) { try self.store().open(seed: seed) }
+    perform(resolve, reject: reject) { try $0.open(seed: seed) }
   }
 
   @objc(setUnread:unread:resolver:rejecter:)
@@ -44,6 +53,6 @@ final class UnwiredPrivateInbox: NSObject {
     _ id: String, unread: Bool, resolve: @escaping RCTPromiseResolveBlock,
     reject: @escaping RCTPromiseRejectBlock
   ) {
-    perform(resolve, reject: reject) { try self.store().setUnread(id: id, unread: unread) }
+    perform(resolve, reject: reject) { try $0.setUnread(id: id, unread: unread) }
   }
 }
