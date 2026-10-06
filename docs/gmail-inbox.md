@@ -194,10 +194,18 @@ enter MIME resolution. Only the app may replace an admitted image with a local
 `data:` source after validating its bytes. HTTPS remote-image references become
 opaque non-loading placeholders, with destinations held outside the document.
 HTTP and other non-HTTPS image sources are removed and never become consent or
-retry references. Hidden preheaders, zero-sized or off-canvas text, and text made
-only of non-rendering format/combining characters do not establish readability.
+retry references. Hidden preheaders, zero-sized or off-canvas text (moved by a
+large negative block indent, left margin in left-to-right flow, or block top
+margin), and text made only of non-rendering format/combining characters do not
+establish readability. Margin inspection follows emitted declaration order and
+physical shorthand sides. Trailing margins and margins on inner table roles do
+not suppress their own text. Large negative horizontal margins in right-to-left
+contexts and top margins on inline-blocks or inline images are normalized to zero;
+their layout cannot reliably establish which labels are off canvas. Automatic
+direction is removed, leaving inherited explicit direction.
 Descendants can restore readable text by resetting an inherited zero font size
-to an absolute size or size keyword, resetting an inherited off-canvas indent,
+to an absolute size or size keyword, resetting an inherited off-canvas indent on
+a block container,
 or declaring `visibility: visible` or `initial` under a hidden ancestor; their text, links and
 inline images then count as visible. Collapsed table rows, row groups and columns
 still remove everything in them, including when collapse is inherited. Hidden

@@ -600,6 +600,157 @@ describe('rich-reader review regressions', () => {
     expect(inbox.messageBody(id)).toMatchObject({ kind: 'ready' });
   });
 
+  it('suppresses text only for margins that move its own box off canvas', () => {
+    expect.hasAssertions();
+    const visible = [
+      'margin:0',
+      'margin:0 0',
+      'margin:0 0 -10000px',
+      'margin:0 0 -10000px 0',
+      'margin:0 -10000px 0 0',
+      'margin-bottom:-10000px',
+      'margin-right:-10000px',
+      'margin:0 -10000px -10000px 0',
+      'margin:-10000px 0 0;margin-top:0',
+      'margin-top:-10000px;margin:0',
+      'margin-left:-10000px;margin:0',
+      'margin:0;margin-left:-10000px;margin:0 0 0',
+      'margin-left:0;margin:-10000px 0;margin-top:0',
+      'margin:-0000px',
+      'margin:-10000e-9px',
+      'margin-left:-10000px;margin:initial',
+      'margin-top:-10000px;margin:unset',
+      'margin:0 auto -10000px auto',
+    ];
+    const hidden = [
+      'margin:0 0 0 -10000px',
+      'margin:-10000px 0',
+      'margin:0 -10000px',
+      'margin-top:-10000px',
+      'margin-left:-10000px',
+      'margin:0;margin-top:-10000px',
+      'margin-left:0;margin:0;margin-left:-10000px',
+      'margin:0 0 0 -001000px',
+    ];
+    const anchor = (style: string, index: number) =>
+      `<div style="${style}"><a href="https://phish.invalid/${index}">https://bank.invalid/${index}</a></div>`;
+    const result = sanitizeHtml(
+      [
+        ...visible.map(anchor),
+        ...hidden.map((style, index) => anchor(style, visible.length + index)),
+        '<p><span style="margin-top:-10000px">Inline top margin</span></p>',
+        '<p><span style="display:block;margin-top:-10000px">Block top margin</span></p>',
+      ].join(''),
+    );
+    expect(result.links).toStrictEqual([
+      ...visible.map((_, index) => ({
+        href: `https://phish.invalid/${index}`,
+        text: `https://bank.invalid/${index}`,
+      })),
+      ...hidden.map((_, index) => ({
+        href: `https://phish.invalid/${visible.length + index}`,
+        text: '',
+      })),
+    ]);
+    for (const { href, text } of result.links.slice(0, visible.length)) {
+      expect(inspectLink(href, text)).toContain(linkWarnings.text);
+    }
+    const texts = result.readable.paragraphs.flat().map(({ text }) => text);
+    expect(texts).toContain('Inline top margin');
+    expect(texts).not.toContain('Block top margin');
+  });
+
+  it('inspects painted labels in directional and margin-inapplicable layouts', () => {
+    expect.hasAssertions();
+    const anchor = '<a href="https://phish.invalid">https://bank.invalid</a>';
+    const visible = [
+      `<div dir="rtl" style="margin-left:-10000px">${anchor}</div>`,
+      `<div dir="rtl"><div style="margin-left:-10000px">${anchor}</div></div>`,
+      `<div dir="rtl"><div dir="invalid" style="margin-left:-10000px">${anchor}</div></div>`,
+      `<p><span style="margin-top:-10000px">${anchor}</span></p>`,
+      `<div style="display:inline;margin-top:-10000px">${anchor}</div>`,
+      `<table><tr style="margin-top:-10000px"><td style="margin-left:-10000px">${anchor}</td></tr></table>`,
+      `<div style="display:table-cell;margin:-10000px">${anchor}</div>`,
+      `<div dir="rtl" style="width:100px;margin-right:-10000px">${anchor}</div>`,
+      `<div dir="rtl" style="width:100px;margin-left:-10000px">${anchor}</div>`,
+      `<div dir="rtl"><span style="margin-left:-10000px">${anchor}</span></div>`,
+      `<div dir="rtl" style="margin-right:-10000px">${anchor}</div>`,
+      `<div dir="rtl"><div style="margin-right:-10000px">${anchor}</div></div>`,
+      `<div style="margin:0 -10000px 0 0" dir="rtl">${anchor}</div>`,
+    ];
+    for (const html of visible) {
+      const result = presentation({ version: 2, id: 'margin-label', html });
+      expect(result.rich?.links).toStrictEqual([
+        { href: 'https://phish.invalid', text: 'https://bank.invalid' },
+      ]);
+      expect(
+        result.rich?.links.flatMap(({ href, text }) => inspectLink(href, text)),
+      ).toContain(linkWarnings.text);
+      expect(
+        result.readable.paragraphs
+          .flat()
+          .map(({ text }) => text)
+          .join(''),
+      ).toContain('https://bank.invalid');
+    }
+    for (const html of [
+      `<span style="display:block;margin-top:-10000px">${anchor}</span>`,
+      `<div dir="auto" style="margin-left:-10000px">${anchor}</div>`,
+    ]) {
+      expect(sanitizeHtml(html).links).toStrictEqual([
+        { href: 'https://phish.invalid', text: '' },
+      ]);
+    }
+    const reset = sanitizeHtml(
+      `<div dir="rtl" style="margin-right:-10000px">Hidden</div><div style="margin-right:-10000px">${anchor}</div>`,
+    );
+    expect(reset.links[0]?.text).toBe('https://bank.invalid');
+    const masked = sanitizeHtml(
+      '<a href="https://phish.invalid">https://bank.invalid<span dir="auto" style="margin-left:-10000px"> masking text</span></a>',
+    );
+    expect(masked.document).not.toContain('dir="auto"');
+    expect(masked.links[0]?.text).toBe('https://bank.invalid');
+    expect(
+      masked.links.flatMap(({ href, text }) => inspectLink(href, text)),
+    ).toContain(linkWarnings.text);
+  });
+
+  it('inspects labels according to their block indent and inline baseline layout', () => {
+    expect.hasAssertions();
+    const anchor = '<a href="https://phish.invalid">https://bank.invalid</a>';
+    for (const html of [
+      `<span style="text-indent:-10000px">${anchor}</span>`,
+      `<span style="display:inline-block;margin-top:-10000px">${anchor}</span>`,
+      `<span style="display:inline-block;margin-top:-10000px;margin-bottom:-10000px">${anchor}</span>`,
+      `<custom style="display:contents;margin-top:-10000px">${anchor}</custom>`,
+      `<div style="text-indent:-10000px"><div style="text-indent:0">${anchor}</div></div>`,
+      '<a href="https://phish.invalid"><img src="https://image.invalid" alt="https://bank.invalid" style="margin:-10000px;text-indent:-10000px"></a>',
+    ]) {
+      const result = presentation({ version: 2, id: 'layout-label', html });
+      expect(result.rich?.links).toStrictEqual([
+        { href: 'https://phish.invalid', text: 'https://bank.invalid' },
+      ]);
+      expect(
+        result.rich?.links.flatMap(({ href, text }) => inspectLink(href, text)),
+      ).toContain(linkWarnings.text);
+      expect(
+        result.readable.paragraphs
+          .flat()
+          .map(({ text }) => text)
+          .join(''),
+      ).toContain('https://bank.invalid');
+    }
+    for (const html of [
+      `<span style="display:inline-block;text-indent:-10000px">${anchor}</span>`,
+      `<span style="text-indent:-10000px"><div>${anchor}</div></span>`,
+      `<div style="text-indent:-10000px"><span style="text-indent:0">${anchor}</span></div>`,
+    ]) {
+      expect(sanitizeHtml(html).links).toStrictEqual([
+        { href: 'https://phish.invalid', text: '' },
+      ]);
+    }
+  });
+
   it('never resolves images in cells of collapsed table columns', () => {
     expect.hasAssertions();
     const result = sanitizeHtml(

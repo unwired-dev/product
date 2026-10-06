@@ -174,10 +174,21 @@ Namespace-import style, `JSON.parse`, `typeof … === 'object'` guards, untagged
   or mixed CSS-wide keywords must not suppress a painted label. Whole-element or image exclusion may use declared CSS
   only when it also removes that content from the document. Otherwise painted
   deceptive link labels lose their required caution or readable fallback.
+- `sanitizeHtml` classifying every negative margin as off-canvas text. Resolve
+  physical shorthand sides and longhands in emitted declaration order, including
+  repeated declarations and CSS-wide resets. Only offsets whose emitted layout
+  moves the text may suppress it; trailing margins, ignored inline vertical margins
+  and inner-table margins cannot justify omission. Bidi flow, automatic direction,
+  inline-block baselines and image-to-placeholder replacement require matching the
+  output or normalizing uncertain offsets there, rather than retaining hidden
+  masking text or omitting a painted label. Otherwise destination-mismatch
+  inspection can be bypassed.
 - `sanitizeHtml` treating inherited zero font size or off-canvas text-indent as
   an inescapable ancestor box, or treating zero line height and maximum dimensions
   as clipping when overflow remains visible. Descendant resets must restore
-  inspection. Unsupported font-size expressions must not contribute hidden text
+  inspection. Carry inherited text-indent separately from the current block's
+  applied indent: an inline's own indent does not move its text, and its reset
+  cannot cancel the containing block's indent. Unsupported font-size expressions must not contribute hidden text
   that prevents an otherwise visible address from matching `inspectLink`.
 - `sanitizeHtml` dropping an entire `visibility:hidden` subtree before descendants
   can restore retained `visibility:visible` or `initial`. Carry inherited visibility through

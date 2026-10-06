@@ -186,7 +186,7 @@ const attributeRules: Readonly<Record<string, RegExp>> = {
   cellpadding: number,
   cellspacing: number,
   colspan: number,
-  dir: /^(?:ltr|rtl|auto)$/iu,
+  dir: /^(?:ltr|rtl)$/iu,
   headers: text,
   height: length,
   lang: /^[a-z]{1,8}(?:-[\da-z]{1,8})*$/iu,
@@ -339,23 +339,25 @@ interface FilteredStyle {
   readonly retained: ReadonlyMap<string, string>;
 }
 
-const parseDeclarations = (style: string) =>
-  new Map(
-    style.split(';').flatMap((declaration) => {
-      const colon = declaration.indexOf(':');
-      return colon > 0
-        ? [
-            [
-              declaration.slice(0, colon).trim().toLowerCase(),
-              declaration
-                .slice(colon + 1)
-                .replace(/!\s*important\s*$/iu, '')
-                .trim(),
-            ] as const,
-          ]
-        : [];
-    }),
-  );
+const parseDeclarations = (style: string) => {
+  const declared = new Map<string, string>();
+  for (const declaration of style.split(';')) {
+    const colon = declaration.indexOf(':');
+    if (colon > 0) {
+      const name = declaration.slice(0, colon).trim().toLowerCase();
+      // Keep the last declaration's position as well as its value for shorthand precedence.
+      declared.delete(name);
+      declared.set(
+        name,
+        declaration
+          .slice(colon + 1)
+          .replace(/!\s*important\s*$/iu, '')
+          .trim(),
+      );
+    }
+  }
+  return declared;
+};
 
 // Content no one sees: hidden preheaders, zero-sized or off-canvas text.
 const hiddenBy: ReadonlyArray<
@@ -398,21 +400,90 @@ const hidesText = (raw = 'inherit') => {
   return relativeSize.test(size[2] ?? '') ? undefined : false;
 };
 
-// Large margins can move a text box off canvas. Zero line height and maximum dimensions do not
-// clip glyphs: overflow is visible, because the sanitizer does not retain clipping declarations.
-const unreadableText = (declared: ReadonlyMap<string, string>) =>
-  ['margin', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left'].some(
-    (name) =>
-      (declared.get(name) ?? '')
-        .split(/\s+/u)
-        .some((value) => /^-\d{4,}/u.test(value)),
-  );
-
 // Signed lengths for offsets; a nonzero number needs a unit, as WebKit requires.
 const offsetValue =
   /^(?<sign>[+-])?(?<amount>(?:\d+(?:\.\d+)?|\.\d+)(?:e[+-]?\d+)?)(?<unit>%|px|em|rem|ex|ch|vw|vh|vmin|vmax|cm|mm|in|pt|pc)?$/iu;
 
 const cssWideKeyword = /^(?:inherit|initial|unset|revert(?:-layer)?)$/iu;
+
+// Resolve physical margins in emitted declaration order, including shorthand resets.
+const marginEdges = (
+  declared: ReadonlyMap<string, string>,
+  inherited: ReadonlyMap<string, string>,
+) => {
+  const edges = new Map<string, string>();
+  const assign = (edge: string, value: string) => {
+    let resolved = value;
+    if (/^inherit$/iu.test(value)) {
+      resolved = inherited.get(edge) ?? '0';
+    } else if (cssWideKeyword.test(value)) {
+      resolved = '0';
+    }
+    edges.set(edge, resolved);
+  };
+  for (const [name, value] of declared) {
+    if (name === 'margin') {
+      const [top = '0', right = top, bottom = top, left = right] =
+        value.split(/\s+/u);
+      assign('top', top);
+      assign('right', right);
+      assign('bottom', bottom);
+      assign('left', left);
+    } else if (name.startsWith('margin-')) {
+      assign(name.slice(7), value);
+    }
+  }
+  return edges;
+};
+
+const offCanvas = (value: string | undefined) => {
+  const match = offsetValue.exec(value ?? '');
+  return match?.[1] === '-' && Number(match[2]) >= 1000;
+};
+
+// A leading horizontal margin can displace a box; the trailing margin affects following
+// layout. Inner table roles ignore margins. Inline vertical margins do nothing; inline-block
+// top margins can change line geometry without moving baseline-aligned text off canvas.
+const unreadableText = (
+  margins: ReadonlyMap<string, string>,
+  display: string,
+) => {
+  if (/^table-(?!caption$)/u.test(display)) {
+    return false;
+  }
+  return (
+    offCanvas(margins.get('left')) ||
+    (display !== 'inline' &&
+      display !== 'inline-block' &&
+      offCanvas(margins.get('top')))
+  );
+};
+
+// Bidi flow and inline-block baselines need actual layout to establish displacement. Remove
+// those large negative offsets from emitted CSS instead of guessing which glyphs they hide.
+const normalizeMargins = (
+  style: FilteredStyle,
+  margins: Map<string, string>,
+  { display, directional }: Readonly<{ display: string; directional: boolean }>,
+) => {
+  const retained = new Map(style.retained);
+  for (const edge of ['left', 'right', 'top']) {
+    if (
+      offCanvas(margins.get(edge)) &&
+      (edge === 'top' ? display === 'inline-block' : directional)
+    ) {
+      margins.set(edge, '0');
+      const name = `margin-${edge}`;
+      retained.delete(name);
+      retained.set(name, '0');
+    }
+  }
+  return {
+    ...style,
+    retained,
+    css: [...retained].map(([name, value]) => `${name}: ${value}`).join('; '),
+  };
+};
 
 const offsetTokens = new Map([
   ['margin', 4],
@@ -547,6 +618,16 @@ const visibilityIn = (style: FilteredStyle, parent: string) => {
   return value === 'initial' ? 'visible' : value;
 };
 
+const directionIn = (element: Element, parent: string) => {
+  const value = attributeOf(element, 'dir')?.trim().toLowerCase();
+  return value !== undefined && /^(?:ltr|rtl)$/u.test(value) ? value : parent;
+};
+
+const indentIn = (value: string | undefined, parent: boolean) =>
+  value === undefined || /^(?:inherit|unset|revert(?:-layer)?)$/iu.test(value)
+    ? parent
+    : offCanvas(value);
+
 // Omit collapsed tracks and their contents, even if WebKit paints descendant overflow.
 const tableTracks = new Set([
   'tr',
@@ -654,12 +735,38 @@ const attributes = (element: Element, style: FilteredStyle) => {
 };
 
 // Admitted elements keep their name; other structural content becomes a block or inline span.
+// Elements WebKit lays out inline, whose vertical margins move nothing.
+const inlineTags = new Set([
+  'a',
+  'b',
+  'cite',
+  'code',
+  'em',
+  'i',
+  'q',
+  's',
+  'small',
+  'span',
+  'strike',
+  'strong',
+  'sub',
+  'sup',
+  'u',
+]);
+
 const outputTag = (name: string) => {
   if (admitted.has(name)) {
     return name;
   }
   return asBlock.has(name) ? 'div' : 'span';
 };
+
+const displayOf = (name: string, style: FilteredStyle) =>
+  style.retained.get('display')?.toLowerCase() ??
+  tableDisplays.get(name) ??
+  (inlineTags.has(outputTag(name)) || name === 'br' || name === 'img'
+    ? 'inline'
+    : 'block');
 
 const childElements = (parent: Element, names: readonly string[]) =>
   parent.childNodes.filter(
@@ -849,12 +956,16 @@ export function sanitizeHtml(
   let preformatted = 0;
   // Off-canvas text boxes, and inherited font size and indent states.
   let unreadable = 0;
+  let direction = 'ltr';
+  let margins: ReadonlyMap<string, string> = new Map();
   let hiddenFont = false;
   let hiddenIndent = false;
+  // The current block container's indent applies to inline text even if an inline resets it.
+  let appliedIndent = false;
   let visibility = 'visible';
   const visibleNow = () => visibility === 'visible';
   const readableNow = () =>
-    unreadable === 0 && !hiddenFont && !hiddenIndent && visibleNow();
+    unreadable === 0 && !hiddenFont && !appliedIndent && visibleNow();
   // Cells of collapsed table columns, which WebKit would not show.
   const collapsed = new Set<Element>();
   // One bound across every table, including nested ones, before span expansion or slot scans.
@@ -1016,25 +1127,57 @@ export function sanitizeHtml(
     ],
   ]);
 
+  // A blocked-image span drops the source image's margins along with its geometry.
+  const textMargins = (node: Element, style: FilteredStyle) =>
+    node.tagName === 'img' &&
+    !images.has(contentIdReference(attributeOf(node, 'src') ?? '') ?? '')
+      ? new Map<string, string>()
+      : marginEdges(style.retained, margins);
+
   // Font size, text-indent and visibility inherit, and a descendant can reset each one.
-  const withTextState = (style: FilteredStyle, run: () => void) => {
-    const suppressText = unreadableText(style.retained) ? 1 : 0;
+  const withTextState = (
+    style: FilteredStyle,
+    node: Element,
+    run: (style: FilteredStyle) => void,
+  ) => {
+    const parentDirection = direction;
+    const parentMargins = margins;
+    direction = directionIn(node, direction);
+    const display = displayOf(node.tagName, style);
+    const ownMargins = textMargins(node, style);
+    const normalized = normalizeMargins(style, ownMargins, {
+      display:
+        node.tagName === 'img' && display === 'inline'
+          ? 'inline-block'
+          : display,
+      directional: direction === 'rtl' || parentDirection === 'rtl',
+    });
+    margins = ownMargins;
+    const suppressText = unreadableText(margins, display) ? 1 : 0;
     const font = hiddenFont;
     const indent = hiddenIndent;
+    const blockIndent = appliedIndent;
     const inheritedVisibility = visibility;
     visibility = visibilityIn(style, visibility);
     const declaredIndent = style.retained.get('text-indent');
     hiddenFont = hidesText(style.retained.get('font-size')) ?? font;
-    hiddenIndent =
-      declaredIndent === undefined ||
-      /^(?:inherit|unset|revert(?:-layer)?)$/iu.test(declaredIndent)
-        ? indent
-        : /^-\d{4,}/u.test(declaredIndent);
+    hiddenIndent = indentIn(declaredIndent, indent);
+    if (
+      node.tagName !== 'img' &&
+      /^(?:block|list-item|inline-block|table-cell|table-caption)$/u.test(
+        display,
+      )
+    ) {
+      appliedIndent = hiddenIndent;
+    }
     unreadable += suppressText;
-    run();
+    run(normalized);
     unreadable -= suppressText;
+    direction = parentDirection;
+    margins = parentMargins;
     hiddenFont = font;
     hiddenIndent = indent;
+    appliedIndent = blockIndent;
     visibility = inheritedVisibility;
   };
 
@@ -1060,8 +1203,8 @@ export function sanitizeHtml(
     if (block) {
       builder.end();
     }
-    withTextState(style, () => {
-      (special.get(name) ?? container)(node, style);
+    withTextState(style, node, (normalized) => {
+      (special.get(name) ?? container)(node, normalized);
     });
     if (block) {
       builder.end();
