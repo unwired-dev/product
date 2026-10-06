@@ -1291,6 +1291,83 @@ describe('rich-reader review regressions', () => {
     ).toHaveLength(3);
   });
 
+  it('resolves duplicate declarations by importance and validity, as the cascade does', () => {
+    expect.hasAssertions();
+    const result = sanitizeHtml(
+      [
+        '<img src="cid:important" style="display:none!important;display:block">',
+        '<img src="cid:rejected" style="display:none;display:bogus">',
+        '<img src="cid:later-important" style="display:none!important;display:block !important">',
+        '<img src="cid:later" style="display:none;display:block">',
+        '<img src="cid:kept" style="display:block!important;display:none">',
+        '<img src="cid:faded" style="opacity:0!important;opacity:1">',
+        '<img src="cid:veiled" style="visibility:hidden!important;visibility:visible">',
+        '<img src="cid:flex" style="display:none;display:flex">',
+        '<img src="cid:two-keyword" style="display:none;display:inline flow-root">',
+        '<img src="cid:invalid-pair" style="display:none;display:block block">',
+        '<img src="cid:invalid-inside" style="display:none;display:flex grid!important">',
+        '<img src="cid:unsupported-run-in" style="display:none;display:run-in">',
+        '<img src="cid:webkit-flex" style="display:none;display:-webkit-flex">',
+        '<img src="cid:exponent" style="opacity:0;opacity:1e0">',
+        '<img src="cid:calculated" style="opacity:0;opacity:calc(1)">',
+        '<img src="cid:minimum" style="opacity:0;opacity:min(1, .5)">',
+        '<img src="cid:invalid-calculation" style="opacity:0;opacity:calc(bogus)!important">',
+        '<img src="cid:calculated-zero" style="opacity:1;opacity:calc(1 - 1)">',
+        '<img src="cid:invalid-important-size" style="width:bogus!important;width:0">',
+        '<img src="cid:percentage-reset" style="opacity:0%;opacity:100%">',
+        '<img src="cid:opacity-reset" style="opacity:0!important;opacity:initial!important">',
+        '<img src="cid:non-css-keyword" style="display:none;display:li\u017Ft-item">',
+        '<img src="cid:non-css-reset" style="opacity:0;opacity:un\u017Fet">',
+        '<img src="cid:non-css-space" style="display:none;display:inline\u00A0flex">',
+        '<img src="cid:non-css-trailing" style="display:none;display:block\u00A0">',
+        '<img src="cid:non-css-important" style="display:none;display:block!\u00A0important">',
+        '<img src="cid:invalid-math-space" style="opacity:0;opacity:calc(0\u00A0+\u00A01)">',
+        '<img src="cid:invalid-math-type" style="opacity:0;opacity:calc(50% + .5)">',
+        '<img src="cid:invalid-max" width="100" height="100" style="max-width:auto!important;max-width:0">',
+        '<img src="cid:max-reset" width="100" height="100" style="max-width:0;max-width:none">',
+        '<img src="cid:typed-product" style="opacity:0;opacity:calc(50% * 50% / 100%)">',
+        '<img src="cid:clamped" style="opacity:0;opacity:clamp(none,.5,1)">',
+        '<img src="cid:math-zero" style="opacity:1;opacity:calc(min(1, .5) - .5)">',
+        '<a href="https://phish.invalid"><span style="font-size:0 !important;font-size:16px">https://bank.invalid</span></a>',
+      ].join(''),
+    );
+    expect(result.contentIds).toStrictEqual([
+      'later-important',
+      'later',
+      'kept',
+      'flex',
+      'two-keyword',
+      'webkit-flex',
+      'exponent',
+      'calculated',
+      'minimum',
+      'percentage-reset',
+      'opacity-reset',
+      'max-reset',
+      'typed-product',
+      'clamped',
+    ]);
+    expect(result.links).toStrictEqual([
+      { href: 'https://phish.invalid', text: '' },
+    ]);
+    const sizes = sanitizeHtml(
+      [
+        '<a href="https://phish.invalid"><span style="font-size:bogus!important;font-size:0">https://bank.invalid</span></a>',
+        '<a href="https://phish.invalid"><span style="font-size:-1px!important;font-size:0">https://bank.invalid</span></a>',
+        '<a href="https://phish.invalid"><span style="font-size:0;font-size:1vw">https://bank.invalid</span></a>',
+        '<a href="https://phish.invalid"><span style="font-size:0;font-size:1cap">https://bank.invalid</span></a>',
+        '<a href="https://phish.invalid"><span style="font-size:0;font-size:1svw">https://bank.invalid</span></a>',
+      ].join(''),
+    );
+    expect(sizes.links.map((link) => link.text)).toStrictEqual([
+      '',
+      '',
+      'https://bank.invalid',
+      'https://bank.invalid',
+      'https://bank.invalid',
+    ]);
+  });
+
   it('never resolves images in cells of collapsed table columns', () => {
     expect.hasAssertions();
     const result = sanitizeHtml(

@@ -6,6 +6,7 @@ import { html as htmlSpec, parse } from 'parse5';
 import type { ImageFacts } from './inline-images.ts';
 import type { ReadableBody } from './readable-text.ts';
 
+import { opacityNumber } from './css-opacity.ts';
 import { inlineImageLimits } from './inline-images.ts';
 import { messageLinkHref, vettedHref } from './link-inspection.ts';
 import {
@@ -401,36 +402,14 @@ const splitDeclarations = (style: string) => {
   return declarations;
 };
 
-const parseDeclarations = (style: string) => {
-  const declared = new Map<string, string>();
-  for (const declaration of splitDeclarations(style)) {
-    const colon = declaration.indexOf(':');
-    if (colon > 0) {
-      const name = declaration.slice(0, colon).trim().toLowerCase();
-      // Keep the last declaration's position as well as its value for shorthand precedence.
-      declared.delete(name);
-      declared.set(
-        name,
-        declaration
-          .slice(colon + 1)
-          .replace(/!\s*important\s*$/iu, '')
-          .trim(),
-      );
-    }
-  }
-  return declared;
-};
-
 // Content no one sees: hidden preheaders, zero-sized or off-canvas text.
 const hiddenBy: ReadonlyArray<
   (declared: ReadonlyMap<string, string>) => boolean
 > = [
   (declared) => /^none$/iu.test(declared.get('display') ?? ''),
   (declared) => {
-    const opacity = /^(?<amount>[+-]?\d*(?:\.\d+)?)(?:%)?$/u.exec(
-      declared.get('opacity') ?? '',
-    );
-    return opacity !== null && opacity[1] !== '' && Number(opacity[1]) <= 0;
+    const opacity = opacityNumber(declared.get('opacity') ?? '');
+    return opacity !== undefined && (Number.isNaN(opacity) || opacity <= 0);
   },
 ];
 
@@ -830,6 +809,108 @@ const tableDisplays = new Map([
   ['td', 'table-cell'],
   ['th', 'table-cell'],
 ]);
+
+// Source validity is separate from retention: flex can override none even though it is omitted
+// from the output. These display forms are accepted by the supported WebKit host; run-in, ruby
+// and multi-keyword list-item forms are not. Outside/inside keywords occur at most once each.
+const displayOutside = '(?:block|inline)';
+const displayInside = '(?:flow|flow-root|table|flex|grid)';
+const hidingGrammar = new Map([
+  [
+    'display',
+    new RegExp(
+      `^(?:none|contents|list-item|inline-(?:block|table|flex|grid)|-webkit-(?:inline-)?(?:box|flex)|table-(?:row-group|header-group|footer-group|row|cell|column-group|column|caption)|${displayOutside}(?:[\\t\\n\\f\\r ]+${displayInside})?|${displayInside}(?:[\\t\\n\\f\\r ]+${displayOutside})?)$`,
+      'iu',
+    ),
+  ],
+  ['visibility', /^(?:visible|hidden|collapse)$/iu],
+]);
+
+// Validate literal sizes before importance selection, including units the reader does not
+// retain. Otherwise an invalid important value blocks a valid normal one, or an unretained
+// viewport/font-metric size incorrectly leaves a preceding zero in place.
+const sourceLength =
+  /^(?<amount>[+-]?(?:\d+(?:\.\d+)?|\.\d+)(?:e[+-]?\d+)?)(?<unit>%|px|cm|mm|q|in|pt|pc|r?(?:em|ex|cap|ch|ic|lh)|[sld]?v(?:w|h|i|b|min|max)|cq(?:w|h|i|b|min|max))?$/iu;
+const sourceSizing = new Set([
+  ...dimensionProperties,
+  'font-size',
+  'line-height',
+]);
+const validSourceLength = (size: readonly string[], unitless: boolean) =>
+  Number.isFinite(Number(size[1])) &&
+  Number(size[1]) >= 0 &&
+  (unitless || size[2] !== undefined || Number(size[1]) === 0);
+const sourceSize = (name: string, raw: string) => {
+  if (!sourceSizing.has(name)) {
+    return true;
+  }
+  const value = raw.toLowerCase();
+  const size = sourceLength.exec(value);
+  if (size !== null) {
+    return validSourceLength(size, name === 'line-height');
+  }
+  if (name === 'font-size') {
+    return fontKeyword.test(value);
+  }
+  if (name === 'line-height') {
+    return value === 'normal';
+  }
+  return (
+    /^(?:min-content|max-content|fit-content|stretch)$/u.test(value) ||
+    value === (name.startsWith('max-') ? 'none' : 'auto')
+  );
+};
+
+// CSS keywords are ASCII-insensitive; Unicode regex folding must not turn LONG S or Kelvin
+// signs into accepted hiding/size/offset keywords. These supported grammars contain no strings.
+const sourceGrammarProperties = new Set([
+  ...sourceSizing,
+  ...offsetTokens.keys(),
+  ...hidingGrammar.keys(),
+  'opacity',
+]);
+const acceptedOffset = (name: string, value: string) =>
+  !offsetTokens.has(name) ||
+  (!/[^\S\t\n\f\r ]/u.test(value) && cssOffset(name, value));
+const acceptedDeclaration = (name: string, value: string) =>
+  value !== '' &&
+  (!sourceGrammarProperties.has(name) || !/[^\p{ASCII}]/u.test(value)) &&
+  (cssWideKeyword.test(value) ||
+    (name === 'opacity'
+      ? opacityNumber(value) !== undefined
+      : sourceSize(name, value) &&
+        acceptedOffset(name, value) &&
+        (hidingGrammar.get(name)?.test(value) ?? true)));
+
+// Duplicates resolve as the cascade does: an important declaration wins over later normal ones,
+// and a rejected one changes nothing.
+const trimCSS = (value: string) =>
+  value.replaceAll(/^[\t\n\f\r ]+|[\t\n\f\r ]+$/gu, '');
+const importance = /![\t\n\f\r ]*important$/iu;
+const parseDeclarations = (style: string) => {
+  const declared = new Map<string, string>();
+  const important = new Set<string>();
+  for (const declaration of splitDeclarations(style)) {
+    const colon = declaration.indexOf(':');
+    const name = trimCSS(declaration.slice(0, colon)).toLowerCase();
+    const raw = trimCSS(declaration.slice(colon + 1));
+    const isImportant = importance.test(raw);
+    const value = trimCSS(raw.replace(importance, ''));
+    if (
+      colon > 0 &&
+      acceptedDeclaration(name, value) &&
+      (isImportant || !important.has(name))
+    ) {
+      if (isImportant) {
+        important.add(name);
+      }
+      // Keep the last declaration's position as well as its value for shorthand precedence.
+      declared.delete(name);
+      declared.set(name, value);
+    }
+  }
+  return declared;
+};
 
 function filterStyle(style: string, tag = ''): FilteredStyle {
   const declared = parseDeclarations(style);

@@ -172,6 +172,20 @@ Drop other attributes, including `on*`, `srcset`, background URLs and sender-sup
 application markers. Attribute values still require validation; an allowed name
 does not authorize an unsafe value or URL.
 
+Repeated declarations of the same property resolve importance before source
+order: the last accepted value wins at equal priority. Validate supported hiding,
+size and offset values before choosing that winner; invalid important values
+cannot block valid normal ones. Source acceptance and output retention are
+separate: valid unretained values such as `display:flex` or viewport font sizes
+still replace earlier declarations. Hiding accepts WebKit display keywords and
+outside/inside pairs, visibility keywords, numeric/percentage opacity (including
+exponents), CSS-wide resets and bounded constant `calc`, `min`, `max` and `clamp`
+opacity arithmetic, with at most 64 scalar values and nested groups. Calculations
+with layout units, variables or other functions remain outside that supported
+grammar.
+Retained styles drop importance annotations; shorthand/longhand ordering,
+normalization and label inspection use the resulting emitted CSS.
+
 Inline styles split into declarations at semicolons outside quoted strings and
 matching parentheses or square brackets; mismatched closing brackets do not end
 an open block. A declaration whose quoted string a line break or the end of the

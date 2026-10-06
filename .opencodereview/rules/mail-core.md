@@ -100,6 +100,18 @@ Namespace-import style, `JSON.parse`, `typeof … === 'object'` guards, untagged
 
 #### Rich-body admission and speculative reads
 
+- `html-sanitizer.ts.parseDeclarations` deduplicating before resolving validity
+  and importance, or confusing source validity with output retention. Invalid
+  important values must not suppress valid normal ones; valid unretained values
+  must still replace earlier hiding declarations, and equal-priority winners
+  keep their source position for shorthand handling. Check measured WebKit
+  grammar (including invalid display combinations and opacity exponents/math),
+  CSS whitespace and ASCII keyword matching rather than JavaScript whitespace
+  or Unicode case folding,
+  emitted CSS, inspected labels and CID discovery together; otherwise hidden
+  image parts are downloaded or visible mail is lost. Importance across different
+  shorthands/longhands follows the explicitly normalized emitted document, not
+  an unimplemented full source cascade.
 - `sanitizeHtml.reference` deduplicating sender-controlled CID discovery with a
   growing array scan, or collecting unique references beyond the resolution
   attempt bound. Preserve visible order with constant-time membership checks
