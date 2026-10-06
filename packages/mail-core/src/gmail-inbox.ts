@@ -497,6 +497,58 @@ const withIntents = (
   };
 };
 
+// Exponential delay with jitter before each attempt after the first.
+const backoff = (count: number) =>
+  count === 0
+    ? Effect.void
+    : Effect.void.pipe(
+        Effect.schedule(
+          Schedule.max([
+            Schedule.spaced(`${100 * 2 ** (count - 1)} millis`).pipe(
+              Schedule.jittered,
+            ),
+            Schedule.recurs(1),
+          ]),
+        ),
+      );
+
+// The change with one more dispatch attempt recorded.
+const withAttempt = (head: PendingAction, at: number): PendingAction => ({
+  ...head,
+  attempts: [
+    ...(head.attempts ?? []),
+    {
+      id: `${head.id ?? head.message.id}:${head.attempts?.length ?? 0}`,
+      at,
+    },
+  ],
+});
+
+const samePending = (left: PendingAction | undefined, right: PendingAction) =>
+  left?.id === right.id && left?.message.id === right.message.id;
+
+// `next` over the latest saved document: intents saved since `base` was read are added, and
+// intents another store instance settled since then leave instead of being sent again.
+const rebasedOnto = (
+  base: MailboxDocument | undefined,
+  saved: MailboxDocument,
+  next: MailboxDocument,
+) => {
+  const known = new Set((base?.pending ?? []).map(({ id }) => id));
+  const remaining = new Set((saved.pending ?? []).map(({ id }) => id));
+  return withIntents(
+    {
+      ...next,
+      pending: (next.pending ?? []).filter(
+        ({ id }) => id === undefined || !known.has(id) || remaining.has(id),
+      ),
+    },
+    (saved.pending ?? []).filter(
+      ({ id }) => id !== undefined && !known.has(id),
+    ),
+  );
+};
+
 // An unreadable document is preserved; only an absent cache starts a new listing.
 const documentOf = (cache: Cache) =>
   cache.document === null
@@ -970,16 +1022,10 @@ export function createGmailInbox(
         diagnostic: 'another mailbox',
       });
     }
-    const known = new Set((base?.pending ?? []).map(({ id }) => id));
     return {
       cache: latest,
       base: saved,
-      document: withIntents(
-        document,
-        (saved.pending ?? []).filter(
-          ({ id }) => id !== undefined && !known.has(id),
-        ),
-      ),
+      document: rebasedOnto(base, saved, document),
     };
   });
 
@@ -1138,6 +1184,10 @@ export function createGmailInbox(
     current: Readonly<{ cache: Cache; document: MailboxDocument }>,
     head: PendingAction,
   ) {
+    // A refusal-save rebase may already have removed this head; leave later intent untouched.
+    if (!samePending(current.document.pending?.[0], head)) {
+      return current;
+    }
     const startedFor = ownership;
     const observed = yield* readLabels(current.cache, head.message);
     const next = settleObserved(
@@ -1159,29 +1209,11 @@ export function createGmailInbox(
     current: { readonly cache: Cache; readonly document: MailboxDocument },
     head: PendingAction,
   ) {
-    const count = attemptCount(head);
-    if (count > 0) {
-      yield* Effect.void.pipe(
-        Effect.schedule(
-          Schedule.max([
-            Schedule.spaced(`${100 * 2 ** (count - 1)} millis`).pipe(
-              Schedule.jittered,
-            ),
-            Schedule.recurs(1),
-          ]),
-        ),
-      );
-    }
-    const attempted = {
-      ...head,
-      attempts: [
-        ...(head.attempts ?? []),
-        {
-          id: `${head.id ?? head.message.id}:${head.attempts?.length ?? 0}`,
-          at: DateTime.toEpochMillis(yield* DateTime.now),
-        },
-      ],
-    };
+    yield* backoff(attemptCount(head));
+    const attempted = withAttempt(
+      head,
+      DateTime.toEpochMillis(yield* DateTime.now),
+    );
     const preparing = {
       ...current.document,
       pending: [attempted, ...(current.document.pending ?? []).slice(1)],
@@ -1192,6 +1224,10 @@ export function createGmailInbox(
       preparing,
     );
     yield* ready(prepared.cache, prepared.document, sync);
+    // Another store instance settled this change while it was being prepared; never send it twice.
+    if (!samePending(prepared.document.pending?.[0], attempted)) {
+      return prepared;
+    }
     const outcome = yield* modify(prepared.cache, attempted);
     if (Option.isNone(outcome)) {
       // Refusal is not authoritative metadata: save it first, so a label read that is interrupted

@@ -97,6 +97,33 @@ const interruptingNextRead = (
   };
 };
 
+// The next cache commit waits until the test releases it.
+const holdingNextCommit = (
+  native: ReturnType<typeof createSyntheticGmail>['native'],
+) => {
+  const hold = {
+    entered: Promise.withResolvers<undefined>(),
+    release: Promise.withResolvers<undefined>(),
+  };
+  let held = false;
+  return {
+    hold,
+    native: {
+      ...native,
+      commitMailbox: async (
+        ...args: Parameters<typeof native.commitMailbox>
+      ) => {
+        if (!held) {
+          held = true;
+          hold.entered.resolve(undefined);
+          await hold.release.promise;
+        }
+        return native.commitMailbox(...args);
+      },
+    },
+  };
+};
+
 // One change saved on this device and none still saving.
 const oneDurableChange = (state: GmailInboxState) =>
   state.kind === 'ready' && state.pending === 1 && state.saving === 0;
@@ -973,6 +1000,76 @@ describe('organizing Gmail mail', () => {
     expect(
       gmail.modifies.filter(({ add }) => add.includes(label)),
     ).toHaveLength(1);
+  });
+
+  it('never resends a change another store instance settled while this one prepared it', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ messages: 1 });
+    const first = createGmailInbox(gmail.native);
+    await first.load();
+    const target = required(
+      ready(first.getSnapshot()).messages[0],
+      'the message',
+    );
+    // The star waits after one interrupted attempt.
+    gmail.failModify({ code: 'unavailable' });
+    await first.organize(target, gmailAction.star);
+    expect(ready(first.getSnapshot()).pending).toBe(1);
+    // A second store instance prepares to send it again, and its preparation commit waits.
+    const { native, hold } = holdingNextCommit(gmail.native);
+    const second = createGmailInbox(native);
+    const resending = second.load();
+    await hold.entered.promise;
+    // Meanwhile the first instance sends the star and settles it.
+    await first.load();
+    expect(ready(first.getSnapshot()).pending).toBe(0);
+    hold.release.resolve(undefined);
+    await resending;
+    const stars = gmail.modifies.filter(({ add }) => add.includes('STARRED'));
+    expect(stars).toHaveLength(2);
+    expect(ready(second.getSnapshot())).toMatchObject({
+      pending: 0,
+      blocked: false,
+    });
+    expect(gmail.labelsOf(target.id)).toContain('STARRED');
+  });
+
+  it('keeps later intent when another store settles the refused head before its refusal is saved', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ messages: 2 });
+    const first = createGmailInbox(gmail.native);
+    await first.load();
+    const target = required(
+      ready(first.getSnapshot()).messages[0],
+      'the message',
+    );
+    const later = required(
+      ready(first.getSnapshot()).messages[1],
+      'the later message',
+    );
+    gmail.failModify({ code: 'unavailable' });
+    await first.organize(target, gmailAction.star);
+
+    const held = holdingCommit(gmail.native);
+    held.arm(2); // Prepare succeeds; saving the provider refusal waits before CAS.
+    const second = createGmailInbox(held.native);
+    gmail.failModify({ status: 400 });
+    const refusing = second.load();
+    await held.entered.promise;
+    // Another instance settles the original head and saves a different message's read intent.
+    await first.load();
+    gmail.failModify({ code: 'unavailable' });
+    await first.organize(message(first, later.id), gmailAction.read);
+    expect(ready(first.getSnapshot()).pending).toBe(1);
+    held.release.resolve(undefined);
+    await refusing;
+
+    expect(gmail.labelsOf(later.id)).not.toContain('UNREAD');
+    expect(message(second, later.id).unread).toBe(false);
+    expect(ready(second.getSnapshot())).toMatchObject({
+      pending: 0,
+      blocked: false,
+    });
   });
 
   it('ignores a late durable save reply after another owner has opened the Inbox', async () => {

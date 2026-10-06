@@ -61,6 +61,10 @@ commit, retaining only intake IDs absent from their prior base document. Compari
 with the next document would reintroduce a head just settled by Gmail. Each rebase
 requires the same mailbox owner and an existing decoded document; it retains the
 operation's checkpoint and provider result while appending newer intents in order.
+Known intake IDs missing from the latest document are removed from the proposed
+queue because another store instance already settled them. Dispatch checks the
+prepared head again before sending; refusal reconciliation also checks its head
+after saving the marker, so a removed action cannot consume the next intent.
 Documented Gmail 403 usage-limit reasons, including `dailyLimitExceeded`, retain
 the cached list with a retry notice rather than prompting reauthorization.
 

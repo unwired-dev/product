@@ -90,6 +90,7 @@ organizing action. The Inbox states the outcome of every action, such as
 **Starred** or **Marked as read**, so it is announced even when the row does not
 show it. A change saved while Gmail is still being checked does not
 interrupt that check: the synchronization keeps the newly saved changes and goes on.
+A change another window or store instance already settled is not sent again.
 
 - **Offline or interrupted:** the change stays saved and is sent on the next
   synchronization, including after relaunch. The Inbox says how many changes wait
