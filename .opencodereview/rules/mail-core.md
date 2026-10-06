@@ -135,6 +135,13 @@ Namespace-import style, `JSON.parse`, `typeof … === 'object'` guards, untagged
   WebKit CSS and inspected link text together. Otherwise reserialization can
   swallow an apparent hiding declaration and leave a painted address uninspected.
 
+- `readableText` trimming closing brackets that belong to IPv6 hosts or balanced
+  URL paths, or rescanning the whole URL for every trailing punctuation character.
+  Preserve required/balanced delimiters, trim unmatched trailing closers and sentence
+  punctuation, keep every text character, and count bracket excess once. Otherwise
+  system handoff receives an invalid destination or a punctuation-heavy message
+  blocks the shared runtime. Exercise the detected destinations through the public
+  inbox store as well as the punctuation parser.
 - `createGmailInbox.store` protecting only a prefetch selection that has not yet
   started when cached metadata is already interactive, including after `forget`.
   Derive protection from the current ready list and selection reference at admission,

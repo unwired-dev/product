@@ -1664,6 +1664,64 @@ describe('rich-reader review regressions', () => {
     ).toStrictEqual([[], [], [], [], ['logo'], ['logo']]);
   });
 
+  it('keeps complete plain-text link destinations through the public inbox store', async () => {
+    expect.hasAssertions();
+    const destinations = [
+      'https://[2001:db8::1]',
+      'https://[2001:db8::1]:8443/path',
+      'https://example.invalid/path[a]',
+      'https://en.wikipedia.org/wiki/Mail_(protocol)',
+    ];
+    const content = destinations.map((url) => `(${url}).`).join('\n\n');
+    const gmail = createSyntheticGmail();
+    const id = gmail.deliver({ at: Date.UTC(2020, 0, 1) });
+    substitutePayload(gmail, id, textPart('text/plain', content));
+    const inbox = createGmailInbox(gmail.native);
+    await inbox.load();
+    await inbox.readMessage(id);
+    expect(inbox.messageBody(id)).toMatchObject({
+      kind: 'ready',
+      presentation: {
+        readable: {
+          paragraphs: destinations.map((href) => [
+            { text: '(' },
+            { text: href, href },
+            { text: ').' },
+          ]),
+        },
+      },
+    });
+  });
+
+  it('keeps closing brackets an address opens when trimming sentence punctuation', () => {
+    expect.hasAssertions();
+    const links = readableText(
+      [
+        'Visit https://[2001:db8::1].',
+        'Or https://[2001:db8::1]:8443/path, today.',
+        'Read https://en.wikipedia.org/wiki/Mail_(protocol)!',
+        '(see https://example.invalid/a)',
+        '[https://example.invalid/b]',
+        'Ask https://example.invalid/c?!',
+        'Open https://example.invalid/path[a].',
+        '(https://[2001:db8::1])',
+      ].join('\n\n'),
+    )
+      .paragraphs.flat()
+      .filter(({ href }) => href !== undefined)
+      .map(({ href }) => href);
+    expect(links).toStrictEqual([
+      'https://[2001:db8::1]',
+      'https://[2001:db8::1]:8443/path',
+      'https://en.wikipedia.org/wiki/Mail_(protocol)',
+      'https://example.invalid/a',
+      'https://example.invalid/b',
+      'https://example.invalid/c',
+      'https://example.invalid/path[a]',
+      'https://[2001:db8::1]',
+    ]);
+  });
+
   it('never resolves images in cells of collapsed table columns', () => {
     expect.hasAssertions();
     const result = sanitizeHtml(

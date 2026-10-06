@@ -290,6 +290,9 @@ presentation alike, including the readable fallback. The fallback applies the
 same limit even when one HTML anchor spans many paragraphs. Later anchors,
 addresses and fallback link spans stay readable plain text without a link action
 or link accessibility role.
+Detected plain-text links preserve brackets required by IPv6 hosts and balanced
+parentheses or brackets in URL paths. Sentence punctuation and unmatched trailing
+closing brackets remain readable text outside the link.
 Other sender schemes and automatic opening remain blocked. Sanitized anchors use
 app-owned opaque navigation markers; their exact vetted destinations and visible
 text remain outside the document for confirmation. Choosing a link shows its

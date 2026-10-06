@@ -78,6 +78,46 @@ export function paragraphBuilder() {
 
 const link = /(?:https?:\/\/|mailto:|tel:)[^\s<>"]+/giu;
 
+const openers = new Map([
+  ['(', ')'],
+  ['[', ']'],
+]);
+const sentencePunctuation = /[.,;:!?'"]/u;
+
+// How many more of each closing bracket an address has than its opening one, counted once.
+const bracketExcess = (address: string) => {
+  const excess = new Map([
+    [')', 0],
+    [']', 0],
+  ]);
+  for (const char of address) {
+    const closer = openers.get(char);
+    if (closer !== undefined) {
+      excess.set(closer, (excess.get(closer) ?? 0) - 1);
+    } else if (excess.has(char)) {
+      excess.set(char, (excess.get(char) ?? 0) + 1);
+    }
+  }
+  return excess;
+};
+
+// Sentence punctuation after an address is not part of it. A closing bracket is trailing
+// punctuation only when the address does not open it, so IPv6 hosts and balanced paths stay.
+const withoutTrailingPunctuation = (address: string) => {
+  const excess = bracketExcess(address);
+  let end = address.length;
+  for (; end > 0; end -= 1) {
+    const char = address.charAt(end - 1);
+    const surplus = excess.get(char) ?? 0;
+    if (surplus > 0) {
+      excess.set(char, surplus - 1);
+    } else if (!sentencePunctuation.test(char)) {
+      break;
+    }
+  }
+  return address.slice(0, end);
+};
+
 // Plain text keeps its line breaks; blank lines separate paragraphs and addresses become links.
 export function readableText(content: string): ReadableBody {
   const builder = paragraphBuilder();
@@ -87,8 +127,7 @@ export function readableText(content: string): ReadableBody {
     .split(/\n\s*\n/u)) {
     let start = 0;
     for (const match of paragraph.matchAll(link)) {
-      // Sentence punctuation after an address is not part of it.
-      const href = match[0].replace(/[.,;:!?)\]'"]+$/u, '');
+      const href = withoutTrailingPunctuation(match[0]);
       builder.add(paragraph.slice(start, match.index), undefined);
       const destination =
         links < messageLinkLimit ? vettedHref(href) : undefined;
