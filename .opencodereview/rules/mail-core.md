@@ -123,7 +123,9 @@ Namespace-import style, `JSON.parse`, `typeof … === 'object'` guards, untagged
 - `html-sanitizer.ts` splitting inline declarations inside quoted strings or
   unmatched component-value blocks, or treating mismatched closing brackets as
   matching ones in `splitDeclarations`. Drop declarations containing broken
-  strings and keep matching delimiter types when scanning; verify the emitted
+  strings and keep matching delimiter types when scanning. Consume complete
+  backslash escapes, including hex digits, optional CSS whitespace and string
+  newline continuations, before recognizing delimiters; verify the emitted
   WebKit CSS and inspected link text together. Otherwise reserialization can
   swallow an apparent hiding declaration and leave a painted address uninspected.
 
@@ -159,6 +161,17 @@ Namespace-import style, `JSON.parse`, `typeof … === 'object'` guards, untagged
 - `message-body.ts` treating a present empty or whitespace-only disposition as
   absent. Only a recognized inline token may admit a present disposition; otherwise
   malformed body or CID leaves can be fetched or shown as ordinary content.
+- `message-body.ts.headerParameters` or `partText` choosing a charset from a
+  longer parameter name, a comment, another quoted value or a malformed value
+  prefix. Consume complete named parameters with the admission grammar, preserve
+  legal folding and quoted pairs, stop at malformed parameters and use UTF-8 for
+  explicit reads when no complete charset was parsed; otherwise displayed and
+  cached text becomes mojibake.
+- `message-body.ts.contentIdOf` collapsing whitespace inside an ID to join its
+  fragments. Normalize surrounding comments, whitespace and brackets while
+  leaving internally spaced IDs unresolvable; preserve literal reference
+  matching and repeated-header agreement. Otherwise malformed MIME metadata
+  authorizes an unintended inline-image download.
 - MIME admission in `message-body.ts` inspecting only the first repeated header.
   Every Content-Disposition occurrence must declare inline; Content-Type tokens
   and normalized Content-ID values must agree across all occurrences. Conflicts

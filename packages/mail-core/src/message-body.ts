@@ -258,11 +258,13 @@ export function bodyParts(payload: GmailPart): Readonly<{
   };
 }
 
-// A Content-ID as MIME declares it, without comments, folding whitespace or angle brackets.
+// A Content-ID without its surrounding comments, folding whitespace and angle brackets. Whitespace
+// inside the ID is malformed, so it never matches a reference.
 const contentIdOf = (part: GmailPart) => {
-  const ids = headerValues(part, 'content-id').map((value) =>
-    withoutComments(value).replaceAll(/\s+/gu, '').replaceAll(/^<|>$/gu, ''),
-  );
+  const ids = headerValues(part, 'content-id').map((value) => {
+    const id = withoutComments(value).trim().replaceAll(/^<|>$/gu, '');
+    return /\s/u.test(id) ? '' : id;
+  });
   return ids.every((id) => id === ids[0]) ? (ids[0] ?? '') : '';
 };
 
@@ -330,20 +332,47 @@ export function inlineImageParts(
   return found;
 }
 
-// A Content-Type or Content-Disposition value that is wholly well formed: a token or type/subtype
-// and well-formed parameters, as RFC 2045, 2183 and 2231 define them.
 const mimeToken = "[!#$%&'*+.^_`|~0-9A-Za-z-]+";
-const wellFormedHeader = new RegExp(
-  `^[ \\t]*${mimeToken}(?:/${mimeToken})?(?:[ \\t]*;[ \\t]*${mimeToken}[ \\t]*=[ \\t]*(?:${mimeToken}|"(?:[^"\\\\\\r\\n]|\\\\[^\\r\\n])*"))*[ \\t]*(?![\\s\\S])`,
-  'u',
-);
+
+// A header's parameters by lower-cased name, read structurally after its leading token: comments
+// are removed and quoted values are consumed whole, so a name inside another parameter's value or
+// a longer name that ends in it never matches. The first occurrence of a name wins.
+const headerParameters = (value: string) => {
+  const bare = withoutComments(value.replaceAll(/\r\n(?=[ \t])/gu, ''));
+  const parameters = new Map<string, string>();
+  const leading = new RegExp(
+    `^[ \\t]*${mimeToken}(?:/${mimeToken})?(?=[ \\t]*(?:;|$))`,
+    'u',
+  ).exec(bare);
+  const next = new RegExp(
+    `[ \\t]*;[ \\t]*(${mimeToken})[ \\t]*=[ \\t]*(${mimeToken}|"(?:[^"\\\\\\r\\n]|\\\\[^\\r\\n])*")[ \\t]*(?=;|$)`,
+    'uy',
+  );
+  let consumed = leading?.[0].length ?? bare.length;
+  next.lastIndex = consumed;
+  for (let match = next.exec(bare); match !== null; match = next.exec(bare)) {
+    consumed = next.lastIndex;
+    const name = (match[1] ?? '').toLowerCase();
+    const raw = match[2] ?? '';
+    if (!parameters.has(name)) {
+      parameters.set(
+        name,
+        raw.startsWith('"')
+          ? raw.slice(1, -1).replaceAll(/\\(?<escaped>.)/gu, '$<escaped>')
+          : raw,
+      );
+    }
+  }
+  return {
+    parameters,
+    wellFormed: leading !== null && /^[ \t]*$/u.test(bare.slice(consumed)),
+  };
+};
 
 const wellFormedHeaders = (part: GmailPart) =>
   ['content-type', 'content-disposition'].every((name) =>
-    headerValues(part, name).every((value) =>
-      wellFormedHeader.test(
-        withoutComments(value.replaceAll(/\r\n(?=[ \t])/gu, '')),
-      ),
+    headerValues(part, name).every(
+      (value) => headerParameters(value).wellFormed,
     ),
   );
 
@@ -414,8 +443,8 @@ export const partText = Effect.fnUntraced(function* (
   size: number | undefined = part.body?.size,
 ) {
   const charset =
-    /charset\s*=\s*"?(?<label>[\w.:-]+)/iu
-      .exec(header(part, 'content-type'))?.[1]
+    headerParameters(header(part, 'content-type'))
+      .parameters.get('charset')
       ?.toLowerCase() ?? 'utf8';
   const text = decodeText(data, charset, size);
   if (text === undefined) {

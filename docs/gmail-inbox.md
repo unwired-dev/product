@@ -70,7 +70,10 @@ prefetch of the same message share one load. Opening or prefetching never change
 Gmail's read state.
 
 The reader selects a renderable HTML alternative before plain text, decoded from
-the part's charset. Image-only HTML with an admissible CID reference or a
+the part's charset. Only a complete `charset` parameter outside comments and
+other quoted values selects the encoding. Explicit reads stop parsing at a
+malformed parameter and use UTF-8 when no complete charset was parsed.
+Image-only HTML with an admissible CID reference or a
 blocked-image placeholder remains renderable. Every Content-Disposition occurrence
 must have a recognized inline token; empty, malformed, attachment and extension
 dispositions are excluded from body selection and prefetch. Absent dispositions
@@ -186,7 +189,9 @@ grammar.
 Retained styles drop importance annotations; shorthand/longhand ordering,
 normalization and label inspection use the resulting emitted CSS.
 
-Inline styles split into declarations at semicolons outside quoted strings and
+A backslash escape never ends a quoted string or declaration. Hex escapes consume
+up to six digits and one following CSS whitespace character; escaped newlines
+inside strings are continuations. Inline styles split into declarations at semicolons outside quoted strings and
 matching parentheses or square brackets; mismatched closing brackets do not end
 an open block. A declaration whose quoted string a line break or the end of the
 attribute interrupts is removed. Filtered inline CSS may preserve borders and border spacing/collapse, display,
@@ -331,7 +336,8 @@ This is the owner-approved rule recorded in the
 [ADR 0029 amendment](adr/0029-sanitize-html-before-webkit-rendering.md#amendment--2026-10-06);
 this is part of #605 rich presentation, separate from received attachment
 controls in [#610](https://github.com/unwired-dev/product/issues/610).
-Normalize Content-ID comments and folding whitespace, URI-decode references,
+Normalize Content-ID comments and surrounding folding whitespace (whitespace inside
+an ID makes it unresolvable), URI-decode references,
 and preserve MIME header literals. Search the selected MIME alternative first,
 then its nearest enclosing related scope, then eligible outer scopes. Do not
 traverse attachment-disposition or `message/rfc822` containers, or filename-bearing

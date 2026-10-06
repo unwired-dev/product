@@ -1388,6 +1388,153 @@ describe('rich-reader review regressions', () => {
     ]);
   });
 
+  it('scans CSS escapes as WebKit does without downloading hidden images', async () => {
+    expect.hasAssertions();
+    const image = (contentId: string, style: string) =>
+      `<img src="cid:${contentId}" style="${style.replaceAll('"', '&quot;')}">`;
+    const result = sanitizeHtml(
+      [
+        image('escaped-double', String.raw`font-family:"foo\"";display:none`),
+        image('escaped-single', String.raw`font-family:'foo\'';display:none`),
+        image('even-backslash', String.raw`font-family:"foo\\";display:none`),
+        image('hex-newline', 'font-family:"\\66\noo";display:none'),
+        image('hex-crlf', 'font-family:"\\66\r\noo";display:none'),
+        image('continuation', 'font-family:"foo\\\r\nbar";display:none'),
+        image('hex-property', String.raw`\66 ont-size:1px;display:none`),
+        image(
+          'unquoted-delimiter',
+          String.raw`font-family:foo\;bar;display:none`,
+        ),
+        image('unquoted-quote', String.raw`font-family:foo\"bar;display:none`),
+        // Without a real closing quote the string swallows the rest, so nothing hides it.
+        image('unclosed', String.raw`font-family:"foo\";display:none`),
+      ].join(''),
+    );
+    expect(result.contentIds).toStrictEqual(['unclosed']);
+    for (const [style, visible] of [
+      [String.raw`font-family:"foo\"";display:none`, false],
+      [String.raw`font-family:'foo\'';display:none`, false],
+      ['font-family:"\\66\noo";display:none', false],
+      ['font-family:"\\66\r\noo";display:none', false],
+      [String.raw`font-family:"foo\";display:none`, true],
+      ['font-family:"foo";display:block', true],
+    ] as const) {
+      const gmail = createSyntheticGmail();
+      const id = gmail.deliver({ at: Date.UTC(2020, 0, 1) });
+      const observed = substitutePayload(gmail, id, {
+        mimeType: 'multipart/related',
+        parts: [
+          textPart('text/html', image('logo', style)),
+          imagePart('image', '<logo>'),
+        ],
+      });
+      const inbox = createGmailInbox(gmail.native);
+      await inbox.load();
+      await inbox.readMessage(id);
+      expect(inbox.messageBody(id)).toMatchObject({ kind: 'ready' });
+      expect(observed.images).toHaveLength(Number(visible));
+    }
+  });
+
+  it('decodes text by the actual charset parameter, not text resembling it', async () => {
+    expect.hasAssertions();
+    const utf8 = Buffer.from('Café €');
+    for (const [contentType, bytes, decoded] of [
+      ['text/html; xcharset=windows-1252; charset=utf-8', utf8, 'Café €'],
+      ['text/html; note="charset=windows-1252"; charset=utf-8', utf8, 'Café €'],
+      [
+        'text/html; note="a;charset=windows-1252"; charset=utf-8',
+        utf8,
+        'Café €',
+      ],
+      ['text/html (charset=windows-1252); charset=utf-8', utf8, 'Café €'],
+      [
+        String.raw`text/html; ChArSeT="utf\-8"; charset=windows-1252`,
+        utf8,
+        'Café €',
+      ],
+      ['text/html;\r\n charset="utf-8"', utf8, 'Café €'],
+      ['text/html', utf8, 'Café €'],
+      ['text/html; charset=""', utf8, 'Café €'],
+      ['text/html; charset=', utf8, 'Café €'],
+      ['text/html; charset=windows-1252@bad', utf8, 'Café €'],
+      ['text/html; charset=windows-1252/garbage', utf8, 'Café €'],
+      ['text/html; charset="windows-1252"garbage', utf8, 'Café €'],
+      ['text/html; note="unterminated; charset=windows-1252', utf8, 'Café €'],
+      [
+        "text/html; charset*=us-ascii''windows-1252; charset=utf-8",
+        utf8,
+        'Café €',
+      ],
+      [
+        'text/html; charset=windows-1252',
+        Buffer.from([67, 97, 102, 233]),
+        'Café',
+      ],
+      [
+        'text/html; charset=windows-1252; note=',
+        Buffer.from([67, 97, 102, 233]),
+        'Café',
+      ],
+    ] as const) {
+      const gmail = createSyntheticGmail();
+      const id = gmail.deliver({ at: Date.UTC(2020, 0, 1) });
+      const observed = substitutePayload(gmail, id, {
+        mimeType: 'text/html',
+        headers: [{ name: 'Content-Type', value: contentType }],
+        body: { size: bytes.length, data: bytes.toString('base64url') },
+      });
+      const inbox = createGmailInbox(gmail.native);
+      await inbox.load();
+      await inbox.readMessage(id);
+      expect(inbox.messageBody(id)).toMatchObject({
+        kind: 'ready',
+        presentation: { readable: { paragraphs: [[{ text: decoded }]] } },
+      });
+      expect(JSON.parse(String(gmail.cachedBodies().get(id)))).toMatchObject({
+        html: decoded,
+      });
+      const reopened = createGmailInbox(gmail.native);
+      await reopened.load();
+      await reopened.readMessage(id);
+      expect(reopened.messageBody(id)).toMatchObject({
+        kind: 'ready',
+        presentation: { readable: { paragraphs: [[{ text: decoded }]] } },
+      });
+      expect(observed.full).toBe(1);
+    }
+  });
+
+  it('rejects Content-IDs with internal whitespace without downloading them', async () => {
+    expect.hasAssertions();
+    for (const [contentId, reference, resolves] of [
+      ['<lo go>', 'logo', false],
+      ['<lo\tgo>', 'logo', false],
+      ['<lo\r\n go>', 'logo', false],
+      ['<lo go@example.invalid>', 'logo@example.invalid', false],
+      [['<logo>', '<lo go>'], 'logo', false],
+      ['<logo>', 'logo', true],
+      [' (comment)\r\n <logo> ', 'logo', true],
+      ['<logo@example.invalid>', 'logo%40example.invalid', true],
+      ['<logo>', 'lo%20go', false],
+    ] as const) {
+      const gmail = createSyntheticGmail();
+      const id = gmail.deliver({ at: Date.UTC(2020, 0, 1) });
+      const observed = substitutePayload(gmail, id, {
+        mimeType: 'multipart/related',
+        parts: [
+          textPart('text/html', `<img src="cid:${reference}" alt="Logo">`),
+          imagePart('image', contentId),
+        ],
+      });
+      const inbox = createGmailInbox(gmail.native);
+      await inbox.load();
+      await inbox.readMessage(id);
+      expect(inbox.messageBody(id)).toMatchObject({ kind: 'ready' });
+      expect(observed.images).toHaveLength(Number(resolves));
+    }
+  });
+
   it('never resolves images in cells of collapsed table columns', () => {
     expect.hasAssertions();
     const result = sanitizeHtml(

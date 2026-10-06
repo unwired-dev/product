@@ -380,7 +380,11 @@ const scanUnquoted = (scan: StyleScan, char: string) => {
 const splitDeclarations = (style: string) => {
   const declarations: string[] = [];
   let start = 0;
-  let scan: StyleScan = { quote: undefined, endings: [], broken: false };
+  let scan: StyleScan = {
+    quote: undefined,
+    endings: [],
+    broken: false,
+  };
   const end = (at: number) => {
     if (!scan.broken && scan.quote === undefined) {
       declarations.push(style.slice(start, at));
@@ -390,7 +394,14 @@ const splitDeclarations = (style: string) => {
   };
   for (let at = 0; at < style.length; at += 1) {
     const char = style.charAt(at);
-    if (
+    if (char === '\\') {
+      // Hex escapes consume up to six digits and one optional whitespace character, including
+      // a newline. Other escapes consume one character without changing string/block state.
+      at +=
+        /^(?:[0-9a-f]{1,6}(?:\r\n|[\t\n\f\r ])?|\r\n|[\s\S])/iu.exec(
+          style.slice(at + 1),
+        )?.[0].length ?? 0;
+    } else if (
       scan.quote === undefined
         ? scanUnquoted(scan, char)
         : scanQuoted(scan, char)
