@@ -2,6 +2,7 @@ import type { GmailInboxState, GmailMessage } from '../src/gmail-inbox.ts';
 
 import {
   gmailAction,
+  gmailActionCopy,
   quickActions,
   restoreAfter,
 } from '../src/gmail-actions.ts';
@@ -13,6 +14,14 @@ const ready = (state: GmailInboxState) => {
     throw new Error(`Expected a ready Inbox, received ${state.kind}`);
   }
   return state;
+};
+
+const unsavedNotice = (state: GmailInboxState) => {
+  const outcome = ready(state).notice;
+  if (outcome?.kind !== 'unsaved') {
+    throw new Error('Expected the unsaved batch outcome');
+  }
+  return outcome;
 };
 
 const shown = (inbox: ReturnType<typeof createGmailInbox>, id: string) =>
@@ -124,6 +133,28 @@ const holdingNextCommit = (
         }
         return native.commitMailbox(...args);
       },
+    },
+  };
+};
+
+// The cache opens as cache-only, as after an unverified relaunch, once switched.
+const switchingToCacheOnly = (
+  native: ReturnType<typeof createSyntheticGmail>['native'],
+) => {
+  let cacheOnly = false;
+  return {
+    becomeCacheOnly: () => {
+      cacheOnly = true;
+    },
+    verify: () => {
+      cacheOnly = false;
+    },
+    native: {
+      ...native,
+      openMailbox: async () => ({
+        ...(await native.openMailbox()),
+        ...(cacheOnly ? { availability: 'retry' } : {}),
+      }),
     },
   };
 };
@@ -1074,6 +1105,137 @@ describe('organizing Gmail mail', () => {
       pending: 0,
       blocked: false,
     });
+  });
+
+  it('rolls back a change when the mailbox becomes cache-only before it could be saved', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ messages: 1 });
+    const { native, becomeCacheOnly, verify } = switchingToCacheOnly(
+      gmail.native,
+    );
+    const inbox = createGmailInbox(native);
+    await inbox.load();
+    const target = required(
+      ready(inbox.getSnapshot()).messages[0],
+      'the message',
+    );
+    expect(ready(inbox.getSnapshot()).organize).toBe(true);
+    // Foreground verification found Gmail unreachable after the Inbox offered organizing.
+    becomeCacheOnly();
+    const commits = gmail.commits.length;
+    const star = inbox.organize(target, gmailAction.star);
+    const archive = inbox.organize(target, gmailAction.archive);
+    await Promise.all([star, archive]);
+    expect(ready(inbox.getSnapshot())).toMatchObject({
+      organize: false,
+      saving: 0,
+      pending: 0,
+      sync: 'retry',
+    });
+    expect(ready(inbox.getSnapshot()).notice).toMatchObject({
+      kind: 'unsaved',
+      count: 2,
+      action: gmailAction.archive,
+      message: target,
+    });
+    const outcome = unsavedNotice(inbox.getSnapshot());
+    expect(
+      gmailActionCopy.unsaved(
+        outcome.action,
+        outcome.message.subject,
+        outcome.count,
+      ),
+    ).toContain('2 changes could not be saved');
+    expect(message(inbox, target.id).labels).not.toContain('STARRED');
+    expect(gmail.commits).toHaveLength(commits);
+    expect(gmail.modifies).toStrictEqual([]);
+    // A retained handler cannot queue another change while only the saved Inbox opens.
+    await inbox.organize(target, gmailAction.star);
+    expect(ready(inbox.getSnapshot()).saving).toBe(0);
+    // Reconnection does not replay a discarded change; the person explicitly repeats it.
+    verify();
+    await inbox.load();
+    expect(ready(inbox.getSnapshot()).organize).toBe(true);
+    expect(gmail.modifies).toStrictEqual([]);
+    await inbox.organize(message(inbox, target.id), gmailAction.star);
+    expect(gmail.labelsOf(target.id)).toContain('STARRED');
+  });
+
+  it('rolls back an unsaved change on load while preserving already durable intent', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ messages: 1 });
+    const { native, becomeCacheOnly, verify } = switchingToCacheOnly(
+      gmail.native,
+    );
+    const inbox = createGmailInbox(native);
+    await inbox.load();
+    const target = required(
+      ready(inbox.getSnapshot()).messages[0],
+      'the message',
+    );
+    gmail.failModify({ code: 'unavailable' });
+    await inbox.organize(target, gmailAction.star);
+    expect(ready(inbox.getSnapshot()).pending).toBe(1);
+    // This second request remains unsaved after storage locks; load must settle that queue first.
+    gmail.failCommit('locked');
+    await inbox.organize(message(inbox, target.id), gmailAction.archive);
+    expect(inbox.getSnapshot().kind).toBe('locked');
+    becomeCacheOnly();
+    const requests = gmail.requests.length;
+    const commits = gmail.commits.length;
+    const modifies = gmail.modifies.length;
+    await inbox.load();
+    expect(ready(inbox.getSnapshot())).toMatchObject({
+      organize: false,
+      saving: 0,
+      pending: 1,
+      sync: 'retry',
+      notice: { kind: 'unsaved', count: 1, action: gmailAction.archive },
+    });
+    expect(message(inbox, target.id).labels).toContain('STARRED');
+    expect(gmail.requests).toHaveLength(requests);
+    expect(gmail.commits).toHaveLength(commits);
+    expect(gmail.modifies).toHaveLength(modifies);
+    // The durable Star survives a cache-only restart, then resumes without the unsaved Archive.
+    const reopened = createGmailInbox(native);
+    await reopened.load();
+    expect(ready(reopened.getSnapshot()).pending).toBe(1);
+    verify();
+    await inbox.load();
+    expect(ready(inbox.getSnapshot()).pending).toBe(0);
+    expect(gmail.labelsOf(target.id).toSorted()).toStrictEqual(
+      ['INBOX', 'UNREAD', 'STARRED'].toSorted(),
+    );
+  });
+
+  it('does not carry an unsaved outcome from another mailbox into its cache-only Inbox', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ messages: 1 });
+    const { native, becomeCacheOnly } = switchingToCacheOnly(gmail.native);
+    const inbox = createGmailInbox(native);
+    await inbox.load();
+    const former = required(
+      ready(inbox.getSnapshot()).messages[0],
+      'the message',
+    );
+    gmail.reselect('another@example.invalid');
+    const other = gmail.deliver({ subject: 'Another mailbox message' });
+    await createGmailInbox(gmail.native).load();
+    becomeCacheOnly();
+    const modifies = gmail.modifies.length;
+    await inbox.organize(former, gmailAction.star);
+    expect(ready(inbox.getSnapshot())).toMatchObject({
+      address: 'another@example.invalid',
+      organize: false,
+      pending: 0,
+      saving: 0,
+      sync: 'retry',
+    });
+    expect(ready(inbox.getSnapshot()).notice).toBeUndefined();
+    expect(
+      ready(inbox.getSnapshot()).messages.map(({ id }) => id),
+    ).toStrictEqual([other]);
+    expect(gmail.modifies).toHaveLength(modifies);
   });
 
   it('ignores a late durable save reply after another owner has opened the Inbox', async () => {

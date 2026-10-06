@@ -175,6 +175,7 @@ describe('mac window selection with the shared mock mailbox', () => {
 function holdingListing(
   native: ReturnType<typeof createSyntheticGmail>['native'],
 ) {
+  let cacheOnly = false;
   let release: () => void = () => undefined;
   // oxlint-disable-next-line promise/avoid-new -- Explicit provider suspension, released by the journey.
   const listing = new Promise<void>((resolve) => {
@@ -182,8 +183,15 @@ function holdingListing(
   });
   return {
     release,
+    becomeCacheOnly: () => {
+      cacheOnly = true;
+    },
     native: {
       ...native,
+      openMailbox: async () => ({
+        ...(await native.openMailbox()),
+        ...(cacheOnly ? { availability: 'retry' } : {}),
+      }),
       gmailRequest: async (...args: Parameters<typeof native.gmailRequest>) => {
         if (args[0] === 'messages') {
           await listing;
@@ -393,6 +401,23 @@ describe('mac windows over a connected Gmail mailbox', () => {
       ),
     ).toBeVisible();
     expect(second.getByText('oliver@example.invalid')).toBeVisible();
+    // The failed save is visible in both windows after Archive closes its reader, announced once.
+    held.becomeCacheOnly();
+    await act(async () => {
+      await fireEvent.press(second.getByRole('button', { name: 'Archive' }));
+    });
+    const unsaved =
+      'The request to archive “Saturday, by the river?” could not be saved. Showing mail saved on this device. Try again to reconnect, then repeat the change.';
+    for (const window of [first, second]) {
+      expect(window.getByRole('alert', { name: unsaved })).toBeVisible();
+      expect(window.queryByRole('button', { name: 'Undo' })).toBeNull();
+    }
+    expect(
+      second.getByText('Select a message to start reading.'),
+    ).toBeVisible();
+    expect(
+      announce.mock.calls.filter(([message]) => message === unsaved),
+    ).toStrictEqual([[unsaved]]);
   });
 
   it('hands a device found removed while organizing to the account page explanation', async () => {

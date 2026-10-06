@@ -229,6 +229,7 @@ function renderConnected(
 function holdingListing(
   native: ReturnType<typeof createSyntheticGmail>['native'],
 ) {
+  let cacheOnly = false;
   let release: () => void = () => undefined;
   // oxlint-disable-next-line promise/avoid-new -- Explicit provider suspension, released by the journey.
   const listing = new Promise<void>((resolve) => {
@@ -236,8 +237,15 @@ function holdingListing(
   });
   return {
     release,
+    becomeCacheOnly: () => {
+      cacheOnly = true;
+    },
     native: {
       ...native,
+      openMailbox: async () => ({
+        ...(await native.openMailbox()),
+        ...(cacheOnly ? { availability: 'retry' } : {}),
+      }),
       gmailRequest: async (...args: Parameters<typeof native.gmailRequest>) => {
         if (args[0] === 'messages') {
           await listing;
@@ -452,6 +460,29 @@ describe('connected Gmail Inbox', () => {
         .mocked(AccessibilityInfo.announceForAccessibility)
         .mock.calls.filter(([message]) => message === refusal),
     ).toStrictEqual([[refusal]]);
+
+    // Foreground verification can close saving after the reader offered Archive.
+    await fireEvent.press(
+      screen.getByRole('button', {
+        name: 'Oliver Park. Saturday, by the river?',
+      }),
+    );
+    held.becomeCacheOnly();
+    await act(async () => {
+      await fireEvent.press(screen.getByRole('button', { name: 'Archive' }));
+    });
+    const unsaved =
+      'The request to archive “Saturday, by the river?” could not be saved. Showing mail saved on this device. Try again to reconnect, then repeat the change.';
+    expect(screen.getByRole('alert', { name: unsaved })).toBeVisible();
+    expect(
+      screen.getByText('Select a message to start reading.'),
+    ).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull();
+    expect(
+      jest
+        .mocked(AccessibilityInfo.announceForAccessibility)
+        .mock.calls.filter(([message]) => message === unsaved),
+    ).toStrictEqual([[unsaved]]);
   });
 
   it('names the exhausted action and resolves it through Retry and Discard controls', async () => {

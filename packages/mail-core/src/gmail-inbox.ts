@@ -285,13 +285,13 @@ const rejected = (
 const malformed = (error: Schema.SchemaError, kind: 'retry' | 'failed') =>
   new SyncFailure({ kind, cause: error, diagnostic: decodeDiagnostic(error) });
 
-// The latest organizing action, until the next one: its outcome, which a removal can undo, or a
-// change Gmail refused.
-export type OrganizeNotice = Readonly<{
-  kind: 'done' | 'rejected';
-  action: GmailAction;
-  message: GmailMessage;
-}>;
+// The latest organizing outcome, until the next one; unsaved batches also report their size.
+export type OrganizeNotice = Readonly<
+  {
+    action: GmailAction;
+    message: GmailMessage;
+  } & ({ kind: 'done' | 'rejected' } | { kind: 'unsaved'; count: number })
+>;
 
 type Sync = 'syncing' | 'current' | 'authentication' | 'retry';
 
@@ -1098,11 +1098,30 @@ export function createGmailInbox(
     return Effect.gen(function* () {
       const cache = yield* storage(native.openMailbox);
       const document = Option.getOrUndefined(yield* documentOf(cache));
-      if (!owner() || cache.availability !== undefined) {
+      if (!owner()) {
         return false;
       }
       const taken = [...queued];
       const owned = taken.filter(({ scope }) => sameMailbox(scope, cache));
+      if (cache.availability !== undefined) {
+        // Only the saved Inbox opens now, so nothing can be saved: the unsaved changes roll back
+        // and organizing waits until Gmail access verifies again.
+        removeQueued((item) => taken.includes(item));
+        const last = owned.at(-1);
+        if (taken.length > 0) {
+          notice =
+            last === undefined
+              ? undefined
+              : {
+                  kind: 'unsaved',
+                  count: owned.length,
+                  action: last.pending.action,
+                  message: last.pending.message,
+                };
+        }
+        yield* ready(cache, document, 'retry');
+        return false;
+      }
       if (owned.length === 0) {
         removeQueued((item) => taken.includes(item));
         return true;

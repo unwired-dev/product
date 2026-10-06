@@ -188,7 +188,11 @@ export function OrganizeStatus() {
     if (notice !== undefined && !announced.has(notice)) {
       announced.add(notice);
       AccessibilityInfo.announceForAccessibility(
-        gmailActionCopy[notice.kind](notice.action, notice.message.subject),
+        gmailActionCopy[notice.kind](
+          notice.action,
+          notice.message.subject,
+          notice.kind === 'unsaved' ? notice.count : undefined,
+        ),
       );
     }
   }, [notice]);
@@ -210,13 +214,15 @@ export function OrganizeStatus() {
           accessibilityLabel={gmailActionCopy[notice.kind](
             notice.action,
             notice.message.subject,
+            notice.kind === 'unsaved' ? notice.count : undefined,
           )}
           // Keep refusal semantics; the effect above owns the explicit announcement.
-          accessibilityRole={notice.kind === 'rejected' ? 'alert' : 'text'}>
+          accessibilityRole={notice.kind === 'done' ? 'text' : 'alert'}>
           <Text style={[styles.secondary, { color: colors.foreground }]}>
             {gmailActionCopy[notice.kind](
               notice.action,
               notice.message.subject,
+              notice.kind === 'unsaved' ? notice.count : undefined,
             )}
           </Text>
         </View>

@@ -119,6 +119,10 @@ export const gmailActionCopy = {
     `${pastTense[action.kind]}: “${subject}”.`,
   rejected: (action: GmailAction, subject: string) =>
     `Gmail could not ${verb[action.kind]} “${subject}”. The Inbox shows it as Gmail has it.`,
+  unsaved: (action: GmailAction, subject: string, count = 1) =>
+    count === 1
+      ? `The request to ${verb[action.kind]} “${subject}” could not be saved. Showing mail saved on this device. Try again to reconnect, then repeat the change.`
+      : `${count} changes could not be saved, including the request to ${verb[action.kind]} “${subject}”. Showing mail saved on this device. Try again to reconnect, then repeat the changes.`,
   blocked: (action: GmailAction, subject: string) =>
     `Gmail has not confirmed the request to ${verb[action.kind]} “${subject}” after five attempts. Retry it or discard it to continue.`,
   pending: (count: number) =>

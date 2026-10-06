@@ -115,6 +115,11 @@ A change another window or store instance already settled is not sent again.
 
 While only the saved Inbox opens after a known network outage, nothing can be
 saved, so the reader explains that organizing waits until Gmail can be checked.
+A change made just before the Inbox learns this is rolled back rather than kept
+unsaved. The Inbox names the latest change that could not be saved, reports how
+many requests were rolled back when several were still saving, and VoiceOver
+announces the outcome, including when the action closed the reader. Reconnect,
+then repeat the unsaved changes.
 A change still displaying **Saving…** has not been acknowledged durable; locked
 or unavailable storage reports a failure. Unsaved changes are forgotten if the
 Inbox changes owner. Same-mailbox verification can renew access without dropping
