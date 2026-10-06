@@ -197,7 +197,13 @@ HTTP and other non-HTTPS image sources are removed and never become consent or
 retry references. Hidden preheaders, zero-sized or off-canvas text, and text made
 only of non-rendering format/combining characters do not establish readability.
 Descendants can restore readable text by resetting an inherited zero font size
-to an absolute size or size keyword, or resetting an inherited off-canvas indent.
+to an absolute size or size keyword, resetting an inherited off-canvas indent,
+or declaring `visibility: visible` or `initial` under a hidden ancestor; their text, links and
+inline images then count as visible. Collapsed table rows, row groups and columns
+still remove everything in them, including when collapse is inherited. Hidden
+images retain declared dimensions without fetching their bytes or adding a
+readable placeholder. Restored visible images keep a visible placeholder when
+their bytes cannot be shown. Fully hidden links add no reader link control.
 Relative font sizes still scale a zero parent size to zero. Unsupported font-size
 expressions and invalid values are removed before rendering and inspection. Zero
 line height or maximum box dimensions alone do not clip overflowing text.

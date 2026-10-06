@@ -423,6 +423,183 @@ describe('rich-reader review regressions', () => {
     ]);
   });
 
+  it('shows and resolves descendants that make hidden visibility visible again', () => {
+    expect.hasAssertions();
+    const result = sanitizeHtml(
+      [
+        '<div style="visibility:hidden">Hidden text<img src="cid:hidden"><span style="visibility:visible">Shown text<img src="cid:shown"></span></div>',
+        '<p style="visibility:hidden"><a href="https://phish.invalid/a">Hidden label <span style="visibility:visible">https://bank.invalid</span></a></p>',
+        '<div style="visibility:collapse"><img src="cid:collapsed"><span style="visibility:inherit"><img src="cid:inherited"></span></div>',
+        '<table><tr style="visibility:collapse"><td style="visibility:visible"><img src="cid:row"></td></tr></table>',
+      ].join(''),
+    );
+    expect(result.contentIds).toStrictEqual(['shown']);
+    expect(result.links).toStrictEqual([
+      { href: 'https://phish.invalid/a', text: 'https://bank.invalid' },
+    ]);
+    expect(
+      result.readable.paragraphs.flat().map(({ text }) => text),
+    ).toStrictEqual(['Shown text', 'https://bank.invalid']);
+    expect(result.document).toContain('style="visibility: hidden"');
+    expect(result.document).toContain('style="visibility: visible"');
+  });
+
+  it('keeps descendants that restore inherited visibility without inspecting hidden peers', () => {
+    expect.hasAssertions();
+    const result = sanitizeHtml(
+      [
+        '<div style="visibility:hidden">Hidden preheader',
+        '<a style="visibility:visible" href="https://phish.invalid">https://bank.invalid<span style="visibility:hidden"> masked</span></a>',
+        '<img src="cid:hidden"><img style="visibility:visible" src="cid:shown">',
+        '<span style="visibility:inherit">Hidden inherited</span>',
+        '<span style="visibility:unset">Hidden unset</span>',
+        '<span style="visibility:revert">Hidden revert</span>',
+        '<span style="visibility:collapse"><b style="visibility:visible">Restored collapse</b></span>',
+        '<a href="https://phish.invalid/image"><img style="visibility:visible" src="cid:label" alt="https://bank.invalid"></a>',
+        '</div><p>Visible sibling</p>',
+      ].join(''),
+    );
+    expect(result.links).toStrictEqual([
+      { href: 'https://phish.invalid', text: 'https://bank.invalid' },
+      { href: 'https://phish.invalid/image', text: 'https://bank.invalid' },
+    ]);
+    for (const { href, text } of result.links) {
+      expect(inspectLink(href, text)).toContain(linkWarnings.text);
+    }
+    expect(result).toMatchObject({
+      contentIds: ['shown', 'label'],
+      contentIdOccurrences: ['shown', 'label'],
+    });
+    const readable = result.readable.paragraphs
+      .flat()
+      .map(({ text }) => text)
+      .join('');
+    expect(readable).toMatch(
+      /^https:\/\/bank.invalidRestored collapse\s*https:\/\/bank.invalidVisible sibling$/u,
+    );
+    expect(result.document).toContain('visibility: visible');
+  });
+
+  it('does not restore visibility through excluded boxes or collapsed table tracks', () => {
+    expect.hasAssertions();
+    for (const blocker of ['display:none', 'opacity:0']) {
+      const blocked = sanitizeHtml(
+        `<div style="${blocker}"><a style="visibility:visible" href="https://phish.invalid">Visible?</a><img style="visibility:visible" src="cid:blocked"></div>`,
+      );
+      expect(blocked).toMatchObject({
+        renderable: false,
+        contentIds: [],
+        links: [],
+      });
+    }
+    const collapsed = sanitizeHtml(
+      '<table><tr style="visibility:collapse"><td style="visibility:visible"><img src="cid:collapsed-row"></td></tr></table>',
+    );
+    expect(collapsed.contentIds).toStrictEqual([]);
+    const hiddenImage = sanitizeHtml(
+      '<div style="visibility:hidden"><img src="cid:hidden"></div>',
+    );
+    expect(hiddenImage).toMatchObject({
+      contentIds: [],
+      renderable: false,
+      readable: { hidesImages: false },
+    });
+  });
+
+  it.each(['cid:missing', 'https://images.example.invalid/photo.png'])(
+    'preserves restored visibility when %s becomes a placeholder',
+    (source) => {
+      expect.hasAssertions();
+      const result = sanitizeHtml(
+        `<div style="visibility:hidden"><img style="visibility:visible" src="${source}" alt="Restored image"></div>`,
+      );
+      expect(result.document).toContain(
+        '<span class="blocked-image" style="visibility: visible" role="img" aria-label="Restored image">Restored image</span>',
+      );
+      expect(result.readable).toStrictEqual({
+        paragraphs: [[{ text: 'Restored image' }]],
+        hidesImages: true,
+      });
+    },
+  );
+
+  it('preserves visibility styling on rules and line breaks', () => {
+    expect.hasAssertions();
+    const result = sanitizeHtml(
+      '<p>Visible</p><hr style="visibility:hidden"><div style="visibility:hidden"><hr style="visibility:visible"><br style="visibility:visible"></div>',
+    );
+    expect(result.document).toContain('<hr style="visibility: hidden">');
+    expect(result.document).toContain(
+      '<div style="visibility: hidden"><hr style="visibility: visible"><br style="visibility: visible"></div>',
+    );
+  });
+
+  it('retains visibility geometry and resets while omitting hidden link controls', () => {
+    expect.hasAssertions();
+    const result = sanitizeHtml(
+      '<div style="visibility:hidden"><img width="200" height="100" src="cid:hidden"><a href="https://hidden.invalid">Hidden</a><a href="https://shown.invalid"><img style="visibility:initial" src="cid:initial" alt="Initial visible"></a></div><div style="visibility:collapse"><table><tr><td style="visibility:visible"><img src="cid:inherited-row"></td></tr></table></div>',
+    );
+    expect(result).toMatchObject({
+      contentIds: ['initial'],
+      links: [{ href: 'https://shown.invalid', text: 'Initial visible' }],
+    });
+    expect(result.document).toContain('<img width="200" height="100">');
+    expect(result.document.match(/<a /gu)).toHaveLength(1);
+  });
+
+  it('omits links and image notices from an entirely hidden fallback', () => {
+    expect.hasAssertions();
+    const hiddenOnly = sanitizeHtml(
+      '<div style="visibility:hidden"><a href="https://hidden.invalid">Hidden</a><img src="cid:hidden" alt="Hidden alt"></div>',
+    );
+    expect(hiddenOnly).toMatchObject({
+      renderable: false,
+      contentIds: [],
+      links: [],
+      readable: { paragraphs: [], hidesImages: false },
+    });
+  });
+
+  it('keeps hidden column tracks while excluding collapsed column cells', () => {
+    expect.hasAssertions();
+    const columns = sanitizeHtml(
+      '<table><colgroup><col style="visibility:hidden"><col style="visibility:collapse"></colgroup><tr><td><img src="cid:kept-column"></td><td><img src="cid:collapsed-column"></td></tr></table>',
+    );
+    expect(columns.contentIds).toStrictEqual(['kept-column']);
+    expect(columns.document).toContain('<col style="visibility: hidden">');
+  });
+
+  it('excludes inherited collapsed columns when a row group restores visibility', () => {
+    expect.hasAssertions();
+    const result = sanitizeHtml(
+      '<div style="visibility:collapse"><table><colgroup><col><col style="visibility:initial"></colgroup><tbody style="visibility:visible"><tr><td><img src="cid:inherited-column"></td><td><img src="cid:restored-column"></td></tr></tbody></table></div>',
+    );
+    expect(result.contentIds).toStrictEqual(['restored-column']);
+    expect(result.contentIdOccurrences).toStrictEqual(['restored-column']);
+  });
+
+  it('fetches only CID descendants whose visibility is restored on an explicit open', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    const id = gmail.deliver({ at: Date.UTC(2020, 0, 1) });
+    const observed = substitutePayload(gmail, id, {
+      mimeType: 'multipart/related',
+      parts: [
+        textPart(
+          'text/html',
+          '<div style="visibility:hidden"><img src="cid:hidden"><span style="visibility:visible">Visible descendant<img src="cid:shown"></span></div>',
+        ),
+        imagePart('hidden-part', 'hidden'),
+        imagePart('shown-part', 'shown'),
+      ],
+    });
+    const inbox = createGmailInbox(gmail.native);
+    await inbox.load();
+    await inbox.readMessage(id);
+    expect(observed.images).toStrictEqual(['shown-part']);
+    expect(inbox.messageBody(id)).toMatchObject({ kind: 'ready' });
+  });
+
   it('never resolves images in cells of collapsed table columns', () => {
     expect.hasAssertions();
     const result = sanitizeHtml(

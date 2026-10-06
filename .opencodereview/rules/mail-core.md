@@ -179,6 +179,16 @@ Namespace-import style, `JSON.parse`, `typeof … === 'object'` guards, untagged
   as clipping when overflow remains visible. Descendant resets must restore
   inspection. Unsupported font-size expressions must not contribute hidden text
   that prevents an otherwise visible address from matching `inspectLink`.
+- `sanitizeHtml` dropping an entire `visibility:hidden` subtree before descendants
+  can restore retained `visibility:visible` or `initial`. Carry inherited visibility through
+  traversal and restore it for siblings; readable text, inspected link labels,
+  image descriptions and CID discovery must agree with the emitted CSS. Preserve
+  visibility overrides when replacing images with placeholders or emitting
+  special elements such as `br` and `hr`. Hidden images must keep source-less
+  declared geometry without references or blocked-image notices. Wholly hidden
+  anchors must not reach host link controls. Preserve whole-box
+  exclusion for `hidden`, `display:none`, zero opacity and effectively collapsed table tracks;
+  otherwise visible mail disappears or invisible images are downloaded.
 - `sanitizeHtml` collecting CIDs from cells wholly covered by collapsed table
   columns, or placing cells with raw spans or removed elements that differ from
   the emitted layout. Normalize and bound span values consistently, isolate row
