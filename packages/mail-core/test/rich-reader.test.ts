@@ -432,12 +432,50 @@ describe('the isolated rich reader', () => {
           '<p><img src="cid:shown@example" style="max-width:calc(1px);max-height:calc(1px)" alt="Shown"></p>',
           // Valid one-pixel maxima reach WebKit, so this stays a tracking pixel.
           '<p><img src="cid:pixel@example" style="max-width:1px;max-height:1px"></p>',
+          // Retained minima win over one-pixel attributes, so WebKit paints this one.
+          '<p><img src="cid:minimum@example" width="1" height="1" style="max-width:1px;max-height:1px;min-width:100px;min-height:100px" alt="Minimum"></p>',
+          // Minima alone do not shrink the image's intrinsic size to a tracking pixel.
+          '<p><img src="cid:intrinsic@example" style="min-width:1px;min-height:1px" alt="Intrinsic"></p>',
+          '<p><img src="cid:zero-minimum@example" style="min-width:0;min-height:0" alt="Zero minimum"></p>',
+          // Relative and auto dimensions remain unknown, including minimum constraints.
+          '<p><img src="cid:relative-size@example" style="width:50%;height:auto;min-width:1px;min-height:1px" alt="Relative size"></p>',
+          '<p><img src="cid:relative-minimum@example" width="1" height="1" style="max-width:1px;max-height:1px;min-width:100%;min-height:100%" alt="Relative minimum"></p>',
+          '<p><img src="cid:auto-minimum@example" width="1" height="1" style="min-width:auto;min-height:auto" alt="Auto minimum"></p>',
+          // A known maximum still bounds unknown intrinsic sizes when minima are also known.
+          '<p><img src="cid:bounded@example" style="max-width:1px;max-height:1px;min-width:0;min-height:0"></p>',
           // Clipping is discarded, so this text paints and stays readable and inspectable.
           '<div style="width:0;height:0;overflow:hidden;white-space:nowrap">Read <a href="https://phish.invalid/">https://bank.invalid</a></div>',
         ].join(''),
         images: [
           { contentId: 'shown@example', mimeType: 'image/png', bytes: logo },
           { contentId: 'pixel@example', mimeType: 'image/png', bytes: logo },
+          { contentId: 'minimum@example', mimeType: 'image/png', bytes: logo },
+          {
+            contentId: 'intrinsic@example',
+            mimeType: 'image/png',
+            bytes: logo,
+          },
+          {
+            contentId: 'zero-minimum@example',
+            mimeType: 'image/png',
+            bytes: logo,
+          },
+          {
+            contentId: 'relative-size@example',
+            mimeType: 'image/png',
+            bytes: logo,
+          },
+          {
+            contentId: 'relative-minimum@example',
+            mimeType: 'image/png',
+            bytes: logo,
+          },
+          {
+            contentId: 'auto-minimum@example',
+            mimeType: 'image/png',
+            bytes: logo,
+          },
+          { contentId: 'bounded@example', mimeType: 'image/png', bytes: logo },
         ],
       },
     });
@@ -451,7 +489,15 @@ describe('the isolated rich reader', () => {
       gmail.requests
         .map(({ path }) => path)
         .filter((path) => path.includes('/attachments/image-')),
-    ).toStrictEqual([`messages/${id}/attachments/image-0`]);
+    ).toStrictEqual([
+      `messages/${id}/attachments/image-0`,
+      `messages/${id}/attachments/image-2`,
+      `messages/${id}/attachments/image-3`,
+      `messages/${id}/attachments/image-4`,
+      `messages/${id}/attachments/image-5`,
+      `messages/${id}/attachments/image-6`,
+      `messages/${id}/attachments/image-7`,
+    ]);
     expect(links).toStrictEqual([
       { href: 'https://phish.invalid/', text: 'https://bank.invalid' },
     ]);

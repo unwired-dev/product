@@ -199,6 +199,17 @@ const isContainerOutsideBody = (part: GmailPart) =>
 const outsideBody = (part: GmailPart) =>
   isContainerOutsideBody(part) || (part.filename ?? '') !== '';
 
+// Multipart containers searched for the body and its inline images. Signed and report
+// containers carry an ordinary readable first part; an unrecognized or extension container,
+// such as multipart/x-*, contributes nothing without an explicit attachment download.
+const recognizedContainers = new Set([
+  'multipart/mixed',
+  'multipart/related',
+  'multipart/alternative',
+  'multipart/signed',
+  'multipart/report',
+]);
+
 // Readable leaves in document order, each with the multipart scopes enclosing it.
 const readableLeaves = (
   part: GmailPart,
@@ -209,11 +220,14 @@ const readableLeaves = (
   if (outsideBody(part)) {
     return [];
   }
-  return mimeType(part).startsWith('multipart/')
+  if (!mimeType(part).startsWith('multipart/')) {
+    return [{ part, ancestors }];
+  }
+  return recognizedContainers.has(mimeType(part))
     ? (part.parts ?? []).flatMap((child) =>
         readableLeaves(child, [...ancestors, part]),
       )
-    : [{ part, ancestors }];
+    : [];
 };
 
 // The message's readable alternatives: HTML and plain text outside attachments and attached
@@ -276,7 +290,7 @@ const imagesUnder = (
       }
       collectImage(part, found);
     }
-    if (type.startsWith('multipart/')) {
+    if (recognizedContainers.has(type)) {
       for (const child of children) {
         visit(child, type);
       }

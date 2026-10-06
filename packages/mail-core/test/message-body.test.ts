@@ -376,6 +376,68 @@ describe('reading Gmail message bodies', () => {
     ]);
   });
 
+  it('reads only recognized multipart containers for the body', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    const extension = gmail.deliver();
+    const signed = gmail.deliver();
+    const inbox = createGmailInbox(gmail.native);
+    await inbox.load();
+    const part = (mimeType: string, text: string) => ({
+      mimeType,
+      body: {
+        size: Buffer.byteLength(text),
+        data: Buffer.from(text).toString('base64url'),
+      },
+    });
+    const payloads = new Map<string, unknown>([
+      [
+        extension,
+        {
+          mimeType: 'multipart/mixed',
+          parts: [
+            part('text/plain', 'Outer message.'),
+            {
+              mimeType: 'multipart/x-folder',
+              parts: [part('text/html', '<p>Extension content.</p>')],
+            },
+          ],
+        },
+      ],
+      [
+        signed,
+        {
+          mimeType: 'multipart/signed',
+          parts: [
+            part('text/plain', 'Signed message.'),
+            part('application/pkcs7-signature', 'signature'),
+          ],
+        },
+      ],
+    ]);
+    const { gmailRequest } = gmail.native;
+    substituteFull(gmail, (path) =>
+      Promise.resolve({
+        status: 200,
+        body: JSON.stringify({
+          id: path.slice('messages/'.length),
+          payload: payloads.get(path.slice('messages/'.length)),
+        }),
+      }),
+    );
+    const extensionBody = ready(await read(inbox, extension));
+    const signedBody = readyBody(await read(inbox, signed));
+    gmail.native.gmailRequest = gmailRequest;
+    // The extension container's HTML is neither rendered nor read as text.
+    expect(extensionBody.rich).toBeUndefined();
+    expect(extensionBody.readable.paragraphs).toStrictEqual([
+      [{ text: 'Outer message.' }],
+    ]);
+    expect(signedBody.paragraphs).toStrictEqual([
+      [{ text: 'Signed message.' }],
+    ]);
+  });
+
   it('keeps forwarded attachments out of the body and falls back to readable plain alternatives', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail();

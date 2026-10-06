@@ -99,8 +99,11 @@ Namespace-import style, `JSON.parse`, `typeof … === 'object'` guards, untagged
   Every Content-Disposition occurrence must declare inline; Content-Type tokens
   and normalized Content-ID values must agree across all occurrences. Conflicts
   must not authorize speculative body or CID requests. Resolve only image leaves
-  and traverse only recognized multipart containers; a contradictory container
-  or an image-shaped subtree must not expose attached descendants.
+  and traverse only explicitly recognized multipart containers in both readable-body
+  selection and CID scope discovery; a `multipart/*` prefix alone cannot admit
+  extension, encrypted or attached-message containers. Preserve nested ordinary
+  bodies in supported signed/report containers. A contradictory container or an
+  image-shaped subtree must not expose attached descendants.
 - `sanitizeHtml` deciding renderability from text and CIDs alone while retaining
   blocked-image placeholders. Placeholder-only mail must keep its rich document
   and readable images notice, including after rendering failure.
@@ -136,10 +139,13 @@ Namespace-import style, `JSON.parse`, `typeof … === 'object'` guards, untagged
   deceptive links bypass the destination mismatch caution.
 - `isTrackingPixel` ignoring admitted nonpixel CSS dimensions or allowing invalid,
   empty or filtered-out declarations to mask HTML dimensions. Rendering and
-  classification must use the same retained width/height/max values. Validate
+  classification must use the same retained width/height/min/max values. Validate
   every retained width/height and min/max dimension with the dimension grammar;
-  otherwise visible images are removed
-  or expressions WebKit paints as trackers become eligible for CID resolution.
+  known pixel minima win over pixel sizes and maxima, including a minimum larger
+  than the maximum. Minima are lower bounds, not actual intrinsic/auto/percentage
+  sizes; a relative or keyword minimum cannot prove a pixel bound. Otherwise
+  visible images are removed or expressions WebKit paints as trackers become
+  eligible for CID resolution.
 - `sanitizeHtml` suppressing readability or inspected link text from declarations
   discarded by `filterStyle`, such as `overflow:hidden`. Classify text using the
   CSS actually emitted; whole-element or image exclusion may use declared CSS

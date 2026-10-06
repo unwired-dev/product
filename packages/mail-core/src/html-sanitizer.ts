@@ -457,9 +457,21 @@ const isTrackingPixel = (element: Element, style: FilteredStyle) => {
       style.retained.get(name) ?? attributeOf(element, name),
     );
     const maximum = pixels(style.retained.get(`max-${name}`));
-    return maximum === undefined
-      ? dimension
-      : Math.min(dimension ?? maximum, maximum);
+    const minimumValue = style.retained.get(`min-${name}`);
+    const minimum = pixels(minimumValue);
+    const bounded =
+      maximum === undefined
+        ? dimension
+        : Math.min(dimension ?? maximum, maximum);
+    // A minimum cannot establish an unknown size, and a relative minimum may beat any maximum.
+    if (
+      bounded === undefined ||
+      (minimumValue !== undefined && minimum === undefined)
+    ) {
+      return undefined;
+    }
+    // CSS lets a retained pixel minimum win over both the size and the maximum.
+    return minimum === undefined ? bounded : Math.max(bounded, minimum);
   };
   const width = size('width');
   const height = size('height');
