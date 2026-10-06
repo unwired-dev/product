@@ -374,6 +374,33 @@ describe('connected Gmail Inbox', () => {
       await fireEvent.press(previousOwnerConfirmation);
     });
     expect(openURL).not.toHaveBeenCalled();
+
+    // Input queued for one message and delivered after another opens reveals nothing, and a
+    // confirmation hides when its message is replaced.
+    await act(store.load);
+    await fireEvent.press(
+      await screen.findByRole('button', { name: /Garden plan/u }),
+    );
+    const gardenView = await screen.findByTestId('message-webview');
+    const queuedChoice = gardenView.props.onShouldStartLoadWithRequest;
+    await fireEvent.press(
+      await screen.findByRole('link', { name: 'Open link: the plan' }),
+    );
+    expect(screen.getByText('https://example.invalid/plan')).toBeVisible();
+    await fireEvent.press(
+      screen.getByRole('button', { name: /Not downloaded yet/u }),
+    );
+    await expect(screen.findByText('Synthetic body.')).resolves.toBeVisible();
+    expect(screen.queryByText('https://example.invalid/plan')).toBeNull();
+    await act(async () => {
+      queuedChoice({
+        url: 'about:blank#unwired-link-0',
+        navigationType: 'click',
+      });
+      await Promise.resolve();
+    });
+    expect(screen.queryByText('Open this link in your browser?')).toBeNull();
+    expect(screen.queryByText('https://example.invalid/plan')).toBeNull();
   });
 
   it('explains a deceptive link and offers copying it instead of opening it', async () => {

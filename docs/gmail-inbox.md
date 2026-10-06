@@ -306,7 +306,9 @@ Other sender schemes and automatic opening remain blocked. Sanitized anchors use
 app-owned opaque navigation markers; their exact vetted destinations and visible
 text remain outside the document for confirmation. Choosing a link shows its
 exact full destination with **Open link** and **Cancel**; system handoff occurs
-only after **Open link**. Confirmation is discarded when the body presentation
+only after **Open link**. A queued link choice rechecks its body and reader owner
+before showing any destination. A pending confirmation hides immediately when its message or mailbox changes,
+even before the previous reader finishes closing. Confirmation is discarded when the body presentation
 or Inbox owner changes, and the current ownership boundary is checked again
 immediately before handoff. No link inspection needs a network lookup, backend,
 persistence or URL logging.

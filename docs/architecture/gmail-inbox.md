@@ -132,8 +132,10 @@ Provider listing runs outside the publication permit. Completion uses the same
 membership fence. Visible readers retain their
 body; the twenty-entry memory target evicts only undisplayed completed entries.
 Forget clears body state and fences previous-owner completions. Host-local link
-confirmations also bind to the current body presentation and recheck it immediately
-before system handoff, so queued input cannot disclose a previous owner's destination. Selectable link
+confirmations compare their pending mailbox/message with the current render owner
+before displaying a destination, subscribe to body invalidation, and bind queued
+choices and system handoff to the reader’s committed mailbox/message lifetime
+as well as its exact current body presentation, so queued input cannot disclose a previous owner's destination. Selectable link
 text has a separate keyboard-focusable control.
 
 The isolated renderer now uses an app-owned `parse5` document and patched

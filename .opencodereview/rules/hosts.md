@@ -52,6 +52,16 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   measurement through `callAsyncJavaScript` in `WKContentWorld.defaultClientWorld`
   while page JavaScript stays disabled; measurement failure must reach retained
   readable-text fallback rather than an indefinite loader.
+- `GmailMessageBody` accepting a queued link choice without rechecking the current
+  body/reader, or `LinkConfirmationProvider` revealing pending URLs without a live
+  owner subscription and render-time check. Handoff-only guards leave a selectable
+  previous-owner destination on screen. Compare the provider's current render
+  mailbox/message as well as the reader's committed lifetime: a layout-ref change
+  happens after the provider rendered and does not itself notify the Inbox store.
+  Include mailbox identity in that lifetime even when the message ID is unchanged.
+  Verify queued keyboard and WebKit choices after forget, message/account replacement
+  and reader unmount in both hosts, including the commit before passive cleanup;
+  stale Copy/Proceed callbacks must remain blocked too.
 
 #### Bundle and workspace boundary
 

@@ -112,7 +112,9 @@ export function MessageDetail({ id }: { readonly id: string | undefined }) {
           </Text>
         </View>
       ) : (
-        <LinkConfirmationProvider>
+        <LinkConfirmationProvider
+          inbox={actions}
+          id={message.id}>
           <ScrollView contentContainerStyle={styles.content}>
             {'setUnread' in actions ? (
               <Pressable

@@ -23,6 +23,7 @@ import {
   Fragment,
   use,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   useSyncExternalStore,
@@ -72,11 +73,17 @@ const styles = StyleSheet.create({
   },
 });
 
-// A link awaiting confirmation, with the check that its body is still the one on screen.
+// A link awaiting confirmation, with the check that its body is still the one on screen and the
+// subscription that reports when that may change.
 interface PendingLink {
+  readonly inbox: GmailInbox;
+  readonly id: string;
   readonly link: BodyLink;
   readonly current: () => boolean;
+  readonly subscribe: (listener: () => void) => () => void;
 }
+
+const noSubscription = () => () => undefined;
 
 const LinkConfirmationContext = createContext<
   ((pending: PendingLink | undefined) => void) | undefined
@@ -186,16 +193,25 @@ function LinkConfirmation({
 // long message is confirmed in view.
 export function LinkConfirmationProvider({
   children,
+  inbox,
+  id,
 }: {
   readonly children: ReactNode;
+  readonly inbox: object;
+  readonly id: string;
 }) {
   const colors = usePalette();
   const [pending, setPending] = useState<PendingLink>();
+  // Compare the render owner too: layout cleanup has not invalidated the old reader yet.
+  const shown = useSyncExternalStore(
+    pending?.subscribe ?? noSubscription,
+    () => pending?.inbox === inbox && pending?.id === id && pending.current(),
+  );
   return (
     <LinkConfirmationContext value={setPending}>
       <View style={styles.fill}>
         {children}
-        {pending === undefined ? null : (
+        {pending === undefined || !shown ? null : (
           <View
             style={[
               styles.bar,
@@ -448,6 +464,17 @@ export function GmailMessageBody({
     inbox.messageBody(id, reader),
   );
   const confirm = use(LinkConfirmationContext);
+  // The message this reader shows, cleared as soon as it changes or closes, so input queued for a
+  // previous message is recognized before any passive cleanup runs.
+  const showing = useRef<{ readonly inbox: GmailInbox; readonly id: string }>(
+    undefined,
+  );
+  useLayoutEffect(() => {
+    showing.current = { inbox, id };
+    return () => {
+      showing.current = undefined;
+    };
+  }, [inbox, id]);
   useEffect(() => {
     const release = inbox.retainMessage(id, reader);
     void inbox.readMessage(id);
@@ -492,6 +519,12 @@ export function GmailMessageBody({
     );
   }
 
+  // Native input can be queued before the owner changes and delivered afterward, so a stale
+  // choice shows nothing.
+  const current = () =>
+    showing.current?.inbox === inbox &&
+    showing.current.id === id &&
+    inbox.messageBody(id, reader) === body;
   return (
     <View style={styles.body}>
       <Presentation
@@ -500,11 +533,9 @@ export function GmailMessageBody({
           inbox.discardRichMessage(id, body.presentation, reader);
         }}
         onChoose={(link) => {
-          confirm?.({
-            link,
-            // Native input can be queued before the owner changes and delivered afterward.
-            current: () => inbox.messageBody(id, reader) === body,
-          });
+          if (current()) {
+            confirm?.({ inbox, id, link, current, subscribe: inbox.subscribe });
+          }
         }}
       />
     </View>
