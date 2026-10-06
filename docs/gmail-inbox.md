@@ -412,7 +412,11 @@ protected readable body. A later changed revision is eligible for reevaluation.
 Offline or network loss stops provider prefetch; cached reading remains usable.
 Cache-only registration permits reads but no prefetch, cache write or pruning
 until registration verifies again. Authentication failure stops authorized provider
-work and uses **Gmail needs your permission again**. Gmail quota/rate-limit and
+work and uses **Gmail needs your permission again**, whether prefetch or an
+explicitly opened body met the rejection, so the Inbox offers **Allow Gmail access**.
+An overlapping metadata synchronization keeps that notice; the next load after
+authorization can recover the Inbox and retry unavailable bodies.
+Gmail quota/rate-limit and
 server failures pause speculative work and follow the existing retry/activation
 path without a tight retry loop. A usage-limit 403 must not trigger reauthorization.
 Ownership changes, Inbox closure and removal invalidate speculative work and

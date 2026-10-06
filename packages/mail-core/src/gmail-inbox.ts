@@ -682,6 +682,8 @@ export function createGmailInbox(native: NativeGmailMailbox) {
   // save never waits for a whole synchronization.
   const publication = Semaphore.makeUnsafe(1);
   let state: GmailInboxState = { kind: 'loading' };
+  // An already-running metadata sync cannot dismiss a newer body grant rejection.
+  let authenticationRejected = false;
   // A synchronization queued behind the running one.
   let waiting: Promise<void> | null = null;
   // Set when the open Inbox closes, until the next synchronization starts; synchronizations run one
@@ -737,10 +739,12 @@ export function createGmailInbox(native: NativeGmailMailbox) {
           releaseBody(id);
         }
       }
+      const visibleSync =
+        authenticationRejected && sync !== 'retry' ? 'authentication' : sync;
       publish(
         address === undefined
-          ? { kind: 'ready', messages, sync }
-          : { kind: 'ready', address, messages, sync },
+          ? { kind: 'ready', messages, sync: visibleSync }
+          : { kind: 'ready', address, messages, sync: visibleSync },
       );
     });
 
@@ -754,7 +758,14 @@ export function createGmailInbox(native: NativeGmailMailbox) {
     ).pipe(
       Effect.andThen(
         Effect.sync(() => {
-          publish(failureState(state, kind));
+          publish(
+            failureState(
+              state,
+              authenticationRejected && kind === 'retry'
+                ? 'authentication'
+                : kind,
+            ),
+          );
         }),
       ),
     );
@@ -1265,11 +1276,23 @@ export function createGmailInbox(native: NativeGmailMailbox) {
               kind: 'unavailable',
               reason: 'missing',
             }),
-          SyncFailure: ({ kind, diagnostic }) =>
-            (kind === 'authentication' || kind === 'locked'
-              ? Effect.void
-              : Effect.logError('Message body failed:', diagnostic)
-            ).pipe(Effect.as(bodyFailure(kind))),
+          // A rejected grant also asks for Gmail again, as prefetch does, so the Inbox offers
+          // authorization; retrying the body alone would repeat the same rejection.
+          SyncFailure: ({ kind, diagnostic }) => {
+            if (kind === 'authentication') {
+              return Effect.sync(() => {
+                if (owner === reading && listed(id)) {
+                  authenticationRejected = true;
+                  publish(failureState(state, kind));
+                }
+              }).pipe(Effect.as(bodyFailure(kind)));
+            }
+            return (
+              kind === 'locked'
+                ? Effect.void
+                : Effect.logError('Message body failed:', diagnostic)
+            ).pipe(Effect.as(bodyFailure(kind)));
+          },
         }),
         Effect.flatMap((next) =>
           Effect.sync(() => {
@@ -1397,6 +1420,7 @@ export function createGmailInbox(native: NativeGmailMailbox) {
       if (kind === 'authentication') {
         return Effect.sync(() => {
           if (owner === reading) {
+            authenticationRejected = true;
             publish(failureState(state, kind));
           }
         });
@@ -1476,6 +1500,9 @@ export function createGmailInbox(native: NativeGmailMailbox) {
     yield* schedulePrefetch;
     // Bodies Gmail could not provide before are read again now that it answers.
     yield* Effect.sync(() => {
+      if (authenticationRejected) {
+        return;
+      }
       for (const [id, body] of bodies) {
         if (body.kind === 'unavailable' && body.reason !== 'missing') {
           void readMessage(id);
@@ -1525,6 +1552,7 @@ export function createGmailInbox(native: NativeGmailMailbox) {
     // Clears the mail held in memory when its account or mailbox leaves the open Inbox.
     forget: () => {
       owner += 1;
+      authenticationRejected = false;
       opened = undefined;
       bodies.clear();
       readers.clear();
@@ -1555,6 +1583,7 @@ export function createGmailInbox(native: NativeGmailMailbox) {
             started = true;
             waiting = null;
             forgotten = false;
+            authenticationRejected = false;
             return synchronize;
           }),
         ),

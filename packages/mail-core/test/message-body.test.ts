@@ -202,10 +202,16 @@ describe('reading Gmail message bodies', () => {
       kind: 'unavailable',
       reason: 'download',
     });
+    const current = inbox.getSnapshot();
+    expect(current).toMatchObject({ kind: 'ready', sync: 'current' });
     gmail.fail({ status: 401 });
     await expect(read(inbox, kept)).resolves.toStrictEqual({
       kind: 'unavailable',
       reason: 'authentication',
+    });
+    expect(inbox.getSnapshot()).toStrictEqual({
+      ...current,
+      sync: 'authentication',
     });
     gmail.fail({ status: 500 });
     await expect(read(inbox, kept)).resolves.toStrictEqual({
@@ -215,6 +221,7 @@ describe('reading Gmail message bodies', () => {
     expect(gmail.cachedBodies().size).toBe(0);
     // A synchronization that reaches Gmail downloads the body it could not provide before.
     await inbox.load();
+    expect(inbox.getSnapshot()).toMatchObject({ sync: 'current' });
     await vi.waitFor(() => {
       expect(inbox.messageBody(kept)?.kind).toBe('ready');
     });

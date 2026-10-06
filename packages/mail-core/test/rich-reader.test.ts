@@ -85,7 +85,10 @@ const readable = (state: MessageBodyState | undefined) => {
 };
 
 // Holds one already-completed provider reply so another store can commit before it is applied.
-const holdNextHistory = (gmail: ReturnType<typeof createSyntheticGmail>) => {
+const holdNextHistory = (
+  gmail: ReturnType<typeof createSyntheticGmail>,
+  replacement?: { readonly status: number; readonly body: string },
+) => {
   const captured = Promise.withResolvers<undefined>();
   const release = Promise.withResolvers<undefined>();
   const request = gmail.native.gmailRequest;
@@ -96,6 +99,7 @@ const holdNextHistory = (gmail: ReturnType<typeof createSyntheticGmail>) => {
       waiting = false;
       captured.resolve(undefined);
       await release.promise;
+      return replacement ?? reply;
     }
     return reply;
   };
@@ -189,6 +193,23 @@ function holdProvider(gmail: ReturnType<typeof createSyntheticGmail>) {
   };
   return () => {
     provider.resolve(undefined);
+  };
+}
+
+// Answers these messages' full-format body reads with fixed Gmail replies.
+function answerBodies(
+  gmail: ReturnType<typeof createSyntheticGmail>,
+  replies: ReadonlyMap<string, { status: number; body: string }>,
+) {
+  const { gmailRequest } = gmail.native;
+  gmail.native.gmailRequest = async (path, query, owner) => {
+    const reply = replies.get(path.slice('messages/'.length));
+    const full = query.some(
+      ([name, value]) => name === 'format' && value === 'full',
+    );
+    return full && reply !== undefined
+      ? reply
+      : gmailRequest(path, query, owner);
   };
 }
 
@@ -1101,6 +1122,87 @@ describe('the isolated rich reader', () => {
     answer();
     await loading;
   });
+
+  it('asks for Gmail again when an opened body is refused authorization, but not for quota', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    const quota = gmail.deliver({
+      at: Date.UTC(2020, 0, 2),
+      content: { text: 'Quota' },
+    });
+    const refused = gmail.deliver({
+      at: Date.UTC(2020, 0, 1),
+      content: { text: 'Refused' },
+    });
+    answerBodies(
+      gmail,
+      new Map([
+        [
+          quota,
+          {
+            status: 403,
+            body: JSON.stringify({
+              error: { errors: [{ reason: 'userRateLimitExceeded' }] },
+            }),
+          },
+        ],
+        [refused, { status: 401, body: '{}' }],
+      ]),
+    );
+    const inbox = createGmailInbox(gmail.native);
+    await inbox.load();
+    expect(inbox.getSnapshot()).toMatchObject({ sync: 'current' });
+    await expect(read(inbox, quota)).resolves.toMatchObject({
+      kind: 'unavailable',
+    });
+    expect(inbox.getSnapshot()).toMatchObject({ sync: 'current' });
+    await expect(read(inbox, refused)).resolves.toStrictEqual({
+      kind: 'unavailable',
+      reason: 'authentication',
+    });
+    expect(inbox.getSnapshot()).toMatchObject({ sync: 'authentication' });
+  });
+
+  it.each([
+    { status: 200, reply: undefined },
+    { status: 500, reply: { status: 500, body: '{}' } },
+  ])(
+    'keeps a body authorization notice through an overlapping sync ($status) and recovers on the next load',
+    async ({ reply }) => {
+      expect.hasAssertions();
+      const gmail = createSyntheticGmail();
+      const id = gmail.deliver({
+        at: Date.UTC(2020, 0, 1),
+        content: { text: 'Refused' },
+      });
+      const inbox = createGmailInbox(gmail.native);
+      await inbox.load();
+      const history = holdNextHistory(gmail, reply);
+      const syncing = inbox.load();
+      await history.captured;
+      const replies = new Map([[id, { status: 401, body: '{}' }]]);
+      answerBodies(gmail, replies);
+      await inbox.readMessage(id);
+      const refused = inbox.getSnapshot();
+      expect(refused).toMatchObject({ sync: 'authentication' });
+      history.release();
+      await syncing;
+      // Older metadata results cannot dismiss the notice or retry without renewed permission.
+      expect(inbox.getSnapshot()).toStrictEqual(refused);
+      expect(inbox.messageBody(id)).toStrictEqual({
+        kind: 'unavailable',
+        reason: 'authentication',
+      });
+      replies.clear();
+      await inbox.load();
+      await inbox.readMessage(id);
+      expect(inbox.messageBody(id)).toMatchObject({ kind: 'ready' });
+      expect(inbox.getSnapshot()).toStrictEqual({
+        ...refused,
+        sync: 'current',
+      });
+    },
+  );
 
   it('stops prefetch when Gmail needs permission again and limits loads to two', async () => {
     expect.hasAssertions();
