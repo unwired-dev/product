@@ -175,6 +175,12 @@ Drop other attributes, including `on*`, `srcset`, background URLs and sender-sup
 application markers. Attribute values still require validation; an allowed name
 does not authorize an unsafe value or URL.
 
+Values containing an unresolved CSS function outside quoted strings, such as
+`calc()`, are removed. Plain `rgb`/`rgba` and `hsl`/`hsla` border colors and quoted
+font names containing parentheses remain allowed; nested functions are removed.
+Other color functions, including `hwb`, `lab`, `lch`, `oklab`, `oklch`, `color` and
+`color-mix`, are removed. Colored borders remain subject to the same spacing
+bounds, including when the color and width have no separating whitespace.
 Repeated declarations of the same property resolve importance before source
 order: the last accepted value wins at equal priority. Validate supported hiding,
 size and offset values before choosing that winner; invalid important values

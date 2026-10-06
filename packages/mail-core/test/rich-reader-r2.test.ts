@@ -1722,6 +1722,100 @@ describe('rich-reader review regressions', () => {
     ]);
   });
 
+  it('removes unresolved masking spacing through the public inbox store', async () => {
+    expect.hasAssertions();
+    const html =
+      '<a href="https://phish.invalid" style="white-space:nowrap">https://bank.invalid<span style="display:inline-block;padding-left:calc(10000px)"> masking</span></a>';
+    const gmail = createSyntheticGmail();
+    const id = gmail.deliver({ at: Date.UTC(2020, 0, 1) });
+    substitutePayload(gmail, id, textPart('text/html', html));
+    const inbox = createGmailInbox(gmail.native);
+    await inbox.load();
+    await inbox.readMessage(id);
+    expect(inbox.messageBody(id)).toMatchObject({
+      kind: 'ready',
+      presentation: {
+        rich: {
+          document: expect.not.stringContaining('calc(10000px)'),
+          links: [
+            {
+              href: 'https://phish.invalid',
+              text: 'https://bank.invalid masking',
+            },
+          ],
+        },
+      },
+    });
+  });
+
+  it('never emits spacing whose CSS function the sanitizer cannot bound', () => {
+    expect.hasAssertions();
+    const masks = [
+      'padding-left:calc(10000px)',
+      'display:inline-block;padding-left:calc(10000px)',
+      'display:inline-block;border-left:calc(10000px) solid',
+      'letter-spacing:max(0px, 10000px)',
+      'display:inline-block;line-height:clamp(10000px, 10000px, 10000px)',
+      'vertical-align:calc(-10000px)',
+      'display:block;text-indent:calc(10000px)',
+      'display:inline-block;border-left:rgb(20,30,40)10000px solid',
+      'display:inline-block;border-left:solid rgba(20,30,40,0.5)1e4px',
+      'display:inline-block;border-left:10000px hsl(200,30%,40%)solid',
+      'display:inline-block;padding-left:calc (10000px)',
+    ];
+    // The wrapping form is a native-layout negative control; nowrap makes the large pad mask.
+    const examples = masks.flatMap((style, index) =>
+      ['', 'white-space:nowrap'].map(
+        (wrapping) =>
+          `<p><a href="https://phish.invalid/${index}" style="${wrapping}">https://bank.invalid<span style="${style}"> masking</span></a></p>`,
+      ),
+    );
+    const result = sanitizeHtml(
+      [
+        ...examples,
+        '<p style="font-family:&quot;Foo (Bar)&quot;">Quoted family</p>',
+        '<p style="border:1px solid rgb(20, 30, 40)">Color border</p>',
+        '<p style="border-left:1px solid hsl(200, 30%, 40%)">Hue border</p>',
+        '<p style="border:calc(10000px) solid rgb(1, 2, 3)">Math border</p>',
+        '<p style="border:1px solid rgb(calc(10000), 0, 0)">Nested math</p>',
+        '<p style="border-left:rgb(20,30,40)1px solid">Adjacent color</p>',
+        '<p style="border:1px solid rgb (20,30,40)">Separated function</p>',
+        ...[
+          'hwb(200 30% 40%)',
+          'lab(30% 20 30)',
+          'lch(30% 20 30)',
+          'oklab(30% 0.2 0.3)',
+          'oklch(30% 0.2 30)',
+          'color(display-p3 0.2 0.3 0.4)',
+          'color-mix(in srgb, red, blue)',
+        ].map(
+          (color) => `<p style="border:1px solid ${color}">Other color</p>`,
+        ),
+      ].join(''),
+    );
+    expect(result.links.map(({ text }) => text)).toStrictEqual(
+      examples.map(() => 'https://bank.invalid masking'),
+    );
+    // Reader-generated sizing and plain border colors may use functions; sender geometry may not.
+    expect(result.document.split('<body>')[1]).not.toMatch(
+      /calc\s*\(|max\(|clamp\(|10000px|1e4px|hwb\(|lab\(|lch\(|color(?:-mix)?\(/u,
+    );
+    expect(
+      [...result.document.matchAll(/style="(?<value>[^"]*)"/gu)].map(
+        (match) => match[1],
+      ),
+    ).toStrictEqual(
+      expect.arrayContaining([
+        'font-family: &quot;Foo (Bar)&quot;',
+        'border: 1px solid rgb(20, 30, 40)',
+        'border-left: 1px solid hsl(200, 30%, 40%)',
+        'border-left: rgb(20,30,40)1px solid',
+        'white-space: nowrap',
+      ]),
+    );
+    expect(result.document).not.toContain('rgb (');
+  });
+
   it('never resolves images in cells of collapsed table columns', () => {
     expect.hasAssertions();
     const result = sanitizeHtml(

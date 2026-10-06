@@ -69,6 +69,20 @@ oversized line heights. These changes can reduce deliberate large layout gaps;
 the bound is a readability policy, not a geometric visibility classification.
 Keep ordinary small spacing and the existing margin applicability exceptions.
 
+Unresolved sender CSS functions are outside the retained style subset. Remove
+any declaration containing an unresolved function outside quoted strings, rather than
+guessing its geometry or omitting scroll-accessible text from inspection.
+Plain `rgb`/`rgba` and `hsl`/`hsla` color functions contain no geometry and remain
+allowed in border shorthands; nested functions and other unresolved functions
+are removed. This deliberately drops newer color functions such as `hwb`, `lab`,
+`lch`, `oklab`, `oklch`, `color` and `color-mix`; preserving those decorations is
+outside the conservative subset. The same literal border-width bound applies
+when a color function and dimension have no intervening whitespace, because the
+closing parenthesis separates CSS tokens. Quoted font names containing parentheses remain allowed, and
+reader-generated sizing functions remain outside the sender filter. The bound
+still does not classify all viewport visibility: meaningful content with retained
+`white-space:nowrap` and multiple ordinary small spacing values can overflow.
+
 The vertical-sizing correction also removes literal heights and minimum heights
 of at least 320 CSS pixels after unit resolution, with percentages resolved
 against the same 320-pixel basis. Reset large bottom margins of either sign,

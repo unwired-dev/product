@@ -253,7 +253,7 @@ const listTypes: Readonly<Record<string, RegExp>> = {
   ul: /^(?:disc|circle|square)$/iu,
 };
 
-// CSS properties kept from a sender's inline style; colors and backgrounds are the app's.
+// CSS properties kept from a sender's inline style; text colors and backgrounds are the app's.
 const properties = new Set([
   'border',
   'border-bottom',
@@ -657,6 +657,8 @@ const spacingProperties = new Set([
   'border-spacing',
 ]);
 
+const colorFunctions = /\b(?:rgba?|hsla?)\([^()]*\)/giu;
+
 const normalizeTextSpacing = (retained: Map<string, string>, font: number) => {
   if (displaces(retained.get('text-indent'), font)) {
     retained.set('text-indent', '0');
@@ -703,7 +705,11 @@ const normalizeSpacing = (
   for (const [name, value] of retained) {
     if (
       spacingProperties.has(name) &&
-      value.split(/\s+/u).some((token) => farRight(token, font))
+      // A closing color parenthesis separates CSS tokens even without whitespace.
+      value
+        .replaceAll(colorFunctions, ' ')
+        .split(/\s+/u)
+        .some((token) => farRight(token, font))
     ) {
       retained.delete(name);
     }
@@ -799,10 +805,20 @@ const keywordValues = new Map([
   ],
 ]);
 
+// A CSS function outside quoted strings, such as calc(), whose geometry the sanitizer cannot
+// bound, so such a value is never emitted. Plain color functions carry no geometry, so ordinary
+// borders such as `1px solid rgb(…)` stay; a function nested inside one still counts.
+const cssFunction = (value: string) =>
+  value
+    .replaceAll(/"[^"]*"|'[^']*'/gu, '')
+    .replaceAll(colorFunctions, ' ')
+    .includes('(');
+
 const keptDeclaration = ([name, value]: readonly [string, string]) =>
   properties.has(name) &&
   value !== '' &&
   !unsafeValue.test(value) &&
+  !cssFunction(value) &&
   validSize(name, value) &&
   (!offsetTokens.has(name) || cssOffset(name, value)) &&
   (keywordValues.get(name)?.test(value) ?? true);

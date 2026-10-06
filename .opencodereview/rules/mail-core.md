@@ -302,6 +302,15 @@ Namespace-import style, `JSON.parse`, `typeof … === 'object'` guards, untagged
   inner-table margins. Otherwise a visible deceptive label loses its caution.
 - `sanitizeHtml` normalizing only horizontal padding/borders or leaving oversized
   table border spacing, line heights or vertical alignment in emitted text styles.
+  Reject unresolved sender CSS functions outside quoted strings in `keptDeclaration`;
+  preserve plain `rgb`/`rgba` and `hsl`/`hsla` border colors, but reject nested functions.
+  Unresolved expressions such as `padding-left:calc(10000px)` with retained
+  `white-space:nowrap` can move the suffix beyond the reader; include the wrapping
+  form as a negative control, because it can wrap back into view. A color function
+  also separates CSS tokens without whitespace: `border-left:rgb(20,30,40)10000px solid`
+  must not evade `normalizeSpacing`'s width bound. Preserve ordinary adjacent-color
+  borders while rejecting oversized widths. Verify quote/escape handling and native
+  glyph positions rather than omitting scroll-accessible suffixes from inspection.
   Check all admitted physical longhands and shorthand ordering; bound oversized
   aligned text-box widths by their containing block while preserving ordinary
   desktop widths. Otherwise off-screen masking text remains in inspected labels
