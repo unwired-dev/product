@@ -69,6 +69,16 @@ oversized line heights. These changes can reduce deliberate large layout gaps;
 the bound is a readability policy, not a geometric visibility classification.
 Keep ordinary small spacing and the existing margin applicability exceptions.
 
+The vertical-sizing correction also removes literal heights and minimum heights
+of at least 320 CSS pixels after unit resolution, with percentages resolved
+against the same 320-pixel basis. Reset large bottom margins of either sign,
+retaining the inner-table margin exception. Remove oversized table-cell HTML
+height hints as well, so dropping CSS cannot reactivate a larger hint. Image
+HTML height hints remain subject to the reader's `height:auto`; removed CSS
+heights fall back to that rule. This can reduce deliberate hero-cell and banner
+heights or restore intrinsic proportions where a sender stretched an image.
+Hidden source-less image geometry follows these same emitted sizing bounds.
+
 Bound oversized literal widths and minimum widths by the containing block rather
 than discarding ordinary desktop email widths. An aligned inline-block can
 otherwise paint its inspected label entirely beyond the right edge. Preserve the

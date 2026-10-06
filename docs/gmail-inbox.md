@@ -181,8 +181,9 @@ external fonts, clipping and other unapproved declarations. Remove sender-define
 foreground and background colors, including legacy color/background attributes.
 The app controls both colors together so stripped backgrounds cannot hide text.
 Image width and height preserve literal lengths, percentages and supported sizing
-keywords, including `auto`. Unvalidated sizing functions and invalid values are
-discarded; discarded declarations do not override HTML tracking-pixel attributes.
+keywords, including `auto`, subject to the reader's sizing bounds below.
+Unvalidated sizing functions and invalid values are discarded; discarded
+declarations do not override HTML tracking-pixel attributes.
 The accepted sanitizer's fixed light canvas is valid in dark app chrome; matching
 rich content to a dark theme requires app-controlled readable foreground,
 background and link colors, never restored sender colors. Dark rich-content
@@ -213,9 +214,14 @@ edge or below the viewport. This includes vertical sides and table border spacin
 Large letter spacing and vertical alignment offsets are reset, and line heights
 of at least 320 CSS pixels become normal line spacing. Widths and minimum widths
 of at least 320 CSS pixels are bounded by their containing block, preserving
-ordinary desktop widths when room permits. This threshold is a readability
-policy; it can reduce intentional large gaps and does not establish complete
-geometric visibility. Padding, wrapped lines and bidi layout can leave text
+ordinary desktop widths when room permits. Heights and minimum heights of at
+least 320 CSS pixels are removed, including oversized table-cell height
+attributes, and large bottom margins reset, so a tall spacer cannot push the
+rest of a link's text below its visible label. Removed image heights fall back
+to automatic sizing. This threshold is a readability policy; it can reduce
+intentional large gaps, fixed-height banners and hero cells, and changes images
+whose oversized CSS height deliberately altered their proportions. It does not
+establish complete geometric visibility. Padding, wrapped lines and bidi layout can leave text
 visible despite such offsets; they never justify discarding a painted label.
 Small hanging indents and trailing left-to-right margins remain intact. Margin
 normalization follows emitted declaration order and physical shorthand sides;
@@ -226,7 +232,7 @@ size to a legible absolute or relative size, or declaring `visibility: visible`
 or `initial` under a hidden ancestor; their text, links and inline images then
 count as visible. Collapsed table rows, row groups and columns
 still remove everything in them, including when collapse is inherited. Hidden
-images retain declared dimensions without fetching their bytes or adding a
+images retain normalized dimensions without fetching their bytes or adding a
 readable placeholder. Restored visible images keep a visible placeholder when
 their bytes cannot be shown. Fully hidden links add no reader link control.
 Relative font sizes still scale a zero parent size to zero. Unsupported font-size

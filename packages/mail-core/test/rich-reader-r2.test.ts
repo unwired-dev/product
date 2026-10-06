@@ -834,6 +834,43 @@ describe('rich-reader review regressions', () => {
     expect(dynamic.links[0]?.text).toBe(address);
   });
 
+  it('normalizes tall spacers so text after them renders beside the link label', () => {
+    expect.hasAssertions();
+    const spacers = [
+      'display:block;height:10000px',
+      'display:block;min-height:10000px',
+      'display:block;margin-bottom:10000px',
+      'display:inline-block;height:625em',
+      'display:block;height:320px',
+      'display:block;min-height:100%',
+      'display:block;margin-bottom:-10000px',
+    ];
+    const cells = ['td', 'th'].map(
+      (tag) =>
+        `<a href="https://phish.invalid/cell">https://bank.invalid<table><tr><${tag} height="10000" style="height:320px"></${tag}></tr></table> masking</a>`,
+    );
+    const result = sanitizeHtml(
+      [
+        ...spacers.map(
+          (style, index) =>
+            `<p><a href="https://phish.invalid/${index}">https://bank.invalid<span style="${style}"></span> masking</a></p>`,
+        ),
+        ...cells,
+        '<p style="height:200px;min-height:120px;margin-bottom:40px">Sized control</p>',
+        '<table><tr><td height="200">Cell control</td></tr></table>',
+      ].join(''),
+    );
+    expect(result.links.map(({ text }) => text)).toStrictEqual(
+      [...spacers, ...cells].map(() => 'https://bank.invalid masking'),
+    );
+    expect(result.document).not.toMatch(/10000px|625em/u);
+    expect(result.document).not.toContain('height="10000"');
+    expect(result.document).toContain('<td height="200">Cell control</td>');
+    expect(result.document).toContain(
+      'height: 200px; min-height: 120px; margin-bottom: 40px',
+    );
+  });
+
   it('normalizes large spacing so masking text stays visible and inspected', () => {
     expect.hasAssertions();
     const masks = [

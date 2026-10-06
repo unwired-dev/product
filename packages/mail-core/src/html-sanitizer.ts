@@ -625,6 +625,13 @@ const normalizeSpacing = (
       retained.set(name, `min(100%, ${value})`);
     }
   }
+  // A tall box pushes the text after it below the viewport, away from the label it extends;
+  // without the height, images keep the reader's automatic height and their aspect ratio.
+  for (const name of ['height', 'min-height']) {
+    if (farRight(retained.get(name), font)) {
+      retained.delete(name);
+    }
+  }
   for (const [name, value] of retained) {
     if (
       spacingProperties.has(name) &&
@@ -646,7 +653,7 @@ const normalizeMargins = (
   }: Readonly<{ display: string; directional: boolean; font: number }>,
 ) => {
   const retained = normalizeSpacing(style.retained, font);
-  for (const edge of ['left', 'right', 'top']) {
+  for (const edge of ['left', 'right', 'top', 'bottom']) {
     if (
       displaces(margins.get(edge), font) &&
       (edge === 'right' ? directional : !/^table-(?!caption$)/u.test(display))
@@ -878,6 +885,14 @@ const keptAttribute =
       attribute === 'type' ? listTypes[tag] : attributeRules[attribute];
     if (allowed.has(attribute) && tableSpans.has(attribute)) {
       return ` ${attribute}="${span(value, attribute)}"`;
+    }
+    // Removing a CSS height must not reactivate an oversized table-cell height hint.
+    if (
+      attribute === 'height' &&
+      ['td', 'th'].includes(tag) &&
+      farRight(value.trim().replace(/^\d+$/u, '$&px'), bodyFontPixels)
+    ) {
+      return '';
     }
     return allowed.has(attribute) && rule?.test(value.trim()) === true
       ? ` ${attribute}="${escapeAttribute(value.trim())}"`

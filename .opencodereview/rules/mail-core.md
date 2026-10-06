@@ -211,6 +211,9 @@ Namespace-import style, `JSON.parse`, `typeof … === 'object'` guards, untagged
   desktop widths. Otherwise off-screen masking text remains in inspected labels
   and suppresses the visible address's mismatch caution. This bounded style policy
   is not a complete viewport visibility model; verify glyph layout in WebKit.
+  Normalize oversized heights/minimum heights and bottom margins too; when
+  removing CSS sizing, check whether an admitted HTML table-cell height hint
+  becomes active again. Preserve ordinary sizes and ignored inner-table margins.
 - `sanitizeHtml` dropping an entire `visibility:hidden` subtree before descendants
   can restore retained `visibility:visible` or `initial`. Carry inherited visibility through
   traversal and restore it for siblings; readable text, inspected link labels,
