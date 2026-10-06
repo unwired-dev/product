@@ -595,6 +595,84 @@ describe('the isolated rich reader', () => {
     ]);
   });
 
+  it('reads only the first part of signed and report containers', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    const logo = png(40, 30);
+    const ids = ['body', 'signature'];
+    const signed = gmail.deliver({
+      content: {
+        images: ids.map((contentId) => ({
+          contentId,
+          mimeType: 'image/png',
+          bytes: logo,
+        })),
+      },
+    });
+    const report = gmail.deliver({ content: { text: 'Report' } });
+    const leaf = (mimeType: string, content: string) => ({
+      mimeType,
+      body: {
+        size: Buffer.byteLength(content),
+        data: Buffer.from(content).toString('base64url'),
+      },
+    });
+    const image = (index: number) => ({
+      mimeType: 'image/png',
+      headers: [
+        { name: 'Content-ID', value: `<${ids[index]}>` },
+        { name: 'Content-Disposition', value: 'inline' },
+      ],
+      body: { size: logo.length, attachmentId: `image-${index}` },
+    });
+    replaceFullPayload(gmail, signed, {
+      mimeType: 'multipart/mixed',
+      parts: [
+        {
+          mimeType: 'multipart/signed',
+          parts: [
+            {
+              mimeType: 'multipart/related',
+              parts: [
+                leaf(
+                  'text/html',
+                  '<p>Signed</p><img src="cid:body" alt="body"><img src="cid:signature" alt="signature">',
+                ),
+                image(0),
+              ],
+            },
+            image(1),
+          ],
+        },
+      ],
+    });
+    replaceFullPayload(gmail, report, {
+      mimeType: 'multipart/report',
+      parts: [
+        {
+          mimeType: 'multipart/mixed',
+          parts: [leaf('text/plain', 'Delivery failed')],
+        },
+        leaf('text/html', '<p>Report payload</p>'),
+      ],
+    });
+    const inbox = createGmailInbox(gmail.native);
+    await inbox.load();
+    const { document } = rich(await read(inbox, signed));
+    expect(document).toContain('aria-label="signature"');
+    expect(document.match(/src="data:image\/png/gu)).toHaveLength(1);
+    expect(
+      gmail.requests
+        .map(({ path }) => path)
+        .filter((path) => path.includes('/attachments/')),
+    ).toStrictEqual([`messages/${signed}/attachments/image-0`]);
+    const opened = ready(await read(inbox, report));
+    expect(opened.presentation.rich).toBeUndefined();
+    expect(readable(opened).paragraphs).toStrictEqual([
+      [{ text: 'Delivery failed' }],
+    ]);
+  });
+
   it('keeps link labels with invalid offsets readable and inspectable', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail();
@@ -1164,6 +1242,51 @@ describe('link inspection', () => {
     ['https://example.invalid/a', 'Example', []],
     ['https://example.invalid/a', 'www.example.invalid', []],
     ['https://phish.invalid/a', 'https://bank.invalid', [linkWarnings.text]],
+    ['https://phish.invalid/a', 'https://192.0.2.7/login', [linkWarnings.text]],
+    ['https://phish.invalid/a', '192.0.2.7', [linkWarnings.text]],
+    ['https://phish.invalid/a', '[2001:db8::1]', [linkWarnings.text]],
+    ['https://phish.invalid/a', 'https://0x7f.1/', [linkWarnings.text]],
+    ['https://192.0.2.7/login', '192.0.2.7', [linkWarnings.numeric]],
+    ['https://example.invalid/a', 'Version 1.2', []],
+    ['https://example.invalid/a', '1.2.3', []],
+    ['https://example.invalid/a', '12:30', []],
+    ['https://example.invalid/a', '2026-10-06', []],
+    ['https://example.invalid/a', 'https://', []],
+    ['https://example.invalid/a', 'https://?query', []],
+    ['https://example.invalid/a', 'https://#fragment', []],
+    ['https://example.invalid/a', 'https://%65xample.invalid/', []],
+    ['https://a+b.invalid/', 'https://a%2Bb.invalid/', []],
+    ['https://0.0.0.0/', 'https://0x/', [linkWarnings.numeric]],
+    ['https://0.0.0.1/', 'https://0x.1/', [linkWarnings.numeric]],
+    ['https://127.0.0.1/', 'https://0x7f.1/', [linkWarnings.numeric]],
+    ['https://127.0.0.1/', 'https://0177.1/', [linkWarnings.numeric]],
+    ['https://127.0.0.1/', 'https://2130706433/', [linkWarnings.numeric]],
+    ['https://127.0.0.1/', 'https://127.1/', [linkWarnings.numeric]],
+    [
+      'https://[2001:db8::1]/',
+      '[2001:0db8:0:0:0:0:0:1]:443/path?query#fragment',
+      [linkWarnings.numeric],
+    ],
+    [
+      'https://[::ffff:c000:207]/',
+      'https://[::ffff:192.0.2.7]/',
+      [linkWarnings.numeric],
+    ],
+    [
+      'https://127.0.0.1/',
+      'https://0x7f.2/',
+      [linkWarnings.text, linkWarnings.numeric],
+    ],
+    [
+      'https://[2001:db8::1]/',
+      '[2001:db8::2]',
+      [linkWarnings.text, linkWarnings.numeric],
+    ],
+    [
+      'https://[2001:db8::1]/',
+      '[2001::db8::1]',
+      [linkWarnings.text, linkWarnings.numeric],
+    ],
     ['http://bank.invalid/', 'https://bank.invalid', [linkWarnings.insecure]],
     ['https://xn--bnk-sna.invalid/', 'Bank', [linkWarnings.international]],
     ['https://192.0.2.7/login', 'Login', [linkWarnings.numeric]],

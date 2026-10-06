@@ -105,7 +105,10 @@ Namespace-import style, `JSON.parse`, `typeof … === 'object'` guards, untagged
   and traverse only explicitly recognized multipart containers in both readable-body
   selection and CID scope discovery; a `multipart/*` prefix alone cannot admit
   extension, encrypted or attached-message containers. Preserve nested ordinary
-  bodies in supported signed/report containers. A contradictory container or an
+  bodies in supported signed/report containers, but descend only into their first
+  child for both readable body selection and CID discovery, even when nested in
+  mixed mail. Signature and report-data children cannot supply HTML or inline
+  downloads; a readable first child may itself be a container. A contradictory container or an
   image-shaped subtree must not expose attached descendants.
 - `sanitizeHtml` deciding renderability from text and CIDs alone while retaining
   blocked-image placeholders. Placeholder-only mail must keep its rich document
@@ -136,6 +139,14 @@ Namespace-import style, `JSON.parse`, `typeof … === 'object'` guards, untagged
   internationalized hosts and compact/hexadecimal IPv4 spellings are interpreted
   by the platform, so inspect their decoded signal form while retaining the exact
   original destination for handoff; otherwise required cautions disappear.
+- `inspectLink` excluding numeric displayed addresses from host comparison or
+  comparing equivalent percent-encoded, compact IPv4 or IPv6 host spellings as
+  different sites. Explicit web schemes, bare dotted-quad IPv4 and bracketed IPv6
+  labels must participate alongside bare domains, with a non-empty host and
+  normalized comparison key, while preserving the exact destination and numeric
+  caution. Ordinary versions, times and dates must not become displayed addresses;
+  otherwise deceptive labels lose their caution or equivalent addresses gain a
+  false mismatch warning.
 - `sanitizeHtml` omitting visible image descriptions from their enclosing link's
   inspected text. Include descriptions for placeholders and admitted CID images,
   normalize link whitespace and respect unreadable contexts; otherwise image-only

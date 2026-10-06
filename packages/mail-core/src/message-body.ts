@@ -210,6 +210,19 @@ const recognizedContainers = new Set([
   'multipart/report',
 ]);
 
+// Children that can carry the body or its inline images. Only the first part of a signed or
+// report container is message content; later parts are its signature or report data.
+const firstPartOnly = new Set(['multipart/signed', 'multipart/report']);
+
+const contentChildren = (part: GmailPart) => {
+  const type = mimeType(part);
+  if (!recognizedContainers.has(type)) {
+    return [];
+  }
+  const children = part.parts ?? [];
+  return firstPartOnly.has(type) ? children.slice(0, 1) : children;
+};
+
 // Readable leaves in document order, each with the multipart scopes enclosing it.
 const readableLeaves = (
   part: GmailPart,
@@ -223,11 +236,9 @@ const readableLeaves = (
   if (!mimeType(part).startsWith('multipart/')) {
     return [{ part, ancestors }];
   }
-  return recognizedContainers.has(mimeType(part))
-    ? (part.parts ?? []).flatMap((child) =>
-        readableLeaves(child, [...ancestors, part]),
-      )
-    : [];
+  return contentChildren(part).flatMap((child) =>
+    readableLeaves(child, [...ancestors, part]),
+  );
 };
 
 // The message's readable alternatives: HTML and plain text outside attachments and attached
@@ -300,10 +311,8 @@ const imagesUnder = (
       }
       collectImage(part, found);
     }
-    if (recognizedContainers.has(type)) {
-      for (const child of children) {
-        visit(child, type);
-      }
+    for (const child of contentChildren(part)) {
+      visit(child, type);
     }
   };
   visit(scope, '');

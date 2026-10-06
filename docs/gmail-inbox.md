@@ -76,7 +76,11 @@ must have a recognized inline token; empty, malformed, attachment and extension
 dispositions are excluded from body selection and prefetch. Absent dispositions
 remain eligible. Attached files and `message/rfc822` containers are excluded from
 body selection. Conflicting repeated Content-Type tokens exclude a part from body
-selection and prefetch. A separately served body part is shown and saved only after all bytes
+selection and prefetch. Signed and report containers contribute only their first
+child to the readable body and inline-image resolution; signature and report-data
+children never supply either. The first child may itself contain readable
+alternatives and related images, including when the container is nested in mixed
+mail. A separately served body part is shown and saved only after all bytes
 arrive and the decoded byte count matches Gmail's declared size. Interrupted or
 incomplete downloads publish no partial cache entry. Retained bodies include
 readable text and the original decoded HTML alternative; sanitization changes
@@ -210,6 +214,12 @@ with the destination and checks scheme mismatch, internationalized or numeric
 hosts, embedded credentials, bidirectional controls and cross-site redirect-query
 signals. A flagged link shows concise reasons and offers Cancel, Copy Link and
 Proceed. Copy and Proceed recheck current access before revealing the destination.
+Displayed web addresses with an explicit HTTP or HTTPS scheme, bare domains,
+dotted-quad IPv4 addresses and bracketed IPv6 addresses participate in the host
+comparison, including an optional port, path, query or fragment. Equivalent
+percent-encoded host spellings and IPv4/IPv6 spellings compare as the same host;
+the exact destination remains unchanged. Ordinary version, time and date labels
+and displayed addresses without a host do not produce an address-mismatch caution.
 An unflagged link is never labelled safe. The exact destination goes to the
 system; its subsequent redirects are outside this inspection.
 

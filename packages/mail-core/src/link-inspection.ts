@@ -41,20 +41,106 @@ const parse = (address: string): ParsedAddress | undefined => {
 
 const site = (host: string) => host.replace(/^www\./u, '');
 
+// Link text read as an address: any web address with its scheme, or a bare domain or IP address.
 const looksLikeAddress =
-  /^\s*(?:https?:\/\/)?(?:[\p{L}\p{N}-]+\.)+[\p{L}]{2,}(?:[/:?#]\S*)?\s*$/iu;
+  /^\s*(?:https?:\/\/\S+|(?:(?:[\p{L}\p{N}-]+\.)+[\p{L}]{2,}|\d{1,3}(?:\.\d{1,3}){3}|\[[\da-f:.]+\])(?:[/:?#]\S*)?)\s*$/iu;
 
 const numericHost =
-  /^(?:\[[\da-f:.]+\]|(?:0x[\da-f]+|\d+)(?:\.(?:0x[\da-f]+|\d+)){0,3})$/iu;
+  /^(?:\[[\da-f:.]+\]|(?:0x[\da-f]*|\d+)(?:\.(?:0x[\da-f]*|\d+)){0,3})$/iu;
 
 const directionControls = /[‎‏‪-‮⁦-⁩]/u;
 
-const decoded = (value: string) => {
+const decoded = (value: string, query = false) => {
   try {
-    return decodeURIComponent(value.replaceAll('+', ' '));
+    return decodeURIComponent(query ? value.replaceAll('+', ' ') : value);
   } catch {
     return value;
   }
+};
+
+// Comparison keys only: React Native's URL implementation does not normalize IP hosts.
+const ipv4Key = (host: string) => {
+  if (!numericHost.test(host) || host.startsWith('[')) {
+    return undefined;
+  }
+  const words = host.split('.').map((word) => {
+    let radix = 10;
+    if (/^0x/iu.test(word)) {
+      radix = 16;
+    } else if (/^0\d/u.test(word)) {
+      radix = 8;
+    }
+    const digits = radix === 16 ? word.slice(2) : word;
+    if (radix === 8 && /[89]/u.test(digits)) {
+      return Number.NaN;
+    }
+    return digits === '' ? 0 : Number.parseInt(digits, radix);
+  });
+  const last = words.pop();
+  if (
+    last === undefined ||
+    !Number.isFinite(last) ||
+    last >= 256 ** (4 - words.length) ||
+    words.some((word) => !Number.isFinite(word) || word > 255)
+  ) {
+    return undefined;
+  }
+  return words.reduce(
+    (key, word, index) => key + word * 256 ** (3 - index),
+    last,
+  );
+};
+
+// An embedded IPv4 tail uses four decimal octets, without compact or radix forms.
+const ipv6HexTail = (content: string) => {
+  if (content.includes('.')) {
+    const at = content.lastIndexOf(':');
+    const octets = content.slice(at + 1).split('.');
+    if (
+      octets.length !== 4 ||
+      octets.some(
+        (word) => !/^(?:0|[1-9]\d{0,2})$/u.test(word) || Number(word) > 255,
+      )
+    ) {
+      return undefined;
+    }
+    const [a = 0, b = 0, c = 0, d = 0] = octets.map(Number);
+    return `${content.slice(0, at + 1)}${(a * 256 + b).toString(16)}:${(c * 256 + d).toString(16)}`;
+  }
+  return content;
+};
+
+const ipv6Key = (host: string) => {
+  if (!/^\[[\da-f:.]+\]$/iu.test(host)) {
+    return undefined;
+  }
+  const content = ipv6HexTail(host.slice(1, -1));
+  if (content === undefined) {
+    return undefined;
+  }
+  const halves = content
+    .split('::')
+    .map((half) => (half === '' ? [] : half.split(':')));
+  if (halves.length > 2) {
+    return undefined;
+  }
+  const [left = [], right = []] = halves;
+  const count = left.length + right.length;
+  if (
+    (halves.length === 1 ? count !== 8 : count >= 8) ||
+    [...left, ...right].some((word) => !/^[\da-f]{1,4}$/iu.test(word))
+  ) {
+    return undefined;
+  }
+  return [...left, ...Array.from({ length: 8 - count }, () => '0'), ...right]
+    .map((word) => Number.parseInt(word, 16).toString(16))
+    .join(':');
+};
+
+const comparisonHost = (host: string) => {
+  const normalized = decoded(host).toLowerCase().replace(/\.$/u, '');
+  const ip = ipv4Key(normalized) ?? ipv6Key(normalized);
+  return ip === undefined ? site(normalized) : `ip:${ip}`;
 };
 
 // Another site named in the query string, as redirect links do.
@@ -62,7 +148,7 @@ const forwardsElsewhere = (address: ParsedAddress) =>
   address.query
     .slice(1)
     .split('&')
-    .map((pair) => decoded(pair.slice(pair.indexOf('=') + 1)))
+    .map((pair) => decoded(pair.slice(pair.indexOf('=') + 1), true))
     .some((value) => {
       const target = parse(value);
       return (
@@ -99,7 +185,11 @@ export function inspectLink(
   const shown = looksLikeAddress.test(text)
     ? parse(/^\s*https?:\/\//iu.test(text) ? text : `https://${text.trim()}`)
     : undefined;
-  if (shown !== undefined && site(shown.host) !== site(address.host)) {
+  if (
+    shown !== undefined &&
+    shown.host !== '' &&
+    comparisonHost(shown.host) !== comparisonHost(address.host)
+  ) {
     reasons.push(linkWarnings.text);
   }
   if (/^\s*https:\/\//iu.test(text) && address.scheme === 'http') {
