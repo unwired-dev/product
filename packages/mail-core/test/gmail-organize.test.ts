@@ -73,6 +73,30 @@ const until = (
   return reached.promise;
 };
 
+// The first message metadata read after `interruptRead()` fails as an interrupted connection.
+const interruptingNextRead = (
+  native: ReturnType<typeof createSyntheticGmail>['native'],
+) => {
+  let interrupt = false;
+  return {
+    interruptRead: () => {
+      interrupt = true;
+    },
+    native: {
+      ...native,
+      gmailRequest: async (...args: Parameters<typeof native.gmailRequest>) => {
+        if (interrupt && args[0].startsWith('messages/')) {
+          interrupt = false;
+          throw Object.assign(new Error('Synthetic interruption'), {
+            code: 'unavailable',
+          });
+        }
+        return native.gmailRequest(...args);
+      },
+    },
+  };
+};
+
 // One change saved on this device and none still saving.
 const oneDurableChange = (state: GmailInboxState) =>
   state.kind === 'ready' && state.pending === 1 && state.saving === 0;
@@ -799,6 +823,156 @@ describe('organizing Gmail mail', () => {
     await relaunched.load();
     expect(relaunched.getSnapshot()).toStrictEqual({ kind: 'loading' });
     expect(removed.mock.calls).toStrictEqual([[], []]);
+  });
+
+  it('settles a refusal saved before an interrupted label read without sending it again', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ messages: 1 });
+    const label = gmail.createLabel('Receipts');
+    const { native, interruptRead } = interruptingNextRead(gmail.native);
+    const inbox = createGmailInbox(native);
+    await inbox.load();
+    const target = required(
+      ready(inbox.getSnapshot()).messages[0],
+      'the message',
+    );
+    gmail.deleteLabel(label);
+    // Gmail refuses the label for good, then the read of current labels is interrupted.
+    interruptRead();
+    await inbox.organize(target, gmailAction.label(label));
+    expect(ready(inbox.getSnapshot()).sync).toBe('retry');
+    // The next synchronization settles the saved refusal from Gmail's labels without a new write,
+    // then reaches the later star, whose first attempt is interrupted too.
+    gmail.failModify({ code: 'unavailable' });
+    await inbox.organize(message(inbox, target.id), gmailAction.star);
+    expect(
+      gmail.modifies.filter(({ add }) => add.includes(label)),
+    ).toHaveLength(1);
+    expect(ready(inbox.getSnapshot())).toMatchObject({
+      pending: 1,
+      notice: { kind: 'rejected', action: { kind: 'label' } },
+    });
+    expect(message(inbox, target.id).labels).not.toContain(label);
+    // A relaunch sends only the star.
+    const relaunched = createGmailInbox(gmail.native);
+    await relaunched.load();
+    expect(ready(relaunched.getSnapshot()).pending).toBe(0);
+    expect(gmail.labelsOf(target.id)).toContain('STARRED');
+    expect(
+      gmail.modifies.filter(({ add }) => add.includes(label)),
+    ).toHaveLength(1);
+  });
+
+  it.each(['read', 'commit'] as const)(
+    'does not carry a late refusal %s into another mailbox after forgetting its owner',
+    async (held) => {
+      expect.hasAssertions();
+      const gmail = createSyntheticGmail();
+      gmail.deliver({ subject: 'Private first-owner subject' });
+      const label = gmail.createLabel('Receipts');
+      const { native, interruptRead } = interruptingNextRead(gmail.native);
+      let holdSettlement = false;
+      const entered = Promise.withResolvers<undefined>();
+      const released = Promise.withResolvers<undefined>();
+      const inbox = createGmailInbox({
+        ...native,
+        gmailRequest: async (...args) => {
+          // oxlint-disable-next-line vitest/no-conditional-in-test -- Hold one old owner's already-completed read across mailbox reselection.
+          if (
+            // oxlint-disable-next-line vitest/no-conditional-in-test -- The controlled native-boundary hold applies to only the selected read case.
+            holdSettlement &&
+            held === 'read' &&
+            args[0].startsWith('messages/')
+          ) {
+            holdSettlement = false;
+            const reply = await native.gmailRequest(...args);
+            entered.resolve(undefined);
+            await released.promise;
+            return reply;
+          }
+          return native.gmailRequest(...args);
+        },
+        commitMailbox: async (...args) => {
+          const reply = await native.commitMailbox(...args);
+          // oxlint-disable-next-line vitest/no-conditional-in-test -- Hold the old owner's successful settlement reply across mailbox reselection.
+          if (holdSettlement && held === 'commit') {
+            holdSettlement = false;
+            entered.resolve(undefined);
+            await released.promise;
+          }
+          return reply;
+        },
+      });
+      await inbox.load();
+      const target = required(
+        ready(inbox.getSnapshot()).messages[0],
+        'the message',
+      );
+      gmail.deleteLabel(label);
+      interruptRead();
+      await inbox.organize(target, gmailAction.label(label));
+      expect(ready(inbox.getSnapshot()).sync).toBe('retry');
+      holdSettlement = true;
+      const settling = inbox.load();
+      await entered.promise;
+      inbox.forget();
+      gmail.reselect('second-owner@example.invalid');
+      gmail.deliver({ subject: 'Second owner message' });
+      const reopened = inbox.load();
+      released.resolve(undefined);
+      await Promise.all([settling, reopened]);
+      expect(ready(inbox.getSnapshot())).toMatchObject({
+        address: 'second-owner@example.invalid',
+        pending: 0,
+        messages: [{ subject: 'Second owner message' }],
+      });
+      expect(ready(inbox.getSnapshot()).notice).toBeUndefined();
+      expect(
+        gmail.modifies.filter(({ add }) => add.includes(label)),
+      ).toHaveLength(1);
+    },
+  );
+
+  it('keeps refusal feedback when durable settlement loses its reply', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ messages: 1 });
+    const label = gmail.createLabel('Receipts');
+    const { native, interruptRead } = interruptingNextRead(gmail.native);
+    let loseReply = false;
+    const inbox = createGmailInbox({
+      ...native,
+      commitMailbox: async (...args) => {
+        const reply = await native.commitMailbox(...args);
+        // oxlint-disable-next-line vitest/no-conditional-in-test -- Interrupt one successful settlement reply after its durable native write.
+        if (loseReply) {
+          loseReply = false;
+          throw Object.assign(new Error('Synthetic interruption'), {
+            code: 'unavailable',
+          });
+        }
+        return reply;
+      },
+    });
+    await inbox.load();
+    const target = required(
+      ready(inbox.getSnapshot()).messages[0],
+      'the message',
+    );
+    gmail.deleteLabel(label);
+    interruptRead();
+    await inbox.organize(target, gmailAction.label(label));
+    expect(ready(inbox.getSnapshot()).sync).toBe('retry');
+    loseReply = true;
+    await inbox.load();
+    expect(inbox.getSnapshot().kind).toBe('failed');
+    await inbox.load();
+    expect(ready(inbox.getSnapshot())).toMatchObject({
+      pending: 0,
+      notice: { kind: 'rejected', action: { kind: 'label' } },
+    });
+    expect(
+      gmail.modifies.filter(({ add }) => add.includes(label)),
+    ).toHaveLength(1);
   });
 
   it('ignores a late durable save reply after another owner has opened the Inbox', async () => {

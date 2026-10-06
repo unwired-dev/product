@@ -137,8 +137,18 @@ restoration, stable intake IDs, immutable dispatch records and user labels. Each
 attempt is durably recorded before dispatch. Lost intake replies deduplicate by
 ID. Reconciliation reads current labels before repeating an attempted action;
 Gmail's add/remove label operation is idempotent and an observed matching state
-confirms without another write. Permanent refusal refreshes provider-derived
-metadata before later optimistic actions are projected. Automatic activations
+confirms without another write. Permanent refusal is committed as an optional
+terminal marker in the version-1 pending action before reading current labels.
+An interrupted refresh or relaunch reconciles that marker only by restoring
+provider-derived state and announcing rejection, without dispatching again;
+Retry preserves the marker and reconciliation precedes the attempt-budget gate.
+Both marker and settlement commits retain concurrent intake through the existing
+base-ID rebase. Rejection feedback checks the initiating ownership epoch after
+the label read and precedes settlement commitment, so an interrupted durable reply
+does not lose the outcome. `forget` clears it during a pending commit; no late
+completion restores the former owner's message in a notice.
+Permanent refusal refreshes provider-derived metadata before later
+optimistic actions are projected. Automatic activations
 respect a five-attempt budget and jittered exponential delay; a blocked head
 preserves later actions until explicit retry or authoritative discard.
 

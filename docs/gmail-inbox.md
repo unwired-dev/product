@@ -105,7 +105,9 @@ interrupt that check: the synchronization keeps the newly saved changes and goes
   intents continue.
 - **Refused:** when the message or label no longer exists in Gmail, the change is
   dropped, the Inbox shows the message as Gmail has it, and an alert names the
-  refused change. Later changes still apply.
+  refused change. Later changes still apply. The refusal is saved before Gmail's
+  current labels are read, so an interrupted read settles it later without sending
+  the refused change again.
 - **Changed in Gmail:** label changes made elsewhere arrive through Gmail history.
   A waiting change shows on top of them until Gmail confirms it; Gmail keeps labels
   the change does not name.

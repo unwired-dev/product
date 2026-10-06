@@ -87,6 +87,8 @@ const PendingActionSchema = Schema.Struct({
   retryFrom: Schema.optionalKey(
     Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
   ),
+  // Gmail refused this change for good; only its current labels remain to be read.
+  refused: Schema.optionalKey(Schema.Literal(true)),
   action: GmailActionSchema,
   message: GmailMessageSchema,
 });
@@ -1131,6 +1133,28 @@ export function createGmailInbox(
     return Option.some(modified.labelIds ?? []);
   });
 
+  // A refused change leaves the queue once Gmail's current labels for its message are read.
+  const settleRefusal = Effect.fnUntraced(function* (
+    current: Readonly<{ cache: Cache; document: MailboxDocument }>,
+    head: PendingAction,
+  ) {
+    const startedFor = ownership;
+    const observed = yield* readLabels(current.cache, head.message);
+    const next = settleObserved(
+      current.document,
+      head,
+      Option.getOrUndefined(observed),
+    );
+    // Keep rejection feedback if settlement loses its reply; a late read cannot restore the
+    // previous owner's message, and forget() clears this notice while a commit is pending.
+    if (startedFor === ownership && !forgotten) {
+      notice = { kind: 'rejected', ...head };
+    }
+    const saved = yield* commitOver(current.cache, current.document, next);
+    yield* ready(saved.cache, saved.document, sync);
+    return saved;
+  });
+
   const dispatch = Effect.fnUntraced(function* (
     current: { readonly cache: Cache; readonly document: MailboxDocument },
     head: PendingAction,
@@ -1169,16 +1193,18 @@ export function createGmailInbox(
     );
     yield* ready(prepared.cache, prepared.document, sync);
     const outcome = yield* modify(prepared.cache, attempted);
-    let next = settled(prepared.document, Option.getOrUndefined(outcome));
     if (Option.isNone(outcome)) {
-      // Refusal is not authoritative metadata: keep intent until current labels are read.
-      next = settleObserved(
-        prepared.document,
-        attempted,
-        Option.getOrUndefined(yield* readLabels(prepared.cache, head.message)),
-      );
-      notice = { kind: 'rejected', ...head };
+      // Refusal is not authoritative metadata: save it first, so a label read that is interrupted
+      // settles the refusal later instead of sending the refused change again.
+      const refusedHead = { ...attempted, refused: true } as const;
+      const refused = yield* commitOver(prepared.cache, prepared.document, {
+        ...prepared.document,
+        pending: [refusedHead, ...(prepared.document.pending ?? []).slice(1)],
+      });
+      yield* ready(refused.cache, refused.document, sync);
+      return yield* settleRefusal(refused, refusedHead);
     }
+    const next = settled(prepared.document, outcome.value);
     const done = yield* commitOver(prepared.cache, prepared.document, next);
     yield* ready(done.cache, done.document, sync);
     return done;
@@ -1190,6 +1216,9 @@ export function createGmailInbox(
     current: Readonly<{ cache: Cache; document: MailboxDocument }>,
     head: PendingAction,
   ) {
+    if (head.refused === true) {
+      return Option.some(yield* settleRefusal(current, head));
+    }
     if ((head.attempts?.length ?? 0) === 0) {
       return Option.none<{ cache: Cache; document: MailboxDocument }>();
     }
