@@ -13,18 +13,25 @@ export interface ReadableBody {
   readonly hidesImages: boolean;
 }
 
+// The most links one message offers. Each becomes a native control, so later addresses stay
+// readable text that does not open.
+export const messageLinkLimit = 200;
+
 // Format and combining characters, and spacing, never make a body readable on their own.
 const invisible = /^[\s\p{Cf}\p{Mn}\p{Z}]*$/u;
 
+export const hasVisibleText = (text: string) => !invisible.test(text);
+
 export const hasReadableText = (body: ReadableBody) =>
   body.paragraphs.some((spans) =>
-    spans.some(({ text }) => !invisible.test(text)),
+    spans.some(({ text }) => hasVisibleText(text)),
   );
 
 // Collects spans into paragraphs, merging neighbours that share a link.
 export function paragraphBuilder() {
   const paragraphs: BodySpan[][] = [];
   let spans: BodySpan[] = [];
+  let links = 0;
   const add = (text: string, href: string | undefined) => {
     const last = spans.at(-1);
     if (last !== undefined && last.href === href) {
@@ -49,7 +56,20 @@ export function paragraphBuilder() {
       trimmed[trimmed.length - 1] = { ...last, text: last.text.trimEnd() };
     }
     if (trimmed.some((span) => span.text.trim() !== '')) {
-      paragraphs.push(trimmed);
+      // One HTML anchor can cross many paragraphs. Hosts offer a control for each linked
+      // span, so count finalized fallback spans independently of collected rich anchors.
+      paragraphs.push(
+        trimmed.map((span) => {
+          if (span.href === undefined || !hasVisibleText(span.text)) {
+            return { text: span.text };
+          }
+          if (links >= messageLinkLimit) {
+            return { text: span.text };
+          }
+          links += 1;
+          return span;
+        }),
+      );
     }
     spans = [];
   };
@@ -61,6 +81,7 @@ const link = /(?:https?:\/\/|mailto:|tel:)[^\s<>"]+/giu;
 // Plain text keeps its line breaks; blank lines separate paragraphs and addresses become links.
 export function readableText(content: string): ReadableBody {
   const builder = paragraphBuilder();
+  let links = 0;
   for (const paragraph of content
     .replaceAll(/\r\n?/gu, '\n')
     .split(/\n\s*\n/u)) {
@@ -69,7 +90,10 @@ export function readableText(content: string): ReadableBody {
       // Sentence punctuation after an address is not part of it.
       const href = match[0].replace(/[.,;:!?)\]'"]+$/u, '');
       builder.add(paragraph.slice(start, match.index), undefined);
-      builder.add(href, vettedHref(href));
+      const destination =
+        links < messageLinkLimit ? vettedHref(href) : undefined;
+      links += destination === undefined ? 0 : 1;
+      builder.add(href, destination);
       start = match.index + href.length;
     }
     builder.add(paragraph.slice(start), undefined);

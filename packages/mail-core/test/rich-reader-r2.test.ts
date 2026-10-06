@@ -4,6 +4,7 @@ import { createGmailInbox } from '../src/gmail-inbox.ts';
 import { sanitizeHtml } from '../src/html-sanitizer.ts';
 import { inspectLink, linkWarnings } from '../src/link-inspection.ts';
 import { contentIdsOf, presentation } from '../src/message-body.ts';
+import { messageLinkLimit, readableText } from '../src/readable-text.ts';
 import { createSyntheticGmail } from '../src/testing/gmail-mailbox.ts';
 
 const textPart = (mimeType: string, content: string): GmailPart => ({
@@ -528,10 +529,11 @@ describe('rich-reader review regressions', () => {
     const result = sanitizeHtml(
       '<p>Visible</p><hr style="visibility:hidden"><div style="visibility:hidden"><hr style="visibility:visible"><br style="visibility:visible"></div>',
     );
-    expect(result.document).toContain('<hr style="visibility: hidden">');
+    expect(result.document).toContain('<hr style="visibility: hidden;');
     expect(result.document).toContain(
-      '<div style="visibility: hidden"><hr style="visibility: visible"><br style="visibility: visible"></div>',
+      '<div style="visibility: hidden"><hr style="visibility: visible;',
     );
+    expect(result.document).toContain('<br style="visibility: visible"></div>');
   });
 
   it('retains visibility geometry and resets while omitting hidden link controls', () => {
@@ -999,6 +1001,294 @@ describe('rich-reader review regressions', () => {
     expect(result.contentIds).toStrictEqual(ids.slice(0, 20));
     expect(result.contentIdOccurrences).toHaveLength(5001);
     expect(result.document.match(/class="blocked-image"/gu)).toHaveLength(5001);
+  });
+
+  it('offers at most the message link limit as links, keeping later ones as text', () => {
+    expect.hasAssertions();
+    const anchors = Array.from(
+      { length: messageLinkLimit + 50 },
+      (_, index) =>
+        `<p><a href="https://example.invalid/${index}">Link ${index}</a></p>`,
+    );
+    const result = sanitizeHtml(anchors.join(''));
+    expect(result.document.match(/about:blank#unwired-link-/gu)).toHaveLength(
+      messageLinkLimit,
+    );
+    const spans = result.readable.paragraphs.flat();
+    const plain = readableText(
+      Array.from(
+        { length: messageLinkLimit + 50 },
+        (_, index) => `https://example.invalid/${index}`,
+      ).join('\n\n'),
+    );
+    const offered = presentation({
+      version: 2,
+      id: 'bounded-links',
+      html: anchors.join(''),
+    });
+    expect({
+      richLinks: result.links.length,
+      readableLinks: spans.filter(({ href }) => href !== undefined).length,
+      lastSpan: spans.at(-1),
+      plainLinks: plain.paragraphs
+        .flat()
+        .filter(({ href }) => href !== undefined).length,
+      offeredLinks: offered.rich?.links.length,
+      offeredReadableLinks: offered.readable.paragraphs
+        .flat()
+        .filter(({ href }) => href !== undefined).length,
+      offeredLastSpan: offered.readable.paragraphs.flat().at(-1),
+    }).toStrictEqual({
+      richLinks: messageLinkLimit,
+      readableLinks: messageLinkLimit,
+      lastSpan: { text: 'Link 249' },
+      plainLinks: messageLinkLimit,
+      offeredLinks: messageLinkLimit,
+      offeredReadableLinks: messageLinkLimit,
+      offeredLastSpan: { text: 'Link 249' },
+    });
+  });
+
+  it('caps fallback link controls even when one anchor crosses many paragraphs', () => {
+    expect.hasAssertions();
+    const offered = presentation({
+      version: 2,
+      id: 'split-link',
+      html: `<a href="https://example.invalid">${'<p>Label</p>'.repeat(500)}</a>`,
+    });
+    expect(offered.rich?.links).toHaveLength(1);
+    const spans = offered.readable.paragraphs.flat();
+    expect(spans.filter(({ href }) => href !== undefined)).toHaveLength(
+      messageLinkLimit,
+    );
+    expect(spans).toHaveLength(500);
+    expect(spans.at(-1)).toStrictEqual({ text: 'Label' });
+  });
+
+  it('counts only visible anchors and readable spans at the link limit', () => {
+    expect.hasAssertions();
+    const result = sanitizeHtml(
+      [
+        '<a href="https://hidden.invalid" style="visibility:hidden">Hidden</a>'.repeat(
+          250,
+        ),
+        '<a href="https://visible.invalid" style="visibility:hidden"><span style="visibility:visible">Restored</span></a>',
+        Array.from(
+          { length: 200 },
+          (_, index) =>
+            `<a href="https://example.invalid/${index}">Visible ${index}</a>`,
+        ).join(''),
+      ].join(''),
+    );
+    expect(result.links).toHaveLength(messageLinkLimit);
+    expect(result.links.at(0)).toStrictEqual({
+      href: 'https://visible.invalid',
+      text: 'Restored',
+    });
+    expect(result.links.at(-1)?.text).toBe('Visible 198');
+    expect(
+      result.readable.paragraphs
+        .flat()
+        .filter(({ href }) => href !== undefined),
+    ).toHaveLength(messageLinkLimit);
+    expect(result.readable.paragraphs.flat().at(-1)).toStrictEqual({
+      text: 'Visible 199',
+    });
+  });
+
+  it('keeps only a few consecutive breaks so text after them stays beside the link label', () => {
+    expect.hasAssertions();
+    const result = sanitizeHtml(
+      [
+        `<div><a href="https://phish.invalid/0">https://bank.invalid${'<br>'.repeat(300)}not a URL</a></div>`,
+        `<div><a href="https://phish.invalid/1">https://bank.invalid${'<br><hr>'.repeat(150)}not a URL</a></div>`,
+        '<p>One<br><br>Two</p>',
+      ].join(''),
+    );
+    expect(result.document.match(/<br\b|<hr\b/gu)).toHaveLength(4 + 4 + 2);
+    expect(result.links.map(({ text }) => text)).toStrictEqual([
+      'https://bank.invalidnot a URL',
+      'https://bank.invalidnot a URL',
+    ]);
+  });
+
+  it('bounds linked spacer runs across hidden text, Unicode and preformatted newlines', () => {
+    expect.hasAssertions();
+    for (const gap of [
+      '<br>\u200B'.repeat(300),
+      '<br><span style="visibility:hidden">Hidden</span>'.repeat(300),
+      `<pre>${'\n'.repeat(300)}</pre>`,
+      `<span style="white-space:pre">${'\n'.repeat(300)}</span>`,
+    ]) {
+      const result = sanitizeHtml(
+        `<a href="https://phish.invalid">https://bank.invalid${gap}not a URL</a>`,
+      );
+      const body = result.document.slice(
+        result.document.indexOf('<body>') + 6,
+        result.document.lastIndexOf('</body>'),
+      );
+      expect(body.match(/<br\b|<hr\b|\n/gu)).toHaveLength(4);
+      expect(result.links).toHaveLength(1);
+      expect(result.links[0]?.href).toBe('https://phish.invalid');
+      expect(result.links[0]?.text.replaceAll(/[\s\p{Cf}]/gu, '')).toBe(
+        'https://bank.invalidnotaURL',
+      );
+      expect(
+        result.readable.paragraphs
+          .flat()
+          .map(({ text }) => text)
+          .join(''),
+      ).toContain('not a URL');
+    }
+    const ordinary = sanitizeHtml(
+      '<pre>One\n\nTwo</pre><span style="white-space:pre">Three\n\nFour</span>',
+    );
+    expect(ordinary.document).toContain('One\n\nTwo');
+    expect(ordinary.document).toContain('Three\n\nFour');
+    const meaningful = sanitizeHtml(
+      `<a href="https://example.invalid">One${'<br>'.repeat(4)}Two${'<br>'.repeat(4)}Three</a>`,
+    );
+    expect(meaningful.document.match(/<br>/gu)).toHaveLength(8);
+  });
+
+  it('removes empty linked spacer boxes while retaining styled visible descendants', () => {
+    expect.hasAssertions();
+    for (const gap of [
+      '<p></p>'.repeat(300),
+      '<div style="padding:20px"></div>'.repeat(100),
+      '<div style="height:200px"></div>'.repeat(100),
+      '<div style="margin:200px 0"></div>'.repeat(100),
+    ]) {
+      const result = sanitizeHtml(
+        `<a href="https://phish.invalid">https://bank.invalid${gap}not a URL</a>`,
+      );
+      expect(
+        result.document.match(/display: contents/gu)?.length,
+      ).toBeGreaterThanOrEqual(100);
+      expect(result.links).toStrictEqual([
+        {
+          href: 'https://phish.invalid',
+          text: 'https://bank.invalidnot a URL',
+        },
+      ]);
+    }
+    const restored = sanitizeHtml(
+      '<a href="https://phish.invalid"><div style="visibility:hidden;padding:20px">Hidden<span style="visibility:visible">Visible</span></div></a>',
+    );
+    expect(restored.links).toStrictEqual([
+      { href: 'https://phish.invalid', text: 'Visible' },
+    ]);
+    expect(restored.document).toContain('visibility: hidden; padding: 20px');
+    expect(restored.document).toContain('visibility: visible');
+    const ordinary = sanitizeHtml(
+      '<div style="padding:20px">Ordinary content</div>',
+    );
+    expect(ordinary.document).toContain(
+      '<div style="padding: 20px">Ordinary content</div>',
+    );
+  });
+
+  it('removes hidden linked image boxes without fetching them or changing ordinary hidden geometry', () => {
+    expect.hasAssertions();
+    const image =
+      '<img style="visibility:hidden;width:20px;height:200px" src="cid:hidden">';
+    const result = sanitizeHtml(
+      `<a href="https://phish.invalid">https://bank.invalid${image.repeat(100)}not a URL</a>`,
+    );
+    expect(result.document.match(/display: none/gu)).toHaveLength(100);
+    expect({
+      links: result.links,
+      contentIds: result.contentIds,
+      hidesImages: result.readable.hidesImages,
+    }).toStrictEqual({
+      links: [
+        {
+          href: 'https://phish.invalid',
+          text: 'https://bank.invalidnot a URL',
+        },
+      ],
+      contentIds: [],
+      hidesImages: false,
+    });
+    const ordinary = sanitizeHtml(`${image}<p>Visible text</p>`);
+    expect(ordinary.document).toContain(
+      '<img style="visibility: hidden; width: 20px; height: 200px">',
+    );
+    const visible = sanitizeHtml(
+      '<a href="https://example.invalid"><div style="padding:20px"><img src="cid:missing" alt="Photo"></div></a>',
+    );
+    expect(visible.document).toContain(
+      '<div style="padding: 20px"><span class="blocked-image"',
+    );
+    expect(visible.readable.hidesImages).toBe(true);
+  });
+
+  it('bounds a break run by the height its lines add, not only by its count', () => {
+    expect.hasAssertions();
+    const breaks = (style: string, gap = '<br>'.repeat(10)) => {
+      const { document } = sanitizeHtml(
+        `<div style="${style}"><a href="https://phish.invalid">https://bank.invalid${gap}not a URL</a></div>`,
+      );
+      const body = document.slice(
+        document.indexOf('<body>') + 6,
+        document.lastIndexOf('</body>'),
+      );
+      return body.split(/<br\b|\n/gu).length - 1;
+    };
+    // A 200-pixel line already exceeds the run's height, a 60-pixel font's lines leave room
+    // for one break, and ordinary text keeps the four-break count.
+    expect(
+      ['line-height:200px', 'font-size:60px', 'line-height:normal'].map(
+        (style) => breaks(style),
+      ),
+    ).toStrictEqual([0, 1, 4]);
+    // A short child still occupies the tall ancestor's line boxes, including when an empty
+    // wrapper loses its own box. It cannot make the spacer charge artificially cheap.
+    expect([
+      breaks('line-height:200px', '<br style="line-height:0">'.repeat(10)),
+      breaks('font-size:60px', '<br style="font-size:4px">'.repeat(10)),
+      breaks(
+        'line-height:200px',
+        `<span style="line-height:0;white-space:pre">${'\n'.repeat(10)}</span>`,
+      ),
+    ]).toStrictEqual([0, 1, 0]);
+    // Rules retain a divider but use ordinary vertical geometry. Put longhands before
+    // shorthands too, so reserialization cannot reactivate the sender's taller box.
+    const rules = sanitizeHtml(
+      `<a href="https://phish.invalid">https://bank.invalid${'<hr style="height:200px;min-height:200px;padding-top:100px;padding:100px;margin-top:200px;margin:200px;border-top-width:200px;border-width:200px">'.repeat(10)}not a URL</a>`,
+    );
+    expect(rules.document.match(/<hr\b/gu)).toHaveLength(4);
+    expect(rules.document).toContain(
+      'height: 0; min-height: 0; max-height: 0; padding-top: 0; padding-bottom: 0; margin-top: .5em; margin-bottom: .5em; border-top-width: 1px; border-bottom-width: 1px',
+    );
+    expect(rules.links[0]?.text).toBe('https://bank.invalidnot a URL');
+  });
+
+  it('keeps emitted line heights within the break model, including sender normal font metrics', () => {
+    expect.hasAssertions();
+    // A CSS expression can paint tall lines while the model substitutes the parent.
+    for (const value of ['calc(100px + 100px)', '25vw', '20ch']) {
+      expect(
+        sanitizeHtml(`<div style="line-height:${value}">One<br>Two</div>`)
+          .document,
+      ).not.toContain(`line-height: ${value}`);
+    }
+    // Normal is not a known multiplier for arbitrary retained fonts. Explicit factors
+    // still work, and the font and text remain even when spacer breaks are omitted.
+    const document = (style: string) =>
+      sanitizeHtml(
+        `<a href="https://phish.invalid" style="${style}">bank.invalid${'<br>'.repeat(10)}not a URL</a>`,
+      ).document;
+    const unknown = document(
+      'font-size:44px;font-family:Zapfino;line-height:normal',
+    );
+    expect(unknown).not.toContain('<br');
+    expect(unknown).toContain('font-family: Zapfino');
+    expect(
+      document('font-size:44px;font-family:Zapfino;line-height:1.2').match(
+        /<br\b/gu,
+      ),
+    ).toHaveLength(3);
   });
 
   it('never resolves images in cells of collapsed table columns', () => {

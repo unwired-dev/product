@@ -217,7 +217,23 @@ edge or below the viewport. This includes vertical sides and table border spacin
 Large letter spacing and vertical alignment offsets are reset, and line heights
 of at least 320 CSS pixels become normal line spacing. Widths and minimum widths
 of at least 320 CSS pixels are bounded by their containing block, preserving
-ordinary desktop widths when room permits. Heights and minimum heights of at
+ordinary desktop widths when room permits. At most four consecutive line breaks or rules are kept between readable text or
+visible images, including newlines preserved by `pre` or `white-space` styles,
+and share a conservative 160-CSS-pixel spacing allowance, so tall lines or large text
+keep fewer breaks. Smaller inline children cannot reduce an ancestor's line-height
+charge. Line-height expressions and font-metric or viewport units are removed
+before rendering. Rules use ordinary vertical geometry: zero height and padding, half-em top
+and bottom margins, and one-pixel top and bottom borders; their charge includes
+that box and the preceding line. This may reduce intended blank lines in large
+headings, or thick and padded dividers. Ordinary two-break body spacing remains.
+When a retained sender font family uses `normal` line height, its metrics are
+unknown to the spacing allowance, so spacer breaks are omitted while its font
+and text remain. Explicit line-height factors and lengths retain their allowance.
+Hidden text and non-rendering Unicode characters do not restart this allowance.
+Inside links, empty containers and hidden images have no layout box and hidden text is omitted,
+while descendants that restore visibility remain readable. Repeated empty
+padding, margins and heights therefore cannot separate the rest of a link's text
+from its label. Heights and minimum heights of at
 least 320 CSS pixels are removed, including oversized table-cell height
 attributes, and large bottom margins reset, so a tall spacer cannot push the
 rest of a link's text below its visible label. Removed image heights fall back
@@ -234,8 +250,8 @@ Descendants can restore readable text by resetting an inherited illegible font
 size to a legible absolute or relative size, or declaring `visibility: visible`
 or `initial` under a hidden ancestor; their text, links and inline images then
 count as visible. Collapsed table rows, row groups and columns
-still remove everything in them, including when collapse is inherited. Hidden
-images retain normalized dimensions without fetching their bytes or adding a
+still remove everything in them, including when collapse is inherited. Outside
+links, hidden images retain normalized dimensions without fetching their bytes or adding a
 readable placeholder. Restored visible images keep a visible placeholder when
 their bytes cannot be shown. Fully hidden links add no reader link control.
 Relative font sizes still scale a zero parent size to zero. Unsupported font-size
@@ -244,7 +260,11 @@ line height or maximum box dimensions alone do not clip overflowing text.
 
 ### Links and blocked remote content
 
-HTML and detected plain-text links allow only `http`, `https`, `mailto` and `tel`.
+HTML and detected plain-text links allow only `http`, `https`, `mailto` and `tel`. A message offers at most 200 links, in rich and plain
+presentation alike, including the readable fallback. The fallback applies the
+same limit even when one HTML anchor spans many paragraphs. Later anchors,
+addresses and fallback link spans stay readable plain text without a link action
+or link accessibility role.
 Other sender schemes and automatic opening remain blocked. Sanitized anchors use
 app-owned opaque navigation markers; their exact vetted destinations and visible
 text remain outside the document for confirmation. Choosing a link shows its

@@ -52,6 +52,30 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Product behavior the stores own
 
+- `sanitizeHtml.anchor`, `readableText` or `paragraphBuilder` bounding only the
+  rich link array while retaining unbounded clickable readable spans. Count
+  finalized fallback spans across paragraphs as well as collected visible
+  anchors; one anchor can become many native controls on both hosts. Excess
+  destinations must become plain text with no marker, href or link semantics,
+  preserving HTML-only readable content without a budget exception. Verify
+  public `presentation`, hidden/restored anchors and both host consumers at and
+  beyond the shared limit; otherwise a compact message exhausts native controls
+  or a fallback merely relocates the amplification.
+- `sanitizeHtml` counting only literal `br` elements while `hr`, preformatted
+  newlines, empty styled boxes or hidden text still separate inspected label
+  fragments, including source-less hidden image boxes. Share the break run across containers and retained white-space
+  modes; non-rendering format/combining characters and hidden text cannot reset
+  it. Normalize empty linked boxes without losing visible descendants or image
+  visibility semantics, and verify actual emitted WebKit glyph positions with
+  inherited tall line heights, smaller inline break styles and rule box geometry,
+  and discard line-height expressions or units whose emitted height cannot be resolved,
+  without treating arbitrary sender-font `normal` metrics as the system-font multiplier,
+  including borders, padding, margins and shorthand ordering, as well as
+  `inspectLink` and ordinary-content controls. Otherwise a displaced suffix
+  suppresses a caution for the visible address. A normalized, nearby complete
+  label may legitimately have no address-mismatch warning; this is not a full
+  viewport visibility classifier or a general document-node budget.
+
 - Opening or selecting a message that changes its unread state. Only the explicit read/unread action persists a change, and it must update every subscribed view.
 - A store that reports a connected or ready inbox while mailbox authorization is missing, expired, stale or cancelled, rather than the resumable setup or reconnect state.
 - `createGmailInbox` treating a native `mailbox-invalidated` rejection as a terminal storage failure before bounded reopening of the committed cache through the registration gate. A successful same-mailbox foreground restore renews the native generation and must not hide usable cached mail. Reopening must preserve the `forget` publication fence after an ownership change or purge; recovery cannot resurrect the former owner's mail.
@@ -234,8 +258,9 @@ Namespace-import style, `JSON.parse`, `typeof … === 'object'` guards, untagged
   traversal and restore it for siblings; readable text, inspected link labels,
   image descriptions and CID discovery must agree with the emitted CSS. Preserve
   visibility overrides when replacing images with placeholders or emitting
-  special elements such as `br` and `hr`. Hidden images must keep source-less
-  declared geometry without references or blocked-image notices. Wholly hidden
+  special elements such as `br` and `hr`. Hidden images outside active links must keep source-less
+  declared geometry without references or blocked-image notices; linked hidden
+  image boxes cannot displace inspected suffixes. Wholly hidden
   anchors must not reach host link controls. Preserve whole-box
   exclusion for `hidden`, `display:none`, zero opacity and effectively collapsed table tracks;
   otherwise visible mail disappears or invisible images are downloaded.

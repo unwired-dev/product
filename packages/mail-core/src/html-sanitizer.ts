@@ -8,7 +8,12 @@ import type { ReadableBody } from './readable-text.ts';
 
 import { inlineImageLimits } from './inline-images.ts';
 import { messageLinkHref, vettedHref } from './link-inspection.ts';
-import { hasReadableText, paragraphBuilder } from './readable-text.ts';
+import {
+  hasReadableText,
+  hasVisibleText,
+  messageLinkLimit,
+  paragraphBuilder,
+} from './readable-text.ts';
 
 type Node = DefaultTreeAdapterTypes.ChildNode;
 type Element = DefaultTreeAdapterTypes.Element;
@@ -446,6 +451,22 @@ const cssFontSize = (raw: string) => {
         (size[2] !== undefined || Number(size[1]) === 0);
 };
 
+// Line-height budgeting must use the same values WebKit receives. Font-metric and
+// viewport lengths, and expressions, have no reliable pixel basis in this traversal.
+const cssLineHeight = (raw: string) => {
+  const value = raw.toLowerCase();
+  if (/^(?:normal|inherit|initial|unset|revert(?:-layer)?)$/u.test(value)) {
+    return true;
+  }
+  const size = sizeValue.exec(value);
+  return (
+    size !== null &&
+    Number.isFinite(Number(size[1])) &&
+    Number(size[1]) >= 0 &&
+    /^(?:px|em|rem|%|cm|mm|q|in|pt|pc)?$/u.test(size[2] ?? '')
+  );
+};
+
 // Reader geometry in CSS pixels. The Mac default body is 13px; Dynamic Type remains enabled.
 // Emitted font normalization keeps the readability cutoff independent of the actual body size.
 const rootFontPixels = 16;
@@ -769,10 +790,15 @@ const dimensionProperties = new Set([
   'min-height',
 ]);
 
-const validSize = (name: string, value: string) =>
-  name === 'font-size'
-    ? cssFontSize(value)
-    : !dimensionProperties.has(name) || cssDimension(value);
+const validSize = (name: string, value: string) => {
+  if (name === 'font-size') {
+    return cssFontSize(value);
+  }
+  if (name === 'line-height') {
+    return cssLineHeight(value);
+  }
+  return !dimensionProperties.has(name) || cssDimension(value);
+};
 
 // Properties WebKit accepts only as one of these keywords.
 const keywordValues = new Map([
@@ -1167,6 +1193,44 @@ const collapsedCells = (
   return cells;
 };
 
+// The most consecutive line breaks kept between visible content, and the most height they may
+// add: half the narrowest reader, so tall lines cannot move the text after them out of view.
+const maximumBreaks = 4;
+const maximumBreakPixels = narrowestReaderPixels / 2;
+
+// An inherited line height: a factor, a computed length, or font-dependent normal metrics.
+type LineHeight = Readonly<
+  { factor: number } | { pixels: number } | { normal: true }
+>;
+const normalLineHeight: LineHeight = { normal: true };
+
+const systemFontIn = (value: string | undefined, parent: boolean) => {
+  const family = value?.trim().toLowerCase();
+  return family === undefined || /^(?:inherit|unset)$/u.test(family)
+    ? parent
+    : /^(?:-apple-system|system-ui)$/u.test(family);
+};
+
+const lineHeightIn = (
+  value: string | undefined,
+  parent: LineHeight,
+  font: number,
+): LineHeight => {
+  const declared = value?.trim().toLowerCase();
+  if (declared === undefined || /^(?:inherit|unset)$/u.test(declared)) {
+    return parent;
+  }
+  if (/^(?:normal|initial|revert(?:-layer)?)$/u.test(declared)) {
+    return normalLineHeight;
+  }
+  const factor = Number(declared);
+  if (declared !== '' && Number.isFinite(factor) && factor >= 0) {
+    return { factor };
+  }
+  const resolved = lengthPixels(declared, { font, percent: font });
+  return resolved === undefined || resolved < 0 ? parent : { pixels: resolved };
+};
+
 const contentSecurityPolicy =
   "default-src 'none'; img-src data:; media-src 'none'; style-src 'unsafe-inline'; font-src 'none'; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'";
 
@@ -1186,6 +1250,43 @@ const readerStyle =
 // An image description as readable text, spaced from its neighbours.
 const altText = (alt: string) => (alt === '' ? '' : ` ${alt} `);
 
+const withProperties = (
+  style: FilteredStyle,
+  entries: ReadonlyArray<readonly [string, string]>,
+): FilteredStyle => {
+  const retained = new Map(style.retained);
+  for (const [name, value] of entries) {
+    // Overrides must follow shorthands even when the sender already supplied a longhand.
+    retained.delete(name);
+    retained.set(name, value);
+  }
+  return {
+    ...style,
+    retained,
+    css: [...retained].map(([key, value]) => `${key}: ${value}`).join('; '),
+  };
+};
+
+const whiteSpaceIn = (
+  value: string | undefined,
+  tag: string,
+  parent: string,
+) => {
+  const declared = value?.toLowerCase() ?? '';
+  if (
+    /^(?:normal|nowrap|pre|pre-wrap|pre-line|break-spaces)$/u.test(declared)
+  ) {
+    return declared;
+  }
+  if (declared === 'initial') {
+    return 'normal';
+  }
+  if (/^(?:inherit|unset)$/u.test(declared)) {
+    return parent;
+  }
+  return tag === 'pre' ? 'pre-wrap' : parent;
+};
+
 export function sanitizeHtml(
   html: string,
   images: ReadonlyMap<string, InlineImage> = new Map(),
@@ -1200,13 +1301,51 @@ export function sanitizeHtml(
   // The link currently open in the readable fallback, and its collected visible text.
   let link: { href: string; text: string; visible: boolean } | undefined =
     undefined;
-  let preformatted = 0;
+  let whiteSpace = 'normal';
+  let visibleContent = 0;
   // Off-canvas text boxes, and inherited font size and indent states.
   let direction = 'ltr';
   let margins: ReadonlyMap<string, string> = new Map();
   let fontPixels = bodyFontPixels;
   let visibility = 'visible';
   const visibleNow = () => visibility === 'visible';
+  // Consecutive line breaks since the last visible text or image, and the height they add.
+  let breakRun = 0;
+  let breakPixels = 0;
+  // The reader's body text uses a line height of 1.5.
+  let lineHeight: LineHeight = { factor: 1.5 };
+  let systemFont = true;
+  // A smaller inline child cannot shrink its ancestor's line-box strut. Conservatively
+  // keep the largest active ancestor line until traversal leaves that ancestor.
+  let ancestorLinePixels = bodyFontPixels * 1.5;
+  const linePixels = () => {
+    // Normal depends on the chosen font's metrics. The system-font estimate must not
+    // grant cheap breaks to arbitrary taller sender fonts; keep their text and font.
+    if ('normal' in lineHeight && !systemFont) {
+      return Infinity;
+    }
+    const height =
+      'pixels' in lineHeight
+        ? lineHeight.pixels
+        : ('factor' in lineHeight ? lineHeight.factor : 1.2) * fontPixels;
+    return Math.max(ancestorLinePixels, height);
+  };
+  // Whether one more break fits the run, counting it if so.
+  const takeBreak = (height = linePixels()) => {
+    if (
+      breakRun >= maximumBreaks ||
+      breakPixels + height > maximumBreakPixels
+    ) {
+      return false;
+    }
+    breakRun += 1;
+    breakPixels += height;
+    return true;
+  };
+  const resetBreaks = () => {
+    breakRun = 0;
+    breakPixels = 0;
+  };
   const readableNow = () => fontPixels >= minimumTextPixels && visibleNow();
   // Cells of collapsed table columns, which WebKit would not show.
   const collapsed = new Set<Element>();
@@ -1219,19 +1358,56 @@ export function sanitizeHtml(
     }
   };
 
-  const addText = (value: string) => {
-    const readable =
-      preformatted > 0 ? value : value.replaceAll(/[\t\n\f\r ]+/gu, ' ');
-    if (readableNow()) {
-      builder.add(readable, link?.href);
+  // Text newlines and elements share the run across text nodes and containers.
+  const textWithBreakLimit = (value: string) =>
+    value.replaceAll(/\n|[^\n]+/gu, (part) => {
+      if (part === '\n') {
+        if (!takeBreak()) {
+          return '';
+        }
+      } else if (readableNow() && hasVisibleText(part)) {
+        resetBreaks();
+      }
+      return part;
+    });
+
+  const addReadableText = (readable: string, preservesLines: boolean) => {
+    if (!readableNow()) {
+      return;
     }
-    if (link !== undefined && readableNow()) {
+    builder.add(readable, link?.href);
+    if (hasVisibleText(readable)) {
+      visibleContent += 1;
+      if (!preservesLines) {
+        resetBreaks();
+      }
+    }
+    if (link !== undefined) {
       link.text += readable;
     }
+  };
+
+  const addText = (value: string) => {
+    // Hidden text has layout width even though it supplies no inspected label. Within a
+    // link, omit it without dropping descendants that restore visibility.
+    if (link !== undefined && !readableNow()) {
+      return;
+    }
+    const preservesLines = /^(?:pre|pre-wrap|pre-line|break-spaces)$/u.test(
+      whiteSpace,
+    );
+    const normalized = preservesLines ? textWithBreakLimit(value) : value;
+    let readable = normalized;
+    if (!preservesLines) {
+      readable = normalized.replaceAll(/[\t\n\f\r ]+/gu, ' ');
+    } else if (whiteSpace === 'pre-line') {
+      readable = normalized.replaceAll(/[\t\f\r ]+/gu, ' ');
+    }
+    addReadableText(readable, preservesLines);
     if (link !== undefined && visibleNow()) {
       link.visible = true;
     }
-    output += escapeText(value);
+    output += escapeText(normalized);
   };
 
   // An image description reads as text, including in its enclosing link's inspected text.
@@ -1280,13 +1456,20 @@ export function sanitizeHtml(
       return;
     }
     if (!visibleNow()) {
-      // Preserve declared geometry without a source, decoded bytes or a readable placeholder.
-      output += `<img${attributes(element, style)}>`;
+      // Hidden boxes can still displace a link's inspected suffix. Other hidden images
+      // retain declared geometry, without a source, bytes or a readable placeholder.
+      const hiddenStyle =
+        link === undefined
+          ? style
+          : withProperties(style, [['display', 'none']]);
+      output += `<img${attributes(element, hiddenStyle)}>`;
       return;
     }
     if (link !== undefined) {
       link.visible = true;
     }
+    resetBreaks();
+    visibleContent += 1;
     const alt = (attributeOf(element, 'alt') ?? '').trim();
     const admittedImage = reference(element);
     if (admittedImage === undefined) {
@@ -1299,7 +1482,11 @@ export function sanitizeHtml(
 
   const anchor = (element: Element, style: FilteredStyle) => {
     const href = vettedHref(attributeOf(element, 'href') ?? '');
-    if (href === undefined || link !== undefined) {
+    if (
+      href === undefined ||
+      link !== undefined ||
+      links.length >= messageLinkLimit
+    ) {
       output += `<span${attributes(element, style)}>`;
       children(element);
       output += '</span>';
@@ -1339,12 +1526,18 @@ export function sanitizeHtml(
     }
     const name = node.tagName;
     const tag = outputTag(name);
+    const before = output.length;
+    const content = visibleContent;
     output += `<${tag}${attributes(node, style)}>`;
+    const start = output.length;
     marker(name);
-    const pre = name === 'pre' ? 1 : 0;
-    preformatted += pre;
     children(node);
-    preformatted -= pre;
+    if (link !== undefined && visibleContent === content) {
+      // Empty boxes can accumulate thousands of pixels with individually ordinary sizes.
+      // Keep descendants and inherited text styles, but give the empty wrapper no box.
+      const normalized = withProperties(style, [['display', 'contents']]);
+      output = `${output.slice(0, before)}<${tag}${attributes(node, normalized)}>${output.slice(start)}`;
+    }
     output += `</${tag}>`;
   };
 
@@ -1358,6 +1551,11 @@ export function sanitizeHtml(
     [
       'br',
       (node, style) => {
+        // A long run of breaks would push the text after it out of view, away from the
+        // label it extends, so only a few consecutive breaks are kept.
+        if (!takeBreak()) {
+          return;
+        }
         if (readableNow()) {
           builder.add('\n', link?.href);
         }
@@ -1367,10 +1565,28 @@ export function sanitizeHtml(
     [
       'hr',
       (node, style) => {
+        // A rule ends the preceding line and adds its own box, including margins and
+        // borders. Pin its vertical geometry to the ordinary rule rather than infer
+        // sender-controlled sizing, padding, border shorthands or inherited margins.
+        if (!takeBreak(linePixels() + fontPixels + 2)) {
+          return;
+        }
         if (link !== undefined && visibleNow()) {
           link.visible = true;
         }
-        output += `<hr${attributes(node, style)}>`;
+        const normalized = withProperties(style, [
+          ['display', 'block'],
+          ['height', '0'],
+          ['min-height', '0'],
+          ['max-height', '0'],
+          ['padding-top', '0'],
+          ['padding-bottom', '0'],
+          ['margin-top', '.5em'],
+          ['margin-bottom', '.5em'],
+          ['border-top-width', '1px'],
+          ['border-bottom-width', '1px'],
+        ]);
+        output += `<hr${attributes(node, normalized)}>`;
       },
     ],
   ]);
@@ -1391,6 +1607,12 @@ export function sanitizeHtml(
     const parentDirection = direction;
     const parentMargins = margins;
     const parentFont = fontPixels;
+    const parentWhiteSpace = whiteSpace;
+    const parentSystemFont = systemFont;
+    systemFont = systemFontIn(
+      style.retained.get('font-family'),
+      parentSystemFont,
+    );
     const replacedImage =
       node.tagName === 'img' &&
       !images.has(contentIdReference(attributeOf(node, 'src') ?? '') ?? '');
@@ -1414,11 +1636,28 @@ export function sanitizeHtml(
     margins = ownMargins;
     const inheritedVisibility = visibility;
     visibility = visibilityIn(style, visibility);
+    whiteSpace = whiteSpaceIn(
+      style.retained.get('white-space'),
+      node.tagName,
+      parentWhiteSpace,
+    );
+    const parentLineHeight = lineHeight;
+    const parentAncestorLinePixels = ancestorLinePixels;
+    lineHeight = lineHeightIn(
+      normalized.retained.get('line-height'),
+      parentLineHeight,
+      fontPixels,
+    );
+    ancestorLinePixels = linePixels();
     run(normalized);
+    ancestorLinePixels = parentAncestorLinePixels;
+    lineHeight = parentLineHeight;
     direction = parentDirection;
     margins = parentMargins;
     fontPixels = parentFont;
     visibility = inheritedVisibility;
+    whiteSpace = parentWhiteSpace;
+    systemFont = parentSystemFont;
   };
 
   const element = (node: Element) => {

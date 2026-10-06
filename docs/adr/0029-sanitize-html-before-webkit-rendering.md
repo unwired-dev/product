@@ -86,6 +86,56 @@ source width where the containing block has enough room. This correction changes
 only emitted styling, leaving inspected text, network isolation, consent and
 resource limits under the existing rendering policy.
 
+## Link and spacer bounds — 2026-10-06
+
+Issue #605 review round 26 closes native-control amplification and repeated
+spacer masking. Rich anchors, detected plain-text links and finalized readable
+fallback href spans each have a 200-link limit per message. Later destinations
+remain readable plain text, without active markers or link semantics; a new
+budget exception must not discard HTML-only content. Counting collected anchors
+alone is insufficient because one anchor can cross many fallback paragraphs.
+
+Retain at most four consecutive `br`, `hr` or preserved text newlines between
+readable text or visible images. Hidden and non-rendering Unicode content does
+not reset that run. Within an active link, omit hidden text nodes and remove the
+layout boxes of hidden images and containers with no readable text or visible images, retaining
+descendants and inherited styles. Outside links, hidden source-less image geometry
+remains unchanged. This narrows the ordinary-small-spacing
+exception for empty linked wrappers: individually small padding, margins or
+heights can otherwise accumulate into a displaced suffix. Real content,
+visibility restoration and ordinary breaks remain intact. Inspect the complete
+normalized label; revealing a previously displaced non-address suffix can
+legitimately leave no mismatch warning. These bounds do not establish complete
+viewport visibility or a general total-node/output-size budget.
+
+### Spacer height correction — review round 27
+
+The four-break count alone still allowed a retained 200-pixel line height to put
+the inspected suffix below the viewport. Apply a conservative 160-CSS-pixel
+allowance alongside the count. Track inherited line-height factors separately
+from computed lengths, and charge at least the largest active ancestor line:
+an inline child's smaller font or line height cannot shrink the parent's strut.
+The system-font `normal` estimate is 1.2 times the font size; the reader body's
+1.5 line strut remains a floor while it is an ancestor.
+Discard sender line-height expressions and font-metric/viewport units before
+rendering, since a retained value outside this model could still enlarge a run
+while accounting substitutes its parent line height.
+Carry whether the retained font family is the system font through traversal.
+An arbitrary sender family can make `normal` much taller than 1.2, so represent
+that state as unknown and grant no spacer breaks under it. Preserve the chosen
+font and readable text; explicit factors and lengths remain modeled. This
+conservative policy can collapse intentional spacing in such mail.
+
+Normalize rule vertical geometry to zero height/minimum/maximum height and
+vertical padding, half-em vertical margins and one-pixel vertical borders, with
+overrides emitted after sender shorthands. Charge a rule for both its ordinary
+box and the preceding line. Horizontal styling and divider semantics remain.
+These conservative bounds can remove intended blank lines in large headings
+and reduce thick or padded dividers. Ordinary body spacing remains. A single
+oversized or wrapped text line and arbitrary meaningful layout remain outside
+this bounded-spacer policy; this does not claim exact font metrics or complete
+viewport visibility.
+
 ## Prior decision
 
 Remote-image normalization treats an empty URL path as `/` before deduplication, CSS `height` and `max-height` symmetrically identify declared tracking pixels, inline CSS dimensions override matching HTML attributes during that classification, and permanently unloadable non-HTTPS image sources are not retained as consent or retry references.
