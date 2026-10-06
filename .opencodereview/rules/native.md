@@ -17,6 +17,7 @@ This code owns what TypeScript must never hold: Keychain items, the storage encr
 
 #### Bridge contract
 
+- A positive revocation found by `RegistrationStore.prepareMailbox` converted to ordinary mailbox invalidation after successful purge. Trace both `UnwiredRegistration.openMailbox` and `commitMailbox` through the shared rejection mapper and `createGmailInbox` recovery: preserve `mailbox-revoked` and its account-page hand-off, while generation changes retain bounded invalidation recovery. Collapsing the two makes already-purged mail end in retry exhaustion and a generic failure instead of the removal explanation.
 - A rejection code that TypeScript does not know. `packages/mail-core/src/diagnostics.ts` allow-lists the codes; a new code needs the matching store handling and allow-list entry in the same task.
 - A rejection or diagnostic that carries a foreign error description, account identifier, email address, token or path. JavaScript logs can leave the device; reject with a fixed code and fixed text, as `UnwiredPrivateInbox.perform` does. Successful values may contain the documented local presentation data consumed by the shared store; they must not be logged.
 - A resolved payload whose shape changed without the `Schema` that decodes it in `mail-core` changing with it.

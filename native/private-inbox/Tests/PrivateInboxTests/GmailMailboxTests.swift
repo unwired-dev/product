@@ -385,7 +385,8 @@ extension PrivateInboxTests {
     }
     restoring.resume()
     try await restoration.value
-    await #expect(throws: PrivateInboxError.mailboxInvalidated) { try await cleanup.value }
+    // The preflight that purges a removed device reports the removal itself.
+    await #expect(throws: RegistrationError.revoked) { try await cleanup.value }
     #expect(try keys.read("registration") == nil)
     revoked = false
     _ = try await store.signIn()

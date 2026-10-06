@@ -168,8 +168,8 @@ Gmail reads do not ask Convex about this device. The removal check runs when a
 synchronization opens or commits the cache, so the backend learns nothing about
 per-message read activity. Every provider mutation first revalidates the Trusted
 Device. Unavailable validation sends nothing; a revoked device purges local mail
-and credentials. A provider mutation that reports this removal hands the Inbox
-over to the account page, which explains
+and credentials. Whether a provider mutation or opening or saving the cache finds
+the removal, the Inbox hands over to the account page, which explains
 **This device was removed**; it never claims the purged data was kept.
 The explanation survives foreground verification while the device stays signed
 out. Explicit sign-out clears it, and a concurrent account deletion keeps its own

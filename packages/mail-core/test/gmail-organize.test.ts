@@ -777,6 +777,30 @@ describe('organizing Gmail mail', () => {
     expect(removed.mock.calls).toStrictEqual([[]]);
   });
 
+  it('hands a removal found while opening the cache to the account page, from intake and synchronization', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ messages: 1 });
+    const removed = vi.fn<() => void>();
+    const inbox = createGmailInbox(gmail.native, { removed });
+    await inbox.load();
+    const target = required(
+      ready(inbox.getSnapshot()).messages[0],
+      'the message',
+    );
+    // The intake's cache preflight finds this device removed and native code purges it.
+    gmail.failOpen('mailbox-revoked');
+    await inbox.organize(target, gmailAction.star);
+    expect(inbox.getSnapshot()).toStrictEqual({ kind: 'loading' });
+    expect(removed.mock.calls).toStrictEqual([[]]);
+    expect(gmail.modifies).toStrictEqual([]);
+    // A synchronization opening the cache of a removed device hands over the same way.
+    const relaunched = createGmailInbox(gmail.native, { removed });
+    gmail.failOpen('mailbox-revoked');
+    await relaunched.load();
+    expect(relaunched.getSnapshot()).toStrictEqual({ kind: 'loading' });
+    expect(removed.mock.calls).toStrictEqual([[], []]);
+  });
+
   it('ignores a late durable save reply after another owner has opened the Inbox', async () => {
     expect.hasAssertions();
     const first = createSyntheticGmail();

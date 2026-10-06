@@ -52,7 +52,8 @@ extension RegistrationStore {
 
   // Runs when a synchronization opens or commits the cache, not for each Gmail read, so the backend
   // sees no per-message activity. A failed revocation query permits offline cache access; a
-  // positive rejection purges first.
+  // positive rejection purges first and reports the removal, so the Inbox can hand over to the
+  // account page's explanation instead of retrying an invalidated mailbox.
   func prepareMailbox() async throws {
     let generation = mailboxGeneration
     let product = try mailboxAccount()
@@ -60,7 +61,7 @@ extension RegistrationStore {
       try await requireNotRevoked(product)
     } catch RegistrationError.revoked {
       _ = try purge()
-      throw PrivateInboxError.mailboxInvalidated
+      throw RegistrationError.revoked
     }
     guard generation == mailboxGeneration else { throw PrivateInboxError.mailboxInvalidated }
     _ = try mailboxAccount()
