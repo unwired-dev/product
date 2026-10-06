@@ -834,6 +834,68 @@ describe('rich-reader review regressions', () => {
     expect(dynamic.links[0]?.text).toBe(address);
   });
 
+  it('normalizes large spacing so masking text stays visible and inspected', () => {
+    expect.hasAssertions();
+    const masks = [
+      'display:inline-block;margin-left:10000px',
+      'display:inline-block;margin:0 0 0 100%',
+      'display:inline-block;padding-left:10000px',
+      'display:inline-block;padding:0 0 0 625em',
+      'display:block;padding-top:10000px',
+      'display:inline-block;padding-bottom:10000px',
+      'display:inline-block;border-left:10000px solid',
+      'display:block;border-top:10000px solid',
+      'display:inline-block;border-bottom:10000px solid',
+      'display:block;border-top-style:solid;border-top-width:10000px',
+      'display:inline-block;border-bottom-style:solid;border-bottom-width:10000px',
+      'display:table;border-spacing:10000px',
+      'display:inline-block;vertical-align:-10000px',
+      'display:block;line-height:10000px',
+      'display:block;line-height:1000',
+      'display:inline-block;letter-spacing:10000px;white-space:nowrap',
+      'display:block;text-indent:10000px',
+      'display:block;margin-top:10000px',
+    ];
+    const result = sanitizeHtml(
+      [
+        ...masks.map(
+          (style, index) =>
+            `<p><a href="https://phish.invalid/${index}">https://bank.invalid<span style="${style}"> masking text</span></a></p>`,
+        ),
+        '<p style="margin-left:40px;padding-left:20px;text-indent:2em">Indented control</p>',
+      ].join(''),
+    );
+    expect(result.links.map(({ text }) => text)).toStrictEqual(
+      masks.map(() => 'https://bank.invalid masking text'),
+    );
+    expect(result.document).not.toMatch(/10000px|625em/u);
+    // A later longhand overrides the shorthand's large leading margin.
+    expect(result.document).toContain('margin: 0 0 0 100%; margin-left: 0');
+    expect(result.document).toContain(
+      'margin-left: 40px; padding-left: 20px; text-indent: 2em',
+    );
+    expect(
+      sanitizeHtml(
+        '<span style="letter-spacing:-.1em;vertical-align:-20%;line-height:1.5;width:200px">Small spacing</span>',
+      ).document,
+    ).toContain(
+      'letter-spacing: -.1em; vertical-align: -20%; line-height: 1.5; width: 200px',
+    );
+  });
+
+  it('bounds oversized aligned text boxes without discarding desktop email widths', () => {
+    expect.hasAssertions();
+    const result = sanitizeHtml(
+      '<a href="https://phish.invalid">https://bank.invalid<span style="display:inline-block;width:10000px;text-align:right"> masking text</span></a>' +
+        '<span style="display:inline-block;min-width:10000px;text-align:center">Centered</span>' +
+        '<div style="width:600px">Desktop width</div>',
+    );
+    expect(result.links[0]?.text).toBe('https://bank.invalid masking text');
+    expect(result.document).toContain('width: min(100%, 10000px)');
+    expect(result.document).toContain('min-width: min(100%, 10000px)');
+    expect(result.document).toContain('width: min(100%, 600px)');
+  });
+
   it('never resolves images in cells of collapsed table columns', () => {
     expect.hasAssertions();
     const result = sanitizeHtml(

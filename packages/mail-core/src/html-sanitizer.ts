@@ -560,6 +560,82 @@ const offCanvas = (value: string | undefined, font: number) =>
     value ?? '',
   );
 
+// Large positive spacing pushes content past the reader's right edge, or a whole label below
+// the viewport; whether glyphs stay visible depends on wrapping, so it is normalized as well.
+const farRight = (value: string | undefined, font: number) =>
+  (lengthPixels(value, { font, percent: narrowestReaderPixels }) ?? 0) >=
+  narrowestReaderPixels;
+
+const displaces = (value: string | undefined, font: number) =>
+  offCanvas(value, font) || farRight(value, font);
+
+// Padding and border widths take no negative values; any large token drops the declaration.
+const spacingProperties = new Set([
+  'padding',
+  'padding-top',
+  'padding-bottom',
+  'padding-left',
+  'padding-right',
+  'border',
+  'border-top',
+  'border-bottom',
+  'border-left',
+  'border-right',
+  'border-width',
+  'border-top-width',
+  'border-bottom-width',
+  'border-left-width',
+  'border-right-width',
+  'border-spacing',
+]);
+
+const normalizeTextSpacing = (retained: Map<string, string>, font: number) => {
+  if (displaces(retained.get('text-indent'), font)) {
+    retained.set('text-indent', '0');
+  }
+  for (const name of ['vertical-align', 'letter-spacing']) {
+    if (
+      Math.abs(
+        lengthPixels(retained.get(name), { font, percent: font }) ?? 0,
+      ) >= narrowestReaderPixels
+    ) {
+      retained.set(name, '0');
+    }
+  }
+  const lineHeight = retained.get('line-height');
+  if (
+    (lengthPixels(lineHeight, { font, percent: font }) ??
+      Number(lineHeight) * font) >= narrowestReaderPixels
+  ) {
+    retained.set('line-height', 'normal');
+  }
+};
+
+const normalizeSpacing = (
+  declarations: ReadonlyMap<string, string>,
+  font: number,
+) => {
+  const retained = new Map(declarations);
+  normalizeTextSpacing(retained, font);
+  // Keep desktop email widths while preventing aligned text in oversized boxes from
+  // escaping their containing block. Unlike spacing, a 600px layout is ordinary mail.
+  for (const name of ['width', 'min-width']) {
+    const value = retained.get(name);
+    if (farRight(value, font)) {
+      retained.set(name, `min(100%, ${value})`);
+    }
+  }
+  for (const [name, value] of retained) {
+    if (
+      spacingProperties.has(name) &&
+      value.split(/\s+/u).some((token) => farRight(token, font))
+    ) {
+      retained.delete(name);
+    }
+  }
+  return retained;
+};
+
 const normalizeMargins = (
   style: FilteredStyle,
   margins: Map<string, string>,
@@ -569,10 +645,10 @@ const normalizeMargins = (
     font,
   }: Readonly<{ display: string; directional: boolean; font: number }>,
 ) => {
-  const retained = new Map(style.retained);
+  const retained = normalizeSpacing(style.retained, font);
   for (const edge of ['left', 'right', 'top']) {
     if (
-      offCanvas(margins.get(edge), font) &&
+      displaces(margins.get(edge), font) &&
       (edge === 'right' ? directional : !/^table-(?!caption$)/u.test(display))
     ) {
       margins.set(edge, '0');
@@ -580,9 +656,6 @@ const normalizeMargins = (
       retained.delete(name);
       retained.set(name, '0');
     }
-  }
-  if (offCanvas(retained.get('text-indent'), font)) {
-    retained.set('text-indent', '0');
   }
   return {
     ...style,

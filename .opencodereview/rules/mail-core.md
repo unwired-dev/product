@@ -192,12 +192,19 @@ Namespace-import style, `JSON.parse`, `typeof … === 'object'` guards, untagged
   Tiny text may paint a smear without being legible. Unsupported font-size
   expressions/units must be removed before both rendering and inspection;
   otherwise invisible masking text suppresses the address mismatch caution.
-- `sanitizeHtml` using a negative offset's magnitude alone to omit inspected text.
+- `sanitizeHtml` using an offset's magnitude alone to omit inspected text.
   Padding or other compensation and unindented wrapped lines can remain painted.
-  Normalize large leading offsets and offsets with an unknown percentage,
+  Normalize large positive and negative leading offsets and negative offsets with an unknown percentage,
   viewport or font-metric basis in the emitted CSS instead of guessing clipping;
   preserve ordinary small hanging indents, trailing LTR margins and ignored
   inner-table margins. Otherwise a visible deceptive label loses its caution.
+- `sanitizeHtml` normalizing only horizontal padding/borders or leaving oversized
+  table border spacing, line heights or vertical alignment in emitted text styles.
+  Check all admitted physical longhands and shorthand ordering; bound oversized
+  aligned text-box widths by their containing block while preserving ordinary
+  desktop widths. Otherwise off-screen masking text remains in inspected labels
+  and suppresses the visible address's mismatch caution. This bounded style policy
+  is not a complete viewport visibility model; verify glyph layout in WebKit.
 - `sanitizeHtml` dropping an entire `visibility:hidden` subtree before descendants
   can restore retained `visibility:visible` or `initial`. Carry inherited visibility through
   traversal and restore it for siblings; readable text, inspected link labels,

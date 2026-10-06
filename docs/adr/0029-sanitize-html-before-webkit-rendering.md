@@ -58,6 +58,24 @@ LTR margins, inner-table margins and emitted declaration order. Automatic
 direction remains removed. This is a bounded style normalization policy, not a
 complete geometric visibility model.
 
+### Positive spacing correction — 2026-10-06
+
+The issue-605 positive-offset feedback showed that retained masking text could
+paint beyond the reader while still suppressing link inspection. Extend the
+320-CSS-pixel normalization threshold to positive leading margins and indents.
+Remove oversized padding, border-width and table border-spacing declarations on
+every side; reset large letter-spacing and vertical-align offsets and normalize
+oversized line heights. These changes can reduce deliberate large layout gaps;
+the bound is a readability policy, not a geometric visibility classification.
+Keep ordinary small spacing and the existing margin applicability exceptions.
+
+Bound oversized literal widths and minimum widths by the containing block rather
+than discarding ordinary desktop email widths. An aligned inline-block can
+otherwise paint its inspected label entirely beyond the right edge. Preserve the
+source width where the containing block has enough room. This correction changes
+only emitted styling, leaving inspected text, network isolation, consent and
+resource limits under the existing rendering policy.
+
 ## Prior decision
 
 Remote-image normalization treats an empty URL path as `/` before deduplication, CSS `height` and `max-height` symmetrically identify declared tracking pixels, inline CSS dimensions override matching HTML attributes during that classification, and permanently unloadable non-HTTPS image sources are not retained as consent or retry references.

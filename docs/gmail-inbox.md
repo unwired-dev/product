@@ -206,7 +206,16 @@ their emitted size rather than the source image's discarded font styling.
 Large negative leading margins and indents (at least 320 CSS pixels after unit
 resolution) are normalized to zero. Negative percentage, viewport and
 font-metric offsets are also normalized because their displacement depends on
-unknown reader geometry. Padding, wrapped lines and bidi layout can leave text
+unknown reader geometry. Large positive margins and indents are normalized the
+same way, and padding or border-width declarations with a token of at least 320
+CSS pixels are removed, because they can push a label past the reader's right
+edge or below the viewport. This includes vertical sides and table border spacing.
+Large letter spacing and vertical alignment offsets are reset, and line heights
+of at least 320 CSS pixels become normal line spacing. Widths and minimum widths
+of at least 320 CSS pixels are bounded by their containing block, preserving
+ordinary desktop widths when room permits. This threshold is a readability
+policy; it can reduce intentional large gaps and does not establish complete
+geometric visibility. Padding, wrapped lines and bidi layout can leave text
 visible despite such offsets; they never justify discarding a painted label.
 Small hanging indents and trailing left-to-right margins remain intact. Margin
 normalization follows emitted declaration order and physical shorthand sides;
