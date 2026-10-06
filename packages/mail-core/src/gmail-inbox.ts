@@ -591,7 +591,12 @@ const httpFailure = (status: number, body: string) =>
     diagnostic: `status ${status}`,
   });
 
-export function createGmailInbox(native: NativeGmailMailbox) {
+export function createGmailInbox(
+  native: NativeGmailMailbox,
+  // Called after native code purged this device because another device removed it; the account
+  // page, not the Inbox, explains what happened.
+  { removed }: Readonly<{ removed?: () => void }> = {},
+) {
   // One Gmail read; a missing resource is GmailNotFound and other HTTP failures are classified.
   const gmail =
     (scope: MailboxScope) =>
@@ -901,7 +906,8 @@ export function createGmailInbox(native: NativeGmailMailbox) {
       publish(render());
     });
 
-  // Authentication and retry keep the shown mail; locked or unreadable storage hides it.
+  // Authentication and retry keep the shown mail; locked or unreadable storage hides it. A removed
+  // device's data is already gone, so its Inbox waits for the account page instead.
   const recover = ({
     kind,
     diagnostic,
@@ -921,6 +927,9 @@ export function createGmailInbox(native: NativeGmailMailbox) {
           if (kind === 'authentication' || kind === 'retry') {
             sync = kind;
             publish(render());
+          } else if (kind === 'revoked') {
+            notify({ kind: 'loading' });
+            removed?.();
           } else {
             publish({ kind: kind === 'locked' ? 'locked' : 'failed' });
           }
@@ -939,6 +948,64 @@ export function createGmailInbox(native: NativeGmailMailbox) {
     return yield* storage(() =>
       native.commitMailbox({ address, generation }, revision, text),
     );
+  });
+
+  // The latest saved document with `next` over it: intents intake saved since `base` was read stay.
+  const rebased = Effect.fnUntraced(function* ({
+    cache,
+    base,
+    document,
+  }: Readonly<{
+    cache: Cache;
+    base: MailboxDocument | undefined;
+    document: MailboxDocument;
+  }>) {
+    const latest = yield* storage(native.openMailbox);
+    const saved = Option.getOrUndefined(yield* documentOf(latest));
+    if (!sameMailbox(latest, cache) || saved === undefined) {
+      return yield* new SyncFailure({
+        kind: 'invalidated',
+        cause: 'mailbox',
+        diagnostic: 'another mailbox',
+      });
+    }
+    const known = new Set((base?.pending ?? []).map(({ id }) => id));
+    return {
+      cache: latest,
+      base: saved,
+      document: withIntents(
+        document,
+        (saved.pending ?? []).filter(
+          ({ id }) => id !== undefined && !known.has(id),
+        ),
+      ),
+    };
+  });
+
+  // Intake saves intent under its own permit, so a synchronization commit can meet a newer
+  // revision. It keeps those intents and commits again instead of restarting the synchronization.
+  const commitOver = Effect.fnUntraced(function* (
+    cache: Cache,
+    base: MailboxDocument | undefined,
+    next: MailboxDocument,
+  ) {
+    let target = { cache, base, document: next };
+    for (let attempt = 1; ; attempt += 1) {
+      const saved = yield* commit(target.cache, target.document).pipe(
+        Effect.asSome,
+        Effect.catchIf(
+          (error) =>
+            attempt <= 2 &&
+            error instanceof SyncFailure &&
+            error.kind === 'conflict',
+          () => Effect.succeedNone,
+        ),
+      );
+      if (Option.isSome(saved)) {
+        return { cache: saved.value, document: target.document };
+      }
+      target = yield* rebased(target);
+    }
   });
 
   // Removes only matching intents: forget() may already have removed them, and newer intents stay.
@@ -1096,22 +1163,26 @@ export function createGmailInbox(native: NativeGmailMailbox) {
       ...current.document,
       pending: [attempted, ...(current.document.pending ?? []).slice(1)],
     };
-    const prepared = yield* commit(current.cache, preparing);
-    yield* ready(prepared, preparing, sync);
-    const outcome = yield* modify(prepared, attempted);
-    let next = settled(preparing, Option.getOrUndefined(outcome));
+    const prepared = yield* commitOver(
+      current.cache,
+      current.document,
+      preparing,
+    );
+    yield* ready(prepared.cache, prepared.document, sync);
+    const outcome = yield* modify(prepared.cache, attempted);
+    let next = settled(prepared.document, Option.getOrUndefined(outcome));
     if (Option.isNone(outcome)) {
       // Refusal is not authoritative metadata: keep intent until current labels are read.
       next = settleObserved(
-        preparing,
+        prepared.document,
         attempted,
-        Option.getOrUndefined(yield* readLabels(prepared, head.message)),
+        Option.getOrUndefined(yield* readLabels(prepared.cache, head.message)),
       );
       notice = { kind: 'rejected', ...head };
     }
-    const cache = yield* commit(prepared, next);
-    yield* ready(cache, next, sync);
-    return { cache, document: next };
+    const done = yield* commitOver(prepared.cache, prepared.document, next);
+    yield* ready(done.cache, done.document, sync);
+    return done;
   });
 
   // A change already sent is checked against Gmail before another attempt. It settles when Gmail
@@ -1138,9 +1209,9 @@ export function createGmailInbox(native: NativeGmailMailbox) {
     if (Option.isNone(observed)) {
       notice = { kind: 'rejected', ...head };
     }
-    const cache = yield* commit(current.cache, next);
-    yield* ready(cache, next, sync);
-    return Option.some({ cache, document: next });
+    const saved = yield* commitOver(current.cache, current.document, next);
+    yield* ready(saved.cache, saved.document, sync);
+    return Option.some(saved);
   });
 
   // Sends saved changes in order. Reconcile unanswered writes before another dispatch.
@@ -1189,8 +1260,8 @@ export function createGmailInbox(native: NativeGmailMailbox) {
     ) {
       return;
     }
-    const next = { ...document, labels };
-    yield* ready(yield* commit(cache, next), next, sync);
+    const saved = yield* commitOver(cache, document, { ...document, labels });
+    yield* ready(saved.cache, saved.document, sync);
   });
 
   const synchronize = Effect.gen(function* () {
@@ -1211,8 +1282,7 @@ export function createGmailInbox(native: NativeGmailMailbox) {
       }
       restarts += restartedListing(document, next.value) ? 1 : 0;
       yield* restartLimit(restarts);
-      cache = yield* commit(cache, next.value);
-      document = next.value;
+      ({ cache, document } = yield* commitOver(cache, document, next.value));
       yield* ready(cache, document, 'syncing');
     }
     if (document !== undefined) {
@@ -1345,9 +1415,9 @@ export function createGmailInbox(native: NativeGmailMailbox) {
             return false;
           }
           const next = yield* resolved(resolution, { cache, document, head });
-          const saved = yield* commit(cache, next);
+          const saved = yield* commitOver(cache, document, next);
           notice = undefined;
-          yield* ready(saved, next, sync);
+          yield* ready(saved.cache, saved.document, sync);
           return requestedFor === ownership && !forgotten;
         }).pipe(
           Effect.catchTags({

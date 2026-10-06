@@ -32,6 +32,91 @@ const required = <A>(value: A | null | undefined, name: string): A => {
   return value;
 };
 
+// The listing pages named by token wait until the test releases each one.
+const holdingPages = (
+  native: ReturnType<typeof createSyntheticGmail>['native'],
+  tokens: readonly string[],
+) => {
+  const holds = tokens.map(() => ({
+    entered: Promise.withResolvers<undefined>(),
+    release: Promise.withResolvers<undefined>(),
+  }));
+  return {
+    holds,
+    native: {
+      ...native,
+      gmailRequest: async (...args: Parameters<typeof native.gmailRequest>) => {
+        const [path, query] = args;
+        const token = query.find(([name]) => name === 'pageToken')?.[1];
+        const hold =
+          path === 'messages' ? holds[tokens.indexOf(token ?? '')] : undefined;
+        hold?.entered.resolve(undefined);
+        await hold?.release.promise;
+        return native.gmailRequest(...args);
+      },
+    },
+  };
+};
+
+// Resolves when the Inbox publishes a state matching the predicate.
+const until = (
+  inbox: ReturnType<typeof createGmailInbox>,
+  matches: (state: GmailInboxState) => boolean,
+) => {
+  const reached = Promise.withResolvers<undefined>();
+  const unsubscribe = inbox.subscribe(() => {
+    if (matches(inbox.getSnapshot())) {
+      unsubscribe();
+      reached.resolve(undefined);
+    }
+  });
+  return reached.promise;
+};
+
+// One change saved on this device and none still saving.
+const oneDurableChange = (state: GmailInboxState) =>
+  state.kind === 'ready' && state.pending === 1 && state.saving === 0;
+
+const twoDurableChanges = (state: GmailInboxState) =>
+  state.kind === 'ready' && state.pending === 2 && state.saving === 0;
+
+const firstListingPage = ({
+  path,
+  query,
+}: Readonly<{ path: string; query: URLSearchParams }>) =>
+  path === 'messages' && query.get('pageToken') === null;
+
+// Hold one write before its CAS check so independent intake can win the revision.
+const holdingCommit = (
+  native: ReturnType<typeof createSyntheticGmail>['native'],
+) => {
+  let writes = 0;
+  let heldWrite = 0;
+  const entered = Promise.withResolvers<undefined>();
+  const release = Promise.withResolvers<undefined>();
+  return {
+    entered,
+    release,
+    arm: (ordinal: number) => {
+      writes = 0;
+      heldWrite = ordinal;
+    },
+    native: {
+      ...native,
+      commitMailbox: async (
+        ...args: Parameters<typeof native.commitMailbox>
+      ) => {
+        writes += 1;
+        if (writes === heldWrite) {
+          entered.resolve(undefined);
+          await release.promise;
+        }
+        return native.commitMailbox(...args);
+      },
+    },
+  };
+};
+
 /* oxlint-disable vitest/max-expects -- Each journey proves one organizing path end to end. */
 describe('organizing Gmail mail', () => {
   it('shows each change at once, keeps it through an outage and relaunch, and applies Gmail label semantics', async () => {
@@ -378,6 +463,153 @@ describe('organizing Gmail mail', () => {
     expect(gmail.labelsOf(target.id)).not.toContain('INBOX');
   });
 
+  it('keeps the Inbox and every change when intake commits under each step of a listing', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ messages: 160 });
+    // The second, third and fourth listing pages each wait for one tap to be saved first.
+    const { native, holds } = holdingPages(gmail.native, ['50', '100', '150']);
+    const inbox = createGmailInbox(native);
+    // Earlier taps were sent before the listing reached its next page, so one change waits.
+    const durable = () => until(inbox, oneDurableChange);
+    // The storage failure screen must never appear, even if a later synchronization recovers.
+    const shownKinds = new Set<GmailInboxState['kind']>();
+    const stopWatching = inbox.subscribe(() => {
+      shownKinds.add(inbox.getSnapshot().kind);
+    });
+    const listing = inbox.load();
+    const starred: GmailMessage[] = [];
+    const organizing: Array<Promise<void>> = [];
+    for (const [index, hold] of holds.entries()) {
+      await hold.entered.promise;
+      const target = required(
+        ready(inbox.getSnapshot()).messages[index],
+        'a listed message',
+      );
+      starred.push(target);
+      const saved = durable();
+      organizing.push(inbox.organize(target, gmailAction.star));
+      await saved;
+      // The intake committed a newer revision under the waiting listing's next commit.
+      hold.release.resolve(undefined);
+    }
+    await Promise.all([listing, ...organizing]);
+    stopWatching();
+    expect([...shownKinds]).not.toContain('failed');
+    expect(ready(inbox.getSnapshot())).toMatchObject({
+      sync: 'current',
+      pending: 0,
+    });
+    expect(ready(inbox.getSnapshot()).messages).toHaveLength(160);
+    for (const item of starred) {
+      expect(gmail.labelsOf(item.id)).toContain('STARRED');
+    }
+    // The listing went on from each page instead of starting again.
+    expect(gmail.requests.filter(firstListingPage)).toHaveLength(1);
+  });
+
+  it.each([
+    { ordinal: 2, phase: 'prepare' },
+    { ordinal: 3, phase: 'settle' },
+  ] as const)(
+    'keeps FIFO intent without resending the settled head when intake wins the $phase commit',
+    async ({ ordinal }) => {
+      expect.hasAssertions();
+      const gmail = createSyntheticGmail({ messages: 1 });
+      const held = holdingCommit(gmail.native);
+      const inbox = createGmailInbox(held.native);
+      await inbox.load();
+      const target = required(
+        ready(inbox.getSnapshot()).messages[0],
+        'the message',
+      );
+      held.arm(ordinal);
+      const first = inbox.organize(target, gmailAction.star);
+      await held.entered.promise;
+      const durable = until(inbox, twoDurableChanges);
+      const second = inbox.organize(
+        message(inbox, target.id),
+        gmailAction.unstar,
+      );
+      await durable;
+      held.release.resolve(undefined);
+      await Promise.all([first, second]);
+      expect(gmail.modifies).toStrictEqual([
+        { id: target.id, add: ['STARRED'], remove: [] },
+        { id: target.id, add: [], remove: ['STARRED'] },
+      ]);
+      expect(gmail.labelsOf(target.id)).not.toContain('STARRED');
+      expect(ready(inbox.getSnapshot())).toMatchObject({
+        pending: 0,
+        saving: 0,
+        sync: 'current',
+      });
+      await createGmailInbox(gmail.native).load();
+      expect(gmail.modifies).toHaveLength(2);
+    },
+  );
+
+  it('does not rebase an old mailbox intent onto a different mailbox opened after a conflict', async () => {
+    expect.hasAssertions();
+    const first = createSyntheticGmail({ messages: 1 });
+    const second = createSyntheticGmail({
+      address: 'second@example.invalid',
+      messages: 1,
+    });
+    await createGmailInbox(second.native).load();
+    const entered = Promise.withResolvers<undefined>();
+    const release = Promise.withResolvers<undefined>();
+    let current = first;
+    let writes = 0;
+    let armed = false;
+    let reopening = false;
+    const inbox = createGmailInbox({
+      openMailbox: async () => {
+        // oxlint-disable-next-line vitest/no-conditional-in-test -- Reselection happens while the conflict reopens its cache.
+        if (reopening) {
+          reopening = false;
+          entered.resolve(undefined);
+          await release.promise;
+        }
+        return current.native.openMailbox();
+      },
+      commitMailbox: (...args) => {
+        writes += 1;
+        // oxlint-disable-next-line vitest/no-conditional-in-test -- The prepare commit alone fails; intake is already durable.
+        if (armed && writes === 2) {
+          current.failCommit('conflict');
+          reopening = true;
+        }
+        return current.native.commitMailbox(...args);
+      },
+      gmailRequest: (...args) => current.native.gmailRequest(...args),
+      gmailModify: (...args) => current.native.gmailModify(...args),
+    });
+    await inbox.load();
+    const target = required(
+      ready(inbox.getSnapshot()).messages[0],
+      'the old mailbox message',
+    );
+    armed = true;
+    writes = 0;
+    const organizing = inbox.organize(target, gmailAction.star);
+    await entered.promise;
+    inbox.forget();
+    current = second;
+    const switched = inbox.load();
+    release.resolve(undefined);
+    await Promise.all([organizing, switched]);
+    expect(first.modifies).toStrictEqual([]);
+    expect(second.modifies).toStrictEqual([]);
+    expect(ready(inbox.getSnapshot())).toMatchObject({
+      address: 'second@example.invalid',
+      pending: 0,
+      saving: 0,
+    });
+    expect(
+      second.commits.every((document) => !document.includes('"pending":[{')),
+    ).toBe(true);
+  });
+
   it('keeps pre-existing labels when Undo restores a move', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ messages: 1 });
@@ -501,19 +733,23 @@ describe('organizing Gmail mail', () => {
     const gmail = createSyntheticGmail({ messages: 1 });
     const label = gmail.createLabel('Travel');
     let failHistory = false;
-    const inbox = createGmailInbox({
-      ...gmail.native,
-      gmailRequest: async (path, query, scope) => {
-        // oxlint-disable-next-line vitest/no-conditional-in-test -- Interrupt history after authoritative refusal metadata.
-        if (failHistory && path === 'history') {
-          failHistory = false;
-          throw Object.assign(new Error('Synthetic failure'), {
-            code: 'unavailable',
-          });
-        }
-        return gmail.native.gmailRequest(path, query, scope);
+    const removed = vi.fn<() => void>();
+    const inbox = createGmailInbox(
+      {
+        ...gmail.native,
+        gmailRequest: async (path, query, scope) => {
+          // oxlint-disable-next-line vitest/no-conditional-in-test -- Interrupt history after authoritative refusal metadata.
+          if (failHistory && path === 'history') {
+            failHistory = false;
+            throw Object.assign(new Error('Synthetic failure'), {
+              code: 'unavailable',
+            });
+          }
+          return gmail.native.gmailRequest(path, query, scope);
+        },
       },
-    });
+      { removed },
+    );
     await inbox.load();
     const target = required(
       ready(inbox.getSnapshot()).messages[0],
@@ -531,7 +767,10 @@ describe('organizing Gmail mail', () => {
     });
     gmail.failModify({ code: 'mailbox-revoked' });
     await inbox.organize(message(inbox, target.id), gmailAction.star);
-    expect(inbox.getSnapshot()).toStrictEqual({ kind: 'failed' });
+    // Native code already deleted this device's data, so no storage failure claims it was kept;
+    // the account page explains the removal.
+    expect(inbox.getSnapshot()).toStrictEqual({ kind: 'loading' });
+    expect(removed.mock.calls).toStrictEqual([[]]);
   });
 
   it('ignores a late durable save reply after another owner has opened the Inbox', async () => {

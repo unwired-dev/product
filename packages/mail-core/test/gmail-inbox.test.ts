@@ -316,7 +316,9 @@ describe('synchronizing a Gmail Inbox', () => {
     expect(inbox.getSnapshot()).toStrictEqual({ kind: 'failed' });
     await inbox.load();
     gmail.deliver({ subject: 'Competing commit' });
-    for (const ignored of [0, 1, 2]) {
+    // Each commit rebases twice over a newer revision and the synchronization restarts twice, so
+    // a conflict that never clears still ends as a failure.
+    for (const ignored of Array.from({ length: 9 })) {
       void ignored;
       gmail.failCommit('conflict');
     }

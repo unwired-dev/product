@@ -1,4 +1,5 @@
 import type { GmailAction } from '@private-email/mail-core/gmail-actions';
+import type { OrganizeNotice } from '@private-email/mail-core/gmail-inbox';
 
 import {
   gmailAction,
@@ -171,6 +172,8 @@ export function MessageActions({
   );
 }
 
+const announced = new WeakSet<OrganizeNotice>();
+
 // The latest organizing outcome, and changes that still wait for Gmail.
 export function OrganizeStatus() {
   const state = useInbox();
@@ -178,16 +181,16 @@ export function OrganizeStatus() {
   const colors = usePalette();
   const notice =
     state.kind === 'ready' && 'notice' in state ? state.notice : undefined;
-  const announcement =
-    notice === undefined
-      ? undefined
-      : gmailActionCopy[notice.kind](notice.action, notice.message.subject);
-  // VoiceOver announces the outcome; the action that caused it may have closed the reader.
+  // VoiceOver announces the outcome once, however many windows show it; the action that caused it
+  // may have closed the reader.
   useEffect(() => {
-    if (announcement !== undefined) {
-      AccessibilityInfo.announceForAccessibility(announcement);
+    if (notice !== undefined && !announced.has(notice)) {
+      announced.add(notice);
+      AccessibilityInfo.announceForAccessibility(
+        gmailActionCopy[notice.kind](notice.action, notice.message.subject),
+      );
     }
-  }, [announcement]);
+  }, [notice]);
   if (state.kind !== 'ready' || !('sync' in state) || !('organize' in store)) {
     return null;
   }

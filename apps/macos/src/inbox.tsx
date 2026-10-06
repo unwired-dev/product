@@ -2,7 +2,10 @@ import type { Message } from '@private-email/mail-core';
 import type { GmailAction } from '@private-email/mail-core/gmail-actions';
 import type { GmailMessage } from '@private-email/mail-core/gmail-inbox';
 
-import { quickActions } from '@private-email/mail-core/gmail-actions';
+import {
+  quickActions,
+  restoreAfter,
+} from '@private-email/mail-core/gmail-actions';
 import { gmailSyncCopy } from '@private-email/mail-core/gmail-inbox';
 import { spacing } from '@private-email/mail-core/theme';
 import { useContext, useState } from 'react';
@@ -58,6 +61,8 @@ const styles = StyleSheet.create({
 interface InboxProps {
   readonly selectedId: string | undefined;
   readonly onSelect: (id: string) => void;
+  // Closes the reader when a row action takes its message out of the Inbox.
+  readonly onClose?: (() => void) | undefined;
 }
 
 const dateFormat = new Intl.DateTimeFormat('en', {
@@ -208,7 +213,7 @@ function SyncNotice() {
   );
 }
 
-export function Inbox({ selectedId, onSelect }: InboxProps) {
+export function Inbox({ selectedId, onSelect, onClose }: InboxProps) {
   const state = useInbox();
   const actions = useInboxActions();
   const account = useContext(AccountContext);
@@ -218,6 +223,9 @@ export function Inbox({ selectedId, onSelect }: InboxProps) {
   const organize =
     gmail && state.organize && 'organize' in actions
       ? (message: GmailMessage, action: GmailAction) => {
+          if (message.id === selectedId && restoreAfter(action) !== undefined) {
+            onClose?.();
+          }
           void actions.organize(message, action);
         }
       : undefined;

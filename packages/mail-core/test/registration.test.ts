@@ -32,6 +32,81 @@ const accounts = {
 } as const;
 
 describe('product registration', () => {
+  it('keeps a mailbox removal explanation after refused sign-out and across foreground restore until explicit sign-out', async () => {
+    expect.hasAssertions();
+    const session = createMockRegistrationSession('registration-success');
+    const held = Promise.withResolvers<unknown>();
+    const entered = Promise.withResolvers<undefined>();
+    const restore = vi
+      .fn<() => Promise<unknown>>()
+      .mockImplementationOnce(() => {
+        entered.resolve(undefined);
+        return held.promise;
+      })
+      .mockResolvedValue({ kind: 'signed-out' });
+    vi.spyOn(console, 'error').mockReturnValue(undefined);
+    const signOut = vi
+      .fn<() => Promise<unknown>>()
+      .mockRejectedValueOnce(
+        Object.assign(new Error('Synthetic refusal'), {
+          code: 'removal-refused',
+        }),
+      )
+      .mockImplementation(session.native.signOut);
+    const store = createRegistration({ ...session.native, restore, signOut });
+    await store.register('google');
+    await store.signOut();
+    expect(store.getSnapshot()).toMatchObject({
+      snapshot: { kind: 'connected' },
+      removalFailure: 'sign-out',
+    });
+    const removed = store.deviceRemoved();
+    await entered.promise;
+    const resumed = store.resume();
+    held.resolve({ kind: 'signed-out' });
+    await Promise.all([removed, resumed]);
+    expect(store.getSnapshot()).toStrictEqual({
+      snapshot: { kind: 'signed-out', notice: 'revoked' },
+      busy: false,
+      failed: false,
+    });
+    await store.signOut();
+    await store.resume();
+    expect(store.getSnapshot().snapshot).toStrictEqual({ kind: 'signed-out' });
+  });
+
+  it.each([
+    ['signOut', { kind: 'signed-out' }],
+    ['deleteProductAccount', { kind: 'signed-out', notice: 'deleted' }],
+  ] as const)(
+    'does not relabel %s when a mailbox removal restore queues behind it',
+    async (operation, snapshot) => {
+      expect.hasAssertions();
+      const session = createMockRegistrationSession('registration-success');
+      const held = Promise.withResolvers<unknown>();
+      const entered = Promise.withResolvers<undefined>();
+      const store = createRegistration({
+        ...session.native,
+        restore: () => Promise.resolve(snapshot),
+        [operation]: () => {
+          entered.resolve(undefined);
+          return held.promise;
+        },
+      });
+      await store.register('google');
+      const changing = store[operation]();
+      await entered.promise;
+      const removed = store.deviceRemoved();
+      held.resolve(snapshot);
+      await Promise.all([changing, removed]);
+      expect(store.getSnapshot()).toStrictEqual({
+        snapshot,
+        busy: false,
+        failed: false,
+      });
+    },
+  );
+
   it('keeps the mailbox connected when native Product Sync state is unavailable', async () => {
     expect.hasAssertions();
     const session = createMockRegistrationSession('registration-success');

@@ -35,6 +35,9 @@ export default function RootLayout() {
           topColumnForCollapsing={id ? 'secondary' : 'primary'}>
           <SplitView.Column>
             <Inbox
+              onClose={() => {
+                router.replace('/');
+              }}
               onSelect={selectMessage}
               selectedId={id}
             />

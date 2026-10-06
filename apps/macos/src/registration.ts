@@ -31,13 +31,20 @@ export const registration = createRegistration({
   deleteProductAccount: () => native().deleteProductAccount(),
 });
 
-export const gmailInbox = createGmailInbox({
-  gmailRequest: (path, query, mailbox) =>
-    native().gmailRequest(path, query, mailbox),
-  gmailModify: (change, mailbox) => native().gmailModify(change, mailbox),
-  openMailbox: () => native().openMailbox(),
-  commitMailbox: (mailbox, expectedRevision, document) =>
-    native().commitMailbox(mailbox, expectedRevision, document),
-});
+export const gmailInbox = createGmailInbox(
+  {
+    gmailRequest: (path, query, mailbox) =>
+      native().gmailRequest(path, query, mailbox),
+    gmailModify: (change, mailbox) => native().gmailModify(change, mailbox),
+    openMailbox: () => native().openMailbox(),
+    commitMailbox: (mailbox, expectedRevision, document) =>
+      native().commitMailbox(mailbox, expectedRevision, document),
+  },
+  {
+    removed: () => {
+      void registration.deviceRemoved();
+    },
+  },
+);
 
 forgetMailOutsideInbox(registration, gmailInbox);

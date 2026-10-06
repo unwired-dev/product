@@ -341,6 +341,8 @@ export function createRegistration(native: NativeRegistration) {
   let restored = false;
   // The verification queued for the activation currently being reported, if any.
   let activation: Promise<void> | null = null;
+  // Accepted account changes replace this fence; a late mailbox failure cannot relabel removal.
+  let accountIntent = { removing: false };
   // One operation runs at a time; foreground verification queues behind interactive work.
   const semaphore = Semaphore.makeUnsafe(1);
   const listeners = new Set<() => void>();
@@ -367,10 +369,19 @@ export function createRegistration(native: NativeRegistration) {
       ...settled(snapshot),
       failed: true,
     }),
-    foreground = false,
+    {
+      foreground = false,
+      accountChange,
+    }: Readonly<{
+      foreground?: boolean;
+      accountChange?: 'sign-in' | 'removal';
+    }> = {},
   ) =>
     runLogged(
       Effect.gen(function* () {
+        if (accountChange !== undefined) {
+          accountIntent = { removing: accountChange === 'removal' };
+        }
         const previous = state;
         // A retry keeps the locked state rather than revealing a snapshot it could not read.
         if (foreground) {
@@ -441,11 +452,20 @@ export function createRegistration(native: NativeRegistration) {
               ),
       ),
     );
+  const restoredAccount = request(native.restore).pipe(
+    Effect.map((snapshot) =>
+      snapshot.kind === 'signed-out' &&
+      snapshot.notice === undefined &&
+      state.snapshot.kind === 'signed-out'
+        ? state.snapshot
+        : snapshot,
+    ),
+  );
   const restore = (foreground = false) =>
     execute(
-      request(native.restore),
+      restoredAccount,
       (snapshot) => ({ ...settled(pending(snapshot)), failed: true }),
-      foreground,
+      { foreground },
     );
   const resume = () => {
     if (activation === null) {
@@ -476,6 +496,25 @@ export function createRegistration(native: NativeRegistration) {
     // Every activation verifies the saved account and retries unavailable protected storage.
     // Each Mac window's gate reports the same activation synchronously; they share one restore.
     resume,
+    // Mailbox work found this device removed and native code purged it. Only the purging call could
+    // report why, so a restore that confirms the sign-out keeps that explanation.
+    deviceRemoved: () => {
+      const expected = accountIntent;
+      return execute(
+        restoredAccount.pipe(
+          Effect.map((snapshot): RegistrationSnapshot =>
+            snapshot.kind === 'signed-out' &&
+            snapshot.notice === undefined &&
+            expected === accountIntent &&
+            (!expected.removing || state.snapshot.kind !== 'signed-out')
+              ? { kind: 'signed-out', notice: 'revoked' }
+              : snapshot,
+          ),
+        ),
+        undefined,
+        { foreground: true },
+      );
+    },
     // Cache-only retry verifies registration before attempting provider synchronization.
     refreshInbox: async (load: () => Promise<void>) => {
       await resume();
@@ -491,6 +530,8 @@ export function createRegistration(native: NativeRegistration) {
             ? yield* request(() => native.authorizeGmail(false))
             : snapshot;
         }),
+        undefined,
+        { accountChange: 'sign-in' },
       ),
     authorizeGmail: (reselect: boolean) =>
       execute(request(() => native.authorizeGmail(reselect))),
@@ -534,17 +575,25 @@ export function createRegistration(native: NativeRegistration) {
       ),
     refreshPrivateSync: () => execute(request(native.refreshPrivateSync)),
     signOut: () =>
-      execute(request(native.signOut), (snapshot) => ({
-        ...settled(snapshot),
-        removalFailure: 'sign-out',
-      })),
+      execute(
+        request(native.signOut),
+        (snapshot) => ({
+          ...settled(snapshot),
+          removalFailure: 'sign-out',
+        }),
+        { accountChange: 'removal' },
+      ),
     deleteProductAccount: () =>
-      execute(request(native.deleteProductAccount), (snapshot, cause) => ({
-        ...settled(snapshot),
-        removalFailure: isRemovalRefused(cause)
-          ? 'deletion-refused'
-          : 'deletion',
-      })),
+      execute(
+        request(native.deleteProductAccount),
+        (snapshot, cause) => ({
+          ...settled(snapshot),
+          removalFailure: isRemovalRefused(cause)
+            ? 'deletion-refused'
+            : 'deletion',
+        }),
+        { accountChange: 'removal' },
+      ),
   };
 }
 

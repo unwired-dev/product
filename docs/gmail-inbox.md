@@ -73,7 +73,7 @@ Gmail's labels.
 
 The reader shows every action as a keyboard-focusable button with a visible focus
 ring. VoiceOver also offers read, star, archive, trash and spam as actions on each
-Inbox row. **Labels** lists the mailbox's own labels, read from Gmail once per
+Inbox row, and announces each outcome once, however many Mac windows show it. **Labels** lists the mailbox's own labels, read from Gmail once per
 synchronization and kept with the cache. Restoring from Trash or Spam is the
 **Undo** of the latest removal; browsing Trash, Spam or a label is not part of
 this slice.
@@ -84,8 +84,10 @@ Gmail is asked. A current Gmail request may finish before the local save complet
 **Saving** remains visible until the change is durable. Gmail's answer replaces
 the pending change. Changes are
 sent one at a time, in the order they were made, each by Gmail message ID and only
-to the mailbox they were made in. A message that leaves the Inbox closes the reader
-and shows **Undo** in the Inbox until the next organizing action.
+to the mailbox they were made in. A message that leaves the Inbox, from the reader
+or its row, closes the reader and shows **Undo** in the Inbox until the next
+organizing action. A change saved while Gmail is still being checked does not
+interrupt that check: the synchronization keeps the newly saved changes and goes on.
 
 - **Offline or interrupted:** the change stays saved and is sent on the next
   synchronization, including after relaunch. The Inbox says how many changes wait
@@ -164,7 +166,12 @@ Gmail reads do not ask Convex about this device. The removal check runs when a
 synchronization opens or commits the cache, so the backend learns nothing about
 per-message read activity. Every provider mutation first revalidates the Trusted
 Device. Unavailable validation sends nothing; a revoked device purges local mail
-and credentials.
+and credentials. A provider mutation that reports this removal hands the Inbox
+over to the account page, which explains
+**This device was removed**; it never claims the purged data was kept.
+The explanation survives foreground verification while the device stays signed
+out. Explicit sign-out clears it, and a concurrent account deletion keeps its own
+explanation.
 
 ## Deterministic evidence
 
@@ -176,10 +183,15 @@ mailbox reselection and log privacy. Organizing tests cover every action's Gmail
 labels, changes kept through an outage and relaunch, lost responses, refused and
 repeated changes, Undo after Gmail confirmed a trash, labels changed in Gmail,
 changes bound to their mailbox, intake during a blocked history read, lost local
-save replies, preserving labels on Undo, five-attempt stopping and resolution,
-revoked access, and the cache upgrade. Rendered host tests cover the
-Inbox states, organizing from the reader and a row with Undo, the account page
-round trip and two Mac windows over one store.
+save replies, changes saved under each step of a long listing and during action
+preparation and settlement, mailbox changes during conflict reopening, preserving labels
+on Undo, five-attempt stopping and resolution, revoked access, and the cache
+upgrade. Rendered host tests cover the Inbox states, organizing from the reader
+and a row with Undo, closing the reader after a row removes its message, a
+device found removed reaching the account page's explanation, one announcement
+across two Mac windows, the account page round trip and two Mac windows over one
+store. Shared registration tests cover queued foreground verification, concurrent
+sign-out and deletion after a mailbox removal hand-off.
 
 The hosted native storage suite checks the Gmail path allow-list, the label
 change's identifiers and body, query encoding,

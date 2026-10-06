@@ -5,7 +5,7 @@ import { createRegistration } from '@private-email/mail-core/registration';
 import { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mailbox';
 import { createMockMailSession } from '@private-email/mail-core/testing/mock-session';
 import { act, fireEvent, render, within } from '@testing-library/react-native';
-import { View } from 'react-native';
+import { AccessibilityInfo, View } from 'react-native';
 
 import type { inbox } from '../src/private-storage.ts';
 
@@ -257,6 +257,49 @@ describe('mac windows over a connected Gmail mailbox', () => {
       [['INBOX'], []],
     ]);
 
+    // A VoiceOver row action that removes the selected message closes that reader too; Undo keeps
+    // it closed, the other window keeps its selection, and the outcome is announced once.
+    const announce = jest.mocked(AccessibilityInfo.announceForAccessibility);
+    await fireEvent.press(first.getByRole('button', { name: maya }));
+    expect(first.getByText('maya@example.invalid')).toBeVisible();
+    await act(async () => {
+      await fireEvent(
+        first.getByRole('button', { name: maya }),
+        'accessibilityAction',
+        { nativeEvent: { actionName: 'trash' } },
+      );
+    });
+    expect(first.getByText('Select a message to start reading.')).toBeVisible();
+    expect(second.getByText('oliver@example.invalid')).toBeVisible();
+    // Each outcome is announced once although both windows show it.
+    expect(announce.mock.calls).toStrictEqual([
+      ['Archived: “A little more room to think”.'],
+      ['Moved to Trash: “A little more room to think”.'],
+    ]);
+    await act(async () => {
+      await fireEvent.press(first.getByRole('button', { name: 'Undo' }));
+    });
+    expect(first.getByRole('button', { name: maya })).toBeVisible();
+    expect(first.getByText('Select a message to start reading.')).toBeVisible();
+    expect(second.getByText('oliver@example.invalid')).toBeVisible();
+    // The same action again is a new outcome with the same words, and is announced again.
+    await act(async () => {
+      await fireEvent(
+        second.getByRole('button', { name: maya }),
+        'accessibilityAction',
+        { nativeEvent: { actionName: 'trash' } },
+      );
+    });
+    expect(second.getByText('oliver@example.invalid')).toBeVisible();
+    expect(announce).toHaveBeenCalledTimes(3);
+    expect(announce).toHaveBeenLastCalledWith(
+      'Moved to Trash: “A little more room to think”.',
+    );
+    await act(async () => {
+      await fireEvent.press(second.getByRole('button', { name: 'Undo' }));
+    });
+    expect(second.getByRole('button', { name: maya })).toBeVisible();
+
     gmail.fail({ status: 401 });
     await act(store.load);
     expect(
@@ -277,6 +320,71 @@ describe('mac windows over a connected Gmail mailbox', () => {
       ),
     ).toBeVisible();
     expect(second.getByText('oliver@example.invalid')).toBeVisible();
+  });
+
+  it('hands a device found removed while organizing to the account page explanation', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+    gmail.deliver({
+      from: 'Maya Chen <maya@example.invalid>',
+      subject: 'A little more room to think',
+    });
+    const connected = {
+      kind: 'connected',
+      productAccountId: 'synthetic-product-account',
+      signInProvider: 'google',
+      privateSync: 'ready',
+      providerSubject: 'synthetic-google-subject',
+      address: 'alex@example.invalid',
+    } as const;
+    // After native code purges this device, restore finds it signed out.
+    const restored: Array<typeof connected | { kind: 'signed-out' }> = [
+      connected,
+    ];
+    const registration = createRegistration({
+      restore: () => Promise.resolve(restored.at(-1)),
+      authorizeGmail: () => Promise.resolve(connected),
+      signIn: () => Promise.reject(new Error('Not signing in')),
+      link: () => Promise.reject(new Error('Not linking')),
+      confirmRecoveryKey: () => Promise.reject(new Error('No key')),
+      recoverWithRecoveryKey: () => Promise.reject(new Error('No key')),
+      approveEnrollment: () => Promise.reject(new Error('No device')),
+      declineEnrollment: () => Promise.reject(new Error('No device')),
+      revokeTrustedDevice: () => Promise.reject(new Error('No device')),
+      refreshPrivateSync: () => Promise.reject(new Error('No sync')),
+      signOut: () => Promise.reject(new Error('Not signing out')),
+      deleteProductAccount: () => Promise.reject(new Error('Not deleting')),
+    });
+    // As the app composes them: the Inbox hands a removal to the registration store.
+    jest.replaceProperty(
+      jest.requireMock<{ inbox: typeof inbox }>('../src/private-storage.ts'),
+      'inbox',
+      createGmailInbox(gmail.native, {
+        removed: () => {
+          void registration.deviceRemoved();
+        },
+      }),
+    );
+    const app = await render(
+      <RegistrationGate
+        store={registration}
+        preview={false}>
+        <InboxWindow windowId="first" />
+      </RegistrationGate>,
+    );
+    const row = await app.findByRole('button', { name: maya });
+    restored.push({ kind: 'signed-out' });
+    gmail.failModify({ code: 'mailbox-revoked' });
+    await act(async () => {
+      await fireEvent(row, 'accessibilityAction', {
+        nativeEvent: { actionName: 'star' },
+      });
+    });
+    await expect(
+      app.findByText('This device was removed'),
+    ).resolves.toBeVisible();
+    expect(app.queryByText('A little more room to think')).toBeNull();
+    expect(app.queryByText(/stored data has been kept/u)).toBeNull();
   });
   /* oxlint-enable vitest/max-expects */
 });

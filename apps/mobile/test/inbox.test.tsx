@@ -164,7 +164,13 @@ function connectedMessage(store: ReturnType<typeof createGmailInbox>) {
   return state.messages[0];
 }
 
-function renderConnected(store: ReturnType<typeof createGmailInbox>) {
+function renderConnected(
+  createStore: (
+    registration: ReturnType<typeof createRegistration>,
+  ) => ReturnType<typeof createGmailInbox>,
+  // Set once another device has removed this one; restore then reports the purged device.
+  removed?: Readonly<{ current: boolean }>,
+) {
   const connected = {
     kind: 'connected',
     productAccountId: 'synthetic-product-account',
@@ -175,7 +181,10 @@ function renderConnected(store: ReturnType<typeof createGmailInbox>) {
   } as const;
   const authorizeGmail = jest.fn(() => Promise.resolve(connected));
   const registration = createRegistration({
-    restore: () => Promise.resolve(connected),
+    restore: () =>
+      Promise.resolve(
+        removed?.current === true ? { kind: 'signed-out' } : connected,
+      ),
     authorizeGmail,
     signIn: () => Promise.reject(new Error('Not signing in')),
     link: () => Promise.reject(new Error('Not linking')),
@@ -188,6 +197,7 @@ function renderConnected(store: ReturnType<typeof createGmailInbox>) {
     signOut: () => Promise.reject(new Error('Not signing out')),
     deleteProductAccount: () => Promise.reject(new Error('Not deleting')),
   });
+  const store = createStore(registration);
   function Connected() {
     const [selectedId, setSelectedId] = useState<string>();
     return (
@@ -196,6 +206,9 @@ function renderConnected(store: ReturnType<typeof createGmailInbox>) {
         preview={false}>
         <InboxProvider store={store}>
           <Inbox
+            onClose={() => {
+              setSelectedId(undefined);
+            }}
             onSelect={setSelectedId}
             selectedId={selectedId}
           />
@@ -223,7 +236,7 @@ describe('connected Gmail Inbox', () => {
       snippet: 'Coffee first, then the long way home?',
     });
     const store = createGmailInbox(gmail.native);
-    const { authorizeGmail, rendered } = renderConnected(store);
+    const { authorizeGmail, rendered } = renderConnected(() => store);
     await rendered;
     await fireEvent.press(
       await screen.findByRole('button', {
@@ -280,7 +293,7 @@ describe('connected Gmail Inbox', () => {
       subject: 'Saturday, by the river?',
     });
     const store = createGmailInbox(gmail.native);
-    await renderConnected(store).rendered;
+    await renderConnected(() => store).rendered;
     await fireEvent.press(
       await screen.findByRole('button', {
         name: 'Unread. Oliver Park. Saturday, by the river?',
@@ -340,17 +353,23 @@ describe('connected Gmail Inbox', () => {
     );
     expect(screen.queryByText(/waits for Gmail/u)).toBeNull();
 
-    // VoiceOver offers the same actions on each row.
+    // VoiceOver offers the same actions on each row; removing the open message closes the reader.
+    const lisbon = screen.getByRole('button', {
+      name: 'Unread. Maya Chen. Tickets for Lisbon',
+    });
+    await fireEvent.press(lisbon);
+    expect(
+      screen.getByRole('header', { name: 'Tickets for Lisbon' }),
+    ).toBeVisible();
     await act(async () => {
-      await fireEvent(
-        screen.getByRole('button', {
-          name: 'Unread. Maya Chen. Tickets for Lisbon',
-        }),
-        'accessibilityAction',
-        { nativeEvent: { actionName: 'trash' } },
-      );
+      await fireEvent(lisbon, 'accessibilityAction', {
+        nativeEvent: { actionName: 'trash' },
+      });
     });
     expect(screen.queryByText('Tickets for Lisbon')).toBeNull();
+    expect(
+      screen.getByText('Select a message to start reading.'),
+    ).toBeVisible();
     expect(
       screen.getByText('Moved to Trash: “Tickets for Lisbon”.'),
     ).toBeVisible();
@@ -363,7 +382,7 @@ describe('connected Gmail Inbox', () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ messages: 1 });
     const store = createGmailInbox(gmail.native);
-    await renderConnected(store).rendered;
+    await renderConnected(() => store).rendered;
     const target = connectedMessage(store);
     gmail.failModify(
       ...Array.from({ length: 5 }, () => ({ code: 'unavailable' })),
@@ -411,6 +430,42 @@ describe('connected Gmail Inbox', () => {
       ).toBeNull();
     });
     expect(gmail.labelsOf(target.id)).toContain('STARRED');
+  });
+
+  it('hands a device found removed while organizing to the account page explanation', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+    gmail.deliver({
+      from: 'Oliver Park <oliver@example.invalid>',
+      subject: 'Saturday, by the river?',
+    });
+    const removed = { current: false };
+    // As the app composes them: the Inbox hands a removal to the registration store.
+    await renderConnected(
+      (registration) =>
+        createGmailInbox(gmail.native, {
+          removed: () => {
+            void registration.deviceRemoved();
+          },
+        }),
+      removed,
+    ).rendered;
+    const row = await screen.findByRole('button', {
+      name: 'Unread. Oliver Park. Saturday, by the river?',
+    });
+    // Native code purges this device when the write's Trusted Device check finds it removed.
+    removed.current = true;
+    gmail.failModify({ code: 'mailbox-revoked' });
+    await act(async () => {
+      await fireEvent(row, 'accessibilityAction', {
+        nativeEvent: { actionName: 'star' },
+      });
+    });
+    await expect(
+      screen.findByText('This device was removed'),
+    ).resolves.toBeVisible();
+    expect(screen.queryByText('Saturday, by the river?')).toBeNull();
+    expect(screen.queryByText(/stored data has been kept/u)).toBeNull();
   });
   /* oxlint-enable vitest/max-expects */
 });

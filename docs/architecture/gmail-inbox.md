@@ -56,6 +56,11 @@ rejects a stale sync commit after independent intake. Publications reject older
 revisions for the same scope. Intake distinguishes unsaved optimism from durable
 pending state and restarts revision conflicts or native
 mailbox invalidations at most twice, reopening the committed cache each time.
+Synchronization and action commits rebase revision conflicts at most twice per
+commit, retaining only intake IDs absent from their prior base document. Comparing
+with the next document would reintroduce a head just settled by Gmail. Each rebase
+requires the same mailbox owner and an existing decoded document; it retains the
+operation's checkpoint and provider result while appending newer intents in order.
 Documented Gmail 403 usage-limit reasons, including `dailyLimitExceeded`, retain
 the cached list with a retry notice rather than prompting reauthorization.
 
@@ -151,3 +156,11 @@ before returning the fixed `mailbox-revoked` code; shared recovery clears memory
 and queued publications. Read/cache preflight retains its existing offline
 availability policy. Undo changes only memberships introduced or removed by the
 original action; a pre-existing move target label is preserved.
+
+A fixed `mailbox-revoked` rejection hands the already-purged Inbox to registration
+through the host adapter. Shared registration presentation retains the removal
+reason across ordinary bare signed-out restores, without replacing an authoritative
+deletion notice. Accepted sign-in, sign-out and deletion change its intent fence;
+explicit removal and late callbacks cannot relabel a different account operation.
+This is TypeScript-owned presentation under ADR 0067; native purge, credential
+custody and cleanup ordering remain unchanged.
