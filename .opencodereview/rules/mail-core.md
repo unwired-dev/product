@@ -125,7 +125,14 @@ Namespace-import style, `JSON.parse`, `typeof … === 'object'` guards, untagged
   matching ones in `splitDeclarations`. Drop declarations containing broken
   strings and keep matching delimiter types when scanning. Consume complete
   backslash escapes, including hex digits, optional CSS whitespace and string
-  newline continuations, before recognizing delimiters. Decode semantic names,
+  newline continuations, before recognizing delimiters. Remove CSS comments before
+  splitting and cascade classification, respecting strings, complete escapes and
+  unquoted URL/bad-URL tokens at actual identifier-token boundaries, excluding
+  URL spellings inside dimensions, hash and at-keyword tokens. Replacement whitespace must not join identifiers
+  when a preceding hex escape consumes its first space, or make a CSS math sum
+  valid when its source lacked required whitespace. Cover bad-string recovery,
+  escaped newlines and split escaped name/value/importance controls in WebKit;
+  otherwise hidden CIDs download or visible mail disappears. Decode semantic names,
   supported identifier values and the importance identifier only after lexical
   splitting; escaped whitespace or punctuation must not become trivia or an
   importance delimiter, and escaped digits must not become number tokens.

@@ -948,6 +948,70 @@ const importance = new RegExp(
   'iu',
 );
 
+// Preprocess CSS newlines, then recognize strings, identifiers and unquoted URL tokens before
+// comments. A comment separates tokens; preserve that trivia for source math validation.
+const stringEscape = String.raw`(?:${identEscape}|\\\n)`;
+const cssLexeme = new RegExp(
+  String.raw`"(?:[^"\\\n]|${stringEscape})*"?|'(?:[^'\\\n]|${stringEscape})*'?|(${identSource})(\()?|\\[\s\S]|\/\*[\s\S]*?(?:\*\/|$)`,
+  'giu',
+);
+// Whether an identifier followed by "(" opens a URL token. A URL spelling inside a dimension, hash
+// or at-keyword is not one.
+const opensURL = (style: string, match: RegExpExecArray) =>
+  match[2] === '(' &&
+  !/[\w@#-]/u.test(style.charAt(match.index - 1)) &&
+  unescapeCSS(match[1] ?? '').toLowerCase() === 'url';
+
+// Where scanning resumes after a URL token's opening "(": past the closing parenthesis of an
+// unquoted URL, where even a bad URL ends and /* is URL text, or unchanged before a quoted one.
+const unquotedURLEnd = (style: string, from: number) => {
+  let at = from;
+  while (/[\t\n ]/u.test(style.charAt(at))) {
+    at += 1;
+  }
+  if (style.charAt(at) === '"' || style.charAt(at) === "'") {
+    return from;
+  }
+  while (at < style.length && style.charAt(at) !== ')') {
+    at +=
+      style.charAt(at) === '\\'
+        ? (/^(?:[0-9a-f]{1,6}[\t\n ]?|[\s\S])/iu.exec(style.slice(at + 1))?.[0]
+            .length ?? 0)
+        : 0;
+    at += 1;
+  }
+  return Math.min(at + 1, style.length);
+};
+
+const withoutCSSComments = (source: string, trivia = '  ') => {
+  const style = source
+    .replaceAll(/\r\n?|\f/gu, '\n')
+    .replaceAll('\0', '\uFFFD');
+  const chunks: string[] = [];
+  let from = 0;
+  cssLexeme.lastIndex = 0;
+  for (
+    let match = cssLexeme.exec(style);
+    match !== null;
+    match = cssLexeme.exec(style)
+  ) {
+    if (match[0].startsWith('/*')) {
+      // One space can be consumed by a preceding hex escape and join the next token.
+      chunks.push(style.slice(from, match.index), trivia);
+      from = cssLexeme.lastIndex;
+    } else if (opensURL(style, match)) {
+      cssLexeme.lastIndex = unquotedURLEnd(style, cssLexeme.lastIndex);
+    }
+  }
+  chunks.push(style.slice(from));
+  return chunks.join('');
+};
+const commentTrivia = String.raw`(?:[\t\n\f\r ]|\/\*\*\/)*`;
+const commentedImportance = new RegExp(
+  `!${commentTrivia}${identSource}${commentTrivia}$`,
+  'iu',
+);
+
 const readValue = (source: string) => {
   const marker = importance.exec(source);
   const important =
@@ -970,13 +1034,22 @@ const readValue = (source: string) => {
 const plainEscapedValue = /^[^;:"'\\\n\r\f]*$/u;
 
 // One declaration's decoded name and value, or nothing when WebKit would reject it.
-const readDeclaration = (declaration: string) => {
+const readDeclaration = (source: string) => {
+  const declaration = withoutCSSComments(source);
   const colon = declaration.indexOf(':');
   const name = unescapeCSS(trimCSS(declaration.slice(0, colon))).toLowerCase();
   const { value, important, valid } = readValue(
     trimCSS(declaration.slice(colon + 1)),
   );
-  return colon > 0 && valid && acceptedDeclaration(name, value)
+  const sourceMath = withoutCSSComments(source, '/**/')
+    .slice(source.indexOf(':') + 1)
+    .replace(important ? commentedImportance : /$^/u, '')
+    .replaceAll(new RegExp(`^${commentTrivia}|${commentTrivia}$`, 'gu'), '');
+  const validMath =
+    name !== 'opacity' ||
+    !/^(?:calc|min|max|clamp)\(/iu.test(value) ||
+    opacityNumber(sourceMath) !== undefined;
+  return colon > 0 && valid && validMath && acceptedDeclaration(name, value)
     ? {
         name,
         value,
@@ -991,7 +1064,9 @@ const parseDeclarations = (style: string) => {
   const declared = new Map<string, string>();
   const important = new Set<string>();
   const unsafe = new Set<string>();
-  for (const declaration of splitDeclarations(style).map(readDeclaration)) {
+  for (const declaration of splitDeclarations(
+    withoutCSSComments(style, '/**/'),
+  ).map(readDeclaration)) {
     if (
       declaration !== undefined &&
       (declaration.important || !important.has(declaration.name))

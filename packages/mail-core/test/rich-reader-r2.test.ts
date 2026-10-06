@@ -86,6 +86,67 @@ const substitutePayload = (
 
 describe('rich-reader review regressions', () => {
   it.each([
+    ['display:block;display:/**/none', 'hidden'],
+    ['display:block;display:/*;"(*/none', 'hidden'],
+    ['visibility:visible;visibility:/**/hidden', 'hidden'],
+    ['opacity:1;opacity:/**/0', 'hidden'],
+    ['display:none!/**/important;display:block', 'hidden'],
+    ['display:none;display:/**/block', 'visible'],
+    ['display:block;display:no/**/ne', 'visible'],
+    [String.raw`display:block;display:n\6f/**/ne`, 'visible'],
+    [String.raw`display:none;displ\61/**/y:block`, 'hidden'],
+    ['opacity:0;opacity:calc(1/**/+/**/0)', 'hidden'],
+    ['opacity:1;opacity:calc(1/**/-/**/1)', 'visible'],
+    ['opacity:1;opacity:calc(1/**/ - /**/1)', 'hidden'],
+    ['display:block;background-image:url(/*);display:none', 'hidden'],
+    [
+      String.raw`display:block;background-image:u\72l(/*);display:none`,
+      'hidden',
+    ],
+    ['display:block;font-family:"a\\\r\n/*";display:none;/* */', 'hidden'],
+    ['font-family:"/*;display:none*/";display:block', 'visible'],
+  ] as const)(
+    'resolves commented CSS before explicit CID requests through the public inbox: %s',
+    async (style, visibility) => {
+      expect.hasAssertions();
+      const gmail = createSyntheticGmail();
+      const id = gmail.deliver({ at: Date.UTC(2020, 0, 1) });
+      const attribute = style
+        .replaceAll('&', '&amp;')
+        .replaceAll('"', '&quot;')
+        .replaceAll('\r', '&#13;')
+        .replaceAll('\n', '&#10;');
+      const observed = substitutePayload(gmail, id, {
+        mimeType: 'multipart/related',
+        parts: [
+          textPart(
+            'text/html',
+            `<p>Visible body</p><a href="https://example.invalid"><span style="${attribute}">Inspected label</span></a><img src="cid:styled" width="80" height="40" style="${attribute}">`,
+          ),
+          imagePart('styled-image', '<styled>'),
+        ],
+      });
+      const inbox = createGmailInbox(gmail.native);
+      await inbox.load();
+      expect(observed.images).toStrictEqual([]);
+      await inbox.readMessage(id);
+      const body = inbox.messageBody(id);
+      const expected = {
+        hidden: { images: [], links: [] },
+        visible: {
+          images: ['styled-image'],
+          links: [{ href: 'https://example.invalid', text: 'Inspected label' }],
+        },
+      }[visibility];
+      expect(body).toMatchObject({ kind: 'ready' });
+      expect({ images: observed.images, links: richLinks(body) }).toStrictEqual(
+        expected,
+      );
+      inbox.forget();
+    },
+  );
+
+  it.each([
     ['https://phish.invalid', 'bank.xn--p1ai', [linkWarnings.text]],
     ['https://phish.invalid', 'bank.xn--p1ai/login', [linkWarnings.text]],
     [
@@ -1984,6 +2045,73 @@ describe('rich-reader review regressions', () => {
     );
     expect(many.links).toStrictEqual([
       { href: 'https://shown.invalid', text: 'Shown' },
+    ]);
+  });
+
+  it('removes CSS comments as WebKit does before resolving declarations', () => {
+    expect.hasAssertions();
+    const image = (contentId: string, style: string) =>
+      `<img src="cid:${contentId}" style="${style.replaceAll('"', '&quot;').replaceAll('\r', '&#13;')}">`;
+    const result = sanitizeHtml(
+      [
+        image('comment-value', 'display:block;display:/**/none'),
+        image('comment-semicolon', 'display:none/*;*/;visibility:visible'),
+        image('comment-name', 'display:/* a */none'),
+        image('comment-important', 'display:none!/**/important;display:block'),
+        image('comment-opacity', 'opacity:1;opacity:/**/0'),
+        image('comment-colon', 'display/*:block*/:none'),
+        image('comment-visibility', 'visibility:/**/hidden'),
+        image('comment-contents', 'display:/**/contents'),
+        image('comment-escaped-value', String.raw`display:/**/\6e one`),
+        image('comment-brackets', 'font-family:/* ([ */ordinary;display:none'),
+        image('bad-string', 'font-family:"a\n/* " */;display:none'),
+        image('escaped-slash', String.raw`display:block;\/*;display:none;*/`),
+        image('unquoted-url', 'font-family:url(/*);display:none'),
+        image('escaped-url', String.raw`font-family:u\72l(/*);display:none`),
+        image('bad-url', 'font-family:URL( /* a);display:none'),
+        image(
+          'escaped-url-end',
+          String.raw`font-family:url(a\)/*);display:none`,
+        ),
+        image('valid-commented-sum', 'opacity:calc(1 /**/+/**/ -1)'),
+        image('invalid-sum-hidden', 'opacity:0;opacity:calc(1/**/+/**/1)'),
+        image('hex-newline', 'font-family:"\\61\n/*";display:none'),
+        image('hex-crlf', 'font-family:"\\61\r\n/*";display:none'),
+        image(
+          'continued-string',
+          'font-family:"a\\\r\n/*";display:none;*/b";display:block',
+        ),
+        // A comment separates tokens, so these names and values are not the words they look like.
+        image('split-name', 'di/**/splay:none'),
+        image('split-value', 'display:no/**/ne'),
+        image('split-escaped-name', String.raw`\64/**/isplay:none`),
+        image('split-escaped-value', String.raw`display:\6e/**/one`),
+        image(
+          'split-escaped-important',
+          String.raw`display:none !\69/**/mportant;display:block`,
+        ),
+        // A comment inside a string is text, not a comment.
+        image('quoted', 'font-family:"/*";display:none;font-family:"*/"'),
+        image('dimension-url', 'font-family:1url(/*);display:none'),
+        image('hash-url', 'font-family:#url(/*);display:none'),
+        image('at-url', 'font-family:@url(/*);display:none'),
+        image('invalid-sum-visible', 'opacity:1;opacity:calc(1/**/+/**/-1)'),
+        image('visible', 'display:/*x*/block'),
+        image('unterminated', 'display:block;/* display:none'),
+      ].join(''),
+    );
+    expect(result.contentIds).toStrictEqual([
+      'split-name',
+      'split-value',
+      'split-escaped-name',
+      'split-escaped-value',
+      'split-escaped-important',
+      'dimension-url',
+      'hash-url',
+      'at-url',
+      'invalid-sum-visible',
+      'visible',
+      'unterminated',
     ]);
   });
 

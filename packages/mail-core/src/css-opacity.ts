@@ -56,9 +56,19 @@ export function opacityNumber(raw: string): number | undefined {
   let at = 0;
   let work = 0;
   const whitespace = () => {
-    while (/[\t\n\f\r ]/u.test(raw[at] ?? '') && at < raw.length) {
-      at += 1;
+    let spaced = false;
+    while (at < raw.length) {
+      if (/[\t\n\f\r ]/u.test(raw[at] ?? '')) {
+        spaced = true;
+        at += 1;
+      } else if (raw.startsWith('/*', at)) {
+        const end = raw.indexOf('*/', at + 2);
+        at = end === -1 ? raw.length : end + 2;
+      } else {
+        break;
+      }
     }
+    return spaced;
   };
   const take = (token: string) => {
     whitespace();
@@ -157,16 +167,16 @@ export function opacityNumber(raw: string): number | undefined {
   function sum(): Scalar | undefined {
     let left = product();
     while (left !== undefined) {
-      whitespace();
+      const before = whitespace();
       const operator = raw[at];
       if (operator !== '+' && operator !== '-') {
         break;
       }
       // Unlike multiplication/division, CSS sums require whitespace on both sides.
-      if (!/[\t\n\f\r ][+-][\t\n\f\r ]/u.test(raw.slice(at - 1, at + 2))) {
+      at += 1;
+      if (!before || !whitespace()) {
         return undefined;
       }
-      at += 1;
       const right = product();
       if (right === undefined || right.power !== left.power) {
         return undefined;

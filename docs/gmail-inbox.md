@@ -175,7 +175,8 @@ Drop other attributes, including `on*`, `srcset`, background URLs and sender-sup
 application markers. Attribute values still require validation; an allowed name
 does not authorize an unsafe value or URL.
 
-Values containing an unresolved CSS function outside quoted strings, such as
+CSS comments are removed outside strings and unquoted URL tokens, preserving
+escapes and token boundaries so hidden images never become eligible for download. Values containing an unresolved CSS function outside quoted strings, such as
 `calc()`, are removed. Plain `rgb`/`rgba` and `hsl`/`hsla` border colors and quoted
 font names containing parentheses remain allowed; nested functions are removed.
 Other color functions, including `hwb`, `lab`, `lch`, `oklab`, `oklch`, `color` and
