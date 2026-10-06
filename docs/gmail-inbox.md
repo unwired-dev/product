@@ -314,7 +314,9 @@ descendants of unrecognized or conflicting MIME containers are never fetched.
 Admit only complete, signature-valid, single-frame PNG, JPEG, GIF or WebP images.
 The reviewed image bounds are 5 MiB per image, at most 20 attempts and 20 admitted
 images, 20 MiB aggregate image bytes, at most 8,192 pixels on either axis, 16 Mi
-pixels per image and 32 Mi pixels in aggregate. Check provider-declared sizes
+pixels per image and 32 Mi pixels in aggregate. Only the first 20 unique visible Content-ID references are collected for
+resolution; later ones render as placeholders, and every occurrence still counts
+toward the presentation budget. Check provider-declared sizes
 before requests and bound received and decoded data. Missing, malformed,
 unsupported or oversized parts remain placeholders without failing the readable
 body. The presentation also shares a 20 MiB encoded-image-byte and 32 Mi-pixel

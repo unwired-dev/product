@@ -6,6 +6,7 @@ import { html as htmlSpec, parse } from 'parse5';
 import type { ImageFacts } from './inline-images.ts';
 import type { ReadableBody } from './readable-text.ts';
 
+import { inlineImageLimits } from './inline-images.ts';
 import { messageLinkHref, vettedHref } from './link-inspection.ts';
 import { hasReadableText, paragraphBuilder } from './readable-text.ts';
 
@@ -1191,6 +1192,7 @@ export function sanitizeHtml(
 ): SanitizedHtml {
   const builder = paragraphBuilder();
   const contentIds: string[] = [];
+  const discovered = new Set<string>();
   const contentIdOccurrences: string[] = [];
   const links: BodyLink[] = [];
   let hidesImages = false;
@@ -1253,14 +1255,18 @@ export function sanitizeHtml(
     output += `<span class="blocked-image"${override} role="img" aria-label="${escapeAttribute(alt === '' ? 'Image not loaded' : alt)}">${escapeText(alt === '' ? 'Image' : alt)}</span>`;
   };
 
-  // Records a visible Content-ID reference for MIME resolution.
+  // Records a visible Content-ID reference for MIME resolution. Resolution attempts only the
+  // first unique references, so later ones are never collected and render as placeholders.
   const reference = (element: Element) => {
     const contentId = contentIdReference(attributeOf(element, 'src') ?? '');
     if (contentId !== undefined) {
       contentIdOccurrences.push(contentId);
     }
-    if (contentId !== undefined && !contentIds.includes(contentId)) {
-      contentIds.push(contentId);
+    if (contentId !== undefined && !discovered.has(contentId)) {
+      discovered.add(contentId);
+      if (contentIds.length < inlineImageLimits.attempts) {
+        contentIds.push(contentId);
+      }
     }
     return contentId === undefined ? undefined : images.get(contentId);
   };

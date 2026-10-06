@@ -988,6 +988,19 @@ describe('rich-reader review regressions', () => {
     expect(result.document).toContain('width: min(100%, 600px)');
   });
 
+  it('collects only the unique Content-IDs resolution may attempt, counting every occurrence', () => {
+    expect.hasAssertions();
+    const ids = Array.from({ length: 5000 }, (_, index) => `image-${index}`);
+    const result = sanitizeHtml(
+      [...ids, 'image-0']
+        .map((contentId) => `<img src="cid:${contentId}" alt="">`)
+        .join(''),
+    );
+    expect(result.contentIds).toStrictEqual(ids.slice(0, 20));
+    expect(result.contentIdOccurrences).toHaveLength(5001);
+    expect(result.document.match(/class="blocked-image"/gu)).toHaveLength(5001);
+  });
+
   it('never resolves images in cells of collapsed table columns', () => {
     expect.hasAssertions();
     const result = sanitizeHtml(

@@ -76,6 +76,14 @@ Namespace-import style, `JSON.parse`, `typeof … === 'object'` guards, untagged
 
 #### Rich-body admission and speculative reads
 
+- `sanitizeHtml.reference` deduplicating sender-controlled CID discovery with a
+  growing array scan, or collecting unique references beyond the resolution
+  attempt bound. Preserve visible order with constant-time membership checks
+  and collect only references `imageTally.requestable` may attempt; keep every
+  visible occurrence for repeated-image presentation charges and keep later
+  references as placeholders. Otherwise compact image-heavy mail blocks the
+  shared JavaScript runtime before request limits apply, or presentation exceeds
+  its image budget.
 - `html-sanitizer.ts` splitting inline declarations inside quoted strings or
   unmatched component-value blocks, or treating mismatched closing brackets as
   matching ones in `splitDeclarations`. Drop declarations containing broken
