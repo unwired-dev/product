@@ -244,10 +244,12 @@ public final class PrivateInboxStore {
       else {
         return false
       }
-      try write(
-        plaintext, file: "bodies/\(name).\(tier.rawValue)", key: key, authenticating: identity)
+      // The other tier's file goes before the new one is published, so one body never has two
+      // valid files; an interruption between them is a cache miss, fetched again.
       let other = bodyURL(name, tier == .opened ? .prefetched : .opened)
       do { try FileManager.default.removeItem(at: other) } catch CocoaError.fileNoSuchFile {}
+      try write(
+        plaintext, file: "bodies/\(name).\(tier.rawValue)", key: key, authenticating: identity)
       return true
     }
   }
@@ -309,8 +311,8 @@ public final class PrivateInboxStore {
   {
     let entries = try bodies()
     let name = file?.deletingPathExtension().lastPathComponent
-    // A tier change publishes a different file before deleting the old tier. Count that old
-    // ciphertext until cleanup finishes, so a crash between the steps stays within the limit.
+    // Conservatively reserve the old tier and its replacement before deleting anything.
+    // A refused tier change must preserve the old ciphertext and every protected body.
     var total = entries.reduce(bytes) { $0 + ($1.file == file ? 0 : $1.size) }
     let eligible = entries.filter { $0.name != name && !protected.contains($0.name) }.sorted {
       ($0.tier == .prefetched ? 1 : 0, $0.read, $0.name) < ($1.tier == .prefetched ? 1 : 0, $1.read, $1.name)

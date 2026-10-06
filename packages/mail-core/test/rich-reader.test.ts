@@ -421,6 +421,48 @@ describe('the isolated rich reader', () => {
     expect(listedIds(earlier)).toContain(added);
   });
 
+  it('classifies images and text by the CSS WebKit actually receives', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    const logo = png(40, 30);
+    const id = gmail.deliver({
+      content: {
+        html: [
+          // Unparseable maxima are dropped, so WebKit draws the image at its own size.
+          '<p><img src="cid:shown@example" style="max-width:calc(1px);max-height:calc(1px)" alt="Shown"></p>',
+          // Valid one-pixel maxima reach WebKit, so this stays a tracking pixel.
+          '<p><img src="cid:pixel@example" style="max-width:1px;max-height:1px"></p>',
+          // Clipping is discarded, so this text paints and stays readable and inspectable.
+          '<div style="width:0;height:0;overflow:hidden;white-space:nowrap">Read <a href="https://phish.invalid/">https://bank.invalid</a></div>',
+        ].join(''),
+        images: [
+          { contentId: 'shown@example', mimeType: 'image/png', bytes: logo },
+          { contentId: 'pixel@example', mimeType: 'image/png', bytes: logo },
+        ],
+      },
+    });
+    const inbox = createGmailInbox(gmail.native);
+    await inbox.load();
+    const opened = await read(inbox, id);
+    const { document, links } = rich(opened);
+    expect(document).not.toContain('calc(');
+    expect(document).toContain('src="data:image/png;base64,');
+    expect(
+      gmail.requests
+        .map(({ path }) => path)
+        .filter((path) => path.includes('/attachments/image-')),
+    ).toStrictEqual([`messages/${id}/attachments/image-0`]);
+    expect(links).toStrictEqual([
+      { href: 'https://phish.invalid/', text: 'https://bank.invalid' },
+    ]);
+    expect(
+      readable(opened)
+        .paragraphs.flat()
+        .map(({ text }) => text)
+        .join(''),
+    ).toContain('https://bank.invalid');
+  });
+
   it('resolves visible inline images within bounds and keeps them for provider-free opens', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail();

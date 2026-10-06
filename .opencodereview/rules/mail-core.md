@@ -136,8 +136,15 @@ Namespace-import style, `JSON.parse`, `typeof … === 'object'` guards, untagged
   deceptive links bypass the destination mismatch caution.
 - `isTrackingPixel` ignoring admitted nonpixel CSS dimensions or allowing invalid,
   empty or filtered-out declarations to mask HTML dimensions. Rendering and
-  classification must use the same admitted width/height values; otherwise visible
-  images are removed or declared trackers become eligible for CID resolution.
+  classification must use the same retained width/height/max values. Validate
+  every retained width/height and min/max dimension with the dimension grammar;
+  otherwise visible images are removed
+  or expressions WebKit paints as trackers become eligible for CID resolution.
+- `sanitizeHtml` suppressing readability or inspected link text from declarations
+  discarded by `filterStyle`, such as `overflow:hidden`. Classify text using the
+  CSS actually emitted; whole-element or image exclusion may use declared CSS
+  only when it also removes that content from the document. Otherwise painted
+  deceptive link labels lose their required caution or readable fallback.
 - `inspectImage` trusting a signature/header before validating the complete bounded
   PNG/JPEG/GIF/WebP container, frame count and frame/canvas geometry. Truncated or
   inconsistent data must not supply trusted dimensions or bypass decoded-cost

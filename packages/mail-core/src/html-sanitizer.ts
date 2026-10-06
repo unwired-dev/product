@@ -334,6 +334,8 @@ interface FilteredStyle {
   // Content no one sees: hidden preheaders, zero-sized or off-canvas text.
   readonly hidden: boolean;
   readonly declared: ReadonlyMap<string, string>;
+  // The declarations WebKit receives; dimensions and readable text use these values.
+  readonly retained: ReadonlyMap<string, string>;
 }
 
 const parseDeclarations = (style: string) =>
@@ -392,22 +394,31 @@ const unreadableText = (declared: ReadonlyMap<string, string>) =>
         .some((value) => /^-\d{4,}/u.test(value)),
   );
 
+// Sizes WebKit applies only when they follow the validated dimension grammar.
+const dimensionProperties = new Set([
+  'width',
+  'height',
+  'max-width',
+  'max-height',
+  'min-width',
+  'min-height',
+]);
+
 const keptDeclaration = ([name, value]: readonly [string, string]) =>
   properties.has(name) &&
   value !== '' &&
   !unsafeValue.test(value) &&
-  ((name !== 'width' && name !== 'height') || cssDimension(value)) &&
+  (!dimensionProperties.has(name) || cssDimension(value)) &&
   (name !== 'display' || displays.test(value));
 
 function filterStyle(style: string): FilteredStyle {
   const declared = parseDeclarations(style);
+  const retained = new Map([...declared].filter(keptDeclaration));
   return {
-    css: [...declared]
-      .filter(keptDeclaration)
-      .map(([name, value]) => `${name}: ${value}`)
-      .join('; '),
+    css: [...retained].map(([name, value]) => `${name}: ${value}`).join('; '),
     hidden: hiddenBy.some((check) => check(declared)),
     declared,
+    retained,
   };
 }
 
@@ -441,17 +452,11 @@ const isElement = (node: Node): node is Element => 'tagName' in node;
 // Declared 1×1 or zero-sized images are tracking pixels, removed rather than shown as blocked.
 const isTrackingPixel = (element: Element, style: FilteredStyle) => {
   const size = (name: 'width' | 'height') => {
-    // An admitted CSS dimension overrides the HTML attribute, even when it is not in pixels.
-    const declared = style.declared.get(name);
+    // A retained CSS dimension overrides the HTML attribute, even when it is not in pixels.
     const dimension = pixels(
-      declared !== undefined && keptDeclaration([name, declared])
-        ? declared
-        : attributeOf(element, name),
+      style.retained.get(name) ?? attributeOf(element, name),
     );
-    const maximumDeclaration = style.declared.get(`max-${name}`);
-    const maximum = pixels(
-      cssDimension(maximumDeclaration ?? '') ? maximumDeclaration : undefined,
-    );
+    const maximum = pixels(style.retained.get(`max-${name}`));
     return maximum === undefined
       ? dimension
       : Math.min(dimension ?? maximum, maximum);
@@ -593,6 +598,7 @@ export function sanitizeHtml(
   const image = (element: Element, style: FilteredStyle) => {
     if (
       isTrackingPixel(element, style) ||
+      // Dropped from the output too, so WebKit never draws what is not requested.
       /^contents$/iu.test(style.declared.get('display') ?? '')
     ) {
       return;
@@ -682,7 +688,7 @@ export function sanitizeHtml(
     if (block) {
       builder.end();
     }
-    const suppressText = unreadableText(style.declared) ? 1 : 0;
+    const suppressText = unreadableText(style.retained) ? 1 : 0;
     unreadable += suppressText;
     (special.get(name) ?? container)(node, style);
     unreadable -= suppressText;

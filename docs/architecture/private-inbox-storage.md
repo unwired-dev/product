@@ -77,10 +77,12 @@ Admission includes the nonce and authentication-tag overhead, plans all eviction
 before deleting anything, and refuses an entry that cannot fit. Tier suffixes
 separate opened and prefetched files. Eviction considers opened entries first,
 then prefetched entries, each least recently read with filename tie-breaking;
-the current recent working set is protected. During a tier transition the old
-opposite-tier ciphertext counts until the replacement has been published and
-that old file removed, so interrupted writes cannot exceed the hard limit.
-Only the exact atomic-replacement target is discounted before admission.
+the current recent working set is protected. Admission conservatively counts the
+old opposite-tier ciphertext together with its replacement; only the exact
+atomic-replacement target is discounted. A refused admission preserves the old
+body. After admission, the opposite tier is removed before publishing the new
+file, so interruption cannot leave two valid tiers for one body. A failed or
+interrupted replacement may leave a disposable cache miss, fetched again on demand.
 Verified reads update access time; retention/pruning reconciles an over-budget
 directory left by an older interrupted writer. Metadata is never evicted.
 Pruning also compares the expected metadata revision under the same file lock

@@ -43,9 +43,11 @@ This code owns what TypeScript must never hold: Keychain items, the storage encr
   must reject old work before provider access or ciphertext replacement.
 
 - `PrivateInboxStore` body admission that discounts an opposite-tier file before
-  its replacement is durably published and the old ciphertext removed. Count
-  both during that interval and plan eviction before deletion, or a crash can
-  break the hard stored-byte limit. Cache-only reads must not update access times
+  admission succeeds. Reserve both ciphertexts and plan eviction before deletion;
+  refused admission must preserve the old body and protected entries. Remove the
+  opposite tier before publishing its replacement, or interruption can leave two
+  valid files and reads can return the older body. A failed replacement may leave
+  a refetchable cache miss. Cache-only reads must not update access times
   or delete corrupt bodies; otherwise presentation-only access mutates storage.
 
 #### Mock sessions stay out of production

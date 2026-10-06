@@ -378,8 +378,7 @@ extension PrivateInboxTests {
         document: String(repeating: "x", count: 201), tier: .opened, protectedIds: []))
     #expect(try stored(["prefetched", "protected"]) == ["prefetched", "protected"])
 
-    // Changing eviction tier writes a second file before deleting the first. Admission must
-    // reserve both ciphertexts so a crash after publication cannot leave an over-budget cache.
+    // Tier changes reserve both ciphertexts before deletion; refusal preserves usable mail.
     #expect(try !admit("prefetched", .opened, protecting: ["prefetched", "protected"]))
     #expect(try files().count == 2)
     #expect(try stored(["prefetched", "protected"]) == ["prefetched", "protected"])
@@ -391,7 +390,29 @@ extension PrivateInboxTests {
     #expect(try admit("prefetched", .opened, protecting: ["prefetched"]))
     #expect(try files().count == 1)
     #expect(try files().first?.pathExtension == "o")
+
+    // A failed replacement must not leave the older tier readable after an interrupted move.
+    // Obstruct the real atomic write instead of adding a production fault-injection hook.
+    let oldTier = try #require(files().first)
+    let blockedTier = oldTier.deletingPathExtension().appendingPathExtension("p")
+    try FileManager.default.createDirectory(at: blockedTier, withIntermediateDirectories: false)
+    try Data([0]).write(to: blockedTier.appendingPathComponent("obstruction"))
+    #expect(throws: (any Error).self) {
+      try admit("prefetched", .prefetched, protecting: ["prefetched"])
+    }
+    #expect(!FileManager.default.fileExists(atPath: oldTier.path))
+    try FileManager.default.removeItem(at: blockedTier)
+    let reopened = PrivateInboxStore(
+      directory: directory, service: service, protectedDataAvailable: { true }, bodyLimit: 200)
+    #expect(
+      try reopened.openMessageBody(
+        address: google.address, subject: google.subject, id: "prefetched") == nil)
     #expect(try admit("prefetched", .prefetched, protecting: ["prefetched"]))
+    #expect(
+      try reopened.openMessageBody(
+        address: google.address, subject: google.subject, id: "prefetched") == text)
+    #expect(try files().count == 1)
+    #expect(try files().first?.pathExtension == "p")
     #expect(try admit("protected", .prefetched, protecting: ["prefetched", "protected"]))
 
     // Pruning reconciles an over-budget directory left by an interrupted older writer.
