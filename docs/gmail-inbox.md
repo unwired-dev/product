@@ -348,7 +348,9 @@ descendants of unrecognized or conflicting MIME containers are never fetched.
 Admit only complete, signature-valid, single-frame PNG, JPEG, GIF or WebP images.
 The reviewed image bounds are 5 MiB per image, at most 20 attempts and 20 admitted
 images, 20 MiB aggregate image bytes, at most 8,192 pixels on either axis, 16 Mi
-pixels per image and 32 Mi pixels in aggregate. Only the first 20 unique visible Content-ID references are collected for
+pixels per image and 32 Mi pixels in aggregate. Every requested image reserves its
+declared bytes against the 20 MiB aggregate before download, whether or not it is
+admitted. Only the first 20 unique visible Content-ID references are collected for
 resolution; later ones render as placeholders, and every occurrence still counts
 toward the presentation budget. Check provider-declared sizes
 before requests and bound received and decoded data. Missing, malformed,
@@ -434,7 +436,10 @@ The remaining general priority order is authorized remote images, then speculati
 prefetch/historical work. No mail-loading task creates an account-wide busy state
 or disables navigation or interaction with already available mail.
 
-Prefetch saves readable body text and any decoded HTML alternative, not attachments
+Prefetch requires wholly well-formed Content-Type and Content-Disposition values;
+any malformed header keeps the body on demand. Mail with malformed MIME parameters
+can still be opened explicitly when its body type is readable. Prefetch saves
+readable body text and any decoded HTML alternative, not attachments
 or Inline Images. Gmail first checks body-free Content-Type metadata and fetches
 only single-part `text/plain` or `text/html` messages. If the optional header is
 absent, use the provider payload MIME type. Multipart or attachment bodies remain
@@ -446,10 +451,12 @@ protected readable body. A later changed revision is eligible for reevaluation.
 Offline or network loss stops provider prefetch; cached reading remains usable.
 Cache-only registration permits reads but no prefetch, cache write or pruning
 until registration verifies again. Authentication failure stops authorized provider
-work and uses **Gmail needs your permission again**, whether prefetch or an
+work and uses **Gmail needs your permission again**, whether prefetch, inline-image
+resolution for a cached or opened body (whose readable text stays shown) or an
 explicitly opened body met the rejection, so the Inbox offers **Allow Gmail access**.
 An overlapping metadata synchronization keeps that notice; the next load after
-authorization can recover the Inbox and retry unavailable bodies.
+authorization can recover the Inbox, retry unavailable bodies and resolve pending
+Inline Images in already shown bodies.
 Gmail quota/rate-limit and
 server failures pause speculative work and follow the existing retry/activation
 path without a tight retry loop. A usage-limit 403 must not trigger reauthorization.

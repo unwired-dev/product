@@ -6,6 +6,7 @@ import type { GmailInbox, MessageBodyState } from '../src/gmail-inbox.ts';
 import { createGmailInbox } from '../src/gmail-inbox.ts';
 import { inspectImage } from '../src/inline-images.ts';
 import { inspectLink, linkWarnings } from '../src/link-inspection.ts';
+import { imageTally, singleReadablePart } from '../src/message-body.ts';
 import { createSyntheticGmail } from '../src/testing/gmail-mailbox.ts';
 
 const read = async (inbox: GmailInbox, id: string, reader?: symbol) => {
@@ -210,6 +211,53 @@ function answerBodies(
     return full && reply !== undefined
       ? reply
       : gmailRequest(path, query, owner);
+  };
+}
+
+// Refuses Gmail's grant for full-format reads or attachment downloads while switched on.
+function refuseGrant(gmail: ReturnType<typeof createSyntheticGmail>) {
+  const { gmailRequest } = gmail.native;
+  const refusing = { full: false, attachments: false };
+  gmail.native.gmailRequest = async (path, query, owner) => {
+    const full = query.some(
+      ([name, value]) => name === 'format' && value === 'full',
+    );
+    const refused =
+      (refusing.full && full) ||
+      (refusing.attachments && path.includes('/attachments/'));
+    return refused
+      ? { status: 401, body: '{}' }
+      : gmailRequest(path, query, owner);
+  };
+  return refusing;
+}
+
+// Answers inline-image downloads with a fixed status, 503 until a test changes it.
+function answerImages(gmail: ReturnType<typeof createSyntheticGmail>) {
+  const { gmailRequest } = gmail.native;
+  const reply = { status: 503, body: '{}' };
+  gmail.native.gmailRequest = async (path, query, owner) =>
+    path.includes('/attachments/image-')
+      ? { status: reply.status, body: reply.body }
+      : gmailRequest(path, query, owner);
+  return reply;
+}
+
+// Holds image replies while a reader closes during its authorization refresh.
+function holdImages(gmail: ReturnType<typeof createSyntheticGmail>) {
+  const { gmailRequest } = gmail.native;
+  const reached = Promise.withResolvers<undefined>();
+  const release = Promise.withResolvers<undefined>();
+  gmail.native.gmailRequest = async (path, query, owner) => {
+    if (path.includes('/attachments/')) {
+      reached.resolve(undefined);
+      await release.promise;
+    }
+    return gmailRequest(path, query, owner);
+  };
+  return {
+    reached: reached.promise,
+    release: () => release.resolve(undefined),
   };
 }
 
@@ -845,6 +893,191 @@ describe('the isolated rich reader', () => {
     });
   });
 
+  it.each(['MIME', 'image'] as const)(
+    'asks for Gmail again when completing cached images rejects %s authorization',
+    async (resource) => {
+      expect.hasAssertions();
+      const gmail = createSyntheticGmail();
+      const id = gmail.deliver({
+        at: Date.UTC(2020, 0, 1),
+        content: {
+          html: '<p>Cached mail</p><img src="cid:logo" alt="Logo">',
+          images: [
+            { contentId: 'logo', mimeType: 'image/png', bytes: png(40, 30) },
+          ],
+        },
+      });
+      const request = gmail.native.gmailRequest;
+      const imageReply = answerImages(gmail);
+      const first = createGmailInbox(gmail.native);
+      await first.load();
+      expect(rich(await read(first, id)).document).toContain('Cached mail');
+      const cached = gmail.cachedBodies().get(id);
+      expect(JSON.parse(String(cached)).images).toBeUndefined();
+
+      const reopened = createGmailInbox(gmail.native);
+      await reopened.load();
+      imageReply.status = 401;
+      const refuse = {
+        MIME: () => {
+          answerBodies(gmail, new Map([[id, { status: 401, body: '{}' }]]));
+        },
+        image: () => undefined,
+      };
+      refuse[resource]();
+      // The cached text stays readable while the Inbox asks for Gmail.
+      expect(rich(await read(reopened, id)).document).toContain('Cached mail');
+      expect(reopened.getSnapshot()).toMatchObject({
+        kind: 'ready',
+        sync: 'authentication',
+      });
+      expect(gmail.cachedBodies().get(id)).toBe(cached);
+
+      gmail.native.gmailRequest = request;
+      await reopened.load();
+      await vi.waitFor(() => {
+        expect(rich(reopened.messageBody(id)).document).toContain(
+          'data:image/png;base64,',
+        );
+      });
+      expect(reopened.getSnapshot()).toMatchObject({ sync: 'current' });
+    },
+  );
+
+  it('charges rejected image downloads to the per-open received byte limit', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    const imageBytes = 5 * 1024 * 1024;
+    const invalidImage = [...Buffer.alloc(imageBytes)];
+    const images = Array.from({ length: 5 }, (_, index) => ({
+      contentId: `invalid-${index}`,
+      mimeType: 'image/png',
+      bytes: invalidImage,
+    }));
+    const id = gmail.deliver({
+      at: Date.UTC(2020, 0, 1),
+      content: {
+        html: `<p>Readable mail</p>${images
+          .map(({ contentId }) => `<img src="cid:${contentId}" alt="Invalid">`)
+          .join('')}`,
+        images,
+      },
+    });
+    const inbox = createGmailInbox(gmail.native);
+    await inbox.load();
+    const opened = await read(inbox, id);
+    expect(rich(opened).document).not.toContain('data:image');
+    expect(readable(opened).paragraphs.flat()).toContainEqual({
+      text: 'Readable mail',
+    });
+    const downloaded = gmail.requests.filter(({ path }) =>
+      path.includes('/attachments/image-'),
+    );
+    expect(downloaded.length * imageBytes).toBe(20 * 1024 * 1024);
+    const saved = JSON.parse(String(gmail.cachedBodies().get(id)));
+    expect(saved.images).toStrictEqual({
+      admitted: [],
+      refused: images.map(({ contentId }) => contentId),
+    });
+  });
+
+  it.each(
+    (['MIME', 'image'] as const).flatMap((resource) =>
+      [
+        { status: 503, body: '{}' },
+        {
+          status: 403,
+          body: '{"error":{"errors":[{"reason":"userRateLimitExceeded"}]}}',
+        },
+      ].map((reply) => ({ resource, reply })),
+    ),
+  )(
+    'keeps image failures retryable without reauthorization: %j',
+    async ({ resource, reply }) => {
+      expect.hasAssertions();
+      const gmail = createSyntheticGmail();
+      const id = gmail.deliver({
+        at: Date.UTC(2020, 0, 1),
+        content: {
+          html: '<p>Cached text</p><img src="cid:photo" alt="Photo">',
+          images: [
+            { contentId: 'photo', mimeType: 'image/png', bytes: png(4, 4) },
+          ],
+        },
+      });
+      const imageReply = answerImages(gmail);
+      Object.assign(imageReply, reply);
+      const first = createGmailInbox(gmail.native);
+      await first.load();
+      expect(rich(await read(first, id)).document).toContain('Cached text');
+      expect(first.getSnapshot()).toMatchObject({ sync: 'current' });
+      const cached = gmail.cachedBodies().get(id);
+
+      const reopened = createGmailInbox(gmail.native);
+      await reopened.load();
+      const setup = {
+        MIME: () => answerBodies(gmail, new Map([[id, reply]])),
+        image: () => undefined,
+      };
+      setup[resource]();
+      expect(rich(await read(reopened, id)).document).toContain('Cached text');
+      expect(reopened.getSnapshot()).toMatchObject({ sync: 'current' });
+      expect(gmail.cachedBodies().get(id)).toBe(cached);
+    },
+  );
+
+  it.each([undefined, Symbol('window')])(
+    'does not restore a closed reader or its image reservation after authorization refresh: %s',
+    async (reader) => {
+      expect.hasAssertions();
+      const gmail = createSyntheticGmail();
+      const content = {
+        html: '<p>Shown text</p><img src="cid:photo" alt="Photo">',
+        images: [
+          { contentId: 'photo', mimeType: 'image/png', bytes: png(4096, 4096) },
+        ],
+      };
+      const closed = gmail.deliver({ content });
+      const second = gmail.deliver({ content });
+      const third = gmail.deliver({ content });
+      const refusing = refuseGrant(gmail);
+      const inbox = createGmailInbox(gmail.native);
+      await inbox.load();
+      const close = inbox.retainMessage(closed, reader);
+      refusing.attachments = true;
+      expect(rich(await read(inbox, closed, reader)).document).toContain(
+        'Shown text',
+      );
+      expect(inbox.getSnapshot()).toMatchObject({ sync: 'authentication' });
+
+      refusing.attachments = false;
+      const held = holdImages(gmail);
+      await inbox.load();
+      await held.reached;
+      const refresh = inbox.readMessage(closed);
+      expect(rich(inbox.messageBody(closed, reader)).document).toContain(
+        'Shown text',
+      );
+      close();
+      held.release();
+      await refresh;
+      expect(inbox.messageBody(closed)).toBeUndefined();
+      expect(inbox.messageBody(closed, reader)).toBeUndefined();
+
+      // Closing during refresh returns its budget: two other 16 Mi-pixel images fit.
+      const closeSecond = inbox.retainMessage(second);
+      const closeThird = inbox.retainMessage(third);
+      expect(rich(await read(inbox, second)).document).toContain(
+        'data:image/png',
+      );
+      expect(rich(await read(inbox, third)).document).toContain(
+        'data:image/png',
+      );
+      closeSecond();
+      closeThird();
+    },
+  );
+
   it('shares one image budget across displayed bodies and returns it when a reader closes', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail();
@@ -1204,6 +1437,155 @@ describe('the isolated rich reader', () => {
     },
   );
 
+  it('keeps bodies with malformed MIME headers on demand instead of prefetching them', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    const malformed = [
+      'inline garbage',
+      'inline; filename="unterminated',
+      'inline; filename',
+    ].map((disposition) =>
+      gmail.deliver({
+        at: Date.now() - 60_000,
+        content: { text: 'On demand', single: true, disposition },
+      }),
+    );
+    const inbox = createGmailInbox(gmail.native);
+    await inbox.load();
+    await vi.waitFor(() => {
+      expect(gmail.bodyCommits).toHaveLength(malformed.length);
+    });
+    for (const id of malformed) {
+      expect(JSON.parse(String(gmail.cachedBodies().get(id)))).toMatchObject({
+        excluded: true,
+      });
+      expect(
+        gmail.requests
+          .filter(({ path }) => path === `messages/${id}`)
+          .filter(({ query }) => query.get('format') === 'full'),
+      ).toHaveLength(0);
+      // Opening still reads the body.
+      expect(readable(await read(inbox, id)).paragraphs).toStrictEqual([
+        [{ text: 'On demand' }],
+      ]);
+    }
+    const part = (contentType: string) => ({
+      mimeType: 'text/html',
+      headers: [{ name: 'Content-Type', value: contentType }],
+      body: { size: 1, data: 'eA' },
+    });
+    expect(
+      [
+        'text/html garbage',
+        'text/html; charset',
+        'text/html; charset="utf-8',
+        'text/html (unterminated',
+        'text/html; charset="utf-8"; format=flowed',
+        "text/html; charset*=UTF-8''utf-8",
+        '(comment) text/html; name="a; b.html"',
+        'text/html;\r\n\tcharset="utf-8"',
+      ].map((contentType) => singleReadablePart(part(contentType))),
+    ).toStrictEqual([false, false, false, false, true, true, true, true]);
+  });
+
+  it.each(['Content-Type', 'Content-Disposition'] as const)(
+    'checks malformed %s again in the full prefetch response',
+    async (name) => {
+      expect.hasAssertions();
+      const gmail = createSyntheticGmail();
+      const id = gmail.deliver({
+        at: Date.now() - 60_000,
+        content: { text: 'On demand', single: true },
+      });
+      const values = {
+        'Content-Type': 'text/plain; charset="unterminated',
+        'Content-Disposition': 'inline; filename="unterminated',
+      };
+      replaceFullPayload(gmail, id, {
+        mimeType: 'text/plain',
+        headers: [{ name, value: values[name] }],
+        body: { size: 9, data: Buffer.from('On demand').toString('base64url') },
+      });
+      const inbox = createGmailInbox(gmail.native);
+      await inbox.load();
+      await vi.waitFor(() => {
+        expect(JSON.parse(String(gmail.cachedBodies().get(id)))).toStrictEqual({
+          version: 2,
+          id,
+          excluded: true,
+        });
+      });
+      expect(readable(await read(inbox, id)).paragraphs).toStrictEqual([
+        [{ text: 'On demand' }],
+      ]);
+    },
+  );
+
+  it('charges every requested image download to the aggregate byte bound', () => {
+    expect.hasAssertions();
+    const tally = imageTally();
+    const part = { mimeType: 'image/png', body: { size: 5 * 1024 * 1024 } };
+    const requested = Array.from({ length: 20 }, (_, attempt) => {
+      const allowed = tally.request(part, attempt);
+      // Malformed bytes are refused, but their transfer still counts.
+      tally.receive(`image-${attempt}`, part, 'AAAA');
+      return allowed;
+    });
+    expect(requested.filter(Boolean)).toHaveLength(4);
+  });
+
+  it('asks for Gmail when a cached or opened body meets a rejected grant while resolving images', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    const id = gmail.deliver({
+      at: Date.UTC(2020, 0, 1),
+      content: {
+        html: '<p>Shown text</p><img src="cid:photo" alt="Photo">',
+        images: [
+          { contentId: 'photo', mimeType: 'image/png', bytes: png(4, 4) },
+        ],
+      },
+    });
+    const refusing = refuseGrant(gmail);
+    const inbox = createGmailInbox(gmail.native);
+    await inbox.load();
+    // An opened body keeps its text while its image download meets the rejection.
+    refusing.attachments = true;
+    const opened = rich(await read(inbox, id));
+    expect(opened.document).toContain('Shown text');
+    expect(opened.document).not.toContain('data:image');
+    expect(inbox.getSnapshot()).toMatchObject({ sync: 'authentication' });
+    // Once Gmail answers again, the next synchronization resolves the image in place.
+    refusing.attachments = false;
+    await inbox.load();
+    await vi.waitFor(() => {
+      expect(rich(inbox.messageBody(id)).document).toContain('data:image/png');
+    });
+    expect(inbox.getSnapshot()).toMatchObject({ sync: 'current' });
+
+    // A cached body whose images were never resolved keeps its text when Gmail rejects the
+    // grant for the message's structure, and the Inbox asks for Gmail.
+    const unresolved = gmail.deliver({
+      at: Date.UTC(2020, 0, 2),
+      content: {
+        html: '<p>Cached text</p><img src="cid:pending" alt="Pending">',
+        images: [
+          { contentId: 'pending', mimeType: 'image/png', bytes: png(4, 4) },
+        ],
+      },
+    });
+    refusing.attachments = true;
+    await inbox.load();
+    await read(inbox, unresolved);
+    refusing.attachments = false;
+    const fresh = createGmailInbox(gmail.native);
+    await fresh.load();
+    refusing.full = true;
+    const cached = rich(await read(fresh, unresolved));
+    expect(cached.document).toContain('Cached text');
+    expect(fresh.getSnapshot()).toMatchObject({ sync: 'authentication' });
+  });
+
   it('stops prefetch when Gmail needs permission again and limits loads to two', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail();
@@ -1312,6 +1694,26 @@ describe('the isolated rich reader', () => {
     const pending = inbox.readMessage(id);
     end();
     await pending;
+    expect(inbox.messageBody(id)).toBeUndefined();
+  });
+
+  it('does not restore a reader closed by the initial loading notification', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    const id = gmail.deliver({
+      at: Date.UTC(2020, 0, 1),
+      content: { text: 'Closed mail', single: true },
+    });
+    const inbox = createGmailInbox(gmail.native);
+    await inbox.load();
+    const close = inbox.retainMessage(id);
+    // Synchronous publication precedes registration of the pending read's promise.
+    const unsubscribe = inbox.subscribe(() => {
+      unsubscribe();
+      close();
+    });
+    await inbox.readMessage(id);
+    unsubscribe();
     expect(inbox.messageBody(id)).toBeUndefined();
   });
 

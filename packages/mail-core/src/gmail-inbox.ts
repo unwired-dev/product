@@ -238,6 +238,10 @@ class GmailNotFound extends Schema.TaggedError<GmailNotFound>()(
   {},
 ) {}
 
+// Gmail refused the mailbox's grant; authorizing Gmail again is the only remedy.
+const rejectedGrant = (error: unknown) =>
+  error instanceof SyncFailure && error.kind === 'authentication';
+
 class GmailInvalidPage extends Schema.TaggedError<GmailInvalidPage>()(
   'GmailInvalidPage',
   {},
@@ -1047,21 +1051,34 @@ export function createGmailInbox(native: NativeGmailMailbox) {
     const tally = imageTally();
     for (const [index, contentId] of wanted.references.entries()) {
       const part = parts.get(contentId);
-      if (part === undefined || !tally.requestable(part, index)) {
+      if (part === undefined || !tally.request(part, index)) {
         tally.refuse(contentId);
       } else {
-        const data = yield* partData(scope, id, part).pipe(Effect.option);
-        tally.receive(contentId, part, Option.getOrUndefined(data));
+        // A rejected grant stops resolution: later images would meet the same rejection.
+        const attempt = yield* partData(scope, id, part).pipe(
+          Effect.map((data) => ({ data })),
+          Effect.catchIf(rejectedGrant, () =>
+            Effect.succeed('authentication' as const),
+          ),
+          Effect.orElseSucceed(() => ({ data: undefined })),
+        );
+        if (attempt === 'authentication') {
+          return { ...tally.result(), complete: false, authentication: true };
+        }
+        tally.receive(contentId, part, attempt.data);
       }
     }
-    return tally.result();
+    return { ...tally.result(), authentication: false };
   });
 
   // An explicit open's body from Gmail: both readable alternatives and its inline images.
   const fetchBody = Effect.fnUntraced(function* (
     scope: MailboxScope,
     id: string,
-  ): Effect.fn.Return<BodyDocument, SyncFailure | GmailNotFound> {
+  ): Effect.fn.Return<
+    Readonly<{ document: BodyDocument; authentication: boolean }>,
+    SyncFailure | GmailNotFound
+  > {
     const payload = yield* fullMessage(scope, id, [['format', 'full']]);
     const { html, text, path } = bodyParts(payload);
     const document: BodyDocument = {
@@ -1076,12 +1093,18 @@ export function createGmailInbox(native: NativeGmailMailbox) {
     };
     const references = contentIdsOf(document);
     if (references.length === 0) {
-      return { ...document, images: { admitted: [], refused: [] } };
+      return {
+        document: { ...document, images: { admitted: [], refused: [] } },
+        authentication: false,
+      };
     }
     const resolved = yield* resolveImages(scope, id, { path, references });
-    return resolved.complete
-      ? { ...document, images: resolved.images }
-      : document;
+    return {
+      document: resolved.complete
+        ? { ...document, images: resolved.images }
+        : document,
+      authentication: resolved.authentication,
+    };
   });
 
   // A cached body opened explicitly before its inline images were resolved resolves them now,
@@ -1092,7 +1115,7 @@ export function createGmailInbox(native: NativeGmailMailbox) {
   ) {
     const references = contentIdsOf(document);
     if (document.images !== undefined || references.length === 0) {
-      return { document, changed: false };
+      return { document, changed: false, authentication: false };
     }
     const payload = yield* fullMessage(scope, document.id, [
       ['format', 'full'],
@@ -1102,8 +1125,12 @@ export function createGmailInbox(native: NativeGmailMailbox) {
       references,
     });
     return resolved.complete
-      ? { document: { ...document, images: resolved.images }, changed: true }
-      : { document, changed: false };
+      ? {
+          document: { ...document, images: resolved.images },
+          changed: true,
+          authentication: false,
+        }
+      : { document, changed: false, authentication: resolved.authentication };
   });
 
   const cachedDocument = Effect.fnUntraced(function* (
@@ -1178,6 +1205,18 @@ export function createGmailInbox(native: NativeGmailMailbox) {
     );
 
   // The cached body when this device has one, otherwise Gmail's, which is then cached when it fits.
+  // Images a rejected grant left unresolved are read again after Gmail is authorized.
+  const imagesAwaitingGmail = new Set<string>();
+  // Publishes the Inbox's authentication state for the reader that met a rejected grant.
+  const askForGmail = (reading: number, id: string) =>
+    Effect.sync(() => {
+      if (owner === reading && listed(id)) {
+        authenticationRejected = true;
+        imagesAwaitingGmail.add(id);
+        publish(failureState(state, 'authentication'));
+      }
+    });
+
   const loadBody = Effect.fnUntraced(function* (
     scope: MailboxScope,
     id: string,
@@ -1197,12 +1236,24 @@ export function createGmailInbox(native: NativeGmailMailbox) {
       ? 'prefetched'
       : 'opened';
     if (Option.isSome(stored)) {
+      // Offline, the cached body opens with placeholders; a rejected grant also asks for Gmail.
       const completed = yield* completeImages(scope, stored.value).pipe(
+        Effect.catchIf(rejectedGrant, () =>
+          Effect.succeed({
+            document: stored.value,
+            changed: false,
+            authentication: true,
+          }),
+        ),
         Effect.orElseSucceed(() => ({
           document: stored.value,
           changed: false,
+          authentication: false,
         })),
       );
+      if (completed.authentication) {
+        yield* askForGmail(reading, id);
+      }
       if (completed.changed) {
         yield* store(completed.document, { scope, tier, reading }).pipe(
           Effect.ignore,
@@ -1210,7 +1261,10 @@ export function createGmailInbox(native: NativeGmailMailbox) {
       }
       return completed.document;
     }
-    const document = yield* fetchBody(scope, id);
+    const { document, authentication } = yield* fetchBody(scope, id);
+    if (authentication) {
+      yield* askForGmail(reading, id);
+    }
     yield* store(document, { scope, tier, reading }).pipe(
       // A body that could not be kept is still shown, unless its mailbox changed meanwhile.
       Effect.catchIf(
@@ -1233,7 +1287,11 @@ export function createGmailInbox(native: NativeGmailMailbox) {
     }
   });
 
-  const readMessage = (id: string) => {
+  // A refresh reloads a shown body in place: it keeps showing until the reload succeeds.
+  const readMessage = (
+    id: string,
+    { refresh = false }: Readonly<{ refresh?: boolean }> = {},
+  ) => {
     const pending = readingBodies.get(id);
     if (pending !== undefined) {
       return pending;
@@ -1245,12 +1303,14 @@ export function createGmailInbox(native: NativeGmailMailbox) {
       scope === undefined ||
       !listed(id) ||
       current?.kind === 'loading' ||
-      current?.kind === 'ready'
+      (current?.kind === 'ready') !== refresh
     ) {
       return Promise.resolve();
     }
     const reading = owner;
-    setBody(id, loadingBody);
+    if (!refresh) {
+      setBody(id, loadingBody);
+    }
     const run = runLogged(
       Effect.acquireUseRelease(
         beginInteractive,
@@ -1301,7 +1361,7 @@ export function createGmailInbox(native: NativeGmailMailbox) {
                 endedReaders.delete(id);
                 releaseBody(id);
                 notify(state);
-              } else {
+              } else if (!refresh || next.kind === 'ready') {
                 setBody(id, next);
               }
             }
@@ -1508,6 +1568,11 @@ export function createGmailInbox(native: NativeGmailMailbox) {
           void readMessage(id);
         }
       }
+      // Shown bodies whose images a rejected grant left unresolved resolve them now.
+      for (const id of imagesAwaitingGmail) {
+        imagesAwaitingGmail.delete(id);
+        void readMessage(id, { refresh: true });
+      }
     });
   }).pipe(
     // The profile and Inbox listing always exist; their absence is a provider failure to retry.
@@ -1553,6 +1618,7 @@ export function createGmailInbox(native: NativeGmailMailbox) {
     forget: () => {
       owner += 1;
       authenticationRejected = false;
+      imagesAwaitingGmail.clear();
       opened = undefined;
       bodies.clear();
       readers.clear();
@@ -1650,7 +1716,7 @@ export function createGmailInbox(native: NativeGmailMailbox) {
         if (count === 0) {
           readers.delete(id);
           // The presentation ended: its image budget returns, and a later open reads the cache.
-          if (bodies.get(id)?.kind === 'loading') {
+          if (bodies.get(id)?.kind === 'loading' || readingBodies.has(id)) {
             endedReaders.add(id);
           } else {
             releaseBody(id);

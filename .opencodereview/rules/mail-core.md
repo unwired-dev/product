@@ -115,7 +115,7 @@ Namespace-import style, `JSON.parse`, `typeof … === 'object'` guards, untagged
 - `sanitizeHtml.reference` deduplicating sender-controlled CID discovery with a
   growing array scan, or collecting unique references beyond the resolution
   attempt bound. Preserve visible order with constant-time membership checks
-  and collect only references `imageTally.requestable` may attempt; keep every
+  and collect only references within `inlineImageLimits.attempts`; keep every
   visible occurrence for repeated-image presentation charges and keep later
   references as placeholders. Otherwise compact image-heavy mail blocks the
   shared JavaScript runtime before request limits apply, or presentation exceeds
@@ -147,7 +147,11 @@ Namespace-import style, `JSON.parse`, `typeof … === 'object'` guards, untagged
 - MIME preflight in `message-body.ts` that trusts payload `mimeType` over a
   present Content-Type header or ignores Content-Disposition. Contradictory,
   malformed or attachment metadata must not turn speculation into a multipart
-  or attachment download. Resolve CIDs only within the selected alternative's
+  or attachment download. Both metadata and full preflight must validate every
+  whole header value, including trailing parameters and legal folding, before
+  speculative admission. Preserve the deliberate leading-token leniency of
+  explicit reads; malformed common parameters must not hide readable mail.
+  Resolve CIDs only within the selected alternative's
   eligible related/mixed scope, never from a discarded alternative. Prune every
   off-path child of an alternative container regardless of its MIME type,
   including mixed/signed subtrees and image leaves; preserve the selected
@@ -192,6 +196,20 @@ Namespace-import style, `JSON.parse`, `typeof … === 'object'` guards, untagged
   new owner's reservation for a reused provider ID.
   Count every rendered occurrence and join the existing pipeline; otherwise
   actual presentation exceeds its bounds or downloads a body twice.
+- `createGmailInbox.completeImages` or `resolveImages` swallowing rejected Gmail
+  authorization through best-effort MIME reload or attachment recovery. Cached
+  and newly opened readable text must remain shown while an owner- and
+  listing-fenced authentication notice publishes. Quota and server failures
+  must retain their retry fallback without asking for authorization. A successful
+  load after authorization must retry ready bodies with unresolved images, and
+  a last-reader close during that refresh must prevent hidden presentations and
+  reservations from being restored; otherwise reading silently stalls or closed
+  windows consume the shared image budget.
+- `imageTally.request` charging only admitted image bytes. Reserve the declared
+  bytes before each allowed request, including malformed or rejected downloads;
+  transient failures cannot refund transferred bytes. Keep this per-open transfer
+  bound separate from the reservations for displayed occurrences and readers;
+  otherwise rejected images bypass the 20 MiB aggregate download limit.
 - Applying geometric viewport admission to Inline Images after the 2026-10-06
   ADR 0029 amendment. Explicit opens resolve all visible, sanitized CID
   references within the existing bounds and shared presentation budget;

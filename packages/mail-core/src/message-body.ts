@@ -330,10 +330,29 @@ export function inlineImageParts(
   return found;
 }
 
-// Prefetch reads only messages Gmail reports as one plain-text or HTML part.
+// A Content-Type or Content-Disposition value that is wholly well formed: a token or type/subtype
+// and well-formed parameters, as RFC 2045, 2183 and 2231 define them.
+const mimeToken = "[!#$%&'*+.^_`|~0-9A-Za-z-]+";
+const wellFormedHeader = new RegExp(
+  `^[ \\t]*${mimeToken}(?:/${mimeToken})?(?:[ \\t]*;[ \\t]*${mimeToken}[ \\t]*=[ \\t]*(?:${mimeToken}|"(?:[^"\\\\\\r\\n]|\\\\[^\\r\\n])*"))*[ \\t]*(?![\\s\\S])`,
+  'u',
+);
+
+const wellFormedHeaders = (part: GmailPart) =>
+  ['content-type', 'content-disposition'].every((name) =>
+    headerValues(part, name).every((value) =>
+      wellFormedHeader.test(
+        withoutComments(value.replaceAll(/\r\n(?=[ \t])/gu, '')),
+      ),
+    ),
+  );
+
+// Prefetch reads only messages Gmail reports as one plain-text or HTML part with wholly well-
+// formed MIME headers; any malformed header keeps the body on demand.
 export const singleReadablePart = (payload: GmailPart) =>
   (mimeType(payload) === 'text/plain' || mimeType(payload) === 'text/html') &&
   (payload.parts ?? []).length === 0 &&
+  wellFormedHeaders(payload) &&
   !outsideBody(payload);
 
 // Windows-1252 differs from ISO-8859-1 only in 0x80–0x9F; browsers treat both labels alike.
@@ -424,11 +443,19 @@ export function imageTally() {
   let pixels = 0;
   let complete = true;
   return {
-    requestable: (part: GmailPart, attempt: number) =>
-      attempt < inlineImageLimits.attempts &&
-      admitted.length < inlineImageLimits.admitted &&
-      declared(part) <= inlineImageLimits.bytesPerImage &&
-      bytes + declared(part) <= inlineImageLimits.aggregateBytes,
+    // Reserves the part's declared bytes when it may be requested: every download counts
+    // toward the aggregate bound, whether or not its image is admitted.
+    request: (part: GmailPart, attempt: number) => {
+      const allowed =
+        attempt < inlineImageLimits.attempts &&
+        admitted.length < inlineImageLimits.admitted &&
+        declared(part) <= inlineImageLimits.bytesPerImage &&
+        bytes + declared(part) <= inlineImageLimits.aggregateBytes;
+      if (allowed) {
+        bytes += declared(part);
+      }
+      return allowed;
+    },
     refuse: (contentId: string) => {
       refused.push(contentId);
     },
@@ -447,7 +474,6 @@ export function imageTally() {
         refused.push(contentId);
         return;
       }
-      bytes += raw.length;
       pixels += facts.width * facts.height;
       admitted.push({ contentId, ...facts, data: standardBase64(raw) });
     },

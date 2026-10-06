@@ -273,6 +273,26 @@ describe('rich-reader review regressions', () => {
   });
 
   it.each([
+    ...[
+      ['Content-Type', 'text/html garbage'],
+      ['Content-Type', 'text/html; charset="unterminated'],
+      ['Content-Type', 'text/html; charset='],
+      ['Content-Type', 'text/html; charset=utf8 garbage'],
+      ['Content-Type', 'text/html;'],
+      ['Content-Type', 'text/html;\ncharset=utf-8'],
+      ['Content-Type', 'text/html\n'],
+      ['Content-Type', 'text/html;\u00A0charset=utf-8'],
+      ['Content-Disposition', 'inline garbage'],
+      ['Content-Disposition', 'inline; filename="unterminated'],
+      ['Content-Disposition', 'inline; filename='],
+      ['Content-Disposition', 'inline; filename="mail.html" garbage'],
+      ['Content-Disposition', 'inline; filename="dangling\\'],
+      ['Content-Disposition', 'inline;\rfilename="mail.html"'],
+      ['Content-Disposition', 'inline;\u00A0filename="mail.html"'],
+    ].map(([name = '', value = '']) => ({
+      ...textPart('text/html', '<p>Must remain on demand</p>'),
+      headers: [{ name, value }],
+    })),
     ...['multipart/related', 'message/rfc822', '', ' \t'].map((value) => ({
       ...textPart('text/plain', 'Excluded ambiguous body'),
       headers: [
@@ -315,7 +335,7 @@ describe('rich-reader review regressions', () => {
       ],
     },
   ])(
-    'refuses speculative full downloads of multipart or attachment metadata: %j',
+    'refuses speculative full downloads of malformed, multipart or attachment metadata: %j',
     async (payload) => {
       expect.hasAssertions();
       const gmail = createSyntheticGmail();
