@@ -154,7 +154,7 @@ const forwardsElsewhere = (address: ParsedAddress) =>
       return (
         target !== undefined &&
         target.host !== '' &&
-        site(target.host) !== site(address.host)
+        comparisonHost(target.host) !== comparisonHost(address.host)
       );
     });
 

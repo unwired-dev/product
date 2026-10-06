@@ -1904,6 +1904,21 @@ describe('link inspection', () => {
       'Read more',
       [linkWarnings.forwards],
     ],
+    [
+      'https://0x7f000001/r?next=https%3A%2F%2F127.0.0.1%2F',
+      'Continue',
+      [linkWarnings.numeric],
+    ],
+    [
+      'https://example.invalid/r?next=https%3A%2F%2F%2565xample.invalid%2F',
+      'Continue',
+      [],
+    ],
+    [
+      'https://[2001:db8::1]/r?next=https%3A%2F%2F%5B2001%3Adb8%3A0%3A0%3A0%3A0%3A0%3A1%5D%2F',
+      'Continue',
+      [linkWarnings.numeric],
+    ],
   ] as const)('inspects %s shown as %s', (href, text, reasons) => {
     expect.hasAssertions();
     expect(inspectLink(href, text)).toStrictEqual(reasons);

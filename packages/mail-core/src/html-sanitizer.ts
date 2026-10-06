@@ -1591,7 +1591,7 @@ export function sanitizeHtml(
       readable = normalized.replaceAll(/[\t\f\r ]+/gu, ' ');
     }
     addReadableText(readable, preservesLines);
-    if (link !== undefined && visibleNow()) {
+    if (link !== undefined && visibleNow() && hasVisibleText(normalized)) {
       link.visible = true;
     }
     output += escapeText(normalized);
@@ -1681,7 +1681,8 @@ export function sanitizeHtml(
     }
     const before = output;
     output = '';
-    link = { href, text: '', visible: visibleNow() };
+    // A link is offered only when something visible is rendered inside it.
+    link = { href, text: '', visible: false };
     const opened = link;
     children(element);
     link = undefined;
@@ -1708,9 +1709,6 @@ export function sanitizeHtml(
   };
 
   const container = (node: Element, style: FilteredStyle) => {
-    if (link !== undefined && visibleNow()) {
-      link.visible = true;
-    }
     const name = node.tagName;
     const tag = outputTag(name);
     const before = output.length;

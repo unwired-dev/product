@@ -284,7 +284,10 @@ count as visible. Collapsed table rows, row groups and columns
 still remove everything in them, including when collapse is inherited. Outside
 links, hidden images retain normalized dimensions without fetching their bytes or adding a
 readable placeholder. Restored visible images keep a visible placeholder when
-their bytes cannot be shown. Fully hidden links add no reader link control.
+their bytes cannot be shown. Links whose retained descendants contain no visible
+content add no reader link control and do not consume the link limit. Visible
+text, image placeholders and horizontal rules can still activate a link, including
+descendants that restore inherited visibility.
 Relative font sizes still scale a zero parent size to zero. Unsupported font-size
 expressions and invalid values are removed before rendering and inspection. Zero
 line height or maximum box dimensions alone do not clip overflowing text.
@@ -316,7 +319,8 @@ Proceed. Copy and Proceed recheck current access before revealing the destinatio
 Displayed web addresses with an explicit HTTP or HTTPS scheme, bare domains,
 dotted-quad IPv4 addresses and bracketed IPv6 addresses participate in the host
 comparison, including an optional port, path, query or fragment. Equivalent
-percent-encoded host spellings and IPv4/IPv6 spellings compare as the same host;
+percent-encoded host spellings and IPv4/IPv6 spellings compare as the same host,
+both for displayed-address comparison and redirect-query warnings;
 the exact destination remains unchanged. Ordinary version, time and date labels
 and displayed addresses without a host do not produce an address-mismatch caution.
 An unflagged link is never labelled safe. The exact destination goes to the

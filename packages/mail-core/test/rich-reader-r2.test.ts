@@ -1,3 +1,6 @@
+import assert from 'node:assert/strict';
+
+import type { GmailInbox } from '../src/gmail-inbox.ts';
 import type { GmailPart } from '../src/message-body.ts';
 
 import { createGmailInbox } from '../src/gmail-inbox.ts';
@@ -40,6 +43,12 @@ const imagePart = (
   body: { size: 1, attachmentId: id },
 });
 
+// A prepared message's rich links; anything else fails the test.
+const richLinks = (body: ReturnType<GmailInbox['messageBody']>) => {
+  assert.ok(body?.kind === 'ready');
+  return body.presentation.rich?.links ?? [];
+};
+
 const substitutePayload = (
   gmail: ReturnType<typeof createSyntheticGmail>,
   id: string,
@@ -76,6 +85,112 @@ const substitutePayload = (
 };
 
 describe('rich-reader review regressions', () => {
+  it.each([
+    ['0x7f000001', '127.0.0.1', [linkWarnings.numeric]],
+    ['0177.1', '2130706433', [linkWarnings.numeric]],
+    ['[2001:db8::1]', '[2001:0db8:0:0:0:0:0:1]', [linkWarnings.numeric]],
+    ['%65xample.invalid', 'example.invalid', []],
+    ['example.invalid', '%77ww.example.invalid', []],
+    ['127.0.0.1', '127.0.0.2', [linkWarnings.numeric, linkWarnings.forwards]],
+    [
+      '[2001:db8::1]',
+      '[2001:db8::2]',
+      [linkWarnings.numeric, linkWarnings.forwards],
+    ],
+    ['example.invalid', 'other.invalid', [linkWarnings.forwards]],
+  ] as const)(
+    'normalizes redirect warning hosts through the public inbox store: %s to %s',
+    async (host, target, reasons) => {
+      expect.hasAssertions();
+      const href = `https://${host}/?next=${encodeURIComponent(`https://${target}`)}`;
+      const gmail = createSyntheticGmail();
+      const id = gmail.deliver({ at: Date.UTC(2020, 0, 1) });
+      substitutePayload(
+        gmail,
+        id,
+        textPart('text/html', `<a href="${href}">Continue</a>`),
+      );
+      const inbox = createGmailInbox(gmail.native);
+      await inbox.load();
+      await inbox.readMessage(id);
+      const body = inbox.messageBody(id);
+      expect(body).toMatchObject({
+        kind: 'ready',
+        presentation: { rich: { links: [{ href, text: 'Continue' }] } },
+      });
+      expect(
+        richLinks(body).map((link) => inspectLink(link.href, link.text)),
+      ).toStrictEqual([reasons]);
+    },
+  );
+
+  it('offers only rendered link descendants through the public inbox store', async () => {
+    expect.hasAssertions();
+    const absent = [
+      '<span style="display:none">Hidden</span>',
+      '<span hidden>Hidden</span>',
+      '<span style="visibility:hidden">Hidden</span>',
+      '<span style="opacity:0">Hidden</span>',
+      '<span><b style="display:none">Hidden</b></span>',
+      '<span> \t\n</span>',
+      '<img src="cid:pixel" width="1" height="1">',
+      '<img src="cid:hidden" style="visibility:hidden">',
+    ].map(
+      (child, index) =>
+        `<a href="https://hidden.invalid/${index}">${child}</a>`,
+    );
+    const shown = [
+      ['https://visible.invalid/text', '<span>Visible</span>', 'Visible'],
+      [
+        'https://visible.invalid/restored',
+        '<span style="visibility:hidden">Hidden<b style="visibility:visible">Restored</b></span>',
+        'Restored',
+      ],
+      [
+        'https://visible.invalid/image',
+        '<img src="https://remote.invalid/image" alt="Visible image">',
+        'Visible image',
+      ],
+      ['https://visible.invalid/rule', '<hr>', ''],
+    ] as const;
+    const gmail = createSyntheticGmail();
+    const id = gmail.deliver({ at: Date.UTC(2020, 0, 1) });
+    const html = `<p>Other renderable content</p>${absent.join('')}${shown.map(([href, child]) => `<a href="${href}">${child}</a>`).join('')}`;
+    substitutePayload(gmail, id, textPart('text/html', html));
+    const inbox = createGmailInbox(gmail.native);
+    await inbox.load();
+    await inbox.readMessage(id);
+    const body = inbox.messageBody(id);
+    expect(body).toMatchObject({
+      kind: 'ready',
+      presentation: {
+        rich: { links: shown.map(([href, , text]) => ({ href, text })) },
+      },
+    });
+    assert.ok(body?.kind === 'ready');
+    expect(
+      body.presentation.readable.paragraphs
+        .flat()
+        .filter(({ href }) => href !== undefined)
+        .map(({ href }) => href),
+    ).toStrictEqual([
+      'https://visible.invalid/text',
+      'https://visible.invalid/restored',
+      'https://visible.invalid/image',
+    ]);
+  });
+
+  it('does not charge discarded link descendants to the action limit', () => {
+    expect.hasAssertions();
+    const result = sanitizeHtml(
+      `${'<a href="https://hidden.invalid"><div><span style="display:none">Hidden</span></div></a>'.repeat(250)}<a href="https://visible.invalid">Visible</a>`,
+    );
+    expect(result.links).toStrictEqual([
+      { href: 'https://visible.invalid', text: 'Visible' },
+    ]);
+    expect(result.document.match(/<a\b/gu)).toHaveLength(1);
+  });
+
   it('prefetches HTML using authoritative Content-Type despite a contradictory payload MIME type', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail();
@@ -399,7 +514,6 @@ describe('rich-reader review regressions', () => {
     );
     expect(result.links).toStrictEqual([
       { href: 'https://phish.invalid/a', text: 'https://bank.invalid' },
-      { href: 'https://phish.invalid/b', text: '' },
       { href: 'https://phish.invalid/c', text: 'https://line.invalid' },
       { href: 'https://phish.invalid/d', text: 'https://indent.invalid' },
       { href: 'https://phish.invalid/e', text: 'https://bank.invalid' },
@@ -884,32 +998,16 @@ describe('rich-reader review regressions', () => {
     );
     // A closed string keeps its semicolon and the zero size after it applies; an unterminated
     // string swallows the rest, and a broken one drops only its own declaration.
-    expect(result.links.map(({ text }) => text)).toStrictEqual([
-      '',
-      '',
-      'https://bank.invalid',
-      '',
-      '',
-      '',
-      'https://bank.invalid',
-      'https://bank.invalid',
-      '',
-      '',
-    ]);
+    // Links whose only text is hidden render nothing visible, so they are not offered at all.
+    expect(result.links).toStrictEqual(
+      [2, 6, 7].map((index) => ({
+        href: `https://phish.invalid/${index}`,
+        text: 'https://bank.invalid',
+      })),
+    );
     expect(
       result.links.map(({ href, text }) => inspectLink(href, text)),
-    ).toStrictEqual([
-      [],
-      [],
-      [linkWarnings.text],
-      [],
-      [],
-      [],
-      [linkWarnings.text],
-      [linkWarnings.text],
-      [],
-      [],
-    ]);
+    ).toStrictEqual([2, 6, 7].map(() => [linkWarnings.text]));
     expect(result.document).not.toMatch(
       /font-family: (?:&quot;|')foo; font-size: 0/u,
     );
@@ -1371,9 +1469,7 @@ describe('rich-reader review regressions', () => {
       'typed-product',
       'clamped',
     ]);
-    expect(result.links).toStrictEqual([
-      { href: 'https://phish.invalid', text: '' },
-    ]);
+    expect(result.links).toStrictEqual([]);
     const sizes = sanitizeHtml(
       [
         '<a href="https://phish.invalid"><span style="font-size:bogus!important;font-size:0">https://bank.invalid</span></a>',
@@ -1384,8 +1480,6 @@ describe('rich-reader review regressions', () => {
       ].join(''),
     );
     expect(sizes.links.map((link) => link.text)).toStrictEqual([
-      '',
-      '',
       'https://bank.invalid',
       'https://bank.invalid',
       'https://bank.invalid',
@@ -1814,6 +1908,39 @@ describe('rich-reader review regressions', () => {
       ]),
     );
     expect(result.document).not.toContain('rgb (');
+  });
+
+  it('offers a link only when something visible renders inside it', () => {
+    expect.hasAssertions();
+    const result = sanitizeHtml(
+      [
+        '<p>Visible body</p>',
+        '<a href="https://hidden.invalid/1"><span style="display:none">Hidden</span></a>',
+        '<a href="https://hidden.invalid/2"><span><span style="display:none">Hidden</span></span></a>',
+        '<a href="https://hidden.invalid/3"><span style="visibility:hidden">Hidden</span></a>',
+        '<a href="https://hidden.invalid/4"><script>hidden()</script></a>',
+        '<a href="https://hidden.invalid/5"></a>',
+        '<a href="https://hidden.invalid/6"> \n </a>',
+        '<a href="https://hidden.invalid/7"><span></span></a>',
+        '<a href="https://shown.invalid/text">Shown</a>',
+        '<a href="https://shown.invalid/restored" style="visibility:hidden"><span style="visibility:visible">Restored</span></a>',
+        '<a href="https://shown.invalid/image"><img src="https://image.invalid/a.png" alt=""></a>',
+        '<div><a href="https://shown.invalid/rule"><hr></a></div>',
+      ].join(''),
+    );
+    expect(result.links).toStrictEqual([
+      { href: 'https://shown.invalid/text', text: 'Shown' },
+      { href: 'https://shown.invalid/restored', text: 'Restored' },
+      { href: 'https://shown.invalid/image', text: '' },
+      { href: 'https://shown.invalid/rule', text: '' },
+    ]);
+    // Hidden anchors do not use up the link limit.
+    const many = sanitizeHtml(
+      `${'<a href="https://hidden.invalid"><span style="display:none">Hidden</span></a>'.repeat(messageLinkLimit)}<a href="https://shown.invalid">Shown</a>`,
+    );
+    expect(many.links).toStrictEqual([
+      { href: 'https://shown.invalid', text: 'Shown' },
+    ]);
   });
 
   it('never resolves images in cells of collapsed table columns', () => {

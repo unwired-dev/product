@@ -254,6 +254,10 @@ Namespace-import style, `JSON.parse`, `typeof … === 'object'` guards, untagged
   caution. Ordinary versions, times and dates must not become displayed addresses;
   otherwise deceptive labels lose their caution or equivalent addresses gain a
   false mismatch warning.
+- `forwardsElsewhere` comparing raw redirect host spellings instead of the same
+  `comparisonHost` keys used for displayed addresses. Equivalent percent-encoded
+  names and IPv4/IPv6 forms must not produce a cross-site caution; genuinely
+  different destinations must retain it and exact handoff URLs must remain unchanged.
 - `sanitizeHtml` omitting visible image descriptions from their enclosing link's
   inspected text. Include descriptions for placeholders and admitted CID images,
   normalize link whitespace and respect unreadable contexts; otherwise image-only
@@ -327,7 +331,11 @@ Namespace-import style, `JSON.parse`, `typeof … === 'object'` guards, untagged
   special elements such as `br` and `hr`. Hidden images outside active links must keep source-less
   declared geometry without references or blocked-image notices; linked hidden
   image boxes cannot displace inspected suffixes. Wholly hidden
-  anchors must not reach host link controls. Preserve whole-box
+  anchors must not reach host link controls. `anchor` must start without visible
+  content; neither an empty wrapper nor whitespace activates its link. Admit only
+  retained visible text, images or rules, including restored descendants, so
+  discarded children cannot create phantom controls or exhaust the link limit.
+  Preserve whole-box
   exclusion for `hidden`, `display:none`, zero opacity and effectively collapsed table tracks;
   otherwise visible mail disappears or invisible images are downloaded.
 - `sanitizeHtml` collecting CIDs from cells wholly covered by collapsed table
