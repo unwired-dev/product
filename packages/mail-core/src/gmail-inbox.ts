@@ -447,6 +447,55 @@ const storage = (operation: () => Promise<unknown>) =>
     ),
   );
 
+// One Gmail request's `{ status, body }`; a rejected or malformed reply may pass on a later try.
+const gmailResponse = (request: () => Promise<unknown>) =>
+  Effect.tryPromise({
+    try: request,
+    catch: (cause) => rejected(cause, 'retry'),
+  }).pipe(
+    Effect.flatMap(decodeResponse),
+    Effect.mapError((failure) =>
+      Schema.isSchemaError(failure) ? malformed(failure, 'retry') : failure,
+    ),
+  );
+
+// The oldest change after five unconfirmed attempts waits for Retry or Discard.
+const blockedHead = (pending: readonly PendingAction[]) => {
+  const [head] = pending;
+  return head !== undefined && attemptCount(head) >= 5 ? head : undefined;
+};
+
+// The document once Gmail's current labels for the oldest change are known; a message Gmail no
+// longer has leaves the cache.
+const settleObserved = (
+  document: MailboxDocument,
+  head: PendingAction,
+  labels: readonly string[] | undefined,
+): MailboxDocument =>
+  labels === undefined
+    ? {
+        ...settled(document, undefined),
+        messages: document.messages.filter(({ id }) => id !== head.message.id),
+      }
+    : settled(document, labels);
+
+// Appends intents by intake ID, so a commit whose reply was lost never saves one twice.
+const withIntents = (
+  document: MailboxDocument,
+  intents: readonly PendingAction[],
+): MailboxDocument => {
+  const pending = document.pending ?? [];
+  return {
+    ...document,
+    pending: [
+      ...pending,
+      ...intents.filter(
+        (item) => !pending.some(({ id }) => id !== undefined && id === item.id),
+      ),
+    ],
+  };
+};
+
 // An unreadable document is preserved; only an absent cache starts a new listing.
 const documentOf = (cache: Cache) =>
   cache.document === null
@@ -552,12 +601,8 @@ export function createGmailInbox(native: NativeGmailMailbox) {
       decode: (body: unknown) => Effect.Effect<A, Schema.SchemaError>,
     ) =>
       Effect.gen(function* () {
-        const value = yield* Effect.tryPromise({
-          try: () => native.gmailRequest(path, query, scope),
-          catch: (cause) => rejected(cause, 'retry'),
-        });
-        const { status, body } = yield* decodeResponse(value).pipe(
-          Effect.mapError((error) => malformed(error, 'retry')),
+        const { status, body } = yield* gmailResponse(() =>
+          native.gmailRequest(path, query, scope),
         );
         if (status === 404) {
           return yield* new GmailNotFound();
@@ -790,31 +835,40 @@ export function createGmailInbox(native: NativeGmailMailbox) {
       listener();
     }
   };
-  const render = (): GmailInboxState => {
-    const document = shown?.document;
-    const durable = document?.pending ?? [];
-    const [head] = durable;
-    const pending = [...durable, ...queued.map((item) => item.pending)];
-    const messages = organized(document?.messages ?? [], pending);
+  // Messages the Inbox shows can be organized only for the mailbox and owner that showed them.
+  const claim = (messages: readonly GmailMessage[]) => {
     if (shown !== undefined) {
       for (const message of messages) {
         messageOwners.set(message, { ownership, scope: shown.scope });
       }
     }
+  };
+  const presented = (durable: readonly PendingAction[]) => {
+    const blockedAction = blockedHead(durable);
+    return {
+      ...(shown === undefined ? {} : { address: shown.scope.address }),
+      ...(blockedAction === undefined ? {} : { blockedAction }),
+      ...(notice === undefined ? {} : { notice }),
+      blocked: blockedAction !== undefined,
+      organize: shown?.organize ?? false,
+    };
+  };
+  const render = (): GmailInboxState => {
+    const document = shown?.document;
+    const durable = document?.pending ?? [];
+    const messages = organized(document?.messages ?? [], [
+      ...durable,
+      ...queued.map((item) => item.pending),
+    ]);
+    claim(messages);
     return {
       kind: 'ready',
-      ...(shown === undefined ? {} : { address: shown.scope.address }),
       messages,
       sync,
       labels: document?.labels ?? [],
       pending: durable.length,
       saving: queued.length,
-      blocked: head !== undefined && attemptCount(head) >= 5,
-      ...(head !== undefined && attemptCount(head) >= 5
-        ? { blockedAction: head }
-        : {}),
-      organize: shown?.organize ?? false,
-      ...(notice === undefined ? {} : { notice }),
+      ...presented(durable),
     };
   };
   const publish = (next: GmailInboxState) => {
@@ -887,30 +941,41 @@ export function createGmailInbox(native: NativeGmailMailbox) {
     );
   });
 
+  // Removes only matching intents: forget() may already have removed them, and newer intents stay.
+  const removeQueued = (
+    taken: (item: Readonly<(typeof queued)[number]>) => boolean,
+  ) => {
+    const kept = queued.filter((item) => !taken(item));
+    queued.splice(0, queued.length, ...kept);
+  };
+  // Intake IDs stay on the queued intent, so a retried save after a lost reply reuses them.
+  const identify = Effect.fnUntraced(function* (cache: MailboxScope) {
+    for (const item of queued) {
+      if (item.pending.id === undefined && sameMailbox(item.scope, cache)) {
+        item.pending = {
+          ...item.pending,
+          id: `${yield* Random.nextInt}:${yield* Random.nextInt}`,
+        };
+      }
+    }
+  });
+
   // Intake uses its own permit: a blocked Gmail read must not delay recording intent. Native
   // compare-and-swap fences concurrent sync commits; each intake ID also reconciles a lost commit
   // reply without appending the same intent twice.
   const save = Effect.suspend(() => {
     const startedFor = ownership;
+    const owner = () => !forgotten && startedFor === ownership;
     return Effect.gen(function* () {
       const cache = yield* storage(native.openMailbox);
       const document = Option.getOrUndefined(yield* documentOf(cache));
-      if (
-        forgotten ||
-        startedFor !== ownership ||
-        cache.availability !== undefined
-      ) {
+      if (!owner() || cache.availability !== undefined) {
         return false;
       }
       const taken = [...queued];
       const owned = taken.filter(({ scope }) => sameMailbox(scope, cache));
       if (owned.length === 0) {
-        for (const item of taken) {
-          const index = queued.indexOf(item);
-          if (index !== -1) {
-            queued.splice(index, 1);
-          }
-        }
+        removeQueued((item) => taken.includes(item));
         return true;
       }
       if (document === undefined) {
@@ -920,39 +985,17 @@ export function createGmailInbox(native: NativeGmailMailbox) {
           diagnostic: 'missing cache',
         });
       }
-      for (const item of owned) {
-        if (item.pending.id === undefined) {
-          item.pending = {
-            ...item.pending,
-            id: `${yield* Random.nextInt}:${yield* Random.nextInt}`,
-          };
-        }
-      }
-      const pending = document.pending ?? [];
-      const next: MailboxDocument = {
-        ...document,
-        pending: [
-          ...pending,
-          ...owned
-            .map((item) => item.pending)
-            .filter(
-              (item) =>
-                !pending.some(({ id }) => id !== undefined && id === item.id),
-            ),
-        ],
-      };
+      yield* identify(cache);
+      const next = withIntents(
+        document,
+        owned.map((item) => item.pending),
+      );
       const saved = yield* commit(cache, next);
-      // forget() may have removed these while the commit suspended. Do not remove newer intents.
-      for (const item of taken) {
-        const index = queued.indexOf(item);
-        if (index !== -1) {
-          queued.splice(index, 1);
-        }
-      }
-      if (!forgotten && startedFor === ownership) {
+      removeQueued((item) => taken.includes(item));
+      if (owner()) {
         yield* ready(saved, next, sync);
       }
-      return !forgotten && startedFor === ownership;
+      return owner();
     }).pipe(
       Effect.retry({
         times: 2,
@@ -997,16 +1040,11 @@ export function createGmailInbox(native: NativeGmailMailbox) {
     scope: MailboxScope,
     { action, message }: PendingAction,
   ) {
-    const value = yield* Effect.tryPromise({
-      try: () =>
-        native.gmailModify(
-          { message: message.id, add: action.add, remove: action.remove },
-          scope,
-        ),
-      catch: (cause) => rejected(cause, 'retry'),
-    });
-    const { status, body } = yield* decodeResponse(value).pipe(
-      Effect.mapError((error) => malformed(error, 'retry')),
+    const { status, body } = yield* gmailResponse(() =>
+      native.gmailModify(
+        { message: message.id, add: action.add, remove: action.remove },
+        scope,
+      ),
     );
     if (status === 400 || status === 404) {
       return Option.none<readonly string[]>();
@@ -1026,20 +1064,6 @@ export function createGmailInbox(native: NativeGmailMailbox) {
     }
     return Option.some(modified.labelIds ?? []);
   });
-
-  const settleObserved = (
-    document: MailboxDocument,
-    head: PendingAction,
-    labels: readonly string[] | undefined,
-  ): MailboxDocument =>
-    labels === undefined
-      ? {
-          ...settled(document, undefined),
-          messages: document.messages.filter(
-            ({ id }) => id !== head.message.id,
-          ),
-        }
-      : settled(document, labels);
 
   const dispatch = Effect.fnUntraced(function* (
     current: { readonly cache: Cache; readonly document: MailboxDocument },
@@ -1090,6 +1114,35 @@ export function createGmailInbox(native: NativeGmailMailbox) {
     return { cache, document: next };
   });
 
+  // A change already sent is checked against Gmail before another attempt. It settles when Gmail
+  // shows its labels or no longer has the message; otherwise it is sent again.
+  const reconcile = Effect.fnUntraced(function* (
+    current: Readonly<{ cache: Cache; document: MailboxDocument }>,
+    head: PendingAction,
+  ) {
+    if ((head.attempts?.length ?? 0) === 0) {
+      return Option.none<{ cache: Cache; document: MailboxDocument }>();
+    }
+    const observed = yield* readLabels(current.cache, head.message);
+    if (
+      Option.isSome(observed) &&
+      !requestedLabels(observed.value, head.action)
+    ) {
+      return Option.none<{ cache: Cache; document: MailboxDocument }>();
+    }
+    const next = settleObserved(
+      current.document,
+      head,
+      Option.getOrUndefined(observed),
+    );
+    if (Option.isNone(observed)) {
+      notice = { kind: 'rejected', ...head };
+    }
+    const cache = yield* commit(current.cache, next);
+    yield* ready(cache, next, sync);
+    return Option.some({ cache, document: next });
+  });
+
   // Sends saved changes in order. Reconcile unanswered writes before another dispatch.
   const sendPending = Effect.fnUntraced(function* (
     initial: Cache,
@@ -1098,31 +1151,12 @@ export function createGmailInbox(native: NativeGmailMailbox) {
     let current = { cache: initial, document };
     let [head] = current.document.pending ?? [];
     while (head !== undefined) {
-      let reconciled = false;
-      if ((head.attempts?.length ?? 0) > 0) {
-        const observed = yield* readLabels(current.cache, head.message);
-        if (
-          Option.isNone(observed) ||
-          requestedLabels(observed.value, head.action)
-        ) {
-          const next = settleObserved(
-            current.document,
-            head,
-            Option.getOrUndefined(observed),
-          );
-          if (Option.isNone(observed)) {
-            notice = { kind: 'rejected', ...head };
-          }
-          const cache = yield* commit(current.cache, next);
-          yield* ready(cache, next, sync);
-          current = { cache, document: next };
-          reconciled = true;
-        }
-      }
-      if (!reconciled) {
-        if (attemptCount(head) >= 5) {
-          return current;
-        }
+      const reconciled = yield* reconcile(current, head);
+      if (Option.isSome(reconciled)) {
+        current = reconciled.value;
+      } else if (attemptCount(head) >= 5) {
+        return current;
+      } else {
         current = yield* dispatch(current, head);
       }
       [head] = current.document.pending ?? [];
@@ -1253,6 +1287,42 @@ export function createGmailInbox(native: NativeGmailMailbox) {
     return run;
   };
 
+  // Only the shown mailbox's blocked change, as the person saw it, can be retried or discarded.
+  const resolvable = (
+    cache: Cache,
+    head: PendingAction,
+    expectedId: string | undefined,
+  ) =>
+    head.id === expectedId &&
+    shown !== undefined &&
+    sameMailbox(shown.scope, cache) &&
+    cache.availability === undefined;
+  // Retry counts attempts afresh; Discard settles on Gmail's current labels.
+  const resolved = Effect.fnUntraced(function* (
+    resolution: 'retry' | 'discard',
+    {
+      cache,
+      document,
+      head,
+    }: Readonly<{
+      cache: Cache;
+      document: MailboxDocument;
+      head: PendingAction;
+    }>,
+  ) {
+    if (resolution === 'retry') {
+      return {
+        ...document,
+        pending: [
+          { ...head, retryFrom: head.attempts?.length ?? 0 },
+          ...(document.pending ?? []).slice(1),
+        ],
+      };
+    }
+    const observed = yield* readLabels(cache, head.message);
+    return settleObserved(document, head, Option.getOrUndefined(observed));
+  });
+
   const resolvePending = (
     resolution: 'retry' | 'discard',
     expectedId = shown?.document?.pending?.[0]?.id,
@@ -1270,33 +1340,11 @@ export function createGmailInbox(native: NativeGmailMailbox) {
           if (
             document === undefined ||
             head === undefined ||
-            head.id !== expectedId ||
-            shown === undefined ||
-            !sameMailbox(shown.scope, cache) ||
-            cache.availability !== undefined
+            !resolvable(cache, head, expectedId)
           ) {
             return false;
           }
-          let next: MailboxDocument = document;
-          if (resolution === 'retry') {
-            next = {
-              ...document,
-              pending: [
-                { ...head, retryFrom: head.attempts?.length ?? 0 },
-                ...(document.pending ?? []).slice(1),
-              ],
-            };
-          } else {
-            const observed = yield* readLabels(cache, head.message);
-            next = Option.isSome(observed)
-              ? settled(document, observed.value)
-              : {
-                  ...settled(document, undefined),
-                  messages: document.messages.filter(
-                    ({ id }) => id !== head.message.id,
-                  ),
-                };
-          }
+          const next = yield* resolved(resolution, { cache, document, head });
           const saved = yield* commit(cache, next);
           notice = undefined;
           yield* ready(saved, next, sync);
