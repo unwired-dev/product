@@ -20,6 +20,12 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Determinism and isolation
 
+- A synthetic Gmail metadata projection that drops a requested admission header,
+  such as Content-Disposition, while a prefetch regression asserts only the final
+  cache entry. Match the provider's requested-header projection and check that
+  excluded parts never receive a speculative full-body request; otherwise the
+  test can pass after downloading the content it claims to exclude.
+
 - A wait on a sleep, a timeout or scheduler ordering where a controlled clock, explicit synchronization or an observable state change is available. A test that needs a timeout to pass is hiding a race.
 - An absence check ("nothing happened") that passes because it did not wait long enough.
 - State shared between tests: a module-level store, a reused database, a global mock or environment variable not restored, a Keychain service or Simulator not owned by the run.

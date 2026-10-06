@@ -10,6 +10,7 @@ import {
 import { SafeAreaView } from 'react-native-screens/experimental';
 
 import { useInbox, useInboxActions } from './mailbox.tsx';
+import { GmailMessageBody, LinkConfirmationProvider } from './message-body.tsx';
 import { MessageActions } from './organize.tsx';
 import { usePalette } from './theme.ts';
 
@@ -128,56 +129,71 @@ export function MessageDetail({
           </Text>
         </View>
       ) : (
-        <ScrollView contentContainerStyle={styles.content}>
-          {'setUnread' in actions ? (
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => {
-                void actions.setUnread(message.id, !message.unread);
-              }}>
-              <Text style={[styles.secondary, { color: colors.accent }]}>
-                {message.unread ? 'Mark as read' : 'Mark as unread'}
+        <LinkConfirmationProvider
+          inbox={actions}
+          id={message.id}>
+          <ScrollView contentContainerStyle={styles.content}>
+            {'setUnread' in actions ? (
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => {
+                  void actions.setUnread(message.id, !message.unread);
+                }}>
+                <Text style={[styles.secondary, { color: colors.accent }]}>
+                  {message.unread ? 'Mark as read' : 'Mark as unread'}
+                </Text>
+              </Pressable>
+            ) : (
+              <MessageActions
+                id={message.id}
+                onClose={onClose}
+              />
+            )}
+            <Text
+              accessibilityRole="header"
+              selectable
+              style={[styles.subject, { color: colors.foreground }]}>
+              {message.subject}
+            </Text>
+            <View
+              style={[
+                styles.metadata,
+                { borderBottomColor: colors.separator },
+              ]}>
+              <Text
+                selectable
+                style={[styles.sender, { color: colors.foreground }]}>
+                {message.sender}
               </Text>
-            </Pressable>
-          ) : (
-            <MessageActions
-              id={message.id}
-              onClose={onClose}
-            />
-          )}
-          <Text
-            accessibilityRole="header"
-            selectable
-            style={[styles.subject, { color: colors.foreground }]}>
-            {message.subject}
-          </Text>
-          <View
-            style={[styles.metadata, { borderBottomColor: colors.separator }]}>
-            <Text
-              selectable
-              style={[styles.sender, { color: colors.foreground }]}>
-              {message.sender}
-            </Text>
-            <Text
-              selectable
-              style={[styles.secondary, { color: colors.secondary }]}>
-              {message.address}
-            </Text>
-            <Text style={[styles.secondary, { color: colors.secondary }]}>
-              {dateFormat.format(new Date(message.receivedAt))} UTC
-            </Text>
-            {labelNames.length === 0 ? null : (
+              <Text
+                selectable
+                style={[styles.secondary, { color: colors.secondary }]}>
+                {message.address}
+              </Text>
               <Text style={[styles.secondary, { color: colors.secondary }]}>
-                {`Labels: ${labelNames.join(', ')}`}
+                {dateFormat.format(new Date(message.receivedAt))} UTC
+              </Text>
+              {labelNames.length === 0 ? null : (
+                <Text style={[styles.secondary, { color: colors.secondary }]}>
+                  {`Labels: ${labelNames.join(', ')}`}
+                </Text>
+              )}
+            </View>
+            {'readMessage' in actions ? (
+              <GmailMessageBody
+                key={message.id}
+                id={message.id}
+                inbox={actions}
+              />
+            ) : (
+              <Text
+                selectable
+                style={[styles.body, { color: colors.foreground }]}>
+                {'body' in message ? message.body : message.preview}
               </Text>
             )}
-          </View>
-          <Text
-            selectable
-            style={[styles.body, { color: colors.foreground }]}>
-            {'body' in message ? message.body : message.preview}
-          </Text>
-        </ScrollView>
+          </ScrollView>
+        </LinkConfirmationProvider>
       )}
     </SafeAreaView>
   );

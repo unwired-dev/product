@@ -378,7 +378,7 @@ struct SavedRegistration: Codable {
     mailboxVerified = false
     mailboxCacheOnly = false
     guard let saved = try load() else { return ["kind": "signed-out"] }
-    if let removal = try removalStatus(saved) { return removal }
+    if let removal = try await removalStatus(saved) { return removal }
     // Apple Product Sign-In finishes interactively; an uncommitted one starts again.
     if saved.provider == .apple, saved.product == nil { return ["kind": "signed-out"] }
     var next: SavedRegistration
@@ -482,7 +482,7 @@ struct SavedRegistration: Codable {
       // Another mailbox's cache, including another Google account that reuses the address, is
       // never shown for this one; its next commit would replace it.
       if let previous, previous.subject != receipt.subject || previous.address != receipt.address {
-        try? mailCache?.removeMailbox()
+        try? await removeMailboxCache()
       }
       return try await connected(synchronize(next))
     } catch let error as RegistrationError where error.endsAccess {
@@ -502,7 +502,7 @@ struct SavedRegistration: Codable {
 
   // A revoked device keeps nothing of the Product Account: keys, requests and credentials go.
   // Every item is attempted; the registration record goes last, so a failed purge is retried.
-  func purge(notice: String? = nil) throws -> [String: String] {
+  func purge(notice: String? = nil) async throws -> [String: String] {
     mailboxGeneration = UUID()
     mailboxVerified = false
     mailboxCacheOnly = false
@@ -518,7 +518,7 @@ struct SavedRegistration: Codable {
       try save(saved)
     }
     var failure: (any Error)?
-    do { try mailCache?.removeMailbox() } catch { failure = error }
+    do { try await removeMailboxCache() } catch { failure = error }
     if let account = saved?.product?.productAccountId {
       for item in [vaultAccount(account), enrollmentAccount(account)] {
         do { try keys.remove(item) } catch { failure = failure ?? error }
@@ -542,7 +542,7 @@ struct SavedRegistration: Codable {
     do {
       if let saved = try? load(), let removal = saved.accountRemoval,
         removal.acknowledged || removal.operation != removing,
-        let status = try removalStatus(saved)
+        let status = try await removalStatus(saved)
       {
         return status
       }
@@ -550,9 +550,9 @@ struct SavedRegistration: Codable {
       if let product = (try? load())?.product { try await requireNotRevoked(product) }
       return try await operation(self)
     } catch RegistrationError.revoked {
-      return try purge()
+      return try await purge()
     } catch RegistrationError.deleted {
-      return try purge(notice: "deleted")
+      return try await purge(notice: "deleted")
     }
   }
 

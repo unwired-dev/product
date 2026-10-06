@@ -33,10 +33,14 @@ struct MailboxCache: Codable {
   let document: String
 }
 
-public final class PrivateInboxStore {
+// Mailbox body work runs off the main actor: state is immutable and every transaction holds the
+// store's file lock, which also serializes threads within this process.
+public final class PrivateInboxStore: @unchecked Sendable {
   private let directory: URL
   private let keychain: DeviceKeychain
-  private let protectedDataAvailable: () -> Bool
+  private let protectedDataAvailable: @Sendable () -> Bool
+  // The Bounded Encrypted Body Cache's device-wide limit, in stored bytes.
+  private let bodyLimit: Int
   private let associatedData = Data("dev.unwired.private-inbox.v1".utf8)
   private let mailboxAssociatedData = Data("dev.unwired.private-inbox.mailbox.v1".utf8)
 
@@ -46,13 +50,17 @@ public final class PrivateInboxStore {
       protectedDataAvailable: Self.protectedDataAvailability())
   }
 
-  init(directory: URL, service: String, protectedDataAvailable: @escaping () -> Bool) {
+  init(
+    directory: URL, service: String, protectedDataAvailable: @escaping @Sendable () -> Bool,
+    bodyLimit: Int = 500 * 1024 * 1024
+  ) {
     self.directory = directory
+    self.bodyLimit = bodyLimit
     keychain = DeviceKeychain(service: service + ".database")
     self.protectedDataAvailable = protectedDataAvailable
   }
 
-  private static func protectedDataAvailability() -> () -> Bool {
+  private static func protectedDataAvailability() -> @Sendable () -> Bool {
     #if os(iOS)
       let application: UIApplication
       if Thread.isMainThread {
@@ -62,11 +70,18 @@ public final class PrivateInboxStore {
           MainActor.assumeIsolated { UIApplication.shared }
         }
       }
-      return { application.isProtectedDataAvailable }
+      // UIKit answers only on the main thread. Callers that move store work off it check
+      // availability there before and after the work.
+      return {
+        Thread.isMainThread
+          ? MainActor.assumeIsolated { application.isProtectedDataAvailable } : true
+      }
     #else
       return { true }
     #endif
   }
+
+  func isProtectedDataAvailable() -> Bool { protectedDataAvailable() }
 
   private func requireProtectedData() throws {
     guard protectedDataAvailable() else { throw PrivateInboxError.locked }
@@ -154,13 +169,185 @@ public final class PrivateInboxStore {
     }
   }
 
-  // Needs no key, so a locked device can still forget the mailbox.
+  // Needs no key, so a locked device can still forget the mailbox and its bodies.
   public func removeMailbox() throws {
     try unlockedTransaction {
-      do {
-        try FileManager.default.removeItem(at: directory.appendingPathComponent("mailbox.enc"))
-      } catch CocoaError.fileNoSuchFile {}
+      for name in ["mailbox.enc", "bodies"] {
+        do {
+          try FileManager.default.removeItem(at: directory.appendingPathComponent(name))
+        } catch CocoaError.fileNoSuchFile {}
+      }
     }
+  }
+
+  // The Bounded Encrypted Body Cache holds TypeScript's body documents, one file per message, each
+  // sealed to its mailbox and message ID. The name's suffix records the eviction tier: opened
+  // bodies go before prefetched ones, least recently read first, and bodies in the protected
+  // working set are never evicted to admit another.
+  public enum BodyTier: String, Sendable {
+    case opened = "o"
+    case prefetched = "p"
+  }
+
+  private func bodyName(address: String, subject: String, id: String) -> (String, Data) {
+    let identity = Data([subject, address, id].joined(separator: "\n").utf8)
+    let name = SHA256.hash(data: identity).map { String(format: "%02x", $0) }.joined()
+    return (name, Data("dev.unwired.private-inbox.body.v1\n".utf8) + identity)
+  }
+
+  private func bodyURL(_ name: String, _ tier: BodyTier) -> URL {
+    directory.appendingPathComponent("bodies/\(name).\(tier.rawValue)")
+  }
+
+  // A missing or unreadable body reads as nil. Verified access discards an unreadable one and
+  // updates access time; cache-only access leaves its ciphertext and timestamp untouched.
+  public func openMessageBody(
+    address: String, subject: String, id: String, readOnly: Bool = false
+  ) throws -> String? {
+    try transaction {
+      let (name, identity) = bodyName(address: address, subject: subject, id: id)
+      for tier in [BodyTier.opened, .prefetched] {
+        let file = bodyURL(name, tier)
+        let data: Data
+        do {
+          data = try Data(contentsOf: file)
+        } catch CocoaError.fileReadNoSuchFile {
+          continue
+        }
+        let key = try existingKey()
+        guard let box = try? AES.GCM.SealedBox(combined: data),
+          let plaintext = try? AES.GCM.open(
+            box, using: SymmetricKey(data: key), authenticating: identity)
+        else {
+          if !readOnly { try FileManager.default.removeItem(at: file) }
+          return nil
+        }
+        if !readOnly {
+          try FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: file.path)
+        }
+        return String(decoding: plaintext, as: UTF8.self)
+      }
+      return nil
+    }
+  }
+
+  // Stores a body when it fits after evicting eligible bodies outside the protected set; returns
+  // false, storing nothing, when it cannot fit.
+  public func commitMessageBody(
+    address: String, subject: String, id: String, document: String, tier: BodyTier,
+    protectedIds: [String]
+  ) throws -> Bool {
+    try transaction {
+      let (name, identity) = bodyName(address: address, subject: subject, id: id)
+      let protected = Set(protectedIds.map { bodyName(address: address, subject: subject, id: $0).0 })
+      let plaintext = Data(document.utf8)
+      // AES-GCM combined representation adds a 12-byte nonce and 16-byte tag.
+      let storedSize = plaintext.count + 28
+      let key = try existingKey()
+      try FileManager.default.createDirectory(
+        at: directory.appendingPathComponent("bodies"), withIntermediateDirectories: true,
+        attributes: [.posixPermissions: 0o700])
+      // Reserve capacity before publication, so interruption cannot leave an over-budget cache.
+      guard try evictBodies(
+        reserving: storedSize, replacing: bodyURL(name, tier), protected: protected)
+      else {
+        return false
+      }
+      // The other tier's file goes before the new one is published, so one body never has two
+      // valid files; an interruption between them is a cache miss, fetched again.
+      let other = bodyURL(name, tier == .opened ? .prefetched : .opened)
+      do { try FileManager.default.removeItem(at: other) } catch CocoaError.fileNoSuchFile {}
+      try write(
+        plaintext, file: "bodies/\(name).\(tier.rawValue)", key: key, authenticating: identity)
+      return true
+    }
+  }
+
+  // The named messages that have a stored body or exclusion marker.
+  public func listMessageBodies(address: String, subject: String, ids: [String]) throws -> [String] {
+    try transaction {
+      let stored = Set(try bodies().map(\.name))
+      return ids.filter { stored.contains(bodyName(address: address, subject: subject, id: $0).0) }
+    }
+  }
+
+  // Removes the bodies of every message not named, such as those that left the cached Inbox,
+  // and reconciles a cache an interrupted writer left over the limit. As in admission, only the
+  // protected bodies that fit, in working-set order, keep their protection, so the limit holds.
+  public func retainMessageBodies(
+    address: String, subject: String, expectedRevision: Int, ids: [String],
+    protectedIds: [String]
+  ) throws {
+    try transaction {
+      let cache = try readMailbox()
+      guard (cache?.revision ?? 0) == expectedRevision else { throw PrivateInboxError.conflict }
+      let kept = Set(ids.map { bodyName(address: address, subject: subject, id: $0).0 })
+      for entry in try bodies() where !kept.contains(entry.name) {
+        try FileManager.default.removeItem(at: entry.file)
+      }
+      let sizes = Dictionary(grouping: try bodies(), by: \.name).mapValues {
+        $0.reduce(0) { $0 + $1.size }
+      }
+      var protected = Set<String>()
+      var protectedSize = 0
+      for id in protectedIds {
+        let name = bodyName(address: address, subject: subject, id: id).0
+        let size = sizes[name] ?? 0
+        guard !protected.contains(name), protectedSize + size <= bodyLimit else { continue }
+        protected.insert(name)
+        protectedSize += size
+      }
+      _ = try evictBodies(reserving: 0, replacing: nil, protected: protected)
+    }
+  }
+
+  private struct BodyEntry {
+    let file: URL
+    let name: String
+    let tier: BodyTier
+    let read: Date
+    let size: Int
+  }
+
+  private func bodies() throws -> [BodyEntry] {
+    let keys: [URLResourceKey] = [.contentModificationDateKey, .fileSizeKey]
+    let files: [URL]
+    do {
+      files = try FileManager.default.contentsOfDirectory(
+        at: directory.appendingPathComponent("bodies"), includingPropertiesForKeys: keys)
+    } catch CocoaError.fileReadNoSuchFile {
+      return []
+    }
+    return try files.map { file in
+      let values = try file.resourceValues(forKeys: Set(keys))
+      return BodyEntry(
+        file: file, name: file.deletingPathExtension().lastPathComponent,
+        tier: BodyTier(rawValue: file.pathExtension) ?? .opened,
+        read: values.contentModificationDate ?? .distantPast, size: values.fileSize ?? 0)
+    }
+  }
+
+  // Deterministic: opened bodies before prefetched ones, each least recently read first, then
+  // by name. Nothing is removed unless the reservation then fits.
+  private func evictBodies(reserving bytes: Int, replacing file: URL?, protected: Set<String>) throws
+    -> Bool
+  {
+    let entries = try bodies()
+    let name = file?.deletingPathExtension().lastPathComponent
+    // Conservatively reserve the old tier and its replacement before deleting anything.
+    // A refused tier change must preserve the old ciphertext and every protected body.
+    var total = entries.reduce(bytes) { $0 + ($1.file == file ? 0 : $1.size) }
+    let eligible = entries.filter { $0.name != name && !protected.contains($0.name) }.sorted {
+      ($0.tier == .prefetched ? 1 : 0, $0.read, $0.name) < ($1.tier == .prefetched ? 1 : 0, $1.read, $1.name)
+    }
+    var evicted: [BodyEntry] = []
+    for entry in eligible where total > bodyLimit {
+      evicted.append(entry)
+      total -= entry.size
+    }
+    guard total <= bodyLimit else { return false }
+    for entry in evicted { try FileManager.default.removeItem(at: entry.file) }
+    return true
   }
 
   private func readMailbox() throws -> MailboxCache? {

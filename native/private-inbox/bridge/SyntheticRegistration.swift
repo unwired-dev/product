@@ -5,9 +5,13 @@
   // Compiled only for an externally selected, fixed Mock Mail Session.
   @MainActor final class MockGoogleRegistrationProvider: GoogleRegistrationProvider {
     let scenario: String
+    private let messages: [String: [String: Any]]
     // The Gmail session that follows Apple sign-in in the same launch is declined.
     var declineNextMailbox = false
-    init(scenario: String) { self.scenario = scenario }
+    init(scenario: String, messages: [String: [String: Any]]? = nil) {
+      self.scenario = scenario
+      self.messages = messages ?? Self.syntheticMessages
+    }
 
     func identity(_ subject: String, granted: Bool) -> GoogleRegistrationIdentity {
       GoogleRegistrationIdentity(
@@ -45,34 +49,52 @@
 
     // A synthetic Gmail mailbox: three Inbox messages over two list pages and one label. Label
     // changes from this launch apply; history reports no other changes.
+    // A message may declare a "disposition", served as its Content-Disposition header.
     static let syntheticMessages: [String: [String: Any]] = [
       "19a0c0ffee000001": [
         "from": "Rowan Hale <rowan@example.invalid>", "subject": "Garden plans for spring",
         "snippet": "The seed order arrived. Shall we plan the beds this weekend?",
         "internalDate": "1759219200000", "labelIds": ["INBOX", "UNREAD"],
+        "html":
+          "<p>The seed order arrived. Shall we plan the beds this weekend?</p>"
+          + "<p>Planting notes: <a href=\"https://example.invalid/garden\">garden plan</a></p>"
+          + "<img src=\"https://example.invalid/pixel.gif\" alt=\"\">",
       ],
       "19a0c0ffee000002": [
         "from": "\"Ada Brook\" <ada@example.invalid>", "subject": "Notes from Tuesday",
         "snippet": "Thanks for the thoughtful questions &amp; the follow-up.",
         "internalDate": "1759132800000", "labelIds": ["INBOX"],
+        "text": "Thanks for the thoughtful questions & the follow-up.\n\nAda",
       ],
       "19a0c0ffee000003": [
         "from": "test@example.invalid", "subject": "Welcome to your synthetic Inbox",
         "snippet": "Nothing here came from a real mailbox.",
         "internalDate": "1759046400000", "labelIds": ["INBOX", "CATEGORY_UPDATES"],
+        "text": "Nothing here came from a real mailbox.",
       ],
     ]
 
-    lazy var syntheticLabels = Self.syntheticMessages.mapValues { $0["labelIds"] as? [String] ?? [] }
+    // Label changes from this launch, over the messages' initial labels.
+    lazy var syntheticLabels = messages.mapValues { $0["labelIds"] as? [String] ?? [] }
+
+    // A synthetic message's MIME headers, as its single part declares them.
+    static func mimeHeaders(_ message: [String: Any], mimeType: String) -> [[String: String]] {
+      [["name": "Content-Type", "value": mimeType + "; charset=UTF-8"]]
+        + ((message["disposition"] as? String).map {
+          [["name": "Content-Disposition", "value": $0]]
+        } ?? [])
+    }
 
     func gmail(_ identity: GoogleRegistrationIdentity, url: URL, body request: Data?) async throws
       -> (Int, Data)
     {
       guard identity.subject == "synthetic-alternate-mailbox" else { return (401, Data()) }
+      let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
       let query = Dictionary(
-        (URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []).map {
-          ($0.name, $0.value ?? "")
-        }, uniquingKeysWith: { first, _ in first })
+        items.map { ($0.name, $0.value ?? "") }, uniquingKeysWith: { first, _ in first })
+      // Gmail repeats metadataHeaders once per requested header, in any order and case.
+      let requested = Set(
+        items.filter { $0.name == "metadataHeaders" }.compactMap { $0.value?.lowercased() })
       let body: Any
       switch url.lastPathComponent {
       case "profile": body = ["emailAddress": "other@example.invalid", "historyId": "100"]
@@ -95,8 +117,39 @@
           "messages": ["19a0c0ffee000001", "19a0c0ffee000002"].map { ["id": $0, "threadId": $0] },
           "nextPageToken": "2",
         ]
+      // The body-free preflight prefetch makes: each synthetic message is one part, and only the
+      // requested admission headers are returned.
+      case let id
+      where query["format"] == "metadata"
+        && !requested.isDisjoint(with: ["content-type", "content-disposition"]):
+        guard let message = messages[id] else { return (404, Data()) }
+        let mimeType = message["html"] == nil ? "text/plain" : "text/html"
+        body = [
+          "id": id, "threadId": id, "labelIds": syntheticLabels[id] ?? [],
+          "payload": [
+            "mimeType": mimeType,
+            "headers": Self.mimeHeaders(message, mimeType: mimeType).filter {
+              requested.contains(($0["name"] ?? "").lowercased())
+            },
+          ],
+        ]
+      case let id where query["format"] == "full":
+        guard let message = messages[id] else { return (404, Data()) }
+        let html = message["html"] as? String
+        let content = html ?? message["text"] as? String ?? ""
+        let data = Data(content.utf8).base64EncodedString()
+          .replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_")
+        let mimeType = html == nil ? "text/plain" : "text/html"
+        body = [
+          "id": id, "threadId": id, "labelIds": syntheticLabels[id] ?? [],
+          "payload": [
+            "mimeType": mimeType,
+            "headers": Self.mimeHeaders(message, mimeType: mimeType),
+            "body": ["size": content.utf8.count, "data": data],
+          ],
+        ]
       case let id:
-        guard let message = Self.syntheticMessages[id] else { return (404, Data()) }
+        guard let message = messages[id] else { return (404, Data()) }
         body = [
           "id": id, "threadId": id, "labelIds": syntheticLabels[id] ?? [],
           "snippet": message["snippet"] ?? "", "historyId": "100",

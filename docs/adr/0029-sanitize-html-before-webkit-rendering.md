@@ -4,6 +4,154 @@ status: accepted
 
 # Sanitize message HTML before isolated WebKit rendering
 
+## Amendment — 2026-10-06
+
+The product owner approved these changes during
+[#605](https://github.com/unwired-dev/product/issues/605) review round 3:
+
+- An explicit message open resolves every visible, sanitized `cid:` reference
+  within the existing attempted-image, admitted-image-count, per-image and
+  aggregate byte, axis and decoded-pixel limits and the shared presentation
+  budget. Inline Images are not viewport-scoped. Sanitizer visibility excludes
+  hidden or non-rendering references; it does not require geometric proximity to
+  the viewport. Missing or refused parts remain non-loading placeholders, and
+  speculative recent-body prefetch still never loads Inline Images.
+- Both the UIKit and AppKit hosts may measure the laid-out document after
+  navigation finishes with an application-owned `callAsyncJavaScript` script in
+  `WKContentWorld.defaultClientWorld`. Page JavaScript remains disabled through
+  `allowsContentJavaScript = false`; message content cannot supply the script or
+  use an application bridge. This supersedes the native-scroll-content-size-only
+  measurement clause below. Invalid measurement or rendering failure uses the
+  retained readable-text fallback.
+
+These are accepted choices, not temporary implementation exceptions. Bounded
+all-reference CID resolution avoids a viewport-position admission protocol;
+isolated client-world measurement supplies the same layout boundary on both
+hosts without enabling sender scripts. All other sanitization, isolation,
+navigation, cache and resource constraints remain applicable.
+
+Remote Message Content is unchanged: its consent, policy and isolated retrieval
+requirements belong to [#763](https://github.com/unwired-dev/product/issues/763),
+including the viewport or one-viewport-margin rule for Always Load. This amendment
+does not authorize remote loading in #605. The following text preserves the prior
+decision; only the clauses explicitly superseded here have changed.
+
+## Sanitizer readability correction — 2026-10-06
+
+The issue-605 tiny-font and layout feedback revealed a mismatch between retained
+CSS and inspected text. This correction supersedes the prior paragraph's
+font-size and negative-offset classification clauses. It preserves the isolated
+renderer, consent, navigation, image bounds and fallback requirements.
+
+Use a conservative 4-CSS-pixel legibility cutoff; tiny text may still paint a
+smear. Normalize sender font sizes around that cutoff while preserving Dynamic
+Type body text and ordinary relative scaling. Pin the root size for `rem` and
+discard sender font-metric/viewport size units rather than guessing their value.
+Placeholder descriptions use their emitted font size, including restoration and
+hidden-size inheritance, rather than discarded source-image styling.
+
+Normalize large negative leading margins and indents to zero rather than omit
+text solely on offset magnitude: padding and wrapped lines can leave labels
+painted. Normalize negative percentage, viewport and font-metric offsets whose
+basis is unavailable here. Preserve ordinary small hanging indents, trailing
+LTR margins, inner-table margins and emitted declaration order. Automatic
+direction remains removed. This is a bounded style normalization policy, not a
+complete geometric visibility model.
+
+### Positive spacing correction — 2026-10-06
+
+The issue-605 positive-offset feedback showed that retained masking text could
+paint beyond the reader while still suppressing link inspection. Extend the
+320-CSS-pixel normalization threshold to positive leading margins and indents.
+Remove oversized padding, border-width and table border-spacing declarations on
+every side; reset large letter-spacing and vertical-align offsets and normalize
+oversized line heights. These changes can reduce deliberate large layout gaps;
+the bound is a readability policy, not a geometric visibility classification.
+Keep ordinary small spacing and the existing margin applicability exceptions.
+
+Unresolved sender CSS functions are outside the retained style subset. Remove
+any declaration containing an unresolved function outside quoted strings, rather than
+guessing its geometry or omitting scroll-accessible text from inspection.
+Plain `rgb`/`rgba` and `hsl`/`hsla` color functions contain no geometry and remain
+allowed in border shorthands; nested functions and other unresolved functions
+are removed. This deliberately drops newer color functions such as `hwb`, `lab`,
+`lch`, `oklab`, `oklch`, `color` and `color-mix`; preserving those decorations is
+outside the conservative subset. The same literal border-width bound applies
+when a color function and dimension have no intervening whitespace, because the
+closing parenthesis separates CSS tokens. Quoted font names containing parentheses remain allowed, and
+reader-generated sizing functions remain outside the sender filter. The bound
+still does not classify all viewport visibility: meaningful content with retained
+`white-space:nowrap` and multiple ordinary small spacing values can overflow.
+
+The vertical-sizing correction also removes literal heights and minimum heights
+of at least 320 CSS pixels after unit resolution, with percentages resolved
+against the same 320-pixel basis. Reset large bottom margins of either sign,
+retaining the inner-table margin exception. Remove oversized table-cell HTML
+height hints as well, so dropping CSS cannot reactivate a larger hint. Image
+HTML height hints remain subject to the reader's `height:auto`; removed CSS
+heights fall back to that rule. This can reduce deliberate hero-cell and banner
+heights or restore intrinsic proportions where a sender stretched an image.
+Hidden source-less image geometry follows these same emitted sizing bounds.
+
+Bound oversized literal widths and minimum widths by the containing block rather
+than discarding ordinary desktop email widths. An aligned inline-block can
+otherwise paint its inspected label entirely beyond the right edge. Preserve the
+source width where the containing block has enough room. This correction changes
+only emitted styling, leaving inspected text, network isolation, consent and
+resource limits under the existing rendering policy.
+
+## Link and spacer bounds — 2026-10-06
+
+Issue #605 review round 26 closes native-control amplification and repeated
+spacer masking. Rich anchors, detected plain-text links and finalized readable
+fallback href spans each have a 200-link limit per message. Later destinations
+remain readable plain text, without active markers or link semantics; a new
+budget exception must not discard HTML-only content. Counting collected anchors
+alone is insufficient because one anchor can cross many fallback paragraphs.
+
+Retain at most four consecutive `br`, `hr` or preserved text newlines between
+readable text or visible images. Hidden and non-rendering Unicode content does
+not reset that run. Within an active link, omit hidden text nodes and remove the
+layout boxes of hidden images and containers with no readable text or visible images, retaining
+descendants and inherited styles. Outside links, hidden source-less image geometry
+remains unchanged. This narrows the ordinary-small-spacing
+exception for empty linked wrappers: individually small padding, margins or
+heights can otherwise accumulate into a displaced suffix. Real content,
+visibility restoration and ordinary breaks remain intact. Inspect the complete
+normalized label; revealing a previously displaced non-address suffix can
+legitimately leave no mismatch warning. These bounds do not establish complete
+viewport visibility or a general total-node/output-size budget.
+
+### Spacer height correction — review round 27
+
+The four-break count alone still allowed a retained 200-pixel line height to put
+the inspected suffix below the viewport. Apply a conservative 160-CSS-pixel
+allowance alongside the count. Track inherited line-height factors separately
+from computed lengths, and charge at least the largest active ancestor line:
+an inline child's smaller font or line height cannot shrink the parent's strut.
+The system-font `normal` estimate is 1.2 times the font size; the reader body's
+1.5 line strut remains a floor while it is an ancestor.
+Discard sender line-height expressions and font-metric/viewport units before
+rendering, since a retained value outside this model could still enlarge a run
+while accounting substitutes its parent line height.
+Carry whether the retained font family is the system font through traversal.
+An arbitrary sender family can make `normal` much taller than 1.2, so represent
+that state as unknown and grant no spacer breaks under it. Preserve the chosen
+font and readable text; explicit factors and lengths remain modeled. This
+conservative policy can collapse intentional spacing in such mail.
+
+Normalize rule vertical geometry to zero height/minimum/maximum height and
+vertical padding, half-em vertical margins and one-pixel vertical borders, with
+overrides emitted after sender shorthands. Charge a rule for both its ordinary
+box and the preceding line. Horizontal styling and divider semantics remain.
+These conservative bounds can remove intended blank lines in large headings
+and reduce thick or padded dividers. Ordinary body spacing remains. A single
+oversized or wrapped text line and arbitrary meaningful layout remain outside
+this bounded-spacer policy; this does not claim exact font metrics or complete
+viewport visibility.
+
+## Prior decision
+
 Remote-image normalization treats an empty URL path as `/` before deduplication, CSS `height` and `max-height` symmetrically identify declared tracking pixels, inline CSS dimensions override matching HTML attributes during that classification, and permanently unloadable non-HTTPS image sources are not retained as consent or retry references.
 
 Image-only remote messages retain their consent control when sibling preheader text is removed by
@@ -27,6 +175,6 @@ The reader resolves a device-local Remote Message Content policy before invoking
 
 An enclosing mixed scope also admits a filename-less CID image sibling with no disposition header, because the disposition is optional; explicit attachments and filename-only siblings remain excluded.
 
-The navigation delegate cancels all message-originated navigation. Plain-text URL detection and user-activated sanitized HTML links use one device-local opener; automatic navigation and unsupported schemes remain blocked. Sanitization retains each visible anchor's text beside its allowed destination only in the in-memory presentation. Before system handoff, the opener compares URL-like displayed text with the destination and evaluates reviewed scheme mismatch, internationalized or numeric host, embedded credential, bidirectional-control, and cross-site redirect-query signals. A flagged link shows its exact destination and concise reasons with Cancel, Copy Link, and Proceed actions; the user may always proceed, and an unflagged link is never presented as safe. The check performs no reputation lookup, network request, persistence, logging, Product Sync, or backend call. Copy and open revalidate the current Trusted Device and Profile Lock boundary immediately before revealing the destination outside the reader. The exact destination is handed to the platform, whose later redirect behavior remains outside this detector. The web view observes its scroll content size instead of executing JavaScript to measure layout. An uncapped message stays pinned to the top of its embedded WebKit scroll view so horizontal overflow cannot introduce nested vertical scrolling inside the conversation reader; only a document taller than the presentation cap scrolls vertically inside WebKit. Readability ignores hidden, zero-sized, and negatively offset off-canvas preheader text, including negative values in any margin shorthand component, as well as content composed only of non-rendering Unicode format or combining characters. That readability-only filtering does not remove ordinary negative-offset layout content or CID images from zero-line-height or zero-font-size presentation wrappers. Background sanitization checks cancellation between its full-document cleaning and parsing passes. A missing HTML alternative, empty sanitized result, sanitizer error, WebKit load failure, or terminated WebKit content process falls back to the retained readable plain text.
+The navigation delegate cancels all message-originated navigation. Plain-text URL detection and user-activated sanitized HTML links use one device-local opener; automatic navigation and unsupported schemes remain blocked. Sanitization retains each visible anchor's text beside its allowed destination only in the in-memory presentation. Anchor admission requires retained visible descendants; an empty wrapper, whitespace or wholly discarded children add neither a link action nor a link-limit reservation. Visible text, image placeholders and horizontal rules remain eligible, including descendants that restore visibility. Displayed-address comparison and cross-site redirect-query warnings share normalized host keys so equivalent encoded or numeric host forms do not produce a false mismatch; the exact destination remains unchanged. Before system handoff, the opener compares URL-like displayed text with the destination and evaluates reviewed scheme mismatch, internationalized or numeric host, embedded credential, bidirectional-control, and cross-site redirect-query signals. A flagged link shows its exact destination and concise reasons with Cancel, Copy Link, and Proceed actions; the user may always proceed, and an unflagged link is never presented as safe. The check performs no reputation lookup, network request, persistence, logging, Product Sync, or backend call. Queued link choices also revalidate the current body and reader before showing the selectable destination; pending confirmations subscribe to owner invalidation and compare the current render mailbox/message before displaying a destination. Reader liveness includes mailbox identity even when the message ID is unchanged, and closes at commit rather than waiting for passive cleanup. Copy and open revalidate the current Trusted Device and Profile Lock boundary immediately before revealing the destination outside the reader. The exact destination is handed to the platform, whose later redirect behavior remains outside this detector. The web view observes its scroll content size instead of executing JavaScript to measure layout. An uncapped message stays pinned to the top of its embedded WebKit scroll view so horizontal overflow cannot introduce nested vertical scrolling inside the conversation reader; only a document taller than the presentation cap scrolls vertically inside WebKit. Readability ignores hidden, zero-sized and off-canvas preheader text, as well as content composed only of non-rendering Unicode format or combining characters. Margin classification follows emitted shorthand and longhand order; trailing margins and ignored inline or inner-table margins cannot suppress a painted label. Large negative horizontal margins in bidi contexts and top margins on inline-blocks or inline images are normalized to zero in the emitted document rather than used to guess glyph displacement. Automatic direction is removed so the document inherits explicit direction. Text-indent is inherited through inline elements but applies to their containing block's line: only a block-container reset can restore that line's readable text. That readability-only filtering does not remove ordinary negative-offset layout content or CID images from zero-line-height or zero-font-size presentation wrappers. CSS comment classification preserves string and unquoted URL tokens, complete escapes and separate identifiers. Comment trivia cannot supply the actual whitespace required by opacity math; source validity is checked before selecting the cascade winner and admitting CID images. Background sanitization checks cancellation between its full-document cleaning and parsing passes. A missing HTML alternative, empty sanitized result, sanitizer error, WebKit load failure, or terminated WebKit content process falls back to the retained readable plain text.
 
 This boundary uses UIKit-backed `WKWebView` integration available on the supported iOS 17 and Mac Catalyst 14 targets and does not depend on the OS 26 SwiftUI WebView API.

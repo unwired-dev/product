@@ -60,7 +60,7 @@ extension RegistrationStore {
     do {
       try await requireNotRevoked(product)
     } catch RegistrationError.revoked {
-      _ = try purge()
+      _ = try await purge()
       throw RegistrationError.revoked
     }
     guard generation == mailboxGeneration else { throw PrivateInboxError.mailboxInvalidated }
@@ -71,8 +71,8 @@ extension RegistrationStore {
   static func gmailURL(path: String, query: [URLQueryItem]) throws -> URL {
     guard
       path.range(
-        of: "^(profile|history|labels|messages(/[0-9A-Za-z]+)?)$", options: .regularExpression)
-        != nil,
+        of: "^(profile|history|labels|messages(/[0-9A-Za-z]+(/attachments/[0-9A-Za-z_-]+)?)?)$",
+        options: .regularExpression) != nil,
       var components = URLComponents(
         string: "https://gmail.googleapis.com/gmail/v1/users/me/" + path)
     else { throw RegistrationError.unavailable }
@@ -133,7 +133,7 @@ extension RegistrationStore {
       let product = try mailboxAccount()
       guard let deviceRevoked else { throw RegistrationError.unavailable }
       if try await deviceRevoked(product) {
-        _ = try purge()
+        _ = try await purge()
         throw RegistrationError.revoked
       }
       guard generation == mailboxGeneration, mailboxVerified,
@@ -201,6 +201,107 @@ extension RegistrationStore {
     let product = try mailboxAccount()
     result["owner"] = [product.productAccountId, product.trustedDeviceId, mailbox.subject].joined(separator: "\n")
     return result
+  }
+
+  // The connected mailbox's Google account, when the caller's mailbox is still the open one.
+  // Saved bodies open in cache-only mode; storing and pruning need the verified mailbox.
+  private func bodyOwner(address: String, generation: String, verified: Bool) throws -> String {
+    guard mailCache != nil else { throw RegistrationError.unavailable }
+    guard mailboxVerified || mailboxCacheOnly else { throw RegistrationError.gmailUnavailable }
+    guard mailboxVerified || !verified else { throw RegistrationError.unavailable }
+    let mailbox = try connectedMailbox().1
+    guard mailbox.address == address, mailboxGeneration.uuidString == generation else {
+      throw PrivateInboxError.mailboxInvalidated
+    }
+    return mailbox.subject
+  }
+
+  // Reads, decrypts, encrypts and writes bodies off the main actor. The mailbox operation gate
+  // keeps registration changes out until the work ends, protected data is checked here on the
+  // main actor, and the caller's mailbox is checked again before any result is published.
+  private func bodyWork<Value: Sendable>(
+    address: String, generation: String, verified: Bool,
+    _ work: @escaping @Sendable (PrivateInboxStore, String) throws -> Value
+  ) async throws -> Value {
+    let subject = try bodyOwner(address: address, generation: generation, verified: verified)
+    guard let mailCache else { throw RegistrationError.unavailable }
+    guard mailCache.isProtectedDataAvailable() else { throw PrivateInboxError.locked }
+    let value: Value
+    do {
+      value = try await Task.detached(priority: .userInitiated) {
+        try work(mailCache, subject)
+      }.value
+    } catch {
+      guard mailCache.isProtectedDataAvailable() else { throw PrivateInboxError.locked }
+      throw error
+    }
+    guard mailCache.isProtectedDataAvailable() else { throw PrivateInboxError.locked }
+    _ = try bodyOwner(address: address, generation: generation, verified: verified)
+    return value
+  }
+
+  // Removing the mailbox cache can delete the whole body budget, so it runs off the main actor
+  // while the caller keeps the operation gate: registration changes still wait for it to finish.
+  func removeMailboxCache() async throws {
+    guard let mailCache else { return }
+    try await Task.detached(priority: .userInitiated) { try mailCache.removeMailbox() }.value
+  }
+
+  func openMessageBody(address: String, generation: String, id: String) async throws
+    -> [String: Any]
+  {
+    let readOnly = !mailboxVerified
+    let body = try await bodyWork(address: address, generation: generation, verified: false) {
+      try $0.openMessageBody(address: address, subject: $1, id: id, readOnly: readOnly)
+    }
+    return ["document": body ?? NSNull()]
+  }
+
+  func commitMessageBody(
+    address: String, generation: String, id: String, admission: [String: Any]
+  ) async throws -> [String: Any] {
+    guard let document = admission["document"] as? String,
+      let tier = (admission["tier"] as? String).flatMap(PrivateInboxStore.BodyTier.init(rawName:)),
+      let protectedIds = admission["protectedIds"] as? [String]
+    else { throw RegistrationError.unavailable }
+    let admitted = try await bodyWork(address: address, generation: generation, verified: true) {
+      try $0.commitMessageBody(
+        address: address, subject: $1, id: id, document: document, tier: tier,
+        protectedIds: protectedIds)
+    }
+    return ["admitted": admitted]
+  }
+
+  func listMessageBodies(address: String, generation: String, ids: [String]) async throws
+    -> [String: Any]
+  {
+    let stored = try await bodyWork(address: address, generation: generation, verified: false) {
+      try $0.listMessageBodies(address: address, subject: $1, ids: ids)
+    }
+    return ["stored": stored]
+  }
+
+  func retainMessageBodies(
+    address: String, generation: String, expectedRevision: Int, ids: [String],
+    protectedIds: [String]
+  ) async throws -> [String: Any] {
+    try await bodyWork(address: address, generation: generation, verified: true) {
+      try $0.retainMessageBodies(
+        address: address, subject: $1, expectedRevision: expectedRevision, ids: ids,
+        protectedIds: protectedIds)
+    }
+    return [:]
+  }
+}
+
+extension PrivateInboxStore.BodyTier {
+  // TypeScript names tiers by their meaning; files carry the short suffix.
+  init?(rawName: String) {
+    switch rawName {
+    case "opened": self = .opened
+    case "prefetched": self = .prefetched
+    default: return nil
+    }
   }
 }
 

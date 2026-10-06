@@ -50,6 +50,19 @@ final class InboxTests: XCTestCase {
     XCTAssertFalse(app.staticTexts["recovery-key"].exists)
     rowan.tap()
     XCTAssertTrue(app.staticTexts["rowan@example.invalid"].waitForExistence(timeout: 10))
+    // The opened body arrives from Gmail as text; its image is not loaded.
+    XCTAssertTrue(
+      app.staticTexts["Images in this message are not loaded."].waitForExistence(timeout: 15))
+    // The sanitized HTML renders inside the isolated WebKit view.
+    XCTAssertTrue(
+      app.webViews.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "seed order"))
+        .firstMatch.waitForExistence(timeout: 15))
+    let bodyLink = app.descendants(matching: .any)
+      .matching(identifier: "Open link: garden plan").firstMatch
+    XCTAssertTrue(bodyLink.waitForExistence(timeout: 10))
+    bodyLink.tap()
+    XCTAssertTrue(app.staticTexts["Open this link in your browser?"].waitForExistence(timeout: 10))
+    app.buttons["Cancel"].tap()
     // Organizing goes through the packaged native Gmail modify: a star, then an archive and Undo.
     app.buttons["Star"].tap()
     XCTAssertTrue(app.buttons["Remove star"].waitForExistence(timeout: 10))

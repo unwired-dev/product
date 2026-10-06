@@ -589,6 +589,63 @@ extension UnwiredRegistration {
     }
   }
 
+  private static func bodyMailbox(_ scope: [String: Any]) throws -> (String, String) {
+    guard let address = scope["address"] as? String,
+      let generation = scope["generation"] as? String
+    else { throw RegistrationError.unavailable }
+    return (address, generation)
+  }
+
+  @objc(openMessageBody:id:resolver:rejecter:)
+  func openMessageBody(
+    _ scope: [String: Any], id: String, resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    mailbox("openMessageBody", resolve, reject: reject) {
+      let (address, generation) = try Self.bodyMailbox(scope)
+      return try await $0.openMessageBody(address: address, generation: generation, id: id)
+    }
+  }
+
+  @objc(commitMessageBody:id:admission:resolver:rejecter:)
+  func commitMessageBody(
+    _ scope: [String: Any], id: String, admission: [String: Any],
+    resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+  ) {
+    mailbox("commitMessageBody", resolve, reject: reject) {
+      let (address, generation) = try Self.bodyMailbox(scope)
+      return try await $0.commitMessageBody(
+        address: address, generation: generation, id: id, admission: admission)
+    }
+  }
+
+  @objc(listMessageBodies:ids:resolver:rejecter:)
+  func listMessageBodies(
+    _ scope: [String: Any], ids: [String], resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    mailbox("listMessageBodies", resolve, reject: reject) {
+      let (address, generation) = try Self.bodyMailbox(scope)
+      return try await $0.listMessageBodies(address: address, generation: generation, ids: ids)
+    }
+  }
+
+  @objc(retainMessageBodies:ids:protectedIds:resolver:rejecter:)
+  func retainMessageBodies(
+    _ scope: [String: Any], ids: [String], protectedIds: [String],
+    resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+  ) {
+    mailbox("retainMessageBodies", resolve, reject: reject) {
+      let (address, generation) = try Self.bodyMailbox(scope)
+      guard let value = scope["revision"] as? Double,
+        let revision = Int(exactly: value), revision >= 0
+      else { throw RegistrationError.unavailable }
+      return try await $0.retainMessageBodies(
+        address: address, generation: generation, expectedRevision: revision, ids: ids,
+        protectedIds: protectedIds)
+    }
+  }
+
   @objc(recoverWithRecoveryKey:resolver:rejecter:)
   func recoverWithRecoveryKey(
     _ entry: String, resolve: @escaping RCTPromiseResolveBlock,

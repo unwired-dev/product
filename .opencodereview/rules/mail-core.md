@@ -9,11 +9,26 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 - A module hosts need that has no subpath in `package.json` `exports`, or a host reaching it through a relative path into `src/`. The exports map is the package's public interface.
 - Native capability passed in as a concrete module rather than as an interface the host supplies (as `NativeInboxStorage` is supplied to `createPersistentInbox`). The interface keeps the store testable with real logic and a substituted boundary.
 
+#### Shared runtime compatibility
+
+- Regex extraction in `message-body.ts` or another shared decoder that assumes
+  `matchAll` results retain `.groups` after a host's Babel named-group transform.
+  Hermes can omit that property while Node tests pass, silently dropping message
+  content or link destinations. Read captures portably and validate changed
+  parsing in the packaged host when its transform differs from the test runtime.
+
 #### Untrusted boundaries fail closed
 
 - A native bridge result, seed, persisted JSON value, HTTP body, token or route parameter used before a `Schema` decode, or narrowed with `as`, a hand-written property check or a truthiness test. The Apple host's checks do not make its results trusted in TypeScript.
 - A decode failure that becomes a default, an empty list or a `ready` state. It must map to the boundary's existing tagged error, with the decode error as `cause`, and surface as a non-ready state.
 - A schema widened (`Schema.Unknown`, optional field, loose union) to make a fixture or a new native result pass, without the consumer handling the widened case.
+- `message-body.ts.decodeFullMessage` recursively decoding an unbounded MIME
+  tree before applying traversal limits. Bound depth and total parts iteratively
+  before `GmailPartSchema` runs, counting attachment and discarded subtrees too;
+  every production body/CID traversal must consume that bounded decode. Check
+  inclusive limits and the public unavailable/download failure state, not just
+  direct helper rejection. Otherwise Schema decoding itself can overflow before
+  a traversal guard, reject the host-facing read and leave the message loading.
 
 #### Errors and diagnostics
 
@@ -50,6 +65,30 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 - `createGmailInbox.dispatch` receiving a permanent provider refusal without durably retaining that outcome before its follow-up `readLabels`. An interrupted read or relaunch must make `reconcile` settle provider-derived state and announce rejection without another dispatch, even after Retry or an exhausted attempt budget. Trace `commitOver`/`rebased` so concurrent intake survives both saving the refusal and removing its head; if a refusal-save rebase removes the refused ID, `settleRefusal` must leave the new head untouched rather than read the old message and pop the next intent. Otherwise known-invalid writes repeat, consume attempts and delay later intent, or another message's intent is silently lost.
 - `createGmailInbox.settleRefusal` restoring a message-bearing notice after asynchronous work without rechecking its initiating ownership epoch, or losing rejection feedback when settlement is durable but its reply is interrupted. Guard the notice update after the label read and preserve `forget` clearing it during a pending commit; otherwise a late completion exposes the former owner's message in another mailbox, or a lost reply leaves a false success notice after the refused head is gone.
 - `createGmailInbox.organize` suppressing an accepted action's `OrganizeNotice` because `restoreAfter` returns no inverse. Both hosts' `OrganizeStatus` announce from that notice, so read/unread, star/unstar, label/unlabel and restore lose outcome feedback if notice publication is coupled to Undo eligibility. Keep outcome publication independent from the host's removal-only Undo gate.
+- `sanitizeHtml.anchor`, `readableText` or `paragraphBuilder` bounding only the
+  rich link array while retaining unbounded clickable readable spans. Count
+  finalized fallback spans across paragraphs as well as collected visible
+  anchors; one anchor can become many native controls on both hosts. Excess
+  destinations must become plain text with no marker, href or link semantics,
+  preserving HTML-only readable content without a budget exception. Verify
+  public `presentation`, hidden/restored anchors and both host consumers at and
+  beyond the shared limit; otherwise a compact message exhausts native controls
+  or a fallback merely relocates the amplification.
+- `sanitizeHtml` counting only literal `br` elements while `hr`, preformatted
+  newlines, empty styled boxes or hidden text still separate inspected label
+  fragments, including source-less hidden image boxes. Share the break run across containers and retained white-space
+  modes; non-rendering format/combining characters and hidden text cannot reset
+  it. Normalize empty linked boxes without losing visible descendants or image
+  visibility semantics, and verify actual emitted WebKit glyph positions with
+  inherited tall line heights, smaller inline break styles and rule box geometry,
+  and discard line-height expressions or units whose emitted height cannot be resolved,
+  without treating arbitrary sender-font `normal` metrics as the system-font multiplier,
+  including borders, padding, margins and shorthand ordering, as well as
+  `inspectLink` and ordinary-content controls. Otherwise a displaced suffix
+  suppresses a caution for the visible address. A normalized, nearby complete
+  label may legitimately have no address-mismatch warning; this is not a full
+  viewport visibility classifier or a general document-node budget.
+
 - Opening or selecting a message that changes its unread state. Only the explicit read/unread action persists a change, and it must update every subscribed view.
 - A store that reports a connected or ready inbox while mailbox authorization is missing, expired, stale or cancelled, rather than the resumable setup or reconnect state.
 - `createGmailInbox` treating a native `mailbox-invalidated` rejection as a terminal storage failure before bounded reopening of the committed cache through the registration gate. A successful same-mailbox foreground restore renews the native generation and must not hide usable cached mail. Reopening must preserve the `forget` publication fence after an ownership change or purge; recovery cannot resurrect the former owner's mail.
@@ -72,3 +111,275 @@ Apply `docs/agents/testing.md`'s admission and proportionate-verification policy
 #### Leave to tooling
 
 Namespace-import style, `JSON.parse`, `typeof … === 'object'` guards, untagged error classes, and console, time, randomness, `fetch`, timers and `process.env` inside Effect code are lint errors (`scripts/oxlint-effect-policy.ts`). Unused exports and complexity belong to Fallow. Formatting belongs to oxfmt.
+
+#### Rich-body admission and speculative reads
+
+- `html-sanitizer.ts.parseDeclarations` deduplicating before resolving validity
+  and importance, or confusing source validity with output retention. Invalid
+  important values must not suppress valid normal ones; valid unretained values
+  must still replace earlier hiding declarations, and equal-priority winners
+  keep their source position for shorthand handling. Check measured WebKit
+  grammar (including invalid display combinations and opacity exponents/math),
+  CSS whitespace and ASCII keyword matching rather than JavaScript whitespace
+  or Unicode case folding,
+  emitted CSS, inspected labels and CID discovery together; otherwise hidden
+  image parts are downloaded or visible mail is lost. Importance across different
+  shorthands/longhands follows the explicitly normalized emitted document, not
+  an unimplemented full source cascade.
+- `sanitizeHtml.reference` deduplicating sender-controlled CID discovery with a
+  growing array scan, or collecting unique references beyond the resolution
+  attempt bound. Preserve visible order with constant-time membership checks
+  and collect only references within `inlineImageLimits.attempts`; keep every
+  visible occurrence for repeated-image presentation charges and keep later
+  references as placeholders. Otherwise compact image-heavy mail blocks the
+  shared JavaScript runtime before request limits apply, or presentation exceeds
+  its image budget.
+- `html-sanitizer.ts` splitting inline declarations inside quoted strings or
+  unmatched component-value blocks, or treating mismatched closing brackets as
+  matching ones in `splitDeclarations`. Drop declarations containing broken
+  strings and keep matching delimiter types when scanning. Consume complete
+  backslash escapes, including hex digits, optional CSS whitespace and string
+  newline continuations, before recognizing delimiters. Remove CSS comments before
+  splitting and cascade classification, respecting strings, complete escapes and
+  unquoted URL/bad-URL tokens at actual identifier-token boundaries, excluding
+  URL spellings inside dimensions, hash and at-keyword tokens. Replacement whitespace must not join identifiers
+  when a preceding hex escape consumes its first space, or make a CSS math sum
+  valid when its source lacked required whitespace. Cover bad-string recovery,
+  escaped newlines and split escaped name/value/importance controls in WebKit;
+  otherwise hidden CIDs download or visible mail disappears. Decode semantic names,
+  supported identifier values and the importance identifier only after lexical
+  splitting; escaped whitespace or punctuation must not become trivia or an
+  importance delimiter, and escaped digits must not become number tokens.
+  Escapes in the importance identifier must not invalidate an otherwise literal
+  numeric value. Verify hidden and visible overrides, invalid escaped-number
+  controls, safe emitted identifiers and priority before CID discovery; verify the emitted
+  WebKit CSS and inspected link text together. Otherwise reserialization can
+  swallow an apparent hiding declaration and leave a painted address uninspected.
+
+- `readableText` trimming closing brackets that belong to IPv6 hosts or balanced
+  URL paths, or rescanning the whole URL for every trailing punctuation character.
+  Preserve required/balanced delimiters, trim unmatched trailing closers and sentence
+  punctuation, keep every text character, and count bracket excess once. Otherwise
+  system handoff receives an invalid destination or a punctuation-heavy message
+  blocks the shared runtime. Exercise the detected destinations through the public
+  inbox store as well as the punctuation parser.
+- `createGmailInbox.store` protecting only a prefetch selection that has not yet
+  started when cached metadata is already interactive, including after `forget`.
+  Derive protection from the current ready list and selection reference at admission,
+  alongside active speculative selection; otherwise an opened body can evict recent
+  offline bodies during delayed synchronization. Preserve ordered native retention
+  and refusal under the hard budget.
+- `createGmailInbox.store` waiting for an entire synchronization while holding a
+  body-load permit, blocking explicit opens or speculative progress behind provider
+  listing. Serialize body membership checks and admission against each page's
+  durable commit, pruning and ready publication, including action intake, dispatch,
+  reconciliation, refusal, label refresh and Retry/Discard commits through `commitOver`
+  and `save`, with provider reads outside that permit. Native FIFO custody orders calls
+  but does not make pruning and TypeScript membership publication atomic; verify a
+  still-visible action whose reconciliation removes a message while a body completes,
+  including an interrupted later history read. Otherwise slow synchronization stalls
+  reading, or late downloads repopulate removed messages.
+- `createGmailInbox.schedulePrefetch` dropping a queued selection for a newer owner
+  when the previous owner's speculative lane finishes or fails. Restart queued
+  work under the current owner while retaining publication fences and the
+  same-owner retry/authentication pause; otherwise a newly opened mailbox silently
+  receives no recent-body prefetch until another synchronization.
+- MIME preflight in `message-body.ts` that trusts payload `mimeType` over a
+  present Content-Type header or ignores Content-Disposition. Contradictory,
+  malformed or attachment metadata must not turn speculation into a multipart
+  or attachment download. Both metadata and full preflight must validate every
+  whole header value, including trailing parameters and legal folding, before
+  speculative admission. Preserve the deliberate leading-token leniency of
+  explicit reads; malformed common parameters must not hide readable mail.
+  Resolve CIDs only within the selected alternative's
+  eligible related/mixed scope, never from a discarded alternative. Prune every
+  off-path child of an alternative container regardless of its MIME type,
+  including mixed/signed subtrees and image leaves; preserve the selected
+  alternative's related resources and eligible inline siblings in outer mixed scopes.
+- `message-body.ts` treating a present empty or whitespace-only disposition as
+  absent. Only a recognized inline token may admit a present disposition; otherwise
+  malformed body or CID leaves can be fetched or shown as ordinary content.
+- `message-body.ts.headerParameters` or `partText` choosing a charset from a
+  longer parameter name, a comment, another quoted value or a malformed value
+  prefix. Consume complete named parameters with the admission grammar, preserve
+  legal folding and quoted pairs, stop at malformed parameters and use UTF-8 for
+  explicit reads when no complete charset was parsed; otherwise displayed and
+  cached text becomes mojibake.
+- `message-body.ts.contentIdOf` collapsing whitespace or internal comments inside
+  an ID to join its fragments. Internal comments, including nested and empty
+  comments, must leave an identity separator and remain unresolvable. Normalize
+  surrounding comments, whitespace and brackets while leaving internally spaced IDs unresolvable; preserve literal reference
+  matching and repeated-header agreement. Otherwise malformed MIME metadata
+  authorizes an unintended inline-image download.
+- MIME admission in `message-body.ts` inspecting only the first repeated header.
+  Every Content-Disposition occurrence must declare inline; Content-Type tokens
+  and normalized Content-ID values must agree across all occurrences. Conflicts
+  must not authorize speculative body or CID requests. Resolve only image leaves
+  and traverse only explicitly recognized multipart containers in both readable-body
+  selection and CID scope discovery; a `multipart/*` prefix alone cannot admit
+  extension, encrypted or attached-message containers. Preserve nested ordinary
+  bodies in supported signed/report containers, but descend only into their first
+  child for both readable body selection and CID discovery, even when nested in
+  mixed mail. Signature and report-data children cannot supply HTML or inline
+  downloads; a readable first child may itself be a container. A contradictory container or an
+  image-shaped subtree must not expose attached descendants.
+- `sanitizeHtml` deciding renderability from text and CIDs alone while retaining
+  blocked-image placeholders. Placeholder-only mail must keep its rich document
+  and readable images notice, including after rendering failure.
+- `createGmailInbox` abandoning failed best-effort body pruning when later
+  synchronization commits nothing, or pruning from a stale metadata revision.
+  Retry after successful synchronization, preserve cache-only access, and require
+  revision validation inside native pruning's storage transaction; otherwise
+  removed mail stays cached or a competing store's still-listed body is deleted.
+- `createGmailInbox.retainBodies` omitting the recent working set during budget
+  reconciliation. Both page-commit and end-of-sync pruning must derive protection
+  from the retained metadata at the synchronization's selection reference, using
+  the Effect clock when no reference remains; otherwise an interrupted writer's
+  over-budget directory can lose recent bodies that admission protects.
+- `gmail-inbox.ts` charging image data once per CID while rendering repeated
+  references, retaining reservations after renderer failure or last-reader
+  closure, or racing an explicit open with speculative work for the same ID.
+  Count independent readers of the same message, including a window joining an
+  already-ready body; a message-ID-only reservation must not let each WebView
+  decode another uncharged copy. Admit new readers independently without
+  replacing an established reader's document: changing its WebView source starts
+  another navigation and resets its position. Fence reservation mutations and release
+  callbacks by owner generation, so a stale read or old reader cannot erase a
+  new owner's reservation for a reused provider ID.
+  Count every rendered occurrence and join the existing pipeline; otherwise
+  actual presentation exceeds its bounds or downloads a body twice.
+- `createGmailInbox.completeImages` or `resolveImages` swallowing rejected Gmail
+  authorization through best-effort MIME reload or attachment recovery. Cached
+  and newly opened readable text must remain shown while an owner- and
+  listing-fenced authentication notice publishes. Quota and server failures
+  must retain their retry fallback without asking for authorization. A successful
+  load after authorization must retry ready bodies with unresolved images, and
+  a last-reader close during that refresh must prevent hidden presentations and
+  reservations from being restored; otherwise reading silently stalls or closed
+  windows consume the shared image budget.
+- `imageTally.request` charging only admitted image bytes. Reserve the declared
+  bytes before each allowed request, including malformed or rejected downloads;
+  transient failures cannot refund transferred bytes. Keep this per-open transfer
+  bound separate from the reservations for displayed occurrences and readers;
+  otherwise rejected images bypass the 20 MiB aggregate download limit.
+- Applying geometric viewport admission to Inline Images after the 2026-10-06
+  ADR 0029 amendment. Explicit opens resolve all visible, sanitized CID
+  references within the existing bounds and shared presentation budget;
+  speculative prefetch still excludes them. Remote Message Content retains
+  its viewport-plus-margin and authorization rules under #763.
+- `inspectLink` matching only raw host text or dotted-quad IPv4. Percent-encoded
+  internationalized hosts and compact/hexadecimal IPv4 spellings are interpreted
+  by the platform, so inspect their decoded signal form while retaining the exact
+  original destination for handoff; otherwise required cautions disappear.
+- `inspectLink` excluding numeric displayed addresses from host comparison or
+  comparing equivalent percent-encoded, compact IPv4 or IPv6 host spellings as
+  different sites. Explicit web schemes, bare dotted-quad IPv4 and bracketed IPv6
+  labels must participate alongside bare domains, with a non-empty host and
+  normalized comparison key, while preserving the exact destination and numeric
+  caution. Ordinary versions, times and dates must not become displayed addresses;
+  otherwise deceptive labels lose their caution or equivalent addresses gain a
+  false mismatch warning.
+- `looksLikeAddress` limiting a bare domain's final label to letters and excluding
+  punycode (`xn--`) labels. Bare internationalized-domain spellings, including
+  case variants and port/path/query/fragment suffixes, must reach `inspectLink`'s
+  comparison while ordinary version text remains outside it; otherwise deceptive
+  labels targeting another host omit the mismatch caution. Keep exact destinations
+  and the independent internationalized-host signal unchanged.
+- `forwardsElsewhere` comparing raw redirect host spellings instead of the same
+  `comparisonHost` keys used for displayed addresses. Equivalent percent-encoded
+  names and IPv4/IPv6 forms must not produce a cross-site caution; genuinely
+  different destinations must retain it and exact handoff URLs must remain unchanged.
+- `sanitizeHtml` combining admitted CID image descriptions with separately painted
+  link text, or omitting descriptions from image-only links and readable fallback.
+  Inspect painted text when present: admitted image alt text is not painted and
+  must not mask a displayed address. Use admitted descriptions for image-only
+  labels; blocked/unresolved placeholder descriptions are painted and count as
+  text. Preserve every readable description in the fallback, normalize whitespace
+  and respect unreadable contexts. Otherwise mixed-image deceptive links lose
+  their caution, or image-only/accessibility descriptions disappear.
+- `isTrackingPixel` ignoring admitted nonpixel CSS dimensions or allowing invalid,
+  empty or filtered-out declarations to mask HTML dimensions. Rendering and
+  classification must use the same retained width/height/min/max values. Validate
+  every retained width/height and min/max dimension with the dimension grammar;
+  known pixel minima win over pixel sizes and maxima, including a minimum larger
+  than the maximum. Minima are lower bounds, not actual intrinsic/auto/percentage
+  sizes; a relative or keyword minimum cannot prove a pixel bound. Otherwise
+  visible images are removed or expressions WebKit paints as trackers become
+  eligible for CID resolution.
+- `sanitizeHtml` suppressing readability or inspected link text from declarations
+  discarded by `filterStyle`, such as `overflow:hidden`. Classify text using the
+  CSS actually emitted, and validate retained offsets against their property
+  grammar before treating text as off-canvas. CSS-wide keywords must stand alone;
+  margin shorthand allows at most four lengths or auto values, while the retained
+  text-indent subset permits one length and no auto. Invalid units, extra tokens
+  or mixed CSS-wide keywords must not suppress a painted label. Whole-element or image exclusion may use declared CSS
+  only when it also removes that content from the document. Otherwise painted
+  deceptive link labels lose their required caution or readable fallback.
+- `sanitizeHtml` classifying every negative margin as off-canvas text. Resolve
+  physical shorthand sides and longhands in emitted declaration order, including
+  repeated declarations and CSS-wide resets. Only offsets whose emitted layout
+  moves the text may suppress it; trailing margins, ignored inline vertical margins
+  and inner-table margins cannot justify omission. Bidi flow, automatic direction,
+  inline-block baselines and image-to-placeholder replacement require matching the
+  output or normalizing uncertain offsets there, rather than retaining hidden
+  masking text or omitting a painted label. Otherwise destination-mismatch
+  inspection can be bypassed.
+- `sanitizeHtml` treating inherited illegible font size as an inescapable ancestor
+  box, or treating zero line height and maximum dimensions as clipping when
+  overflow remains visible. Descendant sizes must restore inspection. Font
+  classification must agree with emitted CSS across Dynamic Type, UA defaults,
+  cascade rollback and replacement placeholders: do not assume a universal body
+  size, viewport geometry or ex/ch metric while retaining that uncertain CSS.
+  Tiny text may paint a smear without being legible. Unsupported font-size
+  expressions/units must be removed before both rendering and inspection;
+  otherwise invisible masking text suppresses the address mismatch caution.
+- `sanitizeHtml` using an offset's magnitude alone to omit inspected text.
+  Padding or other compensation and unindented wrapped lines can remain painted.
+  Normalize large positive and negative leading offsets and negative offsets with an unknown percentage,
+  viewport or font-metric basis in the emitted CSS instead of guessing clipping;
+  preserve ordinary small hanging indents, trailing LTR margins and ignored
+  inner-table margins. Otherwise a visible deceptive label loses its caution.
+- `sanitizeHtml` normalizing only horizontal padding/borders or leaving oversized
+  table border spacing, line heights or vertical alignment in emitted text styles.
+  Reject unresolved sender CSS functions outside quoted strings in `keptDeclaration`;
+  preserve plain `rgb`/`rgba` and `hsl`/`hsla` border colors, but reject nested functions.
+  Unresolved expressions such as `padding-left:calc(10000px)` with retained
+  `white-space:nowrap` can move the suffix beyond the reader; include the wrapping
+  form as a negative control, because it can wrap back into view. A color function
+  also separates CSS tokens without whitespace: `border-left:rgb(20,30,40)10000px solid`
+  must not evade `normalizeSpacing`'s width bound. Preserve ordinary adjacent-color
+  borders while rejecting oversized widths. Verify quote/escape handling and native
+  glyph positions rather than omitting scroll-accessible suffixes from inspection.
+  Check all admitted physical longhands and shorthand ordering; bound oversized
+  aligned text-box widths by their containing block while preserving ordinary
+  desktop widths. Otherwise off-screen masking text remains in inspected labels
+  and suppresses the visible address's mismatch caution. This bounded style policy
+  is not a complete viewport visibility model; verify glyph layout in WebKit.
+  Normalize oversized heights/minimum heights and bottom margins too; when
+  removing CSS sizing, check whether an admitted HTML table-cell height hint
+  becomes active again. Preserve ordinary sizes and ignored inner-table margins.
+- `sanitizeHtml` dropping an entire `visibility:hidden` subtree before descendants
+  can restore retained `visibility:visible` or `initial`. Carry inherited visibility through
+  traversal and restore it for siblings; readable text, inspected link labels,
+  image descriptions and CID discovery must agree with the emitted CSS. Preserve
+  visibility overrides when replacing images with placeholders or emitting
+  special elements such as `br` and `hr`. Hidden images outside active links must keep source-less
+  declared geometry without references or blocked-image notices; linked hidden
+  image boxes cannot displace inspected suffixes. Wholly hidden
+  anchors must not reach host link controls. `anchor` must start without visible
+  content; neither an empty wrapper nor whitespace activates its link. Admit only
+  retained visible text, images or rules, including restored descendants, so
+  discarded children cannot create phantom controls or exhaust the link limit.
+  Preserve whole-box
+  exclusion for `hidden`, `display:none`, zero opacity and effectively collapsed table tracks;
+  otherwise visible mail disappears or invisible images are downloaded.
+- `sanitizeHtml` collecting CIDs from cells wholly covered by collapsed table
+  columns, or placing cells with raw spans or removed elements that differ from
+  the emitted layout. Normalize and bound span values consistently, isolate row
+  groups and nested tables, and bound cumulative expansion and occupancy scans
+  across all tables; otherwise hidden images download, visible mail disappears,
+  or compact rowspan-heavy input blocks the shared JavaScript runtime.
+- `inspectImage` trusting a signature/header before validating the complete bounded
+  PNG/JPEG/GIF/WebP container, frame count and frame/canvas geometry. Truncated or
+  inconsistent data must not supply trusted dimensions or bypass decoded-cost
+  admission; ordinary type checks cannot establish those binary invariants.

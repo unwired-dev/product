@@ -18,6 +18,21 @@ This code owns what TypeScript must never hold: Keychain items, the storage encr
 #### Bridge contract
 
 - A positive revocation found by `RegistrationStore.prepareMailbox` converted to ordinary mailbox invalidation after successful purge. Trace both `UnwiredRegistration.openMailbox` and `commitMailbox` through the shared rejection mapper and `createGmailInbox` recovery: preserve `mailbox-revoked` and its account-page hand-off, while generation changes retain bounded invalidation recovery. Collapsing the two makes already-purged mail end in retry exhaustion and a generic failure instead of the removal explanation.
+- `RegistrationStore.purge` or Gmail reselection synchronously removing the
+  mailbox/body directory or waiting for its file lock on the main actor. Await
+  detached `removeMailboxCache` work under the registration gate until deletion
+  completes, preserving early generation/session invalidation, cleanup failure
+  and retry ordering, and keyless locked-device removal. Otherwise a populated
+  cache stalls the interface or later work enters half-finished cleanup.
+
+- `RegistrationStore` body operations doing synchronous file/crypto work on the
+  main actor, or moving it off-main without mailbox/generation revalidation and
+  protected-data checks before dispatch and before publishing success or failure.
+  An off-main availability fallback must retain those checks in every production
+  adapter, including `UnwiredPrivateInbox`'s fixture queue; otherwise locked access
+  touches storage or returns plaintext, and suspended work can expose stale mail.
+  Preserve the registration gate across the awaited transaction and keep file-lock
+  serialization; a worker must never synchronously wait on the main actor under that lock.
 - A rejection code that TypeScript does not know. `packages/mail-core/src/diagnostics.ts` allow-lists the codes; a new code needs the matching store handling and allow-list entry in the same task.
 - A rejection or diagnostic that carries a foreign error description, account identifier, email address, token or path. JavaScript logs can leave the device; reject with a fixed code and fixed text, as `UnwiredPrivateInbox.perform` does. Successful values may contain the documented local presentation data consumed by the shared store; they must not be logged.
 - A resolved payload whose shape changed without the `Schema` that decodes it in `mail-core` changing with it.
@@ -43,9 +58,35 @@ This code owns what TypeScript must never hold: Keychain items, the storage encr
   generation on every operation; a same-address subject change or purge/reconnect
   must reject old work before provider access or ciphertext replacement.
 
+- `PrivateInboxStore` body admission that discounts an opposite-tier file before
+  admission succeeds. Reserve both ciphertexts and plan eviction before deletion;
+  refused admission must preserve the old body and protected entries. Remove the
+  opposite tier before publishing its replacement, or interruption can leave two
+  valid files and reads can return the older body. A failed replacement may leave
+  a refetchable cache miss. Cache-only reads must not update access times
+  or delete corrupt bodies; otherwise presentation-only access mutates storage.
+- `PrivateInboxStore.retainMessageBodies` losing ordered `protectedIds` between
+  host adapters, the Swift/Objective-C bridge and storage, or pruning bodies that
+  received cache-fitting protection. Keep revision/generation checks and select
+  protection in working-set order (newest first, then ascending ID), as required
+  by `docs/gmail-inbox.md` and `docs/private-inbox-storage.md`. Sum stored bytes in
+  both tiers per body name, count duplicate candidates once, and skip a candidate
+  that does not fit while considering later candidates. Only fitting candidates
+  receive protection; prune eligible bodies to maintain the hard limit. Protecting
+  every over-budget candidate or refusing this reconciliation as a conflict
+  reverses the accepted "Protect what fits" decision; losing fitting protection
+  deletes recent offline bodies.
+
 #### Mock sessions stay out of production
 
 - A mock/test host factory such as `mockRegistrationStore` omitting a callback or proof required by a production operation's guard. Keep the real guard in place and wire the synthetic backend's owning state through it; otherwise optimistic/cached journeys can pass while the provider mutation is never reached and pending intent never settles.
+- `MockGoogleRegistrationProvider.gmail` collapsing repeated `metadataHeaders`
+  selectors, comparing header names case-sensitively, or projecting declared
+  MIME headers differently in preflight metadata and full responses. Preserve
+  every requested existing admission header from one message declaration;
+  otherwise mock journeys can miss attachment exclusions or depend on selector
+  order. Verify attachment and inline disposition controls without silently
+  changing the packaged scenario's Inbox corpus or pagination.
 - Synthetic registration providers reachable without the `UNWIRED_REGISTRATION_MOCK` compilation guard, or a Mock Mail Session selected from runtime input rather than the fixed build-time `UNWIRED_MOCK_SCENARIO` list. Other mock journeys and the isolated native `SyntheticCredential` integration fixture have their own test-only boundaries; preserve those instead of requiring the registration flag for every fixture. `SyntheticCredential` keeps its own Keychain service and never shares the production one.
 - A reset, seed or backdoor added to production code to make a journey testable.
 

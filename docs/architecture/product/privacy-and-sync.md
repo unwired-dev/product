@@ -26,6 +26,17 @@ current replacement work from prototype maintenance and historical plans.
 
 ## Local storage and background freshness
 
+- The [2026-10-06 ADR 0029 amendment](../../adr/0029-sanitize-html-before-webkit-rendering.md#amendment--2026-10-06)
+  accepts resolving all visible, sanitized CID references on explicit open within
+  the existing per-message limits and shared presentation budget, without
+  viewport admission. It also permits application-owned layout measurement in
+  `WKContentWorld.defaultClientWorld` on both hosts while page JavaScript remains
+  disabled. Sanitization, non-persistent WebKit storage, navigation cancellation
+  and the prohibition on message-controlled scripts or bridges remain intact.
+  Remote Message Content retains its consent, policy, viewport-plus-margin,
+  isolated transport and separate-cache boundary under
+  [#763](https://github.com/unwired-dev/product/issues/763).
+
 - The Product Account mail-load coordinator permits at most four concurrent message-body pipelines account-wide and two per **Mailbox Connection**; a provider may lower only its own connection limit when its transport cannot safely multiplex
 
 - Each **Mailbox Connection** has at most one speculative prefetch or historical-work lane, which yields immediately to interactive work and never occupies another connection's capacity

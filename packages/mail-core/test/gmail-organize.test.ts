@@ -1,3 +1,5 @@
+import { setImmediate } from 'node:timers/promises';
+
 import type { GmailInboxState, GmailMessage } from '../src/gmail-inbox.ts';
 
 import {
@@ -204,7 +206,88 @@ const holdingCommit = (
 };
 
 /* oxlint-disable vitest/max-expects -- Each journey proves one organizing path end to end. */
+// Holds a downloaded body and the removal prune reply, with later history interrupted so a
+// second prune cannot conceal a late admission into the removed message's cache.
+const holdingBodyAndRemoval = (
+  gmail: ReturnType<typeof createSyntheticGmail>,
+  id: string,
+) => {
+  const full = Promise.withResolvers<undefined>();
+  const downloaded = Promise.withResolvers<undefined>();
+  const pruning = Promise.withResolvers<undefined>();
+  const finishPruning = Promise.withResolvers<undefined>();
+  let holdPrune = false;
+  let interruptHistory = false;
+  const native = {
+    ...gmail.native,
+    gmailRequest: async (...args) => {
+      const [path, query] = args;
+      if (interruptHistory && path === 'history') {
+        return { status: 503, body: '{}' };
+      }
+      const reply = await gmail.native.gmailRequest(...args);
+      if (
+        path === `messages/${id}` &&
+        query.some(([name, value]) => name === 'format' && value === 'full')
+      ) {
+        downloaded.resolve(undefined);
+        await full.promise;
+      }
+      return reply;
+    },
+    retainMessageBodies: async (...args) => {
+      const reply = await gmail.native.retainMessageBodies(...args);
+      if (holdPrune && !args[1].includes(id)) {
+        holdPrune = false;
+        pruning.resolve(undefined);
+        await finishPruning.promise;
+      }
+      return reply;
+    },
+  } satisfies typeof gmail.native;
+  return {
+    native,
+    full,
+    downloaded,
+    pruning,
+    finishPruning,
+    armRemoval: () => {
+      holdPrune = true;
+      interruptHistory = true;
+    },
+  };
+};
+
 describe('organizing Gmail mail', () => {
+  it('fences a late body admission while action reconciliation removes its message', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    const id = gmail.deliver({
+      at: 0,
+      content: { text: 'Held readable body' },
+    });
+    const held = holdingBodyAndRemoval(gmail, id);
+    const inbox = createGmailInbox(held.native);
+    await inbox.load();
+    const source = message(inbox, id);
+    const reading = inbox.readMessage(id);
+    await held.downloaded.promise;
+    gmail.remove(id);
+    held.armRemoval();
+    const organizing = inbox.organize(source, gmailAction.star);
+    await held.pruning.promise;
+    held.full.resolve(undefined);
+    // Drain the released transport response's promise continuations while native pruning is held.
+    await setImmediate();
+    held.finishPruning.resolve(undefined);
+    await organizing;
+    await reading;
+    expect(ready(inbox.getSnapshot()).sync).toBe('retry');
+    expect(shown(inbox, id)).toBeUndefined();
+    expect(inbox.messageBody(id)).toBeUndefined();
+    expect(gmail.cachedBodies().has(id)).toBe(false);
+  });
+
   it('shows each change at once, keeps it through an outage and relaunch, and applies Gmail label semantics', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail();
@@ -673,6 +756,11 @@ describe('organizing Gmail mail', () => {
       },
       gmailRequest: (...args) => current.native.gmailRequest(...args),
       gmailModify: (...args) => current.native.gmailModify(...args),
+      openMessageBody: (...args) => current.native.openMessageBody(...args),
+      commitMessageBody: (...args) => current.native.commitMessageBody(...args),
+      listMessageBodies: (...args) => current.native.listMessageBodies(...args),
+      retainMessageBodies: (...args) =>
+        current.native.retainMessageBodies(...args),
     });
     await inbox.load();
     const target = required(
@@ -1288,6 +1376,10 @@ describe('organizing Gmail mail', () => {
       commitMailbox: (...args) => current.commitMailbox(...args),
       gmailRequest: (...args) => current.gmailRequest(...args),
       gmailModify: (...args) => current.gmailModify(...args),
+      openMessageBody: (...args) => current.openMessageBody(...args),
+      commitMessageBody: (...args) => current.commitMessageBody(...args),
+      listMessageBodies: (...args) => current.listMessageBodies(...args),
+      retainMessageBodies: (...args) => current.retainMessageBodies(...args),
     });
     await inbox.load();
     const target = required(
@@ -1334,6 +1426,22 @@ describe('organizing Gmail mail', () => {
         current.native.gmailRequest(path, query, { ...scope, generation: '0' }),
       gmailModify: (change, scope) =>
         current.native.gmailModify(change, { ...scope, generation: '0' }),
+      openMessageBody: (scope, id) =>
+        current.native.openMessageBody({ ...scope, generation: '0' }, id),
+      commitMessageBody: (scope, id, admission) =>
+        current.native.commitMessageBody(
+          { ...scope, generation: '0' },
+          id,
+          admission,
+        ),
+      listMessageBodies: (scope, ids) =>
+        current.native.listMessageBodies({ ...scope, generation: '0' }, ids),
+      retainMessageBodies: (scope, ids, protectedIds) =>
+        current.native.retainMessageBodies(
+          { ...scope, generation: '0' },
+          ids,
+          protectedIds,
+        ),
     });
     await inbox.load();
     const retained = required(

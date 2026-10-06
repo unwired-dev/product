@@ -33,6 +33,7 @@
     "react-native-reanimated": "catalog:mobile",
     "react-native-safe-area-context": "catalog:mobile",
     "react-native-screens": "catalog:mobile",
+    "react-native-webview": "catalog:mobile",
     "react-native-worklets": "catalog:mobile"
   },
   "devDependencies": {

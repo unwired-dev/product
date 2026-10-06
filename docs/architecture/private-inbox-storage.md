@@ -9,8 +9,9 @@ replacement requirements or release qualification.
 
 `native/private-inbox` owns a versioned AES-256-GCM encrypted snapshot, using
 CryptoKit and Security without a third-party database dependency. This small
-fixture store is not a general mail database or the future 500 MB body cache.
-The complete fixture, including metadata and bodies, is encrypted in `inbox.enc`
+fixture store is not a general mail database and is separate from the
+[Gmail body cache](#gmail-body-cache). The complete preview fixture, including
+metadata and bodies, is encrypted in `inbox.enc`
 under the host's Application Support directory. The directory is excluded from
 backup; iOS writes also use complete file protection. Atomic ciphertext replacement
 and file synchronization finish before an update resolves. Temporary writes
@@ -59,3 +60,59 @@ is not an indexed general mail database or the replacement body cache.
 
 The [Gmail companion](gmail-inbox.md) records transport ownership and suspension
 fences. Observable cache requirements remain in the operational storage guide.
+
+## Gmail body cache
+
+Issue #605 adds per-message ciphertext under `bodies/`, separate from both
+metadata documents. Filenames are SHA-256 digests of the Google subject, mailbox
+address and Gmail ID; AES-GCM associated data authenticates that exact tuple
+under the `dev.unwired.private-inbox.body.v1` context. The existing device-only
+database key, file lock, backup exclusion, atomic replacement, synchronization
+and complete file protection still apply. Keys never cross the bridge. A failed
+body authentication returns absence. When writes are authorized it removes only
+that disposable body; cache-only access preserves ciphertext and access times.
+
+The native vault enforces a 500 MB stored-byte budget across its body directory.
+Admission includes the nonce and authentication-tag overhead, plans all eviction
+before deleting anything, and refuses an entry that cannot fit. Tier suffixes
+separate opened and prefetched files. Eviction considers opened entries first,
+then prefetched entries, each least recently read with filename tie-breaking;
+the current recent working set is protected. Admission conservatively counts the
+old opposite-tier ciphertext together with its replacement; only the exact
+atomic-replacement target is discounted. A refused admission preserves the old
+body. After admission, the opposite tier is removed before publishing the new
+file, so interruption cannot leave two valid tiers for one body. A failed or
+interrupted replacement may leave a disposable cache miss, fetched again on demand.
+Verified reads update access time; retention/pruning reconciles an over-budget
+directory left by an older interrupted writer. Metadata is never evicted.
+Pruning also compares the expected metadata revision under the same file lock
+before any body deletion, rejecting a competing store's stale list with conflict.
+Registration wrappers validate the opened mailbox generation; offline cache-only
+access is read-only, including for corrupt files, and refuses writes or pruning.
+Listing returns IDs without decrypting stored bodies. Mailbox removal and account
+purge remove bodies with the metadata cache.
+
+Purge and Gmail reselection await detached, file-locked removal of both the metadata
+cache and the body directory under the bridge's registration gate. Deletion and lock
+waits leave the main actor available; the gate remains held until removal completes.
+Purge invalidates the generation and session state and records acknowledged removal
+before suspending. It still attempts account-key cleanup after cache-removal failure
+and keeps the registration locator for retry until every cleanup succeeds. Removal
+requires neither a decryption key nor unlocked protected data, so forgetting remains
+possible on a locked device. Reselection retains its best-effort removal behavior;
+mailbox-owner and generation checks prevent access to an old cache after failure.
+
+RegistrationStore body operations check protected-data availability and the mailbox owner
+and generation on the main actor, perform locked file and CryptoKit work in a detached
+task, then repeat those checks before publishing success. Errors are also reclassified
+as locked when protected data became unavailable. The bridge's FIFO registration gate
+remains held across the awaited work, including revocation preflight and purge paths.
+The fixture bridge retains its serial worker queue and checks availability on the main
+actor before dispatch and before resolving or rejecting the worker result. The production
+iOS availability callback reads UIKit only on the main thread; off-main store checks
+rely on these adapters' surrounding checks and on Keychain/file protection, avoiding a
+synchronous hop to the main actor while holding the file lock.
+
+This adds platform storage operations permitted by
+[ADR 0067](../adr/0067-keep-native-code-to-a-minimal-vault.md); MIME decoding,
+presentation preparation and application sequencing remain in TypeScript.
