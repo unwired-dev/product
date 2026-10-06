@@ -4,6 +4,7 @@ root=${0:A:h:h:h:h}
 platform=${1:-ios}
 [[ "$platform" == ios || "$platform" == macos ]] || { print -u2 'Expected ios or macos'; exit 2; }
 (( $(df -k "$root" | awk 'NR == 2 {print $4}') >= 6 * 1024 * 1024 ))
+zsh "$root/native/private-inbox/integration/metadata.zsh"
 mkdir -p "$root/artifacts/private-inbox"
 export UNWIRED_STORAGE_PROBE=$(mktemp -d "$root/artifacts/private-inbox/integration.XXXXXX")
 owned_device=''

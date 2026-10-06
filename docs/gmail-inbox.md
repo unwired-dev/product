@@ -662,6 +662,14 @@ the synchronized Inbox, render the opened HTML body in WebKit, confirm and cance
 a link destination, relaunch from the encrypted cache and return to the account
 page. Both passed on iOS 27 simulators.
 
+The standalone synthetic-provider check calls the actual Swift provider with
+attachment, inline and absent-disposition fixtures. It verifies repeated MIME
+header selectors, body-free preflight responses, full body responses and the
+unchanged packaged mailbox pagination. Run it with
+`zsh native/private-inbox/integration/metadata.zsh`; the native storage runner also
+executes it. This checks synthetic Gmail response fidelity and does not establish
+live-provider attachment exclusion or a packaged native journey.
+
 The Mac `Testing` build compiles the patched WebView. The packaged Mac journey
 remains deferred while the desktop is locked, and hosted Mac storage tests remain
 deferred pending a provisioning profile.
