@@ -183,13 +183,21 @@ Namespace-import style, `JSON.parse`, `typeof … === 'object'` guards, untagged
   output or normalizing uncertain offsets there, rather than retaining hidden
   masking text or omitting a painted label. Otherwise destination-mismatch
   inspection can be bypassed.
-- `sanitizeHtml` treating inherited zero font size or off-canvas text-indent as
-  an inescapable ancestor box, or treating zero line height and maximum dimensions
-  as clipping when overflow remains visible. Descendant resets must restore
-  inspection. Carry inherited text-indent separately from the current block's
-  applied indent: an inline's own indent does not move its text, and its reset
-  cannot cancel the containing block's indent. Unsupported font-size expressions must not contribute hidden text
-  that prevents an otherwise visible address from matching `inspectLink`.
+- `sanitizeHtml` treating inherited illegible font size as an inescapable ancestor
+  box, or treating zero line height and maximum dimensions as clipping when
+  overflow remains visible. Descendant sizes must restore inspection. Font
+  classification must agree with emitted CSS across Dynamic Type, UA defaults,
+  cascade rollback and replacement placeholders: do not assume a universal body
+  size, viewport geometry or ex/ch metric while retaining that uncertain CSS.
+  Tiny text may paint a smear without being legible. Unsupported font-size
+  expressions/units must be removed before both rendering and inspection;
+  otherwise invisible masking text suppresses the address mismatch caution.
+- `sanitizeHtml` using a negative offset's magnitude alone to omit inspected text.
+  Padding or other compensation and unindented wrapped lines can remain painted.
+  Normalize large leading offsets and offsets with an unknown percentage,
+  viewport or font-metric basis in the emitted CSS instead of guessing clipping;
+  preserve ordinary small hanging indents, trailing LTR margins and ignored
+  inner-table margins. Otherwise a visible deceptive label loses its caution.
 - `sanitizeHtml` dropping an entire `visibility:hidden` subtree before descendants
   can restore retained `visibility:visible` or `initial`. Carry inherited visibility through
   traversal and restore it for siblings; readable text, inspected link labels,

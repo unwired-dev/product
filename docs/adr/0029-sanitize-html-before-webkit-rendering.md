@@ -36,6 +36,28 @@ including the viewport or one-viewport-margin rule for Always Load. This amendme
 does not authorize remote loading in #605. The following text preserves the prior
 decision; only the clauses explicitly superseded here have changed.
 
+## Sanitizer readability correction — 2026-10-06
+
+The issue-605 tiny-font and layout feedback revealed a mismatch between retained
+CSS and inspected text. This correction supersedes the prior paragraph's
+font-size and negative-offset classification clauses. It preserves the isolated
+renderer, consent, navigation, image bounds and fallback requirements.
+
+Use a conservative 4-CSS-pixel legibility cutoff; tiny text may still paint a
+smear. Normalize sender font sizes around that cutoff while preserving Dynamic
+Type body text and ordinary relative scaling. Pin the root size for `rem` and
+discard sender font-metric/viewport size units rather than guessing their value.
+Placeholder descriptions use their emitted font size, including restoration and
+hidden-size inheritance, rather than discarded source-image styling.
+
+Normalize large negative leading margins and indents to zero rather than omit
+text solely on offset magnitude: padding and wrapped lines can leave labels
+painted. Normalize negative percentage, viewport and font-metric offsets whose
+basis is unavailable here. Preserve ordinary small hanging indents, trailing
+LTR margins, inner-table margins and emitted declaration order. Automatic
+direction remains removed. This is a bounded style normalization policy, not a
+complete geometric visibility model.
+
 ## Prior decision
 
 Remote-image normalization treats an empty URL path as `/` before deduplication, CSS `height` and `max-height` symmetrically identify declared tracking pixels, inline CSS dimensions override matching HTML attributes during that classification, and permanently unloadable non-HTTPS image sources are not retained as consent or retry references.

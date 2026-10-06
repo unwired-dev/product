@@ -194,20 +194,28 @@ enter MIME resolution. Only the app may replace an admitted image with a local
 `data:` source after validating its bytes. HTTPS remote-image references become
 opaque non-loading placeholders, with destinations held outside the document.
 HTTP and other non-HTTPS image sources are removed and never become consent or
-retry references. Hidden preheaders, zero-sized or off-canvas text (moved by a
-large negative block indent, left margin in left-to-right flow, or block top
-margin), and text made only of non-rendering format/combining characters do not
-establish readability. Margin inspection follows emitted declaration order and
-physical shorthand sides. Trailing margins and margins on inner table roles do
-not suppress their own text. Large negative horizontal margins in right-to-left
-contexts and top margins on inline-blocks or inline images are normalized to zero;
-their layout cannot reliably establish which labels are off canvas. Automatic
-direction is removed, leaving inherited explicit direction.
-Descendants can restore readable text by resetting an inherited zero font size
-to an absolute size or size keyword, resetting an inherited off-canvas indent on
-a block container,
-or declaring `visibility: visible` or `initial` under a hidden ancestor; their text, links and
-inline images then count as visible. Collapsed table rows, row groups and columns
+retry references. Hidden preheaders, text below the reader's 4-CSS-pixel
+legibility cutoff, and text made only of non-rendering format/combining characters
+do not establish readability or mask an inspected address. The cutoff is
+conservative: smaller text can still paint a smear. Body text continues to follow
+Dynamic Type. The reader normalizes sender text sizes around this cutoff,
+retains ordinary relative scaling, and pins the root font size to 16 pixels for
+`rem`. Sender viewport and font-metric size units (`vw`, `vh`, `vmin`, `vmax`,
+`ex`, `ch`) are removed; percentages and `em` remain supported. Placeholders use
+their emitted size rather than the source image's discarded font styling.
+Large negative leading margins and indents (at least 320 CSS pixels after unit
+resolution) are normalized to zero. Negative percentage, viewport and
+font-metric offsets are also normalized because their displacement depends on
+unknown reader geometry. Padding, wrapped lines and bidi layout can leave text
+visible despite such offsets; they never justify discarding a painted label.
+Small hanging indents and trailing left-to-right margins remain intact. Margin
+normalization follows emitted declaration order and physical shorthand sides;
+inner table roles retain their margin behavior. Automatic direction is removed,
+leaving inherited explicit direction.
+Descendants can restore readable text by resetting an inherited illegible font
+size to a legible absolute or relative size, or declaring `visibility: visible`
+or `initial` under a hidden ancestor; their text, links and inline images then
+count as visible. Collapsed table rows, row groups and columns
 still remove everything in them, including when collapse is inherited. Hidden
 images retain declared dimensions without fetching their bytes or adding a
 readable placeholder. Restored visible images keep a visible placeholder when

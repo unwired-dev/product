@@ -418,7 +418,7 @@ describe('rich-reader review regressions', () => {
       '<div style="text-indent:-9999px"><div style="text-indent:revert"><a href="https://phish.invalid">Off canvas</a></div></div><a href="https://phish.invalid">Sibling visible</a>',
     );
     expect(indented.links).toStrictEqual([
-      { href: 'https://phish.invalid', text: '' },
+      { href: 'https://phish.invalid', text: 'Off canvas' },
       { href: 'https://phish.invalid', text: 'Sibling visible' },
     ]);
   });
@@ -600,7 +600,7 @@ describe('rich-reader review regressions', () => {
     expect(inbox.messageBody(id)).toMatchObject({ kind: 'ready' });
   });
 
-  it('suppresses text only for margins that move its own box off canvas', () => {
+  it('normalizes large leading offsets without suppressing painted labels', () => {
     expect.hasAssertions();
     const visible = [
       'margin:0',
@@ -649,15 +649,15 @@ describe('rich-reader review regressions', () => {
       })),
       ...hidden.map((_, index) => ({
         href: `https://phish.invalid/${visible.length + index}`,
-        text: '',
+        text: `https://bank.invalid/${visible.length + index}`,
       })),
     ]);
-    for (const { href, text } of result.links.slice(0, visible.length)) {
+    for (const { href, text } of result.links) {
       expect(inspectLink(href, text)).toContain(linkWarnings.text);
     }
     const texts = result.readable.paragraphs.flat().map(({ text }) => text);
     expect(texts).toContain('Inline top margin');
-    expect(texts).not.toContain('Block top margin');
+    expect(texts).toContain('Block top margin');
   });
 
   it('inspects painted labels in directional and margin-inapplicable layouts', () => {
@@ -698,7 +698,7 @@ describe('rich-reader review regressions', () => {
       `<div dir="auto" style="margin-left:-10000px">${anchor}</div>`,
     ]) {
       expect(sanitizeHtml(html).links).toStrictEqual([
-        { href: 'https://phish.invalid', text: '' },
+        { href: 'https://phish.invalid', text: 'https://bank.invalid' },
       ]);
     }
     const reset = sanitizeHtml(
@@ -709,10 +709,8 @@ describe('rich-reader review regressions', () => {
       '<a href="https://phish.invalid">https://bank.invalid<span dir="auto" style="margin-left:-10000px"> masking text</span></a>',
     );
     expect(masked.document).not.toContain('dir="auto"');
-    expect(masked.links[0]?.text).toBe('https://bank.invalid');
-    expect(
-      masked.links.flatMap(({ href, text }) => inspectLink(href, text)),
-    ).toContain(linkWarnings.text);
+    expect(masked.links[0]?.text).toBe('https://bank.invalid masking text');
+    expect(masked.document).toContain('margin-left: 0');
   });
 
   it('inspects labels according to their block indent and inline baseline layout', () => {
@@ -746,9 +744,94 @@ describe('rich-reader review regressions', () => {
       `<div style="text-indent:-10000px"><span style="text-indent:0">${anchor}</span></div>`,
     ]) {
       expect(sanitizeHtml(html).links).toStrictEqual([
-        { href: 'https://phish.invalid', text: '' },
+        { href: 'https://phish.invalid', text: 'https://bank.invalid' },
       ]);
     }
+  });
+
+  it('keeps illegibly small text out of link labels and resolves offsets by unit', () => {
+    expect.hasAssertions();
+    const nested = (depth: number, inner: string) =>
+      `${'<small>'.repeat(depth)}${inner}${'</small>'.repeat(depth)}`;
+    const masked = [
+      '<span style="font-size:0.01px"> masking text</span>',
+      '<span style="font-size:0.001em"> masking text</span>',
+      '<span style="font-size:0.1rem"> masking text</span>',
+      nested(9, ' masking text'),
+      '<span style="font-size:25%"> masking text</span>',
+      '<span style="font-size:4px"><img src="https://image.invalid" alt=" masking text"></span>',
+    ];
+    const labelled = [
+      '<span style="font-size:1000px"><span style="font-size:0.1em">https://bank.invalid</span></span>',
+      '<span style="font-size:4px">https://bank.invalid</span>',
+      '<span style="font-size:1vw">https://bank.invalid</span>',
+      '<span style="font-size:.5ex">https://bank.invalid</span>',
+      '<span style="font-size:8px"><span style="font-size:50%">https://bank.invalid</span></span>',
+      '<img src="https://image.invalid" style="font-size:.01px" alt="https://bank.invalid">',
+    ];
+    const offCanvas = ['text-indent:-999px', 'text-indent:-100em'];
+    const result = sanitizeHtml(
+      [
+        ...masked.map(
+          (mask, index) =>
+            `<p><a href="https://phish.invalid/${index}">https://bank.invalid${mask}</a></p>`,
+        ),
+        ...labelled.map(
+          (label, index) =>
+            `<p><a href="https://phish.invalid/${masked.length + index}">${label}</a></p>`,
+        ),
+        ...offCanvas.map(
+          (style) =>
+            `<div style="${style}"><a href="https://phish.invalid/indent">https://bank.invalid</a></div>`,
+        ),
+        '<p style="text-indent:-2em"><a href="https://phish.invalid/hanging">https://bank.invalid</a></p>',
+      ].join(''),
+    );
+    expect(result.links.map(({ text }) => text)).toStrictEqual([
+      ...masked.map(() => 'https://bank.invalid'),
+      ...labelled.map(() => 'https://bank.invalid'),
+      ...offCanvas.map(() => 'https://bank.invalid'),
+      'https://bank.invalid',
+    ]);
+    expect(
+      result.links
+        .filter(({ text }) => text !== '')
+        .map(({ href, text }) => inspectLink(href, text)),
+    ).toStrictEqual(
+      [...masked, ...labelled, ...offCanvas, 'hanging'].map(() => [
+        linkWarnings.text,
+      ]),
+    );
+  });
+
+  it('inspects normalized fonts, placeholders and compensated or wrapped offsets', () => {
+    expect.hasAssertions();
+    const address = 'https://bank.invalid';
+    const anchor = `<a href="https://phish.invalid">${address}</a>`;
+    const variants = [
+      `<div style="font-size:3px"><h1 style="font-size:revert">${anchor}</h1></div>`,
+      `<div style="padding-left:400px"><div style="text-indent:-320px">${anchor}</div></div>`,
+      `<div style="padding-left:400px"><div style="margin-left:-320px">${anchor}</div></div>`,
+      `<div style="width:600px;text-indent:-60%">${anchor}</div>`,
+      `<div style="width:80px;text-indent:-320px">${anchor}</div>`,
+      `<div dir="rtl" style="margin-left:-320px">${anchor}</div>`,
+      `<div style="font-size:0"><a href="https://phish.invalid">Hidden<img src="https://image.invalid" style="font-size:16px" alt="${address}"></a></div>`,
+    ];
+    for (const html of variants.slice(0, -1)) {
+      const result = sanitizeHtml(html);
+      expect(result.links).toStrictEqual([
+        { href: 'https://phish.invalid', text: address },
+      ]);
+      expect(
+        inspectLink(result.links[0]!.href, result.links[0]!.text),
+      ).toContain(linkWarnings.text);
+    }
+    expect(sanitizeHtml(variants.at(-1)!).links[0]?.text).toBe('');
+    const dynamic = sanitizeHtml(
+      `<span style="font-size:.31em">${anchor}</span>`,
+    );
+    expect(dynamic.document).toContain('font-size: max(4px, .31em)');
+    expect(dynamic.links[0]?.text).toBe(address);
   });
 
   it('never resolves images in cells of collapsed table columns', () => {

@@ -374,10 +374,8 @@ const hiddenBy: ReadonlyArray<
 
 // Model only retained literal font sizes and keywords. Unsupported expressions are discarded
 // before rendering, so invisible expression text cannot mask a link's visible address.
-const relativeSize = /^(?:em|ex|ch|%)$/iu;
 const sizeValue =
   /^(?<amount>[+-]?(?:\d+(?:\.\d+)?|\.\d+)(?:e[+-]?\d+)?)(?<unit>%|px|em|rem|ex|ch|vw|vh|vmin|vmax|cm|mm|q|in|pt|pc)?$/u;
-const keepsParentSize = /^(?:inherit|unset|revert(?:-layer)?|larger|smaller)$/u;
 const fontKeyword =
   /^(?:xx-small|x-small|small|medium|large|x-large|xx-large|xxx-large|larger|smaller|inherit|initial|unset|revert(?:-layer)?)$/u;
 const cssFontSize = (raw: string) => {
@@ -385,19 +383,135 @@ const cssFontSize = (raw: string) => {
   const size = sizeValue.exec(value);
   return size === null
     ? fontKeyword.test(value)
-    : Number(size[1]) >= 0 && (size[2] !== undefined || Number(size[1]) === 0);
+    : Number.isFinite(Number(size[1])) &&
+        Number(size[1]) >= 0 &&
+        /^(?:px|em|rem|%|cm|mm|q|in|pt|pc)?$/u.test(size[2] ?? '') &&
+        (size[2] !== undefined || Number(size[1]) === 0);
 };
-const hidesText = (raw = 'inherit') => {
-  const value = raw.trim().toLowerCase();
-  const size = sizeValue.exec(value);
-  if (size === null) {
-    return keepsParentSize.test(value) ? undefined : false;
+
+// Reader geometry in CSS pixels. The Mac default body is 13px; Dynamic Type remains enabled.
+// Emitted font normalization keeps the readability cutoff independent of the actual body size.
+const rootFontPixels = 16;
+const bodyFontPixels = 13;
+const narrowestReaderPixels = 320;
+// A conservative legibility cutoff, not a claim that smaller text paints no pixels.
+const minimumTextPixels = 4;
+
+const absoluteUnits = new Map([
+  ['px', 1],
+  ['pt', 96 / 72],
+  ['pc', 16],
+  ['in', 96],
+  ['cm', 96 / 2.54],
+  ['mm', 96 / 25.4],
+  ['q', 96 / 101.6],
+  ['rem', rootFontPixels],
+  ['vw', narrowestReaderPixels / 100],
+  ['vh', narrowestReaderPixels / 100],
+  ['vmin', narrowestReaderPixels / 100],
+  ['vmax', narrowestReaderPixels / 100],
+]);
+
+// A signed CSS length in pixels, given the font size em units use and the basis of percentages.
+const lengthPixels = (
+  value: string | undefined,
+  { font, percent }: Readonly<{ font: number; percent: number }>,
+) => {
+  const parsed =
+    /^(?<amount>[+-]?(?:\d+(?:\.\d+)?|\.\d+)(?:e[+-]?\d+)?)(?<unit>[a-z%]*)$/u.exec(
+      value?.trim().toLowerCase() ?? '',
+    );
+  if (parsed === null) {
+    return undefined;
   }
-  const amount = Number(size[1]);
+  const amount = Number(parsed[1]);
+  const unit = parsed[2] ?? '';
+  const scale =
+    new Map([
+      ['em', font],
+      ['ex', font / 2],
+      ['ch', font / 2],
+      ['%', percent / 100],
+    ]).get(unit) ?? absoluteUnits.get(unit);
   if (amount === 0) {
-    return true;
+    return 0;
   }
-  return relativeSize.test(size[2] ?? '') ? undefined : false;
+  return scale === undefined ? undefined : amount * scale;
+};
+
+// Font sizes browsers give these elements when the sender sets none.
+const defaultFontSizes = new Map([
+  ['h1', '2em'],
+  ['h2', '1.5em'],
+  ['h3', '1.17em'],
+  ['h5', '0.83em'],
+  ['h6', '0.67em'],
+  ['small', 'smaller'],
+  ['sub', 'smaller'],
+  ['sup', 'smaller'],
+]);
+
+const fontKeywordPixels = new Map([
+  ['xx-small', 9],
+  ['x-small', 10],
+  ['small', 13],
+  ['medium', 16],
+  ['initial', 16],
+  ['large', 18],
+  ['x-large', 24],
+  ['xx-large', 32],
+  ['xxx-large', 48],
+]);
+
+const fontValueIn = (value: string | undefined, tag: string) =>
+  value === undefined || /^(?:revert(?:-layer)?)$/iu.test(value)
+    ? defaultFontSizes.get(tag)
+    : value;
+
+// The sender cannot choose viewport/font-metric units whose rendered size is unknown here.
+// Pin tiny sizes to the model and give retained relative sizes a 4px rendering floor. Ordinary
+// body text still uses Dynamic Type, and relative sizes above the cutoff continue to scale.
+const normalizeFont = (style: FilteredStyle, tag: string, font: number) => {
+  const value = fontValueIn(style.retained.get('font-size'), tag)
+    ?.trim()
+    .toLowerCase();
+  if (value === undefined) {
+    return style;
+  }
+  let relative = value;
+  if (value === 'larger') {
+    relative = '120%';
+  } else if (value === 'smaller') {
+    relative = `${100 / 1.2}%`;
+  }
+  let size = relative;
+  if (font < minimumTextPixels) {
+    size = `${font}px`;
+  } else if (/(?:em|%)$/u.test(relative)) {
+    size = `max(4px, ${relative})`;
+  }
+  return {
+    ...style,
+    retained: new Map([...style.retained, ['font-size', size]]),
+  };
+};
+
+// The computed font size an element's text uses: relative sizes scale the parent's, so a chain
+// of small factors under a large parent can still paint legible text.
+const fontSizeIn = (value: string | undefined, parent: number, tag: string) => {
+  const declared = fontValueIn(value, tag)?.trim().toLowerCase();
+  if (declared === undefined) {
+    return parent;
+  }
+  const keyword = fontKeywordPixels.get(declared);
+  if (keyword !== undefined) {
+    return keyword;
+  }
+  if (declared === 'larger' || declared === 'smaller') {
+    return declared === 'larger' ? parent * 1.2 : parent / 1.2;
+  }
+  const resolved = lengthPixels(declared, { font: parent, percent: parent });
+  return resolved === undefined || resolved < 0 ? parent : resolved;
 };
 
 // Signed lengths for offsets; a nonzero number needs a unit, as WebKit requires.
@@ -436,47 +550,39 @@ const marginEdges = (
   return edges;
 };
 
-const offCanvas = (value: string | undefined) => {
-  const match = offsetValue.exec(value ?? '');
-  return match?.[1] === '-' && Number(match[2]) >= 1000;
-};
-
-// A leading horizontal margin can displace a box; the trailing margin affects following
-// layout. Inner table roles ignore margins. Inline vertical margins do nothing; inline-block
-// top margins can change line geometry without moving baseline-aligned text off canvas.
-const unreadableText = (
-  margins: ReadonlyMap<string, string>,
-  display: string,
-) => {
-  if (/^table-(?!caption$)/u.test(display)) {
-    return false;
-  }
-  return (
-    offCanvas(margins.get('left')) ||
-    (display !== 'inline' &&
-      display !== 'inline-block' &&
-      offCanvas(margins.get('top')))
+// Negative offsets whose clipping depends on unknown geometry are normalized in the output.
+// Even a large offset can leave compensated or wrapped text visible, so it cannot by itself
+// justify omitting a label. Small hanging indents and trailing LTR margins remain intact.
+const offCanvas = (value: string | undefined, font: number) =>
+  (lengthPixels(value, { font, percent: narrowestReaderPixels }) ?? 0) <=
+    -narrowestReaderPixels ||
+  /^-(?:\d+(?:\.\d+)?|\.\d+)(?:e[+-]?\d+)?(?:%|ex|ch|vw|vh|vmin|vmax)$/iu.test(
+    value ?? '',
   );
-};
 
-// Bidi flow and inline-block baselines need actual layout to establish displacement. Remove
-// those large negative offsets from emitted CSS instead of guessing which glyphs they hide.
 const normalizeMargins = (
   style: FilteredStyle,
   margins: Map<string, string>,
-  { display, directional }: Readonly<{ display: string; directional: boolean }>,
+  {
+    display,
+    directional,
+    font,
+  }: Readonly<{ display: string; directional: boolean; font: number }>,
 ) => {
   const retained = new Map(style.retained);
   for (const edge of ['left', 'right', 'top']) {
     if (
-      offCanvas(margins.get(edge)) &&
-      (edge === 'top' ? display === 'inline-block' : directional)
+      offCanvas(margins.get(edge), font) &&
+      (edge === 'right' ? directional : !/^table-(?!caption$)/u.test(display))
     ) {
       margins.set(edge, '0');
       const name = `margin-${edge}`;
       retained.delete(name);
       retained.set(name, '0');
     }
+  }
+  if (offCanvas(retained.get('text-indent'), font)) {
+    retained.set('text-indent', '0');
   }
   return {
     ...style,
@@ -622,11 +728,6 @@ const directionIn = (element: Element, parent: string) => {
   const value = attributeOf(element, 'dir')?.trim().toLowerCase();
   return value !== undefined && /^(?:ltr|rtl)$/u.test(value) ? value : parent;
 };
-
-const indentIn = (value: string | undefined, parent: boolean) =>
-  value === undefined || /^(?:inherit|unset|revert(?:-layer)?)$/iu.test(value)
-    ? parent
-    : offCanvas(value);
 
 // Omit collapsed tracks and their contents, even if WebKit paints descendant overflow.
 const tableTracks = new Set([
@@ -927,12 +1028,12 @@ const contentSecurityPolicy =
 // The app's fixed light canvas: sender colors are removed, so the app sets text, background and
 // link colors together.
 const readerStyle =
-  ':root{color-scheme:light}html,body{margin:0;padding:0;background:#fff;color:#17202a}' +
+  ':root{color-scheme:light;font-size:16px}html,body{margin:0;padding:0;background:#fff;color:#17202a}' +
   'body{font:-apple-system-body;font-family:-apple-system,system-ui,sans-serif;line-height:1.5;' +
   'overflow-wrap:anywhere;-webkit-text-size-adjust:100%}a{color:#245cca}' +
   'img{max-width:100%;height:auto}table{max-width:100%}pre{white-space:pre-wrap}' +
   '.blocked-image{display:inline-block;border:1px dashed #a3afbf;border-radius:4px;' +
-  'padding:2px 6px;color:#596574;font-size:.85em}';
+  'padding:2px 6px;color:#596574;font-size:max(4px,.85em)}';
 
 // Turns untrusted HTML into a passive document: allowlisted elements, attributes, CSS and URLs,
 // sender colors removed, remote images replaced by non-loading placeholders, and only admitted
@@ -955,17 +1056,12 @@ export function sanitizeHtml(
     undefined;
   let preformatted = 0;
   // Off-canvas text boxes, and inherited font size and indent states.
-  let unreadable = 0;
   let direction = 'ltr';
   let margins: ReadonlyMap<string, string> = new Map();
-  let hiddenFont = false;
-  let hiddenIndent = false;
-  // The current block container's indent applies to inline text even if an inline resets it.
-  let appliedIndent = false;
+  let fontPixels = bodyFontPixels;
   let visibility = 'visible';
   const visibleNow = () => visibility === 'visible';
-  const readableNow = () =>
-    unreadable === 0 && !hiddenFont && !appliedIndent && visibleNow();
+  const readableNow = () => fontPixels >= minimumTextPixels && visibleNow();
   // Cells of collapsed table columns, which WebKit would not show.
   const collapsed = new Set<Element>();
   // One bound across every table, including nested ones, before span expansion or slot scans.
@@ -1005,9 +1101,11 @@ export function sanitizeHtml(
   const placeholder = (alt: string, style: FilteredStyle) => {
     hidesImages = true;
     describeImage(alt);
-    const override = style.retained.has('visibility')
-      ? ' style="visibility: visible"'
-      : '';
+    const values = [
+      ...(fontPixels < minimumTextPixels ? [`font-size: ${fontPixels}px`] : []),
+      ...(style.retained.has('visibility') ? ['visibility: visible'] : []),
+    ];
+    const override = values.length === 0 ? '' : ` style="${values.join('; ')}"`;
     output += `<span class="blocked-image"${override} role="img" aria-label="${escapeAttribute(alt === '' ? 'Image not loaded' : alt)}">${escapeText(alt === '' ? 'Image' : alt)}</span>`;
   };
 
@@ -1134,7 +1232,7 @@ export function sanitizeHtml(
       ? new Map<string, string>()
       : marginEdges(style.retained, margins);
 
-  // Font size, text-indent and visibility inherit, and a descendant can reset each one.
+  // Font size and visibility inherit, and a descendant can reset each one.
   const withTextState = (
     style: FilteredStyle,
     node: Element,
@@ -1142,42 +1240,34 @@ export function sanitizeHtml(
   ) => {
     const parentDirection = direction;
     const parentMargins = margins;
+    const parentFont = fontPixels;
+    const replacedImage =
+      node.tagName === 'img' &&
+      !images.has(contentIdReference(attributeOf(node, 'src') ?? '') ?? '');
+    fontPixels = replacedImage
+      ? parentFont * 0.85
+      : fontSizeIn(style.retained.get('font-size'), parentFont, node.tagName);
+    const sizedStyle = replacedImage
+      ? style
+      : normalizeFont(style, node.tagName, fontPixels);
     direction = directionIn(node, direction);
-    const display = displayOf(node.tagName, style);
-    const ownMargins = textMargins(node, style);
-    const normalized = normalizeMargins(style, ownMargins, {
+    const display = displayOf(node.tagName, sizedStyle);
+    const ownMargins = textMargins(node, sizedStyle);
+    const normalized = normalizeMargins(sizedStyle, ownMargins, {
       display:
         node.tagName === 'img' && display === 'inline'
           ? 'inline-block'
           : display,
       directional: direction === 'rtl' || parentDirection === 'rtl',
+      font: fontPixels,
     });
     margins = ownMargins;
-    const suppressText = unreadableText(margins, display) ? 1 : 0;
-    const font = hiddenFont;
-    const indent = hiddenIndent;
-    const blockIndent = appliedIndent;
     const inheritedVisibility = visibility;
     visibility = visibilityIn(style, visibility);
-    const declaredIndent = style.retained.get('text-indent');
-    hiddenFont = hidesText(style.retained.get('font-size')) ?? font;
-    hiddenIndent = indentIn(declaredIndent, indent);
-    if (
-      node.tagName !== 'img' &&
-      /^(?:block|list-item|inline-block|table-cell|table-caption)$/u.test(
-        display,
-      )
-    ) {
-      appliedIndent = hiddenIndent;
-    }
-    unreadable += suppressText;
     run(normalized);
-    unreadable -= suppressText;
     direction = parentDirection;
     margins = parentMargins;
-    hiddenFont = font;
-    hiddenIndent = indent;
-    appliedIndent = blockIndent;
+    fontPixels = parentFont;
     visibility = inheritedVisibility;
   };
 
