@@ -123,6 +123,7 @@ export function createSyntheticGmail({
   }> = [];
   const modifyFailures: ModifyFailure[] = [];
   const userLabels = new Map<string, string>();
+  let nextLabel = 0;
   const commits: string[] = [];
   let cache: { revision: number; address: string; document: string } | null =
     null;
@@ -576,7 +577,8 @@ export function createSyntheticGmail({
     labelsOf: (id: string) => [...(messages.get(id)?.labels ?? [])],
     // A label created in Gmail; its ID never matches its name.
     createLabel: (name: string) => {
-      const id = `Label_${userLabels.size + 1}`;
+      nextLabel += 1;
+      const id = `Label_${nextLabel}`;
       userLabels.set(id, name);
       return id;
     },
@@ -622,6 +624,7 @@ export function createSyntheticGmail({
       cache = null;
       bodies.clear();
       messages.clear();
+      userLabels.clear();
     },
     fail: (...next: readonly Failure[]) => {
       failures.push(...next);

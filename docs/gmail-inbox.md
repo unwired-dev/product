@@ -92,6 +92,8 @@ organizing action. The Inbox states the outcome of every action, such as
 show it. A change saved while Gmail is still being checked does not
 interrupt that check: the synchronization keeps the newly saved changes and goes on.
 A change another window or store instance already settled is not sent again.
+One that another store instance is sending stays pending until that attempt ends;
+an interrupted attempt can be retried on the next synchronization, including after relaunch.
 
 - **Offline or interrupted:** the change stays saved and is sent on the next
   synchronization, including after relaunch. The Inbox says how many changes wait

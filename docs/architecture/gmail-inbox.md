@@ -65,7 +65,17 @@ requires the same mailbox owner and an existing decoded document; it retains the
 operation's checkpoint and provider result while appending newer intents in order.
 Known intake IDs missing from the latest document are removed from the proposed
 queue because another store instance already settled them. Dispatch checks the
-prepared head again before sending; refusal reconciliation also checks its head
+prepared head and its unique attempt ID again before sending. A newer attempt,
+refusal or Retry in the saved document takes precedence over stale preparation
+or settlement, including when the proposed settlement removed that head.
+Store instances in one host process share the set of live attempt IDs, held
+from preparation through provider completion and settlement and released by an
+Effect finalizer on every outcome. A joining instance leaves a live head pending
+without reconciling, dispatching, retrying or discarding it. A completed failure
+is immediately eligible for reconciliation/retry; process relaunch clears live
+ownership and reconciles saved attempts normally. This avoids wall-clock leases
+and has the existing one-host-process scope; competing processes would require
+durable ownership and completion fencing. Refusal reconciliation also checks its head
 after saving the marker, so a removed action cannot consume the next intent.
 Documented Gmail 403 usage-limit reasons, including `dailyLimitExceeded`, retain
 the cached list with a retry notice rather than prompting reauthorization.

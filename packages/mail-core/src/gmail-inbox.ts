@@ -546,10 +546,20 @@ const gmailResponse = (request: () => Promise<unknown>) =>
     ),
   );
 
-// The oldest change after five unconfirmed attempts waits for Retry or Discard.
+// ponytail: hosts have one store/process; same-process contenders share live attempt ownership.
+// A multi-process host would need a storage-backed owner and explicit completion fencing.
+const sendingAttempts = new Set<string>();
+const sending = (head: PendingAction) => {
+  const attempt = head.attempts?.at(-1);
+  return attempt !== undefined && sendingAttempts.has(attempt.id);
+};
+
+// The oldest change after five completed unconfirmed attempts waits for Retry or Discard.
 const blockedHead = (pending: readonly PendingAction[]) => {
   const [head] = pending;
-  return head !== undefined && attemptCount(head) >= 5 ? head : undefined;
+  return head !== undefined && !sending(head) && attemptCount(head) >= 5
+    ? head
+    : undefined;
 };
 
 // The document once Gmail's current labels for the oldest change are known; a message Gmail no
@@ -599,12 +609,16 @@ const backoff = (count: number) =>
       );
 
 // The change with one more dispatch attempt recorded.
-const withAttempt = (head: PendingAction, at: number): PendingAction => ({
+const withAttempt = (
+  head: PendingAction,
+  at: number,
+  id: string,
+): PendingAction => ({
   ...head,
   attempts: [
     ...(head.attempts ?? []),
     {
-      id: `${head.id ?? head.message.id}:${head.attempts?.length ?? 0}`,
+      id,
       at,
     },
   ],
@@ -612,6 +626,16 @@ const withAttempt = (head: PendingAction, at: number): PendingAction => ({
 
 const samePending = (left: PendingAction | undefined, right: PendingAction) =>
   left?.id === right.id && left?.message.id === right.message.id;
+
+const sameProgress = (left: PendingAction, right: PendingAction) =>
+  left.refused === right.refused &&
+  left.retryFrom === right.retryFrom &&
+  (left.attempts?.length ?? 0) === (right.attempts?.length ?? 0) &&
+  (left.attempts ?? []).every(
+    (attempt, index) =>
+      attempt.id === right.attempts?.[index]?.id &&
+      attempt.at === right.attempts?.[index]?.at,
+  );
 
 // `next` over the latest saved document: intents saved since `base` was read are added, and
 // intents another store instance settled since then leave instead of being sent again.
@@ -622,12 +646,33 @@ const rebasedOnto = (
 ) => {
   const known = new Set((base?.pending ?? []).map(({ id }) => id));
   const remaining = new Set((saved.pending ?? []).map(({ id }) => id));
+  const advanced = (item: PendingAction) => {
+    const previous = base?.pending?.find((entry) => samePending(entry, item));
+    return previous !== undefined && !sameProgress(previous, item);
+  };
   return withIntents(
     {
       ...next,
-      pending: (next.pending ?? []).filter(
-        ({ id }) => id === undefined || !known.has(id) || remaining.has(id),
-      ),
+      pending: [
+        // A stale label read or Discard cannot remove a newly prepared attempt or Retry.
+        ...(saved.pending ?? []).filter(
+          (item) =>
+            advanced(item) &&
+            !next.pending?.some((entry) => samePending(entry, item)),
+        ),
+        ...(next.pending ?? [])
+          .filter(
+            ({ id }) => id === undefined || !known.has(id) || remaining.has(id),
+          )
+          .map((item) => {
+            const latest = saved.pending?.find((entry) =>
+              samePending(entry, item),
+            );
+            // A CAS winner owns its newer attempt/refusal/retry state; a stale writer cannot
+            // replace it with a competing preparation or an older copy of the pending head.
+            return latest !== undefined && advanced(latest) ? latest : item;
+          }),
+      ],
     },
     (saved.pending ?? []).filter(
       ({ id }) => id !== undefined && !known.has(id),
@@ -2126,37 +2171,51 @@ export function createGmailInbox(
     head: PendingAction,
   ) {
     yield* backoff(attemptCount(head));
-    const attempted = withAttempt(
-      head,
-      DateTime.toEpochMillis(yield* DateTime.now),
+    const attemptId = `${yield* Random.nextInt}:${yield* Random.nextInt}`;
+    sendingAttempts.add(attemptId);
+    return yield* Effect.gen(function* () {
+      const attempted = withAttempt(
+        head,
+        DateTime.toEpochMillis(yield* DateTime.now),
+        attemptId,
+      );
+      const preparing = {
+        ...current.document,
+        pending: [attempted, ...(current.document.pending ?? []).slice(1)],
+      };
+      const prepared = yield* commitOver(
+        current.cache,
+        current.document,
+        preparing,
+      );
+      // Another store instance settled this change while it was being prepared; never send it twice.
+      if (!samePending(prepared.document.pending?.[0], attempted)) {
+        return prepared;
+      }
+      if (
+        prepared.document.pending?.[0]?.attempts?.at(-1)?.id !==
+        attempted.attempts?.at(-1)?.id
+      ) {
+        // Another store instance won this preparation and sends the change itself.
+        return prepared;
+      }
+      const outcome = yield* modify(prepared.cache, attempted);
+      if (Option.isNone(outcome)) {
+        // Refusal is not authoritative metadata: save it first, so a label read that is interrupted
+        // settles the refusal later instead of sending the refused change again.
+        const refusedHead = { ...attempted, refused: true } as const;
+        const refused = yield* commitOver(prepared.cache, prepared.document, {
+          ...prepared.document,
+          pending: [refusedHead, ...(prepared.document.pending ?? []).slice(1)],
+        });
+        return yield* settleRefusal(refused, refusedHead);
+      }
+      const next = settled(prepared.document, outcome.value);
+      const done = yield* commitOver(prepared.cache, prepared.document, next);
+      return done;
+    }).pipe(
+      Effect.ensuring(Effect.sync(() => sendingAttempts.delete(attemptId))),
     );
-    const preparing = {
-      ...current.document,
-      pending: [attempted, ...(current.document.pending ?? []).slice(1)],
-    };
-    const prepared = yield* commitOver(
-      current.cache,
-      current.document,
-      preparing,
-    );
-    // Another store instance settled this change while it was being prepared; never send it twice.
-    if (!samePending(prepared.document.pending?.[0], attempted)) {
-      return prepared;
-    }
-    const outcome = yield* modify(prepared.cache, attempted);
-    if (Option.isNone(outcome)) {
-      // Refusal is not authoritative metadata: save it first, so a label read that is interrupted
-      // settles the refusal later instead of sending the refused change again.
-      const refusedHead = { ...attempted, refused: true } as const;
-      const refused = yield* commitOver(prepared.cache, prepared.document, {
-        ...prepared.document,
-        pending: [refusedHead, ...(prepared.document.pending ?? []).slice(1)],
-      });
-      return yield* settleRefusal(refused, refusedHead);
-    }
-    const next = settled(prepared.document, outcome.value);
-    const done = yield* commitOver(prepared.cache, prepared.document, next);
-    return done;
   });
 
   // A change already sent is checked against Gmail before another attempt. It settles when Gmail
@@ -2198,6 +2257,9 @@ export function createGmailInbox(
     let current = { cache: initial, document };
     let [head] = current.document.pending ?? [];
     while (head !== undefined) {
+      if (sending(head)) {
+        return current;
+      }
       const reconciled = yield* reconcile(current, head);
       if (Option.isSome(reconciled)) {
         current = reconciled.value;
@@ -2381,6 +2443,7 @@ export function createGmailInbox(
     expectedId: string | undefined,
   ) =>
     head.id === expectedId &&
+    !sending(head) &&
     shown !== undefined &&
     sameMailbox(shown.scope, cache) &&
     cache.availability === undefined;

@@ -205,6 +205,30 @@ const holdingCommit = (
   };
 };
 
+// Hold the first provider write before applying it; later writes use the real provider directly.
+const holdingModify = (
+  native: ReturnType<typeof createSyntheticGmail>['native'],
+) => {
+  const entered = Promise.withResolvers<undefined>();
+  const release = Promise.withResolvers<undefined>();
+  let held = false;
+  return {
+    entered,
+    release,
+    native: {
+      ...native,
+      gmailModify: async (...args: Parameters<typeof native.gmailModify>) => {
+        if (!held) {
+          held = true;
+          entered.resolve(undefined);
+          await release.promise;
+        }
+        return native.gmailModify(...args);
+      },
+    },
+  };
+};
+
 /* oxlint-disable vitest/max-expects -- Each journey proves one organizing path end to end. */
 // Holds a downloaded body and the removal prune reply, with later history interrupted so a
 // second prune cannot conceal a late admission into the removed message's cache.
@@ -259,6 +283,47 @@ const holdingBodyAndRemoval = (
 };
 
 describe('organizing Gmail mail', () => {
+  it('isolates the label catalog after switching the synthetic mailbox', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ messages: 1 });
+    const oldLabel = gmail.createLabel('First mailbox label');
+    const inbox = createGmailInbox(gmail.native);
+    await inbox.load();
+    expect(ready(inbox.getSnapshot()).labels).toStrictEqual([
+      { id: oldLabel, name: 'First mailbox label' },
+    ]);
+    inbox.forget();
+    gmail.reselect('second-labels@example.invalid');
+    gmail.deliver({ subject: 'Second mailbox message' });
+    await inbox.load();
+    expect(ready(inbox.getSnapshot()).labels).toStrictEqual([]);
+  });
+
+  it('refuses a deleted label after a replacement is created', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ messages: 1 });
+    const deleted = gmail.createLabel('Deleted label');
+    const inbox = createGmailInbox(gmail.native);
+    await inbox.load();
+    const target = required(
+      ready(inbox.getSnapshot()).messages[0],
+      'the message',
+    );
+    gmail.failModify({ code: 'unavailable' });
+    await inbox.organize(target, gmailAction.label(deleted));
+    gmail.deleteLabel(deleted);
+    const replacement = gmail.createLabel('Replacement label');
+    await inbox.load();
+    expect(ready(inbox.getSnapshot())).toMatchObject({
+      pending: 0,
+      notice: { kind: 'rejected' },
+    });
+    expect(gmail.labelsOf(target.id)).not.toContain(replacement);
+    expect(ready(inbox.getSnapshot()).labels).toStrictEqual([
+      { id: replacement, name: 'Replacement label' },
+    ]);
+  });
+
   it('fences a late body admission while action reconciliation removes its message', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail();
@@ -1157,7 +1222,204 @@ describe('organizing Gmail mail', () => {
     expect(gmail.labelsOf(target.id)).toContain('STARRED');
   });
 
-  it('keeps later intent when another store settles the refused head before its refusal is saved', async () => {
+  it('keeps a competing preparation from landing after a later reversal', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ messages: 1 });
+    const losingWrite = holdingModify(gmail.native);
+    const preparation = holdingCommit(losingWrite.native);
+    const first = createGmailInbox(preparation.native);
+    await first.load();
+    const target = required(
+      ready(first.getSnapshot()).messages[0],
+      'the message',
+    );
+    preparation.arm(2); // Intake is durable; its dispatch preparation waits before CAS.
+    const organizing = first.organize(target, gmailAction.star);
+    await preparation.entered.promise;
+
+    const winningWrite = holdingModify(gmail.native);
+    const second = createGmailInbox(winningWrite.native);
+    const winning = second.load();
+    await winningWrite.entered.promise;
+    preparation.release.resolve(undefined);
+    // Either the losing preparation exits or its duplicate reaches the controlled boundary.
+    await Promise.race([organizing, losingWrite.entered.promise]);
+    winningWrite.release.resolve(undefined);
+    await winning;
+    await second.organize(message(second, target.id), gmailAction.unstar);
+    losingWrite.release.resolve(undefined);
+    await organizing;
+    await first.load();
+
+    expect(gmail.labelsOf(target.id)).not.toContain('STARRED');
+    expect(
+      gmail.modifies.filter(({ add }) => add.includes('STARRED')),
+    ).toHaveLength(1);
+    expect(ready(second.getSnapshot()).pending).toBe(0);
+    expect(ready(first.getSnapshot()).pending).toBe(0);
+  });
+
+  it('keeps a newly opened store from overtaking a live attempt', async () => {
+    expect.hasAssertions();
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const gmail = createSyntheticGmail({ messages: 1 });
+    const held = holdingModify(gmail.native);
+    const first = createGmailInbox(held.native);
+    let organizing = Promise.resolve<unknown>(undefined);
+    try {
+      await first.load();
+      const target = required(
+        ready(first.getSnapshot()).messages[0],
+        'the message',
+      );
+      organizing = first.organize(target, gmailAction.star);
+      await held.entered.promise;
+      const second = createGmailInbox(gmail.native);
+      await second.load();
+      await second.organize(message(second, target.id), gmailAction.unstar);
+      held.release.resolve(undefined);
+      await organizing;
+      await second.load();
+      await first.load();
+
+      expect(gmail.labelsOf(target.id)).not.toContain('STARRED');
+      expect(
+        gmail.modifies.filter(({ add }) => add.includes('STARRED')),
+      ).toHaveLength(1);
+      expect(ready(first.getSnapshot()).pending).toBe(0);
+      expect(ready(second.getSnapshot()).pending).toBe(0);
+    } finally {
+      held.release.resolve(undefined);
+      await organizing;
+      vi.useRealTimers();
+    }
+  });
+
+  it('retries another live store’s completed failure immediately', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ messages: 1 });
+    const first = createGmailInbox(gmail.native);
+    const second = createGmailInbox(gmail.native);
+    await first.load();
+    await second.load();
+    const target = required(
+      ready(first.getSnapshot()).messages[0],
+      'the message',
+    );
+    gmail.failModify({ code: 'unavailable' });
+    await first.organize(target, gmailAction.star);
+    for (let attempt = 1; attempt < 5; attempt += 1) {
+      gmail.failModify({ code: 'unavailable' });
+      await first.load();
+    }
+    await second.load();
+    expect(ready(second.getSnapshot()).blocked).toBe(true);
+    await second.resolvePending('retry');
+    expect(gmail.labelsOf(target.id)).toContain('STARRED');
+    expect(ready(second.getSnapshot())).toMatchObject({
+      pending: 0,
+      blocked: false,
+    });
+  });
+
+  it('keeps a stale reconciliation from settling another store’s newer attempt', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ messages: 1 });
+    const observed = Promise.withResolvers<undefined>();
+    const releaseRead = Promise.withResolvers<undefined>();
+    let holdRead = false;
+    const first = createGmailInbox({
+      ...gmail.native,
+      gmailRequest: async (
+        ...args: Parameters<typeof gmail.native.gmailRequest>
+      ) => {
+        const reply = await gmail.native.gmailRequest(...args);
+        // oxlint-disable-next-line vitest/no-conditional-in-test -- Capture one provider label reply before another store prepares a newer attempt.
+        if (holdRead && args[0].startsWith('messages/')) {
+          holdRead = false;
+          observed.resolve(undefined);
+          await releaseRead.promise;
+        }
+        return reply;
+      },
+    });
+    await first.load();
+    const target = required(
+      ready(first.getSnapshot()).messages[0],
+      'the message',
+    );
+    gmail.failModify({ code: 'unavailable' });
+    await first.organize(target, gmailAction.star);
+    gmail.setLabel(target.id, 'STARRED', true);
+    holdRead = true;
+    const reconciling = first.load();
+    await observed.promise;
+    gmail.setLabel(target.id, 'STARRED', false);
+    const held = holdingModify(gmail.native);
+    const second = createGmailInbox(held.native);
+    const sending = second.load();
+    try {
+      await held.entered.promise;
+      releaseRead.resolve(undefined);
+      await reconciling;
+      expect(ready(first.getSnapshot()).pending).toBe(1);
+      await first.organize(message(first, target.id), gmailAction.unstar);
+      expect(ready(first.getSnapshot()).pending).toBe(2);
+      held.release.resolve(undefined);
+      await sending;
+      await first.load();
+      expect(gmail.labelsOf(target.id)).not.toContain('STARRED');
+      expect(ready(first.getSnapshot()).pending).toBe(0);
+      expect(ready(second.getSnapshot()).pending).toBe(0);
+    } finally {
+      releaseRead.resolve(undefined);
+      held.release.resolve(undefined);
+      await reconciling;
+      await sending;
+    }
+  });
+
+  it('does not let Retry or Discard overtake an active fifth attempt', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ messages: 1 });
+    const first = createGmailInbox(gmail.native);
+    await first.load();
+    const target = required(
+      ready(first.getSnapshot()).messages[0],
+      'the message',
+    );
+    gmail.failModify({ code: 'unavailable' });
+    await first.organize(target, gmailAction.star);
+    for (let attempt = 1; attempt < 4; attempt += 1) {
+      gmail.failModify({ code: 'unavailable' });
+      await first.load();
+    }
+    const held = holdingModify(gmail.native);
+    const second = createGmailInbox(held.native);
+    const sending = second.load();
+    try {
+      await held.entered.promise;
+      await first.load();
+      expect(ready(first.getSnapshot())).toMatchObject({
+        pending: 1,
+        blocked: false,
+      });
+      await first.resolvePending('retry');
+      await first.resolvePending('discard');
+      expect(ready(first.getSnapshot()).pending).toBe(1);
+      await first.organize(message(first, target.id), gmailAction.unstar);
+      held.release.resolve(undefined);
+      await sending;
+      await first.load();
+      expect(gmail.labelsOf(target.id)).not.toContain('STARRED');
+      expect(ready(first.getSnapshot()).pending).toBe(0);
+    } finally {
+      held.release.resolve(undefined);
+      await sending;
+    }
+  });
+
+  it('keeps later intent another store saves while this one settles a refused head', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ messages: 2 });
     const first = createGmailInbox(gmail.native);
@@ -1179,13 +1441,24 @@ describe('organizing Gmail mail', () => {
     gmail.failModify({ status: 400 });
     const refusing = second.load();
     await held.entered.promise;
-    // Another instance settles the original head and saves a different message's read intent.
+    // Another instance leaves the head to the store sending it and saves a different message's
+    // read intent behind it.
     await first.load();
     gmail.failModify({ code: 'unavailable' });
     await first.organize(message(first, later.id), gmailAction.read);
-    expect(ready(first.getSnapshot()).pending).toBe(1);
+    expect(ready(first.getSnapshot()).pending).toBe(2);
     held.release.resolve(undefined);
     await refusing;
+    // The refused head settles; this store's first attempt of the read intent is interrupted, so
+    // the other store can retry the read once the failed attempt has finished.
+    expect(ready(second.getSnapshot())).toMatchObject({
+      pending: 1,
+      blocked: false,
+    });
+    expect(gmail.labelsOf(later.id)).toContain('UNREAD');
+    await first.load();
+    expect(gmail.labelsOf(later.id)).not.toContain('UNREAD');
+    await second.load();
 
     expect(gmail.labelsOf(later.id)).not.toContain('UNREAD');
     expect(message(second, later.id).unread).toBe(false);

@@ -80,6 +80,11 @@ not itself restrict filesystem or Git-history access.
 4. Pause all implementer writes to the shared checkout while the reviewer owns
    it. Wait for the reviewer's final report. Additional implementation edits,
    including fixes after review or PR feedback, require another pinned review.
+   Give every reviewer and its children the same ownership boundary: no PR
+   watchers, scheduled work, or writes after their final report. A notification
+   cannot renew checkout ownership. Stop any pre-existing review watcher before
+   returning the checkout; a later review starts as a new delegated task with a
+   fresh pinned handoff.
 
 ## Reviewer responsibilities
 
@@ -113,6 +118,10 @@ not itself restrict filesystem or Git-history access.
    checks and results, unavailable checks, and any unresolved blocker requiring
    a user decision. Do not silently alter product scope or architectural decisions
    to make an implementation pass.
+7. The final report ends reviewer and child-agent write ownership. Do not start
+   PR watchers or recurring tasks in review threads. Stop any existing review
+   watcher before reporting, and do not act on later PR notifications or resume
+   writes without a new delegated review and explicit checkout handoff.
 
 ## Open Code Review delegation
 

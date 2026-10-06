@@ -47,7 +47,20 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 - `createRegistration.resume` treating each Mac window's report of one application activation as a separate restore. The windows share one store and AppState dispatches listeners synchronously, so coalesce those reports or give the subscription one application-level owner; otherwise native Product Account and Gmail verification repeats per window and prolongs the busy state. Coalescing must end with that dispatch, not with the pending restore, so a later activation after unlock still queues a fresh verification.
 - A successful persisted state published before the native operation has durably completed, with no failure path that restores the previous state. Explicit busy/pending presentation states are permitted, as in `createRegistration`.
 - A whole-document CAS conflict in `createGmailInbox` that restarts all synchronization for ordinary concurrent intake, discards newly durable intents, or resurrects an action settled by this operation or another store instance. Review `commitOver`/`rebased` against both the prior base and latest saved pending IDs, including dispatch preparation and settlement, reconciliation, labels and blocked-action resolution. Drop previously known IDs absent from the latest document and revalidate the prepared head before dispatch. Retain newly appended intake IDs in FIFO order, bound rebases, and reject another mailbox/owner before any write; repeated benign intake must not exhaust whole-sync retries or duplicate provider actions.
+- `createGmailInbox.dispatch` identifying ownership only by pending/message ID,
+  a deterministic attempt ID or attempt age after a CAS race. In `rebasedOnto`,
+  preserve saved progress that advanced since the base even when stale
+  reconciliation or Discard removed that head; compare the unique prepared
+  attempt before provider handoff. Check joining stores, equal or reversed clocks,
+  completed failures and Retry/Discard while another request is active. Ownership
+  must end on every attempt outcome and survive through settlement, so later
+  intent cannot overtake a live write or be hidden by its late result.
 - `getSnapshot` returning a newly built object or array when nothing changed. `useSyncExternalStore` compares by identity and re-renders forever.
+- `createSyntheticGmail` retaining the previous mailbox's user-label catalog on
+  reselection, or allocating a new label from the current map size. Clear the
+  catalog with the selected mailbox and keep label IDs monotonic across deletion;
+  otherwise isolation journeys leak old labels and a pending action for a deleted
+  label can incorrectly succeed against its replacement instead of being refused.
 - `subscribe` that does not return an unsubscribe removing exactly that listener, or a publish path that skips listeners after a state change.
 - A `ManagedRuntime`, fiber, timer or subscription created without an owner that disposes it; a `ManagedRuntime` created for a Layer with no dependencies or resources.
 - A retry or poll without a bound, or built from `setTimeout`/recursion rather than `Schedule`.
