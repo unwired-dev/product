@@ -261,6 +261,23 @@ function holdImages(gmail: ReturnType<typeof createSyntheticGmail>) {
   };
 }
 
+// Answers every attachment download with the same reported size and data.
+function answerAttachments(
+  gmail: ReturnType<typeof createSyntheticGmail>,
+  attachment: Readonly<{ size: number; data: string }>,
+) {
+  const { gmailRequest } = gmail.native;
+  const answered: string[] = [];
+  gmail.native.gmailRequest = async (path, query, owner) => {
+    if (!path.includes('/attachments/')) {
+      return gmailRequest(path, query, owner);
+    }
+    answered.push(path);
+    return { status: 200, body: JSON.stringify(attachment) };
+  };
+  return answered;
+}
+
 // Answers one message's full-format read with a crafted MIME payload.
 function replaceFullPayload(
   gmail: ReturnType<typeof createSyntheticGmail>,
@@ -944,24 +961,46 @@ describe('the isolated rich reader', () => {
     },
   );
 
-  it('charges rejected image downloads to the per-open received byte limit', async () => {
+  it('reserves declared bytes for rejected image downloads', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail();
     const imageBytes = 5 * 1024 * 1024;
-    const invalidImage = [...Buffer.alloc(imageBytes)];
-    const images = Array.from({ length: 5 }, (_, index) => ({
-      contentId: `invalid-${index}`,
-      mimeType: 'image/png',
-      bytes: invalidImage,
-    }));
+    const contentIds = Array.from(
+      { length: 5 },
+      (_, index) => `invalid-${index}`,
+    );
+    const html = `<p>Readable mail</p>${contentIds
+      .map((contentId) => `<img src="cid:${contentId}" alt="Invalid">`)
+      .join('')}`;
     const id = gmail.deliver({
       at: Date.UTC(2020, 0, 1),
-      content: {
-        html: `<p>Readable mail</p>${images
-          .map(({ contentId }) => `<img src="cid:${contentId}" alt="Invalid">`)
-          .join('')}`,
-        images,
-      },
+      content: { html },
+    });
+    // Each image declares 5 MiB, but its downloaded data decodes to fewer bytes.
+    // Rejection for that size mismatch must still consume the declared request budget.
+    replaceFullPayload(gmail, id, {
+      mimeType: 'multipart/related',
+      parts: [
+        {
+          mimeType: 'text/html',
+          body: {
+            size: Buffer.byteLength(html),
+            data: Buffer.from(html).toString('base64url'),
+          },
+        },
+        ...contentIds.map((contentId, index) => ({
+          mimeType: 'image/png',
+          headers: [
+            { name: 'Content-ID', value: `<${contentId}>` },
+            { name: 'Content-Disposition', value: 'inline' },
+          ],
+          body: { size: imageBytes, attachmentId: `image-${index}` },
+        })),
+      ],
+    });
+    const downloaded = answerAttachments(gmail, {
+      size: imageBytes,
+      data: 'AAAA',
     });
     const inbox = createGmailInbox(gmail.native);
     await inbox.load();
@@ -970,14 +1009,11 @@ describe('the isolated rich reader', () => {
     expect(readable(opened).paragraphs.flat()).toContainEqual({
       text: 'Readable mail',
     });
-    const downloaded = gmail.requests.filter(({ path }) =>
-      path.includes('/attachments/image-'),
-    );
-    expect(downloaded.length * imageBytes).toBe(20 * 1024 * 1024);
+    expect(downloaded).toHaveLength(4);
     const saved = JSON.parse(String(gmail.cachedBodies().get(id)));
     expect(saved.images).toStrictEqual({
       admitted: [],
-      refused: images.map(({ contentId }) => contentId),
+      refused: contentIds,
     });
   });
 
