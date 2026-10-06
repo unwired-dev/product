@@ -71,11 +71,12 @@ Gmail's read state.
 
 The reader selects a renderable HTML alternative before plain text, decoded from
 the part's charset. Image-only HTML with an admissible CID reference or a
-blocked-image placeholder remains renderable. A present Content-Disposition must
-have a recognized inline token; empty, malformed, attachment and extension
+blocked-image placeholder remains renderable. Every Content-Disposition occurrence
+must have a recognized inline token; empty, malformed, attachment and extension
 dispositions are excluded from body selection and prefetch. Absent dispositions
 remain eligible. Attached files and `message/rfc822` containers are excluded from
-body selection. A separately served body part is shown and saved only after all bytes
+body selection. Conflicting repeated Content-Type tokens exclude a part from body
+selection and prefetch. A separately served body part is shown and saved only after all bytes
 arrive and the decoded byte count matches Gmail's declared size. Interrupted or
 incomplete downloads publish no partial cache entry. Retained bodies include
 readable text and the original decoded HTML alternative; sanitization changes
@@ -247,7 +248,9 @@ then its nearest enclosing related scope, then eligible outer scopes. Do not
 traverse attachment-disposition or `message/rfc822` containers, or filename-bearing
 attachment subtrees. An inline image leaf may have a filename; a filename-less CID
 image sibling without a disposition in a mixed scope is eligible. Unreferenced,
-hidden, zero-sized and non-rendering image parts are never fetched.
+hidden, zero-sized and non-rendering image parts are never fetched. Conflicting
+normalized Content-ID values remain unresolved. Image parts with children and
+descendants of unrecognized or conflicting MIME containers are never fetched.
 
 Admit only complete, signature-valid, single-frame PNG, JPEG, GIF or WebP images.
 The reviewed image bounds are 5 MiB per image, at most 20 attempts and 20 admitted

@@ -113,6 +113,11 @@ export const header = (part: GmailPart, name: string) =>
   part.headers?.find((candidate) => candidate.name.toLowerCase() === name)
     ?.value ?? '';
 
+const headerValues = (part: GmailPart, name: string) =>
+  (part.headers ?? [])
+    .filter((candidate) => candidate.name.toLowerCase() === name)
+    .map(({ value }) => value);
+
 const commentNesting = new Map([
   ['(', 1],
   [')', -1],
@@ -161,24 +166,28 @@ const headerToken = (value: string) =>
     ?.toLowerCase() ?? '';
 
 const mimeType = (part: GmailPart) => {
-  const contentType = part.headers?.find(
-    (candidate) => candidate.name.toLowerCase() === 'content-type',
-  );
-  return contentType === undefined
-    ? (part.mimeType?.toLowerCase() ?? '')
-    : headerToken(contentType.value);
+  const types = headerValues(part, 'content-type').map(headerToken);
+  if (types.length === 0) {
+    return part.mimeType?.toLowerCase() ?? '';
+  }
+  return types.every((type) => type === types[0]) ? (types[0] ?? '') : '';
 };
 
 // Any present disposition other than a recognized inline one, including a malformed or
 // extension value, keeps a part out of the body and out of prefetch.
-const isAttachment = (part: GmailPart) => {
-  const disposition = part.headers?.find(
-    (candidate) => candidate.name.toLowerCase() === 'content-disposition',
-  );
-  return (
-    disposition !== undefined && headerToken(disposition.value) !== 'inline'
-  );
+// Every Content-Disposition token a part carries. Untrusted parts can repeat the header, so
+// each occurrence counts, never only the first.
+const dispositions = (part: GmailPart) =>
+  headerValues(part, 'content-disposition').map(headerToken);
+
+// Inline only when it declares a disposition and every occurrence is a recognized inline one.
+const declaredInline = (part: GmailPart) => {
+  const tokens = dispositions(part);
+  return tokens.length > 0 && tokens.every((token) => token === 'inline');
 };
+
+const isAttachment = (part: GmailPart) =>
+  dispositions(part).some((token) => token !== 'inline');
 
 // Attached messages and attachment subtrees never supply the body or its inline images.
 const isContainerOutsideBody = (part: GmailPart) =>
@@ -225,10 +234,12 @@ export function bodyParts(payload: GmailPart): Readonly<{
 }
 
 // A Content-ID as MIME declares it, without comments, folding whitespace or angle brackets.
-const contentIdOf = (part: GmailPart) =>
-  withoutComments(header(part, 'content-id'))
-    .replaceAll(/\s+/gu, '')
-    .replaceAll(/^<|>$/gu, '');
+const contentIdOf = (part: GmailPart) => {
+  const ids = headerValues(part, 'content-id').map((value) =>
+    withoutComments(value).replaceAll(/\s+/gu, '').replaceAll(/^<|>$/gu, ''),
+  );
+  return ids.every((id) => id === ids[0]) ? (ids[0] ?? '') : '';
+};
 
 // Image parts eligible under one MIME scope, skipping attachments and attached messages. An
 // inline image leaf may carry a filename.
@@ -239,7 +250,7 @@ const isOtherAlternative = (part: GmailPart, path: readonly GmailPart[]) =>
 const isNamedImageAttachment = (part: GmailPart, enclosingType: string) =>
   (part.filename ?? '') !== '' &&
   enclosingType !== 'multipart/related' &&
-  headerToken(header(part, 'content-disposition')) !== 'inline';
+  !declaredInline(part);
 
 const collectImage = (part: GmailPart, found: Map<string, GmailPart>) => {
   const contentId = contentIdOf(part);
@@ -258,14 +269,17 @@ const imagesUnder = (
       return;
     }
     const type = mimeType(part);
-    if (type.startsWith('image/')) {
+    const children = part.parts ?? [];
+    if (type.startsWith('image/') && children.length === 0) {
       if (isNamedImageAttachment(part, enclosingType)) {
         return;
       }
       collectImage(part, found);
     }
-    for (const child of part.parts ?? []) {
-      visit(child, type);
+    if (type.startsWith('multipart/')) {
+      for (const child of children) {
+        visit(child, type);
+      }
     }
   };
   visit(scope, '');

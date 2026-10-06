@@ -299,19 +299,33 @@ describe('the isolated rich reader', () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail();
     const now = Date.now();
-    const excluded = ['', ' \t', 'attachment (unterminated', 'x-file'].map(
-      (disposition) =>
-        gmail.deliver({
-          at: now - 60_000,
-          content: { text: 'Attached notes', single: true, disposition },
-        }),
+    const excluded = [
+      '',
+      ' \t',
+      'attachment (unterminated',
+      'x-file',
+      // A repeated header counts every occurrence, never only the first.
+      ['inline', 'attachment'],
+      ['attachment', 'inline'],
+      ['inline', ''],
+      ['inline', ' \t'],
+      ['inline', 'inline (unterminated'],
+    ].map((disposition) =>
+      gmail.deliver({
+        at: now - 60_000,
+        content: { text: 'Attached notes', single: true, disposition },
+      }),
     );
-    const allowed = [undefined, 'InLiNe; filename="notes.txt"'].map(
-      (disposition) =>
-        gmail.deliver({
-          at: now - 60_000,
-          content: { text: 'Readable notes', single: true, disposition },
-        }),
+    const allowed = [
+      undefined,
+      'InLiNe; filename="notes.txt"',
+      ['inline', 'INLINE'],
+      ['inline', '(nested (comment)) InLiNe; filename="(notes).txt"'],
+    ].map((disposition) =>
+      gmail.deliver({
+        at: now - 60_000,
+        content: { text: 'Readable notes', single: true, disposition },
+      }),
     );
     const imageOnly = gmail.deliver({
       content: {

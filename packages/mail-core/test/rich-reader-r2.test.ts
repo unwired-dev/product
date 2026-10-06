@@ -13,19 +13,22 @@ const textPart = (mimeType: string, content: string): GmailPart => ({
 });
 const imagePart = (
   id: string,
-  contentId: string,
+  contentId: string | readonly string[],
   {
     filename = '',
     disposition,
-  }: { readonly filename?: string; readonly disposition?: string } = {},
+  }: {
+    readonly filename?: string;
+    readonly disposition?: string | readonly string[];
+  } = {},
 ): GmailPart => ({
   mimeType: 'image/png',
   filename,
   headers: [
-    { name: 'Content-ID', value: contentId },
-    ...(disposition === undefined
-      ? []
-      : [{ name: 'Content-Disposition', value: disposition }]),
+    ...[contentId].flat().map((value) => ({ name: 'cOnTeNt-ID', value })),
+    ...[disposition ?? []]
+      .flat()
+      .map((value) => ({ name: 'cOnTeNt-Disposition', value })),
   ],
   body: { size: 1, attachmentId: id },
 });
@@ -76,7 +79,10 @@ describe('rich-reader review regressions', () => {
     const html = '<p><strong>Prefetched HTML</strong></p>';
     const observed = substitutePayload(gmail, id, {
       ...textPart('text/plain', html),
-      headers: [{ name: 'Content-Type', value: 'text/html; charset=UTF-8' }],
+      headers: [
+        { name: 'Content-Type', value: 'text/html; charset=UTF-8' },
+        { name: 'cOnTeNt-TyPe', value: '(comment) TEXT/HTML; charset=UTF-8' },
+      ],
     });
     const inbox = createGmailInbox(gmail.native);
     await inbox.load();
@@ -153,8 +159,26 @@ describe('rich-reader review regressions', () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail();
     const id = gmail.deliver({ at: Date.UTC(2020, 0, 1) });
-    const html =
-      '<p>Body</p><img src="cid:shared"><img src="cid:optional"><img src="cid:explicit"><img src="cid:filename"><img src="cid:attached">';
+    const references = [
+      'shared',
+      'optional',
+      'explicit',
+      'filename',
+      'attached',
+      'conflict',
+      'blank',
+      'same',
+      'ambiguous',
+      'normalized',
+      'container',
+      'descendant',
+      'related-conflict',
+      'empty-id',
+      'masked',
+    ]
+      .map((id) => `<img src="cid:${id}">`)
+      .join('');
+    const html = `<p>Body</p>${references}`;
     const payload: GmailPart = {
       mimeType: 'multipart/mixed',
       parts: [
@@ -175,6 +199,10 @@ describe('rich-reader review regressions', () => {
                 imagePart('chosen', '(nested (comment)) <shared>', {
                   filename: 'logo.png',
                 }),
+                imagePart('related-conflict', '<related-conflict>', {
+                  filename: 'attachment.png',
+                  disposition: ['inline', 'attachment'],
+                }),
               ],
             },
           ],
@@ -185,6 +213,36 @@ describe('rich-reader review regressions', () => {
           disposition: '(leading (comment))\r\n inline; filename="inline.png"',
         }),
         imagePart('filename', '<filename>', { filename: 'attachment.png' }),
+        imagePart('conflict', '<conflict>', {
+          filename: 'attachment.png',
+          disposition: ['inline', 'attachment'],
+        }),
+        imagePart('blank', '<blank>', {
+          filename: 'attachment.png',
+          disposition: ['inline', ' \t'],
+        }),
+        imagePart('same', '<same>', {
+          filename: 'inline.png',
+          disposition: [
+            'inline',
+            '(nested (comment)) INLINE; filename="(logo).png"',
+          ],
+        }),
+        imagePart('ambiguous', ['<ambiguous>', '<another>']),
+        imagePart('normalized', ['<normalized>', '(comment)\r\n <normalized>']),
+        imagePart('empty-id', ['<empty-id>', ' \t']),
+        {
+          ...imagePart('container', '<container>'),
+          parts: [imagePart('descendant', '<descendant>')],
+        },
+        {
+          mimeType: 'multipart/mixed',
+          headers: [
+            { name: 'Content-Type', value: 'multipart/mixed' },
+            { name: 'cOnTeNt-TyPe', value: 'message/rfc822' },
+          ],
+          parts: [imagePart('masked', '<masked>')],
+        },
         {
           mimeType: 'multipart/related',
           headers: [
@@ -202,10 +260,30 @@ describe('rich-reader review regressions', () => {
     await inbox.load();
     await inbox.readMessage(id);
     expect(inbox.messageBody(id)).toMatchObject({ kind: 'ready' });
-    expect(observed.images).toStrictEqual(['chosen', 'optional', 'explicit']);
+    expect(observed.images).toStrictEqual([
+      'chosen',
+      'optional',
+      'explicit',
+      'same',
+      'normalized',
+    ]);
   });
 
   it.each([
+    ...['multipart/related', 'message/rfc822', '', ' \t'].map((value) => ({
+      ...textPart('text/plain', 'Excluded ambiguous body'),
+      headers: [
+        { name: 'Content-Type', value: 'text/plain' },
+        { name: 'cOnTeNt-TyPe', value },
+      ],
+    })),
+    {
+      ...textPart('text/plain', 'Excluded reversed conflict'),
+      headers: [
+        { name: 'Content-Type', value: 'multipart/related' },
+        { name: 'cOnTeNt-TyPe', value: 'text/plain' },
+      ],
+    },
     {
       mimeType: 'text/plain',
       headers: [{ name: 'Content-Type', value: 'text/html (unterminated' }],

@@ -118,6 +118,11 @@ bytes against the declared part size. HTML with no readable paragraphs falls
 back to a plain alternative. Native cache envelopes fail closed on malformed
 shape; an absent or corrupt body document may be downloaded again.
 
+MIME admission examines every repeated header: dispositions must all declare
+inline, media-type tokens must agree, and normalized Content-ID values must agree.
+CID traversal accepts image leaves and descends only through recognized multipart
+containers, keeping ambiguous metadata and non-leaf image parts out of provider reads.
+
 The shared store keeps two body pipelines per current connection and coalesces
 duplicate reads. A dedicated publication semaphore orders body admission against
 each page's durable metadata commit, body pruning and ready-state publication.

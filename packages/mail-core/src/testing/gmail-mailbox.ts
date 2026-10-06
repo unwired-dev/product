@@ -26,8 +26,9 @@ export interface SyntheticContent {
   readonly charset?: 'utf8' | 'latin1';
   readonly separate?: boolean;
   readonly single?: boolean;
-  // A Content-Disposition header on the readable parts, as some senders send.
-  readonly disposition?: string;
+  // Content-Disposition headers on the readable parts, as some senders send; a list repeats
+  // the header.
+  readonly disposition?: string | readonly string[];
   readonly images?: ReadonlyArray<{
     readonly contentId: string;
     readonly mimeType: string;
@@ -197,9 +198,10 @@ export function createSyntheticGmail({
           name: 'Content-Type',
           value: `${mimeType}; charset="${content.charset ?? 'utf8'}"`,
         },
-        ...(content.disposition === undefined
-          ? []
-          : [{ name: 'Content-Disposition', value: content.disposition }]),
+        ...[content.disposition ?? []].flat().map((value) => ({
+          name: 'Content-Disposition',
+          value,
+        })),
       ],
       body: content.separate
         ? {

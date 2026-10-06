@@ -95,6 +95,12 @@ Namespace-import style, `JSON.parse`, `typeof … === 'object'` guards, untagged
 - `message-body.ts` treating a present empty or whitespace-only disposition as
   absent. Only a recognized inline token may admit a present disposition; otherwise
   malformed body or CID leaves can be fetched or shown as ordinary content.
+- MIME admission in `message-body.ts` inspecting only the first repeated header.
+  Every Content-Disposition occurrence must declare inline; Content-Type tokens
+  and normalized Content-ID values must agree across all occurrences. Conflicts
+  must not authorize speculative body or CID requests. Resolve only image leaves
+  and traverse only recognized multipart containers; a contradictory container
+  or an image-shaped subtree must not expose attached descendants.
 - `sanitizeHtml` deciding renderability from text and CIDs alone while retaining
   blocked-image placeholders. Placeholder-only mail must keep its rich document
   and readable images notice, including after rendering failure.
