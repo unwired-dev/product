@@ -34,7 +34,7 @@ import Foundation
       -> Message.Payload
     {
       let (status, data) = try await provider.gmail(
-        identity, url: url("messages/\(id)", format: format, headers: headers))
+        identity, url: url("messages/\(id)", format: format, headers: headers), body: nil)
       precondition(status == 200, "message request failed: \(id)")
       return try JSONDecoder().decode(Message.self, from: data).payload
     }
@@ -73,16 +73,16 @@ import Foundation
       precondition(Data(base64Encoded: padded) == Data("<p>Attached body</p>".utf8))
     }
     let missing = try await provider.gmail(identity, url: url(
-      "messages/missing", headers: ["Content-Type", "Content-Disposition"]))
+      "messages/missing", headers: ["Content-Type", "Content-Disposition"]), body: nil)
     precondition(missing.0 == 404)
     let denied = try await provider.gmail(
       provider.identity("synthetic-product-subject", granted: false),
-      url: url("messages/attached", headers: ["Content-Type", "Content-Disposition"]))
+      url: url("messages/attached", headers: ["Content-Type", "Content-Disposition"]), body: nil)
     precondition(denied.0 == 401)
 
     // The test-only mailbox injection must not change the packaged journey's fixed corpus.
     let packaged = MockGoogleRegistrationProvider(scenario: "registration-declined")
-    let first = try await packaged.gmail(identity, url: url("messages"))
+    let first = try await packaged.gmail(identity, url: url("messages"), body: nil)
     let page = try JSONSerialization.jsonObject(with: first.1) as! [String: Any]
     precondition(first.0 == 200 && page["nextPageToken"] as? String == "2")
     precondition((page["messages"] as! [[String: String]]).map { $0["id"]! } == [
@@ -90,7 +90,7 @@ import Foundation
     ])
     var next = URLComponents(url: url("messages"), resolvingAgainstBaseURL: false)!
     next.queryItems!.append(URLQueryItem(name: "pageToken", value: "2"))
-    let second = try await packaged.gmail(identity, url: next.url!)
+    let second = try await packaged.gmail(identity, url: next.url!, body: nil)
     let last = try JSONSerialization.jsonObject(with: second.1) as! [String: Any]
     precondition(second.0 == 200 && last["nextPageToken"] == nil)
     precondition((last["messages"] as! [[String: String]]).map { $0["id"]! } == [
