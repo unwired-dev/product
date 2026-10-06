@@ -92,6 +92,16 @@ access is read-only, including for corrupt files, and refuses writes or pruning.
 Listing returns IDs without decrypting stored bodies. Mailbox removal and account
 purge remove bodies with the metadata cache.
 
+Purge and Gmail reselection await detached, file-locked removal of both the metadata
+cache and the body directory under the bridge's registration gate. Deletion and lock
+waits leave the main actor available; the gate remains held until removal completes.
+Purge invalidates the generation and session state and records acknowledged removal
+before suspending. It still attempts account-key cleanup after cache-removal failure
+and keeps the registration locator for retry until every cleanup succeeds. Removal
+requires neither a decryption key nor unlocked protected data, so forgetting remains
+possible on a locked device. Reselection retains its best-effort removal behavior;
+mailbox-owner and generation checks prevent access to an old cache after failure.
+
 RegistrationStore body operations check protected-data availability and the mailbox owner
 and generation on the main actor, perform locked file and CryptoKit work in a detached
 task, then repeat those checks before publishing success. Errors are also reclassified

@@ -76,6 +76,13 @@ Namespace-import style, `JSON.parse`, `typeof … === 'object'` guards, untagged
 
 #### Rich-body admission and speculative reads
 
+- `html-sanitizer.ts` splitting inline declarations inside quoted strings or
+  unmatched component-value blocks, or treating mismatched closing brackets as
+  matching ones in `splitDeclarations`. Drop declarations containing broken
+  strings and keep matching delimiter types when scanning; verify the emitted
+  WebKit CSS and inspected link text together. Otherwise reserialization can
+  swallow an apparent hiding declaration and leave a painted address uninspected.
+
 - `createGmailInbox.store` protecting only a prefetch selection that has not yet
   started when cached metadata is already interactive, including after `forget`.
   Derive protection from the current ready list and selection reference at admission,

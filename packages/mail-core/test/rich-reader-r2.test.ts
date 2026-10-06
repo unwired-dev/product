@@ -834,6 +834,61 @@ describe('rich-reader review regressions', () => {
     expect(dynamic.links[0]?.text).toBe(address);
   });
 
+  it('splits inline styles as WebKit does around quoted semicolons', () => {
+    expect.hasAssertions();
+    const styles = [
+      'font-family:"foo; font-size:16px"; font-size:0',
+      "font-family:'foo; font-size:16px'; font-size:0",
+      'font-family:"foo; font-size:0',
+      'font-family:"foo\n; font-size:0',
+      'font-family:"foo\r; font-size:0',
+      'font-family:"foo\f; font-size:0',
+      'font-family:[foo); font-size:0',
+      'font-family:(foo]; font-size:0',
+      'font-family:[foo)]; font-size:0',
+      'font-family:(foo]); font-size:0',
+    ];
+    const result = sanitizeHtml(
+      styles
+        .map(
+          (style, index) =>
+            `<p><a href="https://phish.invalid/${index}"><span style="${style.replaceAll('"', '&quot;')}">https://bank.invalid</span></a></p>`,
+        )
+        .join(''),
+    );
+    // A closed string keeps its semicolon and the zero size after it applies; an unterminated
+    // string swallows the rest, and a broken one drops only its own declaration.
+    expect(result.links.map(({ text }) => text)).toStrictEqual([
+      '',
+      '',
+      'https://bank.invalid',
+      '',
+      '',
+      '',
+      'https://bank.invalid',
+      'https://bank.invalid',
+      '',
+      '',
+    ]);
+    expect(
+      result.links.map(({ href, text }) => inspectLink(href, text)),
+    ).toStrictEqual([
+      [],
+      [],
+      [linkWarnings.text],
+      [],
+      [],
+      [],
+      [linkWarnings.text],
+      [linkWarnings.text],
+      [],
+      [],
+    ]);
+    expect(result.document).not.toMatch(
+      /font-family: (?:&quot;|')foo; font-size: 0/u,
+    );
+  });
+
   it('normalizes tall spacers so text after them renders beside the link label', () => {
     expect.hasAssertions();
     const spacers = [

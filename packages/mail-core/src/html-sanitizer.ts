@@ -339,9 +339,65 @@ interface FilteredStyle {
   readonly retained: ReadonlyMap<string, string>;
 }
 
+// Declarations end at semicolons outside quoted strings and brackets, as WebKit reads them. A
+// string that a line break or the end of the attribute interrupts would swallow the declarations
+// after it once reserialized, so its declaration is dropped.
+interface StyleScan {
+  quote: string | undefined;
+  endings: string[];
+  broken: boolean;
+}
+
+const scanQuoted = (scan: StyleScan, char: string) => {
+  if (char === scan.quote) {
+    scan.quote = undefined;
+  } else if (/[\n\r\f]/u.test(char)) {
+    scan.broken = true;
+    scan.quote = undefined;
+  }
+  return false;
+};
+
+// Whether this character ends the declaration.
+const scanUnquoted = (scan: StyleScan, char: string) => {
+  if (char === '"' || char === "'") {
+    scan.quote = char;
+  } else if (char === '(' || char === '[') {
+    scan.endings.push(char === '(' ? ')' : ']');
+  } else if (char === scan.endings.at(-1)) {
+    scan.endings.pop();
+  }
+  return char === ';' && scan.endings.length === 0;
+};
+
+const splitDeclarations = (style: string) => {
+  const declarations: string[] = [];
+  let start = 0;
+  let scan: StyleScan = { quote: undefined, endings: [], broken: false };
+  const end = (at: number) => {
+    if (!scan.broken && scan.quote === undefined) {
+      declarations.push(style.slice(start, at));
+    }
+    start = at + 1;
+    scan = { quote: undefined, endings: [], broken: false };
+  };
+  for (let at = 0; at < style.length; at += 1) {
+    const char = style.charAt(at);
+    if (
+      scan.quote === undefined
+        ? scanUnquoted(scan, char)
+        : scanQuoted(scan, char)
+    ) {
+      end(at);
+    }
+  }
+  end(style.length);
+  return declarations;
+};
+
 const parseDeclarations = (style: string) => {
   const declared = new Map<string, string>();
-  for (const declaration of style.split(';')) {
+  for (const declaration of splitDeclarations(style)) {
     const colon = declaration.indexOf(':');
     if (colon > 0) {
       const name = declaration.slice(0, colon).trim().toLowerCase();

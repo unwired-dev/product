@@ -172,7 +172,10 @@ Drop other attributes, including `on*`, `srcset`, background URLs and sender-sup
 application markers. Attribute values still require validation; an allowed name
 does not authorize an unsafe value or URL.
 
-Filtered inline CSS may preserve borders and border spacing/collapse, display,
+Inline styles split into declarations at semicolons outside quoted strings and
+matching parentheses or square brackets; mismatched closing brackets do not end
+an open block. A declaration whose quoted string a line break or the end of the
+attribute interrupts is removed. Filtered inline CSS may preserve borders and border spacing/collapse, display,
 font family/size/style/weight, dimensions and min/max dimensions, letter spacing,
 line height, margins, padding, alignment, decoration, indent, text transform,
 vertical alignment, white space and word wrapping/breaking. Both property names

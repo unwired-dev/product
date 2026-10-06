@@ -59,7 +59,7 @@ extension RegistrationStore {
     do {
       try await requireNotRevoked(product)
     } catch RegistrationError.revoked {
-      _ = try purge()
+      _ = try await purge()
       throw PrivateInboxError.mailboxInvalidated
     }
     guard generation == mailboxGeneration else { throw PrivateInboxError.mailboxInvalidated }
@@ -194,6 +194,13 @@ extension RegistrationStore {
     guard mailCache.isProtectedDataAvailable() else { throw PrivateInboxError.locked }
     _ = try bodyOwner(address: address, generation: generation, verified: verified)
     return value
+  }
+
+  // Removing the mailbox cache can delete the whole body budget, so it runs off the main actor
+  // while the caller keeps the operation gate: registration changes still wait for it to finish.
+  func removeMailboxCache() async throws {
+    guard let mailCache else { return }
+    try await Task.detached(priority: .userInitiated) { try mailCache.removeMailbox() }.value
   }
 
   func openMessageBody(address: String, generation: String, id: String) async throws

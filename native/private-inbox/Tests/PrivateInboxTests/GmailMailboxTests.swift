@@ -164,7 +164,7 @@ extension PrivateInboxTests {
     try shared.removeMailbox()
 
     // The account leaves with its mailbox cache, and a removed account reaches no Gmail.
-    _ = try store.purge()
+    _ = try await store.purge()
     #expect(!FileManager.default.fileExists(atPath: file.path))
     await #expect(throws: PrivateInboxError.mailboxInvalidated) {
       _ = try await store.gmail(
@@ -230,14 +230,14 @@ extension PrivateInboxTests {
         google.address = "final@example.invalid"
         _ = try await store.authorizeGmail(reselect: true)
       } else {
-        _ = try store.purge()
+        _ = try await store.purge()
       }
       pause.resume()
       await #expect(throws: PrivateInboxError.mailboxInvalidated) { _ = try await reading.value }
       #expect(google.gmailRequests.count == (stage == "response" ? 1 : 0))
     }
     // A revocation preflight queues behind captured registration writes, then purges their result.
-    _ = try store.purge()
+    _ = try await store.purge()
     _ = try await store.signIn()
     _ = try await store.authorizeGmail(reselect: false)
     let gate = RegistrationOperationGate()
@@ -344,7 +344,8 @@ extension PrivateInboxTests {
     generation = store.mailboxGeneration.uuidString
     // Stale work and other mailboxes neither read nor write bodies.
     await #expect(throws: PrivateInboxError.mailboxInvalidated) {
-      _ = try await store.openMessageBody(address: "other@example.invalid", generation: generation, id: "a")
+      _ = try await store.openMessageBody(
+        address: "other@example.invalid", generation: generation, id: "a")
     }
     await #expect(throws: PrivateInboxError.mailboxInvalidated) {
       _ = try await store.commitMessageBody(
@@ -488,8 +489,9 @@ extension PrivateInboxTests {
       try FileManager.default.attributesOfItem(atPath: cachedFile.path)[.modificationDate] as? Date
         == cachedReadTime)
     #expect(
-      try await store.listMessageBodies(address: google.address, generation: cached, ids: ["protected"])[
-        "stored"] as? [String] == ["protected"])
+      try await store.listMessageBodies(
+        address: google.address, generation: cached, ids: ["protected"])[
+          "stored"] as? [String] == ["protected"])
     await #expect(throws: RegistrationError.unavailable) {
       _ = try await store.commitMessageBody(
         address: google.address, generation: cached, id: "d",
@@ -521,8 +523,51 @@ extension PrivateInboxTests {
     _ = try await store.commitMessageBody(
       address: google.address, generation: store.mailboxGeneration.uuidString, id: "a",
       admission: ["document": body, "tier": "prefetched", "protectedIds": ["a"]])
-    _ = try store.purge()
+    // Purging waits for the store's lock off the main actor, so the interface keeps running.
+    let held = Darwin.open(directory.appendingPathComponent("store.lock").path, O_RDWR)
+    try #require(held >= 0)
+    try #require(flock(held, LOCK_EX) == 0)
+    let purged = PurgeProgress()
+    let purgeGeneration = store.mailboxGeneration
+    let unlock = DispatchSemaphore(value: 0)
+    defer { unlock.signal() }
+    // The timeout only releases a broken synchronous implementation so the test can fail.
+    // A passing run releases the lock explicitly after observing main-actor progress.
+    let releaseLock: @Sendable () -> Bool = {
+      let progressed = unlock.wait(timeout: .now() + 10) == .success
+      close(held)
+      return progressed
+    }
+    let release = Task.detached(operation: releaseLock)
+    let purging = Task { @MainActor in
+      purged.begin()
+      _ = try await store.purge()
+      purged.finished = true
+    }
+    await purged.reached()
+    #expect(store.mailboxGeneration != purgeGeneration)
+    #expect(!purged.finished)
+    unlock.signal()
+    #expect(await release.value)
+    try await purging.value
+    #expect(purged.finished)
     #expect(!FileManager.default.fileExists(atPath: bodies.path))
+  }
+}
+
+@MainActor private final class PurgeProgress {
+  var finished = false
+  private var started = false
+  private var entered: CheckedContinuation<Void, Never>?
+
+  func begin() {
+    started = true
+    entered?.resume()
+    entered = nil
+  }
+  func reached() async {
+    if started { return }
+    await withCheckedContinuation { entered = $0 }
   }
 }
 

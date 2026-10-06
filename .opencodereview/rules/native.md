@@ -17,6 +17,13 @@ This code owns what TypeScript must never hold: Keychain items, the storage encr
 
 #### Bridge contract
 
+- `RegistrationStore.purge` or Gmail reselection synchronously removing the
+  mailbox/body directory or waiting for its file lock on the main actor. Await
+  detached `removeMailboxCache` work under the registration gate until deletion
+  completes, preserving early generation/session invalidation, cleanup failure
+  and retry ordering, and keyless locked-device removal. Otherwise a populated
+  cache stalls the interface or later work enters half-finished cleanup.
+
 - `RegistrationStore` body operations doing synchronous file/crypto work on the
   main actor, or moving it off-main without mailbox/generation revalidation and
   protected-data checks before dispatch and before publishing success or failure.
