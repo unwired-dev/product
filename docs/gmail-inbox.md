@@ -121,8 +121,7 @@ Inbox changes owner. Same-mailbox verification can renew access without dropping
 those changes. **Undo** preserves labels the message already had before a move. Reconnecting Gmail keeps the current mailbox; a different mailbox requires the
 explicit account-page chooser. The account page explains that selecting a different mailbox discards changes
 still waiting for Gmail. Choosing another mailbox removes the previous mailbox's cache, including
-its waiting changes. A cache written before message labels were kept is listed
-again once, with its messages visible meanwhile.
+its waiting changes. A cache written before message labels were kept is listed again once, with its messages visible meanwhile; a message offers organizing actions once its labels are read. Previously saved changes still resume in order, including a change saved before those labels were known.
 
 ## Mailbox Sync Status
 

@@ -172,6 +172,28 @@ describe('mac window selection with the shared mock mailbox', () => {
   });
 });
 
+function holdingListing(
+  native: ReturnType<typeof createSyntheticGmail>['native'],
+) {
+  let release: () => void = () => undefined;
+  // oxlint-disable-next-line promise/avoid-new -- Explicit provider suspension, released by the journey.
+  const listing = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  return {
+    release,
+    native: {
+      ...native,
+      gmailRequest: async (...args: Parameters<typeof native.gmailRequest>) => {
+        if (args[0] === 'messages') {
+          await listing;
+        }
+        return native.gmailRequest(...args);
+      },
+    },
+  };
+}
+
 describe('mac windows over a connected Gmail mailbox', () => {
   /* oxlint-disable vitest/max-expects -- One journey proves both windows across the synchronization states. */
   it('shares the synchronized Inbox and its recovery states while each window keeps its selection', async () => {
@@ -187,7 +209,15 @@ describe('mac windows over a connected Gmail mailbox', () => {
       subject: 'Saturday, by the river?',
       snippet: 'Coffee first',
     });
-    const store = createGmailInbox(gmail.native);
+    // Both windows can read the legacy cache while its missing labels are fetched again.
+    await createGmailInbox(gmail.native).load();
+    await gmail.native.commitMailbox(
+      { address: 'alex@example.invalid', generation: '0' },
+      gmail.commits.length,
+      String(gmail.commits.at(-1)).replaceAll(/,"labels":\[[^\]]*\]/gu, ''),
+    );
+    const held = holdingListing(gmail.native);
+    const store = createGmailInbox(held.native);
     jest.replaceProperty(
       jest.requireMock<{ inbox: typeof inbox }>('../src/private-storage.ts'),
       'inbox',
@@ -234,6 +264,20 @@ describe('mac windows over a connected Gmail mailbox', () => {
     await fireEvent.press(await second.findByRole('button', { name: oliver }));
     expect(first.getByText('maya@example.invalid')).toBeVisible();
     expect(second.getByText('oliver@example.invalid')).toBeVisible();
+    for (const window of [first, second]) {
+      expect(window.queryByRole('button', { name: 'Archive' })).toBeNull();
+      expect(window.queryByRole('button', { name: 'Labels' })).toBeNull();
+      expect(window.getByRole('button', { name: maya })).toHaveProp(
+        'accessibilityActions',
+        [],
+      );
+    }
+    await act(async () => {
+      held.release();
+      await store.load();
+    });
+    expect(first.getByRole('button', { name: 'Labels' })).toBeVisible();
+    expect(second.getByRole('button', { name: 'Labels' })).toBeVisible();
     // Archiving in one window closes its reader and updates the other, which keeps its selection;
     // Undo from either window brings the message back to both.
     await act(async () => {

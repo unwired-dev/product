@@ -2,6 +2,7 @@ import type { GmailAction } from '@private-email/mail-core/gmail-actions';
 import type { OrganizeNotice } from '@private-email/mail-core/gmail-inbox';
 
 import {
+  canOrganize,
   gmailAction,
   gmailActionCopy,
   restoreAfter,
@@ -98,7 +99,7 @@ export function MessageActions({
     return null;
   }
   const message = state.messages.find((item) => item.id === id);
-  if (message === undefined) {
+  if (message === undefined || !canOrganize(message)) {
     return null;
   }
   if (!state.organize) {

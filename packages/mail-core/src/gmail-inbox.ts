@@ -18,6 +18,7 @@ import {
   runLogged,
 } from './diagnostics.ts';
 import {
+  canOrganize,
   GmailActionSchema,
   GmailLabelSchema,
   inInbox,
@@ -390,20 +391,34 @@ const organized = (
   messages: readonly GmailMessage[],
   pending: readonly PendingAction[],
 ) => {
-  const byId = new Map(messages.map((message) => [message.id, message]));
+  const byId = new Map(
+    messages.map((message) => [
+      message.id,
+      { message, labels: labelsOf(message) },
+    ]),
+  );
   for (const { action, message } of pending) {
     const current =
       byId.get(message.id) ??
-      (action.add.includes('INBOX') ? message : undefined);
+      (action.add.includes('INBOX')
+        ? { message, labels: labelsOf(message) }
+        : undefined);
     if (current !== undefined) {
-      byId.set(
-        message.id,
-        withLabels(current, relabel(labelsOf(current), action)),
-      );
+      const labels = relabel(current.labels, action);
+      byId.set(message.id, {
+        labels,
+        // Legacy pending work may also lack labels. Project it without claiming a known baseline
+        // for new actions or Undo until Gmail supplies the memberships.
+        message: canOrganize(current.message)
+          ? withLabels(current.message, labels)
+          : { ...current.message, unread: labels.includes('UNREAD') },
+      });
     }
   }
   return Arr.sort(
-    [...byId.values()].filter((message) => inInbox(labelsOf(message))),
+    [...byId.values()]
+      .filter(({ labels }) => inInbox(labels))
+      .map(({ message }) => message),
     newestFirst,
   );
 };
@@ -1518,7 +1533,12 @@ export function createGmailInbox(
     // Shows the change at once, saves it with the cache and sends it to Gmail in order. Without a
     // verified open mailbox nothing could be saved, so nothing changes.
     organize: (message: GmailMessage, action: GmailAction) => {
-      if (forgotten || shown === undefined || !shown.organize) {
+      if (
+        forgotten ||
+        shown === undefined ||
+        !shown.organize ||
+        !canOrganize(message)
+      ) {
         return Promise.resolve();
       }
       const source = messageOwners.get(message);

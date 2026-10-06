@@ -141,16 +141,24 @@ const actionLabel: Partial<Record<GmailAction['kind'], string>> = {
   trash: 'Move to Trash',
   spam: 'Report spam',
 };
+// A message whose Gmail labels are not known yet, from a cache saved before labels were kept,
+// offers no actions until it is listed again: Undo could not tell which labels it already had.
+export const canOrganize = (message: GmailMessage) =>
+  message.labels !== undefined;
+
 export const quickActions = (message: GmailMessage) =>
-  [
-    message.unread ? gmailAction.read : gmailAction.unread,
-    message.labels?.includes('STARRED') === true
-      ? gmailAction.unstar
-      : gmailAction.star,
-    gmailAction.archive,
-    gmailAction.trash,
-    gmailAction.spam,
-  ].map((action) => ({
+  (canOrganize(message)
+    ? [
+        message.unread ? gmailAction.read : gmailAction.unread,
+        message.labels?.includes('STARRED') === true
+          ? gmailAction.unstar
+          : gmailAction.star,
+        gmailAction.archive,
+        gmailAction.trash,
+        gmailAction.spam,
+      ]
+    : []
+  ).map((action) => ({
     name: action.kind,
     label: actionLabel[action.kind] ?? action.kind,
     action,

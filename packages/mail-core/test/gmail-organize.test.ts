@@ -1,6 +1,10 @@
 import type { GmailInboxState, GmailMessage } from '../src/gmail-inbox.ts';
 
-import { gmailAction, restoreAfter } from '../src/gmail-actions.ts';
+import {
+  gmailAction,
+  quickActions,
+  restoreAfter,
+} from '../src/gmail-actions.ts';
 import { createGmailInbox } from '../src/gmail-inbox.ts';
 import { createSyntheticGmail } from '../src/testing/gmail-mailbox.ts';
 
@@ -1188,6 +1192,63 @@ describe('organizing Gmail mail', () => {
     expect(second.labelsOf(retained.id)).toContain('STARRED');
   });
 
+  it('keeps legacy pending intent without inventing labels that permit another move', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ messages: 1 });
+    const earlier = createGmailInbox(gmail.native);
+    await earlier.load();
+    const original = required(
+      ready(earlier.getSnapshot()).messages[0],
+      'a message',
+    );
+    const travel = gmail.createLabel('Travel');
+    gmail.setLabel(original.id, travel, true);
+    gmail.setLabel(original.id, 'STARRED', true);
+    const legacy = { ...original, labels: undefined };
+    // The predecessor could save a read intent before legacy relisting finished. A real old-store
+    // reproduction verifies this fixture; neither the cached message nor the intent knew labels.
+    await gmail.native.commitMailbox(
+      { address: 'alex@example.invalid', generation: '0' },
+      gmail.commits.length,
+      JSON.stringify({
+        ...JSON.parse(String(gmail.commits.at(-1))),
+        messages: [legacy],
+        pending: [
+          { id: 'legacy-read', action: gmailAction.read, message: legacy },
+        ],
+      }),
+    );
+    const { native, hold } = holdingNextCommit(gmail.native);
+    const upgraded = createGmailInbox(native);
+    const upgrading = upgraded.load();
+    await hold.entered.promise;
+    const projected = message(upgraded, original.id);
+    expect(projected.unread).toBe(false);
+    expect(projected.labels).toBeUndefined();
+    expect(quickActions(projected)).toStrictEqual([]);
+    const ignored = upgraded.organize(projected, gmailAction.move(travel));
+    expect(ready(upgraded.getSnapshot())).toMatchObject({
+      pending: 1,
+      saving: 0,
+    });
+    expect(ready(upgraded.getSnapshot()).notice).toBeUndefined();
+    await ignored;
+    hold.release.resolve(undefined);
+    await upgrading;
+    expect(
+      gmail.modifies.map(({ add, remove }) => [add, remove]),
+    ).toStrictEqual([[[], ['UNREAD']]]);
+    expect(gmail.labelsOf(original.id).toSorted()).toStrictEqual(
+      ['INBOX', travel, 'STARRED'].toSorted(),
+    );
+    expect(message(upgraded, original.id)).toMatchObject({ unread: false });
+    expect(quickActions(message(upgraded, original.id))).not.toStrictEqual([]);
+    expect(ready(upgraded.getSnapshot())).toMatchObject({
+      pending: 0,
+      saving: 0,
+    });
+  });
+
   it('lists a cache saved before labels were kept again, keeping its messages visible', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ messages: 3 });
@@ -1206,11 +1267,33 @@ describe('organizing Gmail mail', () => {
     );
     expect(gmail.commits.at(-1)).not.toContain('"labels"');
     gmail.setLabel(newest, 'STARRED', true);
-    const upgraded = createGmailInbox(gmail.native);
+    const travel = gmail.createLabel('Travel');
+    gmail.setLabel(newest, travel, true);
+    // The listing that reads the labels waits, with the saved messages shown meanwhile.
+    const { native, holds } = holdingPages(gmail.native, ['']);
+    const [listingHold] = holds;
+    const upgraded = createGmailInbox(native);
     const listings = gmail.requests.filter(
       ({ path }) => path === 'messages',
     ).length;
-    await upgraded.load();
+    const upgrading = upgraded.load();
+    await listingHold?.entered.promise;
+    // Without its labels, a message offers no actions: Undo of a move could not tell that it
+    // already had the target label.
+    const unlabeled = message(upgraded, newest);
+    expect(unlabeled.labels).toBeUndefined();
+    expect(quickActions(unlabeled)).toStrictEqual([]);
+    const ignored = upgraded.organize(unlabeled, gmailAction.move(travel));
+    expect(ready(upgraded.getSnapshot())).toMatchObject({
+      pending: 0,
+      saving: 0,
+    });
+    expect(ready(upgraded.getSnapshot()).notice).toBeUndefined();
+    await ignored;
+    listingHold?.release.resolve(undefined);
+    await upgrading;
+    expect(gmail.modifies).toStrictEqual([]);
+    expect(quickActions(message(upgraded, newest))).not.toStrictEqual([]);
     const { messages } = ready(upgraded.getSnapshot());
     expect(messages).toHaveLength(3);
     expect(messages.every(({ labels }) => labels !== undefined)).toBe(true);
@@ -1218,5 +1301,24 @@ describe('organizing Gmail mail', () => {
     expect(
       gmail.requests.filter(({ path }) => path === 'messages'),
     ).toHaveLength(listings + 1);
+    // A handler retaining the earlier snapshot cannot manufacture an Undo after hydration either.
+    await upgraded.organize(unlabeled, gmailAction.move(travel));
+    expect(ready(upgraded.getSnapshot()).notice).toBeUndefined();
+    expect(gmail.modifies).toStrictEqual([]);
+    // Fresh labels make Move and its Undo safe, including the pre-existing target membership.
+    await upgraded.organize(
+      message(upgraded, newest),
+      gmailAction.move(travel),
+    );
+    const notice = required(ready(upgraded.getSnapshot()).notice, 'a notice');
+    expect(notice.message.labels).toContain(travel);
+    await upgraded.organize(
+      notice.message,
+      required(restoreAfter(notice.action, notice.message.labels), 'an undo'),
+    );
+    expect(gmail.labelsOf(newest)).toContain('INBOX');
+    expect(gmail.labelsOf(newest)).toContain(travel);
+    expect(gmail.labelsOf(newest)).toContain('STARRED');
+    expect(ready(upgraded.getSnapshot()).pending).toBe(0);
   });
 });

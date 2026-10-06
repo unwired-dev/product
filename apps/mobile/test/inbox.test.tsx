@@ -226,6 +226,28 @@ function renderConnected(
   return { authorizeGmail, rendered: render(<Connected />) };
 }
 
+function holdingListing(
+  native: ReturnType<typeof createSyntheticGmail>['native'],
+) {
+  let release: () => void = () => undefined;
+  // oxlint-disable-next-line promise/avoid-new -- Explicit provider suspension, released by the journey.
+  const listing = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  return {
+    release,
+    native: {
+      ...native,
+      gmailRequest: async (...args: Parameters<typeof native.gmailRequest>) => {
+        if (args[0] === 'messages') {
+          await listing;
+        }
+        return native.gmailRequest(...args);
+      },
+    },
+  };
+}
+
 describe('connected Gmail Inbox', () => {
   /* oxlint-disable vitest/max-expects -- One journey proves the synchronized list and its recovery states. */
   it('shows synchronized metadata and recovers from lost Gmail permission and connectivity', async () => {
@@ -293,13 +315,34 @@ describe('connected Gmail Inbox', () => {
       from: 'Oliver Park <oliver@example.invalid>',
       subject: 'Saturday, by the river?',
     });
-    const store = createGmailInbox(gmail.native);
+    // The legacy cache stays readable while its missing labels are fetched again.
+    await createGmailInbox(gmail.native).load();
+    await gmail.native.commitMailbox(
+      { address: 'alex@example.invalid', generation: '0' },
+      gmail.commits.length,
+      String(gmail.commits.at(-1)).replaceAll(/,"labels":\[[^\]]*\]/gu, ''),
+    );
+    const held = holdingListing(gmail.native);
+    const store = createGmailInbox(held.native);
     await renderConnected(() => store).rendered;
     await fireEvent.press(
       await screen.findByRole('button', {
         name: 'Unread. Oliver Park. Saturday, by the river?',
       }),
     );
+    expect(screen.getByText('oliver@example.invalid')).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Mark as read' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Labels' })).toBeNull();
+    expect(
+      screen.getByRole('button', {
+        name: 'Unread. Oliver Park. Saturday, by the river?',
+      }),
+    ).toHaveProp('accessibilityActions', []);
+    await act(async () => {
+      held.release();
+      await store.load();
+    });
+    expect(screen.getByRole('button', { name: 'Labels' })).toBeVisible();
     await act(async () => {
       await fireEvent.press(
         screen.getByRole('button', { name: 'Mark as read' }),
