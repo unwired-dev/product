@@ -22,6 +22,13 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 - A native bridge result, seed, persisted JSON value, HTTP body, token or route parameter used before a `Schema` decode, or narrowed with `as`, a hand-written property check or a truthiness test. The Apple host's checks do not make its results trusted in TypeScript.
 - A decode failure that becomes a default, an empty list or a `ready` state. It must map to the boundary's existing tagged error, with the decode error as `cause`, and surface as a non-ready state.
 - A schema widened (`Schema.Unknown`, optional field, loose union) to make a fixture or a new native result pass, without the consumer handling the widened case.
+- `message-body.ts.decodeFullMessage` recursively decoding an unbounded MIME
+  tree before applying traversal limits. Bound depth and total parts iteratively
+  before `GmailPartSchema` runs, counting attachment and discarded subtrees too;
+  every production body/CID traversal must consume that bounded decode. Check
+  inclusive limits and the public unavailable/download failure state, not just
+  direct helper rejection. Otherwise Schema decoding itself can overflow before
+  a traversal guard, reject the host-facing read and leave the message loading.
 
 #### Errors and diagnostics
 
@@ -271,10 +278,14 @@ Namespace-import style, `JSON.parse`, `typeof … === 'object'` guards, untagged
   `comparisonHost` keys used for displayed addresses. Equivalent percent-encoded
   names and IPv4/IPv6 forms must not produce a cross-site caution; genuinely
   different destinations must retain it and exact handoff URLs must remain unchanged.
-- `sanitizeHtml` omitting visible image descriptions from their enclosing link's
-  inspected text. Include descriptions for placeholders and admitted CID images,
-  normalize link whitespace and respect unreadable contexts; otherwise image-only
-  deceptive links bypass the destination mismatch caution.
+- `sanitizeHtml` combining admitted CID image descriptions with separately painted
+  link text, or omitting descriptions from image-only links and readable fallback.
+  Inspect painted text when present: admitted image alt text is not painted and
+  must not mask a displayed address. Use admitted descriptions for image-only
+  labels; blocked/unresolved placeholder descriptions are painted and count as
+  text. Preserve every readable description in the fallback, normalize whitespace
+  and respect unreadable contexts. Otherwise mixed-image deceptive links lose
+  their caution, or image-only/accessibility descriptions disappear.
 - `isTrackingPixel` ignoring admitted nonpixel CSS dimensions or allowing invalid,
   empty or filtered-out declarations to mask HTML dimensions. Rendering and
   classification must use the same retained width/height/min/max values. Validate

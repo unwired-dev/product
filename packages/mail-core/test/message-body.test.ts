@@ -45,6 +45,19 @@ const substituteFull = (
     isFull(args[1]) ? reply(...args) : request(...args);
 };
 
+// Gmail replies whose HTML body sits under each message's number of related containers, built
+// as text so the test itself never recurses.
+const nestedReplies =
+  (depths: ReadonlyMap<string, number>) => (path: string) => {
+    const id = path.slice('messages/'.length);
+    const depth = depths.get(id) ?? 0;
+    const html = `{"mimeType":"text/html","body":{"size":4,"data":"${Buffer.from('Deep').toString('base64url')}"}}`;
+    return Promise.resolve({
+      status: 200,
+      body: `{"id":"${id}","payload":${'{"mimeType":"multipart/related","parts":['.repeat(depth)}${html}${']}'.repeat(depth)}}`,
+    });
+  };
+
 const resolveSecond = (active: number, resolve: (value: undefined) => void) => {
   if (active === 2) {
     resolve(undefined);
@@ -443,6 +456,31 @@ describe('reading Gmail message bodies', () => {
     expect(signedBody.paragraphs).toStrictEqual([
       [{ text: 'Signed message.' }],
     ]);
+  });
+
+  it('settles a message nested too deeply to read instead of exhausting the stack', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    const shallow = gmail.deliver();
+    const deep = gmail.deliver();
+    const inbox = createGmailInbox(gmail.native);
+    await inbox.load();
+    substituteFull(
+      gmail,
+      nestedReplies(
+        new Map([
+          [shallow, 32],
+          [deep, 100_000],
+        ]),
+      ),
+    );
+    expect(readyBody(await read(inbox, shallow)).paragraphs).toStrictEqual([
+      [{ text: 'Deep' }],
+    ]);
+    await expect(read(inbox, deep)).resolves.toStrictEqual({
+      kind: 'unavailable',
+      reason: 'download',
+    });
   });
 
   it('keeps forwarded attachments out of the body and falls back to readable plain alternatives', async () => {

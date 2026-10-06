@@ -404,6 +404,16 @@ function RichDocument({
   );
 }
 
+// Each rich document gets its own native view, so a late failure or size from a replaced
+// document cannot reach its replacement.
+const documentKeys = new WeakMap<object, number>();
+let documents = 0;
+const documentKey = (rich: object) => {
+  const key = documentKeys.get(rich) ?? (documents += 1);
+  documentKeys.set(rich, key);
+  return key;
+};
+
 function Presentation({
   presentation,
   onChoose,
@@ -414,8 +424,10 @@ function Presentation({
   readonly onFailure: () => void;
 }) {
   const colors = usePalette();
-  const [failed, setFailed] = useState(false);
   const { rich, readable } = presentation;
+  const richKey = rich === undefined ? undefined : documentKey(rich);
+  // Keep only the failed document's identity so its HTML and inline bytes can be released.
+  const [failed, setFailed] = useState<number>();
   return (
     <>
       {readable.hidesImages ? (
@@ -423,7 +435,7 @@ function Presentation({
           {messageBodyCopy.images}
         </Text>
       ) : null}
-      {rich === undefined || failed ? (
+      {rich === undefined || failed === richKey ? (
         <ReadableText
           readable={readable}
           onChoose={onChoose}
@@ -431,10 +443,11 @@ function Presentation({
       ) : (
         <>
           <RichDocument
+            key={richKey}
             rich={rich}
             onChoose={onChoose}
             onFailure={() => {
-              setFailed(true);
+              setFailed(richKey);
               onFailure();
             }}
           />

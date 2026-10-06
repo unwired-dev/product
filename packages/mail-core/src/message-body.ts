@@ -4,6 +4,7 @@ import * as Effect from 'effect/Effect';
 import * as Base64Url from 'effect/encoding/Base64Url';
 import * as Option from 'effect/Option';
 import * as Order from 'effect/Order';
+import * as Predicate from 'effect/Predicate';
 import * as Result from 'effect/Result';
 import * as Schema from 'effect/Schema';
 
@@ -52,9 +53,39 @@ const GmailPartSchema = Schema.Struct({
   ),
 });
 
+// Real messages nest a few multipart levels. A larger tree is refused before the recursive part
+// decoder and the body traversals run, so a crafted message fails as malformed instead of
+// exhausting the stack. Every part counts, including discarded attachment subtrees.
+const mimeTreeLimits = { depth: 32, parts: 10_000 };
+
+const childParts = (part: unknown): readonly unknown[] =>
+  Predicate.hasProperty(part, 'parts') && Array.isArray(part.parts)
+    ? part.parts
+    : [];
+
+const withinMimeLimits = (payload: unknown) => {
+  let level = [payload];
+  let parts = 0;
+  for (let depth = 0; level.length > 0; depth += 1) {
+    parts += level.length;
+    if (depth > mimeTreeLimits.depth || parts > mimeTreeLimits.parts) {
+      return false;
+    }
+    level = level.flatMap(childParts);
+  }
+  return true;
+};
+
 export const decodeFullMessage = Schema.decodeUnknownEffect(
   Schema.fromJsonString(
-    Schema.Struct({ id: Schema.String, payload: GmailPartSchema }),
+    Schema.Struct({
+      id: Schema.String,
+      payload: Schema.Unknown.check(
+        Schema.makeFilter(withinMimeLimits, {
+          message: `more than ${mimeTreeLimits.depth} nested or ${mimeTreeLimits.parts} MIME parts`,
+        }),
+      ).pipe(Schema.decodeTo(GmailPartSchema)),
+    }),
   ),
 );
 export const decodeAttachment = Schema.decodeUnknownEffect(

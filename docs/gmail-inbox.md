@@ -83,7 +83,8 @@ selection and prefetch. Signed and report containers contribute only their first
 child to the readable body and inline-image resolution; signature and report-data
 children never supply either. The first child may itself contain readable
 alternatives and related images, including when the container is nested in mixed
-mail. A separately served body part is shown and saved only after all bytes
+mail. A message nested more than 32 multipart levels deep, or with more than
+10,000 parts, is reported as not downloaded instead of being read. A separately served body part is shown and saved only after all bytes
 arrive and the decoded byte count matches Gmail's declared size. Interrupted or
 incomplete downloads publish no partial cache entry. Retained bodies include
 readable text and the original decoded HTML alternative; sanitization changes
@@ -328,6 +329,9 @@ Equivalent percent-encoded host spellings and IPv4/IPv6 spellings compare as the
 both for displayed-address comparison and redirect-query warnings;
 the exact destination remains unchanged. Ordinary version, time and date labels
 and displayed addresses without a host do not produce an address-mismatch caution.
+An admitted image's description labels its link only when the link paints no text,
+so it cannot mask a painted address; placeholder descriptions are painted and
+count as link text. The readable fallback keeps every description.
 An unflagged link is never labelled safe. The exact destination goes to the
 system; its subsequent redirects are outside this inspection.
 
@@ -431,8 +435,9 @@ read, scroll, activate links and leave the rich view without a focus trap.
 Plain-text bodies render as selectable readable text with preserved line breaks
 and vetted URL detection. Missing HTML, an empty sanitized result, sanitizer
 failure, unavailable isolated rendering, WebKit load failure or content-process
-termination use retained readable text as the terminal fallback. Release HTML
-and image reservations on failure. Never fall back to unsanitized HTML or relax
+termination use retained readable text as the terminal fallback for that
+presentation; a later presentation of the message, such as one with newly
+downloaded images, renders again. Release HTML and image reservations on failure. Never fall back to unsanitized HTML or relax
 isolation to make a message render. If no readable text remains, show the empty
 body state rather than an indefinite loader.
 

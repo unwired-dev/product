@@ -1561,8 +1561,9 @@ export function sanitizeHtml(
   let hidesImages = false;
   let output = '';
   // The link currently open in the readable fallback, and its collected visible text.
-  let link: { href: string; text: string; visible: boolean } | undefined =
-    undefined;
+  let link:
+    | { href: string; text: string; description: string; visible: boolean }
+    | undefined = undefined;
   let whiteSpace = 'normal';
   let visibleContent = 0;
   // Off-canvas text boxes, and inherited font size and indent states.
@@ -1672,12 +1673,17 @@ export function sanitizeHtml(
     output += escapeText(normalized);
   };
 
-  // An image description reads as text, including in its enclosing link's inspected text.
-  const describeImage = (alt: string) => {
+  // Descriptions stay in the readable fallback. Only placeholder descriptions are painted;
+  // admitted image alt text supplies a rich link label when there is no painted text.
+  const describeImage = (alt: string, painted = true) => {
     if (readableNow()) {
       builder.add(altText(alt), link?.href);
       if (link !== undefined) {
-        link.text += altText(alt);
+        if (painted) {
+          link.text += altText(alt);
+        } else {
+          link.description += altText(alt);
+        }
       }
     }
   };
@@ -1739,7 +1745,7 @@ export function sanitizeHtml(
       return;
     }
     output += `<img${attributes(element, style)} src="data:${admittedImage.mimeType};base64,${admittedImage.data}">`;
-    describeImage(alt);
+    describeImage(alt, false);
   };
 
   const anchor = (element: Element, style: FilteredStyle) => {
@@ -1757,7 +1763,7 @@ export function sanitizeHtml(
     const before = output;
     output = '';
     // A link is offered only when something visible is rendered inside it.
-    link = { href, text: '', visible: false };
+    link = { href, text: '', description: '', visible: false };
     const opened = link;
     children(element);
     link = undefined;
@@ -1767,7 +1773,10 @@ export function sanitizeHtml(
       : '';
     output = `${before}<${tag}${attributes(element, style)}${destination}>${output}</${tag}>`;
     if (opened.visible) {
-      links.push({ href, text: opened.text.replaceAll(/\s+/gu, ' ').trim() });
+      const label = hasVisibleText(opened.text)
+        ? opened.text
+        : opened.description;
+      links.push({ href, text: label.replaceAll(/\s+/gu, ' ').trim() });
     }
   };
 

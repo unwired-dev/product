@@ -17,6 +17,15 @@ A host owns views and native adapters. It renders shared stores from `@private-e
 - A store action whose returned Promise is awaited in render or left to reject; actions are fired as `void store.action()` and report failure through state.
 - An event handled indirectly by an effect that can repeat a store action or apply it to a later selection; trace the user handler and the effect to prove the incorrect transition.
 - A list key built from an index where a reorder attaches selection or row state to the wrong message.
+- `message-body.tsx.Presentation` retaining render failure across replacement rich
+  documents, or `RichDocument` reusing measurement state/native event identity for
+  a replacement. Scope failure to the failed document and reset the native view
+  and measured height for a fresh document. Trace late error/size callbacks and
+  the store's expected-presentation reservation fence; otherwise recovered images
+  remain hidden while charged, or stale events poison the replacement reader.
+  Keep only a small failed-document identity in mounted state, not the discarded
+  rich object; otherwise its expanded HTML/data-image strings remain retained
+  after the view and reservation have been released.
 - Per-row work in the Inbox `FlatList` that grows with the mailbox: an unstable `keyExtractor`, a row that subscribes to the whole store, or sorting and filtering repeated on every render.
 - Selection held anywhere but its owner: route parameters on mobile, the window on Mac. A Mac window opened after another must start with no selection, and a read/unread change must reach every window without changing any selection.
 

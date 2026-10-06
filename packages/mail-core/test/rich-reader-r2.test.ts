@@ -724,6 +724,40 @@ describe('rich-reader review regressions', () => {
     expect(result.document).toContain('visibility: visible');
   });
 
+  it('inspects painted link text apart from admitted image descriptions', () => {
+    expect.hasAssertions();
+    const logo = {
+      contentId: 'logo',
+      mimeType: 'image/png' as const,
+      data: 'AA==',
+      width: 16,
+      height: 16,
+    };
+    const result = sanitizeHtml(
+      [
+        '<a href="https://phish.invalid/a"><img src="cid:logo" alt="Brand"> https://bank.invalid</a>',
+        '<a href="https://phish.invalid/b"><img src="cid:logo" alt="https://bank.invalid"></a>',
+        '<a href="https://phish.invalid/c"><img src="cid:blocked" alt="Brand"> https://bank.invalid</a>',
+      ].join(''),
+      new Map([['logo', logo]]),
+    );
+    expect(result.links).toStrictEqual([
+      { href: 'https://phish.invalid/a', text: 'https://bank.invalid' },
+      { href: 'https://phish.invalid/b', text: 'https://bank.invalid' },
+      { href: 'https://phish.invalid/c', text: 'Brand https://bank.invalid' },
+    ]);
+    expect(
+      result.links.map(({ href, text }) => inspectLink(href, text)),
+    ).toStrictEqual([[linkWarnings.text], [linkWarnings.text], []]);
+    // The readable fallback still reads every description.
+    expect(
+      result.readable.paragraphs
+        .flat()
+        .map(({ text }) => text)
+        .join(''),
+    ).toMatch(/^\s*Brand\s+https:\/\/bank.invalid/u);
+  });
+
   it('does not restore visibility through excluded boxes or collapsed table tracks', () => {
     expect.hasAssertions();
     for (const blocker of ['display:none', 'opacity:0']) {
