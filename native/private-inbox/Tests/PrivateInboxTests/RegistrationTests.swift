@@ -47,8 +47,12 @@ import Testing
     return GmailRegistrationReceipt(subject: identity.subject, address: address)
   }
   var gmailRequests: [URL] = []
-  func gmail(_ identity: GoogleRegistrationIdentity, url: URL) async throws -> (Int, Data) {
+  var gmailBodies: [Data?] = []
+  func gmail(_ identity: GoogleRegistrationIdentity, url: URL, body: Data?) async throws -> (
+    Int, Data
+  ) {
     gmailRequests.append(url)
+    gmailBodies.append(body)
     let pause = beforeGmail
     beforeGmail = nil
     await pause?()

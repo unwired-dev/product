@@ -17,6 +17,7 @@ const nativeCodes = new Set([
   'invalid-identity',
   'locked',
   'mailbox-invalidated',
+  'mailbox-revoked',
   'removal-refused',
   'stale-authentication',
   'unavailable',

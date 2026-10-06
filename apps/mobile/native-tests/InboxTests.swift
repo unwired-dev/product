@@ -33,7 +33,14 @@ final class InboxTests: XCTestCase {
     XCTAssertFalse(app.staticTexts["recovery-key"].exists)
     rowan.tap()
     XCTAssertTrue(app.staticTexts["rowan@example.invalid"].waitForExistence(timeout: 10))
-    XCTAssertFalse(app.buttons["Mark as read"].exists)
+    // Organizing goes through the packaged native Gmail modify: a star, then an archive and Undo.
+    app.buttons["Star"].tap()
+    XCTAssertTrue(app.buttons["Remove star"].waitForExistence(timeout: 10))
+    app.buttons["Archive"].tap()
+    XCTAssertTrue(app.buttons["Undo"].waitForExistence(timeout: 10))
+    XCTAssertFalse(rowan.exists)
+    app.buttons["Undo"].tap()
+    XCTAssertTrue(rowan.waitForExistence(timeout: 15))
     let inbox = XCTAttachment(screenshot: app.screenshot())
     inbox.name = "Synchronized Gmail Inbox"
     inbox.lifetime = .keepAlways

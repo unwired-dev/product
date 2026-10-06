@@ -1,6 +1,8 @@
 import type { Message } from '@private-email/mail-core';
+import type { GmailAction } from '@private-email/mail-core/gmail-actions';
 import type { GmailMessage } from '@private-email/mail-core/gmail-inbox';
 
+import { quickActions } from '@private-email/mail-core/gmail-actions';
 import { gmailSyncCopy } from '@private-email/mail-core/gmail-inbox';
 import { spacing } from '@private-email/mail-core/theme';
 import { useContext, useState } from 'react';
@@ -15,6 +17,7 @@ import {
 import { SafeAreaView } from 'react-native-screens/experimental';
 
 import { useInbox, useInboxActions } from './mailbox.tsx';
+import { OrganizeStatus } from './organize.tsx';
 import { AccountContext } from './registration-gate.tsx';
 import { usePalette } from './theme.ts';
 
@@ -73,19 +76,40 @@ function MessageRow({
   message,
   selected,
   onSelect,
+  onOrganize,
 }: {
   readonly message: Message | GmailMessage;
   readonly selected: boolean;
   readonly onSelect: (id: string) => void;
+  // Present when the message can be organized in Gmail.
+  readonly onOrganize?:
+    | ((message: GmailMessage, action: GmailAction) => void)
+    | undefined;
 }) {
   const colors = usePalette();
   const [focused, setFocused] = useState(false);
+  const organizing =
+    onOrganize !== undefined && 'threadId' in message
+      ? quickActions(message)
+      : [];
   return (
     <Pressable
+      accessibilityActions={organizing.map(({ name, label }) => ({
+        name,
+        label,
+      }))}
       accessibilityLabel={`${message.unread ? 'Unread. ' : ''}${message.sender}. ${message.subject}`}
       accessibilityRole="button"
       accessibilityState={{ selected }}
       focusable
+      onAccessibilityAction={({ nativeEvent }) => {
+        const chosen = organizing.find(
+          ({ name }) => name === nativeEvent.actionName,
+        );
+        if (chosen !== undefined && 'threadId' in message) {
+          onOrganize?.(message, chosen.action);
+        }
+      }}
       onBlur={() => {
         setFocused(false);
       }}
@@ -191,6 +215,12 @@ export function Inbox({ selectedId, onSelect }: InboxProps) {
   const account = useContext(AccountContext);
   const colors = usePalette();
   const gmail = state.kind === 'ready' && 'sync' in state;
+  const organize =
+    gmail && state.organize && 'organize' in actions
+      ? (message: GmailMessage, action: GmailAction) => {
+          void actions.organize(message, action);
+        }
+      : undefined;
   return (
     <SafeAreaView
       edges={{ top: true, bottom: true, left: true }}
@@ -243,6 +273,7 @@ export function Inbox({ selectedId, onSelect }: InboxProps) {
           </Pressable>
         ) : null}
         <SyncNotice />
+        <OrganizeStatus />
         {state.kind === 'ready' ? (
           <FlatList<Message | GmailMessage>
             accessibilityLabel="Inbox messages"
@@ -262,6 +293,7 @@ export function Inbox({ selectedId, onSelect }: InboxProps) {
             renderItem={({ item }) => (
               <MessageRow
                 message={item}
+                onOrganize={organize}
                 onSelect={onSelect}
                 selected={item.id === selectedId}
               />

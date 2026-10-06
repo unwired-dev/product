@@ -13,6 +13,7 @@ import type {
 } from '@private-email/mail-core/registration';
 import type { ReactNode } from 'react';
 
+import { gmailActionCopy } from '@private-email/mail-core/gmail-actions';
 import {
   accountRemovalCopy,
   enrollmentCopy,
@@ -794,11 +795,16 @@ function RegistrationPage({
           : null}
         {snapshot.kind === 'signed-out' ||
         snapshot.kind === 'device-pending' ||
-        snapshot.removalPending !== undefined
-          ? null
-          : button('Choose another Google mailbox', () =>
+        snapshot.removalPending !== undefined ? null : (
+          <>
+            <Text style={[styles.text, { color: colors.foreground }]}>
+              {gmailActionCopy.reselection}
+            </Text>
+            {button('Choose another Google mailbox', () =>
               store.authorizeGmail(true),
             )}
+          </>
+        )}
         {recovering
           ? button(
               `Sign in again with ${providerNames[snapshot.signInProvider]}`,

@@ -154,7 +154,14 @@ final class WindowTests: XCTestCase {
     XCTAssertTrue(
       resumed.textViews.matching(NSPredicate(format: "value == %@", "rowan@example.invalid"))
         .firstMatch.waitForExistence(timeout: 10))
-    XCTAssertFalse(resumed.buttons["Mark as read"].exists)
+    // Organizing goes through the packaged native Gmail modify: a star, then an archive and Undo.
+    resumed.buttons["Star"].click()
+    XCTAssertTrue(resumed.buttons["Remove star"].waitForExistence(timeout: 10))
+    resumed.buttons["Archive"].click()
+    XCTAssertTrue(resumed.buttons["Undo"].waitForExistence(timeout: 10))
+    XCTAssertFalse(resumed.buttons[rowan].exists)
+    resumed.buttons["Undo"].click()
+    XCTAssertTrue(resumed.buttons[rowan].waitForExistence(timeout: 15))
     XCTAssertFalse(recoveryKey(in: resumed).exists)
     app.terminate()
     app.launch()

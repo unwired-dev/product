@@ -18,15 +18,15 @@ state as an Effect program in `packages/mail-core`.
 Native code adds value at credential custody. Under
 [ADR 0067](../adr/0067-keep-native-code-to-a-minimal-vault.md), provider tokens never
 leave native code. One purpose-specific Gmail read accepts only `profile`,
-`history`, `messages` and alphanumeric `messages/<id>` paths below
+`history`, `labels`, `messages` and alphanumeric `messages/<id>` paths below
 `https://gmail.googleapis.com/gmail/v1/users/me/`. It renews and attaches the
 mailbox credential, preserves repeated query parameters, refuses redirects and
 returns only status/body. The ephemeral URL session keeps HTTP response caches
 off disk. Native and TypeScript diagnostics use fixed allow-listed values.
 
-The bridge exposes `gmailRequest(path, query, mailbox)`, `openMailbox()` and
+The bridge exposes `gmailRequest(path, query, mailbox)`, `gmailModify(change, mailbox)`, `openMailbox()` and
 `commitMailbox(mailbox, expectedRevision, document)`. The cache reply contains
-revision, address, an opaque native generation and an optional document, with `availability: retry` only for
+revision, address, an opaque native generation, a non-secret owner identity and an optional document, with `availability: retry` only for
 cache-only access. The mailbox argument pairs the opened address and generation. Native errors distinguish grant rejection, protected storage,
 revision conflict, mailbox invalidation and ordinary unavailability.
 
@@ -51,8 +51,10 @@ Expired history relists; losing an entry from a full cache relists to admit an
 unchanged older message. An unreadable document fails closed without replacement.
 
 The [native cache companion](private-inbox-storage.md#gmail-mailbox-cache) owns
-encryption and compare-and-swap. Shared store operations serialize with a
-semaphore, publish only durable commits and restart revision conflicts or native
+encryption and compare-and-swap. The sync loop and action intake each serialize with a semaphore; compare-and-swap
+rejects a stale sync commit after independent intake. Publications reject older
+revisions for the same scope. Intake distinguishes unsaved optimism from durable
+pending state and restarts revision conflicts or native
 mailbox invalidations at most twice, reopening the committed cache each time.
 Documented Gmail 403 usage-limit reasons, including `dailyLimitExceeded`, retain
 the cached list with a retry notice rather than prompting reauthorization.
@@ -114,3 +116,38 @@ Real Keychain/CryptoKit/file checks qualify the native storage boundaries they
 exercise. They do not certify live Gmail authentication or compatibility.
 Protected Gmail, physical-device and distribution qualification remains required
 under [ADR 0060](../adr/0060-pair-mocked-mail-journeys-with-real-integration-evidence.md).
+
+## Provider organization
+
+Issue #607 adds ordered Gmail-only label actions under
+[ADR 0015](../adr/0015-optimistic-durable-provider-actions.md).
+TypeScript constructs add/remove label intent; native validates the alphanumeric
+message ID, label IDs and the bounded count, builds the JSON body, and performs
+one credentialed POST to `messages/<id>/modify`. Native credential custody,
+redirect refusal, ephemeral response caching and subject/generation fencing remain
+unchanged. No Gmail SDK or production dependency is introduced.
+
+The encrypted metadata document retains ordered pending actions, snapshots for
+restoration, stable intake IDs, immutable dispatch records and user labels. Each
+attempt is durably recorded before dispatch. Lost intake replies deduplicate by
+ID. Reconciliation reads current labels before repeating an attempted action;
+Gmail's add/remove label operation is idempotent and an observed matching state
+confirms without another write. Permanent refusal refreshes provider-derived
+metadata before later optimistic actions are projected. Automatic activations
+respect a five-attempt budget and jittered exponential delay; a blocked head
+preserves later actions until explicit retry or authoritative discard.
+
+Intake can commit while the sync loop waits for provider work; native's FIFO
+custody gate can still delay that commit behind the one request already in
+flight. The UI explicitly says Saving until the native durable reply. A stable
+non-secret owner identity binds Product Account, Trusted Device and Google subject;
+it lets intake survive generation renewal for the same owner, while a different
+owner or a forget epoch fences it. Message snapshots retained by event handlers
+are also tied to that owner, so stale handlers cannot mutate another mailbox.
+
+Every native mutation makes a fail-closed credential-only Trusted Device check
+before renewing or using the provider credential. A positive rejection purges
+before returning the fixed `mailbox-revoked` code; shared recovery clears memory
+and queued publications. Read/cache preflight retains its existing offline
+availability policy. Undo changes only memberships introduced or removed by the
+original action; a pre-existing move target label is preserved.

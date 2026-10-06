@@ -43,7 +43,8 @@
       return GmailRegistrationReceipt(subject: identity.subject, address: "other@example.invalid")
     }
 
-    // A fixed synthetic Gmail mailbox: three Inbox messages over two list pages, no later changes.
+    // A synthetic Gmail mailbox: three Inbox messages over two list pages and one label. Label
+    // changes from this launch apply; history reports no other changes.
     static let syntheticMessages: [String: [String: Any]] = [
       "19a0c0ffee000001": [
         "from": "Rowan Hale <rowan@example.invalid>", "subject": "Garden plans for spring",
@@ -62,7 +63,11 @@
       ],
     ]
 
-    func gmail(_ identity: GoogleRegistrationIdentity, url: URL) async throws -> (Int, Data) {
+    lazy var syntheticLabels = Self.syntheticMessages.mapValues { $0["labelIds"] as? [String] ?? [] }
+
+    func gmail(_ identity: GoogleRegistrationIdentity, url: URL, body request: Data?) async throws
+      -> (Int, Data)
+    {
       guard identity.subject == "synthetic-alternate-mailbox" else { return (401, Data()) }
       let query = Dictionary(
         (URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []).map {
@@ -72,6 +77,17 @@
       switch url.lastPathComponent {
       case "profile": body = ["emailAddress": "other@example.invalid", "historyId": "100"]
       case "history": body = ["historyId": "100"]
+      case "labels":
+        body = ["labels": [["id": "Label_1", "name": "Travel", "type": "user"]]]
+      case "modify":
+        let id = url.deletingLastPathComponent().lastPathComponent
+        guard let labels = syntheticLabels[id], let request,
+          let change = try JSONSerialization.jsonObject(with: request) as? [String: [String]]
+        else { return (404, Data()) }
+        let remaining = labels.filter { !(change["removeLabelIds"] ?? []).contains($0) }
+        syntheticLabels[id] =
+          remaining + (change["addLabelIds"] ?? []).filter { !remaining.contains($0) }
+        body = ["id": id, "threadId": id, "labelIds": syntheticLabels[id] ?? []]
       case "messages" where query["pageToken"] == "2":
         body = ["messages": [["id": "19a0c0ffee000003", "threadId": "19a0c0ffee000003"]]]
       case "messages":
@@ -82,7 +98,7 @@
       case let id:
         guard let message = Self.syntheticMessages[id] else { return (404, Data()) }
         body = [
-          "id": id, "threadId": id, "labelIds": message["labelIds"] ?? [],
+          "id": id, "threadId": id, "labelIds": syntheticLabels[id] ?? [],
           "snippet": message["snippet"] ?? "", "historyId": "100",
           "internalDate": message["internalDate"] ?? "",
           "payload": [

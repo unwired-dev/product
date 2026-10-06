@@ -20,9 +20,9 @@ loss of mailbox access or a different Product Account forgets the earlier choice
 ## Behavior
 
 The Inbox lists **Durable Message Metadata** for Gmail's `INBOX` label: sender,
-address, subject, Gmail's snippet, received time and unread state. Message content
-is not downloaded. The detail view shows the snippet and offers no read toggle,
-because read state belongs to Gmail and organizing mail is a later slice.
+address, subject, Gmail's snippet, received time, unread state and Gmail's label
+IDs. Message content is not downloaded. The detail view shows the snippet, the
+message's own labels and the [organizing actions](#organizing-mail).
 
 A first synchronization reads the mailbox's current history ID, then lists the
 Inbox newest first, 50 messages per page. Each page is shown as soon as it is
@@ -52,6 +52,70 @@ If a foreground account check interrupts synchronization and verifies the same
 mailbox again, synchronization starts again from its committed cache, at most
 twice. Its saved Inbox stays visible. Repeated interruptions make the Inbox
 unavailable until **Try again** or the next activation.
+
+## Organizing mail
+
+[#607](https://github.com/unwired-dev/product/issues/607) organizes Gmail mail with
+Gmail's label semantics. These are **Provider Mail Actions** for Gmail only; future
+IMAP or Microsoft connections need their own actions rather than pretending to match
+Gmail's labels.
+
+| Action                            | Gmail change                                     |
+| --------------------------------- | ------------------------------------------------ |
+| **Mark as read** / **unread**     | Removes or adds `UNREAD`                         |
+| **Star** / **Remove star**        | Adds or removes `STARRED`                        |
+| **Archive**                       | Removes `INBOX`                                  |
+| **Move to Trash**                 | Adds `TRASH`, removes `INBOX`                    |
+| **Report spam**                   | Adds `SPAM`, removes `INBOX`                     |
+| A label checkbox under **Labels** | Adds or removes that label                       |
+| **Move to** a label               | Adds the label, removes `INBOX`, keeps others    |
+| **Undo**                          | Reverses the latest archive, move, trash or spam |
+
+The reader shows every action as a keyboard-focusable button with a visible focus
+ring. VoiceOver also offers read, star, archive, trash and spam as actions on each
+Inbox row. **Labels** lists the mailbox's own labels, read from Gmail once per
+synchronization and kept with the cache. Restoring from Trash or Spam is the
+**Undo** of the latest removal; browsing Trash, Spam or a label is not part of
+this slice.
+
+A change shows at once with **Saving the change on this device…** until local
+storage confirms it. It then becomes a durable **Pending Provider Action** before
+Gmail is asked. A current Gmail request may finish before the local save completes;
+**Saving** remains visible until the change is durable. Gmail's answer replaces
+the pending change. Changes are
+sent one at a time, in the order they were made, each by Gmail message ID and only
+to the mailbox they were made in. A message that leaves the Inbox closes the reader
+and shows **Undo** in the Inbox until the next organizing action.
+
+- **Offline or interrupted:** the change stays saved and is sent on the next
+  synchronization, including after relaunch. The Inbox says how many changes wait
+  for Gmail while it cannot be reached or needs permission again.
+- **Lost response:** synchronization checks Gmail's current labels before another
+  attempt. An already-applied change needs no second write. Otherwise the same
+  requested labels are retried; repeating an action leaves the same labels.
+- **Repeated failure:** automatic synchronization makes at most five dispatch
+  attempts per change, with exponential delay and jitter between attempts.
+  Unconfirmed changes and later intents stay saved. The status names the action
+  and message awaiting confirmation. **Retry change** starts a new
+  retry budget; **Discard change** restores Gmail's current state and lets later
+  intents continue.
+- **Refused:** when the message or label no longer exists in Gmail, the change is
+  dropped, the Inbox shows the message as Gmail has it, and an alert names the
+  refused change. Later changes still apply.
+- **Changed in Gmail:** label changes made elsewhere arrive through Gmail history.
+  A waiting change shows on top of them until Gmail confirms it; Gmail keeps labels
+  the change does not name.
+
+While only the saved Inbox opens after a known network outage, nothing can be
+saved, so the reader explains that organizing waits until Gmail can be checked.
+A change still displaying **Saving…** has not been acknowledged durable; locked
+or unavailable storage reports a failure. Unsaved changes are forgotten if the
+Inbox changes owner. Same-mailbox verification can renew access without dropping
+those changes. **Undo** preserves labels the message already had before a move. Reconnecting Gmail keeps the current mailbox; a different mailbox requires the
+explicit account-page chooser. The account page explains that selecting a different mailbox discards changes
+still waiting for Gmail. Choosing another mailbox removes the previous mailbox's cache, including
+its waiting changes. A cache written before message labels were kept is listed
+again once, with its messages visible meanwhile.
 
 ## Mailbox Sync Status
 
@@ -84,8 +148,7 @@ Reselecting a mailbox invalidates synchronization work already in progress,
 including when another Google account reuses the same address. Stale work cannot
 read from the new mailbox or repopulate its cache.
 
-Gmail tokens and refresh credentials never enter JavaScript or Convex. Message
-metadata stays on the device and is never uploaded. Logs carry only allow-listed
+Gmail tokens and refresh credentials never enter JavaScript or Convex. Each Gmail write changes only the selected message's labels. Message metadata stays on the device and is never uploaded. Logs carry only allow-listed
 codes, HTTP statuses and failing decode paths, never mail content or addresses.
 
 Choosing another mailbox, or another Google account that reuses the same address,
@@ -99,7 +162,9 @@ synchronization that was still running.
 
 Gmail reads do not ask Convex about this device. The removal check runs when a
 synchronization opens or commits the cache, so the backend learns nothing about
-per-message mail activity.
+per-message read activity. Every provider mutation first revalidates the Trusted
+Device. Unavailable validation sends nothing; a revoked device purges local mail
+and credentials.
 
 ## Deterministic evidence
 
@@ -107,15 +172,24 @@ The shared integration tests drive the real synchronization through a controlled
 Gmail API and mailbox cache (`@private-email/mail-core/testing/gmail-mailbox`).
 They cover pagination, relaunch with history only, interrupted pages and commits,
 expired history, authorization and retry classification, competing stores,
-mailbox reselection and log privacy. Rendered host tests cover the Inbox states,
-the account page round trip and two Mac windows over one store.
+mailbox reselection and log privacy. Organizing tests cover every action's Gmail
+labels, changes kept through an outage and relaunch, lost responses, refused and
+repeated changes, Undo after Gmail confirmed a trash, labels changed in Gmail,
+changes bound to their mailbox, intake during a blocked history read, lost local
+save replies, preserving labels on Undo, five-attempt stopping and resolution,
+revoked access, and the cache upgrade. Rendered host tests cover the
+Inbox states, organizing from the reader and a row with Undo, the account page
+round trip and two Mac windows over one store.
 
-The hosted native storage suite checks the Gmail path allow-list, query encoding,
+The hosted native storage suite checks the Gmail path allow-list, the label
+change's identifiers and body, query encoding,
 cache revision and address rules, ciphertext and removal on reselection and
-purge. Registration Mock Mail Sessions answer Gmail reads from a fixed synthetic
-mailbox of three Inbox messages over two pages, compiled only into the selected
-test build. Their journeys confirm setup, open the synchronized Inbox, relaunch
-from the encrypted cache and return to the account page.
+purge. Registration Mock Mail Sessions answer Gmail requests from a synthetic
+mailbox of three Inbox messages over two pages and one label, compiled only into
+the selected test build; label changes apply for the rest of that launch. Their
+journeys confirm setup, open the synchronized Inbox, star and archive a message
+and undo the archive, relaunch from the encrypted cache and return to the account
+page.
 
 ```sh
 mise exec -- pnpm exec turbo run lint format check-types test --filter=// \
@@ -137,7 +211,10 @@ verify on iPhone, iPad and Mac before release:
 - recovery after Gmail expires the stored history ID;
 - a revoked grant reaching **Gmail needs your permission again**, then recovering;
 - offline launch from the encrypted cache, and rate-limit handling;
-- non-ASCII senders and subjects, as Gmail returns them in metadata headers.
+- non-ASCII senders and subjects, as Gmail returns them in metadata headers;
+- every organizing action and **Undo**, as seen in Gmail on the web;
+- changes made offline, then sent after reconnecting or relaunching;
+- a refused change after the label or message is deleted in Gmail.
 
 Do not record mailbox content, addresses or tokens in screenshots, logs or test
 artifacts. No real Gmail synchronization pass is claimed until this protected

@@ -52,6 +52,7 @@ describe('synchronizing a Gmail Inbox', () => {
       preview: 'Bring the "quiet" layout & your notes — it\'s ready',
       receivedAt: expect.stringMatching(/^2026-09-01T\d\d:\d\d:00\.000Z$/u),
       unread: true,
+      labels: ['INBOX', 'UNREAD'],
     });
     // Each page reached the interface as it was committed, before the listing finished.
     expect(listRequests(gmail)).toHaveLength(3);
@@ -60,6 +61,11 @@ describe('synchronizing a Gmail Inbox', () => {
       address: 'alex@example.invalid',
       messages: synced.messages.slice(0, 50),
       sync: 'syncing',
+      labels: [],
+      pending: 0,
+      saving: 0,
+      blocked: false,
+      organize: true,
     });
     // Every page was committed with the checkpoint that resumes after it.
     expect(gmail.commits.length).toBeGreaterThanOrEqual(4);
@@ -267,6 +273,11 @@ describe('synchronizing a Gmail Inbox', () => {
         address: 'alex@example.invalid',
         messages: cached,
         sync,
+        labels: [],
+        pending: 0,
+        saving: 0,
+        blocked: false,
+        organize: true,
       });
     }
     await inbox.load();
@@ -286,6 +297,11 @@ describe('synchronizing a Gmail Inbox', () => {
       kind: 'ready',
       messages: [],
       sync: 'authentication',
+      labels: [],
+      pending: 0,
+      saving: 0,
+      blocked: false,
+      organize: false,
     });
     await inbox.load();
     expect(ready(inbox.getSnapshot()).messages).toStrictEqual(cached);
@@ -419,6 +435,12 @@ describe('synchronizing a Gmail Inbox', () => {
       address: 'alex@example.invalid',
       messages: cached,
       sync: 'retry',
+      labels: [],
+      pending: 0,
+      saving: 0,
+      blocked: false,
+      // Nothing can be saved before Gmail access verifies again.
+      organize: false,
     });
     expect(gmail.requests).toHaveLength(0);
     expect(gmail.commits).toStrictEqual(commits);

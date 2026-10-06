@@ -234,8 +234,28 @@ describe('mac windows over a connected Gmail mailbox', () => {
     await fireEvent.press(await second.findByRole('button', { name: oliver }));
     expect(first.getByText('maya@example.invalid')).toBeVisible();
     expect(second.getByText('oliver@example.invalid')).toBeVisible();
-    // Read state belongs to Gmail; this slice shows it without changing it.
-    expect(first.queryByRole('button', { name: 'Mark as read' })).toBeNull();
+    // Archiving in one window closes its reader and updates the other, which keeps its selection;
+    // Undo from either window brings the message back to both.
+    await act(async () => {
+      await fireEvent.press(first.getByRole('button', { name: 'Archive' }));
+    });
+    expect(first.getByText('Select a message to start reading.')).toBeVisible();
+    expect(second.queryByRole('button', { name: maya })).toBeNull();
+    expect(second.getByText('oliver@example.invalid')).toBeVisible();
+    expect(
+      second.getByLabelText('Archived: “A little more room to think”.'),
+    ).toBeVisible();
+    await act(async () => {
+      await fireEvent.press(second.getByRole('button', { name: 'Undo' }));
+    });
+    expect(first.getByRole('button', { name: maya })).toBeVisible();
+    expect(second.getByRole('button', { name: maya })).toBeVisible();
+    expect(
+      gmail.modifies.map(({ add, remove }) => [add, remove]),
+    ).toStrictEqual([
+      [[], ['INBOX']],
+      [['INBOX'], []],
+    ]);
 
     gmail.fail({ status: 401 });
     await act(store.load);

@@ -26,7 +26,12 @@ export function PreviewWindow({ windowId }: { readonly windowId: string }) {
         />
       </View>
       <View style={styles.detail}>
-        <MessageDetail id={selectedId} />
+        <MessageDetail
+          id={selectedId}
+          onClose={() => {
+            setSelectedId(undefined);
+          }}
+        />
       </View>
     </View>
   );

@@ -34,6 +34,7 @@ export const registration = createRegistration({
 export const gmailInbox = createGmailInbox({
   gmailRequest: (path, query, mailbox) =>
     native().gmailRequest(path, query, mailbox),
+  gmailModify: (change, mailbox) => native().gmailModify(change, mailbox),
   openMailbox: () => native().openMailbox(),
   commitMailbox: (mailbox, expectedRevision, document) =>
     native().commitMailbox(mailbox, expectedRevision, document),
