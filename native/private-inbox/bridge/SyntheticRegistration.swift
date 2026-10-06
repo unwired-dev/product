@@ -436,6 +436,11 @@
         delete: { _, product in
           try productSync.update { $0.deleted.insert(product.productAccountId) }
         }),
+      // Gmail writes require a current Trusted Device proof, answered from the synthetic backend's
+      // removals so the packaged journeys reach the synthetic Gmail mailbox.
+      deviceRevoked: { product in
+        try productSync.state().removed.contains(product.trustedDeviceId)
+      },
       mailCache: mailCache,
       connect: { identity, deviceIdentifier, _ in
         guard let account = accounts[identity.subject] else {
