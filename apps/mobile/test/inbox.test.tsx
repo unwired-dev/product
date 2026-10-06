@@ -13,6 +13,7 @@ import {
   waitFor,
 } from '@testing-library/react-native';
 import { useState } from 'react';
+import { AccessibilityInfo } from 'react-native';
 
 import type { inbox } from '../src/private-storage.ts';
 
@@ -380,6 +381,34 @@ describe('connected Gmail Inbox', () => {
     await waitFor(() => {
       expect(gmail.labelsOf(other)).toStrictEqual(['UNREAD', 'TRASH']);
     });
+    expect(
+      screen.getByText('Moved to Trash: “Tickets for Lisbon”.'),
+    ).toHaveProp('accessibilityRole', 'text');
+    expect(
+      screen.getByText('Moved to Trash: “Tickets for Lisbon”.'),
+    ).not.toHaveProp('accessibilityLiveRegion');
+
+    // Refusal semantics survive the single explicit announcement path on mobile too.
+    gmail.failModify({ status: 400 });
+    await act(async () => {
+      await fireEvent(
+        screen.getByRole('button', {
+          name: 'Oliver Park. Saturday, by the river?',
+        }),
+        'accessibilityAction',
+        { nativeEvent: { actionName: 'archive' } },
+      );
+    });
+    const refusal =
+      'Gmail could not archive “Saturday, by the river?”. The Inbox shows it as Gmail has it.';
+    const status = screen.getByRole('alert', { name: refusal });
+    expect(status).toBeVisible();
+    expect(status).not.toHaveProp('accessibilityLiveRegion');
+    expect(
+      jest
+        .mocked(AccessibilityInfo.announceForAccessibility)
+        .mock.calls.filter(([message]) => message === refusal),
+    ).toStrictEqual([[refusal]]);
   });
 
   it('names the exhausted action and resolves it through Retry and Discard controls', async () => {

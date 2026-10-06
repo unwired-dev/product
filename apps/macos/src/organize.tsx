@@ -210,7 +210,7 @@ export function OrganizeStatus() {
             notice.action,
             notice.message.subject,
           )}
-          accessibilityLiveRegion="polite"
+          // Keep refusal semantics; the effect above owns the explicit announcement.
           accessibilityRole={notice.kind === 'rejected' ? 'alert' : 'text'}>
           <Text style={[styles.secondary, { color: colors.foreground }]}>
             {gmailActionCopy[notice.kind](

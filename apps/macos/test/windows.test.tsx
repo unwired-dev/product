@@ -277,6 +277,14 @@ describe('mac windows over a connected Gmail mailbox', () => {
       ['Moved back to the Inbox: “A little more room to think”.'],
       ['Moved to Trash: “A little more room to think”.'],
     ]);
+    // Each successful notice is text and requests no separate live-region announcement.
+    for (const window of [first, second]) {
+      const status = window.getByLabelText(
+        'Moved to Trash: “A little more room to think”.',
+      );
+      expect(status).toHaveProp('accessibilityRole', 'text');
+      expect(status).not.toHaveProp('accessibilityLiveRegion');
+    }
     await act(async () => {
       await fireEvent.press(first.getByRole('button', { name: 'Undo' }));
     });
@@ -300,6 +308,26 @@ describe('mac windows over a connected Gmail mailbox', () => {
       await fireEvent.press(second.getByRole('button', { name: 'Undo' }));
     });
     expect(second.getByRole('button', { name: maya })).toBeVisible();
+
+    // A refusal keeps its alert semantics while sharing one explicit announcement.
+    gmail.failModify({ status: 400 });
+    await act(async () => {
+      await fireEvent(
+        second.getByRole('button', { name: oliver }),
+        'accessibilityAction',
+        { nativeEvent: { actionName: 'star' } },
+      );
+    });
+    const refusal =
+      'Gmail could not star “Saturday, by the river?”. The Inbox shows it as Gmail has it.';
+    for (const window of [first, second]) {
+      const status = window.getByRole('alert', { name: refusal });
+      expect(status).toBeVisible();
+      expect(status).not.toHaveProp('accessibilityLiveRegion');
+    }
+    expect(
+      announce.mock.calls.filter(([message]) => message === refusal),
+    ).toStrictEqual([[refusal]]);
 
     gmail.fail({ status: 401 });
     await act(store.load);
