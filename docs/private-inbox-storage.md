@@ -12,8 +12,9 @@ each window or route and is never persisted.
 ## Failure behavior
 
 The complete fixture, including metadata and bodies, remains encrypted on the
-device. This small fixture store is not a general mail database or the future
-500 MB body cache. Temporary writes contain ciphertext, not fixture plaintext.
+device. This small fixture store is not a general mail database, and it is separate
+from the Gmail [message body cache](#message-body-cache). Temporary writes contain
+ciphertext, not fixture plaintext.
 The encrypted store is excluded from backup; iOS writes use complete file protection.
 Its encryption key is device-only, never synchronized and accessible only while
 unlocked. Locked data stays inaccessible without replacing stored ciphertext.
@@ -56,6 +57,27 @@ the connected mailbox and that no account removal is under way. Choosing another
 mailbox or Google account removes the file. Every account purge removes it before any key, and a
 failed removal fails the purge so it is retried. Removal needs no key, so it also
 runs while the device is locked.
+
+## Message body cache
+
+Opened and prefetched [Gmail message bodies](gmail-inbox.md#reading-messages) are kept in the
+**Bounded Encrypted Body Cache**, also excluded from backups. Bodies are bound to
+their Google account, mailbox and message, so a saved body moved to another
+message or mailbox fails to open. A damaged or mismatched body reads as absent and is removed only when writes
+are authorized. Cache-only reads preserve files and access times. Opening is
+permitted in the cache-only offline mode; saving
+and pruning need a verified mailbox. Every call carries the mailbox generation, so
+work started before a reselection reaches nothing. Body-cache work keeps the interface
+responsive. A lock or mailbox change during a read prevents its result from being shown.
+Saving a body reserves space
+within the 500 MB budget before it is published. It removes opened bodies before
+prefetched ones, least recently read first, and never removes a body in the
+current recent working set. A body that cannot fit that way is refused and stays
+on demand, as is one larger than the entire budget. Pruning reconciles any
+over-budget cache left by an older interrupted writer. As in admission, only the
+recent working set's bodies that fit within the budget, in working-set order, stay
+protected; the limit always holds. Reselection and every account purge remove the
+bodies with the mailbox cache.
 
 ## Native wiring and signing
 

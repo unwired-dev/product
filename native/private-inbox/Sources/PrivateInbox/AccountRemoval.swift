@@ -18,10 +18,10 @@ struct AccountRemovalState: Codable {
 extension RegistrationStore {
   // An unanswered request must not reconnect a device that may already have unregistered.
   // Acknowledged cleanup resumes without any provider credential or interactive prompt.
-  func removalStatus(_ saved: SavedRegistration) throws -> [String: String]? {
+  func removalStatus(_ saved: SavedRegistration) async throws -> [String: String]? {
     guard let removal = saved.accountRemoval else { return nil }
     if removal.acknowledged {
-      return try purge(
+      return try await purge(
         notice:
           removal.operation == .deletion
           ? "deleted" : removal.operation == .signOut ? "signed-out" : nil)
@@ -44,7 +44,7 @@ extension RegistrationStore {
   func signOut() async throws -> [String: String] {
     guard let removal, var saved = try load() else { throw RegistrationError.unavailable }
     if saved.accountRemoval?.acknowledged == true {
-      return try removalStatus(saved) ?? ["kind": "signed-out"]
+      return try await removalStatus(saved) ?? ["kind": "signed-out"]
     }
     guard saved.accountRemoval == nil || saved.accountRemoval?.operation == .signOut else {
       throw RegistrationError.unavailable
@@ -94,7 +94,7 @@ extension RegistrationStore {
       try save(saved)
       try await removal.unregister(identity, product, saved.deviceIdentifier)
     }
-    _ = try purge(notice: "signed-out")
+    _ = try await purge(notice: "signed-out")
     return ["kind": "signed-out"]
   }
 
@@ -107,7 +107,7 @@ extension RegistrationStore {
       throw RegistrationError.unavailable
     }
     if saved.accountRemoval?.acknowledged == true {
-      return try removalStatus(saved) ?? ["kind": "signed-out"]
+      return try await removalStatus(saved) ?? ["kind": "signed-out"]
     }
     guard saved.accountRemoval == nil || saved.accountRemoval?.operation == .deletion else {
       throw RegistrationError.unavailable
@@ -163,6 +163,6 @@ extension RegistrationStore {
       if wasPending { throw RegistrationError.unavailable }
       throw error
     }
-    return try purge(notice: "deleted")
+    return try await purge(notice: "deleted")
   }
 }

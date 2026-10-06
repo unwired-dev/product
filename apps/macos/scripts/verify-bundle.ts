@@ -91,9 +91,10 @@ assert.equal(
   autolinking.root,
   path.dirname(require.resolve('../package.json')),
 );
+// The isolated WebKit message reader is the only autolinked module.
 assert.deepEqual(
   Object.keys(autolinking.dependencies),
-  [],
+  ['react-native-webview'],
   'Review native modules before expanding the Mac autolinking scope.',
 );
 // Registration scenarios substitute a native provider only; their JavaScript stays production.

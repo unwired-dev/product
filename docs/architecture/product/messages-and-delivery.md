@@ -57,3 +57,11 @@ current replacement work from prototype maintenance and historical plans.
 The conversation reader's load coordinator gives bodies intersecting the visible
 viewport priority over every off-screen body and immediately reprioritizes when
 scrolling changes visibility.
+
+The [2026-10-06 ADR 0029 amendment](../../adr/0029-sanitize-html-before-webkit-rendering.md#amendment--2026-10-06)
+accepts all visible, sanitized CID references on explicit open within per-message
+and shared presentation bounds, without viewport admission. Remote Message
+Content retains its viewport or one-viewport-margin rule under
+[#763](https://github.com/unwired-dev/product/issues/763). This distinction also
+amends the combined image clauses in ADR 0012 and ADR 0018; it does not change
+body priority or scroll anchoring.

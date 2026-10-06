@@ -173,6 +173,79 @@ describe('mac window selection with the shared mock mailbox', () => {
 });
 
 describe('mac windows over a connected Gmail mailbox', () => {
+  it('keeps confirmations window-local and rejects queued links after replacing a message', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    gmail.deliver({
+      subject: 'Garden plan',
+      content: { html: '<a href="https://example.invalid/plan">the plan</a>' },
+    });
+    gmail.deliver({
+      subject: 'Not downloaded yet',
+      content: { text: 'Synthetic body.' },
+    });
+    gmail.deliver({
+      subject: 'Other window',
+      content: {
+        html: '<a href="https://example.invalid/other">other plan</a>',
+      },
+    });
+    jest.replaceProperty(
+      jest.requireMock<{ inbox: typeof inbox }>('../src/private-storage.ts'),
+      'inbox',
+      createGmailInbox(gmail.native),
+    );
+    const app = await render(
+      <Windows
+        first
+        second
+      />,
+    );
+    const first = within(app.getByTestId('inbox-window-first'));
+    const second = within(app.getByTestId('inbox-window-second'));
+    await fireEvent.press(
+      await first.findByRole('button', { name: /Garden plan/u }),
+    );
+    const gardenView = await first.findByTestId('message-webview');
+    const queuedChoice = gardenView.props.onShouldStartLoadWithRequest;
+    await fireEvent.press(
+      await first.findByRole('link', { name: 'Open link: the plan' }),
+    );
+    expect(first.getByText('https://example.invalid/plan')).toBeVisible();
+    expect(second.queryByText('https://example.invalid/plan')).toBeNull();
+    await fireEvent.press(
+      await second.findByRole('button', { name: /Other window/u }),
+    );
+    await fireEvent.press(
+      await second.findByRole('link', { name: 'Open link: other plan' }),
+    );
+    await fireEvent.press(
+      first.getByRole('button', { name: /Not downloaded yet/u }),
+    );
+    await expect(first.findByText('Synthetic body.')).resolves.toBeVisible();
+    await act(() => {
+      queuedChoice({
+        url: 'about:blank#unwired-link-0',
+        navigationType: 'click',
+      });
+    });
+    expect({
+      firstDestination: first.queryByText('https://example.invalid/plan'),
+      firstConfirmation: first.queryByText('Open this link in your browser?'),
+    }).toStrictEqual({ firstDestination: null, firstConfirmation: null });
+    await app.rerender(
+      <Windows
+        first={false}
+        second
+      />,
+    );
+    expect(
+      within(app.getByTestId('inbox-window-second')).getByText(
+        'https://example.invalid/other',
+      ),
+    ).toBeVisible();
+  });
+
   /* oxlint-disable vitest/max-expects -- One journey proves both windows across the synchronization states. */
   it('shares the synchronized Inbox and its recovery states while each window keeps its selection', async () => {
     expect.hasAssertions();
@@ -234,6 +307,16 @@ describe('mac windows over a connected Gmail mailbox', () => {
     await fireEvent.press(await second.findByRole('button', { name: oliver }));
     expect(first.getByText('maya@example.invalid')).toBeVisible();
     expect(second.getByText('oliver@example.invalid')).toBeVisible();
+    // Each window reads its own message's body; a body another window opened is not read again.
+    await expect(first.findByText('Synthetic body.')).resolves.toBeVisible();
+    await expect(second.findByText('Synthetic body.')).resolves.toBeVisible();
+    await fireEvent.press(second.getByRole('button', { name: maya }));
+    expect(second.getByText('maya@example.invalid')).toBeVisible();
+    expect(second.getByText('Synthetic body.')).toBeVisible();
+    expect(
+      gmail.requests.filter(({ query }) => query.get('format') === 'full'),
+    ).toHaveLength(2);
+    await fireEvent.press(second.getByRole('button', { name: oliver }));
     // Read state belongs to Gmail; this slice shows it without changing it.
     expect(first.queryByRole('button', { name: 'Mark as read' })).toBeNull();
 

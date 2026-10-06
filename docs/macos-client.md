@@ -30,7 +30,8 @@ UTF-8 encoding only, not a general message-charset decoder.
 
 The production source-map check rejects the mobile renderer, Expo, React DOM and
 backend code, checks the shared fixture against disk, and verifies native
-autolinking. The host currently autolinks no additional native modules. Adding
+autolinking. The host autolinks only `react-native-webview`, patched for the isolated message
+reader. Adding
 one requires an explicit update to that check.
 
 Each window owns its selected message. Opening another starts with no selection.
