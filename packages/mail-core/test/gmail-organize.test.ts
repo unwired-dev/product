@@ -232,7 +232,11 @@ describe('organizing Gmail mail', () => {
     expect(ready(inbox.getSnapshot()).messages.map(({ id }) => id)[1]).toBe(
       trashed,
     );
-    expect(ready(inbox.getSnapshot()).notice).toBeUndefined();
+    // The restore is announced too, and offers no Undo of its own.
+    expect(ready(inbox.getSnapshot()).notice).toMatchObject({
+      kind: 'done',
+      action: { kind: 'restore' },
+    });
     await restoring;
     expect(gmail.labelsOf(trashed)).toStrictEqual(['INBOX']);
     expect(shown(inbox, trashed)).toMatchObject({ unread: false });

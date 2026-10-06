@@ -71,8 +71,8 @@ Gmail's labels.
 | **Move to** a label               | Adds the label, removes `INBOX`, keeps others    |
 | **Undo**                          | Reverses the latest archive, move, trash or spam |
 
-The reader shows every action as a keyboard-focusable button with a visible focus
-ring. VoiceOver also offers read, star, archive, trash and spam as actions on each
+The reader has keyboard-focusable action buttons and label checkboxes with visible
+focus rings. After a removal, **Undo** appears in the Inbox. VoiceOver also offers read, star, archive, trash and spam as actions on each
 Inbox row, and announces each outcome once, however many Mac windows show it. **Labels** lists the mailbox's own labels, read from Gmail once per
 synchronization and kept with the cache. Restoring from Trash or Spam is the
 **Undo** of the latest removal; browsing Trash, Spam or a label is not part of
@@ -86,7 +86,9 @@ the pending change. Changes are
 sent one at a time, in the order they were made, each by Gmail message ID and only
 to the mailbox they were made in. A message that leaves the Inbox, from the reader
 or its row, closes the reader and shows **Undo** in the Inbox until the next
-organizing action. A change saved while Gmail is still being checked does not
+organizing action. The Inbox states the outcome of every action, such as
+**Starred** or **Marked as read**, so it is announced even when the row does not
+show it. A change saved while Gmail is still being checked does not
 interrupt that check: the synchronization keeps the newly saved changes and goes on.
 
 - **Offline or interrupted:** the change stays saved and is sent on the next

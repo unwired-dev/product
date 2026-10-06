@@ -313,6 +313,10 @@ describe('connected Gmail Inbox', () => {
       await fireEvent.press(screen.getByRole('button', { name: 'Star' }));
     });
     expect(screen.getByRole('button', { name: 'Remove star' })).toBeVisible();
+    // Every outcome is stated, not only removals that can be undone.
+    expect(
+      screen.getByText('Starred: “Saturday, by the river?”.'),
+    ).toBeVisible();
     await fireEvent.press(screen.getByRole('button', { name: 'Labels' }));
     await act(async () => {
       await fireEvent.press(

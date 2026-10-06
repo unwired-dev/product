@@ -22,7 +22,6 @@ import {
   GmailLabelSchema,
   inInbox,
   relabel,
-  restoreAfter,
 } from './gmail-actions.ts';
 import { canOpenInbox } from './registration.ts';
 
@@ -283,8 +282,8 @@ const rejected = (
 const malformed = (error: Schema.SchemaError, kind: 'retry' | 'failed') =>
   new SyncFailure({ kind, cause: error, diagnostic: decodeDiagnostic(error) });
 
-// The latest organizing action, until the next one: a removal that can be undone, or a change
-// Gmail refused.
+// The latest organizing action, until the next one: its outcome, which a removal can undo, or a
+// change Gmail refused.
 export type OrganizeNotice = Readonly<{
   kind: 'done' | 'rejected';
   action: GmailAction;
@@ -1467,10 +1466,8 @@ export function createGmailInbox(
       }
       const requestedFor = ownership;
       queued.push({ scope: shown.scope, pending: { action, message } });
-      notice =
-        restoreAfter(action) === undefined
-          ? undefined
-          : { kind: 'done', action, message };
+      // Every outcome is announced; only a removal from the Inbox offers Undo.
+      notice = { kind: 'done', action, message };
       publish(render());
       return runLogged(persistence.withPermit(save)).then((saved) =>
         saved && requestedFor === ownership ? load() : undefined,

@@ -274,6 +274,7 @@ describe('mac windows over a connected Gmail mailbox', () => {
     // Each outcome is announced once although both windows show it.
     expect(announce.mock.calls).toStrictEqual([
       ['Archived: “A little more room to think”.'],
+      ['Moved back to the Inbox: “A little more room to think”.'],
       ['Moved to Trash: “A little more room to think”.'],
     ]);
     await act(async () => {
@@ -291,7 +292,7 @@ describe('mac windows over a connected Gmail mailbox', () => {
       );
     });
     expect(second.getByText('oliver@example.invalid')).toBeVisible();
-    expect(announce).toHaveBeenCalledTimes(3);
+    expect(announce).toHaveBeenCalledTimes(5);
     expect(announce).toHaveBeenLastCalledWith(
       'Moved to Trash: “A little more room to think”.',
     );
