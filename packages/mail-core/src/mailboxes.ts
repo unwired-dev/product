@@ -302,9 +302,16 @@ export function inboxMessages<L extends Listing>(
   );
 }
 
-// Folds case, compatibility forms and accents, so `cafe` finds `Café`.
+// Normalize and strip accents before casing to expose compatibility letters. Lowercase so `ẞ` joins `ß`,
+// then uppercase to expand sharp S and keep sigma independent of its position in a word.
 const folded = (text: string) =>
-  text.normalize('NFKD').replaceAll(/\p{M}/gu, '').toLowerCase();
+  text
+    .normalize('NFKD')
+    .replaceAll(/\p{M}/gu, '')
+    .toLowerCase()
+    .toUpperCase()
+    .normalize('NFKD')
+    .replaceAll(/\p{M}/gu, '');
 
 type Searched = Readonly<{ sender: string; address: string; subject: string }>;
 

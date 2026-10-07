@@ -629,3 +629,96 @@ describe('mailbox connections and the unified Inbox', () => {
   });
   /* oxlint-enable vitest/max-expects */
 });
+
+describe('searching saved metadata', () => {
+  it('matches Unicode case and compatibility variants without accents', () => {
+    expect.hasAssertions();
+    const listing = [
+      {
+        id: 'saved',
+        state: {
+          kind: 'ready',
+          messages: [
+            {
+              id: 'a',
+              receivedAt: '2026-09-03T00:00:00Z',
+              sender: 'Jörg Straße',
+              address: 'joerg@example.invalid',
+              subject: 'Plan ΑΛΦΑ',
+            },
+            {
+              id: 'b',
+              receivedAt: '2026-09-02T00:00:00Z',
+              sender: 'Ayşe Yılmaz',
+              address: 'ayse@example.invalid',
+              subject: 'İstanbul trip',
+            },
+            {
+              id: 'c',
+              receivedAt: '2026-09-01T00:00:00Z',
+              sender: 'Isparta Office',
+              address: 'office@example.invalid',
+              subject: 'ﬁle ΟΣΑ notes',
+            },
+            {
+              id: 'd',
+              receivedAt: '2026-08-31T00:00:00Z',
+              sender: '𝐀lice',
+              address: 'participant@example.invalid',
+              subject: 'ⒷⓄⓄⓀ',
+            },
+            {
+              id: 'e',
+              receivedAt: '2026-08-30T00:00:00Z',
+              sender: 'Jörg STRAẞE',
+              address: 'jorg@example.invalid',
+              subject: 'Plan',
+            },
+            {
+              id: 'f',
+              receivedAt: '2026-08-29T00:00:00Z',
+              sender: 'ᾳλφα',
+              address: 'greek@example.invalid',
+              subject: 'Meeting',
+            },
+          ],
+        },
+      },
+    ] as const;
+    const search = (query: string) =>
+      searchMessages(inboxMessages(listing, undefined), query).map(
+        ({ message }) => message.id,
+      );
+    expect(
+      [
+        'STRASSE',
+        'STRAẞE',
+        'Straße',
+        'istanbul yilmaz',
+        'ıSPARTA FILE',
+        'alice book',
+        '𝐀LICE ⒷⓄⓄⓀ',
+        'οσ',
+        'ος',
+        'αλφα',
+        'ᾳλφα',
+        'α\u0345λφα',
+        'not saved',
+      ].map((query) => [query, search(query)]),
+    ).toStrictEqual([
+      ['STRASSE', ['a', 'e']],
+      ['STRAẞE', ['a', 'e']],
+      ['Straße', ['a', 'e']],
+      ['istanbul yilmaz', ['b']],
+      ['ıSPARTA FILE', ['c']],
+      ['alice book', ['d']],
+      ['𝐀LICE ⒷⓄⓄⓀ', ['d']],
+      ['οσ', ['c']],
+      ['ος', ['c']],
+      ['αλφα', ['a', 'f']],
+      ['ᾳλφα', ['a', 'f']],
+      ['α\u0345λφα', ['a', 'f']],
+      ['not saved', []],
+    ]);
+  });
+});

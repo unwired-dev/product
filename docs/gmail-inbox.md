@@ -82,7 +82,7 @@ mailbox keeps; older mail stays in Gmail, and online search of message content i
 - **Results.** Each result is an ordinary Inbox row that opens in the reader. While
   searching, each row also says whether its body is **Saved on this device**, so it
   opens without Gmail, or **Downloads from Gmail when opened**. Messages that recent-body
-  prefetch left on demand count as not saved. The answer is checked when the results
+  prefetch leaves for on-demand download count as not saved. The answer is checked when the results
   change and when a result is opened or the reader closes. When nothing matches, the
   list says **No mail saved on this device matches “…”**.
 - **Responsiveness.** Typing never waits for the list. Each saved-body answer belongs
