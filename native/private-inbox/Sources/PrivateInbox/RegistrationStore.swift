@@ -76,6 +76,12 @@ struct MailboxConnection: Codable {
   var epoch: String?
   // This device has read its descriptor back at `epoch`.
   var published: Bool?
+  // What this device had last read of the synchronized descriptor when it authorized the
+  // connection: `observed` with `observedEpoch`, nil when there was no descriptor (empty for one
+  // without an epoch). Only a later live descriptor at that known epoch proves no removal since;
+  // absence supplies no incarnation to adopt after relaunch.
+  var observed: Bool?
+  var observedEpoch: String?
 
   // The opaque identifier JavaScript names this connection by.
   var id: String { Self.id(subject: receipt.subject) }
@@ -306,7 +312,12 @@ struct SavedRegistration: Codable {
     let reason =
       saved.mailboxSetupReason ?? (saved.connections.isEmpty ? nil : "gmail-unavailable")
     if let reason { result["reason"] = reason }
-    if let mailboxes = try mailboxList(saved) { result["mailboxes"] = mailboxes }
+    // Without a verified Product Account no connection's state is known, so none is listed.
+    if reason != "unavailable", reason != "interrupted",
+      let mailboxes = try mailboxList(saved)
+    {
+      result["mailboxes"] = mailboxes
+    }
     return result
   }
 
@@ -617,9 +628,15 @@ struct SavedRegistration: Codable {
       guard !(next.mailboxCacheRemovals ?? []).contains(id) else {
         throw RegistrationError.unavailable
       }
+      // The descriptors this device last read; absent before it ever read them.
+      let vault = try? next.product.flatMap { try loadVault($0.productAccountId) }
+      let observedEpoch = try? vault.flatMap {
+        try $0.descriptorEpochs?[$0.ring.identifier("mailbox", "gmail:" + receipt.subject)]
+      }
       let connection = MailboxConnection(
         credential: gmail.credential, receipt: receipt,
-        epoch: UUID().uuidString)
+        epoch: UUID().uuidString, observed: vault?.descriptorEpochs == nil ? nil : true,
+        observedEpoch: observedEpoch)
       if next.connection(connection.id) == nil {
         next.connections += [connection]
       } else {

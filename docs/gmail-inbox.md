@@ -813,15 +813,29 @@ purge. For bodies, it checks:
 - cache-only reading and listing without writing;
 - removal with the message, mailbox or account.
 
-All 34 tests passed on a fresh iOS 27 simulator before #606. #606 adds four native
-tests, bringing the suite to 38: connections deduplicated by Google account, mixed
+All 34 tests passed on a fresh iOS 27 simulator before #606. #606 adds six native
+tests, bringing the suite to 40: connections deduplicated by Google account, mixed
 authorization and reauthorization with the same account, removal of one connection's
 credential and cache, the upgrade of a single-mailbox record and cache into one
 connection, and descriptor removal and epochs through the synthetic Product Sync
 boundary, including unreadable descriptions, remove/re-add before publication,
-offline consent encountering a removal, and interrupted cache cleanup with relaunch retry. Existing native tests now name each connection. The package and its tests
-compile with the Swift 6.4 command-line tools; the 38-test hosted run needs Xcode and
-an iOS 27 simulator, was not available for #606, and remains required.
+offline consent encountering a removal, interrupted cache cleanup with relaunch retry,
+concurrent additions of one mailbox converging on one epoch, and bodies written before
+Mailbox Connections counting toward the device-wide limit. The concurrency case
+also checks competing recreations, read-back failure with relaunch, offline-grant
+and address-update conflicts, a winning removal, and removal/recreation after a
+successful write. Legacy-body checks cover later adoption and connection-scoped
+listing and membership pruning. An offline authorization of a mailbox another device
+published keeps it when the descriptor is unchanged since this device last read it,
+and loses it when that descriptor was removed and added again meanwhile. An absent
+observation cannot authorize adoption of a later descriptor. The suite also checks
+that an address-update conflict or a later connection's failed publication cannot
+discard a learned removal. Existing native tests now name each connection, and
+descriptors written before epochs keep their connection. All 40 tests passed in
+the hosted storage suite on a fresh iOS 27 simulator with Xcode 27.0, real Keychain
+storage, CryptoKit and the filesystem. The Convex and provider boundaries remain
+synthetic. A separate run replacing only Keychain with an in-memory stand-in also
+passed all 40 tests; that run is logic evidence, not Keychain qualification.
 
 Registration Mock Mail Sessions answer Gmail requests, including the prefetch
 preflight, from a synthetic mailbox of three Inbox messages over two pages and one

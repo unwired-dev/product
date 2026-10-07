@@ -86,7 +86,8 @@ on demand, as is one larger than the entire budget. Pruning reconciles any
 over-budget cache left by an older interrupted writer. As in admission, only the
 recent working set's bodies that fit within the budget, in working-set order, stay
 protected; the limit always holds. The 500 MB budget is device-wide: bodies of every
-connection count toward it and may be evicted for another connection's body outside
+connection, and bodies saved before Mailbox Connections until they are adopted or
+removed, count toward it and may be evicted for another connection's body outside
 that connection's working set, while pruning removes only its own connection's
 bodies. Removing a connection, and every account purge, remove the bodies with the
 mailbox cache.

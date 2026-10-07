@@ -191,7 +191,15 @@ removed connection. Adding the same mailbox back requires fresh consent and
 invalidates authorization from before its removal, including when the earlier
 removal had not reached private sync yet. An addition authorized without private
 sync cannot later recreate a removal or adopt a different incarnation just by restoring; the person authorizes it
-again after that removal is learned. The decrypted mailbox list omits removals.
+again after that removal is learned. Two devices adding the same mailbox at the same
+time converge on one synchronized description; neither loses its authorization
+unless a later removal supersedes that addition. Offline restore does not extend
+earlier authorization to that later connection. A mailbox authorized while private
+sync is unreachable keeps its authorization when the synchronized description is still
+the one this device last read. An unseen description cannot prove that no removal
+occurred meanwhile and requires fresh authorization. A description written
+before connections had incarnations belongs to the same connection. The decrypted
+mailbox list omits removals.
 
 ## Initialization and relaunch
 

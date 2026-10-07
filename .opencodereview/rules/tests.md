@@ -4,6 +4,13 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### The test proves the behavior
 
+- Native registration journeys creating a new `RegistrationStore` for every
+  action without restoring its process-local Product Sign-In session.
+  `synchronize` needs that session; otherwise `removeMailbox` only queues a
+  tombstone and assertions about remote publication exercise no write. Keep one
+  store per simulated process, and explicitly restore or sign in a new instance
+  when testing relaunch. Otherwise a hosted lifecycle test fails for its fixture
+  or misses the intended descriptor race.
 - A provider-action journey such as `InboxTests.registrationJourney` or `WindowTests.registrationJourney` treating optimistic controls, the encrypted cache or a done notice as provider confirmation. Check each action before later notices can mask refusal, rule out unfinished saving/sync and retry/authentication/rejected/blocked outcomes, and label synthetic completion proxies separately from provider-side label/readback evidence; otherwise a guarded or unsent write can leave pending intent behind a passing journey.
 - An assertion that cannot fail for the regression in question: it asserts the fixture, a mock's return value, a call count or call order, or mirrors the implementation line by line. Ask what plausible defect would turn it red.
 - The collaboration under test replaced by a mock. Substitute only the external boundary (provider response, native module, clock); stores, Effect services and layers, and Convex functions run for real.
@@ -20,6 +27,12 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Determinism and isolation
 
+- `SyntheticGoogleRegistrationProvider.verifyGmail` returning one mutable
+  profile address for several saved subjects in a multi-connection journey.
+  Configure subject-scoped profiles for that scenario; changing the chosen
+  account must not rename another account on refresh. Otherwise isolation
+  assertions fail on a fixture-induced cache-owner change instead of exercising
+  independent mailbox authorization.
 - A synthetic Gmail metadata projection that drops a requested admission header,
   such as Content-Disposition, while a prefetch regression asserts only the final
   cache entry. Match the provider's requested-header projection and check that

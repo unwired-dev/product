@@ -134,6 +134,11 @@ extension RegistrationStore {
     generation expectedGeneration: String
   ) async throws -> [String: Any] {
     let generation = mailboxGeneration(id)
+    // Work from before a removal or another verification is stale, whatever the connection's
+    // state now.
+    guard generation.uuidString == expectedGeneration else {
+      throw PrivateInboxError.mailboxInvalidated
+    }
     _ = try mailboxAccount(id)
     guard verifiedMailboxes.contains(id) else { throw RegistrationError.unavailable }
     let (credential, mailbox) = try connectedMailbox(id)
@@ -207,6 +212,9 @@ extension RegistrationStore {
     -> [String: Any]
   {
     guard let mailCache else { throw RegistrationError.unavailable }
+    guard mailboxGeneration(id).uuidString == generation else {
+      throw PrivateInboxError.mailboxInvalidated
+    }
     guard verifiedMailboxes.contains(id) else { throw RegistrationError.unavailable }
     let mailbox = try connectedMailbox(id).1
     guard mailbox.address == address, mailboxGeneration(id).uuidString == generation else {

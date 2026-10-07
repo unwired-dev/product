@@ -29,3 +29,10 @@ func mailboxDisplay(_ value: String?) throws -> String? {
   encoder.outputFormatting = .sortedKeys
   return String(decoding: try encoder.encode(entries), as: UTF8.self)
 }
+
+// A registration reply with its connection list in the stable display contract.
+func displayed(_ reply: [String: String]) throws -> [String: String] {
+  var result = reply
+  result["mailboxes"] = try mailboxDisplay(reply["mailboxes"])
+  return result
+}

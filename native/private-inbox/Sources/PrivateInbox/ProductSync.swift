@@ -123,6 +123,9 @@ struct ProductSyncVault: Codable {
   var savedMailboxes: [String: String]?
   // Every mailbox address last read back and decrypted, shown when no session is available.
   var readMailboxes: [String]?
+  // The epoch of every readable mailbox descriptor last read back, removed or not, by record
+  // identifier; empty for a descriptor written before epochs.
+  var descriptorEpochs: [String: String]?
   // A removal sent without a reply yet: its target, new Recovery Key and exact transition.
   var revocation: PendingRevocation?
 }
@@ -243,8 +246,10 @@ extension RegistrationStore {
       var next = current
       next.readMailboxes = mailboxes.addresses
       next.savedMailboxes = mailboxes.confirmed
+      next.descriptorEpochs = mailboxes.epochs
       if next.readMailboxes != current.readMailboxes
         || next.savedMailboxes != current.savedMailboxes
+        || next.descriptorEpochs != current.descriptorEpochs
       {
         try saveVault(next)
       }
@@ -349,17 +354,28 @@ extension RegistrationStore {
   func synchronizeMailboxes(
     _ saved: SavedRegistration, vault: ProductSyncVault, backend: ProductSyncBackend,
     session: ProductSignInIdentity
-  ) async throws -> (saved: SavedRegistration, addresses: [String], confirmed: [String: String]) {
-    guard let product = saved.product else { return (saved, [], [:]) }
+  ) async throws -> (
+    saved: SavedRegistration, addresses: [String], confirmed: [String: String],
+    epochs: [String: String]
+  ) {
+    guard let product = saved.product else { return (saved, [], [:], [:]) }
     func identifier(_ subject: String) throws -> String {
       try vault.ring.identifier("mailbox", "gmail:" + subject)
     }
     var stored = try await mailboxDescriptors(vault, backend: backend, session: session, product)
-    func put(_ identifier: String, _ descriptor: MailboxDescriptor) async throws {
+    @discardableResult
+    func put(_ identifier: String, _ descriptor: MailboxDescriptor) async throws -> MailboxDescriptor? {
       let sealed = try vault.ring.seal(
         record: JSONEncoder().encode(descriptor), account: vault.productAccountId,
         identifier: identifier, schemaVersion: MailboxDescriptor.schemaVersion)
-      _ = try await backend.put(session, product, identifier, sealed, stored[identifier]?.updatedAt)
+      let result = try await backend.put(
+        session, product, identifier, sealed, stored[identifier]?.updatedAt)
+      guard result.payloadIdentifier == identifier else { throw RegistrationError.unavailable }
+      return try? JSONDecoder().decode(
+        MailboxDescriptor.self,
+        from: vault.ring.open(
+          record: result.encryptedPayload, account: vault.productAccountId,
+          identifier: identifier, schemaVersion: MailboxDescriptor.schemaVersion))
     }
     // A removal marks only the epoch it removed; a later addition from another device stays.
     func removes(_ removal: MailboxRemoval) throws -> MailboxDescriptor? {
@@ -387,16 +403,50 @@ extension RegistrationStore {
     }
     var purged: [MailboxConnection] = []
     var wrote = false
+    func publish(
+      _ connection: MailboxConnection, key: String, descriptor: MailboxDescriptor,
+      canAdopt: Bool
+    ) async throws {
+      next.update(connection.id) { $0.epoch = descriptor.epoch }
+      guard let winner = try await put(key, descriptor) else { wrote = true; return }
+      if winner.removed == true || (winner.epoch != descriptor.epoch && !canAdopt) {
+        purged.append(connection)
+      } else {
+        // Only fresh consent or a matching retained recreation can adopt a losing CAS's winner.
+        next.update(connection.id) {
+          $0.epoch = winner.epoch
+          $0.published = true
+        }
+        // A later list failure must not lose the confirmed CAS winner across relaunch.
+        try save(next)
+      }
+      wrote = true
+    }
+    func purgeConnections() async throws {
+      for connection in purged {
+        next.connections = next.connections.filter { $0.id != connection.id }
+        next.mailboxCacheRemovals = Array(Set(
+          (next.mailboxCacheRemovals ?? []) + [connection.id])).sorted()
+      }
+      if !purged.isEmpty {
+        try save(next)
+        next = try await retryMailboxCleanup(next)
+        purged = []
+      }
+    }
     for connection in saved.connections {
+      // A later connection's failed write must not discard a removal already learned.
+      try await purgeConnections()
       let key = try identifier(connection.receipt.subject)
       let usable = connection.authorizationNeeded != true
       guard let record = stored[key] else {
         if usable {
           let epoch = connection.epoch ?? UUID().uuidString
-          try await put(
-            key, MailboxDescriptor(provider: "gmail", address: connection.receipt.address, epoch: epoch))
-          next.update(connection.id) { $0.epoch = epoch }
-          wrote = true
+          try await publish(
+            connection, key: key,
+            descriptor: MailboxDescriptor(
+              provider: "gmail", address: connection.receipt.address, epoch: epoch),
+            canAdopt: connection.published != true && newlyAuthorizedMailboxes.contains(connection.id))
         }
         continue
       }
@@ -404,6 +454,14 @@ extension RegistrationStore {
       guard let descriptor = record.descriptor else { continue }
       let published = connection.published == true
       let sameEpoch = descriptor.epoch == connection.epoch
+      // A side without an epoch predates epochs, so it names the same incarnation.
+      let compatible = sameEpoch || descriptor.epoch == nil || connection.epoch == nil
+      // Only a known descriptor still at its observed epoch proves no intervening removal.
+      // An absent descriptor cannot rule out an add/remove/re-add while this device was offline.
+      let unchanged =
+        connection.observed == true
+        && connection.observedEpoch != nil
+        && connection.observedEpoch == (descriptor.epoch ?? "")
       let recreation = saved.mailboxRemovals?.contains {
           $0.subject == connection.receipt.subject
             && ($0.epoch == descriptor.epoch || descriptor.epoch == nil)
@@ -415,42 +473,41 @@ extension RegistrationStore {
         } else if usable {
           // Added on this device after the removal: the connection starts a new epoch.
           let epoch = connection.epoch ?? UUID().uuidString
-          try await put(
-            key, MailboxDescriptor(provider: "gmail", address: connection.receipt.address, epoch: epoch))
-          next.update(connection.id) { $0.epoch = epoch }
-          wrote = true
+          try await publish(
+            connection, key: key,
+            descriptor: MailboxDescriptor(
+              provider: "gmail", address: connection.receipt.address, epoch: epoch), canAdopt: true)
         }
-      } else if !sameEpoch {
+      } else if !compatible {
         // An authorization from before a removal and a later addition is not carried over.
         if published
-          || (!newlyAuthorizedMailboxes.contains(connection.id) && !recreation) {
+          || (!newlyAuthorizedMailboxes.contains(connection.id) && !recreation && !unchanged) {
           purged.append(connection)
         } else if connection.epoch != nil, recreation {
           // Explicit recreation advances the epoch even if the old removal was never published.
-          try await put(
-            key, MailboxDescriptor(
-              provider: "gmail", address: connection.receipt.address, epoch: connection.epoch))
-          wrote = true
+          try await publish(
+            connection, key: key,
+            descriptor: MailboxDescriptor(
+              provider: "gmail", address: connection.receipt.address, epoch: connection.epoch),
+            canAdopt: true)
         } else {
           next.update(connection.id) { $0.epoch = descriptor.epoch }
         }
-      } else if usable, descriptor.address != connection.receipt.address {
-        try await put(
-          key,
-          MailboxDescriptor(
-            provider: "gmail", address: connection.receipt.address, epoch: descriptor.epoch))
-        wrote = true
+      } else {
+        // The same incarnation: a connection without an epoch takes the descriptor's, and a
+        // descriptor without one is upgraded to this connection's.
+        let epoch = connection.epoch ?? descriptor.epoch
+        next.update(connection.id) { $0.epoch = epoch }
+        if usable, descriptor.address != connection.receipt.address || descriptor.epoch != epoch {
+          try await publish(
+            connection, key: key,
+            descriptor: MailboxDescriptor(
+              provider: "gmail", address: connection.receipt.address, epoch: epoch),
+            canAdopt: false)
+        }
       }
     }
-    for connection in purged {
-      next.connections = next.connections.filter { $0.id != connection.id }
-      next.mailboxCacheRemovals = Array(Set(
-        (next.mailboxCacheRemovals ?? []) + [connection.id])).sorted()
-    }
-    if !purged.isEmpty {
-      try save(next)
-      next = try await retryMailboxCleanup(next)
-    }
+    try await purgeConnections()
     if !(saved.mailboxRemovals ?? []).isEmpty || wrote {
       stored = try await mailboxDescriptors(vault, backend: backend, session: session, product)
     }
@@ -465,18 +522,29 @@ extension RegistrationStore {
     var confirmed: [String: String] = [:]
     for connection in next.connections {
       let key = try identifier(connection.receipt.subject)
-      guard let descriptor = stored[key]?.descriptor, descriptor.removed != true,
-        descriptor.epoch == connection.epoch
-      else { continue }
+      guard let descriptor = stored[key]?.descriptor else { continue }
+      // An older client may rewrite the descriptor without an epoch; that keeps the incarnation.
+      if descriptor.removed == true
+        || (descriptor.epoch != nil && descriptor.epoch != connection.epoch)
+      {
+        // Read-back may observe a removal/recreation after our successful write or CAS adoption.
+        // It cannot extend that consent to yet another incarnation.
+        purged.append(connection)
+        continue
+      }
       next.update(connection.id) { $0.published = true }
       if descriptor.address == connection.receipt.address {
         confirmed[key] = connection.receipt.address
       }
     }
+    try await purgeConnections()
     try save(next)
-    let addresses = stored.values.compactMap { $0.descriptor }.filter { $0.removed != true }.map(
-      \.address)
-    return (next, Set(addresses).sorted(), confirmed)
+    let readable = stored.compactMapValues { $0.descriptor }
+    let live = readable.values.filter { $0.removed != true }
+    return (
+      next, Set(live.map(\.address)).sorted(), confirmed,
+      readable.mapValues { $0.epoch ?? "" }
+    )
   }
 
   func mailboxDescriptors(

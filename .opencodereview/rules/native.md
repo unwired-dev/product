@@ -79,6 +79,29 @@ This code owns what TypeScript must never hold: Keychain items, the storage encr
 
 #### Mailbox Connection lifecycle
 
+- `synchronizeMailboxes` treating a missing entry in `descriptorEpochs` as an
+  unchanged incarnation for offline consent, or discarding an authenticated
+  removal/different epoch from an address-update CAS when its later list fails.
+  Adopt an offline grant only against a known observed live epoch that still
+  matches, and durably purge a known removal before another fallible read or
+  another connection's publication. A batch that waits until all writes finish
+  loses learned removals when a later connection fails.
+  Absence cannot rule out an unseen add/remove/re-add; either gap retains stale
+  provider authorization after a synchronized removal.
+- `synchronizeMailboxes` discarding the descriptor returned by a losing CAS or
+  adopting any different epoch from a later list merely because it attempted a
+  write. Bind eligible fresh consent or matching retained recreation to the
+  live CAS winner, persist that epoch before later fallible reads, and require
+  final read-back to match it. Tombstones, ordinary offline restore, published
+  address updates and subsequent removals cannot extend an old grant to another
+  incarnation; otherwise concurrent additions lose valid mail or resurrect
+  authorization after removal.
+- `PrivateInboxStore.bodies()` omitting unadopted root `bodies/` from device-wide
+  admission and eviction totals. Count every supported layout until adoption or
+  removal; moving legacy bodies under `mailboxes/<id>` must count them once.
+  Keep `bodies(connection)` and list/membership pruning connection-scoped, and
+  preserve legacy metadata during body eviction. Otherwise legacy mail adds a
+  second cache quota or pruning destroys another connection's pending actions.
 - `synchronizeMailboxes` acknowledging a queued removal from absent or unreadable
   ciphertext, or discarding removal intent on a pre-publication re-add. Require a
   read-back tombstone or an authoritative superseding incarnation, preserve

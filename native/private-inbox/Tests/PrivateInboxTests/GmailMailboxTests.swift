@@ -709,10 +709,15 @@ extension PrivateInboxTests {
       connection: other, address: google.address,
       generation: store.generation("synthetic-other-mailbox"), id: "a",
       admission: ["document": body, "tier": "prefetched", "protectedIds": ["a"]])
-    // The device-wide limit counts every connection's bodies.
+    // The device-wide limit counts every connection's bodies: with room for only Other's bodies,
+    // admitting another evicts the first mailbox's remaining body.
+    let otherBodies = try FileManager.default.contentsOfDirectory(
+      at: directory.appendingPathComponent("mailboxes/\(other)/bodies"),
+      includingPropertiesForKeys: nil)
     let shared = PrivateInboxStore(
       directory: directory, service: service, protectedDataAvailable: { true },
-      bodyLimit: (try files().first.map { try Data(contentsOf: $0).count } ?? 0) + text.count)
+      // AES-GCM adds a 12-byte nonce and a 16-byte tag to each body.
+      bodyLimit: try otherBodies.reduce(text.count + 28) { $0 + (try Data(contentsOf: $1).count) })
     #expect(
       try shared.commitMessageBody(
         connection: other, address: google.address, subject: google.subject, id: "b",

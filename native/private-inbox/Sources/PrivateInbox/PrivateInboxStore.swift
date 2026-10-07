@@ -375,7 +375,8 @@ public final class PrivateInboxStore: @unchecked Sendable {
     }
     let folders =
       try connection.map { [try connectionPath($0, "bodies")] }
-      ?? contents("mailboxes").map { "mailboxes/\($0.lastPathComponent)/bodies" }
+      // The bodies written before Mailbox Connections count until adopted or removed.
+      ?? ["bodies"] + contents("mailboxes").map { "mailboxes/\($0.lastPathComponent)/bodies" }
     let files = try folders.flatMap(contents)
     return try files.map { file in
       let values = try file.resourceValues(forKeys: Set(keys))

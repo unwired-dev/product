@@ -71,7 +71,12 @@ and complete file protection still apply. Keys never cross the bridge. A failed
 body authentication returns absence. When writes are authorized it removes only
 that disposable body; cache-only access preserves ciphertext and access times.
 
-The native vault enforces a 500 MB stored-byte budget across all connection body directories.
+The native vault enforces a 500 MB stored-byte budget across all connection body directories
+and the unadopted legacy root `bodies/`. The global scan counts that directory
+until adoption or removal; lazy adoption moves it under one connection while
+holding the same file lock, so it is never counted twice. Global eviction may
+remove legacy bodies but preserves their metadata document and pending actions.
+Listing and membership pruning still scan only the named connection.
 Admission includes the nonce and authentication-tag overhead, plans all eviction
 before deleting anything, and refuses an entry that cannot fit. Tier suffixes
 separate opened and prefetched files. Eviction considers opened entries first,

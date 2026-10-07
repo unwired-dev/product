@@ -9,6 +9,8 @@ import Testing
   var scopes: Set<String> = []
   var gmailAvailable = true
   var address = "same@example.invalid"
+  // Multi-connection journeys keep each provider subject's profile independent.
+  var mailboxAddresses: [String: String] = [:]
   var refreshes = 0
   var hints: [String?] = []
   var refreshFailure: (any Error)?
@@ -48,7 +50,8 @@ import Testing
     guard gmailAvailable, !refusedSubjects.contains(identity.subject) else {
       throw RegistrationError.gmailUnavailable
     }
-    return GmailRegistrationReceipt(subject: identity.subject, address: address)
+    return GmailRegistrationReceipt(
+      subject: identity.subject, address: mailboxAddresses[identity.subject] ?? address)
   }
   var gmailRequests: [URL] = []
   var gmailBodies: [Data?] = []
@@ -187,7 +190,7 @@ extension PrivateInboxTests {
     provider.subject = "synthetic-mailbox-subject"
     let connected = try await provider.store(keys: keys).authorizeGmail(chooseAccount: true)
     #expect(
-      connected == [
+      try displayed(connected) == [
         "kind": "connected", "productAccountId": "account-synthetic-product-subject",
         "signInProvider": "google",
         "mailboxes": mailboxList([
@@ -288,7 +291,7 @@ extension PrivateInboxTests {
     google.address = "relay@privaterelay.example.invalid"
     let connected = try await store().authorizeGmail()
     #expect(
-      connected
+      try displayed(connected)
         == account.merging([
           "kind": "connected",
           "mailboxes": mailboxList([

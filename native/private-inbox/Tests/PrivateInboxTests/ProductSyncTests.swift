@@ -22,6 +22,10 @@ import Testing
   // The digest of the proof of the Recovery Key that opens the committed recovery envelope.
   var verifiers: [String: String] = [:]
   var records: [String: [String: StoredPayload]] = [:]
+  // Runs before each record write, as another device's write that lands first.
+  var beforePut: ((String, String) throws -> Void)?
+  // Controls read-back independently of the CAS response.
+  var beforeList: ((String, String) throws -> Void)?
   // Pending Devices by id; each ends with its request unless it is renewed or approved.
   var pending: [String: PendingDevice] = [:]
   var revoked: Set<String> = []
@@ -132,12 +136,14 @@ import Testing
       },
       list: { [self] _, product, prefix in
         try trusted(product)
+        try beforeList?(product.productAccountId, prefix)
         return (records[product.productAccountId] ?? [:]).values
           .filter { $0.payloadIdentifier.hasPrefix(prefix) }
           .sorted { $0.payloadIdentifier < $1.payloadIdentifier }
       },
       put: { [self] _, product, identifier, payload, expected in
         try trusted(product)
+        try beforePut?(product.productAccountId, identifier)
         guard payload.keyVersion == epoch(product.productAccountId) else {
           throw RegistrationError.unavailable
         }
@@ -804,8 +810,11 @@ extension PrivateInboxTests {
     // An Apple relaunch cannot reach Convex but still shows the list it last decrypted.
     #expect(try await store().restore()["privateSyncMailboxes"] == "same@example.invalid")
     // After relaunch Apple has no backend session, so a newly chosen mailbox waits for sign-in.
+    google.mailboxAddresses = [
+      "synthetic-mailbox-subject": "same@example.invalid",
+      "synthetic-other-mailbox": "other@example.invalid",
+    ]
     google.subject = "synthetic-other-mailbox"
-    google.address = "other@example.invalid"
     let reselected = try await store().authorizeGmail(chooseAccount: true)
     #expect(reselected["kind"] == "connected")
     #expect(reselected["privateSyncPending"] == "mailbox")

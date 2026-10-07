@@ -349,8 +349,26 @@ that retry and a new local epoch, so the old incarnation is fenced even if the
 removal publication was interrupted. `newlyAuthorizedMailboxes` distinguishes
 current explicit consent from ordinary restore: an unpublished grant obtained
 while sync was unavailable cannot subsequently resurrect a tombstone or adopt a
-different live incarnation. New connections receive an epoch before publication. The user
+different live incarnation. An unpublished grant may adopt the live epoch that
+the vault last read before that consent only when the same epoch is still live.
+The vault records every readable descriptor's epoch, including tombstones; an
+absent or unreadable descriptor supplies no observation for this exception.
+New connections receive an epoch before publication. The user
 must authorize again after learning that removal.
+
+Concurrent fresh additions or matching retained recreations adopt the live
+descriptor returned by their losing compare-and-set. The adopted epoch and
+publication receipt are saved before later fallible reads. Ordinary restore of
+an unpublished grant and updates of a published connection cannot adopt a
+different CAS epoch. A tombstone returned by CAS purges that grant. Final
+read-back confirms only the epoch established by the initial read or CAS; a
+removal or different live epoch learned afterward durably removes credentials
+and queues cache cleanup rather than extending the earlier consent to a new
+incarnation. Unreadable responses remain unknown and never grant adoption.
+Address and legacy-epoch updates use the same CAS fence. Learned purges are
+checkpointed before another connection's fallible publication, so a failure
+later in the batch cannot restore already-removed credentials. Epochless readable
+legacy records keep their incarnation and can be upgraded through that fence.
 
 Local and synchronized removal delete connections from the durable registration
 before awaited cache cleanup. `mailboxCacheRemovals` retains only opaque cache
