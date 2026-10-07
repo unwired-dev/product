@@ -83,7 +83,8 @@ mailbox keeps; older mail stays in Gmail, and online search of message content i
   searching, each row also says whether its body is **Saved on this device**, so it
   opens without Gmail, or **Downloads from Gmail when opened**. Messages that recent-body
   prefetch leaves for on-demand download count as not saved. The answer is checked when the results
-  change and when a result is opened or the reader closes. When nothing matches, the
+  change, when a result is opened or the reader closes, and whenever this device saves or
+  prunes a body while the results are shown, such as recent-body prefetch finishing. When nothing matches, the
   list says **No mail saved on this device matches “…”**.
 - **Responsiveness.** Typing never waits for the list. Each saved-body answer belongs
   to the query, view and mailboxes it was asked for; a slower answer for an earlier
@@ -820,8 +821,8 @@ The #608 shared test searches two controlled mailboxes after an offline relaunch
 that opens only their saved Inboxes, with no Gmail request: word, case and accent
 matching, scoped and unified results, saved bodies against exclusion markers, opening
 a saved result, and removal. Rendered journeys on both hosts search across mailboxes,
-show each result's saved state, open a result and see it saved after the reader
-closes, keep only the current answer when an earlier lookup replies late, and drop a
+show each result's saved state, see a result become saved when held prefetch finishes,
+open a result and see it saved after the reader closes, keep only the current answer when an earlier lookup replies late, and drop a
 removed mailbox's results.
 
 Rendered host tests drive the isolated reader's configuration, measurement, link

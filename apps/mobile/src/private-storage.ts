@@ -30,6 +30,11 @@ export interface MailboxList {
   readonly getSnapshot: () => readonly InboxMailbox[];
   readonly subscribe: (listener: () => void) => () => void;
   readonly load: () => Promise<void>;
+  // Gmail mailboxes' body cache; the preview fixture keeps bodies with its metadata.
+  readonly bodies?: Readonly<{
+    getSnapshot: () => number;
+    subscribe: (listener: () => void) => () => void;
+  }>;
 }
 
 // Preview builds show the synthetic fixture; others show every connected Gmail mailbox.

@@ -785,7 +785,26 @@ const httpFailure = (status: number, body: string) =>
 export function createBodyLoads() {
   const idle = Latch.makeUnsafe(true);
   let interactive = 0;
+  let cacheVersion = 0;
+  const cacheListeners = new Set<() => void>();
   return {
+    // Advances whenever a connection saves a body or prunes its cache. The limit is device-wide,
+    // so saving one connection's body can also evict another's.
+    cache: {
+      getSnapshot: () => cacheVersion,
+      subscribe: (listener: () => void) => {
+        cacheListeners.add(listener);
+        return () => {
+          cacheListeners.delete(listener);
+        };
+      },
+      changed: Effect.sync(() => {
+        cacheVersion += 1;
+        for (const listener of cacheListeners) {
+          listener();
+        }
+      }),
+    } as const,
     loads: Semaphore.makeUnsafe(4),
     // Separate owner ledgers share one presentation budget without colliding on Gmail IDs.
     images: new Map<
@@ -1217,6 +1236,7 @@ export function createGmailInbox(
           catch: (cause) => rejected(cause, 'failed'),
         }),
       ),
+      Effect.andThen(shared.cache.changed),
       Effect.catchTag('SyncFailure', (failure) =>
         failure.kind === 'conflict' || failure.kind === 'invalidated'
           ? Effect.fail(failure)
@@ -1600,6 +1620,9 @@ export function createGmailInbox(
                       // oxlint-disable-next-line promise/prefer-await-to-callbacks -- Effect's typed decoding channel.
                       Effect.mapError((error) => malformed(error, 'failed')),
                     ),
+                  ),
+                  Effect.tap(({ admitted }) =>
+                    admitted ? shared.cache.changed : Effect.void,
                   ),
                 )
               : Effect.fail(

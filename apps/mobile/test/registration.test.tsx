@@ -55,6 +55,10 @@ const connectedTo = (address: SyntheticAddress) =>
   ]);
 const alex = syntheticMailboxes['alex@example.invalid'];
 
+// Whether a synthetic Gmail request downloads a full message, as recent-body prefetch does.
+const downloadsBody = (query: ReadonlyArray<readonly [string, string]>) =>
+  query.some(([name, value]) => name === 'format' && value === 'full');
+
 // The app's Inbox composition: one controlled Gmail mailbox per connection of `registration`.
 const gmailMailboxes = (
   registration: Pick<Registration, 'subscribe' | 'getSnapshot'>,
@@ -527,9 +531,22 @@ describe('product registration', () => {
       [alex]: gmail.alex,
       [syntheticMailboxes['other@example.invalid']]: gmail.other,
     });
+    // Holds Alex's recent-body prefetch download until released.
+    let releasePrefetch: () => void = () => undefined;
+    // oxlint-disable-next-line promise/avoid-new -- Explicit prefetch suspension, released by the journey.
+    const prefetch = new Promise<void>((resolve) => {
+      releasePrefetch = resolve;
+    });
     const mailboxes = createMailboxes(
       {
         ...connections,
+        gmailRequest: async (path, query, mailbox) => {
+          // oxlint-disable-next-line vitest/no-conditional-in-test -- Only Alex's body download waits.
+          if (mailbox.connection === alex && downloadsBody(query)) {
+            await prefetch;
+          }
+          return connections.gmailRequest(path, query, mailbox);
+        },
         listMessageBodies: async (mailbox, ids) => {
           const held = holding;
           // oxlint-disable-next-line vitest/no-conditional-in-test -- Only a held lookup waits.
@@ -603,6 +620,23 @@ describe('product registration', () => {
     await openAccount();
     await press('Add another Gmail mailbox');
     await press('Open Inbox');
+    // A result searched while prefetch is still downloading its body becomes saved once the body
+    // is, without a new query or selection.
+    await search('studio');
+    await waitFor(() => {
+      expect(rows()).toStrictEqual([
+        'Unread. Maya Chen. Studio review. In alex@example.invalid. Downloads from Gmail when opened',
+      ]);
+    });
+    await act(async () => {
+      releasePrefetch();
+      await prefetch;
+    });
+    await waitFor(() => {
+      expect(rows()).toStrictEqual([
+        'Unread. Maya Chen. Studio review. In alex@example.invalid. Saved on this device',
+      ]);
+    });
     await waitFor(() => {
       expect(gmail.alex.bodyCommits).toHaveLength(2);
     });

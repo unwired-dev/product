@@ -102,11 +102,13 @@ type Result = Readonly<{
 // Whether each search result's body opens from this device, by `resultKey`; absent while unknown.
 // Each answer belongs to the results and `refresh` it was asked for, so a slower reply for an
 // earlier query, scope or set of mailboxes never replaces the current one. A new `refresh`, such
-// as a reader opening or closing a result, asks again.
+// as a reader opening or closing a result, asks again, and so does any body saved or pruned in
+// the background while the results are shown; only the latest of those answers is kept.
 export function useSavedBodies(
   results: readonly Result[] | undefined,
   refresh: string,
 ) {
+  const { bodies } = use(MailboxesContext);
   const [answer, setAnswer] = useState<
     Readonly<{
       results: readonly Result[];
@@ -119,17 +121,24 @@ export function useSavedBodies(
       return;
     }
     let current = true;
+    let asked = 0;
     const lookup = async () => {
+      asked += 1;
+      const question = asked;
       const saved = await savedMessageBodies(results);
-      if (current) {
+      if (current && question === asked) {
         setAnswer({ results, refresh, saved });
       }
     };
     void lookup();
+    const unsubscribe = bodies?.subscribe(() => {
+      void lookup();
+    });
     return () => {
       current = false;
+      unsubscribe?.();
     };
-  }, [results, refresh]);
+  }, [results, refresh, bodies]);
   return answer !== undefined &&
     answer.results === results &&
     answer.refresh === refresh

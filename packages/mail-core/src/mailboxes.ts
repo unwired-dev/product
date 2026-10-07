@@ -214,6 +214,11 @@ export function createMailboxes(
         listeners.delete(listener);
       };
     },
+    // Changes whenever any connection saves or prunes bodies, so saved states can be read again.
+    bodies: {
+      getSnapshot: shared.cache.getSnapshot,
+      subscribe: shared.cache.subscribe,
+    },
     // Synchronizes every open connection; each one's failure stays its own.
     load: async () => {
       started = true;

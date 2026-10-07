@@ -40,6 +40,12 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Running programs and shared state
 
+- `createGmailInbox.store` or `retainBodies` changing body-cache membership
+  without notifying the cache subscribers exposed by `createMailboxes.bodies`.
+  Publish after admitted commits and successful pruning, using the coordinator
+  shared by every connection: the device-wide budget lets one connection evict
+  another's body. Refused admission preserves membership. Otherwise derived
+  saved-body status remains stale despite unchanged Inbox metadata.
 - `Effect.run*` anywhere except the single run of a host-facing store method through `runLogged`; in particular inside a service method, a callback passed back into Effect, or a loop.
 - A host-facing action whose Promise can reject for an expected state. Hosts call actions as `void store.load()`, so a rejection is an unhandled promise rejection; expected failures become snapshot state.
 - Overlapping asynchronous store actions that read, change or publish shared state without the store's `Semaphore`, so they interleave a read-modify-write or a slower earlier call publishes over a newer result. Synchronous `getSnapshot` and listener bookkeeping do not require an Effect run or permit. Use `withPermit` to queue and `withPermitsIfAvailable` only where dropping the overlapping request is the intended behavior.
