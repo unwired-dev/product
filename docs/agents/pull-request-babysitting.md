@@ -5,7 +5,7 @@ uses the repository-root [`.coderabbit.yaml`](../../.coderabbit.yaml) together w
 the nearest `AGENTS.md` instructions. It automatically reviews non-draft pull
 requests to the default branch and incrementally reviews new pushes. Pull
 requests from common dependency and automation bots are skipped, as are pull
-requests whose title contains `[WIP]` or `[skip review]` or that carry the
+requests whose title contains `[WIP]`, `[skip review]` or `Version packages`, or that carry the
 `do-not-review` label. Generated Convex client files are excluded from review.
 
 Codex can close the feedback loop with a
@@ -100,7 +100,8 @@ implementation changes. A skill installation does not replace repository policy.
 squash-merges each open pull request to `main` that meets every condition:
 
 - It is ready for review, from a same-repository branch, and has no merge conflict.
-- Every status check the `main` ruleset requires concluded success or skipped.
+- Every status check the `main` ruleset requires concluded success or skipped,
+  from its required GitHub App when one is specified.
 - Every review thread is resolved.
 - Codex reacted with 👍 and its latest "Didn't find any major issues" comment
   names the current head commit.
@@ -108,11 +109,15 @@ squash-merges each open pull request to `main` that meets every condition:
 
 When that CodeRabbit review requests changes instead, the merger dismisses it as
 stale and merges once the other conditions hold and the pull request has had no
-new commits, comments or reviews for 2 hours. It never merges a pull request
+new commits, comments or reviews for more than 2 hours. It never merges a pull request
 without both reviewers, a pull request CodeRabbit is configured to skip, a fork
-head, or the `changeset-release/main` version pull request. The merge uses the
+head, a bot-authored pull request, or the `changeset-release/main` version pull request.
+Incomplete label, required-check or review-thread pages block the merge. The merge uses the
 `GH_TOKEN` personal token so the push to `main` runs its workflows; because that
 token's owner may bypass the ruleset, the script checks the required status
-checks itself. Run the workflow manually with `dry_run` to see each decision
+checks itself. Eligibility is checked again before acting and after a stale-review
+dismissal. The head commit is fenced at merge time; comments, labels and review
+state can still change between the final check and GitHub accepting the merge.
+Run the workflow manually on `main` with `dry_run` to see each decision
 without dismissing or merging, or locally with
 `DRY_RUN=1 GITHUB_REPOSITORY=unwired-dev/product bash scripts/auto-merge.sh [number...]`.

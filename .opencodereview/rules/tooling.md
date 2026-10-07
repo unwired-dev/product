@@ -4,6 +4,8 @@ These scripts are the gates and runners other evidence depends on: the bundle ch
 
 #### Gates fail closed
 
+- `scripts/auto-merge.sh` using a ruleset bypass token while matching required checks only by name rather than their configured integration, or reading only one rules page. This permits merging without the ruleset's trusted checks.
+- The merger deciding eligibility from incomplete label/check/thread pages, omitting CodeRabbit's configured exclusions or bot authors, or merging from the pre-dismissal snapshot without checking new feedback and the original head. A missing exclusion or changed feedback must not authorize the privileged merge.
 - A check that exits zero despite missing inputs required to prove its stated outcome: no bundle source maps, no selected native tests, or a required tool that was missing. The bundle check's "export the bundle first" assertion guards this. A documented no-op, such as no changeset files to validate, is permitted.
 - An error swallowed so the script continues: `|| true`, a `catch` that only logs, a pipeline without `pipefail`, an unchecked child-process exit status or signal.
 - A bundle or contract assertion removed, loosened to a substring that always matches, or updated to the new value with no explanation of why the old expectation no longer holds.
