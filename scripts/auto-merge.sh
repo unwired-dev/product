@@ -21,7 +21,7 @@ query='query($owner: String!, $name: String!, $number: Int!) {
       reviews(last: 100) { nodes { databaseId author { login } state submittedAt } }
       reviewThreads(first: 100) { totalCount nodes { isResolved comments(last: 1) { nodes { createdAt } } } }
       commits(last: 1) { nodes { commit { committedDate statusCheckRollup { contexts(first: 100) {
-        totalCount nodes { ... on CheckRun { name status conclusion checkSuite { app { databaseId } } } ... on StatusContext { context state } }
+        totalCount nodes { ... on CheckRun { name status conclusion checkSuite { app { databaseId } } } ... on StatusContext { context state description } }
       } } } } }
     }
   }
@@ -34,6 +34,9 @@ decide='
   | ([.reviews.nodes[] | select(.author.login == "coderabbitai" and (.state == "APPROVED" or .state == "CHANGES_REQUESTED" or (.state == "DISMISSED" and .databaseId == $dismissed)))] | last) as $rabbit
   | ([.comments.nodes[] | select(.author.login == "chatgpt-codex-connector" and (.body | contains("Didn'"'"'t find any major issues")))]
      | last | .body // "" | [capture("Reviewed commit:\\*\\* `(?<sha>[0-9a-f]+)`")] | .[0].sha // "") as $codexSha
+  # CodeRabbit reports a successful status even when it paused or skipped a commit.
+  | (any($commit.statusCheckRollup.contexts.nodes[]?; .context == "CodeRabbit" and .state == "SUCCESS"
+      and (.description | IN("Review completed", "Review approved")))) as $rabbitReviewedHead
   | ([$commit.statusCheckRollup.contexts.nodes[]? | {name: (.name // .context), app: .checkSuite.app.databaseId,
       ok: (if .name then .status == "COMPLETED" and (.conclusion | IN("SUCCESS", "SKIPPED")) else .state == "SUCCESS" end)}]) as $checks
   | ([.comments.nodes[].createdAt, .reviews.nodes[].submittedAt, .reviewThreads.nodes[].comments.nodes[].createdAt, $commit.committedDate]
@@ -57,9 +60,11 @@ decide='
     elif all(.reactions.nodes[]; .user.login != "chatgpt-codex-connector[bot]") then "wait: no Codex 👍"
     elif $codexSha == "" or ($head | startswith($codexSha) | not) then "wait: Codex has not cleared the head commit"
     elif $rabbit == null then "wait: no CodeRabbit approval"
-    elif $rabbit.state == "APPROVED" then "merge"
+    elif $rabbit.state == "APPROVED" and $rabbitReviewedHead then "merge"
+    elif $now - $lastActivity <= 7200 and $rabbit.state == "APPROVED"
+      then "wait: CodeRabbit has not reviewed the head commit and the PR was active in the last 2 hours"
     elif $now - $lastActivity <= 7200 then "wait: CodeRabbit requests changes and the PR was active in the last 2 hours"
-    elif $rabbit.state == "DISMISSED" then "merge"
+    elif $rabbit.state != "CHANGES_REQUESTED" then "merge"
     else "dismiss \($rabbit.databaseId)"
     end'
 

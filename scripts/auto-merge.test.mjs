@@ -90,7 +90,11 @@ function cleared() {
                     conclusion: 'SKIPPED',
                     checkSuite: { app: { databaseId: 15_368 } },
                   },
-                  { context: 'CodeRabbit', state: 'SUCCESS' },
+                  {
+                    context: 'CodeRabbit',
+                    state: 'SUCCESS',
+                    description: 'Review completed',
+                  },
                 ],
               },
             },
@@ -101,51 +105,56 @@ function cleared() {
   };
 }
 
-// Runs the real script and jq; only the GitHub API is a fake boundary.
-function run(pr, env = {}, options = {}) {
-  mkdirSync(path.join(root, 'scratchpad'), { recursive: true });
-  const directory = mkdtempSync(path.join(root, 'scratchpad/auto-merge-'));
-  try {
-    writeFileSync(
-      path.join(directory, 'pr.json'),
-      JSON.stringify([pr, ...(options.snapshots ?? [])]),
-    );
-    const required = [checkRule('TypeScript'), checkRule('Fallow')];
-    writeFileSync(
-      path.join(directory, 'rules.json'),
-      JSON.stringify(options.rulePages ?? [required]),
-    );
-    writeFileSync(
-      path.join(directory, 'gh'),
-      `#!/usr/bin/env node
+// Writes the pull request snapshots, ruleset pages and a fake `gh` binary.
+function fakeGitHub(directory, pr, options) {
+  writeFileSync(
+    path.join(directory, 'pr.json'),
+    JSON.stringify([pr, ...(options.snapshots ?? [])]),
+  );
+  const required = [checkRule('TypeScript'), checkRule('Fallow')];
+  writeFileSync(
+    path.join(directory, 'rules.json'),
+    JSON.stringify(options.rulePages ?? [required]),
+  );
+  writeFileSync(
+    path.join(directory, 'gh'),
+    `#!/usr/bin/env node
 import fs from 'node:fs';
 const a = process.argv.slice(2), dir = ${JSON.stringify(directory)};
 fs.appendFileSync(dir + '/gh.log', JSON.stringify(a) + '\\n');
 if (a[0] === 'pr' && a[1] === 'list') { console.log('[{"number":7}]'); process.exit(0); }
 if (a[0] === 'api' && a[1] === 'graphql') {
-  const count = fs.readFileSync(dir + '/gh.log', 'utf8').trim().split('\\n').map(JSON.parse).filter(call => call[1] === 'graphql').length;
-  const snapshots = JSON.parse(fs.readFileSync(dir + '/pr.json'));
-  console.log(JSON.stringify({ data: { repository: { pullRequest: snapshots[Math.min(count - 1, snapshots.length - 1)] } } }));
-  process.exit(0);
+const count = fs.readFileSync(dir + '/gh.log', 'utf8').trim().split('\\n').map(JSON.parse).filter(call => call[1] === 'graphql').length;
+const snapshots = JSON.parse(fs.readFileSync(dir + '/pr.json'));
+console.log(JSON.stringify({ data: { repository: { pullRequest: snapshots[Math.min(count - 1, snapshots.length - 1)] } } }));
+process.exit(0);
 }
 if (a[0] === 'api' && a[1].endsWith('/rules/branches/main')) {
-  const pages = JSON.parse(fs.readFileSync(dir + '/rules.json'));
-  console.log(JSON.stringify(a.includes('--slurp') ? pages : pages[0]));
-  process.exit(0);
+const pages = JSON.parse(fs.readFileSync(dir + '/rules.json'));
+console.log(JSON.stringify(a.includes('--slurp') ? pages : pages[0]));
+process.exit(0);
 }
 if (a[0] === 'api' && a[1] === '-X' && a[2] === 'PUT') {
-  if (${Boolean(options.failDismiss)}) process.exit(1);
-  const id = Number(a[3].split('/').at(-2));
-  const snapshots = JSON.parse(fs.readFileSync(dir + '/pr.json'));
-  for (const snapshot of snapshots) for (const review of snapshot.reviews.nodes) if (review.databaseId === id) review.state = 'DISMISSED';
-  fs.writeFileSync(dir + '/pr.json', JSON.stringify(snapshots));
-  process.exit(0);
+if (${Boolean(options.failDismiss)}) process.exit(1);
+const id = Number(a[3].split('/').at(-2));
+const snapshots = JSON.parse(fs.readFileSync(dir + '/pr.json'));
+for (const snapshot of snapshots) for (const review of snapshot.reviews.nodes) if (review.databaseId === id) review.state = 'DISMISSED';
+fs.writeFileSync(dir + '/pr.json', JSON.stringify(snapshots));
+process.exit(0);
 }
 if (a[0] === 'pr' && a[1] === 'merge') process.exit(${options.failMerge ? 1 : 0});
 process.exit(2);
 `,
-      { mode: 0o755 },
-    );
+    { mode: 0o755 },
+  );
+}
+
+// Runs the real script and jq; only the GitHub API is a fake boundary.
+function run(pr, env = {}, options = {}) {
+  mkdirSync(path.join(root, 'scratchpad'), { recursive: true });
+  const directory = mkdtempSync(path.join(root, 'scratchpad/auto-merge-'));
+  try {
+    fakeGitHub(directory, pr, options);
     const result = spawnSync(
       'bash',
       [path.join(root, 'scripts/auto-merge.sh')],
@@ -172,6 +181,11 @@ process.exit(2);
     rmSync(directory, { recursive: true, force: true });
   }
 }
+
+const coderabbitStatus = (pr) =>
+  pr.commits.nodes[0].commit.statusCheckRollup.contexts.nodes.find(
+    (node) => node.context === 'CodeRabbit',
+  );
 
 const merge = [
   'pr',
@@ -282,6 +296,13 @@ const blocked = [
   ],
   ['a [skip review] title', (pr) => (pr.title = 'Tidy [skip review]')],
   [
+    'a CodeRabbit approval of an older commit and activity in the last two hours',
+    (pr) => {
+      coderabbitStatus(pr).description = 'Review paused';
+      pr.commits.nodes[0].commit.committedDate = hoursAgo(1);
+    },
+  ],
+  [
     'a CodeRabbit change request with activity in the last two hours',
     (pr) => {
       pr.reviews.nodes.pop();
@@ -310,6 +331,12 @@ for (const [name, change] of blocked) {
     assert.deepEqual(calls, []);
   });
 }
+
+test('merges a CodeRabbit approval of an older commit after two quiet hours', () => {
+  const pr = cleared();
+  coderabbitStatus(pr).description = 'Review rate limited';
+  assert.deepEqual(run(pr), { output: '#7: merge', calls: [merge] });
+});
 
 test('includes required checks from later rules pages', () => {
   const { output, calls } = run(

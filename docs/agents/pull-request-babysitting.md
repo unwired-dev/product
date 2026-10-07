@@ -105,11 +105,15 @@ squash-merges each open pull request to `main` that meets every condition:
 - Every review thread is resolved.
 - Codex reacted with 👍 and its latest "Didn't find any major issues" comment
   names the current head commit.
-- CodeRabbit's latest approving or change-requesting review approves.
+- CodeRabbit's latest approving or change-requesting review approves, and its
+  `CodeRabbit` status on the head commit reads "Review completed" or "Review
+  approved". CodeRabbit does not approve again after later pushes, and it reports
+  a successful status even when it paused or was rate limited on a commit.
 
-When that CodeRabbit review requests changes instead, the merger dismisses it as
-stale and merges once the other conditions hold and the pull request has had no
-new commits, comments or reviews for more than 2 hours. It never merges a pull request
+When CodeRabbit has not reviewed the head commit, or its latest review requests
+changes, the merger waits until the other conditions hold and the pull request
+has had no new commits, comments or reviews for more than 2 hours. It then merges,
+first dismissing a change request as stale. It never merges a pull request
 without both reviewers, a pull request CodeRabbit is configured to skip, a fork
 head, a bot-authored pull request, or the `changeset-release/main` version pull request.
 Incomplete label, required-check or review-thread pages block the merge. The merge uses the
