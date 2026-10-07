@@ -47,7 +47,8 @@
       return GmailRegistrationReceipt(subject: identity.subject, address: "other@example.invalid")
     }
 
-    // A fixed synthetic Gmail mailbox: three Inbox messages over two list pages, no later changes.
+    // A synthetic Gmail mailbox: three Inbox messages over two list pages and one label. Label
+    // changes from this launch apply; history reports no other changes.
     // A message may declare a "disposition", served as its Content-Disposition header.
     static let syntheticMessages: [String: [String: Any]] = [
       "19a0c0ffee000001": [
@@ -73,6 +74,9 @@
       ],
     ]
 
+    // Label changes from this launch, over the messages' initial labels.
+    lazy var syntheticLabels = messages.mapValues { $0["labelIds"] as? [String] ?? [] }
+
     // A synthetic message's MIME headers, as its single part declares them.
     static func mimeHeaders(_ message: [String: Any], mimeType: String) -> [[String: String]] {
       [["name": "Content-Type", "value": mimeType + "; charset=UTF-8"]]
@@ -81,7 +85,9 @@
         } ?? [])
     }
 
-    func gmail(_ identity: GoogleRegistrationIdentity, url: URL) async throws -> (Int, Data) {
+    func gmail(_ identity: GoogleRegistrationIdentity, url: URL, body request: Data?) async throws
+      -> (Int, Data)
+    {
       guard identity.subject == "synthetic-alternate-mailbox" else { return (401, Data()) }
       let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
       let query = Dictionary(
@@ -93,6 +99,17 @@
       switch url.lastPathComponent {
       case "profile": body = ["emailAddress": "other@example.invalid", "historyId": "100"]
       case "history": body = ["historyId": "100"]
+      case "labels":
+        body = ["labels": [["id": "Label_1", "name": "Travel", "type": "user"]]]
+      case "modify":
+        let id = url.deletingLastPathComponent().lastPathComponent
+        guard let labels = syntheticLabels[id], let request,
+          let change = try JSONSerialization.jsonObject(with: request) as? [String: [String]]
+        else { return (404, Data()) }
+        let remaining = labels.filter { !(change["removeLabelIds"] ?? []).contains($0) }
+        syntheticLabels[id] =
+          remaining + (change["addLabelIds"] ?? []).filter { !remaining.contains($0) }
+        body = ["id": id, "threadId": id, "labelIds": syntheticLabels[id] ?? []]
       case "messages" where query["pageToken"] == "2":
         body = ["messages": [["id": "19a0c0ffee000003", "threadId": "19a0c0ffee000003"]]]
       case "messages":
@@ -108,7 +125,7 @@
         guard let message = messages[id] else { return (404, Data()) }
         let mimeType = message["html"] == nil ? "text/plain" : "text/html"
         body = [
-          "id": id, "threadId": id, "labelIds": message["labelIds"] ?? [],
+          "id": id, "threadId": id, "labelIds": syntheticLabels[id] ?? [],
           "payload": [
             "mimeType": mimeType,
             "headers": Self.mimeHeaders(message, mimeType: mimeType).filter {
@@ -124,7 +141,7 @@
           .replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_")
         let mimeType = html == nil ? "text/plain" : "text/html"
         body = [
-          "id": id, "threadId": id, "labelIds": message["labelIds"] ?? [],
+          "id": id, "threadId": id, "labelIds": syntheticLabels[id] ?? [],
           "payload": [
             "mimeType": mimeType,
             "headers": Self.mimeHeaders(message, mimeType: mimeType),
@@ -134,7 +151,7 @@
       case let id:
         guard let message = messages[id] else { return (404, Data()) }
         body = [
-          "id": id, "threadId": id, "labelIds": message["labelIds"] ?? [],
+          "id": id, "threadId": id, "labelIds": syntheticLabels[id] ?? [],
           "snippet": message["snippet"] ?? "", "historyId": "100",
           "internalDate": message["internalDate"] ?? "",
           "payload": [
@@ -472,6 +489,15 @@
         delete: { _, product in
           try productSync.update { $0.deleted.insert(product.productAccountId) }
         }),
+      // Gmail writes require a current Trusted Device proof, answered from the synthetic backend's
+      // removals so the packaged journeys reach the synthetic Gmail mailbox.
+      deviceRevoked: { product in
+        // Another device's removal of this one is recorded by its bare device identifier.
+        let prefix = "synthetic-device-"
+        guard product.trustedDeviceId.hasPrefix(prefix) else { return false }
+        return try productSync.state().removedIdentifiers.contains(
+          String(product.trustedDeviceId.dropFirst(prefix.count)))
+      },
       mailCache: mailCache,
       connect: { identity, deviceIdentifier, _ in
         guard let account = accounts[identity.subject] else {

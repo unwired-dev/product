@@ -35,10 +35,11 @@ described in [Google registration](google-registration.md#deterministic-evidence
 [sign-out and deletion](account-removal.md#deterministic-evidence).
 The registration journeys use real Keychain with a fixed synthetic provider compiled only in the selected test build.
 That provider also answers the [Gmail Inbox](gmail-inbox.md#deterministic-evidence)'s
-reads from a fixed synthetic mailbox of three messages over two list pages, each
-with a synthetic HTML or plain-text body for the reader. Journeys
-that confirm setup with a connected mailbox open that synchronized Inbox, relaunch
-from its encrypted cache and return to the account page.
+requests from a synthetic mailbox of three messages over two list pages and one
+label, each with a synthetic HTML or plain-text body for the reader, applying label
+changes for the rest of the launch. Journeys that confirm setup with a connected
+mailbox open that synchronized Inbox, open a message, star, archive and undo,
+relaunch from its encrypted cache and return to the account page.
 Its synthetic [Product Sync](private-product-sync.md#deterministic-evidence)
 backend keeps the run's encrypted records in the same Keychain service, so new
 accounts present a Recovery Key and relaunches keep their keys. Like Convex, it

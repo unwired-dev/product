@@ -1,5 +1,22 @@
 import XCTest
 
+// Synthetic completion proxy: reject failed writes and unfinished saves/syncs at each action.
+// Optimistic rows and the encrypted cache alone cannot prove that Gmail accepted a change.
+private func assertGmailActionsSettled(_ window: XCUIElement) {
+  let unconfirmed = window.descendants(matching: .any).matching(
+    NSPredicate(
+      format: "label MATCHES %@",
+      "(?s).*(Gmail could not|Gmail has not confirmed|Gmail needs your permission|"
+        + "waits? for Gmail|Organizing mail waits).*"))
+  XCTAssertFalse(unconfirmed.firstMatch.waitForExistence(timeout: 5))
+  let unfinished = window.descendants(matching: .any).matching(
+    NSPredicate(
+      format: "label CONTAINS %@ OR label CONTAINS %@",
+      "Saving the change on this device", "Checking Gmail"))
+  XCTAssertTrue(unfinished.firstMatch.waitForNonExistence(timeout: 10))
+  XCTAssertFalse(unconfirmed.firstMatch.exists)
+}
+
 final class WindowTests: XCTestCase {
   struct Event: Decodable {
     let event: String
@@ -161,7 +178,20 @@ final class WindowTests: XCTestCase {
     XCTAssertTrue(
       resumed.webViews.staticTexts.matching(NSPredicate(format: "value CONTAINS %@", "seed order"))
         .firstMatch.waitForExistence(timeout: 15))
-    XCTAssertFalse(resumed.buttons["Mark as read"].exists)
+    // Organizing goes through the packaged native Gmail modify: a star, then an archive and Undo.
+    resumed.buttons["Star"].click()
+    XCTAssertTrue(resumed.buttons["Remove star"].waitForExistence(timeout: 10))
+    assertGmailActionsSettled(resumed)
+    XCTAssertTrue(resumed.buttons["Remove star"].exists)
+    resumed.buttons["Archive"].click()
+    XCTAssertTrue(resumed.buttons["Undo"].waitForExistence(timeout: 10))
+    assertGmailActionsSettled(resumed)
+    XCTAssertTrue(resumed.buttons["Undo"].exists)
+    XCTAssertFalse(resumed.buttons[rowan].exists)
+    resumed.buttons["Undo"].click()
+    XCTAssertTrue(resumed.buttons[rowan].waitForExistence(timeout: 15))
+    assertGmailActionsSettled(resumed)
+    XCTAssertTrue(resumed.buttons[rowan].exists)
     XCTAssertFalse(recoveryKey(in: resumed).exists)
     app.terminate()
     app.launch()

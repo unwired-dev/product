@@ -382,6 +382,11 @@ describe('product registration', () => {
     await expect(
       screen.findByText('other@example.invalid is connected on this device.'),
     ).resolves.toBeVisible();
+    expect(
+      screen.getByText(
+        'Selecting a different Google mailbox discards changes still waiting for Gmail in the current mailbox.',
+      ),
+    ).toBeVisible();
   });
 
   it('links Google from account settings and keeps both sign-in methods after remount', async () => {

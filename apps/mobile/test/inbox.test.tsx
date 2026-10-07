@@ -1,12 +1,19 @@
+import { gmailAction } from '@private-email/mail-core/gmail-actions';
 import { createGmailInbox } from '@private-email/mail-core/gmail-inbox';
 import { makeMockInboxStorage } from '@private-email/mail-core/mock-storage';
 import { createPersistentInbox } from '@private-email/mail-core/persistent-inbox';
 import { createRegistration } from '@private-email/mail-core/registration';
 import { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mailbox';
 import { createMockMailSession } from '@private-email/mail-core/testing/mock-session';
-import { act, fireEvent, render, screen } from '@testing-library/react-native';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/react-native';
 import { useState } from 'react';
-import { Clipboard, Linking } from 'react-native';
+import { AccessibilityInfo, Clipboard, Linking } from 'react-native';
 
 import type { inbox } from '../src/private-storage.ts';
 
@@ -149,6 +156,106 @@ describe('preview Inbox', () => {
   });
 });
 
+// The connected Inbox and reader, as the app composes them, over a controlled Gmail store.
+function connectedMessage(store: ReturnType<typeof createGmailInbox>) {
+  const state = store.getSnapshot();
+  if (state.kind !== 'ready' || state.messages[0] === undefined) {
+    throw new Error('Expected connected mail');
+  }
+  return state.messages[0];
+}
+
+function renderConnected(
+  createStore: (
+    registration: ReturnType<typeof createRegistration>,
+  ) => ReturnType<typeof createGmailInbox>,
+  // Set once another device has removed this one; restore then reports the purged device.
+  removed?: Readonly<{ current: boolean }>,
+) {
+  const connected = {
+    kind: 'connected',
+    productAccountId: 'synthetic-product-account',
+    signInProvider: 'google',
+    privateSync: 'ready',
+    providerSubject: 'synthetic-google-subject',
+    address: 'alex@example.invalid',
+  } as const;
+  const authorizeGmail = jest.fn(() => Promise.resolve(connected));
+  const registration = createRegistration({
+    restore: () =>
+      Promise.resolve(
+        removed?.current === true ? { kind: 'signed-out' } : connected,
+      ),
+    authorizeGmail,
+    signIn: () => Promise.reject(new Error('Not signing in')),
+    link: () => Promise.reject(new Error('Not linking')),
+    confirmRecoveryKey: () => Promise.reject(new Error('No key')),
+    recoverWithRecoveryKey: () => Promise.reject(new Error('No key')),
+    approveEnrollment: () => Promise.reject(new Error('No device')),
+    declineEnrollment: () => Promise.reject(new Error('No device')),
+    revokeTrustedDevice: () => Promise.reject(new Error('No device')),
+    refreshPrivateSync: () => Promise.reject(new Error('No sync')),
+    signOut: () => Promise.reject(new Error('Not signing out')),
+    deleteProductAccount: () => Promise.reject(new Error('Not deleting')),
+  });
+  const store = createStore(registration);
+  function Connected() {
+    const [selectedId, setSelectedId] = useState<string>();
+    return (
+      <RegistrationGate
+        store={registration}
+        preview={false}>
+        <InboxProvider store={store}>
+          <Inbox
+            onClose={() => {
+              setSelectedId(undefined);
+            }}
+            onSelect={setSelectedId}
+            selectedId={selectedId}
+          />
+          <MessageDetail
+            id={selectedId}
+            onClose={() => {
+              setSelectedId(undefined);
+            }}
+          />
+        </InboxProvider>
+      </RegistrationGate>
+    );
+  }
+  return { authorizeGmail, rendered: render(<Connected />) };
+}
+
+function holdingListing(
+  native: ReturnType<typeof createSyntheticGmail>['native'],
+) {
+  let cacheOnly = false;
+  let release: () => void = () => undefined;
+  // oxlint-disable-next-line promise/avoid-new -- Explicit provider suspension, released by the journey.
+  const listing = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  return {
+    release,
+    becomeCacheOnly: () => {
+      cacheOnly = true;
+    },
+    native: {
+      ...native,
+      openMailbox: async () => ({
+        ...(await native.openMailbox()),
+        ...(cacheOnly ? { availability: 'retry' } : {}),
+      }),
+      gmailRequest: async (...args: Parameters<typeof native.gmailRequest>) => {
+        if (args[0] === 'messages') {
+          await listing;
+        }
+        return native.gmailRequest(...args);
+      },
+    },
+  };
+}
+
 describe('connected Gmail Inbox', () => {
   /* oxlint-disable vitest/max-expects -- One journey proves the synchronized list and its recovery states. */
   it('shows synchronized metadata and recovers from lost Gmail permission and connectivity', async () => {
@@ -160,46 +267,8 @@ describe('connected Gmail Inbox', () => {
       snippet: 'Coffee first, then the long way home?',
     });
     const store = createGmailInbox(gmail.native);
-    const connected = {
-      kind: 'connected',
-      productAccountId: 'synthetic-product-account',
-      signInProvider: 'google',
-      privateSync: 'ready',
-      providerSubject: 'synthetic-google-subject',
-      address: 'alex@example.invalid',
-    } as const;
-    const authorizeGmail = jest.fn(() => Promise.resolve(connected));
-    const registration = createRegistration({
-      restore: () => Promise.resolve(connected),
-      authorizeGmail,
-      signIn: () => Promise.reject(new Error('Not signing in')),
-      link: () => Promise.reject(new Error('Not linking')),
-      confirmRecoveryKey: () => Promise.reject(new Error('No key')),
-      recoverWithRecoveryKey: () => Promise.reject(new Error('No key')),
-      approveEnrollment: () => Promise.reject(new Error('No device')),
-      declineEnrollment: () => Promise.reject(new Error('No device')),
-      revokeTrustedDevice: () => Promise.reject(new Error('No device')),
-      refreshPrivateSync: () => Promise.reject(new Error('No sync')),
-      signOut: () => Promise.reject(new Error('Not signing out')),
-      deleteProductAccount: () => Promise.reject(new Error('Not deleting')),
-    });
-    function Connected() {
-      const [selectedId, setSelectedId] = useState<string>();
-      return (
-        <RegistrationGate
-          store={registration}
-          preview={false}>
-          <InboxProvider store={store}>
-            <Inbox
-              onSelect={setSelectedId}
-              selectedId={selectedId}
-            />
-            <MessageDetail id={selectedId} />
-          </InboxProvider>
-        </RegistrationGate>
-      );
-    }
-    await render(<Connected />);
+    const { authorizeGmail, rendered } = renderConnected(() => store);
+    await rendered;
     await fireEvent.press(
       await screen.findByRole('button', {
         name: 'Unread. Oliver Park. Saturday, by the river?',
@@ -212,8 +281,6 @@ describe('connected Gmail Inbox', () => {
     expect(
       screen.getAllByText('Coffee first, then the long way home?'),
     ).toHaveLength(2);
-    // Read state belongs to Gmail; this slice shows it without changing it.
-    expect(screen.queryByRole('button', { name: 'Mark as read' })).toBeNull();
 
     gmail.fail({ status: 401 });
     gmail.deliver({ subject: 'Arrives after permission returns' });
@@ -246,6 +313,267 @@ describe('connected Gmail Inbox', () => {
       await fireEvent.press(screen.getByRole('button', { name: 'Try again' }));
     });
     expect(screen.queryByText(/could not be reached/u)).toBeNull();
+  });
+
+  it('organizes mail from the reader and the row, keeping an offline archive until Undo', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+    const travel = gmail.createLabel('Travel');
+    const other = gmail.deliver({ subject: 'Tickets for Lisbon' });
+    const oliver = gmail.deliver({
+      from: 'Oliver Park <oliver@example.invalid>',
+      subject: 'Saturday, by the river?',
+    });
+    // The legacy cache stays readable while its missing labels are fetched again.
+    await createGmailInbox(gmail.native).load();
+    await gmail.native.commitMailbox(
+      { address: 'alex@example.invalid', generation: '0' },
+      gmail.commits.length,
+      String(gmail.commits.at(-1)).replaceAll(/,"labels":\[[^\]]*\]/gu, ''),
+    );
+    const held = holdingListing(gmail.native);
+    const store = createGmailInbox(held.native);
+    await renderConnected(() => store).rendered;
+    await fireEvent.press(
+      await screen.findByRole('button', {
+        name: 'Unread. Oliver Park. Saturday, by the river?',
+      }),
+    );
+    expect(screen.getByText('oliver@example.invalid')).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Mark as read' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Labels' })).toBeNull();
+    expect(
+      screen.getByRole('button', {
+        name: 'Unread. Oliver Park. Saturday, by the river?',
+      }),
+    ).toHaveProp('accessibilityActions', []);
+    await act(async () => {
+      held.release();
+      await store.load();
+    });
+    expect(screen.getByRole('button', { name: 'Labels' })).toBeVisible();
+    await act(async () => {
+      await fireEvent.press(
+        screen.getByRole('button', { name: 'Mark as read' }),
+      );
+    });
+    expect(
+      screen.getByRole('button', {
+        name: 'Oliver Park. Saturday, by the river?',
+      }),
+    ).toBeVisible();
+    await act(async () => {
+      await fireEvent.press(screen.getByRole('button', { name: 'Star' }));
+    });
+    expect(screen.getByRole('button', { name: 'Remove star' })).toBeVisible();
+    // Every outcome is stated, not only removals that can be undone.
+    expect(
+      screen.getByText('Starred: “Saturday, by the river?”.'),
+    ).toBeVisible();
+    await fireEvent.press(screen.getByRole('button', { name: 'Labels' }));
+    await act(async () => {
+      await fireEvent.press(
+        screen.getByRole('checkbox', { name: 'Travel', checked: false }),
+      );
+    });
+    expect(
+      screen.getByRole('checkbox', { name: 'Travel', checked: true }),
+    ).toBeVisible();
+    expect(screen.getByText('Labels: Travel')).toBeVisible();
+    expect(gmail.labelsOf(oliver)).toStrictEqual(['INBOX', 'STARRED', travel]);
+
+    // Offline, the archive shows at once and closes the reader; Undo puts the message back.
+    gmail.failModify({ code: 'unavailable' });
+    await act(async () => {
+      await fireEvent.press(screen.getByRole('button', { name: 'Archive' }));
+    });
+    expect(screen.queryByText('Saturday, by the river?')).toBeNull();
+    expect(
+      screen.getByText('Archived: “Saturday, by the river?”.'),
+    ).toBeVisible();
+    expect(
+      screen.getByText(
+        'One change is saved on this device and waits for Gmail.',
+      ),
+    ).toBeVisible();
+    expect(gmail.labelsOf(oliver)).toContain('INBOX');
+    await act(async () => {
+      await fireEvent.press(screen.getByRole('button', { name: 'Undo' }));
+    });
+    expect(
+      screen.getByRole('button', {
+        name: 'Oliver Park. Saturday, by the river?',
+      }),
+    ).toBeVisible();
+    expect(gmail.labelsOf(oliver).toSorted()).toStrictEqual(
+      ['STARRED', travel, 'INBOX'].toSorted(),
+    );
+    expect(screen.queryByText(/waits for Gmail/u)).toBeNull();
+
+    // VoiceOver offers the same actions on each row; removing the open message closes the reader.
+    const lisbon = screen.getByRole('button', {
+      name: 'Unread. Maya Chen. Tickets for Lisbon',
+    });
+    await fireEvent.press(lisbon);
+    expect(
+      screen.getByRole('header', { name: 'Tickets for Lisbon' }),
+    ).toBeVisible();
+    await act(async () => {
+      await fireEvent(lisbon, 'accessibilityAction', {
+        nativeEvent: { actionName: 'trash' },
+      });
+    });
+    expect(screen.queryByText('Tickets for Lisbon')).toBeNull();
+    expect(
+      screen.getByText('Select a message to start reading.'),
+    ).toBeVisible();
+    expect(
+      screen.getByText('Moved to Trash: “Tickets for Lisbon”.'),
+    ).toBeVisible();
+    await waitFor(() => {
+      expect(gmail.labelsOf(other)).toStrictEqual(['UNREAD', 'TRASH']);
+    });
+    expect(
+      screen.getByText('Moved to Trash: “Tickets for Lisbon”.'),
+    ).toHaveProp('accessibilityRole', 'text');
+    expect(
+      screen.getByText('Moved to Trash: “Tickets for Lisbon”.'),
+    ).not.toHaveProp('accessibilityLiveRegion');
+
+    // Refusal semantics survive the single explicit announcement path on mobile too.
+    gmail.failModify({ status: 400 });
+    await act(async () => {
+      await fireEvent(
+        screen.getByRole('button', {
+          name: 'Oliver Park. Saturday, by the river?',
+        }),
+        'accessibilityAction',
+        { nativeEvent: { actionName: 'archive' } },
+      );
+    });
+    const refusal =
+      'Gmail could not archive “Saturday, by the river?”. The Inbox shows it as Gmail has it.';
+    const status = screen.getByRole('alert', { name: refusal });
+    expect(status).toBeVisible();
+    expect(status).not.toHaveProp('accessibilityLiveRegion');
+    expect(
+      jest
+        .mocked(AccessibilityInfo.announceForAccessibility)
+        .mock.calls.filter(([message]) => message === refusal),
+    ).toStrictEqual([[refusal]]);
+
+    // Foreground verification can close saving after the reader offered Archive.
+    await fireEvent.press(
+      screen.getByRole('button', {
+        name: 'Oliver Park. Saturday, by the river?',
+      }),
+    );
+    held.becomeCacheOnly();
+    await act(async () => {
+      await fireEvent.press(screen.getByRole('button', { name: 'Archive' }));
+    });
+    const unsaved =
+      'The request to archive “Saturday, by the river?” could not be saved. Showing mail saved on this device. Try again to reconnect, then repeat the change.';
+    expect(screen.getByRole('alert', { name: unsaved })).toBeVisible();
+    expect(
+      screen.getByText('Select a message to start reading.'),
+    ).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull();
+    expect(
+      jest
+        .mocked(AccessibilityInfo.announceForAccessibility)
+        .mock.calls.filter(([message]) => message === unsaved),
+    ).toStrictEqual([[unsaved]]);
+  });
+
+  it('names the exhausted action and resolves it through Retry and Discard controls', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ messages: 1 });
+    const store = createGmailInbox(gmail.native);
+    await renderConnected(() => store).rendered;
+    const target = connectedMessage(store);
+    gmail.failModify(
+      ...Array.from({ length: 5 }, () => ({ code: 'unavailable' })),
+    );
+    await act(async () => {
+      await store.organize(target, gmailAction.star);
+    });
+    for (const ignored of [0, 1, 2, 3]) {
+      void ignored;
+      await act(store.load);
+    }
+    expect(
+      screen.getByText(
+        /request to star “Synthetic message 0” after five attempts/u,
+      ),
+    ).toBeVisible();
+    await act(async () => {
+      await fireEvent.press(
+        screen.getByRole('button', { name: 'Retry change' }),
+      );
+    });
+    await waitFor(() => {
+      expect(gmail.labelsOf(target.id)).toContain('STARRED');
+    });
+    expect(screen.queryByRole('button', { name: 'Retry change' })).toBeNull();
+    gmail.failModify(
+      ...Array.from({ length: 5 }, () => ({ code: 'unavailable' })),
+    );
+    const starred = connectedMessage(store);
+    await act(async () => {
+      await store.organize(starred, gmailAction.unstar);
+    });
+    for (const ignored of [0, 1, 2, 3]) {
+      void ignored;
+      await act(store.load);
+    }
+    await act(async () => {
+      await fireEvent.press(
+        screen.getByRole('button', { name: 'Discard change' }),
+      );
+    });
+    await waitFor(() => {
+      expect(
+        screen.queryByRole('button', { name: 'Discard change' }),
+      ).toBeNull();
+    });
+    expect(gmail.labelsOf(target.id)).toContain('STARRED');
+  });
+
+  it('hands a device found removed while organizing to the account page explanation', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+    gmail.deliver({
+      from: 'Oliver Park <oliver@example.invalid>',
+      subject: 'Saturday, by the river?',
+    });
+    const removed = { current: false };
+    // As the app composes them: the Inbox hands a removal to the registration store.
+    await renderConnected(
+      (registration) =>
+        createGmailInbox(gmail.native, {
+          removed: () => {
+            void registration.deviceRemoved();
+          },
+        }),
+      removed,
+    ).rendered;
+    const row = await screen.findByRole('button', {
+      name: 'Unread. Oliver Park. Saturday, by the river?',
+    });
+    // Native code purges this device when the write's Trusted Device check finds it removed.
+    removed.current = true;
+    gmail.failModify({ code: 'mailbox-revoked' });
+    await act(async () => {
+      await fireEvent(row, 'accessibilityAction', {
+        nativeEvent: { actionName: 'star' },
+      });
+    });
+    await expect(
+      screen.findByText('This device was removed'),
+    ).resolves.toBeVisible();
+    expect(screen.queryByText('Saturday, by the river?')).toBeNull();
+    expect(screen.queryByText(/stored data has been kept/u)).toBeNull();
   });
 
   it('reads message bodies from Gmail or this device and opens links only after confirmation', async () => {

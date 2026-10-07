@@ -15,6 +15,10 @@ const styles = StyleSheet.create({
 export function PreviewWindow({ windowId }: { readonly windowId: string }) {
   const [selectedId, setSelectedId] = useState<string>();
   const colors = usePalette();
+  // Either pane closes the reader when its message leaves the Inbox.
+  const close = () => {
+    setSelectedId(undefined);
+  };
   return (
     <View
       testID={`inbox-window-${windowId}`}
@@ -22,11 +26,15 @@ export function PreviewWindow({ windowId }: { readonly windowId: string }) {
       <View style={[styles.sidebar, { borderRightColor: colors.separator }]}>
         <Inbox
           selectedId={selectedId}
+          onClose={close}
           onSelect={setSelectedId}
         />
       </View>
       <View style={styles.detail}>
-        <MessageDetail id={selectedId} />
+        <MessageDetail
+          id={selectedId}
+          onClose={close}
+        />
       </View>
     </View>
   );

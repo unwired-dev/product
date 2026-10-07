@@ -97,8 +97,11 @@ struct SignInLinking {
   func signIn(mail: Bool, hint: String?) async throws -> GoogleRegistrationIdentity
   func refresh(_ credential: Data) async throws -> GoogleRegistrationIdentity
   func verifyGmail(_ identity: GoogleRegistrationIdentity) async throws -> GmailRegistrationReceipt
-  // One Gmail API read with this identity's access token; HTTP failures are returned, not thrown.
-  func gmail(_ identity: GoogleRegistrationIdentity, url: URL) async throws -> (Int, Data)
+  // One Gmail API request with this identity's access token: a read, or a JSON POST with a body.
+  // HTTP failures are returned, not thrown.
+  func gmail(_ identity: GoogleRegistrationIdentity, url: URL, body: Data?) async throws -> (
+    Int, Data
+  )
 }
 
 @MainActor protocol AppleRegistrationProvider {
@@ -462,6 +465,13 @@ struct SavedRegistration: Codable {
       let gmail = try await provider.signIn(mail: true, hint: hint)
       let receipt = try await checkedGmail(gmail)
       let previous = next.mailbox
+      // Reconnection repairs this mailbox. Changing it requires the explicit chooser, whose UI
+      // explains that the old cache and pending actions will be discarded.
+      if !reselect, let previous,
+        previous.subject != receipt.subject || previous.address != receipt.address
+      {
+        throw RegistrationError.gmailUnavailable
+      }
       next.mailboxCredential = gmail.credential
       next.mailbox = receipt
       next.mailboxSetupReason = nil

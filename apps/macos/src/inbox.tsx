@@ -1,6 +1,11 @@
 import type { Message } from '@private-email/mail-core';
+import type { GmailAction } from '@private-email/mail-core/gmail-actions';
 import type { GmailMessage } from '@private-email/mail-core/gmail-inbox';
 
+import {
+  quickActions,
+  restoreAfter,
+} from '@private-email/mail-core/gmail-actions';
 import { gmailSyncCopy } from '@private-email/mail-core/gmail-inbox';
 import { spacing } from '@private-email/mail-core/theme';
 import { useContext, useState } from 'react';
@@ -14,6 +19,7 @@ import {
 } from 'react-native';
 
 import { useInbox, useInboxActions } from './mailbox.ts';
+import { OrganizeStatus } from './organize.tsx';
 import { AccountContext } from './registration-gate.tsx';
 import { usePalette } from './theme.ts';
 
@@ -55,6 +61,8 @@ const styles = StyleSheet.create({
 interface InboxProps {
   readonly selectedId: string | undefined;
   readonly onSelect: (id: string) => void;
+  // Closes the reader when a row action takes its message out of the Inbox.
+  readonly onClose?: (() => void) | undefined;
 }
 
 const dateFormat = new Intl.DateTimeFormat('en', {
@@ -67,19 +75,40 @@ function MessageRow({
   message,
   selected,
   onSelect,
+  onOrganize,
 }: {
   readonly message: Message | GmailMessage;
   readonly selected: boolean;
   readonly onSelect: (id: string) => void;
+  // Present when the message can be organized in Gmail.
+  readonly onOrganize?:
+    | ((message: GmailMessage, action: GmailAction) => void)
+    | undefined;
 }) {
   const colors = usePalette();
   const [focused, setFocused] = useState(false);
+  const organizing =
+    onOrganize !== undefined && 'threadId' in message
+      ? quickActions(message)
+      : [];
   return (
     <Pressable
+      accessibilityActions={organizing.map(({ name, label }) => ({
+        name,
+        label,
+      }))}
       accessibilityLabel={`${message.unread ? 'Unread. ' : ''}${message.sender}. ${message.subject}`}
       accessibilityRole="button"
       accessibilityState={{ selected }}
       focusable
+      onAccessibilityAction={({ nativeEvent }) => {
+        const chosen = organizing.find(
+          ({ name }) => name === nativeEvent.actionName,
+        );
+        if (chosen !== undefined && 'threadId' in message) {
+          onOrganize?.(message, chosen.action);
+        }
+      }}
       onBlur={() => {
         setFocused(false);
       }}
@@ -184,13 +213,22 @@ function SyncNotice() {
   );
 }
 
-export function Inbox({ selectedId, onSelect }: InboxProps) {
+export function Inbox({ selectedId, onSelect, onClose }: InboxProps) {
   const state = useInbox();
   const actions = useInboxActions();
   const account = useContext(AccountContext);
   const colors = usePalette();
   const gmail = state.kind === 'ready' && 'sync' in state;
   const mailbox = gmail ? (state.address ?? 'Gmail') : 'Preview mailbox';
+  const organize =
+    gmail && state.organize && 'organize' in actions
+      ? (message: GmailMessage, action: GmailAction) => {
+          if (message.id === selectedId && restoreAfter(action) !== undefined) {
+            onClose?.();
+          }
+          void actions.organize(message, action);
+        }
+      : undefined;
   return (
     <View style={styles.fill}>
       <View style={[styles.fill, { backgroundColor: colors.sidebar }]}>
@@ -246,6 +284,7 @@ export function Inbox({ selectedId, onSelect }: InboxProps) {
           </Pressable>
         ) : null}
         <SyncNotice />
+        <OrganizeStatus />
         {state.kind === 'ready' ? (
           <FlatList<Message | GmailMessage>
             accessibilityLabel="Inbox messages"
@@ -265,6 +304,7 @@ export function Inbox({ selectedId, onSelect }: InboxProps) {
             renderItem={({ item }) => (
               <MessageRow
                 message={item}
+                onOrganize={organize}
                 onSelect={onSelect}
                 selected={item.id === selectedId}
               />

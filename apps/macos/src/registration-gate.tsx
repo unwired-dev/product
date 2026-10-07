@@ -14,6 +14,7 @@ import type {
 import type { ReactNode } from 'react';
 import type { StyleProp, TextStyle } from 'react-native';
 
+import { gmailActionCopy } from '@private-email/mail-core/gmail-actions';
 import {
   accountRemovalCopy,
   enrollmentCopy,
@@ -815,11 +816,16 @@ function RegistrationPage({
           : null}
         {snapshot.kind === 'signed-out' ||
         snapshot.kind === 'device-pending' ||
-        snapshot.removalPending !== undefined
-          ? null
-          : button('Choose another Google mailbox', () =>
+        snapshot.removalPending !== undefined ? null : (
+          <>
+            <Label style={[styles.text, { color: colors.foreground }]}>
+              {gmailActionCopy.reselection}
+            </Label>
+            {button('Choose another Google mailbox', () =>
               store.authorizeGmail(true),
             )}
+          </>
+        )}
         {recovering
           ? button(
               `Sign in again with ${providerNames[snapshot.signInProvider]}`,

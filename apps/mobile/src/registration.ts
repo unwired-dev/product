@@ -31,18 +31,27 @@ export const registration = createRegistration({
   deleteProductAccount: () => native().deleteProductAccount(),
 });
 
-export const gmailInbox = createGmailInbox({
-  gmailRequest: (path, query, mailbox) =>
-    native().gmailRequest(path, query, mailbox),
-  openMailbox: () => native().openMailbox(),
-  commitMailbox: (mailbox, expectedRevision, document) =>
-    native().commitMailbox(mailbox, expectedRevision, document),
-  openMessageBody: (mailbox, id) => native().openMessageBody(mailbox, id),
-  commitMessageBody: (mailbox, id, admission) =>
-    native().commitMessageBody(mailbox, id, admission),
-  listMessageBodies: (mailbox, ids) => native().listMessageBodies(mailbox, ids),
-  retainMessageBodies: (mailbox, ids, protectedIds) =>
-    native().retainMessageBodies(mailbox, ids, protectedIds),
-});
+export const gmailInbox = createGmailInbox(
+  {
+    gmailRequest: (path, query, mailbox) =>
+      native().gmailRequest(path, query, mailbox),
+    gmailModify: (change, mailbox) => native().gmailModify(change, mailbox),
+    openMailbox: () => native().openMailbox(),
+    commitMailbox: (mailbox, expectedRevision, document) =>
+      native().commitMailbox(mailbox, expectedRevision, document),
+    openMessageBody: (mailbox, id) => native().openMessageBody(mailbox, id),
+    commitMessageBody: (mailbox, id, admission) =>
+      native().commitMessageBody(mailbox, id, admission),
+    listMessageBodies: (mailbox, ids) =>
+      native().listMessageBodies(mailbox, ids),
+    retainMessageBodies: (mailbox, ids, protectedIds) =>
+      native().retainMessageBodies(mailbox, ids, protectedIds),
+  },
+  {
+    removed: () => {
+      void registration.deviceRemoved();
+    },
+  },
+);
 
 forgetMailOutsideInbox(registration, gmailInbox);

@@ -46,7 +46,21 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 - `createRegistration.resume` dropping a foreground activation because the account is unlocked or a pending operation holds the semaphore. Queue every activation's native restore after the current operation, preserving unchanged setup feedback while publishing changed verification or locked results; otherwise unlock retries are lost or a running account remains connected after verification becomes unavailable. ADR 0020 requires foreground Trusted Device revalidation; a locked-storage retry must not exempt unlocked accounts, and native reconnect alone does not prove that revocation rejection purges local state.
 - `createRegistration.resume` treating each Mac window's report of one application activation as a separate restore. The windows share one store and AppState dispatches listeners synchronously, so coalesce those reports or give the subscription one application-level owner; otherwise native Product Account and Gmail verification repeats per window and prolongs the busy state. Coalescing must end with that dispatch, not with the pending restore, so a later activation after unlock still queues a fresh verification.
 - A successful persisted state published before the native operation has durably completed, with no failure path that restores the previous state. Explicit busy/pending presentation states are permitted, as in `createRegistration`.
+- A whole-document CAS conflict in `createGmailInbox` that restarts all synchronization for ordinary concurrent intake, discards newly durable intents, or resurrects an action settled by this operation or another store instance. Review `commitOver`/`rebased` against both the prior base and latest saved pending IDs, including dispatch preparation and settlement, reconciliation, labels and blocked-action resolution. Drop previously known IDs absent from the latest document and revalidate the prepared head before dispatch. Retain newly appended intake IDs in FIFO order, bound rebases, and reject another mailbox/owner before any write; repeated benign intake must not exhaust whole-sync retries or duplicate provider actions.
+- `createGmailInbox.dispatch` identifying ownership only by pending/message ID,
+  a deterministic attempt ID or attempt age after a CAS race. In `rebasedOnto`,
+  preserve saved progress that advanced since the base even when stale
+  reconciliation or Discard removed that head; compare the unique prepared
+  attempt before provider handoff. Check joining stores, equal or reversed clocks,
+  completed failures and Retry/Discard while another request is active. Ownership
+  must end on every attempt outcome and survive through settlement, so later
+  intent cannot overtake a live write or be hidden by its late result.
 - `getSnapshot` returning a newly built object or array when nothing changed. `useSyncExternalStore` compares by identity and re-renders forever.
+- `createSyntheticGmail` retaining the previous mailbox's user-label catalog on
+  reselection, or allocating a new label from the current map size. Clear the
+  catalog with the selected mailbox and keep label IDs monotonic across deletion;
+  otherwise isolation journeys leak old labels and a pending action for a deleted
+  label can incorrectly succeed against its replacement instead of being refused.
 - `subscribe` that does not return an unsubscribe removing exactly that listener, or a publish path that skips listeners after a state change.
 - A `ManagedRuntime`, fiber, timer or subscription created without an owner that disposes it; a `ManagedRuntime` created for a Layer with no dependencies or resources.
 - A retry or poll without a bound, or built from `setTimeout`/recursion rather than `Schedule`.
@@ -59,6 +73,11 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Product behavior the stores own
 
+- `createGmailInbox.save` returning early when native foreground verification has made an enabled Inbox cache-only, without removing its captured unsaved intents and publishing disabled organizing with settled Saving state. Trace `organize`, queued `load` follow-up and native availability/generation gates: no cache-only commit or provider dispatch is allowed, durable pending actions must remain, and discarded unsaved intent needs a visible, announced outcome outside the reader. Report the size of a discarded same-mailbox batch rather than naming only its last request, and preserve that outcome when a subsequent serialized save finds no queued intent. Keep outcome message snapshots scoped to the returned mailbox and initiating ownership epoch; otherwise an action stays saving indefinitely, silently disappears after a removal closes the reader, or exposes another mailbox's message. Do not label a saved-cache rollback as authoritative Gmail reconciliation.
+- `createGmailInbox.organize` accepting a message whose Gmail labels are still unknown during legacy-cache relisting, or `quickActions` and either host's `MessageActions` presenting label, move or other organizing controls for that snapshot. Trace intake, retained handlers and `OrganizeNotice` snapshots through queueing and Undo; treating absent labels as an empty set lets an inverse remove pre-existing Gmail memberships. Check predecessor-produced pending snapshots too: `organized` must not turn fallback memberships into a known baseline while replay is unsettled. Keep known-label cached messages usable during ordinary backfill and preserve previously accepted durable intent.
+- `createGmailInbox.dispatch` receiving a permanent provider refusal without durably retaining that outcome before its follow-up `readLabels`. An interrupted read or relaunch must make `reconcile` settle provider-derived state and announce rejection without another dispatch, even after Retry or an exhausted attempt budget. Trace `commitOver`/`rebased` so concurrent intake survives both saving the refusal and removing its head; if a refusal-save rebase removes the refused ID, `settleRefusal` must leave the new head untouched rather than read the old message and pop the next intent. Otherwise known-invalid writes repeat, consume attempts and delay later intent, or another message's intent is silently lost.
+- `createGmailInbox.settleRefusal` restoring a message-bearing notice after asynchronous work without rechecking its initiating ownership epoch, or losing rejection feedback when settlement is durable but its reply is interrupted. Guard the notice update after the label read and preserve `forget` clearing it during a pending commit; otherwise a late completion exposes the former owner's message in another mailbox, or a lost reply leaves a false success notice after the refused head is gone.
+- `createGmailInbox.organize` suppressing an accepted action's `OrganizeNotice` because `restoreAfter` returns no inverse. Both hosts' `OrganizeStatus` announce from that notice, so read/unread, star/unstar, label/unlabel and restore lose outcome feedback if notice publication is coupled to Undo eligibility. Keep outcome publication independent from the host's removal-only Undo gate.
 - `sanitizeHtml.anchor`, `readableText` or `paragraphBuilder` bounding only the
   rich link array while retaining unbounded clickable readable spans. Count
   finalized fallback spans across paragraphs as well as collected visible
@@ -88,6 +107,7 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 - `createGmailInbox` treating a native `mailbox-invalidated` rejection as a terminal storage failure before bounded reopening of the committed cache through the registration gate. A successful same-mailbox foreground restore renews the native generation and must not hide usable cached mail. Reopening must preserve the `forget` publication fence after an ownership change or purge; recovery cannot resurrect the former owner's mail.
 - Gmail HTTP 403 classification that treats documented usage-limit reasons (`dailyLimitExceeded`, `rateLimitExceeded`, `userRateLimitExceeded`) as missing mailbox authorization. A project quota or user rate limit requires retry presentation with cached mail retained; reauthorization cannot fix it.
 - Registration, enrollment or recovery state from one Product Account, device or deployment reused after the identity changes.
+- A `mailbox-revoked` rejection recovered as a storage failure claiming data was kept after native purge, or a registration handoff that infers revocation from every bare signed-out restore. The purging result establishes the reason; `deviceRemoved` must retain the explanation across ordinary foreground restores, fence it against accepted account changes and explicit removal, and preserve authoritative deletion notices. Otherwise a queued restore erases the explanation or a stale callback mislabels sign-out/deletion.
 - Product Sync account-key material, a provider/device credential or a native database encryption key passed into TypeScript. These stay in the native host. The user-held Recovery Key shown during setup is an explicit presentation field in `RegistrationSnapshotSchema`; keep it transient and out of logs and non-native persistence.
 
 - `createGmailInbox` retaining ready mail or synchronization checkpoints in memory after
@@ -165,9 +185,13 @@ Namespace-import style, `JSON.parse`, `typeof … === 'object'` guards, untagged
 - `createGmailInbox.store` waiting for an entire synchronization while holding a
   body-load permit, blocking explicit opens or speculative progress behind provider
   listing. Serialize body membership checks and admission against each page's
-  durable commit, pruning and ready publication, with provider reads outside that
-  permit; otherwise slow synchronization stalls reading, or late downloads
-  repopulate removed messages.
+  durable commit, pruning and ready publication, including action intake, dispatch,
+  reconciliation, refusal, label refresh and Retry/Discard commits through `commitOver`
+  and `save`, with provider reads outside that permit. Native FIFO custody orders calls
+  but does not make pruning and TypeScript membership publication atomic; verify a
+  still-visible action whose reconciliation removes a message while a body completes,
+  including an interrupted later history read. Otherwise slow synchronization stalls
+  reading, or late downloads repopulate removed messages.
 - `createGmailInbox.schedulePrefetch` dropping a queued selection for a newer owner
   when the previous owner's speculative lane finishes or fails. Restart queued
   work under the current owner while retaining publication fences and the

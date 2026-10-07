@@ -24,10 +24,79 @@ import Testing
   }
 }
 
+// Only the network response is synthetic; GmailTransport builds and sends the real URLRequest.
+private final class GmailHTTPProbe: @unchecked Sendable {
+  private let lock = NSLock()
+  private var captured: [URLRequest] = []
+  func record(_ request: URLRequest) {
+    lock.lock()
+    defer { lock.unlock() }
+    captured.append(request)
+  }
+  func requests() -> [URLRequest] {
+    lock.lock()
+    defer { lock.unlock() }
+    return captured
+  }
+}
+private final class ControlledGmailHTTP: URLProtocol, @unchecked Sendable {
+  static let probe = GmailHTTPProbe()
+  override class func canInit(with request: URLRequest) -> Bool { true }
+  override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+  override func startLoading() {
+    Self.probe.record(request)
+    let response = HTTPURLResponse(
+      url: request.url!, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: nil)!
+    client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+    client?.urlProtocol(self, didLoad: Data(#"{"id":"101","labelIds":["INBOX","STARRED"]}"#.utf8))
+    client?.urlProtocolDidFinishLoading(self)
+  }
+  override func stopLoading() {}
+}
+
 extension PrivateInboxTests {
   // TypeScript names only the connected mailbox's Gmail resources; its cache belongs to that
   // mailbox, replaces only the revision it read, and leaves with a reselection or the account.
   @Test @MainActor func gmailReadsAndMailboxCacheStayWithTheConnectedMailbox() async throws {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [ControlledGmailHTTP.self]
+    let session = URLSession(configuration: configuration)
+    defer { session.invalidateAndCancel() }
+    let transportURL = URL(string: "https://gmail.googleapis.com/gmail/v1/users/me/messages/101/modify")!
+    let transportBody = try JSONSerialization.data(withJSONObject: [
+      "addLabelIds": ["STARRED"], "removeLabelIds": [String](),
+    ])
+    let (transportStatus, transportData) = try await GmailTransport.send(
+      token: "synthetic-access", url: transportURL, body: transportBody, session: session)
+    #expect(transportStatus == 200)
+    #expect(String(decoding: transportData, as: UTF8.self).contains("STARRED"))
+    let transported = try #require(ControlledGmailHTTP.probe.requests().last)
+    #expect(transported.url == transportURL)
+    #expect(transported.httpMethod == "POST")
+    #expect(transported.value(forHTTPHeaderField: "Authorization") == "Bearer synthetic-access")
+    #expect(transported.value(forHTTPHeaderField: "Content-Type") == "application/json")
+    #expect(transported.timeoutInterval == 30)
+    // URLSession may convert a body to a stream; read that stream without logging it.
+    var sentBody = transported.httpBody
+    if let stream = transported.httpBodyStream {
+      stream.open()
+      defer { stream.close() }
+      var bytes = [UInt8](repeating: 0, count: 1024)
+      let count = stream.read(&bytes, maxLength: bytes.count)
+      #expect(count >= 0)
+      sentBody = Data(bytes.prefix(max(0, count)))
+    }
+    #expect(sentBody == transportBody)
+    _ = try await GmailTransport.send(
+      token: "synthetic-access", url: transportURL, body: nil, session: session)
+    #expect(ControlledGmailHTTP.probe.requests().last?.httpMethod == "GET")
+    let redirected = await RefusingRedirects().urlSession(
+      session, task: session.dataTask(with: transportURL),
+      willPerformHTTPRedirection: HTTPURLResponse(
+        url: transportURL, statusCode: 302, httpVersion: "HTTP/1.1", headerFields: nil)!,
+      newRequest: URLRequest(url: URL(string: "https://example.invalid")!))
+    #expect(redirected == nil)
+
     let service = "dev.unwired.registration.tests.\(UUID().uuidString)"
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     let keys = DeviceKeychain(service: service)
@@ -40,10 +109,12 @@ extension PrivateInboxTests {
     google.scopes = [RegistrationStore.gmailScope]
     var revoked = false
     var revocationQueries = 0
+    var validationUnavailable = false
     let store = google.store(
       keys: keys, mailCache: PrivateInboxStore(directory: directory, service: service),
       deviceRevoked: { _ in
         revocationQueries += 1
+        if validationUnavailable { throw RegistrationError.unavailable }
         return revoked
       })
     let file = directory.appendingPathComponent("mailbox.enc")
@@ -61,8 +132,7 @@ extension PrivateInboxTests {
 
     for path in [
       "../../oauth2/v3/tokeninfo", "messages/1/attachments/a.b", "messages/1/modify", "drafts",
-      "https://example.invalid",
-      "profile?alt=media", "messages/../../settings",
+      "https://example.invalid", "profile?alt=media", "messages/../../settings", "labels/Label_1",
     ] {
       await #expect(throws: RegistrationError.unavailable) {
         _ = try await store.gmail(
@@ -96,7 +166,54 @@ extension PrivateInboxTests {
     _ = try await store.gmail(
       path: "profile", query: [], address: google.address,
       generation: store.mailboxGeneration.uuidString)
-    #expect(revocationQueries == queriesBeforeReads)
+    _ = try await store.gmail(
+      path: "labels", query: [], address: google.address,
+      generation: store.mailboxGeneration.uuidString)
+    #expect(google.gmailBodies.allSatisfy { $0 == nil })
+    // The one write changes one message's labels; native code writes its body.
+    google.gmailRequests = []
+    google.gmailBodies = []
+    for (message, add, remove) in [
+      ("../settings", ["STARRED"], [String]()), ("19a0c0ffee000001", ["INBOX\"x"], []),
+      ("19a0c0ffee000001", [], [String](repeating: "UNREAD", count: 101)),
+      ("19a0c0ffee000001?alt=media", ["TRASH"], []),
+    ] {
+      await #expect(throws: RegistrationError.unavailable) {
+        _ = try await store.gmailModify(
+          message: message, add: add, remove: remove, address: google.address,
+          generation: store.mailboxGeneration.uuidString)
+      }
+    }
+    await #expect(throws: PrivateInboxError.mailboxInvalidated) {
+      _ = try await store.gmailModify(
+        message: "19a0c0ffee000001", add: ["TRASH"], remove: ["INBOX"],
+        address: "previous@example.invalid", generation: store.mailboxGeneration.uuidString)
+    }
+    #expect(google.gmailRequests.isEmpty)
+    let modified = try await store.gmailModify(
+      message: "19a0c0ffee000001", add: ["TRASH", "Label_12"], remove: ["INBOX"],
+      address: google.address, generation: store.mailboxGeneration.uuidString)
+    #expect(modified["status"] as? Int == 200)
+    #expect(
+      google.gmailRequests.map(\.absoluteString) == [
+        "https://gmail.googleapis.com/gmail/v1/users/me/messages/19a0c0ffee000001/modify"
+      ])
+    let sent = try JSONSerialization.jsonObject(with: try #require(google.gmailBodies.first ?? nil))
+    #expect(
+      sent as? [String: [String]] == [
+        "addLabelIds": ["TRASH", "Label_12"], "removeLabelIds": ["INBOX"],
+      ])
+    #expect(revocationQueries == queriesBeforeReads + 1)
+    // Failed revalidation leaves the action unsent; cached read availability cannot authorize it.
+    validationUnavailable = true
+    let writesBeforeFailure = google.gmailRequests.count
+    await #expect(throws: RegistrationError.unavailable) {
+      _ = try await store.gmailModify(
+        message: "19a0c0ffee000001", add: ["STARRED"], remove: [],
+        address: google.address, generation: store.mailboxGeneration.uuidString)
+    }
+    #expect(google.gmailRequests.count == writesBeforeFailure)
+    validationUnavailable = false
 
     let empty = try store.openMailbox()
     #expect(empty["revision"] as? Int == 0)
@@ -124,6 +241,11 @@ extension PrivateInboxTests {
     // Another mailbox never sees this one's cache.
     google.subject = "synthetic-other-mailbox"
     google.address = "other@example.invalid"
+    // A reconnect cannot silently select another mailbox and delete its pending document.
+    _ = try await store.authorizeGmail(reselect: false)
+    #expect(FileManager.default.fileExists(atPath: file.path))
+    #expect(try store.openMailbox()["document"] as? String == document)
+    #expect(try store.openMailbox()["address"] as? String == "same@example.invalid")
     _ = try await store.authorizeGmail(reselect: true)
     #expect(!FileManager.default.fileExists(atPath: file.path))
     let other = try store.openMailbox()
@@ -201,9 +323,15 @@ extension PrivateInboxTests {
     google.verificationFailure = nil
     _ = try await store.authorizeGmail(reselect: false)
 
-    // Revocation is checked before renewing a credential or revealing cache data.
+    // Each mutation revalidates before provider renewal and purges on a positive rejection.
     revoked = true
-    await #expect(throws: PrivateInboxError.mailboxInvalidated) { try await store.prepareMailbox() }
+    let readsBeforeRevokedWrite = google.gmailRequests.count
+    await #expect(throws: RegistrationError.revoked) {
+      _ = try await store.gmailModify(
+        message: "19a0c0ffee000001", add: ["TRASH"], remove: ["INBOX"],
+        address: google.address, generation: store.mailboxGeneration.uuidString)
+    }
+    #expect(google.gmailRequests.count == readsBeforeRevokedWrite)
     #expect(try keys.read("registration") == nil)
     #expect(!FileManager.default.fileExists(atPath: file.path))
     revoked = false
@@ -257,7 +385,8 @@ extension PrivateInboxTests {
     }
     restoring.resume()
     try await restoration.value
-    await #expect(throws: PrivateInboxError.mailboxInvalidated) { try await cleanup.value }
+    // The preflight that purges a removed device reports the removal itself.
+    await #expect(throws: RegistrationError.revoked) { try await cleanup.value }
     #expect(try keys.read("registration") == nil)
     revoked = false
     _ = try await store.signIn()

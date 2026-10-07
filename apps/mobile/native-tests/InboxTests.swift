@@ -1,5 +1,22 @@
 import XCTest
 
+// Synthetic completion proxy: reject failed writes and unfinished saves/syncs at each action.
+// Optimistic rows and the encrypted cache alone cannot prove that Gmail accepted a change.
+private func assertGmailActionsSettled(_ app: XCUIApplication) {
+  let unconfirmed = app.staticTexts.matching(
+    NSPredicate(
+      format: "label MATCHES %@",
+      "(?s).*(Gmail could not|Gmail has not confirmed|Gmail needs your permission|"
+        + "waits? for Gmail|Organizing mail waits).*"))
+  XCTAssertFalse(unconfirmed.firstMatch.waitForExistence(timeout: 5))
+  let unfinished = app.staticTexts.matching(
+    NSPredicate(
+      format: "label CONTAINS %@ OR label CONTAINS %@",
+      "Saving the change on this device", "Checking Gmail"))
+  XCTAssertTrue(unfinished.firstMatch.waitForNonExistence(timeout: 10))
+  XCTAssertFalse(unconfirmed.firstMatch.exists)
+}
+
 final class InboxTests: XCTestCase {
   private func registrationJourney(_ app: XCUIApplication) throws {
     app.buttons["Sign in with Google"].tap()
@@ -46,7 +63,20 @@ final class InboxTests: XCTestCase {
     bodyLink.tap()
     XCTAssertTrue(app.staticTexts["Open this link in your browser?"].waitForExistence(timeout: 10))
     app.buttons["Cancel"].tap()
-    XCTAssertFalse(app.buttons["Mark as read"].exists)
+    // Organizing goes through the packaged native Gmail modify: a star, then an archive and Undo.
+    app.buttons["Star"].tap()
+    XCTAssertTrue(app.buttons["Remove star"].waitForExistence(timeout: 10))
+    assertGmailActionsSettled(app)
+    XCTAssertTrue(app.buttons["Remove star"].exists)
+    app.buttons["Archive"].tap()
+    XCTAssertTrue(app.buttons["Undo"].waitForExistence(timeout: 10))
+    assertGmailActionsSettled(app)
+    XCTAssertTrue(app.buttons["Undo"].exists)
+    XCTAssertFalse(rowan.exists)
+    app.buttons["Undo"].tap()
+    XCTAssertTrue(rowan.waitForExistence(timeout: 15))
+    assertGmailActionsSettled(app)
+    XCTAssertTrue(rowan.exists)
     let inbox = XCTAttachment(screenshot: app.screenshot())
     inbox.name = "Synchronized Gmail Inbox"
     inbox.lifetime = .keepAlways

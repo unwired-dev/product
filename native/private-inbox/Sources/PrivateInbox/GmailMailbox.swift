@@ -15,7 +15,7 @@ import Foundation
   }
 }
 
-// Gmail reads and the mailbox cache for TypeScript's Inbox synchronization. TypeScript chooses the
+// Gmail requests and the mailbox cache for TypeScript's Inbox synchronization. TypeScript chooses the
 // Gmail resource and owns the cached document; the mailbox credential never leaves this file.
 extension RegistrationStore {
   // Only known transport failures permit reading the last verified mailbox's local cache.
@@ -52,7 +52,8 @@ extension RegistrationStore {
 
   // Runs when a synchronization opens or commits the cache, not for each Gmail read, so the backend
   // sees no per-message activity. A failed revocation query permits offline cache access; a
-  // positive rejection purges first.
+  // positive rejection purges first and reports the removal, so the Inbox can hand over to the
+  // account page's explanation instead of retrying an invalidated mailbox.
   func prepareMailbox() async throws {
     let generation = mailboxGeneration
     let product = try mailboxAccount()
@@ -60,7 +61,7 @@ extension RegistrationStore {
       try await requireNotRevoked(product)
     } catch RegistrationError.revoked {
       _ = try await purge()
-      throw PrivateInboxError.mailboxInvalidated
+      throw RegistrationError.revoked
     }
     guard generation == mailboxGeneration else { throw PrivateInboxError.mailboxInvalidated }
     _ = try mailboxAccount()
@@ -70,7 +71,7 @@ extension RegistrationStore {
   static func gmailURL(path: String, query: [URLQueryItem]) throws -> URL {
     guard
       path.range(
-        of: "^(profile|history|messages(/[0-9A-Za-z]+(/attachments/[0-9A-Za-z_-]+)?)?)$",
+        of: "^(profile|history|labels|messages(/[0-9A-Za-z]+(/attachments/[0-9A-Za-z_-]+)?)?)$",
         options: .regularExpression) != nil,
       var components = URLComponents(
         string: "https://gmail.googleapis.com/gmail/v1/users/me/" + path)
@@ -87,18 +88,57 @@ extension RegistrationStore {
     return (credential, mailbox)
   }
 
+  func gmail(
+    path: String, query: [URLQueryItem], address: String, generation: String
+  ) async throws -> [String: Any] {
+    try await gmail(
+      url: Self.gmailURL(path: path, query: query), body: nil, address: address,
+      generation: generation)
+  }
+
+  // The one Gmail write: a label change of one message. This file writes the body, so only label
+  // identifiers cross from TypeScript.
+  func gmailModify(
+    message: String, add: [String], remove: [String], address: String, generation: String
+  ) async throws -> [String: Any] {
+    func valid(_ value: String, _ pattern: String) -> Bool {
+      value.range(of: pattern, options: .regularExpression) != nil
+    }
+    guard valid(message, "^[0-9A-Za-z]+$"), add.count + remove.count <= 100,
+      (add + remove).allSatisfy({ valid($0, "^[0-9A-Za-z_]{1,100}$") }),
+      let url = URL(
+        string: "https://gmail.googleapis.com/gmail/v1/users/me/messages/\(message)/modify")
+    else { throw RegistrationError.unavailable }
+    let body = try JSONSerialization.data(withJSONObject: [
+      "addLabelIds": add, "removeLabelIds": remove,
+    ])
+    return try await gmail(url: url, body: body, address: address, generation: generation)
+  }
+
   // Resolves the HTTP status and body. A grant Google refuses to renew is gmailUnavailable, which
   // asks for authorization again; a renewal that cannot reach Google is unavailable, a retry.
-  func gmail(
-    path: String, query: [URLQueryItem], address: String, generation expectedGeneration: String
+  private func gmail(
+    url: URL, body: Data?, address: String, generation expectedGeneration: String
   ) async throws -> [String: Any] {
-    let url = try Self.gmailURL(path: path, query: query)
     let generation = mailboxGeneration
     _ = try mailboxAccount()
     guard mailboxVerified else { throw RegistrationError.unavailable }
     let (credential, mailbox) = try connectedMailbox()
     guard mailbox.address == address, generation.uuidString == expectedGeneration else {
       throw PrivateInboxError.mailboxInvalidated
+    }
+    // A mutation requires a current Trusted Device proof. Offline cache reads may use the
+    // permissive preflight, but a failed proof must never authorize a provider write.
+    if body != nil {
+      let product = try mailboxAccount()
+      guard let deviceRevoked else { throw RegistrationError.unavailable }
+      if try await deviceRevoked(product) {
+        _ = try await purge()
+        throw RegistrationError.revoked
+      }
+      guard generation == mailboxGeneration, mailboxVerified,
+        try connectedMailbox().1.subject == mailbox.subject
+      else { throw PrivateInboxError.mailboxInvalidated }
     }
     let identity: GoogleRegistrationIdentity
     do {
@@ -123,7 +163,7 @@ extension RegistrationStore {
       latest.mailboxCredential = identity.credential
       try save(latest)
     }
-    let (status, data) = try await provider.gmail(identity, url: url)
+    let (status, data) = try await provider.gmail(identity, url: url, body: body)
     guard generation == mailboxGeneration, mailboxVerified,
       try connectedMailbox().1.subject == mailbox.subject
     else { throw PrivateInboxError.mailboxInvalidated }
@@ -136,6 +176,8 @@ extension RegistrationStore {
     let mailbox = try connectedMailbox().1
     var result = try mailCache.openMailbox(address: mailbox.address, subject: mailbox.subject)
     result["generation"] = mailboxGeneration.uuidString
+    let product = try mailboxAccount()
+    result["owner"] = [product.productAccountId, product.trustedDeviceId, mailbox.subject].joined(separator: "\n")
     if mailboxCacheOnly { result["availability"] = "retry" }
     return result
   }
@@ -156,6 +198,8 @@ extension RegistrationStore {
       address: address, subject: mailbox.subject, expectedRevision: expectedRevision,
       document: document)
     result["generation"] = generation
+    let product = try mailboxAccount()
+    result["owner"] = [product.productAccountId, product.trustedDeviceId, mailbox.subject].joined(separator: "\n")
     return result
   }
 
@@ -259,4 +303,40 @@ extension PrivateInboxStore.BodyTier {
     default: return nil
     }
   }
+}
+
+// The production Gmail HTTP adapter. Its caller supplies only the native-held credential.
+enum GmailTransport {
+  static func send(token: String, url: URL, body: Data?, session: URLSession) async throws -> (Int, Data) {
+    var request = URLRequest(url: url)
+    request.setValue("Bearer " + token, forHTTPHeaderField: "Authorization")
+    if let body {
+      request.httpMethod = "POST"
+      request.httpBody = body
+      request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    }
+    request.timeoutInterval = 30
+    do {
+      let (data, response) = try await session.data(for: request, delegate: RefusingRedirects())
+      guard let response = response as? HTTPURLResponse else {
+        throw RegistrationError.unavailable
+      }
+      return (response.statusCode, data)
+    } catch let error as URLError where error.code == .cancelled {
+      throw CancellationError()
+    } catch is CancellationError {
+      throw CancellationError()
+    } catch {
+      throw RegistrationError.unavailable
+    }
+  }
+}
+
+// Redirects must not carry a mailbox bearer token to another host.
+final class RefusingRedirects: NSObject, URLSessionTaskDelegate {
+  func urlSession(
+    _ session: URLSession, task: URLSessionTask,
+    willPerformHTTPRedirection response: HTTPURLResponse,
+    newRequest request: URLRequest
+  ) async -> URLRequest? { nil }
 }

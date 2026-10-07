@@ -11,6 +11,7 @@ import { SafeAreaView } from 'react-native-screens/experimental';
 
 import { useInbox, useInboxActions } from './mailbox.tsx';
 import { GmailMessageBody, LinkConfirmationProvider } from './message-body.tsx';
+import { MessageActions } from './organize.tsx';
 import { usePalette } from './theme.ts';
 
 const styles = StyleSheet.create({
@@ -53,7 +54,14 @@ const dateFormat = new Intl.DateTimeFormat('en', {
   timeZone: 'UTC',
 });
 
-export function MessageDetail({ id }: { readonly id: string | undefined }) {
+export function MessageDetail({
+  id,
+  onClose,
+}: {
+  readonly id: string | undefined;
+  // Leaves the reader after its message leaves the Inbox.
+  readonly onClose?: (() => void) | undefined;
+}) {
   const state = useInbox();
   const actions = useInboxActions();
   const colors = usePalette();
@@ -61,6 +69,15 @@ export function MessageDetail({ id }: { readonly id: string | undefined }) {
     state.kind === 'ready'
       ? state.messages.find((item) => item.id === id)
       : undefined;
+  const applied = new Set(
+    message !== undefined && 'labels' in message ? message.labels : [],
+  );
+  const labelNames =
+    state.kind === 'ready' && 'labels' in state
+      ? state.labels
+          .filter((label) => applied.has(label.id))
+          .map((label) => label.name)
+      : [];
 
   if (state.kind === 'loading') {
     return (
@@ -126,7 +143,12 @@ export function MessageDetail({ id }: { readonly id: string | undefined }) {
                   {message.unread ? 'Mark as read' : 'Mark as unread'}
                 </Text>
               </Pressable>
-            ) : null}
+            ) : (
+              <MessageActions
+                id={message.id}
+                onClose={onClose}
+              />
+            )}
             <Text
               accessibilityRole="header"
               selectable
@@ -151,6 +173,11 @@ export function MessageDetail({ id }: { readonly id: string | undefined }) {
               <Text style={[styles.secondary, { color: colors.secondary }]}>
                 {dateFormat.format(new Date(message.receivedAt))} UTC
               </Text>
+              {labelNames.length === 0 ? null : (
+                <Text style={[styles.secondary, { color: colors.secondary }]}>
+                  {`Labels: ${labelNames.join(', ')}`}
+                </Text>
+              )}
             </View>
             {'readMessage' in actions ? (
               <GmailMessageBody

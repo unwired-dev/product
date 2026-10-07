@@ -4,6 +4,7 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### The test proves the behavior
 
+- A provider-action journey such as `InboxTests.registrationJourney` or `WindowTests.registrationJourney` treating optimistic controls, the encrypted cache or a done notice as provider confirmation. Check each action before later notices can mask refusal, rule out unfinished saving/sync and retry/authentication/rejected/blocked outcomes, and label synthetic completion proxies separately from provider-side label/readback evidence; otherwise a guarded or unsent write can leave pending intent behind a passing journey.
 - An assertion that cannot fail for the regression in question: it asserts the fixture, a mock's return value, a call count or call order, or mirrors the implementation line by line. Ask what plausible defect would turn it red.
 - The collaboration under test replaced by a mock. Substitute only the external boundary (provider response, native module, clock); stores, Effect services and layers, and Convex functions run for real.
 - A store or Convex function tested through an internal helper rather than its public interface (`getSnapshot`/`subscribe`/actions, or the registered function against the test database and identity context).

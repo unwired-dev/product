@@ -109,34 +109,12 @@ import os
     return GmailRegistrationReceipt(subject: identity.subject, address: profile.emailAddress)
   }
 
-  func gmail(_ identity: GoogleRegistrationIdentity, url: URL) async throws -> (Int, Data) {
-    var request = URLRequest(url: url)
-    request.setValue("Bearer " + identity.accessToken, forHTTPHeaderField: "Authorization")
-    request.timeoutInterval = 30
-    do {
-      let (data, response) = try await mailSession.data(
-        for: request, delegate: RefusingRedirects())
-      guard let response = response as? HTTPURLResponse else {
-        throw RegistrationError.unavailable
-      }
-      return (response.statusCode, data)
-    } catch let error as URLError where error.code == .cancelled {
-      throw CancellationError()
-    } catch is CancellationError {
-      throw CancellationError()
-    } catch {
-      throw RegistrationError.unavailable
-    }
+  func gmail(_ identity: GoogleRegistrationIdentity, url: URL, body: Data?) async throws -> (
+    Int, Data
+  ) {
+    try await GmailTransport.send(
+      token: identity.accessToken, url: url, body: body, session: mailSession)
   }
-}
-
-// A redirect could carry the mailbox's bearer token to another host; Gmail reads never redirect.
-private final class RefusingRedirects: NSObject, URLSessionTaskDelegate {
-  func urlSession(
-    _ session: URLSession, task: URLSessionTask,
-    willPerformHTTPRedirection response: HTTPURLResponse,
-    newRequest request: URLRequest
-  ) async -> URLRequest? { nil }
 }
 
 extension RegistrationError {
@@ -529,6 +507,8 @@ extension UnwiredRegistration {
         resolve(try await Self.operations.perform { try await operation(store()) })
       } catch {
         switch error {
+        case RegistrationError.revoked:
+          reject("mailbox-revoked", "This device no longer has access.", nil)
         case RegistrationError.gmailUnavailable:
           reject("gmail-unavailable", "Gmail needs authorization again.", nil)
         case PrivateInboxError.locked: reject("locked", "Private storage is locked.", nil)
@@ -561,6 +541,23 @@ extension UnwiredRegistration {
         return URLQueryItem(name: pair[0], value: pair[1])
       }
       return try await $0.gmail(path: path, query: items, address: address, generation: generation)
+    }
+  }
+
+  @objc(gmailModify:mailbox:resolver:rejecter:)
+  func gmailModify(
+    _ change: [String: Any], mailbox scope: [String: Any],
+    resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    mailbox("gmailModify", resolve, reject: reject) {
+      guard let address = scope["address"] as? String,
+        let generation = scope["generation"] as? String,
+        let message = change["message"] as? String,
+        let add = change["add"] as? [String], let remove = change["remove"] as? [String]
+      else { throw RegistrationError.unavailable }
+      return try await $0.gmailModify(
+        message: message, add: add, remove: remove, address: address, generation: generation)
     }
   }
 

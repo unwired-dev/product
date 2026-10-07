@@ -58,6 +58,19 @@ type Failure =
   | { readonly status: number; readonly body?: string }
   | { readonly code: string };
 
+// A modify Gmail applies before the connection drops, so its response is lost.
+type ModifyFailure = Failure | { readonly lost: true };
+
+const systemLabels = [
+  'INBOX',
+  'SPAM',
+  'TRASH',
+  'UNREAD',
+  'STARRED',
+  'IMPORTANT',
+  'CATEGORY_UPDATES',
+];
+
 const bodyKey = (owner: string, id: string) => `${owner}\n${id}`;
 
 const respond = (body: unknown) =>
@@ -103,6 +116,14 @@ export function createSyntheticGmail({
   const openFailures: string[] = [];
   const commitFailures: string[] = [];
   const requests: Array<{ path: string; query: URLSearchParams }> = [];
+  const modifies: Array<{
+    id: string;
+    add: readonly string[];
+    remove: readonly string[];
+  }> = [];
+  const modifyFailures: ModifyFailure[] = [];
+  const userLabels = new Map<string, string>();
+  let nextLabel = 0;
   const commits: string[] = [];
   let cache: { revision: number; address: string; document: string } | null =
     null;
@@ -367,7 +388,52 @@ export function createSyntheticGmail({
     if (id !== '') {
       return metadata(id, params);
     }
+    if (path === 'labels') {
+      return respond({
+        labels: [
+          ...systemLabels.map((label) => ({
+            id: label,
+            name: label,
+            type: 'system',
+          })),
+          ...[...userLabels].map(([label, name]) => ({
+            id: label,
+            name,
+            type: 'user',
+          })),
+        ],
+      });
+    }
     return path === 'history' ? historyPage(params) : notFound();
+  };
+  // Gmail's modify: unknown labels are a bad request and a missing message is not found.
+  const modifyMessage = (
+    id: string,
+    add: readonly string[],
+    remove: readonly string[],
+  ) => {
+    const message = messages.get(id);
+    if (message === undefined) {
+      return notFound();
+    }
+    if (
+      [...add, ...remove].some(
+        (label) => !systemLabels.includes(label) && !userLabels.has(label),
+      )
+    ) {
+      return Promise.resolve({ status: 400, body: '{}' });
+    }
+    for (const label of remove) {
+      relabel(id, label, false);
+    }
+    for (const label of add) {
+      relabel(id, label, true);
+    }
+    return respond({
+      id,
+      threadId: id,
+      labelIds: [...message.labels],
+    });
   };
   const readGmail = (
     path: string,
@@ -393,6 +459,26 @@ export function createSyntheticGmail({
       owner.address === address && owner.generation === String(generation)
         ? readGmail(path, query)
         : rejection('mailbox-invalidated'),
+    gmailModify: async ({ message: id, add, remove }, owner) => {
+      if (
+        owner.address !== address ||
+        owner.generation !== String(generation)
+      ) {
+        return rejection('mailbox-invalidated');
+      }
+      modifies.push({ id, add, remove });
+      const failure = modifyFailures.shift();
+      if (failure === undefined) {
+        return modifyMessage(id, add, remove);
+      }
+      if ('lost' in failure) {
+        await modifyMessage(id, add, remove);
+        return rejection('unavailable');
+      }
+      return 'code' in failure
+        ? rejection(failure.code)
+        : { status: failure.status, body: failure.body ?? '{}' };
+    },
     openMailbox: () => {
       const code = openFailures.shift();
       return code === undefined
@@ -400,6 +486,7 @@ export function createSyntheticGmail({
             revision: cache?.revision ?? 0,
             address,
             generation: String(generation),
+            owner: `synthetic-owner-${generation}`,
             document: cache?.address === address ? cache.document : null,
           })
         : rejection(code);
@@ -424,7 +511,11 @@ export function createSyntheticGmail({
         document,
       };
       commits.push(document);
-      return Promise.resolve({ ...cache, generation: String(generation) });
+      return Promise.resolve({
+        ...cache,
+        generation: String(generation),
+        owner: `synthetic-owner-${generation}`,
+      });
     },
     openMessageBody: (owner, id) => {
       const code = bodyFailures.shift();
@@ -480,7 +571,29 @@ export function createSyntheticGmail({
     native,
     requests,
     commits,
+    // Modify requests that reached Gmail, in order.
+    modifies,
     deliver,
+    labelsOf: (id: string) => [...(messages.get(id)?.labels ?? [])],
+    // A label created in Gmail; its ID never matches its name.
+    createLabel: (name: string) => {
+      nextLabel += 1;
+      const id = `Label_${nextLabel}`;
+      userLabels.set(id, name);
+      return id;
+    },
+    deleteLabel: (id: string) => {
+      userLabels.delete(id);
+      for (const message of messages.values()) {
+        if (message.labels.delete(id)) {
+          record('labelsRemoved', message.id);
+        }
+      }
+    },
+    // A label change made in Gmail itself, outside this device.
+    setLabel: (id: string, label: string, applied: boolean) => {
+      relabel(id, label, applied);
+    },
     archive: (id: string) => {
       relabel(id, 'INBOX', false);
     },
@@ -511,6 +624,7 @@ export function createSyntheticGmail({
       cache = null;
       bodies.clear();
       messages.clear();
+      userLabels.clear();
     },
     fail: (...next: readonly Failure[]) => {
       failures.push(...next);
@@ -523,6 +637,9 @@ export function createSyntheticGmail({
     },
     failCommit: (code: string) => {
       commitFailures.push(code);
+    },
+    failModify: (...next: readonly ModifyFailure[]) => {
+      modifyFailures.push(...next);
     },
     failBodyOpen: (code: string) => {
       bodyFailures.push(code);

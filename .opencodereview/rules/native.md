@@ -17,6 +17,7 @@ This code owns what TypeScript must never hold: Keychain items, the storage encr
 
 #### Bridge contract
 
+- A positive revocation found by `RegistrationStore.prepareMailbox` converted to ordinary mailbox invalidation after successful purge. Trace both `UnwiredRegistration.openMailbox` and `commitMailbox` through the shared rejection mapper and `createGmailInbox` recovery: preserve `mailbox-revoked` and its account-page hand-off, while generation changes retain bounded invalidation recovery. Collapsing the two makes already-purged mail end in retry exhaustion and a generic failure instead of the removal explanation.
 - `RegistrationStore.purge` or Gmail reselection synchronously removing the
   mailbox/body directory or waiting for its file lock on the main actor. Await
   detached `removeMailboxCache` work under the registration gate until deletion
@@ -78,6 +79,7 @@ This code owns what TypeScript must never hold: Keychain items, the storage encr
 
 #### Mock sessions stay out of production
 
+- A mock/test host factory such as `mockRegistrationStore` omitting a callback or proof required by a production operation's guard. Keep the real guard in place and wire the synthetic backend's owning state through it; otherwise optimistic/cached journeys can pass while the provider mutation is never reached and pending intent never settles.
 - `MockGoogleRegistrationProvider.gmail` collapsing repeated `metadataHeaders`
   selectors, comparing header names case-sensitively, or projecting declared
   MIME headers differently in preflight metadata and full responses. Preserve
@@ -99,6 +101,7 @@ This code owns what TypeScript must never hold: Keychain items, the storage encr
 
 Apply `docs/agents/testing.md`'s admission and proportionate-verification policy: existing meaningful coverage may suffice; document unavailable automation or protected/native evidence with its required follow-up. The cases below identify missing evidence for a named risk, not a requirement to add a test for every edit.
 
+- A native protocol/API signature change or merge accepted with compilation evidence that omits a consumer target. Inventory every caller and conformer, including integration probes and runner-only sources outside the Swift package and app targets, and map each to the command that compiles it. For `GoogleRegistrationProvider.gmail`, include `integration/SyntheticMetadataTests.swift` through `native/private-inbox/integration/metadata.zsh`; `swift build --build-tests` and a Sources-plus-bridge typecheck do not compile that probe. Run the affected compilation commands or report them as deferred; a caller search identifies coverage but is not compilation evidence. Otherwise a locally passing merge can leave the dedicated integration script or hosted native runner unable to compile. This checks validation scope, not compiler diagnostics already owned by tooling.
 - Changed storage, key or registration behavior with no Swift test in `native/private-inbox/Tests` or the on-device suite in `native/private-inbox/integration`. Package tests do not prove real Keychain or file-protection behavior on a device; say which evidence exists and which is deferred.
 
 #### Leave to tooling
