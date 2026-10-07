@@ -1,7 +1,10 @@
 import { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
+import type { Selection } from './inbox.tsx';
+
 import { Inbox } from './inbox.tsx';
+import { InboxProvider } from './mailbox.tsx';
 import { MessageDetail } from './message-detail.tsx';
 import { RegistrationGate } from './registration-gate.tsx';
 import { usePalette } from './theme.ts';
@@ -13,30 +16,33 @@ const styles = StyleSheet.create({
 });
 
 export function PreviewWindow({ windowId }: { readonly windowId: string }) {
-  const [selectedId, setSelectedId] = useState<string>();
+  const [selected, setSelected] = useState<Selection>();
   const colors = usePalette();
   // Either pane closes the reader when its message leaves the Inbox.
   const close = () => {
-    setSelectedId(undefined);
+    setSelected(undefined);
   };
   return (
-    <View
-      testID={`inbox-window-${windowId}`}
-      style={styles.window}>
-      <View style={[styles.sidebar, { borderRightColor: colors.separator }]}>
-        <Inbox
-          selectedId={selectedId}
-          onClose={close}
-          onSelect={setSelectedId}
-        />
+    <InboxProvider>
+      <View
+        testID={`inbox-window-${windowId}`}
+        style={styles.window}>
+        <View style={[styles.sidebar, { borderRightColor: colors.separator }]}>
+          <Inbox
+            selected={selected}
+            onClose={close}
+            onSelect={setSelected}
+          />
+        </View>
+        <View style={styles.detail}>
+          <MessageDetail
+            id={selected?.id}
+            mailbox={selected?.mailbox}
+            onClose={close}
+          />
+        </View>
       </View>
-      <View style={styles.detail}>
-        <MessageDetail
-          id={selectedId}
-          onClose={close}
-        />
-      </View>
-    </View>
+    </InboxProvider>
   );
 }
 

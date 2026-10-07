@@ -7,10 +7,12 @@ The review agent owns the separate [architecture companion](architecture/google-
 registration path to both native hosts. Product Sign-In creates or reconnects the
 Product Account through Convex before a separate Gmail authorization session.
 Cancelled or declined Gmail consent and Google identities without Gmail retain
-the Product Account. Retry can use the original account or another Google mailbox.
-A failed or cancelled choice of another mailbox keeps a connected mailbox connected.
-Adding that mailbox does not link its Google identity as another Product Sign-In;
-only [explicit linking](linked-sign-in.md) does.
+the Product Account. Retry can use the original account (**Authorize Gmail**) or
+another Google mailbox (**Choose another Google mailbox**). Once a mailbox is
+connected, the account page adds others with **Add another Gmail mailbox**; see
+[Gmail mailboxes](gmail-inbox.md#gmail-mailboxes). A failed or cancelled addition
+keeps every connected mailbox connected. Adding a mailbox does not link its Google
+identity as another Product Sign-In; only [explicit linking](linked-sign-in.md) does.
 
 Production builds open onboarding. Explicit `open-read-relaunch` and
 `mail-unavailable` builds retain the synthetic Inbox preview. Once the mailbox is
@@ -94,14 +96,14 @@ JavaScript still receives only the stable registration failure code.
 ## Deterministic evidence
 
 Shared application and rendered host tests use fixed synthetic registration
-sessions. They exercise consent separation, errors, retry, reselection and
-remounting. Convex tests exercise public account operations with authenticated
+sessions. They exercise consent separation, errors, retry, adding, reauthorizing and
+removing mailboxes, and remounting. Convex tests exercise public account operations with authenticated
 test identities and prove same-address Apple and Google isolation; `convex-test`
 does not exercise the deployment's JWT gateway.
 
 The hosted native storage suite exercises real Keychain persistence, interrupted
-registration, consent failures, Gmail verification failure, account reselection,
-wrong-subject rejection and preservation of existing encrypted Inbox bytes. Its
+registration, consent failures, Gmail verification failure, several mailbox
+connections, wrong-subject rejection and preservation of existing encrypted Inbox bytes. Its
 Google and backend boundaries are controlled synthetic providers. The nonce,
 issuer, audience and expiry checks run there too. These checks are deterministic
 native application integration evidence, not real OAuth evidence.

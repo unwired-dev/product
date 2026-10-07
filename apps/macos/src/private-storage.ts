@@ -6,29 +6,48 @@ import type {
 import type { TurboModule } from 'react-native';
 
 import { loadInitialMessages } from '@private-email/mail-core/inbox-seed';
+import { singleMailbox } from '@private-email/mail-core/mailboxes';
 import { createPersistentInbox } from '@private-email/mail-core/persistent-inbox';
 import { previewInbox } from '@private-email/mail-core/registration-mode';
 import { TurboModuleRegistry } from 'react-native';
 
-import { gmailInbox } from './registration.ts';
+import { gmailMailboxes } from './registration.ts';
 
 interface PrivateInboxModule extends TurboModule, NativeInboxStorage {}
 
 export type InboxStore = PersistentInbox | GmailInbox;
+type InboxState = ReturnType<InboxStore['getSnapshot']>;
 
-// Preview builds show the synthetic fixture; others show the connected Gmail mailbox.
-export const inbox: InboxStore = previewInbox
-  ? createPersistentInbox(
-      {
-        open: (seed) =>
-          TurboModuleRegistry.getEnforcing<PrivateInboxModule>(
-            'UnwiredPrivateInbox',
-          ).open(seed),
-        setUnread: (id, unread) =>
-          TurboModuleRegistry.getEnforcing<PrivateInboxModule>(
-            'UnwiredPrivateInbox',
-          ).setUnread(id, unread),
-      },
-      loadInitialMessages,
+// A mailbox the Inbox shows: a Mailbox Connection, or the preview fixture, which has no address.
+export type InboxMailbox = Readonly<{
+  id: string;
+  address?: string;
+  inbox: InboxStore;
+  state: InboxState;
+}>;
+
+export interface MailboxList {
+  readonly getSnapshot: () => readonly InboxMailbox[];
+  readonly subscribe: (listener: () => void) => () => void;
+  readonly load: () => Promise<void>;
+}
+
+// Preview builds show the synthetic fixture; others show every connected Gmail mailbox.
+export const mailboxes: MailboxList = previewInbox
+  ? singleMailbox(
+      createPersistentInbox(
+        {
+          open: (seed) =>
+            TurboModuleRegistry.getEnforcing<PrivateInboxModule>(
+              'UnwiredPrivateInbox',
+            ).open(seed),
+          setUnread: (id, unread) =>
+            TurboModuleRegistry.getEnforcing<PrivateInboxModule>(
+              'UnwiredPrivateInbox',
+            ).setUnread(id, unread),
+        },
+        loadInitialMessages,
+      ),
+      'preview',
     )
-  : gmailInbox;
+  : gmailMailboxes;

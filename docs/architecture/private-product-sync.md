@@ -331,3 +331,37 @@ The retained flow still uses the existing native coordinator. ADR 0067 stages it
 move to TypeScript through #756–759; native key custody, credentialed transport
 and persist-before-acknowledge guarantees remain in force during that migration.
 This slice does not claim those later flow migrations or live-provider qualification.
+
+## Mailbox Connections (#606)
+
+Each connection's descriptor remains schema 1 and adds optional `epoch` and
+`removed` fields, retaining older readable records. Its HMAC-derived record
+identifier deduplicates the Google subject within the Product Account. A random
+connection epoch binds local authorization to one incarnation; provider
+credentials and subjects never enter the descriptor. A new explicit authorization
+may adopt a live descriptor's epoch or recreate a tombstone at a new epoch.
+
+`SavedRegistration.mailboxRemovals` durably queues subject, address and removed
+epoch; reconciliation writes a tombstone even for an absent record, and never
+replaces an unreadable one. It clears a retry only after reading a matching removal
+or an authoritative later incarnation. Remove followed by explicit re-add retains
+that retry and a new local epoch, so the old incarnation is fenced even if the
+removal publication was interrupted. `newlyAuthorizedMailboxes` distinguishes
+current explicit consent from ordinary restore: an unpublished grant obtained
+while sync was unavailable cannot subsequently resurrect a tombstone or adopt a
+different live incarnation. New connections receive an epoch before publication. The user
+must authorize again after learning that removal.
+
+Local and synchronized removal delete connections from the durable registration
+before awaited cache cleanup. `mailboxCacheRemovals` retains only opaque cache
+identifiers for retry, not credentials; cleanup invalidates each generation,
+attempts every queued connection, and checkpoints successful deletions. A later
+synchronization failure reloads that durable registration rather than returning
+its previous connection list. Unfinished removals/cleanup set the existing
+`privateSyncPending: mailbox` presentation marker. The common pending copy covers
+both publishing mailbox changes and finishing local cleanup. The bridge FIFO gate
+continues to span native credential and detached storage work.
+
+These additions extend the existing flow before ADR 0067's sequenced migration;
+issues #756–#759 still own moving registration and descriptor coordination into
+TypeScript. They do not authorize new native application subsystems.

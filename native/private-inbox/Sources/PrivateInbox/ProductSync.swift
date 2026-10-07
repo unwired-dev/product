@@ -134,11 +134,15 @@ struct PendingRevocation: Codable {
   let trustedDeviceId: String?
 }
 
-// The synchronized description of an authorized mailbox; credentials never enter it.
+// The synchronized description of a Mailbox Connection; credentials never enter it. A removed
+// connection keeps a descriptor marked removed, so every Trusted Device purges its authorization.
 struct MailboxDescriptor: Codable, Equatable {
   static let schemaVersion = 1
   let provider: String
   let address: String
+  // Renewed whenever the connection is added after a removal, or first published.
+  var epoch: String? = nil
+  var removed: Bool? = nil
 }
 
 extension RegistrationStore {
@@ -190,7 +194,7 @@ extension RegistrationStore {
   func synchronize(_ saved: SavedRegistration) async throws -> SavedRegistration {
     guard let backend = productSync, let session, var product = saved.product else { return saved }
     let account = product.productAccountId
-    var saved = saved
+    var saved = try await retryMailboxCleanup(saved)
     do {
       // A Pending Device first has to be admitted; until then it reads and writes nothing.
       if product.pending == true {
@@ -235,13 +239,10 @@ extension RegistrationStore {
       }
       let mailboxes = try await synchronizeMailboxes(
         saved, vault: current, backend: backend, session: session)
+      saved = mailboxes.saved
       var next = current
       next.readMailboxes = mailboxes.addresses
-      if let (identifier, address) = mailboxes.confirmed {
-        next.savedMailboxes = (current.savedMailboxes ?? [:]).merging([identifier: address]) {
-          $1
-        }
-      }
+      next.savedMailboxes = mailboxes.confirmed
       if next.readMailboxes != current.readMailboxes
         || next.savedMailboxes != current.savedMailboxes
       {
@@ -257,7 +258,8 @@ extension RegistrationStore {
       // Product Sync stays pending; registration and the mailbox remain usable.
       Self.logProductSyncFailure("Product Sync failed", error)
     }
-    return saved
+    // A descriptor purge may have durably removed credentials before a later step failed.
+    return (try load()) ?? saved
   }
 
   // Asks a Trusted Device to approve this Pending Device, and adopts the keys sealed to it once they
@@ -339,30 +341,142 @@ extension RegistrationStore {
     return next
   }
 
-  // Writes this device's verified mailbox descriptor when missing, then reads every descriptor back.
+  // Marks this device's removals in Product Sync, purges connections another device removed or
+  // added again since this device authorized them, publishes descriptors Product Sync lacks, and
+  // reads every descriptor back. Returns the saved registration, the decrypted addresses and the
+  // descriptors confirmed for this device's connections.
+  // swiftlint:disable:next cyclomatic_complexity function_body_length
   func synchronizeMailboxes(
     _ saved: SavedRegistration, vault: ProductSyncVault, backend: ProductSyncBackend,
     session: ProductSignInIdentity
-  ) async throws -> (addresses: [String], confirmed: (String, String)?) {
-    guard let product = saved.product else { return ([], nil) }
-    var stored = try await mailboxDescriptors(vault, backend: backend, session: session, product)
-    var confirmed: (String, String)?
-    if let mailbox = saved.mailbox, saved.mailboxSetupReason == nil {
-      let identifier = try vault.ring.identifier("mailbox", "gmail:" + mailbox.subject)
-      let descriptor = MailboxDescriptor(provider: "gmail", address: mailbox.address)
-      // Only a missing or readable, different record is replaced; a newer client may own the rest.
-      let existing = stored[identifier]
-      if existing == nil || (existing?.descriptor != nil && existing?.descriptor != descriptor) {
-        let sealed = try vault.ring.seal(
-          record: JSONEncoder().encode(descriptor), account: vault.productAccountId,
-          identifier: identifier, schemaVersion: MailboxDescriptor.schemaVersion)
-        _ = try await backend.put(
-          session, product, identifier, sealed, stored[identifier]?.updatedAt)
-        stored = try await mailboxDescriptors(vault, backend: backend, session: session, product)
-      }
-      if stored[identifier]?.descriptor == descriptor { confirmed = (identifier, mailbox.address) }
+  ) async throws -> (saved: SavedRegistration, addresses: [String], confirmed: [String: String]) {
+    guard let product = saved.product else { return (saved, [], [:]) }
+    func identifier(_ subject: String) throws -> String {
+      try vault.ring.identifier("mailbox", "gmail:" + subject)
     }
-    return (Set(stored.values.compactMap { $0.descriptor?.address }).sorted(), confirmed)
+    var stored = try await mailboxDescriptors(vault, backend: backend, session: session, product)
+    func put(_ identifier: String, _ descriptor: MailboxDescriptor) async throws {
+      let sealed = try vault.ring.seal(
+        record: JSONEncoder().encode(descriptor), account: vault.productAccountId,
+        identifier: identifier, schemaVersion: MailboxDescriptor.schemaVersion)
+      _ = try await backend.put(session, product, identifier, sealed, stored[identifier]?.updatedAt)
+    }
+    // A removal marks only the epoch it removed; a later addition from another device stays.
+    func removes(_ removal: MailboxRemoval) throws -> MailboxDescriptor? {
+      guard let live = stored[try identifier(removal.subject)]?.descriptor, live.removed != true,
+        removal.epoch == nil || live.epoch == nil || removal.epoch == live.epoch
+      else { return nil }
+      return live
+    }
+    var next = saved
+    for removal in saved.mailboxRemovals ?? [] {
+      let key = try identifier(removal.subject)
+      if stored[key] == nil {
+        try await put(
+          key, MailboxDescriptor(
+            provider: "gmail", address: removal.address, epoch: removal.epoch ?? UUID().uuidString,
+            removed: true))
+      } else if let live = try removes(removal) {
+        var removed = live
+        removed.removed = true
+        try await put(try identifier(removal.subject), removed)
+      }
+    }
+    if !(saved.mailboxRemovals ?? []).isEmpty {
+      stored = try await mailboxDescriptors(vault, backend: backend, session: session, product)
+    }
+    var purged: [MailboxConnection] = []
+    var wrote = false
+    for connection in saved.connections {
+      let key = try identifier(connection.receipt.subject)
+      let usable = connection.authorizationNeeded != true
+      guard let record = stored[key] else {
+        if usable {
+          let epoch = connection.epoch ?? UUID().uuidString
+          try await put(
+            key, MailboxDescriptor(provider: "gmail", address: connection.receipt.address, epoch: epoch))
+          next.update(connection.id) { $0.epoch = epoch }
+          wrote = true
+        }
+        continue
+      }
+      // A record that fails to open or decode is never shown and never replaced.
+      guard let descriptor = record.descriptor else { continue }
+      let published = connection.published == true
+      let sameEpoch = descriptor.epoch == connection.epoch
+      let recreation = saved.mailboxRemovals?.contains {
+          $0.subject == connection.receipt.subject
+            && ($0.epoch == descriptor.epoch || descriptor.epoch == nil)
+        } == true
+      if descriptor.removed == true {
+        if published || (connection.epoch != nil && sameEpoch)
+          || (!newlyAuthorizedMailboxes.contains(connection.id) && !recreation) {
+          purged.append(connection)
+        } else if usable {
+          // Added on this device after the removal: the connection starts a new epoch.
+          let epoch = connection.epoch ?? UUID().uuidString
+          try await put(
+            key, MailboxDescriptor(provider: "gmail", address: connection.receipt.address, epoch: epoch))
+          next.update(connection.id) { $0.epoch = epoch }
+          wrote = true
+        }
+      } else if !sameEpoch {
+        // An authorization from before a removal and a later addition is not carried over.
+        if published
+          || (!newlyAuthorizedMailboxes.contains(connection.id) && !recreation) {
+          purged.append(connection)
+        } else if connection.epoch != nil, recreation {
+          // Explicit recreation advances the epoch even if the old removal was never published.
+          try await put(
+            key, MailboxDescriptor(
+              provider: "gmail", address: connection.receipt.address, epoch: connection.epoch))
+          wrote = true
+        } else {
+          next.update(connection.id) { $0.epoch = descriptor.epoch }
+        }
+      } else if usable, descriptor.address != connection.receipt.address {
+        try await put(
+          key,
+          MailboxDescriptor(
+            provider: "gmail", address: connection.receipt.address, epoch: descriptor.epoch))
+        wrote = true
+      }
+    }
+    for connection in purged {
+      next.connections = next.connections.filter { $0.id != connection.id }
+      next.mailboxCacheRemovals = Array(Set(
+        (next.mailboxCacheRemovals ?? []) + [connection.id])).sorted()
+    }
+    if !purged.isEmpty {
+      try save(next)
+      next = try await retryMailboxCleanup(next)
+    }
+    if !(saved.mailboxRemovals ?? []).isEmpty || wrote {
+      stored = try await mailboxDescriptors(vault, backend: backend, session: session, product)
+    }
+    // A removal that is marked, or overtaken by another addition, is done.
+    next.mailboxRemovals = try (saved.mailboxRemovals ?? []).filter {
+      // Missing or unreadable is no evidence that this removal committed.
+      guard let descriptor = stored[try identifier($0.subject)]?.descriptor else { return true }
+      if descriptor.removed == true { return false }
+      return try removes($0) != nil
+    }
+    if next.mailboxRemovals?.isEmpty == true { next.mailboxRemovals = nil }
+    var confirmed: [String: String] = [:]
+    for connection in next.connections {
+      let key = try identifier(connection.receipt.subject)
+      guard let descriptor = stored[key]?.descriptor, descriptor.removed != true,
+        descriptor.epoch == connection.epoch
+      else { continue }
+      next.update(connection.id) { $0.published = true }
+      if descriptor.address == connection.receipt.address {
+        confirmed[key] = connection.receipt.address
+      }
+    }
+    try save(next)
+    let addresses = stored.values.compactMap { $0.descriptor }.filter { $0.removed != true }.map(
+      \.address)
+    return (next, Set(addresses).sorted(), confirmed)
   }
 
   func mailboxDescriptors(
@@ -430,10 +544,12 @@ extension RegistrationStore {
     if let mailboxes = vault.readMailboxes, !mailboxes.isEmpty {
       result["privateSyncMailboxes"] = mailboxes.joined(separator: "\n")
     }
-    // A verified mailbox not yet read back needs a backend session, such as after an Apple relaunch.
-    if let mailbox = saved.mailbox, saved.mailboxSetupReason == nil, vault.published,
-      try vault.savedMailboxes?[vault.ring.identifier("mailbox", "gmail:" + mailbox.subject)]
-        != mailbox.address
+    // A usable mailbox not yet read back needs a backend session, such as after an Apple relaunch.
+    if vault.published,
+      try saved.usableConnections.contains(where: {
+        try vault.savedMailboxes?[vault.ring.identifier("mailbox", "gmail:" + $0.receipt.subject)]
+          != $0.receipt.address
+      })
     {
       result["privateSyncPending"] = "mailbox"
     }
@@ -508,7 +624,4 @@ extension RegistrationStore {
     }
   }
 
-  func status(_ saved: SavedRegistration) throws -> [String: String] {
-    try saved.mailbox != nil && saved.mailboxSetupReason == nil ? connected(saved) : pending(saved)
-  }
 }

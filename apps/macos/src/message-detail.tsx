@@ -8,7 +8,12 @@ import {
   View,
 } from 'react-native';
 
-import { useInbox, useInboxActions } from './mailbox.ts';
+import {
+  MailboxScope,
+  useInbox,
+  useInboxActions,
+  useMailbox,
+} from './mailbox.tsx';
 import { GmailMessageBody, LinkConfirmationProvider } from './message-body.tsx';
 import { MessageActions } from './organize.tsx';
 import { usePalette } from './theme.ts';
@@ -53,16 +58,71 @@ const dateFormat = new Intl.DateTimeFormat('en', {
   timeZone: 'UTC',
 });
 
+// Nothing selected, or a message that is not in any open mailbox.
+function EmptyDetail({ id }: { readonly id: string | undefined }) {
+  const colors = usePalette();
+  return (
+    <View style={[styles.fill, { backgroundColor: colors.background }]}>
+      <View
+        accessible
+        accessibilityRole="text"
+        accessibilityLabel={
+          id
+            ? 'Message unavailable. Choose another message from the Inbox.'
+            : 'Select a message to start reading.'
+        }
+        style={styles.empty}>
+        <Text
+          accessibilityRole="header"
+          style={[styles.emptyTitle, { color: colors.foreground }]}>
+          {id ? 'Message unavailable' : 'A little space for your mail'}
+        </Text>
+        <Text style={[styles.emptyDescription, { color: colors.secondary }]}>
+          {id
+            ? 'Choose another message from the Inbox.'
+            : 'Select a message to start reading.'}
+        </Text>
+      </View>
+    </View>
+  );
+}
+
 export function MessageDetail({
+  mailbox,
   id,
   onClose,
 }: {
+  // The mailbox the message belongs to; Gmail message IDs are unique only within it.
+  readonly mailbox: string | undefined;
   readonly id: string | undefined;
   // Leaves the reader after its message leaves the Inbox.
   readonly onClose?: (() => void) | undefined;
 }) {
+  if (mailbox === undefined || id === undefined) {
+    return <EmptyDetail id={id} />;
+  }
+  return (
+    <MailboxScope
+      id={mailbox}
+      fallback={<EmptyDetail id={id} />}>
+      <MailboxMessage
+        id={id}
+        onClose={onClose}
+      />
+    </MailboxScope>
+  );
+}
+
+function MailboxMessage({
+  id,
+  onClose,
+}: {
+  readonly id: string;
+  readonly onClose: (() => void) | undefined;
+}) {
   const state = useInbox();
   const actions = useInboxActions();
+  const address = useMailbox()?.address;
   const colors = usePalette();
   const message =
     state.kind === 'ready'
@@ -116,21 +176,15 @@ export function MessageDetail({
         <View
           accessible
           accessibilityRole="text"
-          accessibilityLabel={
-            id
-              ? 'Message unavailable. Choose another message from the Inbox.'
-              : 'Select a message to start reading.'
-          }
+          accessibilityLabel="Message unavailable. Choose another message from the Inbox."
           style={styles.empty}>
           <Text
             accessibilityRole="header"
             style={[styles.emptyTitle, { color: colors.foreground }]}>
-            {id ? 'Message unavailable' : 'A little space for your mail'}
+            Message unavailable
           </Text>
           <Text style={[styles.emptyDescription, { color: colors.secondary }]}>
-            {id
-              ? 'Choose another message from the Inbox.'
-              : 'Select a message to start reading.'}
+            Choose another message from the Inbox.
           </Text>
         </View>
       ) : (
@@ -178,6 +232,11 @@ export function MessageDetail({
               <Text style={[styles.secondary, { color: colors.secondary }]}>
                 {dateFormat.format(new Date(message.receivedAt))} UTC
               </Text>
+              {address === undefined ? null : (
+                <Text style={[styles.secondary, { color: colors.secondary }]}>
+                  {`In ${address}`}
+                </Text>
+              )}
               {labelNames.length === 0 ? null : (
                 <Text style={[styles.secondary, { color: colors.secondary }]}>
                   {`Labels: ${labelNames.join(', ')}`}

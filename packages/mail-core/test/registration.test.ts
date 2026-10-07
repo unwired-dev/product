@@ -13,9 +13,16 @@ import {
   createSyntheticAccount,
   syntheticEnrollmentCode,
   syntheticEnrollmentRequest,
+  syntheticMailboxes,
   syntheticRecoveryKey,
   syntheticTrustedDevice,
 } from '../src/testing/registration-session.ts';
+
+// The connection list native code reports for one connected synthetic mailbox.
+const connectedTo = (address: keyof typeof syntheticMailboxes) =>
+  JSON.stringify([
+    { id: syntheticMailboxes[address], address, state: 'connected' },
+  ]);
 
 // A new Product Account presents its Recovery Key until setup is confirmed.
 const unconfirmed = {
@@ -118,19 +125,18 @@ describe('product registration', () => {
     const connected = {
       ...account,
       kind: 'connected',
-      providerSubject: 'synthetic-google-subject',
-      address: 'alex@example.invalid',
+      mailboxes: connectedTo('alex@example.invalid'),
     } as const;
     const store = createRegistration({
       ...session.native,
       signIn: () => Promise.resolve({ ...account, kind: 'mailbox-needed' }),
-      authorizeGmail: () => Promise.resolve(connected),
+      addMailbox: () => Promise.resolve(connected),
       restore: () => Promise.resolve(connected),
     });
     for (const operation of [
       () => store.register('google'),
       () => store.restore(),
-      () => store.authorizeGmail(false),
+      () => store.addMailbox(),
     ]) {
       await operation();
       expect(store.getSnapshot()).toStrictEqual({
@@ -165,7 +171,7 @@ describe('product registration', () => {
       snapshot: { kind: 'device-pending' },
       failed: false,
     });
-    await outsider.authorizeGmail(true);
+    await outsider.addMailbox(true);
     expect(outsider.getSnapshot()).toMatchObject({
       snapshot: { kind: 'device-pending' },
       failed: true,
@@ -212,13 +218,12 @@ describe('product registration', () => {
       expect(relaunched.getSnapshot().snapshot).toStrictEqual(
         first.getSnapshot().snapshot,
       );
-      await relaunched.authorizeGmail(true);
+      await relaunched.addMailbox(true);
       expect(relaunched.getSnapshot().snapshot).toStrictEqual({
         kind: 'connected',
         signInProvider: provider,
         ...accounts[provider],
-        providerSubject: 'synthetic-alternate-google-subject',
-        address: 'other@example.invalid',
+        mailboxes: connectedTo('other@example.invalid'),
         privateSyncMailboxes: 'other@example.invalid',
       });
     },
@@ -234,7 +239,7 @@ describe('product registration', () => {
       failed: true,
     });
     await store.restore();
-    await store.authorizeGmail(false);
+    await store.addMailbox();
     expect(store.getSnapshot()).toMatchObject({
       snapshot: { kind: 'connected' },
       failed: false,
@@ -328,8 +333,7 @@ describe('product registration', () => {
         kind: 'connected',
         ...accounts.google,
         signInProvider: 'google',
-        providerSubject: 'synthetic-google-subject',
-        address: 'alex@example.invalid',
+        mailboxes: connectedTo('alex@example.invalid'),
         privateSyncMailboxes: 'alex@example.invalid',
       },
       busy: false,
@@ -393,7 +397,7 @@ describe('product registration', () => {
     const started = Promise.withResolvers<boolean>();
     const store = createRegistration({
       ...session.native,
-      authorizeGmail: () => {
+      addMailbox: () => {
         started.resolve(true);
         return blocked.promise;
       },
@@ -463,10 +467,10 @@ describe('product registration', () => {
         await gate.promise;
         return session.native.signIn(provider);
       },
-      authorizeGmail: () => Promise.resolve({ kind: 'connected' }),
+      addMailbox: () => Promise.resolve({ kind: 'connected' }),
     });
     const registration = store.register('google');
-    await store.authorizeGmail(true);
+    await store.addMailbox(true);
     expect(store.getSnapshot()).toStrictEqual({
       snapshot: { kind: 'signed-out' },
       busy: true,
@@ -494,8 +498,7 @@ describe('product registration', () => {
       ...accounts.apple,
       signInProvider: 'apple',
       alternateSignIn: 'google',
-      providerSubject: 'synthetic-google-subject',
-      address: 'alex@example.invalid',
+      mailboxes: connectedTo('alex@example.invalid'),
       privateSyncMailboxes: 'alex@example.invalid',
     };
     expect(store.getSnapshot()).toStrictEqual({
@@ -542,8 +545,7 @@ describe('product registration', () => {
         productAccountId: 'synthetic-product-account',
         signInProvider: 'google',
         privateSync: 'ready',
-        providerSubject: 'synthetic-google-subject',
-        address: 'alex@example.invalid',
+        mailboxes: connectedTo('alex@example.invalid'),
         privateSyncMailboxes: 'alex@example.invalid',
       },
       busy: false,

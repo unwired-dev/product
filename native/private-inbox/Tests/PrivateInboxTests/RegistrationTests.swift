@@ -13,6 +13,8 @@ import Testing
   var hints: [String?] = []
   var refreshFailure: (any Error)?
   var verificationFailure: (any Error)?
+  // Google accounts whose Gmail grant is refused, while the others verify.
+  var refusedSubjects: Set<String> = []
   var beforeRefresh: (() async -> Void)?
   var beforeGmail: (() async -> Void)?
 
@@ -43,7 +45,9 @@ import Testing
   func verifyGmail(_ identity: GoogleRegistrationIdentity) async throws -> GmailRegistrationReceipt
   {
     if let verificationFailure { throw verificationFailure }
-    guard gmailAvailable else { throw RegistrationError.gmailUnavailable }
+    guard gmailAvailable, !refusedSubjects.contains(identity.subject) else {
+      throw RegistrationError.gmailUnavailable
+    }
     return GmailRegistrationReceipt(subject: identity.subject, address: address)
   }
   var gmailRequests: [URL] = []
@@ -164,35 +168,37 @@ extension PrivateInboxTests {
       ])
     for failure in [RegistrationError.cancelled, .declined, .gmailUnavailable] {
       provider.outcome = failure
-      let result = try await first.authorizeGmail(reselect: false)
+      let result = try await first.authorizeGmail()
       #expect(result["kind"] == "mailbox-needed")
       #expect(result["productAccountId"] == registered["productAccountId"])
       #expect(try await provider.store(keys: keys).restore()["kind"] == "mailbox-needed")
     }
     provider.outcome = nil
     // A signed-in Google identity with missing mail scopes cannot connect Gmail.
-    let declined = try await first.authorizeGmail(reselect: false)
+    let declined = try await first.authorizeGmail()
     #expect(declined["kind"] == "mailbox-needed")
     #expect(declined["reason"] == "declined")
     provider.scopes = [RegistrationStore.gmailScope]
     provider.gmailAvailable = false
-    let unavailable = try await first.authorizeGmail(reselect: false)
+    let unavailable = try await first.authorizeGmail()
     #expect(unavailable["kind"] == "mailbox-needed")
     #expect(unavailable["reason"] == "gmail-unavailable")
     provider.gmailAvailable = true
     provider.subject = "synthetic-mailbox-subject"
-    let connected = try await provider.store(keys: keys).authorizeGmail(reselect: true)
+    let connected = try await provider.store(keys: keys).authorizeGmail(chooseAccount: true)
     #expect(
       connected == [
         "kind": "connected", "productAccountId": "account-synthetic-product-subject",
-        "signInProvider": "google", "providerSubject": "synthetic-mailbox-subject",
-        "address": "same@example.invalid",
+        "signInProvider": "google",
+        "mailboxes": mailboxList([
+          ("synthetic-mailbox-subject", "same@example.invalid", "connected")
+        ]),
       ])
     #expect(try await provider.store(keys: keys).restore() == connected)
-    // A failed reselection is reported without dropping the connected mailbox.
+    // A failed addition of another mailbox is reported without dropping the connected one.
     for failure in [RegistrationError.cancelled, .declined, .gmailUnavailable] {
       provider.outcome = failure
-      await #expect(throws: failure) { try await first.authorizeGmail(reselect: true) }
+      await #expect(throws: failure) { try await first.authorizeGmail(chooseAccount: true) }
       #expect(try await provider.store(keys: keys).restore() == connected)
     }
     provider.outcome = nil
@@ -241,7 +247,7 @@ extension PrivateInboxTests {
     #expect(offline["productAccountId"] == "synthetic-product-subject")
     #expect(offline["reason"] == "unavailable")
     // A Product identity failure before mailbox selection reports the retained account.
-    let reauthorize = try await interrupted.authorizeGmail(reselect: true)
+    let reauthorize = try await interrupted.authorizeGmail(chooseAccount: true)
     #expect(reauthorize["kind"] == "mailbox-needed")
     #expect(reauthorize["reason"] == "interrupted")
     // A record for another Google client is ignored rather than blocking a new sign-in.
@@ -272,7 +278,7 @@ extension PrivateInboxTests {
     #expect(
       try await store().signIn(with: .apple) == account.merging(["kind": "mailbox-needed"]) { $1 })
     // Apple sign-in grants no mail scope; the first Gmail session is declined here.
-    let declined = try await store().authorizeGmail(reselect: false)
+    let declined = try await store().authorizeGmail()
     #expect(declined == account.merging(["kind": "mailbox-needed", "reason": "declined"]) { $1 })
     // Restoring checks Apple's credential state without renewing the backend session.
     #expect(try await store().restore() == declined)
@@ -280,12 +286,14 @@ extension PrivateInboxTests {
     google.scopes = [RegistrationStore.gmailScope]
     google.subject = "synthetic-mailbox-subject"
     google.address = "relay@privaterelay.example.invalid"
-    let connected = try await store().authorizeGmail(reselect: false)
+    let connected = try await store().authorizeGmail()
     #expect(
       connected
         == account.merging([
-          "kind": "connected", "providerSubject": "synthetic-mailbox-subject",
-          "address": "relay@privaterelay.example.invalid",
+          "kind": "connected",
+          "mailboxes": mailboxList([
+            ("synthetic-mailbox-subject", "relay@privaterelay.example.invalid", "connected")
+          ]),
         ]) { $1 })
     #expect(try await store().restore() == connected)
     // Neither the Apple subject nor its address is used to choose a Google mailbox.
@@ -298,12 +306,12 @@ extension PrivateInboxTests {
     }
     // Reauthentication keeps the address Apple returned on first authorization.
     #expect(try await store().signIn(with: .apple)["contactEmail"] == account["contactEmail"])
-    #expect(try await store().authorizeGmail(reselect: false) == connected)
+    #expect(try await store().authorizeGmail() == connected)
     apple.state = .revoked
     #expect(
       try await store().restore()
         == account.merging(["kind": "mailbox-needed", "reason": "unavailable"]) { $1 })
-    #expect(try await store().authorizeGmail(reselect: false)["reason"] == "unavailable")
+    #expect(try await store().authorizeGmail()["reason"] == "unavailable")
     #expect(try store().load()?.product?.productAccountId == account["productAccountId"])
   }
 
@@ -329,7 +337,7 @@ extension PrivateInboxTests {
     // Only an interactive Apple session can finish it, so restore reports the sign-in step.
     #expect(try await store.restore() == ["kind": "signed-out"])
     await #expect(throws: RegistrationError.unavailable) {
-      try await store.authorizeGmail(reselect: false)
+      try await store.authorizeGmail()
     }
     online = true
     // No Product Account was committed, so another Sign-In Provider may start fresh.
@@ -423,7 +431,7 @@ extension PrivateInboxTests {
     _ = try await store(keys).signIn(with: .apple)
     google.scopes = [RegistrationStore.gmailScope]
     google.subject = "synthetic-mailbox-subject"
-    let connected = try await store(keys).authorizeGmail(reselect: false)
+    let connected = try await store(keys).authorizeGmail()
     #expect(connected["kind"] == "connected")
     // The Gmail grant is a Mailbox Connection, never a Linked Sign-In.
     #expect(connected["alternateSignIn"] == nil)

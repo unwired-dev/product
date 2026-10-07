@@ -17,7 +17,6 @@ import type {
   GmailPart,
   MessagePresentation,
 } from './message-body.ts';
-import type { Registration } from './registration.ts';
 
 import {
   decodeDiagnostic,
@@ -49,7 +48,6 @@ import {
   singleReadablePart,
   unescapeHtml,
 } from './message-body.ts';
-import { canOpenInbox } from './registration.ts';
 
 // The native Registration module's mailbox operations. Native code attaches the Gmail credential
 // and keeps the cache encrypted; this module chooses the Gmail requests and owns the cached document.
@@ -775,11 +773,44 @@ const httpFailure = (status: number, body: string) =>
     diagnostic: `status ${status}`,
   });
 
+// Body loads shared by every connection's Inbox on this device: four at a time account-wide,
+// and speculative prefetch in any connection waits while an explicit read waits or runs.
+export function createBodyLoads() {
+  const idle = Latch.makeUnsafe(true);
+  let interactive = 0;
+  return {
+    loads: Semaphore.makeUnsafe(4),
+    // Separate owner ledgers share one presentation budget without colliding on Gmail IDs.
+    images: new Map<
+      symbol,
+      ReadonlyMap<string | symbol, { bytes: number; pixels: number }>
+    >(),
+    idle,
+    begin: Effect.sync(() => {
+      interactive += 1;
+      idle.closeUnsafe();
+    }),
+    end: Effect.sync(() => {
+      interactive -= 1;
+      if (interactive === 0) {
+        idle.openUnsafe();
+      }
+    }),
+  };
+}
+type BodyLoads = ReturnType<typeof createBodyLoads>;
+
 export function createGmailInbox(
   native: NativeGmailMailbox,
-  // Called after native code purged this device because another device removed it; the account
-  // page, not the Inbox, explains what happened.
-  { removed }: Readonly<{ removed?: () => void }> = {},
+  {
+    removed,
+    shared = createBodyLoads(),
+  }: Readonly<{
+    // Called after native code purged this device because another device removed it; the account
+    // page, not the Inbox, explains what happened.
+    removed?: (() => void) | undefined;
+    shared?: Readonly<BodyLoads>;
+  }> = {},
 ) {
   // One Gmail read; a missing resource is GmailNotFound and other HTTP failures are classified.
   const gmail =
@@ -1083,6 +1114,7 @@ export function createGmailInbox(
   const documents = new Map<string, BodyDocument>();
   const endedReaders = new Set<string>();
   // Each independent WebView owns a reservation and an immutable prepared presentation.
+  const imageOwner = Symbol('mailbox-images');
   const imageReservations = new Map<
     string | symbol,
     { bytes: number; pixels: number }
@@ -1207,12 +1239,12 @@ export function createGmailInbox(
   let opened: MailboxScope | undefined = undefined;
   // Advances when the open Inbox closes, so a body read for the previous owner is dropped.
   let owner = 0;
-  // ponytail: two concurrent body loads, the per-connection limit; one connection per device, so
-  // the four-load account limit is never reached.
-  const bodyLoads = Semaphore.makeUnsafe(2);
-  // Open while no explicit read is waiting or running; speculative prefetch waits on it.
-  const interactiveIdle = Latch.makeUnsafe(true);
-  let interactive = 0;
+  // Two concurrent body loads for this connection, within the account-wide four.
+  const connectionLoads = Semaphore.makeUnsafe(2);
+  const bodyLoads = {
+    withPermit: <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+      connectionLoads.withPermit(shared.loads.withPermit(effect)),
+  };
   const speculativeBodies = new Map<string, Deferred.Deferred<undefined>>();
 
   const releaseLegacyReader = (id: string) => {
@@ -1246,18 +1278,26 @@ export function createGmailInbox(
     notify(state);
   };
 
+  const reservedImages = (key: string | symbol) => {
+    let bytes = 0;
+    let pixels = 0;
+    for (const reservations of shared.images.values()) {
+      for (const [other, reserved] of reservations) {
+        if (reservations !== imageReservations || other !== key) {
+          bytes += reserved.bytes;
+          pixels += reserved.pixels;
+        }
+      }
+    }
+    return { bytes, pixels };
+  };
+
   // Admits a body's inline images in document order while the budget shared by every displayed
   // body allows; the rest stay placeholders.
   const present = (key: string | symbol, document: BodyDocument, count = 1) => {
     const { id } = document;
-    let bytes = 0;
-    let pixels = 0;
-    for (const [other, reserved] of imageReservations) {
-      if (other !== key) {
-        bytes += reserved.bytes;
-        pixels += reserved.pixels;
-      }
-    }
+    let { bytes, pixels } = reservedImages(key);
+    shared.images.set(imageOwner, imageReservations);
     let occurrences: readonly string[] = [];
     try {
       occurrences =
@@ -1639,17 +1679,6 @@ export function createGmailInbox(
     return document;
   });
 
-  const beginInteractive = Effect.sync(() => {
-    interactive += 1;
-    interactiveIdle.closeUnsafe();
-  });
-  const endInteractive = Effect.sync(() => {
-    interactive -= 1;
-    if (interactive === 0) {
-      interactiveIdle.openUnsafe();
-    }
-  });
-
   // A refresh reloads a shown body in place: it keeps showing until the reload succeeds.
   const readMessage = (
     id: string,
@@ -1676,7 +1705,7 @@ export function createGmailInbox(
     }
     const run = runLogged(
       Effect.acquireUseRelease(
-        beginInteractive,
+        shared.begin,
         () =>
           Effect.gen(function* () {
             const speculative = speculativeBodies.get(id);
@@ -1685,7 +1714,7 @@ export function createGmailInbox(
             }
             return yield* bodyLoads.withPermit(loadBody(scope, id, reading));
           }),
-        () => endInteractive,
+        () => shared.end,
       ).pipe(
         Effect.map((document): MessageBodyState => {
           if (owner !== reading || !listed(id) || endedReaders.has(id)) {
@@ -1820,7 +1849,7 @@ export function createGmailInbox(
       )).stored,
     );
     for (const id of selection) {
-      yield* interactiveIdle.await;
+      yield* shared.idle.await;
       if (prefetchPaused(reading, id)) {
         return;
       }
@@ -1976,6 +2005,7 @@ export function createGmailInbox(
     endedReaders.clear();
     readingBodies.clear();
     imageReservations.clear();
+    shared.images.delete(imageOwner);
     selection = [];
     selectionReference = undefined;
     speculativeBodies.clear();
@@ -2654,32 +2684,6 @@ export function createGmailInbox(
 }
 
 export type GmailInbox = ReturnType<typeof createGmailInbox>;
-
-// Mail held in memory belongs to one open Inbox: its Product Account, Google account and address.
-// It is forgotten as soon as registration reports another owner or no open Inbox, before the
-// next account or mailbox can render it.
-export function forgetMailOutsideInbox(
-  registration: Pick<Registration, 'subscribe' | 'getSnapshot'>,
-  inbox: Pick<GmailInbox, 'forget'>,
-) {
-  let owner: string | null = null;
-  return registration.subscribe(() => {
-    const { snapshot } = registration.getSnapshot();
-    const next =
-      canOpenInbox(snapshot) &&
-      (snapshot.kind === 'connected' || snapshot.kind === 'cached')
-        ? [
-            snapshot.productAccountId,
-            snapshot.providerSubject,
-            snapshot.address,
-          ].join('\n')
-        : null;
-    if (next !== owner) {
-      owner = next;
-      inbox.forget();
-    }
-  });
-}
 
 // What the Inbox says about synchronization while it keeps showing the cached messages.
 export const gmailSyncCopy = {

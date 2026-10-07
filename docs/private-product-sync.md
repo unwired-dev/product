@@ -173,15 +173,25 @@ for the authorized Pending Device and its current one-time key. The first device
 a Recovery Key replacement and a removal each publish the Recovery Key verifier
 with the recovery envelope they write.
 
-The mailbox descriptor contains the provider and address. Gmail credentials,
-access tokens, the Google subject and message content never enter it. Mailbox
-credentials stay in the separate device-only registration record.
+Each [Mailbox Connection](gmail-inbox.md#gmail-mailboxes) has a private synchronized
+description containing its provider and address, including whether it was removed.
+Gmail credentials, access tokens, the Google subject and message content never
+enter it. Mailbox credentials stay on each authorized device.
 
-A device writes its mailbox descriptor only when the record is missing, or when
-the stored record opens at the current schema and holds a different descriptor.
-Every record it cannot open or decode is read-only. This covers a newer schema,
-a key epoch this device lacks and an authentication failure at the current
-schema and epoch. The device neither shows nor replaces such a record.
+Every description a device cannot open or decode is read-only. This includes
+newer formats, missing keys and failed authentication. The device neither shows
+nor replaces it, and an unreadable description cannot acknowledge a removal.
+
+Removing a connection waits on this device until its synchronized removal is
+confirmed, or fresh authorization on another device has already superseded that
+removal. Other Trusted Devices purge the removed connection's credential and
+cache before further Gmail access. Interrupted local cleanup remains visible as
+unfinished mailbox changes and retries after relaunch; it never reopens the
+removed connection. Adding the same mailbox back requires fresh consent and
+invalidates authorization from before its removal, including when the earlier
+removal had not reached private sync yet. An addition authorized without private
+sync cannot later recreate a removal or adopt a different incarnation just by restoring; the person authorizes it
+again after that removal is learned. The decrypted mailbox list omits removals.
 
 ## Initialization and relaunch
 

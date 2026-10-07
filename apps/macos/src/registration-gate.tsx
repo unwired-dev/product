@@ -3,6 +3,7 @@ import type {
   InboxChoice,
   EnrollmentFailure,
   LinkFailure,
+  MailboxConnection,
   PrivateSync as PrivateSyncState,
   RecoveryFailure,
   RecoveryKeyFailure,
@@ -14,13 +15,14 @@ import type {
 import type { ReactNode } from 'react';
 import type { StyleProp, TextStyle } from 'react-native';
 
-import { gmailActionCopy } from '@private-email/mail-core/gmail-actions';
 import {
   accountRemovalCopy,
   enrollmentCopy,
   linkFailureCopy,
   lockedCopy,
   inboxLanding,
+  mailboxCopy,
+  mailboxesOf,
   offersRecovery,
   otherSignInProvider,
   privateSyncCopy,
@@ -93,13 +95,80 @@ const styles = StyleSheet.create({
 // The connected Inbox opens the account page and asks for Gmail permission again through this.
 export const AccountContext = createContext<
   | Readonly<{
-      address: string | undefined;
+      // Every Mailbox Connection, including those waiting for Gmail authorization again.
+      mailboxes: readonly MailboxConnection[];
       openAccount: () => void;
-      authorizeGmail: () => Promise<void>;
+      authorizeGmail: (connection: string) => Promise<void>;
       refreshInbox: (load: () => Promise<void>) => Promise<void>;
     }>
   | undefined
 >(undefined);
+
+// Each Mailbox Connection with its state, adding another, and removal after confirmation.
+function Mailboxes({
+  account,
+  button,
+  store,
+}: {
+  readonly account: Readonly<{ mailboxes?: string }>;
+  readonly button: (label: string, action: () => Promise<void>) => ReactNode;
+  readonly store: Registration;
+}) {
+  const colors = usePalette();
+  const [confirming, setConfirming] = useState<MailboxConnection['id']>();
+  const mailboxes = mailboxesOf(account);
+  if (mailboxes.length === 0) {
+    return null;
+  }
+  return (
+    <>
+      <Label
+        accessibilityRole="header"
+        style={[styles.heading, { color: colors.foreground }]}>
+        {mailboxCopy.title}
+      </Label>
+      <Label style={[styles.text, { color: colors.secondary }]}>
+        {mailboxCopy.description}
+      </Label>
+      {mailboxes.map((mailbox) => (
+        <View
+          key={mailbox.id}
+          style={styles.device}>
+          <Label style={[styles.text, { color: colors.foreground }]}>
+            {mailbox.address}
+          </Label>
+          <Label style={[styles.text, { color: colors.secondary }]}>
+            {mailboxCopy.states[mailbox.state]}
+          </Label>
+          {mailbox.state === 'authorization'
+            ? button(mailboxCopy.allow(mailbox.address), () =>
+                store.authorizeGmail(mailbox.id),
+              )
+            : null}
+          {confirming === mailbox.id ? (
+            <>
+              <Label style={[styles.text, { color: colors.foreground }]}>
+                {mailboxCopy.confirm(mailbox.address)}
+              </Label>
+              {button(mailboxCopy.remove(mailbox.address), async () => {
+                setConfirming(undefined);
+                await store.removeMailbox(mailbox.id);
+              })}
+              {button(mailboxCopy.cancel, async () => {
+                setConfirming(undefined);
+              })}
+            </>
+          ) : (
+            button(mailboxCopy.remove(mailbox.address), async () => {
+              setConfirming(mailbox.id);
+            })
+          )}
+        </View>
+      ))}
+      {button(mailboxCopy.add, () => store.addMailbox(true))}
+    </>
+  );
+}
 
 // React Native macOS exposes plain Text to accessibility only through an accessible parent.
 function Label({
@@ -585,6 +654,11 @@ function AccountSettings({
   }
   return (
     <>
+      <Mailboxes
+        account={snapshot}
+        button={button}
+        store={store}
+      />
       <PrivateSync
         key={snapshot.recoveryKey ?? 'confirmed'}
         account={snapshot}
@@ -663,10 +737,7 @@ export function RegistrationGate({
   }
   const actions = useMemo(
     () => ({
-      address:
-        snapshot.kind === 'connected' || snapshot.kind === 'cached'
-          ? snapshot.address
-          : undefined,
+      mailboxes: mailboxesOf(snapshot),
       openAccount: () => {
         if (inboxAccount !== undefined) {
           setChoice({
@@ -676,7 +747,7 @@ export function RegistrationGate({
           });
         }
       },
-      authorizeGmail: () => store.authorizeGmail(false),
+      authorizeGmail: store.authorizeGmail,
       refreshInbox: store.refreshInbox,
     }),
     [store, snapshot, inboxAccount, setup],
@@ -810,22 +881,17 @@ function RegistrationPage({
             {button('Sign in with Google', () => store.register('google'))}
           </>
         ) : null}
+        {/* The first mailbox suggests the Google sign-in, or any Google account can be chosen. */}
         {snapshot.kind === 'mailbox-needed' &&
-        snapshot.removalPending === undefined
-          ? button('Authorize Gmail', () => store.authorizeGmail(false))
-          : null}
-        {snapshot.kind === 'signed-out' ||
-        snapshot.kind === 'device-pending' ||
-        snapshot.removalPending !== undefined ? null : (
+        snapshot.removalPending === undefined &&
+        mailboxesOf(snapshot).length === 0 ? (
           <>
-            <Label style={[styles.text, { color: colors.foreground }]}>
-              {gmailActionCopy.reselection}
-            </Label>
+            {button('Authorize Gmail', () => store.addMailbox(false))}
             {button('Choose another Google mailbox', () =>
-              store.authorizeGmail(true),
+              store.addMailbox(true),
             )}
           </>
-        )}
+        ) : null}
         {recovering
           ? button(
               `Sign in again with ${providerNames[snapshot.signInProvider]}`,

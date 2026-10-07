@@ -23,7 +23,7 @@ struct InboxSnapshot: Codable {
   var messages: [StoredMessage]
 }
 
-// The connected mailbox's cache. Its document is TypeScript's; native keeps it encrypted, for one
+// One Mailbox Connection's cache. Its document is TypeScript's; native keeps it encrypted, for one
 // mailbox address, and replaces it only from the revision the caller read.
 struct MailboxCache: Codable {
   let revision: Int
@@ -130,11 +130,45 @@ public final class PrivateInboxStore: @unchecked Sendable {
     }
   }
 
+  // Each connection keeps its cache and bodies in its own directory, named by its opaque ID.
+  private func connectionPath(_ connection: String, _ name: String) throws -> String {
+    guard connection.range(of: "^[0-9a-f]{32}$", options: .regularExpression) != nil else {
+      throw PrivateInboxError.invalidStore
+    }
+    return "mailboxes/\(connection)/\(name)"
+  }
+
+  // The single cache written before Mailbox Connections moves to the connection it belongs to,
+  // with its bodies, so its pending changes survive. Another mailbox's legacy cache stays until
+  // the account's caches are removed.
+  private func adoptLegacyMailbox(connection: String, address: String, subject: String) throws {
+    let manager = FileManager.default
+    let legacy = directory.appendingPathComponent("mailbox.enc")
+    guard manager.fileExists(atPath: legacy.path),
+      !manager.fileExists(atPath: directory.appendingPathComponent(
+        try connectionPath(connection, "mailbox.enc")).path),
+      // An unreadable legacy cache is left alone rather than blocking this connection.
+      let cache = (try? readMailbox(file: "mailbox.enc")) ?? nil,
+      cache.address == address, cache.subject == subject
+    else { return }
+    let target = directory.appendingPathComponent(try connectionPath(connection, ""))
+    try manager.createDirectory(
+      at: target, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+    let bodies = directory.appendingPathComponent("bodies")
+    if manager.fileExists(atPath: bodies.path) {
+      try manager.moveItem(at: bodies, to: target.appendingPathComponent("bodies"))
+    }
+    try manager.moveItem(at: legacy, to: target.appendingPathComponent("mailbox.enc"))
+  }
+
   // Another mailbox's cache, including another Google account at the same address, reads as
   // empty; its first commit replaces it. Cache replies do not include the subject.
-  public func openMailbox(address: String, subject: String) throws -> [String: Any] {
+  public func openMailbox(connection: String, address: String, subject: String) throws
+    -> [String: Any]
+  {
     try transaction {
-      let cache = try readMailbox()
+      try adoptLegacyMailbox(connection: connection, address: address, subject: subject)
+      let cache = try readMailbox(file: try connectionPath(connection, "mailbox.enc"))
       let owned = cache.flatMap { $0.address == address && $0.subject == subject ? $0 : nil }
       return [
         "revision": cache?.revision ?? 0, "address": address,
@@ -144,10 +178,12 @@ public final class PrivateInboxStore: @unchecked Sendable {
   }
 
   public func commitMailbox(
-    address: String, subject: String, expectedRevision: Int, document: String
+    connection: String, address: String, subject: String, expectedRevision: Int, document: String
   ) throws -> [String: Any] {
     try transaction {
-      let cache = try readMailbox()
+      try adoptLegacyMailbox(connection: connection, address: address, subject: subject)
+      let file = try connectionPath(connection, "mailbox.enc")
+      let cache = try readMailbox(file: file)
       guard (cache?.revision ?? 0) == expectedRevision else { throw PrivateInboxError.conflict }
       let key: Data
       if cache != nil {
@@ -162,22 +198,36 @@ public final class PrivateInboxStore: @unchecked Sendable {
       }
       let next = MailboxCache(
         revision: expectedRevision + 1, address: address, subject: subject, document: document)
+      try FileManager.default.createDirectory(
+        at: directory.appendingPathComponent(try connectionPath(connection, "")),
+        withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
       try write(
-        JSONEncoder().encode(next), file: "mailbox.enc", key: key,
-        authenticating: mailboxAssociatedData)
+        JSONEncoder().encode(next), file: file, key: key, authenticating: mailboxAssociatedData)
       return ["revision": next.revision, "address": address, "document": document]
     }
   }
 
-  // Needs no key, so a locked device can still forget the mailbox and its bodies.
-  public func removeMailbox() throws {
+  // Needs no key, so a locked device can still forget a connection's cache and bodies.
+  public func removeMailbox(connection: String, includingLegacy: Bool = false) throws {
+    let path = try connectionPath(connection, "")
     try unlockedTransaction {
-      for name in ["mailbox.enc", "bodies"] {
-        do {
-          try FileManager.default.removeItem(at: directory.appendingPathComponent(name))
-        } catch CocoaError.fileNoSuchFile {}
-      }
+      try removeItems([path] + (includingLegacy ? ["mailbox.enc", "bodies"] : []))
     }
+  }
+
+  // Every connection's cache and bodies, including the cache written before connections.
+  public func removeMailboxes() throws {
+    try unlockedTransaction { try removeItems(["mailboxes", "mailbox.enc", "bodies"]) }
+  }
+
+  private func removeItems(_ names: [String]) throws {
+    var failure: (any Error)?
+    for name in names {
+      do {
+        try FileManager.default.removeItem(at: directory.appendingPathComponent(name))
+      } catch CocoaError.fileNoSuchFile {} catch { failure = failure ?? error }
+    }
+    if let failure { throw failure }
   }
 
   // The Bounded Encrypted Body Cache holds TypeScript's body documents, one file per message, each
@@ -195,19 +245,19 @@ public final class PrivateInboxStore: @unchecked Sendable {
     return (name, Data("dev.unwired.private-inbox.body.v1\n".utf8) + identity)
   }
 
-  private func bodyURL(_ name: String, _ tier: BodyTier) -> URL {
-    directory.appendingPathComponent("bodies/\(name).\(tier.rawValue)")
+  private func bodyURL(_ connection: String, _ name: String, _ tier: BodyTier) throws -> URL {
+    directory.appendingPathComponent(try connectionPath(connection, "bodies/\(name).\(tier.rawValue)"))
   }
 
   // A missing or unreadable body reads as nil. Verified access discards an unreadable one and
   // updates access time; cache-only access leaves its ciphertext and timestamp untouched.
   public func openMessageBody(
-    address: String, subject: String, id: String, readOnly: Bool = false
+    connection: String, address: String, subject: String, id: String, readOnly: Bool = false
   ) throws -> String? {
     try transaction {
       let (name, identity) = bodyName(address: address, subject: subject, id: id)
       for tier in [BodyTier.opened, .prefetched] {
-        let file = bodyURL(name, tier)
+        let file = try bodyURL(connection, name, tier)
         let data: Data
         do {
           data = try Data(contentsOf: file)
@@ -234,8 +284,8 @@ public final class PrivateInboxStore: @unchecked Sendable {
   // Stores a body when it fits after evicting eligible bodies outside the protected set; returns
   // false, storing nothing, when it cannot fit.
   public func commitMessageBody(
-    address: String, subject: String, id: String, document: String, tier: BodyTier,
-    protectedIds: [String]
+    connection: String, address: String, subject: String, id: String, document: String,
+    tier: BodyTier, protectedIds: [String]
   ) throws -> Bool {
     try transaction {
       let (name, identity) = bodyName(address: address, subject: subject, id: id)
@@ -245,28 +295,31 @@ public final class PrivateInboxStore: @unchecked Sendable {
       let storedSize = plaintext.count + 28
       let key = try existingKey()
       try FileManager.default.createDirectory(
-        at: directory.appendingPathComponent("bodies"), withIntermediateDirectories: true,
-        attributes: [.posixPermissions: 0o700])
+        at: directory.appendingPathComponent(try connectionPath(connection, "bodies")),
+        withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
       // Reserve capacity before publication, so interruption cannot leave an over-budget cache.
       guard try evictBodies(
-        reserving: storedSize, replacing: bodyURL(name, tier), protected: protected)
+        reserving: storedSize, replacing: bodyURL(connection, name, tier), protected: protected)
       else {
         return false
       }
       // The other tier's file goes before the new one is published, so one body never has two
       // valid files; an interruption between them is a cache miss, fetched again.
-      let other = bodyURL(name, tier == .opened ? .prefetched : .opened)
+      let other = try bodyURL(connection, name, tier == .opened ? .prefetched : .opened)
       do { try FileManager.default.removeItem(at: other) } catch CocoaError.fileNoSuchFile {}
       try write(
-        plaintext, file: "bodies/\(name).\(tier.rawValue)", key: key, authenticating: identity)
+        plaintext, file: try connectionPath(connection, "bodies/\(name).\(tier.rawValue)"),
+        key: key, authenticating: identity)
       return true
     }
   }
 
   // The named messages that have a stored body or exclusion marker.
-  public func listMessageBodies(address: String, subject: String, ids: [String]) throws -> [String] {
+  public func listMessageBodies(
+    connection: String, address: String, subject: String, ids: [String]
+  ) throws -> [String] {
     try transaction {
-      let stored = Set(try bodies().map(\.name))
+      let stored = Set(try bodies(connection).map(\.name))
       return ids.filter { stored.contains(bodyName(address: address, subject: subject, id: $0).0) }
     }
   }
@@ -275,17 +328,17 @@ public final class PrivateInboxStore: @unchecked Sendable {
   // and reconciles a cache an interrupted writer left over the limit. As in admission, only the
   // protected bodies that fit, in working-set order, keep their protection, so the limit holds.
   public func retainMessageBodies(
-    address: String, subject: String, expectedRevision: Int, ids: [String],
+    connection: String, address: String, subject: String, expectedRevision: Int, ids: [String],
     protectedIds: [String]
   ) throws {
     try transaction {
-      let cache = try readMailbox()
+      let cache = try readMailbox(file: try connectionPath(connection, "mailbox.enc"))
       guard (cache?.revision ?? 0) == expectedRevision else { throw PrivateInboxError.conflict }
       let kept = Set(ids.map { bodyName(address: address, subject: subject, id: $0).0 })
-      for entry in try bodies() where !kept.contains(entry.name) {
+      for entry in try bodies(connection) where !kept.contains(entry.name) {
         try FileManager.default.removeItem(at: entry.file)
       }
-      let sizes = Dictionary(grouping: try bodies(), by: \.name).mapValues {
+      let sizes = Dictionary(grouping: try bodies(connection), by: \.name).mapValues {
         $0.reduce(0) { $0 + $1.size }
       }
       var protected = Set<String>()
@@ -309,15 +362,21 @@ public final class PrivateInboxStore: @unchecked Sendable {
     let size: Int
   }
 
-  private func bodies() throws -> [BodyEntry] {
+  // One connection's bodies, or with none named, every connection's: the limit is device-wide.
+  private func bodies(_ connection: String? = nil) throws -> [BodyEntry] {
     let keys: [URLResourceKey] = [.contentModificationDateKey, .fileSizeKey]
-    let files: [URL]
-    do {
-      files = try FileManager.default.contentsOfDirectory(
-        at: directory.appendingPathComponent("bodies"), includingPropertiesForKeys: keys)
-    } catch CocoaError.fileReadNoSuchFile {
-      return []
+    func contents(_ path: String) throws -> [URL] {
+      do {
+        return try FileManager.default.contentsOfDirectory(
+          at: directory.appendingPathComponent(path), includingPropertiesForKeys: keys)
+      } catch CocoaError.fileReadNoSuchFile {
+        return []
+      }
     }
+    let folders =
+      try connection.map { [try connectionPath($0, "bodies")] }
+      ?? contents("mailboxes").map { "mailboxes/\($0.lastPathComponent)/bodies" }
+    let files = try folders.flatMap(contents)
     return try files.map { file in
       let values = try file.resourceValues(forKeys: Set(keys))
       return BodyEntry(
@@ -350,10 +409,10 @@ public final class PrivateInboxStore: @unchecked Sendable {
     return true
   }
 
-  private func readMailbox() throws -> MailboxCache? {
+  private func readMailbox(file: String) throws -> MailboxCache? {
     let data: Data
     do {
-      data = try Data(contentsOf: directory.appendingPathComponent("mailbox.enc"))
+      data = try Data(contentsOf: directory.appendingPathComponent(file))
     } catch CocoaError.fileReadNoSuchFile {
       return nil
     }

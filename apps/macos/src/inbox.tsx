@@ -7,8 +7,9 @@ import {
   restoreAfter,
 } from '@private-email/mail-core/gmail-actions';
 import { gmailSyncCopy } from '@private-email/mail-core/gmail-inbox';
+import { inboxMessages } from '@private-email/mail-core/mailboxes';
 import { spacing } from '@private-email/mail-core/theme';
-import { useContext, useState } from 'react';
+import { use, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -18,7 +19,16 @@ import {
   View,
 } from 'react-native';
 
-import { useInbox, useInboxActions } from './mailbox.ts';
+import type { InboxMailbox } from './private-storage.ts';
+
+import {
+  MailboxScope,
+  useInbox,
+  useInboxActions,
+  useMailbox,
+  useMailboxes,
+  useReloadMailboxes,
+} from './mailbox.tsx';
 import { OrganizeStatus } from './organize.tsx';
 import { AccountContext } from './registration-gate.tsx';
 import { usePalette } from './theme.ts';
@@ -56,11 +66,30 @@ const styles = StyleSheet.create({
   preview: { fontSize: 14, lineHeight: 20, marginTop: 5 },
   footer: { fontSize: 12, padding: spacing.large },
   notice: { padding: spacing.large, fontSize: 16 },
+  mailbox: { fontSize: 12, marginTop: 5 },
+  scopes: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.small,
+    paddingHorizontal: spacing.large,
+    paddingBottom: spacing.medium,
+  },
+  scope: {
+    minHeight: 44,
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+    borderWidth: 2,
+    borderRadius: 8,
+    borderCurve: 'continuous',
+  },
 });
 
+// A message in a mailbox; Gmail message IDs are unique only within their mailbox.
+export type Selection = Readonly<{ mailbox: string; id: string }>;
+
 interface InboxProps {
-  readonly selectedId: string | undefined;
-  readonly onSelect: (id: string) => void;
+  readonly selected: Selection | undefined;
+  readonly onSelect: (selection: Selection) => void;
   // Closes the reader when a row action takes its message out of the Inbox.
   readonly onClose?: (() => void) | undefined;
 }
@@ -73,13 +102,16 @@ const dateFormat = new Intl.DateTimeFormat('en', {
 
 function MessageRow({
   message,
+  mailbox,
   selected,
   onSelect,
   onOrganize,
 }: {
   readonly message: Message | GmailMessage;
+  // Shown when the Inbox holds more than one mailbox.
+  readonly mailbox: string | undefined;
   readonly selected: boolean;
-  readonly onSelect: (id: string) => void;
+  readonly onSelect: () => void;
   // Present when the message can be organized in Gmail.
   readonly onOrganize?:
     | ((message: GmailMessage, action: GmailAction) => void)
@@ -97,7 +129,7 @@ function MessageRow({
         name,
         label,
       }))}
-      accessibilityLabel={`${message.unread ? 'Unread. ' : ''}${message.sender}. ${message.subject}`}
+      accessibilityLabel={`${message.unread ? 'Unread. ' : ''}${message.sender}. ${message.subject}${mailbox === undefined ? '' : `. In ${mailbox}`}`}
       accessibilityRole="button"
       accessibilityState={{ selected }}
       focusable
@@ -115,9 +147,7 @@ function MessageRow({
       onFocus={() => {
         setFocused(true);
       }}
-      onPress={() => {
-        onSelect(message.id);
-      }}
+      onPress={onSelect}
       style={({ pressed }) => [
         styles.row,
         {
@@ -151,20 +181,32 @@ function MessageRow({
         numberOfLines={2}>
         {message.preview}
       </Text>
+      {mailbox === undefined ? null : (
+        <Text
+          numberOfLines={1}
+          style={[styles.mailbox, { color: colors.secondary }]}>
+          {`In ${mailbox}`}
+        </Text>
+      )}
     </Pressable>
   );
 }
 
+// Names the mailbox a notice is about when the Inbox holds more than one.
+const about = (address: string | undefined, text: string) =>
+  address === undefined ? text : `${address}: ${text}`;
+
 // Synchronization keeps the cached list visible and says why Gmail may be behind.
-function SyncNotice() {
+function SyncNotice({ address }: { readonly address: string | undefined }) {
   const state = useInbox();
   const actions = useInboxActions();
-  const account = useContext(AccountContext);
+  const mailbox = useMailbox();
+  const account = use(AccountContext);
   const colors = usePalette();
   if (state.kind !== 'ready' || !('sync' in state)) {
     return null;
   }
-  // Synchronizes again once Gmail access is authorized.
+  // Synchronizes again once Gmail access for this mailbox is authorized.
   const handleAllowGmail = async (authorize: () => Promise<void>) => {
     await authorize();
     await actions.load();
@@ -177,18 +219,20 @@ function SyncNotice() {
     <>
       <View
         accessible
-        accessibilityLabel={notice}
+        accessibilityLabel={about(address, notice)}
         accessibilityLiveRegion="polite">
         <Text style={[styles.footer, { color: colors.secondary }]}>
-          {notice}
+          {about(address, notice)}
         </Text>
       </View>
-      {state.sync === 'authentication' && account !== undefined ? (
+      {state.sync === 'authentication' &&
+      account !== undefined &&
+      mailbox !== undefined ? (
         <Pressable
-          accessibilityRole="button"
           accessibilityLabel="Allow Gmail access"
+          accessibilityRole="button"
           onPress={() => {
-            void handleAllowGmail(account.authorizeGmail);
+            void handleAllowGmail(() => account.authorizeGmail(mailbox.id));
           }}>
           <Text style={[styles.notice, { color: colors.accent }]}>
             Allow Gmail access
@@ -197,8 +241,8 @@ function SyncNotice() {
       ) : null}
       {state.sync === 'retry' ? (
         <Pressable
-          accessibilityRole="button"
           accessibilityLabel="Try again"
+          accessibilityRole="button"
           onPress={() => {
             void (account === undefined
               ? actions.load()
@@ -213,22 +257,174 @@ function SyncNotice() {
   );
 }
 
-export function Inbox({ selectedId, onSelect, onClose }: InboxProps) {
+// One mailbox's storage, synchronization and organizing status.
+function MailboxStatus({ address }: { readonly address: string | undefined }) {
   const state = useInbox();
   const actions = useInboxActions();
-  const account = useContext(AccountContext);
   const colors = usePalette();
-  const gmail = state.kind === 'ready' && 'sync' in state;
-  const mailbox = gmail ? (state.address ?? 'Gmail') : 'Preview mailbox';
+  return (
+    <>
+      {state.kind === 'failed' || state.kind === 'locked' ? (
+        <>
+          <Text
+            accessibilityRole="alert"
+            style={[styles.notice, { color: colors.foreground }]}>
+            {about(
+              address,
+              state.kind === 'locked'
+                ? 'Private storage is locked. Unlock your device and try again.'
+                : 'Private storage could not be opened or saved. Your stored data has been kept.',
+            )}
+          </Text>
+          <Pressable
+            accessibilityLabel="Try again"
+            accessibilityRole="button"
+            onPress={() => {
+              void actions.load();
+            }}>
+            <Text style={[styles.notice, { color: colors.accent }]}>
+              Try again
+            </Text>
+          </Pressable>
+        </>
+      ) : null}
+      <SyncNotice address={address} />
+      <OrganizeStatus />
+    </>
+  );
+}
+
+// A connection whose Gmail grant was refused has no Inbox until Gmail is authorized again.
+function AuthorizationNeeded({
+  address,
+  onAllow,
+}: {
+  readonly address: string;
+  readonly onAllow: () => Promise<void>;
+}) {
+  const colors = usePalette();
+  const notice = about(address, gmailSyncCopy.authentication);
+  return (
+    <View>
+      <View
+        accessible
+        accessibilityLabel={notice}
+        accessibilityLiveRegion="polite">
+        <Text style={[styles.footer, { color: colors.secondary }]}>
+          {notice}
+        </Text>
+      </View>
+      <Pressable
+        accessibilityLabel={`Allow Gmail access for ${address}`}
+        accessibilityRole="button"
+        onPress={() => {
+          void onAllow();
+        }}>
+        <Text style={[styles.notice, { color: colors.accent }]}>
+          {`Allow Gmail access for ${address}`}
+        </Text>
+      </Pressable>
+    </View>
+  );
+}
+
+// Chooses every mailbox together, or one on its own.
+function ScopePicker({
+  mailboxes,
+  scope,
+  onScope,
+}: {
+  readonly mailboxes: readonly InboxMailbox[];
+  readonly scope: string | undefined;
+  readonly onScope: (scope: string | undefined) => void;
+}) {
+  const colors = usePalette();
+  const choices = [
+    { id: undefined, label: 'All inboxes' },
+    ...mailboxes.map(({ id, address }) => ({ id, label: address ?? id })),
+  ];
+  return (
+    <View style={styles.scopes}>
+      {choices.map(({ id, label }) => (
+        <Pressable
+          key={id ?? 'all'}
+          accessibilityLabel={label}
+          accessibilityRole="button"
+          accessibilityState={{ selected: id === scope }}
+          onPress={() => {
+            onScope(id);
+          }}
+          style={[
+            styles.scope,
+            {
+              backgroundColor: id === scope ? colors.selected : colors.sidebar,
+              borderColor: id === scope ? colors.accent : 'transparent',
+            },
+          ]}>
+          <Text style={{ color: colors.foreground }}>{label}</Text>
+        </Pressable>
+      ))}
+    </View>
+  );
+}
+
+// The shown mailbox's address, or what the list holds when it shows several or none.
+function subtitleOf(
+  shown: readonly InboxMailbox[],
+  { several, gmail }: Readonly<{ several: boolean; gmail: boolean }>,
+) {
+  const [only] = shown;
+  if (shown.length === 1 && only?.address !== undefined) {
+    return only.address;
+  }
+  if (several) {
+    return 'All inboxes';
+  }
+  return gmail ? 'Gmail' : 'Preview mailbox';
+}
+
+export function Inbox({ selected, onSelect, onClose }: InboxProps) {
+  const mailboxes = useMailboxes();
+  const reload = useReloadMailboxes();
+  const account = use(AccountContext);
+  const colors = usePalette();
+  const [chosen, setChosen] = useState<string>();
+  // A removed mailbox's view falls back to every mailbox.
+  const scope = mailboxes.some(({ id }) => id === chosen) ? chosen : undefined;
+  const shown = mailboxes.filter(
+    ({ id }) => scope === undefined || id === scope,
+  );
+  // Connections waiting for Gmail authorization have no Inbox until it is given again.
+  const waiting =
+    scope === undefined
+      ? (account?.mailboxes ?? []).filter(
+          ({ state }) => state === 'authorization',
+        )
+      : [];
+  // With more than one mailbox, every row and notice names its own.
+  const several = (account?.mailboxes.length ?? mailboxes.length) > 1;
+  const gmail = account !== undefined;
+  const messages = inboxMessages(mailboxes, scope);
+  const ready = shown.some(({ state }) => state.kind === 'ready');
+  const syncing = shown.some(
+    ({ state }) =>
+      state.kind === 'loading' ||
+      (state.kind === 'ready' && 'sync' in state && state.sync === 'syncing'),
+  );
+  const subtitle = subtitleOf(shown, { several, gmail });
   const organize =
-    gmail && state.organize && 'organize' in actions
-      ? (message: GmailMessage, action: GmailAction) => {
-          if (message.id === selectedId && restoreAfter(action) !== undefined) {
-            onClose?.();
-          }
-          void actions.organize(message, action);
-        }
-      : undefined;
+    (mailbox: InboxMailbox) => (message: GmailMessage, action: GmailAction) => {
+      if (
+        selected?.mailbox === mailbox.id &&
+        message.id === selected.id &&
+        restoreAfter(action) !== undefined
+      ) {
+        onClose?.();
+      }
+      if ('organize' in mailbox.inbox) {
+        void mailbox.inbox.organize(message, action);
+      }
+    };
   return (
     <View style={styles.fill}>
       <View style={[styles.fill, { backgroundColor: colors.sidebar }]}>
@@ -236,7 +432,7 @@ export function Inbox({ selectedId, onSelect, onClose }: InboxProps) {
           <View
             accessible
             accessibilityRole="header"
-            accessibilityLabel={`Inbox. ${mailbox}`}
+            accessibilityLabel={`Inbox. ${subtitle}`}
             style={styles.heading}>
             <Text
               accessibilityRole="header"
@@ -244,13 +440,13 @@ export function Inbox({ selectedId, onSelect, onClose }: InboxProps) {
               Inbox
             </Text>
             <Text style={[styles.subtitle, { color: colors.secondary }]}>
-              {mailbox}
+              {subtitle}
             </Text>
           </View>
           {account === undefined ? null : (
             <Pressable
-              accessibilityRole="button"
               accessibilityLabel="Account"
+              accessibilityRole="button"
               onPress={() => {
                 account.openAccount();
               }}>
@@ -260,40 +456,44 @@ export function Inbox({ selectedId, onSelect, onClose }: InboxProps) {
             </Pressable>
           )}
         </View>
-        {state.kind === 'loading' ? (
+        {mailboxes.length > 1 ? (
+          <ScopePicker
+            mailboxes={mailboxes}
+            onScope={setChosen}
+            scope={scope}
+          />
+        ) : null}
+        {shown.some(({ state }) => state.kind === 'loading') ? (
           <ActivityIndicator accessibilityLabel="Loading Inbox" />
         ) : null}
-        {state.kind === 'failed' || state.kind === 'locked' ? (
-          <Text
-            accessibilityRole="alert"
-            style={[styles.notice, { color: colors.foreground }]}>
-            {state.kind === 'locked'
-              ? 'Private storage is locked. Unlock your device and try again.'
-              : 'Private storage could not be opened or saved. Your stored data has been kept.'}
-          </Text>
-        ) : null}
-        {state.kind === 'failed' || state.kind === 'locked' ? (
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => {
-              void actions.load();
-            }}>
-            <Text style={[styles.notice, { color: colors.accent }]}>
-              Try again
-            </Text>
-          </Pressable>
-        ) : null}
-        <SyncNotice />
-        <OrganizeStatus />
-        {state.kind === 'ready' ? (
-          <FlatList<Message | GmailMessage>
+        {shown.map((mailbox) => (
+          <MailboxScope
+            key={mailbox.id}
+            id={mailbox.id}>
+            <MailboxStatus address={several ? mailbox.address : undefined} />
+          </MailboxScope>
+        ))}
+        {waiting.map((mailbox) => (
+          <AuthorizationNeeded
+            key={mailbox.id}
+            address={mailbox.address}
+            onAllow={async () => {
+              await account?.authorizeGmail(mailbox.id);
+              await reload();
+            }}
+          />
+        ))}
+        {ready ? (
+          <FlatList
             accessibilityLabel="Inbox messages"
             contentContainerStyle={styles.list}
-            data={state.messages}
-            extraData={selectedId}
-            keyExtractor={(message) => message.id}
+            data={messages}
+            extraData={selected}
+            keyExtractor={({ mailbox, message }) =>
+              `${mailbox.id}\n${message.id}`
+            }
             ListEmptyComponent={
-              gmail && state.sync === 'syncing' ? (
+              gmail && syncing ? (
                 <ActivityIndicator accessibilityLabel="Loading Inbox" />
               ) : (
                 <Text style={[styles.notice, { color: colors.secondary }]}>
@@ -301,12 +501,23 @@ export function Inbox({ selectedId, onSelect, onClose }: InboxProps) {
                 </Text>
               )
             }
-            renderItem={({ item }) => (
+            renderItem={({ item: { mailbox, message } }) => (
               <MessageRow
-                message={item}
-                onOrganize={organize}
-                onSelect={onSelect}
-                selected={item.id === selectedId}
+                mailbox={several ? mailbox.address : undefined}
+                message={message}
+                onOrganize={
+                  mailbox.state.kind === 'ready' &&
+                  'organize' in mailbox.state &&
+                  mailbox.state.organize
+                    ? organize(mailbox)
+                    : undefined
+                }
+                onSelect={() => {
+                  onSelect({ mailbox: mailbox.id, id: message.id });
+                }}
+                selected={
+                  selected?.mailbox === mailbox.id && selected.id === message.id
+                }
               />
             )}
           />

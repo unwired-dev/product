@@ -55,9 +55,9 @@ private final class ControlledGmailHTTP: URLProtocol, @unchecked Sendable {
 }
 
 extension PrivateInboxTests {
-  // TypeScript names only the connected mailbox's Gmail resources; its cache belongs to that
-  // mailbox, replaces only the revision it read, and leaves with a reselection or the account.
-  @Test @MainActor func gmailReadsAndMailboxCacheStayWithTheConnectedMailbox() async throws {
+  // TypeScript names only a connection's own Gmail resources; its cache belongs to that connection,
+  // replaces only the revision it read, and leaves with the connection or the account.
+  @Test @MainActor func gmailReadsAndMailboxCacheStayWithTheirConnection() async throws {
     let configuration = URLSessionConfiguration.ephemeral
     configuration.protocolClasses = [ControlledGmailHTTP.self]
     let session = URLSession(configuration: configuration)
@@ -117,18 +117,23 @@ extension PrivateInboxTests {
         if validationUnavailable { throw RegistrationError.unavailable }
         return revoked
       })
-    let file = directory.appendingPathComponent("mailbox.enc")
+    func file(_ subject: String) -> URL {
+      directory.appendingPathComponent(
+        "mailboxes/\(MailboxConnection.id(subject: subject))/mailbox.enc")
+    }
+    let first = MailboxConnection.id(subject: google.subject)
+    let firstSubject = google.subject
     _ = try await store.signIn()
     google.gmailRequests = []
     // Before any mailbox is connected, nothing reaches Gmail or the cache.
     await #expect(throws: RegistrationError.gmailUnavailable) {
       _ = try await store.gmail(
-        path: "profile", query: [], address: google.address,
-        generation: store.mailboxGeneration.uuidString)
+        path: "profile", query: [], connection: first, address: google.address,
+        generation: store.generation(firstSubject))
     }
 
-    #expect(throws: RegistrationError.gmailUnavailable) { _ = try store.openMailbox() }
-    _ = try await store.authorizeGmail(reselect: false)
+    #expect(throws: RegistrationError.gmailUnavailable) { _ = try store.openMailbox(first) }
+    _ = try await store.authorizeGmail()
 
     for path in [
       "../../oauth2/v3/tokeninfo", "messages/1/attachments/a.b", "messages/1/modify", "drafts",
@@ -136,15 +141,15 @@ extension PrivateInboxTests {
     ] {
       await #expect(throws: RegistrationError.unavailable) {
         _ = try await store.gmail(
-          path: path, query: [], address: google.address,
-          generation: store.mailboxGeneration.uuidString)
+          path: path, query: [], connection: first, address: google.address,
+          generation: store.generation(firstSubject))
       }
     }
     #expect(google.gmailRequests.isEmpty)
     await #expect(throws: PrivateInboxError.mailboxInvalidated) {
       _ = try await store.gmail(
-        path: "profile", query: [], address: "previous@example.invalid",
-        generation: store.mailboxGeneration.uuidString)
+        path: "profile", query: [], connection: first, address: "previous@example.invalid",
+        generation: store.generation(firstSubject))
     }
     #expect(google.gmailRequests.isEmpty)
     // Gmail reads never ask the backend about this device; opening and committing the cache do.
@@ -155,7 +160,7 @@ extension PrivateInboxTests {
         URLQueryItem(name: "format", value: "metadata"),
         URLQueryItem(name: "metadataHeaders", value: "From"),
         URLQueryItem(name: "metadataHeaders", value: "Subject"),
-      ], address: google.address, generation: store.mailboxGeneration.uuidString)
+      ], connection: first, address: google.address, generation: store.generation(firstSubject))
     #expect(response["status"] as? Int == 200)
     #expect(response["body"] as? String == #"{"historyId":"7"}"#)
     #expect(
@@ -164,11 +169,11 @@ extension PrivateInboxTests {
           + "?format=metadata&metadataHeaders=From&metadataHeaders=Subject"
       ])
     _ = try await store.gmail(
-      path: "profile", query: [], address: google.address,
-      generation: store.mailboxGeneration.uuidString)
+      path: "profile", query: [], connection: first, address: google.address,
+      generation: store.generation(firstSubject))
     _ = try await store.gmail(
-      path: "labels", query: [], address: google.address,
-      generation: store.mailboxGeneration.uuidString)
+      path: "labels", query: [], connection: first, address: google.address,
+      generation: store.generation(firstSubject))
     #expect(google.gmailBodies.allSatisfy { $0 == nil })
     // The one write changes one message's labels; native code writes its body.
     google.gmailRequests = []
@@ -180,19 +185,19 @@ extension PrivateInboxTests {
     ] {
       await #expect(throws: RegistrationError.unavailable) {
         _ = try await store.gmailModify(
-          message: message, add: add, remove: remove, address: google.address,
-          generation: store.mailboxGeneration.uuidString)
+          message: message, add: add, remove: remove, connection: first, address: google.address,
+          generation: store.generation(firstSubject))
       }
     }
     await #expect(throws: PrivateInboxError.mailboxInvalidated) {
       _ = try await store.gmailModify(
         message: "19a0c0ffee000001", add: ["TRASH"], remove: ["INBOX"],
-        address: "previous@example.invalid", generation: store.mailboxGeneration.uuidString)
+        connection: first, address: "previous@example.invalid", generation: store.generation(firstSubject))
     }
     #expect(google.gmailRequests.isEmpty)
     let modified = try await store.gmailModify(
       message: "19a0c0ffee000001", add: ["TRASH", "Label_12"], remove: ["INBOX"],
-      address: google.address, generation: store.mailboxGeneration.uuidString)
+      connection: first, address: google.address, generation: store.generation(firstSubject))
     #expect(modified["status"] as? Int == 200)
     #expect(
       google.gmailRequests.map(\.absoluteString) == [
@@ -209,137 +214,186 @@ extension PrivateInboxTests {
     let writesBeforeFailure = google.gmailRequests.count
     await #expect(throws: RegistrationError.unavailable) {
       _ = try await store.gmailModify(
-        message: "19a0c0ffee000001", add: ["STARRED"], remove: [],
-        address: google.address, generation: store.mailboxGeneration.uuidString)
+        message: "19a0c0ffee000001", add: ["STARRED"], remove: [], connection: first,
+        address: google.address, generation: store.generation(firstSubject))
     }
     #expect(google.gmailRequests.count == writesBeforeFailure)
     validationUnavailable = false
 
-    let empty = try store.openMailbox()
+    let empty = try store.openMailbox(first)
     #expect(empty["revision"] as? Int == 0)
     #expect(empty["address"] as? String == "same@example.invalid")
     #expect(empty["document"] is NSNull)
     let document = #"{"subject":"Private synthetic subject"}"#
     let committed = try store.commitMailbox(
-      address: "same@example.invalid", expectedRevision: 0, document: document,
-      generation: store.mailboxGeneration.uuidString)
+      connection: first, address: "same@example.invalid", expectedRevision: 0, document: document,
+      generation: store.generation(firstSubject))
     #expect(committed["revision"] as? Int == 1)
-    #expect(try Data(contentsOf: file).range(of: Data("Private synthetic".utf8)) == nil)
+    #expect(try Data(contentsOf: file(firstSubject)).range(of: Data("Private synthetic".utf8)) == nil)
     // A commit from an older read, or for another mailbox, changes nothing.
     #expect(throws: PrivateInboxError.conflict) {
       _ = try store.commitMailbox(
-        address: "same@example.invalid", expectedRevision: 0, document: "{}",
-        generation: store.mailboxGeneration.uuidString)
+        connection: first, address: "same@example.invalid", expectedRevision: 0, document: "{}",
+        generation: store.generation(firstSubject))
     }
     #expect(throws: PrivateInboxError.mailboxInvalidated) {
       _ = try store.commitMailbox(
-        address: "other@example.invalid", expectedRevision: 1, document: "{}",
-        generation: store.mailboxGeneration.uuidString)
+        connection: first, address: "other@example.invalid", expectedRevision: 1, document: "{}",
+        generation: store.generation(firstSubject))
     }
-    #expect(try store.openMailbox()["document"] as? String == document)
+    #expect(try store.openMailbox(first)["document"] as? String == document)
 
     // Another mailbox never sees this one's cache.
     google.subject = "synthetic-other-mailbox"
     google.address = "other@example.invalid"
-    // A reconnect cannot silently select another mailbox and delete its pending document.
-    _ = try await store.authorizeGmail(reselect: false)
-    #expect(FileManager.default.fileExists(atPath: file.path))
-    #expect(try store.openMailbox()["document"] as? String == document)
-    #expect(try store.openMailbox()["address"] as? String == "same@example.invalid")
-    _ = try await store.authorizeGmail(reselect: true)
-    #expect(!FileManager.default.fileExists(atPath: file.path))
-    let other = try store.openMailbox()
+    // Reauthorizing a connection cannot silently switch it to another Google account.
+    #expect(try await store.authorizeGmail(connection: first)["kind"] == "mailbox-needed")
+    #expect(FileManager.default.fileExists(atPath: file(firstSubject).path))
+    #expect(try store.openMailbox(first)["document"] as? String == document)
+    #expect(try store.openMailbox(first)["address"] as? String == "same@example.invalid")
+    // Adding another mailbox keeps this one, its cache and its pending document.
+    let second = MailboxConnection.id(subject: google.subject)
+    let added = try await store.authorizeGmail(chooseAccount: true)
+    #expect(added["kind"] == "connected")
+    #expect(
+      try mailboxDisplay(added["mailboxes"])
+        == mailboxList([
+          (firstSubject, "same@example.invalid", "connected"),
+          ("synthetic-other-mailbox", "other@example.invalid", "connected"),
+        ]))
+    #expect(try store.openMailbox(first)["document"] as? String == document)
+    let other = try store.openMailbox(second)
     #expect(other["address"] as? String == "other@example.invalid")
     #expect(other["document"] is NSNull)
     _ = try store.commitMailbox(
-      address: "other@example.invalid", expectedRevision: 0, document: document,
-      generation: store.mailboxGeneration.uuidString)
-    let beforeReselection = other
-    // Another Google account that reuses the address does not inherit the cache, and a cache left
-    // behind by a failed removal still reads as empty for it.
-    google.subject = "synthetic-recycled-mailbox"
-    _ = try await store.authorizeGmail(reselect: true)
-    #expect(!FileManager.default.fileExists(atPath: file.path))
-    #expect(try store.openMailbox()["document"] is NSNull)
+      connection: second, address: "other@example.invalid", expectedRevision: 0,
+      document: document, generation: store.generation("synthetic-other-mailbox"))
+    // A connection's generation never opens another connection, even at the same address.
+    let otherGeneration = store.generation("synthetic-other-mailbox")
     #expect(throws: PrivateInboxError.mailboxInvalidated) {
       _ = try store.commitMailbox(
-        address: "other@example.invalid", expectedRevision: 0, document: document,
-        generation: try #require(beforeReselection["generation"] as? String))
+        connection: first, address: "same@example.invalid", expectedRevision: 1,
+        document: "{}", generation: otherGeneration)
+    }
+    // Another Google account that reuses the address is another connection with its own cache.
+    google.subject = "synthetic-recycled-mailbox"
+    let recycled = MailboxConnection.id(subject: google.subject)
+    _ = try await store.authorizeGmail(chooseAccount: true)
+    #expect(try store.load()?.connections.count == 3)
+    #expect(try store.openMailbox(recycled)["document"] is NSNull)
+    #expect(throws: PrivateInboxError.mailboxInvalidated) {
+      _ = try store.commitMailbox(
+        connection: recycled, address: "other@example.invalid", expectedRevision: 0,
+        document: document, generation: otherGeneration)
     }
     let readsBeforeStaleRequest = google.gmailRequests.count
     await #expect(throws: PrivateInboxError.mailboxInvalidated) {
       _ = try await store.gmail(
-        path: "profile", query: [], address: "other@example.invalid",
-        generation: try #require(beforeReselection["generation"] as? String))
+        path: "profile", query: [], connection: recycled, address: "other@example.invalid",
+        generation: otherGeneration)
     }
     #expect(google.gmailRequests.count == readsBeforeStaleRequest)
-    #expect(try store.openMailbox()["document"] is NSNull)
+    // Within one connection's directory, a cache for another Google account reads as empty.
     let shared = PrivateInboxStore(directory: directory, service: service)
-    _ = try shared.commitMailbox(
-      address: "other@example.invalid", subject: "synthetic-other-mailbox", expectedRevision: 0,
-      document: document)
     #expect(
       try shared.openMailbox(
-        address: "other@example.invalid", subject: "synthetic-recycled-mailbox")[
-          "document"] is NSNull)
-    #expect(try store.openMailbox()["document"] is NSNull)
-    try shared.removeMailbox()
+        connection: second, address: "other@example.invalid",
+        subject: "synthetic-recycled-mailbox")["document"] is NSNull)
+    #expect(
+      try shared.openMailbox(
+        connection: second, address: "other@example.invalid",
+        subject: "synthetic-other-mailbox")["document"] as? String == document)
+    // A connection ID never names a path outside the cache.
+    #expect(throws: PrivateInboxError.invalidStore) {
+      _ = try shared.openMailbox(
+        connection: "../../escape", address: "other@example.invalid", subject: "escape")
+    }
 
-    // The account leaves with its mailbox cache, and a removed account reaches no Gmail.
-    _ = try await store.purge()
-    #expect(!FileManager.default.fileExists(atPath: file.path))
+    // Removing a connection removes its cache and invalidates its work; the others stay.
+    let secondGeneration = store.generation("synthetic-other-mailbox")
+    let removed = try await store.removeMailbox(second)
+    #expect(!FileManager.default.fileExists(atPath: file("synthetic-other-mailbox").path))
+    #expect(FileManager.default.fileExists(atPath: file(firstSubject).path))
+    #expect(
+      try mailboxDisplay(removed["mailboxes"])
+        == mailboxList([
+          (firstSubject, "same@example.invalid", "connected"),
+          ("synthetic-recycled-mailbox", "other@example.invalid", "connected"),
+        ]))
+    #expect(throws: RegistrationError.gmailUnavailable) { _ = try store.openMailbox(second) }
     await #expect(throws: PrivateInboxError.mailboxInvalidated) {
       _ = try await store.gmail(
-        path: "profile", query: [], address: google.address,
-        generation: store.mailboxGeneration.uuidString)
+        path: "profile", query: [], connection: second, address: "other@example.invalid",
+        generation: secondGeneration)
+    }
+    #expect(try store.load()?.mailboxRemovals?.map(\.subject) == ["synthetic-other-mailbox"])
+
+    // The account leaves with every connection's cache, and a removed account reaches no Gmail.
+    _ = try await store.purge()
+    #expect(!FileManager.default.fileExists(atPath: directory.appendingPathComponent("mailboxes").path))
+    await #expect(throws: PrivateInboxError.mailboxInvalidated) {
+      _ = try await store.gmail(
+        path: "profile", query: [], connection: first, address: google.address,
+        generation: store.generation(firstSubject))
     }
     // A transport outage permits only the verified mailbox's cache, never provider access.
     _ = try await store.signIn()
-    _ = try await store.authorizeGmail(reselect: false)
+    _ = try await store.authorizeGmail()
+    let current = MailboxConnection.id(subject: google.subject)
+    let currentSubject = google.subject
     _ = try store.commitMailbox(
-      address: google.address, expectedRevision: 0, document: document,
-      generation: store.mailboxGeneration.uuidString)
+      connection: current, address: google.address, expectedRevision: 0, document: document,
+      generation: store.generation(currentSubject))
     google.refreshFailure = URLError(.notConnectedToInternet)
     #expect(try await store.restore()["kind"] == "cached")
-    #expect(try store.openMailbox()["document"] as? String == document)
-    #expect(try store.openMailbox()["availability"] as? String == "retry")
+    #expect(try store.openMailbox(current)["document"] as? String == document)
+    #expect(try store.openMailbox(current)["availability"] as? String == "retry")
     await #expect(throws: RegistrationError.unavailable) {
       _ = try await store.gmail(
-        path: "profile", query: [], address: google.address,
-        generation: store.mailboxGeneration.uuidString)
+        path: "profile", query: [], connection: current, address: google.address,
+        generation: store.generation(currentSubject))
     }
     #expect(throws: RegistrationError.unavailable) {
       _ = try store.commitMailbox(
-        address: google.address, expectedRevision: 1, document: "{}",
-        generation: store.mailboxGeneration.uuidString)
+        connection: current, address: google.address, expectedRevision: 1, document: "{}",
+        generation: store.generation(currentSubject))
     }
     google.refreshFailure = nil
     #expect(try await store.restore()["kind"] == "connected")
     google.verificationFailure = URLError(.timedOut)
     #expect(try await store.restore()["kind"] == "cached")
     google.verificationFailure = RegistrationError.gmailUnavailable
+    let refused = try await store.restore()
+    #expect(refused["kind"] == "mailbox-needed")
+    #expect(refused["reason"] == "gmail-unavailable")
+    #expect(
+      try mailboxDisplay(refused["mailboxes"])
+        == mailboxList([(currentSubject, google.address, "authorization")]))
+    #expect(throws: RegistrationError.gmailUnavailable) { _ = try store.openMailbox(current) }
+    // A refused grant stays refused while Gmail is unreachable, then verifies again by itself.
+    google.verificationFailure = URLError(.timedOut)
     #expect(try await store.restore()["kind"] == "mailbox-needed")
-    #expect(throws: RegistrationError.gmailUnavailable) { _ = try store.openMailbox() }
+    #expect(throws: RegistrationError.gmailUnavailable) { _ = try store.openMailbox(current) }
     google.verificationFailure = nil
-    _ = try await store.authorizeGmail(reselect: false)
+    #expect(try await store.restore()["kind"] == "connected")
 
     // Each mutation revalidates before provider renewal and purges on a positive rejection.
     revoked = true
     let readsBeforeRevokedWrite = google.gmailRequests.count
     await #expect(throws: RegistrationError.revoked) {
       _ = try await store.gmailModify(
-        message: "19a0c0ffee000001", add: ["TRASH"], remove: ["INBOX"],
-        address: google.address, generation: store.mailboxGeneration.uuidString)
+        message: "19a0c0ffee000001", add: ["TRASH"], remove: ["INBOX"], connection: current,
+        address: google.address, generation: store.generation(currentSubject))
     }
     #expect(google.gmailRequests.count == readsBeforeRevokedWrite)
     #expect(try keys.read("registration") == nil)
-    #expect(!FileManager.default.fileExists(atPath: file.path))
+    #expect(!FileManager.default.fileExists(atPath: file(currentSubject).path))
     revoked = false
 
     // Cleanup at either suspension prevents old provider work from returning private data.
-    for stage in ["refresh", "response", "reselect"] {
+    for stage in ["refresh", "response", "remove"] {
       _ = try await store.signIn()
-      _ = try await store.authorizeGmail(reselect: false)
+      _ = try await store.authorizeGmail()
       google.gmailRequests = []
       let pause = MailboxPause()
       if stage == "response" {
@@ -349,14 +403,12 @@ extension PrivateInboxTests {
       }
       let reading = Task {
         _ = try await store.gmail(
-          path: "profile", query: [], address: google.address,
-          generation: store.mailboxGeneration.uuidString)
+          path: "profile", query: [], connection: current, address: google.address,
+          generation: store.generation(currentSubject))
       }
       await pause.reached()
-      if stage == "reselect" {
-        google.subject = "synthetic-final-mailbox"
-        google.address = "final@example.invalid"
-        _ = try await store.authorizeGmail(reselect: true)
+      if stage == "remove" {
+        _ = try await store.removeMailbox(current)
       } else {
         _ = try await store.purge()
       }
@@ -367,7 +419,7 @@ extension PrivateInboxTests {
     // A revocation preflight queues behind captured registration writes, then purges their result.
     _ = try await store.purge()
     _ = try await store.signIn()
-    _ = try await store.authorizeGmail(reselect: false)
+    _ = try await store.authorizeGmail()
     let gate = RegistrationOperationGate()
     let restoring = MailboxPause()
     google.beforeRefresh = { await restoring.wait() }
@@ -380,7 +432,7 @@ extension PrivateInboxTests {
     let cleanup = Task {
       try await gate.perform {
         revoked = true
-        try await store.prepareMailbox()
+        try await store.prepareMailbox(current)
       }
     }
     restoring.resume()
@@ -390,14 +442,14 @@ extension PrivateInboxTests {
     #expect(try keys.read("registration") == nil)
     revoked = false
     _ = try await store.signIn()
-    _ = try await store.authorizeGmail(reselect: false)
+    _ = try await store.authorizeGmail()
     // The two caches share a key; a surviving fixture forbids silently replacing its missing key.
     try DeviceKeychain(service: service + ".database").remove("encryption-key")
     try Data([1, 2, 3]).write(to: directory.appendingPathComponent("inbox.enc"))
     #expect(throws: PrivateInboxError.unavailable) {
       _ = try store.commitMailbox(
-        address: google.address, expectedRevision: 0, document: document,
-        generation: store.mailboxGeneration.uuidString)
+        connection: current, address: google.address, expectedRevision: 0, document: document,
+        generation: store.generation(currentSubject))
     }
     #expect(try DeviceKeychain(service: service + ".database").read("encryption-key") == nil)
   }
@@ -422,28 +474,30 @@ extension PrivateInboxTests {
         directory: directory, service: service,
         protectedDataAvailable: { threads.check() }),
       deviceRevoked: { _ in false })
-    let bodies = directory.appendingPathComponent("bodies")
+    let first = MailboxConnection.id(subject: google.subject)
+    let firstSubject = google.subject
+    let bodies = directory.appendingPathComponent("mailboxes/\(first)/bodies")
     func files() throws -> [URL] {
       (try? FileManager.default.contentsOfDirectory(at: bodies, includingPropertiesForKeys: nil))
         ?? []
     }
     _ = try await store.signIn()
-    _ = try await store.authorizeGmail(reselect: false)
-    var generation = store.mailboxGeneration.uuidString
+    _ = try await store.authorizeGmail()
+    var generation = store.generation(firstSubject)
     _ = try store.commitMailbox(
-      address: google.address, expectedRevision: 0, document: "{}", generation: generation)
+      connection: first, address: google.address, expectedRevision: 0, document: "{}", generation: generation)
     #expect(
-      try await store.openMessageBody(address: google.address, generation: generation, id: "a")[
+      try await store.openMessageBody(connection: first, address: google.address, generation: generation, id: "a")[
         "document"] is NSNull)
     let body = "Private synthetic body"
     _ = try await store.commitMessageBody(
-      address: google.address, generation: generation, id: "a",
+      connection: first, address: google.address, generation: generation, id: "a",
       admission: ["document": body, "tier": "opened", "protectedIds": [String]()])
     _ = try await store.commitMessageBody(
-      address: google.address, generation: generation, id: "b",
+      connection: first, address: google.address, generation: generation, id: "b",
       admission: ["document": body + " b", "tier": "opened", "protectedIds": [String]()])
     #expect(
-      try await store.openMessageBody(address: google.address, generation: generation, id: "a")[
+      try await store.openMessageBody(connection: first, address: google.address, generation: generation, id: "a")[
         "document"] as? String == body)
     #expect(try files().count == 2)
     for file in try files() {
@@ -454,52 +508,52 @@ extension PrivateInboxTests {
     // Availability can change after preflight while a worker can still finish its read.
     threads.lockDuringWork()
     await #expect(throws: PrivateInboxError.locked) {
-      _ = try await store.openMessageBody(address: google.address, generation: generation, id: "a")
+      _ = try await store.openMessageBody(connection: first, address: google.address, generation: generation, id: "a")
     }
     threads.unlock()
     #expect(
-      try await store.openMessageBody(address: google.address, generation: generation, id: "a")[
+      try await store.openMessageBody(connection: first, address: google.address, generation: generation, id: "a")[
         "document"] as? String == body)
     // An owner invalidated during suspension must never receive the worker's plaintext.
     threads.onWorker = {
       DispatchQueue.main.sync {
-        MainActor.assumeIsolated { store.mailboxGeneration = UUID() }
+        MainActor.assumeIsolated { store.mailboxGenerations[first] = UUID() }
       }
     }
     await #expect(throws: PrivateInboxError.mailboxInvalidated) {
-      _ = try await store.openMessageBody(address: google.address, generation: generation, id: "a")
+      _ = try await store.openMessageBody(connection: first, address: google.address, generation: generation, id: "a")
     }
     threads.onWorker = nil
-    generation = store.mailboxGeneration.uuidString
+    generation = store.generation(firstSubject)
     // Stale work and other mailboxes neither read nor write bodies.
     await #expect(throws: PrivateInboxError.mailboxInvalidated) {
       _ = try await store.openMessageBody(
-        address: "other@example.invalid", generation: generation, id: "a")
+        connection: first, address: "other@example.invalid", generation: generation, id: "a")
     }
     await #expect(throws: PrivateInboxError.mailboxInvalidated) {
       _ = try await store.commitMessageBody(
-        address: google.address, generation: UUID().uuidString, id: "c",
+        connection: first, address: google.address, generation: UUID().uuidString, id: "c",
         admission: ["document": body, "tier": "opened", "protectedIds": [String]()])
     }
 
     // A body moved to another message's file, or damaged, is discarded rather than shown.
     let cache = PrivateInboxStore(directory: directory, service: service)
     let sealed = try files()
-    let first = try #require(sealed.first)
-    let second = try #require(sealed.last)
-    try FileManager.default.removeItem(at: second)
-    try FileManager.default.copyItem(at: first, to: second)
+    let firstFile = try #require(sealed.first)
+    let secondFile = try #require(sealed.last)
+    try FileManager.default.removeItem(at: secondFile)
+    try FileManager.default.copyItem(at: firstFile, to: secondFile)
     let opened = try ["a", "b"].map {
-      try cache.openMessageBody(address: google.address, subject: google.subject, id: $0)
+      try cache.openMessageBody(connection: first, address: google.address, subject: google.subject, id: $0)
     }
     #expect(opened.compactMap { $0 }.count == 1)
-    #expect(try files().map(\.lastPathComponent) == [first.lastPathComponent])
-    try Data([1, 2, 3]).write(to: first)
+    #expect(try files().map(\.lastPathComponent) == [firstFile.lastPathComponent])
+    try Data([1, 2, 3]).write(to: firstFile)
     #expect(
-      try await store.openMessageBody(address: google.address, generation: generation, id: "a")[
+      try await store.openMessageBody(connection: first, address: google.address, generation: generation, id: "a")[
         "document"] is NSNull)
     #expect(
-      try await store.openMessageBody(address: google.address, generation: generation, id: "b")[
+      try await store.openMessageBody(connection: first, address: google.address, generation: generation, id: "b")[
         "document"] is NSNull)
     #expect(try files().isEmpty)
 
@@ -512,11 +566,11 @@ extension PrivateInboxTests {
       throws -> Bool
     {
       try small.commitMessageBody(
-        address: google.address, subject: google.subject, id: id, document: text, tier: tier,
+        connection: first, address: google.address, subject: google.subject, id: id, document: text, tier: tier,
         protectedIds: protecting)
     }
     func stored(_ ids: [String]) throws -> [String] {
-      try small.listMessageBodies(address: google.address, subject: google.subject, ids: ids)
+      try small.listMessageBodies(connection: first, address: google.address, subject: google.subject, ids: ids)
     }
     #expect(try admit("prefetched", .prefetched))
     #expect(try admit("older", .opened))
@@ -530,7 +584,7 @@ extension PrivateInboxTests {
     // A body larger than the entire budget is refused without evicting usable mail.
     #expect(
       try !small.commitMessageBody(
-        address: google.address, subject: google.subject, id: "oversized",
+        connection: first, address: google.address, subject: google.subject, id: "oversized",
         document: String(repeating: "x", count: 201), tier: .opened, protectedIds: []))
     #expect(try stored(["prefetched", "protected"]) == ["prefetched", "protected"])
 
@@ -540,9 +594,9 @@ extension PrivateInboxTests {
     #expect(try stored(["prefetched", "protected"]) == ["prefetched", "protected"])
     #expect(
       try small.openMessageBody(
-        address: google.address, subject: google.subject, id: "prefetched") == text)
+        connection: first, address: google.address, subject: google.subject, id: "prefetched") == text)
     try small.retainMessageBodies(
-      address: google.address, subject: google.subject, expectedRevision: 1,
+      connection: first, address: google.address, subject: google.subject, expectedRevision: 1,
       ids: ["prefetched"], protectedIds: [])
     #expect(try admit("prefetched", .opened, protecting: ["prefetched"]))
     #expect(try files().count == 1)
@@ -563,11 +617,11 @@ extension PrivateInboxTests {
       directory: directory, service: service, protectedDataAvailable: { true }, bodyLimit: 200)
     #expect(
       try reopened.openMessageBody(
-        address: google.address, subject: google.subject, id: "prefetched") == nil)
+        connection: first, address: google.address, subject: google.subject, id: "prefetched") == nil)
     #expect(try admit("prefetched", .prefetched, protecting: ["prefetched"]))
     #expect(
       try reopened.openMessageBody(
-        address: google.address, subject: google.subject, id: "prefetched") == text)
+        connection: first, address: google.address, subject: google.subject, id: "prefetched") == text)
     #expect(try files().count == 1)
     #expect(try files().first?.pathExtension == "p")
     #expect(try admit("protected", .prefetched, protecting: ["prefetched", "protected"]))
@@ -576,11 +630,11 @@ extension PrivateInboxTests {
     // bodies that fit, in working-set order, stay; one that no longer fits is evicted.
     #expect(
       try cache.commitMessageBody(
-        address: google.address, subject: google.subject, id: "d", document: text,
+        connection: first, address: google.address, subject: google.subject, id: "d", document: text,
         tier: .opened, protectedIds: []))
     #expect(try files().count == 3)
     try small.retainMessageBodies(
-      address: google.address, subject: google.subject, expectedRevision: 1,
+      connection: first, address: google.address, subject: google.subject, expectedRevision: 1,
       ids: ["prefetched", "protected", "d"], protectedIds: ["d", "protected", "prefetched"])
     #expect(try files().reduce(0) { $0 + (try Data(contentsOf: $1).count) } <= 200)
     #expect(try stored(["prefetched", "protected", "d"]) == ["protected", "d"])
@@ -590,40 +644,40 @@ extension PrivateInboxTests {
       directory: directory, service: service, protectedDataAvailable: { false })
     #expect(throws: PrivateInboxError.locked) {
       try locked.retainMessageBodies(
-        address: google.address, subject: google.subject, expectedRevision: 1,
+        connection: first, address: google.address, subject: google.subject, expectedRevision: 1,
         ids: [], protectedIds: [])
     }
     #expect(try files().count == 2)
     await #expect(throws: PrivateInboxError.conflict) {
       _ = try await store.retainMessageBodies(
-        address: google.address, generation: generation, expectedRevision: 0,
+        connection: first, address: google.address, generation: generation, expectedRevision: 0,
         ids: [], protectedIds: [])
     }
     #expect(try files().count == 2)
     _ = try await store.retainMessageBodies(
-      address: google.address, generation: generation, expectedRevision: 1,
+      connection: first, address: google.address, generation: generation, expectedRevision: 1,
       ids: ["protected"], protectedIds: [])
     #expect(try files().count == 1)
     google.refreshFailure = URLError(.notConnectedToInternet)
     #expect(try await store.restore()["kind"] == "cached")
-    let cached = store.mailboxGeneration.uuidString
+    let cached = store.generation(firstSubject)
     let cachedFile = try #require(files().first)
     let cachedReadTime = Date(timeIntervalSince1970: 123)
     try FileManager.default.setAttributes(
       [.modificationDate: cachedReadTime], ofItemAtPath: cachedFile.path)
     #expect(
-      try await store.openMessageBody(address: google.address, generation: cached, id: "protected")[
+      try await store.openMessageBody(connection: first, address: google.address, generation: cached, id: "protected")[
         "document"] as? String == text)
     #expect(
       try FileManager.default.attributesOfItem(atPath: cachedFile.path)[.modificationDate] as? Date
         == cachedReadTime)
     #expect(
       try await store.listMessageBodies(
-        address: google.address, generation: cached, ids: ["protected"])[
+        connection: first, address: google.address, generation: cached, ids: ["protected"])[
           "stored"] as? [String] == ["protected"])
     await #expect(throws: RegistrationError.unavailable) {
       _ = try await store.commitMessageBody(
-        address: google.address, generation: cached, id: "d",
+        connection: first, address: google.address, generation: cached, id: "d",
         admission: ["document": body, "tier": "opened", "protectedIds": [String]()])
     }
     // Cache-only access returns absence for corrupt ciphertext without pruning or touching it.
@@ -632,7 +686,7 @@ extension PrivateInboxTests {
     try FileManager.default.setAttributes(
       [.modificationDate: cachedReadTime], ofItemAtPath: cachedFile.path)
     #expect(
-      try await store.openMessageBody(address: google.address, generation: cached, id: "protected")[
+      try await store.openMessageBody(connection: first, address: google.address, generation: cached, id: "protected")[
         "document"] is NSNull)
     #expect(try Data(contentsOf: cachedFile) == damaged)
     #expect(
@@ -641,23 +695,42 @@ extension PrivateInboxTests {
     google.refreshFailure = nil
     #expect(try await store.restore()["kind"] == "connected")
 
-    // Another mailbox, or the account leaving, removes every body.
+    // Another mailbox keeps its own bodies; removing a mailbox, or the account leaving, removes
+    // its bodies.
     google.subject = "synthetic-other-mailbox"
     google.address = "other@example.invalid"
-    _ = try await store.authorizeGmail(reselect: true)
-    #expect(try files().isEmpty)
+    let other = MailboxConnection.id(subject: google.subject)
+    _ = try await store.authorizeGmail(chooseAccount: true)
+    #expect(try files().count == 1)
     _ = try store.commitMailbox(
-      address: google.address, expectedRevision: 0, document: "{}",
-      generation: store.mailboxGeneration.uuidString)
+      connection: other, address: google.address, expectedRevision: 0, document: "{}",
+      generation: store.generation("synthetic-other-mailbox"))
     _ = try await store.commitMessageBody(
-      address: google.address, generation: store.mailboxGeneration.uuidString, id: "a",
+      connection: other, address: google.address,
+      generation: store.generation("synthetic-other-mailbox"), id: "a",
       admission: ["document": body, "tier": "prefetched", "protectedIds": ["a"]])
+    // The device-wide limit counts every connection's bodies.
+    let shared = PrivateInboxStore(
+      directory: directory, service: service, protectedDataAvailable: { true },
+      bodyLimit: (try files().first.map { try Data(contentsOf: $0).count } ?? 0) + text.count)
+    #expect(
+      try shared.commitMessageBody(
+        connection: other, address: google.address, subject: google.subject, id: "b",
+        document: text, tier: .opened, protectedIds: ["a", "b"]))
+    #expect(try files().isEmpty)
+    _ = try await store.removeMailbox(first)
+    #expect(!FileManager.default.fileExists(atPath: bodies.path))
+    #expect(
+      try await store.listMessageBodies(
+        connection: other, address: google.address,
+        generation: store.generation("synthetic-other-mailbox"), ids: ["a", "b"])[
+          "stored"] as? [String] == ["a", "b"])
     // Purging waits for the store's lock off the main actor, so the interface keeps running.
     let held = Darwin.open(directory.appendingPathComponent("store.lock").path, O_RDWR)
     try #require(held >= 0)
     try #require(flock(held, LOCK_EX) == 0)
     let purged = PurgeProgress()
-    let purgeGeneration = store.mailboxGeneration
+    let purgeGeneration = store.mailboxGeneration(other)
     let unlock = DispatchSemaphore(value: 0)
     defer { unlock.signal() }
     // The timeout only releases a broken synchronous implementation so the test can fail.
@@ -674,13 +747,14 @@ extension PrivateInboxTests {
       purged.finished = true
     }
     await purged.reached()
-    #expect(store.mailboxGeneration != purgeGeneration)
+    #expect(store.mailboxGeneration(other) != purgeGeneration)
     #expect(!purged.finished)
     unlock.signal()
     #expect(await release.value)
     try await purging.value
     #expect(purged.finished)
-    #expect(!FileManager.default.fileExists(atPath: bodies.path))
+    #expect(
+      !FileManager.default.fileExists(atPath: directory.appendingPathComponent("mailboxes").path))
   }
 }
 

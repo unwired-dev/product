@@ -1,10 +1,20 @@
+import type { NativeGmailMailbox } from '@private-email/mail-core/gmail-inbox';
+
 import { gmailAction } from '@private-email/mail-core/gmail-actions';
 import { createGmailInbox } from '@private-email/mail-core/gmail-inbox';
+import {
+  createMailboxes,
+  singleMailbox,
+} from '@private-email/mail-core/mailboxes';
 import { makeMockInboxStorage } from '@private-email/mail-core/mock-storage';
 import { createPersistentInbox } from '@private-email/mail-core/persistent-inbox';
 import { createRegistration } from '@private-email/mail-core/registration';
-import { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mailbox';
+import {
+  createSyntheticGmail,
+  syntheticConnections,
+} from '@private-email/mail-core/testing/gmail-mailbox';
 import { createMockMailSession } from '@private-email/mail-core/testing/mock-session';
+import { syntheticMailboxes } from '@private-email/mail-core/testing/registration-session';
 import {
   act,
   fireEvent,
@@ -15,7 +25,8 @@ import {
 import { useState } from 'react';
 import { AccessibilityInfo, Clipboard, Linking } from 'react-native';
 
-import type { inbox } from '../src/private-storage.ts';
+import type { Selection } from '../src/inbox.tsx';
+import type { mailboxes } from '../src/private-storage.ts';
 
 import { Inbox } from '../src/inbox.tsx';
 import { InboxProvider } from '../src/mailbox.tsx';
@@ -25,7 +36,7 @@ import { RegistrationGate } from '../src/registration-gate.tsx';
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Jest's host adapter boundary.
 jest.mock('../src/private-storage.ts', () => ({
   __esModule: true,
-  inbox: undefined,
+  mailboxes: undefined,
 }));
 
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Jest requires a module name, not a dynamic import.
@@ -33,15 +44,21 @@ jest.mock('react-native-screens/experimental', () => ({
   SafeAreaView: jest.requireActual('react-native').View,
 }));
 
+const preview = 'preview';
+const alex = syntheticMailboxes['alex@example.invalid'];
+
 function InboxJourney() {
-  const [selectedId, setSelectedId] = useState<string>();
+  const [selected, setSelected] = useState<Selection>();
   return (
     <InboxProvider>
       <Inbox
-        onSelect={setSelectedId}
-        selectedId={selectedId}
+        onSelect={setSelected}
+        selected={selected}
       />
-      <MessageDetail id={selectedId} />
+      <MessageDetail
+        id={selected?.id}
+        mailbox={selected?.mailbox}
+      />
     </InboxProvider>
   );
 }
@@ -49,13 +66,16 @@ function InboxJourney() {
 describe('preview Inbox', () => {
   // oxlint-disable-next-line vitest/no-hooks -- Each test owns a fresh native-boundary store.
   beforeEach(() => {
+    const fixture = createPersistentInbox(
+      makeMockInboxStorage(),
+      createMockMailSession('open-read-relaunch').mail.list,
+    );
     jest.replaceProperty(
-      jest.requireMock<{ inbox: typeof inbox }>('../src/private-storage.ts'),
-      'inbox',
-      createPersistentInbox(
-        makeMockInboxStorage(),
-        createMockMailSession('open-read-relaunch').mail.list,
+      jest.requireMock<{ mailboxes: typeof mailboxes }>(
+        '../src/private-storage.ts',
       ),
+      'mailboxes',
+      singleMailbox(fixture, preview),
     );
   });
 
@@ -99,7 +119,10 @@ describe('preview Inbox', () => {
     expect.hasAssertions();
     await render(
       <InboxProvider>
-        <MessageDetail id="not-in-this-mailbox" />
+        <MessageDetail
+          id="not-in-this-mailbox"
+          mailbox={preview}
+        />
       </InboxProvider>,
     );
     await expect(
@@ -142,8 +165,11 @@ describe('preview Inbox', () => {
       open: () => currentOpen(),
     });
     await render(
-      <InboxProvider store={store}>
-        <MessageDetail id="studio-review" />
+      <InboxProvider mailboxes={singleMailbox(store, preview)}>
+        <MessageDetail
+          id="studio-review"
+          mailbox={preview}
+        />
       </InboxProvider>,
     );
     await expect(screen.findByRole('alert')).resolves.toHaveTextContent(
@@ -156,7 +182,7 @@ describe('preview Inbox', () => {
   });
 });
 
-// The connected Inbox and reader, as the app composes them, over a controlled Gmail store.
+// The connected Inbox and reader, as the app composes them, over a controlled Gmail mailbox.
 function connectedMessage(store: ReturnType<typeof createGmailInbox>) {
   const state = store.getSnapshot();
   if (state.kind !== 'ready' || state.messages[0] === undefined) {
@@ -166,9 +192,7 @@ function connectedMessage(store: ReturnType<typeof createGmailInbox>) {
 }
 
 function renderConnected(
-  createStore: (
-    registration: ReturnType<typeof createRegistration>,
-  ) => ReturnType<typeof createGmailInbox>,
+  native: NativeGmailMailbox,
   // Set once another device has removed this one; restore then reports the purged device.
   removed?: Readonly<{ current: boolean }>,
 ) {
@@ -177,8 +201,9 @@ function renderConnected(
     productAccountId: 'synthetic-product-account',
     signInProvider: 'google',
     privateSync: 'ready',
-    providerSubject: 'synthetic-google-subject',
-    address: 'alex@example.invalid',
+    mailboxes: JSON.stringify([
+      { id: alex, address: 'alex@example.invalid', state: 'connected' },
+    ]),
   } as const;
   const authorizeGmail = jest.fn(() => Promise.resolve(connected));
   const registration = createRegistration({
@@ -186,7 +211,9 @@ function renderConnected(
       Promise.resolve(
         removed?.current === true ? { kind: 'signed-out' } : connected,
       ),
+    addMailbox: () => Promise.reject(new Error('Not adding')),
     authorizeGmail,
+    removeMailbox: () => Promise.reject(new Error('Not removing')),
     signIn: () => Promise.reject(new Error('Not signing in')),
     link: () => Promise.reject(new Error('Not linking')),
     confirmRecoveryKey: () => Promise.reject(new Error('No key')),
@@ -198,32 +225,54 @@ function renderConnected(
     signOut: () => Promise.reject(new Error('Not signing out')),
     deleteProductAccount: () => Promise.reject(new Error('Not deleting')),
   });
-  const store = createStore(registration);
+  // As the app composes them: the Inbox hands a removal to the registration store.
+  const mailboxes = createMailboxes(
+    syntheticConnections({ [alex]: { native } }),
+    registration,
+    {
+      removed: () => {
+        void registration.deviceRemoved();
+      },
+    },
+  );
   function Connected() {
-    const [selectedId, setSelectedId] = useState<string>();
+    const [selected, setSelected] = useState<Selection>();
     return (
       <RegistrationGate
         store={registration}
         preview={false}>
-        <InboxProvider store={store}>
+        <InboxProvider mailboxes={mailboxes}>
           <Inbox
             onClose={() => {
-              setSelectedId(undefined);
+              setSelected(undefined);
             }}
-            onSelect={setSelectedId}
-            selectedId={selectedId}
+            onSelect={setSelected}
+            selected={selected}
           />
           <MessageDetail
-            id={selectedId}
+            id={selected?.id}
+            mailbox={selected?.mailbox}
             onClose={() => {
-              setSelectedId(undefined);
+              setSelected(undefined);
             }}
           />
         </InboxProvider>
       </RegistrationGate>
     );
   }
-  return { authorizeGmail, rendered: render(<Connected />) };
+  const rendered = render(<Connected />);
+  return {
+    authorizeGmail,
+    rendered,
+    // The connected mailbox's Gmail Inbox, once registration has opened it.
+    store: () => {
+      const inbox = mailboxes.getSnapshot()[0]?.inbox;
+      if (inbox === undefined) {
+        throw new Error('Expected the connected mailbox');
+      }
+      return inbox;
+    },
+  };
 }
 
 function holdingListing(
@@ -266,9 +315,10 @@ describe('connected Gmail Inbox', () => {
       subject: 'Saturday, by the river?',
       snippet: 'Coffee first, then the long way home?',
     });
-    const store = createGmailInbox(gmail.native);
-    const { authorizeGmail, rendered } = renderConnected(() => store);
-    await rendered;
+    const connected = renderConnected(gmail.native);
+    const { authorizeGmail } = connected;
+    await connected.rendered;
+    const store = connected.store();
     await fireEvent.press(
       await screen.findByRole('button', {
         name: 'Unread. Oliver Park. Saturday, by the river?',
@@ -294,7 +344,7 @@ describe('connected Gmail Inbox', () => {
         screen.getByRole('button', { name: 'Allow Gmail access' }),
       );
     });
-    expect(authorizeGmail).toHaveBeenCalledWith(false);
+    expect(authorizeGmail).toHaveBeenCalledWith(alex);
     await expect(
       screen.findByText('Arrives after permission returns'),
     ).resolves.toBeVisible();
@@ -332,8 +382,9 @@ describe('connected Gmail Inbox', () => {
       String(gmail.commits.at(-1)).replaceAll(/,"labels":\[[^\]]*\]/gu, ''),
     );
     const held = holdingListing(gmail.native);
-    const store = createGmailInbox(held.native);
-    await renderConnected(() => store).rendered;
+    const connected = renderConnected(held.native);
+    await connected.rendered;
+    const store = connected.store();
     await fireEvent.press(
       await screen.findByRole('button', {
         name: 'Unread. Oliver Park. Saturday, by the river?',
@@ -489,8 +540,9 @@ describe('connected Gmail Inbox', () => {
   it('names the exhausted action and resolves it through Retry and Discard controls', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ messages: 1 });
-    const store = createGmailInbox(gmail.native);
-    await renderConnected(() => store).rendered;
+    const connected = renderConnected(gmail.native);
+    await connected.rendered;
+    const store = connected.store();
     const target = connectedMessage(store);
     gmail.failModify(
       ...Array.from({ length: 5 }, () => ({ code: 'unavailable' })),
@@ -548,16 +600,7 @@ describe('connected Gmail Inbox', () => {
       subject: 'Saturday, by the river?',
     });
     const removed = { current: false };
-    // As the app composes them: the Inbox hands a removal to the registration store.
-    await renderConnected(
-      (registration) =>
-        createGmailInbox(gmail.native, {
-          removed: () => {
-            void registration.deviceRemoved();
-          },
-        }),
-      removed,
-    ).rendered;
+    await renderConnected(gmail.native, removed).rendered;
     const row = await screen.findByRole('button', {
       name: 'Unread. Oliver Park. Saturday, by the river?',
     });
@@ -588,15 +631,19 @@ describe('connected Gmail Inbox', () => {
       },
     });
     const store = createGmailInbox(gmail.native);
+    const mailboxes = singleMailbox(store, alex);
     function Journey() {
-      const [selectedId, setSelectedId] = useState<string>();
+      const [selected, setSelected] = useState<Selection>();
       return (
-        <InboxProvider store={store}>
+        <InboxProvider mailboxes={mailboxes}>
           <Inbox
-            onSelect={setSelectedId}
-            selectedId={selectedId}
+            onSelect={setSelected}
+            selected={selected}
           />
-          <MessageDetail id={selectedId} />
+          <MessageDetail
+            id={selected?.id}
+            mailbox={selected?.mailbox}
+          />
         </InboxProvider>
       );
     }
@@ -745,8 +792,11 @@ describe('connected Gmail Inbox', () => {
     });
     const store = createGmailInbox(gmail.native);
     await render(
-      <InboxProvider store={store}>
-        <MessageDetail id={id} />
+      <InboxProvider mailboxes={singleMailbox(store, alex)}>
+        <MessageDetail
+          id={id}
+          mailbox={alex}
+        />
       </InboxProvider>,
     );
     await act(store.load);

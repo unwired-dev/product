@@ -77,6 +77,24 @@ This code owns what TypeScript must never hold: Keychain items, the storage encr
   reverses the accepted "Protect what fits" decision; losing fitting protection
   deletes recent offline bodies.
 
+#### Mailbox Connection lifecycle
+
+- `synchronizeMailboxes` acknowledging a queued removal from absent or unreadable
+  ciphertext, or discarding removal intent on a pre-publication re-add. Require a
+  read-back tombstone or an authoritative superseding incarnation, preserve
+  read-only unknown records, and fence pre-removal authorization with a new epoch.
+  Ordinary restore of unpublished credentials cannot resurrect a tombstone or
+  adopt another incarnation; only current explicit consent or a retained matching
+  recreation intent may do so. Otherwise an offline device restores a removed
+  connection's provider access.
+- `removeMailbox` or synchronized descriptor purge deleting caches before durable
+  credential removal and retry recording, returning a stale connection list after
+  later failure, or omitting an unopened legacy root cache. Trace cleanup through
+  `SavedRegistration` and `retryMailboxCleanup`: preserve owner-specific keyless
+  legacy cleanup, attempt every owned path, and keep failed cleanup retryable without
+  reopening the connection. Otherwise partial cleanup retains credentials/plaintext
+  or loses another connection's durable pending actions.
+
 #### Mock sessions stay out of production
 
 - A mock/test host factory such as `mockRegistrationStore` omitting a callback or proof required by a production operation's guard. Keep the real guard in place and wire the synthetic backend's owning state through it; otherwise optimistic/cached journeys can pass while the provider mutation is never reached and pending intent never settles.
