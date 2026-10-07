@@ -11,6 +11,7 @@ Documentation here is product truth that agents execute: an implementer follows 
 - A relative link or heading fragment that does not resolve, or a link left pointing at a moved section.
 - A statement that restates what a config file or command already says, where the copy can go stale. Point to the source.
 - Steps in a workflow guide whose file scopes, prerequisites or completion gates contradict each other, making the documented procedure impossible to complete. Check neighbouring steps, including their exclusion handling.
+- An `in progress` claim lifecycle in `.agents/skills/implement-issue/SKILL.md` or `docs/agents/issue-tracker.md` that omits cleanup when ownership ends, including PR merge or closure, or gives no recovery path for claims left by crashed runs. Check claim acquisition, selection filtering, own-claim continuation, authorized takeover and release together; otherwise reopened or interrupted issues remain excluded from future work.
 - `docs/agents/implementation-review.md` allowing a reviewer or delegated child
   to retain a PR watcher, recurring task or write ownership after its final
   report. Check that later notifications require a new review handoff; otherwise

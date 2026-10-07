@@ -24,7 +24,9 @@ missing information or blockers in the issue; do not assume `needs-triage` or
 `needs-info` exists. Use native blocking dependencies for relationships between
 issues, rather than encoding dependencies in labels.
 
-Add `in progress` when implementation starts and remove it if the work stops
-without delivery. Agents skip issues claimed by other work, so the label helps prevent
+Add `in progress` when implementation starts and remove it when that work ends,
+whether or not it delivered. A crashed run can leave a stale claim that agents
+keep skipping; a person clears it by removing the label or by explicitly asking
+an agent to take the issue over. Agents skip issues claimed by other work, so the label helps prevent
 duplicate work; the [implement-issue skill](../../.agents/skills/implement-issue/SKILL.md)
 owns the claim procedure.

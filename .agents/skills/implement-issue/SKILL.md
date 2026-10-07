@@ -145,8 +145,8 @@ concrete blocker requires their input.
 
 Keep the `in progress` label while you own the work, including while the PR is
 open. Remove it with `gh issue edit <number> --remove-label "in progress"` when
-you stop without delivering: the PR closes unmerged, the work is abandoned or
-handed back, or a blocker halts it. Leave it on an issue the merged PR closed.
+your ownership ends: the PR merges or closes, the work is abandoned or handed
+back, or a blocker halts it.
 
 This workflow does not authorize approving or merging the PR. Report the PR URL, verification results, and monitoring state
 without equating a watching or green PR with a merged one.
