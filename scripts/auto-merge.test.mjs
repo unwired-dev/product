@@ -16,9 +16,12 @@ import * as Schema from 'effect/Schema';
 const root = fileURLToPath(new URL('../', import.meta.url));
 const parseJson = Schema.decodeUnknownSync(Schema.UnknownFromJsonString);
 const head = '0123456789abcdef0123456789abcdef01234567';
-const checkRule = (context, integration_id = 15_368) => ({
+const checkRule = (context, integration_id = 15_368, strict = false) => ({
   type: 'required_status_checks',
-  parameters: { required_status_checks: [{ context, integration_id }] },
+  parameters: {
+    required_status_checks: [{ context, integration_id }],
+    strict_required_status_checks_policy: strict,
+  },
 });
 const now = Date.parse('2026-10-07T12:00:00Z') / 1000;
 const hoursAgo = (hours) =>
@@ -35,6 +38,7 @@ function cleared() {
     author: { login: 'maintainer', __typename: 'User' },
     headRefName: 'feature',
     headRefOid: head,
+    headRef: { compare: { aheadBy: 0 } },
     mergeable: 'MERGEABLE',
     labels: { totalCount: 0, nodes: [] },
     reactions: { nodes: [{ user: { login: 'chatgpt-codex-connector[bot]' } }] },
@@ -356,6 +360,20 @@ test('merges a CodeRabbit approval of an older commit after two quiet hours', ()
   const pr = cleared();
   coderabbitStatus(pr).description = 'Review rate limited';
   assert.deepEqual(run(pr), { output: '#7: merge', calls: [merge] });
+});
+
+test('waits for a branch behind main when the ruleset is strict', () => {
+  const pr = cleared();
+  pr.headRef.compare.aheadBy = 1;
+  const strict = { rulePages: [[checkRule('TypeScript', 15_368, true)]] };
+  assert.deepEqual(run(pr, {}, strict), {
+    output:
+      '#7: wait: the ruleset requires an up-to-date branch and main has moved on',
+    calls: [],
+  });
+  assert.deepEqual(run(pr).output, '#7: merge');
+  pr.headRef = null;
+  assert.match(run(pr, {}, strict).output, /up-to-date branch/u);
 });
 
 test('includes required checks from later rules pages', () => {

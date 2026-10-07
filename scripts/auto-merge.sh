@@ -6,8 +6,9 @@ set -euo pipefail
 repo=${GITHUB_REPOSITORY:?}
 # The merge token may belong to a ruleset bypass actor, so this script checks
 # required status checks itself instead of relying on GitHub to refuse.
-required=$(gh api "repos/$repo/rules/branches/main" --paginate --slurp |
-  jq -c '[.[][] | select(.type == "required_status_checks") | .parameters.required_status_checks[]]')
+rules=$(gh api "repos/$repo/rules/branches/main" --paginate --slurp | jq -c '[.[][] | select(.type == "required_status_checks")]')
+required=$(jq -c '[.[].parameters.required_status_checks[]]' <<<"$rules")
+strict=$(jq -c 'any(.[]; .parameters.strict_required_status_checks_policy == true)' <<<"$rules")
 numbers=${*:-$(gh pr list --repo "$repo" --state open --base main --limit 100 --json number | jq -r '.[].number')}
 
 query='query($owner: String!, $name: String!, $number: Int!) {
@@ -15,6 +16,7 @@ query='query($owner: String!, $name: String!, $number: Int!) {
     pullRequest(number: $number) {
       title state isDraft isCrossRepository baseRefName headRefName headRefOid mergeable
       author { login __typename }
+      headRef { compare(headRef: "main") { aheadBy } }
       labels(first: 50) { totalCount nodes { name } }
       reactions(content: THUMBS_UP, first: 100) { nodes { user { login } } }
       comments(last: 100) { nodes { author { login } body createdAt } }
@@ -54,6 +56,7 @@ decide='
     elif $commit.statusCheckRollup.contexts.totalCount != ($checks | length) then "wait: incomplete check page"
     elif any($required[]; . as $requirement | [$checks[] | select(.name == $requirement.context and ($requirement.integration_id == null or .app == $requirement.integration_id))] | length == 0 or any(.ok | not))
       then "wait: required checks have not all passed"
+    elif $strict and (.headRef.compare.aheadBy // 1) > 0 then "wait: the ruleset requires an up-to-date branch and main has moved on"
     # ponytail: fail closed past one page of threads; paginate if PRs outgrow it.
     elif .reviewThreads.totalCount != (.reviewThreads.nodes | length) then "wait: too many review threads to verify"
     elif any(.reviewThreads.nodes[]; .isResolved | not) then "wait: unresolved review threads"
@@ -74,7 +77,7 @@ fetch_pr() {
 }
 
 evaluate() {
-  jq -r --argjson required "$required" --argjson now "${AUTO_MERGE_NOW:-$(date -u +%s)}" --argjson dismissed "${1:-0}" "$decide" <<<"$pr"
+  jq -r --argjson required "$required" --argjson strict "$strict" --argjson now "${AUTO_MERGE_NOW:-$(date -u +%s)}" --argjson dismissed "${1:-0}" "$decide" <<<"$pr"
 }
 
 failed=0

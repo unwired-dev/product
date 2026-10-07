@@ -101,7 +101,8 @@ squash-merges each open pull request to `main` that meets every condition:
 
 - It is ready for review, from a same-repository branch, and has no merge conflict.
 - Every status check the `main` ruleset requires concluded success or skipped,
-  from its required GitHub App when one is specified.
+  from its required GitHub App when one is specified. When the ruleset requires
+  branches to be up to date, the head must also contain the latest `main`.
 - Every review thread is resolved.
 - Codex reacted with 👍 and its latest "Didn't find any major issues" comment
   names the current head commit.
