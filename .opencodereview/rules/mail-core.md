@@ -47,6 +47,11 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   another's body. Refused admission preserves membership. Otherwise derived
   saved-body status remains stale despite unchanged Inbox metadata.
 - `Effect.run*` anywhere except the single run of a host-facing store method through `runLogged`; in particular inside a service method, a callback passed back into Effect, or a loop.
+- A helper that combines Promise-returning store methods, such as
+  `mailboxes.ts.savedMessageBodies`, wrapping their host-facing runs in another
+  `runLogged`/`Effect.run*`. Keep that composition plain async, or compose internal
+  Effect programs before one boundary run; otherwise each mailbox starts a fresh
+  fiber inside the outer program, losing its inherited context and interruption.
 - A host-facing action whose Promise can reject for an expected state. Hosts call actions as `void store.load()`, so a rejection is an unhandled promise rejection; expected failures become snapshot state.
 - Overlapping asynchronous store actions that read, change or publish shared state without the store's `Semaphore`, so they interleave a read-modify-write or a slower earlier call publishes over a newer result. Synchronous `getSnapshot` and listener bookkeeping do not require an Effect run or permit. Use `withPermit` to queue and `withPermitsIfAvailable` only where dropping the overlapping request is the intended behavior.
 - `createRegistration.resume` dropping a foreground activation because the account is unlocked or a pending operation holds the semaphore. Queue every activation's native restore after the current operation, preserving unchanged setup feedback while publishing changed verification or locked results; otherwise unlock retries are lost or a running account remains connected after verification becomes unavailable. ADR 0020 requires foreground Trusted Device revalidation; a locked-storage retry must not exempt unlocked accounts, and native reconnect alone does not prove that revocation rejection purges local state.

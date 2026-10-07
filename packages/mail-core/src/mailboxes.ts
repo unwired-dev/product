@@ -1,5 +1,4 @@
 import * as Arr from 'effect/Array';
-import * as Effect from 'effect/Effect';
 import * as Order from 'effect/Order';
 
 import type {
@@ -9,7 +8,6 @@ import type {
 } from './gmail-inbox.ts';
 import type { Registration, RegistrationSnapshot } from './registration.ts';
 
-import { runLogged } from './diagnostics.ts';
 import { createBodyLoads, createGmailInbox } from './gmail-inbox.ts';
 import { canOpenInbox, mailboxesOf } from './registration.ts';
 
@@ -370,38 +368,32 @@ export const resultKey = ({
   message,
 }: Pick<BodyResult, 'mailbox' | 'message'>) => `${mailbox.id}\n${message.id}`;
 
-// Each connection answers from its own cache. Unknown answers remain absent, never unsaved.
-export function savedMessageBodies(results: readonly BodyResult[]) {
-  return runLogged(
-    Effect.gen(function* () {
-      const byMailbox = new Map<BodyResult['mailbox'], BodyResult[]>();
-      for (const result of results) {
-        const group = byMailbox.get(result.mailbox);
-        if (group === undefined) {
-          byMailbox.set(result.mailbox, [result]);
-        } else {
-          group.push(result);
-        }
-      }
-      const answers = yield* Effect.forEach(
-        byMailbox,
-        Effect.fnUntraced(function* ([{ inbox }, found]) {
-          const ids = found.map(({ message }) => message.id);
-          const lookup = inbox.savedBodies;
-          const saved =
-            lookup === undefined
-              ? new Set(ids)
-              : yield* Effect.promise(() => lookup(ids));
-          return saved === undefined
-            ? []
-            : found.map(
-                (result) =>
-                  [resultKey(result), saved.has(result.message.id)] as const,
-              );
-        }),
-        { concurrency: 'unbounded' },
-      );
-      return new Map(answers.flat());
+// Each connection answers from its own cache. Unknown answers remain absent, never unsaved. Each
+// store's `savedBodies` is its own host-facing run, so this only combines their answers.
+export async function savedMessageBodies(results: readonly BodyResult[]) {
+  const byMailbox = new Map<BodyResult['mailbox'], BodyResult[]>();
+  for (const result of results) {
+    const group = byMailbox.get(result.mailbox);
+    if (group === undefined) {
+      byMailbox.set(result.mailbox, [result]);
+    } else {
+      group.push(result);
+    }
+  }
+  const answers = await Promise.all(
+    [...byMailbox].map(async ([{ inbox }, found]) => {
+      const ids = found.map(({ message }) => message.id);
+      const saved =
+        inbox.savedBodies === undefined
+          ? new Set(ids)
+          : await inbox.savedBodies(ids);
+      return saved === undefined
+        ? []
+        : found.map(
+            (result) =>
+              [resultKey(result), saved.has(result.message.id)] as const,
+          );
     }),
   );
+  return new Map(answers.flat());
 }
