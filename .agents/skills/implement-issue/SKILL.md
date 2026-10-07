@@ -32,6 +32,9 @@ accurately; do not substitute a different reviewer or claim a completed handoff.
    and the current branch for existing implementation before starting new work.
    If the issue is closed, already implemented, or materially blocked, establish
    what remains and clarify only decisions that affect scope or correctness.
+   If it carries the `in progress` label, continue only when this conversation
+   establishes that it is your existing claim or the user explicitly asks you
+   to take it over. Otherwise stop and report the claim.
 3. Read the root and applicable nested `AGENTS.md`, the
    [documentation index](../../../docs/README.md), relevant domain vocabulary,
    and the [issue policy](../../../docs/agents/issue-tracker.md). Follow the
@@ -40,19 +43,27 @@ accurately; do not substitute a different reviewer or claim a completed handoff.
    rule bodies, including when an issue links to them; route those to the reviewer.
 4. Record the starting commit and working-tree state. Preserve unrelated edits.
    Reuse an appropriate task branch or create one without committing to the
-   default branch. Identify the acceptance criteria and the checks that will
-   demonstrate them. Ask early about material missing requirements while
-   continuing independent work.
+   default branch. Recheck the live `in progress` label before editing. Retain
+   it for your existing claim or an explicitly authorized takeover; otherwise
+   stop if it is present. If absent, claim the issue with
+   `gh issue edit <number> --add-label "in progress"` and confirm success before
+   editing. A failed label read or claim blocks implementation. Skip the claim
+   only when an explicit user limit excludes GitHub writes, and say so in the report.
+   Identify the acceptance criteria and the checks that will demonstrate them.
+   Ask early about material missing requirements while continuing independent
+   work.
 
 ## Next unblocked issue
 
 Select exactly one issue from the current repository; this mode does not start a
 backlog-draining loop. An explicitly named issue bypasses automatic selection.
 
-1. Enumerate all open issues labelled `ready-for-agent`, following every page.
-   Exclude pull requests, `ready-for-human`, `human needed`, `wontfix`, and
-   `in progress` issues, plus issues with an open implementation PR or other
-   clear evidence of active implementation. Apply any narrower scope the user
+1. Enumerate all open issues labelled `ready-for-agent` without the
+   `in progress` claim, following every page, for example
+   `gh issue list --label ready-for-agent --search '-label:"in progress"' --limit 1000`.
+   Exclude pull requests, `ready-for-human`, `human needed`, and `wontfix`
+   issues, plus issues with an open implementation PR or other clear evidence
+   of active implementation. Apply any narrower scope the user
    supplied. Do not infer readiness from age or priority alone.
 2. Read the organization's native **Priority issue field**, not a GitHub Projects
    field or a guessed label. Discover its field and option IDs through
@@ -70,9 +81,10 @@ backlog-draining loop. An explicitly named issue bypasses automatic selection.
    as not planned alone is insufficient. Check cross-repository blockers in
    their own repositories. Ordinary related links are not automatically blockers.
 4. Select the first candidate whose blockers are satisfied and whose requirements
-   are actionable. Recheck its live state, readiness, dependencies and active PRs
-   immediately before starting. State its URL, priority (or unset), creation date,
-   and why higher-ranked candidates were skipped, then proceed with implementation.
+   are actionable. Recheck its live state, readiness, `in progress` label,
+   dependencies and active PRs immediately before claiming it. State its URL,
+   priority (or unset), creation date, and why higher-ranked candidates were
+   skipped, then proceed with implementation.
 
 Treat failed or incomplete reads as unknown, not as an unset priority or an empty
 blocker list. If missing access or ambiguous priority ordering could change the
@@ -129,6 +141,12 @@ Use the host's PR watcher when available and end the turn after registering the
 watch; resume on its notifications. Otherwise follow the skill's supported
 monitoring mechanism. Do not create a recurring schedule or sweep unrelated PRs.
 Continue until the PR is merged or closed, unless the user stops the work or a
-concrete blocker requires their input. This workflow does not authorize approving
-or merging the PR. Report the PR URL, verification results, and monitoring state
+concrete blocker requires their input.
+
+Keep the `in progress` label while you own the work, including while the PR is
+open. Remove it with `gh issue edit <number> --remove-label "in progress"` when
+your ownership ends: the PR merges or closes, the work is abandoned or handed
+back, or a blocker halts it.
+
+This workflow does not authorize approving or merging the PR. Report the PR URL, verification results, and monitoring state
 without equating a watching or green PR with a merged one.
