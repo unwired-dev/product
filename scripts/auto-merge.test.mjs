@@ -94,6 +94,7 @@ function cleared() {
                     context: 'CodeRabbit',
                     state: 'SUCCESS',
                     description: 'Review completed',
+                    creator: { login: 'coderabbitai' },
                   },
                 ],
               },
@@ -198,9 +199,14 @@ const merge = [
   head,
 ];
 
-test('merges the reviewed head once Codex and CodeRabbit cleared it', () => {
-  assert.deepEqual(run(cleared()), { output: '#7: merge', calls: [merge] });
-});
+for (const description of ['Review completed', 'Review approved']) {
+  test(`merges a CodeRabbit ${description} head without waiting two hours`, () => {
+    const pr = cleared();
+    coderabbitStatus(pr).description = description;
+    pr.comments.nodes[0].createdAt = hoursAgo(0);
+    assert.deepEqual(run(pr), { output: '#7: merge', calls: [merge] });
+  });
+}
 
 test('reports decisions without acting in a dry run', () => {
   assert.deepEqual(run(cleared(), { DRY_RUN: '1' }), {
@@ -296,6 +302,20 @@ const blocked = [
   ],
   ['a [skip review] title', (pr) => (pr.title = 'Tidy [skip review]')],
   [
+    'recent activity and a CodeRabbit context posted by another actor',
+    (pr) => {
+      coderabbitStatus(pr).creator.login = 'maintainer';
+      pr.comments.nodes[0].createdAt = hoursAgo(1);
+    },
+  ],
+  [
+    'a pre-existing dismissed CodeRabbit review',
+    (pr) => {
+      pr.reviews.nodes = [pr.reviews.nodes.at(-1)];
+      pr.reviews.nodes[0].state = 'DISMISSED';
+    },
+  ],
+  [
     'a CodeRabbit approval of an older commit and activity in the last two hours',
     (pr) => {
       coderabbitStatus(pr).description = 'Review paused';
@@ -390,4 +410,12 @@ test('revalidates changed exclusions before merging', () => {
   const changed = cleared();
   changed.labels = { totalCount: 1, nodes: [{ name: 'do-not-review' }] };
   assert.deepEqual(run(cleared(), {}, { snapshots: [changed] }).calls, []);
+});
+
+test('revalidates a paused CodeRabbit head before merging', () => {
+  const pr = cleared();
+  pr.comments.nodes[0].createdAt = hoursAgo(1);
+  const changed = structuredClone(pr);
+  coderabbitStatus(changed).description = 'Review paused';
+  assert.deepEqual(run(pr, {}, { snapshots: [changed] }).calls, []);
 });

@@ -106,9 +106,9 @@ squash-merges each open pull request to `main` that meets every condition:
 - Codex reacted with 👍 and its latest "Didn't find any major issues" comment
   names the current head commit.
 - CodeRabbit's latest approving or change-requesting review approves, and its
-  `CodeRabbit` status on the head commit reads "Review completed" or "Review
-  approved". CodeRabbit does not approve again after later pushes, and it reports
-  a successful status even when it paused or was rate limited on a commit.
+  `CodeRabbit` status on the head commit is posted by `coderabbitai` and reads
+  "Review completed" or "Review approved". A previous approval can remain after
+  later pushes, and a successful status can indicate a paused or rate-limited review.
 
 When CodeRabbit has not reviewed the head commit, or its latest review requests
 changes, the merger waits until the other conditions hold and the pull request

@@ -21,7 +21,7 @@ query='query($owner: String!, $name: String!, $number: Int!) {
       reviews(last: 100) { nodes { databaseId author { login } state submittedAt } }
       reviewThreads(first: 100) { totalCount nodes { isResolved comments(last: 1) { nodes { createdAt } } } }
       commits(last: 1) { nodes { commit { committedDate statusCheckRollup { contexts(first: 100) {
-        totalCount nodes { ... on CheckRun { name status conclusion checkSuite { app { databaseId } } } ... on StatusContext { context state description } }
+        totalCount nodes { ... on CheckRun { name status conclusion checkSuite { app { databaseId } } } ... on StatusContext { context state description creator { login } } }
       } } } } }
     }
   }
@@ -35,7 +35,7 @@ decide='
   | ([.comments.nodes[] | select(.author.login == "chatgpt-codex-connector" and (.body | contains("Didn'"'"'t find any major issues")))]
      | last | .body // "" | [capture("Reviewed commit:\\*\\* `(?<sha>[0-9a-f]+)`")] | .[0].sha // "") as $codexSha
   # CodeRabbit reports a successful status even when it paused or skipped a commit.
-  | (any($commit.statusCheckRollup.contexts.nodes[]?; .context == "CodeRabbit" and .state == "SUCCESS"
+  | (any($commit.statusCheckRollup.contexts.nodes[]?; .context == "CodeRabbit" and .creator.login == "coderabbitai" and .state == "SUCCESS"
       and (.description | IN("Review completed", "Review approved")))) as $rabbitReviewedHead
   | ([$commit.statusCheckRollup.contexts.nodes[]? | {name: (.name // .context), app: .checkSuite.app.databaseId,
       ok: (if .name then .status == "COMPLETED" and (.conclusion | IN("SUCCESS", "SKIPPED")) else .state == "SUCCESS" end)}]) as $checks
