@@ -813,8 +813,8 @@ purge. For bodies, it checks:
 - cache-only reading and listing without writing;
 - removal with the message, mailbox or account.
 
-All 34 tests passed on a fresh iOS 27 simulator before #606. #606 adds six native
-tests, bringing the suite to 40: connections deduplicated by Google account, mixed
+All 34 tests passed on a fresh iOS 27 simulator before #606. #606 adds seven native
+tests, bringing the suite to 41: connections deduplicated by Google account, mixed
 authorization and reauthorization with the same account, removal of one connection's
 credential and cache, the upgrade of a single-mailbox record and cache into one
 connection, and descriptor removal and epochs through the synthetic Product Sync
@@ -830,12 +830,17 @@ published keeps it when the descriptor is unchanged since this device last read 
 and loses it when that descriptor was removed and added again meanwhile. An absent
 observation cannot authorize adoption of a later descriptor. The suite also checks
 that an address-update conflict or a later connection's failed publication cannot
-discard a learned removal. Existing native tests now name each connection, and
-descriptors written before epochs keep their connection. All 40 tests passed in
+discard a learned removal. Existing native tests now name each connection.
+Connections and descriptors written before epochs converge on one legacy epoch and
+keep their connection, unless the mailbox was removed and added again elsewhere, and
+legacy adoption keeps bodies already saved for the connection across opened and
+prefetched tiers. It also checks concurrent legacy upgrades, first authorization
+on another device, legacy removal intent against later incarnations, and retained
+offline recreation after a legacy upgrade. All 41 tests passed in
 the hosted storage suite on a fresh iOS 27 simulator with Xcode 27.0, real Keychain
 storage, CryptoKit and the filesystem. The Convex and provider boundaries remain
-synthetic. A separate run replacing only Keychain with an in-memory stand-in also
-passed all 40 tests; that run is logic evidence, not Keychain qualification.
+synthetic. An earlier run replacing only Keychain with an in-memory stand-in passed
+the then 40 tests; that run is logic evidence, not Keychain qualification.
 
 Registration Mock Mail Sessions answer Gmail requests, including the prefetch
 preflight, from a synthetic mailbox of three Inbox messages over two pages and one

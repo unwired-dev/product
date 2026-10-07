@@ -124,7 +124,12 @@ presentation preparation and application sequencing remain in TypeScript.
 ## Legacy cache ownership and cleanup
 
 The earlier root `mailbox.enc` and `bodies/` are lazily adopted only after their
-saved subject and address match a connection. Converting an earlier registration
+saved subject and address match a connection. Adoption
+preserves any body already saved in the connection directory when merging the
+root `bodies/`, comparing message identity across opened and prefetched tiers.
+The merge runs under the file lock and leaves root metadata until body migration
+finishes, so an interrupted merge resumes without replacing destination bodies.
+Converting an earlier registration
 preserves its opaque ID in `legacyMailboxConnection`; cleanup consults this marker
 (or the still-legacy registration) before dispatching detached keyless removal.
 Removing that connection deletes its root artifacts even before its first cache

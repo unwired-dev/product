@@ -198,8 +198,13 @@ earlier authorization to that later connection. A mailbox authorized while priva
 sync is unreachable keeps its authorization when the synchronized description is still
 the one this device last read. An unseen description cannot prove that no removal
 occurred meanwhile and requires fresh authorization. A description written
-before connections had incarnations belongs to the same connection. The decrypted
-mailbox list omits removals.
+before connections had incarnations belongs to the same connection, and every device
+upgrades it to the same fixed legacy incarnation. An authorization from before
+incarnations keeps only that legacy incarnation; a mailbox removed and added again
+elsewhere needs fresh authorization. A queued removal from before incarnations
+removes only that legacy incarnation. Explicitly removing and adding it again
+while offline still starts a new incarnation after another device upgrades the
+legacy description. The decrypted mailbox list omits removals.
 
 ## Initialization and relaunch
 

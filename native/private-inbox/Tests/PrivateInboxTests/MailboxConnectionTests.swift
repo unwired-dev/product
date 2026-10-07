@@ -681,4 +681,179 @@ extension PrivateInboxTests {
     #expect(!connections.contains { $0.receipt.subject == "synthetic-third-mailbox" })
     #expect(!connections.contains { $0.receipt.subject == "synthetic-unobserved-mailbox" })
   }
+
+  // Connections and descriptors from before epochs converge on one legacy epoch, so upgrades by
+  // different devices agree, while a connection from before epochs never inherits a mailbox that
+  // was removed and added again. Legacy adoption keeps bodies already saved for the connection.
+  @Test @MainActor func legacyConnectionsConvergeOnOneEpochAndStayFenced() async throws {
+    let keys = DeviceKeychain(service: "dev.unwired.product-sync.tests.\(UUID().uuidString)")
+    let account = "account-synthetic-product-subject"
+    let service = "dev.unwired.private-inbox.tests.\(UUID().uuidString)"
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer {
+      try? keys.remove("registration")
+      try? keys.remove("product-sync." + account)
+      try? keys.remove("product-sync-enrollment." + account)
+      try? DeviceKeychain(service: service + ".database").remove("encryption-key")
+      try? FileManager.default.removeItem(at: directory)
+    }
+    let google = SyntheticGoogleRegistrationProvider()
+    google.scopes = [RegistrationStore.gmailScope]
+    let backend = SyntheticProductSyncBackend()
+    func store() -> RegistrationStore { backend.store(keys: keys, google: google) }
+    _ = try await store().signIn()
+    _ = try await store().authorizeGmail()
+    let ring = try #require(try store().loadVault(account)).ring
+    let identifier = try ring.identifier("mailbox", "gmail:synthetic-product-subject")
+    func put(epoch: String?, removed: Bool = false) throws {
+      let sealed = try ring.seal(
+        record: JSONEncoder().encode(
+          MailboxDescriptor(
+            provider: "gmail", address: "same@example.invalid", epoch: epoch,
+            removed: removed ? true : nil)),
+        account: account, identifier: identifier, schemaVersion: MailboxDescriptor.schemaVersion)
+      backend.clock += 1
+      backend.records[account, default: [:]][identifier] = StoredPayload(
+        payloadIdentifier: identifier, encryptedPayload: sealed, updatedAt: backend.clock)
+    }
+    func descriptorEpoch() throws -> String? {
+      let record = try #require(backend.records[account]?[identifier])
+      return try JSONDecoder().decode(
+        MailboxDescriptor.self,
+        from: ring.open(
+          record: record.encryptedPayload, account: account, identifier: identifier,
+          schemaVersion: MailboxDescriptor.schemaVersion)
+      ).epoch
+    }
+    // This device's connection and its descriptor as a build from before epochs left them.
+    func makeLegacy() throws {
+      var saved = try #require(try store().load())
+      saved.update(MailboxConnection.id(subject: "synthetic-product-subject")) {
+        $0.epoch = nil
+        $0.published = nil
+        $0.observed = nil
+        $0.observedEpoch = nil
+      }
+      try store().save(saved)
+    }
+    try makeLegacy()
+    try put(epoch: nil)
+    // A concurrent legacy upgrade wins the CAS; both devices still choose the same incarnation.
+    backend.beforePut = { _, written in
+      guard written == identifier else { return }
+      backend.beforePut = nil
+      try put(epoch: RegistrationStore.legacyMailboxEpoch)
+    }
+    defer { backend.beforePut = nil }
+    #expect(try await store().restore()["kind"] == "connected")
+    #expect(try store().load()?.connections.first?.epoch == RegistrationStore.legacyMailboxEpoch)
+    #expect(try descriptorEpoch() == RegistrationStore.legacyMailboxEpoch)
+    // Another device from before epochs reads the upgraded descriptor as its own incarnation.
+    try makeLegacy()
+    #expect(try await store().restore()["kind"] == "connected")
+    #expect(try store().load()?.connections.first?.epoch == RegistrationStore.legacyMailboxEpoch)
+    // A device authorizing the pre-epoch mailbox for the first time must not give it a UUID
+    // that would make the existing legacy devices lose their valid grant on the next restore.
+    var freshDevice = try #require(try store().load())
+    freshDevice.connections = []
+    try store().save(freshDevice)
+    try put(epoch: nil)
+    #expect(try await store().authorizeGmail()["kind"] == "connected")
+    #expect(try descriptorEpoch() == RegistrationStore.legacyMailboxEpoch)
+    try makeLegacy()
+    #expect(try await store().restore()["kind"] == "connected")
+    // A mailbox removed and added again elsewhere is not carried over from before epochs.
+    try makeLegacy()
+    try put(epoch: "added-again-elsewhere")
+    #expect(try await store().restore()["mailboxes"] == nil)
+    #expect(try store().load()?.connections.isEmpty == true)
+
+    // A queued removal of the pre-epoch incarnation cannot remove a newer remote incarnation.
+    _ = try await store().authorizeGmail()
+    try makeLegacy()
+    try put(epoch: nil)
+    backend.offline = true
+    let mailbox = MailboxConnection.id(subject: "synthetic-product-subject")
+    _ = try await store().removeMailbox(mailbox)
+    try put(epoch: "newer-than-legacy-removal")
+    backend.offline = false
+    _ = try await store().restore()
+    #expect(try descriptorEpoch() == "newer-than-legacy-removal")
+    #expect(try store().load()?.mailboxRemovals == nil)
+    // The remote live mailbox stays visible; it has not been tombstoned by the legacy removal.
+    #expect(try await store().restore()["privateSyncMailboxes"] == "same@example.invalid")
+
+    // Retained explicit offline recreation still matches its removal after another legacy upgrade.
+    _ = try await store().authorizeGmail()
+    try makeLegacy()
+    try put(epoch: nil)
+    backend.offline = true
+    let recreating = store()
+    _ = try await recreating.removeMailbox(mailbox)
+    _ = try await recreating.authorizeGmail()
+    let recreatedEpoch = try #require(try store().load()?.connections.first?.epoch)
+    try put(epoch: RegistrationStore.legacyMailboxEpoch)
+    backend.offline = false
+    #expect(try await store().restore()["kind"] == "connected")
+    #expect(try store().load()?.connections.first?.epoch == recreatedEpoch)
+    #expect(try descriptorEpoch() == recreatedEpoch)
+    #expect(try store().load()?.mailboxRemovals == nil)
+    // A legacy tombstone purges ordinary restore; explicit consent recreates it at a fresh epoch.
+    try makeLegacy()
+    try put(epoch: RegistrationStore.legacyMailboxEpoch, removed: true)
+    #expect(try await store().restore()["mailboxes"] == nil)
+    #expect(try await store().authorizeGmail()["kind"] == "connected")
+    #expect(try descriptorEpoch() != RegistrationStore.legacyMailboxEpoch)
+
+    // A body saved for the connection before its legacy cache is adopted stays beside it.
+    let cache = PrivateInboxStore(directory: directory, service: service)
+    let id = MailboxConnection.id(subject: "synthetic-legacy-mailbox")
+    _ = try cache.commitMailbox(
+      connection: id, address: "legacy@example.invalid", subject: "synthetic-legacy-mailbox",
+      expectedRevision: 0, document: "legacy document")
+    _ = try cache.commitMessageBody(
+      connection: id, address: "legacy@example.invalid", subject: "synthetic-legacy-mailbox",
+      id: "old", document: "legacy body", tier: .opened, protectedIds: [])
+    let collisions: [(String, PrivateInboxStore.BodyTier, PrivateInboxStore.BodyTier)] = [
+      ("same-tier", .opened, .opened), ("opened-to-prefetched", .opened, .prefetched),
+      ("prefetched-to-opened", .prefetched, .opened),
+    ]
+    for (message, legacyTier, _) in collisions {
+      #expect(try cache.commitMessageBody(
+        connection: id, address: "legacy@example.invalid", subject: "synthetic-legacy-mailbox",
+        id: message, document: "old collision", tier: legacyTier, protectedIds: []))
+    }
+    let folder = directory.appendingPathComponent("mailboxes/\(id)")
+    try FileManager.default.moveItem(
+      at: folder.appendingPathComponent("mailbox.enc"),
+      to: directory.appendingPathComponent("mailbox.enc"))
+    try FileManager.default.moveItem(
+      at: folder.appendingPathComponent("bodies"), to: directory.appendingPathComponent("bodies"))
+    _ = try cache.commitMessageBody(
+      connection: id, address: "legacy@example.invalid", subject: "synthetic-legacy-mailbox",
+      id: "new", document: "new body", tier: .opened, protectedIds: [])
+    for (message, _, destinationTier) in collisions {
+      #expect(try cache.commitMessageBody(
+        connection: id, address: "legacy@example.invalid", subject: "synthetic-legacy-mailbox",
+        id: message, document: "destination body", tier: destinationTier, protectedIds: []))
+    }
+    #expect(
+      try cache.openMailbox(
+        connection: id, address: "legacy@example.invalid",
+        subject: "synthetic-legacy-mailbox")["document"] as? String == "legacy document")
+    #expect(!FileManager.default.fileExists(atPath: directory.appendingPathComponent("bodies").path))
+    for (message, body) in [("old", "legacy body"), ("new", "new body")] {
+      #expect(
+        try cache.openMessageBody(
+          connection: id, address: "legacy@example.invalid", subject: "synthetic-legacy-mailbox",
+          id: message) == body)
+    }
+    for (message, _, _) in collisions {
+      #expect(try cache.openMessageBody(
+        connection: id, address: "legacy@example.invalid", subject: "synthetic-legacy-mailbox",
+        id: message) == "destination body")
+    }
+    #expect(try FileManager.default.contentsOfDirectory(
+      at: folder.appendingPathComponent("bodies"), includingPropertiesForKeys: nil).count == 5)
+  }
 }

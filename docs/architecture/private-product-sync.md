@@ -336,14 +336,23 @@ This slice does not claim those later flow migrations or live-provider qualifica
 
 Each connection's descriptor remains schema 1 and adds optional `epoch` and
 `removed` fields, retaining older readable records. Its HMAC-derived record
-identifier deduplicates the Google subject within the Product Account. A random
-connection epoch binds local authorization to one incarnation; provider
+identifier deduplicates the Google subject within the Product Account. A
+connection epoch binds local authorization to one incarnation; new incarnations
+use random epochs, while pre-epoch records converge on the reserved `legacy`
+epoch. A first authorization on a new device also gives an epochless descriptor
+that legacy epoch, rather than its fresh local UUID, so existing legacy devices
+retain their grants. Published epochs survive older-client epochless rewrites;
+retained removal/recreation intent still advances the epoch. Provider
 credentials and subjects never enter the descriptor. A new explicit authorization
 may adopt a live descriptor's epoch or recreate a tombstone at a new epoch.
 
 `SavedRegistration.mailboxRemovals` durably queues subject, address and removed
 epoch; reconciliation writes a tombstone even for an absent record, and never
-replaces an unreadable one. It clears a retry only after reading a matching removal
+replaces an unreadable one. Epochless removal intent names the legacy incarnation,
+including after another device upgrades it, and cannot tombstone a later random
+epoch. An absent legacy descriptor receives a legacy tombstone. Retained explicit
+offline recreation matches that tombstone or upgraded legacy record and advances
+to its own new epoch. It clears a retry only after reading a matching removal
 or an authoritative later incarnation. Remove followed by explicit re-add retains
 that retry and a new local epoch, so the old incarnation is fenced even if the
 removal publication was interrupted. `newlyAuthorizedMailboxes` distinguishes

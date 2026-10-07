@@ -79,6 +79,19 @@ This code owns what TypeScript must never hold: Keychain items, the storage encr
 
 #### Mailbox Connection lifecycle
 
+- `synchronizeMailboxes` treating an epochless connection or queued removal as
+  compatible with every live epoch. Pre-epoch connections, descriptors and
+  removal intents name one fixed legacy incarnation; concurrent upgrades must
+  agree without purging other legacy devices. Preserve tombstones and fence
+  later re-adds, including retained offline recreation after another device's
+  legacy upgrade. Otherwise migration restores old authorization or removes a
+  later incarnation with stale intent.
+- `PrivateInboxStore.adoptLegacyMailbox` assuming the connection's body folder
+  is absent, or merging by a tier-suffixed filename rather than body identity.
+  A body may be saved before metadata adoption; preserve that destination body
+  across both opened and prefetched tiers and keep interrupted migration
+  retryable. Otherwise cache open repeatedly fails or an older legacy body
+  becomes the preferred readable copy.
 - `synchronizeMailboxes` treating a missing entry in `descriptorEpochs` as an
   unchanged incarnation for offline consent, or discarding an authenticated
   removal/different epoch from an address-update CAS when its later list fails.

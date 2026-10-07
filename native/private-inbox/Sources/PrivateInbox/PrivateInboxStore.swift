@@ -155,8 +155,27 @@ public final class PrivateInboxStore: @unchecked Sendable {
     try manager.createDirectory(
       at: target, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
     let bodies = directory.appendingPathComponent("bodies")
+    let targetBodies = target.appendingPathComponent("bodies")
     if manager.fileExists(atPath: bodies.path) {
-      try manager.moveItem(at: bodies, to: target.appendingPathComponent("bodies"))
+      if manager.fileExists(atPath: targetBodies.path) {
+        // A saved body wins across both tiers; adoption must not restore an older opened copy.
+        var savedBodies = Set(try manager.contentsOfDirectory(
+          at: targetBodies, includingPropertiesForKeys: nil
+        ).map { $0.deletingPathExtension().lastPathComponent })
+        for file in try manager.contentsOfDirectory(at: bodies, includingPropertiesForKeys: nil) {
+          let destination = targetBodies.appendingPathComponent(file.lastPathComponent)
+          let name = file.deletingPathExtension().lastPathComponent
+          if savedBodies.contains(name) {
+            try manager.removeItem(at: file)
+          } else {
+            try manager.moveItem(at: file, to: destination)
+            savedBodies.insert(name)
+          }
+        }
+        try manager.removeItem(at: bodies)
+      } else {
+        try manager.moveItem(at: bodies, to: targetBodies)
+      }
     }
     try manager.moveItem(at: legacy, to: target.appendingPathComponent("mailbox.enc"))
   }

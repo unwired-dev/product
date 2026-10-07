@@ -149,6 +149,8 @@ struct MailboxDescriptor: Codable, Equatable {
 }
 
 extension RegistrationStore {
+  // The epoch every device gives a descriptor written before epochs, so their upgrades agree.
+  static let legacyMailboxEpoch = "legacy"
   static let productSyncLogger = Logger(
     subsystem: Bundle.main.bundleIdentifier ?? "dev.unwired.mail", category: "product-sync")
 
@@ -377,10 +379,16 @@ extension RegistrationStore {
           record: result.encryptedPayload, account: vault.productAccountId,
           identifier: identifier, schemaVersion: MailboxDescriptor.schemaVersion))
     }
+    // Pre-epoch removal intent names the legacy incarnation, including after another device's
+    // upgrade. It is never a wildcard over later additions.
+    func matches(_ removal: MailboxRemoval, _ descriptor: MailboxDescriptor) -> Bool {
+      descriptor.epoch == nil
+        || (removal.epoch ?? Self.legacyMailboxEpoch) == descriptor.epoch
+    }
     // A removal marks only the epoch it removed; a later addition from another device stays.
     func removes(_ removal: MailboxRemoval) throws -> MailboxDescriptor? {
       guard let live = stored[try identifier(removal.subject)]?.descriptor, live.removed != true,
-        removal.epoch == nil || live.epoch == nil || removal.epoch == live.epoch
+        matches(removal, live)
       else { return nil }
       return live
     }
@@ -390,7 +398,7 @@ extension RegistrationStore {
       if stored[key] == nil {
         try await put(
           key, MailboxDescriptor(
-            provider: "gmail", address: removal.address, epoch: removal.epoch ?? UUID().uuidString,
+            provider: "gmail", address: removal.address, epoch: removal.epoch ?? Self.legacyMailboxEpoch,
             removed: true))
       } else if let live = try removes(removal) {
         var removed = live
@@ -454,17 +462,22 @@ extension RegistrationStore {
       guard let descriptor = record.descriptor else { continue }
       let published = connection.published == true
       let sameEpoch = descriptor.epoch == connection.epoch
-      // A side without an epoch predates epochs, so it names the same incarnation.
-      let compatible = sameEpoch || descriptor.epoch == nil || connection.epoch == nil
       // Only a known descriptor still at its observed epoch proves no intervening removal.
       // An absent descriptor cannot rule out an add/remove/re-add while this device was offline.
       let unchanged =
         connection.observed == true
         && connection.observedEpoch != nil
         && connection.observedEpoch == (descriptor.epoch ?? "")
+      // A descriptor without an epoch predates epochs and is the same incarnation; once upgraded
+      // it carries the fixed legacy epoch. A connection without an epoch predates epochs too, so
+      // only that legacy epoch, or an observation, shows it was not removed and added again.
+      let compatible =
+        sameEpoch || descriptor.epoch == nil
+        || (connection.epoch == nil
+          && (descriptor.epoch == Self.legacyMailboxEpoch || unchanged))
       let recreation = saved.mailboxRemovals?.contains {
           $0.subject == connection.receipt.subject
-            && ($0.epoch == descriptor.epoch || descriptor.epoch == nil)
+            && matches($0, descriptor)
         } == true
       if descriptor.removed == true {
         if published || (connection.epoch != nil && sameEpoch)
@@ -494,9 +507,12 @@ extension RegistrationStore {
           next.update(connection.id) { $0.epoch = descriptor.epoch }
         }
       } else {
-        // The same incarnation: a connection without an epoch takes the descriptor's, and a
-        // descriptor without one is upgraded to this connection's.
-        let epoch = connection.epoch ?? descriptor.epoch
+        // First authorization on a new device also upgrades an epochless descriptor to legacy;
+        // using its fresh UUID would make existing legacy devices lose their valid grants.
+        // Published epochs survive older-client rewrites, and retained recreation advances them.
+        let epoch = descriptor.epoch == nil && !published && !recreation
+          ? Self.legacyMailboxEpoch
+          : connection.epoch ?? descriptor.epoch ?? Self.legacyMailboxEpoch
         next.update(connection.id) { $0.epoch = epoch }
         if usable, descriptor.address != connection.receipt.address || descriptor.epoch != epoch {
           try await publish(
