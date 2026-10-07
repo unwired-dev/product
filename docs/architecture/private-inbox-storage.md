@@ -79,12 +79,16 @@ remove legacy bodies but preserves their metadata document and pending actions.
 Listing and membership pruning still scan only the named connection.
 Admission includes the nonce and authentication-tag overhead, plans all eviction
 before deleting anything, and refuses an entry that cannot fit. Tier suffixes
-separate opened and prefetched files. Eviction considers opened entries first,
-then prefetched entries, each least recently read with filename tie-breaking;
+separate opened, prefetched and prefetch-excluded files. #608 adds the excluded
+tier so listing can distinguish markers from saved bodies without decrypting them;
+older markers remain in the prefetched tier until an explicit open downloads and
+caches a body in their place.
+Eviction considers opened entries first, then prefetched and excluded entries,
+each least recently read with filename tie-breaking;
 the current recent working set is protected. Admission conservatively counts the
-old opposite-tier ciphertext together with its replacement; only the exact
+old other-tier ciphertexts together with their replacement; only the exact
 atomic-replacement target is discounted. A refused admission preserves the old
-body. After admission, the opposite tier is removed before publishing the new
+body. After admission, every other tier is removed before publishing the new
 file, so interruption cannot leave two valid tiers for one body. A failed or
 interrupted replacement may leave a disposable cache miss, fetched again on demand.
 Verified reads update access time; retention/pruning reconciles an over-budget
@@ -126,7 +130,7 @@ presentation preparation and application sequencing remain in TypeScript.
 The earlier root `mailbox.enc` and `bodies/` are lazily adopted only after their
 saved subject and address match a connection. Adoption
 preserves any body already saved in the connection directory when merging the
-root `bodies/`, comparing message identity across opened and prefetched tiers.
+root `bodies/`, comparing message identity across every supported tier.
 The merge runs under the file lock and leaves root metadata until body migration
 finishes, so an interrupted merge resumes without replacing destination bodies.
 Converting an earlier registration

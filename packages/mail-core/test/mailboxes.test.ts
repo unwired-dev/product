@@ -2,7 +2,11 @@ import type { GmailInboxState } from '../src/gmail-inbox.ts';
 import type { Mailbox, NativeGmailMailboxes } from '../src/mailboxes.ts';
 
 import { gmailAction } from '../src/gmail-actions.ts';
-import { createMailboxes, inboxMessages } from '../src/mailboxes.ts';
+import {
+  createMailboxes,
+  inboxMessages,
+  searchMessages,
+} from '../src/mailboxes.ts';
 import { createRegistration, mailboxesOf } from '../src/registration.ts';
 import {
   createSyntheticGmail,
@@ -167,6 +171,129 @@ describe('mailbox connections and the unified Inbox', () => {
       { id: alex, address: 'alex@example.invalid', state: 'connected' },
       { id: other, address: 'other@example.invalid', state: 'connected' },
     ]);
+  });
+
+  it('searches saved senders and subjects without Gmail, within the chosen scope, and forgets a removed connection', async () => {
+    expect.hasAssertions();
+    const { gmail, registration, mailboxes } = await twoMailboxes();
+    // Recent mail, so prefetch saves the single-part body and marks the multipart one excluded.
+    const now = Date.now();
+    const studio = gmail.alex.deliver({
+      from: 'Maya Chen <maya@example.invalid>',
+      subject: 'Studio review',
+      at: now - 120_000,
+      content: { text: 'Notes', single: true },
+    });
+    const cafe = gmail.alex.deliver({
+      from: 'Oliver Park <oliver@example.invalid>',
+      subject: 'Café on Saturday',
+      at: now - 180_000,
+      content: { text: 'Coffee', html: '<p>Coffee</p>' },
+    });
+    // Other's synthetic Gmail reuses Alex's message IDs.
+    expect(
+      gmail.other.deliver({
+        from: 'Maya Chen <maya@example.invalid>',
+        subject: 'Invoice',
+        at: now - 60_000,
+        content: { text: 'Invoice', single: true },
+      }),
+    ).toBe(studio);
+    await mailboxes.load();
+    await vi.waitFor(() => {
+      expect(gmail.alex.bodyCommits).toHaveLength(2);
+    });
+    await vi.waitFor(async () => {
+      await expect(
+        mailbox(mailboxes.getSnapshot(), other).inbox.savedBodies([studio]),
+      ).resolves.toStrictEqual(new Set([studio]));
+    });
+
+    // Relaunched during a known network outage, only the saved Inboxes open, and searching and
+    // checking saved bodies ask Gmail nothing.
+    // The saved Inbox only, as native code opens it after a known network outage.
+    const savedOnly = (synthetic: ReturnType<typeof createSyntheticGmail>) => ({
+      native: {
+        ...synthetic.native,
+        openMailbox: async () => ({
+          ...(await synthetic.native.openMailbox()),
+          availability: 'retry',
+        }),
+      },
+    });
+    const offline = createMailboxes(
+      syntheticConnections({
+        [alex]: savedOnly(gmail.alex),
+        [other]: savedOnly(gmail.other),
+      }),
+      registration,
+    );
+    const requests = gmail.alex.requests.length + gmail.other.requests.length;
+    await offline.load();
+    const alexInbox = mailbox(offline.getSnapshot(), alex).inbox;
+    const otherInbox = mailbox(offline.getSnapshot(), other).inbox;
+    expect(ready(mailbox(offline.getSnapshot(), alex).state).sync).toBe(
+      'retry',
+    );
+    const search = (scope: string | undefined, query: string) =>
+      searchMessages(inboxMessages(offline.getSnapshot(), scope), query).map(
+        ({ mailbox: { address }, message }) => [address, message.subject],
+      );
+    expect(search(undefined, 'maya')).toStrictEqual([
+      ['other@example.invalid', 'Invoice'],
+      ['alex@example.invalid', 'Studio review'],
+    ]);
+    // Every word must match, ignoring case and accents, in the name, address or subject.
+    expect(search(undefined, '  MAYA   studio ')).toStrictEqual([
+      ['alex@example.invalid', 'Studio review'],
+    ]);
+    expect(search(undefined, 'cafe oliver@example')).toStrictEqual([
+      ['alex@example.invalid', 'Café on Saturday'],
+    ]);
+    expect(search(undefined, 'nothing like this')).toStrictEqual([]);
+    expect(search(undefined, ' ')).toHaveLength(3);
+    // One mailbox's view searches only its own mail.
+    expect(search(other, 'maya')).toStrictEqual([
+      ['other@example.invalid', 'Invoice'],
+    ]);
+    expect(search(alex, 'invoice')).toStrictEqual([]);
+    // The excluded multipart message is not saved; each connection answers for its own cache.
+    await expect(alexInbox.savedBodies([studio, cafe])).resolves.toStrictEqual(
+      new Set([studio]),
+    );
+    await expect(otherInbox.savedBodies([studio, cafe])).resolves.toStrictEqual(
+      new Set([studio]),
+    );
+    expect(gmail.alex.requests.length + gmail.other.requests.length).toBe(
+      requests,
+    );
+
+    // Opening a saved result through the reader needs no Gmail either.
+    await alexInbox.readMessage(studio);
+    expect(alexInbox.messageBody(studio)?.kind).toBe('ready');
+    expect(gmail.alex.requests.length + gmail.other.requests.length).toBe(
+      requests,
+    );
+
+    // Online, opening an unsaved result through the reader downloads and saves its body.
+    const onlineAlex = mailbox(mailboxes.getSnapshot(), alex).inbox;
+    await onlineAlex.readMessage(cafe);
+    expect(onlineAlex.messageBody(cafe)?.kind).toBe('ready');
+    await expect(onlineAlex.savedBodies([studio, cafe])).resolves.toStrictEqual(
+      new Set([studio, cafe]),
+    );
+
+    // A removed connection's mail leaves the results, and its store names no saved bodies.
+    await registration.removeMailbox(other);
+    expect(search(undefined, 'maya')).toStrictEqual([
+      ['alex@example.invalid', 'Studio review'],
+    ]);
+    expect(
+      searchMessages(inboxMessages(mailboxes.getSnapshot(), undefined), 'maya'),
+    ).toHaveLength(1);
+    await expect(otherInbox.savedBodies([studio])).resolves.toStrictEqual(
+      new Set(),
+    );
   });
 
   it('keeps one connection usable and isolated while another needs Gmail again', async () => {

@@ -588,7 +588,7 @@ extension PrivateInboxTests {
       to: directory.appendingPathComponent("mailbox.enc"))
     #expect(try cache.listMessageBodies(
       connection: legacy, address: "legacy@example.invalid", subject: "synthetic-legacy-mailbox",
-      ids: ["old"]).isEmpty)
+      ids: ["old"]).stored.isEmpty)
     try cache.retainMessageBodies(
       connection: current, address: "current@example.invalid", subject: "synthetic-current-mailbox",
       expectedRevision: 0, ids: ["new"], protectedIds: ["new"])

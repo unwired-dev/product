@@ -81,18 +81,20 @@ export interface NativeGmailMailbox {
     mailbox: Readonly<{ address: string; generation: string }>,
     id: string,
   ) => Promise<unknown>;
-  // Stores a body in the 'opened' or 'prefetched' eviction tier, evicting least recently read
-  // bodies outside the protected working set; resolves `{ admitted }`, false when it cannot fit.
+  // Stores a body in the 'opened' or 'prefetched' eviction tier, or a prefetch exclusion marker in
+  // the 'excluded' tier, evicting least recently read bodies outside the protected working set;
+  // resolves `{ admitted }`, false when it cannot fit.
   readonly commitMessageBody: (
     mailbox: Readonly<{ address: string; generation: string }>,
     id: string,
     admission: Readonly<{
       document: string;
-      tier: 'opened' | 'prefetched';
+      tier: BodyTier;
       protectedIds: readonly string[];
     }>,
   ) => Promise<unknown>;
-  // Resolves `{ stored }`: which of these messages have a cached body or exclusion marker.
+  // Resolves `{ stored, excluded }`: which of these messages have a cached body or exclusion
+  // marker, and which of those are only exclusion markers.
   readonly listMessageBodies: (
     mailbox: Readonly<{ address: string; generation: string }>,
     ids: readonly string[],
@@ -109,6 +111,8 @@ export interface NativeGmailMailbox {
     protectedIds: readonly string[],
   ) => Promise<unknown>;
 }
+
+type BodyTier = 'opened' | 'prefetched' | 'excluded';
 
 // ponytail: the newest Inbox messages kept on this device; older ones stay in Gmail. Each commit
 // rewrites the whole document, so complete Historical Metadata Backfill needs an indexed store.
@@ -394,7 +398,10 @@ export type MessageBodyState =
 const loadingBody: MessageBodyState = { kind: 'loading' };
 
 const decodeStoredBodies = Schema.decodeUnknownEffect(
-  Schema.Struct({ stored: Schema.Array(Schema.String) }),
+  Schema.Struct({
+    stored: Schema.Array(Schema.String),
+    excluded: Schema.Array(Schema.String),
+  }),
 );
 
 const bodyFailure = (kind: SyncFailure['kind']): MessageBodyState => {
@@ -1563,7 +1570,7 @@ export function createGmailInbox(
       reading,
     }: Readonly<{
       scope: MailboxScope;
-      tier: 'opened' | 'prefetched';
+      tier: BodyTier;
       reading: number;
     }>,
   ) =>
@@ -1780,18 +1787,23 @@ export function createGmailInbox(
     reading: number,
   ) {
     const admission = { scope, tier: 'prefetched', reading } as const;
-    const excluded: BodyDocument = { version: 2, id, excluded: true };
+    // The marker has its own tier, so listing can tell it from a saved body.
+    const exclude = () =>
+      store(
+        { version: 2, id, excluded: true },
+        { ...admission, tier: 'excluded' },
+      );
     const preflight = yield* fullMessage(scope, id, [
       ['format', 'metadata'],
       ['metadataHeaders', 'Content-Type'],
       ['metadataHeaders', 'Content-Disposition'],
     ]);
     if (!singleReadablePart(preflight)) {
-      return yield* store(excluded, admission);
+      return yield* exclude();
     }
     const payload = yield* fullMessage(scope, id, [['format', 'full']]);
     if (!singleReadablePart(payload)) {
-      return yield* store(excluded, admission);
+      return yield* exclude();
     }
     const content = yield* fetchPart(scope, id, payload);
     const html = bodyParts(payload).html !== undefined;
@@ -2539,6 +2551,39 @@ export function createGmailInbox(
     ).then((saved) => (saved ? load() : undefined));
   };
 
+  // Which of these listed messages have a body saved on this device, read without Gmail and
+  // without touching what the cache keeps or evicts. A prefetch exclusion marker is not a body.
+  // A reply for an Inbox that closed or changed owner meanwhile names none, and a failed read
+  // leaves the answer unknown.
+  const savedBodies = Effect.fnUntraced(
+    function* (ids: readonly string[]) {
+      const scope = opened;
+      const reading = owner;
+      const wanted = ids.filter(listed);
+      if (scope === undefined || wanted.length === 0) {
+        return new Set<string>();
+      }
+      const reply = yield* Effect.tryPromise({
+        try: () => native.listMessageBodies(scope, wanted),
+        catch: (cause) => rejected(cause, 'failed'),
+      });
+      const { stored, excluded } = yield* decodeStoredBodies(reply).pipe(
+        Effect.mapError((error) => malformed(error, 'failed')),
+      );
+      const markers = new Set(excluded);
+      return new Set(
+        owner === reading
+          ? stored.filter((id) => !markers.has(id) && listed(id))
+          : [],
+      );
+    },
+    Effect.catchTag('SyncFailure', ({ diagnostic }) =>
+      Effect.logError('Saved bodies could not be listed:', diagnostic).pipe(
+        Effect.as(undefined),
+      ),
+    ),
+  );
+
   return {
     getSnapshot: () => state,
     subscribe: (listener: () => void) => {
@@ -2649,6 +2694,8 @@ export function createGmailInbox(
     // Opens a body from this device, or downloads it from Gmail; a failed read can be tried again.
     // Windows opening the same message share one read.
     readMessage,
+    // The listed messages whose bodies open from this device without Gmail; undefined when unknown.
+    savedBodies: (ids: readonly string[]) => runLogged(savedBodies(ids)),
     // A failed rich view discards its document immediately and returns its image reservation.
     discardRichMessage: (
       id: string,

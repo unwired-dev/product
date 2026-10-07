@@ -340,12 +340,12 @@ extension RegistrationStore {
   func listMessageBodies(connection: String, address: String, generation: String, ids: [String])
     async throws -> [String: Any]
   {
-    let stored = try await bodyWork(
+    let listed = try await bodyWork(
       connection: connection, address: address, generation: generation, verified: false
     ) {
       try $0.listMessageBodies(connection: connection, address: address, subject: $1, ids: ids)
     }
-    return ["stored": stored]
+    return ["stored": listed.stored, "excluded": listed.excluded]
   }
 
   func retainMessageBodies(
@@ -369,6 +369,7 @@ extension PrivateInboxStore.BodyTier {
     switch rawName {
     case "opened": self = .opened
     case "prefetched": self = .prefetched
+    case "excluded": self = .excluded
     default: return nil
     }
   }

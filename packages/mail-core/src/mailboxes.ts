@@ -1,4 +1,5 @@
 import * as Arr from 'effect/Array';
+import * as Effect from 'effect/Effect';
 import * as Order from 'effect/Order';
 
 import type {
@@ -8,6 +9,7 @@ import type {
 } from './gmail-inbox.ts';
 import type { Registration, RegistrationSnapshot } from './registration.ts';
 
+import { runLogged } from './diagnostics.ts';
 import { createBodyLoads, createGmailInbox } from './gmail-inbox.ts';
 import { canOpenInbox, mailboxesOf } from './registration.ts';
 
@@ -297,5 +299,97 @@ export function inboxMessages<L extends Listing>(
         ),
       ),
     ),
+  );
+}
+
+// Folds case, compatibility forms and accents, so `cafe` finds `Café`.
+const folded = (text: string) =>
+  text.normalize('NFKD').replaceAll(/\p{M}/gu, '').toLowerCase();
+
+type Searched = Readonly<{ sender: string; address: string; subject: string }>;
+
+// The listed messages whose sender name, address or subject holds every word of the query, in the
+// listing's order. It reads only the metadata already on this device; nothing asks Gmail.
+export function searchMessages<L extends Listing>(
+  entries: ReadonlyArray<MailboxMessage<L>>,
+  query: string,
+): ReadonlyArray<MailboxMessage<L>> {
+  const words = folded(query)
+    .split(/\s+/u)
+    .filter((word) => word.length > 0);
+  if (words.length === 0) {
+    return entries;
+  }
+  return entries.filter((entry) => {
+    const message: Searched = entry.message;
+    const fields = [message.sender, message.address, message.subject].map(
+      folded,
+    );
+    return words.every((word) => fields.some((field) => field.includes(word)));
+  });
+}
+
+// What search says, shared by both hosts.
+export const searchCopy = {
+  label: 'Search senders and subjects',
+  saved: 'Saved on this device',
+  download: 'Downloads from Gmail when opened',
+  empty: (query: string) => `No mail saved on this device matches “${query}”.`,
+} as const;
+
+// A listed message whose store can report its cached bodies. Preview stores keep every body
+// with the metadata and need no separate lookup.
+type BodyResult = Readonly<{
+  mailbox: Readonly<{
+    id: string;
+    inbox: Readonly<{
+      getSnapshot: () => unknown;
+      savedBodies?: (
+        ids: readonly string[],
+      ) => Promise<ReadonlySet<string> | undefined>;
+    }>;
+  }>;
+  message: Readonly<{ id: string }>;
+}>;
+
+// Gmail message IDs are unique only within their mailbox.
+export const resultKey = ({
+  mailbox,
+  message,
+}: Pick<BodyResult, 'mailbox' | 'message'>) => `${mailbox.id}\n${message.id}`;
+
+// Each connection answers from its own cache. Unknown answers remain absent, never unsaved.
+export function savedMessageBodies(results: readonly BodyResult[]) {
+  return runLogged(
+    Effect.gen(function* () {
+      const byMailbox = new Map<BodyResult['mailbox'], BodyResult[]>();
+      for (const result of results) {
+        const group = byMailbox.get(result.mailbox);
+        if (group === undefined) {
+          byMailbox.set(result.mailbox, [result]);
+        } else {
+          group.push(result);
+        }
+      }
+      const answers = yield* Effect.forEach(
+        byMailbox,
+        Effect.fnUntraced(function* ([{ inbox }, found]) {
+          const ids = found.map(({ message }) => message.id);
+          const lookup = inbox.savedBodies;
+          const saved =
+            lookup === undefined
+              ? new Set(ids)
+              : yield* Effect.promise(() => lookup(ids));
+          return saved === undefined
+            ? []
+            : found.map(
+                (result) =>
+                  [resultKey(result), saved.has(result.message.id)] as const,
+              );
+        }),
+        { concurrency: 'unbounded' },
+      );
+      return new Map(answers.flat());
+    }),
   );
 }

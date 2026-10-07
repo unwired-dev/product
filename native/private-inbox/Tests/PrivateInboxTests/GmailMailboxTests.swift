@@ -570,7 +570,7 @@ extension PrivateInboxTests {
         protectedIds: protecting)
     }
     func stored(_ ids: [String]) throws -> [String] {
-      try small.listMessageBodies(connection: first, address: google.address, subject: google.subject, ids: ids)
+      try small.listMessageBodies(connection: first, address: google.address, subject: google.subject, ids: ids).stored
     }
     #expect(try admit("prefetched", .prefetched))
     #expect(try admit("older", .opened))
@@ -587,6 +587,33 @@ extension PrivateInboxTests {
         connection: first, address: google.address, subject: google.subject, id: "oversized",
         document: String(repeating: "x", count: 201), tier: .opened, protectedIds: []))
     #expect(try stored(["prefetched", "protected"]) == ["prefetched", "protected"])
+    // A prefetch exclusion marker is listed apart from saved bodies, and a later download
+    // replaces it with an opened body.
+    let unmarked = Set(try files())
+    let markers = PrivateInboxStore(
+      directory: directory, service: service, protectedDataAvailable: { true }, bodyLimit: 1000)
+    func listed(_ ids: [String]) throws -> (stored: [String], excluded: [String]) {
+      try markers.listMessageBodies(
+        connection: first, address: google.address, subject: google.subject, ids: ids)
+    }
+    #expect(
+      try markers.commitMessageBody(
+        connection: first, address: google.address, subject: google.subject, id: "marker",
+        document: "marker", tier: .excluded, protectedIds: []))
+    #expect(try listed(["protected", "marker"]) == (["protected", "marker"], ["marker"]))
+    #expect(
+      try markers.openMessageBody(
+        connection: first, address: google.address, subject: google.subject, id: "marker")
+        == "marker")
+    #expect(
+      try markers.commitMessageBody(
+        connection: first, address: google.address, subject: google.subject, id: "marker",
+        document: "body", tier: .opened, protectedIds: []))
+    #expect(try listed(["protected", "marker"]) == (["protected", "marker"], []))
+    #expect(try !files().contains { $0.pathExtension == "x" })
+    for file in Set(try files()).subtracting(unmarked) {
+      try FileManager.default.removeItem(at: file)
+    }
 
     // Tier changes reserve both ciphertexts before deletion; refusal preserves usable mail.
     #expect(try !admit("prefetched", .opened, protecting: ["prefetched", "protected"]))
