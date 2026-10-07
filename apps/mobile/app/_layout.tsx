@@ -5,13 +5,18 @@ import { SplitView } from 'expo-router/unstable-split-view';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useRef } from 'react';
 
+import type { Selection } from '../src/inbox.tsx';
+
 import { Inbox } from '../src/inbox.tsx';
 import { InboxProvider } from '../src/mailbox.tsx';
 import { RegistrationGate } from '../src/registration-gate.tsx';
 
 export default function RootLayout() {
   const splitView = useRef<SplitHostCommands>(null);
-  const { id } = useGlobalSearchParams<{ id?: string }>();
+  const { id, mailbox } = useGlobalSearchParams<{
+    id?: string;
+    mailbox?: string;
+  }>();
 
   useEffect(() => {
     if (id) {
@@ -19,8 +24,8 @@ export default function RootLayout() {
     }
   }, [id]);
 
-  function selectMessage(messageId: string) {
-    router.replace({ pathname: '/message/[id]', params: { id: messageId } });
+  function selectMessage(selection: Selection) {
+    router.replace({ pathname: '/message/[id]', params: selection });
     splitView.current?.show('secondary');
   }
 
@@ -39,7 +44,11 @@ export default function RootLayout() {
                 router.replace('/');
               }}
               onSelect={selectMessage}
-              selectedId={id}
+              selected={
+                id === undefined || mailbox === undefined
+                  ? undefined
+                  : { mailbox, id }
+              }
             />
           </SplitView.Column>
         </SplitView>

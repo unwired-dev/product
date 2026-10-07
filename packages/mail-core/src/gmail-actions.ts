@@ -129,8 +129,6 @@ export const gmailActionCopy = {
     count === 1
       ? 'One change is saved on this device and waits for Gmail.'
       : `${count} changes are saved on this device and wait for Gmail.`,
-  reselection:
-    'Selecting a different Google mailbox discards changes still waiting for Gmail in the current mailbox.',
   savedOnly:
     'Organizing mail waits until Gmail can be checked again. Try again to reconnect.',
 } as const;

@@ -22,6 +22,10 @@ import Testing
   // The digest of the proof of the Recovery Key that opens the committed recovery envelope.
   var verifiers: [String: String] = [:]
   var records: [String: [String: StoredPayload]] = [:]
+  // Runs before each record write, as another device's write that lands first.
+  var beforePut: ((String, String) throws -> Void)?
+  // Controls read-back independently of the CAS response.
+  var beforeList: ((String, String) throws -> Void)?
   // Pending Devices by id; each ends with its request unless it is renewed or approved.
   var pending: [String: PendingDevice] = [:]
   var revoked: Set<String> = []
@@ -132,12 +136,14 @@ import Testing
       },
       list: { [self] _, product, prefix in
         try trusted(product)
+        try beforeList?(product.productAccountId, prefix)
         return (records[product.productAccountId] ?? [:]).values
           .filter { $0.payloadIdentifier.hasPrefix(prefix) }
           .sorted { $0.payloadIdentifier < $1.payloadIdentifier }
       },
       put: { [self] _, product, identifier, payload, expected in
         try trusted(product)
+        try beforePut?(product.productAccountId, identifier)
         guard payload.keyVersion == epoch(product.productAccountId) else {
           throw RegistrationError.unavailable
         }
@@ -546,7 +552,7 @@ extension PrivateInboxTests {
     google.scopes = [RegistrationStore.gmailScope]
     google.subject = "synthetic-mailbox-subject"
     let store = backend.store(keys: keys, google: google)
-    let connected = try await store.authorizeGmail(reselect: false)
+    let connected = try await store.authorizeGmail()
     #expect(connected["kind"] == "connected")
     #expect(connected["privateSyncMailboxes"] == "same@example.invalid")
     // Signing in again, as offered for pending setup, rechecks the mailbox without new consent.
@@ -603,7 +609,7 @@ extension PrivateInboxTests {
     let backend = SyntheticProductSyncBackend()
     _ = try await backend.store(keys: keys, google: google).signIn()
     google.subject = "synthetic-mailbox-subject"
-    _ = try await backend.store(keys: keys, google: google).authorizeGmail(reselect: false)
+    _ = try await backend.store(keys: keys, google: google).authorizeGmail()
     google.subject = "synthetic-product-subject"
     let ring = try #require(try backend.store(keys: keys, google: google).loadVault(account)?.ring)
     let identifier = try ring.identifier("mailbox", "gmail:synthetic-mailbox-subject")
@@ -697,8 +703,7 @@ extension PrivateInboxTests {
     #expect(backend.initializations == 0)
 
     // Gmail stays authorizable, but no record is written without the account's keys.
-    let connected = try await backend.store(keys: first, google: google).authorizeGmail(
-      reselect: false)
+    let connected = try await backend.store(keys: first, google: google).authorizeGmail()
     #expect(connected["kind"] == "connected")
     #expect(connected["privateSync"] == "enrollment-needed")
     #expect(backend.records[account] == nil)
@@ -769,8 +774,7 @@ extension PrivateInboxTests {
     ] {
       try keys.save(vault, account: "product-sync." + account)
       google.subject = "synthetic-mailbox-subject"
-      let connected = try await backend.store(keys: keys, google: google).authorizeGmail(
-        reselect: false)
+      let connected = try await backend.store(keys: keys, google: google).authorizeGmail()
       #expect(connected["kind"] == "connected")
       #expect(connected["privateSync"] == "unavailable")
       #expect(try await backend.store(keys: keys, google: google).restore() == connected)
@@ -802,13 +806,16 @@ extension PrivateInboxTests {
     let first = store()
     _ = try await first.signIn(with: .apple)
     google.subject = "synthetic-mailbox-subject"
-    #expect(try await first.authorizeGmail(reselect: false)["privateSyncPending"] == nil)
+    #expect(try await first.authorizeGmail()["privateSyncPending"] == nil)
     // An Apple relaunch cannot reach Convex but still shows the list it last decrypted.
     #expect(try await store().restore()["privateSyncMailboxes"] == "same@example.invalid")
     // After relaunch Apple has no backend session, so a newly chosen mailbox waits for sign-in.
+    google.mailboxAddresses = [
+      "synthetic-mailbox-subject": "same@example.invalid",
+      "synthetic-other-mailbox": "other@example.invalid",
+    ]
     google.subject = "synthetic-other-mailbox"
-    google.address = "other@example.invalid"
-    let reselected = try await store().authorizeGmail(reselect: true)
+    let reselected = try await store().authorizeGmail(chooseAccount: true)
     #expect(reselected["kind"] == "connected")
     #expect(reselected["privateSyncPending"] == "mailbox")
     #expect(backend.records[account]?.count == 1)
@@ -836,7 +843,7 @@ extension PrivateInboxTests {
     let approver = backend.store(keys: trusted, google: google)
     _ = try await approver.signIn()
     google.subject = "synthetic-mailbox-subject"
-    #expect(try await approver.authorizeGmail(reselect: false)["kind"] == "connected")
+    #expect(try await approver.authorizeGmail()["kind"] == "connected")
     google.subject = "synthetic-product-subject"
     let recovery = try #require(backend.recovery[account])
     let ring = try #require(try approver.loadVault(account)?.ring)
@@ -852,7 +859,7 @@ extension PrivateInboxTests {
     #expect(try enrolling.loadVault(account) == nil)
     let pendingId = try #require(try enrolling.load()?.product?.trustedDeviceId)
     await #expect(throws: RegistrationError.unavailable) {
-      try await enrolling.authorizeGmail(reselect: false)
+      try await enrolling.authorizeGmail()
     }
 
     // The trusted device sees the request; a mistyped code is caught before anything is sent.
@@ -932,7 +939,7 @@ extension PrivateInboxTests {
     #expect(admitted.trustedDeviceCredential == String(repeating: "a", count: 64))
     #expect(backend.pending[request] == nil)
     google.subject = "synthetic-mailbox-subject"
-    #expect(try await enrolling.authorizeGmail(reselect: false)["kind"] == "connected")
+    #expect(try await enrolling.authorizeGmail()["kind"] == "connected")
     google.subject = "synthetic-product-subject"
     // Nothing replaced the account's key material.
     #expect(backend.recovery[account] == recovery)
@@ -959,7 +966,7 @@ extension PrivateInboxTests {
     let lost = backend.store(keys: trusted, google: google)
     let shown = try #require(try await lost.signIn()["recoveryKey"])
     google.subject = "synthetic-mailbox-subject"
-    #expect(try await lost.authorizeGmail(reselect: false)["kind"] == "connected")
+    #expect(try await lost.authorizeGmail()["kind"] == "connected")
     google.subject = "synthetic-product-subject"
     let recovery = try #require(backend.recovery[account])
     let ring = try #require(try lost.loadVault(account)?.ring)
@@ -1124,7 +1131,7 @@ extension PrivateInboxTests {
     let shown = try #require(try await remover.signIn()["recoveryKey"])
     _ = try remover.confirmRecoveryKey(String(shown.suffix(4)))
     google.subject = "synthetic-mailbox-subject"
-    #expect(try await remover.authorizeGmail(reselect: false)["kind"] == "connected")
+    #expect(try await remover.authorizeGmail()["kind"] == "connected")
     google.subject = "synthetic-product-subject"
     let survivor = backend.store(keys: kept, google: google)
     _ = try await survivor.signIn()
@@ -1248,7 +1255,7 @@ extension PrivateInboxTests {
     // A mailbox saved at the new epoch reaches the survivor, but not the removed device's keys.
     google.subject = "synthetic-other-mailbox"
     google.address = "other@example.invalid"
-    #expect(try await remover.authorizeGmail(reselect: true)["kind"] == "connected")
+    #expect(try await remover.authorizeGmail(chooseAccount: true)["kind"] == "connected")
     google.subject = "synthetic-product-subject"
     #expect(
       try await survivor.refreshPrivateSync()["privateSyncMailboxes"]
@@ -1388,8 +1395,8 @@ extension PrivateInboxTests {
     let registered = try await store.signIn(with: signInProvider)
     let recoveryKey = try #require(registered["recoveryKey"])
     google.scopes = [RegistrationStore.gmailScope]
-    _ = try await store.authorizeGmail(reselect: false)
-    #expect(try store.load()?.mailboxCredential != nil)
+    _ = try await store.authorizeGmail()
+    #expect(try store.load()?.connections.isEmpty == false)
     #expect(try keys.read("product-sync." + account) != nil)
     let other: SignInProvider = signInProvider == .apple ? .google : .apple
     func perform(_ current: RegistrationStore) async throws -> [String: String] {
@@ -1407,7 +1414,7 @@ extension PrivateInboxTests {
     await #expect(throws: RegistrationError.cancelled) {
       try await store.purgingIfRevoked(perform)
     }
-    #expect(try store.load()?.mailboxCredential != nil)
+    #expect(try store.load()?.connections.isEmpty == false)
     #expect(try keys.read("product-sync." + account) != nil)
     let prompts = google.hints.count + apple.signIns
     revoked = true

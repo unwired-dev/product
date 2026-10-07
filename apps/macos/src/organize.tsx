@@ -18,7 +18,7 @@ import {
   View,
 } from 'react-native';
 
-import { useInbox, useInboxActions } from './mailbox.ts';
+import { useInbox, useInboxActions } from './mailbox.tsx';
 import { usePalette } from './theme.ts';
 
 const styles = StyleSheet.create({

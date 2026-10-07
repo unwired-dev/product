@@ -77,6 +77,60 @@ This code owns what TypeScript must never hold: Keychain items, the storage encr
   reverses the accepted "Protect what fits" decision; losing fitting protection
   deletes recent offline bodies.
 
+#### Mailbox Connection lifecycle
+
+- `synchronizeMailboxes` treating an epochless connection or queued removal as
+  compatible with every live epoch. Pre-epoch connections, descriptors and
+  removal intents name one fixed legacy incarnation; concurrent upgrades must
+  agree without purging other legacy devices. Preserve tombstones and fence
+  later re-adds, including retained offline recreation after another device's
+  legacy upgrade. Otherwise migration restores old authorization or removes a
+  later incarnation with stale intent.
+- `PrivateInboxStore.adoptLegacyMailbox` assuming the connection's body folder
+  is absent, or merging by a tier-suffixed filename rather than body identity.
+  A body may be saved before metadata adoption; preserve that destination body
+  across both opened and prefetched tiers and keep interrupted migration
+  retryable. Otherwise cache open repeatedly fails or an older legacy body
+  becomes the preferred readable copy.
+- `synchronizeMailboxes` treating a missing entry in `descriptorEpochs` as an
+  unchanged incarnation for offline consent, or discarding an authenticated
+  removal/different epoch from an address-update CAS when its later list fails.
+  Adopt an offline grant only against a known observed live epoch that still
+  matches, and durably purge a known removal before another fallible read or
+  another connection's publication. A batch that waits until all writes finish
+  loses learned removals when a later connection fails.
+  Absence cannot rule out an unseen add/remove/re-add; either gap retains stale
+  provider authorization after a synchronized removal.
+- `synchronizeMailboxes` discarding the descriptor returned by a losing CAS or
+  adopting any different epoch from a later list merely because it attempted a
+  write. Bind eligible fresh consent or matching retained recreation to the
+  live CAS winner, persist that epoch before later fallible reads, and require
+  final read-back to match it. Tombstones, ordinary offline restore, published
+  address updates and subsequent removals cannot extend an old grant to another
+  incarnation; otherwise concurrent additions lose valid mail or resurrect
+  authorization after removal.
+- `PrivateInboxStore.bodies()` omitting unadopted root `bodies/` from device-wide
+  admission and eviction totals. Count every supported layout until adoption or
+  removal; moving legacy bodies under `mailboxes/<id>` must count them once.
+  Keep `bodies(connection)` and list/membership pruning connection-scoped, and
+  preserve legacy metadata during body eviction. Otherwise legacy mail adds a
+  second cache quota or pruning destroys another connection's pending actions.
+- `synchronizeMailboxes` acknowledging a queued removal from absent or unreadable
+  ciphertext, or discarding removal intent on a pre-publication re-add. Require a
+  read-back tombstone or an authoritative superseding incarnation, preserve
+  read-only unknown records, and fence pre-removal authorization with a new epoch.
+  Ordinary restore of unpublished credentials cannot resurrect a tombstone or
+  adopt another incarnation; only current explicit consent or a retained matching
+  recreation intent may do so. Otherwise an offline device restores a removed
+  connection's provider access.
+- `removeMailbox` or synchronized descriptor purge deleting caches before durable
+  credential removal and retry recording, returning a stale connection list after
+  later failure, or omitting an unopened legacy root cache. Trace cleanup through
+  `SavedRegistration` and `retryMailboxCleanup`: preserve owner-specific keyless
+  legacy cleanup, attempt every owned path, and keep failed cleanup retryable without
+  reopening the connection. Otherwise partial cleanup retains credentials/plaintext
+  or loses another connection's durable pending actions.
+
 #### Mock sessions stay out of production
 
 - A mock/test host factory such as `mockRegistrationStore` omitting a callback or proof required by a production operation's guard. Keep the real guard in place and wire the synthetic backend's owning state through it; otherwise optimistic/cached journeys can pass while the provider mutation is never reached and pending intent never settles.

@@ -3,6 +3,7 @@ import * as Base64Url from 'effect/encoding/Base64Url';
 import * as Order from 'effect/Order';
 
 import type { NativeGmailMailbox } from '../gmail-inbox.ts';
+import type { NativeGmailMailboxes } from '../mailboxes.ts';
 
 // A controlled Gmail API and native mailbox cache for tests. It answers the Gmail reads the
 // Inbox makes with Gmail's response shapes and keeps the cache's revision and address rules.
@@ -654,5 +655,39 @@ export function createSyntheticGmail({
           .filter(([key]) => key.startsWith(`${address}\n`))
           .map(([key, document]) => [key.slice(address.length + 1), document]),
       ),
+  };
+}
+
+// A connection native code does not know reaches no Gmail mailbox.
+const missing = () => rejection('gmail-unavailable');
+
+// Several controlled Gmail mailboxes behind one native module. Each call reaches only the mailbox
+// of the connection it names, as native code routes it; another connection's ID reaches nothing.
+export function syntheticConnections(
+  mailboxes: Readonly<Record<string, Readonly<{ native: NativeGmailMailbox }>>>,
+): NativeGmailMailboxes {
+  const of = (connection: string) =>
+    Object.hasOwn(mailboxes, connection)
+      ? mailboxes[connection]?.native
+      : undefined;
+  return {
+    gmailRequest: (path, query, mailbox) =>
+      of(mailbox.connection)?.gmailRequest(path, query, mailbox) ?? missing(),
+    gmailModify: (change, mailbox) =>
+      of(mailbox.connection)?.gmailModify(change, mailbox) ?? missing(),
+    openMailbox: (connection) => of(connection)?.openMailbox() ?? missing(),
+    commitMailbox: (mailbox, revision, document) =>
+      of(mailbox.connection)?.commitMailbox(mailbox, revision, document) ??
+      missing(),
+    openMessageBody: (mailbox, id) =>
+      of(mailbox.connection)?.openMessageBody(mailbox, id) ?? missing(),
+    commitMessageBody: (mailbox, id, admission) =>
+      of(mailbox.connection)?.commitMessageBody(mailbox, id, admission) ??
+      missing(),
+    listMessageBodies: (mailbox, ids) =>
+      of(mailbox.connection)?.listMessageBodies(mailbox, ids) ?? missing(),
+    retainMessageBodies: (mailbox, ids, protectedIds) =>
+      of(mailbox.connection)?.retainMessageBodies(mailbox, ids, protectedIds) ??
+      missing(),
   };
 }

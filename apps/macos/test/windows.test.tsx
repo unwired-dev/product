@@ -1,13 +1,21 @@
 import { createGmailInbox } from '@private-email/mail-core/gmail-inbox';
+import {
+  createMailboxes,
+  singleMailbox,
+} from '@private-email/mail-core/mailboxes';
 import { makeMockInboxStorage } from '@private-email/mail-core/mock-storage';
 import { createPersistentInbox } from '@private-email/mail-core/persistent-inbox';
 import { createRegistration } from '@private-email/mail-core/registration';
-import { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mailbox';
+import {
+  createSyntheticGmail,
+  syntheticConnections,
+} from '@private-email/mail-core/testing/gmail-mailbox';
 import { createMockMailSession } from '@private-email/mail-core/testing/mock-session';
+import { syntheticMailboxes } from '@private-email/mail-core/testing/registration-session';
 import { act, fireEvent, render, within } from '@testing-library/react-native';
 import { AccessibilityInfo, View } from 'react-native';
 
-import type { inbox } from '../src/private-storage.ts';
+import type { mailboxes } from '../src/private-storage.ts';
 
 import { RegistrationGate } from '../src/registration-gate.tsx';
 import { PreviewWindow as InboxWindow } from '../src/window.tsx';
@@ -15,8 +23,23 @@ import { PreviewWindow as InboxWindow } from '../src/window.tsx';
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Jest's host adapter boundary.
 jest.mock('../src/private-storage.ts', () => ({
   __esModule: true,
-  inbox: undefined,
+  mailboxes: undefined,
 }));
+
+const alex = syntheticMailboxes['alex@example.invalid'];
+const connectedMailboxes = JSON.stringify([
+  { id: alex, address: 'alex@example.invalid', state: 'connected' },
+]);
+// Every window's Inbox reads this mailbox list, as the app's module does.
+const showMailboxes = (list: typeof mailboxes) => {
+  jest.replaceProperty(
+    jest.requireMock<{ mailboxes: typeof mailboxes }>(
+      '../src/private-storage.ts',
+    ),
+    'mailboxes',
+    list,
+  );
+};
 
 const maya = 'Unread. Maya Chen. A little more room to think';
 const oliver = 'Unread. Oliver Park. Saturday, by the river?';
@@ -49,14 +72,11 @@ function Windows({
 describe('mac window selection with the shared mock mailbox', () => {
   // oxlint-disable-next-line vitest/no-hooks -- Each test owns a fresh native-boundary store.
   beforeEach(() => {
-    jest.replaceProperty(
-      jest.requireMock<{ inbox: typeof inbox }>('../src/private-storage.ts'),
-      'inbox',
-      createPersistentInbox(
-        makeMockInboxStorage(),
-        createMockMailSession('open-read-relaunch').mail.list,
-      ),
+    const fixture = createPersistentInbox(
+      makeMockInboxStorage(),
+      createMockMailSession('open-read-relaunch').mail.list,
     );
+    showMailboxes(singleMailbox(fixture, 'preview'));
   });
 
   it('keeps selections independent and preserves the remaining window when another closes', async () => {
@@ -220,11 +240,7 @@ describe('mac windows over a connected Gmail mailbox', () => {
         html: '<a href="https://example.invalid/other">other plan</a>',
       },
     });
-    jest.replaceProperty(
-      jest.requireMock<{ inbox: typeof inbox }>('../src/private-storage.ts'),
-      'inbox',
-      createGmailInbox(gmail.native),
-    );
+    showMailboxes(singleMailbox(createGmailInbox(gmail.native), alex));
     const app = await render(
       <Windows
         first
@@ -298,24 +314,19 @@ describe('mac windows over a connected Gmail mailbox', () => {
       String(gmail.commits.at(-1)).replaceAll(/,"labels":\[[^\]]*\]/gu, ''),
     );
     const held = holdingListing(gmail.native);
-    const store = createGmailInbox(held.native);
-    jest.replaceProperty(
-      jest.requireMock<{ inbox: typeof inbox }>('../src/private-storage.ts'),
-      'inbox',
-      store,
-    );
     const connected = {
       kind: 'connected',
       productAccountId: 'synthetic-product-account',
       signInProvider: 'google',
       privateSync: 'ready',
-      providerSubject: 'synthetic-google-subject',
-      address: 'alex@example.invalid',
+      mailboxes: connectedMailboxes,
     } as const;
     const authorizeGmail = jest.fn(() => Promise.resolve(connected));
     const registration = createRegistration({
       restore: () => Promise.resolve(connected),
+      addMailbox: () => Promise.reject(new Error('Not adding')),
       authorizeGmail,
+      removeMailbox: () => Promise.reject(new Error('Not removing')),
       signIn: () => Promise.reject(new Error('Not signing in')),
       link: () => Promise.reject(new Error('Not linking')),
       confirmRecoveryKey: () => Promise.reject(new Error('No key')),
@@ -327,6 +338,11 @@ describe('mac windows over a connected Gmail mailbox', () => {
       signOut: () => Promise.reject(new Error('Not signing out')),
       deleteProductAccount: () => Promise.reject(new Error('Not deleting')),
     });
+    const list = createMailboxes(
+      syntheticConnections({ [alex]: { native: held.native } }),
+      registration,
+    );
+    showMailboxes(list);
     const app = await render(
       <View>
         {['first', 'second'].map((windowId) => (
@@ -365,7 +381,7 @@ describe('mac windows over a connected Gmail mailbox', () => {
     }
     await act(async () => {
       held.release();
-      await store.load();
+      await list.load();
     });
     expect(first.getByRole('button', { name: 'Labels' })).toBeVisible();
     expect(second.getByRole('button', { name: 'Labels' })).toBeVisible();
@@ -465,7 +481,7 @@ describe('mac windows over a connected Gmail mailbox', () => {
     ).toStrictEqual([[refusal]]);
 
     gmail.fail({ status: 401 });
-    await act(store.load);
+    await act(list.load);
     expect(
       second.getByRole('button', { name: 'Allow Gmail access' }),
     ).toBeVisible();
@@ -475,9 +491,9 @@ describe('mac windows over a connected Gmail mailbox', () => {
       );
       await Promise.resolve();
     });
-    expect(authorizeGmail).toHaveBeenCalledWith(false);
+    expect(authorizeGmail).toHaveBeenCalledWith(alex);
     gmail.fail({ code: 'unavailable' });
-    await act(store.load);
+    await act(list.load);
     expect(
       first.getByLabelText(
         'Gmail could not be reached. Showing mail saved on this device.',
@@ -515,8 +531,7 @@ describe('mac windows over a connected Gmail mailbox', () => {
       productAccountId: 'synthetic-product-account',
       signInProvider: 'google',
       privateSync: 'ready',
-      providerSubject: 'synthetic-google-subject',
-      address: 'alex@example.invalid',
+      mailboxes: connectedMailboxes,
     } as const;
     // After native code purges this device, restore finds it signed out.
     const restored: Array<typeof connected | { kind: 'signed-out' }> = [
@@ -524,7 +539,9 @@ describe('mac windows over a connected Gmail mailbox', () => {
     ];
     const registration = createRegistration({
       restore: () => Promise.resolve(restored.at(-1)),
+      addMailbox: () => Promise.resolve(connected),
       authorizeGmail: () => Promise.resolve(connected),
+      removeMailbox: () => Promise.reject(new Error('Not removing')),
       signIn: () => Promise.reject(new Error('Not signing in')),
       link: () => Promise.reject(new Error('Not linking')),
       confirmRecoveryKey: () => Promise.reject(new Error('No key')),
@@ -537,10 +554,8 @@ describe('mac windows over a connected Gmail mailbox', () => {
       deleteProductAccount: () => Promise.reject(new Error('Not deleting')),
     });
     // As the app composes them: the Inbox hands a removal to the registration store.
-    jest.replaceProperty(
-      jest.requireMock<{ inbox: typeof inbox }>('../src/private-storage.ts'),
-      'inbox',
-      createGmailInbox(gmail.native, {
+    showMailboxes(
+      createMailboxes(syntheticConnections({ [alex]: gmail }), registration, {
         removed: () => {
           void registration.deviceRemoved();
         },

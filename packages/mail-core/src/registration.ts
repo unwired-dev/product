@@ -45,6 +45,30 @@ const trustedDevicesText = Schema.NonEmptyString.check(
   Schema.makeFilter((value) => Option.isSome(decodeTrustedDevices(value))),
 );
 
+// This device's Mailbox Connections in the order they were added. 'cached' opens only the saved
+// Inbox until Gmail verifies again; 'authorization' needs Gmail authorized again first.
+const MailboxesSchema = Schema.fromJsonString(
+  Schema.Array(
+    Schema.Struct({
+      id: Schema.NonEmptyString,
+      address: Schema.NonEmptyString,
+      state: Schema.Literals(['connected', 'cached', 'authorization']),
+      // A removal/recreation changes this owner lifetime; ordinary verification does not.
+      epoch: Schema.optionalKey(Schema.NonEmptyString),
+    }),
+  ).check(
+    Schema.makeFilter(
+      (mailboxes) =>
+        new Set(mailboxes.map(({ id }) => id)).size === mailboxes.length,
+    ),
+  ),
+);
+const decodeMailboxes = Schema.decodeOption(MailboxesSchema);
+const mailboxesText = Schema.NonEmptyString.check(
+  Schema.makeFilter((value) => Option.isSome(decodeMailboxes(value))),
+);
+export type MailboxConnection = (typeof MailboxesSchema.Type)[number];
+
 const Account = Schema.Struct({
   productAccountId: Schema.NonEmptyString,
   signInProvider: SignInProviderSchema,
@@ -75,6 +99,8 @@ const Account = Schema.Struct({
   enrollmentDevice: Schema.optionalKey(Schema.NonEmptyString),
   // JSON text listing the account's other Trusted Devices that this device can remove.
   trustedDevices: Schema.optionalKey(trustedDevicesText),
+  // JSON text listing this device's Mailbox Connections; absent before the first one.
+  mailboxes: Schema.optionalKey(mailboxesText),
   // Only in the reply to a removal of another Trusted Device: 'unconfirmed' when this device has
   // not adopted its own new keys, for example because another device removed it first.
   revocationNotice: Schema.optionalKey(
@@ -107,17 +133,17 @@ export const RegistrationSnapshotSchema = Schema.Union([
       ]),
     ),
   }),
+  // At least one mailbox verified.
   Schema.Struct({
     kind: Schema.Literal('connected'),
     ...Account.fields,
-    providerSubject: Schema.NonEmptyString,
-    address: Schema.NonEmptyString,
+    mailboxes: mailboxesText,
   }),
+  // Only saved Inboxes open, until registration verifies again.
   Schema.Struct({
     kind: Schema.Literal('cached'),
     ...Account.fields,
-    providerSubject: Schema.NonEmptyString,
-    address: Schema.NonEmptyString,
+    mailboxes: mailboxesText,
   }),
 ]);
 export type RegistrationSnapshot = typeof RegistrationSnapshotSchema.Type;
@@ -135,6 +161,14 @@ export const trustedDevicesOf = (
   !('trustedDevices' in snapshot) || snapshot.trustedDevices === undefined
     ? []
     : Option.getOrThrow(decodeTrustedDevices(snapshot.trustedDevices));
+
+// The native snapshot boundary has already validated this JSON text.
+export const mailboxesOf = (
+  snapshot: RegistrationSnapshot | Readonly<{ mailboxes?: string }>,
+): readonly MailboxConnection[] =>
+  !('mailboxes' in snapshot) || snapshot.mailboxes === undefined
+    ? []
+    : Option.getOrThrow(decodeMailboxes(snapshot.mailboxes));
 const sameSnapshot = Schema.toEquivalence(RegistrationSnapshotSchema);
 
 // Native hosts reject with the registration failure code; a cancelled session is not a failure.
@@ -175,7 +209,13 @@ export type EnrollmentFailure = 'code-invalid' | 'unavailable' | 'failed';
 export interface NativeRegistration {
   readonly restore: () => Promise<unknown>;
   readonly signIn: (provider: SignInProvider) => Promise<unknown>;
-  readonly authorizeGmail: (reselect: boolean) => Promise<unknown>;
+  // Adds a Gmail mailbox; the first one suggests the Google sign-in unless `chooseAccount`.
+  // Adding a mailbox that is already connected authorizes it again instead.
+  readonly addMailbox: (chooseAccount: boolean) => Promise<unknown>;
+  // Authorizes Gmail again for one Mailbox Connection, with the same Google account.
+  readonly authorizeGmail: (connection: string) => Promise<unknown>;
+  // Removes a Mailbox Connection from this Product Account; its Gmail mail is untouched.
+  readonly removeMailbox: (connection: string) => Promise<unknown>;
   // Verifies the current Product Account and the identity being linked, interactively.
   readonly link: (provider: SignInProvider) => Promise<unknown>;
   // Confirms Recovery Key setup with the final group the person wrote down.
@@ -220,17 +260,12 @@ export type AccountRemoval = 'sign-out' | 'deletion';
 // Convex refused the deletion before removing anything, for example after a stale sign-in.
 export type RemovalFailure = AccountRemoval | 'deletion-refused';
 
-// A connected status is only valid while its verification succeeds.
+// A connected status, and the connections it listed, are only valid while verification succeeds.
 const pending = (snapshot: RegistrationSnapshot): RegistrationSnapshot => {
   if (snapshot.kind !== 'connected') {
     return snapshot;
   }
-  const {
-    address: _address,
-    kind: _kind,
-    providerSubject: _providerSubject,
-    ...account
-  } = snapshot;
+  const { kind: _kind, mailboxes: _mailboxes, ...account } = snapshot;
   return { ...account, kind: 'mailbox-needed' };
 };
 
@@ -526,15 +561,26 @@ export function createRegistration(native: NativeRegistration) {
           // Commit Product Sign-In before starting the separate Gmail consent session.
           const snapshot = yield* request(() => native.signIn(provider));
           publish({ snapshot, busy: true, failed: false });
-          return snapshot.kind === 'mailbox-needed'
-            ? yield* request(() => native.authorizeGmail(false))
-            : snapshot;
+          if (snapshot.kind !== 'mailbox-needed') {
+            return snapshot;
+          }
+          // Saved mailboxes that all need Gmail again are authorized again, starting with the first.
+          const [saved] = mailboxesOf(snapshot);
+          return yield* request(() =>
+            saved === undefined
+              ? native.addMailbox(false)
+              : native.authorizeGmail(saved.id),
+          );
         }),
         undefined,
         { accountChange: 'sign-in' },
       ),
-    authorizeGmail: (reselect: boolean) =>
-      execute(request(() => native.authorizeGmail(reselect))),
+    addMailbox: (chooseAccount = false) =>
+      execute(request(() => native.addMailbox(chooseAccount))),
+    authorizeGmail: (connection: string) =>
+      execute(request(() => native.authorizeGmail(connection))),
+    removeMailbox: (connection: string) =>
+      execute(request(() => native.removeMailbox(connection))),
     link: (provider: SignInProvider) =>
       execute(
         request(() => native.link(provider)),
@@ -777,6 +823,36 @@ function devicePendingDescription(privateSync: PrivateSync | undefined) {
     : devicePending.retry;
 }
 
+const addressesIn = (
+  snapshot: RegistrationSnapshot,
+  state: MailboxConnection['state'],
+) =>
+  mailboxesOf(snapshot)
+    .filter((mailbox) => mailbox.state === state)
+    .map(({ address }) => address);
+
+const connectedDescription = (addresses: readonly string[]) =>
+  `${addresses.join(', ')} ${addresses.length === 1 ? 'is' : 'are'} connected on this device.`;
+
+// Account settings: each Mailbox Connection, adding another and removing one. Removal is product
+// state only; Gmail keeps the mail.
+export const mailboxCopy = {
+  title: 'Gmail mailboxes',
+  description:
+    'Each mailbox keeps its own Gmail access and saved mail on this device. The Inbox shows them together or one at a time.',
+  states: {
+    connected: 'Connected',
+    cached: 'Saved mail only until Gmail can be checked',
+    authorization: 'Gmail needs your permission again',
+  },
+  add: 'Add another Gmail mailbox',
+  allow: (address: string) => `Allow Gmail access for ${address}`,
+  remove: (address: string) => `Remove ${address}`,
+  confirm: (address: string) =>
+    `Removing ${address} deletes its Gmail access and the mail saved for it from this device, including changes still waiting for Gmail, and removes it from your other devices when they next connect. Your mail stays in Gmail.`,
+  cancel: 'Cancel',
+} as const;
+
 export function registrationCopy(snapshot: RegistrationSnapshot) {
   switch (snapshot.kind) {
     case 'signed-out': {
@@ -805,14 +881,14 @@ export function registrationCopy(snapshot: RegistrationSnapshot) {
     case 'connected': {
       return {
         title: 'Gmail connected',
-        description: `${snapshot.address} is connected on this device.`,
+        description: connectedDescription(addressesIn(snapshot, 'connected')),
         account: accountLine(snapshot),
       };
     }
     case 'cached': {
       return {
         title: 'Saved Gmail Inbox',
-        description: `${snapshot.address} could not be verified. Mail saved on this device is available; try again when connected.`,
+        description: `${addressesIn(snapshot, 'cached').join(', ')} could not be verified. Mail saved on this device is available; try again when connected.`,
         account: accountLine(snapshot),
       };
     }
@@ -898,7 +974,7 @@ export function privateSyncCopy(snapshot: PrivateSyncState) {
     pending:
       snapshot.privateSyncPending === undefined
         ? undefined
-        : 'Your connected mailbox is not saved to private sync yet. Sign in again to save it.',
+        : 'Your Gmail mailbox changes are still waiting to finish. Try again when connected, or sign in again to finish them.',
     // Each is present only in its own state.
     recoveryKey:
       snapshot.privateSync === 'recovery-key'

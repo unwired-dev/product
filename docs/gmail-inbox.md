@@ -3,10 +3,12 @@
 Setup, coding rules, validation and observable requirements remain in this file.
 The review agent owns the separate [architecture companion](architecture/gmail-inbox.md).
 
-[#604](https://github.com/unwired-dev/product/issues/604) shows the connected
-Gmail mailbox's Inbox on iPhone, iPad and Mac. After [registration](google-registration.md)
-connects a mailbox and account setup needs nothing more from the person, launch
-opens the Inbox. The **Account** button opens the account page, and **Open Inbox**
+[#604](https://github.com/unwired-dev/product/issues/604) shows a connected
+Gmail mailbox's Inbox on iPhone, iPad and Mac, and
+[#606](https://github.com/unwired-dev/product/issues/606) adds more
+[Gmail mailboxes](#gmail-mailboxes) with a unified Inbox. After
+[registration](google-registration.md) connects a mailbox and account setup needs
+nothing more from the person, launch opens the Inbox. The **Account** button opens the account page, and **Open Inbox**
 returns. The account page opens instead while a Recovery Key needs confirming or
 entering, a device approval is waiting on either side, the mailbox is not yet
 saved to private sync, or a sign-out or deletion is unfinished.
@@ -16,6 +18,49 @@ Inbox** can leave already-pending setup for later, but different pending setup
 that appears afterward, including a renewed device approval code, opens the
 account page again. Sign-out, pending removal,
 loss of mailbox access or a different Product Account forgets the earlier choice.
+
+## Gmail mailboxes
+
+Each Gmail account the person authorizes is one **Mailbox Connection** of the
+Product Account, with its own Gmail credential, verification, encrypted cache,
+waiting changes and synchronization. Adding a mailbox never adds a Product Sign-In.
+
+- **Adding.** The account page's **Gmail mailboxes** section lists every connection
+  with its state and offers **Add another Gmail mailbox**, which asks Google for an
+  account and explicit Gmail consent. Choosing a Google account that is already
+  connected authorizes that connection again instead of adding a second one; the
+  Google account, not the address, identifies it. A cancelled or refused addition
+  leaves every connection as it was.
+- **Unified Inbox.** With more than one mailbox, the Inbox shows **All inboxes**,
+  newest first. Messages received at the same moment keep the order the mailboxes
+  were added, then Gmail's message ID, so rows never reorder between updates. Every
+  row, and the reader, names its mailbox (`In alex@example.com`), and VoiceOver
+  reads it with the row. Choosing a mailbox's address above the list shows only that
+  mailbox; **All inboxes** returns. Each window chooses on its own. A removed
+  mailbox's view falls back to **All inboxes**.
+- **Separate states.** Each mailbox reports its own **Checking Gmail…**, **Gmail
+  could not be reached** and storage notices, waiting changes, **Undo**, and
+  **Retry change** or **Discard change**, prefixed with its address when there are
+  several. **Allow Gmail access** authorizes only that mailbox, with the same Google
+  account. When a verification finds one mailbox's grant refused, that mailbox shows
+  **Gmail needs your permission again** and **Allow Gmail access for** its address,
+  and its saved mail stays closed, while every other mailbox stays open and usable.
+  Each verification checks a refused mailbox again. Only when every mailbox needs
+  Gmail does the account page open with **Connect your Gmail**.
+- **Removing.** **Remove** asks first and explains that the mailbox's Gmail access
+  and the mail saved for it, including changes still waiting for Gmail, leave this
+  device and the person's other devices, while mail stays in Gmail. Removal is
+  **Remove Mailbox Connection Everywhere**: it invalidates the mailbox's running work,
+  clears its credential, deletes its cache and bodies, and marks its
+  [synchronized descriptor](private-product-sync.md#keys-and-envelopes) removed.
+  Other devices purge that mailbox on their next synchronization. Nothing is sent to
+  Gmail. Failed local cleanup and unfinished private-sync removal stay visible as
+  mailbox changes waiting to finish, and retry without reopening the removed mailbox.
+
+Gmail message IDs are unique only within a mailbox, so the Inbox addresses a
+message by its mailbox and ID. Only one recent-body prefetch lane runs per mailbox;
+all mailboxes share the [four concurrent body loads](#recent-body-prefetch), and
+prefetch in any mailbox yields to an explicit open in any other.
 
 ## Behavior
 
@@ -126,10 +171,9 @@ then repeat the unsaved changes.
 A change still displaying **Saving…** has not been acknowledged durable; locked
 or unavailable storage reports a failure. Unsaved changes are forgotten if the
 Inbox changes owner. Same-mailbox verification can renew access without dropping
-those changes. **Undo** preserves labels the message already had before a move. Reconnecting Gmail keeps the current mailbox; a different mailbox requires the
-explicit account-page chooser. The account page explains that selecting a different mailbox discards changes
-still waiting for Gmail. Choosing another mailbox removes the previous mailbox's cache, including
-its waiting changes. A cache written before message labels were kept is listed again once, with its messages visible meanwhile; a message offers organizing actions once its labels are read. Previously saved changes still resume in order, including a change saved before those labels were known.
+those changes. **Undo** preserves labels the message already had before a move. Reconnecting Gmail keeps the same mailbox; another Google account is
+[added](#gmail-mailboxes) as its own mailbox. Removing a mailbox removes its cache,
+including its waiting changes, after the account page explains that. A cache written before message labels were kept is listed again once, with its messages visible meanwhile; a message offers organizing actions once its labels are read. Previously saved changes still resume in order, including a change saved before those labels were known.
 
 ## Reading messages
 
@@ -534,9 +578,9 @@ counts once using its later applicable timestamp. For #605, select only the
 currently cached newest 200 Inbox entries using their received timestamp;
 there is no extra listing to discover 500 bodies, Sent query or historical scan.
 Exclude Spam and Trash even when they also carry `INBOX`. Future-dated and older
-messages are outside the window. Multiple connections and a unified Inbox belong
-to [#606](https://github.com/unwired-dev/product/issues/606); Sent and pinned-Thread
-expansion have no assigned scope in this slice, and advanced Profiles are deferred.
+messages are outside the window. Each [mailbox](#gmail-mailboxes) selects its own
+working set from its own cached Inbox. Sent and pinned-Thread expansion have no
+assigned scope in this slice, and advanced Profiles are deferred.
 
 Each connection has at most one speculative prefetch/historical-work lane. All
 body pipelines together permit at most two concurrent loads per connection and
@@ -659,9 +703,11 @@ Locked or unreadable storage hides the cached mail, as the
 
 ## Boundaries
 
-Reselecting a mailbox invalidates synchronization work already in progress,
-including when another Google account reuses the same address. Stale work cannot
-read from the new mailbox or repopulate its cache.
+Every Gmail request, cache and body call names its mailbox and that mailbox's
+current generation. Removing a mailbox, or verifying it again, invalidates its work
+already in progress; stale work cannot read Gmail or repopulate a cache. One
+mailbox's work never reaches another's credential or cache, including another
+Google account that reuses the same address, which is a separate mailbox.
 
 Gmail tokens and refresh credentials never enter JavaScript or Convex. Each Gmail
 write changes only the selected message's labels. Message metadata and bodies stay
@@ -673,14 +719,13 @@ saved body that does not match the message being opened is discarded and downloa
 again, never shown. Bodies held in memory are forgotten with the rest of the open
 Inbox's mail, and a download that finishes after its Inbox closed is dropped.
 
-Choosing another mailbox, or another Google account that reuses the same address,
-removes the previous mailbox's cache and bodies and hides its in-memory list while the
-selected mailbox opens. A synchronization that loses mailbox ownership stops and
-clears its displayed mail. Sign-out, deletion and a removal by another device
-remove the cache with the rest of the account's data. Mail held in memory is
-forgotten as soon as the open Inbox changes Product Account, Google account or
-address, or closes, so another account never renders it, even from a
-synchronization that was still running.
+Removing a mailbox removes its cache and bodies and forgets its mail held in memory.
+A synchronization that loses mailbox ownership stops and clears its displayed mail.
+Sign-out, deletion and a removal of this device by another device remove every
+mailbox's cache with the rest of the account's data. A mailbox's mail held in memory
+is forgotten as soon as its Product Account, connection or address changes, its
+grant is refused, or the Inbox closes, so another account or mailbox never renders
+it, even from a synchronization that was still running.
 
 Gmail reads do not ask Convex about this device. The removal check runs when a
 synchronization opens or commits the cache, so the backend learns nothing about
@@ -730,6 +775,18 @@ stopping and resolution, revoked access, and the cache upgrade. Shared
 registration tests cover queued foreground verification, concurrent sign-out and
 deletion after a mailbox removal hand-off.
 
+The #606 shared tests drive two or three controlled Gmail mailboxes, which reuse the
+same Gmail message IDs, through the app's composition of registration and mailboxes.
+They cover the unified newest-first order with stable ties and one-mailbox views;
+organizing that reaches only its own mailbox; one mailbox's refused grant leaving
+the other usable until it is authorized again; removal during a running
+synchronization forgetting only that mailbox's mail and changing nothing in Gmail; a
+new Inbox for another Product Account; and at most two body loads per mailbox and
+four across mailboxes, using explicit download-start signals; a single image budget
+across readers from different mailboxes, with independent release on removal. Rendered journeys on both hosts add a second mailbox, add the
+first again without duplicating it, switch between **All inboxes** and one mailbox,
+recover a refused mailbox while the other stays readable, and confirm a removal.
+
 Rendered host tests drive the isolated reader's configuration, measurement, link
 cancellation and confirmation, flagged-link copying, keyboard link access and
 WebKit failure fallback. They also cover the Inbox states, organizing from the
@@ -756,7 +813,34 @@ purge. For bodies, it checks:
 - cache-only reading and listing without writing;
 - removal with the message, mailbox or account.
 
-All 34 tests passed on a fresh iOS 27 simulator.
+All 34 tests passed on a fresh iOS 27 simulator before #606. #606 adds seven native
+tests, bringing the suite to 41: connections deduplicated by Google account, mixed
+authorization and reauthorization with the same account, removal of one connection's
+credential and cache, the upgrade of a single-mailbox record and cache into one
+connection, and descriptor removal and epochs through the synthetic Product Sync
+boundary, including unreadable descriptions, remove/re-add before publication,
+offline consent encountering a removal, interrupted cache cleanup with relaunch retry,
+concurrent additions of one mailbox converging on one epoch, and bodies written before
+Mailbox Connections counting toward the device-wide limit. The concurrency case
+also checks competing recreations, read-back failure with relaunch, offline-grant
+and address-update conflicts, a winning removal, and removal/recreation after a
+successful write. Legacy-body checks cover later adoption and connection-scoped
+listing and membership pruning. An offline authorization of a mailbox another device
+published keeps it when the descriptor is unchanged since this device last read it,
+and loses it when that descriptor was removed and added again meanwhile. An absent
+observation cannot authorize adoption of a later descriptor. The suite also checks
+that an address-update conflict or a later connection's failed publication cannot
+discard a learned removal. Existing native tests now name each connection.
+Connections and descriptors written before epochs converge on one legacy epoch and
+keep their connection, unless the mailbox was removed and added again elsewhere, and
+legacy adoption keeps bodies already saved for the connection across opened and
+prefetched tiers. It also checks concurrent legacy upgrades, first authorization
+on another device, legacy removal intent against later incarnations, and retained
+offline recreation after a legacy upgrade. All 41 tests passed in
+the hosted storage suite on a fresh iOS 27 simulator with Xcode 27.0, real Keychain
+storage, CryptoKit and the filesystem. The Convex and provider boundaries remain
+synthetic. An earlier run replacing only Keychain with an in-memory stand-in passed
+the then 40 tests; that run is logic evidence, not Keychain qualification.
 
 Registration Mock Mail Sessions answer Gmail requests, including the prefetch
 preflight, from a synthetic mailbox of three Inbox messages over two pages and one
@@ -821,7 +905,11 @@ verify on iPhone, iPad and Mac before release:
   VoiceOver, Full Keyboard Access and Mac keyboard focus.
 - every organizing action and **Undo**, as seen in Gmail on the web;
 - changes made offline, then sent after reconnecting or relaunching;
-- a refused change after the label or message is deleted in Gmail.
+- a refused change after the label or message is deleted in Gmail;
+- two protected mailboxes added to one Product Account, the same Google account
+  added again without a duplicate, the unified Inbox and each mailbox alone, one
+  mailbox's revoked grant while the other stays usable, and removal of one mailbox
+  on one device reaching another Trusted Device, with Gmail unchanged.
 
 Do not record mailbox content, addresses or tokens in screenshots, logs or test
 artifacts. No real Gmail synchronization pass is claimed until this protected

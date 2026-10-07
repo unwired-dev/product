@@ -26,10 +26,10 @@ mailbox credential, preserves repeated query parameters, refuses redirects and
 returns only status/body. The ephemeral URL session keeps HTTP response caches
 off disk. Native and TypeScript diagnostics use fixed allow-listed values.
 
-The bridge exposes `gmailRequest(path, query, mailbox)`, `gmailModify(change, mailbox)`, `openMailbox()` and
+The bridge exposes `gmailRequest(path, query, mailbox)`, `gmailModify(change, mailbox)`, `openMailbox(connection)` and
 `commitMailbox(mailbox, expectedRevision, document)`. The cache reply contains
 revision, address, an opaque native generation, a non-secret owner identity and an optional document, with `availability: retry` only for
-cache-only access. The mailbox argument pairs the opened address and generation. Native errors distinguish grant rejection, protected storage,
+cache-only access. The mailbox argument names the connection and pairs the opened address and generation. Native errors distinguish grant rejection, protected storage,
 revision conflict, mailbox invalidation and ordinary unavailability.
 
 ## Synchronization and cache
@@ -85,8 +85,8 @@ the cached list with a retry notice rather than prompting reauthorization.
 Native mailbox operations and registration changes share a FIFO operation gate
 across suspension points. Revocation cleanup cannot interleave with captured
 registration writes and resurrect removed credentials. Host foreground loads
-await the shared registration activation before accessing Gmail. A generation changes on
-restore, successful mailbox authorization and purge. Cache operations validate it after
+await the shared registration activation before accessing Gmail. Each connection has an independent generation, changed on restore, its successful
+authorization or removal; account purge invalidates them all. Cache operations validate it after
 revocation preflight; Gmail reads validate it before token renewal and after
 renewal and provider response, preventing a suspended
 operation from using or returning the previous mailbox after cleanup or
@@ -107,10 +107,11 @@ mail. Ownership changes and purge still clear and fence the in-memory Inbox
 immediately; retrying the native open cannot restore access to the former
 mailbox. Both hosts filter ready state against the selected mailbox
 address before rendering, including the first frame while its cache opens.
-The process-owned Gmail store also subscribes to registration: a Product Account,
-Google subject or address change, or loss of Inbox eligibility, immediately clears
-its in-memory mail and suppresses late publications until the next serialized
-synchronization starts. The hosts discard Account/Inbox presentation choices when
+The process-owned `createMailboxes` composition subscribes to registration, keeping
+one Inbox per openable Product Account/opaque connection/address/incarnation owner. A changed
+owner, refused grant, removal or loss of eligibility forgets only the affected
+store immediately and suppresses its late publications. Each store independently
+serializes synchronization. The hosts discard Account/Inbox presentation choices when
 the Product Account changes or Inbox eligibility is lost. The shared
 `inboxLanding` helper also invalidates an Inbox choice when different pending
 setup appears for that same account. A choice records `inboxSetup` at the time
@@ -144,7 +145,7 @@ inline, media-type tokens must agree, and normalized Content-ID values must agre
 CID traversal accepts image leaves and descends only through recognized multipart
 containers, keeping ambiguous metadata and non-leaf image parts out of provider reads.
 
-The shared store keeps two body pipelines per current connection and coalesces
+The shared stores keep two body pipelines per connection and four account-wide, coalescing
 duplicate reads. A dedicated publication semaphore orders body admission against
 each durable metadata commit, body pruning and ready-state publication, including
 action intake, dispatch, reconciliation, refusal, label refresh and blocked-action
@@ -205,8 +206,7 @@ ID. It samples the selection instant once per synchronization, selects an
 inclusive 30-day window with newest-first/ascending-ID order and a 500-item cap,
 and uses Content-Type and Content-Disposition metadata before any full download.
 Only single-part text/plain or text/html messages qualify; multipart and attachment
-messages receive exclusion markers. An explicit open closes the interactive
-latch; an already active speculative item completes, while later items wait.
+messages receive exclusion markers. An explicit open closes the account-wide interactive latch; an already active speculative item completes, while later items wait.
 Retry, authentication failure and invalidation pause speculation. Native admission
 receives tier and protected working-set IDs; refusal keeps an on-demand body.
 
@@ -291,3 +291,23 @@ deletion notice. Accepted sign-in, sign-out and deletion change its intent fence
 explicit removal and late callbacks cannot relabel a different account operation.
 This is TypeScript-owned presentation under ADR 0067; native purge, credential
 custody and cleanup ordering remain unchanged.
+
+## Shared presentation budget across connections
+
+`createMailboxes` passes one body coordinator to every connection's Inbox. Besides
+its four-load semaphore and interactive latch, it owns the image reservation
+ledgers. Each Inbox uses an opaque owner token for its local reader ledger, so
+provider message IDs shared by different connections never collide. Admission
+sums every ledger and excludes only the reservation being replaced within its own
+owner. Forgetting one connection clears and unregisters only its ledger; other
+readers retain their charged presentations. A later presentation registers that
+owner again. The existing encoded-byte and decoded-pixel bounds therefore remain
+shared across all simultaneously displayed readers and Mac windows.
+
+The registration list’s optional `epoch` and native cache-open `owner` both carry
+the non-secret connection incarnation. A descriptor removal/recreation learned
+during explicit consent can return the same Google mailbox ID and address; the
+changed epoch still replaces its Inbox and immediately forgets old plaintext,
+unsaved actions and late reads. Ordinary verification keeps the epoch and retains
+same-connection work. Older readable epoch-less records use the legacy lifetime
+until authoritative reconciliation or current explicit consent binds them.

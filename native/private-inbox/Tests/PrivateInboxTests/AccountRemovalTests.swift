@@ -182,7 +182,7 @@ extension PrivateInboxTests {
     google.scopes = [RegistrationStore.gmailScope]
     let removal = SyntheticAccountRemoval()
     _ = try await removal.store(keys, google: google).signIn()
-    let connected = try await removal.store(keys, google: google).authorizeGmail(reselect: false)
+    let connected = try await removal.store(keys, google: google).authorizeGmail()
     let recoveryKey = try #require(connected["recoveryKey"])
     #expect(connected["privateSyncMailboxes"] == "same@example.invalid")
     let installation = try #require(try removal.store(keys, google: google).load())

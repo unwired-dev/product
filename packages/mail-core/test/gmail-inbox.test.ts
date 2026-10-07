@@ -2,11 +2,7 @@ import { inspect } from 'node:util';
 
 import type { GmailInboxState } from '../src/gmail-inbox.ts';
 
-import {
-  createGmailInbox,
-  forgetMailOutsideInbox,
-} from '../src/gmail-inbox.ts';
-import { createRegistration } from '../src/registration.ts';
+import { createGmailInbox } from '../src/gmail-inbox.ts';
 import { createSyntheticGmail } from '../src/testing/gmail-mailbox.ts';
 
 const ready = (state: GmailInboxState) => {
@@ -509,75 +505,6 @@ describe('synchronizing a Gmail Inbox', () => {
       messages: [{ subject: 'Only in the other mailbox' }],
       sync: 'current',
     });
-  });
-
-  it('forgets mail in memory when its account leaves, including a late synchronization result', async () => {
-    expect.hasAssertions();
-    const gmail = createSyntheticGmail({ messages: 2 });
-    let snapshot: unknown = {
-      kind: 'connected',
-      productAccountId: 'account-a',
-      signInProvider: 'google',
-      providerSubject: 'subject-a',
-      address: 'alex@example.invalid',
-    };
-    const unused = () => Promise.reject(new Error('Not used'));
-    const registration = createRegistration({
-      restore: () => Promise.resolve(snapshot),
-      signIn: unused,
-      authorizeGmail: unused,
-      link: unused,
-      confirmRecoveryKey: unused,
-      recoverWithRecoveryKey: unused,
-      approveEnrollment: unused,
-      declineEnrollment: unused,
-      revokeTrustedDevice: unused,
-      refreshPrivateSync: unused,
-      signOut: () => Promise.resolve({ kind: 'signed-out' }),
-      deleteProductAccount: unused,
-    });
-    let release: () => void = () => undefined;
-    let paused = false;
-    const inbox = createGmailInbox({
-      ...gmail.native,
-      gmailRequest: async (path, query, mailbox) => {
-        // oxlint-disable-next-line vitest/no-conditional-in-test -- Only the paused history read is held.
-        if (paused && path === 'history') {
-          // oxlint-disable-next-line promise/avoid-new -- Hold the history response across sign-out.
-          await new Promise<void>((resolve) => {
-            release = resolve;
-          });
-        }
-        return gmail.native.gmailRequest(path, query, mailbox);
-      },
-    });
-    forgetMailOutsideInbox(registration, inbox);
-    await registration.restore();
-    await inbox.load();
-    expect(ready(inbox.getSnapshot()).messages).toHaveLength(2);
-
-    // Signing out forgets the mail at once; a synchronization still running cannot bring it back.
-    paused = true;
-    const running = inbox.load();
-    await registration.signOut();
-    expect(inbox.getSnapshot()).toStrictEqual({ kind: 'loading' });
-    // Even a restart after the late native rejection must keep the signed-out mail forgotten.
-    gmail.fail({ code: 'mailbox-invalidated' });
-    paused = false;
-    release();
-    await running;
-    expect(inbox.getSnapshot()).toStrictEqual({ kind: 'loading' });
-
-    // Another Product Account connecting the same address starts from nothing in memory.
-    snapshot = {
-      kind: 'connected',
-      productAccountId: 'account-b',
-      signInProvider: 'google',
-      providerSubject: 'subject-b',
-      address: 'alex@example.invalid',
-    };
-    await registration.restore();
-    expect(inbox.getSnapshot()).toStrictEqual({ kind: 'loading' });
   });
 
   it('restarts a synchronization a foreground restore invalidated, keeping the Inbox visible', async () => {

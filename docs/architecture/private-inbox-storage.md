@@ -36,8 +36,8 @@ and removes it idempotently.
 
 ## Gmail mailbox cache
 
-Issue #604 adds `mailbox.enc`, a separate encrypted document beside the preview
-fixture. It holds the mailbox address, Google subject, revision and TypeScript-owned messages
+Issue #604 added a separate encrypted `mailbox.enc` document; #606 gives each
+connection its own `mailboxes/<opaque-id>/mailbox.enc` and body directory. It holds the mailbox address, Google subject, revision and TypeScript-owned messages
 and synchronization checkpoint. AES-GCM authenticates its separate
 `dev.unwired.private-inbox.mailbox.v1` context. It shares the device-only database
 key and native file-lock, atomic replacement, synchronization, protection and
@@ -47,10 +47,9 @@ also refuse a replacement key when the preview file already exists.
 
 Opening for another address or Google subject exposes no document; a cache without
 a subject also exposes no document. Cache operations return no subject field; the
-existing registration snapshot still carries `providerSubject` as presentation
-identity. A commit compares the persisted
-revision under the lock before replacing it. Mailbox reselection removes the old
-file; an address or subject mismatch still closes access if that cleanup fails.
+registration snapshot lists opaque connection IDs, addresses and device-local
+authorization states; it no longer returns `providerSubject`. A commit compares the persisted
+revision under the lock before replacing it. Connection removal removes its directory; an address or subject mismatch still closes access if that cleanup fails.
 Registration cache replies include an opaque native generation, checked for every
 provider read and commit. A stale synchronization cannot reuse revision zero
 after reselection or purge, even when the new mailbox has the same address. Account
@@ -63,7 +62,7 @@ fences. Observable cache requirements remain in the operational storage guide.
 
 ## Gmail body cache
 
-Issue #605 adds per-message ciphertext under `bodies/`, separate from both
+Issue #605 adds per-message ciphertext under each connection’s `bodies/`, separate from both
 metadata documents. Filenames are SHA-256 digests of the Google subject, mailbox
 address and Gmail ID; AES-GCM associated data authenticates that exact tuple
 under the `dev.unwired.private-inbox.body.v1` context. The existing device-only
@@ -72,7 +71,12 @@ and complete file protection still apply. Keys never cross the bridge. A failed
 body authentication returns absence. When writes are authorized it removes only
 that disposable body; cache-only access preserves ciphertext and access times.
 
-The native vault enforces a 500 MB stored-byte budget across its body directory.
+The native vault enforces a 500 MB stored-byte budget across all connection body directories
+and the unadopted legacy root `bodies/`. The global scan counts that directory
+until adoption or removal; lazy adoption moves it under one connection while
+holding the same file lock, so it is never counted twice. Global eviction may
+remove legacy bodies but preserves their metadata document and pending actions.
+Listing and membership pruning still scan only the named connection.
 Admission includes the nonce and authentication-tag overhead, plans all eviction
 before deleting anything, and refuses an entry that cannot fit. Tier suffixes
 separate opened and prefetched files. Eviction considers opened entries first,
@@ -116,3 +120,20 @@ synchronous hop to the main actor while holding the file lock.
 This adds platform storage operations permitted by
 [ADR 0067](../adr/0067-keep-native-code-to-a-minimal-vault.md); MIME decoding,
 presentation preparation and application sequencing remain in TypeScript.
+
+## Legacy cache ownership and cleanup
+
+The earlier root `mailbox.enc` and `bodies/` are lazily adopted only after their
+saved subject and address match a connection. Adoption
+preserves any body already saved in the connection directory when merging the
+root `bodies/`, comparing message identity across opened and prefetched tiers.
+The merge runs under the file lock and leaves root metadata until body migration
+finishes, so an interrupted merge resumes without replacing destination bodies.
+Converting an earlier registration
+preserves its opaque ID in `legacyMailboxConnection`; cleanup consults this marker
+(or the still-legacy registration) before dispatching detached keyless removal.
+Removing that connection deletes its root artifacts even before its first cache
+open. Removing another connection preserves the root metadata and its durable
+pending actions. Account purge removes every layout. Cache deletion attempts all
+owned paths and retains the first failure, so failure on one path does not skip
+other known private data. Completed per-connection cleanup clears its retry marker.

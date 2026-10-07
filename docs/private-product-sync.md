@@ -173,15 +173,38 @@ for the authorized Pending Device and its current one-time key. The first device
 a Recovery Key replacement and a removal each publish the Recovery Key verifier
 with the recovery envelope they write.
 
-The mailbox descriptor contains the provider and address. Gmail credentials,
-access tokens, the Google subject and message content never enter it. Mailbox
-credentials stay in the separate device-only registration record.
+Each [Mailbox Connection](gmail-inbox.md#gmail-mailboxes) has a private synchronized
+description containing its provider and address, including whether it was removed.
+Gmail credentials, access tokens, the Google subject and message content never
+enter it. Mailbox credentials stay on each authorized device.
 
-A device writes its mailbox descriptor only when the record is missing, or when
-the stored record opens at the current schema and holds a different descriptor.
-Every record it cannot open or decode is read-only. This covers a newer schema,
-a key epoch this device lacks and an authentication failure at the current
-schema and epoch. The device neither shows nor replaces such a record.
+Every description a device cannot open or decode is read-only. This includes
+newer formats, missing keys and failed authentication. The device neither shows
+nor replaces it, and an unreadable description cannot acknowledge a removal.
+
+Removing a connection waits on this device until its synchronized removal is
+confirmed, or fresh authorization on another device has already superseded that
+removal. Other Trusted Devices purge the removed connection's credential and
+cache before further Gmail access. Interrupted local cleanup remains visible as
+unfinished mailbox changes and retries after relaunch; it never reopens the
+removed connection. Adding the same mailbox back requires fresh consent and
+invalidates authorization from before its removal, including when the earlier
+removal had not reached private sync yet. An addition authorized without private
+sync cannot later recreate a removal or adopt a different incarnation just by restoring; the person authorizes it
+again after that removal is learned. Two devices adding the same mailbox at the same
+time converge on one synchronized description; neither loses its authorization
+unless a later removal supersedes that addition. Offline restore does not extend
+earlier authorization to that later connection. A mailbox authorized while private
+sync is unreachable keeps its authorization when the synchronized description is still
+the one this device last read. An unseen description cannot prove that no removal
+occurred meanwhile and requires fresh authorization. A description written
+before connections had incarnations belongs to the same connection, and every device
+upgrades it to the same fixed legacy incarnation. An authorization from before
+incarnations keeps only that legacy incarnation; a mailbox removed and added again
+elsewhere needs fresh authorization. A queued removal from before incarnations
+removes only that legacy incarnation. Explicitly removing and adding it again
+while offline still starts a new incarnation after another device upgrades the
+legacy description. The decrypted mailbox list omits removals.
 
 ## Initialization and relaunch
 

@@ -482,14 +482,30 @@ final class UnwiredRegistration: NSObject {
   ) {
     perform("refreshPrivateSync", resolve, reject: reject) { try await $0.refreshPrivateSync() }
   }
+  @objc(addMailbox:resolver:rejecter:)
+  func addMailbox(
+    _ chooseAccount: Bool, resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    perform("addMailbox", resolve, reject: reject) {
+      try await $0.authorizeGmail(chooseAccount: chooseAccount)
+    }
+  }
   @objc(authorizeGmail:resolver:rejecter:)
   func authorizeGmail(
-    _ reselect: Bool, resolve: @escaping RCTPromiseResolveBlock,
+    _ connection: String, resolve: @escaping RCTPromiseResolveBlock,
     reject: @escaping RCTPromiseRejectBlock
   ) {
     perform("authorizeGmail", resolve, reject: reject) {
-      try await $0.authorizeGmail(reselect: reselect)
+      try await $0.authorizeGmail(connection: connection)
     }
+  }
+  @objc(removeMailbox:resolver:rejecter:)
+  func removeMailbox(
+    _ connection: String, resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    perform("removeMailbox", resolve, reject: reject) { try await $0.removeMailbox(connection) }
   }
 }
 
@@ -530,9 +546,7 @@ extension UnwiredRegistration {
     reject: @escaping RCTPromiseRejectBlock
   ) {
     mailbox("gmailRequest", resolve, reject: reject) {
-      guard let address = scope["address"] as? String,
-        let generation = scope["generation"] as? String
-      else { throw RegistrationError.unavailable }
+      let (connection, address, generation) = try Self.scope(scope)
       // Name-value pairs, so repeated parameters keep their order.
       let items = try query.map { pair in
         guard let pair = pair as? [String], pair.count == 2 else {
@@ -540,7 +554,9 @@ extension UnwiredRegistration {
         }
         return URLQueryItem(name: pair[0], value: pair[1])
       }
-      return try await $0.gmail(path: path, query: items, address: address, generation: generation)
+      return try await $0.gmail(
+        path: path, query: items, connection: connection, address: address,
+        generation: generation)
     }
   }
 
@@ -551,23 +567,24 @@ extension UnwiredRegistration {
     reject: @escaping RCTPromiseRejectBlock
   ) {
     mailbox("gmailModify", resolve, reject: reject) {
-      guard let address = scope["address"] as? String,
-        let generation = scope["generation"] as? String,
-        let message = change["message"] as? String,
+      let (connection, address, generation) = try Self.scope(scope)
+      guard let message = change["message"] as? String,
         let add = change["add"] as? [String], let remove = change["remove"] as? [String]
       else { throw RegistrationError.unavailable }
       return try await $0.gmailModify(
-        message: message, add: add, remove: remove, address: address, generation: generation)
+        message: message, add: add, remove: remove, connection: connection, address: address,
+        generation: generation)
     }
   }
 
-  @objc(openMailbox:rejecter:)
+  @objc(openMailbox:resolver:rejecter:)
   func openMailbox(
-    _ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+    _ connection: String, resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
   ) {
     mailbox("openMailbox", resolve, reject: reject) {
-      try await $0.prepareMailbox()
-      return try $0.openMailbox()
+      try await $0.prepareMailbox(connection)
+      return try $0.openMailbox(connection)
     }
   }
 
@@ -577,23 +594,24 @@ extension UnwiredRegistration {
     resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
   ) {
     mailbox("commitMailbox", resolve, reject: reject) {
-      try await $0.prepareMailbox()
-      guard let address = scope["address"] as? String,
-        let generation = scope["generation"] as? String,
-        let revision = Int(exactly: expectedRevision)
-      else {
+      let (connection, address, generation) = try Self.scope(scope)
+      try await $0.prepareMailbox(connection)
+      guard let revision = Int(exactly: expectedRevision) else {
         throw RegistrationError.unavailable
       }
       return try $0.commitMailbox(
-        address: address, expectedRevision: revision, document: document, generation: generation)
+        connection: connection, address: address, expectedRevision: revision, document: document,
+        generation: generation)
     }
   }
 
-  private static func bodyMailbox(_ scope: [String: Any]) throws -> (String, String) {
-    guard let address = scope["address"] as? String,
+  // The connection, address and generation that every mailbox call names.
+  private static func scope(_ scope: [String: Any]) throws -> (String, String, String) {
+    guard let connection = scope["connection"] as? String,
+      let address = scope["address"] as? String,
       let generation = scope["generation"] as? String
     else { throw RegistrationError.unavailable }
-    return (address, generation)
+    return (connection, address, generation)
   }
 
   @objc(openMessageBody:id:resolver:rejecter:)
@@ -602,8 +620,9 @@ extension UnwiredRegistration {
     reject: @escaping RCTPromiseRejectBlock
   ) {
     mailbox("openMessageBody", resolve, reject: reject) {
-      let (address, generation) = try Self.bodyMailbox(scope)
-      return try await $0.openMessageBody(address: address, generation: generation, id: id)
+      let (connection, address, generation) = try Self.scope(scope)
+      return try await $0.openMessageBody(
+        connection: connection, address: address, generation: generation, id: id)
     }
   }
 
@@ -613,9 +632,10 @@ extension UnwiredRegistration {
     resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
   ) {
     mailbox("commitMessageBody", resolve, reject: reject) {
-      let (address, generation) = try Self.bodyMailbox(scope)
+      let (connection, address, generation) = try Self.scope(scope)
       return try await $0.commitMessageBody(
-        address: address, generation: generation, id: id, admission: admission)
+        connection: connection, address: address, generation: generation, id: id,
+        admission: admission)
     }
   }
 
@@ -625,8 +645,9 @@ extension UnwiredRegistration {
     reject: @escaping RCTPromiseRejectBlock
   ) {
     mailbox("listMessageBodies", resolve, reject: reject) {
-      let (address, generation) = try Self.bodyMailbox(scope)
-      return try await $0.listMessageBodies(address: address, generation: generation, ids: ids)
+      let (connection, address, generation) = try Self.scope(scope)
+      return try await $0.listMessageBodies(
+        connection: connection, address: address, generation: generation, ids: ids)
     }
   }
 
@@ -636,13 +657,13 @@ extension UnwiredRegistration {
     resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
   ) {
     mailbox("retainMessageBodies", resolve, reject: reject) {
-      let (address, generation) = try Self.bodyMailbox(scope)
+      let (connection, address, generation) = try Self.scope(scope)
       guard let value = scope["revision"] as? Double,
         let revision = Int(exactly: value), revision >= 0
       else { throw RegistrationError.unavailable }
       return try await $0.retainMessageBodies(
-        address: address, generation: generation, expectedRevision: revision, ids: ids,
-        protectedIds: protectedIds)
+        connection: connection, address: address, generation: generation,
+        expectedRevision: revision, ids: ids, protectedIds: protectedIds)
     }
   }
 

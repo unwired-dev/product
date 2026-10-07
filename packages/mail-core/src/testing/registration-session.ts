@@ -1,10 +1,15 @@
+import * as Arr from 'effect/Array';
+import * as Order from 'effect/Order';
 import * as Schema from 'effect/Schema';
 
 import type {
+  MailboxConnection,
   NativeRegistration,
   RegistrationSnapshot,
   SignInProvider,
 } from '../registration.ts';
+
+import { mailboxesOf } from '../registration.ts';
 
 const Scenario = Schema.Literals([
   'registration-cancelled',
@@ -85,7 +90,17 @@ const account = (snapshot: SignedIn) => ({
   ...(snapshot.trustedDevices === undefined
     ? {}
     : { trustedDevices: snapshot.trustedDevices }),
+  ...(snapshot.mailboxes === undefined
+    ? {}
+    : { mailboxes: snapshot.mailboxes }),
 });
+
+// The synthetic Google mailboxes and the opaque connection IDs native code would give them.
+export const syntheticMailboxes = {
+  'alex@example.invalid': 'synthetic-connection-alex',
+  'other@example.invalid': 'synthetic-connection-other',
+} as const;
+export type SyntheticAddress = keyof typeof syntheticMailboxes;
 
 // Scenarios whose first Gmail session grants access; the others need another mailbox.
 const grantsFirstMailbox = new Set<typeof Scenario.Type>([
@@ -103,19 +118,39 @@ const withoutRequest = (snapshot: SignedIn): SignedIn => {
   return rest;
 };
 
-const connectedTo = (
+// The account with these connections: connected while one verified, saved-Inbox-only while every
+// usable one is cached, and otherwise waiting for Gmail.
+const withMailboxes = (
   snapshot: SignedIn,
-  reselect: boolean,
+  mailboxes: readonly MailboxConnection[],
 ): RegistrationSnapshot => {
-  const address = reselect ? 'other@example.invalid' : 'alex@example.invalid';
+  const { mailboxes: _previous, ...rest } = account(snapshot);
+  const listed =
+    mailboxes.length === 0 ? {} : { mailboxes: JSON.stringify(mailboxes) };
+  const synchronized =
+    mailboxes.length === 0
+      ? {}
+      : {
+          privateSyncMailboxes: Arr.sort(
+            mailboxes.map(({ address }) => address),
+            Order.String,
+          ).join('\n'),
+        };
+  const states = new Set(mailboxes.map(({ state }) => state));
+  if (states.has('connected') || states.has('cached')) {
+    return {
+      kind: states.has('connected') ? 'connected' : 'cached',
+      ...rest,
+      mailboxes: JSON.stringify(mailboxes),
+      ...synchronized,
+    };
+  }
   return {
-    kind: 'connected',
-    ...account(snapshot),
-    providerSubject: reselect
-      ? 'synthetic-alternate-google-subject'
-      : 'synthetic-google-subject',
-    address,
-    privateSyncMailboxes: address,
+    kind: 'mailbox-needed',
+    ...rest,
+    ...listed,
+    ...synchronized,
+    ...(mailboxes.length === 0 ? {} : { reason: 'gmail-unavailable' }),
   };
 };
 
@@ -136,6 +171,22 @@ const admitted = (
   };
 };
 
+// The connections after authorizing this Google account: the same account authorizes its
+// existing connection again, and another one is added after the rest.
+const connecting = (
+  current: readonly MailboxConnection[],
+  address: SyntheticAddress,
+): readonly MailboxConnection[] => {
+  const mailbox = {
+    id: syntheticMailboxes[address],
+    address,
+    state: 'connected',
+  } as const;
+  return current.some(({ id }) => id === mailbox.id)
+    ? current.map((item) => (item.id === mailbox.id ? mailbox : item))
+    : [...current, mailbox];
+};
+
 export function createMockRegistrationSession(
   selection: unknown,
   installations: SyntheticAccount = createSyntheticAccount(),
@@ -145,6 +196,8 @@ export function createMockRegistrationSession(
   let snapshot: RegistrationSnapshot = { kind: 'signed-out' };
   let attempted = false;
   let removed = false;
+  // The Google account a mailbox chooser picks next.
+  let chosen: SyntheticAddress = 'other@example.invalid';
   // Each synthetic sign-in identity owns its own Product Account, except the
   // unregistered identity that the link scenario adds to the first account.
   const accounts = {
@@ -244,7 +297,7 @@ export function createMockRegistrationSession(
       };
       return Promise.resolve(snapshot);
     },
-    authorizeGmail: (reselect) => {
+    addMailbox: (chooseAccount) => {
       if (snapshot.kind === 'signed-out') {
         return Promise.reject(new Error('Synthetic Product Account required'));
       }
@@ -256,19 +309,52 @@ export function createMockRegistrationSession(
         attempted = true;
         return Promise.reject(new Error('Synthetic authorization interrupted'));
       }
-      if (!reselect && !grantsFirstMailbox.has(scenario)) {
+      const current = mailboxesOf(snapshot);
+      const suggested = !chooseAccount && current.length === 0;
+      if (suggested && !grantsFirstMailbox.has(scenario)) {
         return Promise.resolve(snapshot);
       }
-      const connected = connectedTo(snapshot, reselect);
+      const address = suggested ? 'alex@example.invalid' : chosen;
+      syncAccount(snapshot.productAccountId).mailboxes.add(address);
+      snapshot = withMailboxes(snapshot, connecting(current, address));
+      return Promise.resolve(snapshot);
+    },
+    authorizeGmail: (connection) => {
       if (
-        connected.kind === 'connected' &&
-        connected.privateSyncMailboxes !== undefined
+        snapshot.kind === 'signed-out' ||
+        snapshot.kind === 'device-pending'
       ) {
-        syncAccount(connected.productAccountId).mailboxes.add(
-          connected.address,
-        );
+        return rejection('Synthetic mailbox unavailable', 'unavailable');
       }
-      snapshot = connected;
+      const current = mailboxesOf(snapshot);
+      if (!current.some(({ id }) => id === connection)) {
+        return rejection('Synthetic mailbox unavailable', 'unavailable');
+      }
+      snapshot = withMailboxes(
+        snapshot,
+        current.map((item) =>
+          item.id === connection ? { ...item, state: 'connected' } : item,
+        ),
+      );
+      return Promise.resolve(snapshot);
+    },
+    removeMailbox: (connection) => {
+      if (
+        snapshot.kind === 'signed-out' ||
+        snapshot.kind === 'device-pending'
+      ) {
+        return rejection('Synthetic mailbox unavailable', 'unavailable');
+      }
+      const current = mailboxesOf(snapshot);
+      const removing = current.find(({ id }) => id === connection);
+      if (removing === undefined) {
+        return rejection('Synthetic mailbox unavailable', 'unavailable');
+      }
+      syncAccount(snapshot.productAccountId).mailboxes.delete(removing.address);
+      snapshot = withMailboxes(
+        snapshot,
+        current.filter(({ id }) => id !== connection),
+      );
       return Promise.resolve(snapshot);
     },
     link: (provider) => {
@@ -423,5 +509,27 @@ export function createMockRegistrationSession(
       return Promise.resolve(snapshot);
     },
   };
-  return Object.freeze({ native });
+  return Object.freeze({
+    native,
+    // The next mailbox chooser picks this Google account.
+    choose: (address: SyntheticAddress) => {
+      chosen = address;
+    },
+    // Gmail refuses this connection's grant at its next verification; the others stay as they are.
+    expire: (address: SyntheticAddress) => {
+      if (
+        snapshot.kind !== 'signed-out' &&
+        snapshot.kind !== 'device-pending'
+      ) {
+        snapshot = withMailboxes(
+          snapshot,
+          mailboxesOf(snapshot).map((item) =>
+            item.address === address
+              ? { ...item, state: 'authorization' }
+              : item,
+          ),
+        );
+      }
+    },
+  });
 }

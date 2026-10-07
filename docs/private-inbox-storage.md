@@ -49,14 +49,22 @@ checkpoint atomically in an encrypted device-only cache. Its keys stay native,
 its files stay out of backups, and locked or unreadable storage exposes no mail.
 A missing key for existing encrypted data is an error, never a replacement key.
 
-The cache belongs to one mailbox: its address and the Google account behind it.
-Cache access adds no Google account identity field to the bridge. Opening it for another mailbox, including another
-Google account that reuses the address, reads as empty, and each commit replaces only the revision its caller read. JavaScript
-reaches it only through the registration module, which checks that the address is
-the connected mailbox and that no account removal is under way. Choosing another
-mailbox or Google account removes the file. Every account purge removes it before any key, and a
-failed removal fails the purge so it is retried. Removal needs no key, so it also
-runs while the device is locked.
+Each [Mailbox Connection](gmail-inbox.md#gmail-mailboxes) has its own cache, in a
+directory named by the connection's opaque ID, for its address and the Google account
+behind it. Cache access adds no Google account identity field to the bridge. Opening a
+connection's cache for another address or Google account reads as empty, and each
+commit replaces only the revision its caller read. JavaScript reaches it only through
+the registration module, which checks that the named connection exists, that its
+address matches and that no account removal is under way; an ID that is not a
+connection ID never names a path. Removing a connection removes its directory.
+Every account purge removes every connection's cache before any key, and a failed
+removal fails the purge so it is retried. A connection removal clears its credential
+before cache cleanup; failed cleanup retains a retry and keeps that connection closed. Removal needs no key, so it also runs while
+the device is locked. A cache written before Mailbox Connections moves, with its
+bodies, into the directory of the connection whose address and Google account it
+belongs to, so its saved changes survive. Removing the legacy connection before
+opening its Inbox also removes its earlier cache and bodies, without needing their
+key. Removing another connection preserves that legacy connection's pending changes.
 
 ## Message body cache
 
@@ -66,8 +74,9 @@ their Google account, mailbox and message, so a saved body moved to another
 message or mailbox fails to open. A damaged or mismatched body reads as absent and is removed only when writes
 are authorized. Cache-only reads preserve files and access times. Opening is
 permitted in the cache-only offline mode; saving
-and pruning need a verified mailbox. Every call carries the mailbox generation, so
-work started before a reselection reaches nothing. Body-cache work keeps the interface
+and pruning need a verified mailbox. Every call carries the connection and its
+generation, so work started before that connection was removed or verified again
+reaches nothing. Body-cache work keeps the interface
 responsive. A lock or mailbox change during a read prevents its result from being shown.
 Saving a body reserves space
 within the 500 MB budget before it is published. It removes opened bodies before
@@ -76,8 +85,12 @@ current recent working set. A body that cannot fit that way is refused and stays
 on demand, as is one larger than the entire budget. Pruning reconciles any
 over-budget cache left by an older interrupted writer. As in admission, only the
 recent working set's bodies that fit within the budget, in working-set order, stay
-protected; the limit always holds. Reselection and every account purge remove the
-bodies with the mailbox cache.
+protected; the limit always holds. The 500 MB budget is device-wide: bodies of every
+connection, and bodies saved before Mailbox Connections until they are adopted or
+removed, count toward it and may be evicted for another connection's body outside
+that connection's working set, while pruning removes only its own connection's
+bodies. Removing a connection, and every account purge, remove the bodies with the
+mailbox cache.
 
 ## Native wiring and signing
 

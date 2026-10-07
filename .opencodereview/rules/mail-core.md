@@ -65,6 +65,17 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 - A `ManagedRuntime`, fiber, timer or subscription created without an owner that disposes it; a `ManagedRuntime` created for a Layer with no dependencies or resources.
 - A retry or poll without a bound, or built from `setTimeout`/recursion rather than `Schedule`.
 
+- `createMailboxes` binding ownership only to account, connection ID and address
+  while ignoring a removed/recreated connection's incarnation. Compare the native
+  registration epoch and cache owner; immediate replacement must forget old
+  plaintext and unsaved actions even when consent returns the same Google mailbox.
+  Otherwise stale work survives a synchronized removal and new authorization.
+- `createMailboxes` sharing body-load permits while each `createGmailInbox` retains
+  a separate image presentation budget. Sum reservations across all connections
+  and readers, distinguish same provider IDs in different owner ledgers, and release
+  only the affected owner on forget. Otherwise multi-mailbox Mac windows multiply
+  the decoded-pixel/encoded-byte bound or one removal uncharges another live reader.
+
 #### Services
 
 - A `Context.Service` introduced where no caller needs a replaceable dependency; a value a closure already owns stays a plain value.

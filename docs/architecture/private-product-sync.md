@@ -331,3 +331,64 @@ The retained flow still uses the existing native coordinator. ADR 0067 stages it
 move to TypeScript through #756–759; native key custody, credentialed transport
 and persist-before-acknowledge guarantees remain in force during that migration.
 This slice does not claim those later flow migrations or live-provider qualification.
+
+## Mailbox Connections (#606)
+
+Each connection's descriptor remains schema 1 and adds optional `epoch` and
+`removed` fields, retaining older readable records. Its HMAC-derived record
+identifier deduplicates the Google subject within the Product Account. A
+connection epoch binds local authorization to one incarnation; new incarnations
+use random epochs, while pre-epoch records converge on the reserved `legacy`
+epoch. A first authorization on a new device also gives an epochless descriptor
+that legacy epoch, rather than its fresh local UUID, so existing legacy devices
+retain their grants. Published epochs survive older-client epochless rewrites;
+retained removal/recreation intent still advances the epoch. Provider
+credentials and subjects never enter the descriptor. A new explicit authorization
+may adopt a live descriptor's epoch or recreate a tombstone at a new epoch.
+
+`SavedRegistration.mailboxRemovals` durably queues subject, address and removed
+epoch; reconciliation writes a tombstone even for an absent record, and never
+replaces an unreadable one. Epochless removal intent names the legacy incarnation,
+including after another device upgrades it, and cannot tombstone a later random
+epoch. An absent legacy descriptor receives a legacy tombstone. Retained explicit
+offline recreation matches that tombstone or upgraded legacy record and advances
+to its own new epoch. It clears a retry only after reading a matching removal
+or an authoritative later incarnation. Remove followed by explicit re-add retains
+that retry and a new local epoch, so the old incarnation is fenced even if the
+removal publication was interrupted. `newlyAuthorizedMailboxes` distinguishes
+current explicit consent from ordinary restore: an unpublished grant obtained
+while sync was unavailable cannot subsequently resurrect a tombstone or adopt a
+different live incarnation. An unpublished grant may adopt the live epoch that
+the vault last read before that consent only when the same epoch is still live.
+The vault records every readable descriptor's epoch, including tombstones; an
+absent or unreadable descriptor supplies no observation for this exception.
+New connections receive an epoch before publication. The user
+must authorize again after learning that removal.
+
+Concurrent fresh additions or matching retained recreations adopt the live
+descriptor returned by their losing compare-and-set. The adopted epoch and
+publication receipt are saved before later fallible reads. Ordinary restore of
+an unpublished grant and updates of a published connection cannot adopt a
+different CAS epoch. A tombstone returned by CAS purges that grant. Final
+read-back confirms only the epoch established by the initial read or CAS; a
+removal or different live epoch learned afterward durably removes credentials
+and queues cache cleanup rather than extending the earlier consent to a new
+incarnation. Unreadable responses remain unknown and never grant adoption.
+Address and legacy-epoch updates use the same CAS fence. Learned purges are
+checkpointed before another connection's fallible publication, so a failure
+later in the batch cannot restore already-removed credentials. Epochless readable
+legacy records keep their incarnation and can be upgraded through that fence.
+
+Local and synchronized removal delete connections from the durable registration
+before awaited cache cleanup. `mailboxCacheRemovals` retains only opaque cache
+identifiers for retry, not credentials; cleanup invalidates each generation,
+attempts every queued connection, and checkpoints successful deletions. A later
+synchronization failure reloads that durable registration rather than returning
+its previous connection list. Unfinished removals/cleanup set the existing
+`privateSyncPending: mailbox` presentation marker. The common pending copy covers
+both publishing mailbox changes and finishing local cleanup. The bridge FIFO gate
+continues to span native credential and detached storage work.
+
+These additions extend the existing flow before ADR 0067's sequenced migration;
+issues #756–#759 still own moving registration and descriptor coordination into
+TypeScript. They do not authorize new native application subsystems.
