@@ -362,18 +362,60 @@ test('merges a CodeRabbit approval of an older commit after two quiet hours', ()
   assert.deepEqual(run(pr), { output: '#7: merge', calls: [merge] });
 });
 
-test('waits for a branch behind main when the ruleset is strict', () => {
+test('honors strict rules on every page and rechecks branch freshness', () => {
   const pr = cleared();
+  const strict = {
+    rulePages: [
+      [checkRule('TypeScript')],
+      [checkRule('Fallow', 15_368, true)],
+      [checkRule('TypeScript')],
+    ],
+  };
+  assert.deepEqual(run(pr, {}, strict), {
+    output: '#7: merge',
+    calls: [merge],
+  });
   pr.headRef.compare.aheadBy = 1;
-  const strict = { rulePages: [[checkRule('TypeScript', 15_368, true)]] };
   assert.deepEqual(run(pr, {}, strict), {
     output:
       '#7: wait: the ruleset requires an up-to-date branch and main has moved on',
     calls: [],
   });
-  assert.deepEqual(run(pr).output, '#7: merge');
-  pr.headRef = null;
-  assert.match(run(pr, {}, strict).output, /up-to-date branch/u);
+  assert.deepEqual(run(pr), { output: '#7: merge', calls: [merge] });
+  assert.deepEqual(
+    run(cleared(), {}, { ...strict, snapshots: [pr] }).calls,
+    [],
+  );
+
+  const stale = cleared();
+  stale.reviews.nodes.pop();
+  const behindAfterDismissal = structuredClone(stale);
+  behindAfterDismissal.headRef.compare.aheadBy = 1;
+  const { output, calls } = run(
+    stale,
+    {},
+    {
+      ...strict,
+      snapshots: [stale, behindAfterDismissal],
+    },
+  );
+  assert.match(
+    output,
+    /eligibility changed after dismissal.*up-to-date branch/u,
+  );
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0][2], 'PUT');
+
+  for (const headRef of [
+    null,
+    { compare: null },
+    { compare: { aheadBy: null } },
+  ]) {
+    pr.headRef = headRef;
+    const unavailable = run(pr, {}, strict);
+    assert.match(unavailable.output, /up-to-date branch/u);
+    assert.deepEqual(unavailable.calls, []);
+  }
 });
 
 test('includes required checks from later rules pages', () => {
