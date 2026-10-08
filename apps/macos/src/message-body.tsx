@@ -588,6 +588,9 @@ function AttachmentRow({
   );
 }
 
+// A message can carry thousands of parts, so rows render in bounded batches.
+const attachmentBatch = 20;
+
 // The opened message's received attachments. Listing them downloads nothing; each downloads
 // only when asked, and opens or shares through the system.
 function ReceivedAttachments({
@@ -601,6 +604,7 @@ function ReceivedAttachments({
   const attachments = useSyncExternalStore(inbox.subscribe, () =>
     inbox.messageAttachments(id),
   );
+  const [shown, setShown] = useState(attachmentBatch);
   if (attachments === undefined || attachments.length === 0) {
     return null;
   }
@@ -613,7 +617,7 @@ function ReceivedAttachments({
           ? '1 attachment'
           : `${attachments.length} attachments`}
       </Text>
-      {attachments.map((attachment) => (
+      {attachments.slice(0, shown).map((attachment) => (
         <AttachmentRow
           key={attachment.locator}
           inbox={inbox}
@@ -621,6 +625,15 @@ function ReceivedAttachments({
           attachment={attachment}
         />
       ))}
+      {attachments.length > shown ? (
+        <Action
+          label={`Show ${Math.min(attachmentBatch, attachments.length - shown)} more`}
+          accessibilityLabel={`Show more attachments, ${attachments.length - shown} not shown`}
+          onPress={() => {
+            setShown((count) => count + attachmentBatch);
+          }}
+        />
+      ) : null}
     </View>
   );
 }

@@ -690,7 +690,7 @@ the encrypted body cache retains only attachment descriptors.
   before attachment metadata was kept reads it from Gmail once, on its next online
   open; offline, that body shows no list. Attachments are named or
   attachment-disposition parts outside the readable body. Inline Images the body
-  resolves are not listed. Attached messages are not offered for download.
+  resolves are not listed. Attached messages are not offered for download. Rows appear 20 at a time, with **Show N more** for the rest, so a message with thousands of parts stays usable.
 - **Names.** Names drop path separators, control and direction-override characters
   and leading dots, and are shortened to 120 characters and 255 UTF-8 bytes while
   keeping the extension.

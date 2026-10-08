@@ -55,6 +55,93 @@ describe('received attachments in the reader', () => {
     expect(gmail.savedFiles.size).toBe(0);
   });
 
+  it('renders a message with many attachments in bounded batches', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    const id = gmail.deliver({
+      content: {
+        text: 'Many files.',
+        attachments: Array.from({ length: 44 }, (_, index) => ({
+          filename: `file-${index}.txt`,
+          mimeType: 'text/plain',
+          bytes: [index],
+        })),
+      },
+    });
+    const inbox = createGmailInbox(gmail.native);
+    await inbox.load();
+    const app = await render(
+      <GmailMessageBody
+        key={id}
+        inbox={inbox}
+        id={id}
+      />,
+    );
+    try {
+      // 44 files plus the default notes.txt.
+      await expect(
+        screen.findByText('45 attachments'),
+      ).resolves.toBeOnTheScreen();
+      const more = screen.getByRole('button', {
+        name: 'Show more attachments, 25 not shown',
+      });
+      expect({
+        rows: screen.getAllByText(/^Download$/u).length,
+        hidden: screen.queryByLabelText('Download file-43.txt'),
+        focusable: more.props.focusable,
+      }).toStrictEqual({ rows: 20, hidden: null, focusable: true });
+      screen.getByText('Show 20 more');
+      await fireEvent.press(more);
+      expect(screen.getAllByText(/^Download$/u)).toHaveLength(40);
+      screen.getByText('Show 5 more');
+      await fireEvent.press(
+        screen.getByRole('button', {
+          name: 'Show more attachments, 5 not shown',
+        }),
+      );
+      screen.getByLabelText('Download file-43.txt');
+      expect({
+        rows: screen.getAllByText(/^Download$/u).length,
+        more: screen.queryByText(/^Show \d+ more$/u),
+      }).toStrictEqual({ rows: 45, more: null });
+      // A replacement message starts with a fresh batch, even near the MIME part limit.
+      const next = gmail.deliver({
+        content: {
+          text: 'Thousands of files.',
+          attachments: Array.from({ length: 9995 }, (_, index) => ({
+            filename: `many-${index}.txt`,
+            mimeType: 'text/plain',
+            bytes: [index % 256],
+          })),
+        },
+      });
+      await act(async () => {
+        await inbox.load();
+      });
+      await app.rerender(
+        <GmailMessageBody
+          key={next}
+          inbox={inbox}
+          id={next}
+        />,
+      );
+      await screen.findByText('9996 attachments');
+      screen.getByRole('button', {
+        name: 'Show more attachments, 9976 not shown',
+      });
+      expect({
+        rows: screen.getAllByText(/^Download$/u).length,
+        hidden: screen.queryByLabelText('Download many-9994.txt'),
+        downloads: gmail.requests.filter(({ path }) =>
+          path.includes('/attachments/'),
+        ),
+        saved: gmail.savedFiles.size,
+      }).toStrictEqual({ rows: 20, hidden: null, downloads: [], saved: 0 });
+    } finally {
+      await app.unmount();
+    }
+  });
+
   it('cancels a slow download and offers Try again after Gmail fails', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail();
