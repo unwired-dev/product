@@ -178,6 +178,14 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   rich object; otherwise its expanded HTML/data-image strings remain retained
   after the view and reservation have been released.
 - Per-row work in the Inbox `FlatList` that grows with the mailbox: an unstable `keyExtractor`, a row that subscribes to the whole store, or sorting and filtering repeated on every render.
+- `composer.tsx.DraftRowView` or a message row flattening an entire body before
+  native `numberOfLines` truncation. Bound preview traversal and intermediate
+  strings before rendering, including a single large span and many empty blocks;
+  memoization does not protect the edited Draft whose identity changes per edit.
+  Preserve short-body whitespace and Unicode boundaries. Inspect recipient/header
+  summaries and accessibility labels separately before claiming all row work is
+  bounded; otherwise a valid large Draft stalls the shared JavaScript runtime
+  when the Inbox opens or on each visible body edit.
 - An unbounded Draft/message collection rendered with `map` inside the Inbox
   `FlatList` header/footer or another scroll container instead of its virtualized
   data: virtualization covers list items, not nested header rows, so mounting a

@@ -30,7 +30,7 @@ import {
   displayOf,
   historyOf,
   marksAt,
-  plainText,
+  previewOf,
   record,
   redo,
   setBlockKind,
@@ -269,7 +269,7 @@ function DraftRowView({
 }) {
   const colors = usePalette();
   // The sending mailbox stays visible whatever the body holds.
-  const preview = plainText(draft.body).replaceAll('\n', ' ');
+  const preview = previewOf(draft.body);
   return (
     <Pressable
       accessibilityLabel={`${draft.conflict === true ? 'Conflicting Draft' : 'Draft'}. ${draft.subject || 'No subject'}. ${recipientSummary(draft)}. From ${draft.from}`}

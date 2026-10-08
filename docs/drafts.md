@@ -24,7 +24,11 @@ Drafts mailbox, and Drafts do not synchronize to other devices yet.
 - **Drafts** are listed in the Inbox column apart from received mail, newest edit
   first. Each row is labelled `DRAFT` and names its subject, recipients and sending
   mailbox. A **From** line always shows the sending address, followed by a
-  one-line body preview when the body has text. Recipient names (or addresses when
+  one-line excerpt from the start of the body when its plain-text form is nonempty.
+  Block breaks become spaces, including empty blocks; whitespace is preserved.
+  The excerpt is bounded before display, so a long body does not need to be read
+  in full to show its row. It may end before the row's right edge, depending on
+  the characters and available width. Recipient names (or addresses when
   unnamed) are grouped under **To**,
   **Cc** and **Bcc**, separated by `·`; empty groups are omitted and an empty
   recipient list says **No recipients**. The accessible row name keeps those same
@@ -183,6 +187,9 @@ followed by text editing; these remain component integration evidence.
 Host regressions also cover repeated New Message presses during a held save and
 visible and accessible recipient roles in Bcc-only and mixed-role Draft rows,
 including a visible From address alongside a non-empty body preview.
+The shared preview regression preserves empty-block spacing and whitespace,
+avoids splitting an emoji at the excerpt boundary, and verifies that later body
+spans are not read after the bounded excerpt is complete.
 They also cover later destinations and selecting the new Draft's row while
 creation is pending, preserving content added to an abandoned Draft, and a
 successful Discard queued behind autosave with a late native text callback.

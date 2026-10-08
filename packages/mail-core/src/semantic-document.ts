@@ -162,6 +162,42 @@ export const plainText = (document: SemanticDocument) =>
     .map(({ spans }) => spans.map(({ text }) => text).join(''))
     .join('\n');
 
+/**
+ * The start of the body on one line, with spaces between blocks and whitespace
+ * preserved.
+ *
+ * @example
+ *   previewOf([{ kind: 'paragraph', spans: [{ text: 'Hello' }] }], 3); // 'Hel'
+ *
+ * @param {SemanticDocument} document - The semantic body to preview.
+ * @param {number} limit - A finite nonnegative integer counting UTF-16 code
+ *   units.
+ * @returns {string} At most `limit` code units, without splitting a surrogate
+ *   pair at the cut.
+ */
+export const previewOf = (document: SemanticDocument, limit = 300) => {
+  let preview = '';
+  // Retain at most `limit + 1` code units to detect a cut. Nonempty spans and block spaces
+  // bound traversal too, however long the Draft is.
+  const pieces = function* () {
+    for (const [index, { spans }] of document.entries()) {
+      yield index === 0 ? '' : ' ';
+      for (const { text } of spans) {
+        yield text;
+      }
+    }
+  };
+  for (const text of pieces()) {
+    preview += text.slice(0, limit + 1 - preview.length);
+    if (preview.length > limit) {
+      const cut = preview.slice(0, limit);
+      // A split surrogate pair would show a replacement character.
+      return /\p{Cs}$/u.test(cut) ? cut.slice(0, -1) : cut;
+    }
+  }
+  return preview;
+};
+
 // A display offset as a line and a column within that line's text, after its marker.
 const locate = (lines: readonly Line[], offset: number) => {
   const markers = markersOf(lines);

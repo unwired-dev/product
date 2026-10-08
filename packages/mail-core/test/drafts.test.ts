@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 
 import type { Draft, DraftsState } from '../src/drafts.ts';
 import type { RegistrationSnapshot } from '../src/registration.ts';
-import type { SemanticDocument } from '../src/semantic-document.ts';
+import type { Block, SemanticDocument } from '../src/semantic-document.ts';
 
 import { createComposerNavigation } from '../src/composer-navigation.ts';
 import {
@@ -22,6 +22,7 @@ import {
   historyOf,
   marksAt,
   plainText,
+  previewOf,
   record,
   redo,
   setBlockKind,
@@ -232,6 +233,59 @@ describe('editing a Semantic Message Document', () => {
     history = redo(history);
     expect(history.present).toBe('Hi ');
     expect(redo(redo(redo(history))).present).toBe('Hi there');
+  });
+
+  it('previews the start of a body on one line without reading the rest', () => {
+    expect.hasAssertions();
+    const short: SemanticDocument = [
+      { kind: 'heading1', spans: [{ text: 'Plan' }] },
+      {
+        kind: 'paragraph',
+        spans: [{ text: 'Ship ' }, { text: 'today', marks: ['bold'] }],
+      },
+    ];
+    expect(previewOf(short)).toBe(plainText(short).replaceAll('\n', ' '));
+    const blank: Block = { kind: 'paragraph', spans: [] };
+    const text: Block = { kind: 'paragraph', spans: [{ text: ' text ' }] };
+    for (const [body, expected] of [
+      [[blank], ''],
+      [[blank, blank, blank], '  '],
+      [[blank, text, blank], '  text  '],
+      [[{ kind: 'paragraph', spans: [{ text: ' \t\r ' }] }], ' \t\r '],
+    ] satisfies ReadonlyArray<readonly [SemanticDocument, string]>) {
+      expect(previewOf(body)).toBe(expected);
+      expect(previewOf(body)).toBe(plainText(body).replaceAll('\n', ' '));
+    }
+    // A complete emoji at the cut stays intact, even when its pair crosses marked spans.
+    const split: SemanticDocument = [
+      {
+        kind: 'paragraph',
+        spans: [{ text: 'a\uD83D' }, { text: '\uDE00b', marks: ['bold'] }],
+      },
+    ];
+    expect(previewOf(split, 2)).toBe('a');
+    expect(previewOf(split, 3)).toBe('a😀');
+    // A bounded prefix is read, and a surrogate pair is never split.
+    const reads: number[] = [];
+    const counted = (text: string): Block => ({
+      kind: 'paragraph',
+      spans: [
+        {
+          get text() {
+            reads.push(text.length);
+            return text;
+          },
+        },
+      ],
+    });
+    const long: SemanticDocument = [
+      counted(`${'a'.repeat(9)}😀`),
+      ...Array.from({ length: 1000 }, () => counted('b'.repeat(1000))),
+    ];
+    expect(previewOf(long, 10)).toBe('a'.repeat(9));
+    expect(reads).toStrictEqual([11]);
+    expect(previewOf(long, 30)).toHaveLength(30);
+    expect(reads).toHaveLength(3);
   });
 
   it('rebuilds only the edited block, so history versions share the rest', () => {
