@@ -26,6 +26,10 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 - A native bridge result, seed, persisted JSON value, HTTP body, token or route parameter used before a `Schema` decode, or narrowed with `as`, a hand-written property check or a truthiness test. The Apple host's checks do not make its results trusted in TypeScript.
 - A decode failure that becomes a default, an empty list or a `ready` state. It must map to the boundary's existing tagged error, with the decode error as `cause`, and surface as a non-ready state.
 - A schema widened (`Schema.Unknown`, optional field, loose union) to make a fixture or a new native result pass, without the consumer handling the widened case.
+- `drafts.ts.readAsset` using the verify-only response schema for a requested
+  image preview. Require a nonempty URI when preview bytes were requested and
+  admit the empty native-only verification reply only for that mode; otherwise a
+  malformed preview silently becomes a healthy asset with no image or warning.
 - `message-body.ts.decodeFullMessage` recursively decoding an unbounded MIME
   tree before applying traversal limits. Bound depth and total parts iteratively
   before `GmailPartSchema` runs, counting attachment and discarded subtrees too;
@@ -98,6 +102,19 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 - A service identifier that does not follow `@private-email/<package>/<Name>`; identifiers key the context, and a collision silently resolves the wrong service.
 
 #### Product behavior the stores own
+
+- `drafts.ts.importAsset` assuming a rejected native import wrote nothing. Trace
+  rejection after ciphertext replacement, file synchronization or the final
+  protected-data check; discard unadopted bytes before settling the failed asset,
+  including cancelled or stale-owner attempts. Preserve committed/history-held
+  assets and keyless cleanup while locked. Otherwise `ImportedAssets` protects
+  failed writes until relaunch and exhausts the non-evicting Outgoing Content Store.
+- `drafts.ts.pick` admitting every native picker result, or both hosts passing
+  unbounded paste/drop collections to `prepareFiles`. Apply the documented
+  per-intake limit before preparing assets or starting imports, and return unused
+  picker-owned copies through `discardPickedDraftFiles`, preserving account and
+  composer-lifetime fences. Otherwise a large selection amplifies copied bytes,
+  queued work and native composer rows despite each file satisfying its byte limit.
 
 - `createFreshness.wake` allowing registration verification to auto-load newly
   revealed connections before its route is rechecked. Trace `Registration.refreshInbox`

@@ -13,6 +13,20 @@ A host owns views and native adapters. It renders shared stores from `@private-e
 
 #### React correctness
 
+- `composer.tsx.usePreview`/`AssetRow` checking complete Inline Images while
+  treating complete Attachments as healthy without reading and verifying their
+  native bytes. Trace every complete asset kind through `store.readAsset` and
+  `RegistrationStore.readDraftAsset`; verify-only reads must keep attachment
+  bytes native and preserve missing/damaged feedback and the store's locked
+  outcome. Otherwise the composer claims an ordinary attachment is healthy after
+  its bytes are lost or
+  damaged. Fence replacement and unmount results as for image previews.
+- `composer.tsx.transferred` or picker handlers constructing a prepared asset,
+  starting an import or mounting a row for every selected file before applying
+  `drafts.ts.pickLimit`. Bound each pick, paste and drop before that amplification,
+  with `store.pick` owning picker-copy cleanup; otherwise a large user selection
+  blocks the shared host runtime even when each file meets its byte limit.
+
 - `Editor` keeping a new `rebind` callback for each parent `onRebind`, or releasing
   identity tracking on unmount while Close or Discard still uses `authored.current`
   to resolve a conflict copy. Keep one stable callback, read the committed owner
