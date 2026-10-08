@@ -36,6 +36,7 @@ test('Apple language matching, native fallback, and override persistence across 
     execFileSync('xcrun', [
       'clang',
       '-fobjc-arc',
+      '-DNS_BLOCK_ASSERTIONS',
       '-Wall',
       '-Wextra',
       '-Werror',
@@ -177,6 +178,13 @@ test('Apple language matching, native fallback, and override persistence across 
     const uncatalogued = run('-AppleLanguages', '(de-DE)');
     assert.equal(uncatalogued.settings.language, 'de');
     assert.equal(uncatalogued.showInbox, 'Show Inbox');
+    assert.equal(uncatalogued.hide, 'Hide Unwired Mail');
+    // Invalid JSON exercises the parser failure and cached fallback in Release too.
+    writeFileSync(path.join(resources, 'de.json'), '{invalid json');
+    const invalidCatalog = run('-AppleLanguages', '(de-DE)');
+    assert.equal(invalidCatalog.settings.language, 'de');
+    assert.equal(invalidCatalog.showInbox, 'Show Inbox');
+    assert.equal(invalidCatalog.hide, 'Hide Unwired Mail');
   } finally {
     if (compiled) {
       run('--reset');

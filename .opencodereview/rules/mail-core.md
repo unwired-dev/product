@@ -115,9 +115,11 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   list or omitting populated roles within its bounded prefix. Preserve each emitted role and its recipient order,
   use names with address fallback, and return No recipients only when all three
   lists are empty; otherwise a Bcc-only or mixed Draft misrepresents its addressing.
-  Format each role group through a complete catalog template with named recipient
-  interpolation rather than prefixing a translated field label; otherwise
-  translations cannot reorder the role and recipients in visible or accessible rows.
+- Shared copy builders, including `drafts.ts.recipientSummary` and
+  `registration.ts.privateSyncCopy`, joining translated labels, descriptions or
+  notices with fixed spaces or punctuation. Use a complete catalog template with
+  named interpolation; otherwise translations cannot control order and separators
+  in visible or accessible messages. Keep message content as interpolation data.
 
 - `drafts.ts.recipientSummary` or `semantic-document.ts.clip/previewOf` joining
   complete metadata or bodies before shortening a list-row preview. Bound both

@@ -83,7 +83,9 @@ mise exec -- node --test native/localization/test/native.test.mjs
 The Node integration test requires macOS/Xcode. It compiles the real Foundation
 adapter into an isolated temporary app, tests a temporary French catalog and
 regional matching and language changes within one process, and launches separate
-processes to verify preference persistence and removal. It removes its preferences domain and temporary bundle.
+processes to verify preference persistence and removal. Assertions are disabled
+to exercise Release fallback for missing and unparseable catalogs, including
+cached lookups. It removes its preferences domain and temporary bundle.
 French exists only in tests; it is not shipped.
 
 Follow [Expo native validation](expo-client.md#validate) for the packaged iPhone

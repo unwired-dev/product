@@ -148,6 +148,9 @@ describe('interface language', () => {
     expect.hasAssertions();
     const native = storage();
     const app = createLocalization(await native.getSettings(), native);
+    const initial = app.getSnapshot();
+    const listener = vi.fn<() => void>();
+    app.subscribe(listener);
     const change = app.i18n.changeLanguage.bind(app.i18n);
     // The switch takes effect, then fails, as an asynchronous backend can.
     vi.spyOn(app.i18n, 'changeLanguage').mockImplementationOnce(
@@ -158,6 +161,14 @@ describe('interface language', () => {
     );
     await expect(app.setLanguage('fr')).rejects.toThrow('backend unavailable');
     expect(app.i18n.language).toBe('en');
-    expect(app.getSnapshot().language).toBe('en');
+    expect(app.getSnapshot()).toBe(initial);
+    expect(listener).not.toHaveBeenCalled();
+    // The saved preference remains available for a later successful refresh.
+    await app.refresh();
+    expect({
+      language: app.i18n.language,
+      preference: app.getSnapshot().preference,
+      publications: listener.mock.calls.length,
+    }).toStrictEqual({ language: 'fr', preference: 'fr', publications: 1 });
   });
 });
