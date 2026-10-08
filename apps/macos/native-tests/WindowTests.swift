@@ -339,6 +339,11 @@ final class WindowTests: XCTestCase {
     XCTAssertTrue(maya.waitForExistence(timeout: 20))
     maya.click()
     XCTAssertTrue(address(first, "maya@example.com").waitForExistence(timeout: 10))
+    // A summary runs only when asked, through the packaged assistance bridge, whose synthetic
+    // model answers in this build.
+    first.buttons["Summarize this message"].click()
+    let summary = NSPredicate(format: "value == %@", "Synthetic summary of local mail.")
+    XCTAssertTrue(first.textViews.matching(summary).firstMatch.waitForExistence(timeout: 10))
     app.typeKey("n", modifierFlags: .command)
     let second = app.windows["Inbox 2"]
     XCTAssertTrue(second.waitForExistence(timeout: 10))

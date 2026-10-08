@@ -356,6 +356,12 @@ final class InboxTests: XCTestCase {
     if UIDevice.current.userInterfaceIdiom == .pad {
       XCTAssertGreaterThan(sender.frame.minX, maya.frame.maxX)
     }
+    // A summary runs only when asked, through the packaged assistance bridge, whose synthetic
+    // model answers in this build.
+    app.buttons["Summarize this message"].tap()
+    XCTAssertTrue(app.staticTexts["Synthetic summary of local mail."].waitForExistence(timeout: 10))
+    app.buttons["Dismiss summary"].tap()
+    XCTAssertTrue(app.buttons["Summarize this message"].waitForExistence(timeout: 10))
     let shot = XCTAttachment(screenshot: app.screenshot())
     shot.name = "Selected message"
     shot.lifetime = .keepAlways

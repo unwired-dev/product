@@ -18,7 +18,8 @@
     "./registration-mode": "./src/registration-mode.ts",
     "./testing/registration-session": "./src/testing/registration-session.ts",
     "./message-body": "./src/message-body.ts",
-    "./link-inspection": "./src/link-inspection.ts"
+    "./link-inspection": "./src/link-inspection.ts",
+    "./assistance": "./src/assistance.ts"
   },
   "scripts": {
     "check-types": "tsc --noEmit",
