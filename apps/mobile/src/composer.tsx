@@ -211,6 +211,14 @@ const saveCopy = {
   locked: 'Not saved while private storage is locked. Unlock your device.',
 } as const;
 
+// Drafts with edits that storage does not hold yet, outside their composer.
+const unsavedCopy = {
+  failed:
+    'Draft changes are not saved yet. Keep the app open and try saving again.',
+  locked:
+    'Draft changes are not saved while private storage is locked. Unlock your device.',
+} as const;
+
 const fieldNames: Record<RecipientField, string> = {
   to: 'To',
   cc: 'Cc',
@@ -315,7 +323,9 @@ export function useOpenDraft(
   const leave = useLeaveComposer();
   return useCallback(
     async (id: string) => {
-      if (id !== composing && (await leave())) {
+      // Native Back can hide the secondary column without changing its selected Draft.
+      // Selecting it again reveals that same editor and must not try to leave it.
+      if (id === composing || (await leave())) {
         onCompose(id);
       }
     },
@@ -392,6 +402,24 @@ export function DraftList({
             label="Try again"
             onPress={() => {
               void store.load();
+            }}
+          />
+        </View>
+      ) : null}
+      {state.kind === 'ready' &&
+      (state.save === 'failed' || state.save === 'locked') ? (
+        // Shown wherever the person returns to the Inbox, including the iPhone system Back that
+        // leaves a composer without its own notice.
+        <View style={[styles.bar, { paddingHorizontal: spacing.large }]}>
+          <Text
+            accessibilityRole="alert"
+            style={[styles.notice, styles.grow, { color: colors.foreground }]}>
+            {unsavedCopy[state.save]}
+          </Text>
+          <Action
+            label="Save Drafts"
+            onPress={() => {
+              void store.save();
             }}
           />
         </View>

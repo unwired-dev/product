@@ -107,6 +107,16 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   registered finish callback rejects: refuse that destination and permit a later
   attempt, or one unexpected failure blocks navigation for the session.
 
+- Assuming router removal hooks cover native split-column navigation in mobile
+  `app/_layout.tsx`. Trace the installed Expo Router and screens implementation:
+  compact system Back/swipes can hide the secondary column without changing its
+  route or invoking `useLeaveComposer`. Layout/appearance notifications do not
+  establish a cancellable transition. Require a qualified native guard or an
+  explicit pre-release gap with visible unsaved-state recovery; never report an
+  Inbox warning as a completed Back guard. `useOpenDraft` must reveal an already
+  selected editor without attempting to leave it, or invalid recipient entry
+  can strand the hidden editor behind a refused destination change.
+
 - `Editor` suppressing autosave during explicit Discard without retaining the
   latest authored payload and restoring it when deletion fails or rejects.
   Text and Undo events can still arrive while storage is pending; trace rendered

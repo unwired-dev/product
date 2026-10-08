@@ -205,6 +205,14 @@ const saveCopy = {
   locked: 'Not saved while private storage is locked. Unlock your device.',
 } as const;
 
+// Drafts with edits that storage does not hold yet, outside their composer.
+const unsavedCopy = {
+  failed:
+    'Draft changes are not saved yet. Keep the app open and try saving again.',
+  locked:
+    'Draft changes are not saved while private storage is locked. Unlock your device.',
+} as const;
+
 const fieldNames: Record<RecipientField, string> = {
   to: 'To',
   cc: 'Cc',
@@ -419,6 +427,22 @@ export function DraftList({
             label="Try again"
             onPress={() => {
               void store.load();
+            }}
+          />
+        </View>
+      ) : null}
+      {state.kind === 'ready' &&
+      (state.save === 'failed' || state.save === 'locked') ? (
+        <View style={[styles.bar, { paddingHorizontal: spacing.large }]}>
+          <Notice
+            alert
+            style={[styles.notice, { color: colors.foreground }]}>
+            {unsavedCopy[state.save]}
+          </Notice>
+          <Action
+            label="Save Drafts"
+            onPress={() => {
+              void store.save();
             }}
           />
         </View>

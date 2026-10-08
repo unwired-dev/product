@@ -774,9 +774,10 @@ export function createDrafts(
       }
     },
     save: () => runLogged(saving(generation)),
-    // Starts a Draft sending from `mailbox`; resolves its identifier, or undefined while Drafts
-    // cannot be saved.
+    // Starts a Draft sending from `mailbox`; resolves its identifier, or undefined when Draft
+    // storage is not open or the Product Account changes before creation finishes.
     create: async (mailbox: Pick<MailboxConnection, 'id' | 'address'>) => {
+      const creating = generation;
       const created: { id?: string } = {};
       await change((drafts, { now, id }) => {
         created.id = id;
@@ -795,7 +796,8 @@ export function createDrafts(
           },
         ];
       });
-      return created.id;
+      // A Draft started before the Product Account changed belongs to no open store now.
+      return live(creating) ? created.id : undefined;
     },
     // Replaces a Draft's content; resolves true once it is saved. When another editor changed the
     // Draft since `previous`, its newer version keeps the identifier and this edit becomes a

@@ -684,6 +684,31 @@ describe('storing Drafts', () => {
     },
   );
 
+  it.each([
+    { transition: 'signed-out', next: [{ kind: 'signed-out' }] as const },
+    { transition: 'different-account', next: [connected('account-b')] },
+    {
+      transition: 'same-account-return',
+      next: [{ kind: 'signed-out' } as const, connected('account-a')],
+    },
+  ])(
+    'returns no Draft for a New Message started before the account changed ($transition)',
+    async ({ next }) => {
+      expect.hasAssertions();
+      const session = account(connected('account-a'));
+      const storage = createSyntheticDrafts(session.productAccount);
+      const drafts = createDrafts(storage.native, session.registration);
+      await drafts.load();
+      storage.hold();
+      const pending = drafts.create(alex);
+      for (const snapshot of next) {
+        session.change(snapshot);
+      }
+      storage.release();
+      await expect(pending).resolves.toBeUndefined();
+    },
+  );
+
   it('keeps an authored edit that arrives after its Draft was deleted', async () => {
     expect.hasAssertions();
     const session = account(connected('account-a'));

@@ -99,6 +99,11 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Product behavior the stores own
 
+- `createDrafts.create` returning an identifier after its starting Product Account
+  generation was invalidated. Fence the result as well as state publication,
+  including sign-out/re-entry into the same account; hosts route from that result,
+  so a stale successful native completion otherwise opens an absent Draft.
+
 - `createDrafts` replacing a whole stale Draft or storage document without comparing
   the editor's prior content and the durable base. Check simultaneous Mac windows,
   latest-only Drafts, edit-versus-deletion conflicts and owner-checked CAS recovery;

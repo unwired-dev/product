@@ -73,7 +73,8 @@ later events from the editor that discarded it.
 **Close** first turns any address still being typed into a recipient; text that
 is not a valid address keeps the composer open until it is corrected or removed.
 It then saves and closes only once the Draft is stored; when that fails the
-composer stays open and says so. Closing a Draft with no recipients, subject or
+composer stays open and says so. The compact iPhone system **Back** currently has
+the separate limitation below. Closing a Draft with no recipients, subject or
 body text discards it only if no other window has completed its content. **Discard**
 asks before deleting a Draft from this device.
 Opening **Account**, switching to another Draft, starting **New Message**, or selecting received mail
@@ -84,6 +85,11 @@ closing an empty stale composer preserves that writer's completed Draft and
 finishes with **Saved on this device**. Edits accepted while discard was pending stay available for saving and
 reopening. An unexpected failure while leaving keeps the composer open and allows
 another attempt. Drafts and received mail share the Inbox column's scroll surface.
+If saving failed or private storage became locked, the Inbox also says that Draft
+changes are not saved and offers **Save Drafts**. Keep the app open until saving
+succeeds; unsaved changes survive in memory, not a process termination or account
+removal. On iPhone, selecting the current Draft again requests its composer without trying to
+leave it, so unfinished recipient text remains available to correct.
 After an interruption or relaunch the Drafts list shows every saved Draft, and
 opening one restores its sending mailbox, recipients, subject and formatted body
 without sending it.
@@ -118,6 +124,12 @@ undo, autosave, finish or refuse unfinished recipient text on Close, reopen the
 Draft after a remount, keep a Draft open while saving fails,
 and choose another sender after its mailbox is removed; the Mac journey also uses
 the keyboard shortcuts. These are rendered component tests, not native E2E.
+Feedback regressions also reject a New Message identifier after account
+invalidation and recover failed or locked saves from the Inbox without a mounted
+composer, then reopen the content through a fresh Draft store. The mobile journey
+checks that selecting the current Draft dispatches its reveal action even with
+invalid recipient text and a failed save; this does not prove native column
+visibility.
 
 The hosted iOS 27 storage suite checks the Draft document with the real
 filesystem, CryptoKit and Simulator Keychain: ciphertext without its plaintext,
@@ -150,3 +162,12 @@ dictation, autocorrection or IME behavior.
 Deferred before release: native iPhone, iPad and Mac journeys that compose, relaunch
 and reopen a Draft; VoiceOver, hardware-keyboard and Dynamic Type qualification of
 the composer; and physical-device lock behavior.
+
+Known native gap, deferred before release: compact iPhone system **Back** can hide
+a composer without first validating recipient entry or saving its changes. The
+Inbox warning
+and **Save Drafts** action mitigate a failed or locked save, but do not prevent
+Back or make unsaved edits durable. Add and qualify native transition protection
+before release, covering the Back button and swipe, pending/failed/locked saves,
+unfinished recipients, selecting the same Draft to reveal it again, and successful
+retry. The component tests do not satisfy this native check.

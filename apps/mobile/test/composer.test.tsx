@@ -103,11 +103,13 @@ function App({
   registration,
   drafts,
   openAccount = ignore,
+  onCompose = ignore,
   initialDraft,
 }: {
   readonly registration: ReturnType<typeof account>;
   readonly drafts: ReturnType<typeof createDrafts>;
   readonly openAccount?: () => void;
+  readonly onCompose?: (id: string) => void;
   readonly initialDraft?: string;
 }) {
   const { snapshot } = useSyncExternalStore(
@@ -143,7 +145,10 @@ function App({
         mailboxes={mailboxes}>
         <Inbox
           composing={composing}
-          onCompose={setComposing}
+          onCompose={(id) => {
+            setComposing(id);
+            onCompose(id);
+          }}
           onSelect={setSelected}
           selected={selected}
         />
@@ -1111,5 +1116,105 @@ describe('composing Drafts', () => {
       expect(spans()).toStrictEqual([{ text: 'a' }]);
     },
   );
+
+  it.each([
+    [
+      'unavailable',
+      'Draft changes are not saved yet. Keep the app open and try saving again.',
+    ],
+    [
+      'locked',
+      'Draft changes are not saved while private storage is locked. Unlock your device.',
+    ],
+  ])(
+    'saves unfinished Draft changes from the Inbox after its composer unmounts (%s)',
+    async (failure, unsaved) => {
+      expect.hasAssertions();
+      const registration = account(connected(['alex@example.invalid']));
+      const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+      const drafts = createDrafts(storage.native, registration);
+      const first = await render(
+        <App
+          drafts={drafts}
+          registration={registration}
+        />,
+      );
+      await press('New Message');
+      await fireEvent.changeText(
+        await screen.findByLabelText('Subject'),
+        'Kept',
+      );
+      storage.failNextCommit(failure);
+      await fireEvent.changeText(
+        await screen.findByLabelText('To'),
+        'unfinished',
+      );
+      await expect(screen.findByText(unsaved)).resolves.toBeOnTheScreen();
+      await first.unmount();
+      const inbox = await render(
+        <App
+          drafts={drafts}
+          registration={registration}
+        />,
+      );
+      expect(screen.queryByLabelText('Subject')).not.toBeOnTheScreen();
+      await expect(screen.findByText(unsaved)).resolves.toBeOnTheScreen();
+      await press('Save Drafts');
+      expect(screen.queryByText(unsaved)).not.toBeOnTheScreen();
+      await inbox.unmount();
+      await render(
+        <App
+          drafts={createDrafts(storage.native, registration)}
+          registration={registration}
+        />,
+      );
+      await press('Draft. Kept. No recipients. From alex@example.invalid');
+      expect(screen.getByLabelText('Subject')).toHaveDisplayValue('Kept');
+      expect(screen.getByLabelText('To')).toHaveDisplayValue('unfinished');
+    },
+  );
+
+  it('reveals the selected Draft again without leaving unsaved invalid recipient text', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    const shown: string[] = [];
+    await render(
+      <App
+        drafts={drafts}
+        registration={registration}
+        onCompose={(id) => {
+          shown.push(id);
+        }}
+      />,
+    );
+    await press('New Message');
+    const [id] = shown;
+    expect(id).toBeDefined();
+    await fireEvent.changeText(await screen.findByLabelText('Subject'), 'Kept');
+    storage.failNextCommit('unavailable');
+    await fireEvent.changeText(
+      await screen.findByLabelText('To'),
+      'unfinished',
+    );
+    await expect(
+      screen.findByText(
+        'Draft changes are not saved yet. Keep the app open and try saving again.',
+      ),
+    ).resolves.toBeOnTheScreen();
+    await press('Draft. Kept. No recipients. From alex@example.invalid');
+    expect(shown).toStrictEqual([id, id]);
+    expect(screen.getByLabelText('To')).toHaveDisplayValue('unfinished');
+    expect(
+      screen.queryByText(
+        'Correct or remove the invalid address to close this Draft.',
+      ),
+    ).not.toBeOnTheScreen();
+    expect(drafts.getSnapshot()).toMatchObject({
+      kind: 'ready',
+      save: 'failed',
+    });
+  });
   /* oxlint-enable vitest/max-expects */
 });

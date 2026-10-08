@@ -1224,5 +1224,62 @@ describe('composing Drafts', () => {
     });
     expect(draftsOf(drafts.getSnapshot())).toHaveLength(1);
   });
+
+  it.each([
+    [
+      'unavailable',
+      'Draft changes are not saved yet. Keep the app open and try saving again.',
+    ],
+    [
+      'locked',
+      'Draft changes are not saved while private storage is locked. Unlock your device.',
+    ],
+  ])(
+    'saves unfinished Draft changes from the Inbox after its composer unmounts (%s)',
+    async (failure, unsaved) => {
+      expect.hasAssertions();
+      const registration = account(connected(['alex@example.invalid']));
+      const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+      const drafts = createDrafts(storage.native, registration);
+      const first = await render(
+        <App
+          drafts={drafts}
+          registration={registration}
+        />,
+      );
+      await press('New Message');
+      await fireEvent.changeText(
+        await screen.findByLabelText('Subject'),
+        'Kept',
+      );
+      storage.failNextCommit(failure);
+      await fireEvent.changeText(
+        await screen.findByLabelText('To'),
+        'unfinished',
+      );
+      await expect(screen.findByText(unsaved)).resolves.toBeOnTheScreen();
+      await first.unmount();
+      const inbox = await render(
+        <App
+          drafts={drafts}
+          registration={registration}
+        />,
+      );
+      expect(screen.queryByLabelText('Subject')).not.toBeOnTheScreen();
+      await expect(screen.findByText(unsaved)).resolves.toBeOnTheScreen();
+      await press('Save Drafts');
+      expect(screen.queryByText(unsaved)).not.toBeOnTheScreen();
+      await inbox.unmount();
+      await render(
+        <App
+          drafts={createDrafts(storage.native, registration)}
+          registration={registration}
+        />,
+      );
+      await press('Draft. Kept. No recipients. From alex@example.invalid');
+      expect(screen.getByLabelText('Subject')).toHaveDisplayValue('Kept');
+      expect(screen.getByLabelText('To')).toHaveDisplayValue('unfinished');
+    },
+  );
   /* oxlint-enable vitest/max-expects */
 });
