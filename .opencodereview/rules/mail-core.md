@@ -109,6 +109,14 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   use a dot-free neutral shortened name; trace the displayed descriptor through
   native saving. Otherwise an untrusted attachment can appear to be a different
   file type after truncation, including when only the byte bound is exceeded.
+- `message-body.ts.safeFilename` normalizing, transforming or expanding a whole
+  sender-controlled name before bounding its input. The Gmail response cap still
+  permits huge strings; code-point arrays can exhaust the shared host runtime before
+  the output bound applies. Bound work before those operations and preserve suffix
+  provenance when discarding the middle: cleaned-away tail padding must not turn a
+  retained head dot into the saved extension, even below the output bounds. Exercise
+  both surrogate cuts with characters that survive final truncation, and retain
+  ordinary Unicode normalization for names within the input bound.
 - `message-body.ts.attachmentLeaves` identifying attached messages only through
   the consensus media type. Any Gmail `mimeType` or Content-Type header token
   declaring `message/rfc822` must exclude the part and its descendants, even when

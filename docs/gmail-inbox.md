@@ -761,9 +761,12 @@ attachment descriptors.
   and every Content-Type header when present. An ordinary file whose Content-Type
   header tokens conflict remains available as a generic file. Rows appear 20 at a time,
   with **Show N more** for the rest, so a message with thousands of parts stays usable.
-- **Names.** Names drop path separators, control and direction-override characters
-  and leading dots, and are shortened to 120 characters and 255 UTF-8 bytes.
-  Shortening keeps the final suffix when it has 1–16 characters without dots or
+- **Names.** Names drop path separators, control and direction-override characters,
+  lone surrogates and leading dots. Names longer than 1,024 UTF-16 units retain only
+  their first 960 and last 64 units before Unicode cleanup; dots in the retained start
+  become underscores, so only the retained ending can supply a file extension.
+  The cleaned name is shortened to 120 characters and 255 UTF-8 bytes when needed.
+  That shortening keeps the final suffix when it has 1–16 characters without dots or
   spaces; otherwise dots in the shortened name become underscores, so an earlier
   suffix cannot become the file extension. An empty name becomes `attachment`.
   The shortened name is shown in the list and used as the saved filename, with

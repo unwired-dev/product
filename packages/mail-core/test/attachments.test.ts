@@ -614,6 +614,41 @@ describe('received attachments', () => {
     ]);
   });
 
+  it('bounds the work done for a sender-supplied file name of any length', () => {
+    expect.hasAssertions();
+    // A name as large as a Gmail response allows still yields a short, extension-keeping name.
+    expect(safeFilename(`${'a'.repeat(8_000_000)}.pdf`)).toBe(
+      `${'a'.repeat(116)}.pdf`,
+    );
+    // Only the first 960 and last 64 UTF-16 units are read: a middle padded past the
+    // first window never reaches the cleaned name.
+    expect(
+      safeFilename(`${'\u0000'.repeat(960)}${'x'.repeat(200)}end.pdf`),
+    ).toBe(`${'x'.repeat(57)}end.pdf`);
+    // A discarded suffix never makes a dot in the retained head the file's extension,
+    // including when removing padding leaves a name below the output bounds.
+    expect([
+      safeFilename(
+        `${'a'.repeat(956)}.pdf${'x'.repeat(200)}${'\u0000'.repeat(64)}`,
+      ),
+      safeFilename(
+        `invoice.pdf${'\u0000'.repeat(1000)}.exe${'\u0000'.repeat(64)}`,
+      ),
+    ]).toStrictEqual(['a'.repeat(120), 'invoice_pdf']);
+    // Splitting either end of a surrogate pair leaves no lone surrogate, even when the
+    // cleaned prefix is short enough that the split character would reach the output.
+    expect([
+      safeFilename(`${'\u0000'.repeat(959)}📎${'x'.repeat(200)}end.pdf`),
+      safeFilename(
+        `${'\u0000'.repeat(960)}${'x'.repeat(200)}📎${'y'.repeat(59)}.pdf`,
+      ),
+    ]).toStrictEqual([`${'x'.repeat(57)}end.pdf`, `${'y'.repeat(59)}.pdf`]);
+    // Names through the window bound retain ordinary Unicode normalization and suffixes.
+    expect(safeFilename(`Re\u0301sume\u0301.${'a'.repeat(1011)}.pdf`)).toBe(
+      `Résumé.${'a'.repeat(109)}.pdf`,
+    );
+  });
+
   it('keeps file names safe to show and save', () => {
     expect.hasAssertions();
     expect(safeFilename(String.raw`..\..\etc/passwd`)).toBe('_.._etc_passwd');

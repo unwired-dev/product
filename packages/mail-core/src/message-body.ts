@@ -397,10 +397,21 @@ const filenameBytes = (character: string) => {
 // A name that is safe to show and to use as a file name: no path separators, control or
 // direction-overriding characters, no leading dot, and a bounded length that cannot expose
 // an earlier extension when the real one cannot be kept.
+// Bound sender-supplied names before normalization, cleanup and code-point expansion.
+const filenameInput = { head: 960, tail: 64 };
+
 export const safeFilename = (name: string) => {
-  const cleaned = name
+  // The discarded middle may contain the real suffix. Only the tail may supply a dot,
+  // even if cleaning its padding leaves the head below the output bounds.
+  const bounded =
+    name.length > filenameInput.head + filenameInput.tail
+      ? name.slice(0, filenameInput.head).replaceAll('.', '_') +
+        name.slice(-filenameInput.tail)
+      : name;
+  // Bounding can split a surrogate pair; lone surrogates are dropped with other format characters.
+  const cleaned = bounded
     .normalize('NFC')
-    .replaceAll(/[\p{Cc}\p{Cf}\u2028\u2029]/gu, '')
+    .replaceAll(/[\p{Cc}\p{Cf}\p{Cs}\u2028\u2029]/gu, '')
     .replaceAll(/[/\\:]/gu, '_')
     .replaceAll(/\s+/gu, ' ')
     .replace(/^[\s.]+/u, '')
