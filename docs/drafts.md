@@ -55,8 +55,11 @@ the composer and are saved by the next edit or **Try again**.
 
 Conflicting edits from separate Mac windows or storage writers are preserved as
 separate Drafts labelled **DRAFT · CONFLICT**. Independent Drafts survive a
-concurrent save. Review a conflicting copy and discard it explicitly when it is no
-longer needed.
+concurrent save. The newer stored version keeps its identity; the stale editor
+follows its own conflicting copy, including its Undo and Redo history. Further
+edits, Close and Discard affect that editor's version. An edit racing a deletion
+survives as a conflicting copy while the deleted identity stays removed. Review a
+conflicting copy and discard it explicitly when it is no longer needed.
 
 **Close** first turns any address still being typed into a recipient; text that
 is not a valid address keeps the composer open until it is corrected or removed.
@@ -112,6 +115,11 @@ Shared regressions cover conflicting window edits, concurrent storage writers,
 failed deletion, and edits within repeated text with different formatting. Component
 journeys also cover Undo between subject and body, blocked switching and discard
 failure recovery.
+Conflict journeys follow the selected copy through Undo, Redo, continued typing
+before a render, and Discard. Cross-field callbacks and recipient completion
+before a render preserve the latest authored fields through Close and relaunch.
+Storage regressions cover copy-identifier collisions
+between writers and rebinding after failed saving and Retry.
 
 Deferred before release: native iPhone, iPad and Mac journeys that compose, relaunch
 and reopen a Draft; VoiceOver, hardware-keyboard and Dynamic Type qualification of

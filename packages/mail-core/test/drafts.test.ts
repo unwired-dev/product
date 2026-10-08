@@ -338,19 +338,27 @@ describe('storing Drafts', () => {
       addRecipients(current, { field: 'to', text: 'maya@exam' }).draft,
       current,
     );
-    await reopened.update(
+    // The stale editor's version becomes a copy it is told about, so it keeps editing its own.
+    const moved: string[] = [];
+    const saving = reopened.update(
       addRecipients(current, { field: 'to', text: 'maya@examp' }).draft,
       current,
+      (copy) => {
+        moved.push(copy);
+      },
     );
+    expect(moved).toStrictEqual([`${id}-conflict-1`]);
+    await saving;
     const final = createDrafts(storage.native, session.registration);
     await final.load();
     expect(ready(final.getSnapshot()).drafts).toStrictEqual(
       expect.arrayContaining([
+        expect.objectContaining({ id, entries: { to: 'maya@exam' } }),
         expect.objectContaining({
-          entries: { to: 'maya@exam' },
+          id: `${id}-conflict-1`,
+          entries: { to: 'maya@examp' },
           conflict: true,
         }),
-        expect.objectContaining({ id, entries: { to: 'maya@examp' } }),
       ]),
     );
   });
@@ -461,12 +469,12 @@ describe('storing Drafts', () => {
       expect.arrayContaining([
         expect.objectContaining({ id: firstId }),
         expect.objectContaining({
+          id: secondId,
           subject: 'Window A subject',
-          conflict: true,
         }),
         expect.objectContaining({
-          id: secondId,
           body: typed(emptyDocument, 'Window B body'),
+          conflict: true,
         }),
       ]),
     );
@@ -519,9 +527,13 @@ describe('storing Drafts', () => {
     );
     storage.hold();
     const deletion = drafts.discard(racingId);
+    let followed = racingId;
     const edit = drafts.update(
       { ...before, subject: 'Edited during discard' },
       before,
+      (copy) => {
+        followed = copy;
+      },
     );
     storage.release();
     await Promise.all([deletion, edit]);
@@ -529,10 +541,47 @@ describe('storing Drafts', () => {
     await after.load();
     expect(ready(after.getSnapshot()).drafts).toStrictEqual([
       expect.objectContaining({
+        id: followed,
         subject: 'Edited during discard',
         conflict: true,
       }),
     ]);
+  });
+
+  it('keeps an editor bound to its copy when another storage writer chose the same copy ID', async () => {
+    expect.hasAssertions();
+    const session = account(connected('account-a'));
+    const storage = createSyntheticDrafts(session.productAccount);
+    const first = createDrafts(storage.native, session.registration);
+    await first.load();
+    const id = present(await first.create(alex), 'Draft id');
+    const before = present(draftOf(first.getSnapshot(), id), 'shared Draft');
+    const second = createDrafts(storage.native, session.registration);
+    await second.load();
+    await first.update({ ...before, subject: 'First latest' }, before);
+    await second.update({ ...before, subject: 'Second latest' }, before);
+    await first.update({ ...before, subject: 'First stale' }, before);
+    let followed = id;
+    // Retain the binding through a failed save: Retry may be the operation that rebases it.
+    storage.failNextCommit('unavailable');
+    await expect(
+      second.update({ ...before, subject: 'Second stale' }, before, (copy) => {
+        followed = copy;
+      }),
+    ).resolves.toBe(false);
+    await second.save();
+    expect(draftOf(second.getSnapshot(), followed)?.subject).toBe(
+      'Second stale',
+    );
+    await second.discard(followed);
+    const reopened = createDrafts(storage.native, session.registration);
+    await reopened.load();
+    expect(
+      ready(reopened.getSnapshot()).drafts.map(({ subject }) => subject),
+    ).toStrictEqual(
+      expect.arrayContaining(['First latest', 'Second latest', 'First stale']),
+    );
+    expect(ready(reopened.getSnapshot()).drafts).toHaveLength(3);
   });
 
   it('shows each Product Account only its own Drafts', async () => {

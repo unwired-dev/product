@@ -484,11 +484,13 @@ function SendingMailbox({
 
 function Recipients({
   draft,
+  getDraft,
   field,
   onChange,
   onCaretMove,
 }: {
   readonly draft: Draft;
+  readonly getDraft: () => Draft;
   readonly field: RecipientField;
   // A typing step when only the unfinished entry changed.
   readonly onChange: (draft: Draft, typing: boolean, field: string) => void;
@@ -498,14 +500,14 @@ function Recipients({
   const [notice, setNotice] = useState<RecipientNotice>();
   const selection = useRef<Selection>({ start: 0, end: 0 });
   const caret = useRef<number | undefined>(undefined);
-  const text = entryOf(draft, field);
   const name = fieldNames[field];
   const add = (value: string, all: boolean, typing = false) => {
-    const result = addRecipients(draft, { field, text: value, all });
-    if (result.draft !== draft) {
+    const current = getDraft();
+    const result = addRecipients(current, { field, text: value, all });
+    if (result.draft !== current) {
       onChange(
         result.draft,
-        typing && result.draft[field] === draft[field],
+        typing && result.draft[field] === current[field],
         field,
       );
     }
@@ -522,10 +524,13 @@ function Recipients({
             accessibilityLabel={`${name}: ${recipientLabel(recipient)}`}
             accessibilityRole="button"
             onPress={() => {
+              const current = getDraft();
               onChange(
                 {
-                  ...draft,
-                  [field]: draft[field].filter((each) => each !== recipient),
+                  ...current,
+                  [field]: current[field].filter(
+                    (each) => each.address !== recipient.address,
+                  ),
                 },
                 false,
                 field,
@@ -546,9 +551,10 @@ function Recipients({
         submitBehavior="submit"
         inputMode="email"
         onBlur={() => {
-          add(entryOf(draft, field), true);
+          add(entryOf(getDraft(), field), true);
         }}
         onChangeText={(value) => {
+          const text = entryOf(getDraft(), field);
           caret.current = selection.current.end + value.length - text.length;
           const word =
             value.length === text.length + 1 &&
@@ -564,7 +570,7 @@ function Recipients({
           selection.current = next;
         }}
         onSubmitEditing={() => {
-          add(entryOf(draft, field), true);
+          add(entryOf(getDraft(), field), true);
         }}
         placeholder="Name or email address"
         placeholderTextColor={colors.secondary}
@@ -585,14 +591,51 @@ function Recipients({
 function Editor({
   initial,
   onClose,
+  onRebind,
 }: {
   readonly initial: Draft;
   readonly onClose: () => void;
+  // Another editor changed this Draft first, so this editor's version is now the copy `id`.
+  readonly onRebind: (id: string) => void;
 }) {
   const store = useDraftStore();
   const state = useDrafts();
   const colors = usePalette();
   const [history, setHistory] = useState(() => historyOf(initial));
+  // Native events can arrive before React commits a rebind or an earlier edit.
+  const authored = useRef(initial);
+  const getDraft = useCallback(() => authored.current, []);
+  const keepIdentity = useCallback((next: typeof history) => {
+    if (next.present.id === authored.current.id) {
+      return next;
+    }
+    const bound = (each: Draft): Draft => ({
+      ...each,
+      id: authored.current.id,
+      conflict: true,
+    });
+    return {
+      ...next,
+      past: next.past.map(bound),
+      present: bound(next.present),
+      future: next.future.map(bound),
+    };
+  }, []);
+  // Keeps editing, discarding and closing this editor's own version as its conflicting copy.
+  const rebind = useCallback(
+    (id: string) => {
+      const bound = (each: Draft): Draft => ({ ...each, id, conflict: true });
+      authored.current = bound(authored.current);
+      setHistory((current) => ({
+        ...current,
+        past: current.past.map(bound),
+        present: bound(current.present),
+        future: current.future.map(bound),
+      }));
+      onRebind(id);
+    },
+    [onRebind],
+  );
   const [selection, setSelection] = useState<Selection>({ start: 0, end: 0 });
   // Where the editor must place the caret after a change it did not type itself.
   const [placed, setPlaced] = useState<Selection>();
@@ -613,41 +656,65 @@ function Editor({
   const display = displayOf(draft.body);
   const save = state.kind === 'ready' ? state.save : 'failed';
 
+  const update = useCallback(
+    (next: Draft) => {
+      const previous = authored.current;
+      const bound =
+        next.id === previous.id
+          ? next
+          : { ...next, id: previous.id, conflict: true as const };
+      authored.current = bound;
+      void store.update(bound, previous, rebind);
+    },
+    [rebind, store],
+  );
   const change = (next: Draft, word = false, field?: string) => {
-    setHistory(
-      record(
-        { ...history, typing: history.typing && typingField.current === field },
-        next,
-        word,
+    const continuing = typingField.current === field;
+    setHistory((current) =>
+      keepIdentity(
+        record(
+          { ...current, typing: current.typing && continuing },
+          next,
+          word,
+        ),
       ),
     );
     typingField.current = word ? field : undefined;
     setClosing(undefined);
-    void store.update(next, draft);
+    update(next);
   };
   const travel = (to: typeof history) => {
-    setHistory(to);
+    setHistory(() => keepIdentity(to));
     setTyping(undefined);
-    void store.update(to.present, draft);
+    update(to.present);
   };
   const edit = (text: string) => {
-    const result = applyText(draft.body, text, {
+    const latest = authored.current;
+    const textBefore = displayOf(latest.body).text;
+    const result = applyText(latest.body, text, {
       marks: typing,
       selection,
       deletion: deletion.current,
     });
     deletion.current = undefined;
     // One character added after the caret continues a typing step until a word ends.
-    const added = text.length === display.text.length + 1;
+    const added = text.length === textBefore.length + 1;
     const word = added && !/\s/u.test(text[selection.start] ?? ' ');
-    caret.current = selection.end + text.length - display.text.length;
+    caret.current = selection.end + text.length - textBefore.length;
     if (result.literal === undefined) {
-      change({ ...draft, body: result.document }, word, 'body');
+      change({ ...latest, body: result.document }, word, 'body');
     } else {
       // The literal marker is its own step, so one Undo restores it.
-      const literal = record(history, { ...draft, body: result.literal });
-      setHistory(record(literal, { ...draft, body: result.document }));
-      void store.update({ ...draft, body: result.document }, draft);
+      const { literal } = result;
+      setHistory((current) =>
+        keepIdentity(
+          record(record(current, { ...latest, body: literal }), {
+            ...latest,
+            body: result.document,
+          }),
+        ),
+      );
+      update({ ...latest, body: result.document });
     }
     if (result.selection !== undefined) {
       caret.current = result.selection.start;
@@ -655,20 +722,23 @@ function Editor({
     }
   };
   const format = (mark: Mark) => {
+    const latest = authored.current;
     if (selection.start === selection.end) {
-      setTyping(toggled(typing ?? marksAt(draft.body, selection), mark));
+      setTyping(toggled(typing ?? marksAt(latest.body, selection), mark));
       return;
     }
-    change({ ...draft, body: toggleMark(draft.body, selection, mark) });
+    change({ ...latest, body: toggleMark(latest.body, selection, mark) });
   };
   const block = (kind: BlockKind) => {
-    const result = setBlockKind(draft.body, selection, kind);
-    change({ ...draft, body: result.document });
+    const latest = authored.current;
+    const result = setBlockKind(latest.body, selection, kind);
+    change({ ...latest, body: result.document });
     setPlaced(result.selection);
   };
   const close = useCallback(async () => {
     // Entries still being typed become recipients; invalid text keeps the Draft open.
-    let finished = draft;
+    const latest = authored.current;
+    let finished = latest;
     for (const field of ['to', 'cc', 'bcc'] as const) {
       finished = addRecipients(finished, {
         field,
@@ -676,9 +746,9 @@ function Editor({
         all: true,
       }).draft;
     }
-    if (finished !== draft) {
-      setHistory(record(history, finished));
-      void store.update(finished, draft);
+    if (finished !== latest) {
+      setHistory((current) => keepIdentity(record(current, finished)));
+      update(finished);
     }
     if (finished.entries !== undefined) {
       setClosing('recipients');
@@ -686,7 +756,7 @@ function Editor({
     }
     setClosing('saving');
     if (isEmptyDraft(finished)) {
-      if (await store.discard(draft.id, { onlyIfEmpty: true })) {
+      if (await store.discard(authored.current.id, { onlyIfEmpty: true })) {
         onClose();
         return true;
       }
@@ -699,7 +769,7 @@ function Editor({
     }
     setClosing('blocked');
     return false;
-  }, [draft, history, onClose, store]);
+  }, [keepIdentity, onClose, store, update]);
   const navigation = useComposerNavigation();
   useLayoutEffect(() => navigation.register(close), [navigation, close]);
   const keyDown = ({ nativeEvent }: KeyEvent) => {
@@ -728,7 +798,7 @@ function Editor({
   };
   const discard = async () => {
     setClosing('saving');
-    if (await store.discard(draft.id)) {
+    if (await store.discard(authored.current.id)) {
       onClose();
     } else {
       setClosing('discard-blocked');
@@ -836,11 +906,16 @@ function Editor({
         <SendingMailbox
           draft={draft}
           onChange={(mailbox) => {
-            change({ ...draft, connection: mailbox.id, from: mailbox.address });
+            change({
+              ...authored.current,
+              connection: mailbox.id,
+              from: mailbox.address,
+            });
           }}
         />
         <Recipients
           draft={draft}
+          getDraft={getDraft}
           field="to"
           onChange={change}
           onCaretMove={breakTyping}
@@ -849,12 +924,14 @@ function Editor({
           <>
             <Recipients
               draft={draft}
+              getDraft={getDraft}
               field="cc"
               onChange={change}
               onCaretMove={breakTyping}
             />
             <Recipients
               draft={draft}
+              getDraft={getDraft}
               field="bcc"
               onChange={change}
               onCaretMove={breakTyping}
@@ -865,7 +942,7 @@ function Editor({
             accessibilityLabel="Show Cc and Bcc"
             label="Cc/Bcc"
             onPress={() => {
-              change({ ...draft, copies: true });
+              change({ ...authored.current, copies: true });
             }}
           />
         )}
@@ -873,11 +950,20 @@ function Editor({
           <TextInput
             accessibilityLabel="Subject"
             onChangeText={(subject) => {
+              const previous = authored.current.subject;
               subjectCaret.current =
-                subjectSelection.current.end +
-                subject.length -
-                draft.subject.length;
-              change({ ...draft, subject }, !subject.endsWith(' '), 'subject');
+                subjectSelection.current.end + subject.length - previous.length;
+              // One character added at the caret continues a typing step until a word ends.
+              const added =
+                subjectSelection.current.start ===
+                  subjectSelection.current.end &&
+                subject.length === previous.length + 1;
+              const typed = subject[subjectSelection.current.start] ?? ' ';
+              change(
+                { ...authored.current, subject },
+                added && !/\s/u.test(typed),
+                'subject',
+              );
             }}
             onSelectionChange={({ nativeEvent }) => {
               const next = nativeEvent.selection;
@@ -993,20 +1079,36 @@ function Editor({
 export function Composer({
   id,
   onClose,
+  onRebind,
 }: {
   readonly id: string;
   readonly onClose: () => void;
+  // Follows the editor to its conflicting copy without reopening it.
+  readonly onRebind: (id: string) => void;
 }) {
   const state = useDrafts();
   const store = useDraftStore();
   const colors = usePalette();
+  // The editor stays mounted when it moves to its own copy, and remounts for another Draft.
+  const [editor, setEditor] = useState({ key: id, followed: id });
+  if (editor.followed !== id) {
+    setEditor({ key: id, followed: id });
+  }
+  const rebind = useCallback(
+    (copy: string) => {
+      setEditor((current) => ({ key: current.key, followed: copy }));
+      onRebind(copy);
+    },
+    [onRebind],
+  );
   const draft = draftOf(state, id);
   if (draft !== undefined) {
     return (
       <Editor
-        key={draft.id}
+        key={editor.key}
         initial={draft}
         onClose={onClose}
+        onRebind={rebind}
       />
     );
   }

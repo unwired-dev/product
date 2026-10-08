@@ -58,6 +58,7 @@ export function PreviewWindow({ windowId }: { readonly windowId: string }) {
               onClose={() => {
                 setComposing(undefined);
               }}
+              onRebind={setComposing}
             />
           )}
         </View>

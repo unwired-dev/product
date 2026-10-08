@@ -4,6 +4,12 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### The test proves the behavior
 
+- A composer conflict regression that passes a no-op `onRebind` and asserts only
+  retained store content. Exercise the owning route/window selection, mounted
+  history through Undo/Redo, continued text callbacks before a render, and Discard
+  of the bound version. Include storage rebases when they can rename a copy;
+  otherwise the test passes while the editor still targets another writer's Draft.
+
 - A host keyboard regression in `apps/{mobile,macos}/test/` that fires `keyDown`
   directly without checking the installed native emitter, JavaScript wrapper and
   handled-key consumption contract. A component event bypasses those layers; it

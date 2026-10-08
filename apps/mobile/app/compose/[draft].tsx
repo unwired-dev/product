@@ -10,6 +10,9 @@ export default function ComposeRoute() {
       onClose={() => {
         router.replace('/');
       }}
+      onRebind={(copy) => {
+        router.setParams({ draft: copy });
+      }}
     />
   );
 }

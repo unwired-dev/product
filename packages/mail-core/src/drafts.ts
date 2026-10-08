@@ -264,6 +264,7 @@ const rebaseDrafts = Effect.fnUntraced(function* (
   latest: readonly Draft[],
 ) {
   const merged: Draft[] = [];
+  const moved: Array<Readonly<{ from: string; to: string }>> = [];
   const ids = new Set([...base, ...local, ...latest].map(({ id }) => id));
   for (const id of ids) {
     const before = base.find((draft) => draft.id === id);
@@ -276,11 +277,27 @@ const rebaseDrafts = Effect.fnUntraced(function* (
       merged.push(...(theirs === undefined ? [] : [theirs]));
     }
     if (!sameContent(before, ours) && ours !== undefined) {
-      merged.push(oursOnly ? ours : yield* conflictCopy(ours));
+      if (oursOnly) {
+        merged.push(ours);
+      } else {
+        const copy = yield* conflictCopy(ours);
+        merged.push(copy);
+        moved.push({ from: ours.id, to: copy.id });
+      }
     }
   }
-  return merged;
+  return { drafts: merged, moved };
 });
+
+// The first conflicting-copy identifier for `id` that no Draft uses.
+const copyId = (id: string, drafts: readonly Draft[]) => {
+  const used = new Set(drafts.map((draft) => draft.id));
+  let index = 1;
+  while (used.has(`${id}-conflict-${index}`)) {
+    index += 1;
+  }
+  return `${id}-conflict-${index}`;
+};
 
 // Store -----------------------------------------------------------------------------------------
 
@@ -393,11 +410,23 @@ export function createDrafts(
   let dirty = false;
   let state: DraftsState = { kind: 'closed' };
   let started = false;
+  // Only unsaved versions can move during CAS recovery or an in-flight deletion.
+  const pendingMoves = new Map<string, (id: string) => void>();
   const listeners = new Set<() => void>();
-  const publish = (next: DraftsState) => {
+  const publish = (next: DraftsState, notify?: () => void) => {
     state = next;
+    // A synchronous rebind may render immediately; the copy must already be available.
+    notify?.();
     for (const listener of listeners) {
       listener();
+    }
+  };
+  const rebindPending = (from: string, to: string) => {
+    const binding = pendingMoves.get(from);
+    if (binding !== undefined) {
+      pendingMoves.delete(from);
+      pendingMoves.set(to, binding);
+      binding(to);
     }
   };
   const live = (current: number) => current === generation;
@@ -463,7 +492,11 @@ export function createDrafts(
       const latest = opened.document?.drafts ?? [];
       const merged = yield* rebaseDrafts(base, state.drafts, latest);
       base = latest;
-      publish({ ...state, drafts: merged, save: 'saving' });
+      publish({ ...state, drafts: merged.drafts, save: 'saving' }, () => {
+        for (const { from, to } of merged.moved) {
+          rebindPending(from, to);
+        }
+      });
     }
   });
 
@@ -540,6 +573,7 @@ export function createDrafts(
         }
         yield* flush(current, account);
         if (live(current) && state.kind === 'ready' && !dirty) {
+          pendingMoves.clear();
           publish({ ...state, save: 'saved' });
         }
         return live(current) && !dirty;
@@ -554,6 +588,7 @@ export function createDrafts(
       fresh: Readonly<{ now: number; id: string }>,
     ) => readonly Draft[],
     current = generation,
+    notify?: () => void,
   ) =>
     runLogged(
       Effect.gen(function* () {
@@ -563,11 +598,14 @@ export function createDrafts(
         const now = yield* Clock.currentTimeMillis;
         const id = `${Math.abs(yield* Random.nextInt).toString(36)}${Math.abs(yield* Random.nextInt).toString(36)}`;
         dirty = true;
-        publish({
-          kind: 'ready',
-          drafts: edit(state.drafts, { now, id }),
-          save: 'saving',
-        });
+        publish(
+          {
+            kind: 'ready',
+            drafts: edit(state.drafts, { now, id }),
+            save: 'saving',
+          },
+          notify,
+        );
         return yield* saving(current);
       }),
     );
@@ -600,13 +638,21 @@ export function createDrafts(
     const edited = state.drafts.find((draft) => draft.id === id);
     const changed = edited !== undefined && !sameContent(edited, deleting);
     dirty ||= changed;
-    publish({
-      ...state,
-      drafts: [
-        ...state.drafts.filter((draft) => draft.id !== id),
-        ...(changed ? [yield* conflictCopy(edited)] : []),
-      ],
-    });
+    const copy = changed ? yield* conflictCopy(edited) : undefined;
+    publish(
+      {
+        ...state,
+        drafts: [
+          ...state.drafts.filter((draft) => draft.id !== id),
+          ...(copy === undefined ? [] : [copy]),
+        ],
+      },
+      () => {
+        if (copy !== undefined) {
+          rebindPending(id, copy.id);
+        }
+      },
+    );
   });
 
   // Keep a Draft visible until its deletion is durable, so a refused discard can be retried.
@@ -630,6 +676,7 @@ export function createDrafts(
         yield* deleted(current, account, { id, draft: deleting });
         yield* flush(current, account);
         if (live(current) && state.kind === 'ready') {
+          pendingMoves.clear();
           publish({ ...state, save: 'saved' });
         }
         return live(current);
@@ -646,6 +693,7 @@ export function createDrafts(
     revision = 0;
     base = [];
     dirty = false;
+    pendingMoves.clear();
     publish(next === undefined ? { kind: 'closed' } : { kind: 'loading' });
     if (started && next !== undefined) {
       void runLogged(opening(generation, next));
@@ -692,24 +740,44 @@ export function createDrafts(
       });
       return created.id;
     },
-    // Replaces a Draft's content; resolves true once it is saved.
-    update: (draft: Draft, previous?: Draft) =>
-      change((drafts, { now, id }) => {
-        const current = drafts.find((each) => each.id === draft.id);
-        const conflict =
-          current !== undefined &&
-          previous !== undefined &&
-          !sameContent(current, previous) &&
-          !sameContent(current, draft);
-        return [
-          ...drafts.map((each) =>
-            each.id === draft.id ? { ...draft, updatedAt: now } : each,
-          ),
-          ...(conflict
-            ? [{ ...current, id, updatedAt: now, conflict: true as const }]
-            : []),
-        ];
-      }),
+    // Replaces a Draft's content; resolves true once it is saved. When another editor changed the
+    // Draft since `previous`, its newer version keeps the identifier and this edit becomes a
+    // conflicting copy: `moved` learns the copy's identifier at once and again if storage
+    // recovery moves it before saving, so the caller keeps editing its own version.
+    update: (draft: Draft, previous?: Draft, moved?: (id: string) => void) => {
+      let copy: string | undefined = undefined;
+      return change(
+        (drafts, { now }) => {
+          // Decide against the same snapshot this edit changes, before notifying any editor.
+          const current = drafts.find((each) => each.id === draft.id);
+          const conflict =
+            current !== undefined &&
+            previous !== undefined &&
+            !sameContent(current, previous) &&
+            !sameContent(current, draft);
+          const id = conflict ? copyId(draft.id, drafts) : draft.id;
+          if (moved !== undefined) {
+            pendingMoves.set(id, moved);
+          }
+          if (conflict) {
+            copy = id;
+            return [
+              ...drafts,
+              { ...draft, id, updatedAt: now, conflict: true as const },
+            ];
+          }
+          return drafts.map((each) =>
+            each.id === id ? { ...draft, updatedAt: now } : each,
+          );
+        },
+        generation,
+        () => {
+          if (copy !== undefined) {
+            moved?.(copy);
+          }
+        },
+      );
+    },
     discard: (id: string, { onlyIfEmpty = false } = {}) =>
       runLogged(removing(id, generation, onlyIfEmpty)),
   };

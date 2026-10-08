@@ -93,6 +93,14 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   latest-only Drafts, edit-versus-deletion conflicts and owner-checked CAS recovery;
   retain conflicting authored versions as visible copies. Otherwise an ordinary
   autosave silently erases another completed edit or an independently created Draft.
+- `createDrafts.update` deciding a fork against a different snapshot from the one
+  it mutates, or `rebaseDrafts`/`deleted` moving the pending authored version without
+  notifying its editor. Keep the newer stored version's ID and move the stale
+  payload; notify after the copy enters the snapshot and before subscribers can
+  unmount its editor. Keep the binding through failed saving and Retry, and clear
+  it after durable completion or account invalidation. Two storage writers can
+  choose the same free local copy ID; preserve both versions and follow any second
+  rename, or Discard deletes the other writer's copy despite preserving its content.
 - `createDrafts.discard` publishing removal before the native commit succeeds.
   A failed deletion must leave the Draft visible and retryable rather than
   unmounting its editor and reporting completion while it can return after relaunch.

@@ -13,6 +13,17 @@ A host owns views and native adapters. It renders shared stores from `@private-e
 
 #### React correctness
 
+- `Editor` retaining its old Draft identity after conflict preservation. Follow
+  the authored version through in-process forks, storage rebases and edits racing
+  deletion; its route/window selection, past/present/future history, continued
+  editing, Close and Discard must all follow the same copy without remounting.
+  Check text callbacks arriving before React commits a rebind: keep the prior
+  authored payload and identity current synchronously, and use functional history
+  updates, or the next event forks extra copies or deletes another editor's work.
+  Build each field command, recipient completion and Close from that latest
+  authored payload too; pairing a fresh save baseline with a stale render payload
+  silently erases edits from another field before React renders.
+
 - `Recipients` or `Editor` keeping unfinished recipient text only in component
   state instead of the autosaved Draft. Verify interruption recovery without
   blur, Close or navigation, and include unfinished entries in content equality,
@@ -25,6 +36,10 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   moves. Check repeated characters with different semantic marks and subject-to-body
   editing; otherwise formatting moves to the wrong character or Undo removes an
   unrelated completed edit.
+  Subject word grouping must inspect the newly inserted character at the saved
+  caret, end on any whitespace, and start a distinct step for multi-character
+  insertion or replacement; the final character of the entire subject says
+  nothing about typing in the middle of it.
   Mac `onKeyDown` emits ordinary keys too: require the modifier before invoking
   formatting or Undo, or typing a letter can mutate formatting/history.
   In the installed Mac TextInput, `keyDownEvents` consumes matching native input;

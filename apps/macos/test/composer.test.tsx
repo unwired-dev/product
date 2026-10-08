@@ -17,8 +17,10 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from '@testing-library/react-native';
 import { useMemo, useState, useSyncExternalStore } from 'react';
+import { View } from 'react-native';
 
 import { Composer } from '../src/composer.tsx';
 import { Inbox } from '../src/inbox.tsx';
@@ -71,10 +73,12 @@ function App({
   registration,
   drafts,
   openAccount = ignore,
+  initialDraft,
 }: {
   readonly registration: ReturnType<typeof account>;
   readonly drafts: ReturnType<typeof createDrafts>;
   readonly openAccount?: () => void;
+  readonly initialDraft?: string;
 }) {
   const { snapshot } = useSyncExternalStore(
     registration.subscribe,
@@ -94,7 +98,7 @@ function App({
       ),
     [registration],
   );
-  const [composing, setComposing] = useState<string>();
+  const [composing, setComposing] = useState<string | undefined>(initialDraft);
   return (
     <AccountContext
       value={{
@@ -118,6 +122,7 @@ function App({
             onClose={() => {
               setComposing(undefined);
             }}
+            onRebind={setComposing}
           />
         )}
       </InboxProvider>
@@ -279,7 +284,7 @@ describe('composing Drafts', () => {
     expect(body()).toHaveTextContent('• aa');
   });
 
-  it('closes an untouched composer without deleting content saved by another window', async () => {
+  it('closes an empty composer without deleting content saved by another window', async () => {
     expect.hasAssertions();
     const registration = account(connected(['alex@example.invalid']));
     const storage = createSyntheticDrafts(() => 'synthetic-product-account');
@@ -291,6 +296,8 @@ describe('composing Drafts', () => {
       />,
     );
     await press('New Message');
+    // Close finishes whitespace-only entry, which may rebind before empty disposal.
+    await fireEvent.changeText(screen.getByLabelText('To'), ' ');
     const [initial] = draftsOf(current.getSnapshot());
     ok(initial, 'Expected a Draft');
     const completed = { ...initial, subject: 'Completed in another window' };
@@ -301,6 +308,7 @@ describe('composing Drafts', () => {
     await press('Close');
     const reopened = createDrafts(storage.native, registration);
     await reopened.load();
+    expect(draftsOf(reopened.getSnapshot())).toHaveLength(1);
     expect(draftsOf(reopened.getSnapshot())[0]?.subject).toBe(
       'Completed in another window',
     );
@@ -621,6 +629,178 @@ describe('composing Drafts', () => {
     const reopened = createDrafts(storage.native, registration);
     await reopened.load();
     expect(draftsOf(reopened.getSnapshot())).toStrictEqual([]);
+  });
+
+  it('keeps a stale editor on its own conflicting copy', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    await drafts.load();
+    const created = await drafts.create({
+      id: alex,
+      address: 'alex@example.invalid',
+    });
+    ok(created);
+    const id: string = created;
+    const editor = (name: string) => (
+      <View testID={name}>
+        <App
+          drafts={drafts}
+          registration={registration}
+          initialDraft={id}
+        />
+      </View>
+    );
+    await render(
+      <>
+        {editor('first')}
+        {editor('second')}
+      </>,
+    );
+    const first = within(screen.getByTestId('first'));
+    const second = within(screen.getByTestId('second'));
+    await fireEvent.changeText(first.getByLabelText('Subject'), 'First window');
+    const staleSubject = second.getByLabelText('Subject');
+    // Native text events can arrive before React has committed the synchronous rebind.
+    await act(() => {
+      staleSubject.props.onChangeText('Second');
+      staleSubject.props.onChangeText('Second window');
+    });
+    const copy = second.getByRole('button', {
+      name: /^Conflicting Draft\. Second window\./u,
+    });
+    expect(copy).toHaveProp('accessibilityState', { selected: true });
+    expect(
+      first.getByRole('button', { name: /^Draft\. First window\./u }),
+    ).toHaveProp('accessibilityState', { selected: true });
+    // Following the copy retains the mounted editor's history, not just its saved payload.
+    await fireEvent.press(second.getByRole('button', { name: 'Undo' }));
+    expect(second.getByLabelText('Subject')).toHaveProp('value', 'Second');
+    await fireEvent.press(second.getByRole('button', { name: 'Undo' }));
+    expect(second.getByLabelText('Subject')).toHaveProp('value', '');
+    await fireEvent.press(second.getByRole('button', { name: 'Redo' }));
+    expect(second.getByLabelText('Subject')).toHaveProp('value', 'Second');
+    await fireEvent.press(second.getByRole('button', { name: 'Redo' }));
+    expect(second.getByLabelText('Subject')).toHaveProp(
+      'value',
+      'Second window',
+    );
+    await fireEvent.changeText(
+      second.getByLabelText('Subject'),
+      'Second window continued',
+    );
+    expect(draftsOf(drafts.getSnapshot())).toHaveLength(2);
+    expect(
+      draftsOf(drafts.getSnapshot()).find(({ id: each }) => each !== id)
+        ?.subject,
+    ).toBe('Second window continued');
+    // Discarding in the stale window deletes only its own version.
+    await act(async () => {
+      await fireEvent.press(second.getByRole('button', { name: 'Discard' }));
+    });
+    await act(async () => {
+      await fireEvent.press(
+        second.getByRole('button', { name: 'Discard Draft' }),
+      );
+    });
+    expect(
+      draftsOf(drafts.getSnapshot()).map(({ id: each, subject }) => [
+        each,
+        subject,
+      ]),
+    ).toStrictEqual([[id, 'First window']]);
+  });
+
+  it('undoes subject typing a word at a time wherever the caret is', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    await render(
+      <App
+        drafts={createDrafts(storage.native, registration)}
+        registration={registration}
+      />,
+    );
+    await press('New Message');
+    const subject = await screen.findByLabelText('Subject');
+    await fireEvent.changeText(subject, 'Hi ');
+    await fireEvent(subject, 'selectionChange', {
+      nativeEvent: { selection: { start: 0, end: 0 } },
+    });
+    await fireEvent.changeText(subject, 'XHi ');
+    await fireEvent(subject, 'selectionChange', {
+      nativeEvent: { selection: { start: 1, end: 1 } },
+    });
+    await fireEvent.changeText(subject, 'XYHi ');
+    await press('Undo');
+    expect(screen.getByLabelText('Subject')).toHaveProp('value', 'Hi ');
+    // A replacement with a net one-character gain is not a continued typing step.
+    await fireEvent(subject, 'selectionChange', {
+      nativeEvent: { selection: { start: 0, end: 3 } },
+    });
+    await fireEvent.changeText(subject, 'Text');
+    await fireEvent(subject, 'selectionChange', {
+      nativeEvent: { selection: { start: 4, end: 4 } },
+    });
+    await fireEvent.changeText(subject, 'Textx');
+    await press('Undo');
+    expect(screen.getByLabelText('Subject')).toHaveProp('value', 'Text');
+  });
+
+  it('preserves edits across fields before React renders', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    await render(
+      <App
+        drafts={drafts}
+        registration={registration}
+      />,
+    );
+    await press('New Message');
+    const subject = await screen.findByLabelText('Subject');
+    const body = screen.getByLabelText('Message body');
+    const to = screen.getByLabelText('To');
+    // Different-field callbacks before a render must build on the latest authored payload.
+    await act(() => {
+      subject.props.onChangeText('Completed subject');
+      body.props.onChangeText('Completed body');
+      to.props.onChangeText('maya@exa');
+    });
+    expect(screen.getByLabelText('Subject')).toHaveProp(
+      'value',
+      'Completed subject',
+    );
+    expect(screen.getByLabelText('Message body')).toHaveTextContent(
+      'Completed body',
+    );
+    expect(screen.getByLabelText('To')).toHaveProp('value', 'maya@exa');
+    await press('Undo');
+    expect(screen.getByLabelText('Message body')).toHaveTextContent(
+      'Completed body',
+    );
+    await press('Undo');
+    expect(screen.getByLabelText('Subject')).toHaveProp(
+      'value',
+      'Completed subject',
+    );
+    await press('Redo');
+    await press('Redo');
+    await act(() => {
+      to.props.onChangeText('maya@example.invalid');
+      to.props.onSubmitEditing();
+    });
+    await press('Close');
+    const reopened = createDrafts(storage.native, registration);
+    await reopened.load();
+    expect(draftsOf(reopened.getSnapshot())).toMatchObject([
+      {
+        subject: 'Completed subject',
+        to: [{ address: 'maya@example.invalid' }],
+      },
+    ]);
   });
   /* oxlint-enable vitest/max-expects */
 });
