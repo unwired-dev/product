@@ -778,3 +778,75 @@ Deferred:
 Mock Mail Session tests prove application behavior through a substituted native
 boundary. They are distinct from the real storage tests and the packaged-app
 journeys above. This slice retires no legacy coverage.
+
+## Interface language foundation — 2026-10-08
+
+Issue [#677](https://github.com/unwired-dev/product/issues/677) adds shared English
+catalogs with i18next/react-i18next, device-language selection, and a saved local
+override across the current registration, Inbox and reader surfaces. English is
+the only production language; French resources exist only in tests.
+
+This replaces the localization evidence cherry-picked from PR #678's September
+branch. That branch's test counts and Mac journey do not qualify the current
+runner or implementation.
+
+Round-one evidence at `cd8c5698`, before merging the local Draft composer, on
+macOS 27.0.1 with Xcode 27.0 and the mise Node 24 and pnpm toolchain:
+
+- The independent review reran all eight scoped type and test tasks after its
+  runtime fixes: mobile 51, Mac 46, mail-core 332 and shared localization 5 tests
+  passed. Repository formatting and lint (excluding untracked task probes), all
+  10 tooling checks, Expo dependency compatibility, frozen strict-peer installation
+  and both production bundle/boundary checks passed. Fallow exited successfully
+  with no findings outside the untracked task probes; health advisories remain
+  separate from that check.
+- The Foundation integration test passed native regional matching, missing-key
+  English fallback, separate-process preference persistence/removal, and locale
+  conversion. It uses an isolated preferences domain and temporary test catalogs.
+- The packaged ad-hoc signed iOS Release app passed
+  `testSelectAndReplaceMessage`, including language selection/relaunch, on owned
+  iPhone and iPad simulators running iOS 27.0. Evidence:
+  `artifacts/expo-bootstrap/native-P4Ddoo/` records the implementation run;
+  `artifacts/expo-bootstrap/native-HBUk2A/` records both journeys passing again
+  against the rebuilt app after the independent review's runtime fixes.
+- Implementation-run Mac Testing and Release builds passed with ad-hoc signing
+  and packaged catalogs. The independent review rebuilt production Release after
+  its fixes and verified the packaged catalog against disk. An initial CocoaPods
+  `pathname contains null byte` failure passed on one retry. This establishes
+  compilation and packaging only.
+
+Round-two evidence after merging the local Draft composer, with the reviewed
+runtime fixes at `b622d637`, on the same macOS 27.0.1/Xcode 27.0 toolchain:
+
+- All eight scoped type and test tasks passed: mobile 84, Mac 79, mail-core 379
+  and shared localization 5 tests. The recipient-group regression uses real
+  i18next templates with recipient-first wording and fails against the unfixed
+  implementation; existing bounded-recipient and Unicode preview checks passed.
+  Repository formatting, lint excluding the pre-existing untracked probes, and
+  all 10 tooling checks passed. Fallow exited successfully with only the
+  excluded probe's unused-file finding; existing health advisories remain
+  separate.
+- The native Foundation language integration passed again, including regional
+  matching, fallback and preference persistence/removal across processes.
+- Production bundle checks passed with 1,306 mobile and 671 Mac sources. The
+  ad-hoc signed iOS Simulator and Mac Release builds passed with packaged
+  JavaScript and catalogs.
+- `testSelectAndReplaceMessage`, including language selection and relaunch,
+  passed on fresh owned iPhone and iPad simulators running iOS 27.0, with one
+  test and zero failures on each. Evidence:
+  `artifacts/expo-bootstrap/native-MhGMZV/`. These are Inbox journeys, not native
+  composer qualification; the Draft-specific deferred checks remain in the
+  [Draft guide](../drafts.md#verification).
+
+Deferred:
+
+- Both current Mac XCTest journeys, including
+  `testLanguagePreferenceAcrossWindowsAndRelaunch`: this host has no development
+  signing identity or profile covering `dev.unwired.mock.*`. The current runner
+  requires that isolated signed identity for every selected journey.
+- Real VoiceOver, right-to-left layouts and physical devices, plus language-specific
+  qualification before shipping any additional catalog.
+
+Mocked host/store tests, native Foundation integration, packaged journeys and
+build evidence remain distinct. Follow [the localization guide](../localization.md)
+for commands and release checks. No legacy coverage is retired by this slice.

@@ -1,10 +1,11 @@
+import { english } from '@private-email/localization';
+
 import type { RegistrationSnapshot } from '../src/registration.ts';
 
 import {
   createRegistration,
   offersRecovery,
   privateSyncCopy,
-  revocationCopy,
   revocationNotice,
   trustedDevicesOf,
 } from '../src/registration.ts';
@@ -145,7 +146,7 @@ describe('product registration', () => {
         failed: false,
       });
     }
-    expect(privateSyncCopy(account)).toMatchObject({
+    expect(privateSyncCopy(english, account)).toMatchObject({
       title: 'Private sync is unavailable',
       recoveryKey: undefined,
       enrollmentCode: undefined,
@@ -932,9 +933,9 @@ describe('product registration', () => {
       failed: false,
       revocationFailed: true,
     });
-    expect(revocationNotice(removed, failed.revocationFailed === true)).toBe(
-      revocationCopy.failed,
-    );
+    expect(
+      revocationNotice(english, removed, failed.revocationFailed === true),
+    ).toBe('The device could not be removed. Try again.');
     removal = () =>
       Promise.reject(
         Object.assign(new Error('Synthetic cancelled'), { code: 'cancelled' }),

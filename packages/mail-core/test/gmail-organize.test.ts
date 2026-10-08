@@ -1,5 +1,7 @@
 import { setImmediate } from 'node:timers/promises';
 
+import { english } from '@private-email/localization';
+
 import type { GmailInboxState, GmailMessage } from '../src/gmail-inbox.ts';
 
 import {
@@ -1501,13 +1503,9 @@ describe('organizing Gmail mail', () => {
       message: target,
     });
     const outcome = unsavedNotice(inbox.getSnapshot());
-    expect(
-      gmailActionCopy.unsaved(
-        outcome.action,
-        outcome.message.subject,
-        outcome.count,
-      ),
-    ).toContain('2 changes could not be saved');
+    expect(gmailActionCopy(english, outcome)).toContain(
+      '2 changes could not be saved',
+    );
     expect(message(inbox, target.id).labels).not.toContain('STARRED');
     expect(gmail.commits).toHaveLength(commits);
     expect(gmail.modifies).toStrictEqual([]);
@@ -1771,7 +1769,7 @@ describe('organizing Gmail mail', () => {
     const projected = message(upgraded, original.id);
     expect(projected.unread).toBe(false);
     expect(projected.labels).toBeUndefined();
-    expect(quickActions(projected)).toStrictEqual([]);
+    expect(quickActions(english, projected)).toStrictEqual([]);
     const ignored = upgraded.organize(projected, gmailAction.move(travel));
     expect(ready(upgraded.getSnapshot())).toMatchObject({
       pending: 1,
@@ -1788,7 +1786,9 @@ describe('organizing Gmail mail', () => {
       ['INBOX', travel, 'STARRED'].toSorted(),
     );
     expect(message(upgraded, original.id)).toMatchObject({ unread: false });
-    expect(quickActions(message(upgraded, original.id))).not.toStrictEqual([]);
+    expect(
+      quickActions(english, message(upgraded, original.id)),
+    ).not.toStrictEqual([]);
     expect(ready(upgraded.getSnapshot())).toMatchObject({
       pending: 0,
       saving: 0,
@@ -1828,7 +1828,7 @@ describe('organizing Gmail mail', () => {
     // already had the target label.
     const unlabeled = message(upgraded, newest);
     expect(unlabeled.labels).toBeUndefined();
-    expect(quickActions(unlabeled)).toStrictEqual([]);
+    expect(quickActions(english, unlabeled)).toStrictEqual([]);
     const ignored = upgraded.organize(unlabeled, gmailAction.move(travel));
     expect(ready(upgraded.getSnapshot())).toMatchObject({
       pending: 0,
@@ -1839,7 +1839,9 @@ describe('organizing Gmail mail', () => {
     listingHold?.release.resolve(undefined);
     await upgrading;
     expect(gmail.modifies).toStrictEqual([]);
-    expect(quickActions(message(upgraded, newest))).not.toStrictEqual([]);
+    expect(quickActions(english, message(upgraded, newest))).not.toStrictEqual(
+      [],
+    );
     const { messages } = ready(upgraded.getSnapshot());
     expect(messages).toHaveLength(3);
     expect(messages.every(({ labels }) => labels !== undefined)).toBe(true);

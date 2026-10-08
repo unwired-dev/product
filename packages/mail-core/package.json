@@ -30,6 +30,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@private-email/localization": "workspace:*",
     "effect": "catalog:",
     "parse5": "catalog:"
   },

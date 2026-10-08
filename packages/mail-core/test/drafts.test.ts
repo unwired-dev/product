@@ -1,5 +1,6 @@
 import { execFileSync } from 'node:child_process';
 
+import { createLocalization, english } from '@private-email/localization';
 import * as Schema from 'effect/Schema';
 
 import type { Draft, DraftsState } from '../src/drafts.ts';
@@ -476,15 +477,15 @@ describe('entering Draft recipients', () => {
 
   it('summarizes recipients by their To, Cc and Bcc roles', () => {
     expect.hasAssertions();
-    expect(recipientSummary(draft)).toBe('No recipients');
+    expect(recipientSummary(english, draft)).toBe('No recipients');
     expect(
-      recipientSummary({
+      recipientSummary(english, {
         ...draft,
         bcc: [{ name: 'Maya Chen', address: 'maya@example.com' }],
       }),
     ).toBe('Bcc Maya Chen');
     expect(
-      recipientSummary({
+      recipientSummary(english, {
         ...draft,
         to: [
           { name: 'Oliver', address: 'oliver@example.com' },
@@ -504,12 +505,12 @@ describe('entering Draft recipients', () => {
         return `person-${index}@example.invalid`;
       },
     }));
-    const summary = recipientSummary({ ...draft, to: many }, 40);
+    const summary = recipientSummary(english, { ...draft, to: many }, 40);
     expect(summary).toBe('To person-0@example.invalid, person-1@ex');
     expect(reads).toBe(2);
     // A shortened row cannot mistake a surrogate cut for an exact-length summary.
     expect(
-      draftSummary({
+      draftSummary(english, {
         ...draft,
         to: [
           { name: `${'x'.repeat(297)}😀tail`, address: 'a@example.invalid' },
@@ -520,7 +521,7 @@ describe('entering Draft recipients', () => {
       shortened: true,
     });
     expect(
-      draftSummary({
+      draftSummary(english, {
         ...draft,
         to: [{ name: 'x'.repeat(297), address: 'a@example.invalid' }],
       }),
@@ -528,6 +529,44 @@ describe('entering Draft recipients', () => {
       recipients: `To ${'x'.repeat(297)}`,
       shortened: false,
     });
+  });
+
+  it('uses complete translated recipient groups in visible and accessible Draft summaries', () => {
+    expect.hasAssertions();
+    const settings = { preference: null, language: 'en', locale: 'en-US' };
+    const { i18n } = createLocalization(settings, {
+      getSettings: async () => settings,
+      setLanguage: async () => settings,
+    });
+    i18n.addResourceBundle(
+      'en',
+      'translation',
+      {
+        drafts: {
+          recipientGroups: {
+            to: '{{recipients}} (To)',
+            cc: '{{recipients}} (Cc)',
+            bcc: '{{recipients}} (Bcc)',
+          },
+        },
+      },
+      true,
+      true,
+    );
+    const translated = i18n.getFixedT('en');
+    const addressed = {
+      ...draft,
+      to: [{ name: 'Oliver', address: 'oliver@example.invalid' }],
+      cc: [{ address: 'maya@example.invalid' }],
+      bcc: [{ name: 'Private', address: 'private@example.invalid' }],
+    };
+    const recipients =
+      'Oliver (To) · maya@example.invalid (Cc) · Private (Bcc)';
+    expect(recipientSummary(translated, addressed)).toBe(recipients);
+    expect(draftSummary(translated, addressed).recipients).toBe(recipients);
+    expect(recipientSummary(translated, { ...draft, bcc: addressed.bcc })).toBe(
+      'Private (Bcc)',
+    );
   });
 
   it('decides emptiness from the first non-whitespace character without joining the body', () => {

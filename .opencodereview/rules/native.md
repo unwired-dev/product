@@ -1,6 +1,15 @@
-Apply every section of `.opencodereview/rules/common.md` to this file first; read it now if it is not in context. The rules below add the defects specific to the replacement's native code: `native/private-inbox` (Swift package and React Native bridge) and the AppKit host in `apps/macos/macos`.
+Apply every section of `.opencodereview/rules/common.md` to this file first; read it now if it is not in context. The rules below add the defects specific to the replacement's native code: `native/private-inbox` (Swift package and React Native bridge), `native/localization` and the AppKit host in `apps/macos/macos`.
 
-This code owns what TypeScript must never hold: Keychain items, the storage encryption key, Product Sync account-key material, sign-in tokens and file protection. The bridge is the only path between it and JavaScript. The replacement targets iOS, iPadOS and macOS 27.
+Native storage owns what TypeScript must never hold: Keychain items, the storage encryption key, Product Sync account-key material, sign-in tokens and file protection. The bridge is the only path between it and JavaScript. The replacement targets iOS, iPadOS and macOS 27.
+
+#### Bundled localization resources
+
+- `UnwiredLanguagePreferences.catalog` relying on a Debug assertion before using
+  missing or invalid catalog data. Handle failed reads and JSON parsing before
+  Foundation calls that reject nil; cache failure without inserting nil into a
+  collection, and preserve `UnwiredNativeText`'s English fallback. Otherwise a
+  missing translation resource crashes Release instead of falling back. Verify
+  the failure path with assertions disabled, including repeated cached lookups.
 
 #### Keys, credentials and storage
 

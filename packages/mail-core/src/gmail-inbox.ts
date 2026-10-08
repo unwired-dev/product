@@ -3332,37 +3332,3 @@ export function createGmailInbox(
 }
 
 export type GmailInbox = ReturnType<typeof createGmailInbox>;
-
-// What the Inbox says about synchronization while it keeps showing the cached messages.
-export const gmailSyncCopy = {
-  syncing: 'Checking Gmail…',
-  current: undefined,
-  authentication: 'Gmail needs your permission again to show new mail.',
-  retry: 'Gmail could not be reached. Showing mail saved on this device.',
-} as const;
-
-// What the reader says when an opened message's body cannot be shown.
-export const messageBodyCopy = {
-  download:
-    'This message is not saved on this device, and Gmail could not be reached to download it.',
-  authentication: 'Gmail needs your permission again to download this message.',
-  missing: 'This message is no longer in Gmail.',
-  locked: 'Private storage is locked. Unlock your device and try again.',
-  failed: 'This message could not be opened. Your saved mail has been kept.',
-  empty: 'This message has no text.',
-  images: 'Images in this message are not loaded.',
-  confirmLink: 'Open this link in your browser?',
-  cautionLink: 'Check this link before opening it:',
-} as const;
-
-// What the reader says about a received attachment it cannot download or keep.
-export const attachmentCopy = {
-  oversized: 'Too large to download on this device.',
-  download: 'Gmail could not be reached to download this attachment.',
-  authentication:
-    'Gmail needs your permission again to download this attachment.',
-  missing: 'This attachment is no longer in Gmail.',
-  locked: 'Private storage is locked. Unlock your device and try again.',
-  failed: 'This attachment could not be saved on this device.',
-  damaged: 'Gmail sent an incomplete or damaged copy of this attachment.',
-} as const;
