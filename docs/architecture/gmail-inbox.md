@@ -89,7 +89,12 @@ Effect runtime. Aborting the scheduler stops pending waits and future refreshes;
 an already-started store action settles normally, while explicit Mac Quit ends
 the process. On mobile the entry imports the task definition before Router,
 because headless startup mounts no layouts. Wake handling rechecks the route
-after verification before selecting the current mailbox store. Push registration
+after verification before selecting the current mailbox store. Scoped verification
+publishes connection ownership with explicit-loading notifications, so newly revealed
+connections do not auto-load before the wake selects its mailbox. Ordinary foreground
+and interactive publications keep automatic loading. Scoped verification queues its
+own restore rather than sharing a foreground activation with another loading policy.
+Push registration
 and native delivery remain in #781.
 
 Native mailbox operations and registration changes share a FIFO operation gate

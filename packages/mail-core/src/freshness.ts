@@ -28,7 +28,10 @@ type Synchronized = Readonly<{
 export function createFreshness(
   mailboxes: Synchronized,
   // Verifies registration before running `load`, as `Registration.refreshInbox` does.
-  verify: (load: () => Promise<void>) => Promise<void>,
+  verify: (
+    load: () => Promise<void>,
+    mailboxLoading?: 'automatic' | 'explicit',
+  ) => Promise<void>,
 ) {
   const refresh = () => verify(mailboxes.load);
   return {
@@ -96,7 +99,7 @@ export function createFreshness(
           woke = true;
           await mailbox.inbox.load();
         }
-      });
+      }, 'explicit');
       return woke ? 'synchronized' : 'ignored';
     },
   };

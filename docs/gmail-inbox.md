@@ -993,6 +993,8 @@ lifecycles:
   committed nor logged;
 - malformed, unknown-route and removed-mailbox hints reading nothing, including
   a route removed while verification is pending.
+- a newly revealed unrelated connection remaining unloaded during valid or
+  invalidated routed verification, then synchronizing on foreground catch-up.
 
 The mobile host's headless-entry test loads its entry without mounting a Router
 layout, restores a saved synthetic mailbox and observes the resulting committed
@@ -1006,6 +1008,9 @@ read state; simulator background tasks remain restricted.
 
 Real iOS background scheduling, APNs delivery and packaged Mac journeys with no
 window open are pre-release evidence.
+Native wake delivery in #781 also requires mounted-screen journeys while
+restored connections change. Shared-store tests do not qualify whether those
+host updates independently trigger synchronization of unrelated mailboxes.
 
 The #608 shared test searches two controlled mailboxes after an offline relaunch
 that opens only their saved Inboxes, with no Gmail request: word, case and accent

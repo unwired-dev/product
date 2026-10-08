@@ -31,7 +31,7 @@ const subjects = (mailboxes: Mailboxes, id: string) => {
 };
 
 // A Product Account with Alex's and Other's mailboxes, each backed by its own controlled Gmail.
-async function twoMailboxes(messages = 0) {
+async function twoMailboxes(messages = 0, connectOther = true) {
   const gmail = {
     alex: createSyntheticGmail({ address: 'alex@example.invalid', messages }),
     other: createSyntheticGmail({ address: 'other@example.invalid' }),
@@ -57,9 +57,14 @@ async function twoMailboxes(messages = 0) {
         : snapshot;
     },
   };
-  const registration = createRegistration(nativeRegistration);
+  const registration = createRegistration({
+    ...nativeRegistration,
+    restore: () => nativeRegistration.restore(),
+  });
   await registration.register('google');
-  await registration.addMailbox(true);
+  if (connectOther) {
+    await registration.addMailbox(true);
+  }
   const native = syntheticConnections({
     [alex]: {
       native: {
@@ -168,6 +173,59 @@ describe('keeping Gmail fresh through application lifecycles', () => {
         .map(({ query }) => query.get('pageToken')),
     ).toStrictEqual([null, '50', '50', '100']);
   });
+
+  it.each([
+    {
+      outcome: 'synchronized',
+      invalidate: () => undefined,
+      arrivals: ['Routed arrival'],
+      reads: true,
+    },
+    {
+      outcome: 'ignored',
+      invalidate: (routes: Map<string, string>) => {
+        routes.delete('route-alex');
+      },
+      arrivals: [],
+      reads: false,
+    },
+  ])(
+    'keeps newly revealed unrelated mail unloaded during a $outcome wake, then catches up in foreground',
+    async ({ outcome, invalidate, arrivals, reads }) => {
+      expect.hasAssertions();
+      const { gmail, nativeRegistration, launch } = await twoMailboxes(
+        0,
+        false,
+      );
+      const { mailboxes, freshness } = launch();
+      await mailboxes.load();
+      gmail.alex.deliver({ subject: 'Routed arrival' });
+      gmail.other.deliver({ subject: 'Unrouted arrival' });
+      const routes = new Map([['route-alex', alex]]);
+      const { restore } = nativeRegistration;
+      vi.spyOn(nativeRegistration, 'restore').mockImplementationOnce(
+        async () => {
+          // Verification learns another eligible connection that was absent from this store.
+          await nativeRegistration.addMailbox(true);
+          invalidate(routes);
+          return restore();
+        },
+      );
+      const requests = gmail.alex.requests.length;
+      await expect(
+        freshness.wake({ provider: 'gmail', routeId: 'route-alex' }, (id) =>
+          routes.get(id),
+        ),
+      ).resolves.toBe(outcome);
+      expect(gmail.other.requests).toHaveLength(0);
+      expect(subjects(mailboxes, other)).toStrictEqual([]);
+      expect(subjects(mailboxes, alex)).toStrictEqual(arrivals);
+      expect(gmail.alex.requests.length > requests).toBe(reads);
+      await freshness.refresh();
+      expect(subjects(mailboxes, other)).toStrictEqual(['Unrouted arrival']);
+      expect(subjects(mailboxes, alex)).toStrictEqual(['Routed arrival']);
+    },
+  );
 
   it('wakes only the routed mailbox, keeps nothing from the hint, and ignores unknown and removed routes', async () => {
     expect.hasAssertions();

@@ -380,11 +380,15 @@ export function createRegistration(native: NativeRegistration) {
   let accountIntent = { removing: false };
   // One operation runs at a time; foreground verification queues behind interactive work.
   const semaphore = Semaphore.makeUnsafe(1);
-  const listeners = new Set<() => void>();
-  const publish = (next: RegistrationState) => {
+  type MailboxLoading = 'automatic' | 'explicit';
+  const listeners = new Set<(mailboxLoading?: MailboxLoading) => void>();
+  const publish = (
+    next: RegistrationState,
+    mailboxLoading: MailboxLoading = 'automatic',
+  ) => {
     state = next;
     for (const listener of listeners) {
-      listener();
+      listener(mailboxLoading);
     }
   };
   const execute = (
@@ -407,9 +411,11 @@ export function createRegistration(native: NativeRegistration) {
     {
       foreground = false,
       accountChange,
+      mailboxLoading = 'automatic',
     }: Readonly<{
       foreground?: boolean;
       accountChange?: 'sign-in' | 'removal';
+      mailboxLoading?: MailboxLoading;
     }> = {},
   ) =>
     runLogged(
@@ -420,7 +426,7 @@ export function createRegistration(native: NativeRegistration) {
         const previous = state;
         // A retry keeps the locked state rather than revealing a snapshot it could not read.
         if (foreground) {
-          publish({ ...state, busy: true });
+          publish({ ...state, busy: true }, mailboxLoading);
         } else {
           publish(
             state.locked
@@ -475,6 +481,7 @@ export function createRegistration(native: NativeRegistration) {
             sameSnapshot(previous.snapshot, next.snapshot)
             ? { ...previous, busy: false }
             : next,
+          mailboxLoading,
         );
       }).pipe(
         // An activation can arrive before a pending operation reports that storage was locked.
@@ -496,11 +503,14 @@ export function createRegistration(native: NativeRegistration) {
         : snapshot,
     ),
   );
-  const restore = (foreground = false) =>
+  const restore = (
+    foreground = false,
+    mailboxLoading: MailboxLoading = 'automatic',
+  ) =>
     execute(
       restoredAccount,
       (snapshot) => ({ ...settled(pending(snapshot)), failed: true }),
-      { foreground },
+      { foreground, mailboxLoading },
     );
   const resume = () => {
     if (activation === null) {
@@ -513,7 +523,7 @@ export function createRegistration(native: NativeRegistration) {
   };
   return {
     getSnapshot: () => state,
-    subscribe: (listener: () => void) => {
+    subscribe: (listener: (mailboxLoading?: MailboxLoading) => void) => {
       listeners.add(listener);
       return () => {
         listeners.delete(listener);
@@ -551,8 +561,15 @@ export function createRegistration(native: NativeRegistration) {
       );
     },
     // Cache-only retry verifies registration before attempting provider synchronization.
-    refreshInbox: async (load: () => Promise<void>) => {
-      await resume();
+    refreshInbox: async (
+      load: () => Promise<void>,
+      mailboxLoading: MailboxLoading = 'automatic',
+    ) => {
+      // Scoped wakes verify independently: a coalesced foreground restore could auto-load
+      // unrelated newly revealed connections before the wake's route is checked.
+      await (mailboxLoading === 'explicit'
+        ? restore(true, mailboxLoading)
+        : resume());
       await load();
     },
     register: (provider: SignInProvider) =>

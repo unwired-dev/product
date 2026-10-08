@@ -4,6 +4,49 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### The test proves the behavior
 
+- A New Message account-race test that replaces the account only with a distinct
+  sender, or checks only the returned identifier. Use the same Gmail connection ID
+  and address across accounts, finish opening the replacement Drafts before
+  releasing the old command, and check that neither its snapshot nor reopened
+  storage contains a new Draft. Also cover still-loading replacement storage and
+  sign-out/re-entry; otherwise sender membership or a late result fence can hide
+  a stale command writing into the replacement account.
+
+- A batched composer-event regression that flushes React between the caret,
+  formatting/history command and text change it claims arrive together. Keep
+  those handlers in one outer `act` without an intervening rendered-state wait,
+  include an active typing-mark override, and assert the real Draft's semantic
+  spans. Otherwise fresh selection can hide stale mark state behind a passing
+  repeated-character test. Component batching still does not prove native event
+  ordering or hardware-keyboard behavior.
+
+- A composer conflict regression that passes a no-op `onRebind` and asserts only
+  retained store content. Exercise the owning route/window selection, mounted
+  history through Undo/Redo, continued text callbacks before a render, and Discard
+  of the bound version. Include storage rebases when they can rename a copy;
+  otherwise the test passes while the editor still targets another writer's Draft.
+  Include two editors writing identical content before saving, verify every
+  callback follows the retained version, and discard through that editor's target
+  while preserving the concurrent writer's content. Also exercise a callback
+  switching to another pending version, including during notification, so a
+  single-editor or content-only assertion cannot hide stale fanout bindings.
+  Exercise forced composer unmount during failed/locked-save recovery and while
+  confirmed Discard waits behind a held save. Reopen through a fresh store and
+  check that recovery keeps both unsaved versions without notifying the closed
+  owner, while pending Discard removes its own conflict copy and preserves the
+  other writer. A test that always leaves through durable Close cannot detect
+  a retained callback or premature identity release.
+
+- A host keyboard regression in `apps/{mobile,macos}/test/` that fires `keyDown` or `keyPress`
+  directly without checking the installed native emitter, JavaScript wrapper and
+  handled-key consumption contract. A component event bypasses those layers; it
+  cannot prove which events reach the callback or which edits native performs.
+  Match native text/selection events in the journey, and distinguish that evidence
+  from native interaction. Do not assume `keyDownEvents` is a dispatch whitelist;
+  otherwise a passing test can justify swallowing an editing key or editing twice.
+  On iOS, an empty replacement can synthesize Backspace for either direction;
+  exercise deletion with and without that key event using the actual post-edit
+  caret payload. A missing key event alone does not prove Forward Delete.
 - Native registration journeys creating a new `RegistrationStore` for every
   action without restoring its process-local Product Sign-In session.
   `synchronize` needs that session; otherwise `removeMailbox` only queues a
