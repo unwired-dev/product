@@ -136,6 +136,10 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   rebasing, then settle `save` for preserved content as well as deleted content.
   Otherwise Try again repeats the stale revision, a moved target deletes the
   other writer's copy, or successful empty-only recovery stays at Saving.
+  Explicit stale Discard must also compare the retry target's content with the
+  version requested before CAS recovery. Preserve a changed same-ID target from
+  another writer while still deleting the editor's own rebound copy; otherwise
+  rebasing succeeds only to delete another writer's completed edit on retry.
 - `createDrafts.update` silently dropping authored content after the original ID
   has been durably deleted, including after `discard({ onlyIfEmpty: true })`.
   Preserve a same-owner nonempty late edit as a conflict copy and notify its

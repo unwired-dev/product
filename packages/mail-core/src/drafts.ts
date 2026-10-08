@@ -314,6 +314,27 @@ const conflictsWith = (
     !sameContent(current, previous) &&
     !sameContent(current, draft));
 
+// Whether a deletion stops and keeps its target. Closing an untouched window cannot delete
+// content completed in another window, and after a rebase the same Draft with other content is
+// another writer's later edit; a rebind to a copy is still the deleting editor's own version.
+const keepsTarget = (
+  deleting: Draft | undefined,
+  {
+    onlyIfEmpty,
+    rebased,
+    intended,
+  }: Readonly<{
+    onlyIfEmpty: boolean;
+    rebased: boolean;
+    intended: Draft | undefined;
+  }>,
+) =>
+  (onlyIfEmpty && deleting !== undefined && !isEmptyDraft(deleting)) ||
+  (rebased &&
+    deleting !== undefined &&
+    deleting.id === intended?.id &&
+    !sameContent(deleting, intended));
+
 // Store -----------------------------------------------------------------------------------------
 
 // The native module's Draft storage for the Product Account signed in on this device. Native code
@@ -686,6 +707,8 @@ export function createDrafts(
       onlyIfEmpty,
     }: Readonly<{ target: () => string; onlyIfEmpty: boolean }>,
   ) {
+    // The version this editor asked to discard.
+    let intended: Draft | undefined = undefined;
     for (
       let attempt = 0;
       live(current) && state.kind === 'ready';
@@ -693,10 +716,12 @@ export function createDrafts(
     ) {
       const id = target();
       const deleting = state.drafts.find((draft) => draft.id === id);
-      // Closing an untouched window cannot delete content completed in another window.
-      if (onlyIfEmpty && deleting !== undefined && !isEmptyDraft(deleting)) {
+      if (
+        keepsTarget(deleting, { onlyIfEmpty, rebased: attempt > 0, intended })
+      ) {
         return;
       }
+      intended = deleting;
       const outcome = yield* Effect.result(
         deleted(current, account, { id, draft: deleting }),
       );

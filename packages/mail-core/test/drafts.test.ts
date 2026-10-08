@@ -590,6 +590,26 @@ describe('storing Drafts', () => {
     );
   });
 
+  it("keeps another store's edit to a Draft this store discards from a stale revision", async () => {
+    expect.hasAssertions();
+    const session = account(connected('account-a'));
+    const storage = createSyntheticDrafts(session.productAccount);
+    const first = createDrafts(storage.native, session.registration);
+    await first.load();
+    const id = present(await first.create(alex), 'Draft');
+    const second = createDrafts(storage.native, session.registration);
+    await second.load();
+    // The first store completes an edit the second store has not seen; the second discards.
+    const before = present(draftOf(first.getSnapshot(), id), 'shared Draft');
+    await first.update({ ...before, subject: 'Edited elsewhere' }, before);
+    await expect(second.discard(id)).resolves.toBe(true);
+    const reopened = createDrafts(storage.native, session.registration);
+    await reopened.load();
+    expect(draftOf(reopened.getSnapshot(), id)?.subject).toBe(
+      'Edited elsewhere',
+    );
+  });
+
   it('discards the rebound copy when an edit arrives during a stale deletion', async () => {
     expect.hasAssertions();
     const session = account(connected('account-a'));

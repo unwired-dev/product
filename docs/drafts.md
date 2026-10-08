@@ -77,6 +77,8 @@ composer stays open and says so. The compact iPhone system **Back** currently ha
 the separate limitation below. Closing a Draft with no recipients, subject or
 body text discards it only if no other window has completed its content. **Discard**
 asks before deleting a Draft from this device.
+If another storage writer edited the same Draft since it was opened, a stale
+Discard preserves that writer's completed version in the Drafts list.
 Opening **Account**, switching to another Draft, starting **New Message**, or selecting received mail
 also finishes recipient entry and waits for saving; invalid entry or a save failure
 keeps the current composer open. A failed discard keeps the Draft visible and can
