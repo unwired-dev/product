@@ -45,27 +45,34 @@ struct DraftStore: Codable {
 // store's file lock, which also serializes threads within this process.
 public final class PrivateInboxStore: @unchecked Sendable {
   private let directory: URL
+  // Downloaded Attachments, in plaintext so the system can preview or share them: one directory
+  // per connection outside backups, cleared with the connection's cache and at launch.
+  private let attachments: URL
   private let keychain: DeviceKeychain
   private let protectedDataAvailable: @Sendable () -> Bool
   // The Bounded Encrypted Body Cache's device-wide limit, in stored bytes.
   private let bodyLimit: Int
+  private let attachmentLimit: Int
   private let associatedData = Data("dev.unwired.private-inbox.v1".utf8)
   private let mailboxAssociatedData = Data("dev.unwired.private-inbox.mailbox.v1".utf8)
   private let draftsAssociatedData = Data("dev.unwired.private-inbox.drafts.v1".utf8)
   static let outgoingContentLimit = 100 * 1024 * 1024
 
-  public convenience init(directory: URL, service: String) {
+  public convenience init(directory: URL, service: String, attachments: URL? = nil) {
     self.init(
-      directory: directory, service: service,
+      directory: directory, service: service, attachments: attachments,
       protectedDataAvailable: Self.protectedDataAvailability())
   }
 
   init(
-    directory: URL, service: String, protectedDataAvailable: @escaping @Sendable () -> Bool,
-    bodyLimit: Int = 500 * 1024 * 1024
+    directory: URL, service: String, attachments: URL? = nil,
+    protectedDataAvailable: @escaping @Sendable () -> Bool,
+    bodyLimit: Int = 500 * 1024 * 1024, attachmentLimit: Int = 250 * 1024 * 1024
   ) {
     self.directory = directory
+    self.attachments = attachments ?? directory.appendingPathComponent("attachments")
     self.bodyLimit = bodyLimit
+    self.attachmentLimit = attachmentLimit
     keychain = DeviceKeychain(service: service + ".database")
     self.protectedDataAvailable = protectedDataAvailable
   }
@@ -292,27 +299,171 @@ public final class PrivateInboxStore: @unchecked Sendable {
     }
   }
 
-  // Needs no key, so a locked device can still forget a connection's cache and bodies.
+  // Needs no key, so a locked device can still forget a connection's cache, bodies and
+  // Downloaded Attachments.
   public func removeMailbox(connection: String, includingLegacy: Bool = false) throws {
     let path = try connectionPath(connection, "")
     try unlockedTransaction {
-      try removeItems([path] + (includingLegacy ? ["mailbox.enc", "bodies"] : []))
+      try removeURLs(
+        ([path] + (includingLegacy ? ["mailbox.enc", "bodies"] : [])).map {
+          directory.appendingPathComponent($0)
+        } + [try attachmentURL(connection)])
     }
   }
 
-  // Every connection's cache and bodies, including the cache written before connections, and the
-  // account's Drafts: everything an account purge removes from this store.
+  // Every connection's cache, bodies and Downloaded Attachments, including the cache written
+  // before connections, and the account's Drafts: everything an account purge removes from this
+  // store.
   public func removeMailboxes() throws {
     try unlockedTransaction {
-      try removeItems(["mailboxes", "mailbox.enc", "bodies", "drafts.enc"])
+      try removeURLs(
+        ["mailboxes", "mailbox.enc", "bodies", "drafts.enc"].map {
+          directory.appendingPathComponent($0)
+        } + [attachments])
     }
+  }
+
+  // Downloaded Attachments left by an earlier process have no owner; launch removes them.
+  public func removeAttachments() throws {
+    try unlockedTransaction { try removeAttachmentItem(attachments) }
+  }
+
+  private func removeAttachmentItem(_ url: URL) throws {
+    do { try FileManager.default.removeItem(at: url) } catch CocoaError.fileNoSuchFile {}
+  }
+
+  private func attachmentURL(_ connection: String, _ file: String? = nil) throws -> URL {
+    _ = try connectionPath(connection, "")
+    let folder = attachments.appendingPathComponent(connection)
+    guard let file else { return folder }
+    guard UUID(uuidString: file)?.uuidString == file else { throw PrivateInboxError.invalidStore }
+    return folder.appendingPathComponent(file)
+  }
+
+  // Writes an attachment whose base64url data decodes to exactly `size` bytes under a name that
+  // cannot leave its own directory, and returns the file's opaque name.
+  public func saveAttachment(
+    connection: String, name: String, data: String, size: Int, protectedFiles: Set<String> = []
+  ) throws -> String
+  {
+    guard size >= 0, size <= 25 * 1024 * 1024,
+      data.utf8.count <= 4 * ((size + 2) / 3)
+    else { throw PrivateInboxError.unavailable }
+    var base64 = data.replacingOccurrences(of: "-", with: "+")
+      .replacingOccurrences(of: "_", with: "/")
+    base64 += String(repeating: "=", count: (4 - base64.count % 4) % 4)
+    guard let bytes = Data(base64Encoded: base64), bytes.count == size else {
+      throw PrivateInboxError.unavailable
+    }
+    let file = UUID().uuidString
+    let folder = try attachmentURL(connection, file)
+    let safe = Self.attachmentName(name)
+    return try transaction {
+      guard size <= attachmentLimit else { throw PrivateInboxError.unavailable }
+      let files = try attachmentFiles()
+      var stored = files.reduce(0) { $0 + $1.size }
+      let evictable = files.filter {
+        !protectedFiles.contains($0.url.deletingLastPathComponent().lastPathComponent)
+      }
+      // Plan before deleting: active system presentations still count toward the hard budget.
+      guard stored + size - evictable.reduce(0, { $0 + $1.size }) <= attachmentLimit else {
+        throw PrivateInboxError.unavailable
+      }
+      for entry in evictable.sorted(by: {
+        $0.date == $1.date ? $0.url.path < $1.url.path : $0.date < $1.date
+      }) where stored + size > attachmentLimit {
+        try removeAttachmentItem(entry.url.deletingLastPathComponent())
+        stored -= entry.size
+      }
+      try FileManager.default.createDirectory(
+        at: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+      var root = attachments
+      var values = URLResourceValues()
+      values.isExcludedFromBackup = true
+      try root.setResourceValues(values)
+      do {
+        #if os(iOS)
+          try bytes.write(
+            to: folder.appendingPathComponent(safe), options: [.atomic, .completeFileProtection])
+        #else
+          try bytes.write(to: folder.appendingPathComponent(safe), options: .atomic)
+        #endif
+      } catch {
+        try? removeAttachmentItem(folder)
+        throw error
+      }
+      return file
+    }
+  }
+
+  // The saved file, or nil when the system or a removal deleted it.
+  public func attachmentFile(connection: String, file: String) throws -> URL? {
+    let folder = try attachmentURL(connection, file)
+    return try transaction {
+      let contents = try? FileManager.default.contentsOfDirectory(
+        at: folder, includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey])
+      guard let contents, contents.count == 1, let url = contents.first,
+        let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey]),
+        values.isRegularFile == true, values.isSymbolicLink != true
+      else { return nil }
+      try FileManager.default.setAttributes(
+        [.modificationDate: Date()], ofItemAtPath: url.path)
+      return url
+    }
+  }
+
+  private func attachmentFiles() throws -> [(url: URL, size: Int, date: Date)] {
+    guard FileManager.default.fileExists(atPath: attachments.path) else { return [] }
+    let keys: [URLResourceKey] = [
+      .isRegularFileKey, .isSymbolicLinkKey,
+      .fileSizeKey, .contentModificationDateKey,
+    ]
+    var files: [(url: URL, size: Int, date: Date)] = []
+    for connection in try FileManager.default.contentsOfDirectory(
+      at: attachments, includingPropertiesForKeys: nil)
+    {
+      for folder in try FileManager.default.contentsOfDirectory(
+        at: connection, includingPropertiesForKeys: nil)
+      {
+        for url in try FileManager.default.contentsOfDirectory(
+          at: folder, includingPropertiesForKeys: keys)
+        {
+          let values = try url.resourceValues(forKeys: Set(keys))
+          guard values.isRegularFile == true, values.isSymbolicLink != true,
+            let size = values.fileSize, let date = values.contentModificationDate
+          else { throw PrivateInboxError.invalidStore }
+          files.append((url, size, date))
+        }
+      }
+    }
+    return files
+  }
+
+  public func discardAttachment(connection: String, file: String) throws {
+    let folder = try attachmentURL(connection, file)
+    try unlockedTransaction { try removeAttachmentItem(folder) }
+  }
+
+  // TypeScript sends a cleaned name; this keeps the file inside its directory regardless.
+  static func attachmentName(_ name: String) -> String {
+    let component = name.replacingOccurrences(of: "/", with: "_")
+      .replacingOccurrences(of: ":", with: "_")
+      .trimmingCharacters(in: .whitespacesAndNewlines.union(.controlCharacters))
+    guard !component.isEmpty, !component.hasPrefix("."), component.utf8.count <= 255 else {
+      return "attachment"
+    }
+    return component
   }
 
   private func removeItems(_ names: [String]) throws {
+    try removeURLs(names.map { directory.appendingPathComponent($0) })
+  }
+
+  private func removeURLs(_ urls: [URL]) throws {
     var failure: (any Error)?
-    for name in names {
+    for url in urls {
       do {
-        try FileManager.default.removeItem(at: directory.appendingPathComponent(name))
+        try FileManager.default.removeItem(at: url)
       } catch CocoaError.fileNoSuchFile {} catch { failure = failure ?? error }
     }
     if let failure { throw failure }

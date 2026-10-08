@@ -9,7 +9,9 @@ import { createRegistration } from '@private-email/mail-core/registration';
 import { TurboModuleRegistry } from 'react-native';
 
 interface RegistrationModule
-  extends TurboModule, NativeRegistration, NativeGmailMailboxes, NativeDrafts {}
+  extends TurboModule, NativeRegistration, NativeGmailMailboxes, NativeDrafts {
+  readonly cancelGmailRequest: (request: string) => void;
+}
 const native = () =>
   TurboModuleRegistry.getEnforcing<RegistrationModule>('UnwiredRegistration');
 
@@ -32,11 +34,29 @@ export const registration = createRegistration({
   deleteProductAccount: () => native().deleteProductAccount(),
 });
 
+let nextRead = 0;
+
 // One Gmail Inbox per Mailbox Connection; each forgets its mail when its connection or owner leaves.
 export const gmailMailboxes = createMailboxes(
   {
-    gmailRequest: (path, query, mailbox) =>
-      native().gmailRequest(path, query, mailbox),
+    gmailRequest: async (path, query, { signal, ...mailbox }) => {
+      nextRead += 1;
+      const request = `${mailbox.connection}:${mailbox.generation}:${nextRead}`;
+      const scope = { ...mailbox, request };
+      const cancel = () => {
+        native().cancelGmailRequest(request);
+      };
+      if (signal?.aborted === true) {
+        throw new Error('The Gmail request was cancelled.');
+      }
+      const pending = native().gmailRequest(path, query, scope);
+      signal?.addEventListener('abort', cancel, { once: true });
+      try {
+        return await pending;
+      } finally {
+        signal?.removeEventListener('abort', cancel);
+      }
+    },
     gmailModify: (change, mailbox) => native().gmailModify(change, mailbox),
     openMailbox: (connection) => native().openMailbox(connection),
     commitMailbox: (mailbox, expectedRevision, document) =>
@@ -48,6 +68,12 @@ export const gmailMailboxes = createMailboxes(
       native().listMessageBodies(mailbox, ids),
     retainMessageBodies: (mailbox, ids, protectedIds) =>
       native().retainMessageBodies(mailbox, ids, protectedIds),
+    saveAttachment: (mailbox, attachment) =>
+      native().saveAttachment(mailbox, attachment),
+    discardAttachment: (mailbox, file) =>
+      native().discardAttachment(mailbox, file),
+    presentAttachment: (mailbox, file, action) =>
+      native().presentAttachment(mailbox, file, action),
   },
   registration,
   {

@@ -767,7 +767,7 @@ describe('product registration', () => {
       from: 'Maya Chen <maya@example.invalid>',
       subject: 'Studio archive',
       at: Date.UTC(2026, 8, 1),
-      content: { text: 'Archived studio notes', single: true },
+      content: { text: 'Archived studio notes' },
     });
     gmail.alex.archive(archived);
     gmail.other.deliver({
@@ -901,6 +901,17 @@ describe('product registration', () => {
       ).toContain('full');
     });
     expect([...gmail.alex.cachedBodies().keys()]).not.toContain(archived);
+    await press('Download notes.txt');
+    await expect(
+      screen.findByRole('button', { name: 'Open notes.txt' }),
+    ).resolves.toBeVisible();
+    await press('Open notes.txt');
+    await press('Share notes.txt');
+    expect(gmail.alex.presentations).toStrictEqual([
+      { name: 'notes.txt', action: 'open' },
+      { name: 'notes.txt', action: 'share' },
+    ]);
+    expect(gmail.other.savedFiles.size).toBe(0);
 
     // A new query drops the earlier answer until Gmail is asked again. One mailbox's outage
     // leaves the other's results and every saved result.
@@ -958,6 +969,12 @@ describe('product registration', () => {
     expect(rows()).toStrictEqual([
       'Unread. Oliver Park. Plans. In other@example.invalid. Downloads from Gmail when opened',
     ]);
+    await press(
+      'Unread. Oliver Park. Plans. In other@example.invalid. Downloads from Gmail when opened',
+    );
+    await waitFor(() => {
+      expect(gmail.alex.savedFiles.size).toBe(0);
+    });
   });
   /* oxlint-enable vitest/max-expects */
 

@@ -179,6 +179,15 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   Keep the Drafts heading conditional on the same search mode as its rows;
   otherwise received-mail-only search exposes an empty Drafts section to sighted
   and accessibility users. Preserve New Message and storage-recovery controls.
+- `message-body.tsx.ReceivedAttachments` eagerly mounting a native row/control tree
+  for every sender-controlled descriptor. The MIME part limit bounds decoding,
+  not acceptable native view count; cap, batch or virtualize before constructing
+  rows so a valid message with thousands of parts cannot exhaust the reader.
+  Preserve the total and access to remaining attachments without downloading
+  bytes, make disclosure keyboard-focusable and accessibly named, and reset its
+  state when the owning message changes. Trace `messageAttachments` snapshot
+  caching separately from native row construction; bounded descriptor projection
+  alone is not evidence that every descriptor needs a native row.
 - Selection held anywhere but its owner: route parameters on mobile, the window on Mac. A Mac window opened after another must start with no selection, and a read/unread change must reach every window without changing any selection.
 - An Inbox row's removal action in `src/inbox.tsx` that leaves the selected message ID in its owning route or window after Archive, Trash or Spam. Trace accessibility actions as well as reader buttons through the owner's close callback; otherwise the row disappears while the reader reports unavailable. Undo restores mail without reopening that reader or changing another window's selection.
 - `OrganizeStatus` announcing one shared `OrganizeNotice` once per mounted window or again on a late mount, or deduplicating solely by announcement text. One notice identity owns one accessibility announcement across the shared runtime; a later distinct notice with identical words must still announce. Trace every active announcement channel, including explicit calls and platform-supported live regions, rather than checking only the explicit call count. Preserve refusal alert semantics when removing an announcement channel. Verify the installed renderer's role and notification behavior before treating an `alert` role as automatic speech; component props alone do not qualify native VoiceOver behavior.
@@ -191,6 +200,14 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   setup when the choice was made, including renewed enrollment codes and changed
   approval requests, so foreground restore cannot hide new setup.
   Preserve an explicit Account choice and an Inbox choice over unchanged setup.
+
+- `message-body.tsx.AttachmentRow` accepting queued Download, retry, Open, Share
+  or Cancel input after its reader changed or closed. Reuse `GmailMessageBody`'s
+  committed mailbox/message and exact body predicate before these store actions;
+  `readable(id)` and native file ownership do not identify the invoking reader.
+  Check the switch's commit before passive `retainMessage` cleanup and a new
+  download of the same message/part after the previous reader closes. Otherwise
+  old input can expose a previous message's file or cancel a later reader's work.
 
 #### Platform behavior
 

@@ -1,6 +1,6 @@
 // Changesets rejects a pending changeset for a package outside the workspace only
 // when versioning, which blocks every release. Fail the pull request instead.
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 
@@ -39,7 +39,15 @@ const changesets = files.filter((file) => {
 for (const file of changesets) {
   const text = readFileSync(new URL(`.changeset/${file}`, root), 'utf8');
   try {
-    for (const { name } of parseChangesetFile(text).releases) {
+    const { releases } = parseChangesetFile(text);
+    // changesets/action neither versions nor publishes while every pending
+    // changeset is empty, so an empty changeset left on main after a version
+    // PR merges would block that release. The Release workflow drops them from
+    // its checkout; the next `changeset version` deletes them from main.
+    if (process.argv.includes('--drop-empty') && releases.length === 0) {
+      rmSync(new URL(`.changeset/${file}`, root));
+    }
+    for (const { name } of releases) {
       if (!packages.has(name)) {
         failures.push(`${file}: ${name} is not a workspace package`);
       }

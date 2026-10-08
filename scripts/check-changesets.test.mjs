@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import {
   copyFileSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   rmSync,
@@ -102,6 +103,21 @@ test('the target gate uses Changesets YAML semantics and the configured workspac
     );
     assert.equal(prerelease.status, 1, prerelease.stderr);
     assert.ok(prerelease.stderr.includes('pre/agents.md'), prerelease.stderr);
+    // The Release workflow drops empty changesets so they cannot block a
+    // merged version PR's release; targeted ones stay and are still checked.
+    writeFileSync(
+      path.join(fixture, '.changeset/host.md'),
+      '---\n"@fixture/mobile": patch\n---\nHost\n',
+    );
+    const drop = spawnSync(
+      process.execPath,
+      ['scripts/check-changesets.mjs', '--drop-empty'],
+      { cwd: fixture, encoding: 'utf8' },
+    );
+    assert.equal(drop.status, 1, drop.stderr);
+    assert.equal(existsSync(path.join(fixture, '.changeset/probe.md')), false);
+    assert.ok(existsSync(path.join(fixture, '.changeset/host.md')));
+    assert.ok(existsSync(path.join(fixture, '.changeset/pre/agents.md')));
   } finally {
     rmSync(fixture, { recursive: true, force: true });
   }

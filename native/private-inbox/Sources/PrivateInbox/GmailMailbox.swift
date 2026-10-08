@@ -177,6 +177,7 @@ extension RegistrationStore {
     } catch {
       throw RegistrationError.unavailable
     }
+    try Task.checkCancellation()
     guard identity.subject == mailbox.subject else { throw RegistrationError.gmailUnavailable }
     guard current() else { throw PrivateInboxError.mailboxInvalidated }
     // Keep a renewed access token unless the connection changed while it was renewed.
@@ -254,6 +255,7 @@ extension RegistrationStore {
   // main actor, and the caller's mailbox is checked again before any result is published.
   private func bodyWork<Value: Sendable>(
     connection: String, address: String, generation: String, verified: Bool,
+    discard: @escaping @Sendable (PrivateInboxStore, Value) throws -> Void = { _, _ in },
     _ work: @escaping @Sendable (PrivateInboxStore, String) throws -> Value
   ) async throws -> Value {
     let subject = try bodyOwner(
@@ -269,9 +271,16 @@ extension RegistrationStore {
       guard mailCache.isProtectedDataAvailable() else { throw PrivateInboxError.locked }
       throw error
     }
-    guard mailCache.isProtectedDataAvailable() else { throw PrivateInboxError.locked }
-    _ = try bodyOwner(
-      connection: connection, address: address, generation: generation, verified: verified)
+    do {
+      guard mailCache.isProtectedDataAvailable() else { throw PrivateInboxError.locked }
+      _ = try bodyOwner(
+        connection: connection, address: address, generation: generation, verified: verified)
+    } catch {
+      do { try await Task.detached { try discard(mailCache, value) }.value } catch {
+        Self.logProductSyncFailure("Unacknowledged attachment cleanup failed", error)
+      }
+      throw error
+    }
     return value
   }
 
@@ -366,6 +375,42 @@ extension RegistrationStore {
   }
 }
 
+// Downloaded Attachments: bytes TypeScript verified come from the verified mailbox's Gmail, and
+// only the current generation of a connection saves or presents its files.
+extension RegistrationStore {
+  func saveAttachment(
+    connection: String, address: String, generation: String, name: String, data: String,
+    size: Int, protectedFiles: Set<String> = []
+  ) async throws -> [String: Any] {
+    let file = try await bodyWork(
+      connection: connection, address: address, generation: generation, verified: true,
+      discard: { try $0.discardAttachment(connection: connection, file: $1) }
+    ) { store, _ in
+      try store.saveAttachment(
+        connection: connection, name: name, data: data, size: size, protectedFiles: protectedFiles)
+    }
+    return ["file": file]
+  }
+
+  // Deleting is always allowed, including after a removal or another verification.
+  func discardAttachment(connection: String, file: String) async throws {
+    guard let mailCache else { return }
+    try await Task.detached(priority: .userInitiated) {
+      try mailCache.discardAttachment(connection: connection, file: file)
+    }.value
+  }
+
+  func attachmentFile(connection: String, address: String, generation: String, file: String)
+    async throws -> URL
+  {
+    let url = try await bodyWork(
+      connection: connection, address: address, generation: generation, verified: false
+    ) { store, _ in try store.attachmentFile(connection: connection, file: file) }
+    guard let url else { throw PrivateInboxError.attachmentMissing }
+    return url
+  }
+}
+
 extension PrivateInboxStore.BodyTier {
   // TypeScript names tiers by their meaning; files carry the short suffix.
   init?(rawName: String) {
@@ -380,7 +425,10 @@ extension PrivateInboxStore.BodyTier {
 
 // The production Gmail HTTP adapter. Its caller supplies only the native-held credential.
 enum GmailTransport {
-  static func send(token: String, url: URL, body: Data?, session: URLSession) async throws -> (Int, Data) {
+  static func send(
+    token: String, url: URL, body: Data?, session: URLSession,
+    limit: Int = 40 * 1024 * 1024
+  ) async throws -> (Int, Data) {
     var request = URLRequest(url: url)
     request.setValue("Bearer " + token, forHTTPHeaderField: "Authorization")
     if let body {
@@ -390,11 +438,19 @@ enum GmailTransport {
     }
     request.timeoutInterval = 30
     do {
-      let (data, response) = try await session.data(for: request, delegate: RefusingRedirects())
-      guard let response = response as? HTTPURLResponse else {
-        throw RegistrationError.unavailable
+      // Data arrives in URLSession's chunks, bounded as each one arrives, so a large response
+      // never costs one async iteration per byte while the operation gate is held.
+      let receiver = BoundedResponse(limit: limit)
+      let task = session.dataTask(with: request)
+      task.delegate = receiver
+      return try await withTaskCancellationHandler {
+        try await withCheckedThrowingContinuation { continuation in
+          receiver.start(continuation)
+          task.resume()
+        }
+      } onCancel: {
+        task.cancel()
       }
-      return (response.statusCode, data)
     } catch let error as URLError where error.code == .cancelled {
       throw CancellationError()
     } catch is CancellationError {
@@ -405,11 +461,89 @@ enum GmailTransport {
   }
 }
 
-// Redirects must not carry a mailbox bearer token to another host.
-final class RefusingRedirects: NSObject, URLSessionTaskDelegate {
+// One response's status and body, refused once it exceeds the limit, whether its length is
+// declared or streamed.
+final class BoundedResponse: NSObject, URLSessionDataDelegate, @unchecked Sendable {
+  private let limit: Int
+  private let lock = NSLock()
+  private var status: Int?
+  private var data = Data()
+  private var overflow = false
+  private var continuation: CheckedContinuation<(Int, Data), any Error>?
+  private var completion: Result<(Int, Data), any Error>?
+
+  init(limit: Int) { self.limit = limit }
+
+  // Redirects must not carry a mailbox bearer token to another host.
   func urlSession(
     _ session: URLSession, task: URLSessionTask,
     willPerformHTTPRedirection response: HTTPURLResponse,
     newRequest request: URLRequest
   ) async -> URLRequest? { nil }
+
+  func start(_ continuation: CheckedContinuation<(Int, Data), any Error>) {
+    let completion: Result<(Int, Data), any Error>? = lock.withLock {
+      if let completion { return completion }
+      self.continuation = continuation
+      return nil
+    }
+    // Cancelling a suspended task can complete before its continuation is installed.
+    if let completion { continuation.resume(with: completion) }
+  }
+
+  func urlSession(
+    _ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse
+  ) async -> URLSession.ResponseDisposition {
+    lock.withLock {
+      guard let response = response as? HTTPURLResponse,
+        response.expectedContentLength <= limit
+      else {
+        overflow = true
+        return .cancel
+      }
+      status = response.statusCode
+      if response.expectedContentLength > 0,
+        let length = Int(exactly: response.expectedContentLength)
+      {
+        data.reserveCapacity(length)
+      }
+      return .allow
+    }
+  }
+
+  func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive chunk: Data) {
+    let refused = lock.withLock {
+      guard !overflow, data.count + chunk.count <= limit else {
+        overflow = true
+        return true
+      }
+      data.append(chunk)
+      return false
+    }
+    if refused { dataTask.cancel() }
+  }
+
+  func urlSession(
+    _ session: URLSession, task: URLSessionTask, didCompleteWithError error: (any Error)?
+  ) {
+    let (continuation, result): (CheckedContinuation<(Int, Data), any Error>?, Result<(Int, Data), any Error>) =
+      lock.withLock {
+        if let completion { return (nil, completion) }
+        let continuation = self.continuation
+        self.continuation = nil
+        let result: Result<(Int, Data), any Error>
+        if overflow {
+          result = .failure(RegistrationError.unavailable)
+        } else if let error {
+          result = .failure(error)
+        } else if let status {
+          result = .success((status, data))
+        } else {
+          result = .failure(RegistrationError.unavailable)
+        }
+        completion = result
+        return (continuation, result)
+      }
+    continuation?.resume(with: result)
+  }
 }

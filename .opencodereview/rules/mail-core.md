@@ -210,6 +210,45 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   fence eligible identities to the current Product Account and clear that fence
   on invalidation, or a previous editor's payload can enter another account.
 
+- `createGmailInbox` widening reader membership to online search results while
+  attachment download or presentation still requires listed Inbox membership.
+  Trace `readable`, `downloadAttachment` and `presentAttachment` together so
+  off-Inbox results cannot expose inert Download/Open/Share controls. Search's
+  `found` membership must also preserve `settle`'s downloaded-file cleanup when
+  a previously listed message leaves the Inbox, without discarding an already
+  off-Inbox reader's files on every synchronization; otherwise plaintext file
+  ownership silently outlives its documented removal boundary.
+- `message-body.ts.safeFilename` shortening a name without its actual final suffix
+  while retaining dots that can expose an earlier suffix as the saved extension.
+  Preserve the final suffix within both the character and UTF-8 byte bounds, or
+  use a dot-free neutral shortened name; trace the displayed descriptor through
+  native saving. Otherwise an untrusted attachment can appear to be a different
+  file type after truncation, including when only the byte bound is exceeded.
+- `message-body.ts.safeFilename` normalizing, transforming or expanding a whole
+  sender-controlled name before bounding its input. The Gmail response cap still
+  permits huge strings; code-point arrays can exhaust the shared host runtime before
+  the output bound applies. Bound work before those operations and preserve suffix
+  provenance when discarding the middle: cleaned-away tail padding must not turn a
+  retained head dot into the saved extension, even below the output bounds. Exercise
+  both surrogate cuts with characters that survive final truncation, and retain
+  ordinary Unicode normalization for names within the input bound.
+- `message-body.ts.attachmentLeaves` identifying attached messages only through
+  the consensus media type. Any Gmail `mimeType` or Content-Type header token
+  declaring `message/rfc822` must exclude the part and its descendants, even when
+  other declarations conflict. Container traversal must compare Gmail's type with
+  every Content-Type header token; header-first `mimeType()` consensus alone misses
+  disagreement with Gmail, even with only one header. Keep containers with empty
+  or contradictory declarations opaque during both descriptor listing and download revalidation;
+  accept case differences, header parameters and a sole non-empty type source.
+  Ordinary non-message leaves may retain the neutral file type. Otherwise ambiguous metadata exposes an attached
+  message's contents as downloadable files of the outer message.
+- `createGmailInbox.prepareReaders` replacing attachment descriptors while retaining
+  download state by message ID and positional locator alone. Reconcile derived
+  state against the complete descriptor (locator, name, MIME type and size),
+  retain unchanged files, and remove ownership before aborting changed or removed
+  downloads. Trace `downloadAttachment`'s late-save fence and `presentAttachment`
+  after refresh; otherwise a replacement at the same position appears downloaded
+  and Open/Share serves the previous file, or a cancelled save restores stale bytes.
 - `mailboxes.ts.folded` implementing case-insensitive sender/subject search with
   lowercasing alone or ordering normalization, accent removal and case mapping so equivalent
   text gets different search keys. Check sharp S in both cases, dotted/dotless I,
@@ -250,6 +289,13 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 - Opening or selecting a message that changes its unread state. Only the explicit read/unread action persists a change, and it must update every subscribed view.
 - A store that reports a connected or ready inbox while mailbox authorization is missing, expired, stale or cancelled, rather than the resumable setup or reconnect state.
 - `createGmailInbox` treating a native `mailbox-invalidated` rejection as a terminal storage failure before bounded reopening of the committed cache through the registration gate. A successful same-mailbox foreground restore renews the native generation and must not hide usable cached mail. Reopening must preserve the `forget` publication fence after an ownership change or purge; recovery cannot resurrect the former owner's mail.
+- `createGmailInbox.downloadAttachment` mapping a native `mailbox-invalidated`
+  rejection from Gmail reading or private saving to an attachment storage failure.
+  Same-mailbox foreground verification can renew the generation without `forget`;
+  clear only the still-live attempt so the row offers an explicit Download again.
+  Preserve owner and exact controller fencing so a late invalidated attempt cannot
+  erase its replacement, and do not automatically redownload. Otherwise ordinary
+  generation renewal falsely reports device-storage failure or clears newer work.
 - Gmail HTTP 403 classification that treats documented usage-limit reasons (`dailyLimitExceeded`, `rateLimitExceeded`, `userRateLimitExceeded`) as missing mailbox authorization. A project quota or user rate limit requires retry presentation with cached mail retained; reauthorization cannot fix it.
 - Registration, enrollment or recovery state from one Product Account, device or deployment reused after the identity changes.
 - A `mailbox-revoked` rejection recovered as a storage failure claiming data was kept after native purge, or a registration handoff that infers revocation from every bare signed-out restore. The purging result establishes the reason; `deviceRemoved` must retain the explanation across ordinary foreground restores, fence it against accepted account changes and explicit removal, and preserve authoritative deletion notices. Otherwise a queued restore erases the explanation or a stale callback mislabels sign-out/deletion.
