@@ -1198,5 +1198,31 @@ describe('composing Drafts', () => {
     );
     expect(screen.queryByText('Drafts')).not.toBeOnTheScreen();
   });
+
+  it('creates one Draft when New Message is pressed again while it is pending', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    await render(
+      <App
+        drafts={drafts}
+        registration={registration}
+      />,
+    );
+    const newMessage = await screen.findByRole('button', {
+      name: 'New Message',
+    });
+    // Storage is slow, so the first Draft is still being created at the second press.
+    storage.hold();
+    await fireEvent.press(newMessage);
+    // The first press has left the Inbox and is waiting for its Draft to be saved.
+    await fireEvent.press(newMessage);
+    await act(async () => {
+      storage.release();
+      await drafts.save();
+    });
+    expect(draftsOf(drafts.getSnapshot())).toHaveLength(1);
+  });
   /* oxlint-enable vitest/max-expects */
 });

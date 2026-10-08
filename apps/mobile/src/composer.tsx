@@ -9,7 +9,7 @@ import type {
   Mark,
   Selection,
 } from '@private-email/mail-core/semantic-document';
-import type { StyleProp, TextStyle } from 'react-native';
+import type { StyleProp, TextInputChangeEvent, TextStyle } from 'react-native';
 
 import {
   addRecipients,
@@ -65,6 +65,11 @@ import {
 } from './mailbox.tsx';
 import { AccountContext } from './registration-gate.tsx';
 import { usePalette } from './theme.ts';
+
+// Fabric includes the post-edit selection; RN's Flow declaration has it, but its TS type omits it.
+type BodyChangeEvent = TextInputChangeEvent & {
+  readonly nativeEvent: { readonly selection?: Selection };
+};
 
 const styles = StyleSheet.create({
   fill: { flex: 1 },
@@ -336,17 +341,25 @@ export function DraftList({
   const state = useDrafts();
   const colors = usePalette();
   const leave = useLeaveComposer();
+  const creating = useRef(false);
+  const [creatingShown, setCreatingShown] = useState(false);
   if (account === undefined || state.kind === 'closed') {
     return null;
   }
   const senders = sendingMailboxes(account.mailboxes);
   const sender = senders.find(({ id }) => id === scope) ?? senders[0];
   const drafts = draftsOf(state);
+  // One new Draft at a time: a second press while one is being created does nothing.
   const compose = async (mailbox: MailboxConnection) => {
-    if (!(await leave())) {
+    if (creating.current) {
       return;
     }
-    const id = await store.create(mailbox);
+    creating.current = true;
+    setCreatingShown(true);
+    // Leaving and creating resolve rather than reject, so the press always settles here.
+    const id = (await leave()) ? await store.create(mailbox) : undefined;
+    creating.current = false;
+    setCreatingShown(false);
     if (id !== undefined) {
       onCompose(id);
     }
@@ -355,7 +368,9 @@ export function DraftList({
     <View>
       <View style={[styles.bar, { paddingHorizontal: spacing.large }]}>
         <Action
-          disabled={state.kind !== 'ready' || sender === undefined}
+          disabled={
+            state.kind !== 'ready' || sender === undefined || creatingShown
+          }
           label="New Message"
           onPress={() => {
             if (sender !== undefined) {
@@ -620,6 +635,8 @@ function Editor({
   const [selection, setSelection] = useState<Selection>({ start: 0, end: 0 });
   // The latest body selection, ahead of rendering, for text events that follow a caret move.
   const selectionNow = useRef(selection);
+  // The wrapper calls onChange before onChangeText for the same native edit.
+  const changedSelection = useRef<Selection | undefined>(undefined);
   // Where the editor must place the caret after a change it did not type itself.
   const [placed, setPlaced] = useState<Selection>();
   // Marks toggled at a caret apply to the text typed there next.
@@ -686,9 +703,18 @@ function Editor({
     const at = selectionNow.current;
     const latest = authored.current;
     const textBefore = displayOf(latest.body).text;
+    const after = changedSelection.current;
+    changedSelection.current = undefined;
+    // Forward deletion leaves the caret in place. Backspace moves it, even without a key event.
+    const forward =
+      at.start === at.end &&
+      text.length < textBefore.length &&
+      after?.start === at.start &&
+      after.end === at.start;
     const result = applyText(latest.body, text, {
       marks: typingNow.current,
       selection: at,
+      ...(forward ? { deletion: 'forward' } : {}),
     });
     // One character added after the caret continues a typing step until a word ends.
     const added = text.length === textBefore.length + 1;
@@ -1036,6 +1062,9 @@ function Editor({
         <TextInput
           accessibilityLabel="Message body"
           multiline
+          onChange={({ nativeEvent }: BodyChangeEvent) => {
+            changedSelection.current = nativeEvent.selection;
+          }}
           onChangeText={edit}
           onSelectionChange={({ nativeEvent }) => {
             const next = nativeEvent.selection;

@@ -368,17 +368,25 @@ export function DraftList({
   const state = useDrafts();
   const colors = usePalette();
   const leave = useLeaveComposer();
+  const creating = useRef(false);
+  const [creatingShown, setCreatingShown] = useState(false);
   if (account === undefined || state.kind === 'closed') {
     return null;
   }
   const senders = sendingMailboxes(account.mailboxes);
   const sender = senders.find(({ id }) => id === scope) ?? senders[0];
   const drafts = draftsOf(state);
+  // One new Draft at a time: a second press while one is being created does nothing.
   const compose = async (mailbox: MailboxConnection) => {
-    if (!(await leave())) {
+    if (creating.current) {
       return;
     }
-    const id = await store.create(mailbox);
+    creating.current = true;
+    setCreatingShown(true);
+    // Leaving and creating resolve rather than reject, so the press always settles here.
+    const id = (await leave()) ? await store.create(mailbox) : undefined;
+    creating.current = false;
+    setCreatingShown(false);
     if (id !== undefined) {
       onCompose(id);
     }
@@ -387,7 +395,9 @@ export function DraftList({
     <View>
       <View style={[styles.bar, { paddingHorizontal: spacing.large }]}>
         <Action
-          disabled={state.kind !== 'ready' || sender === undefined}
+          disabled={
+            state.kind !== 'ready' || sender === undefined || creatingShown
+          }
           label="New Message"
           onPress={() => {
             if (sender !== undefined) {

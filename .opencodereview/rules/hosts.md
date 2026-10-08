@@ -13,6 +13,25 @@ A host owns views and native adapters. It renders shared stores from `@private-e
 
 #### React correctness
 
+- `DraftList.compose` guarding only `useLeaveComposer.leave` rather than the
+  whole New Message action. Acquire its event-facing latch before awaiting
+  leaving, hold it through `store.create`, and keep the visible button disabled
+  until refusal or completion releases it. A second press after leaving settles
+  but while persistence is pending otherwise creates another blank Draft. Check
+  refused leaving, failed storage and owner/unmount changes without resetting
+  an in-flight latch merely because the component rendered again.
+
+- Mobile `Editor` treating `onKeyPress` Backspace as physical deletion direction,
+  or absence of that event as Forward Delete. Trace the installed iOS delegate,
+  Fabric emitter and TextInput wrapper: empty replacement text synthesizes
+  Backspace regardless of direction, while edits bypassing the delegate may
+  emit no key at all. Use edit-correlated selection/range evidence, including
+  the post-edit caret, and consume it for that text event; otherwise repeated
+  characters with different marks lose the wrong formatting. Cover software
+  and hardware deletion, selected cut, word/grapheme removal and autocorrect/IME
+  paths; keep missing native qualification explicit rather than inferring it
+  from a component test.
+
 - `Editor.edit`, `format` or `block` using render-captured body selection or
   typing marks. Native selection and text events, toolbar/keyboard formatting
   and Undo/Redo can arrive before React commits. Advance event-facing selection

@@ -14,6 +14,8 @@ Drafts mailbox, and Drafts do not synchronize to other devices yet.
   shows, or the first usable mailbox under **All inboxes**. It opens the composer in
   the detail column: a route of its own on iPhone, beside the Inbox on iPad, and in
   place of the reader in a Mac window. Each Mac window has one composer.
+  While starting that Draft is pending, **New Message** is disabled; repeated
+  presses create one Draft. Refused navigation leaves it available to try again.
 - **Drafts** are listed in the Inbox column apart from received mail, newest edit
   first. Each row is labelled `DRAFT` and names its subject, recipients and sending
   mailbox. Sender/subject search lists received mail alone; clearing the search
@@ -140,6 +142,10 @@ They also cover clean stale discard, empty-only recovery's final saving status,
 deletion-target rebinding during recovery, and bounded retry failures. Batched
 host events verify caret movement, typing-mark changes and Undo immediately
 followed by text editing; these remain component integration evidence.
+Host regressions also cover repeated New Message presses during a held save.
+Mobile deletion regressions use the post-edit caret to preserve the remaining
+character's marks with or without a key event; they do not qualify native keyboard,
+dictation, autocorrection or IME behavior.
 
 Deferred before release: native iPhone, iPad and Mac journeys that compose, relaunch
 and reopen a Draft; VoiceOver, hardware-keyboard and Dynamic Type qualification of

@@ -18,13 +18,16 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   of the bound version. Include storage rebases when they can rename a copy;
   otherwise the test passes while the editor still targets another writer's Draft.
 
-- A host keyboard regression in `apps/{mobile,macos}/test/` that fires `keyDown`
+- A host keyboard regression in `apps/{mobile,macos}/test/` that fires `keyDown` or `keyPress`
   directly without checking the installed native emitter, JavaScript wrapper and
   handled-key consumption contract. A component event bypasses those layers; it
   cannot prove which events reach the callback or which edits native performs.
   Match native text/selection events in the journey, and distinguish that evidence
   from native interaction. Do not assume `keyDownEvents` is a dispatch whitelist;
   otherwise a passing test can justify swallowing an editing key or editing twice.
+  On iOS, an empty replacement can synthesize Backspace for either direction;
+  exercise deletion with and without that key event using the actual post-edit
+  caret payload. A missing key event alone does not prove Forward Delete.
 - Native registration journeys creating a new `RegistrationStore` for every
   action without restoring its process-local Product Sign-In session.
   `synchronize` needs that session; otherwise `removeMailbox` only queues a
