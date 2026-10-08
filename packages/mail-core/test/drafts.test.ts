@@ -8,6 +8,8 @@ import { createComposerNavigation } from '../src/composer-navigation.ts';
 import {
   addRecipients,
   createDrafts,
+  draftSummary,
+  isEmptyDraft,
   recipientSummary,
   draftOf,
   draftsOf,
@@ -474,6 +476,75 @@ describe('entering Draft recipients', () => {
     ).toBe(
       'To Oliver, alex@example.invalid · Cc Maya Chen · Bcc private@example.invalid',
     );
+    // A row shows one line: the summary stops reading recipients once that line is full.
+    let reads = 0;
+    const many = Array.from({ length: 10_000 }, (_, index) => ({
+      get address() {
+        reads += 1;
+        return `person-${index}@example.invalid`;
+      },
+    }));
+    const summary = recipientSummary({ ...draft, to: many }, 40);
+    expect(summary).toBe('To person-0@example.invalid, person-1@ex');
+    expect(reads).toBe(2);
+    // A shortened row cannot mistake a surrogate cut for an exact-length summary.
+    expect(
+      draftSummary({
+        ...draft,
+        to: [
+          { name: `${'x'.repeat(297)}😀tail`, address: 'a@example.invalid' },
+        ],
+      }),
+    ).toMatchObject({
+      recipients: `To ${'x'.repeat(297)}`,
+      shortened: true,
+    });
+    expect(
+      draftSummary({
+        ...draft,
+        to: [{ name: 'x'.repeat(297), address: 'a@example.invalid' }],
+      }),
+    ).toMatchObject({
+      recipients: `To ${'x'.repeat(297)}`,
+      shortened: false,
+    });
+  });
+
+  it('decides emptiness from the first non-whitespace character without joining the body', () => {
+    expect.hasAssertions();
+    const reads: string[] = [];
+    const span = (text: string) => ({
+      get text() {
+        reads.push(text);
+        return text;
+      },
+    });
+    const body: SemanticDocument = [
+      { kind: 'paragraph', spans: [span('  ')] },
+      { kind: 'paragraph', spans: [span('Kept'), span('unread')] },
+      { kind: 'paragraph', spans: [span('unread')] },
+    ];
+    expect(isEmptyDraft({ ...draft, body })).toBe(false);
+    expect(reads).toStrictEqual(['  ', 'Kept']);
+    expect(
+      isEmptyDraft({
+        ...draft,
+        subject: ' \n',
+        body: [{ kind: 'quote', spans: [span(' ')] }],
+      }),
+    ).toBe(true);
+    // trim() treats BOM/ZWNBSP as whitespace, but preserves a zero-width space.
+    for (const text of ['\uFEFF', '\u00A0\u2028\u2029', '\u200B']) {
+      expect(isEmptyDraft({ ...draft, subject: text })).toBe(
+        text.trim() === '',
+      );
+      expect(
+        isEmptyDraft({
+          ...draft,
+          body: [{ kind: 'code', spans: [span(text)] }],
+        }),
+      ).toBe(text.trim() === '');
+    }
   });
 
   it('parses named recipients when regular expression results carry no named groups, as on Hermes', () => {

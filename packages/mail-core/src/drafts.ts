@@ -22,7 +22,7 @@ import {
 import { canOpenInbox, mailboxesOf } from './registration.ts';
 import {
   emptyDocument,
-  plainText,
+  clip,
   SemanticDocumentSchema,
 } from './semantic-document.ts';
 
@@ -134,22 +134,41 @@ export const recipientLabel = ({ name, address }: Recipient) =>
 
 // The recipients of a Draft by role, as its list row shows and announces them: a Bcc-only Draft
 // never reads as addressed To someone.
-export const recipientSummary = (draft: Draft) => {
-  const roles = (
-    [
-      ['To', draft.to],
-      ['Cc', draft.cc],
-      ['Bcc', draft.bcc],
-    ] as const
-  ).filter(([, recipients]) => recipients.length > 0);
-  return roles.length === 0
-    ? 'No recipients'
-    : roles
-        .map(
-          ([role, recipients]) =>
-            `${role} ${recipients.map(({ name, address }) => name ?? address).join(', ')}`,
-        )
-        .join(' · ');
+export const recipientSummary = (draft: Draft, limit = 300) => {
+  let summary = '';
+  for (const [role, recipients] of [
+    ['To', draft.to],
+    ['Cc', draft.cc],
+    ['Bcc', draft.bcc],
+  ] as const) {
+    for (const [index, { name, address }] of recipients.entries()) {
+      const separator = summary === '' ? '' : ' · ';
+      summary += index === 0 ? `${separator}${role} ` : ', ';
+      summary += (name ?? address).slice(0, limit + 1);
+      // A row shows one line: stop reading recipients once it is full.
+      if (summary.length > limit) {
+        return clip(summary, limit);
+      }
+    }
+  }
+  return summary === '' ? 'No recipients' : summary;
+};
+
+// Two extra code units distinguish a full prefix even when its end splits an emoji.
+export const draftSummary = (draft: Draft) => {
+  const subject = clip(draft.subject);
+  const summary = recipientSummary(draft, 302);
+  const recipients = clip(summary);
+  const from = clip(draft.from);
+  return {
+    subject: subject || 'No subject',
+    recipients,
+    from,
+    shortened:
+      subject.length < draft.subject.length ||
+      recipients.length < summary.length ||
+      from.length < draft.from.length,
+  };
 };
 
 export type RecipientNotice = 'invalid' | 'duplicate';
@@ -265,8 +284,9 @@ export const sendingMailboxes = (mailboxes: readonly MailboxConnection[]) =>
 export const isEmptyDraft = (draft: Draft) =>
   draft.to.length + draft.cc.length + draft.bcc.length === 0 &&
   draft.entries === undefined &&
-  draft.subject.trim() === '' &&
-  plainText(draft.body).trim() === '';
+  !/\S/u.test(draft.subject) &&
+  // Stops at the first non-whitespace character rather than joining the whole body.
+  draft.body.every(({ spans }) => spans.every(({ text }) => !/\S/u.test(text)));
 
 // The newest edits first; equal times keep the identifier order, so the list is stable.
 const draftOrder: Order.Order<Draft> = Order.combine(

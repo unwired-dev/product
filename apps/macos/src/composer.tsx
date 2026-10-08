@@ -19,7 +19,7 @@ import {
   isEmptyDraft,
   recipientCopy,
   recipientLabel,
-  recipientSummary,
+  draftSummary,
   sendingCopy,
   sendingMailboxes,
   sendingStateOf,
@@ -30,6 +30,7 @@ import {
   displayOf,
   historyOf,
   marksAt,
+  clip,
   previewOf,
   record,
   redo,
@@ -297,9 +298,11 @@ function DraftRowView({
   const colors = usePalette();
   // The sending mailbox stays visible whatever the body holds.
   const preview = previewOf(draft.body);
+  // One line each: long metadata is cut before it is rendered or announced.
+  const { subject, recipients, from, shortened } = draftSummary(draft);
   return (
     <Pressable
-      accessibilityLabel={`${draft.conflict === true ? 'Conflicting Draft' : 'Draft'}. ${draft.subject || 'No subject'}. ${recipientSummary(draft)}. From ${draft.from}`}
+      accessibilityLabel={`${draft.conflict === true ? 'Conflicting Draft' : 'Draft'}. ${subject}. ${recipients}. From ${from}${shortened ? '. Preview shortened.' : ''}`}
       accessibilityRole="button"
       accessibilityState={{ selected }}
       onPress={() => {
@@ -319,18 +322,18 @@ function DraftRowView({
         <Text
           numberOfLines={1}
           style={[styles.rowSubject, { color: colors.foreground }]}>
-          {draft.subject || 'No subject'}
+          {subject}
         </Text>
       </View>
       <Text
         numberOfLines={1}
         style={[styles.rowDetail, { color: colors.secondary }]}>
-        {recipientSummary(draft)}
+        {recipients}
       </Text>
       <Text
         numberOfLines={1}
         style={[styles.rowDetail, { color: colors.secondary }]}>
-        {`From ${draft.from}`}
+        {`From ${from}`}
       </Text>
       {preview === '' ? null : (
         <Text
@@ -476,24 +479,27 @@ function SendingMailbox({
   const mailboxes = account?.mailboxes ?? [];
   const state = sendingStateOf(draft, mailboxes);
   const senders = sendingMailboxes(mailboxes);
+  const from = clip(draft.from);
   return (
     <View style={styles.field}>
       <Text style={[styles.label, { color: colors.secondary }]}>From</Text>
       <View style={styles.bar}>
         {state === 'available' ? null : (
           <View
-            accessibilityLabel={`${draft.from}, cannot send`}
+            accessible
+            accessibilityLabel={`${from}${from.length < draft.from.length ? ', address shortened' : ''}, cannot send`}
             style={[styles.choice, { borderColor: colors.separator }]}>
-            <Text style={{ color: colors.secondary }}>{draft.from}</Text>
+            <Text style={{ color: colors.secondary }}>{from}</Text>
           </View>
         )}
         {senders.map((mailbox) => {
+          const address = clip(mailbox.address);
           const selected =
             state === 'available' && mailbox.id === draft.connection;
           return (
             <Pressable
               key={mailbox.id}
-              accessibilityLabel={`Send from ${mailbox.address}`}
+              accessibilityLabel={`Send from ${address}${address.length < mailbox.address.length ? ', address shortened' : ''}`}
               accessibilityRole="button"
               accessibilityState={{ selected }}
               onPress={() => {
@@ -506,9 +512,7 @@ function SendingMailbox({
                   borderColor: selected ? colors.accent : 'transparent',
                 },
               ]}>
-              <Text style={{ color: colors.foreground }}>
-                {mailbox.address}
-              </Text>
+              <Text style={{ color: colors.foreground }}>{address}</Text>
             </Pressable>
           );
         })}
@@ -941,6 +945,8 @@ function Editor({
       }
     }
   };
+  const title = clip(draft.subject) || 'New Message';
+  const titleLabel = `${title}${title.length < draft.subject.length ? ', subject shortened' : ''}`;
   const active = typing ?? marksAt(draft.body, selection);
   const kind = blockKindAt(draft.body, selection.start);
 
@@ -957,7 +963,7 @@ function Editor({
           />
           <View
             accessible
-            accessibilityLabel={draft.subject || 'New Message'}
+            accessibilityLabel={titleLabel}
             accessibilityRole="header"
             style={styles.grow}>
             <Text
@@ -966,7 +972,7 @@ function Editor({
                 styles.actionText,
                 { color: colors.foreground, fontWeight: '600' },
               ]}>
-              {draft.subject || 'New Message'}
+              {title}
             </Text>
           </View>
           <Action

@@ -1566,6 +1566,85 @@ describe('composing Drafts', () => {
     expect(screen.queryByLabelText('Subject')).not.toBeOnTheScreen();
   });
 
+  it('bounds row and composer metadata previews while preserving the full Draft', async () => {
+    expect.hasAssertions();
+    const from = `${'f'.repeat(4096)}@example.invalid`;
+    const subject = `${'S'.repeat(299)}😀subject tail`;
+    const recipient = `${'R'.repeat(296)}😀recipient tail`;
+    const snapshot = connected(['alex@example.invalid']);
+    ok(snapshot.kind === 'connected');
+    const registration = account({
+      ...snapshot,
+      mailboxes: JSON.stringify([
+        { id: alex, address: from, state: 'connected' },
+      ]),
+    });
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    await drafts.load();
+    const id = await drafts.create({ id: alex, address: from });
+    const created = draftsOf(drafts.getSnapshot()).find(
+      (each) => each.id === id,
+    );
+    ok(created);
+    await drafts.update(
+      {
+        ...created,
+        subject,
+        to: [{ name: recipient, address: 'recipient@example.invalid' }],
+        cc: [{ address: 'copy@example.invalid' }],
+        conflict: true,
+      },
+      created,
+    );
+    await render(
+      <App
+        drafts={drafts}
+        registration={registration}
+      />,
+    );
+    const rowName = `Conflicting Draft. ${'S'.repeat(299)}. To ${'R'.repeat(296)}. From ${'f'.repeat(300)}. Preview shortened.`;
+    await expect(
+      screen.findByRole('button', { name: rowName }),
+    ).resolves.toBeOnTheScreen();
+    expect(screen.getByText(`From ${'f'.repeat(300)}`)).toBeOnTheScreen();
+    expect(screen.getByText(`To ${'R'.repeat(296)}`)).toBeOnTheScreen();
+    await press(rowName);
+    expect(
+      screen.getByRole('header', {
+        name: `${'S'.repeat(299)}, subject shortened`,
+      }),
+    ).toBeOnTheScreen();
+    expect(
+      screen.getByRole('button', {
+        name: `Send from ${'f'.repeat(300)}, address shortened`,
+      }),
+    ).toBeOnTheScreen();
+    expect(screen.getByLabelText('Subject')).toHaveProp('value', subject);
+    // A removed connection retains the same bounded From preview, with refusal feedback.
+    await act(async () => {
+      registration.change(connected([]));
+    });
+    expect(
+      screen.getByLabelText(
+        `${'f'.repeat(300)}, address shortened, cannot send`,
+      ),
+    ).toHaveProp('accessible', true);
+    await press('Close');
+    const reopened = createDrafts(storage.native, registration);
+    await reopened.load();
+    const restored = draftsOf(reopened.getSnapshot()).find(
+      (each) => each.id === id,
+    );
+    expect(restored).toMatchObject({
+      subject,
+      from,
+      to: [{ name: recipient, address: 'recipient@example.invalid' }],
+      cc: [{ address: 'copy@example.invalid' }],
+      conflict: true,
+    });
+  });
+
   it('shows and announces recipient roles in Bcc-only and mixed Drafts', async () => {
     expect.hasAssertions();
     const registration = account(connected(['alex@example.invalid']));

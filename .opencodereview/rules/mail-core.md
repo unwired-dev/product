@@ -112,9 +112,23 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   multiplies retained memory until the host can be terminated.
 
 - `drafts.ts.recipientSummary` flattening To, Cc and Bcc into one To-prefixed
-  list or omitting populated roles. Preserve each role and its recipient order,
+  list or omitting populated roles within its bounded prefix. Preserve each emitted role and its recipient order,
   use names with address fallback, and return No recipients only when all three
   lists are empty; otherwise a Bcc-only or mixed Draft misrepresents its addressing.
+
+- `drafts.ts.recipientSummary` or `semantic-document.ts.clip/previewOf` joining
+  complete metadata or bodies before shortening a list-row preview. Bound both
+  traversal and intermediate strings, including one huge name/address/span and
+  many small recipients or empty blocks; stop once the prefix is complete.
+  Preserve short-input role order, separators, whitespace and surrogate pairs,
+  and inspect every field and accessible label in `draftSummary` and both host
+  consumers. Otherwise an admitted large Draft stalls the shared runtime before
+  native one-line truncation applies.
+- `drafts.ts.isEmptyDraft` flattening or trimming the complete semantic body to
+  decide Close, Discard or abandonment. Test whitespace directly in spans and
+  stop at the first non-whitespace character while preserving subject, recipient
+  and unfinished-entry semantics; block separators are whitespace. Otherwise
+  routine navigation duplicates a large body in memory and blocks the host.
 
 - `semantic-document.ts.marksAt` reporting collapsed-caret marks that disagree
   with `applyText`/`splice` insertion inheritance. Without an explicit typing

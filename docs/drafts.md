@@ -26,14 +26,19 @@ Drafts mailbox, and Drafts do not synchronize to other devices yet.
   mailbox. A **From** line always shows the sending address, followed by a
   one-line excerpt from the start of the body when its plain-text form is nonempty.
   Block breaks become spaces, including empty blocks; whitespace is preserved.
-  The excerpt is bounded before display, so a long body does not need to be read
-  in full to show its row. It may end before the row's right edge, depending on
-  the characters and available width. Recipient names (or addresses when
+  The subject, recipient summary, From address and body excerpt show bounded
+  prefixes; a long body or recipient list does not need to be read in full to
+  show its row. A prefix may end before the row's right edge, depending on
+  the characters and available width. The accessible row name says **Preview
+  shortened** when metadata is cut. Recipient names (or addresses when
   unnamed) are grouped under **To**,
   **Cc** and **Bcc**, separated by `·`; empty groups are omitted and an empty
   recipient list says **No recipients**. The accessible row name keeps those same
-  roles. Bcc names remain visible in the sender's Draft list, including a Bcc-only
-  Draft. Sender/subject search lists received mail alone; clearing the search
+  roles within the preview; later recipients or groups may fall beyond its end.
+  Bcc names appear in the sender's Draft list, including a Bcc-only Draft, within
+  that same bound. The composer retains the full subject and recipients for
+  editing; its title and From choices also use bounded previews and announce
+  shortening. Sender/subject search lists received mail alone; clearing the search
   restores the Draft rows. Selecting one opens it directly for editing; Drafts have no reader.
 - **From** always shows the sending mailbox and lists every mailbox that can send.
   A mailbox waiting for Gmail authorization cannot be chosen. If the Draft's mailbox
@@ -193,6 +198,11 @@ including a visible From address alongside a non-empty body preview.
 The shared preview regression preserves empty-block spacing and whitespace,
 avoids splitting an emoji at the excerpt boundary, and verifies that later body
 spans are not read after the bounded excerpt is complete.
+Metadata regressions stop reading recipients once the row prefix is complete,
+preserve short recipient-role summaries, and check both hosts' bounded row names,
+From choices and composer titles while full authored values remain saved.
+The emptiness check stops at the first non-whitespace body span without joining
+the body; whitespace-only content keeps the same Close behavior.
 They also cover later destinations and selecting the new Draft's row while
 creation is pending, preserving content added to an abandoned Draft, and a
 successful Discard queued behind autosave with a late native text callback.

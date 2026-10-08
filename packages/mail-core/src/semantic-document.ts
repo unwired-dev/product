@@ -162,6 +162,16 @@ export const plainText = (document: SemanticDocument) =>
     .map(({ spans }) => spans.map(({ text }) => text).join(''))
     .join('\n');
 
+// At most `limit` code units of `text`, never ending inside a surrogate pair.
+export const clip = (text: string, limit = 300) => {
+  if (text.length <= limit) {
+    return text;
+  }
+  const cut = text.slice(0, limit);
+  // A split surrogate pair would show a replacement character.
+  return /\p{Cs}$/u.test(cut) ? cut.slice(0, -1) : cut;
+};
+
 /**
  * The start of the body on one line, with spaces between blocks and whitespace
  * preserved.
@@ -190,9 +200,7 @@ export const previewOf = (document: SemanticDocument, limit = 300) => {
   for (const text of pieces()) {
     preview += text.slice(0, limit + 1 - preview.length);
     if (preview.length > limit) {
-      const cut = preview.slice(0, limit);
-      // A split surrogate pair would show a replacement character.
-      return /\p{Cs}$/u.test(cut) ? cut.slice(0, -1) : cut;
+      return clip(preview, limit);
     }
   }
   return preview;
