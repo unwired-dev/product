@@ -338,7 +338,7 @@ the message leaving the Inbox, or the Inbox closing or changing owner discards
 them.
 
 For system preview/share, the native bridge retains a counted presentation lease
-per file. Reader and message discards wait for the last lease; deferred deletion
+per file. Reader, message and Inbox discards wait for the last lease; deferred deletion
 rechecks ownership under the registration gate. Admission receives the gated
 snapshot of leased IDs, counts their bytes toward the same hard limit and skips
 them during eviction, refusing before deletion if the remaining files cannot

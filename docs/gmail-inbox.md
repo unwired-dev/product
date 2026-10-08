@@ -734,7 +734,8 @@ file offers **Download** again. Their owner deletes them:
 - relaunch, which deletes files left by an earlier process.
 
 A file still shown in Quick Look, or handed to a share that has not finished, is
-deleted for the first two reasons only once that preview closes or the share ends.
+deleted after its reader closes, its message leaves the Inbox, or the Inbox closes or
+changes owner only once that preview closes or the share ends.
 It also stays through eviction and counts toward the 250 MiB limit. A download
 that cannot fit without deleting a presented file fails and can be retried after
 the preview closes or the share ends.
