@@ -721,7 +721,7 @@ extension UnwiredRegistration {
       else { throw RegistrationError.unavailable }
       return try await $0.saveAttachment(
         connection: connection, address: address, generation: generation, name: name,
-        data: data, size: size)
+        data: data, size: size, protectedFiles: Set(Self.presentedAttachments.keys))
     }
   }
 
@@ -732,8 +732,39 @@ extension UnwiredRegistration {
   ) {
     mailbox("discardAttachment", resolve, reject: reject) {
       let (connection, _, _) = try Self.scope(scope)
+      // A file the system is still previewing or sharing is deleted when that presentation ends.
+      if Self.presentedAttachments[file] != nil {
+        Self.deferredDiscards[file] = connection
+        return [:]
+      }
       try await $0.discardAttachment(connection: connection, file: file)
       return [:]
+    }
+  }
+
+  // Presentation leases: active previews and shares by file, and discards waiting for them.
+  @MainActor private static var presentedAttachments: [String: Int] = [:]
+  @MainActor private static var deferredDiscards: [String: String] = [:]
+
+  @MainActor private static func endPresentation(_ file: String) {
+    let remaining = (Self.presentedAttachments[file] ?? 1) - 1
+    Self.presentedAttachments[file] = remaining > 0 ? remaining : nil
+    guard remaining <= 0, let connection = Self.deferredDiscards.removeValue(forKey: file),
+      let store = Self.sharedStore
+    else { return }
+    Task { @MainActor in
+      do {
+        try await Self.operations.perform {
+          // A queued Open/Share may have acquired a new lease while this task awaited the gate.
+          if Self.presentedAttachments[file] != nil {
+            Self.deferredDiscards[file] = connection
+            return
+          }
+          try await store.discardAttachment(connection: connection, file: file)
+        }
+      } catch {
+        Self.logger.error("Deferred attachment discard failed: unavailable")
+      }
     }
   }
 
@@ -748,7 +779,12 @@ extension UnwiredRegistration {
       guard action == "open" || action == "share" else { throw RegistrationError.unavailable }
       let url = try await $0.attachmentFile(
         connection: connection, address: address, generation: generation, file: file)
-      guard AttachmentPresenter.present(url, share: action == "share") else {
+      Self.presentedAttachments[file, default: 0] += 1
+      let presented = AttachmentPresenter.present(url, share: action == "share") {
+        Self.endPresentation(file)
+      }
+      guard presented else {
+        Self.endPresentation(file)
         throw RegistrationError.unavailable
       }
       return [:]

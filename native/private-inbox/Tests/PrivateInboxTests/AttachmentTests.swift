@@ -104,6 +104,39 @@ extension PrivateInboxTests {
       connection: other, name: "new.pdf", data: data, size: bytes.count)
     #expect(try bounded.attachmentFile(connection: first, file: older) == nil)
     #expect(try bounded.attachmentFile(connection: other, file: newer) != nil)
+    // A preview/share retains its file against another connection's download without adding quota.
+    #expect(throws: PrivateInboxError.unavailable) {
+      _ = try bounded.saveAttachment(
+        connection: first, name: "blocked.pdf", data: data, size: bytes.count,
+        protectedFiles: [newer])
+    }
+    #expect(try bounded.attachmentFile(connection: other, file: newer) != nil)
+    #expect(
+      try FileManager.default.contentsOfDirectory(
+        at: attachments.appendingPathComponent(first), includingPropertiesForKeys: nil).isEmpty)
+    let afterPresentation = try bounded.saveAttachment(
+      connection: first, name: "after.pdf", data: data, size: bytes.count)
+    #expect(try bounded.attachmentFile(connection: other, file: newer) == nil)
+    #expect(try bounded.attachmentFile(connection: first, file: afterPresentation) != nil)
+
+    // Admission skips even the oldest leased file and evicts only an unleased neighbour.
+    try bounded.removeAttachments()
+    let twoFiles = PrivateInboxStore(
+      directory: directory, service: service, attachments: attachments,
+      protectedDataAvailable: { true }, attachmentLimit: 2 * bytes.count)
+    let leased = try twoFiles.saveAttachment(
+      connection: other, name: "leased.pdf", data: data, size: bytes.count)
+    let leasedURL = try #require(try twoFiles.attachmentFile(connection: other, file: leased))
+    try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: 1)],
+      ofItemAtPath: leasedURL.path)
+    let unleased = try twoFiles.saveAttachment(
+      connection: first, name: "unleased.pdf", data: data, size: bytes.count)
+    let admitted = try twoFiles.saveAttachment(
+      connection: first, name: "admitted.pdf", data: data, size: bytes.count,
+      protectedFiles: [leased])
+    #expect(try twoFiles.attachmentFile(connection: other, file: leased) != nil)
+    #expect(try twoFiles.attachmentFile(connection: first, file: unleased) == nil)
+    #expect(try twoFiles.attachmentFile(connection: first, file: admitted) != nil)
     #expect(throws: PrivateInboxError.unavailable) {
       _ = try bounded.saveAttachment(
         connection: first, name: "large", data: "", size: 25 * 1024 * 1024 + 1)

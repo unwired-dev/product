@@ -275,8 +275,9 @@ public final class PrivateInboxStore: @unchecked Sendable {
 
   // Writes an attachment whose base64url data decodes to exactly `size` bytes under a name that
   // cannot leave its own directory, and returns the file's opaque name.
-  public func saveAttachment(connection: String, name: String, data: String, size: Int) throws
-    -> String
+  public func saveAttachment(
+    connection: String, name: String, data: String, size: Int, protectedFiles: Set<String> = []
+  ) throws -> String
   {
     guard size >= 0, size <= 25 * 1024 * 1024,
       data.utf8.count <= 4 * ((size + 2) / 3)
@@ -294,7 +295,14 @@ public final class PrivateInboxStore: @unchecked Sendable {
       guard size <= attachmentLimit else { throw PrivateInboxError.unavailable }
       let files = try attachmentFiles()
       var stored = files.reduce(0) { $0 + $1.size }
-      for entry in files.sorted(by: {
+      let evictable = files.filter {
+        !protectedFiles.contains($0.url.deletingLastPathComponent().lastPathComponent)
+      }
+      // Plan before deleting: active system presentations still count toward the hard budget.
+      guard stored + size - evictable.reduce(0, { $0 + $1.size }) <= attachmentLimit else {
+        throw PrivateInboxError.unavailable
+      }
+      for entry in evictable.sorted(by: {
         $0.date == $1.date ? $0.url.path < $1.url.path : $0.date < $1.date
       }) where stored + size > attachmentLimit {
         try removeAttachmentItem(entry.url.deletingLastPathComponent())

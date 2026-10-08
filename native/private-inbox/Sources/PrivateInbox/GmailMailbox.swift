@@ -377,13 +377,14 @@ extension RegistrationStore {
 extension RegistrationStore {
   func saveAttachment(
     connection: String, address: String, generation: String, name: String, data: String,
-    size: Int
+    size: Int, protectedFiles: Set<String> = []
   ) async throws -> [String: Any] {
     let file = try await bodyWork(
       connection: connection, address: address, generation: generation, verified: true,
       discard: { try $0.discardAttachment(connection: connection, file: $1) }
     ) { store, _ in
-      try store.saveAttachment(connection: connection, name: name, data: data, size: size)
+      try store.saveAttachment(
+        connection: connection, name: name, data: data, size: size, protectedFiles: protectedFiles)
     }
     return ["file": file]
   }
