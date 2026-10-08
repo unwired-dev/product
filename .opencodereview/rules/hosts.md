@@ -18,9 +18,13 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   native bytes. Trace every complete asset kind through `store.readAsset` and
   `RegistrationStore.readDraftAsset`; verify-only reads must keep attachment
   bytes native and preserve missing/damaged feedback and the store's locked
-  outcome. Otherwise the composer claims an ordinary attachment is healthy after
-  its bytes are lost or
-  damaged. Fence replacement and unmount results as for image previews.
+  outcome. A transient locked result must say verification was refused and allow
+  another check, including on foreground activation while locked; test explicit
+  retry and the host lifecycle event through the visible composer. Otherwise the
+  composer claims an ordinary attachment is healthy after its bytes are lost or
+  damaged, or permanently hides an Inline Image after storage unlocks. Fence
+  retry, replacement and unmount results as for image previews, and remove
+  foreground subscriptions when their row no longer needs them.
 - `composer.tsx.transferred` or picker handlers constructing a prepared asset,
   starting an import or mounting a row for every selected file before applying
   `drafts.ts.pickLimit`. Bound each pick, paste and drop before that amplification,

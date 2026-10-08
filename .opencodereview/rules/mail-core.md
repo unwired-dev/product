@@ -103,6 +103,15 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Product behavior the stores own
 
+- `drafts.ts.attach` or another store action returning a durable-save result to a
+  caller that needs to know whether its requested state was retained in memory.
+  Trace `composer-navigation.ts.create`/`attachReceived` and the refused-save
+  snapshot separately from persistence: retained work must remain visible and
+  recoverable even when saving is locked or unavailable. Otherwise the caller
+  leaves a hidden Draft/import behind and repeated commands create duplicates
+  that become durable on a later save. Keep owner and removal fences; do not
+  reinterpret a durability-dependent action such as Close as successful.
+
 - `drafts.ts.importAsset` assuming a rejected native import wrote nothing. Trace
   rejection after ciphertext replacement, file synchronization or the final
   protected-data check; discard unadopted bytes before settling the failed asset,

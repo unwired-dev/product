@@ -21,7 +21,7 @@ import {
   within,
 } from '@testing-library/react-native';
 import { StrictMode, useMemo, useState, useSyncExternalStore } from 'react';
-import { View } from 'react-native';
+import { AppState, View } from 'react-native';
 
 import type { Selection } from '../src/inbox.tsx';
 
@@ -1973,6 +1973,8 @@ describe('adding files and images to a Draft', () => {
     storage.damage(attachment.id);
     // Checks refused while storage is locked say so, and run again when asked.
     storage.setLocked(true);
+    const listenersBeforeRender = jest.mocked(AppState.addEventListener).mock
+      .calls.length;
     await render(
       <App
         drafts={createDrafts(storage.native, registration)}
@@ -1985,9 +1987,23 @@ describe('adding files and images to a Draft', () => {
         'brief.txt, 5 bytes · Not checked while private storage is locked',
       ),
     ).resolves.toBeOnTheScreen();
+    await screen.findByLabelText(
+      'Pasted image.png, 5 bytes · Not checked while private storage is locked',
+    );
     storage.setLocked(false);
     await press('Check brief.txt again');
-    await press('Check Pasted image.png again');
+    await expect(
+      screen.findByLabelText('brief.txt, 5 bytes · Damaged on this device'),
+    ).resolves.toBeOnTheScreen();
+    // A foreground activation retries the image without pressing its retry control.
+    await act(async () => {
+      for (const [, activate] of jest
+        .mocked(AppState.addEventListener)
+        .mock.calls.slice(listenersBeforeRender)) {
+        activate('active');
+      }
+      await Promise.resolve();
+    });
     await expect(
       screen.findByLabelText(
         'Pasted image.png, 5 bytes · Damaged on this device',
