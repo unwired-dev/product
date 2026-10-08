@@ -169,6 +169,7 @@ export function createSyntheticGmail({
   const presentations: Array<{ name: string; action: string }> = [];
   let nextFile = 0;
   const saveFailures: string[] = [];
+  const presentFailures: string[] = [];
   // Each body commit's tier and protected working set, as native admission receives them.
   const bodyCommits: Array<{
     id: string;
@@ -654,7 +655,11 @@ export function createSyntheticGmail({
         return rejection('mailbox-invalidated');
       }
       if (saved === undefined) {
-        return rejection('unavailable');
+        return rejection('attachment-missing');
+      }
+      const code = presentFailures.shift();
+      if (code !== undefined) {
+        return rejection(code);
       }
       presentations.push({ name: saved.name, action });
       return Promise.resolve(null);
@@ -704,6 +709,10 @@ export function createSyntheticGmail({
     presentations,
     failSave: (code: string) => {
       saveFailures.push(code);
+    },
+    // The system cannot show the next presentation, as without a window or presenter.
+    failPresent: (code: string) => {
+      presentFailures.push(code);
     },
     // Native admission refuses this message's body, as when it cannot fit.
     refuseBody: (id: string) => {

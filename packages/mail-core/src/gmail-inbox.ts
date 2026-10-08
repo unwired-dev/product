@@ -3051,11 +3051,20 @@ export function createGmailInbox(
           catch: (cause) => rejected(cause, 'failed'),
         }).pipe(
           Effect.asVoid,
-          Effect.catchTag('SyncFailure', ({ diagnostic }) =>
+          // Only a file the device no longer has, or one from another mailbox generation, is
+          // downloaded again; a presenter that could not show the file keeps it.
+          Effect.catchTag('SyncFailure', ({ kind, cause, diagnostic }) =>
             Effect.logError(
               'Attachment could not be presented:',
               diagnostic,
-            ).pipe(Effect.andThen(stale())),
+            ).pipe(
+              Effect.andThen(
+                kind === 'invalidated' ||
+                  rejectionCode(cause) === 'attachment-missing'
+                  ? stale()
+                  : Effect.void,
+              ),
+            ),
           ),
         ),
       );

@@ -552,6 +552,8 @@ extension UnwiredRegistration {
           case RegistrationError.gmailUnavailable:
             reject("gmail-unavailable", "Gmail needs authorization again.", nil)
           case PrivateInboxError.locked: reject("locked", "Private storage is locked.", nil)
+          case PrivateInboxError.attachmentMissing:
+            reject("attachment-missing", "The attachment is no longer on this device.", nil)
           case PrivateInboxError.conflict: reject("conflict", "The mailbox changed.", nil)
           case PrivateInboxError.mailboxInvalidated:
             reject("mailbox-invalidated", "The mailbox is no longer available.", nil)

@@ -402,7 +402,7 @@ extension RegistrationStore {
     let url = try await bodyWork(
       connection: connection, address: address, generation: generation, verified: false
     ) { store, _ in try store.attachmentFile(connection: connection, file: file) }
-    guard let url else { throw RegistrationError.unavailable }
+    guard let url else { throw PrivateInboxError.attachmentMissing }
     return url
   }
 }
@@ -442,12 +442,17 @@ enum GmailTransport {
         throw RegistrationError.unavailable
       }
       var data = Data()
+      if response.expectedContentLength > 0, let length = Int(exactly: response.expectedContentLength) {
+        data.reserveCapacity(length)
+      }
       do {
+        // Cancellation is checked per 64 KiB rather than per byte.
         for try await byte in bytes {
-          try Task.checkCancellation()
           guard data.count < limit else { throw RegistrationError.unavailable }
           data.append(byte)
+          if data.count & 0xFFFF == 0 { try Task.checkCancellation() }
         }
+        try Task.checkCancellation()
       } catch {
         bytes.task.cancel()
         throw error

@@ -357,6 +357,13 @@ describe('received attachments', () => {
     const { gmail, id, inbox } = await opened();
     const notes = locatorOf(inbox, id, 'notes.txt');
     await inbox.downloadAttachment(id, notes);
+    // No window can show the preview: the valid file stays for the next try.
+    gmail.failPresent('unavailable');
+    await inbox.presentAttachment(id, notes, 'open');
+    expect(stateOf(inbox, id, 'notes.txt')).toStrictEqual({
+      kind: 'downloaded',
+    });
+    expect(gmail.savedFiles.size).toBe(1);
     // The system cleared the temporary file.
     gmail.savedFiles.clear();
 

@@ -77,7 +77,7 @@ extension PrivateInboxTests {
 
     // Discarding deletes the file; a missing file cannot be presented.
     try await store.discardAttachment(connection: first, file: file)
-    await #expect(throws: RegistrationError.unavailable) {
+    await #expect(throws: PrivateInboxError.attachmentMissing) {
       _ = try await store.attachmentFile(
         connection: first, address: google.address, generation: generation, file: file)
     }
