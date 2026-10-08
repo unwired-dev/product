@@ -1,11 +1,13 @@
 import type { Drafts } from '@private-email/mail-core/drafts';
 import type { ReactNode } from 'react';
 
+import { savedMessageBodies } from '@private-email/mail-core/mailboxes';
 import {
   createContext,
   use,
   useEffect,
   useMemo,
+  useState,
   useSyncExternalStore,
 } from 'react';
 import { AppState } from 'react-native';
@@ -158,4 +160,56 @@ export function useInboxActions(): InboxStore {
     throw new Error('Inbox actions need a MailboxScope');
   }
   return mailbox.inbox;
+}
+
+type Result = Readonly<{
+  mailbox: InboxMailbox;
+  message: Readonly<{ id: string }>;
+}>;
+
+// Whether each search result's body opens from this device, by `resultKey`; absent while unknown.
+// Each answer belongs to the results and `refresh` it was asked for, so a slower reply for an
+// earlier query, scope or set of mailboxes never replaces the current one. A new `refresh`, such
+// as a reader opening or closing a result, asks again, and so does any body saved or pruned in
+// the background while the results are shown; only the latest of those answers is kept.
+export function useSavedBodies(
+  results: readonly Result[] | undefined,
+  refresh: string,
+) {
+  const { bodies } = use(MailboxesContext);
+  const [answer, setAnswer] = useState<
+    Readonly<{
+      results: readonly Result[];
+      refresh: string;
+      saved: ReadonlyMap<string, boolean>;
+    }>
+  >();
+  useEffect(() => {
+    if (results === undefined) {
+      return;
+    }
+    let current = true;
+    let asked = 0;
+    const lookup = async () => {
+      asked += 1;
+      const question = asked;
+      const saved = await savedMessageBodies(results);
+      if (current && question === asked) {
+        setAnswer({ results, refresh, saved });
+      }
+    };
+    void lookup();
+    const unsubscribe = bodies?.subscribe(() => {
+      void lookup();
+    });
+    return () => {
+      current = false;
+      unsubscribe?.();
+    };
+  }, [results, refresh, bodies]);
+  return answer !== undefined &&
+    answer.results === results &&
+    answer.refresh === refresh
+    ? answer.saved
+    : undefined;
 }

@@ -16,7 +16,8 @@ Drafts mailbox, and Drafts do not synchronize to other devices yet.
   place of the reader in a Mac window. Each Mac window has one composer.
 - **Drafts** are listed in the Inbox column apart from received mail, newest edit
   first. Each row is labelled `DRAFT` and names its subject, recipients and sending
-  mailbox. Selecting one opens it directly for editing; Drafts have no reader.
+  mailbox. Sender/subject search lists received mail alone; clearing the search
+  restores the Draft rows. Selecting one opens it directly for editing; Drafts have no reader.
 - **From** always shows the sending mailbox and lists every mailbox that can send.
   A mailbox waiting for Gmail authorization cannot be chosen. If the Draft's mailbox
   needs authorization again or is removed from the account, the Draft keeps it and
@@ -119,7 +120,9 @@ purge, and refusal to replace a missing encryption key while a mailbox remains.
 Shared regressions cover conflicting window edits, concurrent storage writers,
 failed deletion, and edits within repeated text with different formatting. Component
 journeys also cover Undo between subject and body, blocked switching and discard
-failure recovery.
+failure recovery. Combined search/composer journeys cover hidden Draft rows,
+search empty state and saved-body labels, refusal to select a result with invalid
+recipients or unsaved edits, and durable recovery before switching to received mail.
 Conflict journeys follow the selected copy through Undo, Redo, continued typing
 before a render, and Discard. Cross-field callbacks and recipient completion
 before a render preserve the latest authored fields through Close and relaunch.

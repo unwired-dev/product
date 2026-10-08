@@ -321,10 +321,12 @@ public final class PrivateInboxStore: @unchecked Sendable {
   // The Bounded Encrypted Body Cache holds TypeScript's body documents, one file per message, each
   // sealed to its mailbox and message ID. The name's suffix records the eviction tier: opened
   // bodies go before prefetched ones, least recently read first, and bodies in the protected
-  // working set are never evicted to admit another.
-  public enum BodyTier: String, Sendable {
+  // working set are never evicted to admit another. A prefetch exclusion marker has its own tier,
+  // evicted with prefetched bodies, so listing can tell it from a saved body.
+  public enum BodyTier: String, Sendable, CaseIterable {
     case opened = "o"
     case prefetched = "p"
+    case excluded = "x"
   }
 
   private func bodyName(address: String, subject: String, id: String) -> (String, Data) {
@@ -344,7 +346,7 @@ public final class PrivateInboxStore: @unchecked Sendable {
   ) throws -> String? {
     try transaction {
       let (name, identity) = bodyName(address: address, subject: subject, id: id)
-      for tier in [BodyTier.opened, .prefetched] {
+      for tier in BodyTier.allCases {
         let file = try bodyURL(connection, name, tier)
         let data: Data
         do {
@@ -391,10 +393,13 @@ public final class PrivateInboxStore: @unchecked Sendable {
       else {
         return false
       }
-      // The other tier's file goes before the new one is published, so one body never has two
-      // valid files; an interruption between them is a cache miss, fetched again.
-      let other = try bodyURL(connection, name, tier == .opened ? .prefetched : .opened)
-      do { try FileManager.default.removeItem(at: other) } catch CocoaError.fileNoSuchFile {}
+      // Other tiers' files go before the new one is published, so one body never has two valid
+      // files; an interruption between them is a cache miss, fetched again.
+      for other in BodyTier.allCases where other != tier {
+        do {
+          try FileManager.default.removeItem(at: try bodyURL(connection, name, other))
+        } catch CocoaError.fileNoSuchFile {}
+      }
       try write(
         plaintext, file: try connectionPath(connection, "bodies/\(name).\(tier.rawValue)"),
         key: key, authenticating: identity)
@@ -402,13 +407,19 @@ public final class PrivateInboxStore: @unchecked Sendable {
     }
   }
 
-  // The named messages that have a stored body or exclusion marker.
+  // The named messages that have a stored body or exclusion marker, and those that have only an
+  // exclusion marker.
   public func listMessageBodies(
     connection: String, address: String, subject: String, ids: [String]
-  ) throws -> [String] {
+  ) throws -> (stored: [String], excluded: [String]) {
     try transaction {
-      let stored = Set(try bodies(connection).map(\.name))
-      return ids.filter { stored.contains(bodyName(address: address, subject: subject, id: $0).0) }
+      let entries = try bodies(connection)
+      let stored = Set(entries.map(\.name))
+      let excluded = Set(entries.filter { $0.tier == .excluded }.map(\.name))
+      func name(_ id: String) -> String { bodyName(address: address, subject: subject, id: id).0 }
+      return (
+        ids.filter { stored.contains(name($0)) }, ids.filter { excluded.contains(name($0)) }
+      )
     }
   }
 
@@ -486,7 +497,7 @@ public final class PrivateInboxStore: @unchecked Sendable {
     // A refused tier change must preserve the old ciphertext and every protected body.
     var total = entries.reduce(bytes) { $0 + ($1.file == file ? 0 : $1.size) }
     let eligible = entries.filter { $0.name != name && !protected.contains($0.name) }.sorted {
-      ($0.tier == .prefetched ? 1 : 0, $0.read, $0.name) < ($1.tier == .prefetched ? 1 : 0, $1.read, $1.name)
+      ($0.tier == .opened ? 0 : 1, $0.read, $0.name) < ($1.tier == .opened ? 0 : 1, $1.read, $1.name)
     }
     var evicted: [BodyEntry] = []
     for entry in eligible where total > bodyLimit {

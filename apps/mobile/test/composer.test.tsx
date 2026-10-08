@@ -22,6 +22,8 @@ import {
 import { useMemo, useState, useSyncExternalStore } from 'react';
 import { View } from 'react-native';
 
+import type { Selection } from '../src/inbox.tsx';
+
 import { Composer } from '../src/composer.tsx';
 import { Inbox } from '../src/inbox.tsx';
 import { InboxProvider } from '../src/mailbox.tsx';
@@ -127,6 +129,7 @@ function App({
     [registration],
   );
   const [composing, setComposing] = useState<string | undefined>(initialDraft);
+  const [selected, setSelected] = useState<Selection>();
   return (
     <AccountContext
       value={{
@@ -141,8 +144,8 @@ function App({
         <Inbox
           composing={composing}
           onCompose={setComposing}
-          onSelect={() => undefined}
-          selected={undefined}
+          onSelect={setSelected}
+          selected={selected}
         />
         {composing === undefined ? null : (
           <Composer
@@ -392,6 +395,116 @@ describe('composing Drafts', () => {
     expect(openAccount).toHaveBeenCalledTimes(1);
     expect(screen.queryByLabelText('Subject')).not.toBeOnTheScreen();
     expect(storage.stored()?.document).toContain('maya@example.com');
+  });
+
+  it('hides Drafts during search and saves the composer before selecting a result', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    await render(
+      <App
+        drafts={drafts}
+        registration={registration}
+      />,
+    );
+    await press('New Message');
+    await fireEvent.changeText(
+      await screen.findByLabelText('Subject'),
+      'Synthetic message 0',
+    );
+    const draftName = /^Draft\. Synthetic message 0\./u;
+    await expect(
+      screen.findByRole('button', { name: draftName }),
+    ).resolves.toHaveProp('accessibilityState', { selected: true });
+    const search = async (query: string) => {
+      await act(async () => {
+        await fireEvent.changeText(
+          await screen.findByLabelText('Search senders and subjects'),
+          query,
+        );
+      });
+    };
+    await search('no matching mail');
+    await expect(
+      screen.findByText(
+        'No mail saved on this device matches “no matching mail”.',
+      ),
+    ).resolves.toBeOnTheScreen();
+    expect(
+      screen.queryByRole('button', { name: draftName }),
+    ).not.toBeOnTheScreen();
+    expect(screen.queryByText('Your inbox is clear.')).not.toBeOnTheScreen();
+    await search('Synthetic message 0');
+    const resultName =
+      'Unread. Maya Chen. Synthetic message 0. Downloads from Gmail when opened';
+    await expect(
+      screen.findByRole('button', { name: resultName }),
+    ).resolves.toHaveProp('accessibilityState', { selected: false });
+    expect(
+      screen.queryByRole('button', { name: draftName }),
+    ).not.toBeOnTheScreen();
+    await fireEvent.changeText(screen.getByLabelText('To'), 'not valid');
+    await press(resultName);
+    expect(
+      screen.getByText(
+        'Correct or remove the invalid address to close this Draft.',
+      ),
+    ).toBeOnTheScreen();
+    expect(screen.getByRole('button', { name: resultName })).toHaveProp(
+      'accessibilityState',
+      { selected: false },
+    );
+    await fireEvent.changeText(
+      screen.getByLabelText('To'),
+      'maya@example.com,',
+    );
+    await waitFor(() => {
+      expect(
+        screen.getByText('Draft · Saved on this device'),
+      ).toBeOnTheScreen();
+    });
+    storage.failNextCommit('unavailable');
+    await fireEvent.changeText(
+      screen.getByLabelText('Subject'),
+      'Authored while searching',
+    );
+    await waitFor(() => {
+      expect(screen.getByText(/Not saved/u)).toBeOnTheScreen();
+    });
+    storage.failNextCommit('locked');
+    await press(resultName);
+    expect(screen.getByLabelText('Subject')).toHaveProp(
+      'value',
+      'Authored while searching',
+    );
+    expect(
+      screen.getByText(
+        'This Draft could not be saved, so it stays open. Try again, or discard it.',
+      ),
+    ).toBeOnTheScreen();
+    expect(screen.getByRole('button', { name: resultName })).toHaveProp(
+      'accessibilityState',
+      { selected: false },
+    );
+    await press(resultName);
+    expect(screen.queryByLabelText('Subject')).not.toBeOnTheScreen();
+    expect(screen.getByRole('button', { name: resultName })).toHaveProp(
+      'accessibilityState',
+      { selected: true },
+    );
+    await search('');
+    await expect(
+      screen.findByRole('button', {
+        name: /^Draft\. Authored while searching\./u,
+      }),
+    ).resolves.toHaveProp('accessibilityState', { selected: false });
+    const reopened = createDrafts(storage.native, registration);
+    await reopened.load();
+    expect(draftsOf(reopened.getSnapshot())[0]).toMatchObject({
+      subject: 'Authored while searching',
+      to: [{ address: 'maya@example.com' }],
+    });
   });
 
   it('renders a long Draft list a window at a time', async () => {

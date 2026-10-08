@@ -69,6 +69,13 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   disappear. Cancelled confirmation must leave saving enabled; a completed own
   discard must suppress queued callbacks so they cannot recreate its Draft.
 
+- `src/mailbox.tsx.useSavedBodies` refreshing derived cache-status labels only
+  after query, scope or reader events. Subscribe while results are shown to the
+  shared body-cache mutations, including background prefetch and eviction from
+  another connection, and unsubscribe on cleanup. Fence overlapping replies for
+  the same results as well as replaced results; otherwise rows keep claiming
+  downloadable or saved after the device cache changes.
+
 - An effect that subscribes, listens (`AppState`, `Linking`, a native emitter) or starts async work without returning cleanup, or whose async result is applied after unmount or after its inputs changed.
 - A store action whose returned Promise is awaited in render or left to reject; actions are fired as `void store.action()` and report failure through state.
 - An event handled indirectly by an effect that can repeat a store action or apply it to a later selection; trace the user handler and the effect to prove the incorrect transition.

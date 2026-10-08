@@ -25,12 +25,22 @@ import {
   syntheticReplacementRecoveryKey,
   syntheticTrustedDevice,
 } from '@private-email/mail-core/testing/registration-session';
-import { act, fireEvent, render, screen } from '@testing-library/react-native';
-import { useContext, useMemo } from 'react';
-import { AppState } from 'react-native';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/react-native';
+import { useContext, useMemo, useState } from 'react';
+import { AppState, Pressable, Text } from 'react-native';
+
+import type { Selection } from '../src/inbox.tsx';
+import type { MailboxList } from '../src/private-storage.ts';
 
 import { Inbox } from '../src/inbox.tsx';
 import { InboxProvider } from '../src/mailbox.tsx';
+import { MessageDetail } from '../src/message-detail.tsx';
 import { AccountContext, RegistrationGate } from '../src/registration-gate.tsx';
 
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Jest's host adapter boundary.
@@ -45,6 +55,10 @@ const connectedTo = (address: SyntheticAddress) =>
     { id: syntheticMailboxes[address], address, state: 'connected' },
   ]);
 const alex = syntheticMailboxes['alex@example.invalid'];
+
+// Whether a synthetic Gmail request downloads a full message, as recent-body prefetch does.
+const downloadsBody = (query: ReadonlyArray<readonly [string, string]>) =>
+  query.some(([name, value]) => name === 'format' && value === 'full');
 
 // The app's Inbox composition: one controlled Gmail mailbox per connection of `registration`.
 const gmailMailboxes = (
@@ -482,6 +496,252 @@ describe('product registration', () => {
     expect(gmail.other.modifies).toStrictEqual([]);
   });
   /* oxlint-enable vitest/max-expects */
+
+  it('searches saved senders and subjects across mailboxes, shows saved bodies, and keeps only the current answer', async () => {
+    expect.hasAssertions();
+    const session = createMockRegistrationSession('registration-success');
+    const store = createRegistration(session.native);
+    const gmail = {
+      alex: createSyntheticGmail({ address: 'alex@example.invalid' }),
+      other: createSyntheticGmail({ address: 'other@example.invalid' }),
+    };
+    // Recent mail, so prefetch saves single-part bodies and leaves the multipart one on demand.
+    const now = Date.now();
+    gmail.alex.deliver({
+      from: 'Maya Chen <maya@example.invalid>',
+      subject: 'Studio review',
+      at: now - 120_000,
+      content: { text: 'Notes', single: true },
+    });
+    const cafe = gmail.alex.deliver({
+      from: 'Oliver Park <oliver@example.invalid>',
+      subject: 'Café on Saturday',
+      at: now - 180_000,
+      content: { text: 'Coffee', html: '<p>Coffee</p>' },
+    });
+    gmail.other.deliver({
+      from: 'Maya Chen <maya@example.invalid>',
+      subject: 'Invoice',
+      at: now - 60_000,
+      content: { text: 'Invoice', single: true },
+    });
+    // Holds Alex's next saved-body lookup until released.
+    let holding: Promise<void> | undefined = undefined;
+    let release: () => void = () => undefined;
+    const connections = syntheticConnections({
+      [alex]: gmail.alex,
+      [syntheticMailboxes['other@example.invalid']]: gmail.other,
+    });
+    // Holds Alex's recent-body prefetch download until released.
+    let releasePrefetch: () => void = () => undefined;
+    // oxlint-disable-next-line promise/avoid-new -- Explicit prefetch suspension, released by the journey.
+    const prefetch = new Promise<void>((resolve) => {
+      releasePrefetch = resolve;
+    });
+    const mailboxes = createMailboxes(
+      {
+        ...connections,
+        gmailRequest: async (path, query, mailbox) => {
+          // oxlint-disable-next-line vitest/no-conditional-in-test -- Only Alex's body download waits.
+          if (mailbox.connection === alex && downloadsBody(query)) {
+            await prefetch;
+          }
+          return connections.gmailRequest(path, query, mailbox);
+        },
+        listMessageBodies: async (mailbox, ids) => {
+          const held = holding;
+          // oxlint-disable-next-line vitest/no-conditional-in-test -- Only a held lookup waits.
+          if (held !== undefined && mailbox.connection === alex) {
+            holding = undefined;
+            await held;
+          }
+          return connections.listMessageBodies(mailbox, ids);
+        },
+      },
+      store,
+    );
+    const opened: Selection[] = [];
+    function Searching({ list }: { readonly list: MailboxList }) {
+      const [selected, setSelected] = useState<Selection>();
+      return (
+        <InboxProvider mailboxes={list}>
+          <Inbox
+            onSelect={(selection) => {
+              opened.push(selection);
+              setSelected(selection);
+            }}
+            selected={selected}
+          />
+          <MessageDetail
+            id={selected?.id}
+            mailbox={selected?.mailbox}
+          />
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => {
+              setSelected(undefined);
+            }}>
+            <Text>Close reader</Text>
+          </Pressable>
+        </InboxProvider>
+      );
+    }
+    await render(
+      <RegistrationGate
+        store={store}
+        preview={false}>
+        <Searching list={mailboxes} />
+      </RegistrationGate>,
+    );
+    const press = async (name: string) => {
+      await act(async () => {
+        await fireEvent.press(await screen.findByRole('button', { name }));
+      });
+    };
+    const search = async (query: string) => {
+      await act(async () => {
+        await fireEvent.changeText(
+          await screen.findByLabelText('Search senders and subjects'),
+          query,
+        );
+      });
+    };
+    const rows = () =>
+      screen
+        .queryAllByRole('button', { name: /^Unread/u })
+        .map((row) => row.props.accessibilityLabel);
+    await press('Sign in with Google');
+    await act(async () => {
+      await fireEvent.changeText(
+        await screen.findByLabelText('Last four characters'),
+        syntheticRecoveryKey.slice(-4),
+      );
+    });
+    await press('Confirm Recovery Key');
+    await openAccount();
+    await press('Add another Gmail mailbox');
+    await press('Open Inbox');
+    // A result searched while prefetch is still downloading its body becomes saved once the body
+    // is, without a new query or selection.
+    await search('studio');
+    await waitFor(() => {
+      expect(rows()).toStrictEqual([
+        'Unread. Maya Chen. Studio review. In alex@example.invalid. Downloads from Gmail when opened',
+      ]);
+    });
+    await act(async () => {
+      releasePrefetch();
+      await prefetch;
+    });
+    await waitFor(() => {
+      expect(rows()).toStrictEqual([
+        'Unread. Maya Chen. Studio review. In alex@example.invalid. Saved on this device',
+      ]);
+    });
+    await waitFor(() => {
+      expect(gmail.alex.bodyCommits).toHaveLength(2);
+    });
+    await waitFor(() => {
+      expect(gmail.other.bodyCommits).toHaveLength(1);
+    });
+    const requests = gmail.alex.requests.length + gmail.other.requests.length;
+
+    // Every word matches a sender name, address or subject, ignoring case and accents, across
+    // both mailboxes newest first; each result says whether its body is on this device.
+    await search('maya');
+    await waitFor(() => {
+      expect(rows()).toStrictEqual([
+        'Unread. Maya Chen. Invoice. In other@example.invalid. Saved on this device',
+        'Unread. Maya Chen. Studio review. In alex@example.invalid. Saved on this device',
+      ]);
+    });
+    await search('CAFE oliver');
+    await waitFor(() => {
+      expect(rows()).toStrictEqual([
+        'Unread. Oliver Park. Café on Saturday. In alex@example.invalid. Downloads from Gmail when opened',
+      ]);
+    });
+    await search('nothing like this');
+    await expect(
+      screen.findByText(
+        'No mail saved on this device matches “nothing like this”.',
+      ),
+    ).resolves.toBeVisible();
+    // Searching asks Gmail nothing.
+    expect(gmail.alex.requests.length + gmail.other.requests.length).toBe(
+      requests,
+    );
+
+    // A slower answer for an earlier query never replaces the current one.
+    // oxlint-disable-next-line promise/avoid-new -- Hold one lookup, released by the journey.
+    holding = new Promise((resolve) => {
+      release = resolve;
+    });
+    const stale = holding;
+    await search('studio');
+    await search('invoice');
+    await waitFor(() => {
+      expect(rows()).toStrictEqual([
+        'Unread. Maya Chen. Invoice. In other@example.invalid. Saved on this device',
+      ]);
+    });
+    await act(async () => {
+      release();
+      await stale;
+    });
+    expect(rows()).toStrictEqual([
+      'Unread. Maya Chen. Invoice. In other@example.invalid. Saved on this device',
+    ]);
+
+    // One mailbox's view searches only its own mail.
+    await search('maya');
+    await press('alex@example.invalid');
+    await waitFor(() => {
+      expect(rows()).toStrictEqual([
+        'Unread. Maya Chen. Studio review. In alex@example.invalid. Saved on this device',
+      ]);
+    });
+    await press('All inboxes');
+
+    // A result opens through the reader; once its body is saved, the result says so.
+    await search('cafe');
+    await press(
+      'Unread. Oliver Park. Café on Saturday. In alex@example.invalid. Downloads from Gmail when opened',
+    );
+    expect(opened).toStrictEqual([{ mailbox: alex, id: cafe }]);
+    await screen.findByRole('header', { name: 'Café on Saturday' });
+    const body = await screen.findByTestId('message-webview');
+    await act(async () => {
+      await fireEvent(body, 'contentSizeChange', {
+        nativeEvent: { contentSize: { width: 320, height: 120 } },
+      });
+    });
+    await waitFor(() => {
+      expect(
+        screen.getByRole('header', { name: 'Café on Saturday' }),
+      ).toBeVisible();
+      expect(body.props.source.html).toContain('Coffee');
+      expect(screen.getByLabelText('Message')).toBeVisible();
+    });
+    await press('Close reader');
+    await waitFor(() => {
+      expect(rows()).toStrictEqual([
+        'Unread. Oliver Park. Café on Saturday. In alex@example.invalid. Saved on this device',
+      ]);
+    });
+
+    // A removed mailbox's mail leaves the results.
+    await openAccount();
+    await press('Remove other@example.invalid');
+    await press('Remove other@example.invalid');
+    await press('Open Inbox');
+    await search('maya');
+    await waitFor(() => {
+      expect(rows()).toStrictEqual([
+        'Unread. Maya Chen. Studio review. Saved on this device',
+      ]);
+    });
+  });
 
   it('links Google from account settings and keeps both sign-in methods after remount', async () => {
     expect.hasAssertions();

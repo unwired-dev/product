@@ -62,6 +62,34 @@ message by its mailbox and ID. Only one recent-body prefetch lane runs per mailb
 all mailboxes share the [four concurrent body loads](#recent-body-prefetch), and
 prefetch in any mailbox yields to an explicit open in any other.
 
+## Searching saved mail
+
+[#608](https://github.com/unwired-dev/product/issues/608) searches the Inbox mail
+saved on this device. The field above the list, **Search senders and subjects**,
+matches the **Durable Message Metadata** already in each mailbox's encrypted cache:
+the sender's name and address and the subject. Every word of the query must appear
+in one of them, ignoring case and accents, so `cafe oliver` finds Oliver's
+`Café on Saturday`. Search asks Gmail nothing and needs no network, so it also works
+in a [Saved Gmail Inbox](#mailbox-sync-status) during an outage; no search index
+leaves the device or reaches Convex. It covers the newest 200 Inbox messages each
+mailbox keeps; older mail stays in Gmail, and online search of message content is
+[#609](https://github.com/unwired-dev/product/issues/609).
+
+- **Scope.** Search follows the [chosen view](#gmail-mailboxes): **All inboxes**
+  searches every mailbox, newest first in the unified order, and a mailbox's address
+  searches only its own mail. A removed mailbox's mail leaves the results at once,
+  as it leaves the Inbox.
+- **Results.** Each result is an ordinary Inbox row that opens in the reader. While
+  searching, each row also says whether its body is **Saved on this device**, so it
+  opens without Gmail, or **Downloads from Gmail when opened**. Messages that recent-body
+  prefetch leaves for on-demand download count as not saved. The answer is checked when the results
+  change, when a result is opened or the reader closes, and whenever this device saves or
+  prunes a body while the results are shown, such as recent-body prefetch finishing. When nothing matches, the
+  list says **No mail saved on this device matches “…”**.
+- **Responsiveness.** Typing never waits for the list. Each saved-body answer belongs
+  to the query, view and mailboxes it was asked for; a slower answer for an earlier
+  search is discarded rather than shown.
+
 ## Behavior
 
 The Inbox lists **Durable Message Metadata** for Gmail's `INBOX` label: sender,
@@ -603,6 +631,8 @@ on demand; speculative fetching must neither request nor receive their embedded
 resources. An encrypted exclusion marker avoids repeating the preflight for an
 unchanged excluded message. Refuse that marker if admitting it would evict a
 protected readable body. A later changed revision is eligible for reevaluation.
+Exclusion markers saved before #608 may report their messages as saved until
+their bodies are downloaded and cached. Newly saved markers report that the body needs downloading.
 
 Offline or network loss stops provider prefetch; cached reading remains usable.
 Cache-only registration permits reads but no prefetch, cache write or pruning
@@ -787,6 +817,14 @@ across readers from different mailboxes, with independent release on removal. Re
 first again without duplicating it, switch between **All inboxes** and one mailbox,
 recover a refused mailbox while the other stays readable, and confirm a removal.
 
+The #608 shared test searches two controlled mailboxes after an offline relaunch
+that opens only their saved Inboxes, with no Gmail request: word, case and accent
+matching, scoped and unified results, saved bodies against exclusion markers, opening
+a saved result, and removal. Rendered journeys on both hosts search across mailboxes,
+show each result's saved state, see a result become saved when held prefetch finishes,
+open a result and see it saved after the reader closes, keep only the current answer when an earlier lookup replies late, and drop a
+removed mailbox's results.
+
 Rendered host tests drive the isolated reader's configuration, measurement, link
 cancellation and confirmation, flagged-link copying, keyboard link access and
 WebKit failure fallback. They also cover the Inbox states, organizing from the
@@ -830,7 +868,9 @@ published keeps it when the descriptor is unchanged since this device last read 
 and loses it when that descriptor was removed and added again meanwhile. An absent
 observation cannot authorize adoption of a later descriptor. The suite also checks
 that an address-update conflict or a later connection's failed publication cannot
-discard a learned removal. Existing native tests now name each connection.
+discard a learned removal. Existing native tests now name each connection. For #608, the native cache test
+also distinguishes an exclusion marker from a saved body and replaces it after
+the body is downloaded.
 Connections and descriptors written before epochs converge on one legacy epoch and
 keep their connection, unless the mailbox was removed and added again elsewhere, and
 legacy adoption keeps bodies already saved for the connection across opened and

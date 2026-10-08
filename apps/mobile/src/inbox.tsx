@@ -1,4 +1,5 @@
 import type { Message } from '@private-email/mail-core';
+import type { Draft } from '@private-email/mail-core/drafts';
 import type { GmailAction } from '@private-email/mail-core/gmail-actions';
 import type { GmailMessage } from '@private-email/mail-core/gmail-inbox';
 
@@ -8,15 +9,21 @@ import {
   restoreAfter,
 } from '@private-email/mail-core/gmail-actions';
 import { gmailSyncCopy } from '@private-email/mail-core/gmail-inbox';
-import { inboxMessages } from '@private-email/mail-core/mailboxes';
+import {
+  inboxMessages,
+  resultKey,
+  searchCopy,
+  searchMessages,
+} from '@private-email/mail-core/mailboxes';
 import { spacing } from '@private-email/mail-core/theme';
-import { use, useMemo, useState } from 'react';
+import { use, useDeferredValue, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
   Pressable,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-screens/experimental';
@@ -33,6 +40,7 @@ import {
   useMailbox,
   useMailboxes,
   useReloadMailboxes,
+  useSavedBodies,
 } from './mailbox.tsx';
 import { OrganizeStatus } from './organize.tsx';
 import { AccountContext } from './registration-gate.tsx';
@@ -77,6 +85,16 @@ const styles = StyleSheet.create({
   footer: { fontSize: 12, padding: spacing.large },
   notice: { padding: spacing.large, fontSize: 16 },
   mailbox: { fontSize: 12, marginTop: 5 },
+  search: {
+    minHeight: 44,
+    marginHorizontal: spacing.large,
+    marginBottom: spacing.medium,
+    paddingHorizontal: 12,
+    fontSize: 16,
+    borderWidth: 1,
+    borderRadius: 8,
+    borderCurve: 'continuous',
+  },
   scopes: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -93,6 +111,20 @@ const styles = StyleSheet.create({
     borderCurve: 'continuous',
   },
 });
+
+// The Inbox list's rows: Drafts before received mail, or a search's matching messages alone.
+function listItems<M extends object>(
+  withDrafts: boolean,
+  drafts: readonly Draft[],
+  messages: readonly M[],
+) {
+  return [
+    ...(withDrafts ? drafts : []).map(
+      (draft) => ({ kind: 'draft', draft }) as const,
+    ),
+    ...messages.map((entry) => ({ kind: 'message', ...entry }) as const),
+  ];
+}
 
 // The open-Draft callback for an Inbox without Drafts, stable so Draft rows stay memoized.
 const composeNothing = () => undefined;
@@ -119,6 +151,7 @@ const dateFormat = new Intl.DateTimeFormat('en', {
 function MessageRow({
   message,
   mailbox,
+  status,
   selected,
   onSelect,
   onOrganize,
@@ -126,6 +159,8 @@ function MessageRow({
   readonly message: Message | GmailMessage;
   // Shown when the Inbox holds more than one mailbox.
   readonly mailbox: string | undefined;
+  // Whether a search result's body is saved on this device, once known.
+  readonly status: string | undefined;
   readonly selected: boolean;
   readonly onSelect: () => void;
   // Present when the message can be organized in Gmail.
@@ -145,7 +180,7 @@ function MessageRow({
         name,
         label,
       }))}
-      accessibilityLabel={`${message.unread ? 'Unread. ' : ''}${message.sender}. ${message.subject}${mailbox === undefined ? '' : `. In ${mailbox}`}`}
+      accessibilityLabel={`${message.unread ? 'Unread. ' : ''}${message.sender}. ${message.subject}${mailbox === undefined ? '' : `. In ${mailbox}`}${status === undefined ? '' : `. ${status}`}`}
       accessibilityRole="button"
       accessibilityState={{ selected }}
       focusable
@@ -202,6 +237,13 @@ function MessageRow({
           numberOfLines={1}
           style={[styles.mailbox, { color: colors.secondary }]}>
           {`In ${mailbox}`}
+        </Text>
+      )}
+      {status === undefined ? null : (
+        <Text
+          numberOfLines={1}
+          style={[styles.mailbox, { color: colors.secondary }]}>
+          {status}
         </Text>
       )}
     </Pressable>
@@ -372,6 +414,14 @@ function ScopePicker({
   );
 }
 
+// A search result's saved state, once known.
+const savedStatus = (saved: boolean | undefined) => {
+  if (saved === undefined) {
+    return undefined;
+  }
+  return saved ? searchCopy.saved : searchCopy.download;
+};
+
 // The shown mailbox's address, or what the list holds when it shows several or none.
 function subtitleOf(
   shown: readonly InboxMailbox[],
@@ -429,9 +479,28 @@ export function Inbox({
   // With more than one mailbox, every row and notice names its own.
   const several = (account?.mailboxes.length ?? mailboxes.length) > 1;
   const gmail = account !== undefined;
-  const messages = useMemo(
+  const [query, setQuery] = useState('');
+  // Typing stays responsive while the list catches up with the latest query.
+  const searched = useDeferredValue(query.trim());
+  const listed = useMemo(
     () => inboxMessages(mailboxes, scope),
     [mailboxes, scope],
+  );
+  // Searches only the mail saved on this device, so it works offline and asks Gmail nothing.
+  const results = useMemo(
+    () => (searched === '' ? undefined : searchMessages(listed, searched)),
+    [listed, searched],
+  );
+  // Asked again when a result is opened or the reader closes, since opening saves the body.
+  const saved = useSavedBodies(
+    results,
+    selected === undefined ? '' : `${selected.mailbox}\n${selected.id}`,
+  );
+  const messages = results ?? listed;
+  // Rows render again when the selection or a result's saved state changes.
+  const rows = useMemo(
+    () => ({ selected, saved, composing }),
+    [selected, saved, composing],
   );
   const ready = shown.some(({ state }) => state.kind === 'ready');
   const syncing = shown.some(
@@ -452,6 +521,20 @@ export function Inbox({
       </Text>
     );
   };
+  // No match for a search, or an empty Inbox.
+  const emptyList = () =>
+    results === undefined ? (
+      emptyInbox()
+    ) : (
+      <Text style={[styles.notice, { color: colors.secondary }]}>
+        {searchCopy.empty(searched)}
+      </Text>
+    );
+  // Drafts above an empty Inbox still say the Inbox is clear.
+  const listFooter = () =>
+    results === undefined && drafts.length > 0 && messages.length === 0
+      ? emptyInbox()
+      : null;
   const organize =
     (mailbox: InboxMailbox) => (message: GmailMessage, action: GmailAction) => {
       if (
@@ -500,6 +583,25 @@ export function Inbox({
             scope={scope}
           />
         ) : null}
+        {ready ? (
+          <TextInput
+            accessibilityLabel={searchCopy.label}
+            accessibilityRole="search"
+            autoCapitalize="none"
+            autoComplete="off"
+            autoCorrect={false}
+            clearButtonMode="while-editing"
+            onChangeText={setQuery}
+            placeholder={searchCopy.label}
+            placeholderTextColor={colors.secondary}
+            returnKeyType="search"
+            style={[
+              styles.search,
+              { borderColor: colors.separator, color: colors.foreground },
+            ]}
+            value={query}
+          />
+        ) : null}
         {shown.some(({ state }) => state.kind === 'loading') ? (
           <ActivityIndicator accessibilityLabel="Loading Inbox" />
         ) : null}
@@ -523,17 +625,11 @@ export function Inbox({
         <FlatList
           accessibilityLabel="Inbox messages"
           contentContainerStyle={styles.list}
-          data={[
-            ...drafts.map((draft) => ({ kind: 'draft', draft }) as const),
-            ...messages.map(
-              (entry) => ({ kind: 'message', ...entry }) as const,
-            ),
-          ]}
-          extraData={[selected, composing]}
+          // Search lists matching messages alone; otherwise Drafts come before received mail.
+          data={listItems(results === undefined, drafts, messages)}
+          extraData={rows}
           keyExtractor={(item) =>
-            item.kind === 'draft'
-              ? `draft\n${item.draft.id}`
-              : `${item.mailbox.id}\n${item.message.id}`
+            item.kind === 'draft' ? `draft\n${item.draft.id}` : resultKey(item)
           }
           ListHeaderComponent={
             onCompose === undefined ? null : (
@@ -543,11 +639,8 @@ export function Inbox({
               />
             )
           }
-          ListEmptyComponent={emptyInbox()}
-          // Drafts above an empty Inbox still say the Inbox is clear.
-          ListFooterComponent={
-            drafts.length > 0 && messages.length === 0 ? emptyInbox() : null
-          }
+          ListEmptyComponent={emptyList()}
+          ListFooterComponent={listFooter()}
           renderItem={({ item }) =>
             item.kind === 'draft' ? (
               <DraftRow
@@ -575,6 +668,11 @@ export function Inbox({
                 selected={
                   selected?.mailbox === item.mailbox.id &&
                   selected.id === item.message.id
+                }
+                status={
+                  results === undefined
+                    ? undefined
+                    : savedStatus(saved?.get(resultKey(item)))
                 }
               />
             )

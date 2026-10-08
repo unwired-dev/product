@@ -91,7 +91,7 @@ mise exec -- pnpm turbo run check-types
 mise exec -- pnpm test
 mise exec -- pnpm test:tooling
 mise exec -- node scripts/check-changesets.mjs
-mise exec -- node --test scripts/check-changesets.test.mjs scripts/release-plan.test.mjs
+mise exec -- node --test scripts/check-changesets.test.mjs scripts/release-plan.test.mjs scripts/auto-merge.test.mjs
 mise exec -- pnpm fallow
 ```
 
