@@ -58,10 +58,11 @@ This code owns what TypeScript must never hold: Keychain items, the storage encr
   generation on every operation; a same-address subject change or purge/reconnect
   must reject old work before provider access or ciphertext replacement.
 
-- `PrivateInboxStore` body admission that discounts an opposite-tier file before
-  admission succeeds. Reserve both ciphertexts and plan eviction before deletion;
-  refused admission must preserve the old body and protected entries. Remove the
-  opposite tier before publishing its replacement, or interruption can leave two
+- `PrivateInboxStore` body admission that discounts another tier's file before
+  admission succeeds. Reserve existing tier ciphertexts and the replacement, and
+  plan eviction before deletion;
+  refused admission must preserve the old body and protected entries. Remove every
+  other tier before publishing its replacement, or interruption can leave two
   valid files and reads can return the older body. A failed replacement may leave
   a refetchable cache miss. Cache-only reads must not update access times
   or delete corrupt bodies; otherwise presentation-only access mutates storage.
@@ -70,7 +71,7 @@ This code owns what TypeScript must never hold: Keychain items, the storage encr
   received cache-fitting protection. Keep revision/generation checks and select
   protection in working-set order (newest first, then ascending ID), as required
   by `docs/gmail-inbox.md` and `docs/private-inbox-storage.md`. Sum stored bytes in
-  both tiers per body name, count duplicate candidates once, and skip a candidate
+  every supported tier per body name, count duplicate candidates once, and skip a candidate
   that does not fit while considering later candidates. Only fitting candidates
   receive protection; prune eligible bodies to maintain the hard limit. Protecting
   every over-budget candidate or refusing this reconciliation as a conflict
@@ -89,7 +90,7 @@ This code owns what TypeScript must never hold: Keychain items, the storage encr
 - `PrivateInboxStore.adoptLegacyMailbox` assuming the connection's body folder
   is absent, or merging by a tier-suffixed filename rather than body identity.
   A body may be saved before metadata adoption; preserve that destination body
-  across both opened and prefetched tiers and keep interrupted migration
+  across every supported tier and keep interrupted migration
   retryable. Otherwise cache open repeatedly fails or an older legacy body
   becomes the preferred readable copy.
 - `synchronizeMailboxes` treating a missing entry in `descriptorEpochs` as an

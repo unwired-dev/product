@@ -7,15 +7,21 @@ import {
   restoreAfter,
 } from '@private-email/mail-core/gmail-actions';
 import { gmailSyncCopy } from '@private-email/mail-core/gmail-inbox';
-import { inboxMessages } from '@private-email/mail-core/mailboxes';
+import {
+  inboxMessages,
+  resultKey,
+  searchCopy,
+  searchMessages,
+} from '@private-email/mail-core/mailboxes';
 import { spacing } from '@private-email/mail-core/theme';
-import { use, useState } from 'react';
+import { use, useDeferredValue, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
   Pressable,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 
@@ -28,6 +34,7 @@ import {
   useMailbox,
   useMailboxes,
   useReloadMailboxes,
+  useSavedBodies,
 } from './mailbox.tsx';
 import { OrganizeStatus } from './organize.tsx';
 import { AccountContext } from './registration-gate.tsx';
@@ -67,6 +74,16 @@ const styles = StyleSheet.create({
   footer: { fontSize: 12, padding: spacing.large },
   notice: { padding: spacing.large, fontSize: 16 },
   mailbox: { fontSize: 12, marginTop: 5 },
+  search: {
+    minHeight: 44,
+    marginHorizontal: spacing.large,
+    marginBottom: spacing.medium,
+    paddingHorizontal: 12,
+    fontSize: 16,
+    borderWidth: 1,
+    borderRadius: 8,
+    borderCurve: 'continuous',
+  },
   scopes: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -103,6 +120,7 @@ const dateFormat = new Intl.DateTimeFormat('en', {
 function MessageRow({
   message,
   mailbox,
+  status,
   selected,
   onSelect,
   onOrganize,
@@ -110,6 +128,8 @@ function MessageRow({
   readonly message: Message | GmailMessage;
   // Shown when the Inbox holds more than one mailbox.
   readonly mailbox: string | undefined;
+  // Whether a search result's body is saved on this device, once known.
+  readonly status: string | undefined;
   readonly selected: boolean;
   readonly onSelect: () => void;
   // Present when the message can be organized in Gmail.
@@ -129,7 +149,7 @@ function MessageRow({
         name,
         label,
       }))}
-      accessibilityLabel={`${message.unread ? 'Unread. ' : ''}${message.sender}. ${message.subject}${mailbox === undefined ? '' : `. In ${mailbox}`}`}
+      accessibilityLabel={`${message.unread ? 'Unread. ' : ''}${message.sender}. ${message.subject}${mailbox === undefined ? '' : `. In ${mailbox}`}${status === undefined ? '' : `. ${status}`}`}
       accessibilityRole="button"
       accessibilityState={{ selected }}
       focusable
@@ -186,6 +206,13 @@ function MessageRow({
           numberOfLines={1}
           style={[styles.mailbox, { color: colors.secondary }]}>
           {`In ${mailbox}`}
+        </Text>
+      )}
+      {status === undefined ? null : (
+        <Text
+          numberOfLines={1}
+          style={[styles.mailbox, { color: colors.secondary }]}>
+          {status}
         </Text>
       )}
     </Pressable>
@@ -368,6 +395,14 @@ function ScopePicker({
   );
 }
 
+// A search result's saved state, once known.
+const savedStatus = (saved: boolean | undefined) => {
+  if (saved === undefined) {
+    return undefined;
+  }
+  return saved ? searchCopy.saved : searchCopy.download;
+};
+
 // The shown mailbox's address, or what the list holds when it shows several or none.
 function subtitleOf(
   shown: readonly InboxMailbox[],
@@ -404,7 +439,26 @@ export function Inbox({ selected, onSelect, onClose }: InboxProps) {
   // With more than one mailbox, every row and notice names its own.
   const several = (account?.mailboxes.length ?? mailboxes.length) > 1;
   const gmail = account !== undefined;
-  const messages = inboxMessages(mailboxes, scope);
+  const [query, setQuery] = useState('');
+  // Typing stays responsive while the list catches up with the latest query.
+  const searched = useDeferredValue(query.trim());
+  const listed = useMemo(
+    () => inboxMessages(mailboxes, scope),
+    [mailboxes, scope],
+  );
+  // Searches only the mail saved on this device, so it works offline and asks Gmail nothing.
+  const results = useMemo(
+    () => (searched === '' ? undefined : searchMessages(listed, searched)),
+    [listed, searched],
+  );
+  // Asked again when a result is opened or the reader closes, since opening saves the body.
+  const saved = useSavedBodies(
+    results,
+    selected === undefined ? '' : `${selected.mailbox}\n${selected.id}`,
+  );
+  const messages = results ?? listed;
+  // Rows render again when the selection or a result's saved state changes.
+  const rows = useMemo(() => ({ selected, saved }), [selected, saved]);
   const ready = shown.some(({ state }) => state.kind === 'ready');
   const syncing = shown.some(
     ({ state }) =>
@@ -463,6 +517,24 @@ export function Inbox({ selected, onSelect, onClose }: InboxProps) {
             scope={scope}
           />
         ) : null}
+        {ready ? (
+          <TextInput
+            accessibilityLabel={searchCopy.label}
+            accessibilityRole="search"
+            autoCapitalize="none"
+            autoComplete="off"
+            autoCorrect={false}
+            onChangeText={setQuery}
+            placeholder={searchCopy.label}
+            placeholderTextColor={colors.secondary}
+            returnKeyType="search"
+            style={[
+              styles.search,
+              { borderColor: colors.separator, color: colors.foreground },
+            ]}
+            value={query}
+          />
+        ) : null}
         {shown.some(({ state }) => state.kind === 'loading') ? (
           <ActivityIndicator accessibilityLabel="Loading Inbox" />
         ) : null}
@@ -488,35 +560,41 @@ export function Inbox({ selected, onSelect, onClose }: InboxProps) {
             accessibilityLabel="Inbox messages"
             contentContainerStyle={styles.list}
             data={messages}
-            extraData={selected}
-            keyExtractor={({ mailbox, message }) =>
-              `${mailbox.id}\n${message.id}`
-            }
+            extraData={rows}
+            keyExtractor={resultKey}
             ListEmptyComponent={
-              gmail && syncing ? (
+              results === undefined && gmail && syncing ? (
                 <ActivityIndicator accessibilityLabel="Loading Inbox" />
               ) : (
                 <Text style={[styles.notice, { color: colors.secondary }]}>
-                  Your inbox is clear.
+                  {results === undefined
+                    ? 'Your inbox is clear.'
+                    : searchCopy.empty(searched)}
                 </Text>
               )
             }
-            renderItem={({ item: { mailbox, message } }) => (
+            renderItem={({ item }) => (
               <MessageRow
-                mailbox={several ? mailbox.address : undefined}
-                message={message}
+                mailbox={several ? item.mailbox.address : undefined}
+                message={item.message}
                 onOrganize={
-                  mailbox.state.kind === 'ready' &&
-                  'organize' in mailbox.state &&
-                  mailbox.state.organize
-                    ? organize(mailbox)
+                  item.mailbox.state.kind === 'ready' &&
+                  'organize' in item.mailbox.state &&
+                  item.mailbox.state.organize
+                    ? organize(item.mailbox)
                     : undefined
                 }
                 onSelect={() => {
-                  onSelect({ mailbox: mailbox.id, id: message.id });
+                  onSelect({ mailbox: item.mailbox.id, id: item.message.id });
                 }}
                 selected={
-                  selected?.mailbox === mailbox.id && selected.id === message.id
+                  selected?.mailbox === item.mailbox.id &&
+                  selected.id === item.message.id
+                }
+                status={
+                  results === undefined
+                    ? undefined
+                    : savedStatus(saved?.get(resultKey(item)))
                 }
               />
             )}
