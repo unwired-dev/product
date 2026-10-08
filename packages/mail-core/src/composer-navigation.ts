@@ -49,11 +49,12 @@ export function createComposerNavigation(): ComposerNavigation {
       };
     },
     create: async (drafts, mailbox) => {
-      if (!(await leave())) {
-        return undefined;
-      }
-      const turn = navigations;
-      const id = await drafts.create(mailbox);
+      let turn = navigations;
+      const id = await drafts.create(mailbox, async () => {
+        const allowed = await leave();
+        turn = navigations;
+        return allowed;
+      });
       if (id === undefined || navigations === turn) {
         return id;
       }

@@ -4,6 +4,14 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### The test proves the behavior
 
+- A New Message account-race test that replaces the account only with a distinct
+  sender, or checks only the returned identifier. Use the same Gmail connection ID
+  and address across accounts, finish opening the replacement Drafts before
+  releasing the old command, and check that neither its snapshot nor reopened
+  storage contains a new Draft. Also cover still-loading replacement storage and
+  sign-out/re-entry; otherwise sender membership or a late result fence can hide
+  a stale command writing into the replacement account.
+
 - A batched composer-event regression that flushes React between the caret,
   formatting/history command and text change it claims arrive together. Keep
   those handlers in one outer `act` without an intervening rendered-state wait,

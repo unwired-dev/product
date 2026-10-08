@@ -4,6 +4,7 @@ import type { Draft, DraftsState } from '../src/drafts.ts';
 import type { RegistrationSnapshot } from '../src/registration.ts';
 import type { SemanticDocument } from '../src/semantic-document.ts';
 
+import { createComposerNavigation } from '../src/composer-navigation.ts';
 import {
   addRecipients,
   createDrafts,
@@ -571,6 +572,77 @@ describe('storing Drafts', () => {
     expect(reopened.subject).toBe('Studio review on Thursday');
     expect(plainText(reopened.body)).toBe('Notes');
     expect(reopened.connection).toBe(alex.id);
+  });
+
+  it('starts no Draft from a sender that stopped sending while the open composer saved', async () => {
+    expect.hasAssertions();
+    const cases: ReadonlyArray<readonly RegistrationSnapshot[]> = [
+      [connected('account-a', [alex, { ...other, state: 'authorization' }])],
+      [connected('account-a', [alex])],
+      [
+        connected('account-b', [
+          { id: 'connection-b', address: 'b@example.invalid' },
+        ]),
+      ],
+      [connected('account-b', [{ ...other, address: 'b@example.invalid' }])],
+      [connected('account-b', [other])],
+      [{ kind: 'signed-out' }, connected('account-a')],
+    ];
+    for (const changes of cases) {
+      const session = account(connected('account-a'));
+      const storage = createSyntheticDrafts(session.productAccount);
+      const drafts = createDrafts(storage.native, session.registration);
+      await drafts.load();
+      const navigation = createComposerNavigation();
+      // The open composer's save finishes after replacement Drafts are already ready, including
+      // a replacement with the same sender and sign-out/re-entry into the same Product Account.
+      const unregister = navigation.register(async () => {
+        for (const next of changes) {
+          session.change(next);
+        }
+        await drafts.load();
+        return true;
+      });
+      await expect(navigation.create(drafts, other)).resolves.toBeUndefined();
+      expect(ready(drafts.getSnapshot()).drafts).toStrictEqual([]);
+      unregister();
+      const reopened = createDrafts(storage.native, session.registration);
+      await reopened.load();
+      expect(ready(reopened.getSnapshot()).drafts).toStrictEqual([]);
+    }
+  });
+
+  it('does not start a stale New Message when replacement Drafts are still opening', async () => {
+    expect.hasAssertions();
+    const session = account(connected('account-a'));
+    const storage = createSyntheticDrafts(session.productAccount);
+    const opening = Promise.withResolvers<undefined>();
+    let held: Promise<undefined> | undefined = undefined;
+    const drafts = createDrafts(
+      {
+        ...storage.native,
+        openDrafts: async () => {
+          await held;
+          return storage.native.openDrafts();
+        },
+      },
+      session.registration,
+    );
+    await drafts.load();
+    held = opening.promise;
+    const navigation = createComposerNavigation();
+    navigation.register(async () => {
+      session.change(connected('account-b', [other]));
+      return true;
+    });
+    await expect(navigation.create(drafts, other)).resolves.toBeUndefined();
+    expect(drafts.getSnapshot()).toStrictEqual({ kind: 'loading' });
+    opening.resolve(undefined);
+    await drafts.load();
+    expect(ready(drafts.getSnapshot()).drafts).toStrictEqual([]);
+    const reopened = createDrafts(storage.native, session.registration);
+    await reopened.load();
+    expect(ready(reopened.getSnapshot()).drafts).toStrictEqual([]);
   });
 
   it('keeps a Draft whose sending mailbox was removed, without substituting another sender', async () => {

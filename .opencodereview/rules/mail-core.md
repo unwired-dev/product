@@ -103,6 +103,9 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   on each keystroke, rebuilding unaffected blocks, or retaining expanded arrays
   for every history-held Block in an identity cache. Check typing, formatting,
   Undo/Redo and a long single paragraph across the full `record` history bound.
+  Measure peak and retained memory for successive changed-block strings across
+  that history and independent composers; sharing only untouched blocks does
+  not bound the retained cost of repeatedly editing one large block.
   Preserve immutable untouched blocks and keep retained representations compact;
   weak keys do not release expansions while history still owns those blocks.
   Otherwise ordinary long Draft editing stalls the shared JavaScript runtime or
@@ -126,6 +129,15 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   generation was invalidated. Fence the result as well as state publication,
   including sign-out/re-entry into the same account; hosts route from that result,
   so a stale successful native completion otherwise opens an absent Draft.
+
+- `createDrafts.create` accepting a sender captured before the open composer
+  finishes without rechecking its current connection ID, address and sending
+  eligibility. Capture the request's Product Account generation before awaiting
+  that finish and revalidate afterward, including a ready or still-loading
+  replacement account with the same Gmail connection/address and sign-out/re-entry
+  into the same account. Gmail connection IDs do not distinguish Product Accounts.
+  Otherwise stale New Message intent creates a Draft from an unavailable sender
+  or in a replacement account; fence store mutation as well as the returned ID.
 
 - `createDrafts` replacing a whole stale Draft or storage document without comparing
   the editor's prior content and the durable base. Check simultaneous Mac windows,

@@ -19,7 +19,7 @@ import {
   rejectionDiagnostic,
   runLogged,
 } from './diagnostics.ts';
-import { canOpenInbox } from './registration.ts';
+import { canOpenInbox, mailboxesOf } from './registration.ts';
 import {
   emptyDocument,
   plainText,
@@ -257,6 +257,10 @@ export const sendingCopy: Record<Exclude<SendingState, 'available'>, string> = {
   removed:
     'This mailbox was removed from this account. Choose another mailbox to send from.',
 };
+
+// The connections a Draft may send from: every one whose Gmail access is usable on this device.
+export const sendingMailboxes = (mailboxes: readonly MailboxConnection[]) =>
+  mailboxes.filter(({ state }) => state !== 'authorization');
 
 export const isEmptyDraft = (draft: Draft) =>
   draft.to.length + draft.cc.length + draft.bcc.length === 0 &&
@@ -850,9 +854,32 @@ export function createDrafts(
     },
     save: () => runLogged(saving(generation)),
     // Starts a Draft sending from `mailbox`; resolves its identifier, or undefined when Draft
-    // storage is not open or the Product Account changes before creation finishes.
-    create: async (mailbox: Pick<MailboxConnection, 'id' | 'address'>) => {
+    // storage is not open, the mailbox cannot send for the current Product Account, or that
+    // account changes before creation finishes.
+    // `finish`, when supplied, completes an open editor within the request's account fence.
+    create: async (
+      mailbox: Pick<MailboxConnection, 'id' | 'address'>,
+      finish?: () => Promise<boolean>,
+    ) => {
       const creating = generation;
+      // Bind the request before finishing an open editor; another account can expose the same
+      // Gmail connection and address, and sign-out/re-entry also invalidates this request.
+      if (finish !== undefined && !(await finish())) {
+        return undefined;
+      }
+      if (!live(creating)) {
+        return undefined;
+      }
+      // The sender may have been chosen before an earlier composer finished saving; it must still
+      // be one this Product Account can send from now.
+      const usable = sendingMailboxes(
+        mailboxesOf(registration.getSnapshot().snapshot),
+      ).some(
+        ({ id, address }) => id === mailbox.id && address === mailbox.address,
+      );
+      if (!usable) {
+        return undefined;
+      }
       const created: { id?: string } = {};
       await change((drafts, { now, id }) => {
         created.id = id;
@@ -870,7 +897,7 @@ export function createDrafts(
             updatedAt: now,
           },
         ];
-      });
+      }, creating);
       // A Draft started before the Product Account changed belongs to no open store now.
       return live(creating) ? created.id : undefined;
     },
@@ -961,10 +988,6 @@ export function createDrafts(
 }
 
 export type Drafts = ReturnType<typeof createDrafts>;
-
-// The connections a Draft may send from: every one whose Gmail access is usable on this device.
-export const sendingMailboxes = (mailboxes: readonly MailboxConnection[]) =>
-  mailboxes.filter(({ state }) => state !== 'authorization');
 
 export const draftsOf = (state: DraftsState) =>
   state.kind === 'ready' ? Arr.sort(state.drafts, draftOrder) : [];

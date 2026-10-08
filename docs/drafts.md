@@ -15,7 +15,8 @@ Drafts mailbox, and Drafts do not synchronize to other devices yet.
   the detail column: a route of its own on iPhone, beside the Inbox on iPad, and in
   place of the reader in a Mac window. Each Mac window has one composer.
   While starting that Draft is pending, **New Message** is disabled; repeated
-  presses create one Draft. Refused navigation leaves it available to try again.
+  presses create one Draft. If its mailbox stops being able to send, or the Product
+  Account changes, while the open composer is saving, no Draft starts. Refused navigation leaves it available to try again.
   A destination chosen while creation waits stays selected. An abandoned empty
   Draft disappears from the list immediately; when storage refuses saving, the
   next successful save makes its removal durable. Selecting the new Draft's row
