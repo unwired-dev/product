@@ -17,10 +17,19 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   text instead of using the selection and deletion direction, or coalesces Undo across fields or caret
   moves. Check repeated characters with different semantic marks and subject-to-body
   editing; otherwise formatting moves to the wrong character or Undo removes an
-  unrelated completed edit. Navigating to mail or another Draft must finish recipient
-  entry and wait for saving, keeping the composer open on failure.
+  unrelated completed edit.
   Mac `onKeyDown` emits ordinary keys too: require the modifier before invoking
   formatting or Undo, or typing a letter can mutate formatting/history.
+
+- A voluntary destination change that unmounts the Inbox or replaces its composer
+  without awaiting the guard returned by `useLeaveComposer`: trace Account/RegistrationGate,
+  mobile route replacements, Mac pane changes, New Message and Draft/message
+  selection through the registered editor close callback. It must finish pending
+  recipient text and wait for durable saving, holding the destination on invalid
+  input or failed storage; otherwise unfinished addresses and unsaved edits are
+  lost. Distinguish forced account/device invalidation, which must purge private
+  state, and AppKit window destruction from voluntary navigation. Cover invalid
+  entry and failed saving through the affected exit, not only the Close button.
 
 - An effect that subscribes, listens (`AppState`, `Linking`, a native emitter) or starts async work without returning cleanup, or whose async result is applied after unmount or after its inputs changed.
 - A store action whose returned Promise is awaited in render or left to reject; actions are fired as `void store.action()` and report failure through state.
@@ -36,6 +45,15 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   rich object; otherwise its expanded HTML/data-image strings remain retained
   after the view and reservation have been released.
 - Per-row work in the Inbox `FlatList` that grows with the mailbox: an unstable `keyExtractor`, a row that subscribes to the whole store, or sorting and filtering repeated on every render.
+- An unbounded Draft/message collection rendered with `map` inside the Inbox
+  `FlatList` header/footer or another scroll container instead of its virtualized
+  data: virtualization covers list items, not nested header rows, so mounting a
+  long collection renders every row. Trace mixed-item keys, selected state through
+  `extraData`, accessibility names and the received-mail empty state; a long-list
+  integration check must show that mounted rows are bounded. When moving a store
+  subscription into `Inbox`, keep `inboxMessages` sorting tied to mailbox/scope
+  changes rather than every Draft autosave, and keep unchanged Draft-row callbacks
+  stable so memoization can avoid body-preview work on every keystroke.
 - Selection held anywhere but its owner: route parameters on mobile, the window on Mac. A Mac window opened after another must start with no selection, and a read/unread change must reach every window without changing any selection.
 - An Inbox row's removal action in `src/inbox.tsx` that leaves the selected message ID in its owning route or window after Archive, Trash or Spam. Trace accessibility actions as well as reader buttons through the owner's close callback; otherwise the row disappears while the reader reports unavailable. Undo restores mail without reopening that reader or changing another window's selection.
 - `OrganizeStatus` announcing one shared `OrganizeNotice` once per mounted window or again on a late mount, or deduplicating solely by announcement text. One notice identity owns one accessibility announcement across the shared runtime; a later distinct notice with identical words must still announce. Trace every active announcement channel, including explicit calls and platform-supported live regions, rather than checking only the explicit call count. Preserve refusal alert semantics when removing an announcement channel. Verify the installed renderer's role and notification behavior before treating an `alert` role as automatic speech; component props alone do not qualify native VoiceOver behavior.

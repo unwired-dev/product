@@ -62,7 +62,7 @@ It then saves and closes only once the Draft is stored; when that fails the
 composer stays open and says so. Closing a Draft with no recipients, subject or
 body text discards it only if no other window has completed its content. **Discard**
 asks before deleting a Draft from this device.
-Switching to another Draft, starting **New Message**, or selecting received mail
+Opening **Account**, switching to another Draft, starting **New Message**, or selecting received mail
 also finishes recipient entry and waits for saving; invalid entry or a save failure
 keeps the current composer open. A failed discard keeps the Draft visible and can
 be retried. Drafts and received mail share the Inbox column's scroll surface.

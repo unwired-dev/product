@@ -37,7 +37,14 @@ import {
   undo,
 } from '@private-email/mail-core/semantic-document';
 import { spacing } from '@private-email/mail-core/theme';
-import { use, useCallback, useLayoutEffect, useRef, useState } from 'react';
+import {
+  memo,
+  use,
+  useCallback,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -242,13 +249,80 @@ function Action({
   );
 }
 
-// The account's Drafts, apart from received mail, and starting a new one.
+// One Draft in the Inbox list, labelled apart from received mail.
+function DraftRowView({
+  draft,
+  selected,
+  onOpen,
+}: {
+  readonly draft: Draft;
+  readonly selected: boolean;
+  readonly onOpen: (id: string) => Promise<void>;
+}) {
+  const colors = usePalette();
+  return (
+    <Pressable
+      accessibilityLabel={`${draft.conflict === true ? 'Conflicting Draft' : 'Draft'}. ${draft.subject || 'No subject'}. ${recipientSummary(draft)}. From ${draft.from}`}
+      accessibilityRole="button"
+      accessibilityState={{ selected }}
+      onPress={() => {
+        void onOpen(draft.id);
+      }}
+      style={[
+        styles.row,
+        {
+          backgroundColor: selected ? colors.selected : colors.sidebar,
+          borderColor: 'transparent',
+        },
+      ]}>
+      <View style={styles.rowTitle}>
+        <Text style={[styles.badge, { color: colors.accent }]}>
+          {draft.conflict === true ? 'DRAFT · CONFLICT' : 'DRAFT'}
+        </Text>
+        <Text
+          numberOfLines={1}
+          style={[styles.rowSubject, { color: colors.foreground }]}>
+          {draft.subject || 'No subject'}
+        </Text>
+      </View>
+      <Text
+        numberOfLines={1}
+        style={[styles.rowDetail, { color: colors.secondary }]}>
+        {recipientSummary(draft)}
+      </Text>
+      <Text
+        numberOfLines={1}
+        style={[styles.rowDetail, { color: colors.secondary }]}>
+        {plainText(draft.body).replaceAll('\n', ' ') || `From ${draft.from}`}
+      </Text>
+    </Pressable>
+  );
+}
+
+export const DraftRow = memo(DraftRowView);
+
+// Opens a Draft in the composer once the open one, if another, can be left.
+export function useOpenDraft(
+  composing: string | undefined,
+  onCompose: (id: string) => void,
+) {
+  const leave = useLeaveComposer();
+  return useCallback(
+    async (id: string) => {
+      if (id !== composing && (await leave())) {
+        onCompose(id);
+      }
+    },
+    [composing, leave, onCompose],
+  );
+}
+
+// The Inbox list's Draft controls: starting a new message and Drafts storage status. The Draft
+// rows themselves are list items, so a long list stays virtualized.
 export function DraftList({
-  composing,
   onCompose,
   scope,
 }: {
-  readonly composing: string | undefined;
   readonly onCompose: (id: string) => void;
   // The mailbox the Inbox shows, which a new message sends from when it can.
   readonly scope: string | undefined;
@@ -270,14 +344,6 @@ export function DraftList({
     }
     const id = await store.create(mailbox);
     if (id !== undefined) {
-      onCompose(id);
-    }
-  };
-  const open = async (id: string) => {
-    if (id === composing) {
-      return;
-    }
-    if (await leave()) {
       onCompose(id);
     }
   };
@@ -312,53 +378,11 @@ export function DraftList({
         </View>
       ) : null}
       {drafts.length === 0 ? null : (
-        <>
-          <Text
-            accessibilityRole="header"
-            style={[styles.section, { color: colors.secondary }]}>
-            Drafts
-          </Text>
-          {drafts.map((draft) => (
-            <Pressable
-              key={draft.id}
-              accessibilityLabel={`${draft.conflict === true ? 'Conflicting Draft' : 'Draft'}. ${draft.subject || 'No subject'}. ${recipientSummary(draft)}. From ${draft.from}`}
-              accessibilityRole="button"
-              accessibilityState={{ selected: composing === draft.id }}
-              onPress={() => {
-                void open(draft.id);
-              }}
-              style={[
-                styles.row,
-                {
-                  backgroundColor:
-                    composing === draft.id ? colors.selected : colors.sidebar,
-                  borderColor: 'transparent',
-                },
-              ]}>
-              <View style={styles.rowTitle}>
-                <Text style={[styles.badge, { color: colors.accent }]}>
-                  {draft.conflict === true ? 'DRAFT · CONFLICT' : 'DRAFT'}
-                </Text>
-                <Text
-                  numberOfLines={1}
-                  style={[styles.rowSubject, { color: colors.foreground }]}>
-                  {draft.subject || 'No subject'}
-                </Text>
-              </View>
-              <Text
-                numberOfLines={1}
-                style={[styles.rowDetail, { color: colors.secondary }]}>
-                {recipientSummary(draft)}
-              </Text>
-              <Text
-                numberOfLines={1}
-                style={[styles.rowDetail, { color: colors.secondary }]}>
-                {plainText(draft.body).replaceAll('\n', ' ') ||
-                  `From ${draft.from}`}
-              </Text>
-            </Pressable>
-          ))}
-        </>
+        <Text
+          accessibilityRole="header"
+          style={[styles.section, { color: colors.secondary }]}>
+          Drafts
+        </Text>
       )}
     </View>
   );

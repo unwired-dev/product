@@ -2,6 +2,7 @@ import type { Message } from '@private-email/mail-core';
 import type { GmailAction } from '@private-email/mail-core/gmail-actions';
 import type { GmailMessage } from '@private-email/mail-core/gmail-inbox';
 
+import { draftsOf } from '@private-email/mail-core/drafts';
 import {
   quickActions,
   restoreAfter,
@@ -9,7 +10,7 @@ import {
 import { gmailSyncCopy } from '@private-email/mail-core/gmail-inbox';
 import { inboxMessages } from '@private-email/mail-core/mailboxes';
 import { spacing } from '@private-email/mail-core/theme';
-import { use, useState } from 'react';
+import { use, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -21,9 +22,10 @@ import {
 
 import type { InboxMailbox } from './private-storage.ts';
 
-import { DraftList } from './composer.tsx';
+import { DraftList, DraftRow, useOpenDraft } from './composer.tsx';
 import {
   MailboxScope,
+  useDrafts,
   useInbox,
   useLeaveComposer,
   useInboxActions,
@@ -402,6 +404,15 @@ export function Inbox({
       onSelect(selection);
     }
   };
+  // The account page replaces the Inbox, so an open composer is left first.
+  const openAccount = async (open: () => void) => {
+    if (await leave()) {
+      open();
+    }
+  };
+  const draftState = useDrafts();
+  const drafts = onCompose === undefined ? [] : draftsOf(draftState);
+  const openDraft = useOpenDraft(composing, onCompose ?? (() => undefined));
   const reload = useReloadMailboxes();
   const account = use(AccountContext);
   const colors = usePalette();
@@ -421,7 +432,10 @@ export function Inbox({
   // With more than one mailbox, every row and notice names its own.
   const several = (account?.mailboxes.length ?? mailboxes.length) > 1;
   const gmail = account !== undefined;
-  const messages = inboxMessages(mailboxes, scope);
+  const messages = useMemo(
+    () => inboxMessages(mailboxes, scope),
+    [mailboxes, scope],
+  );
   const ready = shown.some(({ state }) => state.kind === 'ready');
   const syncing = shown.some(
     ({ state }) =>
@@ -477,7 +491,7 @@ export function Inbox({
               accessibilityLabel="Account"
               accessibilityRole="button"
               onPress={() => {
-                account.openAccount();
+                void openAccount(account.openAccount);
               }}>
               <Text style={[styles.account, { color: colors.accent }]}>
                 Account
@@ -515,40 +529,62 @@ export function Inbox({
         <FlatList
           accessibilityLabel="Inbox messages"
           contentContainerStyle={styles.list}
-          data={messages}
-          extraData={selected}
-          keyExtractor={({ mailbox, message }) =>
-            `${mailbox.id}\n${message.id}`
+          data={[
+            ...drafts.map((draft) => ({ kind: 'draft', draft }) as const),
+            ...messages.map(
+              (entry) => ({ kind: 'message', ...entry }) as const,
+            ),
+          ]}
+          extraData={[selected, composing]}
+          keyExtractor={(item) =>
+            item.kind === 'draft'
+              ? `draft\n${item.draft.id}`
+              : `${item.mailbox.id}\n${item.message.id}`
           }
           ListHeaderComponent={
             onCompose === undefined ? null : (
               <DraftList
-                composing={composing}
                 onCompose={onCompose}
                 scope={scope}
               />
             )
           }
           ListEmptyComponent={emptyInbox()}
-          renderItem={({ item: { mailbox, message } }) => (
-            <MessageRow
-              mailbox={several ? mailbox.address : undefined}
-              message={message}
-              onOrganize={
-                mailbox.state.kind === 'ready' &&
-                'organize' in mailbox.state &&
-                mailbox.state.organize
-                  ? organize(mailbox)
-                  : undefined
-              }
-              onSelect={() => {
-                void select({ mailbox: mailbox.id, id: message.id });
-              }}
-              selected={
-                selected?.mailbox === mailbox.id && selected.id === message.id
-              }
-            />
-          )}
+          // Drafts above an empty Inbox still say the Inbox is clear.
+          ListFooterComponent={
+            drafts.length > 0 && messages.length === 0 ? emptyInbox() : null
+          }
+          renderItem={({ item }) =>
+            item.kind === 'draft' ? (
+              <DraftRow
+                draft={item.draft}
+                onOpen={openDraft}
+                selected={composing === item.draft.id}
+              />
+            ) : (
+              <MessageRow
+                mailbox={several ? item.mailbox.address : undefined}
+                message={item.message}
+                onOrganize={
+                  item.mailbox.state.kind === 'ready' &&
+                  'organize' in item.mailbox.state &&
+                  item.mailbox.state.organize
+                    ? organize(item.mailbox)
+                    : undefined
+                }
+                onSelect={() => {
+                  void select({
+                    mailbox: item.mailbox.id,
+                    id: item.message.id,
+                  });
+                }}
+                selected={
+                  selected?.mailbox === item.mailbox.id &&
+                  selected.id === item.message.id
+                }
+              />
+            )
+          }
         />
         <Text style={[styles.footer, { color: colors.secondary }]}>
           {gmail

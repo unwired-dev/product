@@ -69,13 +69,17 @@ function account(initial: RegistrationSnapshot) {
   };
 }
 
+const ignore = () => undefined;
+
 // The app's composition: the Inbox column and the detail column, which shows the composer.
 function App({
   registration,
   drafts,
+  openAccount = ignore,
 }: {
   readonly registration: ReturnType<typeof account>;
   readonly drafts: ReturnType<typeof createDrafts>;
+  readonly openAccount?: () => void;
 }) {
   const { snapshot } = useSyncExternalStore(
     registration.subscribe,
@@ -100,7 +104,7 @@ function App({
     <AccountContext
       value={{
         mailboxes: mailboxesOf(snapshot),
-        openAccount: () => undefined,
+        openAccount,
         authorizeGmail: () => Promise.resolve(),
         refreshInbox: (load) => load(),
       }}>
@@ -281,9 +285,11 @@ describe('composing Drafts', () => {
     expect.hasAssertions();
     const registration = account(connected(['alex@example.invalid']));
     const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const openAccount = jest.fn<undefined, []>();
     await render(
       <App
         drafts={createDrafts(storage.native, registration)}
+        openAccount={openAccount}
         registration={registration}
       />,
     );
@@ -306,6 +312,10 @@ describe('composing Drafts', () => {
     storage.failNextCommit('locked');
     await press('New Message');
     expect(screen.getByLabelText('Subject')).toHaveProp('value', 'Unsaved');
+    storage.failNextCommit('locked');
+    await press('Account');
+    expect(openAccount).not.toHaveBeenCalled();
+    expect(screen.getByLabelText('Subject')).toHaveProp('value', 'Unsaved');
     await press('Try again');
     expect(screen.queryByLabelText('Subject')).not.toBeOnTheScreen();
     await press('New Message');
@@ -321,6 +331,56 @@ describe('composing Drafts', () => {
     ).toBeOnTheScreen();
     await press('Try again');
     expect(screen.queryByLabelText('Subject')).not.toBeOnTheScreen();
+  });
+
+  it('opens the account page only after leaving an open composer', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const openAccount = jest.fn<undefined, []>();
+    await render(
+      <App
+        drafts={createDrafts(storage.native, registration)}
+        openAccount={openAccount}
+        registration={registration}
+      />,
+    );
+    await press('New Message');
+    await fireEvent.changeText(await screen.findByLabelText('To'), 'not valid');
+    await press('Account');
+    expect(openAccount).not.toHaveBeenCalled();
+    expect(
+      screen.getByText(
+        'Correct or remove the invalid address to close this Draft.',
+      ),
+    ).toBeOnTheScreen();
+    await fireEvent.changeText(screen.getByLabelText('To'), 'maya@example.com');
+    await press('Account');
+    expect(openAccount).toHaveBeenCalledWith();
+    // oxlint-disable-next-line vitest/prefer-called-once -- Jest has no toHaveBeenCalledOnce matcher.
+    expect(openAccount).toHaveBeenCalledTimes(1);
+    expect(screen.queryByLabelText('Subject')).not.toBeOnTheScreen();
+    expect(storage.stored()?.document).toContain('maya@example.com');
+  });
+
+  it('renders a long Draft list a window at a time', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    await drafts.load();
+    for (let index = 0; index < 60; index += 1) {
+      await drafts.create({ id: alex, address: 'alex@example.invalid' });
+    }
+    await render(
+      <App
+        drafts={drafts}
+        registration={registration}
+      />,
+    );
+    const rows = await screen.findAllByRole('button', { name: /^Draft\./u });
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.length).toBeLessThan(60);
   });
   /* oxlint-enable vitest/max-expects */
 });
