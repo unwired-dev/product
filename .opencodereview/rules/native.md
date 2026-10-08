@@ -67,6 +67,16 @@ Native storage owns what TypeScript must never hold: Keychain items, the storage
   paste/drop consumers too; otherwise large selections create unbounded plaintext
   staging and composer work outside the encrypted store's byte-admission limit.
 
+- `DocumentDelegate.documentPicker` in `DraftFilePicker.swift` cleaning up only
+  files already moved into `draft-picks` when a selected batch fails. The picker
+  uses `asCopy: true`; attempt
+  removal of every system-created selection URL, including
+  the failing and not-yet-processed copies, as well as already-moved targets.
+  Verify destination-creation and move failures after an earlier successful move;
+  preserve the original error and never apply this removal to open-in-place or
+  user-owned URLs. Otherwise plaintext remains in the system picker inbox outside
+  the root that launch cleanup removes.
+
 - `DraftFilePicker.PhotoDelegate.copy` or document intake checking the per-file
   byte limit only after copying or moving a loaded representation into app-owned
   staging. Check the loaded file's logical size before that work; keep oversized
