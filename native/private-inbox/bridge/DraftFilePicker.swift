@@ -23,7 +23,7 @@ private func pickedFile(_ url: URL, name: String? = nil) -> [String: String] {
 
     static func pick(_ source: String) async throws -> [[String: String]] {
       switch source {
-      case "paste": return try pasted()
+      case "paste": return try await pasted()
       case "photos", "files": break
       default: throw RegistrationError.unavailable
       }
@@ -67,21 +67,16 @@ private func pickedFile(_ url: URL, name: String? = nil) -> [String: String] {
       return folder.appendingPathComponent(safe)
     }
 
-    // Images on the pasteboard, as PNG files.
-    private static func pasted() throws -> [[String: String]] {
+    // Images on the pasteboard, copied as files. Item providers load lazily, so only the first
+    // `pickLimit` images are ever decoded or copied, however many the pasteboard holds.
+    private static func pasted() async throws -> [[String: String]] {
+      let providers = UIPasteboard.general.itemProviders.lazy
+        .filter { $0.registeredContentTypes.contains { $0.conforms(to: .image) } }
+        .prefix(pickLimit)
       var files: [[String: String]] = []
       do {
-        for (index, image) in (UIPasteboard.general.images ?? []).prefix(pickLimit).enumerated() {
-          guard let data = image.pngData() else { continue }
-          let url = try destination(
-            index == 0 ? "Pasted image.png" : "Pasted image \(index + 1).png")
-          do {
-            try data.write(to: url, options: [.atomic, .completeFileProtection])
-          } catch {
-            RegistrationStore.discardPickedDraftFile(url)
-            throw error
-          }
-          files.append(pickedFile(url))
+        for provider in providers {
+          files.append(try await PhotoDelegate.copy(provider))
         }
         return files
       } catch {
@@ -130,7 +125,7 @@ private func pickedFile(_ url: URL, name: String? = nil) -> [String: String] {
     }
 
     // The provider's file exists only during its callback, so it is copied there.
-    private static func copy(_ provider: NSItemProvider) async throws -> [String: String] {
+    static func copy(_ provider: NSItemProvider) async throws -> [String: String] {
       let type =
         provider.registeredContentTypes.first { $0.conforms(to: .image) } ?? UTType.image
       return try await withCheckedThrowingContinuation { continuation in
