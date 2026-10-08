@@ -1,7 +1,6 @@
 import type {
   MessageSummary as SummaryStore,
   NativeAssistance,
-  SummaryInput,
   SummaryState,
 } from '@private-email/mail-core/assistance';
 import type { ReadableBody } from '@private-email/mail-core/message-body';
@@ -19,7 +18,9 @@ import {
   createContext,
   use,
   useEffect,
+  useLayoutEffect,
   useMemo,
+  useRef,
   useState,
   useSyncExternalStore,
 } from 'react';
@@ -68,12 +69,12 @@ const idle: SummaryState = { kind: 'idle' };
 
 function SummaryContent({
   summary,
-  input,
   state,
+  onRetry,
 }: {
   readonly summary: SummaryStore;
-  readonly input: SummaryInput;
   readonly state: Exclude<SummaryState, { kind: 'idle' }>;
+  readonly onRetry: () => void;
 }) {
   const colors = usePalette();
   const dismiss = (
@@ -139,9 +140,7 @@ function SummaryContent({
           <Action
             label="Try again"
             accessibilityLabel="Summarize this message again"
-            onPress={() => {
-              void summary.summarize(input);
-            }}
+            onPress={onRetry}
           />
         ) : null}
         {dismiss}
@@ -202,21 +201,33 @@ export function MessageSummary({
   }
   const { summary } = current;
   useEffect(() => summary.discard, [summary]);
+  // Native input can be queued before the reader's message, mailbox, account or input changes and
+  // be delivered afterward; only the committed summary may start inference.
+  const committed = useRef<SummaryStore>(undefined);
+  useLayoutEffect(() => {
+    committed.current = summary;
+    return () => {
+      committed.current = undefined;
+    };
+  }, [summary]);
   const state = useSyncExternalStore(summary.subscribe, () =>
     input === undefined ? idle : summary.getSnapshot(input),
   );
   if (input === undefined) {
     return null;
   }
+  const start = () => {
+    if (committed.current === summary) {
+      void summary.summarize(input);
+    }
+  };
   if (state.kind === 'idle') {
     return (
       <View style={styles.row}>
         <Action
           label="Summarize"
           accessibilityLabel="Summarize this message"
-          onPress={() => {
-            void summary.summarize(input);
-          }}
+          onPress={start}
         />
       </View>
     );
@@ -227,8 +238,8 @@ export function MessageSummary({
       style={[styles.summary, { borderColor: colors.separator }]}>
       <SummaryContent
         summary={summary}
-        input={input}
         state={state}
+        onRetry={start}
       />
     </View>
   );

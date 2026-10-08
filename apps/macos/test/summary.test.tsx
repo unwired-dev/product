@@ -7,7 +7,7 @@ import { makeMockInboxStorage } from '@private-email/mail-core/mock-storage';
 import { createPersistentInbox } from '@private-email/mail-core/persistent-inbox';
 import { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mailbox';
 import { createMockMailSession } from '@private-email/mail-core/testing/mock-session';
-import { fireEvent, render, screen } from '@testing-library/react-native';
+import { act, fireEvent, render, screen } from '@testing-library/react-native';
 
 import { InboxProvider } from '../src/mailbox.tsx';
 import { GmailMessageBody } from '../src/message-body.tsx';
@@ -19,6 +19,23 @@ jest.mock('../src/private-storage.ts', () => ({
   __esModule: true,
   mailboxes: undefined,
 }));
+
+// The application callback behind a rendered control, as delayed native input would invoke it.
+const pressHandler = (
+  element: Parameters<typeof fireEvent.press>[0],
+): (() => void) => {
+  let fiber = element.unstable_fiber;
+  while (fiber !== null) {
+    const handler = fiber.memoizedProps?.onPress;
+    if (typeof handler === 'function') {
+      return () => {
+        handler();
+      };
+    }
+    fiber = fiber.return;
+  }
+  throw new Error('Expected a rendered press handler');
+};
 
 // A native model whose answers the test releases, recording what it was asked.
 function scriptedAssistance() {
@@ -228,6 +245,43 @@ describe('on-device message summaries in the reader', () => {
         screen.findByText('Saturday, by the river?'),
       ).resolves.toBeOnTheScreen();
       expect(screen.queryByText('A studio review on Thursday.')).toBeNull();
+    } finally {
+      await app.unmount();
+    }
+  });
+
+  it('ignores a Summarize press delivered after the reader moved to another message', async () => {
+    expect.hasAssertions();
+    const { native, asked } = scriptedAssistance();
+    const session = createMockMailSession('open-read-relaunch');
+    const fixture = singleMailbox(
+      createPersistentInbox(makeMockInboxStorage(), session.mail.list),
+      'preview',
+    );
+    const reader = (id: string) => (
+      <AssistanceContext value={native}>
+        <InboxProvider mailboxes={fixture}>
+          <MessageDetail
+            mailbox="preview"
+            id={id}
+          />
+        </InboxProvider>
+      </AssistanceContext>
+    );
+    const app = await render(reader('studio-review'));
+    try {
+      const stale = pressHandler(
+        await screen.findByLabelText('Summarize this message'),
+      );
+      await app.rerender(reader('weekend-walk'));
+      await expect(
+        screen.findByText('Saturday, by the river?'),
+      ).resolves.toBeOnTheScreen();
+      await act(() => {
+        stale();
+      });
+      expect(asked).toHaveLength(0);
+      expect(screen.getByLabelText('Summarize this message')).toBeOnTheScreen();
     } finally {
       await app.unmount();
     }
