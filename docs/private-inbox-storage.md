@@ -92,6 +92,21 @@ that connection's working set, while pruning removes only its own connection's
 bodies. Removing a connection, and every account purge, remove the bodies with the
 mailbox cache.
 
+## Draft storage
+
+[Drafts](drafts.md) are encrypted for their Product Account with a device-only key
+and excluded from backups. Draft access requires the signed-in, admitted Product
+Account with no removal under way; a save prepared for another account or a stale
+storage revision is refused.
+A pending device or an account being removed has no Drafts. Another account's
+document reads as empty, and its first save replaces it. A save whose encrypted
+file would exceed the **Outgoing Content Store**'s 100 MB limit is refused rather
+than evicting anything.
+Damaged or unreadable Drafts are preserved and reported as unavailable, and a
+missing key never creates a replacement while the document exists. Every account
+purge removes the document with the caches and needs no key. Draft access needs no
+Gmail authorization or network.
+
 ## Native wiring and signing
 
 The Expo config plugin copies the native sources into its generated iOS project.
@@ -128,7 +143,7 @@ window selection and read changes. They do not prove encryption or process
 persistence. Run their lint, format, type and test checks through the root workspace.
 
 The app-hosted Swift Testing suite uses the real filesystem, CryptoKit and
-Keychain. It checks reopening, ciphertext without fixture plaintext, rejection
+Keychain. It checks reopening, ciphertext without fixture plaintext, Draft owner and revision checks, rejection
 with a wrong or missing key, preserved corrupt data, credential use/removal,
 credential/database isolation and competing native store instances. A controlled
 protected-data availability boundary also checks locked first-run access, preservation

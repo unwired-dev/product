@@ -18,8 +18,8 @@ Dates and attachment sizes use the device's regional format under System default
 including explicit calendar, numbering-system, and 12/24-hour preferences, and the
 selected language's format under an override. Message dates keep their existing UTC
 time zone. Message senders, subjects, previews, bodies, attachment names, Gmail label
-names, mailbox addresses and device names are content and are never treated as
-translation keys.
+names, mailbox addresses, device names, and Draft subjects, recipients and bodies are
+content and are never treated as translation keys.
 
 ## Catalog conventions
 

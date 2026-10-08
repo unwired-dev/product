@@ -4,6 +4,12 @@ This code owns what TypeScript must never hold: Keychain items, the storage encr
 
 #### Keys, credentials and storage
 
+- `PrivateInboxStore.commitDraftDocument` or another bounded encrypted write
+  admitting only the raw input size. Count the encoded envelope, including JSON
+  string escaping, and the nonce/tag overhead of the exact stored format before
+  key creation, deletion or replacement. Refusal must preserve existing content;
+  otherwise an input below the nominal limit can exceed the stored-byte budget.
+
 - A Keychain item that drops or weakens `kSecAttrAccessibleWhenUnlockedThisDeviceOnly` on creation, `kSecAttrSynchronizable: false` or the Mac Data Protection Keychain selection, or a new item that bypasses `DeviceKeychain` without preserving its policy. These keep keys on the device and out of iCloud Keychain and backups.
 - Native database keys, Product Sync account-key material or provider/device credentials returned across the bridge. The intended local presentation payloads are permitted: decrypted Inbox snapshots and registration display fields, including the user-held Recovery Key during setup (`RegistrationSnapshotSchema`). None may enter logs, crash annotations, unprotected persistence or plaintext temporary files; temporary storage writes hold ciphertext only.
 - A new key generated when the expected one is missing on an initialized account. A missing key means trusted-device approval or the user-held Recovery Key; a replacement key makes existing ciphertext unreadable.
@@ -182,6 +188,17 @@ This code owns what TypeScript must never hold: Keychain items, the storage encr
   remains intact; otherwise AppKit messages a dangling controller or a closed
   window retains presentation state indefinitely.
 - Window identity, menu routing or lifetime moved out of AppKit; more than one React factory or JavaScript runtime per process; a window root that survives its window; Quit that leaves work running or closing the last window that terminates the app.
+- A composer change reviewed without inventorying native exits in
+  `apps/macos/macos/UnwiredMail/AppDelegate.mm`: window close/Command-W and
+  application termination/Quit can bypass `useLeaveComposer` before destroying
+  an editor or its runtime. Trace unfinished recipients and pending, failed or
+  locked saves through those paths, including closing the last window and Quit
+  with no windows. Require qualified protection or an explicitly accepted,
+  tracked pre-release gap with visible recovery and truthful durability limits;
+  retaining edits in the process-wide store after window close does not preserve
+  them after Quit. Preserve forced account/device invalidation and AppKit's
+  close-versus-Quit lifetime contract. JavaScript bundle checks do not compile
+  this Objective-C++ host or exercise its lifecycle delegates.
 - An entitlement, sandbox exception, `Info.plist` privacy key or `PrivacyInfo.xcprivacy` entry added or broadened without the feature that needs it.
 - A deployment target lowered, or a newer API used without the availability the target requires.
 - A native module added to the Mac host without updating the autolinking assertion in `apps/macos/scripts/verify-bundle.ts`.

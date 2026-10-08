@@ -14,6 +14,11 @@ fails closed; it complements the host's checks and never replaces them.
 
 ## Running programs
 
+`mail-core/composer-navigation` is a framework-independent coordinator for a
+host-provided finishing callback. Like `mailboxes.ts.savedMessageBodies`, it
+composes Promise-returning host actions with plain async code; the underlying
+stores keep their single Effect run. Each Inbox provider owns one coordinator.
+
 Convex handlers run their program with `runConvexProgram` from
 `packages/convex/convex/effectRuntime.ts`. It reads each configuration key from
 Convex's `env` when loaded, because the default runtime's environment cannot be

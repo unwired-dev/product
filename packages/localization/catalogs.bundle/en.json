@@ -381,5 +381,88 @@
     "credentials": "The address contains a user name or password.",
     "direction": "The address contains hidden text-direction characters.",
     "forwards": "The address forwards to another site."
+  },
+  "drafts": {
+    "heading": "Drafts",
+    "newMessage": "New Message",
+    "saveDrafts": "Save Drafts",
+    "listLocked": "Drafts are locked. Unlock your device and try again.",
+    "listFailed": "Drafts could not be opened. They have been kept.",
+    "unavailable": "This Draft is not available.",
+    "loading": "Loading Draft",
+    "badge": "DRAFT",
+    "rowLabel": "Draft. {{subject}}. {{recipients}}. From {{from}}",
+    "rowLabelShortened": "Draft. {{subject}}. {{recipients}}. From {{from}}. Preview shortened.",
+    "from": "From {{from}}",
+    "fromLabel": "From",
+    "noSubject": "No subject",
+    "noRecipients": "No recipients",
+    "fields": {
+      "to": "To",
+      "cc": "Cc",
+      "bcc": "Bcc"
+    },
+    "cannotSend": "{{from}}, cannot send",
+    "cannotSendShortened": "{{from}}, address shortened, cannot send",
+    "sendFrom": "Send from {{address}}",
+    "sendFromShortened": "Send from {{address}}, address shortened",
+    "recipientLabel": "{{field}}: {{recipient}}",
+    "removeRecipient": "Removes this recipient",
+    "recipientPlaceholder": "Name or email address",
+    "recipient": {
+      "invalid": "Enter a valid email address.",
+      "duplicate": "Already added"
+    },
+    "sending": {
+      "authorization": "This mailbox needs Gmail access again before it can send. Allow access or choose another mailbox.",
+      "removed": "This mailbox was removed from this account. Choose another mailbox to send from."
+    },
+    "titleShortened": "{{title}}, subject shortened",
+    "close": "Close",
+    "undo": "Undo",
+    "redo": "Redo",
+    "discard": "Discard",
+    "discardDraft": "Discard Draft",
+    "keepEditing": "Keep Editing",
+    "status": "Draft · {{status}}",
+    "save": {
+      "saved": "Saved on this device",
+      "saving": "Saving…",
+      "failed": "Not saved. Your changes are kept here until saving succeeds.",
+      "locked": "Not saved while private storage is locked. Unlock your device."
+    },
+    "unsaved": {
+      "failed": "Draft changes are not saved yet. Keep the app open and try saving again.",
+      "locked": "Draft changes are not saved while private storage is locked. Unlock your device."
+    },
+    "discardBlocked": "This Draft could not be discarded, so it stays open. Try again.",
+    "saveBlocked": "This Draft could not be saved, so it stays open. Try again, or discard it.",
+    "invalidRecipients": "Correct or remove the invalid address to close this Draft.",
+    "discardConfirm": "Discard this Draft? It is deleted from this device.",
+    "showCcBcc": "Show Cc and Bcc",
+    "ccBcc": "Cc/Bcc",
+    "subject": "Subject",
+    "formatting": "Formatting",
+    "body": "Message body",
+    "bodyPlaceholder": "Message",
+    "marks": {
+      "bold": "Bold",
+      "italic": "Italic",
+      "underline": "Underline",
+      "strikethrough": "Strikethrough",
+      "code": "Inline code"
+    },
+    "blocks": {
+      "heading1": "Heading 1",
+      "heading2": "Heading 2",
+      "heading3": "Heading 3",
+      "bulleted": "Bulleted list",
+      "numbered": "Numbered list",
+      "quote": "Quote",
+      "code": "Code block"
+    },
+    "conflictBadge": "DRAFT · CONFLICT",
+    "conflictRowLabel": "Conflicting Draft. {{subject}}. {{recipients}}. From {{from}}",
+    "conflictRowLabelShortened": "Conflicting Draft. {{subject}}. {{recipients}}. From {{from}}. Preview shortened."
   }
 }

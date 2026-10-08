@@ -1,8 +1,10 @@
 import type { Translate } from '@private-email/localization';
 import type { Message } from '@private-email/mail-core';
+import type { Draft } from '@private-email/mail-core/drafts';
 import type { GmailAction } from '@private-email/mail-core/gmail-actions';
 import type { GmailMessage } from '@private-email/mail-core/gmail-inbox';
 
+import { draftsOf } from '@private-email/mail-core/drafts';
 import {
   quickActions,
   restoreAfter,
@@ -26,13 +28,16 @@ import {
 
 import type { InboxMailbox } from './private-storage.ts';
 
+import { DraftList, DraftRow, useOpenDraft } from './composer.tsx';
 import { LanguageSelector } from './language-selector.tsx';
 import { useLocalization, useMessageDateFormat } from './localization.ts';
 import {
   MailboxScope,
+  useDrafts,
   useGmailSearch,
   useInbox,
   useInboxActions,
+  useLeaveComposer,
   useMailbox,
   useMailboxes,
   useReloadMailboxes,
@@ -103,6 +108,18 @@ const styles = StyleSheet.create({
   },
 });
 
+// The open-Draft callback for an Inbox without Drafts, stable so Draft rows stay memoized.
+const composeNothing = () => undefined;
+
+// A Draft as a row of the Inbox list, apart from received mail.
+type DraftItem = Readonly<{ draft: Draft }>;
+
+// The Drafts an Inbox lists: none where it offers no composer.
+const listedDrafts = (
+  state: Parameters<typeof draftsOf>[0],
+  composing: boolean,
+): readonly Draft[] => (composing ? draftsOf(state) : []);
+
 // A message in a mailbox; Gmail message IDs are unique only within their mailbox.
 export type Selection = Readonly<{ mailbox: string; id: string }>;
 
@@ -111,6 +128,9 @@ interface InboxProps {
   readonly onSelect: (selection: Selection) => void;
   // Closes the reader when a row action takes its message out of the Inbox.
   readonly onClose?: (() => void) | undefined;
+  // Opens a Draft in the composer; without it the Inbox offers no Drafts.
+  readonly onCompose?: ((id: string) => void) | undefined;
+  readonly composing?: string | undefined;
 }
 
 function MessageRow({
@@ -551,8 +571,53 @@ const searchSections = <T,>(
     : [{ key: 'gmail', data: online.found?.results ?? [] }]),
 ];
 
-export function Inbox({ selected, onSelect, onClose }: InboxProps) {
+// Drafts come before received mail; a search lists matching messages alone.
+function inboxSections<M>({
+  drafts,
+  messages,
+  online,
+  searching,
+}: Readonly<{
+  drafts: readonly Draft[];
+  messages: readonly M[];
+  online: Readonly<{
+    searching: boolean;
+    found?: Readonly<{ results: readonly M[] }> | undefined;
+  }>;
+  searching: boolean;
+}>) {
+  const draftRows = searching
+    ? []
+    : drafts.map((draft): DraftItem | M => ({ draft }));
+  return [
+    ...(draftRows.length === 0 ? [] : [{ key: 'drafts', data: draftRows }]),
+    ...searchSections<DraftItem | M>(messages, online),
+  ];
+}
+
+export function Inbox({
+  selected,
+  onSelect,
+  onClose,
+  onCompose,
+  composing,
+}: InboxProps) {
   const mailboxes = useMailboxes();
+  const leave = useLeaveComposer();
+  const select = async (selection: Selection) => {
+    if (await leave()) {
+      onSelect(selection);
+    }
+  };
+  // The account page replaces the Inbox, so an open composer is left first.
+  const openAccount = async (open: () => void) => {
+    if (await leave()) {
+      open();
+    }
+  };
+  const draftState = useDrafts();
+  const drafts = listedDrafts(draftState, onCompose !== undefined);
+  const openDraft = useOpenDraft(composing, onCompose ?? composeNothing);
   const reload = useReloadMailboxes();
   const account = use(AccountContext);
   const colors = usePalette();
@@ -592,9 +657,17 @@ export function Inbox({ selected, onSelect, onClose }: InboxProps) {
   );
   const online = useGmailSearch(shown, searched, scope);
   const messages = results ?? listed;
-  const sections = searchSections(messages, online);
+  const sections = inboxSections({
+    drafts,
+    messages,
+    online,
+    searching: results !== undefined,
+  });
   // Rows render again when the selection or a result's saved state changes.
-  const rows = useMemo(() => ({ selected, saved }), [selected, saved]);
+  const rows = useMemo(
+    () => ({ selected, saved, composing }),
+    [selected, saved, composing],
+  );
   const ready = shown.some(({ state }) => state.kind === 'ready');
   const syncing = shown.some(
     ({ state }) =>
@@ -651,7 +724,7 @@ export function Inbox({ selected, onSelect, onClose }: InboxProps) {
               accessibilityLabel={t('inbox.account')}
               accessibilityRole="button"
               onPress={() => {
-                account.openAccount();
+                void openAccount(account.openAccount);
               }}>
               <Text style={[styles.account, { color: colors.accent }]}>
                 {t('inbox.account')}
@@ -704,32 +777,51 @@ export function Inbox({ selected, onSelect, onClose }: InboxProps) {
             }}
           />
         ))}
-        {ready ? (
-          <SectionList
-            accessibilityLabel={t('inbox.messages')}
-            contentContainerStyle={styles.list}
-            sections={sections}
-            stickySectionHeadersEnabled={false}
-            renderSectionHeader={({ section }) =>
-              section.key === 'gmail' ? (
-                <OnlineHeading
-                  search={online}
-                  several={several}
-                />
-              ) : null
-            }
-            extraData={rows}
-            keyExtractor={resultKey}
-            ListFooterComponent={
-              <OnlineResults
-                query={searched}
+        <SectionList
+          accessibilityLabel={t('inbox.messages')}
+          contentContainerStyle={styles.list}
+          sections={sections}
+          stickySectionHeadersEnabled={false}
+          renderSectionHeader={({ section }) =>
+            section.key === 'gmail' ? (
+              <OnlineHeading
                 search={online}
+                several={several}
               />
-            }
-            renderSectionFooter={({ section }) =>
-              section.key === 'saved' && messages.length === 0 ? empty : null
-            }
-            renderItem={({ item, section }) => (
+            ) : null
+          }
+          extraData={rows}
+          keyExtractor={(item) =>
+            'draft' in item ? `draft\n${item.draft.id}` : resultKey(item)
+          }
+          ListHeaderComponent={
+            onCompose === undefined ? null : (
+              <DraftList
+                onCompose={onCompose}
+                scope={scope}
+                searching={results !== undefined}
+              />
+            )
+          }
+          ListFooterComponent={
+            <OnlineResults
+              query={searched}
+              search={online}
+            />
+          }
+          renderSectionFooter={({ section }) =>
+            section.key === 'saved' && messages.length === 0 && ready
+              ? empty
+              : null
+          }
+          renderItem={({ item, section }) =>
+            'draft' in item ? (
+              <DraftRow
+                draft={item.draft}
+                onOpen={openDraft}
+                selected={composing === item.draft.id}
+              />
+            ) : (
               <MessageRow
                 mailbox={several ? item.mailbox.address : undefined}
                 message={item.message}
@@ -742,7 +834,10 @@ export function Inbox({ selected, onSelect, onClose }: InboxProps) {
                     : undefined
                 }
                 onSelect={() => {
-                  onSelect({ mailbox: item.mailbox.id, id: item.message.id });
+                  void select({
+                    mailbox: item.mailbox.id,
+                    id: item.message.id,
+                  });
                 }}
                 selected={
                   selected?.mailbox === item.mailbox.id &&
@@ -754,9 +849,9 @@ export function Inbox({ selected, onSelect, onClose }: InboxProps) {
                     : savedStatus(t, saved?.get(resultKey(item)))
                 }
               />
-            )}
-          />
-        ) : null}
+            )
+          }
+        />
         <LanguageSelector />
         <Text style={[styles.footer, { color: colors.secondary }]}>
           {gmail ? t('inbox.footerGmail') : t('inbox.footer')}

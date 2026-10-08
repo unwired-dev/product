@@ -60,6 +60,40 @@ is not an indexed general mail database or the replacement body cache.
 The [Gmail companion](gmail-inbox.md) records transport ownership and suspension
 fences. Observable cache requirements remain in the operational storage guide.
 
+## Local Draft storage
+
+Issue #611 adds TypeScript-owned semantic Drafts in `drafts.enc`, sealed with the
+existing database key and purpose-specific authenticated context
+`dev.unwired.private-inbox.drafts.v1`. The native envelope binds owner and revision.
+Opening another Product Account returns no document; commits require the opened
+revision under the file lock. The file uses the existing atomic replacement,
+synchronization, protection and backup-exclusion policy. An absent key cannot be
+replaced while any supported encrypted layout remains. Account purge removes
+Drafts with the mailbox caches before deleting the key.
+
+The registration operation gate remains held while detached Draft storage work
+runs. Protected-data availability and the Product Account are checked before work
+and before returning success; native results crossing the actor boundary are
+Sendable values. Draft operations add no Gmail or backend calls.
+
+The shared store tracks its durable base for a bounded three-way CAS rebase.
+Independent edits and newly created Drafts survive, and concurrent versions of
+one Draft become visible conflict copies. Each editor supplies its prior content
+so simultaneous Mac windows cannot silently overwrite completed edits inside the
+shared store. Discard publishes removal only after durable storage completion.
+An update equal to its editor's immediate prior content leaves the list alone,
+while still flushing earlier dirty work. Equality includes identity, conflict
+metadata and unfinished recipients and ignores only `updatedAt`.
+Closing an empty composer checks current content under that same serialized
+operation, so a stale empty editor cannot delete another window's completed work.
+Separately, `composer-navigation.create` abandons an empty New Message when a
+later destination won and its row was not selected. `createDrafts.abandon`
+checks current content and removes it through `change` before saving; failed
+saving retains the dirty deletion for the next edit or retry. CAS recovery keeps
+another writer's authored version, and `known` permits a same-account nonempty
+late edit to survive as a conflict copy with editor rebinding. This cleanup does
+not give explicit Discard the same early-removal semantics.
+
 ## Gmail body cache
 
 Issue #605 adds per-message ciphertext under each connection’s `bodies/`, separate from both
