@@ -16,6 +16,10 @@ jobs:
   plan:
     name: Version pull request or release tag
     runs-on: ubuntu-24.04
+    environment:
+      # Holds the personal token; its branch policy admits only main.
+      name: main-token
+      deployment: false
     timeout-minutes: 10
     outputs:
       release: ${{ steps.plan.outputs.release }}

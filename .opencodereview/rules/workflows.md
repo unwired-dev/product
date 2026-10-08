@@ -5,6 +5,7 @@ Workflows hold the release credentials (App Store Connect key, Convex URL, OAuth
 #### Trust boundary
 
 - `.github/workflows/auto-merge.yml` executing a manually dispatched branch's script with the ruleset-bypass `GH_TOKEN`. Keep the job and checkout on trusted `main`; otherwise unmerged code receives merge authority.
+- The ruleset-bypass `GH_TOKEN` used by `release.yml` or `auto-merge.yml` remaining a repository secret or a consuming job omitting the `main-token` environment. Verify the environment secret exists, its external branch policy allows only branch `main`, and the repository copy is absent before declaring the restriction active. Branch-controlled workflow guards and checkout refs cannot stop a write-capable contributor from reading a repository secret through a modified workflow.
 - Pull-request-controlled code executed with secrets or a write token in scope: a `pull_request_target` or `workflow_run` job that checks out the head, a reusable workflow given `secrets: inherit`, or a release or TestFlight job reachable from a pull request event.
 - A job or step that needs a secret receiving it through anything wider than that step's `env`.
 - `permissions` widened beyond `contents: read` at workflow level; a job that needs more declares it for that job only.

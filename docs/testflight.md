@@ -141,9 +141,12 @@ If pending changesets advance only backend packages or have empty headers, the
 version PR also advances both hosts by a patch, so merging it still selects a
 new TestFlight version.
 
-The workflow uses the `GH_TOKEN` repository secret, a fine-grained personal
-access token with contents and pull-request write access to this repository.
-The default workflow token would not start CI on the version pull request.
+The workflow uses the `GH_TOKEN` secret of the `main-token` environment, a
+fine-grained personal access token with contents and pull-request write access
+to this repository. The default workflow token would not start CI on the version
+pull request. The environment's deployment branch policy admits only `main`, so
+a workflow pushed to another branch cannot read the token. Keep the token out of
+repository secrets, which every same-repository branch can read.
 
 Unchanged reruns preserve the generated branch commit and its CI results.
 Updates use a force-with-lease push, and stale runs never replace a version PR
