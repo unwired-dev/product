@@ -7,12 +7,16 @@ import { useEffect, useRef } from 'react';
 
 import type { Selection } from '../src/inbox.tsx';
 
-import { scheduleGmailFreshness } from '../src/freshness.ts';
+import {
+  pollGmailWhileActive,
+  scheduleGmailFreshness,
+} from '../src/freshness.ts';
 import { Inbox } from '../src/inbox.tsx';
 import { InboxProvider } from '../src/mailbox.tsx';
 import { RegistrationGate } from '../src/registration-gate.tsx';
 
 void scheduleGmailFreshness();
+pollGmailWhileActive();
 
 export default function RootLayout() {
   const splitView = useRef<SplitHostCommands>(null);

@@ -13,9 +13,12 @@ import {
   registerTaskAsync,
 } from 'expo-background-task';
 import { defineTask } from 'expo-task-manager';
-import { TurboModuleRegistry } from 'react-native';
+import { AppState, TurboModuleRegistry } from 'react-native';
 
-import type { scheduleGmailFreshness as ScheduleGmailFreshness } from '../src/freshness.ts';
+import type {
+  pollGmailWhileActive as PollGmailWhileActive,
+  scheduleGmailFreshness as ScheduleGmailFreshness,
+} from '../src/freshness.ts';
 import type {
   gmailMailboxes as HostMailboxes,
   registration as HostRegistration,
@@ -35,8 +38,8 @@ jest.mock('expo-background-task', () => ({
 }));
 
 describe('headless Gmail freshness', () => {
-  /* oxlint-disable vitest/max-expects -- One journey checks headless startup and native scheduling failures end to end. */
-  it('defines Gmail refresh on a headless entry, restores its saved mailbox and keeps foreground startup usable when scheduling or refresh fails', async () => {
+  /* oxlint-disable vitest/max-expects -- One journey checks headless refresh, scheduler failures and active/background/disposal transitions through the real stores. */
+  it('restores mail on a headless entry, handles scheduling failures and polls real mail only while active', async () => {
     expect.hasAssertions();
     const session = createMockRegistrationSession(
       'registration-success',
@@ -115,7 +118,7 @@ describe('headless Gmail freshness', () => {
       const { registration } = jest.requireActual<{
         readonly registration: typeof HostRegistration;
       }>('../src/registration.ts');
-      jest
+      const failedRefresh = jest
         .spyOn(registration, 'refreshInbox')
         .mockRejectedValueOnce(new Error('private payload'));
       await expect(
@@ -132,6 +135,89 @@ describe('headless Gmail freshness', () => {
         ['Gmail background task registration failed'],
         ['Gmail background refresh failed'],
       ]);
+      failedRefresh.mockRestore();
+
+      // No AppState transition is needed when the UI starts already active.
+      jest.useFakeTimers();
+      const initial = AppState.currentState;
+      AppState.currentState = 'active';
+      const listenersBefore = jest.mocked(AppState.addEventListener).mock.calls
+        .length;
+      const { pollGmailWhileActive } = jest.requireActual<{
+        readonly pollGmailWhileActive: typeof PollGmailWhileActive;
+      }>('../src/freshness.ts');
+      const change = (state: 'active' | 'background') => {
+        for (const [, listener] of jest
+          .mocked(AppState.addEventListener)
+          .mock.calls.slice(listenersBefore)) {
+          listener(state);
+        }
+      };
+      const stop = pollGmailWhileActive();
+      try {
+        const first = gmail.deliver({
+          subject: 'Arrived while Inbox stayed open',
+        });
+        await jest.advanceTimersByTimeAsync(5 * 60_000 - 1);
+        expect(gmailMailboxes.getSnapshot()[0]?.state).toMatchObject({
+          kind: 'ready',
+          messages: expect.not.arrayContaining([
+            expect.objectContaining({ id: first }),
+          ]),
+        });
+        await jest.advanceTimersByTimeAsync(1);
+        expect(gmailMailboxes.getSnapshot()[0]?.state).toMatchObject({
+          kind: 'ready',
+          messages: expect.arrayContaining([
+            expect.objectContaining({ id: first }),
+          ]),
+        });
+        // Repeated active reports must not create another timer.
+        change('active');
+        const second = gmail.deliver({ subject: 'Next active poll' });
+        await jest.advanceTimersByTimeAsync(5 * 60_000);
+        expect(gmailMailboxes.getSnapshot()[0]?.state).toMatchObject({
+          kind: 'ready',
+          messages: expect.arrayContaining([
+            expect.objectContaining({ id: second }),
+          ]),
+        });
+        change('background');
+        const background = gmail.deliver({
+          subject: 'Wait for another opportunity',
+        });
+        await jest.advanceTimersByTimeAsync(30 * 60_000);
+        expect(gmailMailboxes.getSnapshot()[0]?.state).toMatchObject({
+          kind: 'ready',
+          messages: expect.not.arrayContaining([
+            expect.objectContaining({ id: background }),
+          ]),
+        });
+        change('active');
+        await jest.advanceTimersByTimeAsync(5 * 60_000);
+        expect(gmailMailboxes.getSnapshot()[0]?.state).toMatchObject({
+          kind: 'ready',
+          messages: expect.arrayContaining([
+            expect.objectContaining({ id: background }),
+          ]),
+        });
+        stop();
+        const disposed = gmail.deliver({
+          subject: 'Stopped poll cannot restart',
+        });
+        change('active');
+        await jest.advanceTimersByTimeAsync(5 * 60_000);
+        expect(gmailMailboxes.getSnapshot()[0]?.state).toMatchObject({
+          kind: 'ready',
+          messages: expect.not.arrayContaining([
+            expect.objectContaining({ id: disposed }),
+          ]),
+        });
+      } finally {
+        stop();
+        AppState.currentState = initial;
+        jest.useRealTimers();
+      }
     } finally {
       bridge.mockRestore();
       output.mockRestore();

@@ -7,6 +7,7 @@ import {
   registerTaskAsync,
 } from 'expo-background-task';
 import { defineTask } from 'expo-task-manager';
+import { AppState } from 'react-native';
 
 import { gmailMailboxes, registration } from './registration.ts';
 
@@ -39,4 +40,28 @@ export const scheduleGmailFreshness = async () => {
     // Native registration failures can contain account data. Foreground catch-up remains usable.
     console.error('Gmail background task registration failed');
   }
+};
+
+// While the app stays active, a five-minute fallback poll keeps an open Inbox fresh between
+// activations. It stops when the app leaves the foreground, where background tasks take over.
+export const pollGmailWhileActive = () => {
+  if (previewInbox) {
+    return () => undefined;
+  }
+  const freshness = createFreshness(gmailMailboxes, registration.refreshInbox);
+  let stop: (() => void) | undefined = undefined;
+  const follow = (state: string) => {
+    if (state === 'active') {
+      stop ??= freshness.keepAlive(5);
+    } else {
+      stop?.();
+      stop = undefined;
+    }
+  };
+  follow(AppState.currentState);
+  const subscription = AppState.addEventListener('change', follow);
+  return () => {
+    subscription.remove();
+    stop?.();
+  };
 };

@@ -753,7 +753,9 @@ The application, not a window or screen, owns Gmail synchronization
   most every 15 minutes. iOS decides whether and when each runs, and none runs
   after the person force-quits the app or turns Background App Refresh off.
   Each opportunity verifies registration before it reads Gmail. Becoming active
-  always catches up, so the app never depends on background time.
+  always catches up, so the app never depends on background time. While the app
+  stays active, a five-minute fallback poll keeps an open Inbox fresh; it stops
+  when the app leaves the foreground.
 - **Interrupted work.** Every opportunity resumes from each mailbox's committed
   checkpoint. One that the system suspends or ends repeats at most its
   uncommitted step, and the next activation catches up on mail it never reached.
@@ -999,7 +1001,10 @@ lifecycles:
 The mobile host's headless-entry test loads its entry without mounting a Router
 layout, restores a saved synthetic mailbox and observes the resulting committed
 mail through the shared store. It also covers restricted scheduling and failure
-to register a background task without an unhandled rejection or private error log.
+to register a background task without an unhandled rejection or private error log,
+a failed background refresh reporting failure with only a fixed diagnostic, and the
+five-minute active-app poll synchronizing the real stores from a controlled Gmail
+boundary while active, stopping in the background, resuming and disposing.
 
 During #617 review, a signed simulator Release build with the background-task
 modules passed the packaged synthetic open/read/relaunch journey on iPhone 18 Pro
