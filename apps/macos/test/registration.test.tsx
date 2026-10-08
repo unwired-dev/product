@@ -56,6 +56,12 @@ const connectedTo = (address: SyntheticAddress) =>
   ]);
 const alex = syntheticMailboxes['alex@example.invalid'];
 
+// Whether a synthetic Gmail request from `connection` is an online search of Alex's mailbox.
+const asksAlex = (
+  connection: string,
+  query: ReadonlyArray<readonly [string, string]>,
+) => connection === alex && query.some(([name]) => name === 'q');
+
 // Whether a synthetic Gmail request downloads a full message, as recent-body prefetch does.
 const downloadsBody = (query: ReadonlyArray<readonly [string, string]>) =>
   query.some(([name, value]) => name === 'format' && value === 'full');
@@ -742,6 +748,219 @@ describe('product registration', () => {
       ]);
     });
   });
+
+  /* oxlint-disable vitest/max-expects -- One journey proves asking, reading, failures and stale answers. */
+  it('searches Gmail online when asked, opens a result, keeps saved results through an outage, and drops a stale answer', async () => {
+    expect.hasAssertions();
+    const session = createMockRegistrationSession('registration-success');
+    const store = createRegistration(session.native);
+    const gmail = {
+      alex: createSyntheticGmail({ address: 'alex@example.invalid' }),
+      other: createSyntheticGmail({ address: 'other@example.invalid' }),
+    };
+    gmail.alex.deliver({
+      from: 'Maya Chen <maya@example.invalid>',
+      subject: 'Studio review',
+      at: Date.UTC(2026, 8, 3),
+    });
+    // Only Gmail still has this one: it left the Inbox.
+    const archived = gmail.alex.deliver({
+      from: 'Maya Chen <maya@example.invalid>',
+      subject: 'Studio archive',
+      at: Date.UTC(2026, 8, 1),
+      content: { text: 'Archived studio notes', single: true },
+    });
+    gmail.alex.archive(archived);
+    gmail.other.deliver({
+      from: 'Oliver Park <oliver@example.invalid>',
+      subject: 'Plans',
+      at: Date.UTC(2026, 8, 2),
+      content: { text: 'Meet Maya at the studio', single: true },
+    });
+    const connections = syntheticConnections({
+      [alex]: gmail.alex,
+      [syntheticMailboxes['other@example.invalid']]: gmail.other,
+    });
+    // Holds Alex's next online search until released.
+    let holding: Promise<void> | undefined = undefined;
+    const mailboxes = createMailboxes(
+      {
+        ...connections,
+        gmailRequest: async (path, query, mailbox) => {
+          const held = holding;
+          // oxlint-disable-next-line vitest/no-conditional-in-test -- Only a held search waits.
+          if (held !== undefined && asksAlex(mailbox.connection, query)) {
+            holding = undefined;
+            await held;
+          }
+          return connections.gmailRequest(path, query, mailbox);
+        },
+      },
+      store,
+    );
+    function Searching() {
+      const [selected, setSelected] = useState<Selection>();
+      return (
+        <InboxProvider mailboxes={mailboxes}>
+          <Inbox
+            onSelect={setSelected}
+            selected={selected}
+          />
+          <MessageDetail
+            id={selected?.id}
+            mailbox={selected?.mailbox}
+          />
+        </InboxProvider>
+      );
+    }
+    await render(
+      <RegistrationGate
+        store={store}
+        preview={false}>
+        <Searching />
+      </RegistrationGate>,
+    );
+    const press = async (name: string) => {
+      await act(async () => {
+        await fireEvent.press(await screen.findByRole('button', { name }));
+      });
+    };
+    const search = async (query: string) => {
+      await act(async () => {
+        await fireEvent.changeText(
+          await screen.findByLabelText('Search senders and subjects'),
+          query,
+        );
+      });
+    };
+    const rows = () =>
+      screen
+        .queryAllByRole('button', { name: /^Unread/u })
+        .map((row) => row.props.accessibilityLabel);
+    await press('Sign in with Google');
+    await act(async () => {
+      await fireEvent.changeText(
+        await screen.findByLabelText('Last four characters'),
+        syntheticRecoveryKey.slice(-4),
+      );
+    });
+    await press('Confirm Recovery Key');
+    await openAccount();
+    await press('Add another Gmail mailbox');
+    await press('Open Inbox');
+
+    // Saved results come first; Gmail is searched only when asked, across both mailboxes.
+    await search('studio');
+    await waitFor(() => {
+      expect(rows()).toHaveLength(1);
+    });
+    expect(
+      gmail.alex.requests.filter(({ query }) => query.has('q')),
+    ).toStrictEqual([]);
+    await press('Search Gmail for “studio”');
+    await expect(
+      screen.findByRole('header', { name: 'From Gmail' }),
+    ).resolves.toBeVisible();
+    await waitFor(() => {
+      expect(rows().slice(1)).toStrictEqual([
+        'Unread. Maya Chen. Studio review. In alex@example.invalid',
+        'Unread. Oliver Park. Plans. In other@example.invalid',
+        'Unread. Maya Chen. Studio archive. In alex@example.invalid',
+      ]);
+    });
+    expect(rows()[0]).toMatch(/^Unread\. Maya Chen\. Studio review\./u);
+
+    // Changing to one mailbox and back discards the online answer even with the same query.
+    await press('alex@example.invalid');
+    await press('Search Gmail for “studio”');
+    await waitFor(() => {
+      expect(rows()).toHaveLength(3);
+    });
+    expect(
+      rows().filter((row) => row.includes('other@example.invalid')),
+    ).toHaveLength(0);
+    await press('All inboxes');
+    await expect(
+      screen.findByRole('button', { name: 'Search Gmail for “studio”' }),
+    ).resolves.toBeVisible();
+    expect(screen.queryByRole('header', { name: 'From Gmail' })).toBeNull();
+    await press('Search Gmail for “studio”');
+    await waitFor(() => {
+      expect(rows()).toHaveLength(4);
+    });
+
+    // A result outside the Inbox opens through the reader without being saved.
+    await press('Unread. Maya Chen. Studio archive. In alex@example.invalid');
+    await expect(
+      screen.findByRole('header', { name: 'Studio archive' }),
+    ).resolves.toBeVisible();
+    await waitFor(() => {
+      expect(
+        gmail.alex.requests
+          .filter(({ path }) => path === `messages/${archived}`)
+          .map(({ query }) => query.get('format')),
+      ).toContain('full');
+    });
+    expect([...gmail.alex.cachedBodies().keys()]).not.toContain(archived);
+
+    // A new query drops the earlier answer until Gmail is asked again. One mailbox's outage
+    // leaves the other's results and every saved result.
+    await search('maya');
+    await expect(
+      screen.findByRole('button', { name: 'Search Gmail for “maya”' }),
+    ).resolves.toBeVisible();
+    expect(screen.queryByRole('header', { name: 'From Gmail' })).toBeNull();
+    gmail.other.fail({ code: 'unavailable' });
+    await press('Search Gmail for “maya”');
+    await expect(
+      screen.findByText(
+        'other@example.invalid: Gmail could not be reached. Mail saved on this device is still shown.',
+      ),
+    ).resolves.toBeVisible();
+    await waitFor(() => {
+      expect(rows()).toHaveLength(3);
+    });
+    // Asking again searches every mailbox afresh.
+    await press('Search Gmail again');
+    await waitFor(() => {
+      expect(rows()).toHaveLength(4);
+    });
+    expect(screen.queryByText(/Gmail could not be reached/u)).toBeNull();
+
+    // A reply for a query that changed meanwhile is never shown.
+    let release: () => void = () => undefined;
+    // oxlint-disable-next-line promise/avoid-new -- Hold one search, released by the journey.
+    holding = new Promise((resolve) => {
+      release = resolve;
+    });
+    const stale = holding;
+    await search('archive');
+    await press('Search Gmail for “archive”');
+    await expect(
+      screen.findByLabelText('Searching Gmail'),
+    ).resolves.toBeVisible();
+    await search('plans');
+    await act(async () => {
+      release();
+      await stale;
+    });
+    await expect(
+      screen.findByRole('button', { name: 'Search Gmail for “plans”' }),
+    ).resolves.toBeVisible();
+    expect(screen.queryByRole('header', { name: 'From Gmail' })).toBeNull();
+    // Returning to the old query must not revive its completed, stale request.
+    await search('archive');
+    await expect(
+      screen.findByRole('button', { name: 'Search Gmail for “archive”' }),
+    ).resolves.toBeVisible();
+    expect(screen.queryByRole('header', { name: 'From Gmail' })).toBeNull();
+    await search('plans');
+    // Only the saved result remains.
+    expect(rows()).toStrictEqual([
+      'Unread. Oliver Park. Plans. In other@example.invalid. Downloads from Gmail when opened',
+    ]);
+  });
+  /* oxlint-enable vitest/max-expects */
 
   it('links Google from account settings and keeps both sign-in methods after remount', async () => {
     expect.hasAssertions();

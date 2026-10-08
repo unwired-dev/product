@@ -19,7 +19,7 @@ import { spacing } from '@private-email/mail-core/theme';
 import { use, useDeferredValue, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
-  FlatList,
+  SectionList,
   Pressable,
   StyleSheet,
   Text,
@@ -33,9 +33,10 @@ import { DraftList, DraftRow, useOpenDraft } from './composer.tsx';
 import {
   MailboxScope,
   useDrafts,
+  useGmailSearch,
   useInbox,
-  useLeaveComposer,
   useInboxActions,
+  useLeaveComposer,
   useMailbox,
   useMailboxes,
   useReloadMailboxes,
@@ -106,22 +107,17 @@ const styles = StyleSheet.create({
   },
 });
 
-// The Inbox list's rows: Drafts before received mail, or a search's matching messages alone.
-function listItems<M extends object>(
-  withDrafts: boolean,
-  drafts: readonly Draft[],
-  messages: readonly M[],
-) {
-  return [
-    ...(withDrafts ? drafts : []).map(
-      (draft) => ({ kind: 'draft', draft }) as const,
-    ),
-    ...messages.map((entry) => ({ kind: 'message', ...entry }) as const),
-  ];
-}
-
 // The open-Draft callback for an Inbox without Drafts, stable so Draft rows stay memoized.
 const composeNothing = () => undefined;
+
+// A Draft as a row of the Inbox list, apart from received mail.
+type DraftItem = Readonly<{ draft: Draft }>;
+
+// The Drafts an Inbox lists: none where it offers no composer.
+const listedDrafts = (
+  state: Parameters<typeof draftsOf>[0],
+  composing: boolean,
+): readonly Draft[] => (composing ? draftsOf(state) : []);
 
 // A message in a mailbox; Gmail message IDs are unique only within their mailbox.
 export type Selection = Readonly<{ mailbox: string; id: string }>;
@@ -428,6 +424,104 @@ const savedStatus = (saved: boolean | undefined) => {
   return saved ? searchCopy.saved : searchCopy.download;
 };
 
+// Gmail's own search, asked for explicitly below the results saved on this device, which it never
+// replaces. Each mailbox that Gmail could not search says why.
+function OnlineResults({
+  search,
+  query,
+}: {
+  readonly search: ReturnType<typeof useGmailSearch>;
+  readonly query: string;
+}) {
+  const colors = usePalette();
+  const { found, searching } = search;
+  if (!search.available) {
+    return null;
+  }
+  if (found === undefined && !searching) {
+    return (
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={searchCopy.online(query)}
+        onPress={() => {
+          void search.search();
+        }}>
+        <Text style={[styles.notice, { color: colors.accent }]}>
+          {searchCopy.online(query)}
+        </Text>
+      </Pressable>
+    );
+  }
+  return (
+    <View>
+      {found?.results.length === 0 && found.failures.length === 0 ? (
+        <Text style={[styles.notice, { color: colors.secondary }]}>
+          {searchCopy.onlineEmpty(query)}
+        </Text>
+      ) : null}
+      {searching ? (
+        <ActivityIndicator accessibilityLabel={searchCopy.searching} />
+      ) : null}
+      {!searching && found !== undefined && found.next.size > 0 ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={searchCopy.more}
+          onPress={() => {
+            void search.more();
+          }}>
+          <Text style={[styles.notice, { color: colors.accent }]}>
+            {searchCopy.more}
+          </Text>
+        </Pressable>
+      ) : null}
+      {!searching && found !== undefined && found.failures.length > 0 ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={searchCopy.retry}
+          onPress={() => {
+            void search.search();
+          }}>
+          <Text style={[styles.notice, { color: colors.accent }]}>
+            {searchCopy.retry}
+          </Text>
+        </Pressable>
+      ) : null}
+    </View>
+  );
+}
+
+// The online section announces its source and each connection's failure before its rows.
+function OnlineHeading({
+  search,
+  several,
+}: {
+  readonly search: ReturnType<typeof useGmailSearch>;
+  readonly several: boolean;
+}) {
+  const colors = usePalette();
+  const { found } = search;
+  return (
+    <View>
+      <Text
+        accessibilityRole="header"
+        style={[styles.footer, { color: colors.secondary }]}>
+        {searchCopy.onlineHeading}
+      </Text>
+      {found?.failures.map(({ mailbox, reason }) => (
+        <Text
+          key={mailbox.id}
+          accessibilityLiveRegion="polite"
+          style={[styles.footer, { color: colors.secondary }]}>
+          {about(
+            several ? mailbox.address : undefined,
+            searchCopy.unavailable[reason],
+          )}
+        </Text>
+      ))}
+    </View>
+  );
+}
+
 // The shown mailbox's address, or what the list holds when it shows several or none.
 function subtitleOf(
   shown: readonly InboxMailbox[],
@@ -441,6 +535,44 @@ function subtitleOf(
     return 'All inboxes';
   }
   return gmail ? 'Gmail' : 'Preview mailbox';
+}
+
+// Section data lets the native list virtualize online pages together with saved rows.
+const searchSections = <T,>(
+  messages: readonly T[],
+  online: Readonly<{
+    searching: boolean;
+    found?: Readonly<{ results: readonly T[] }> | undefined;
+  }>,
+) => [
+  { key: 'saved', data: messages },
+  ...(online.found === undefined && !online.searching
+    ? []
+    : [{ key: 'gmail', data: online.found?.results ?? [] }]),
+];
+
+// Drafts come before received mail; a search lists matching messages alone.
+function inboxSections<M>({
+  drafts,
+  messages,
+  online,
+  searching,
+}: Readonly<{
+  drafts: readonly Draft[];
+  messages: readonly M[];
+  online: Readonly<{
+    searching: boolean;
+    found?: Readonly<{ results: readonly M[] }> | undefined;
+  }>;
+  searching: boolean;
+}>) {
+  const draftRows = searching
+    ? []
+    : drafts.map((draft): DraftItem | M => ({ draft }));
+  return [
+    ...(draftRows.length === 0 ? [] : [{ key: 'drafts', data: draftRows }]),
+    ...searchSections<DraftItem | M>(messages, online),
+  ];
 }
 
 export function Inbox({
@@ -464,7 +596,7 @@ export function Inbox({
     }
   };
   const draftState = useDrafts();
-  const drafts = onCompose === undefined ? [] : draftsOf(draftState);
+  const drafts = listedDrafts(draftState, onCompose !== undefined);
   const openDraft = useOpenDraft(composing, onCompose ?? composeNothing);
   const reload = useReloadMailboxes();
   const account = use(AccountContext);
@@ -502,7 +634,14 @@ export function Inbox({
     results,
     selected === undefined ? '' : `${selected.mailbox}\n${selected.id}`,
   );
+  const online = useGmailSearch(shown, searched, scope);
   const messages = results ?? listed;
+  const sections = inboxSections({
+    drafts,
+    messages,
+    online,
+    searching: results !== undefined,
+  });
   // Rows render again when the selection or a result's saved state changes.
   const rows = useMemo(
     () => ({ selected, saved, composing }),
@@ -515,32 +654,6 @@ export function Inbox({
       (state.kind === 'ready' && 'sync' in state && state.sync === 'syncing'),
   );
   const subtitle = subtitleOf(shown, { several, gmail });
-  const emptyInbox = () => {
-    if (!ready) {
-      return null;
-    }
-    return gmail && syncing ? (
-      <ActivityIndicator accessibilityLabel="Loading Inbox" />
-    ) : (
-      <Text style={[styles.notice, { color: colors.secondary }]}>
-        Your inbox is clear.
-      </Text>
-    );
-  };
-  // No match for a search, or an empty Inbox.
-  const emptyList = () =>
-    results === undefined ? (
-      emptyInbox()
-    ) : (
-      <Text style={[styles.notice, { color: colors.secondary }]}>
-        {searchCopy.empty(searched)}
-      </Text>
-    );
-  // Drafts above an empty Inbox still say the Inbox is clear.
-  const listFooter = () =>
-    results === undefined && drafts.length > 0 && messages.length === 0
-      ? emptyInbox()
-      : null;
   const organize =
     (mailbox: InboxMailbox) => (message: GmailMessage, action: GmailAction) => {
       if (
@@ -554,6 +667,16 @@ export function Inbox({
         void mailbox.inbox.organize(message, action);
       }
     };
+  const empty =
+    results === undefined && gmail && syncing ? (
+      <ActivityIndicator accessibilityLabel="Loading Inbox" />
+    ) : (
+      <Text style={[styles.notice, { color: colors.secondary }]}>
+        {results === undefined
+          ? 'Your inbox is clear.'
+          : searchCopy.empty(searched)}
+      </Text>
+    );
   return (
     <View style={styles.fill}>
       <View style={[styles.fill, { backgroundColor: colors.sidebar }]}>
@@ -630,14 +753,22 @@ export function Inbox({
             }}
           />
         ))}
-        <FlatList
+        <SectionList
           accessibilityLabel="Inbox messages"
           contentContainerStyle={styles.list}
-          // Search lists matching messages alone; otherwise Drafts come before received mail.
-          data={listItems(results === undefined, drafts, messages)}
+          sections={sections}
+          stickySectionHeadersEnabled={false}
+          renderSectionHeader={({ section }) =>
+            section.key === 'gmail' ? (
+              <OnlineHeading
+                search={online}
+                several={several}
+              />
+            ) : null
+          }
           extraData={rows}
           keyExtractor={(item) =>
-            item.kind === 'draft' ? `draft\n${item.draft.id}` : resultKey(item)
+            'draft' in item ? `draft\n${item.draft.id}` : resultKey(item)
           }
           ListHeaderComponent={
             onCompose === undefined ? null : (
@@ -648,10 +779,19 @@ export function Inbox({
               />
             )
           }
-          ListEmptyComponent={emptyList()}
-          ListFooterComponent={listFooter()}
-          renderItem={({ item }) =>
-            item.kind === 'draft' ? (
+          ListFooterComponent={
+            <OnlineResults
+              query={searched}
+              search={online}
+            />
+          }
+          renderSectionFooter={({ section }) =>
+            section.key === 'saved' && messages.length === 0 && ready
+              ? empty
+              : null
+          }
+          renderItem={({ item, section }) =>
+            'draft' in item ? (
               <DraftRow
                 draft={item.draft}
                 onOpen={openDraft}
@@ -662,6 +802,7 @@ export function Inbox({
                 mailbox={several ? item.mailbox.address : undefined}
                 message={item.message}
                 onOrganize={
+                  section.key === 'saved' &&
                   item.mailbox.state.kind === 'ready' &&
                   'organize' in item.mailbox.state &&
                   item.mailbox.state.organize
@@ -679,7 +820,7 @@ export function Inbox({
                   selected.id === item.message.id
                 }
                 status={
-                  results === undefined
+                  section.key === 'gmail' || results === undefined
                     ? undefined
                     : savedStatus(saved?.get(resultKey(item)))
                 }

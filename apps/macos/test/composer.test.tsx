@@ -566,7 +566,63 @@ describe('composing Drafts', () => {
     expect(storage.stored()?.document).toContain('maya@example.com');
   });
 
-  it('hides Drafts during search and saves the composer before selecting a result', async () => {
+  it('shows saved Drafts while the Inbox loads without claiming received mail is empty', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    await drafts.load();
+    await drafts.create({ id: alex, address: 'alex@example.invalid' });
+    const connections = syntheticConnections({
+      [alex]: createSyntheticGmail(),
+    });
+    let release = ignore;
+    // oxlint-disable-next-line promise/avoid-new -- Hold the native cache open until the loading assertions finish.
+    const loading = new Promise<undefined>((resolve) => {
+      release = () => {
+        resolve(undefined);
+      };
+    });
+    const mailboxes = createMailboxes(
+      {
+        ...connections,
+        openMailbox: async (...args) => {
+          await loading;
+          return connections.openMailbox(...args);
+        },
+      },
+      registration,
+    );
+    await render(
+      <InboxProvider
+        drafts={drafts}
+        mailboxes={mailboxes}>
+        <Inbox
+          onCompose={ignore}
+          onSelect={ignore}
+          selected={undefined}
+        />
+      </InboxProvider>,
+    );
+    const name = 'Draft. No subject. No recipients. From alex@example.invalid';
+    await expect(
+      screen.findByRole('button', { name }),
+    ).resolves.toBeOnTheScreen();
+    expect(screen.getByLabelText('Loading Inbox')).toBeOnTheScreen();
+    expect(screen.queryByText('Your inbox is clear.')).not.toBeOnTheScreen();
+    expect(
+      screen.queryByLabelText('Search senders and subjects'),
+    ).not.toBeOnTheScreen();
+    await act(async () => {
+      release();
+    });
+    await expect(
+      screen.findByText('Your inbox is clear.'),
+    ).resolves.toBeOnTheScreen();
+    expect(screen.getByRole('button', { name })).toBeOnTheScreen();
+  });
+
+  it('hides Drafts during local and online search and saves before selecting a Gmail result', async () => {
     expect.hasAssertions();
     const registration = account(connected(['alex@example.invalid']));
     const storage = createSyntheticDrafts(() => 'synthetic-product-account');
@@ -613,14 +669,29 @@ describe('composing Drafts', () => {
     expect(
       screen.queryByRole('button', { name: draftName }),
     ).not.toBeOnTheScreen();
+    await press('Search Gmail for “Synthetic message 0”');
+    await expect(
+      screen.findByRole('header', { name: 'From Gmail' }),
+    ).resolves.toBeOnTheScreen();
+    const onlineName = 'Unread. Maya Chen. Synthetic message 0';
+    await expect(
+      screen.findByRole('button', { name: onlineName }),
+    ).resolves.toHaveProp('accessibilityState', { selected: false });
+    expect(screen.getByRole('button', { name: resultName })).toBeOnTheScreen();
+    expect(
+      screen.queryByRole('header', { name: 'Drafts' }),
+    ).not.toBeOnTheScreen();
+    expect(
+      screen.getByRole('button', { name: 'New Message' }),
+    ).toBeOnTheScreen();
     await fireEvent.changeText(screen.getByLabelText('To'), 'not valid');
-    await press(resultName);
+    await press(onlineName);
     expect(
       screen.getByText(
         'Correct or remove the invalid address to close this Draft.',
       ),
     ).toBeOnTheScreen();
-    expect(screen.getByRole('button', { name: resultName })).toHaveProp(
+    expect(screen.getByRole('button', { name: onlineName })).toHaveProp(
       'accessibilityState',
       { selected: false },
     );
@@ -642,7 +713,7 @@ describe('composing Drafts', () => {
       expect(screen.getByText(/Not saved/u)).toBeOnTheScreen();
     });
     storage.failNextCommit('locked');
-    await press(resultName);
+    await press(onlineName);
     expect(screen.getByLabelText('Subject')).toHaveProp(
       'value',
       'Authored while searching',
@@ -652,17 +723,20 @@ describe('composing Drafts', () => {
         'This Draft could not be saved, so it stays open. Try again, or discard it.',
       ),
     ).toBeOnTheScreen();
-    expect(screen.getByRole('button', { name: resultName })).toHaveProp(
+    expect(screen.getByRole('button', { name: onlineName })).toHaveProp(
       'accessibilityState',
       { selected: false },
     );
-    await press(resultName);
+    await press(onlineName);
     expect(screen.queryByLabelText('Subject')).not.toBeOnTheScreen();
-    expect(screen.getByRole('button', { name: resultName })).toHaveProp(
+    expect(screen.getByRole('button', { name: onlineName })).toHaveProp(
       'accessibilityState',
       { selected: true },
     );
     await search('');
+    expect(
+      screen.queryByRole('header', { name: 'From Gmail' }),
+    ).not.toBeOnTheScreen();
     await expect(
       screen.findByRole('button', {
         name: /^Draft\. Authored while searching\./u,
