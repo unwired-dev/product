@@ -87,6 +87,13 @@ private func pickedFile(_ url: URL, name: String? = nil, type declared: UTType? 
       return folder.appendingPathComponent(safe)
     }
 
+    // A moved or copied file keeps its own protection class, so each staged plaintext copy is set
+    // to complete protection explicitly and stays unreadable while the device is locked.
+    nonisolated static func protect(_ file: URL) throws {
+      try FileManager.default.setAttributes(
+        [.protectionKey: FileProtectionType.complete], ofItemAtPath: file.path)
+    }
+
     // Images on the pasteboard, copied as files. Item providers load lazily, so only the first
     // `pickLimit` images are ever decoded or copied, however many the pasteboard holds.
     private static func pasted() async throws -> [[String: String]] {
@@ -169,6 +176,7 @@ private func pickedFile(_ url: URL, name: String? = nil, type declared: UTType? 
             let target = try DraftFilePicker.destination(name)
             do {
               try FileManager.default.copyItem(at: url, to: target)
+              try DraftFilePicker.protect(target)
             } catch {
               RegistrationStore.discardPickedDraftFile(target)
               throw error
@@ -209,6 +217,7 @@ private func pickedFile(_ url: URL, name: String? = nil, type declared: UTType? 
                 let target = try DraftFilePicker.destination(url.lastPathComponent)
                 do {
                   try FileManager.default.moveItem(at: url, to: target)
+                  try DraftFilePicker.protect(target)
                 } catch {
                   RegistrationStore.discardPickedDraftFile(target)
                   throw error
