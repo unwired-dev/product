@@ -122,24 +122,29 @@ or live App Store Connect evidence.
 The [Release workflow](../.github/workflows/release.yml) runs on every push to
 `main`, tracked in [#725](https://github.com/unwired-dev/product/issues/725).
 
+The plan job runs [`changesets/action`](https://github.com/changesets/action)
+with two repository scripts:
+
 ```text
 push to main
   pending changesets?
-    yes -> run `changeset version`, update `changeset-release/main`,
-           open or update the "Version packages: vX.Y.Z" pull request
-    no  -> merged version PR changed the host version?
-           yes -> create or recover its tag and GitHub Release,
-                  then upload both hosts to TestFlight from that tag
+    yes -> scripts/release-version.sh runs `changeset version`; the action
+           force-updates `changeset-release/main` and opens or updates the
+           "Version packages" pull request
+    no  -> scripts/release-tag.sh: merged version PR with an untagged version?
+           yes -> the action creates tag vX.Y.Z and its GitHub Release from
+                  the mobile changelog, then both hosts upload to TestFlight
            no  -> stop
 ```
 
 Merging the version pull request is the release decision. Both hosts carry the
-same version: they are a fixed Changesets group, and the workflow refuses to tag
-when they differ. Private packages are versioned but not published or tagged
-individually. App Store review submission stays manual in App Store Connect.
-If pending changesets advance only backend packages or have empty headers, the
-version PR also advances both hosts by a patch, so merging it still selects a
-new TestFlight version.
+same version: they are a fixed Changesets group, and both scripts refuse to
+continue when they differ. Private packages are versioned but not published or
+tagged individually. App Store review submission stays manual in App Store Connect.
+If pending changesets advance only backend packages, the version PR also
+advances both hosts by a patch, so merging it still selects a new TestFlight
+version. Changesets with empty headers alone do not open a version PR; they
+ride along with the next non-empty changeset.
 
 The workflow uses the `GH_TOKEN` secret of the `main-token` environment, a
 fine-grained personal access token with contents and pull-request write access
@@ -148,20 +153,23 @@ pull request. The environment's deployment branch policy admits only `main`, so
 a workflow pushed to another branch cannot read the token. Keep the token out of
 repository secrets, which every same-repository branch can read.
 
-Unchanged reruns preserve the generated branch commit and its CI results.
-Updates use a force-with-lease push, and stale runs never replace a version PR
-prepared from newer `main`. Release runs queue instead of replacing pending runs.
-The personal token is available only to the planning step; checkout and dependency
-installation use the read-only workflow token. That step runs
-`scripts/release-plan.sh` and `changeset version` from the pushed commit, so
-code merged to `main` is trusted with the token's contents and pull-request
-write access. Limiting the secret to one step does not isolate that code.
+The action commits through the GitHub API, so version commits are signed and
+attributed to the token owner. Version planning refuses a pushed commit that is
+no longer current `main`, before changing versions or updating the version PR;
+run the Release workflow for current `main` instead. Current runs rewrite the
+version branch from the pushed commit, including unchanged reruns. Release runs
+queue instead of replacing pending runs. The
+personal token is available only to the action step; checkout and dependency
+installation use the read-only workflow token. That step runs the release
+scripts and `changeset version` from the pushed commit, so code merged to
+`main` is trusted with the token's contents and pull-request write access.
+Limiting the secret to one step does not isolate that code.
 
-If an upload fails after the tag exists, rerun the failed job of that Release
-run, or dispatch the TestFlight workflow for the tag. Rerunning all jobs of the
-same version-PR merge verifies that the tag points to that merge, recovers a
-missing GitHub Release, and uploads both hosts again; an existing tag is not an
-upload-completion marker. Ordinary later pushes do not repeat the release.
+If an upload fails after the tag exists, rerun the failed TestFlight job of that
+Release run, or dispatch the TestFlight workflow for the tag. Rerunning the plan
+job finds the tag at the merge commit and stops without uploading; it refuses a
+tag that points to another commit. If the action created the tag but not its
+GitHub Release, create it with `gh release create vX.Y.Z --verify-tag`.
 
 ```sh
 gh workflow run testflight.yml -f platform=macos -f ref=vX.Y.Z
