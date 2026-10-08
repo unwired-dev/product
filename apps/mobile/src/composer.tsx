@@ -40,7 +40,10 @@ import {
   undo,
 } from '@private-email/mail-core/semantic-document';
 import { spacing } from '@private-email/mail-core/theme';
-import { hasTranslatableText } from '@private-email/mail-core/translation';
+import {
+  hasTranslatableText,
+  translationInputLimit,
+} from '@private-email/mail-core/translation';
 import {
   memo,
   use,
@@ -727,6 +730,8 @@ function Editor({
       id: number;
     }>
   >();
+  const captureNow = useRef<typeof translating>(undefined);
+  const captureGeneration = useRef(0);
   // The latest body selection, ahead of rendering, for text events that follow a caret move.
   const selectionNow = useRef(selection);
   // The wrapper calls onChange before onChangeText for the same native edit.
@@ -767,6 +772,10 @@ function Editor({
         next.id === previous.id
           ? next
           : { ...next, id: previous.id, conflict: true as const };
+      if (bound.body !== previous.body) {
+        captureNow.current = undefined;
+        setTranslating(undefined);
+      }
       authored.current = bound;
       if (!discarded.current) {
         void store.update(bound, previous, rebind);
@@ -852,16 +861,23 @@ function Editor({
   // Recipients, attachments and delivery state are left as they are.
   const applyTranslation = (translated: string) => {
     const latest = authored.current;
-    setTranslating(undefined);
-    if (translating === undefined || latest.body !== translating.body) {
+    if (
+      !lifetime.current.mounted ||
+      translating === undefined ||
+      captureNow.current !== translating ||
+      latest.body !== translating.body
+    ) {
       return;
     }
+    captureNow.current = undefined;
+    setTranslating(undefined);
     const result = replaceSelection(
       latest.body,
       translating.selection,
       translated,
     );
     change({ ...latest, body: result.document });
+    placeTyping(undefined);
     selectionNow.current = result.selection ?? selectionNow.current;
     setPlaced(result.selection);
   };
@@ -1200,18 +1216,29 @@ function Editor({
             </Pressable>
           ))}
           <Action
-            disabled={!hasTranslatableText(selectedText(draft.body, selection))}
+            disabled={
+              !hasTranslatableText(
+                selectedText(draft.body, selection, translationInputLimit + 1),
+              )
+            }
             label={t('translation.translate')}
             accessibilityLabel={t('translation.translateSelectionLabel')}
             onPress={() => {
               const at = selectionNow.current;
               const { body } = authored.current;
-              setTranslating({
+              const text = selectedText(body, at, translationInputLimit + 1);
+              if (!lifetime.current.mounted || !hasTranslatableText(text)) {
+                return;
+              }
+              captureGeneration.current += 1;
+              const capture = {
                 body,
                 selection: at,
-                text: selectedText(body, at),
-                id: (translating?.id ?? 0) + 1,
-              });
+                text,
+                id: captureGeneration.current,
+              };
+              captureNow.current = capture;
+              setTranslating(capture);
             }}
           />
         </View>
@@ -1221,7 +1248,10 @@ function Editor({
             text={translating.text}
             onApply={applyTranslation}
             onClose={() => {
-              setTranslating(undefined);
+              if (captureNow.current === translating) {
+                captureNow.current = undefined;
+                setTranslating(undefined);
+              }
             }}
           />
         )}

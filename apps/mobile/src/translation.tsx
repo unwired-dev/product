@@ -165,6 +165,7 @@ function TargetLanguages({
             },
           ]}>
           <Text style={[styles.secondary, { color: colors.foreground }]}>
+            {selected?.code === language.code ? '✓ ' : ''}
             {language.name}
           </Text>
         </Pressable>
@@ -204,7 +205,17 @@ function useTranslation(input: TranslationInput | undefined) {
       void store.start(next);
     }
   };
-  return { store, state, start };
+  const accept = (apply: (text: string) => void) => {
+    if (
+      committed.current === store &&
+      input !== undefined &&
+      state.kind === 'ready' &&
+      store.getSnapshot(input) === state
+    ) {
+      apply(state.text);
+    }
+  };
+  return { store, state, start, accept };
 }
 
 // The language named by its code, as the device lists it.
@@ -446,7 +457,10 @@ export function DraftTranslation({
     <Action
       label={t('translation.keepOriginal')}
       accessibilityLabel={t('translation.keepOriginalLabel')}
-      onPress={onClose}
+      onPress={() => {
+        translation.store.discard();
+        onClose();
+      }}
     />
   );
   if (text.length > translationInputLimit) {
@@ -480,7 +494,7 @@ export function DraftTranslation({
               label={t('translation.replace')}
               accessibilityLabel={t('translation.replaceLabel')}
               onPress={() => {
-                onApply(state.text);
+                translation.accept(onApply);
               }}
             />
           ) : null}

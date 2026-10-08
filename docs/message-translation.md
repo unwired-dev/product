@@ -1,6 +1,7 @@
 # On-device translation
 
 Setup, coding rules, validation and observable requirements remain in this file.
+The review agent owns the separate [architecture companion](architecture/message-translation.md).
 
 [#622](https://github.com/unwired-dev/product/issues/622) adds
 [Translation Assistance](domain/assistance.md) on iPhone, iPad and Mac: an
@@ -28,9 +29,9 @@ fallback and nothing is downloaded by the app.
   selected. It captures the selected text without list markers and opens a review
   panel. The Draft is unchanged until **Replace selection**, which replaces exactly
   the captured selection as one edit that one **Undo** reverts. **Keep original**
-  closes the panel. List items in the selection stay list items, and the inserted
-  text takes the formatting of the text before it. Recipients, the subject,
-  attachments and delivery state are never changed.
+  closes the panel. When the translation retains the selected line breaks, those
+  lines keep their list and block formatting. The inserted text takes the formatting of the text
+  before it. Recipients, the subject, attachments and delivery state are never changed.
 - A Draft selection longer than 6,000 characters is not cut, because applying the
   translation replaces the whole selection; the panel asks for a shorter selection.
 - While Translation works, the panel shows progress and **Cancel**. Cancelling
@@ -59,17 +60,15 @@ no setup step is needed. `cancel(request)` stops a summary or a translation.
 
 | Method                              | Result                                                                                                                                               |
 | ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `translationLanguages()`            | `LanguageAvailability().supportedLanguages` as `{ code, name }`, with `name` in the device language                                                  |
+| `translationLanguages()`            | Supported target languages as `{ code, name }`, with `name` in the device language                                                                   |
 | `translate(request, input, target)` | `{ source, text }`, or a rejection coded `not-installed`, `unsupported-pair`, `unidentified-language`, `same-language`, `cancelled` or `unavailable` |
 
-`translate` identifies the source language with `NLLanguageRecognizer`, checks the
-pair with `LanguageAvailability.status(from:to:)` and translates only an installed
-pair through `TranslationSession(installedSource:target:)`, which cannot download
-languages. Cancelling the task cancels the session. `@private-email/mail-core/translation`
-decodes every native result with Schema (BCP 47-shaped codes, names up to 100
-characters, at most 500 languages, translations up to 24,000 characters) and fails
-closed on anything else. Failure logs carry only the allow-listed native code or
-decode path, never mail or translated text.
+The native host identifies the source language and accepts only installed pairs;
+it never requests a language download. Cancellation stops its translation session.
+The shared store must validate every returned language and translation: BCP 47-shaped
+codes, names up to 100 characters, at most 500 languages and translations up to
+24,000 characters. Invalid results leave the source unchanged. Failure logs carry
+only an allow-listed native code or decode path, never mail or translated text.
 
 ## Deterministic evidence
 

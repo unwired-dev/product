@@ -99,6 +99,12 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Product behavior the stores own
 
+- `semantic-document.ts.replaceSelection` assigning all translated lines the first
+  selected block's kind. Preserve corresponding mixed list/heading/quote kinds
+  when line breaks remain, and preserve a partially selected final block's kind
+  with its unselected suffix. Check mixed blocks, not just homogeneous bullets;
+  otherwise accepted translation changes surrounding semantic formatting.
+
 - `createFreshness.wake` allowing registration verification to auto-load newly
   revealed connections before its route is rechecked. Trace `Registration.refreshInbox`
   publications and `createMailboxes` subscriptions, not just the selected load callback.

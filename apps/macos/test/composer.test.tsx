@@ -82,6 +82,21 @@ function deferred() {
   return { promise, resolve: settle, reject: fail };
 }
 
+// Capture queued native input at the same composite-fiber boundary used by fireEvent.
+const queuedPress = (label: string, event = 'onPress') => {
+  let fiber = screen.getByLabelText(label).unstable_fiber;
+  while (fiber !== null) {
+    const handler = fiber.memoizedProps?.[event];
+    if (typeof handler === 'function') {
+      return (text?: string) => {
+        handler(text);
+      };
+    }
+    fiber = fiber.return;
+  }
+  throw new Error('Expected a rendered input handler');
+};
+
 const ignore = () => undefined;
 
 // A save that throws once, as when storage fails unexpectedly, then saves normally.
@@ -1869,7 +1884,10 @@ describe('composing Drafts', () => {
     const cancelled: string[] = [];
     const translation: NativeTranslation = {
       translationLanguages: () =>
-        Promise.resolve([{ code: 'en', name: 'English' }]),
+        Promise.resolve([
+          { code: 'en', name: 'English' },
+          { code: 'de', name: 'German' },
+        ]),
       translate: (request, input) => {
         const answer = deferred();
         asked.push({ request, input, answer });
@@ -1948,12 +1966,58 @@ describe('composing Drafts', () => {
     await translateSelection();
     asked[1]?.answer.resolve({ source: 'es', text: 'Hello.' });
     await screen.findByText('Hello.');
-    await press('Keep the original text and close the translation');
+    // Capture the actual handler as native input queued before React removes the control.
+    const dismissedReplace = queuedPress(
+      'Replace the selected text with this translation',
+    );
+    const keepOriginal = queuedPress(
+      'Keep the original text and close the translation',
+    );
+    await act(() => {
+      keepOriginal();
+      dismissedReplace();
+    });
     expect(screen.queryByText('Hello.')).toBeNull();
     expect(screen.getByLabelText('Message body')).toHaveTextContent(
       'Hola. Nos vemos el viernes.',
       { exact: true },
     );
+
+    // Changing the target invalidates the ready result before React removes its Replace button.
+    await translateSelection();
+    asked[2]?.answer.resolve({ source: 'es', text: 'Hello.' });
+    await screen.findByText('Hello.');
+    const supersededReplace = queuedPress(
+      'Replace the selected text with this translation',
+    );
+    const chooseGerman = queuedPress('Translate into German');
+    await act(() => {
+      chooseGerman();
+      supersededReplace();
+    });
+    expect(screen.getByLabelText('Message body')).toHaveTextContent(
+      'Hola. Nos vemos el viernes.',
+      { exact: true },
+    );
+    asked[3]?.answer.resolve({ source: 'es', text: 'Hallo.' });
+    await screen.findByText('Hallo.');
+    const editedReplace = queuedPress(
+      'Replace the selected text with this translation',
+    );
+    const undoEdit = queuedPress('Undo');
+    const editBody = queuedPress('Message body', 'onChangeText');
+    await act(() => {
+      editBody('Hola! Nos vemos el viernes.');
+      undoEdit();
+      editedReplace();
+    });
+    expect(screen.getByLabelText('Message body')).toHaveTextContent(
+      'Hola. Nos vemos el viernes.',
+      { exact: true },
+    );
+    expect(
+      screen.queryByLabelText('Translation of the selected text'),
+    ).toBeNull();
 
     // Editing the Draft while a translation is pending makes it stale: it is cancelled and its
     // late result is never offered.
@@ -1966,8 +2030,8 @@ describe('composing Drafts', () => {
     expect(
       screen.queryByLabelText('Translation of the selected text'),
     ).toBeNull();
-    expect(cancelled).toStrictEqual([asked[2]?.request]);
-    asked[2]?.answer.resolve({ source: 'es', text: 'Hello!' });
+    expect(cancelled).toStrictEqual([asked[4]?.request]);
+    asked[4]?.answer.resolve({ source: 'es', text: 'Hello!' });
     await expect(
       screen.findByLabelText('Translate the selected text'),
     ).resolves.toBeOnTheScreen();

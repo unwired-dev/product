@@ -492,20 +492,58 @@ const bounds = (document: SemanticDocument, selection: Selection) => {
   };
 };
 
-// The text a selection covers, its lines joined by line breaks, without list markers.
-export function selectedText(document: SemanticDocument, selection: Selection) {
+// Read a selected span range directly, without expanding editor character objects.
+const selectedLineText = (
+  block: Block | undefined,
+  [first, last]: readonly [number, number],
+  limit: number,
+) => {
+  let text = '';
+  let offset = 0;
+  for (const span of block?.spans ?? []) {
+    const spanEnd = offset + span.text.length;
+    if (spanEnd > first && offset < last) {
+      const start = Math.max(0, first - offset);
+      const end = Math.min(
+        span.text.length,
+        last - offset,
+        start + limit - text.length,
+      );
+      text += span.text.slice(start, end);
+    }
+    offset = spanEnd;
+    if (offset >= last || text.length >= limit) {
+      break;
+    }
+  }
+  return text;
+};
+
+// Selected authored text without list markers. A bound lets assistance refuse oversized
+// selections without flattening a whole paragraph or allocating editor character objects.
+export function selectedText(
+  document: SemanticDocument,
+  selection: Selection,
+  limit = Infinity,
+) {
+  if (selection.start === selection.end || limit <= 0) {
+    return '';
+  }
   const { lines, from, to } = bounds(document, selection);
   const ranges = covered(lines, selection);
-  return lines
-    .slice(from.line, to.line + 1)
-    .map((line, index) => {
-      const [first, last] = ranges[from.line + index] ?? [0, 0];
-      return line.chars
-        .slice(first, last)
-        .map(({ ch }) => ch)
-        .join('');
-    })
-    .join('\n');
+  let text = '';
+  for (
+    let index = from.line;
+    index <= to.line && text.length < limit;
+    index += 1
+  ) {
+    if (index > from.line) {
+      text += '\n';
+    }
+    const range = ranges[index] ?? [0, 0];
+    text += selectedLineText(document[index], range, limit - text.length);
+  }
+  return text;
 }
 
 // Replaces the text a selection covers with `text` as one edit. List markers inside the
@@ -525,9 +563,28 @@ export function replaceSelection(
     },
     undefined,
   );
-  const caret = offsetOf(result.lines, result.line, result.column);
+  const last = lines[to.line];
+  const tailRemains = last !== undefined && to.column - to.marker < last.length;
+  const originals = lines.slice(from.line, to.line + 1);
+  const lastKind = last?.kind ?? 'paragraph';
+  const translated = result.lines
+    .slice(from.line, result.line + 1)
+    .map((line, index) => {
+      // Retain corresponding selected block kinds, and the block of an unselected suffix.
+      let kind = originals[index]?.kind ?? continuation(lastKind);
+      if (index === result.line - from.line && index > 0 && tailRemains) {
+        kind = lastKind;
+      }
+      return kind === line.kind ? line : lineOf(kind, line.chars);
+    });
+  const keptKinds = [
+    ...result.lines.slice(0, from.line),
+    ...translated,
+    ...result.lines.slice(result.line + 1),
+  ];
+  const caret = offsetOf(keptKinds, result.line, result.column);
   return {
-    document: documentOf(result.lines),
+    document: documentOf(keptKinds),
     selection: { start: caret, end: caret },
   };
 }

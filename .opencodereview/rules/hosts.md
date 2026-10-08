@@ -13,6 +13,14 @@ A host owns views and native adapters. It renders shared stores from `@private-e
 
 #### React correctness
 
+- `translation.tsx.DraftTranslation` accepting captured ready text without checking
+  the live store's exact result and committed owner, or `composer.tsx` invalidating
+  the captured selection only after rendering. Recheck acceptance after a target
+  change, Keep Original, body editing followed by Undo before commit, and unmount.
+  Clear capture ownership synchronously on editing and dismissal; returning to
+  the same body identity cannot restore a discarded preview. Otherwise queued
+  native Replace input applies a superseded language or dismissed translation.
+
 - `message-summary.tsx.MessageSummary` retiring its store only in a passive
   effect. A pending availability check can settle after the replacement reader
   commits but before that cleanup, starting inference on the previous message.

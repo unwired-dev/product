@@ -260,6 +260,18 @@ describe('applying a translation to selected Draft text', () => {
     const selection = { start: 7, end: text.length };
     expect(selectedText(draft, selection)).toBe('first item\nsecond item');
     expect(selectedText(draft, { start: 2, end: 2 })).toBe('');
+    const long: SemanticDocument = [
+      { kind: 'paragraph', spans: [{ text: 'a'.repeat(2_000_000) }] },
+    ];
+    expect(
+      selectedText(
+        long,
+        { start: 0, end: 2_000_000 },
+        translationInputLimit + 1,
+      ),
+    ).toHaveLength(translationInputLimit + 1);
+    expect(selectedText(long, { start: 1_000_000, end: 1_000_000 })).toBe('');
+    expect(selectedText(draft, { start: 2, end: 15 }, 8)).toBe('llo \nfir');
   });
 
   it('replaces exactly the selection as one undoable edit and keeps the list', () => {
@@ -278,6 +290,29 @@ describe('applying a translation to selected Draft text', () => {
       start: displayOf(edit.document).text.length,
       end: displayOf(edit.document).text.length,
     });
+    const mixed: SemanticDocument = [
+      { kind: 'bulleted', spans: [{ text: 'First old' }] },
+      { kind: 'numbered', spans: [{ text: 'Second tail', marks: ['bold'] }] },
+      { kind: 'quote', spans: [{ text: 'Unselected quote' }] },
+    ];
+    const replaced = replaceSelection(
+      mixed,
+      { start: 2, end: 22 },
+      'Erstes\nZweites',
+    );
+    expect(replaced.document.map(({ kind }) => kind)).toStrictEqual([
+      'bulleted',
+      'numbered',
+      'quote',
+    ]);
+    expect(displayOf(replaced.document).text).toBe(
+      '• Erstes\n1. Zweitestail\nUnselected quote',
+    );
+    expect(replaced.document[1]?.spans.at(-1)).toStrictEqual({
+      text: 'Zweitestail',
+      marks: ['bold'],
+    });
+    expect(replaced.document[2]).toBe(mixed[2]);
     // Text inserted after formatted text takes its marks.
     const word = replaceSelection(draft, { start: 0, end: 5 }, 'Hola');
     expect(word.document[0]).toStrictEqual({
