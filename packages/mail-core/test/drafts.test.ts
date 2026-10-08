@@ -1510,7 +1510,7 @@ describe('storing Drafts', () => {
     expect(
       draftsOf(reopened.getSnapshot())
         .map(({ subject }) => subject)
-        .sort(),
+        .toSorted(),
     ).toStrictEqual(['', 'Typed meanwhile']);
   });
 
