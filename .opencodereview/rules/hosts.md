@@ -237,6 +237,26 @@ A host owns views and native adapters. It renders shared stores from `@private-e
 
 #### Platform behavior
 
+- Freshness or lifecycle changes in `src/freshness.ts`, host startup, or
+  `InboxProvider` checked only against background execution. Verify each affected
+  host against `docs/product/privacy-and-sync.md` and ADR 0013 within the issue's
+  scope: launch/activation catch-up and the five-minute active-app fallback must
+  both have an application owner. Mobile polling must follow the initial active
+  state, stop outside active state and resume without duplicate timers; Mac work
+  must outlive the last window and stop on Quit. An OS background registration or
+  a screen activation callback alone leaves an open Inbox stale indefinitely.
+  Exercise the timer with real registration/mailbox stores and a controlled
+  native/provider boundary, keeping physical lifecycle qualification separate.
+
+- A framework/OS-owned async executor, such as the `defineTask` callback in
+  `src/freshness.ts` or a notification handler, that lets a thrown failure or
+  rejected store action reach the framework's raw-error logger. Inspect the
+  installed executor's failure path; catch at the host callback, emit only a
+  fixed or allow-listed diagnostic, and fulfill its declared failure-result or
+  completion contract. Otherwise a native/provider error can expose account or
+  mail data even when application log calls are sanitized. Verify a private
+  rejection resolves as failure without logging its fields.
+
 - `composer.tsx.DraftRowView` showing its From address only as an empty-body
   fallback, or only in its accessibility label. Every Draft row must visibly
   identify its sending address alongside any body preview, including with
