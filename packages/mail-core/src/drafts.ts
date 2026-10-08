@@ -447,7 +447,14 @@ export function createDrafts(
   let state: DraftsState = { kind: 'closed' };
   let started = false;
   // Only unsaved versions can move during CAS recovery or an in-flight deletion.
-  const pendingMoves = new Map<string, (id: string) => void>();
+  // Every editor bound to an unsaved version follows it, and each editor is bound to one version.
+  const pendingMoves = new Map<string, Set<(id: string) => void>>();
+  const bindPending = (id: string, moved: (id: string) => void) => {
+    for (const bindings of pendingMoves.values()) {
+      bindings.delete(moved);
+    }
+    pendingMoves.set(id, new Set([...(pendingMoves.get(id) ?? []), moved]));
+  };
   // Missing identities can keep late edits only within the account that opened them.
   const known = new Set<string>();
   const listeners = new Set<() => void>();
@@ -465,11 +472,20 @@ export function createDrafts(
     }
   };
   const rebindPending = (from: string, to: string) => {
-    const binding = pendingMoves.get(from);
-    if (binding !== undefined) {
-      pendingMoves.delete(from);
-      pendingMoves.set(to, binding);
-      binding(to);
+    const bindings = pendingMoves.get(from);
+    if (bindings === undefined) {
+      return;
+    }
+    pendingMoves.delete(from);
+    pendingMoves.set(
+      to,
+      new Set([...(pendingMoves.get(to) ?? []), ...bindings]),
+    );
+    for (const moved of bindings) {
+      // An earlier notification may move another editor or invalidate the account.
+      if (pendingMoves.get(to)?.has(moved)) {
+        moved(to);
+      }
     }
   };
   const live = (current: number) => current === generation;
@@ -844,7 +860,7 @@ export function createDrafts(
           const conflict = conflictsWith(current, draft, previous);
           const id = conflict ? copyId(draft.id, drafts) : draft.id;
           if (moved !== undefined) {
-            pendingMoves.set(id, moved);
+            bindPending(id, moved);
           }
           if (conflict) {
             copy = id;

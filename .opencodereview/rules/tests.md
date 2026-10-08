@@ -17,6 +17,11 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   history through Undo/Redo, continued text callbacks before a render, and Discard
   of the bound version. Include storage rebases when they can rename a copy;
   otherwise the test passes while the editor still targets another writer's Draft.
+  Include two editors writing identical content before saving, verify every
+  callback follows the retained version, and discard through that editor's target
+  while preserving the concurrent writer's content. Also exercise a callback
+  switching to another pending version, including during notification, so a
+  single-editor or content-only assertion cannot hide stale fanout bindings.
 
 - A host keyboard regression in `apps/{mobile,macos}/test/` that fires `keyDown` or `keyPress`
   directly without checking the installed native emitter, JavaScript wrapper and

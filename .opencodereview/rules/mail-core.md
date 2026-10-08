@@ -121,6 +121,17 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   it after durable completion or account invalidation. Two storage writers can
   choose the same free local copy ID; preserve both versions and follow any second
   rename, or Discard deletes the other writer's copy despite preserving its content.
+- `createDrafts.pendingMoves` retaining only one editor callback for an unsaved
+  Draft ID, or leaving one callback bound to several IDs after a synchronous fork.
+  Identical-content edits can share the same pending version; retain and rekey
+  every bound editor through storage recovery, remove a stable callback from its
+  prior version when it changes targets, and merge bindings when copies collide.
+  Recheck membership before each notification: an earlier callback can rebind a
+  later editor or invalidate the account during fanout. Keep failed-save bindings
+  through Retry and clear them after durable completion or account invalidation.
+  Otherwise an editor can remain on, or return to, another writer's Draft and
+  subsequently edit or discard that writer's content. Check host callback identity
+  and unmount behavior before claiming one callback represents one live editor.
 - `createDrafts.discard` publishing removal before the native commit succeeds.
   A failed deletion must leave the Draft visible and retryable rather than
   unmounting its editor and reporting completion while it can return after relaunch.

@@ -610,6 +610,100 @@ describe('storing Drafts', () => {
     );
   });
 
+  it('moves every editor bound to an unsaved version when storage recovery copies it', async () => {
+    expect.hasAssertions();
+    const session = account(connected('account-a'));
+    const storage = createSyntheticDrafts(session.productAccount);
+    const first = createDrafts(storage.native, session.registration);
+    await first.load();
+    const id = present(await first.create(alex), 'Draft');
+    const second = createDrafts(storage.native, session.registration);
+    await second.load();
+    const before = present(draftOf(second.getSnapshot(), id), 'shared Draft');
+    await first.update({ ...before, subject: 'Other store' }, before);
+    // Two editors of the second store write the same version before its save completes.
+    const moves: string[] = [];
+    storage.hold();
+    const firstEditor = second.update(
+      { ...before, subject: 'Same' },
+      before,
+      (copy) => {
+        moves.push(`first ${copy}`);
+      },
+    );
+    const secondEditor = second.update(
+      { ...before, subject: 'Same' },
+      before,
+      (copy) => {
+        moves.push(`second ${copy}`);
+      },
+    );
+    storage.release();
+    await Promise.all([firstEditor, secondEditor]);
+    const copy = present(
+      ready(second.getSnapshot()).drafts.find(
+        ({ subject }) => subject === 'Same',
+      ),
+      'bound copy',
+    );
+    expect(moves).toStrictEqual([`first ${copy.id}`, `second ${copy.id}`]);
+    await second.discard(() =>
+      present(moves[0]?.split(' ')[1], 'editor target'),
+    );
+    const reopened = createDrafts(storage.native, session.registration);
+    await reopened.load();
+    expect(ready(reopened.getSnapshot()).drafts).toMatchObject([
+      { id, subject: 'Other store' },
+    ]);
+  });
+
+  it('does not notify an editor for a version it left during another editor notification', async () => {
+    expect.hasAssertions();
+    const session = account(connected('account-a'));
+    const storage = createSyntheticDrafts(session.productAccount);
+    const first = createDrafts(storage.native, session.registration);
+    await first.load();
+    const id = present(await first.create(alex), 'Draft');
+    const otherId = present(await first.create(other), 'other Draft');
+    const second = createDrafts(storage.native, session.registration);
+    await second.load();
+    const before = present(draftOf(second.getSnapshot(), id), 'shared Draft');
+    const otherBefore = present(
+      draftOf(second.getSnapshot(), otherId),
+      'other Draft',
+    );
+    await first.update({ ...before, subject: 'Other store' }, before);
+    const moves: string[] = [];
+    const moved = (copy: string) => {
+      moves.push(copy);
+    };
+    let following: Promise<boolean> | undefined = undefined;
+    storage.hold();
+    const firstEditor = second.update(
+      { ...before, subject: 'Same' },
+      before,
+      () => {
+        following = second.update(
+          { ...otherBefore, subject: 'New editor target' },
+          otherBefore,
+          moved,
+        );
+      },
+    );
+    const secondEditor = second.update(
+      { ...before, subject: 'Same' },
+      before,
+      moved,
+    );
+    storage.release();
+    await Promise.all([firstEditor, secondEditor]);
+    await present(following, 'reentrant edit');
+    expect(moves).toStrictEqual([]);
+    expect(draftOf(second.getSnapshot(), otherId)?.subject).toBe(
+      'New editor target',
+    );
+  });
+
   it('discards the rebound copy when an edit arrives during a stale deletion', async () => {
     expect.hasAssertions();
     const session = account(connected('account-a'));
