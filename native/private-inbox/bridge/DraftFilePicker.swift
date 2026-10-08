@@ -137,10 +137,13 @@ private func pickedFile(_ url: URL, name: String? = nil, type declared: UTType? 
         _ = provider.loadFileRepresentation(for: type, openInPlace: false) { url, _, error in
           do {
             guard let url else { throw error ?? RegistrationError.unavailable }
+            // A generic image type has no MIME type; retain the source file's type before renaming.
+            let declared =
+              type.preferredMIMEType == nil ? UTType(filenameExtension: url.pathExtension) : type
             // A name without an extension takes the provided image type's usual one.
             let fileExtension =
               url.pathExtension.isEmpty ? type.preferredFilenameExtension ?? "" : url.pathExtension
-            let base = provider.suggestedName ?? url.deletingPathExtension().lastPathComponent
+            let base = provider.suggestedName ?? url.lastPathComponent
             let name =
               fileExtension.isEmpty || !URL(fileURLWithPath: base).pathExtension.isEmpty
               ? base : "\(base).\(fileExtension)"
@@ -151,7 +154,7 @@ private func pickedFile(_ url: URL, name: String? = nil, type declared: UTType? 
               RegistrationStore.discardPickedDraftFile(target)
               throw error
             }
-            continuation.resume(returning: pickedFile(target, name: name, type: type))
+            continuation.resume(returning: pickedFile(target, name: name, type: declared))
           } catch {
             continuation.resume(throwing: error)
           }

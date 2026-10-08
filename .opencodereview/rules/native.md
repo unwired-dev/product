@@ -59,6 +59,17 @@ Native storage owns what TypeScript must never hold: Keychain items, the storage
   paste/drop consumers too; otherwise large selections create unbounded plaintext
   staging and composer work outside the encrypted store's byte-admission limit.
 
+- `pickedFile` in `DraftFilePicker.swift` or `PhotoDelegate.copy` inferring an imported
+  image's MIME type only from its display name or renamed staging path, despite
+  the source's declared type or original URL extension. Prefer a concrete
+  declared MIME type; generic types such as `public.image` have none, so preserve
+  the original URL's extension fallback independently of naming. Preserve an
+  unnamed source's complete filename, including dots in its stem, and avoid
+  duplicating extensions already present in suggested names. Check extensionless
+  concrete image providers and generic providers with dotted names; otherwise
+  `prepareFiles` can silently turn Insert Image or Paste Image into an attachment
+  or retain incorrect asset metadata.
+
 - `GmailTransport.send` consuming an allowed large response through one async
   iterator step per byte while the shared `RegistrationOperationGate` is held.
   Receive bounded chunks, reject declared and streamed overflow before retaining
