@@ -2060,7 +2060,7 @@ describe('adding files and images to a Draft', () => {
           files: [
             {
               name: 'Pasted image.png',
-              type: 'image/png',
+              // A pasteboard item may carry no type; its data URL still does.
               uri: `data:image/png;base64,${btoa('chart')}`,
             },
           ],

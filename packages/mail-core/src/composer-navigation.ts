@@ -19,7 +19,8 @@ export interface ComposerNavigation {
   readonly attachReceived: (
     drafts: Pick<Drafts, 'create' | 'abandon' | 'attach'>,
     attachment: Readonly<{
-      mailbox: string | undefined;
+      // The reader's Mailbox Connection, which the Downloaded Attachment is read through.
+      mailbox: string;
       mailboxes: readonly MailboxConnection[];
       saved: Readonly<NonNullable<ReturnType<GmailInbox['attachmentFile']>>>;
     }>,
@@ -65,6 +66,10 @@ export function createComposerNavigation(): ComposerNavigation {
       return id;
     }
     if (prepare !== undefined && !(await prepare(id))) {
+      // An empty Draft nobody opened is removed; one that gained content is kept.
+      if (selectedDraft !== id) {
+        await drafts.abandon(id);
+      }
       return undefined;
     }
     if (navigations === turn) {
@@ -91,7 +96,7 @@ export function createComposerNavigation(): ComposerNavigation {
     attachReceived: async (drafts, { mailbox, mailboxes, saved }) => {
       const senders = sendingMailboxes(mailboxes);
       const sender = senders.find(({ id }) => id === mailbox) ?? senders[0];
-      if (sender === undefined || mailbox === undefined) {
+      if (sender === undefined) {
         return undefined;
       }
       return create(drafts, sender, (id) =>

@@ -92,38 +92,68 @@ struct DraftTests {
     await #expect(throws: PrivateInboxError.mailboxInvalidated) { _ = try await store.openDrafts() }
   }
 
-  // Draft assets are sealed to their Product Account and identifier, verified by digest when read,
-  // kept while a stored Draft names them or their import is uncommitted, and purged with the account.
-  @Test @MainActor func draftAssetsStayWithTheirDraftsUntilNoDraftKeepsThem() async throws {
+  // A signed-in account with an authorized mailbox and its Draft storage.
+  @MainActor private struct AssetSession {
+    let google = SyntheticGoogleRegistrationProvider()
     let service = "dev.unwired.registration.tests.\(UUID().uuidString)"
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-    let keys = DeviceKeychain(service: service)
-    defer {
-      try? keys.remove("registration")
+    let cache: PrivateInboxStore
+    let store: RegistrationStore
+    let bytes = Data("Private plan bytes".utf8)
+
+    init() {
+      google.scopes = [RegistrationStore.gmailScope]
+      cache = PrivateInboxStore(
+        directory: directory, service: service,
+        attachments: directory.appendingPathComponent("tmp"), protectedDataAvailable: { true })
+      store = google.store(
+        keys: DeviceKeychain(service: service), mailCache: cache, deviceRevoked: { _ in false })
+    }
+
+    func owner() async throws -> String {
+      _ = try await store.signIn()
+      _ = try await store.authorizeGmail()
+      return try #require(try await store.openDrafts()["owner"] as? String)
+    }
+
+    // A file as a system picker leaves it: in its own folder under the picker root.
+    func picked(_ name: String) throws -> URL {
+      let folder = RegistrationStore.pickedDraftFiles.appendingPathComponent(UUID().uuidString)
+      try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+      let file = folder.appendingPathComponent(name)
+      try bytes.write(to: file)
+      return file
+    }
+
+    func exists(_ path: String) -> Bool {
+      FileManager.default.fileExists(atPath: directory.appendingPathComponent(path).path)
+    }
+
+    func remove() {
+      try? DeviceKeychain(service: service).remove("registration")
       try? DeviceKeychain(service: service + ".database").remove("encryption-key")
       try? FileManager.default.removeItem(at: directory)
     }
-    let google = SyntheticGoogleRegistrationProvider()
-    google.scopes = [RegistrationStore.gmailScope]
-    let cache = PrivateInboxStore(
-      directory: directory, service: service, attachments: directory.appendingPathComponent("tmp"),
-      protectedDataAvailable: { true })
-    let store = google.store(keys: keys, mailCache: cache, deviceRevoked: { _ in false })
-    _ = try await store.signIn()
-    _ = try await store.authorizeGmail()
-    let owner = try #require(try await store.openDrafts()["owner"] as? String)
-    let bytes = Data("Private plan bytes".utf8)
-    let picked = directory.appendingPathComponent("plan.pdf")
-    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-    try bytes.write(to: picked)
+  }
 
-    // A picked file's bytes are sealed, and only their size and digest come back.
+  // Draft assets are sealed to their Product Account and identifier, verified by digest when read,
+  // kept while a stored Draft names them or their import is uncommitted, and purged with the account.
+  @Test @MainActor func draftAssetsStayWithTheirDraftsUntilNoDraftKeepsThem() async throws {
+    let session = AssetSession()
+    defer { session.remove() }
+    let (store, cache, bytes) = (session.store, session.cache, session.bytes)
+    let owner = try await session.owner()
+
+    // A picked file's bytes are sealed, only their size and digest come back, and the picker's
+    // copy is removed once they are stored.
+    let picked = try session.picked("plan.pdf")
     let imported = try await store.importDraftAsset(
       owner: owner, id: "plan00001", source: ["kind": "file", "uri": picked.absoluteString])
     let digest = try #require(imported["digest"] as? String)
     #expect(imported["size"] as? Int == bytes.count)
     #expect(digest.count == 64)
-    let sealed = directory.appendingPathComponent("draft-assets/plan00001")
+    #expect(!FileManager.default.fileExists(atPath: picked.path))
+    let sealed = session.directory.appendingPathComponent("draft-assets/plan00001")
     #expect(try Data(contentsOf: sealed).range(of: bytes) == nil)
     let read = try await store.readDraftAsset(
       owner: owner, id: "plan00001", digest: digest, type: "application/pdf")
@@ -133,9 +163,10 @@ struct DraftTests {
       owner: owner, id: "plan00001", digest: digest, type: "application/pdf", preview: false)
     #expect(verified.isEmpty)
     // Another account, another digest or ciphertext moved to another identifier never reads.
+    let other = try session.picked("plan.pdf")
     await #expect(throws: PrivateInboxError.mailboxInvalidated) {
       _ = try await store.importDraftAsset(
-        owner: "another-account", id: "plan00002", source: ["kind": "file", "uri": picked.path])
+        owner: "another-account", id: "plan00002", source: ["kind": "file", "uri": other.path])
     }
     #expect(throws: PrivateInboxError.invalidStore) {
       _ = try cache.readDraftAsset(owner: "another-account", id: "plan00001", digest: digest)
@@ -145,7 +176,7 @@ struct DraftTests {
         owner: owner, id: "plan00001", digest: String(repeating: "0", count: 64))
     }
     try FileManager.default.copyItem(
-      at: sealed, to: directory.appendingPathComponent("draft-assets/moved0001"))
+      at: sealed, to: session.directory.appendingPathComponent("draft-assets/moved0001"))
     #expect(throws: PrivateInboxError.invalidStore) {
       _ = try cache.readDraftAsset(owner: owner, id: "moved0001", digest: digest)
     }
@@ -159,40 +190,55 @@ struct DraftTests {
     // A save that does not name an uncommitted import keeps it; once a save keeps it, a later save
     // that drops it removes its bytes, after the document is stored. Unknown files go at once.
     _ = try await store.commitDrafts(owner: owner, expectedRevision: 0, document: "{}", keep: [])
-    #expect(FileManager.default.fileExists(atPath: sealed.path))
-    #expect(
-      !FileManager.default.fileExists(
-        atPath: directory.appendingPathComponent("draft-assets/moved0001").path))
+    #expect(session.exists("draft-assets/plan00001"))
+    #expect(!session.exists("draft-assets/moved0001"))
     _ = try await store.commitDrafts(
       owner: owner, expectedRevision: 1, document: "{}", keep: ["plan00001"])
-    #expect(FileManager.default.fileExists(atPath: sealed.path))
+    #expect(session.exists("draft-assets/plan00001"))
     _ = try await store.commitDrafts(owner: owner, expectedRevision: 2, document: "{}", keep: [])
-    #expect(!FileManager.default.fileExists(atPath: sealed.path))
+    #expect(!session.exists("draft-assets/plan00001"))
 
-    // Pasted data and a Downloaded Attachment import the same way; the Draft keeps only bytes.
+    // Discarding removes bytes at once, and the account purge removes the rest.
     let pasted = try await store.importDraftAsset(
       owner: owner, id: "pasted001",
       source: ["kind": "data", "uri": "data:image/png;base64,\(bytes.base64EncodedString())"])
     #expect(pasted["digest"] as? String == digest)
+    try await store.discardDraftAsset(id: "pasted001")
+    #expect(!session.exists("draft-assets/pasted001"))
+    _ = try await store.importDraftAsset(
+      owner: owner, id: "pasted002",
+      source: ["kind": "data", "uri": "data:image/png;base64,\(bytes.base64EncodedString())"])
+    _ = try await store.purge(notice: "signed-out")
+    #expect(!session.exists("draft-assets"))
+  }
+
+  // Bytes come only from a picker's copy, pasted data or a current Downloaded Attachment; any other
+  // path JavaScript names is refused, and only the picker's own folders are ever removed.
+  @Test @MainActor func draftAssetsImportOnlyFromGrantedSources() async throws {
+    let session = AssetSession()
+    defer { session.remove() }
+    let (store, bytes) = (session.store, session.bytes)
+    let owner = try await session.owner()
+
     await #expect(throws: PrivateInboxError.unavailable) {
       _ = try await store.importDraftAsset(
         owner: owner, id: "pasted002", source: ["kind": "data", "uri": "data:image/png,plain"])
     }
-    let connection = MailboxConnection.id(subject: google.subject)
-    let generation = store.generation(google.subject)
+    let connection = MailboxConnection.id(subject: session.google.subject)
+    let generation = store.generation(session.google.subject)
     let encoded = bytes.base64EncodedString().replacingOccurrences(of: "=", with: "")
       .replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_")
     let downloaded = try #require(
       try await store.saveAttachment(
-        connection: connection, address: google.address, generation: generation,
+        connection: connection, address: session.google.address, generation: generation,
         name: "plan.pdf", data: encoded, size: bytes.count)["file"] as? String)
     let mailbox: [String: Any] = [
-      "connection": connection, "address": google.address, "generation": generation,
+      "connection": connection, "address": session.google.address, "generation": generation,
     ]
     let received = try await store.importDraftAsset(
       owner: owner, id: "received1",
       source: ["kind": "received", "mailbox": mailbox, "file": downloaded])
-    #expect(received["digest"] as? String == digest)
+    #expect(received["size"] as? Int == bytes.count)
     var stale = mailbox
     stale["generation"] = UUID().uuidString
     await #expect(throws: PrivateInboxError.mailboxInvalidated) {
@@ -200,55 +246,43 @@ struct DraftTests {
         owner: owner, id: "received2",
         source: ["kind": "received", "mailbox": stale, "file": downloaded])
     }
+    // The same Downloaded Attachment named as a plain file skips no generation check: refused.
+    let plaintext = try await store.attachmentFile(
+      connection: connection, address: session.google.address, generation: generation,
+      file: downloaded)
+    await #expect(throws: RegistrationError.unavailable) {
+      _ = try await store.importDraftAsset(
+        owner: owner, id: "plaintext", source: ["kind": "file", "uri": plaintext.absoluteString])
+    }
 
-    // A file over the per-file limit is refused before it is read.
-    let large = directory.appendingPathComponent("large.bin")
-    FileManager.default.createFile(atPath: large.path, contents: nil)
+    // A picker's copy over the per-file limit is refused before it is read, and removed.
+    let large = try session.picked("large.bin")
     let handle = try FileHandle(forWritingTo: large)
     try handle.truncate(atOffset: UInt64(PrivateInboxStore.draftAssetLimit + 1))
     try handle.close()
     await #expect(throws: PrivateInboxError.tooLarge) {
       _ = try await store.importDraftAsset(
-        owner: owner, id: "large0001", source: ["kind": "file", "uri": large.path])
+        owner: owner, id: "large0001", source: ["kind": "file", "uri": large.absoluteString])
     }
+    #expect(!FileManager.default.fileExists(atPath: large.deletingLastPathComponent().path))
 
-    // A refused picker copy is removed, while a similarly named user folder stays untouched.
-    let pickerFolder = RegistrationStore.pickedDraftFiles.appendingPathComponent(UUID().uuidString)
-    try FileManager.default.createDirectory(at: pickerFolder, withIntermediateDirectories: true)
-    defer { try? FileManager.default.removeItem(at: pickerFolder) }
-    let refusedPick = pickerFolder.appendingPathComponent("large.bin")
-    try FileManager.default.copyItem(at: large, to: refusedPick)
-    await #expect(throws: PrivateInboxError.tooLarge) {
-      _ = try await store.importDraftAsset(
-        owner: owner, id: "large0002", source: ["kind": "file", "uri": refusedPick.absoluteString])
-    }
-    #expect(!FileManager.default.fileExists(atPath: pickerFolder.path))
+    // A similarly named folder beside the picker root is not the picker's: it is neither read
+    // nor removed.
     let unrelated = RegistrationStore.pickedDraftFiles.deletingLastPathComponent()
       .appendingPathComponent("draft-picks-other-\(UUID().uuidString)")
     try FileManager.default.createDirectory(at: unrelated, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: unrelated) }
     let original = unrelated.appendingPathComponent("plan.pdf")
     try bytes.write(to: original)
-    _ = try await store.importDraftAsset(
-      owner: owner, id: "original1", source: ["kind": "file", "uri": original.absoluteString])
-    #expect(try Data(contentsOf: original) == bytes)
-    // Abandoned picker results use the same exact ownership boundary.
-    try FileManager.default.createDirectory(at: pickerFolder, withIntermediateDirectories: true)
-    let abandoned = pickerFolder.appendingPathComponent("plan.pdf")
-    try bytes.write(to: abandoned)
-    RegistrationStore.discardPickedDraftFile(abandoned)
-    #expect(!FileManager.default.fileExists(atPath: pickerFolder.path))
+    await #expect(throws: RegistrationError.unavailable) {
+      _ = try await store.importDraftAsset(
+        owner: owner, id: "original1", source: ["kind": "file", "uri": original.absoluteString])
+    }
     RegistrationStore.discardPickedDraftFile(original)
     #expect(try Data(contentsOf: original) == bytes)
-
-    // Discarding removes bytes at once, and the account purge removes the rest.
-    try await store.discardDraftAsset(id: "pasted001")
-    #expect(
-      !FileManager.default.fileExists(
-        atPath: directory.appendingPathComponent("draft-assets/pasted001").path))
-    _ = try await store.purge(notice: "signed-out")
-    #expect(
-      !FileManager.default.fileExists(atPath: directory.appendingPathComponent("draft-assets").path)
-    )
+    // Abandoned picker results use the same exact ownership boundary.
+    let abandoned = try session.picked("plan.pdf")
+    RegistrationStore.discardPickedDraftFile(abandoned)
+    #expect(!FileManager.default.fileExists(atPath: abandoned.deletingLastPathComponent().path))
   }
 }

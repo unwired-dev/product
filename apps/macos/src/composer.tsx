@@ -727,6 +727,14 @@ const assetStatus = (
   );
 };
 
+// A `data:` URL's media type, which a pasteboard item without its own type still carries.
+const typeOf = (uri: string) => {
+  const [, type = ''] =
+    /^data:(?<type>[\w.+-]+\/[\w.+-]+)[;,]/u.exec(uri) ?? [];
+  const lower = type.toLowerCase();
+  return lower === 'image/jpg' ? 'image/jpeg' : lower;
+};
+
 // Files and images that the pasteboard or a drag carries: a dropped or pasted file arrives as a
 // path, a pasted image as `data:` bytes.
 const transferred = (
@@ -745,7 +753,8 @@ const transferred = (
 ): readonly PickedFile[] =>
   (transfer?.files ?? []).slice(0, pickLimit).map(({ name, type, uri }) => ({
     name: name ?? pasted,
-    type: type ?? '',
+    type:
+      type === undefined || type === null || type === '' ? typeOf(uri) : type,
     source: { kind: uri.startsWith('data:') ? 'data' : 'file', uri },
   }));
 

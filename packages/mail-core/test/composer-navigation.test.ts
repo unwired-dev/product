@@ -34,4 +34,27 @@ describe('leaving an open composer', () => {
     await expect(navigation.leave()).resolves.toBe(true);
   });
   /* oxlint-enable vitest/max-expects */
+
+  it('removes the empty Draft it started when preparing it fails, and keeps one that gained content', async () => {
+    expect.hasAssertions();
+    const navigation = createComposerNavigation();
+    const abandoned: string[] = [];
+    const drafts = {
+      create: async () => 'new-draft',
+      abandon: async (id: string) => {
+        abandoned.push(id);
+        return true;
+      },
+    };
+    const mailbox = { id: 'connection-alex', address: 'alex@example.invalid' };
+    await expect(
+      navigation.create(drafts, mailbox, async () => false),
+    ).resolves.toBeUndefined();
+    // Abandoning removes only an empty Draft, so content added before the failure is kept.
+    expect(abandoned).toStrictEqual(['new-draft']);
+    await expect(
+      navigation.create(drafts, mailbox, async () => true),
+    ).resolves.toBe('new-draft');
+    expect(abandoned).toStrictEqual(['new-draft']);
+  });
 });

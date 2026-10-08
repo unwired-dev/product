@@ -295,8 +295,10 @@ public final class PrivateInboxStore: @unchecked Sendable {
       let key = try writingKey(replacing: stored != nil)
       try write(plaintext, file: "drafts.enc", key: key, authenticating: draftsAssociatedData)
       Self.importedAssets.remove(kept)
+      // The document is stored, so removal is best effort: a file that stays is listed again and
+      // removed by a later save, rather than turning this stored save into a refusal.
       for asset in assets where !retained.contains(where: { $0.id == asset.id }) {
-        try removeAttachmentItem(asset.url)
+        try? removeAttachmentItem(asset.url)
       }
       return next.revision
     }

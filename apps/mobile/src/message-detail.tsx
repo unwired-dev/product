@@ -113,10 +113,13 @@ function AttachToNewMessage({
     if (!mounted.current || attaching.current) {
       return;
     }
+    if (mailbox === undefined) {
+      return;
+    }
     attaching.current = true;
     try {
       const draft = await navigation.attachReceived(store, {
-        mailbox: mailbox?.id,
+        mailbox: mailbox.id,
         mailboxes: account?.mailboxes ?? [],
         saved,
       });
@@ -126,6 +129,8 @@ function AttachToNewMessage({
     } catch {
       // Keep the reader usable if an unexpected host operation rejects.
     }
+    // Not in `finally`: React Compiler cannot compile a finally clause, and the catch above
+    // handles every rejection.
     attaching.current = false;
   };
   return (

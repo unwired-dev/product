@@ -55,12 +55,31 @@ extension RegistrationStore {
   }
 
   // Only the picker owns immediate UUID subfolders of its root; a similar path is not ours.
-  nonisolated public static func discardPickedDraftFile(_ file: URL) {
+  nonisolated static func isPickedDraftFile(_ file: URL) -> Bool {
     let folder = file.standardizedFileURL.deletingLastPathComponent()
-    guard folder.deletingLastPathComponent() == pickedDraftFiles.standardizedFileURL,
-      UUID(uuidString: folder.lastPathComponent) != nil
-    else { return }
-    try? FileManager.default.removeItem(at: folder)
+    return file.isFileURL
+      && folder.deletingLastPathComponent() == pickedDraftFiles.standardizedFileURL
+      && UUID(uuidString: folder.lastPathComponent) != nil
+  }
+
+  nonisolated public static func discardPickedDraftFile(_ file: URL) {
+    guard isPickedDraftFile(file) else { return }
+    try? FileManager.default.removeItem(at: file.standardizedFileURL.deletingLastPathComponent())
+  }
+
+  // JavaScript names a file only as a picker's copy or, on Mac, a file outside this app's own
+  // container that the person chose or dropped. Any other path, such as a Downloaded Attachment's
+  // plaintext, is refused, so it cannot skip that attachment's mailbox generation check.
+  nonisolated static func allowsDraftFile(_ file: URL) -> Bool {
+    if isPickedDraftFile(file) { return true }
+    #if os(macOS)
+      let resolved = { (url: URL) in url.standardizedFileURL.resolvingSymlinksInPath().path }
+      let container = resolved(URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true))
+      let path = resolved(file)
+      return file.isFileURL && path != container && !path.hasPrefix(container + "/")
+    #else
+      return false
+    #endif
   }
 
   // Copies an asset's bytes into Draft storage for `owner`: a picked or dropped file, pasted
@@ -75,7 +94,9 @@ extension RegistrationStore {
     switch kind {
     case "file":
       guard let uri = source["uri"] as? String else { throw RegistrationError.unavailable }
-      file = uri.hasPrefix("file:") ? URL(string: uri) : URL(fileURLWithPath: uri)
+      let chosen = uri.hasPrefix("file:") ? URL(string: uri) : URL(fileURLWithPath: uri)
+      guard let chosen, Self.allowsDraftFile(chosen) else { throw RegistrationError.unavailable }
+      file = chosen
     case "data":
       data = source["uri"] as? String
     case "received":
