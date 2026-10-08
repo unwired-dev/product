@@ -7,6 +7,7 @@ import {
   createDrafts,
   recipientSummary,
   draftOf,
+  draftsOf,
   sendingStateOf,
 } from '../src/drafts.ts';
 import { mailboxesOf } from '../src/registration.ts';
@@ -816,6 +817,58 @@ describe('storing Drafts', () => {
       expect(
         ready(editor.getSnapshot()).drafts.map(({ id: each }) => each),
       ).toStrictEqual([id]);
+    }
+  });
+
+  it('keeps the later edit time when two stores save the same content', async () => {
+    expect.hasAssertions();
+    const earlier = 1_800_000_000_000;
+    const committing = Promise.withResolvers<undefined>();
+    const held = Promise.withResolvers<undefined>();
+    vi.useFakeTimers({ now: earlier, toFake: ['Date'] });
+    try {
+      const session = account(connected('account-a'));
+      const storage = createSyntheticDrafts(session.productAccount);
+      const first = createDrafts(storage.native, session.registration);
+      await first.load();
+      const id = present(await first.create(alex), 'Draft');
+      const otherId = present(await first.create(other), 'other Draft');
+      const second = createDrafts(
+        {
+          ...storage.native,
+          commitDrafts: async (...args) => {
+            committing.resolve(undefined);
+            await held.promise;
+            return storage.native.commitDrafts(...args);
+          },
+        },
+        session.registration,
+      );
+      await second.load();
+      const before = present(draftOf(second.getSnapshot(), id), 'shared Draft');
+      // Hold only the earlier writer until both later edits are durable.
+      const stale = second.update({ ...before, subject: 'Same' }, before);
+      await committing.promise;
+      vi.setSystemTime(earlier + 30_000);
+      const between = present(
+        draftOf(first.getSnapshot(), otherId),
+        'other Draft',
+      );
+      await first.update({ ...between, subject: 'Between' }, between);
+      const later = earlier + 60_000;
+      vi.setSystemTime(later);
+      await first.update({ ...before, subject: 'Same' }, before);
+      held.resolve(undefined);
+      await stale;
+      const reopened = createDrafts(storage.native, session.registration);
+      await reopened.load();
+      expect(draftOf(reopened.getSnapshot(), id)?.updatedAt).toBe(later);
+      expect(
+        draftsOf(reopened.getSnapshot()).map(({ id: each }) => each),
+      ).toStrictEqual([id, otherId]);
+    } finally {
+      held.resolve(undefined);
+      vi.useRealTimers();
     }
   });
 

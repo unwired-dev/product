@@ -134,6 +134,14 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   Index each snapshot once while keeping the same identifier/content semantics;
   otherwise a large admitted Draft document makes conflict recovery quadratic
   and blocks the shared JavaScript runtime during saving.
+- `rebaseDrafts` converging identical authored content by retaining a stale
+  writer's earlier `updatedAt`. `sameContent` deliberately ignores edit time;
+  preserve the later timestamp when collapsing equivalent versions, while
+  retaining the selected content and identity. Check reversed edit/save order
+  through two stores and reopening, with another Draft edited between them;
+  otherwise CAS recovery moves the Draft backward in `draftsOf`'s newest-first
+  list despite preserving its content. Conflict copies keep their own version's
+  edit time rather than borrowing a different version's timestamp.
 - `createDrafts.update` deciding a fork against a different snapshot from the one
   it mutates, or `rebaseDrafts`/`deleted` moving the pending authored version without
   notifying its editor. Keep the newer stored version's ID and move the stale

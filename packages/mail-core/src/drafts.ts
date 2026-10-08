@@ -278,6 +278,12 @@ const conflictCopy = Effect.fnUntraced(function* (
   return { ...draft, id: `${draft.id}-conflict-${suffix}`, conflict: true };
 });
 
+// The same content saved by both writers keeps the later edit time, so the list order holds.
+const withLaterTime = (ours: Draft, theirs: Draft | undefined): Draft => ({
+  ...ours,
+  updatedAt: Math.max(ours.updatedAt, theirs?.updatedAt ?? 0),
+});
+
 const rebaseDrafts = Effect.fnUntraced(function* (
   base: readonly Draft[],
   local: readonly Draft[],
@@ -302,7 +308,7 @@ const rebaseDrafts = Effect.fnUntraced(function* (
     }
     if (!sameContent(before, ours) && ours !== undefined) {
       if (oursOnly) {
-        merged.push(ours);
+        merged.push(withLaterTime(ours, theirs));
       } else {
         const copy = yield* conflictCopy(ours);
         merged.push(copy);
