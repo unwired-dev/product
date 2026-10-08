@@ -345,18 +345,21 @@ describe('editing a Semantic Message Document', () => {
     ]);
   });
 
-  it('keeps long-paragraph undo history compact instead of retaining expanded character arrays', () => {
-    expect.hasAssertions();
-    // An isolated Node heap and explicit GC make this a retained-memory check, not a timing test.
-    const source = new URL('../src/semantic-document.ts', import.meta.url).href;
-    const retained = Number(
-      execFileSync(
-        process.execPath,
-        [
-          '--expose-gc',
-          '--input-type=module',
-          '--eval',
-          `
+  it(
+    'keeps long-paragraph undo history compact instead of retaining expanded character arrays',
+    () => {
+      expect.hasAssertions();
+      // An isolated Node heap and explicit GC make this a retained-memory check, not a timing test.
+      const source = new URL('../src/semantic-document.ts', import.meta.url)
+        .href;
+      const retained = Number(
+        execFileSync(
+          process.execPath,
+          [
+            '--expose-gc',
+            '--input-type=module',
+            '--eval',
+            `
         import { applyText, historyOf, record } from ${JSON.stringify(source)};
         let history = historyOf([{ kind: 'paragraph', spans: [{ text: 'x'.repeat(100_000) }] }]);
         globalThis.gc();
@@ -371,13 +374,16 @@ describe('editing a Semantic Message Document', () => {
           process.exitCode = 1;
         }
       `,
-        ],
-        { encoding: 'utf8', timeout: 20_000 },
-      ),
-    );
-    // The strings need roughly 10 MiB; expanded arrays retained by the old cache need over 120 MiB.
-    expect(retained).toBeLessThan(64 * 1024 * 1024);
-  });
+          ],
+          { encoding: 'utf8', timeout: 20_000 },
+        ),
+      );
+      // The strings need roughly 10 MiB; expanded arrays retained by the old cache need over 120 MiB.
+      expect(retained).toBeLessThan(64 * 1024 * 1024);
+    },
+    // The child process may take up to its own 20 s limit on a busy CI runner.
+    30_000,
+  );
 
   it('edits the selected occurrence of repeated characters without moving their marks', () => {
     expect.hasAssertions();
