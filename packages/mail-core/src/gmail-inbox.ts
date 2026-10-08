@@ -118,6 +118,8 @@ type BodyTier = 'opened' | 'prefetched' | 'excluded';
 // rewrites the whole document, so complete Historical Metadata Backfill needs an indexed store.
 const cacheLimit = 200;
 const pageSize = 50;
+// Online search results per page and mailbox.
+const searchPageSize = 20;
 
 const GmailId = Schema.String.check(Schema.isPattern(/^[0-9A-Za-z]+$/u));
 const HistoryId = Schema.String.check(Schema.isPattern(/^\d+$/u));
@@ -366,6 +368,8 @@ export type GmailInboxState =
       // Absent when no Gmail mailbox is connected on this device.
       readonly address?: string;
       readonly messages: readonly GmailMessage[];
+      // Online search results the reader can open, kept in memory only until the Inbox closes.
+      readonly found?: readonly GmailMessage[];
       readonly sync: Sync;
       // The mailbox's own labels, empty until Gmail lists them.
       readonly labels: readonly GmailLabel[];
@@ -403,6 +407,22 @@ const decodeStoredBodies = Schema.decodeUnknownEffect(
     excluded: Schema.Array(Schema.String),
   }),
 );
+
+// One page of a mailbox's online search, or why Gmail could not answer.
+export type GmailSearchPage =
+  | Readonly<{
+      kind: 'found';
+      messages: readonly GmailMessage[];
+      next?: string;
+    }>
+  | Readonly<{
+      kind: 'unavailable';
+      reason: 'offline' | 'authentication' | 'failed';
+    }>;
+
+const searchUnavailable = (
+  reason: Extract<GmailSearchPage, { kind: 'unavailable' }>['reason'],
+): GmailSearchPage => ({ kind: 'unavailable', reason });
 
 const bodyFailure = (kind: SyncFailure['kind']): MessageBodyState => {
   let reason: Extract<MessageBodyState, { kind: 'unavailable' }>['reason'] =
@@ -868,7 +888,8 @@ export function createGmailInbox(
         );
       });
 
-  const metadata = (scope: MailboxScope, id: string) =>
+  // Search results keep a message `anywhere` in Gmail; the Inbox keeps only its own.
+  const metadata = (scope: MailboxScope, id: string, anywhere = false) =>
     gmail(scope)(
       `messages/${id}`,
       [
@@ -884,9 +905,10 @@ export function createGmailInbox(
           message.payload?.headers?.find(
             (candidate) => candidate.name.toLowerCase() === name,
           )?.value;
-        const received = inInbox(labels)
-          ? DateTime.make(Number(message.internalDate))
-          : Option.none();
+        const received =
+          anywhere || inInbox(labels)
+            ? DateTime.make(Number(message.internalDate))
+            : Option.none();
         return received.pipe(
           Option.map((date): GmailMessage => ({
             id: message.id,
@@ -1108,6 +1130,10 @@ export function createGmailInbox(
   // A body read that met a rejected grant keeps asking for Gmail until it is authorized.
   const shownSyncState = (): Sync =>
     authenticationRejected && sync !== 'retry' ? 'authentication' : sync;
+  // Online search results, by Gmail ID, held for the reader until the open Inbox closes. They are
+  // never committed to the cache, and their bodies are read from Gmail without being saved.
+  // ponytail: grows only with the result pages the person asks for; evict when that matters.
+  const found = new Map<string, GmailMessage>();
   const render = (): Extract<GmailInboxState, { kind: 'ready' }> => {
     const document = shown?.document;
     const durable = document?.pending ?? [];
@@ -1119,6 +1145,7 @@ export function createGmailInbox(
     return {
       kind: 'ready',
       messages,
+      ...(found.size === 0 ? {} : { found: [...found.values()] }),
       sync: shownSyncState(),
       labels: document?.labels ?? [],
       pending: durable.length,
@@ -1164,7 +1191,7 @@ export function createGmailInbox(
     const rendered = render();
     const listed = new Set(rendered.messages.map(({ id }) => id));
     for (const id of bodies.keys()) {
-      if (!listed.has(id)) {
+      if (!listed.has(id) && !found.has(id)) {
         releaseBody(id);
       }
     }
@@ -1390,6 +1417,9 @@ export function createGmailInbox(
   const listed = (id: string) =>
     state.kind === 'ready' &&
     state.messages.some((message) => message.id === id);
+  // The reader also opens online search results, which the cache never keeps.
+  const readable = (id: string) =>
+    state.kind === 'ready' && (listed(id) || found.has(id));
 
   // One Gmail body read; listing-page token errors cannot occur for these resources.
   const gmailRead =
@@ -1637,13 +1667,22 @@ export function createGmailInbox(
       ),
     );
 
+  // Saves an Inbox message's body; an online search result is shown without being kept.
+  const keepBody = (
+    document: BodyDocument,
+    admission: Parameters<typeof store>[1],
+  ) =>
+    listed(document.id)
+      ? store(document, admission)
+      : Effect.succeed({ admitted: false });
+
   // The cached body when this device has one, otherwise Gmail's, which is then cached when it fits.
   // Images a rejected grant left unresolved are read again after Gmail is authorized.
   const imagesAwaitingGmail = new Set<string>();
   // Publishes the Inbox's authentication state for the reader that met a rejected grant.
   const askForGmail = (reading: number, id: string) =>
     Effect.sync(() => {
-      if (owner === reading && listed(id)) {
+      if (owner === reading && readable(id)) {
         authenticationRejected = true;
         imagesAwaitingGmail.add(id);
         publish(render());
@@ -1655,7 +1694,7 @@ export function createGmailInbox(
     id: string,
     reading: number,
   ) {
-    if (reading !== owner || !listed(id)) {
+    if (reading !== owner || !readable(id)) {
       return yield* new SyncFailure({
         kind: 'invalidated',
         cause: 'closed reader',
@@ -1688,7 +1727,7 @@ export function createGmailInbox(
         yield* askForGmail(reading, id);
       }
       if (completed.changed) {
-        yield* store(completed.document, { scope, tier, reading }).pipe(
+        yield* keepBody(completed.document, { scope, tier, reading }).pipe(
           Effect.ignore,
         );
       }
@@ -1698,7 +1737,7 @@ export function createGmailInbox(
     if (authentication) {
       yield* askForGmail(reading, id);
     }
-    yield* store(document, { scope, tier, reading }).pipe(
+    yield* keepBody(document, { scope, tier, reading }).pipe(
       // A body that could not be kept is still shown, unless its mailbox changed meanwhile.
       Effect.catchIf(
         (failure) => failure.kind !== 'invalidated',
@@ -1720,10 +1759,10 @@ export function createGmailInbox(
     }
     const current = bodies.get(id);
     const scope = opened;
-    // Only messages in the open Inbox are read, so no body outlives its listing.
+    // Only messages the open Inbox lists or found online are read, so no body outlives them.
     if (
       scope === undefined ||
-      !listed(id) ||
+      !readable(id) ||
       current?.kind === 'loading' ||
       (current?.kind === 'ready') !== refresh
     ) {
@@ -1747,7 +1786,7 @@ export function createGmailInbox(
         () => shared.end,
       ).pipe(
         Effect.map((document): MessageBodyState => {
-          if (owner !== reading || !listed(id) || endedReaders.has(id)) {
+          if (owner !== reading || !readable(id) || endedReaders.has(id)) {
             return loadingBody;
           }
           return { kind: 'ready', presentation: prepareReaders(id, document) };
@@ -1763,7 +1802,7 @@ export function createGmailInbox(
           SyncFailure: ({ kind, diagnostic }) => {
             if (kind === 'authentication') {
               return Effect.sync(() => {
-                if (owner === reading && listed(id)) {
+                if (owner === reading && readable(id)) {
                   authenticationRejected = true;
                   publish(render());
                 }
@@ -1778,7 +1817,7 @@ export function createGmailInbox(
         }),
         Effect.flatMap((next) =>
           Effect.sync(() => {
-            if (owner === reading && listed(id)) {
+            if (owner === reading && readable(id)) {
               if (endedReaders.has(id)) {
                 endedReaders.delete(id);
                 releaseBody(id);
@@ -2031,6 +2070,7 @@ export function createGmailInbox(
     authenticationRejected = false;
     imagesAwaitingGmail.clear();
     opened = undefined;
+    found.clear();
     bodies.clear();
     readers.clear();
     legacyReaders.clear();
@@ -2607,6 +2647,89 @@ export function createGmailInbox(
     ),
   );
 
+  // One page of Gmail's own search of this mailbox, newest first as Gmail orders it. Results are
+  // held for the reader; a reply for an Inbox that closed or changed owner meanwhile is dropped.
+  const searchPage = Effect.fnUntraced(function* (
+    scope: MailboxScope,
+    reading: number,
+    { query, pageToken }: Readonly<{ query: string; pageToken?: string }>,
+  ) {
+    const page = yield* gmail(scope)(
+      'messages',
+      [
+        ['q', query],
+        ['maxResults', String(searchPageSize)],
+        ...(pageToken === undefined ? [] : [['pageToken', pageToken] as const]),
+      ],
+      decodeList,
+    );
+    const messages = (yield* Effect.forEach(
+      (page.messages ?? []).map(({ id }) => id),
+      (id) => metadata(scope, id, true),
+      { concurrency: 4 },
+    )).flatMap(([, message]) => (message === undefined ? [] : [message]));
+    if (owner !== reading || state.kind !== 'ready') {
+      return undefined;
+    }
+    for (const message of messages) {
+      found.set(message.id, message);
+    }
+    publish(render());
+    const result: GmailSearchPage = {
+      kind: 'found',
+      messages,
+      ...(page.nextPageToken === undefined ? {} : { next: page.nextPageToken }),
+    };
+    return result;
+  });
+  const searchFailed = (
+    { kind, diagnostic }: Readonly<Pick<SyncFailure, 'kind' | 'diagnostic'>>,
+    reading: number,
+  ): Effect.Effect<GmailSearchPage | undefined> => {
+    // Native work started for a mailbox that changed; nothing is shown.
+    if (kind === 'invalidated' || owner !== reading || state.kind !== 'ready') {
+      return Effect.void.pipe(Effect.as(undefined));
+    }
+    if (kind === 'locked' || kind === 'revoked') {
+      return recover({ kind, diagnostic }).pipe(Effect.as(undefined));
+    }
+    if (kind === 'retry') {
+      return Effect.succeed(searchUnavailable('offline'));
+    }
+    if (kind !== 'authentication') {
+      return Effect.logError('Gmail search failed:', diagnostic).pipe(
+        Effect.as(searchUnavailable('failed')),
+      );
+    }
+    // A refused grant asks for Gmail again, as a reader does.
+    return Effect.sync(() => {
+      if (owner === reading && opened !== undefined) {
+        authenticationRejected = true;
+        publish(render());
+      }
+      return searchUnavailable('authentication');
+    });
+  };
+  const searchGmail = (query: string, pageToken: string | undefined) =>
+    Effect.suspend(() => {
+      const scope = opened;
+      const reading = owner;
+      if (scope === undefined || state.kind !== 'ready') {
+        return Effect.succeed(searchUnavailable('failed'));
+      }
+      return searchPage(scope, reading, {
+        query,
+        ...(pageToken === undefined ? {} : { pageToken }),
+      }).pipe(
+        Effect.catchTags({
+          SyncFailure: (failure) => searchFailed(failure, reading),
+          GmailNotFound: () => Effect.succeed(searchUnavailable('failed')),
+          // Gmail no longer accepts the page token; the search can start again.
+          GmailInvalidPage: () => Effect.succeed(searchUnavailable('failed')),
+        }),
+      );
+    });
+
   return {
     getSnapshot: () => state,
     subscribe: (listener: () => void) => {
@@ -2719,6 +2842,9 @@ export function createGmailInbox(
     readMessage,
     // The listed messages whose bodies open from this device without Gmail; undefined when unknown.
     savedBodies: (ids: readonly string[]) => runLogged(savedBodies(ids)),
+    // Searches this mailbox in Gmail; undefined when the Inbox closed or changed meanwhile.
+    searchGmail: (query: string, pageToken?: string) =>
+      runLogged(searchGmail(query, pageToken)),
     // A failed rich view discards its document immediately and returns its image reservation.
     discardRichMessage: (
       id: string,

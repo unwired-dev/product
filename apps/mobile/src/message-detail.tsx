@@ -108,6 +108,17 @@ export function MessageDetail({
   );
 }
 
+// A listed message, or an online search result, which opens here though the Inbox does not list it.
+const shownMessage = (state: ReturnType<typeof useInbox>, id: string) => {
+  if (state.kind !== 'ready') {
+    return undefined;
+  }
+  return (
+    state.messages.find((item) => item.id === id) ??
+    ('found' in state ? state.found?.find((item) => item.id === id) : undefined)
+  );
+};
+
 function MailboxMessage({
   id,
   onClose,
@@ -119,10 +130,7 @@ function MailboxMessage({
   const actions = useInboxActions();
   const address = useMailbox()?.address;
   const colors = usePalette();
-  const message =
-    state.kind === 'ready'
-      ? state.messages.find((item) => item.id === id)
-      : undefined;
+  const message = shownMessage(state, id);
   const applied = new Set(
     message !== undefined && 'labels' in message ? message.labels : [],
   );

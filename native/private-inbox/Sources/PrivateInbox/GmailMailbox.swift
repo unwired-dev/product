@@ -78,6 +78,9 @@ extension RegistrationStore {
         string: "https://gmail.googleapis.com/gmail/v1/users/me/" + path)
     else { throw RegistrationError.unavailable }
     components.queryItems = query.isEmpty ? nil : query
+    // Foundation leaves `+` as is, which Google reads as a space, as in a search for `a+b@`.
+    components.percentEncodedQuery = components.percentEncodedQuery?
+      .replacingOccurrences(of: "+", with: "%2B")
     guard let url = components.url else { throw RegistrationError.unavailable }
     return url
   }
