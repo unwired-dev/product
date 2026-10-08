@@ -8,6 +8,7 @@ import {
   View,
 } from 'react-native';
 
+import { useLocalization, useMessageDateFormat } from './localization.ts';
 import {
   MailboxScope,
   useInbox,
@@ -52,35 +53,26 @@ const styles = StyleSheet.create({
   emptyDescription: { fontSize: 16, textAlign: 'center' },
 });
 
-const dateFormat = new Intl.DateTimeFormat('en', {
-  dateStyle: 'long',
-  timeStyle: 'short',
-  timeZone: 'UTC',
-});
-
 // Nothing selected, or a message that is not in any open mailbox.
 function EmptyDetail({ id }: { readonly id: string | undefined }) {
   const colors = usePalette();
+  const { t } = useLocalization();
   return (
     <View style={[styles.fill, { backgroundColor: colors.background }]}>
       <View
         accessible
         accessibilityRole="text"
         accessibilityLabel={
-          id
-            ? 'Message unavailable. Choose another message from the Inbox.'
-            : 'Select a message to start reading.'
+          id ? t('message.unavailableLabel') : t('message.select')
         }
         style={styles.empty}>
         <Text
           accessibilityRole="header"
           style={[styles.emptyTitle, { color: colors.foreground }]}>
-          {id ? 'Message unavailable' : 'A little space for your mail'}
+          {id ? t('message.unavailable') : t('message.empty')}
         </Text>
         <Text style={[styles.emptyDescription, { color: colors.secondary }]}>
-          {id
-            ? 'Choose another message from the Inbox.'
-            : 'Select a message to start reading.'}
+          {id ? t('message.chooseAnother') : t('message.select')}
         </Text>
       </View>
     </View>
@@ -135,6 +127,8 @@ function MailboxMessage({
   const actions = useInboxActions();
   const address = useMailbox()?.address;
   const colors = usePalette();
+  const { t } = useLocalization();
+  const dateFormat = useMessageDateFormat(true);
   const message = shownMessage(state, id);
   const applied = new Set(
     message !== undefined && 'labels' in message ? message.labels : [],
@@ -149,7 +143,7 @@ function MailboxMessage({
   if (state.kind === 'loading') {
     return (
       <ActivityIndicator
-        accessibilityLabel="Loading message"
+        accessibilityLabel={t('message.loading')}
         style={styles.fill}
       />
     );
@@ -161,9 +155,7 @@ function MailboxMessage({
         <Text
           accessibilityRole="alert"
           style={[styles.emptyDescription, { color: colors.foreground }]}>
-          {state.kind === 'locked'
-            ? 'Private storage is locked. Unlock your device and try again.'
-            : 'Private storage could not be opened or saved. Your stored data has been kept.'}
+          {state.kind === 'locked' ? t('storage.locked') : t('storage.failed')}
         </Text>
         <Pressable
           accessibilityRole="button"
@@ -171,7 +163,7 @@ function MailboxMessage({
             void actions.load();
           }}>
           <Text style={[styles.secondary, { color: colors.accent }]}>
-            Try again
+            {t('common.retry')}
           </Text>
         </Pressable>
       </View>
@@ -184,15 +176,15 @@ function MailboxMessage({
         <View
           accessible
           accessibilityRole="text"
-          accessibilityLabel="Message unavailable. Choose another message from the Inbox."
+          accessibilityLabel={t('message.unavailableLabel')}
           style={styles.empty}>
           <Text
             accessibilityRole="header"
             style={[styles.emptyTitle, { color: colors.foreground }]}>
-            Message unavailable
+            {t('message.unavailable')}
           </Text>
           <Text style={[styles.emptyDescription, { color: colors.secondary }]}>
-            Choose another message from the Inbox.
+            {t('message.chooseAnother')}
           </Text>
         </View>
       ) : (
@@ -207,7 +199,9 @@ function MailboxMessage({
                   void actions.setUnread(message.id, !message.unread);
                 }}>
                 <Text style={[styles.secondary, { color: colors.accent }]}>
-                  {message.unread ? 'Mark as read' : 'Mark as unread'}
+                  {message.unread
+                    ? t('message.markRead')
+                    : t('message.markUnread')}
                 </Text>
               </Pressable>
             ) : (
@@ -238,16 +232,18 @@ function MailboxMessage({
                 {message.address}
               </Text>
               <Text style={[styles.secondary, { color: colors.secondary }]}>
-                {dateFormat.format(new Date(message.receivedAt))} UTC
+                {t('message.received', {
+                  date: dateFormat.format(new Date(message.receivedAt)),
+                })}
               </Text>
               {address === undefined ? null : (
                 <Text style={[styles.secondary, { color: colors.secondary }]}>
-                  {`In ${address}`}
+                  {t('inbox.inMailbox', { mailbox: address })}
                 </Text>
               )}
               {labelNames.length === 0 ? null : (
                 <Text style={[styles.secondary, { color: colors.secondary }]}>
-                  {`Labels: ${labelNames.join(', ')}`}
+                  {t('message.labels', { labels: labelNames.join(', ') })}
                 </Text>
               )}
             </View>

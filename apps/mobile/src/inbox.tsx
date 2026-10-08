@@ -1,3 +1,4 @@
+import type { Translate } from '@private-email/localization';
 import type { Message } from '@private-email/mail-core';
 import type { GmailAction } from '@private-email/mail-core/gmail-actions';
 import type { GmailMessage } from '@private-email/mail-core/gmail-inbox';
@@ -6,11 +7,9 @@ import {
   quickActions,
   restoreAfter,
 } from '@private-email/mail-core/gmail-actions';
-import { gmailSyncCopy } from '@private-email/mail-core/gmail-inbox';
 import {
   inboxMessages,
   resultKey,
-  searchCopy,
   searchMessages,
 } from '@private-email/mail-core/mailboxes';
 import { spacing } from '@private-email/mail-core/theme';
@@ -28,6 +27,8 @@ import { SafeAreaView } from 'react-native-screens/experimental';
 
 import type { InboxMailbox } from './private-storage.ts';
 
+import { LanguageSelector } from './language-selector.tsx';
+import { useLocalization, useMessageDateFormat } from './localization.ts';
 import {
   MailboxScope,
   useGmailSearch,
@@ -118,12 +119,6 @@ interface InboxProps {
   readonly onClose?: (() => void) | undefined;
 }
 
-const dateFormat = new Intl.DateTimeFormat('en', {
-  month: 'short',
-  day: 'numeric',
-  timeZone: 'UTC',
-});
-
 function MessageRow({
   message,
   mailbox,
@@ -145,10 +140,12 @@ function MessageRow({
     | undefined;
 }) {
   const colors = usePalette();
+  const { t } = useLocalization();
+  const dateFormat = useMessageDateFormat();
   const [focused, setFocused] = useState(false);
   const organizing =
     onOrganize !== undefined && 'threadId' in message
-      ? quickActions(message)
+      ? quickActions(t, message)
       : [];
   return (
     <Pressable
@@ -156,7 +153,16 @@ function MessageRow({
         name,
         label,
       }))}
-      accessibilityLabel={`${message.unread ? 'Unread. ' : ''}${message.sender}. ${message.subject}${mailbox === undefined ? '' : `. In ${mailbox}`}${status === undefined ? '' : `. ${status}`}`}
+      accessibilityLabel={[
+        t(message.unread ? 'inbox.unreadRow' : 'inbox.row', {
+          sender: message.sender,
+          subject: message.subject,
+        }),
+        mailbox === undefined ? undefined : t('inbox.inMailbox', { mailbox }),
+        status,
+      ]
+        .filter((part) => part !== undefined)
+        .join('. ')}
       accessibilityRole="button"
       accessibilityState={{ selected }}
       focusable
@@ -212,7 +218,7 @@ function MessageRow({
         <Text
           numberOfLines={1}
           style={[styles.mailbox, { color: colors.secondary }]}>
-          {`In ${mailbox}`}
+          {t('inbox.inMailbox', { mailbox })}
         </Text>
       )}
       {status === undefined ? null : (
@@ -227,8 +233,8 @@ function MessageRow({
 }
 
 // Names the mailbox a notice is about when the Inbox holds more than one.
-const about = (address: string | undefined, text: string) =>
-  address === undefined ? text : `${address}: ${text}`;
+const about = (t: Translate, address: string | undefined, text: string) =>
+  address === undefined ? text : t('inbox.about', { address, text });
 
 // Synchronization keeps the cached list visible and says why Gmail may be behind.
 function SyncNotice({ address }: { readonly address: string | undefined }) {
@@ -237,7 +243,12 @@ function SyncNotice({ address }: { readonly address: string | undefined }) {
   const mailbox = useMailbox();
   const account = use(AccountContext);
   const colors = usePalette();
-  if (state.kind !== 'ready' || !('sync' in state)) {
+  const { t } = useLocalization();
+  if (
+    state.kind !== 'ready' ||
+    !('sync' in state) ||
+    state.sync === 'current'
+  ) {
     return null;
   }
   // Synchronizes again once Gmail access for this mailbox is authorized.
@@ -245,16 +256,12 @@ function SyncNotice({ address }: { readonly address: string | undefined }) {
     await authorize();
     await actions.load();
   };
-  const notice = gmailSyncCopy[state.sync];
-  if (notice === undefined) {
-    return null;
-  }
   return (
     <>
       <Text
         accessibilityLiveRegion="polite"
         style={[styles.footer, { color: colors.secondary }]}>
-        {about(address, notice)}
+        {about(t, address, t(`gmailSync.${state.sync}`))}
       </Text>
       {state.sync === 'authentication' &&
       account !== undefined &&
@@ -265,7 +272,7 @@ function SyncNotice({ address }: { readonly address: string | undefined }) {
             void handleAllowGmail(() => account.authorizeGmail(mailbox.id));
           }}>
           <Text style={[styles.notice, { color: colors.accent }]}>
-            Allow Gmail access
+            {t('common.allowGmail')}
           </Text>
         </Pressable>
       ) : null}
@@ -278,7 +285,7 @@ function SyncNotice({ address }: { readonly address: string | undefined }) {
               : account.refreshInbox(actions.load));
           }}>
           <Text style={[styles.notice, { color: colors.accent }]}>
-            Try again
+            {t('common.retry')}
           </Text>
         </Pressable>
       ) : null}
@@ -291,6 +298,7 @@ function MailboxStatus({ address }: { readonly address: string | undefined }) {
   const state = useInbox();
   const actions = useInboxActions();
   const colors = usePalette();
+  const { t } = useLocalization();
   return (
     <>
       {state.kind === 'failed' || state.kind === 'locked' ? (
@@ -299,10 +307,11 @@ function MailboxStatus({ address }: { readonly address: string | undefined }) {
             accessibilityRole="alert"
             style={[styles.notice, { color: colors.foreground }]}>
             {about(
+              t,
               address,
               state.kind === 'locked'
-                ? 'Private storage is locked. Unlock your device and try again.'
-                : 'Private storage could not be opened or saved. Your stored data has been kept.',
+                ? t('storage.locked')
+                : t('storage.failed'),
             )}
           </Text>
           <Pressable
@@ -311,7 +320,7 @@ function MailboxStatus({ address }: { readonly address: string | undefined }) {
               void actions.load();
             }}>
             <Text style={[styles.notice, { color: colors.accent }]}>
-              Try again
+              {t('common.retry')}
             </Text>
           </Pressable>
         </>
@@ -331,12 +340,13 @@ function AuthorizationNeeded({
   readonly onAllow: () => Promise<void>;
 }) {
   const colors = usePalette();
+  const { t } = useLocalization();
   return (
     <View>
       <Text
         accessibilityLiveRegion="polite"
         style={[styles.footer, { color: colors.secondary }]}>
-        {about(address, gmailSyncCopy.authentication)}
+        {about(t, address, t('gmailSync.authentication'))}
       </Text>
       <Pressable
         accessibilityRole="button"
@@ -344,7 +354,7 @@ function AuthorizationNeeded({
           void onAllow();
         }}>
         <Text style={[styles.notice, { color: colors.accent }]}>
-          {`Allow Gmail access for ${address}`}
+          {t('mailboxes.allow', { address })}
         </Text>
       </Pressable>
     </View>
@@ -362,8 +372,9 @@ function ScopePicker({
   readonly onScope: (scope: string | undefined) => void;
 }) {
   const colors = usePalette();
+  const { t } = useLocalization();
   const choices = [
-    { id: undefined, label: 'All inboxes' },
+    { id: undefined, label: t('inbox.allInboxes') },
     ...mailboxes.map(({ id, address }) => ({ id, label: address ?? id })),
   ];
   return (
@@ -391,11 +402,11 @@ function ScopePicker({
 }
 
 // A search result's saved state, once known.
-const savedStatus = (saved: boolean | undefined) => {
+const savedStatus = (t: Translate, saved: boolean | undefined) => {
   if (saved === undefined) {
     return undefined;
   }
-  return saved ? searchCopy.saved : searchCopy.download;
+  return saved ? t('search.saved') : t('search.download');
 };
 
 // Gmail's own search, asked for explicitly below the results saved on this device, which it never
@@ -408,6 +419,7 @@ function OnlineResults({
   readonly query: string;
 }) {
   const colors = usePalette();
+  const { t } = useLocalization();
   const { found, searching } = search;
   if (!search.available) {
     return null;
@@ -420,7 +432,7 @@ function OnlineResults({
           void search.search();
         }}>
         <Text style={[styles.notice, { color: colors.accent }]}>
-          {searchCopy.online(query)}
+          {t('search.online', { query })}
         </Text>
       </Pressable>
     );
@@ -429,11 +441,11 @@ function OnlineResults({
     <View>
       {found?.results.length === 0 && found.failures.length === 0 ? (
         <Text style={[styles.notice, { color: colors.secondary }]}>
-          {searchCopy.onlineEmpty(query)}
+          {t('search.onlineEmpty', { query })}
         </Text>
       ) : null}
       {searching ? (
-        <ActivityIndicator accessibilityLabel={searchCopy.searching} />
+        <ActivityIndicator accessibilityLabel={t('search.searching')} />
       ) : null}
       {!searching && found !== undefined && found.next.size > 0 ? (
         <Pressable
@@ -442,7 +454,7 @@ function OnlineResults({
             void search.more();
           }}>
           <Text style={[styles.notice, { color: colors.accent }]}>
-            {searchCopy.more}
+            {t('search.more')}
           </Text>
         </Pressable>
       ) : null}
@@ -453,7 +465,7 @@ function OnlineResults({
             void search.search();
           }}>
           <Text style={[styles.notice, { color: colors.accent }]}>
-            {searchCopy.retry}
+            {t('search.retry')}
           </Text>
         </Pressable>
       ) : null}
@@ -470,13 +482,14 @@ function OnlineHeading({
   readonly several: boolean;
 }) {
   const colors = usePalette();
+  const { t } = useLocalization();
   const { found } = search;
   return (
     <View>
       <Text
         accessibilityRole="header"
         style={[styles.footer, { color: colors.secondary }]}>
-        {searchCopy.onlineHeading}
+        {t('search.onlineHeading')}
       </Text>
       {found?.failures.map(({ mailbox, reason }) => (
         <Text
@@ -484,8 +497,9 @@ function OnlineHeading({
           accessibilityLiveRegion="polite"
           style={[styles.footer, { color: colors.secondary }]}>
           {about(
+            t,
             several ? mailbox.address : undefined,
-            searchCopy.unavailable[reason],
+            t(`search.unavailable.${reason}`),
           )}
         </Text>
       ))}
@@ -495,6 +509,7 @@ function OnlineHeading({
 
 // The shown mailbox's address, or what the list holds when it shows several or none.
 function subtitleOf(
+  t: Translate,
   shown: readonly InboxMailbox[],
   { several, gmail }: Readonly<{ several: boolean; gmail: boolean }>,
 ) {
@@ -503,9 +518,9 @@ function subtitleOf(
     return only.address;
   }
   if (several) {
-    return 'All inboxes';
+    return t('inbox.allInboxes');
   }
-  return gmail ? 'Gmail' : 'Preview mailbox';
+  return gmail ? t('inbox.gmail') : t('inbox.subtitle');
 }
 
 // Section data lets the native list virtualize online pages together with saved rows.
@@ -527,6 +542,7 @@ export function Inbox({ selected, onSelect, onClose }: InboxProps) {
   const reload = useReloadMailboxes();
   const account = use(AccountContext);
   const colors = usePalette();
+  const { t } = useLocalization();
   const [chosen, setChosen] = useState<string>();
   // A removed mailbox's view falls back to every mailbox.
   const scope = mailboxes.some(({ id }) => id === chosen) ? chosen : undefined;
@@ -571,7 +587,7 @@ export function Inbox({ selected, onSelect, onClose }: InboxProps) {
       state.kind === 'loading' ||
       (state.kind === 'ready' && 'sync' in state && state.sync === 'syncing'),
   );
-  const subtitle = subtitleOf(shown, { several, gmail });
+  const subtitle = subtitleOf(t, shown, { several, gmail });
   const organize =
     (mailbox: InboxMailbox) => (message: GmailMessage, action: GmailAction) => {
       if (
@@ -587,12 +603,12 @@ export function Inbox({ selected, onSelect, onClose }: InboxProps) {
     };
   const empty =
     results === undefined && gmail && syncing ? (
-      <ActivityIndicator accessibilityLabel="Loading Inbox" />
+      <ActivityIndicator accessibilityLabel={t('inbox.loading')} />
     ) : (
       <Text style={[styles.notice, { color: colors.secondary }]}>
         {results === undefined
-          ? 'Your inbox is clear.'
-          : searchCopy.empty(searched)}
+          ? t('inbox.empty')
+          : t('search.empty', { query: searched })}
       </Text>
     );
   return (
@@ -605,7 +621,7 @@ export function Inbox({ selected, onSelect, onClose }: InboxProps) {
             <Text
               accessibilityRole="header"
               style={[styles.title, { color: colors.foreground }]}>
-              Inbox
+              {t('inbox.title')}
             </Text>
             <Text style={[styles.subtitle, { color: colors.secondary }]}>
               {subtitle}
@@ -618,7 +634,7 @@ export function Inbox({ selected, onSelect, onClose }: InboxProps) {
                 account.openAccount();
               }}>
               <Text style={[styles.account, { color: colors.accent }]}>
-                Account
+                {t('inbox.account')}
               </Text>
             </Pressable>
           )}
@@ -632,14 +648,14 @@ export function Inbox({ selected, onSelect, onClose }: InboxProps) {
         ) : null}
         {ready ? (
           <TextInput
-            accessibilityLabel={searchCopy.label}
+            accessibilityLabel={t('search.label')}
             accessibilityRole="search"
             autoCapitalize="none"
             autoComplete="off"
             autoCorrect={false}
             clearButtonMode="while-editing"
             onChangeText={setQuery}
-            placeholder={searchCopy.label}
+            placeholder={t('search.label')}
             placeholderTextColor={colors.secondary}
             returnKeyType="search"
             style={[
@@ -650,7 +666,7 @@ export function Inbox({ selected, onSelect, onClose }: InboxProps) {
           />
         ) : null}
         {shown.some(({ state }) => state.kind === 'loading') ? (
-          <ActivityIndicator accessibilityLabel="Loading Inbox" />
+          <ActivityIndicator accessibilityLabel={t('inbox.loading')} />
         ) : null}
         {shown.map((mailbox) => (
           <MailboxScope
@@ -671,7 +687,7 @@ export function Inbox({ selected, onSelect, onClose }: InboxProps) {
         ))}
         {ready ? (
           <SectionList
-            accessibilityLabel="Inbox messages"
+            accessibilityLabel={t('inbox.messages')}
             contentContainerStyle={styles.list}
             sections={sections}
             stickySectionHeadersEnabled={false}
@@ -716,16 +732,15 @@ export function Inbox({ selected, onSelect, onClose }: InboxProps) {
                 status={
                   section.key === 'gmail' || results === undefined
                     ? undefined
-                    : savedStatus(saved?.get(resultKey(item)))
+                    : savedStatus(t, saved?.get(resultKey(item)))
                 }
               />
             )}
           />
         ) : null}
+        <LanguageSelector />
         <Text style={[styles.footer, { color: colors.secondary }]}>
-          {gmail
-            ? 'Gmail · Encrypted on this device'
-            : 'Sample messages · Encrypted on this device'}
+          {gmail ? t('inbox.footerGmail') : t('inbox.footer')}
         </Text>
       </View>
     </SafeAreaView>

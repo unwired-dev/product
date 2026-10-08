@@ -1,3 +1,4 @@
+import type { Translate } from '@private-email/localization';
 import type {
   GmailInbox,
   ReceivedAttachment,
@@ -15,10 +16,6 @@ import type {
 } from 'react-native-webview/lib/WebViewTypes';
 
 import {
-  attachmentCopy,
-  messageBodyCopy,
-} from '@private-email/mail-core/gmail-inbox';
-import {
   inspectLink,
   messageLinkAt,
 } from '@private-email/mail-core/link-inspection';
@@ -30,6 +27,7 @@ import {
   use,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
@@ -45,6 +43,7 @@ import {
 } from 'react-native';
 import { WebView } from 'react-native-webview';
 
+import { useLocalization } from './localization.ts';
 import { usePalette } from './theme.ts';
 
 // A taller document scrolls inside its view instead of the reader.
@@ -144,6 +143,7 @@ function LinkConfirmation({
   readonly onDone: () => void;
 }) {
   const colors = usePalette();
+  const { t } = useLocalization();
   const reasons = inspectLink(link.href, link.text);
   const proceed = () => {
     onDone();
@@ -157,14 +157,14 @@ function LinkConfirmation({
       style={[styles.confirm, { borderColor: colors.separator }]}>
       <Text style={[styles.secondary, { color: colors.foreground }]}>
         {reasons.length === 0
-          ? messageBodyCopy.confirmLink
-          : messageBodyCopy.cautionLink}
+          ? t('messageBody.confirmLink')
+          : t('messageBody.cautionLink')}
       </Text>
       {reasons.map((reason) => (
         <Text
           key={reason}
           style={[styles.secondary, { color: colors.foreground }]}>
-          {`• ${reason}`}
+          {t('messageBody.warning', { warning: t(`linkWarnings.${reason}`) })}
         </Text>
       ))}
       <Text
@@ -175,13 +175,13 @@ function LinkConfirmation({
       <View style={styles.actions}>
         {reasons.length === 0 ? (
           <Action
-            label="Open link"
+            label={t('messageBody.openLink')}
             onPress={proceed}
           />
         ) : (
           <>
             <Action
-              label="Copy link"
+              label={t('messageBody.copyLink')}
               onPress={() => {
                 onDone();
                 if (current()) {
@@ -191,13 +191,13 @@ function LinkConfirmation({
               }}
             />
             <Action
-              label="Proceed"
+              label={t('messageBody.proceed')}
               onPress={proceed}
             />
           </>
         )}
         <Action
-          label="Cancel"
+          label={t('common.cancel')}
           onPress={onDone}
         />
       </View>
@@ -259,6 +259,7 @@ function MessageLinks({
   readonly onChoose: (link: BodyLink) => void;
 }) {
   const colors = usePalette();
+  const { t } = useLocalization();
   const [focused, setFocused] = useState<number>();
   return links.map((link, index) => (
     <Pressable
@@ -266,7 +267,9 @@ function MessageLinks({
       // oxlint-disable-next-line react/no-array-index-key
       key={index}
       accessibilityRole="link"
-      accessibilityLabel={`Open link: ${link.text === '' ? link.href : link.text}`}
+      accessibilityLabel={t('messageBody.linkLabel', {
+        link: link.text === '' ? link.href : link.text,
+      })}
       accessibilityHint={link.href}
       focusable
       onFocus={() => {
@@ -285,7 +288,9 @@ function MessageLinks({
         },
       ]}>
       <Text style={[styles.secondary, { color: colors.accent }]}>
-        {`Open link: ${link.text === '' ? link.href : link.text}`}
+        {t('messageBody.linkLabel', {
+          link: link.text === '' ? link.href : link.text,
+        })}
       </Text>
     </Pressable>
   ));
@@ -300,10 +305,11 @@ function ReadableText({
   readonly onChoose: (link: BodyLink) => void;
 }) {
   const colors = usePalette();
+  const { t } = useLocalization();
   if (readable.paragraphs.length === 0) {
     return (
       <Text style={[styles.paragraph, { color: colors.secondary }]}>
-        {messageBodyCopy.empty}
+        {t('messageBody.empty')}
       </Text>
     );
   }
@@ -355,6 +361,7 @@ function RichDocument({
   readonly onFailure: () => void;
 }) {
   // The laid-out width; a later different width lays the document out and measures it again.
+  const { t } = useLocalization();
   const width = useRef<number>(undefined);
   const [layout, setLayout] = useState(0);
   const [height, setHeight] = useState<number>();
@@ -381,12 +388,12 @@ function RichDocument({
         width.current = next;
       }}>
       {height === undefined ? (
-        <ActivityIndicator accessibilityLabel="Opening message" />
+        <ActivityIndicator accessibilityLabel={t('messageBody.opening')} />
       ) : null}
       {
         <WebView
           key={layout}
-          accessibilityLabel="Message"
+          accessibilityLabel={t('messageBody.message')}
           allowsInlineMediaPlayback={false}
           allowsLinkPreview={false}
           cacheEnabled={false}
@@ -440,6 +447,7 @@ function Presentation({
   readonly onFailure: () => void;
 }) {
   const colors = usePalette();
+  const { t } = useLocalization();
   const { rich, readable } = presentation;
   const richKey = rich === undefined ? undefined : documentKey(rich);
   // Keep only the failed document's identity so its HTML and inline bytes can be released.
@@ -448,7 +456,7 @@ function Presentation({
     <>
       {readable.hidesImages ? (
         <Text style={[styles.secondary, { color: colors.secondary }]}>
-          {messageBodyCopy.images}
+          {t('messageBody.images')}
         </Text>
       ) : null}
       {rich === undefined || failed === richKey ? (
@@ -477,27 +485,26 @@ function Presentation({
   );
 }
 
-const sizeFormat = new Intl.NumberFormat('en', {
-  maximumFractionDigits: 1,
-});
-const fileSize = (bytes: number) => {
+const fileSize = (t: Translate, format: Intl.NumberFormat, bytes: number) => {
   if (bytes < 1024) {
-    return `${bytes} bytes`;
+    return t('attachment.bytes', { count: bytes });
   }
   return bytes < 1024 * 1024
-    ? `${sizeFormat.format(bytes / 1024)} KB`
-    : `${sizeFormat.format(bytes / (1024 * 1024))} MB`;
+    ? t('attachment.kilobytes', { size: format.format(bytes / 1024) })
+    : t('attachment.megabytes', {
+        size: format.format(bytes / (1024 * 1024)),
+      });
 };
 
-const attachmentStatus = (state: ReceivedAttachment['state']) => {
+const attachmentStatus = (t: Translate, state: ReceivedAttachment['state']) => {
   if (state.kind === 'downloading') {
-    return 'Downloading…';
+    return t('attachment.downloading');
   }
   if (state.kind === 'oversized') {
-    return attachmentCopy.oversized;
+    return t('attachment.oversized');
   }
   return state.kind === 'unavailable'
-    ? attachmentCopy[state.reason]
+    ? t(`attachment.${state.reason}`)
     : undefined;
 };
 
@@ -515,14 +522,19 @@ function AttachmentRow({
   readonly current: () => boolean;
 }) {
   const colors = usePalette();
+  const { t, settings } = useLocalization();
+  const sizeFormat = useMemo(
+    () => new Intl.NumberFormat(settings.locale, { maximumFractionDigits: 1 }),
+    [settings.locale],
+  );
   const { locator, name, size, state } = attachment;
-  const status = attachmentStatus(state);
+  const status = attachmentStatus(t, state);
   let actions: ReactNode = null;
   if (state.kind === 'available') {
     actions = (
       <Action
-        label="Download"
-        accessibilityLabel={`Download ${name}`}
+        label={t('attachment.downloadAction')}
+        accessibilityLabel={t('attachment.downloadLabel', { name })}
         onPress={() => {
           if (current()) {
             void inbox.downloadAttachment(id, locator);
@@ -533,8 +545,8 @@ function AttachmentRow({
   } else if (state.kind === 'downloading') {
     actions = (
       <Action
-        label="Cancel"
-        accessibilityLabel={`Cancel downloading ${name}`}
+        label={t('common.cancel')}
+        accessibilityLabel={t('attachment.cancelLabel', { name })}
         onPress={() => {
           if (current()) {
             inbox.cancelAttachment(id, locator);
@@ -546,8 +558,8 @@ function AttachmentRow({
     actions = (
       <>
         <Action
-          label="Open"
-          accessibilityLabel={`Open ${name}`}
+          label={t('attachment.open')}
+          accessibilityLabel={t('attachment.openLabel', { name })}
           onPress={() => {
             if (current()) {
               void inbox.presentAttachment(id, locator, 'open');
@@ -555,8 +567,8 @@ function AttachmentRow({
           }}
         />
         <Action
-          label="Share"
-          accessibilityLabel={`Share ${name}`}
+          label={t('attachment.share')}
+          accessibilityLabel={t('attachment.shareLabel', { name })}
           onPress={() => {
             if (current()) {
               void inbox.presentAttachment(id, locator, 'share');
@@ -569,8 +581,8 @@ function AttachmentRow({
     actions =
       state.reason === 'missing' ? null : (
         <Action
-          label="Try again"
-          accessibilityLabel={`Try downloading ${name} again`}
+          label={t('common.retry')}
+          accessibilityLabel={t('attachment.retryLabel', { name })}
           onPress={() => {
             if (current()) {
               void inbox.downloadAttachment(id, locator);
@@ -587,7 +599,7 @@ function AttachmentRow({
         {name}
       </Text>
       <Text style={[styles.secondary, { color: colors.secondary }]}>
-        {fileSize(size)}
+        {fileSize(t, sizeFormat, size)}
       </Text>
       {status === undefined ? null : (
         <Text
@@ -616,6 +628,7 @@ function ReceivedAttachments({
   readonly current: () => boolean;
 }) {
   const colors = usePalette();
+  const { t } = useLocalization();
   const attachments = useSyncExternalStore(inbox.subscribe, () =>
     inbox.messageAttachments(id),
   );
@@ -637,9 +650,7 @@ function ReceivedAttachments({
       <Text
         accessibilityRole="header"
         style={[styles.secondary, { color: colors.secondary }]}>
-        {attachments.length === 1
-          ? '1 attachment'
-          : `${attachments.length} attachments`}
+        {t('attachment.count', { count: attachments.length })}
       </Text>
       {attachments.slice(0, shown).map((attachment) => (
         <AttachmentRow
@@ -652,8 +663,12 @@ function ReceivedAttachments({
       ))}
       {attachments.length > shown ? (
         <Action
-          label={`Show ${Math.min(attachmentBatch, attachments.length - shown)} more`}
-          accessibilityLabel={`Show more attachments, ${attachments.length - shown} not shown`}
+          label={t('attachment.more', {
+            count: Math.min(attachmentBatch, attachments.length - shown),
+          })}
+          accessibilityLabel={t('attachment.moreLabel', {
+            count: attachments.length - shown,
+          })}
           onPress={() => {
             setExpanded({ inbox, id, count: shown + attachmentBatch });
           }}
@@ -673,6 +688,7 @@ export function GmailMessageBody({
   readonly id: string;
 }) {
   const colors = usePalette();
+  const { t } = useLocalization();
   // oxlint-disable-next-line react/hook-use-state -- This immutable reader identity has no setter.
   const [reader] = useState(() => Symbol('message reader'));
   const body = useSyncExternalStore(inbox.subscribe, () =>
@@ -708,7 +724,7 @@ export function GmailMessageBody({
   if (body === undefined || body.kind === 'loading') {
     return (
       <ActivityIndicator
-        accessibilityLabel="Opening message"
+        accessibilityLabel={t('messageBody.opening')}
         style={styles.body}
       />
     );
@@ -720,11 +736,11 @@ export function GmailMessageBody({
         <Text
           accessibilityRole="alert"
           style={[styles.paragraph, { color: colors.secondary }]}>
-          {messageBodyCopy[body.reason]}
+          {t(`messageBody.${body.reason}`)}
         </Text>
         {body.reason === 'missing' ? null : (
           <Action
-            label="Try again"
+            label={t('common.retry')}
             onPress={() => {
               void inbox.readMessage(id);
             }}

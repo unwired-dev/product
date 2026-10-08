@@ -1,3 +1,5 @@
+import type { Translate } from '@private-email/localization';
+
 import * as Effect from 'effect/Effect';
 import * as Option from 'effect/Option';
 import * as Schema from 'effect/Schema';
@@ -645,39 +647,21 @@ export function createRegistration(native: NativeRegistration) {
 
 export type Registration = ReturnType<typeof createRegistration>;
 
-export const providerNames = {
-  google: 'Google',
-  apple: 'Apple',
-} as const satisfies Record<SignInProvider, string>;
-
-const mailboxReasons = {
-  cancelled:
-    'Gmail authorization was cancelled. Your Product Account is retained. Retry or choose another Google mailbox.',
-  declined:
-    'Gmail access was not granted. Your Product Account is retained. Retry or choose another Google mailbox.',
-  'gmail-unavailable':
-    'Gmail is unavailable for this authorization. Your Product Account is retained. Retry or choose another Google mailbox.',
-  interrupted:
-    'Gmail authorization was interrupted. Your Product Account is retained. Retry to finish setup.',
-  unavailable: (provider: SignInProvider) =>
-    `Your saved Product Account could not be verified. It is retained on this device. Retry when you are online, or sign in again with ${providerNames[provider]}.`,
-} as const;
-
-const mailboxNeeded = {
-  google:
-    'Your Product Account is ready. Grant Gmail access to finish setup. You can use another Google account for your mailbox.',
-  // Sign in with Apple identifies the Product Account only; it never grants mailbox access.
-  apple:
-    'Your Product Account is ready. Signing in with Apple does not give access to mail. Authorize a Google account with Gmail to finish setup.',
-} as const satisfies Record<SignInProvider, string>;
+// The name shown for a sign-in provider.
+export const providerName = (t: Translate, provider: SignInProvider) =>
+  t(`providers.${provider}`);
 
 function accountLine(
+  t: Translate,
   snapshot: Readonly<{ signInProvider: SignInProvider; contactEmail?: string }>,
 ) {
-  const signedIn = `Signed in with ${providerNames[snapshot.signInProvider]}`;
+  const provider = providerName(t, snapshot.signInProvider);
   return snapshot.contactEmail === undefined
-    ? `${signedIn}.`
-    : `${signedIn}. Contact email: ${snapshot.contactEmail}.`;
+    ? t('registration.account', { provider })
+    : t('registration.accountWithEmail', {
+        provider,
+        email: snapshot.contactEmail,
+      });
 }
 
 export const otherSignInProvider = (
@@ -686,87 +670,41 @@ export const otherSignInProvider = (
 
 // Account settings: which identities open this Product Account.
 export function signInMethodsCopy(
+  t: Translate,
   snapshot: Readonly<{
     signInProvider: SignInProvider;
     alternateSignIn?: SignInProvider;
   }>,
 ) {
-  const current = providerNames[snapshot.signInProvider];
+  const current = providerName(t, snapshot.signInProvider);
   if (snapshot.alternateSignIn !== undefined) {
     return {
-      description: `Sign in with ${current} or ${providerNames[snapshot.alternateSignIn]} to open this Product Account.`,
+      description: t('signInMethods.linked', {
+        current,
+        other: providerName(t, snapshot.alternateSignIn),
+      }),
       link: undefined,
     };
   }
   const other = otherSignInProvider(snapshot.signInProvider);
   return {
-    description: `Only ${current} opens this Product Account. Linking ${providerNames[other]} adds another way to sign in. First verify ${current}, then sign in with ${providerNames[other]}. It does not connect a mailbox.`,
+    description: t('signInMethods.only', {
+      current,
+      other: providerName(t, other),
+    }),
     link: other,
   };
 }
 
-export function linkFailureCopy(
+export const linkFailureCopy = (
+  t: Translate,
   failure: LinkFailure,
   provider: SignInProvider,
-) {
-  const name = providerNames[provider];
-  switch (failure) {
-    case 'identity-owned': {
-      return `That ${name} sign-in already belongs to another Product Account. Accounts are never merged, so it was not linked.`;
-    }
-    case 'stale-authentication': {
-      return `Linking needs a recent sign-in with both providers. Try again to link ${name}.`;
-    }
-    case 'failed': {
-      return `${name} could not be linked. Your Product Account is unchanged. Try again.`;
-    }
-    default: {
-      const exhaustive: never = failure;
-      return exhaustive;
-    }
-  }
-}
-
-export const lockedCopy = {
-  title: 'Unlock your device',
-  description:
-    "Unwired Mail cannot read this device's protected data while it is locked. Unlock your device to continue.",
-} as const;
-
-const signedOutNotices = {
-  revoked: {
-    title: 'This device was removed',
-    description:
-      'One of your trusted devices removed this one from your Product Account, so its account data, keys and mailbox access were deleted from this device. Anything copied from it before then cannot be erased remotely. Your mail in Gmail is not affected.',
-  },
-  deleted: {
-    title: 'Product Account deleted',
-    description:
-      'This Product Account was permanently deleted, so its account data, keys and mailbox access were removed from this device. Anything copied from another device while it was offline cannot be erased remotely. Your mail in Gmail is not affected.',
-  },
-} as const;
-
-// Leaving this device is distinct from deleting the Product Account everywhere.
-export const accountRemovalCopy = {
-  title: 'This device and your account',
-  signOut: 'Sign out of this device',
-  signOutConfirm:
-    'Signing out removes this device from your Product Account and deletes its account data, keys and mailbox access from this device. Save and confirm any Recovery Key shown first. Your other devices and your mail in Gmail are not affected. To use this device again, sign in and approve it from a trusted device or with your Recovery Key.',
-  delete: 'Delete Product Account',
-  deleteConfirm:
-    'Deleting your Product Account permanently removes it, its private data and its sign-ins from Unwired Mail. Other devices remove their local data when they reconnect; copies on offline or compromised devices cannot be erased remotely. It cannot be undone. Your mail stays in Gmail, and authorization you gave Google is not revoked. You sign in again to confirm.',
-  deletePermanently: 'Delete permanently',
-  cancel: 'Cancel',
-  'sign-out':
-    'Sign-out could not be confirmed. Retry sign-out when you are online to finish removing this device and its local account data. Save and confirm any Recovery Key shown before signing out.',
-  'deletion-refused':
-    'Your Product Account was not deleted, and nothing was removed. Try again and sign in with the Apple or Google account that opens it.',
-  deletion:
-    'Deletion could not be confirmed. Your Product Account may already be deleted. Retry deletion when you are online to confirm it and finish removing local account data.',
-} as const;
+) => t(`linkFailure.${failure}`, { provider: providerName(t, provider) });
 
 // An account whose sign-out or deletion has not finished; that replaces any other setup.
 function removalPendingCopy(
+  t: Translate,
   snapshot: Readonly<{
     removalPending?: AccountRemoval;
     signInProvider: SignInProvider;
@@ -777,50 +715,39 @@ function removalPendingCopy(
     return undefined;
   }
   return {
-    title:
-      snapshot.removalPending === 'sign-out'
-        ? 'Finish signing out'
-        : 'Confirm account deletion',
-    description: accountRemovalCopy[snapshot.removalPending],
-    account: accountLine(snapshot),
+    title: t(`registration.removalPending.${snapshot.removalPending}`),
+    description: t(`accountRemoval.${snapshot.removalPending}`),
+    account: accountLine(t, snapshot),
   };
 }
 
-// A retained account without a usable mailbox.
+// A retained account without a usable mailbox. Sign in with Apple identifies the Product Account
+// only; it never grants mailbox access.
 function mailboxNeededCopy(
+  t: Translate,
   snapshot: Extract<RegistrationSnapshot, { kind: 'mailbox-needed' }>,
 ) {
   const { reason, signInProvider } = snapshot;
-  let description: string = mailboxNeeded[signInProvider];
-  if (reason === 'unavailable') {
-    description = mailboxReasons.unavailable(signInProvider);
-  } else if (reason !== undefined) {
-    description = mailboxReasons[reason];
-  }
   return {
-    title: 'Connect your Gmail',
-    description,
-    account: accountLine(snapshot),
+    title: t('registration.mailboxNeeded.title'),
+    description: t(`registration.mailboxNeeded.${reason ?? signInProvider}`, {
+      provider: providerName(t, signInProvider),
+    }),
+    account: accountLine(t, snapshot),
   };
 }
 
-const devicePending = {
-  approval:
-    'Signing in does not add a device to your Product Account. Approve this device from one of your trusted devices with the code below, or unlock it with your Recovery Key. Until then this device cannot read your private data or connect a mailbox.',
-  'setup-pending':
-    'Your Product Account is still being set up on the device that created it, so this device cannot ask to be added yet. Check again later. Until then this device cannot read your private data or connect a mailbox.',
-  retry:
-    'This device could not ask your trusted devices to approve it yet. Check again when you are online. Until then this device cannot read your private data or connect a mailbox.',
-} as const;
-
 // A device after the Product Account's first waits for a Trusted Device or the Recovery Key.
-function devicePendingDescription(privateSync: PrivateSync | undefined) {
+function devicePendingDescription(
+  t: Translate,
+  privateSync: PrivateSync | undefined,
+) {
   if (privateSync === 'setup-pending') {
-    return devicePending['setup-pending'];
+    return t('registration.devicePending.setup-pending');
   }
   return privateSync === 'enrollment-pending'
-    ? devicePending.approval
-    : devicePending.retry;
+    ? t('registration.devicePending.approval')
+    : t('registration.devicePending.retry');
 }
 
 const addressesIn = (
@@ -831,65 +758,38 @@ const addressesIn = (
     .filter((mailbox) => mailbox.state === state)
     .map(({ address }) => address);
 
-const connectedDescription = (addresses: readonly string[]) =>
-  `${addresses.join(', ')} ${addresses.length === 1 ? 'is' : 'are'} connected on this device.`;
-
-// Account settings: each Mailbox Connection, adding another and removing one. Removal is product
-// state only; Gmail keeps the mail.
-export const mailboxCopy = {
-  title: 'Gmail mailboxes',
-  description:
-    'Each mailbox keeps its own Gmail access and saved mail on this device. The Inbox shows them together or one at a time.',
-  states: {
-    connected: 'Connected',
-    cached: 'Saved mail only until Gmail can be checked',
-    authorization: 'Gmail needs your permission again',
-  },
-  add: 'Add another Gmail mailbox',
-  allow: (address: string) => `Allow Gmail access for ${address}`,
-  remove: (address: string) => `Remove ${address}`,
-  confirm: (address: string) =>
-    `Removing ${address} deletes its Gmail access and the mail saved for it from this device, including changes still waiting for Gmail, and removes it from your other devices when they next connect. Your mail stays in Gmail.`,
-  cancel: 'Cancel',
-} as const;
-
-export function registrationCopy(snapshot: RegistrationSnapshot) {
+export function registrationCopy(t: Translate, snapshot: RegistrationSnapshot) {
   switch (snapshot.kind) {
     case 'signed-out': {
-      if (snapshot.notice !== undefined) {
-        return { ...signedOutNotices[snapshot.notice], account: undefined };
-      }
+      const page = snapshot.notice ?? 'welcome';
       return {
-        title: 'Welcome to Unwired Mail',
-        description:
-          'Create your Product Account with Apple or Google, then choose whether to grant Gmail access.',
+        title: t(`registration.${page}.title`),
+        description: t(`registration.${page}.description`),
         account: undefined,
       };
     }
     case 'mailbox-needed': {
-      return removalPendingCopy(snapshot) ?? mailboxNeededCopy(snapshot);
+      return removalPendingCopy(t, snapshot) ?? mailboxNeededCopy(t, snapshot);
     }
     case 'device-pending': {
       return (
-        removalPendingCopy(snapshot) ?? {
-          title: 'Add this device',
-          description: devicePendingDescription(snapshot.privateSync),
-          account: accountLine(snapshot),
+        removalPendingCopy(t, snapshot) ?? {
+          title: t('registration.devicePending.title'),
+          description: devicePendingDescription(t, snapshot.privateSync),
+          account: accountLine(t, snapshot),
         }
       );
     }
-    case 'connected': {
-      return {
-        title: 'Gmail connected',
-        description: connectedDescription(addressesIn(snapshot, 'connected')),
-        account: accountLine(snapshot),
-      };
-    }
+    case 'connected':
     case 'cached': {
+      const addresses = addressesIn(snapshot, snapshot.kind);
       return {
-        title: 'Saved Gmail Inbox',
-        description: `${addressesIn(snapshot, 'cached').join(', ')} could not be verified. Mail saved on this device is available; try again when connected.`,
-        account: accountLine(snapshot),
+        title: t(`registration.${snapshot.kind}.title`),
+        description: t(`registration.${snapshot.kind}.description`, {
+          addresses: addresses.join(', '),
+          count: addresses.length,
+        }),
+        account: accountLine(t, snapshot),
       };
     }
     default: {
@@ -908,73 +808,29 @@ type PrivateSyncState = Readonly<{
   enrollmentNotice?: 'renewed' | 'rejected';
 }>;
 
-const enrollmentNotices = {
-  renewed:
-    'The previous request expired or was declined, so this device shows a new code.',
-  rejected:
-    'The last approval could not be verified on this device, so nothing was unlocked. Approve it again with the new code.',
-} as const;
-
-const privateSyncText = {
-  'setup-pending': {
-    title: 'Private sync',
-    description:
-      'Private sync setup has not finished. It continues the next time your Product Account is verified. Sign in again to finish it now.',
-  },
-  'recovery-key': {
-    title: 'Save your Recovery Key',
-    description:
-      'Your product data is end-to-end encrypted. If you lose every trusted device, this Recovery Key is the only way to unlock it. Write it down and keep it somewhere safe. Unwired Mail cannot show it to anyone else or reset it.',
-  },
-  ready: {
-    title: 'Private sync is on',
-    description:
-      'Your product data is end-to-end encrypted. Only your trusted devices can read it.',
-  },
-  'enrollment-needed': {
-    title: 'Unlock private data on this device',
-    description:
-      'This device no longer has the keys to your end-to-end encrypted data. Unlock it with your Recovery Key, or sign out and sign in again so one of your trusted devices can approve it. Nothing was reset or replaced.',
-  },
-  'enrollment-pending': {
-    title: 'Approve this device',
-    description:
-      'This Product Account already has end-to-end encrypted data. Signing in does not unlock it. On one of your trusted devices, open Unwired Mail and enter this code to approve this device.',
-  },
-  unavailable: {
-    title: 'Private sync is unavailable',
-    description:
-      'Private sync data on this device could not be read, so private sync is paused here. Your sign-in and mailbox keep working, and nothing was reset or replaced.',
-  },
-} as const satisfies Record<
-  PrivateSync,
-  Readonly<{ title: string; description: string }>
->;
-
 // Private product data on this device; mailbox credentials never take part in it.
-export function privateSyncCopy(snapshot: PrivateSyncState) {
+export function privateSyncCopy(t: Translate, snapshot: PrivateSyncState) {
   if (snapshot.privateSync === undefined) {
     return undefined;
   }
-  const { title, description } = privateSyncText[snapshot.privateSync];
-  const notice =
-    snapshot.enrollmentNotice === undefined
-      ? ''
-      : ` ${enrollmentNotices[snapshot.enrollmentNotice]}`;
+  const description = t(`privateSync.${snapshot.privateSync}.description`);
   return {
-    title,
+    title: t(`privateSync.${snapshot.privateSync}.title`),
     description:
-      snapshot.privateSync === 'enrollment-pending'
-        ? description + notice
+      snapshot.privateSync === 'enrollment-pending' &&
+      snapshot.enrollmentNotice !== undefined
+        ? `${description} ${t(`privateSync.${snapshot.enrollmentNotice}`)}`
         : description,
     mailboxes:
       snapshot.privateSyncMailboxes === undefined
         ? undefined
-        : `Encrypted mailbox list: ${snapshot.privateSyncMailboxes.replaceAll('\n', ', ')}.`,
+        : t('privateSync.mailboxes', {
+            mailboxes: snapshot.privateSyncMailboxes.replaceAll('\n', ', '),
+          }),
     pending:
       snapshot.privateSyncPending === undefined
         ? undefined
-        : 'Your Gmail mailbox changes are still waiting to finish. Try again when connected, or sign in again to finish them.',
+        : t('privateSync.pending'),
     // Each is present only in its own state.
     recoveryKey:
       snapshot.privateSync === 'recovery-key'
@@ -990,31 +846,6 @@ export function privateSyncCopy(snapshot: PrivateSyncState) {
 // Native confirmation ignores case and separators; keep only the four characters that count.
 export const recoveryKeyEntry = (text: string) =>
   text.replaceAll(/[\s-]/gu, '').toUpperCase().slice(0, 4);
-
-export const recoveryKeyConfirmationCopy = {
-  prompt:
-    'To confirm you saved it, enter the last four characters of your Recovery Key.',
-  label: 'Last four characters',
-  confirm: 'Confirm Recovery Key',
-  mismatch:
-    'That does not match the end of your Recovery Key. Check your written copy and try again.',
-  failed: 'Your Recovery Key could not be confirmed. Try again.',
-} as const;
-
-// On a device without the account keys; the Recovery Key is checked only on this device.
-export const recoveryCopy = {
-  title: 'Use your Recovery Key',
-  description:
-    'If none of your trusted devices is available, enter the Recovery Key you wrote down when you created your Product Account. It is checked on this device and never sent to Unwired Mail.',
-  label: 'Recovery Key',
-  unlock: 'Unlock with Recovery Key',
-  rejected:
-    'That Recovery Key does not unlock this Product Account. Check each character of your written copy and try again. Your encrypted product data is kept.',
-  failed:
-    'Recovery could not finish. Your encrypted product data is kept. Try again to resume.',
-  // Nothing offers a reset: encrypted product data stays locked, and mail stays with Gmail.
-  lost: 'If you have lost every trusted device and your Recovery Key, your encrypted product data cannot be recovered, and Unwired Mail cannot unlock it for you. Your mail in Gmail is not affected.',
-} as const;
 
 // Recovery Key entry is offered only where the account has keys that this device lacks.
 export const offersRecovery = (privateSync: PrivateSync | undefined) =>
@@ -1096,51 +927,15 @@ export function inboxLanding(
   return { account, setup, valid, destination } as const;
 }
 
-export const enrollmentCopy = {
-  // On the device waiting for approval.
-  check: 'Check for approval',
-  // On a trusted device.
-  find: 'Check for a new device',
-  title: 'Approve a new device',
-  description: (device: string) =>
-    `Your ${device} asked to unlock your private data. Approve it only if it is your device and shows a code. Enter that code here.`,
-  label: 'Code from the new device',
-  approve: 'Approve device',
-  decline: 'Decline',
-  'code-invalid':
-    'That code is not valid. Check the code shown on the new device and try again.',
-  unavailable:
-    'That request is no longer available. The new device shows a new code; check for it again.',
-  failed: 'The device could not be approved. Try again.',
-} as const;
-
-const addedDate = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' });
-
-// On a device holding the account keys; removal needs a new sign-in and then a new Recovery Key.
-export const revocationCopy = {
-  title: 'Trusted devices',
-  description:
-    'These other devices can read your private data. Remove one you no longer use, or one that was lost or stolen.',
-  added: (registeredAt: number) => `Added ${addedDate.format(registeredAt)}`,
-  remove: (name: string) => `Remove ${name}`,
-  confirm: (name: string) =>
-    `Removing ${name} blocks it from your Product Account, push notifications and private sync right away, and your other devices switch to new keys. It deletes its account data the next time it connects, but anything it already holds while offline or compromised cannot be erased remotely. You sign in again to confirm, then save a new Recovery Key.`,
-  cancel: 'Cancel',
-  removed:
-    'The device was removed. Save your new Recovery Key. Keep your previous key until all remaining devices have connected and switched to the new keys; until then, recovery still uses the previous key.',
-  unconfirmed:
-    'The device is removed, but this device has not confirmed new keys for it. If another of your devices removed it first, save the Recovery Key that device shows. Otherwise check again when you are online.',
-  failed: 'The device could not be removed. Try again.',
-} as const;
-
 export const revocationNotice = (
+  t: Translate,
   account: Readonly<{ revocationNotice?: 'removed' | 'unconfirmed' }>,
   failed: boolean,
 ) => {
   if (failed) {
-    return revocationCopy.failed;
+    return t('revocation.failed');
   }
   return account.revocationNotice === undefined
     ? undefined
-    : revocationCopy[account.revocationNotice];
+    : t(`revocation.${account.revocationNotice}`);
 };

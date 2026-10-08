@@ -13,6 +13,7 @@ module.exports = {
   clearMocks: true,
   moduleNameMapper: {
     '^react-native-webview$': '<rootDir>/test/webview.tsx',
+    '/language-storage\\.ts$': '<rootDir>/test/language-storage.ts',
     '^react-native($|/.*)': `${path.dirname(require.resolve('react-native/package.json'))}$1`,
     '^react($|/.*)': `${path.dirname(require.resolve('react/package.json'))}$1`,
     '^@react-native/virtualized-lists($|/.*)': `${path.dirname(nativeRequire.resolve('@react-native/virtualized-lists/package.json'))}$1`,

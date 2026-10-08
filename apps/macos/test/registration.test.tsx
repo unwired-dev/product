@@ -5,13 +5,10 @@ import type {
 } from '@private-email/mail-core/registration';
 import type { SyntheticAddress } from '@private-email/mail-core/testing/registration-session';
 
+import { english } from '@private-email/localization';
 import { createGmailInbox } from '@private-email/mail-core/gmail-inbox';
 import { createMailboxes } from '@private-email/mail-core/mailboxes';
-import {
-  accountRemovalCopy,
-  createRegistration,
-  revocationCopy,
-} from '@private-email/mail-core/registration';
+import { createRegistration } from '@private-email/mail-core/registration';
 import {
   createSyntheticGmail,
   syntheticConnections,
@@ -1352,8 +1349,8 @@ describe('product registration', () => {
     for (const name of [
       'Check for approval',
       'Unlock with Recovery Key',
-      accountRemovalCopy.signOut,
-      accountRemovalCopy.delete,
+      english('accountRemoval.signOut'),
+      english('accountRemoval.delete'),
     ]) {
       expect(screen.getByRole('button', { name })).toBeVisible();
     }
@@ -1702,26 +1699,31 @@ describe('product registration', () => {
       );
     });
     await expect(
-      screen.findByRole('header', { name: revocationCopy.title }),
+      screen.findByRole('header', { name: english('revocation.title') }),
     ).resolves.toBeVisible();
+    const added = new Intl.DateTimeFormat('en', { dateStyle: 'medium' }).format(
+      syntheticTrustedDevice.registeredAt,
+    );
     expect(
-      screen.getByText(
-        revocationCopy.added(syntheticTrustedDevice.registeredAt),
-      ),
+      screen.getByText(english('revocation.added', { date: added })),
     ).toBeVisible();
-    const remove = revocationCopy.remove(syntheticTrustedDevice.name);
+    const remove = english('revocation.remove', {
+      name: syntheticTrustedDevice.name,
+    });
     // The first press only explains what removal does and cannot do.
     await act(async () => {
       await fireEvent.press(screen.getByRole('button', { name: remove }));
     });
-    const confirmation = revocationCopy.confirm(syntheticTrustedDevice.name);
+    const confirmation = english('revocation.confirm', {
+      name: syntheticTrustedDevice.name,
+    });
     expect(screen.getByText(confirmation)).toBeVisible();
     expect(screen.getByText(confirmation)).toHaveTextContent(
       /cannot be erased remotely/u,
     );
     await act(async () => {
       await fireEvent.press(
-        screen.getByRole('button', { name: revocationCopy.cancel }),
+        screen.getByRole('button', { name: english('revocation.cancel') }),
       );
     });
     expect(screen.queryByText(confirmation)).toBeNull();
@@ -1733,7 +1735,7 @@ describe('product registration', () => {
       await fireEvent.press(screen.getByRole('button', { name: remove }));
     });
     await expect(
-      screen.findByText(revocationCopy.removed),
+      screen.findByText(english('revocation.removed')),
     ).resolves.toBeVisible();
     expect(screen.queryByText(syntheticTrustedDevice.name)).toBeNull();
     // The rotated keys come with a new Recovery Key, confirmed like the first one.
@@ -1806,7 +1808,7 @@ describe('product registration', () => {
       screen.queryByRole('button', { name: 'Authorize Gmail' }),
     ).toBeNull();
     // Leaving the Pending Device returns to Welcome.
-    const signOut = { name: accountRemovalCopy.signOut };
+    const signOut = { name: english('accountRemoval.signOut') };
     await act(async () => {
       await fireEvent.press(screen.getByRole('button', signOut));
     });
@@ -1838,7 +1840,7 @@ describe('product registration', () => {
       );
     });
     await expect(
-      screen.findByRole('header', { name: accountRemovalCopy.title }),
+      screen.findByRole('header', { name: english('accountRemoval.title') }),
     ).resolves.toBeVisible();
     await act(async () => {
       await fireEvent.changeText(
@@ -1852,21 +1854,25 @@ describe('product registration', () => {
       );
     });
     await openAccount();
-    const signOut = { name: accountRemovalCopy.signOut };
+    const signOut = { name: english('accountRemoval.signOut') };
     // The first press explains what sign-out removes; cancelling keeps the account.
     await act(async () => {
       await fireEvent.press(screen.getByRole('button', signOut));
     });
-    expect(screen.getByText(accountRemovalCopy.signOutConfirm)).toBeVisible();
     expect(
-      screen.queryByRole('button', { name: accountRemovalCopy.delete }),
+      screen.getByText(english('accountRemoval.signOutConfirm')),
+    ).toBeVisible();
+    expect(
+      screen.queryByRole('button', { name: english('accountRemoval.delete') }),
     ).toBeNull();
     await act(async () => {
       await fireEvent.press(
-        screen.getByRole('button', { name: accountRemovalCopy.cancel }),
+        screen.getByRole('button', { name: english('accountRemoval.cancel') }),
       );
     });
-    expect(screen.queryByText(accountRemovalCopy.signOutConfirm)).toBeNull();
+    expect(
+      screen.queryByText(english('accountRemoval.signOutConfirm')),
+    ).toBeNull();
     expect(screen.getByText('Signed in with Google.')).toBeVisible();
     await act(async () => {
       await fireEvent.press(screen.getByRole('button', signOut));
@@ -1885,13 +1891,13 @@ describe('product registration', () => {
     {
       removalPending: 'sign-out' as const,
       title: 'Finish signing out',
-      action: accountRemovalCopy.signOut,
+      action: english('accountRemoval.signOut'),
       result: 'Welcome to Unwired Mail',
     },
     {
       removalPending: 'deletion' as const,
       title: 'Confirm account deletion',
-      action: accountRemovalCopy.deletePermanently,
+      action: english('accountRemoval.deletePermanently'),
       result: 'Product Account deleted',
     },
   ])(
@@ -1933,7 +1939,9 @@ describe('product registration', () => {
         screen.queryByRole('button', { name: 'Sign in again with Google' }),
       ).toBeNull();
       expect(
-        screen.queryByRole('button', { name: accountRemovalCopy.cancel }),
+        screen.queryByRole('button', {
+          name: english('accountRemoval.cancel'),
+        }),
       ).toBeNull();
       await act(async () => {
         await fireEvent.press(
@@ -1972,16 +1980,20 @@ describe('product registration', () => {
     });
     await act(async () => {
       await fireEvent.press(
-        await screen.findByRole('button', { name: accountRemovalCopy.delete }),
+        await screen.findByRole('button', {
+          name: english('accountRemoval.delete'),
+        }),
       );
     });
-    expect(screen.getByText(accountRemovalCopy.deleteConfirm)).toBeVisible();
-    const permanently = { name: accountRemovalCopy.deletePermanently };
+    expect(
+      screen.getByText(english('accountRemoval.deleteConfirm')),
+    ).toBeVisible();
+    const permanently = { name: english('accountRemoval.deletePermanently') };
     await act(async () => {
       await fireEvent.press(screen.getByRole('button', permanently));
     });
     await expect(
-      screen.findByRole('alert', { name: accountRemovalCopy.deletion }),
+      screen.findByRole('alert', { name: english('accountRemoval.deletion') }),
     ).resolves.toBeVisible();
     expect(screen.getByText('Signed in with Google.')).toBeVisible();
     deletion = session.native.deleteProductAccount;

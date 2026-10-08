@@ -75,6 +75,8 @@ jobs:
         run: pnpm install --frozen-lockfile --strict-peer-dependencies
       - name: Check native runner failure handling
         run: pnpm test:native-runner
+      - name: Verify native language matching and preferences
+        run: node --test native/localization/test/native.test.mjs
       - name: Verify native encryption and credential removal
         # Simulator boot and the probe build vary from 5 to over 8 minutes on hosted runners.
         timeout-minutes: 14

@@ -159,14 +159,15 @@ const forwardsElsewhere = (address: ParsedAddress) =>
       );
     });
 
+// Each kind of caution, which the hosts describe in the person's language.
 export const linkWarnings = {
-  text: 'The link text shows a different address.',
-  insecure: 'The link text shows a secure address, but the link is not secure.',
-  international: 'The address uses characters that can imitate other letters.',
-  numeric: 'The address is a numeric IP address.',
-  credentials: 'The address contains a user name or password.',
-  direction: 'The address contains hidden text-direction characters.',
-  forwards: 'The address forwards to another site.',
+  text: 'text',
+  insecure: 'insecure',
+  international: 'international',
+  numeric: 'numeric',
+  credentials: 'credentials',
+  direction: 'direction',
+  forwards: 'forwards',
 } as const;
 
 // Reasons for caution about a link, given the text it was shown with. An empty list never means

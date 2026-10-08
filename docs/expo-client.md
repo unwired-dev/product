@@ -226,3 +226,10 @@ integration. Repository branch protection must select both journey checks,
 block merging. A failed build skips the journey jobs, and GitHub accepts skipped
 required checks, so requiring only the journeys would not enforce a successful
 build.
+
+## Interface language
+
+The Inbox, welcome and account pages offer System default and a saved English
+override. See
+[interface translations](localization.md) for catalogs, adding languages, native
+menu behavior, and language verification.
