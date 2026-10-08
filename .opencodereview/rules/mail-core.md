@@ -99,6 +99,15 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Product behavior the stores own
 
+- `semantic-document.ts.marksAt` reporting collapsed-caret marks that disagree
+  with `applyText`/`splice` insertion inheritance. Without an explicit typing
+  override, both hosts' toolbar visual/accessibility selection and inserted
+  characters must agree; their formatting callbacks must toggle that same state.
+  Check block starts, empty blocks, positions inside and after list markers,
+  mixed-mark boundaries and block ends, retaining an explicit empty override.
+  Otherwise formatting is announced as off while typing applies it, and pressing
+  the control enables the mark instead of disabling it.
+
 - `createDrafts.create` returning an identifier after its starting Product Account
   generation was invalidated. Fence the result as well as state publication,
   including sign-out/re-entry into the same account; hosts route from that result,

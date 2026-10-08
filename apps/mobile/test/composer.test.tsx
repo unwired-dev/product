@@ -1088,6 +1088,33 @@ describe('composing Drafts', () => {
       { text: 'aa', marks: ['bold'] },
       { text: 'ac' },
     ]);
+    // At a bold block start the control announces inherited typing marks, and disables them.
+    await fireEvent(body, 'selectionChange', {
+      nativeEvent: { selection: { start: 0, end: 0 } },
+    });
+    expect(screen.getByRole('button', { name: 'Bold' })).toHaveProp(
+      'accessibilityState',
+      { selected: true },
+    );
+    await press('Bold');
+    expect(screen.getByRole('button', { name: 'Bold' })).toHaveProp(
+      'accessibilityState',
+      { selected: false },
+    );
+    await fireEvent.changeText(body, 'Xaaac');
+    expect(draftsOf(drafts.getSnapshot())[0]?.body[0]?.spans).toStrictEqual([
+      { text: 'X' },
+      { text: 'aa', marks: ['bold'] },
+      { text: 'ac' },
+    ]);
+    // Moving back into marked text clears the explicit plain-typing override.
+    await fireEvent(body, 'selectionChange', {
+      nativeEvent: { selection: { start: 2, end: 2 } },
+    });
+    expect(screen.getByRole('button', { name: 'Bold' })).toHaveProp(
+      'accessibilityState',
+      { selected: true },
+    );
   });
 
   it('hides the Drafts heading while a search lists received mail alone', async () => {

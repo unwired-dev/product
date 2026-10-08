@@ -411,8 +411,12 @@ export function marksAt(document: SemanticDocument, selection: Selection) {
   const lines = linesOf(document);
   const ranges = covered(lines, selection);
   if (selection.start === selection.end) {
+    // The marks typed text takes there: the character before the caret, or at the start of a
+    // block the one after it, as insertion inherits them.
     const { line, column, marker } = locate(lines, selection.start);
-    return lines[line]?.chars[column - marker - 1]?.marks ?? [];
+    const chars = lines[line]?.chars ?? [];
+    const at = Math.max(0, column - marker);
+    return chars[at - 1]?.marks ?? chars[at]?.marks ?? [];
   }
   const chars = lines.flatMap(({ chars: all }, index) => {
     const [first, last] = ranges[index] ?? [0, 0];

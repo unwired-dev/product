@@ -11,13 +11,16 @@ import {
 import { mailboxesOf } from '../src/registration.ts';
 import {
   applyText,
+  BlockKindSchema,
   displayOf,
   emptyDocument,
   historyOf,
+  marksAt,
   plainText,
   record,
   redo,
   setBlockKind,
+  toggled,
   toggleMark,
   undo,
 } from '../src/semantic-document.ts';
@@ -143,6 +146,69 @@ describe('editing a Semantic Message Document', () => {
       'paragraph',
       'heading1',
     ]);
+  });
+
+  it('reports the marks typed text inherits at every caret, including block starts and list markers', () => {
+    expect.hasAssertions();
+    const bold = toggleMark(
+      typed(emptyDocument, 'Hi'),
+      { start: 0, end: 2 },
+      'bold',
+    );
+    // The Bold control shows what typing at the caret applies, so toggling it turns bold off.
+    expect(marksAt(bold, { start: 0, end: 0 })).toStrictEqual(['bold']);
+    const typedAtStart = applyText(bold, 'XHi').document;
+    expect(typedAtStart[0]?.spans).toStrictEqual([
+      { text: 'XHi', marks: ['bold'] },
+    ]);
+    const plain = applyText(bold, 'XHi', {
+      marks: toggled(marksAt(bold, { start: 0, end: 0 }), 'bold'),
+    });
+    expect(plain.document[0]?.spans).toStrictEqual([
+      { text: 'X' },
+      { text: 'Hi', marks: ['bold'] },
+    ]);
+
+    const document: SemanticDocument = [
+      { kind: 'paragraph', spans: [] },
+      ...BlockKindSchema.literals.flatMap((kind) => [
+        {
+          kind,
+          spans: [
+            { text: 'B', marks: ['bold'] as const },
+            { text: 'P' },
+            { text: 'I😀', marks: ['italic'] as const },
+          ],
+        },
+        { kind, spans: [] },
+      ]),
+      // Marker width changes at the tenth consecutive numbered item.
+      ...Array.from({ length: 11 }, () => ({
+        kind: 'numbered' as const,
+        spans: [{ text: 'N', marks: ['bold'] as const }],
+      })),
+    ];
+    const before = displayOf(document).text;
+    for (let at = 0; at <= before.length; at += 1) {
+      const selection = { start: at, end: at };
+      const marks = marksAt(document, selection);
+      const next = `${before.slice(0, at)}X${before.slice(at)}`;
+      const inserted = applyText(document, next, { selection }).document;
+      // Check the actual inserted character after marker normalization, not another caret lookup.
+      const insertedMarks = (edited: SemanticDocument) =>
+        edited.flatMap(({ spans }) =>
+          spans
+            .filter(({ text }) => text.includes('X'))
+            .map(({ marks = [] }) => marks),
+        );
+      expect(insertedMarks(inserted)).toStrictEqual([marks]);
+      const override = toggled(marks, 'bold');
+      expect(
+        insertedMarks(
+          applyText(document, next, { selection, marks: override }).document,
+        ),
+      ).toStrictEqual([override]);
+    }
   });
 
   it('undoes typing a word at a time and redoes it', () => {
