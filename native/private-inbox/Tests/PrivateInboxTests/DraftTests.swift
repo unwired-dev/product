@@ -314,6 +314,16 @@ extension DraftTests {
     let opened = try await store.openDrafts()
     #expect(opened["revision"] as? Int == 2)
     #expect(opened["document"] as? String == "removed")
+    // The leftover still takes Outgoing Content Store space until it is removed, so a save that
+    // would exceed the limit with it is refused.
+    let handle = try FileHandle(forWritingTo: folder.appendingPathComponent("cleanup01"))
+    try handle.truncate(atOffset: UInt64(PrivateInboxStore.outgoingContentLimit - 1_000))
+    try handle.close()
+    await #expect(throws: PrivateInboxError.unavailable) {
+      _ = try await store.commitDrafts(
+        owner: owner, expectedRevision: 2, document: String(repeating: "x", count: 2_000),
+        keep: [])
+    }
     try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: folder.path)
     _ = try await store.commitDrafts(
       owner: owner, expectedRevision: 2, document: "retried", keep: [])

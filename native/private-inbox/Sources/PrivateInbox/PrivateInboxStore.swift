@@ -287,8 +287,9 @@ public final class PrivateInboxStore: @unchecked Sendable {
         kept.contains($0.id) || Self.importedAssets.contains($0.id)
       }
       // The limit holds for the files written: escaping, the envelope and the AES-GCM nonce and
-      // tag, with the assets that stay.
-      guard plaintext.count + 28 + retained.reduce(0, { $0 + $1.size }) <= Self.outgoingContentLimit
+      // tag, with every asset file still on disk. Unkept files are removed only after the write,
+      // and one whose removal failed earlier still takes space until a later save removes it.
+      guard plaintext.count + 28 + assets.reduce(0, { $0 + $1.size }) <= Self.outgoingContentLimit
       else {
         throw PrivateInboxError.unavailable
       }
