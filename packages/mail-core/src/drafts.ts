@@ -1,3 +1,5 @@
+import type { Translate } from '@private-email/localization';
+
 import * as Arr from 'effect/Array';
 import * as Clock from 'effect/Clock';
 import * as Effect from 'effect/Effect';
@@ -134,34 +136,34 @@ export const recipientLabel = ({ name, address }: Recipient) =>
 
 // The recipients of a Draft by role, as its list row shows and announces them: a Bcc-only Draft
 // never reads as addressed To someone.
-export const recipientSummary = (draft: Draft, limit = 300) => {
+export const recipientSummary = (t: Translate, draft: Draft, limit = 300) => {
   let summary = '';
-  for (const [role, recipients] of [
-    ['To', draft.to],
-    ['Cc', draft.cc],
-    ['Bcc', draft.bcc],
-  ] as const) {
+  for (const field of ['to', 'cc', 'bcc'] as const) {
+    const recipients = draft[field];
+    let names = '';
+    let combined = summary;
     for (const [index, { name, address }] of recipients.entries()) {
-      const separator = summary === '' ? '' : ' · ';
-      summary += index === 0 ? `${separator}${role} ` : ', ';
-      summary += (name ?? address).slice(0, limit + 1);
+      names += `${index === 0 ? '' : ', '}${(name ?? address).slice(0, limit + 1)}`;
+      const group = t(`drafts.recipientGroups.${field}`, { recipients: names });
+      combined = summary === '' ? group : `${summary} · ${group}`;
       // A row shows one line: stop reading recipients once it is full.
-      if (summary.length > limit) {
-        return clip(summary, limit);
+      if (combined.length > limit) {
+        return clip(combined, limit);
       }
     }
+    summary = combined;
   }
-  return summary === '' ? 'No recipients' : summary;
+  return summary === '' ? t('drafts.noRecipients') : summary;
 };
 
 // Two extra code units distinguish a full prefix even when its end splits an emoji.
-export const draftSummary = (draft: Draft) => {
+export const draftSummary = (t: Translate, draft: Draft) => {
   const subject = clip(draft.subject);
-  const summary = recipientSummary(draft, 302);
+  const summary = recipientSummary(t, draft, 302);
   const recipients = clip(summary);
   const from = clip(draft.from);
   return {
-    subject: subject || 'No subject',
+    subject: subject || t('drafts.noSubject'),
     recipients,
     from,
     shortened:
@@ -248,11 +250,6 @@ export function addRecipients(
   };
 }
 
-export const recipientCopy: Record<RecipientNotice, string> = {
-  invalid: 'Enter a valid email address.',
-  duplicate: 'Already added',
-};
-
 // Sending identity ------------------------------------------------------------------------------
 
 // The Draft's sending connection on this device: usable, waiting for Gmail authorization, or
@@ -268,13 +265,6 @@ export const sendingStateOf = (
     return 'removed';
   }
   return connection.state === 'authorization' ? 'authorization' : 'available';
-};
-
-export const sendingCopy: Record<Exclude<SendingState, 'available'>, string> = {
-  authorization:
-    'This mailbox needs Gmail access again before it can send. Allow access or choose another mailbox.',
-  removed:
-    'This mailbox was removed from this account. Choose another mailbox to send from.',
 };
 
 // The connections a Draft may send from: every one whose Gmail access is usable on this device.

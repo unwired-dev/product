@@ -1,3 +1,5 @@
+import type { Translate } from '@private-email/localization';
+
 import * as Schema from 'effect/Schema';
 
 import type { GmailMessage } from './gmail-inbox.ts';
@@ -85,70 +87,38 @@ export const restoreAfter = (
         remove: action.add.filter((label) => !before.includes(label)),
       };
 
-const pastTense: Record<GmailAction['kind'], string> = {
-  read: 'Marked as read',
-  unread: 'Marked as unread',
-  star: 'Starred',
-  unstar: 'Star removed',
-  archive: 'Archived',
-  trash: 'Moved to Trash',
-  spam: 'Reported as spam',
-  label: 'Label added',
-  unlabel: 'Label removed',
-  move: 'Moved',
-  restore: 'Moved back to the Inbox',
-};
+// What the Inbox says about an organizing action's outcome; only unsaved changes are counted.
+export const gmailActionCopy = (
+  t: Translate,
+  {
+    kind,
+    action,
+    message,
+    count = 1,
+  }: Readonly<{
+    kind: 'done' | 'rejected' | 'unsaved' | 'blocked';
+    action: GmailAction;
+    message: Readonly<{ subject: string }>;
+    count?: number;
+  }>,
+) =>
+  kind === 'unsaved'
+    ? t('gmailActions.unsaved', {
+        context: action.kind,
+        subject: message.subject,
+        count,
+      })
+    : t(`gmailActions.${kind}`, {
+        context: action.kind,
+        subject: message.subject,
+      });
 
-const verb: Record<GmailAction['kind'], string> = {
-  read: 'mark as read',
-  unread: 'mark as unread',
-  star: 'star',
-  unstar: 'remove the star from',
-  archive: 'archive',
-  trash: 'move to Trash',
-  spam: 'report as spam',
-  label: 'label',
-  unlabel: 'remove a label from',
-  move: 'move',
-  restore: 'move back to the Inbox',
-};
-
-// What the Inbox says about the latest organizing action.
-export const gmailActionCopy = {
-  done: (action: GmailAction, subject: string) =>
-    `${pastTense[action.kind]}: “${subject}”.`,
-  rejected: (action: GmailAction, subject: string) =>
-    `Gmail could not ${verb[action.kind]} “${subject}”. The Inbox shows it as Gmail has it.`,
-  unsaved: (action: GmailAction, subject: string, count = 1) =>
-    count === 1
-      ? `The request to ${verb[action.kind]} “${subject}” could not be saved. Showing mail saved on this device. Try again to reconnect, then repeat the change.`
-      : `${count} changes could not be saved, including the request to ${verb[action.kind]} “${subject}”. Showing mail saved on this device. Try again to reconnect, then repeat the changes.`,
-  blocked: (action: GmailAction, subject: string) =>
-    `Gmail has not confirmed the request to ${verb[action.kind]} “${subject}” after five attempts. Retry it or discard it to continue.`,
-  pending: (count: number) =>
-    count === 1
-      ? 'One change is saved on this device and waits for Gmail.'
-      : `${count} changes are saved on this device and wait for Gmail.`,
-  savedOnly:
-    'Organizing mail waits until Gmail can be checked again. Try again to reconnect.',
-} as const;
-
-// Shared Gmail decisions; the hosts own only their controls and focus presentation.
-const actionLabel: Partial<Record<GmailAction['kind'], string>> = {
-  read: 'Mark as read',
-  unread: 'Mark as unread',
-  star: 'Star',
-  unstar: 'Remove star',
-  archive: 'Archive',
-  trash: 'Move to Trash',
-  spam: 'Report spam',
-};
 // A message whose Gmail labels are not known yet, from a cache saved before labels were kept,
 // offers no actions until it is listed again: Undo could not tell which labels it already had.
 export const canOrganize = (message: GmailMessage) =>
   message.labels !== undefined;
 
-export const quickActions = (message: GmailMessage) =>
+export const quickActions = (t: Translate, message: GmailMessage) =>
   (canOrganize(message)
     ? [
         message.unread ? gmailAction.read : gmailAction.unread,
@@ -162,6 +132,6 @@ export const quickActions = (message: GmailMessage) =>
     : []
   ).map((action) => ({
     name: action.kind,
-    label: actionLabel[action.kind] ?? action.kind,
+    label: t(`gmailActions.label.${action.kind}`),
     action,
   }));

@@ -346,6 +346,7 @@ final class InboxTests: XCTestCase {
 
   private func inboxJourney(_ app: XCUIApplication) {
     XCTAssertTrue(app.staticTexts["Inbox"].waitForExistence(timeout: 20))
+    verifyLanguagePreference(in: app)
     let maya = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Maya Chen"))
       .firstMatch
     XCTAssertTrue(maya.waitForExistence(timeout: 10))
@@ -390,4 +391,29 @@ final class InboxTests: XCTestCase {
     recovered.lifetime = .keepAlways
     add(recovered)
   }
+
+  private func verifyLanguagePreference(in app: XCUIApplication) {
+    let english = app.descendants(matching: .any)["language-en"]
+    XCTAssertTrue(english.waitForExistence(timeout: 10))
+    english.tap()
+    let checked = NSPredicate(format: "value CONTAINS 'checked' AND NOT value CONTAINS 'unchecked'")
+    XCTAssertEqual(
+      XCTWaiter.wait(
+        for: [XCTNSPredicateExpectation(predicate: checked, object: english)], timeout: 10),
+      .completed)
+    app.terminate()
+    app.launch()
+    XCTAssertTrue(english.waitForExistence(timeout: 20))
+    XCTAssertEqual(
+      XCTWaiter.wait(
+        for: [XCTNSPredicateExpectation(predicate: checked, object: english)], timeout: 10),
+      .completed)
+    let system = app.descendants(matching: .any)["language-system"]
+    system.tap()
+    XCTAssertEqual(
+      XCTWaiter.wait(
+        for: [XCTNSPredicateExpectation(predicate: checked, object: system)], timeout: 10),
+      .completed)
+  }
+
 }

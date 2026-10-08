@@ -373,26 +373,6 @@ export function searchMessages<L extends Listing>(
   });
 }
 
-// What search says, shared by both hosts.
-export const searchCopy = {
-  label: 'Search senders and subjects',
-  saved: 'Saved on this device',
-  download: 'Downloads from Gmail when opened',
-  empty: (query: string) => `No mail saved on this device matches “${query}”.`,
-  online: (query: string) => `Search Gmail for “${query}”`,
-  onlineHeading: 'From Gmail',
-  searching: 'Searching Gmail',
-  more: 'More from Gmail',
-  retry: 'Search Gmail again',
-  onlineEmpty: (query: string) => `Gmail found no mail matching “${query}”.`,
-  unavailable: {
-    offline:
-      'Gmail could not be reached. Mail saved on this device is still shown.',
-    authentication: 'Allow Gmail access again to search this mailbox.',
-    failed: 'Gmail search did not finish. Try again.',
-  },
-} as const;
-
 // A listed message whose store can report its cached bodies. Preview stores keep every body
 // with the metadata and need no separate lookup.
 type BodyResult = Readonly<{

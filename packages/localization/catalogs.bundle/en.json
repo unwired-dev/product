@@ -1,0 +1,474 @@
+{
+  "inbox": {
+    "title": "Inbox",
+    "heading": "{{title}}. {{subtitle}}",
+    "subtitle": "Preview mailbox",
+    "loading": "Loading Inbox",
+    "messages": "Inbox messages",
+    "empty": "Your inbox is clear.",
+    "footer": "Sample messages · Encrypted on this device",
+    "row": "{{sender}}. {{subject}}",
+    "unreadRow": "Unread. {{sender}}. {{subject}}",
+    "gmail": "Gmail",
+    "allInboxes": "All inboxes",
+    "account": "Account",
+    "footerGmail": "Gmail · Encrypted on this device",
+    "inMailbox": "In {{mailbox}}",
+    "about": "{{address}}: {{text}}",
+    "rowLabel": "{{row}}",
+    "rowLabel_mailbox": "{{row}}. In {{mailbox}}",
+    "rowLabel_status": "{{row}}. {{status}}",
+    "rowLabel_mailbox_status": "{{row}}. In {{mailbox}}. {{status}}"
+  },
+  "common": {
+    "retry": "Try again",
+    "cancel": "Cancel",
+    "allowGmail": "Allow Gmail access"
+  },
+  "storage": {
+    "locked": "Private storage is locked. Unlock your device and try again.",
+    "failed": "Private storage could not be opened or saved. Your stored data has been kept."
+  },
+  "message": {
+    "loading": "Loading message",
+    "unavailable": "Message unavailable",
+    "empty": "A little space for your mail",
+    "chooseAnother": "Choose another message from the Inbox.",
+    "select": "Select a message to start reading.",
+    "unavailableLabel": "Message unavailable. Choose another message from the Inbox.",
+    "markRead": "Mark as read",
+    "markUnread": "Mark as unread",
+    "received": "{{date}} UTC",
+    "labels": "Labels: {{labels}}"
+  },
+  "language": {
+    "title": "Language",
+    "system": "System default",
+    "saveFailed": "The language could not be saved. Try again."
+  },
+  "native": {
+    "app": "Unwired Mail",
+    "hide": "Hide Unwired Mail",
+    "quit": "Quit Unwired Mail",
+    "file": "File",
+    "newWindow": "New Window",
+    "closeWindow": "Close Window",
+    "edit": "Edit",
+    "copy": "Copy",
+    "selectAll": "Select All",
+    "window": "Window",
+    "showInbox": "Show Inbox",
+    "minimize": "Minimize",
+    "nextWindow": "Next Window",
+    "windowTitle": "Inbox {{number}}"
+  },
+  "providers": {
+    "google": "Google",
+    "apple": "Apple"
+  },
+  "registration": {
+    "welcome": {
+      "title": "Welcome to Unwired Mail",
+      "description": "Create your Product Account with Apple or Google, then choose whether to grant Gmail access."
+    },
+    "revoked": {
+      "title": "This device was removed",
+      "description": "One of your trusted devices removed this one from your Product Account, so its account data, keys and mailbox access were deleted from this device. Anything copied from it before then cannot be erased remotely. Your mail in Gmail is not affected."
+    },
+    "deleted": {
+      "title": "Product Account deleted",
+      "description": "This Product Account was permanently deleted, so its account data, keys and mailbox access were removed from this device. Anything copied from another device while it was offline cannot be erased remotely. Your mail in Gmail is not affected."
+    },
+    "account": "Signed in with {{provider}}.",
+    "accountWithEmail": "Signed in with {{provider}}. Contact email: {{email}}.",
+    "mailboxNeeded": {
+      "title": "Connect your Gmail",
+      "google": "Your Product Account is ready. Grant Gmail access to finish setup. You can use another Google account for your mailbox.",
+      "apple": "Your Product Account is ready. Signing in with Apple does not give access to mail. Authorize a Google account with Gmail to finish setup.",
+      "cancelled": "Gmail authorization was cancelled. Your Product Account is retained. Retry or choose another Google mailbox.",
+      "declined": "Gmail access was not granted. Your Product Account is retained. Retry or choose another Google mailbox.",
+      "gmail-unavailable": "Gmail is unavailable for this authorization. Your Product Account is retained. Retry or choose another Google mailbox.",
+      "interrupted": "Gmail authorization was interrupted. Your Product Account is retained. Retry to finish setup.",
+      "unavailable": "Your saved Product Account could not be verified. It is retained on this device. Retry when you are online, or sign in again with {{provider}}."
+    },
+    "devicePending": {
+      "title": "Add this device",
+      "approval": "Signing in does not add a device to your Product Account. Approve this device from one of your trusted devices with the code below, or unlock it with your Recovery Key. Until then this device cannot read your private data or connect a mailbox.",
+      "setup-pending": "Your Product Account is still being set up on the device that created it, so this device cannot ask to be added yet. Check again later. Until then this device cannot read your private data or connect a mailbox.",
+      "retry": "This device could not ask your trusted devices to approve it yet. Check again when you are online. Until then this device cannot read your private data or connect a mailbox."
+    },
+    "connected": {
+      "title": "Gmail connected",
+      "description_one": "{{addresses}} is connected on this device.",
+      "description_other": "{{addresses}} are connected on this device."
+    },
+    "cached": {
+      "title": "Saved Gmail Inbox",
+      "description": "{{addresses}} could not be verified. Mail saved on this device is available; try again when connected."
+    },
+    "removalPending": {
+      "sign-out": "Finish signing out",
+      "deletion": "Confirm account deletion"
+    },
+    "connecting": "Connecting",
+    "openInbox": "Open Inbox",
+    "setupFailed": "Setup could not finish. Try again to resume your saved setup.",
+    "signInWith": "Sign in with {{provider}}",
+    "signInAgain": "Sign in again with {{provider}}",
+    "signInInstead": "Sign in with {{provider}} instead",
+    "authorizeGmail": "Authorize Gmail",
+    "chooseMailbox": "Choose another Google mailbox"
+  },
+  "signInMethods": {
+    "linked": "Sign in with {{current}} or {{other}} to open this Product Account.",
+    "only": "Only {{current}} opens this Product Account. Linking {{other}} adds another way to sign in. First verify {{current}}, then sign in with {{other}}. It does not connect a mailbox.",
+    "title": "Sign-in methods",
+    "link": "Link {{provider}} sign-in"
+  },
+  "linkFailure": {
+    "identity-owned": "That {{provider}} sign-in already belongs to another Product Account. Accounts are never merged, so it was not linked.",
+    "stale-authentication": "Linking needs a recent sign-in with both providers. Try again to link {{provider}}.",
+    "failed": "{{provider}} could not be linked. Your Product Account is unchanged. Try again."
+  },
+  "locked": {
+    "title": "Unlock your device",
+    "description": "Unwired Mail cannot read this device's protected data while it is locked. Unlock your device to continue."
+  },
+  "accountRemoval": {
+    "title": "This device and your account",
+    "signOut": "Sign out of this device",
+    "signOutConfirm": "Signing out removes this device from your Product Account and deletes its account data, keys and mailbox access from this device. Save and confirm any Recovery Key shown first. Your other devices and your mail in Gmail are not affected. To use this device again, sign in and approve it from a trusted device or with your Recovery Key.",
+    "delete": "Delete Product Account",
+    "deleteConfirm": "Deleting your Product Account permanently removes it, its private data and its sign-ins from Unwired Mail. Other devices remove their local data when they reconnect; copies on offline or compromised devices cannot be erased remotely. It cannot be undone. Your mail stays in Gmail, and authorization you gave Google is not revoked. You sign in again to confirm.",
+    "deletePermanently": "Delete permanently",
+    "cancel": "Cancel",
+    "sign-out": "Sign-out could not be confirmed. Retry sign-out when you are online to finish removing this device and its local account data. Save and confirm any Recovery Key shown before signing out.",
+    "deletion-refused": "Your Product Account was not deleted, and nothing was removed. Try again and sign in with the Apple or Google account that opens it.",
+    "deletion": "Deletion could not be confirmed. Your Product Account may already be deleted. Retry deletion when you are online to confirm it and finish removing local account data."
+  },
+  "mailboxes": {
+    "title": "Gmail mailboxes",
+    "description": "Each mailbox keeps its own Gmail access and saved mail on this device. The Inbox shows them together or one at a time.",
+    "states": {
+      "connected": "Connected",
+      "cached": "Saved mail only until Gmail can be checked",
+      "authorization": "Gmail needs your permission again"
+    },
+    "add": "Add another Gmail mailbox",
+    "allow": "Allow Gmail access for {{address}}",
+    "remove": "Remove {{address}}",
+    "confirm": "Removing {{address}} deletes its Gmail access and the mail saved for it from this device, including changes still waiting for Gmail, and removes it from your other devices when they next connect. Your mail stays in Gmail.",
+    "cancel": "Cancel"
+  },
+  "privateSync": {
+    "setup-pending": {
+      "title": "Private sync",
+      "description": "Private sync setup has not finished. It continues the next time your Product Account is verified. Sign in again to finish it now."
+    },
+    "recovery-key": {
+      "title": "Save your Recovery Key",
+      "description": "Your product data is end-to-end encrypted. If you lose every trusted device, this Recovery Key is the only way to unlock it. Write it down and keep it somewhere safe. Unwired Mail cannot show it to anyone else or reset it."
+    },
+    "ready": {
+      "title": "Private sync is on",
+      "description": "Your product data is end-to-end encrypted. Only your trusted devices can read it."
+    },
+    "enrollment-needed": {
+      "title": "Unlock private data on this device",
+      "description": "This device no longer has the keys to your end-to-end encrypted data. Unlock it with your Recovery Key, or sign out and sign in again so one of your trusted devices can approve it. Nothing was reset or replaced."
+    },
+    "enrollment-pending": {
+      "title": "Approve this device",
+      "description": "This Product Account already has end-to-end encrypted data. Signing in does not unlock it. On one of your trusted devices, open Unwired Mail and enter this code to approve this device."
+    },
+    "unavailable": {
+      "title": "Private sync is unavailable",
+      "description": "Private sync data on this device could not be read, so private sync is paused here. Your sign-in and mailbox keep working, and nothing was reset or replaced."
+    },
+    "renewed": "The previous request expired or was declined, so this device shows a new code.",
+    "rejected": "The last approval could not be verified on this device, so nothing was unlocked. Approve it again with the new code.",
+    "mailboxes": "Encrypted mailbox list: {{mailboxes}}.",
+    "pending": "Your Gmail mailbox changes are still waiting to finish. Try again when connected, or sign in again to finish them.",
+    "withNotice": "{{description}} {{notice}}"
+  },
+  "recoveryKeyConfirmation": {
+    "prompt": "To confirm you saved it, enter the last four characters of your Recovery Key.",
+    "label": "Last four characters",
+    "confirm": "Confirm Recovery Key",
+    "mismatch": "That does not match the end of your Recovery Key. Check your written copy and try again.",
+    "failed": "Your Recovery Key could not be confirmed. Try again."
+  },
+  "recovery": {
+    "title": "Use your Recovery Key",
+    "description": "If none of your trusted devices is available, enter the Recovery Key you wrote down when you created your Product Account. It is checked on this device and never sent to Unwired Mail.",
+    "label": "Recovery Key",
+    "unlock": "Unlock with Recovery Key",
+    "rejected": "That Recovery Key does not unlock this Product Account. Check each character of your written copy and try again. Your encrypted product data is kept.",
+    "failed": "Recovery could not finish. Your encrypted product data is kept. Try again to resume.",
+    "lost": "If you have lost every trusted device and your Recovery Key, your encrypted product data cannot be recovered, and Unwired Mail cannot unlock it for you. Your mail in Gmail is not affected."
+  },
+  "enrollment": {
+    "check": "Check for approval",
+    "find": "Check for a new device",
+    "title": "Approve a new device",
+    "description": "Your {{device}} asked to unlock your private data. Approve it only if it is your device and shows a code. Enter that code here.",
+    "label": "Code from the new device",
+    "approve": "Approve device",
+    "decline": "Decline",
+    "code-invalid": "That code is not valid. Check the code shown on the new device and try again.",
+    "unavailable": "That request is no longer available. The new device shows a new code; check for it again.",
+    "failed": "The device could not be approved. Try again.",
+    "device": "device"
+  },
+  "revocation": {
+    "title": "Trusted devices",
+    "description": "These other devices can read your private data. Remove one you no longer use, or one that was lost or stolen.",
+    "added": "Added {{date}}",
+    "remove": "Remove {{name}}",
+    "confirm": "Removing {{name}} blocks it from your Product Account, push notifications and private sync right away, and your other devices switch to new keys. It deletes its account data the next time it connects, but anything it already holds while offline or compromised cannot be erased remotely. You sign in again to confirm, then save a new Recovery Key.",
+    "cancel": "Cancel",
+    "removed": "The device was removed. Save your new Recovery Key. Keep your previous key until all remaining devices have connected and switched to the new keys; until then, recovery still uses the previous key.",
+    "unconfirmed": "The device is removed, but this device has not confirmed new keys for it. If another of your devices removed it first, save the Recovery Key that device shows. Otherwise check again when you are online.",
+    "failed": "The device could not be removed. Try again."
+  },
+  "gmailSync": {
+    "syncing": "Checking Gmail…",
+    "authentication": "Gmail needs your permission again to show new mail.",
+    "retry": "Gmail could not be reached. Showing mail saved on this device."
+  },
+  "messageBody": {
+    "download": "This message is not saved on this device, and Gmail could not be reached to download it.",
+    "authentication": "Gmail needs your permission again to download this message.",
+    "missing": "This message is no longer in Gmail.",
+    "locked": "Private storage is locked. Unlock your device and try again.",
+    "failed": "This message could not be opened. Your saved mail has been kept.",
+    "empty": "This message has no text.",
+    "images": "Images in this message are not loaded.",
+    "confirmLink": "Open this link in your browser?",
+    "cautionLink": "Check this link before opening it:",
+    "openLink": "Open link",
+    "copyLink": "Copy link",
+    "proceed": "Proceed",
+    "linkLabel": "Open link: {{link}}",
+    "warning": "• {{warning}}",
+    "opening": "Opening message",
+    "message": "Message"
+  },
+  "attachment": {
+    "oversized": "Too large to download on this device.",
+    "download": "Gmail could not be reached to download this attachment.",
+    "authentication": "Gmail needs your permission again to download this attachment.",
+    "missing": "This attachment is no longer in Gmail.",
+    "locked": "Private storage is locked. Unlock your device and try again.",
+    "failed": "This attachment could not be saved on this device.",
+    "damaged": "Gmail sent an incomplete or damaged copy of this attachment.",
+    "bytes_one": "{{size}} byte",
+    "bytes_other": "{{size}} bytes",
+    "kilobytes": "{{size}} KB",
+    "megabytes": "{{size}} MB",
+    "downloading": "Downloading…",
+    "downloadLabel": "Download {{name}}",
+    "cancelLabel": "Cancel downloading {{name}}",
+    "open": "Open",
+    "openLabel": "Open {{name}}",
+    "share": "Share",
+    "shareLabel": "Share {{name}}",
+    "retryLabel": "Try downloading {{name}} again",
+    "count_one": "{{count}} attachment",
+    "count_other": "{{count}} attachments",
+    "more": "Show {{count}} more",
+    "moreLabel": "Show more attachments, {{count}} not shown",
+    "downloadAction": "Download"
+  },
+  "search": {
+    "label": "Search senders and subjects",
+    "saved": "Saved on this device",
+    "download": "Downloads from Gmail when opened",
+    "empty": "No mail saved on this device matches “{{query}}”.",
+    "online": "Search Gmail for “{{query}}”",
+    "onlineHeading": "From Gmail",
+    "searching": "Searching Gmail",
+    "more": "More from Gmail",
+    "retry": "Search Gmail again",
+    "onlineEmpty": "Gmail found no mail matching “{{query}}”.",
+    "unavailable": {
+      "offline": "Gmail could not be reached. Mail saved on this device is still shown.",
+      "authentication": "Allow Gmail access again to search this mailbox.",
+      "failed": "Gmail search did not finish. Try again."
+    }
+  },
+  "gmailActions": {
+    "label": {
+      "read": "Mark as read",
+      "unread": "Mark as unread",
+      "star": "Star",
+      "unstar": "Remove star",
+      "archive": "Archive",
+      "trash": "Move to Trash",
+      "spam": "Report spam"
+    },
+    "done_read": "Marked as read: “{{subject}}”.",
+    "rejected_read": "Gmail could not mark as read “{{subject}}”. The Inbox shows it as Gmail has it.",
+    "unsaved_read_one": "The request to mark as read “{{subject}}” could not be saved. Showing mail saved on this device. Try again to reconnect, then repeat the change.",
+    "unsaved_read_other": "{{count}} changes could not be saved, including the request to mark as read “{{subject}}”. Showing mail saved on this device. Try again to reconnect, then repeat the changes.",
+    "blocked_read": "Gmail has not confirmed the request to mark as read “{{subject}}” after five attempts. Retry it or discard it to continue.",
+    "done_unread": "Marked as unread: “{{subject}}”.",
+    "rejected_unread": "Gmail could not mark as unread “{{subject}}”. The Inbox shows it as Gmail has it.",
+    "unsaved_unread_one": "The request to mark as unread “{{subject}}” could not be saved. Showing mail saved on this device. Try again to reconnect, then repeat the change.",
+    "unsaved_unread_other": "{{count}} changes could not be saved, including the request to mark as unread “{{subject}}”. Showing mail saved on this device. Try again to reconnect, then repeat the changes.",
+    "blocked_unread": "Gmail has not confirmed the request to mark as unread “{{subject}}” after five attempts. Retry it or discard it to continue.",
+    "done_star": "Starred: “{{subject}}”.",
+    "rejected_star": "Gmail could not star “{{subject}}”. The Inbox shows it as Gmail has it.",
+    "unsaved_star_one": "The request to star “{{subject}}” could not be saved. Showing mail saved on this device. Try again to reconnect, then repeat the change.",
+    "unsaved_star_other": "{{count}} changes could not be saved, including the request to star “{{subject}}”. Showing mail saved on this device. Try again to reconnect, then repeat the changes.",
+    "blocked_star": "Gmail has not confirmed the request to star “{{subject}}” after five attempts. Retry it or discard it to continue.",
+    "done_unstar": "Star removed: “{{subject}}”.",
+    "rejected_unstar": "Gmail could not remove the star from “{{subject}}”. The Inbox shows it as Gmail has it.",
+    "unsaved_unstar_one": "The request to remove the star from “{{subject}}” could not be saved. Showing mail saved on this device. Try again to reconnect, then repeat the change.",
+    "unsaved_unstar_other": "{{count}} changes could not be saved, including the request to remove the star from “{{subject}}”. Showing mail saved on this device. Try again to reconnect, then repeat the changes.",
+    "blocked_unstar": "Gmail has not confirmed the request to remove the star from “{{subject}}” after five attempts. Retry it or discard it to continue.",
+    "done_archive": "Archived: “{{subject}}”.",
+    "rejected_archive": "Gmail could not archive “{{subject}}”. The Inbox shows it as Gmail has it.",
+    "unsaved_archive_one": "The request to archive “{{subject}}” could not be saved. Showing mail saved on this device. Try again to reconnect, then repeat the change.",
+    "unsaved_archive_other": "{{count}} changes could not be saved, including the request to archive “{{subject}}”. Showing mail saved on this device. Try again to reconnect, then repeat the changes.",
+    "blocked_archive": "Gmail has not confirmed the request to archive “{{subject}}” after five attempts. Retry it or discard it to continue.",
+    "done_trash": "Moved to Trash: “{{subject}}”.",
+    "rejected_trash": "Gmail could not move to Trash “{{subject}}”. The Inbox shows it as Gmail has it.",
+    "unsaved_trash_one": "The request to move to Trash “{{subject}}” could not be saved. Showing mail saved on this device. Try again to reconnect, then repeat the change.",
+    "unsaved_trash_other": "{{count}} changes could not be saved, including the request to move to Trash “{{subject}}”. Showing mail saved on this device. Try again to reconnect, then repeat the changes.",
+    "blocked_trash": "Gmail has not confirmed the request to move to Trash “{{subject}}” after five attempts. Retry it or discard it to continue.",
+    "done_spam": "Reported as spam: “{{subject}}”.",
+    "rejected_spam": "Gmail could not report as spam “{{subject}}”. The Inbox shows it as Gmail has it.",
+    "unsaved_spam_one": "The request to report as spam “{{subject}}” could not be saved. Showing mail saved on this device. Try again to reconnect, then repeat the change.",
+    "unsaved_spam_other": "{{count}} changes could not be saved, including the request to report as spam “{{subject}}”. Showing mail saved on this device. Try again to reconnect, then repeat the changes.",
+    "blocked_spam": "Gmail has not confirmed the request to report as spam “{{subject}}” after five attempts. Retry it or discard it to continue.",
+    "done_label": "Label added: “{{subject}}”.",
+    "rejected_label": "Gmail could not label “{{subject}}”. The Inbox shows it as Gmail has it.",
+    "unsaved_label_one": "The request to label “{{subject}}” could not be saved. Showing mail saved on this device. Try again to reconnect, then repeat the change.",
+    "unsaved_label_other": "{{count}} changes could not be saved, including the request to label “{{subject}}”. Showing mail saved on this device. Try again to reconnect, then repeat the changes.",
+    "blocked_label": "Gmail has not confirmed the request to label “{{subject}}” after five attempts. Retry it or discard it to continue.",
+    "done_unlabel": "Label removed: “{{subject}}”.",
+    "rejected_unlabel": "Gmail could not remove a label from “{{subject}}”. The Inbox shows it as Gmail has it.",
+    "unsaved_unlabel_one": "The request to remove a label from “{{subject}}” could not be saved. Showing mail saved on this device. Try again to reconnect, then repeat the change.",
+    "unsaved_unlabel_other": "{{count}} changes could not be saved, including the request to remove a label from “{{subject}}”. Showing mail saved on this device. Try again to reconnect, then repeat the changes.",
+    "blocked_unlabel": "Gmail has not confirmed the request to remove a label from “{{subject}}” after five attempts. Retry it or discard it to continue.",
+    "done_move": "Moved: “{{subject}}”.",
+    "rejected_move": "Gmail could not move “{{subject}}”. The Inbox shows it as Gmail has it.",
+    "unsaved_move_one": "The request to move “{{subject}}” could not be saved. Showing mail saved on this device. Try again to reconnect, then repeat the change.",
+    "unsaved_move_other": "{{count}} changes could not be saved, including the request to move “{{subject}}”. Showing mail saved on this device. Try again to reconnect, then repeat the changes.",
+    "blocked_move": "Gmail has not confirmed the request to move “{{subject}}” after five attempts. Retry it or discard it to continue.",
+    "done_restore": "Moved back to the Inbox: “{{subject}}”.",
+    "rejected_restore": "Gmail could not move back to the Inbox “{{subject}}”. The Inbox shows it as Gmail has it.",
+    "unsaved_restore_one": "The request to move back to the Inbox “{{subject}}” could not be saved. Showing mail saved on this device. Try again to reconnect, then repeat the change.",
+    "unsaved_restore_other": "{{count}} changes could not be saved, including the request to move back to the Inbox “{{subject}}”. Showing mail saved on this device. Try again to reconnect, then repeat the changes.",
+    "blocked_restore": "Gmail has not confirmed the request to move back to the Inbox “{{subject}}” after five attempts. Retry it or discard it to continue.",
+    "pending_one": "One change is saved on this device and waits for Gmail.",
+    "pending_other": "{{count}} changes are saved on this device and wait for Gmail.",
+    "savedOnly": "Organizing mail waits until Gmail can be checked again. Try again to reconnect.",
+    "labels": "Labels",
+    "hideLabels": "Hide labels",
+    "noLabels": "This Gmail mailbox has no labels of its own yet.",
+    "moveTo": "Move to {{label}}",
+    "undo": "Undo",
+    "saving": "Saving the change on this device…",
+    "retryChange": "Retry change",
+    "discardChange": "Discard change"
+  },
+  "linkWarnings": {
+    "text": "The link text shows a different address.",
+    "insecure": "The link text shows a secure address, but the link is not secure.",
+    "international": "The address uses characters that can imitate other letters.",
+    "numeric": "The address is a numeric IP address.",
+    "credentials": "The address contains a user name or password.",
+    "direction": "The address contains hidden text-direction characters.",
+    "forwards": "The address forwards to another site."
+  },
+  "drafts": {
+    "heading": "Drafts",
+    "newMessage": "New Message",
+    "saveDrafts": "Save Drafts",
+    "listLocked": "Drafts are locked. Unlock your device and try again.",
+    "listFailed": "Drafts could not be opened. They have been kept.",
+    "unavailable": "This Draft is not available.",
+    "loading": "Loading Draft",
+    "badge": "DRAFT",
+    "rowLabel": "Draft. {{subject}}. {{recipients}}. From {{from}}",
+    "rowLabelShortened": "Draft. {{subject}}. {{recipients}}. From {{from}}. Preview shortened.",
+    "from": "From {{from}}",
+    "fromLabel": "From",
+    "noSubject": "No subject",
+    "noRecipients": "No recipients",
+    "fields": {
+      "to": "To",
+      "cc": "Cc",
+      "bcc": "Bcc"
+    },
+    "recipientGroups": {
+      "to": "To {{recipients}}",
+      "cc": "Cc {{recipients}}",
+      "bcc": "Bcc {{recipients}}"
+    },
+    "cannotSend": "{{from}}, cannot send",
+    "cannotSendShortened": "{{from}}, address shortened, cannot send",
+    "sendFrom": "Send from {{address}}",
+    "sendFromShortened": "Send from {{address}}, address shortened",
+    "recipientLabel": "{{field}}: {{recipient}}",
+    "removeRecipient": "Removes this recipient",
+    "recipientPlaceholder": "Name or email address",
+    "recipient": {
+      "invalid": "Enter a valid email address.",
+      "duplicate": "Already added"
+    },
+    "sending": {
+      "authorization": "This mailbox needs Gmail access again before it can send. Allow access or choose another mailbox.",
+      "removed": "This mailbox was removed from this account. Choose another mailbox to send from."
+    },
+    "titleShortened": "{{title}}, subject shortened",
+    "close": "Close",
+    "undo": "Undo",
+    "redo": "Redo",
+    "discard": "Discard",
+    "discardDraft": "Discard Draft",
+    "keepEditing": "Keep Editing",
+    "status": "Draft · {{status}}",
+    "save": {
+      "saved": "Saved on this device",
+      "saving": "Saving…",
+      "failed": "Not saved. Your changes are kept here until saving succeeds.",
+      "locked": "Not saved while private storage is locked. Unlock your device."
+    },
+    "unsaved": {
+      "failed": "Draft changes are not saved yet. Keep the app open and try saving again.",
+      "locked": "Draft changes are not saved while private storage is locked. Unlock your device."
+    },
+    "discardBlocked": "This Draft could not be discarded, so it stays open. Try again.",
+    "saveBlocked": "This Draft could not be saved, so it stays open. Try again, or discard it.",
+    "invalidRecipients": "Correct or remove the invalid address to close this Draft.",
+    "discardConfirm": "Discard this Draft? It is deleted from this device.",
+    "showCcBcc": "Show Cc and Bcc",
+    "ccBcc": "Cc/Bcc",
+    "subject": "Subject",
+    "formatting": "Formatting",
+    "body": "Message body",
+    "bodyPlaceholder": "Message",
+    "marks": {
+      "bold": "Bold",
+      "italic": "Italic",
+      "underline": "Underline",
+      "strikethrough": "Strikethrough",
+      "code": "Inline code"
+    },
+    "blocks": {
+      "heading1": "Heading 1",
+      "heading2": "Heading 2",
+      "heading3": "Heading 3",
+      "bulleted": "Bulleted list",
+      "numbered": "Numbered list",
+      "quote": "Quote",
+      "code": "Code block"
+    },
+    "conflictBadge": "DRAFT · CONFLICT",
+    "conflictRowLabel": "Conflicting Draft. {{subject}}. {{recipients}}. From {{from}}",
+    "conflictRowLabelShortened": "Conflicting Draft. {{subject}}. {{recipients}}. From {{from}}. Preview shortened."
+  }
+}

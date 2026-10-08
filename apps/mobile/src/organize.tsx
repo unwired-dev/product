@@ -18,6 +18,7 @@ import {
   View,
 } from 'react-native';
 
+import { useLocalization } from './localization.ts';
 import { useInbox, useInboxActions } from './mailbox.tsx';
 import { usePalette } from './theme.ts';
 
@@ -94,6 +95,7 @@ export function MessageActions({
   const state = useInbox();
   const store = useInboxActions();
   const colors = usePalette();
+  const { t } = useLocalization();
   const [labeling, setLabeling] = useState(false);
   if (state.kind !== 'ready' || !('sync' in state) || !('organize' in store)) {
     return null;
@@ -105,7 +107,7 @@ export function MessageActions({
   if (!state.organize) {
     return (
       <Text style={[styles.secondary, { color: colors.secondary }]}>
-        {gmailActionCopy.savedOnly}
+        {t('gmailActions.savedOnly')}
       </Text>
     );
   }
@@ -119,7 +121,7 @@ export function MessageActions({
   return (
     <>
       <View style={styles.bar}>
-        {quickActions(message).map(({ name, label, action }) => (
+        {quickActions(t, message).map(({ name, label, action }) => (
           <ActionButton
             key={name}
             label={label}
@@ -129,7 +131,9 @@ export function MessageActions({
           />
         ))}
         <ActionButton
-          label={labeling ? 'Hide labels' : 'Labels'}
+          label={
+            labeling ? t('gmailActions.hideLabels') : t('gmailActions.labels')
+          }
           onPress={() => {
             setLabeling(!labeling);
           }}
@@ -139,7 +143,7 @@ export function MessageActions({
         <View style={styles.panel}>
           {state.labels.length === 0 ? (
             <Text style={[styles.secondary, { color: colors.secondary }]}>
-              This Gmail mailbox has no labels of its own yet.
+              {t('gmailActions.noLabels')}
             </Text>
           ) : null}
           {state.labels.map((label) => (
@@ -160,7 +164,7 @@ export function MessageActions({
                 />
               </View>
               <ActionButton
-                label={`Move to ${label.name}`}
+                label={t('gmailActions.moveTo', { label: label.name })}
                 onPress={() => {
                   act(gmailAction.move(label.id));
                 }}
@@ -180,6 +184,7 @@ export function OrganizeStatus() {
   const state = useInbox();
   const store = useInboxActions();
   const colors = usePalette();
+  const { t } = useLocalization();
   const notice =
     state.kind === 'ready' && 'notice' in state ? state.notice : undefined;
   // VoiceOver announces the outcome once, however many windows show it; the action that caused it
@@ -187,15 +192,9 @@ export function OrganizeStatus() {
   useEffect(() => {
     if (notice !== undefined && !announced.has(notice)) {
       announced.add(notice);
-      AccessibilityInfo.announceForAccessibility(
-        gmailActionCopy[notice.kind](
-          notice.action,
-          notice.message.subject,
-          notice.kind === 'unsaved' ? notice.count : undefined,
-        ),
-      );
+      AccessibilityInfo.announceForAccessibility(gmailActionCopy(t, notice));
     }
-  }, [notice]);
+  }, [notice, t]);
   if (state.kind !== 'ready' || !('sync' in state) || !('organize' in store)) {
     return null;
   }
@@ -213,17 +212,13 @@ export function OrganizeStatus() {
         <Text
           accessibilityRole={notice.kind === 'done' ? 'text' : 'alert'}
           style={[styles.secondary, { color: colors.foreground }]}>
-          {gmailActionCopy[notice.kind](
-            notice.action,
-            notice.message.subject,
-            notice.kind === 'unsaved' ? notice.count : undefined,
-          )}
+          {gmailActionCopy(t, notice)}
         </Text>
       )}
       {notice?.kind === 'done' && undo !== undefined ? (
         <View style={styles.bar}>
           <ActionButton
-            label="Undo"
+            label={t('gmailActions.undo')}
             onPress={() => {
               void store.organize(notice.message, undo);
             }}
@@ -234,7 +229,7 @@ export function OrganizeStatus() {
         <Text
           accessibilityRole="alert"
           style={[styles.secondary, { color: colors.secondary }]}>
-          Saving the change on this device…
+          {t('gmailActions.saving')}
         </Text>
       ) : null}
       {state.blockedAction === undefined ? null : (
@@ -242,20 +237,17 @@ export function OrganizeStatus() {
           <Text
             accessibilityRole="alert"
             style={[styles.secondary, { color: colors.secondary }]}>
-            {gmailActionCopy.blocked(
-              state.blockedAction.action,
-              state.blockedAction.message.subject,
-            )}
+            {gmailActionCopy(t, { ...state.blockedAction, kind: 'blocked' })}
           </Text>
           <View style={styles.bar}>
             <ActionButton
-              label="Retry change"
+              label={t('gmailActions.retryChange')}
               onPress={() => {
                 void store.resolvePending('retry', state.blockedAction?.id);
               }}
             />
             <ActionButton
-              label="Discard change"
+              label={t('gmailActions.discardChange')}
               onPress={() => {
                 void store.resolvePending('discard', state.blockedAction?.id);
               }}
@@ -265,7 +257,7 @@ export function OrganizeStatus() {
       )}
       {waiting ? (
         <Text style={[styles.secondary, { color: colors.secondary }]}>
-          {gmailActionCopy.pending(state.pending)}
+          {t('gmailActions.pending', { count: state.pending })}
         </Text>
       ) : null}
     </View>

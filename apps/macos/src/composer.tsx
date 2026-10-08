@@ -17,10 +17,8 @@ import {
   entryOf,
   draftsOf,
   isEmptyDraft,
-  recipientCopy,
   recipientLabel,
   draftSummary,
-  sendingCopy,
   sendingMailboxes,
   sendingStateOf,
 } from '@private-email/mail-core/drafts';
@@ -58,6 +56,7 @@ import {
   View,
 } from 'react-native';
 
+import { useLocalization } from './localization.ts';
 import {
   useComposerNavigation,
   useDrafts,
@@ -175,51 +174,38 @@ const markStyle = (marks: readonly Mark[] = []): TextStyle => {
   };
 };
 
+type MarkName = `drafts.marks.${Mark}`;
+type BlockName = `drafts.blocks.${Exclude<BlockKind, 'paragraph'>}`;
+
 const markControls: ReadonlyArray<
-  readonly [Mark, string, string, StyleProp<TextStyle>]
+  readonly [Mark, string, MarkName, StyleProp<TextStyle>]
 > = [
-  ['bold', 'B', 'Bold', { fontWeight: '700' }],
-  ['italic', 'I', 'Italic', { fontStyle: 'italic' }],
-  ['underline', 'U', 'Underline', { textDecorationLine: 'underline' }],
+  ['bold', 'B', 'drafts.marks.bold', { fontWeight: '700' }],
+  ['italic', 'I', 'drafts.marks.italic', { fontStyle: 'italic' }],
+  [
+    'underline',
+    'U',
+    'drafts.marks.underline',
+    { textDecorationLine: 'underline' },
+  ],
   [
     'strikethrough',
     'S',
-    'Strikethrough',
+    'drafts.marks.strikethrough',
     { textDecorationLine: 'line-through' },
   ],
-  ['code', '</>', 'Inline code', { fontFamily: 'Menlo' }],
+  ['code', '</>', 'drafts.marks.code', { fontFamily: 'Menlo' }],
 ];
 
-const blockControls: ReadonlyArray<readonly [BlockKind, string, string]> = [
-  ['heading1', 'H1', 'Heading 1'],
-  ['heading2', 'H2', 'Heading 2'],
-  ['heading3', 'H3', 'Heading 3'],
-  ['bulleted', '•', 'Bulleted list'],
-  ['numbered', '1.', 'Numbered list'],
-  ['quote', '❝', 'Quote'],
-  ['code', '{ }', 'Code block'],
+const blockControls: ReadonlyArray<readonly [BlockKind, string, BlockName]> = [
+  ['heading1', 'H1', 'drafts.blocks.heading1'],
+  ['heading2', 'H2', 'drafts.blocks.heading2'],
+  ['heading3', 'H3', 'drafts.blocks.heading3'],
+  ['bulleted', '•', 'drafts.blocks.bulleted'],
+  ['numbered', '1.', 'drafts.blocks.numbered'],
+  ['quote', '❝', 'drafts.blocks.quote'],
+  ['code', '{ }', 'drafts.blocks.code'],
 ];
-
-const saveCopy = {
-  saved: 'Saved on this device',
-  saving: 'Saving…',
-  failed: 'Not saved. Your changes are kept here until saving succeeds.',
-  locked: 'Not saved while private storage is locked. Unlock your device.',
-} as const;
-
-// Drafts with edits that storage does not hold yet, outside their composer.
-const unsavedCopy = {
-  failed:
-    'Draft changes are not saved yet. Keep the app open and try saving again.',
-  locked:
-    'Draft changes are not saved while private storage is locked. Unlock your device.',
-} as const;
-
-const fieldNames: Record<RecipientField, string> = {
-  to: 'To',
-  cc: 'Cc',
-  bcc: 'Bcc',
-};
 
 // React Native macOS exposes plain Text to accessibility only through an accessible parent.
 function Notice({
@@ -285,6 +271,15 @@ function Action({
   );
 }
 
+const rowLabel = (conflict: boolean, shortened: boolean) => {
+  if (conflict) {
+    return shortened
+      ? 'drafts.conflictRowLabelShortened'
+      : 'drafts.conflictRowLabel';
+  }
+  return shortened ? 'drafts.rowLabelShortened' : 'drafts.rowLabel';
+};
+
 // One Draft in the Inbox list, labelled apart from received mail.
 function DraftRowView({
   draft,
@@ -296,13 +291,18 @@ function DraftRowView({
   readonly onOpen: (id: string) => Promise<void>;
 }) {
   const colors = usePalette();
+  const { t } = useLocalization();
   // The sending mailbox stays visible whatever the body holds.
   const preview = previewOf(draft.body);
   // One line each: long metadata is cut before it is rendered or announced.
-  const { subject, recipients, from, shortened } = draftSummary(draft);
+  const { subject, recipients, from, shortened } = draftSummary(t, draft);
   return (
     <Pressable
-      accessibilityLabel={`${draft.conflict === true ? 'Conflicting Draft' : 'Draft'}. ${subject}. ${recipients}. From ${from}${shortened ? '. Preview shortened.' : ''}`}
+      accessibilityLabel={t(rowLabel(draft.conflict === true, shortened), {
+        subject,
+        recipients,
+        from,
+      })}
       accessibilityRole="button"
       accessibilityState={{ selected }}
       onPress={() => {
@@ -317,7 +317,9 @@ function DraftRowView({
       ]}>
       <View style={styles.rowTitle}>
         <Text style={[styles.badge, { color: colors.accent }]}>
-          {draft.conflict === true ? 'DRAFT · CONFLICT' : 'DRAFT'}
+          {draft.conflict === true
+            ? t('drafts.conflictBadge')
+            : t('drafts.badge')}
         </Text>
         <Text
           numberOfLines={1}
@@ -333,7 +335,7 @@ function DraftRowView({
       <Text
         numberOfLines={1}
         style={[styles.rowDetail, { color: colors.secondary }]}>
-        {`From ${from}`}
+        {t('drafts.from', { from })}
       </Text>
       {preview === '' ? null : (
         <Text
@@ -381,6 +383,7 @@ export function DraftList({
   const store = useDraftStore();
   const state = useDrafts();
   const colors = usePalette();
+  const { t } = useLocalization();
   const navigation = useComposerNavigation();
   const creating = useRef(false);
   const [creatingShown, setCreatingShown] = useState(false);
@@ -412,7 +415,7 @@ export function DraftList({
           disabled={
             state.kind !== 'ready' || sender === undefined || creatingShown
           }
-          label="New Message"
+          label={t('drafts.newMessage')}
           onPress={() => {
             if (sender !== undefined) {
               void compose(sender);
@@ -426,11 +429,11 @@ export function DraftList({
             alert
             style={[styles.notice, { color: colors.foreground }]}>
             {state.kind === 'locked'
-              ? 'Drafts are locked. Unlock your device and try again.'
-              : 'Drafts could not be opened. They have been kept.'}
+              ? t('drafts.listLocked')
+              : t('drafts.listFailed')}
           </Notice>
           <Action
-            label="Try again"
+            label={t('common.retry')}
             onPress={() => {
               void store.load();
             }}
@@ -443,10 +446,10 @@ export function DraftList({
           <Notice
             alert
             style={[styles.notice, { color: colors.foreground }]}>
-            {unsavedCopy[state.save]}
+            {t(`drafts.unsaved.${state.save}`)}
           </Notice>
           <Action
-            label="Save Drafts"
+            label={t('drafts.saveDrafts')}
             onPress={() => {
               void store.save();
             }}
@@ -456,10 +459,10 @@ export function DraftList({
       {drafts.length === 0 || searching ? null : (
         <View
           accessible
-          accessibilityLabel="Drafts"
+          accessibilityLabel={t('drafts.heading')}
           accessibilityRole="header">
           <Text style={[styles.section, { color: colors.secondary }]}>
-            Drafts
+            {t('drafts.heading')}
           </Text>
         </View>
       )}
@@ -476,18 +479,26 @@ function SendingMailbox({
 }) {
   const account = use(AccountContext);
   const colors = usePalette();
+  const { t } = useLocalization();
   const mailboxes = account?.mailboxes ?? [];
   const state = sendingStateOf(draft, mailboxes);
   const senders = sendingMailboxes(mailboxes);
   const from = clip(draft.from);
   return (
     <View style={styles.field}>
-      <Text style={[styles.label, { color: colors.secondary }]}>From</Text>
+      <Text style={[styles.label, { color: colors.secondary }]}>
+        {t('drafts.fromLabel')}
+      </Text>
       <View style={styles.bar}>
         {state === 'available' ? null : (
           <View
             accessible
-            accessibilityLabel={`${from}${from.length < draft.from.length ? ', address shortened' : ''}, cannot send`}
+            accessibilityLabel={t(
+              from.length < draft.from.length
+                ? 'drafts.cannotSendShortened'
+                : 'drafts.cannotSend',
+              { from },
+            )}
             style={[styles.choice, { borderColor: colors.separator }]}>
             <Text style={{ color: colors.secondary }}>{from}</Text>
           </View>
@@ -499,7 +510,12 @@ function SendingMailbox({
           return (
             <Pressable
               key={mailbox.id}
-              accessibilityLabel={`Send from ${address}${address.length < mailbox.address.length ? ', address shortened' : ''}`}
+              accessibilityLabel={t(
+                address.length < mailbox.address.length
+                  ? 'drafts.sendFromShortened'
+                  : 'drafts.sendFrom',
+                { address },
+              )}
               accessibilityRole="button"
               accessibilityState={{ selected }}
               onPress={() => {
@@ -521,7 +537,7 @@ function SendingMailbox({
         <Notice
           alert
           style={[styles.notice, { color: colors.foreground }]}>
-          {sendingCopy[state]}
+          {t(`drafts.sending.${state}`)}
         </Notice>
       )}
     </View>
@@ -543,10 +559,11 @@ function Recipients({
   readonly onCaretMove: () => void;
 }) {
   const colors = usePalette();
+  const { t } = useLocalization();
   const [notice, setNotice] = useState<RecipientNotice>();
   const selection = useRef<Selection>({ start: 0, end: 0 });
   const caret = useRef<number | undefined>(undefined);
-  const name = fieldNames[field];
+  const name = t(`drafts.fields.${field}`);
   const add = (value: string, all: boolean, typing = false) => {
     const current = getDraft();
     const result = addRecipients(current, { field, text: value, all });
@@ -566,8 +583,11 @@ function Recipients({
         {draft[field].map((recipient) => (
           <Pressable
             key={recipient.address}
-            accessibilityHint="Removes this recipient"
-            accessibilityLabel={`${name}: ${recipientLabel(recipient)}`}
+            accessibilityHint={t('drafts.removeRecipient')}
+            accessibilityLabel={t('drafts.recipientLabel', {
+              field: name,
+              recipient: recipientLabel(recipient),
+            })}
             accessibilityRole="button"
             onPress={() => {
               const current = getDraft();
@@ -618,7 +638,7 @@ function Recipients({
         onSubmitEditing={() => {
           add(entryOf(getDraft(), field), true);
         }}
-        placeholder="Name or email address"
+        placeholder={t('drafts.recipientPlaceholder')}
         placeholderTextColor={colors.secondary}
         returnKeyType="next"
         style={[styles.input, { color: colors.foreground }]}
@@ -627,7 +647,7 @@ function Recipients({
       />
       {notice === undefined ? null : (
         <Notice style={[styles.notice, { color: colors.foreground }]}>
-          {recipientCopy[notice]}
+          {t(`drafts.recipient.${notice}`)}
         </Notice>
       )}
     </View>
@@ -647,6 +667,7 @@ function Editor({
   const store = useDraftStore();
   const state = useDrafts();
   const colors = usePalette();
+  const { t } = useLocalization();
   const [history, setHistory] = useState(() => historyOf(initial));
   // The latest history, ahead of rendering, so consecutive events each build on the last one.
   const historyNow = useRef(history);
@@ -945,8 +966,11 @@ function Editor({
       }
     }
   };
-  const title = clip(draft.subject) || 'New Message';
-  const titleLabel = `${title}${title.length < draft.subject.length ? ', subject shortened' : ''}`;
+  const title = clip(draft.subject) || t('drafts.newMessage');
+  const titleLabel =
+    title.length < draft.subject.length
+      ? t('drafts.titleShortened', { title })
+      : title;
   const active = typing ?? marksAt(draft.body, selection);
   const kind = blockKindAt(draft.body, selection.start);
 
@@ -956,7 +980,7 @@ function Editor({
         <View style={styles.bar}>
           <Action
             disabled={closing === 'saving'}
-            label="Close"
+            label={t('drafts.close')}
             onPress={() => {
               void close();
             }}
@@ -977,28 +1001,28 @@ function Editor({
           </View>
           <Action
             disabled={history.past.length === 0}
-            label="Undo"
+            label={t('drafts.undo')}
             onPress={() => {
               travel(undo);
             }}
           />
           <Action
             disabled={history.future.length === 0}
-            label="Redo"
+            label={t('drafts.redo')}
             onPress={() => {
               travel(redo);
             }}
           />
           <Action
             destructive
-            label="Discard"
+            label={t('drafts.discard')}
             onPress={() => {
               setClosing('discard');
             }}
           />
         </View>
         <Notice style={[styles.status, { color: colors.secondary }]}>
-          {`Draft · ${saveCopy[save]}`}
+          {t('drafts.status', { status: t(`drafts.save.${save}`) })}
         </Notice>
         {closing === 'blocked' || closing === 'discard-blocked' ? (
           <View style={styles.bar}>
@@ -1006,11 +1030,11 @@ function Editor({
               alert
               style={[styles.notice, { color: colors.foreground }]}>
               {closing === 'discard-blocked'
-                ? 'This Draft could not be discarded, so it stays open. Try again.'
-                : 'This Draft could not be saved, so it stays open. Try again, or discard it.'}
+                ? t('drafts.discardBlocked')
+                : t('drafts.saveBlocked')}
             </Notice>
             <Action
-              label="Try again"
+              label={t('common.retry')}
               onPress={() => {
                 void (closing === 'discard-blocked' ? discard() : close());
               }}
@@ -1021,7 +1045,7 @@ function Editor({
           <Notice
             alert
             style={[styles.notice, { color: colors.foreground }]}>
-            Correct or remove the invalid address to close this Draft.
+            {t('drafts.invalidRecipients')}
           </Notice>
         ) : null}
         {closing === 'discard' ? (
@@ -1029,17 +1053,17 @@ function Editor({
             <Notice
               alert
               style={[styles.notice, { color: colors.foreground }]}>
-              Discard this Draft? It is deleted from this device.
+              {t('drafts.discardConfirm')}
             </Notice>
             <Action
               destructive
-              label="Discard Draft"
+              label={t('drafts.discardDraft')}
               onPress={() => {
                 void discard();
               }}
             />
             <Action
-              label="Keep Editing"
+              label={t('drafts.keepEditing')}
               onPress={() => {
                 setClosing(undefined);
               }}
@@ -1082,8 +1106,8 @@ function Editor({
           </>
         ) : (
           <Action
-            accessibilityLabel="Show Cc and Bcc"
-            label="Cc/Bcc"
+            accessibilityLabel={t('drafts.showCcBcc')}
+            label={t('drafts.ccBcc')}
             onPress={() => {
               change({ ...authored.current, copies: true });
             }}
@@ -1091,7 +1115,7 @@ function Editor({
         )}
         <View style={styles.field}>
           <TextInput
-            accessibilityLabel="Subject"
+            accessibilityLabel={t('drafts.subject')}
             onChangeText={(subject) => {
               const previous = authored.current.subject;
               subjectCaret.current =
@@ -1119,20 +1143,20 @@ function Editor({
               subjectCaret.current = undefined;
               subjectSelection.current = next;
             }}
-            placeholder="Subject"
+            placeholder={t('drafts.subject')}
             placeholderTextColor={colors.secondary}
             style={[styles.input, { color: colors.foreground }]}
             value={draft.subject}
           />
         </View>
         <View
-          accessibilityLabel="Formatting"
+          accessibilityLabel={t('drafts.formatting')}
           accessibilityRole="toolbar"
           style={styles.bar}>
           {markControls.map(([mark, label, name, style]) => (
             <Pressable
               key={mark}
-              accessibilityLabel={name}
+              accessibilityLabel={t(name)}
               accessibilityRole="button"
               accessibilityState={{ selected: active.includes(mark) }}
               onPress={() => {
@@ -1152,7 +1176,7 @@ function Editor({
           {blockControls.map(([value, label, name]) => (
             <Pressable
               key={value}
-              accessibilityLabel={name}
+              accessibilityLabel={t(name)}
               accessibilityRole="button"
               accessibilityState={{ selected: kind === value }}
               onPress={() => {
@@ -1170,7 +1194,7 @@ function Editor({
           ))}
         </View>
         <TextInput
-          accessibilityLabel="Message body"
+          accessibilityLabel={t('drafts.body')}
           keyDownEvents={shortcuts}
           multiline
           onChangeText={edit}
@@ -1187,7 +1211,7 @@ function Editor({
             selectionNow.current = next;
             setSelection(next);
           }}
-          placeholder="Message"
+          placeholder={t('drafts.bodyPlaceholder')}
           placeholderTextColor={colors.secondary}
           scrollEnabled={false}
           selection={placed}
@@ -1233,6 +1257,7 @@ export function Composer({
   const state = useDrafts();
   const store = useDraftStore();
   const colors = usePalette();
+  const { t } = useLocalization();
   // The editor stays mounted when it moves to its own copy, and remounts for another Draft.
   const [editor, setEditor] = useState({ key: id, followed: id });
   if (editor.followed !== id) {
@@ -1261,24 +1286,24 @@ export function Composer({
     <View style={[styles.fill, { backgroundColor: colors.background }]}>
       <View style={styles.content}>
         {waiting ? (
-          <ActivityIndicator accessibilityLabel="Loading Draft" />
+          <ActivityIndicator accessibilityLabel={t('drafts.loading')} />
         ) : (
           <>
             <Notice style={[styles.actionText, { color: colors.foreground }]}>
               {state.kind === 'locked'
-                ? 'Drafts are locked. Unlock your device and try again.'
-                : 'This Draft is not available.'}
+                ? t('drafts.listLocked')
+                : t('drafts.unavailable')}
             </Notice>
             {state.kind === 'locked' || state.kind === 'failed' ? (
               <Action
-                label="Try again"
+                label={t('common.retry')}
                 onPress={() => {
                   void store.load();
                 }}
               />
             ) : null}
             <Action
-              label="Close"
+              label={t('drafts.close')}
               onPress={onClose}
             />
           </>
