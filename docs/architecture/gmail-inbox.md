@@ -320,9 +320,13 @@ Gmail slice of [ADR 0030](../adr/0030-gate-incoming-attachment-downloads.md).
 request, excluding readable parts, resolved inline images and all attached-message
 subtrees. Any Gmail MIME type or Content-Type header token declaring
 `message/rfc822` excludes that part, even when repeated headers disagree.
-Containers with ambiguous media-type tokens are opaque, matching body/CID
-traversal; ordinary non-message leaves retain explicit download with a neutral
-`application/octet-stream` descriptor when their type tokens disagree.
+Attachment traversal requires a non-empty, agreeing media type across every
+present declaration, including Gmail's `mimeType` and all Content-Type header
+tokens. Case, header comments and header parameters do not affect that comparison;
+Gmail-only and header-only containers remain eligible. This is stricter than
+body/CID traversal's header-first type selection. Ordinary non-message leaves
+retain explicit download with a neutral `application/octet-stream` descriptor when
+their repeated Content-Type tokens disagree.
 A download rereads the owning message and revalidates the part selector,
 name, MIME type and size. Only the verified connection and generation can save it;
 bytes never enter the encrypted body cache or Product Sync.

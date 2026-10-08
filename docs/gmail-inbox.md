@@ -756,9 +756,10 @@ attachment descriptors.
   open; offline, that body shows no list. Attachments are named or
   attachment-disposition parts outside the readable body. Inline Images the body
   resolves are not listed. Attached messages and their contents are not offered for
-  download, even when their type declarations conflict. Containers with conflicting
-  Content-Type tokens are not searched for attachments. An ordinary file whose type
-  tokens conflict remains available as a generic file. Rows appear 20 at a time,
+  download, even when their type declarations conflict. Containers are searched only
+  when their declared media types are non-empty and agree, including Gmail's type
+  and every Content-Type header when present. An ordinary file whose Content-Type
+  header tokens conflict remains available as a generic file. Rows appear 20 at a time,
   with **Show N more** for the rest, so a message with thousands of parts stays usable.
 - **Names.** Names drop path separators, control and direction-override characters
   and leading dots, and are shortened to 120 characters and 255 UTF-8 bytes.

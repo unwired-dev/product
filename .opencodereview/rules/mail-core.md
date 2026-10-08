@@ -112,9 +112,12 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 - `message-body.ts.attachmentLeaves` identifying attached messages only through
   the consensus media type. Any Gmail `mimeType` or Content-Type header token
   declaring `message/rfc822` must exclude the part and its descendants, even when
-  other declarations conflict. Keep contradictory containers opaque during both
-  descriptor listing and download revalidation; ordinary non-message leaves may
-  retain the neutral file type. Otherwise ambiguous metadata exposes an attached
+  other declarations conflict. Container traversal must compare Gmail's type with
+  every Content-Type header token; header-first `mimeType()` consensus alone misses
+  disagreement with Gmail, even with only one header. Keep containers with empty
+  or contradictory declarations opaque during both descriptor listing and download revalidation;
+  accept case differences, header parameters and a sole non-empty type source.
+  Ordinary non-message leaves may retain the neutral file type. Otherwise ambiguous metadata exposes an attached
   message's contents as downloadable files of the outer message.
 - `createGmailInbox.prepareReaders` replacing attachment descriptors while retaining
   download state by message ID and positional locator alone. Reconcile derived

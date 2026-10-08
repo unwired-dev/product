@@ -443,6 +443,17 @@ export const safeFilename = (name: string) => {
   );
 };
 
+// Gmail's type and every Content-Type header name the same media type.
+const consistentType = (part: GmailPart) => {
+  const types = [
+    ...(part.mimeType === undefined ? [] : [part.mimeType.toLowerCase()]),
+    ...headerValues(part, 'content-type').map(headerToken),
+  ];
+  return (
+    types.length > 0 && types.every((type) => type !== '' && type === types[0])
+  );
+};
+
 const attachedMessage = (part: GmailPart) =>
   part.mimeType?.toLowerCase() === 'message/rfc822' ||
   headerValues(part, 'content-type')
@@ -457,7 +468,7 @@ const attachmentLeaves = (
   const children = part.parts ?? [];
   // Attached messages, however any of their type declarations names them, and containers whose
   // declarations contradict each other are never searched for attachments.
-  if (attachedMessage(part) || (children.length > 0 && mimeType(part) === '')) {
+  if (attachedMessage(part) || (children.length > 0 && !consistentType(part))) {
     return [];
   }
   return children.length === 0

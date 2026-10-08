@@ -545,6 +545,12 @@ describe('received attachments', () => {
           ],
           parts: [file('inside-container.pdf')],
         },
+        // Gmail's type disagrees with the only Content-Type header.
+        {
+          mimeType: 'application/octet-stream',
+          headers: [{ name: 'Content-Type', value: 'multipart/mixed' }],
+          parts: [file('inside-ambiguous.pdf')],
+        },
         file('outer.pdf'),
         // A named message leaf stays excluded even when its headers disagree.
         {
@@ -571,6 +577,28 @@ describe('received attachments', () => {
             { name: 'Content-Type', value: 'text/plain' },
           ],
         },
+        // Case, comments and parameters do not contradict the media type.
+        {
+          mimeType: 'MULTIPART/MIXED',
+          headers: [
+            {
+              name: 'cOnTeNt-TyPe',
+              value: '(mail) Multipart/Mixed; boundary="synthetic"',
+            },
+          ],
+          parts: [file('consistent.pdf')],
+        },
+        // A container needs only one source of a non-empty media type.
+        {
+          headers: [{ name: 'Content-Type', value: 'multipart/mixed' }],
+          parts: [file('header-only.pdf')],
+        },
+        // A present but empty Gmail type is not an absent declaration.
+        {
+          mimeType: '',
+          headers: [{ name: 'Content-Type', value: 'multipart/mixed' }],
+          parts: [file('empty-type.pdf')],
+        },
       ],
     };
     expect(
@@ -581,6 +609,8 @@ describe('received attachments', () => {
     ).toStrictEqual([
       { name: 'outer.pdf', mimeType: 'application/pdf' },
       { name: 'ambiguous.pdf', mimeType: 'application/octet-stream' },
+      { name: 'consistent.pdf', mimeType: 'application/pdf' },
+      { name: 'header-only.pdf', mimeType: 'application/pdf' },
     ]);
   });
 
