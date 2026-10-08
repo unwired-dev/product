@@ -848,6 +848,10 @@ export function createDrafts(
       let copy: string | undefined = undefined;
       return change(
         (drafts, { now }) => {
+          // An editor that changed nothing writes nothing, even where the stored Draft moved on.
+          if (previous !== undefined && sameContent(draft, previous)) {
+            return drafts;
+          }
           // Decide against the same snapshot this edit changes, before notifying any editor.
           const current = drafts.find((each) => each.id === draft.id);
           // An edit arriving after its Draft was deleted keeps any authored content as a copy.

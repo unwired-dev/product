@@ -118,6 +118,13 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   latest-only Drafts, edit-versus-deletion conflicts and owner-checked CAS recovery;
   retain conflicting authored versions as visible copies. Otherwise an ordinary
   autosave silently erases another completed edit or an independently created Draft.
+- `createDrafts.update` forking an editor payload that is unchanged from its
+  supplied `previous` merely because another editor or storage writer moved on.
+  Leave that list unchanged while still flushing prior dirty work; otherwise
+  Close or a repeated native callback materializes stale content as a conflict.
+  Compare the immediate authored baseline, including ID, unfinished recipients
+  and `conflict` (ignore only edit time), so rebinds, recipient completion,
+  discard-failure restore and Undo/Redo returning to older content still save.
 - `rebaseDrafts` scanning each complete snapshot again for every Draft identifier.
   Index each snapshot once while keeping the same identifier/content semantics;
   otherwise a large admitted Draft document makes conflict recovery quadratic

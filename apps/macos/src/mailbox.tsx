@@ -1,6 +1,7 @@
 import type { Drafts } from '@private-email/mail-core/drafts';
 import type { ReactNode } from 'react';
 
+import { createComposerNavigation } from '@private-email/mail-core/composer-navigation';
 import {
   createGmailSearch,
   savedMessageBodies,
@@ -30,38 +31,6 @@ const DraftsContext = createContext<Drafts>(defaultDrafts);
 // The mailbox a reader or status belongs to.
 const MailboxContext = createContext<InboxMailbox | undefined>(undefined);
 
-interface ComposerNavigation {
-  readonly register: (finish: () => Promise<boolean>) => () => void;
-  readonly leave: () => Promise<boolean>;
-}
-function createComposerNavigation(): ComposerNavigation {
-  let finish: (() => Promise<boolean>) | undefined = undefined;
-  let pending = false;
-  return {
-    register: (next) => {
-      finish = next;
-      return () => {
-        if (finish === next) {
-          finish = undefined;
-        }
-      };
-    },
-    leave: async () => {
-      if (pending) {
-        return false;
-      }
-      pending = true;
-      try {
-        return (await finish?.()) ?? true;
-      } catch {
-        // A composer that failed to finish stays open; a later attempt can leave again.
-        return false;
-      } finally {
-        pending = false;
-      }
-    },
-  };
-}
 const ComposerNavigationContext = createContext(createComposerNavigation());
 export function useComposerNavigation() {
   return use(ComposerNavigationContext);

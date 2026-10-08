@@ -770,6 +770,30 @@ describe('storing Drafts', () => {
     );
   });
 
+  it('writes nothing for an editor that changed nothing while another editor or store moved on', async () => {
+    expect.hasAssertions();
+    const session = account(connected('account-a'));
+    const storage = createSyntheticDrafts(session.productAccount);
+    const first = createDrafts(storage.native, session.registration);
+    await first.load();
+    const id = present(await first.create(alex), 'Draft');
+    const second = createDrafts(storage.native, session.registration);
+    await second.load();
+    const before = present(draftOf(second.getSnapshot(), id), 'shared Draft');
+    await first.update({ ...before, subject: 'Other store' }, before);
+    const revision = storage.stored()?.revision;
+    // Equal content, even in a fresh payload with a different edit time, is not an edit.
+    for (const editor of [first, second]) {
+      await expect(
+        editor.update({ ...before, updatedAt: before.updatedAt + 1 }, before),
+      ).resolves.toBe(true);
+      expect(storage.stored()?.revision).toBe(revision);
+      expect(
+        ready(editor.getSnapshot()).drafts.map(({ id: each }) => each),
+      ).toStrictEqual([id]);
+    }
+  });
+
   it('discards the rebound copy when an edit arrives during a stale deletion', async () => {
     expect.hasAssertions();
     const session = account(connected('account-a'));

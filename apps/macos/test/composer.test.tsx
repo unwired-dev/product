@@ -1382,5 +1382,28 @@ describe('composing Drafts', () => {
       expect(screen.getByLabelText('To')).toHaveDisplayValue('unfinished');
     },
   );
+
+  it('keeps a composer open when saving it on Close fails unexpectedly', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const base = createDrafts(storage.native, registration);
+    await render(
+      <App
+        drafts={{ ...base, save: failingOnce(base.save) }}
+        registration={registration}
+      />,
+    );
+    await press('New Message');
+    await fireEvent.changeText(await screen.findByLabelText('Subject'), 'Kept');
+    await press('Close');
+    expect(
+      screen.getByText(
+        'This Draft could not be saved, so it stays open. Try again, or discard it.',
+      ),
+    ).toBeOnTheScreen();
+    await press('Close');
+    expect(screen.queryByLabelText('Subject')).not.toBeOnTheScreen();
+  });
   /* oxlint-enable vitest/max-expects */
 });

@@ -81,6 +81,9 @@ Independent edits and newly created Drafts survive, and concurrent versions of
 one Draft become visible conflict copies. Each editor supplies its prior content
 so simultaneous Mac windows cannot silently overwrite completed edits inside the
 shared store. Discard publishes removal only after durable storage completion.
+An update equal to its editor's immediate prior content leaves the list alone,
+while still flushing earlier dirty work. Equality includes identity, conflict
+metadata and unfinished recipients and ignores only `updatedAt`.
 Automatic empty-Draft disposal checks current content under that same serialized
 operation, so a stale empty editor cannot delete another window's completed work.
 

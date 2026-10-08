@@ -58,6 +58,8 @@ Every edit is saved as it happens, in order: an edit made while an earlier one i
 being written is saved after it, never dropped. The composer shows **Saved on this
 device**, **Saving…** or why the latest edit is not saved. Unsaved edits stay in
 the composer and are saved by the next edit or **Try again**.
+An editor whose content is unchanged creates no conflict copy when another editor
+has saved newer content; any earlier unsaved work still finishes saving.
 
 Conflicting edits from separate Mac windows or storage writers are preserved as
 separate Drafts labelled **DRAFT · CONFLICT**. Independent Drafts survive a

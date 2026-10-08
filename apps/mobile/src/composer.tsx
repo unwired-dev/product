@@ -809,17 +809,15 @@ function Editor({
       return false;
     }
     setClosing('saving');
-    if (isEmptyDraft(finished)) {
-      if (
-        await store.discard(() => authored.current.id, { onlyIfEmpty: true })
-      ) {
-        onClose();
-        return true;
-      }
-      setClosing('blocked');
-      return false;
+    let closed = false;
+    try {
+      closed = isEmptyDraft(finished)
+        ? await store.discard(() => authored.current.id, { onlyIfEmpty: true })
+        : await store.save();
+    } catch {
+      // An unexpected storage rejection keeps the composer open and retryable too.
     }
-    if (await store.save()) {
+    if (closed) {
       onClose();
       return true;
     }

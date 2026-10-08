@@ -13,6 +13,13 @@ A host owns views and native adapters. It renders shared stores from `@private-e
 
 #### React correctness
 
+- `Editor.close` catching failure only through `createComposerNavigation.leave`.
+  The Close button also calls it directly as `void close()`: catch unexpected
+  rejection from both `save` and empty-only `discard`, keep the editor open,
+  settle its Saving state to retryable blocked feedback, and resolve false.
+  Otherwise direct Close leaves an unhandled rejection and a disabled button,
+  while guarded navigation refuses silently with the same stuck editor.
+
 - `DraftList.compose` guarding only `useLeaveComposer.leave` rather than the
   whole New Message action. Acquire its event-facing latch before awaiting
   leaving, hold it through `store.create`, and keep the visible button disabled
