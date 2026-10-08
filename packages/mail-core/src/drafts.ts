@@ -265,11 +265,15 @@ const rebaseDrafts = Effect.fnUntraced(function* (
 ) {
   const merged: Draft[] = [];
   const moved: Array<Readonly<{ from: string; to: string }>> = [];
+  // Indexed once, so a rebase stays linear in the number of Drafts.
+  const indexed = (drafts: readonly Draft[]) =>
+    new Map(drafts.map((draft) => [draft.id, draft]));
+  const [baseById, localById, latestById] = [base, local, latest].map(indexed);
   const ids = new Set([...base, ...local, ...latest].map(({ id }) => id));
   for (const id of ids) {
-    const before = base.find((draft) => draft.id === id);
-    const ours = local.find((draft) => draft.id === id);
-    const theirs = latest.find((draft) => draft.id === id);
+    const before = baseById?.get(id);
+    const ours = localById?.get(id);
+    const theirs = latestById?.get(id);
     // Only one side changed it: that side wins. Otherwise an edit racing another edit or a
     // deletion retains every authored version.
     const oursOnly = sameContent(before, theirs) || sameContent(ours, theirs);
@@ -672,7 +676,12 @@ export function createDrafts(
   });
 
   // Keep a Draft visible until its deletion is durable, so a refused discard can be retried.
-  const removing = (id: string, current: number, onlyIfEmpty: boolean) =>
+  // `target` names the Draft when deletion runs, after earlier saves that may move its editor.
+  const removing = (
+    target: () => string,
+    current: number,
+    onlyIfEmpty: boolean,
+  ) =>
     guarded(
       current,
       Effect.gen(function* () {
@@ -684,6 +693,7 @@ export function createDrafts(
         if (!live(current) || state.kind !== 'ready') {
           return false;
         }
+        const id = target();
         const deleting = state.drafts.find((draft) => draft.id === id);
         // Closing an untouched window cannot delete content completed in another window.
         if (onlyIfEmpty && deleting !== undefined && !isEmptyDraft(deleting)) {
@@ -798,8 +808,15 @@ export function createDrafts(
         },
       );
     },
-    discard: (id: string, { onlyIfEmpty = false } = {}) =>
-      runLogged(removing(id, generation, onlyIfEmpty)),
+    // Deletes the Draft named by `target`, which a function resolves once earlier saves land.
+    discard: (target: string | (() => string), { onlyIfEmpty = false } = {}) =>
+      runLogged(
+        removing(
+          typeof target === 'string' ? () => target : target,
+          generation,
+          onlyIfEmpty,
+        ),
+      ),
   };
 }
 

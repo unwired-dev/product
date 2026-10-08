@@ -13,6 +13,15 @@ A host owns views and native adapters. It renders shared stores from `@private-e
 
 #### React correctness
 
+- `Editor` computing repeated commands such as Undo/Redo from render-captured
+  history. Native and keyboard callbacks can run more than once before React
+  commits: advance from the latest history synchronously for each accepted
+  command, and save that same present payload. Keep all history writes on that
+  path, including rebinds, typing breaks, Markdown markers and Close. Do not
+  mutate refs or save inside a React updater that StrictMode may replay;
+  otherwise commands collapse to one step or persisted content diverges from
+  the displayed history.
+
 - `Editor` retaining its old Draft identity after conflict preservation. Follow
   the authored version through in-process forks, storage rebases and edits racing
   deletion; its route/window selection, past/present/future history, continued

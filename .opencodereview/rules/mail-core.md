@@ -104,6 +104,10 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   latest-only Drafts, edit-versus-deletion conflicts and owner-checked CAS recovery;
   retain conflicting authored versions as visible copies. Otherwise an ordinary
   autosave silently erases another completed edit or an independently created Draft.
+- `rebaseDrafts` scanning each complete snapshot again for every Draft identifier.
+  Index each snapshot once while keeping the same identifier/content semantics;
+  otherwise a large admitted Draft document makes conflict recovery quadratic
+  and blocks the shared JavaScript runtime during saving.
 - `createDrafts.update` deciding a fork against a different snapshot from the one
   it mutates, or `rebaseDrafts`/`deleted` moving the pending authored version without
   notifying its editor. Keep the newer stored version's ID and move the stale
@@ -117,6 +121,11 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   unmounting its editor and reporting completion while it can return after relaunch.
   Automatic empty-Draft disposal must check the current content under the save
   semaphore; an untouched stale composer must not delete another window's work.
+  Resolve an editor-owned deletion target under that semaphore after flushing
+  earlier saves: a queued save may rebind the editor to a conflict copy. Check
+  both explicit Discard and empty Close; capturing an identity when the command
+  is requested can delete the other writer's original and leave the intended
+  copy behind.
 - `createDrafts.update` silently dropping authored content after the original ID
   has been durably deleted, including after `discard({ onlyIfEmpty: true })`.
   Preserve a same-owner nonempty late edit as a conflict copy and notify its

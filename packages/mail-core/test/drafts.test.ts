@@ -517,6 +517,40 @@ describe('storing Drafts', () => {
     expect(storage.stored()?.revision).toBe(revision);
   });
 
+  it('deletes the Draft its editor holds when deletion runs, after earlier saves', async () => {
+    expect.hasAssertions();
+    const session = account(connected('account-a'));
+    const storage = createSyntheticDrafts(session.productAccount);
+    const drafts = createDrafts(storage.native, session.registration);
+    await drafts.load();
+    const id = present(await drafts.create(alex), 'Draft');
+    const before = present(draftOf(drafts.getSnapshot(), id), 'Draft');
+    const other = createDrafts(storage.native, session.registration);
+    await other.load();
+    await other.update({ ...before, subject: 'Other writer' }, before);
+    // The held autosave rebases this editor onto its own conflict copy.
+    let target = id;
+    storage.hold();
+    const saving = drafts.update(
+      { ...before, subject: 'Queued' },
+      before,
+      (copy) => {
+        target = copy;
+      },
+    );
+    const deletion = drafts.discard(() => target);
+    storage.release();
+    await Promise.all([saving, deletion]);
+    const reopened = createDrafts(storage.native, session.registration);
+    await reopened.load();
+    expect(
+      ready(reopened.getSnapshot()).drafts.map(({ id: each, subject }) => [
+        each,
+        subject,
+      ]),
+    ).toStrictEqual([[id, 'Other writer']]);
+  });
+
   it('keeps an authored edit that arrives after its Draft was deleted', async () => {
     expect.hasAssertions();
     const session = account(connected('account-a'));

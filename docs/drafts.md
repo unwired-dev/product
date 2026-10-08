@@ -43,6 +43,8 @@ Drafts mailbox, and Drafts do not synchronize to other devices yet.
   Command-U format the selection.
 - **Undo** and **Redo** step through the composer's edits, a word of typing at a
   time; on Mac, Command-Z and Shift-Command-Z do the same in the body.
+  Each activation moves one step, including repeated commands before the
+  composer redraws.
 
 Links, inline images, attachments, the Slash Command Menu and recipient suggestions
 are later slices.
@@ -128,6 +130,9 @@ before a render, and Discard. Cross-field callbacks and recipient completion
 before a render preserve the latest authored fields through Close and relaunch.
 Storage regressions cover copy-identifier collisions
 between writers and rebinding after failed saving and Retry.
+They also cover Discard queued behind an autosave that moves its editor to a
+conflict copy. Component regressions exercise repeated Undo and Redo before a
+render, including durable Close and reopen.
 
 Deferred before release: native iPhone, iPad and Mac journeys that compose, relaunch
 and reopen a Draft; VoiceOver, hardware-keyboard and Dynamic Type qualification of

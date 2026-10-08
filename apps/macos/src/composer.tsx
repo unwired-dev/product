@@ -602,6 +602,15 @@ function Editor({
   const state = useDrafts();
   const colors = usePalette();
   const [history, setHistory] = useState(() => historyOf(initial));
+  // The latest history, ahead of rendering, so consecutive events each build on the last one.
+  const historyNow = useRef(history);
+  const commitHistory = useCallback(
+    (step: (current: typeof history) => typeof history) => {
+      historyNow.current = step(historyNow.current);
+      setHistory(historyNow.current);
+    },
+    [],
+  );
   // Native events can arrive before React commits a rebind or an earlier edit.
   const authored = useRef(initial);
   const getDraft = useCallback(() => authored.current, []);
@@ -626,7 +635,7 @@ function Editor({
     (id: string) => {
       const bound = (each: Draft): Draft => ({ ...each, id, conflict: true });
       authored.current = bound(authored.current);
-      setHistory((current) => ({
+      commitHistory((current) => ({
         ...current,
         past: current.past.map(bound),
         present: bound(current.present),
@@ -634,7 +643,7 @@ function Editor({
       }));
       onRebind(id);
     },
-    [onRebind],
+    [commitHistory, onRebind],
   );
   const [selection, setSelection] = useState<Selection>({ start: 0, end: 0 });
   // Where the editor must place the caret after a change it did not type itself.
@@ -651,7 +660,7 @@ function Editor({
   const deletion = useRef<'backward' | 'forward' | undefined>(undefined);
   const draft = history.present;
   const breakTyping = () => {
-    setHistory((current) => ({ ...current, typing: false }));
+    commitHistory((current) => ({ ...current, typing: false }));
   };
   const display = displayOf(draft.body);
   const save = state.kind === 'ready' ? state.save : 'failed';
@@ -674,7 +683,7 @@ function Editor({
   );
   const change = (next: Draft, word = false, field?: string) => {
     const continuing = typingField.current === field;
-    setHistory((current) =>
+    commitHistory((current) =>
       keepIdentity(
         record(
           { ...current, typing: current.typing && continuing },
@@ -689,10 +698,11 @@ function Editor({
     }
     update(next);
   };
-  const travel = (to: typeof history) => {
-    setHistory(() => keepIdentity(to));
+  // Undo and Redo step from the latest history, so repeated presses each move one step.
+  const travel = (step: (current: typeof history) => typeof history) => {
+    commitHistory((current) => keepIdentity(step(current)));
     setTyping(undefined);
-    update(to.present);
+    update(historyNow.current.present);
   };
   const edit = (text: string) => {
     const latest = authored.current;
@@ -712,7 +722,7 @@ function Editor({
     } else {
       // The literal marker is its own step, so one Undo restores it.
       const { literal } = result;
-      setHistory((current) =>
+      commitHistory((current) =>
         keepIdentity(
           record(record(current, { ...latest, body: literal }), {
             ...latest,
@@ -756,7 +766,7 @@ function Editor({
       }).draft;
     }
     if (finished !== latest) {
-      setHistory((current) => keepIdentity(record(current, finished)));
+      commitHistory((current) => keepIdentity(record(current, finished)));
       update(finished);
     }
     if (finished.entries !== undefined) {
@@ -765,7 +775,9 @@ function Editor({
     }
     setClosing('saving');
     if (isEmptyDraft(finished)) {
-      if (await store.discard(authored.current.id, { onlyIfEmpty: true })) {
+      if (
+        await store.discard(() => authored.current.id, { onlyIfEmpty: true })
+      ) {
         onClose();
         return true;
       }
@@ -778,7 +790,7 @@ function Editor({
     }
     setClosing('blocked');
     return false;
-  }, [keepIdentity, onClose, store, update]);
+  }, [commitHistory, keepIdentity, onClose, store, update]);
   const navigation = useComposerNavigation();
   useLayoutEffect(() => navigation.register(close), [navigation, close]);
   const keyDown = ({ nativeEvent }: KeyEvent) => {
@@ -792,7 +804,7 @@ function Editor({
       return;
     }
     if (nativeEvent.key === 'z') {
-      travel(nativeEvent.shiftKey ? redo(history) : undo(history));
+      travel(nativeEvent.shiftKey ? redo : undo);
       return;
     }
     const mark = (
@@ -814,7 +826,8 @@ function Editor({
     discarded.current = true;
     let removed = false;
     try {
-      removed = await store.discard(previous.id);
+      // The target follows any conflict rebind that lands before deletion runs.
+      removed = await store.discard(() => authored.current.id);
     } catch {
       // An unexpected storage rejection leaves the editor retryable too.
     }
@@ -861,14 +874,14 @@ function Editor({
             disabled={history.past.length === 0}
             label="Undo"
             onPress={() => {
-              travel(undo(history));
+              travel(undo);
             }}
           />
           <Action
             disabled={history.future.length === 0}
             label="Redo"
             onPress={() => {
-              travel(redo(history));
+              travel(redo);
             }}
           />
           <Action
@@ -996,7 +1009,7 @@ function Editor({
                 next.start !== next.end ||
                 next.start !== subjectCaret.current
               ) {
-                setHistory((current) => ({ ...current, typing: false }));
+                commitHistory((current) => ({ ...current, typing: false }));
               }
               subjectCaret.current = undefined;
               subjectSelection.current = next;
@@ -1062,7 +1075,7 @@ function Editor({
             // Moving the caret anywhere but past typed text ends marks toggled for typing.
             if (next.start !== next.end || next.start !== caret.current) {
               setTyping(undefined);
-              setHistory((current) => ({ ...current, typing: false }));
+              commitHistory((current) => ({ ...current, typing: false }));
             }
             caret.current = undefined;
             setPlaced(undefined);

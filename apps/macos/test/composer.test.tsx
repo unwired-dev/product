@@ -19,7 +19,7 @@ import {
   waitFor,
   within,
 } from '@testing-library/react-native';
-import { useMemo, useState, useSyncExternalStore } from 'react';
+import { StrictMode, useMemo, useState, useSyncExternalStore } from 'react';
 import { View } from 'react-native';
 
 import type { Selection } from '../src/inbox.tsx';
@@ -1045,6 +1045,49 @@ describe('composing Drafts', () => {
     // The next attempt is not blocked by the failed one.
     await press('New Message');
     expect(screen.getByLabelText('Subject')).toHaveProp('value', '');
+  });
+
+  it('steps back once for each Undo, even before the editor renders again', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    await render(
+      <StrictMode>
+        <App
+          drafts={createDrafts(storage.native, registration)}
+          registration={registration}
+        />
+      </StrictMode>,
+    );
+    await press('New Message');
+    const subject = await screen.findByLabelText('Subject');
+    await fireEvent.changeText(subject, 'One ');
+    await fireEvent.changeText(subject, 'One Two ');
+    await fireEvent.changeText(subject, 'One Two Three');
+    const undoButton = screen.getByRole('button', { name: 'Undo' });
+    // Accessibility activations reach Pressability without nested async act scopes.
+    await act(() => {
+      undoButton.props.onClick();
+      undoButton.props.onClick();
+    });
+    expect(screen.getByLabelText('Subject')).toHaveProp('value', 'One ');
+    const redoButton = screen.getByRole('button', { name: 'Redo' });
+    await act(() => {
+      redoButton.props.onClick();
+      redoButton.props.onClick();
+    });
+    expect(screen.getByLabelText('Subject')).toHaveProp(
+      'value',
+      'One Two Three',
+    );
+    await press('Close');
+    await press(
+      'Draft. One Two Three. No recipients. From alex@example.invalid',
+    );
+    expect(screen.getByLabelText('Subject')).toHaveProp(
+      'value',
+      'One Two Three',
+    );
   });
   /* oxlint-enable vitest/max-expects */
 });
