@@ -33,6 +33,9 @@ for every implementation, including later implementation fixes.
   Use the workflow's Open Code Review delegation step and resolved repository
   rules for architecture checking inside that review agent.
   Pause writes until its final report; later implementer edits need another review.
+- Never pause implementation for a user decision. Send it to the workflow's
+  [decision panel](docs/agents/implementation-review.md#decision-panel)
+  (`claude-fable-5-1`, `gpt-6.1-sol`, `gpt-6-astra`); the majority wins.
 
 ## Work
 

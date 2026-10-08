@@ -115,13 +115,46 @@ not itself restrict filesystem or Git-history access.
 6. Return the reviewed scope, OCR version, preview mode and refs, file coverage,
    applicable rule sections and source references with their dispositions,
    findings and their dispositions, files changed,
-   checks and results, unavailable checks, and any unresolved blocker requiring
-   a user decision. Do not silently alter product scope or architectural decisions
+   checks and results, unavailable checks, and the
+   [decision panel](#decision-panel) outcome for any finding that would change
+   product scope or an architectural decision. Do not silently alter product scope or architectural decisions
    to make an implementation pass.
 7. The final report ends reviewer and child-agent write ownership. Do not start
    PR watchers or recurring tasks in review threads. Stop any existing review
    watcher before reporting, and do not act on later PR notifications or resume
    writes without a new delegated review and explicit checkout handoff.
+
+## Decision panel
+
+Implementation and review continue without waiting for the user. Any decision
+that would otherwise pause the work for a user answer goes to a three-model
+panel instead: ambiguous or missing requirements, scope and product choices,
+competing approaches, and review findings that would change product scope or an
+architectural decision. Access the agent lacks (credentials, accounts, devices,
+paid services) is an unavailable prerequisite, not a decision; report it as such.
+Issue identification, `in progress` takeovers and explicit user limits stay with
+the user.
+
+1. Frame the question with the context a fresh agent needs: the issue or
+   request, the relevant code and constraints, and exactly two concrete,
+   mutually exclusive options with their consequences. Resolve questions with
+   more alternatives through a short series of binary ballots.
+2. Delegate it in parallel to three read-only panelists with `high` reasoning:
+   `claude-fable-5-1`, `gpt-6.1-sol` and `gpt-6-astra`. Each receives the same
+   self-contained prompt, no conversation history, and the implementer's
+   reading boundary. Each returns one option and a short rationale, and makes
+   no edits.
+3. The option with at least two matching votes wins; apply it and continue.
+   Three valid votes on two options always produce a majority.
+4. Record each decision (question, options, votes, rationales and outcome) in
+   the final report and the PR description so the user can override it later.
+
+Use a bounded deadline for each round. Unavailable, failed or timed-out
+panelists and invalid votes do not count. Two matching votes still suffice. If
+there is no majority, retry once with the same options and the available
+rationales, attempting all three models again. If two matching votes remain
+unavailable, report the model prerequisite as blocked; never apply an option
+without a majority. Continue independent work while the prerequisite is blocked.
 
 ## Open Code Review delegation
 
