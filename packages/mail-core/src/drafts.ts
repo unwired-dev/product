@@ -81,17 +81,19 @@ const CommittedSchema = Schema.Struct({
 // A pragmatic addr-spec: one @, a dotted domain, and no spaces, quotes, brackets or separators.
 const addressPattern =
   /^[^\s@<>()[\]\\,;:"]+@(?:[A-Za-z0-9-]+\.)+[A-Za-z0-9-]{2,}$/u;
+// A quoted or plain display name, then the address in angle brackets.
 const named =
   /^\s*(?:"(?<quoted>[^"]*)"|(?<plain>[^"<]*?))\s*<(?<address>[^<>]*)>\s*$/u;
 
 // One entry as a recipient, or undefined when it is not a valid address.
 const recipientOf = (entry: string): Recipient | undefined => {
-  const match = named.exec(entry);
-  const address = (match?.groups?.address ?? entry).trim();
+  // Positional captures: Hermes leaves `groups` unset on some named-group results.
+  const [, quoted, plain, bracketed] = named.exec(entry) ?? [];
+  const address = (bracketed ?? entry).trim();
   if (!addressPattern.test(address)) {
     return undefined;
   }
-  const name = (match?.groups?.quoted ?? match?.groups?.plain ?? '').trim();
+  const name = (quoted ?? plain ?? '').trim();
   return name === '' ? { address } : { name, address };
 };
 

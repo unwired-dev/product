@@ -197,6 +197,16 @@ describe('editing a Semantic Message Document', () => {
   /* oxlint-enable vitest/max-expects */
 });
 
+// A regular expression result as Hermes can return it: positional captures without `groups`.
+const nativeExec = RegExp.prototype.exec;
+function withoutNamedGroups(this: RegExp, text: string) {
+  const result = nativeExec.call(this, text);
+  if (result !== null) {
+    delete result.groups;
+  }
+  return result;
+}
+
 describe('entering Draft recipients', () => {
   /* oxlint-disable vitest/max-expects -- One journey proves recipient entry end to end. */
   const draft: Draft = {
@@ -241,6 +251,24 @@ describe('entering Draft recipients', () => {
     expect(duplicate.notice).toBe('duplicate');
     expect(duplicate.text).toBe('');
     expect(duplicate.draft.bcc).toStrictEqual([]);
+  });
+
+  it('parses named recipients when regular expression results carry no named groups, as on Hermes', () => {
+    expect.hasAssertions();
+    const spy = vi
+      .spyOn(RegExp.prototype, 'exec')
+      .mockImplementation(withoutNamedGroups);
+    const added = addRecipients(draft, {
+      field: 'to',
+      text: 'Maya Chen <maya@example.com>, "Park, Oliver" <oliver@example.com>',
+      all: true,
+    });
+    spy.mockRestore();
+    expect(added.draft.to).toStrictEqual([
+      { name: 'Maya Chen', address: 'maya@example.com' },
+      { name: 'Park, Oliver', address: 'oliver@example.com' },
+    ]);
+    expect(added.notice).toBeUndefined();
   });
   /* oxlint-enable vitest/max-expects */
 });

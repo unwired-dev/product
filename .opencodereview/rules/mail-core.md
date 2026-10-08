@@ -11,11 +11,15 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Shared runtime compatibility
 
-- Regex extraction in `message-body.ts` or another shared decoder that assumes
-  `matchAll` results retain `.groups` after a host's Babel named-group transform.
-  Hermes can omit that property while Node tests pass, silently dropping message
-  content or link destinations. Read captures portably and validate changed
-  parsing in the packaged host when its transform differs from the test runtime.
+- Named-capture extraction in `drafts.ts.recipientOf`, `gmail-inbox.ts.sender`,
+  `message-body.ts` or another shared parser that assumes `.groups` is present on
+  `exec`, `match` or `matchAll` results in code bundled for Hermes. A host's Babel
+  named-group transform can leave `.groups` unset while positional captures
+  survive and Node tests pass, rejecting valid named recipients, retaining a
+  whole From header as an address or dropping message content and link destinations.
+  Read positional captures while retaining named groups in the pattern for lint;
+  exercise absent `.groups` in a regression and validate changed parsing in the
+  packaged host when its transform differs from the test runtime.
 
 #### Untrusted boundaries fail closed
 
