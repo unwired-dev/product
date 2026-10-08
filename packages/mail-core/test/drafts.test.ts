@@ -551,6 +551,139 @@ describe('storing Drafts', () => {
     ).toStrictEqual([[id, 'Other writer']]);
   });
 
+  it('discards a Draft after another store saved a newer revision', async () => {
+    expect.hasAssertions();
+    const session = account(connected('account-a'));
+    const storage = createSyntheticDrafts(session.productAccount);
+    const first = createDrafts(storage.native, session.registration);
+    await first.load();
+    const discarded = present(await first.create(alex), 'discarded Draft');
+    const second = createDrafts(storage.native, session.registration);
+    await second.load();
+    // The first store saves again, so the second store's revision is stale.
+    const other = present(await first.create(alex), 'other Draft');
+    await expect(second.discard(discarded)).resolves.toBe(true);
+    const reopened = createDrafts(storage.native, session.registration);
+    await reopened.load();
+    expect(
+      ready(reopened.getSnapshot()).drafts.map(({ id }) => id),
+    ).toStrictEqual([other]);
+  });
+
+  it("keeps another store's completed Draft on empty-only disposal and finishes saving", async () => {
+    expect.hasAssertions();
+    const session = account(connected('account-a'));
+    const storage = createSyntheticDrafts(session.productAccount);
+    const first = createDrafts(storage.native, session.registration);
+    await first.load();
+    const id = present(await first.create(alex), 'Draft');
+    const before = present(draftOf(first.getSnapshot(), id), 'empty Draft');
+    const second = createDrafts(storage.native, session.registration);
+    await second.load();
+    await first.update({ ...before, subject: 'Completed elsewhere' }, before);
+    await expect(second.discard(id, { onlyIfEmpty: true })).resolves.toBe(true);
+    expect(ready(second.getSnapshot()).save).toBe('saved');
+    const reopened = createDrafts(storage.native, session.registration);
+    await reopened.load();
+    expect(draftOf(reopened.getSnapshot(), id)?.subject).toBe(
+      'Completed elsewhere',
+    );
+  });
+
+  it('discards the rebound copy when an edit arrives during a stale deletion', async () => {
+    expect.hasAssertions();
+    const session = account(connected('account-a'));
+    const storage = createSyntheticDrafts(session.productAccount);
+    const first = createDrafts(storage.native, session.registration);
+    await first.load();
+    const id = present(await first.create(alex), 'Draft');
+    const before = present(draftOf(first.getSnapshot(), id), 'shared Draft');
+    const waiting = Promise.withResolvers<undefined>();
+    const entered = Promise.withResolvers<undefined>();
+    let held = false;
+    const second = createDrafts(
+      {
+        ...storage.native,
+        commitDrafts: async (...args) => {
+          // oxlint-disable-next-line vitest/no-conditional-in-test -- Hold only the stale deletion at the native boundary.
+          if (held) {
+            held = false;
+            entered.resolve(undefined);
+            await waiting.promise;
+          }
+          return storage.native.commitDrafts(...args);
+        },
+      },
+      session.registration,
+    );
+    await second.load();
+    held = true;
+    let target = id;
+    const deleting = second.discard(() => target);
+    await entered.promise;
+    const editing = second.update(
+      { ...before, subject: 'This editor' },
+      before,
+      (copy) => {
+        target = copy;
+      },
+    );
+    await first.update({ ...before, subject: 'Other editor' }, before);
+    waiting.resolve(undefined);
+    await expect(deleting).resolves.toBe(true);
+    await editing;
+    expect(target).not.toBe(id);
+    const reopened = createDrafts(storage.native, session.registration);
+    await reopened.load();
+    expect(ready(reopened.getSnapshot()).drafts).toStrictEqual([
+      expect.objectContaining({ id, subject: 'Other editor' }),
+    ]);
+  });
+
+  it.each([
+    ['conflict', 'failed'],
+    ['unavailable', 'failed'],
+    ['locked', 'locked'],
+  ] as const)(
+    'publishes %s after the single stale-deletion retry and keeps the Draft retryable',
+    async (code, save) => {
+      expect.hasAssertions();
+      const session = account(connected('account-a'));
+      const storage = createSyntheticDrafts(session.productAccount);
+      const first = createDrafts(storage.native, session.registration);
+      await first.load();
+      const id = present(await first.create(alex), 'Draft');
+      let failAfterRebase = false;
+      const second = createDrafts(
+        {
+          ...storage.native,
+          openDrafts: async () => {
+            const opened = await storage.native.openDrafts();
+            // oxlint-disable-next-line vitest/no-conditional-in-test -- Fail the retry after opening the conflicting revision.
+            if (failAfterRebase) {
+              failAfterRebase = false;
+              storage.failNextCommit(code);
+            }
+            return opened;
+          },
+        },
+        session.registration,
+      );
+      await second.load();
+      const other = present(await first.create(alex), 'other Draft');
+      failAfterRebase = true;
+      await expect(second.discard(id)).resolves.toBe(false);
+      expect(ready(second.getSnapshot()).save).toBe(save);
+      expect(draftOf(second.getSnapshot(), id)?.id).toBe(id);
+      await expect(second.discard(id)).resolves.toBe(true);
+      const reopened = createDrafts(storage.native, session.registration);
+      await reopened.load();
+      expect(
+        ready(reopened.getSnapshot()).drafts.map(({ id: each }) => each),
+      ).toStrictEqual([other]);
+    },
+  );
+
   it('keeps an authored edit that arrives after its Draft was deleted', async () => {
     expect.hasAssertions();
     const session = account(connected('account-a'));

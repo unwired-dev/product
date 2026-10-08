@@ -35,7 +35,8 @@ Drafts mailbox, and Drafts do not synchronize to other devices yet.
   three, bulleted and numbered lists, quotes and code blocks, with bold, italic,
   underline, strikethrough and inline code. The formatting toolbar applies marks to
   the selection, or to the next typed text at the caret, and sets the block kind of
-  every selected block. Typing `# `, `## `, `### `, `- `, `* `, `1. ` or `> `, or
+  every selected block. Moving the caret ends marks toggled for typing, including
+  when text is entered before the composer redraws. Typing `# `, `## `, `### `, `- `, `* `, `1. ` or `> `, or
   three backticks, at the start of a paragraph applies that block kind and removes
   the marker; one **Undo** restores the literal marker. Return continues a list,
   quote or code block, and deleting into a list marker turns the item into a
@@ -76,7 +77,9 @@ asks before deleting a Draft from this device.
 Opening **Account**, switching to another Draft, starting **New Message**, or selecting received mail
 also finishes recipient entry and waits for saving; invalid entry or a save failure
 keeps the current composer open. A failed discard keeps the Draft visible and can
-be retried; edits accepted while it was pending stay available for saving and
+be retried. A concurrent save from another storage writer is recovered once;
+closing an empty stale composer preserves that writer's completed Draft and
+finishes with **Saved on this device**. Edits accepted while discard was pending stay available for saving and
 reopening. An unexpected failure while leaving keeps the composer open and allows
 another attempt. Drafts and received mail share the Inbox column's scroll surface.
 After an interruption or relaunch the Drafts list shows every saved Draft, and
@@ -133,6 +136,10 @@ between writers and rebinding after failed saving and Retry.
 They also cover Discard queued behind an autosave that moves its editor to a
 conflict copy. Component regressions exercise repeated Undo and Redo before a
 render, including durable Close and reopen.
+They also cover clean stale discard, empty-only recovery's final saving status,
+deletion-target rebinding during recovery, and bounded retry failures. Batched
+host events verify caret movement, typing-mark changes and Undo immediately
+followed by text editing; these remain component integration evidence.
 
 Deferred before release: native iPhone, iPad and Mac journeys that compose, relaunch
 and reopen a Draft; VoiceOver, hardware-keyboard and Dynamic Type qualification of

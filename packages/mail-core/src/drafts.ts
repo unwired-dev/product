@@ -675,6 +675,42 @@ export function createDrafts(
     );
   });
 
+  // Deletes the target's Draft from the current revision, keeping completed content for an
+  // empty-only removal. When another store wrote first, it rebases
+  // onto that revision once and resolves the target again before retrying.
+  const deleteTarget = Effect.fnUntraced(function* (
+    current: number,
+    account: string,
+    {
+      target,
+      onlyIfEmpty,
+    }: Readonly<{ target: () => string; onlyIfEmpty: boolean }>,
+  ) {
+    for (
+      let attempt = 0;
+      live(current) && state.kind === 'ready';
+      attempt += 1
+    ) {
+      const id = target();
+      const deleting = state.drafts.find((draft) => draft.id === id);
+      // Closing an untouched window cannot delete content completed in another window.
+      if (onlyIfEmpty && deleting !== undefined && !isEmptyDraft(deleting)) {
+        return;
+      }
+      const outcome = yield* Effect.result(
+        deleted(current, account, { id, draft: deleting }),
+      );
+      if (Result.isSuccess(outcome)) {
+        return;
+      }
+      if (outcome.failure.kind !== 'conflict' || attempt > 0) {
+        return yield* outcome.failure;
+      }
+      yield* rebase(current, account);
+      yield* flush(current, account);
+    }
+  });
+
   // Keep a Draft visible until its deletion is durable, so a refused discard can be retried.
   // `target` names the Draft when deletion runs, after earlier saves that may move its editor.
   const removing = (
@@ -693,13 +729,7 @@ export function createDrafts(
         if (!live(current) || state.kind !== 'ready') {
           return false;
         }
-        const id = target();
-        const deleting = state.drafts.find((draft) => draft.id === id);
-        // Closing an untouched window cannot delete content completed in another window.
-        if (onlyIfEmpty && deleting !== undefined && !isEmptyDraft(deleting)) {
-          return true;
-        }
-        yield* deleted(current, account, { id, draft: deleting });
+        yield* deleteTarget(current, account, { target, onlyIfEmpty });
         yield* flush(current, account);
         if (live(current) && state.kind === 'ready') {
           pendingMoves.clear();

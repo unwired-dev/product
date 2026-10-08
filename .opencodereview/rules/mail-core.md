@@ -126,6 +126,11 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   both explicit Discard and empty Close; capturing an identity when the command
   is requested can delete the other writer's original and leave the intended
   copy behind.
+  A clean stale deletion still needs bounded CAS recovery even when no autosave
+  is dirty. Re-resolve its target and repeat the empty-only content check after
+  rebasing, then settle `save` for preserved content as well as deleted content.
+  Otherwise Try again repeats the stale revision, a moved target deletes the
+  other writer's copy, or successful empty-only recovery stays at Saving.
 - `createDrafts.update` silently dropping authored content after the original ID
   has been durably deleted, including after `discard({ onlyIfEmpty: true })`.
   Preserve a same-owner nonempty late edit as a conflict copy and notify its

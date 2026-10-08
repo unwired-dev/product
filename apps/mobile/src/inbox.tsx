@@ -636,6 +636,7 @@ export function Inbox({
               <DraftList
                 onCompose={onCompose}
                 scope={scope}
+                searching={results !== undefined}
               />
             )
           }

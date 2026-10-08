@@ -933,5 +933,101 @@ describe('composing Drafts', () => {
       'One Two Three',
     );
   });
+
+  it("applies an edit at the caret moved just before it, with that character's marks", async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    await render(
+      <App
+        drafts={drafts}
+        registration={registration}
+      />,
+    );
+    await press('New Message');
+    const body = await screen.findByLabelText('Message body');
+    await fireEvent.changeText(body, 'aa');
+    await fireEvent(body, 'selectionChange', {
+      nativeEvent: { selection: { start: 0, end: 1 } },
+    });
+    await press('Bold');
+    await fireEvent(body, 'selectionChange', {
+      nativeEvent: { selection: { start: 2, end: 2 } },
+    });
+    // A mark toggled at the old caret must end when the caret moves, even before rendering.
+    await press('Italic');
+    // The caret moves to the start and a character is typed before React renders again.
+    await act(async () => {
+      await Promise.all([
+        fireEvent(body, 'selectionChange', {
+          nativeEvent: { selection: { start: 0, end: 0 } },
+        }),
+        fireEvent.changeText(body, 'aaa'),
+      ]);
+    });
+    expect(draftsOf(drafts.getSnapshot())[0]?.body[0]?.spans).toStrictEqual([
+      { text: 'aa', marks: ['bold'] },
+      { text: 'a' },
+    ]);
+    await fireEvent(body, 'selectionChange', {
+      nativeEvent: { selection: { start: 3, end: 3 } },
+    });
+    // A formatting command and its next typed character can also share one render.
+    await act(async () => {
+      await Promise.all([
+        fireEvent.press(screen.getByRole('button', { name: 'Italic' })),
+        fireEvent.changeText(body, 'aaab'),
+      ]);
+    });
+    expect(draftsOf(drafts.getSnapshot())[0]?.body[0]?.spans).toStrictEqual([
+      { text: 'aa', marks: ['bold'] },
+      { text: 'a' },
+      { text: 'b', marks: ['italic'] },
+    ]);
+    await fireEvent(body, 'selectionChange', {
+      nativeEvent: { selection: { start: 4, end: 4 } },
+    });
+    // Undo clears the override before a following text event, too.
+    await act(async () => {
+      await Promise.all([
+        fireEvent.press(screen.getByRole('button', { name: 'Undo' })),
+        fireEvent.changeText(body, 'aaac'),
+      ]);
+    });
+    expect(draftsOf(drafts.getSnapshot())[0]?.body[0]?.spans).toStrictEqual([
+      { text: 'aa', marks: ['bold'] },
+      { text: 'ac' },
+    ]);
+  });
+
+  it('hides the Drafts heading while a search lists received mail alone', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    await drafts.load();
+    const id = await drafts.create({
+      id: alex,
+      address: 'alex@example.invalid',
+    });
+    const created = draftsOf(drafts.getSnapshot()).find(
+      (each) => each.id === id,
+    );
+    ok(created);
+    await drafts.update({ ...created, subject: 'Kept Draft' }, created);
+    await render(
+      <App
+        drafts={drafts}
+        registration={registration}
+      />,
+    );
+    await expect(screen.findByText('Drafts')).resolves.toBeOnTheScreen();
+    await fireEvent.changeText(
+      await screen.findByLabelText('Search senders and subjects'),
+      'nothing matches this',
+    );
+    expect(screen.queryByText('Drafts')).not.toBeOnTheScreen();
+  });
   /* oxlint-enable vitest/max-expects */
 });

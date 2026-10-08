@@ -323,7 +323,10 @@ export function useOpenDraft(
 export function DraftList({
   onCompose,
   scope,
+  searching = false,
 }: {
+  // Search lists received mail alone, so the Drafts heading is hidden meanwhile.
+  readonly searching?: boolean;
   readonly onCompose: (id: string) => void;
   // The mailbox the Inbox shows, which a new message sends from when it can.
   readonly scope: string | undefined;
@@ -378,7 +381,7 @@ export function DraftList({
           />
         </View>
       ) : null}
-      {drafts.length === 0 ? null : (
+      {drafts.length === 0 || searching ? null : (
         <Text
           accessibilityRole="header"
           style={[styles.section, { color: colors.secondary }]}>
@@ -615,10 +618,17 @@ function Editor({
     [commitHistory, onRebind],
   );
   const [selection, setSelection] = useState<Selection>({ start: 0, end: 0 });
+  // The latest body selection, ahead of rendering, for text events that follow a caret move.
+  const selectionNow = useRef(selection);
   // Where the editor must place the caret after a change it did not type itself.
   const [placed, setPlaced] = useState<Selection>();
   // Marks toggled at a caret apply to the text typed there next.
   const [typing, setTyping] = useState<readonly Mark[]>();
+  const typingNow = useRef(typing);
+  const placeTyping = (next: readonly Mark[] | undefined) => {
+    typingNow.current = next;
+    setTyping(next);
+  };
   const [closing, setClosing] = useState<
     'saving' | 'blocked' | 'discard-blocked' | 'discard' | 'recipients'
   >();
@@ -669,17 +679,21 @@ function Editor({
   // Undo and Redo step from the latest history, so repeated presses each move one step.
   const travel = (step: (current: typeof history) => typeof history) => {
     commitHistory((current) => keepIdentity(step(current)));
-    setTyping(undefined);
+    placeTyping(undefined);
     update(historyNow.current.present);
   };
   const edit = (text: string) => {
+    const at = selectionNow.current;
     const latest = authored.current;
     const textBefore = displayOf(latest.body).text;
-    const result = applyText(latest.body, text, { marks: typing, selection });
+    const result = applyText(latest.body, text, {
+      marks: typingNow.current,
+      selection: at,
+    });
     // One character added after the caret continues a typing step until a word ends.
     const added = text.length === textBefore.length + 1;
-    const word = added && !/\s/u.test(text[selection.start] ?? ' ');
-    caret.current = selection.end + text.length - textBefore.length;
+    const word = added && !/\s/u.test(text[at.start] ?? ' ');
+    caret.current = at.end + text.length - textBefore.length;
     if (result.literal === undefined) {
       change({ ...latest, body: result.document }, word, 'body');
     } else {
@@ -697,21 +711,25 @@ function Editor({
     }
     if (result.selection !== undefined) {
       caret.current = result.selection.start;
+      selectionNow.current = result.selection;
       setPlaced(result.selection);
     }
   };
   const format = (mark: Mark) => {
+    const at = selectionNow.current;
     const latest = authored.current;
-    if (selection.start === selection.end) {
-      setTyping(toggled(typing ?? marksAt(latest.body, selection), mark));
+    if (at.start === at.end) {
+      placeTyping(toggled(typingNow.current ?? marksAt(latest.body, at), mark));
       return;
     }
-    change({ ...latest, body: toggleMark(latest.body, selection, mark) });
+    change({ ...latest, body: toggleMark(latest.body, at, mark) });
   };
   const block = (kind: BlockKind) => {
+    const at = selectionNow.current;
     const latest = authored.current;
-    const result = setBlockKind(latest.body, selection, kind);
+    const result = setBlockKind(latest.body, at, kind);
     change({ ...latest, body: result.document });
+    selectionNow.current = result.selection ?? at;
     setPlaced(result.selection);
   };
   const close = useCallback(async () => {
@@ -1023,11 +1041,12 @@ function Editor({
             const next = nativeEvent.selection;
             // Moving the caret anywhere but past typed text ends marks toggled for typing.
             if (next.start !== next.end || next.start !== caret.current) {
-              setTyping(undefined);
+              placeTyping(undefined);
               commitHistory((current) => ({ ...current, typing: false }));
             }
             caret.current = undefined;
             setPlaced(undefined);
+            selectionNow.current = next;
             setSelection(next);
           }}
           placeholder="Message"

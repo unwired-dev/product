@@ -4,6 +4,14 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### The test proves the behavior
 
+- A batched composer-event regression that flushes React between the caret,
+  formatting/history command and text change it claims arrive together. Keep
+  those handlers in one outer `act` without an intervening rendered-state wait,
+  include an active typing-mark override, and assert the real Draft's semantic
+  spans. Otherwise fresh selection can hide stale mark state behind a passing
+  repeated-character test. Component batching still does not prove native event
+  ordering or hardware-keyboard behavior.
+
 - A composer conflict regression that passes a no-op `onRebind` and asserts only
   retained store content. Exercise the owning route/window selection, mounted
   history through Undo/Redo, continued text callbacks before a render, and Discard
