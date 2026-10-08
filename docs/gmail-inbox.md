@@ -739,6 +739,96 @@ Packaged keyboard, VoiceOver, native WebKit isolation and real Gmail qualificati
 remain required under the protected checks below. The earlier structured-text
 reader's results do not qualify rich rendering, CID resolution or recent prefetch.
 
+## Received attachments
+
+[#610](https://github.com/unwired-dev/product/issues/610) lists each opened message's
+received **Attachments** below its body on iPhone, iPad and Mac. Each shows its name,
+size and availability. Listing makes no separate attachment request; prefetch never
+requests attachments. Gmail can include small attachment bytes in the full MIME
+response required to open a body. Every Gmail Inbox response, including an attachment
+download, is refused once it exceeds 40 MiB while it is received, separately from the
+25 MiB attachment download limit below. The encrypted body cache retains only
+attachment descriptors.
+
+- **Listing.** The list comes from the message structure Gmail returns with the
+  body and is kept with the encrypted body, so it also shows offline. A body cached
+  before attachment metadata was kept reads it from Gmail once, on its next online
+  open; offline, that body shows no list. Attachments are named or
+  attachment-disposition parts outside the readable body. Inline Images the body
+  resolves are not listed. Attached messages and their contents are not offered for
+  download, even when their type declarations conflict. Containers are searched only
+  when their declared media types are non-empty and agree, including Gmail's type
+  and every Content-Type header when present. An ordinary file whose Content-Type
+  header tokens conflict remains available as a generic file. Rows appear 20 at a time,
+  with **Show N more** for the rest, so a message with thousands of parts stays usable.
+- **Names.** Names drop path separators, control and direction-override characters,
+  lone surrogates and leading dots. Names longer than 1,024 UTF-16 units retain only
+  their first 960 and last 64 units before Unicode cleanup; dots in the retained start
+  become underscores, so only the retained ending can supply a file extension.
+  The cleaned name is shortened to 120 characters and 255 UTF-8 bytes when needed.
+  That shortening keeps the final suffix when it has 1–16 characters without dots or
+  spaces; otherwise dots in the shortened name become underscores, so an earlier
+  suffix cannot become the file extension. An empty name becomes `attachment`.
+  The shortened name is shown in the list and used as the saved filename, with
+  surrounding whitespace removed on save.
+- **Download.** **Download** reads the message again from that attachment's
+  mailbox, at that mailbox's current generation. It downloads the attachment only if
+  its position, name, type and size are unchanged. The download counts against the
+  mailbox's body loads as an explicit open. The bytes are kept only when Gmail's
+  base64url data decodes to exactly the declared size. Native code decodes and checks
+  them again before writing the file. Attachments over 25 MiB are listed as **Too
+  large to download on this device.** without a download action.
+- **Cancel.** **Cancel** aborts the authorized Gmail transfer in progress. A file that native code was
+  already writing is deleted when the write finishes.
+- **Failure.** The row says why and offers **Try again**:
+  **Gmail could not be reached to download this attachment.** (offline, network,
+  quota or server failure),
+  **Gmail needs your permission again to download this attachment.** (the Inbox also
+  offers **Allow Gmail access**),
+  **Gmail sent an incomplete or damaged copy of this attachment.**,
+  **This attachment could not be saved on this device.**, or the locked-storage
+  message. **This attachment is no longer in Gmail.** has no **Try again**.
+- **Open and share.** A **Downloaded Attachment** offers **Open** and **Share**.
+  **Open** shows the system **Attachment Preview** with Quick Look
+  (`QLPreviewController` on iPhone and iPad, the Quick Look panel on Mac). Quick
+  Look never launches another app or runs the file. On Mac, changing focus while the file is being prepared does not move its preview or share sheet to another window. If that window closes, presentation is refused. **Share** opens the system share
+  sheet (`UIActivityViewController`, or `NSSharingServicePicker` on Mac) with only
+  that file. If the file is gone, the row offers **Download** again.
+
+Downloaded Attachments are plaintext so the system can preview them. They are
+written under the app's private Application Support directory, in a folder per Mailbox Connection,
+with a random name per file and complete file protection on iPhone and iPad. They
+are excluded from backups and never uploaded. The store holds at most 250 MiB,
+evicting the least recently used files before another save. A missing or evicted
+file offers **Download** again. Their owner deletes them:
+
+- closing the message's last reader, or a listed message leaving the Inbox;
+- the Inbox closing or changing owner;
+- removing the mailbox, sign-out, account deletion and device removal, which also
+  delete the connection's folder in native code;
+- relaunch, which deletes files left by an earlier process.
+
+Attachments in an online Gmail search result outside the Inbox have the same
+explicit Download, Open and Share actions. Their downloaded files last only while
+a reader stays open. If a listed message also appears in search, leaving the Inbox
+deletes its downloads even while the search reader stays open; another explicit
+Download acquires a new copy. Opening an off-Inbox result does not save its body
+in the encrypted body cache.
+
+A file still shown in Quick Look, or handed to a share that has not finished, is
+deleted after its reader closes, its message leaves the Inbox, or the Inbox closes or
+changes owner only once that preview closes or the share ends.
+It also stays through eviction and counts toward the 250 MiB limit. A download
+that cannot fit without deleting a presented file fails and can be retried after
+the preview closes or the share ends.
+Removal, sign-out, deletion and relaunch delete it immediately.
+
+Attachment controls ignore input queued for a reader that has changed or closed,
+including a queued **Cancel** after another reader starts a new download.
+A file saved before the mailbox was verified again is not presented; the row offers
+**Download** again. If verification interrupts a download, the row also offers
+**Download** again without reporting a storage failure or automatically retrying.
+
 ## Mailbox Sync Status
 
 The cached list stays visible while Gmail work proceeds. A known network outage
@@ -826,7 +916,16 @@ mailbox reselection and log privacy. The #605 body reading cases cover:
   authentication failure;
 - link inspection signals;
 - offline reopening, failures and recovery, mismatched cached bodies, removal with
-  a message or mailbox, and late results after the Inbox closes.
+  a message or mailbox, and late results after the Inbox closes;
+- received attachments (#610): listing names, sizes and availability without
+  attachment requests, oversized attachments, safe names, exact-byte downloads,
+  incomplete and undecodable data, transfer-abort propagation, cancellation including during the native save,
+  interrupted download and retry, refused grants, removed messages, a file the device
+  no longer has, legacy bodies without metadata, deletion on reader close and Inbox
+  forget (including closure during a pending body refresh), and isolation and removal
+  across two connections that reuse message IDs. Host adapter tests use the real
+  stores with a synthetic native boundary to verify transfer cancellation and retry
+  when AbortSignal lacks modern convenience methods.
 
 Organizing tests cover every action's Gmail labels, changes kept through an outage
 and relaunch, lost responses, refused and repeated changes, Undo after Gmail
@@ -875,13 +974,27 @@ first and next pages, independent authorization/server refusals, and literal `+`
 query encoding.
 Real Gmail search semantics are pre-release evidence.
 
+The attachment/search integration journey downloads and presents an archived
+result without caching its body, preserves the file through ordinary synchronization,
+and deletes it on remote or optimistic Inbox removal, last-reader closure and Inbox
+forget. The cancellation journey also runs on an archived search result. Both rendered
+host search journeys download, open and share that result and verify cleanup when
+another message is selected. These use controlled provider and native presentation
+boundaries; they do not qualify the system preview or share sheet.
+
 Rendered host tests drive the isolated reader's configuration, measurement, link
 cancellation and confirmation, flagged-link copying, keyboard link access and
 WebKit failure fallback. They also cover the Inbox states, organizing from the
 reader and a row with Undo, closing the reader after a row removes its message, a
 device found removed reaching the account page's explanation, one announcement
 across two Mac windows, the account page round trip, and two Mac windows over one
-store.
+store. The #610 rendered journeys list a message's attachments, download, open and
+share one, cancel a slow download, retry after Gmail fails, ignore queued Open and
+Cancel input after the reader changes, and delete the file when the reader closes. The native Quick Look and share-sheet presentation, and a packaged
+attachment journey, remain deferred: no packaged journey downloads an attachment yet.
+Before release, check delayed **Open** and **Share** requests while another Mac
+window gains focus, the original window closes, or the iPhone/iPad app moves into
+the background during file preparation.
 The owner-approved isolated client-world measurement and bounded all-reference
 CID loading satisfy the amended requirements. Component tests exercise height
 events and fallback; they do not alone prove native content-world isolation.
@@ -926,7 +1039,17 @@ keep their connection, unless the mailbox was removed and added again elsewhere,
 legacy adoption keeps bodies already saved for the connection across opened and
 prefetched tiers. It also checks concurrent legacy upgrades, first authorization
 on another device, legacy removal intent against later incarnations, and retained
-offline recreation after a legacy upgrade. All 41 tests passed in
+offline recreation after a legacy upgrade. #610 adds two tests, bringing the suite to
+43: Downloaded Attachments are saved only with their exact declared bytes, under a
+name confined to their folder, for the current generation and address, and are
+deleted by discard, connection removal, removal of every cache and launch cleanup.
+The tests also cover bounded storage with oldest-file eviction, cleanup after a
+post-write ownership rejection, and attachment cleanup even when another cache
+removal fails. A URLProtocol fixture drives the real URLSession transport through
+response-length overflow, streamed overflow and cancellation; it does not contact
+Gmail.
+All 43 tests passed in the hosted storage suite on a fresh iOS 27 simulator with
+Xcode 27.0 for #610. Before it, all 41 tests passed in
 the hosted storage suite on a fresh iOS 27 simulator with Xcode 27.0, real Keychain
 storage, CryptoKit and the filesystem. The Convex and provider boundaries remain
 synthetic. An earlier run replacing only Keychain with an in-memory stand-in passed
@@ -990,6 +1113,9 @@ verify on iPhone, iPad and Mac before release:
   and a provider-free cached reopen;
 - recent prefetch after initial availability, interactive priority, inclusive
   date/identity ordering and protected-set admission under the hard cache limit;
+- received attachments listed without download, then downloaded, previewed and
+  shared from both hosts, with a large real attachment, cancellation and the files'
+  removal with the mailbox;
 - that opening and prefetching mail make no request other than Gmail's while
   remote content is blocked, and that links open only after confirmation, with
   VoiceOver, Full Keyboard Access and Mac keyboard focus.

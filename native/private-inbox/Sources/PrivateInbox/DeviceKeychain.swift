@@ -8,6 +8,8 @@ public enum PrivateInboxError: Error, Equatable {
   // The mailbox cache changed since the caller read it.
   case conflict
   case mailboxInvalidated
+  // A Downloaded Attachment the device no longer has; it can be downloaded again.
+  case attachmentMissing
 }
 
 struct DeviceKeychain {
