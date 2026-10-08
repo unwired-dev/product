@@ -415,6 +415,19 @@ describe('composing Drafts', () => {
       nativeEvent: { key: 'z', metaKey: true },
     });
     expect(drafts()[0]?.body[0]?.spans).toStrictEqual([{ text: 'Notes' }]);
+    // Shift-Command-Z redoes it; AppKit reports the key as an uppercase Z.
+    expect(
+      screen.getByLabelText('Message body').props.keyDownEvents,
+    ).toContainEqual({ key: 'Z', metaKey: true, shiftKey: true });
+    await fireEvent(screen.getByLabelText('Message body'), 'keyDown', {
+      nativeEvent: { key: 'Z', metaKey: true, shiftKey: true },
+    });
+    expect(drafts()[0]?.body[0]?.spans).toStrictEqual([
+      { text: 'Notes', marks: ['bold'] },
+    ]);
+    await fireEvent(screen.getByLabelText('Message body'), 'keyDown', {
+      nativeEvent: { key: 'z', metaKey: true },
+    });
     await waitFor(() => {
       expect(
         screen.getByText('Draft · Saved on this device'),

@@ -58,6 +58,16 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   unmatched native edit. Preserve modifier-specific deletion, composed characters,
   selection state and marked-text handling when intercepting editing keys.
 
+- Mac composer shortcut registration or `Editor.keyDown` comparisons that assume
+  letter keys stay lowercase with Shift. Match both layers against the installed
+  emitter's reported key and modifier flags: `RCTViewKeyboardEvent` uses AppKit's
+  `charactersIgnoringModifiers`, which retains Shift, while `RCTHandledKey` and
+  the TextInput wrapper compare keys case-sensitively and default omitted
+  modifier fields to false. Normalize a callback only within the intended
+  shortcut family and register each supported chord's reported key; otherwise
+  Shift-Command-Z misses semantic Redo or runs alongside unmatched native editing.
+  Keep unshifted formatting shortcuts and native marked-text handling intact.
+
 - A voluntary destination change that unmounts the Inbox or replaces its composer
   without awaiting the guard returned by `useLeaveComposer`: trace Account/RegistrationGate,
   mobile route replacements, Mac pane changes, New Message and Draft/message

@@ -247,6 +247,8 @@ const shortcuts = [
   { key: 'u', metaKey: true },
   { key: 'z', metaKey: true },
   { key: 'z', metaKey: true, shiftKey: true },
+  // AppKit keeps Shift in the reported key, so Shift-Command-Z arrives as an uppercase Z.
+  { key: 'Z', metaKey: true, shiftKey: true },
 ];
 
 function Action({
@@ -803,7 +805,7 @@ function Editor({
     if (!nativeEvent.metaKey) {
       return;
     }
-    if (nativeEvent.key === 'z') {
+    if (nativeEvent.key.toLowerCase() === 'z') {
       travel(nativeEvent.shiftKey ? redo : undo);
       return;
     }
