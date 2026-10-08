@@ -28,6 +28,8 @@ Drafts mailbox, and Drafts do not synchronize to other devices yet.
   valid address stays in the field with **Enter a valid email address.** An address
   already in To, Cc or Bcc is not added again and shows **Already added**. Once Cc
   or Bcc is shown or holds a recipient, both stay shown for that Draft.
+  Text still being typed in a recipient field is saved with the Draft, so an
+  interruption or relaunch restores it in that field.
 - The body edits a **Semantic Message Document**: paragraphs, headings one to
   three, bulleted and numbered lists, quotes and code blocks, with bold, italic,
   underline, strikethrough and inline code. The formatting toolbar applies marks to

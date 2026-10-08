@@ -13,6 +13,13 @@ A host owns views and native adapters. It renders shared stores from `@private-e
 
 #### React correctness
 
+- `Recipients` or `Editor` keeping unfinished recipient text only in component
+  state instead of the autosaved Draft. Verify interruption recovery without
+  blur, Close or navigation, and include unfinished entries in content equality,
+  conflict preservation, empty-Draft disposal and Undo/Redo. Otherwise authored
+  addresses disappear after termination despite a saved Draft, or a stale empty
+  editor deletes another window's work.
+
 - Composer text editing that infers a replacement solely from identical display
   text instead of using the selection and deletion direction, or coalesces Undo across fields or caret
   moves. Check repeated characters with different semantic marks and subject-to-body

@@ -44,6 +44,14 @@ const DraftSchema = Schema.Struct({
   bcc: Schema.Array(RecipientSchema),
   // Cc and Bcc stay shown once revealed or holding a recipient.
   copies: Schema.optionalKey(Schema.Literal(true)),
+  // Text still being typed in To, Cc or Bcc, kept so an interruption never loses it.
+  entries: Schema.optionalKey(
+    Schema.Struct({
+      to: Schema.optionalKey(Schema.NonEmptyString),
+      cc: Schema.optionalKey(Schema.NonEmptyString),
+      bcc: Schema.optionalKey(Schema.NonEmptyString),
+    }),
+  ),
   conflict: Schema.optionalKey(Schema.Literal(true)),
   subject: Schema.String,
   body: SemanticDocumentSchema,
@@ -126,6 +134,25 @@ export const recipientLabel = ({ name, address }: Recipient) =>
 
 export type RecipientNotice = 'invalid' | 'duplicate';
 
+// The text still being typed in a recipient field.
+export const entryOf = (draft: Draft, field: RecipientField) =>
+  draft.entries?.[field] ?? '';
+
+// The Draft keeping `text` as the field's unfinished entry; the same Draft when nothing changes.
+const withEntry = (
+  draft: Draft,
+  field: RecipientField,
+  text: string,
+): Draft => {
+  if (entryOf(draft, field) === text) {
+    return draft;
+  }
+  const { entries: previous, ...rest } = draft;
+  const { [field]: _replaced, ...others } = previous ?? {};
+  const entries = text === '' ? others : { ...others, [field]: text };
+  return Object.keys(entries).length === 0 ? rest : { ...rest, entries };
+};
+
 // Turns finished entries of a recipient field's text into recipients. With `all`, as when the
 // field is left or Return is pressed, the unfinished entry is finished too. Invalid text stays in
 // the field; an address already in To, Cc or Bcc is not added again.
@@ -171,11 +198,12 @@ export function addRecipients(
   const notice = invalid.length > 0 ? 'invalid' : undefined;
   const reported = duplicate ? 'duplicate' : undefined;
   const shown = notice ?? reported;
+  const withAdded =
+    added.length === 0
+      ? draft
+      : { ...draft, [field]: [...draft[field], ...added] };
   return {
-    draft:
-      added.length === 0
-        ? draft
-        : { ...draft, [field]: [...draft[field], ...added] },
+    draft: withEntry(withAdded, field, kept),
     text: kept,
     ...(shown === undefined ? {} : { notice: shown }),
   };
@@ -212,6 +240,7 @@ export const sendingCopy: Record<Exclude<SendingState, 'available'>, string> = {
 
 export const isEmptyDraft = (draft: Draft) =>
   draft.to.length + draft.cc.length + draft.bcc.length === 0 &&
+  draft.entries === undefined &&
   draft.subject.trim() === '' &&
   plainText(draft.body).trim() === '';
 

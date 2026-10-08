@@ -14,6 +14,7 @@ import type { StyleProp, TextStyle } from 'react-native';
 import {
   addRecipients,
   draftOf,
+  entryOf,
   draftsOf,
   isEmptyDraft,
   recipientCopy,
@@ -451,26 +452,30 @@ function SendingMailbox({
 function Recipients({
   draft,
   field,
-  text,
-  onText,
   onChange,
+  onCaretMove,
 }: {
   readonly draft: Draft;
   readonly field: RecipientField;
-  // The field's unfinished entry, which closing the Draft finishes.
-  readonly text: string;
-  readonly onText: (text: string) => void;
-  readonly onChange: (draft: Draft) => void;
+  // A typing step when only the unfinished entry changed.
+  readonly onChange: (draft: Draft, typing: boolean, field: string) => void;
+  readonly onCaretMove: () => void;
 }) {
   const colors = usePalette();
   const [notice, setNotice] = useState<RecipientNotice>();
+  const selection = useRef<Selection>({ start: 0, end: 0 });
+  const caret = useRef<number | undefined>(undefined);
+  const text = entryOf(draft, field);
   const name = fieldNames[field];
-  const add = (value: string, all: boolean) => {
+  const add = (value: string, all: boolean, typing = false) => {
     const result = addRecipients(draft, { field, text: value, all });
     if (result.draft !== draft) {
-      onChange(result.draft);
+      onChange(
+        result.draft,
+        typing && result.draft[field] === draft[field],
+        field,
+      );
     }
-    onText(result.text);
     setNotice(result.notice);
   };
   return (
@@ -484,10 +489,14 @@ function Recipients({
             accessibilityLabel={`${name}: ${recipientLabel(recipient)}`}
             accessibilityRole="button"
             onPress={() => {
-              onChange({
-                ...draft,
-                [field]: draft[field].filter((each) => each !== recipient),
-              });
+              onChange(
+                {
+                  ...draft,
+                  [field]: draft[field].filter((each) => each !== recipient),
+                },
+                false,
+                field,
+              );
             }}
             style={[styles.token, { backgroundColor: colors.selected }]}>
             <Text style={{ color: colors.foreground }}>
@@ -504,20 +513,32 @@ function Recipients({
         submitBehavior="submit"
         inputMode="email"
         onBlur={() => {
-          add(text, true);
+          add(entryOf(draft, field), true);
         }}
         onChangeText={(value) => {
-          add(value, false);
+          caret.current = selection.current.end + value.length - text.length;
+          const word =
+            value.length === text.length + 1 &&
+            !/\s/u.test(value[selection.current.start] ?? ' ');
+          add(value, false, word);
+        }}
+        onSelectionChange={({ nativeEvent }) => {
+          const next = nativeEvent.selection;
+          if (next.start !== next.end || next.start !== caret.current) {
+            onCaretMove();
+          }
+          caret.current = undefined;
+          selection.current = next;
         }}
         onSubmitEditing={() => {
-          add(text, true);
+          add(entryOf(draft, field), true);
         }}
         placeholder="Name or email address"
         placeholderTextColor={colors.secondary}
         returnKeyType="next"
         style={[styles.input, { color: colors.foreground }]}
         textContentType="emailAddress"
-        value={text}
+        value={entryOf(draft, field)}
       />
       {notice === undefined ? null : (
         <Text
@@ -549,16 +570,14 @@ function Editor({
   const [closing, setClosing] = useState<
     'saving' | 'blocked' | 'discard-blocked' | 'discard' | 'recipients'
   >();
-  const [entries, setEntries] = useState<Record<RecipientField, string>>({
-    to: '',
-    cc: '',
-    bcc: '',
-  });
   const caret = useRef<number | undefined>(undefined);
   const typingField = useRef<string | undefined>(undefined);
   const subjectSelection = useRef<Selection>({ start: 0, end: 0 });
   const subjectCaret = useRef<number | undefined>(undefined);
   const draft = history.present;
+  const breakTyping = () => {
+    setHistory((current) => ({ ...current, typing: false }));
+  };
   const display = displayOf(draft.body);
   const save = state.kind === 'ready' ? state.save : 'failed';
 
@@ -613,22 +632,18 @@ function Editor({
   const close = useCallback(async () => {
     // Entries still being typed become recipients; invalid text keeps the Draft open.
     let finished = draft;
-    const left = { ...entries };
     for (const field of ['to', 'cc', 'bcc'] as const) {
-      const result = addRecipients(finished, {
+      finished = addRecipients(finished, {
         field,
-        text: entries[field],
+        text: entryOf(finished, field),
         all: true,
-      });
-      finished = result.draft;
-      left[field] = result.text;
+      }).draft;
     }
-    setEntries(left);
     if (finished !== draft) {
       setHistory(record(history, finished));
       void store.update(finished, draft);
     }
-    if (Object.values(left).some((text) => text !== '')) {
+    if (finished.entries !== undefined) {
       setClosing('recipients');
       return false;
     }
@@ -647,7 +662,7 @@ function Editor({
     }
     setClosing('blocked');
     return false;
-  }, [draft, entries, history, onClose, store]);
+  }, [draft, history, onClose, store]);
   const navigation = useComposerNavigation();
   useLayoutEffect(() => navigation.register(close), [navigation, close]);
   const discard = async () => {
@@ -779,10 +794,7 @@ function Editor({
           draft={draft}
           field="to"
           onChange={change}
-          onText={(text) => {
-            setEntries((current) => ({ ...current, to: text }));
-          }}
-          text={entries.to}
+          onCaretMove={breakTyping}
         />
         {draft.copies === true || draft.cc.length + draft.bcc.length > 0 ? (
           <>
@@ -790,19 +802,13 @@ function Editor({
               draft={draft}
               field="cc"
               onChange={change}
-              onText={(text) => {
-                setEntries((current) => ({ ...current, cc: text }));
-              }}
-              text={entries.cc}
+              onCaretMove={breakTyping}
             />
             <Recipients
               draft={draft}
               field="bcc"
               onChange={change}
-              onText={(text) => {
-                setEntries((current) => ({ ...current, bcc: text }));
-              }}
-              text={entries.bcc}
+              onCaretMove={breakTyping}
             />
           </>
         ) : (

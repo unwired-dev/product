@@ -382,5 +382,89 @@ describe('composing Drafts', () => {
     expect(rows.length).toBeGreaterThan(0);
     expect(rows.length).toBeLessThan(60);
   });
+
+  it('keeps a recipient still being typed through an interruption', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const first = await render(
+      <App
+        drafts={createDrafts(storage.native, registration)}
+        registration={registration}
+      />,
+    );
+    await press('New Message');
+    await fireEvent.changeText(await screen.findByLabelText('To'), 'maya@exa');
+    await waitFor(() => {
+      expect(
+        screen.getByText('Draft · Saved on this device'),
+      ).toBeOnTheScreen();
+    });
+    // The app ends without leaving the field or closing the composer.
+    await first.unmount();
+    await render(
+      <App
+        drafts={createDrafts(storage.native, registration)}
+        registration={registration}
+      />,
+    );
+    await press('Draft. No subject. No recipients. From alex@example.invalid');
+    expect(screen.getByLabelText('To')).toHaveProp('value', 'maya@exa');
+  });
+
+  it('undoes recipient corrections without erasing earlier typing', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    await render(
+      <App
+        drafts={createDrafts(storage.native, registration)}
+        registration={registration}
+      />,
+    );
+    await press('New Message');
+    const to = screen.getByLabelText('To');
+    for (const text of [
+      'm',
+      'ma',
+      'may',
+      'maya',
+      'maya@',
+      'maya@e',
+      'maya@ex',
+      'maya@exa',
+    ]) {
+      await fireEvent.changeText(to, text);
+      await fireEvent(to, 'selectionChange', {
+        nativeEvent: { selection: { start: text.length, end: text.length } },
+      });
+    }
+    // Moving the caret starts a new typing step, even within the same word.
+    await fireEvent(to, 'selectionChange', {
+      nativeEvent: { selection: { start: 1, end: 1 } },
+    });
+    await fireEvent.changeText(to, 'mXaya@exa');
+    await fireEvent(to, 'selectionChange', {
+      nativeEvent: { selection: { start: 2, end: 2 } },
+    });
+    await press('Undo');
+    expect(to).toHaveProp('value', 'maya@exa');
+    await press('Redo');
+    expect(to).toHaveProp('value', 'mXaya@exa');
+    // A deletion is a separate correction too.
+    await fireEvent.changeText(to, 'mXaya@ex');
+    await press('Undo');
+    expect(to).toHaveProp('value', 'mXaya@exa');
+    await press('Redo');
+    expect(to).toHaveProp('value', 'mXaya@ex');
+    await press('Close');
+    expect(screen.getByLabelText('To')).toBeOnTheScreen();
+    await fireEvent.changeText(to, '');
+    await press('Close');
+    expect(screen.queryByLabelText('To')).toBeNull();
+    const reopened = createDrafts(storage.native, registration);
+    await reopened.load();
+    expect(draftsOf(reopened.getSnapshot())).toStrictEqual([]);
+  });
   /* oxlint-enable vitest/max-expects */
 });

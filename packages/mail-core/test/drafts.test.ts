@@ -232,6 +232,8 @@ describe('entering Draft recipients', () => {
       { address: 'oliver@example.com' },
     ]);
     expect(named.text).toBe('partial');
+    // The entry still being typed is part of the Draft, so it is saved with every edit.
+    expect(named.draft.entries).toStrictEqual({ to: 'partial' });
     expect(named.notice).toBeUndefined();
 
     const invalid = addRecipients(named.draft, {
@@ -242,6 +244,10 @@ describe('entering Draft recipients', () => {
     expect(invalid.notice).toBe('invalid');
     expect(invalid.text).toBe('not an address');
     expect(invalid.draft.cc).toStrictEqual([]);
+    expect(invalid.draft.entries).toStrictEqual({
+      to: 'partial',
+      cc: 'not an address',
+    });
 
     const duplicate = addRecipients(named.draft, {
       field: 'bcc',
@@ -275,6 +281,80 @@ describe('entering Draft recipients', () => {
 
 describe('storing Drafts', () => {
   /* oxlint-disable vitest/max-expects -- Each journey proves one storage path end to end. */
+  it('preserves unfinished recipients across concurrent saves and refuses empty-only disposal', async () => {
+    expect.hasAssertions();
+    const session = account(connected('account-a'));
+    const storage = createSyntheticDrafts(session.productAccount);
+    const first = createDrafts(storage.native, session.registration);
+    await first.load();
+    const id = await first.create(alex);
+    const second = createDrafts(storage.native, session.registration);
+    await second.load();
+    // A document written before entries existed still opens with no pending text.
+    const before = present(draftOf(second.getSnapshot(), id), 'legacy Draft');
+    expect(before.entries).toBeUndefined();
+
+    storage.hold();
+    const initialEntry = addRecipients(before, {
+      field: 'to',
+      text: 'm',
+    }).draft;
+    const initialSave = first.update(initialEntry, before);
+    const latestEntry = addRecipients(initialEntry, {
+      field: 'to',
+      text: 'maya@exa',
+    }).draft;
+    const latestSave = first.update(latestEntry, initialEntry);
+    storage.release();
+    await Promise.all([initialSave, latestSave]);
+
+    // An older storage writer's entry must preserve both independently authored versions.
+    const otherEntry = addRecipients(before, {
+      field: 'cc',
+      text: 'oliv',
+    }).draft;
+    await second.update(otherEntry, before);
+    const reopened = createDrafts(storage.native, session.registration);
+    await reopened.load();
+    expect(ready(reopened.getSnapshot()).drafts).toStrictEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id, entries: { to: 'maya@exa' } }),
+        expect.objectContaining({ conflict: true, entries: { cc: 'oliv' } }),
+      ]),
+    );
+    await expect(
+      reopened.discard(before.id, { onlyIfEmpty: true }),
+    ).resolves.toBe(true);
+    expect(draftOf(reopened.getSnapshot(), id)?.entries).toStrictEqual({
+      to: 'maya@exa',
+    });
+
+    // The shared store also preserves entries from two stale editors in one process.
+    const current = present(
+      draftOf(reopened.getSnapshot(), id),
+      'current Draft',
+    );
+    await reopened.update(
+      addRecipients(current, { field: 'to', text: 'maya@exam' }).draft,
+      current,
+    );
+    await reopened.update(
+      addRecipients(current, { field: 'to', text: 'maya@examp' }).draft,
+      current,
+    );
+    const final = createDrafts(storage.native, session.registration);
+    await final.load();
+    expect(ready(final.getSnapshot()).drafts).toStrictEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          entries: { to: 'maya@exam' },
+          conflict: true,
+        }),
+        expect.objectContaining({ id, entries: { to: 'maya@examp' } }),
+      ]),
+    );
+  });
+
   it('saves every edit in order, reopens the same Draft, and keeps unsaved edits through a failure', async () => {
     expect.hasAssertions();
     const session = account(connected('account-a'));
