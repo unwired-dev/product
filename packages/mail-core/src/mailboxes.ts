@@ -22,7 +22,7 @@ export interface NativeGmailMailboxes {
   readonly gmailRequest: (
     path: string,
     query: ReadonlyArray<readonly [string, string]>,
-    mailbox: Scope,
+    mailbox: Scope & Readonly<{ signal?: Readonly<AbortSignal> }>,
   ) => Promise<unknown>;
   readonly gmailModify: (
     change: Parameters<NativeGmailMailbox['gmailModify']>[0],
@@ -49,6 +49,19 @@ export interface NativeGmailMailboxes {
     ids: readonly string[],
     protectedIds: readonly string[],
   ) => Promise<unknown>;
+  readonly saveAttachment: (
+    mailbox: Scope,
+    attachment: Parameters<NativeGmailMailbox['saveAttachment']>[1],
+  ) => Promise<unknown>;
+  readonly discardAttachment: (
+    mailbox: Scope,
+    file: string,
+  ) => Promise<unknown>;
+  readonly presentAttachment: (
+    mailbox: Scope,
+    file: string,
+    action: 'open' | 'share',
+  ) => Promise<unknown>;
 }
 
 // One connection's view of the native module: every call names that connection, and only the
@@ -67,7 +80,10 @@ const bound = (
   });
   return {
     gmailRequest: (path, query, mailbox) =>
-      native.gmailRequest(path, query, scope(mailbox)),
+      native.gmailRequest(path, query, {
+        ...scope(mailbox),
+        ...(mailbox.signal === undefined ? {} : { signal: mailbox.signal }),
+      }),
     gmailModify: (change, mailbox) =>
       native.gmailModify(change, scope(mailbox)),
     openMailbox: () => native.openMailbox(connection),
@@ -85,6 +101,12 @@ const bound = (
         ids,
         protectedIds,
       ),
+    saveAttachment: (mailbox, attachment) =>
+      native.saveAttachment(scope(mailbox), attachment),
+    discardAttachment: (mailbox, file) =>
+      native.discardAttachment(scope(mailbox), file),
+    presentAttachment: (mailbox, file, action) =>
+      native.presentAttachment(scope(mailbox), file, action),
   };
 };
 

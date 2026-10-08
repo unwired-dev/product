@@ -311,3 +311,36 @@ changed epoch still replaces its Inbox and immediately forgets old plaintext,
 unsaved actions and late reads. Ordinary verification keeps the epoch and retains
 same-connection work. Older readable epoch-less records use the legacy lifetime
 until authoritative reconciliation or current explicit consent binds them.
+
+## Received attachment ownership
+
+Issue [#610](https://github.com/unwired-dev/product/issues/610) implements the on-demand
+Gmail slice of [ADR 0030](../adr/0030-gate-incoming-attachment-downloads.md).
+`message-body.ts` derives descriptors from the MIME tree without an attachment
+request, excluding readable parts, resolved inline images and all attached-message
+subtrees. A download rereads the owning message and revalidates the part selector,
+name, MIME type and size. Only the verified connection and generation can save it;
+bytes never enter the encrypted body cache or Product Sync.
+
+The native credentialed transport caps responses at 40 MiB while receiving them,
+including unknown-length responses. TypeScript validates base64url and the exact
+25 MiB-bounded decoded size; native storage independently validates that size.
+Host adapters forward Effect interruption through an opaque request identifier to
+cancel the owning native task and URLSession transfer. Registration refresh checks
+cancellation before starting the provider read. Saving and recording ownership are
+uninterruptible, with rejected or cancelled saves explicitly discarded.
+
+Private Application Support files are grouped by connection and opaque UUID, with
+a confined filename, iOS complete protection and backup exclusion. The 250 MiB
+store evicts least recently used files; preview refreshes their modification date.
+Files have shorter ownership than the encrypted body: the last reader closing,
+Inbox removal or owner invalidation discards them. Connection/account removal
+attempts attachment cleanup even when another cache removal fails. Before exposing
+the shared registration store, launch clears previous-process files off the main
+actor and fails closed if cleanup fails. A post-write authorization rejection also
+removes the unacknowledged file.
+
+System preview and sharing receive one resolved connection-owned URL. Native
+Quick Look/share runtime behavior and the complete React Native bridge build remain
+required qualification; hosted storage/transport fixtures do not establish those
+host integration results. See the operational guide's evidence and deferred checks.

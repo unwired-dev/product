@@ -127,6 +127,17 @@ const BodyDocumentSchema = Schema.Struct({
     }),
   ),
   excluded: Schema.optionalKey(Schema.Literal(true)),
+  // Received attachment metadata, without bytes; absent in bodies cached before it was kept.
+  attachments: Schema.optionalKey(
+    Schema.Array(
+      Schema.Struct({
+        locator: Schema.String.check(Schema.isPattern(/^\d+(?:\.\d+)*$/u)),
+        name: Schema.String,
+        mimeType: Schema.String,
+        size: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+      }),
+    ),
+  ),
 });
 export type BodyDocument = typeof BodyDocumentSchema.Type;
 export const decodeBodyDocument = Schema.decodeUnknownOption(
@@ -362,6 +373,116 @@ export function inlineImageParts(
   for (const scope of Arr.reverse(path)) {
     imagesUnder(scope, path, found);
   }
+  return found;
+}
+
+// ponytail: Gmail's own per-message limit; larger attachments are not offered on this device.
+export const attachmentLimit = 25 * 1024 * 1024;
+
+// Count a Unicode code point without depending on a host TextEncoder polyfill.
+const filenameBytes = (character: string) => {
+  const point = character.codePointAt(0) ?? 0;
+  if (point <= 127) {
+    return 1;
+  }
+  if (point <= 2047) {
+    return 2;
+  }
+  if (point <= 65_535) {
+    return 3;
+  }
+  return 4;
+};
+
+// A name that is safe to show and to use as a file name: no path separators, control or
+// direction-overriding characters, no leading dot, and a bounded length that keeps the extension.
+export const safeFilename = (name: string) => {
+  const cleaned = name
+    .normalize('NFC')
+    .replaceAll(/[\p{Cc}\p{Cf}\u2028\u2029]/gu, '')
+    .replaceAll(/[/\\:]/gu, '_')
+    .replaceAll(/\s+/gu, ' ')
+    .replace(/^[\s.]+/u, '')
+    .replace(/[\s.]+$/u, '');
+  const characters = [...cleaned];
+  if (
+    characters.length <= 120 &&
+    characters.reduce(
+      (bytes, character) => bytes + filenameBytes(character),
+      0,
+    ) <= 255
+  ) {
+    return cleaned === '' ? 'attachment' : cleaned;
+  }
+  const extension = /\.[^.\s]{1,16}$/u.exec(cleaned)?.[0] ?? '';
+  const ending = [...extension];
+  let bytes = ending.reduce(
+    (size, character) => size + filenameBytes(character),
+    0,
+  );
+  const prefix: string[] = [];
+  for (const character of characters.slice(
+    0,
+    characters.length - ending.length,
+  )) {
+    if (
+      prefix.length + ending.length === 120 ||
+      bytes + filenameBytes(character) > 255
+    ) {
+      break;
+    }
+    prefix.push(character);
+    bytes += filenameBytes(character);
+  }
+  return prefix.join('') + extension;
+};
+
+// Received attachments in MIME order, located by child indexes from the payload: named or
+// attachment-disposition leaves outside attached messages, except the readable body and the
+// inline images its HTML can resolve.
+export function receivedAttachments(payload: GmailPart) {
+  const { html, text, path } = bodyParts(payload);
+  const body = new Set<GmailPart>([
+    ...(html === undefined ? [] : [html]),
+    ...(text === undefined ? [] : [text]),
+    ...inlineImageParts(path).values(),
+  ]);
+  const found: Array<
+    Readonly<{
+      locator: string;
+      name: string;
+      mimeType: string;
+      size: number;
+      part: GmailPart;
+    }>
+  > = [];
+  const visit = (part: GmailPart, locator: readonly number[]) => {
+    if (mimeType(part) === 'message/rfc822') {
+      return;
+    }
+    const children = part.parts ?? [];
+    if (children.length > 0) {
+      for (const [index, child] of children.entries()) {
+        visit(child, [...locator, index]);
+      }
+      return;
+    }
+    if (
+      body.has(part) ||
+      part.body === undefined ||
+      ((part.filename ?? '') === '' && !isAttachment(part))
+    ) {
+      return;
+    }
+    found.push({
+      locator: locator.join('.'),
+      name: safeFilename(part.filename ?? ''),
+      mimeType: mimeType(part) || 'application/octet-stream',
+      size: part.body.size,
+      part,
+    });
+  };
+  visit(payload, [0]);
   return found;
 }
 

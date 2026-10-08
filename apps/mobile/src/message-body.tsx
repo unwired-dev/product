@@ -1,4 +1,7 @@
-import type { GmailInbox } from '@private-email/mail-core/gmail-inbox';
+import type {
+  GmailInbox,
+  ReceivedAttachment,
+} from '@private-email/mail-core/gmail-inbox';
 import type {
   BodyLink,
   MessagePresentation,
@@ -11,7 +14,10 @@ import type {
   WebViewEvent,
 } from 'react-native-webview/lib/WebViewTypes';
 
-import { messageBodyCopy } from '@private-email/mail-core/gmail-inbox';
+import {
+  attachmentCopy,
+  messageBodyCopy,
+} from '@private-email/mail-core/gmail-inbox';
 import {
   inspectLink,
   messageLinkAt,
@@ -55,6 +61,13 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
   },
   actions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.large },
+  attachments: {
+    gap: spacing.small,
+    paddingTop: spacing.medium,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  attachment: { gap: 2 },
+  attachmentName: { fontSize: 15, fontWeight: '600' },
   link: { textDecorationLine: 'underline' },
   linkControl: {
     borderWidth: 2,
@@ -99,15 +112,18 @@ async function openLink(href: string) {
 
 function Action({
   label,
+  accessibilityLabel,
   onPress,
 }: {
   readonly label: string;
+  readonly accessibilityLabel?: string;
   readonly onPress: () => void;
 }) {
   const colors = usePalette();
   return (
     <Pressable
       accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
       focusable
       onPress={onPress}>
       <Text style={[styles.secondary, { color: colors.accent }]}>{label}</Text>
@@ -461,6 +477,154 @@ function Presentation({
   );
 }
 
+const sizeFormat = new Intl.NumberFormat('en', {
+  maximumFractionDigits: 1,
+});
+const fileSize = (bytes: number) => {
+  if (bytes < 1024) {
+    return `${bytes} bytes`;
+  }
+  return bytes < 1024 * 1024
+    ? `${sizeFormat.format(bytes / 1024)} KB`
+    : `${sizeFormat.format(bytes / (1024 * 1024))} MB`;
+};
+
+const attachmentStatus = (state: ReceivedAttachment['state']) => {
+  if (state.kind === 'downloading') {
+    return 'Downloading…';
+  }
+  if (state.kind === 'oversized') {
+    return attachmentCopy.oversized;
+  }
+  return state.kind === 'unavailable'
+    ? attachmentCopy[state.reason]
+    : undefined;
+};
+
+// One received attachment: its name and size, and what can be done with it now.
+function AttachmentRow({
+  inbox,
+  id,
+  attachment,
+}: {
+  readonly inbox: GmailInbox;
+  readonly id: string;
+  readonly attachment: ReceivedAttachment;
+}) {
+  const colors = usePalette();
+  const { locator, name, size, state } = attachment;
+  const status = attachmentStatus(state);
+  let actions: ReactNode = null;
+  if (state.kind === 'available') {
+    actions = (
+      <Action
+        label="Download"
+        accessibilityLabel={`Download ${name}`}
+        onPress={() => {
+          void inbox.downloadAttachment(id, locator);
+        }}
+      />
+    );
+  } else if (state.kind === 'downloading') {
+    actions = (
+      <Action
+        label="Cancel"
+        accessibilityLabel={`Cancel downloading ${name}`}
+        onPress={() => {
+          inbox.cancelAttachment(id, locator);
+        }}
+      />
+    );
+  } else if (state.kind === 'downloaded') {
+    actions = (
+      <>
+        <Action
+          label="Open"
+          accessibilityLabel={`Open ${name}`}
+          onPress={() => {
+            void inbox.presentAttachment(id, locator, 'open');
+          }}
+        />
+        <Action
+          label="Share"
+          accessibilityLabel={`Share ${name}`}
+          onPress={() => {
+            void inbox.presentAttachment(id, locator, 'share');
+          }}
+        />
+      </>
+    );
+  } else if (state.kind === 'unavailable') {
+    actions =
+      state.reason === 'missing' ? null : (
+        <Action
+          label="Try again"
+          accessibilityLabel={`Try downloading ${name} again`}
+          onPress={() => {
+            void inbox.downloadAttachment(id, locator);
+          }}
+        />
+      );
+  }
+  return (
+    <View style={styles.attachment}>
+      <Text
+        selectable
+        style={[styles.attachmentName, { color: colors.foreground }]}>
+        {name}
+      </Text>
+      <Text style={[styles.secondary, { color: colors.secondary }]}>
+        {fileSize(size)}
+      </Text>
+      {status === undefined ? null : (
+        <Text
+          accessibilityLiveRegion="polite"
+          style={[styles.secondary, { color: colors.secondary }]}>
+          {status}
+        </Text>
+      )}
+      <View style={styles.actions}>{actions}</View>
+    </View>
+  );
+}
+
+// The opened message's received attachments. Listing them downloads nothing; each downloads
+// only when asked, and opens or shares through the system.
+function ReceivedAttachments({
+  inbox,
+  id,
+}: {
+  readonly inbox: GmailInbox;
+  readonly id: string;
+}) {
+  const colors = usePalette();
+  const attachments = useSyncExternalStore(inbox.subscribe, () =>
+    inbox.messageAttachments(id),
+  );
+  if (attachments === undefined || attachments.length === 0) {
+    return null;
+  }
+  return (
+    <View style={[styles.attachments, { borderTopColor: colors.separator }]}>
+      <Text
+        accessibilityRole="header"
+        style={[styles.secondary, { color: colors.secondary }]}>
+        {attachments.length === 1
+          ? '1 attachment'
+          : `${attachments.length} attachments`}
+      </Text>
+      {attachments.map((attachment) => (
+        <AttachmentRow
+          key={attachment.locator}
+          inbox={inbox}
+          id={id}
+          attachment={attachment}
+        />
+      ))}
+    </View>
+  );
+}
+
 // The opened Gmail message's body, from this device or downloaded on demand. Links open only
 // after the person confirms the destination shown here.
 export function GmailMessageBody({
@@ -550,6 +714,10 @@ export function GmailMessageBody({
             confirm?.({ inbox, id, link, current, subscribe: inbox.subscribe });
           }
         }}
+      />
+      <ReceivedAttachments
+        inbox={inbox}
+        id={id}
       />
     </View>
   );

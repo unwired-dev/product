@@ -801,6 +801,7 @@ describe('organizing Gmail mail', () => {
     let armed = false;
     let reopening = false;
     const inbox = createGmailInbox({
+      ...first.native,
       openMailbox: async () => {
         // oxlint-disable-next-line vitest/no-conditional-in-test -- Reselection happens while the conflict reopens its cache.
         if (reopening) {
@@ -1645,6 +1646,7 @@ describe('organizing Gmail mail', () => {
     };
     let current = firstNative;
     const inbox = createGmailInbox({
+      ...firstNative,
       openMailbox: () => current.openMailbox(),
       commitMailbox: (...args) => current.commitMailbox(...args),
       gmailRequest: (...args) => current.gmailRequest(...args),
@@ -1681,6 +1683,7 @@ describe('organizing Gmail mail', () => {
     let owner = 'first-owner';
     let generation = 'first-generation';
     const inbox = createGmailInbox({
+      ...first.native,
       openMailbox: async () => ({
         ...(await current.native.openMailbox()),
         owner,

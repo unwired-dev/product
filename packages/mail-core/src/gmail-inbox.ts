@@ -33,6 +33,7 @@ import {
 import { sanitizeHtml } from './html-sanitizer.ts';
 import { inlineImageLimits } from './inline-images.ts';
 import {
+  attachmentLimit,
   bodyParts,
   contentIdsOf,
   decodeAttachment,
@@ -42,8 +43,10 @@ import {
   encodeBodyDocument,
   imageTally,
   inlineImageParts,
+  partBytes,
   partText,
   presentation,
+  receivedAttachments,
   recentWorkingSet,
   singleReadablePart,
   unescapeHtml,
@@ -56,7 +59,11 @@ export interface NativeGmailMailbox {
   readonly gmailRequest: (
     path: string,
     query: ReadonlyArray<readonly [string, string]>,
-    mailbox: Readonly<{ address: string; generation: string }>,
+    mailbox: Readonly<{
+      address: string;
+      generation: string;
+      signal?: Readonly<AbortSignal>;
+    }>,
   ) => Promise<unknown>;
   // Resolves `{ status, body }` for Gmail's modify of one message's labels.
   readonly gmailModify: (
@@ -107,6 +114,24 @@ export interface NativeGmailMailbox {
     }>,
     ids: readonly string[],
     protectedIds: readonly string[],
+  ) => Promise<unknown>;
+  // Writes a verified Downloaded Attachment's base64url bytes into the connection's private
+  // temporary storage, which native code clears with the connection. Resolves `{ file }`, an opaque
+  // name; the data never leaves this device.
+  readonly saveAttachment: (
+    mailbox: Readonly<{ address: string; generation: string }>,
+    attachment: Readonly<{ name: string; data: string; size: number }>,
+  ) => Promise<unknown>;
+  // Deletes a saved attachment; deleting is allowed after the mailbox's generation changed.
+  readonly discardAttachment: (
+    mailbox: Readonly<{ address: string; generation: string }>,
+    file: string,
+  ) => Promise<unknown>;
+  // Shows the system Attachment Preview, or the system share sheet, for a saved attachment.
+  readonly presentAttachment: (
+    mailbox: Readonly<{ address: string; generation: string }>,
+    file: string,
+    action: 'open' | 'share',
   ) => Promise<unknown>;
 }
 
@@ -393,6 +418,75 @@ export type MessageBodyState =
 
 const loadingBody: MessageBodyState = { kind: 'loading' };
 
+// A received attachment's availability on this device. 'oversized' attachments are listed but
+// never downloaded; 'damaged' means Gmail's bytes were incomplete or did not decode.
+export type AttachmentState =
+  | {
+      readonly kind: 'available' | 'oversized' | 'downloading' | 'downloaded';
+    }
+  | {
+      readonly kind: 'unavailable';
+      readonly reason:
+        | 'download'
+        | 'authentication'
+        | 'missing'
+        | 'locked'
+        | 'failed'
+        | 'damaged';
+    };
+
+export type ReceivedAttachment = Readonly<{
+  locator: string;
+  name: string;
+  mimeType: string;
+  size: number;
+  state: AttachmentState;
+}>;
+
+const attachmentStates = {
+  available: { kind: 'available' },
+  oversized: { kind: 'oversized' },
+  downloading: { kind: 'downloading' },
+  downloaded: { kind: 'downloaded' },
+} as const satisfies Record<string, AttachmentState>;
+
+const decodeSavedAttachment = Schema.decodeUnknownEffect(
+  Schema.Struct({
+    file: Schema.String.check(Schema.isPattern(/^[\dA-Fa-f-]{36}$/u)),
+  }),
+);
+
+// Gmail sent bytes that do not decode to the attachment's declared size.
+class AttachmentDamaged extends Schema.TaggedError<AttachmentDamaged>()(
+  'AttachmentDamaged',
+  {},
+) {}
+
+const attachmentKey = (id: string, locator: string) => `${id}\n${locator}`;
+
+type AttachmentFailure = Extract<
+  AttachmentState,
+  { kind: 'unavailable' }
+>['reason'];
+const unavailable = (reason: AttachmentFailure) => ({
+  state: { kind: 'unavailable', reason } as const,
+});
+// Offline, quota and server failures can pass on a later try; stale work shows nothing new.
+const downloadFailure = (kind: SyncFailure['kind']): AttachmentFailure => {
+  if (kind === 'locked' || kind === 'failed') {
+    return kind;
+  }
+  return kind === 'retry' ? 'download' : 'failed';
+};
+
+const attachmentMetadata = (payload: GmailPart) =>
+  receivedAttachments(payload).map(({ locator, name, mimeType, size }) => ({
+    locator,
+    name,
+    mimeType,
+    size,
+  }));
+
 const decodeStoredBodies = Schema.decodeUnknownEffect(
   Schema.Struct({ stored: Schema.Array(Schema.String) }),
 );
@@ -533,7 +627,9 @@ const storage = (operation: () => Promise<unknown>) =>
   );
 
 // One Gmail request's `{ status, body }`; a rejected or malformed reply may pass on a later try.
-const gmailResponse = (request: () => Promise<unknown>) =>
+const gmailResponse = (
+  request: (signal: Readonly<AbortSignal>) => Promise<unknown>,
+) =>
   Effect.tryPromise({
     try: request,
     catch: (cause) => rejected(cause, 'retry'),
@@ -821,8 +917,8 @@ export function createGmailInbox(
       decode: (body: unknown) => Effect.Effect<A, Schema.SchemaError>,
     ) =>
       Effect.gen(function* () {
-        const { status, body } = yield* gmailResponse(() =>
-          native.gmailRequest(path, query, scope),
+        const { status, body } = yield* gmailResponse((signal) =>
+          native.gmailRequest(path, query, { ...scope, signal }),
         );
         if (status === 404) {
           return yield* new GmailNotFound();
@@ -1120,7 +1216,47 @@ export function createGmailInbox(
     { bytes: number; pixels: number }
   >();
   const readingBodies = new Map<string, Promise<void>>();
+  // Each opened message's attachment downloads by `id\nlocator`. A saved file belongs to the
+  // mailbox scope it was saved in and is deleted when its message leaves memory.
+  type Download = Readonly<{
+    state: AttachmentState;
+    saved?: Readonly<{ scope: MailboxScope; file: string }>;
+    abort?: AbortController;
+  }>;
+  const downloads = new Map<string, Download>();
+  const attachmentViews = new Map<string, readonly ReceivedAttachment[]>();
+  const discardSaved = (
+    saved: Readonly<{ scope: MailboxScope; file: string }> | undefined,
+  ) => {
+    if (saved !== undefined) {
+      void runLogged(
+        Effect.tryPromise({
+          try: () => native.discardAttachment(saved.scope, saved.file),
+          catch: (cause) => rejected(cause, 'failed'),
+        }).pipe(
+          Effect.catchTag('SyncFailure', ({ diagnostic }) =>
+            Effect.logError('Attachment was not discarded:', diagnostic),
+          ),
+        ),
+      );
+    }
+  };
+  const discardDownloads = (id?: string) => {
+    for (const [key, download] of downloads) {
+      if (id === undefined || key.startsWith(`${id}\n`)) {
+        downloads.delete(key);
+        download.abort?.abort();
+        discardSaved(download.saved);
+      }
+    }
+    if (id === undefined) {
+      attachmentViews.clear();
+    } else {
+      attachmentViews.delete(id);
+    }
+  };
   const releaseBody = (id: string) => {
+    discardDownloads(id);
     bodies.delete(id);
     documents.delete(id);
     imageReservations.delete(id);
@@ -1344,6 +1480,7 @@ export function createGmailInbox(
 
   const prepareReaders = (id: string, document: BodyDocument) => {
     documents.set(id, document);
+    attachmentViews.delete(id);
     const count = legacyReaders.get(id) ?? 0;
     const prepared =
       count > 0 || !readers.has(id)
@@ -1487,6 +1624,7 @@ export function createGmailInbox(
     const document: BodyDocument = {
       version: 2,
       id,
+      attachments: attachmentMetadata(payload),
       ...(text === undefined
         ? {}
         : { text: yield* fetchPart(scope, id, text) }),
@@ -1510,30 +1648,43 @@ export function createGmailInbox(
     };
   });
 
-  // A cached body opened explicitly before its inline images were resolved resolves them now,
-  // when Gmail answers; offline, it opens with placeholders.
+  // A cached body opened explicitly before its inline images were resolved, or before its
+  // attachment metadata was kept, completes them now when Gmail answers; offline, it opens with
+  // placeholders and no attachment list.
   const completeImages = Effect.fnUntraced(function* (
     scope: MailboxScope,
     document: BodyDocument,
   ) {
     const references = contentIdsOf(document);
-    if (document.images !== undefined || references.length === 0) {
+    const needsImages = document.images === undefined && references.length > 0;
+    const needsAttachments = document.attachments === undefined;
+    if (!needsImages && !needsAttachments) {
       return { document, changed: false, authentication: false };
     }
     const payload = yield* fullMessage(scope, document.id, [
       ['format', 'full'],
     ]);
+    const withList = needsAttachments
+      ? { ...document, attachments: attachmentMetadata(payload) }
+      : document;
+    if (!needsImages) {
+      return { document: withList, changed: true, authentication: false };
+    }
     const resolved = yield* resolveImages(scope, document.id, {
       path: bodyParts(payload).path,
       references,
     });
     return resolved.complete
       ? {
-          document: { ...document, images: resolved.images },
+          document: { ...withList, images: resolved.images },
           changed: true,
           authentication: false,
         }
-      : { document, changed: false, authentication: resolved.authentication };
+      : {
+          document: withList,
+          changed: needsAttachments,
+          authentication: resolved.authentication,
+        };
   });
 
   const cachedDocument = Effect.fnUntraced(function* (
@@ -1679,6 +1830,155 @@ export function createGmailInbox(
     return document;
   });
 
+  const setDownload = (
+    id: string,
+    locator: string,
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- The controller is only kept to abort.
+    next: Download | undefined,
+  ) => {
+    const key = attachmentKey(id, locator);
+    if (next === undefined) {
+      downloads.delete(key);
+    } else {
+      downloads.set(key, next);
+    }
+    attachmentViews.delete(id);
+    notify(state);
+  };
+
+  // A received attachment's bytes from Gmail, read again from the current message so a changed
+  // or removed attachment is never mistaken for the listed one. Only base64url data decoding to
+  // exactly the declared size is returned.
+  const fetchAttachment = Effect.fnUntraced(function* (
+    scope: MailboxScope,
+    id: string,
+    listedAttachment: NonNullable<BodyDocument['attachments']>[number],
+  ) {
+    const payload = yield* fullMessage(scope, id, [['format', 'full']]);
+    const current = receivedAttachments(payload).find(
+      (candidate) =>
+        candidate.locator === listedAttachment.locator &&
+        candidate.name === listedAttachment.name &&
+        candidate.mimeType === listedAttachment.mimeType &&
+        candidate.size === listedAttachment.size,
+    );
+    if (current === undefined) {
+      return yield* new GmailNotFound();
+    }
+    const data = yield* partData(scope, id, current.part).pipe(
+      Effect.catchIf(
+        (failure) => failure.cause === 'body size',
+        () => Effect.fail(new AttachmentDamaged()),
+      ),
+    );
+    if (partBytes(data, current.size) === undefined) {
+      return yield* new AttachmentDamaged();
+    }
+    return data;
+  });
+
+  // Downloads one listed attachment into private temporary storage. Cancelling, closing the
+  // message or a change of mailbox drops the result and deletes any file saved for it.
+  const downloadAttachment = (id: string, locator: string) => {
+    const scope = opened;
+    const listedAttachment = documents
+      .get(id)
+      ?.attachments?.find((attachment) => attachment.locator === locator);
+    const current = downloads.get(attachmentKey(id, locator))?.state.kind;
+    if (
+      scope === undefined ||
+      !listed(id) ||
+      listedAttachment === undefined ||
+      listedAttachment.size > attachmentLimit ||
+      current === 'downloading' ||
+      current === 'downloaded'
+    ) {
+      return Promise.resolve();
+    }
+    const reading = owner;
+    const abort = new AbortController();
+    setDownload(id, locator, { state: attachmentStates.downloading, abort });
+    const live = () =>
+      owner === reading &&
+      downloads.get(attachmentKey(id, locator))?.abort === abort;
+    // Saving and recording the file cannot be interrupted, so a cancelled download still deletes it.
+    const save = (data: string) =>
+      Effect.tryPromise({
+        try: () =>
+          native.saveAttachment(scope, {
+            name: listedAttachment.name,
+            data,
+            size: listedAttachment.size,
+          }),
+        catch: (cause) => rejected(cause, 'failed'),
+      }).pipe(
+        Effect.flatMap(decodeSavedAttachment),
+        Effect.mapError((failure) =>
+          Schema.isSchemaError(failure)
+            ? malformed(failure, 'failed')
+            : failure,
+        ),
+        Effect.flatMap(({ file }) =>
+          Effect.sync(() => {
+            const saved = { scope, file };
+            if (live()) {
+              setDownload(id, locator, {
+                state: attachmentStates.downloaded,
+                saved,
+              });
+            } else {
+              discardSaved(saved);
+            }
+          }),
+        ),
+        Effect.uninterruptible,
+      );
+    const program = Effect.acquireUseRelease(
+      shared.begin,
+      () => bodyLoads.withPermit(fetchAttachment(scope, id, listedAttachment)),
+      () => shared.end,
+    ).pipe(
+      Effect.flatMap(save),
+      Effect.catchTags({
+        GmailNotFound: () => Effect.succeed(unavailable('missing')),
+        AttachmentDamaged: () =>
+          Effect.logError('Attachment download failed:', 'damaged').pipe(
+            Effect.as(unavailable('damaged')),
+          ),
+        SyncFailure: ({ kind, diagnostic }) => {
+          if (kind === 'authentication') {
+            return askForGmail(reading, id).pipe(
+              Effect.as(unavailable('authentication')),
+            );
+          }
+          const reason = downloadFailure(kind);
+          return (
+            kind === 'locked' || kind === 'invalidated'
+              ? Effect.void
+              : Effect.logError('Attachment download failed:', diagnostic)
+          ).pipe(Effect.as(unavailable(reason)));
+        },
+      }),
+      Effect.flatMap((failure) =>
+        Effect.sync(() => {
+          if (failure !== undefined && live()) {
+            setDownload(id, locator, failure);
+          }
+        }),
+      ),
+    );
+    // Cancelling ends the download as soon as its uninterruptible save, if any, completes.
+    const cancelled = Effect.callback<unknown>((resume) => {
+      if (abort.signal.aborted) {
+        resume(Effect.void);
+      }
+      abort.signal.addEventListener('abort', () => {
+        resume(Effect.void);
+      });
+    });
+    return runLogged(Effect.raceFirst(program, cancelled).pipe(Effect.asVoid));
+  };
+
   // A refresh reloads a shown body in place: it keeps showing until the reload succeeds.
   const readMessage = (
     id: string,
@@ -1796,7 +2096,12 @@ export function createGmailInbox(
     const content = yield* fetchPart(scope, id, payload);
     const html = bodyParts(payload).html !== undefined;
     return yield* store(
-      { version: 2, id, ...(html ? { html: content } : { text: content }) },
+      {
+        version: 2,
+        id,
+        attachments: [],
+        ...(html ? { html: content } : { text: content }),
+      },
       admission,
     );
   });
@@ -1996,6 +2301,7 @@ export function createGmailInbox(
     authenticationRejected = false;
     imagesAwaitingGmail.clear();
     opened = undefined;
+    discardDownloads();
     bodies.clear();
     readers.clear();
     legacyReaders.clear();
@@ -2635,6 +2941,7 @@ export function createGmailInbox(
         const count = (readers.get(id) ?? 1) - 1;
         if (count === 0) {
           readers.delete(id);
+          discardDownloads(id);
           // The presentation ended: its image budget returns, and a later open reads the cache.
           if (bodies.get(id)?.kind === 'loading' || readingBodies.has(id)) {
             endedReaders.add(id);
@@ -2649,6 +2956,79 @@ export function createGmailInbox(
     // Opens a body from this device, or downloads it from Gmail; a failed read can be tried again.
     // Windows opening the same message share one read.
     readMessage,
+    // An opened message's received attachments with their availability, once its body is ready;
+    // listing them never downloads their bytes.
+    messageAttachments: (id: string) => {
+      const attachments = documents.get(id)?.attachments;
+      if (attachments === undefined) {
+        return undefined;
+      }
+      const cached = attachmentViews.get(id);
+      if (cached !== undefined) {
+        return cached;
+      }
+      const view = attachments.map((attachment): ReceivedAttachment => ({
+        ...attachment,
+        state:
+          downloads.get(attachmentKey(id, attachment.locator))?.state ??
+          (attachment.size > attachmentLimit
+            ? attachmentStates.oversized
+            : attachmentStates.available),
+      }));
+      attachmentViews.set(id, view);
+      return view;
+    },
+    downloadAttachment,
+    cancelAttachment: (id: string, locator: string) => {
+      if (
+        downloads.get(attachmentKey(id, locator))?.state.kind === 'downloading'
+      ) {
+        const { abort } = downloads.get(attachmentKey(id, locator)) ?? {};
+        setDownload(id, locator, undefined);
+        abort?.abort();
+      }
+    },
+    // Opens the system Attachment Preview or share sheet for a Downloaded Attachment. A file the
+    // device no longer has, or one saved before the mailbox changed, is downloaded again.
+    presentAttachment: (
+      id: string,
+      locator: string,
+      action: 'open' | 'share',
+    ) => {
+      const download = downloads.get(attachmentKey(id, locator));
+      const scope = opened;
+      const saved = download?.saved;
+      if (saved === undefined || scope === undefined || !listed(id)) {
+        return Promise.resolve();
+      }
+      const stale = () =>
+        Effect.sync(() => {
+          if (downloads.get(attachmentKey(id, locator)) === download) {
+            setDownload(id, locator, undefined);
+            discardSaved(saved);
+          }
+        });
+      if (
+        saved.scope.address !== scope.address ||
+        saved.scope.generation !== scope.generation
+      ) {
+        return runLogged(stale());
+      }
+      return runLogged(
+        Effect.tryPromise({
+          try: () => native.presentAttachment(scope, saved.file, action),
+          catch: (cause) => rejected(cause, 'failed'),
+        }).pipe(
+          Effect.asVoid,
+          Effect.catchTag('SyncFailure', ({ diagnostic }) =>
+            Effect.logError(
+              'Attachment could not be presented:',
+              diagnostic,
+            ).pipe(Effect.andThen(stale())),
+          ),
+        ),
+      );
+    },
     // A failed rich view discards its document immediately and returns its image reservation.
     discardRichMessage: (
       id: string,
@@ -2705,4 +3085,16 @@ export const messageBodyCopy = {
   images: 'Images in this message are not loaded.',
   confirmLink: 'Open this link in your browser?',
   cautionLink: 'Check this link before opening it:',
+} as const;
+
+// What the reader says about a received attachment it cannot download or keep.
+export const attachmentCopy = {
+  oversized: 'Too large to download on this device.',
+  download: 'Gmail could not be reached to download this attachment.',
+  authentication:
+    'Gmail needs your permission again to download this attachment.',
+  missing: 'This attachment is no longer in Gmail.',
+  locked: 'Private storage is locked. Unlock your device and try again.',
+  failed: 'This attachment could not be saved on this device.',
+  damaged: 'Gmail sent an incomplete or damaged copy of this attachment.',
 } as const;
