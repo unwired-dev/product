@@ -790,8 +790,8 @@ This replaces the localization evidence cherry-picked from PR #678's September
 branch. That branch's test counts and Mac journey do not qualify the current
 runner or implementation.
 
-Implementation-run evidence on macOS 27.0.1 with Xcode 27.0 and the mise Node 24
-and pnpm toolchain:
+Round-one evidence at `cd8c5698`, before merging the local Draft composer, on
+macOS 27.0.1 with Xcode 27.0 and the mise Node 24 and pnpm toolchain:
 
 - The independent review reran all eight scoped type and test tasks after its
   runtime fixes: mobile 51, Mac 46, mail-core 332 and shared localization 5 tests
@@ -814,6 +814,29 @@ and pnpm toolchain:
   its fixes and verified the packaged catalog against disk. An initial CocoaPods
   `pathname contains null byte` failure passed on one retry. This establishes
   compilation and packaging only.
+
+Round-two evidence after merging the local Draft composer, with the reviewed
+runtime fixes at `b622d637`, on the same macOS 27.0.1/Xcode 27.0 toolchain:
+
+- All eight scoped type and test tasks passed: mobile 84, Mac 79, mail-core 379
+  and shared localization 5 tests. The recipient-group regression uses real
+  i18next templates with recipient-first wording and fails against the unfixed
+  implementation; existing bounded-recipient and Unicode preview checks passed.
+  Repository formatting, lint excluding the pre-existing untracked probes, and
+  all 10 tooling checks passed. Fallow exited successfully with only the
+  excluded probe's unused-file finding; existing health advisories remain
+  separate.
+- The native Foundation language integration passed again, including regional
+  matching, fallback and preference persistence/removal across processes.
+- Production bundle checks passed with 1,306 mobile and 671 Mac sources. The
+  ad-hoc signed iOS Simulator and Mac Release builds passed with packaged
+  JavaScript and catalogs.
+- `testSelectAndReplaceMessage`, including language selection and relaunch,
+  passed on fresh owned iPhone and iPad simulators running iOS 27.0, with one
+  test and zero failures on each. Evidence:
+  `artifacts/expo-bootstrap/native-MhGMZV/`. These are Inbox journeys, not native
+  composer qualification; the Draft-specific deferred checks remain in the
+  [Draft guide](../drafts.md#verification).
 
 Deferred:
 
