@@ -3,8 +3,10 @@ import type { Mailbox, NativeGmailMailboxes } from '../src/mailboxes.ts';
 
 import { gmailAction } from '../src/gmail-actions.ts';
 import {
+  createGmailSearch,
   createMailboxes,
   inboxMessages,
+  searchGmail,
   searchMessages,
 } from '../src/mailboxes.ts';
 import { createRegistration, mailboxesOf } from '../src/registration.ts';
@@ -35,7 +37,21 @@ const mailbox = (mailboxes: readonly Mailbox[], id: string) => {
   return found;
 };
 
+const onlineAnswer = <T>(answer: T | undefined): T => {
+  if (answer === undefined) {
+    throw new Error('Expected an online search answer');
+  }
+  return answer;
+};
+
 const at = (day: number) => Date.UTC(2026, 8, day);
+
+// Whether a Gmail request from `connection` is an online search of `mailbox`.
+const searchesIn = (
+  mailbox: string,
+  connection: string,
+  query: ReadonlyArray<readonly [string, string]>,
+) => connection === mailbox && query.some(([name]) => name === 'q');
 
 const firstOf = <T>(items: readonly T[]) => {
   const [item] = items;
@@ -294,6 +310,184 @@ describe('mailbox connections and the unified Inbox', () => {
     await expect(otherInbox.savedBodies([studio])).resolves.toStrictEqual(
       new Set(),
     );
+  });
+
+  it('searches Gmail online across connections, pages and opens results without saving them, and keeps each failure its own', async () => {
+    expect.hasAssertions();
+    // Holds Other's online searches until released, as a slow network would.
+    const held: Array<() => void> = [];
+    let holding = false;
+    let locked = false;
+    const { gmail, registration, mailboxes } = await twoMailboxes((base) => ({
+      ...base,
+      openMailbox: async (connection) => {
+        // oxlint-disable-next-line vitest/no-conditional-in-test -- Protected storage fails closed.
+        if (locked && connection === other) {
+          throw Object.assign(new Error('Protected storage is locked'), {
+            code: 'locked',
+          });
+        }
+        return base.openMailbox(connection);
+      },
+      gmailRequest: async (path, query, scope) => {
+        // oxlint-disable-next-line vitest/no-conditional-in-test -- Only Other's held searches wait.
+        if (holding && searchesIn(other, scope.connection, query)) {
+          const release = Promise.withResolvers<undefined>();
+          held.push(() => {
+            release.resolve(undefined);
+          });
+          await release.promise;
+        }
+        return base.gmailRequest(path, query, scope);
+      },
+    }));
+    // Alex has 21 matching messages, more than one page; the oldest left the Inbox long ago.
+    const archived = gmail.alex.deliver({
+      subject: 'Quarterly report 2024',
+      at: at(1),
+      content: { text: 'Archived quarterly numbers', single: true },
+    });
+    gmail.alex.archive(archived);
+    for (let day = 2; day <= 21; day += 1) {
+      gmail.alex.deliver({ subject: `Quarterly report ${day}`, at: at(day) });
+    }
+    // The word is only in Other's content, and its trashed copy is not searched.
+    const otherMatch = gmail.other.deliver({
+      subject: 'Numbers',
+      at: at(30),
+      content: { text: 'The quarterly figures', single: true },
+    });
+    const trashed = gmail.other.deliver({
+      subject: 'Quarterly draft',
+      at: at(31),
+    });
+    gmail.other.setLabel(trashed, 'TRASH', true);
+    await mailboxes.load();
+    const shown = mailboxes.getSnapshot();
+    const alexInbox = mailbox(shown, alex).inbox;
+    const subjects = (
+      search: Awaited<ReturnType<typeof searchGmail<Mailbox>>>,
+    ) =>
+      search.results.map(({ mailbox: { address }, message }) => [
+        address,
+        message.subject,
+      ]);
+
+    // The first page from each mailbox, newest first across them.
+    const online = createGmailSearch(shown, 'QUARTERLY', undefined);
+    await online.search();
+    const first = onlineAnswer(online.getSnapshot().found);
+    expect(first.failures).toStrictEqual([]);
+    expect(first.results).toHaveLength(21);
+    expect(subjects(first).slice(0, 2)).toStrictEqual([
+      ['other@example.invalid', 'Numbers'],
+      ['alex@example.invalid', 'Quarterly report 21'],
+    ]);
+    expect([...first.next.keys()]).toStrictEqual([alex]);
+    const asked = gmail.alex.requests.filter(({ query }) => query.has('q'));
+    expect(
+      asked.map(({ path, query }) => [path, query.toString()]),
+    ).toStrictEqual([['messages', 'q=QUARTERLY&maxResults=20']]);
+    // The next page asks only the mailbox that has one, and reaches mail outside the Inbox.
+    await online.more();
+    const second = onlineAnswer(online.getSnapshot().found);
+    expect(second.results).toHaveLength(22);
+    expect(subjects(second).at(-1)).toStrictEqual([
+      'alex@example.invalid',
+      'Quarterly report 2024',
+    ]);
+    expect(second.next.size).toBe(0);
+    expect(
+      gmail.other.requests.filter(({ query }) => query.has('q')),
+    ).toHaveLength(1);
+
+    // An archived result opens through the reader from Gmail and is not saved on this device.
+    const state = ready(mailbox(mailboxes.getSnapshot(), alex).state);
+    expect(state.messages.some(({ id }) => id === archived)).toBe(false);
+    expect(state.found?.some(({ id }) => id === archived)).toBe(true);
+    await alexInbox.readMessage(archived);
+    expect(alexInbox.messageBody(archived)?.kind).toBe('ready');
+    expect(gmail.alex.bodyCommits.map(({ id }) => id)).not.toContain(archived);
+    expect(gmail.alex.cachedBodies().has(archived)).toBe(false);
+    // A synchronization keeps the open result readable.
+    await alexInbox.load();
+    expect(alexInbox.messageBody(archived)?.kind).toBe('ready');
+
+    // One mailbox's outage or refused grant leaves the other's results.
+    gmail.other.fail({ code: 'unavailable' });
+    const outage = await searchGmail(shown, 'quarterly');
+    expect(
+      outage.failures.map(({ mailbox: { id }, reason }) => [id, reason]),
+    ).toStrictEqual([[other, 'offline']]);
+    expect(outage.results).toHaveLength(20);
+    gmail.alex.fail({ status: 401 });
+    const refused = await searchGmail(shown, 'quarterly');
+    expect(
+      refused.failures.map(({ mailbox: { id }, reason }) => [id, reason]),
+    ).toStrictEqual([[alex, 'authentication']]);
+    expect(subjects(refused)).toStrictEqual([
+      ['other@example.invalid', 'Numbers'],
+    ]);
+    // The refused grant asks for Gmail again, as a reader would.
+    expect(ready(mailbox(mailboxes.getSnapshot(), alex).state).sync).toBe(
+      'authentication',
+    );
+    // A failed next page keeps its token, so asking again retries it.
+    gmail.alex.failPage('20', { status: 503 });
+    const retried = await searchGmail(shown, 'QUARTERLY', first);
+    expect(retried.failures.map(({ reason }) => reason)).toStrictEqual([
+      'offline',
+    ]);
+    expect(retried.next.get(alex)).toBe('20');
+    expect(retried.results).toHaveLength(21);
+
+    // A protected-storage rejection from search hides this connection's mail immediately.
+    const protectedInbox = mailbox(mailboxes.getSnapshot(), other).inbox;
+    gmail.other.fail({ code: 'locked' });
+    const protectedSearch = await searchGmail(shown, 'quarterly');
+    expect(protectedInbox.getSnapshot().kind).toBe('locked');
+    expect(
+      online.matches(mailboxes.getSnapshot(), 'QUARTERLY', undefined),
+    ).toBe(false);
+    expect(
+      protectedSearch.results.every(({ mailbox: { id } }) => id === alex),
+    ).toBe(true);
+    await protectedInbox.load();
+
+    // A pending reply cannot republish readable mail after protected storage has locked.
+    holding = true;
+    const beforeLock = searchGmail(mailboxes.getSnapshot(), 'quarterly');
+    await vi.waitFor(() => {
+      expect(held).toHaveLength(1);
+    });
+    const lockedInbox = mailbox(mailboxes.getSnapshot(), other).inbox;
+    locked = true;
+    await lockedInbox.load();
+    expect(lockedInbox.getSnapshot().kind).toBe('locked');
+    held.shift()?.();
+    const afterLock = await beforeLock;
+    expect(afterLock.results.every(({ mailbox: { id } }) => id === alex)).toBe(
+      true,
+    );
+    expect(lockedInbox.getSnapshot().kind).toBe('locked');
+    locked = false;
+    await lockedInbox.load();
+
+    // A connection removed while its search runs adds nothing, and its results leave memory.
+    holding = true;
+    const pending = searchGmail(mailboxes.getSnapshot(), 'quarterly');
+    await vi.waitFor(() => {
+      expect(held).toHaveLength(1);
+    });
+    const otherInbox = mailbox(mailboxes.getSnapshot(), other).inbox;
+    await registration.removeMailbox(other);
+    held.shift()?.();
+    const late = await pending;
+    expect(late.results.every(({ mailbox: { id } }) => id === alex)).toBe(true);
+    expect(late.failures).toStrictEqual([]);
+    expect(otherInbox.getSnapshot().kind).toBe('loading');
+    await otherInbox.readMessage(otherMatch);
+    expect(otherInbox.messageBody(otherMatch)).toBeUndefined();
   });
 
   it('keeps one connection usable and isolated while another needs Gmail again', async () => {

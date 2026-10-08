@@ -1,6 +1,9 @@
 import type { ReactNode } from 'react';
 
-import { savedMessageBodies } from '@private-email/mail-core/mailboxes';
+import {
+  createGmailSearch,
+  savedMessageBodies,
+} from '@private-email/mail-core/mailboxes';
 import {
   createContext,
   use,
@@ -144,4 +147,27 @@ export function useSavedBodies(
     answer.refresh === refresh
     ? answer.saved
     : undefined;
+}
+
+// Each query/view owns a separate shared store. A changed view hides the previous store during
+// render, before its effect cleanup, including when the person later returns to that view.
+export function useGmailSearch(
+  shown: readonly InboxMailbox[],
+  query: string,
+  scope: string | undefined,
+) {
+  const [search, setSearch] = useState(() =>
+    createGmailSearch(shown, query, scope),
+  );
+  if (!search.matches(shown, query, scope)) {
+    setSearch(createGmailSearch(shown, query, scope));
+  }
+  const state = useSyncExternalStore(search.subscribe, search.getSnapshot);
+  useEffect(() => search.forget, [search]);
+  return {
+    ...state,
+    available: search.available,
+    search: search.search,
+    more: search.more,
+  };
 }

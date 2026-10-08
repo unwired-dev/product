@@ -72,8 +72,8 @@ in one of them, ignoring case and accents, so `cafe oliver` finds Oliver's
 `Café on Saturday`. Search asks Gmail nothing and needs no network, so it also works
 in a [Saved Gmail Inbox](#mailbox-sync-status) during an outage; no search index
 leaves the device or reaches Convex. It covers the newest 200 Inbox messages each
-mailbox keeps; older mail stays in Gmail, and online search of message content is
-[#609](https://github.com/unwired-dev/product/issues/609).
+mailbox keeps; older mail stays in Gmail, and [searching Gmail online](#searching-gmail-online)
+reaches it.
 
 - **Scope.** Search follows the [chosen view](#gmail-mailboxes): **All inboxes**
   searches every mailbox, newest first in the unified order, and a mailbox's address
@@ -89,6 +89,39 @@ mailbox keeps; older mail stays in Gmail, and online search of message content i
 - **Responsiveness.** Typing never waits for the list. Each saved-body answer belongs
   to the query, view and mailboxes it was asked for; a slower answer for an earlier
   search is discarded rather than shown.
+
+## Searching Gmail online
+
+[#609](https://github.com/unwired-dev/product/issues/609) adds Gmail's own full-text
+search below the saved results. Typing never asks Gmail; once there is a query,
+**Search Gmail for “…”** sends it to Gmail unchanged, with Gmail's search semantics
+and operators, for each Gmail mailbox in the [chosen view](#gmail-mailboxes): one
+mailbox, or every mailbox under **All inboxes**. The API search excludes spam and trash, including the bodies and mail that left the Inbox.
+
+- **Results.** They appear under **From Gmail**, after the saved results, which stay
+  as they were. Each mailbox returns 20 results per page, newest first across
+  mailboxes, and **More from Gmail** asks every mailbox with another page for it.
+  When nothing matches, the section says **Gmail found no mail matching “…”**.
+- **Reading.** A result opens in the reader, read from Gmail with the mailbox's own
+  access. A result outside the cached Inbox keeps its metadata and body in memory
+  while that mailbox's Inbox is open, without writing them to the encrypted cache.
+  A result also listed in the Inbox opens and caches as the Inbox message. A result
+  outside the Inbox shows no organizing actions.
+- **Failures.** Each mailbox that Gmail could not search says why, naming the mailbox
+  when the view holds several, while the other mailboxes' results and the saved
+  results stay: no connection, a refused grant, which also offers **Allow Gmail
+  access** as a reader would, or another failure. **Search Gmail again** asks every
+  mailbox afresh; a failed next page keeps its place, so **More from Gmail** retries it.
+- **Stale requests.** An answer belongs to the query and the mailboxes' Inboxes it
+  was asked of. Changing the query or view, a removed or changed mailbox, or another
+  Product Account leaves it unshown until Gmail is asked again, and a reply for an
+  Inbox that closed or locked meanwhile is dropped. Locking a mailbox also discards
+  the view's earlier online rows. A slower reply for an earlier request never
+  replaces a later one. The request itself runs to completion; only its answer is
+  discarded.
+
+Native code passes the query as one percent-encoded `q` value, encoding `+` as well,
+so `from:a+b@example.com` keeps its plus sign.
 
 ## Behavior
 
@@ -824,6 +857,23 @@ a saved result, and removal. Rendered journeys on both hosts search across mailb
 show each result's saved state, see a result become saved when held prefetch finishes,
 open a result and see it saved after the reader closes, keep only the current answer when an earlier lookup replies late, and drop a
 removed mailbox's results.
+
+The #609 shared test searches two controlled mailboxes online through the native
+Gmail request boundary: the request's query and page size, results across mailboxes
+newest first, a second page from only the mailbox that has one, mail outside the Inbox
+and trashed mail, opening an archived result without saving its body (also through a
+synchronization), one mailbox's outage or refused grant beside the other's results, a
+failed next page kept for retry, and storage locking or a removal while its search runs. The controlled
+Gmail matches every word of `q` in sender, subject and content; Gmail's own operators
+need the protected tenant. Rendered journeys on both hosts search Gmail only on
+request below the saved results, open an archived result in the reader without saving
+it, drop the answer when the query changes, show one mailbox's outage beside the
+other's and the saved results, search again, and discard a reply for a query that
+changed while it ran, even after returning to that query or scope. The hosted native
+suite sends search GET requests through the real URLSession transport with controlled
+first and next pages, independent authorization/server refusals, and literal `+` and `&`
+query encoding.
+Real Gmail search semantics are pre-release evidence.
 
 Rendered host tests drive the isolated reader's configuration, measurement, link
 cancellation and confirmation, flagged-link copying, keyboard link access and
