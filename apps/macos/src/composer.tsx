@@ -239,7 +239,7 @@ function Notice({
   );
 }
 
-// Command-key formatting and history in the message body.
+// Matching keys consume native input. Keep Delete/Backspace native; onKeyDown still reports them.
 const shortcuts = [
   { key: 'b', metaKey: true },
   { key: 'i', metaKey: true },

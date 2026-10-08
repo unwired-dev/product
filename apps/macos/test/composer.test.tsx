@@ -162,9 +162,17 @@ describe('composing Drafts', () => {
     await fireEvent(body(), 'selectionChange', {
       nativeEvent: { selection: { start: 1, end: 1 } },
     });
+    // keyDownEvents consumes matching native keys; it does not limit onKeyDown dispatch.
+    expect(body().props.keyDownEvents).not.toContainEqual(
+      expect.objectContaining({ key: 'Delete' }),
+    );
     await fireEvent(body(), 'keyDown', {
       nativeEvent: { key: 'Delete', metaKey: false },
     });
+    expect(draftsOf(current.getSnapshot())[0]?.body[0]?.spans).toStrictEqual([
+      { text: 'a', marks: ['bold'] },
+      { text: 'a' },
+    ]);
     await fireEvent.changeText(body(), 'a');
     expect(draftsOf(current.getSnapshot())[0]?.body[0]?.spans).toStrictEqual([
       { text: 'a', marks: ['bold'] },
@@ -180,6 +188,95 @@ describe('composing Drafts', () => {
     expect(draftsOf(current.getSnapshot())[0]?.body[0]?.spans).toStrictEqual([
       { text: 'a' },
     ]);
+  });
+
+  it('preserves native deletion, block normalization and separate Undo steps', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const current = createDrafts(storage.native, registration);
+    await render(
+      <App
+        drafts={current}
+        registration={registration}
+      />,
+    );
+    await press('New Message');
+    const body = () => screen.getByLabelText('Message body');
+    const cases = [
+      { text: 'e\u0301x', start: 0, end: 0, after: 'x' },
+      { text: '👍🏽x', start: 0, end: 0, after: 'x' },
+      { text: '👨‍👩‍👧‍👦x', start: 0, end: 0, after: 'x' },
+      { text: '🙂x', start: 0, end: 0, after: 'x' },
+      { text: 'abcd', start: 1, end: 3, after: 'ad' },
+      { text: 'a\nb', start: 1, end: 1, after: 'ab' },
+    ];
+    for (const { text, start, end, after } of cases) {
+      await fireEvent.changeText(body(), text);
+      await fireEvent(body(), 'selectionChange', {
+        nativeEvent: { selection: { start, end } },
+      });
+      const before = draftsOf(current.getSnapshot())[0]?.body;
+      await fireEvent(body(), 'keyDown', {
+        nativeEvent: { key: 'Delete', metaKey: false },
+      });
+      // Native owns deletion and its collapsed caret. keyDown only records direction.
+      expect(draftsOf(current.getSnapshot())[0]?.body).toStrictEqual(before);
+      await fireEvent.changeText(body(), after);
+      await fireEvent(body(), 'selectionChange', {
+        nativeEvent: { selection: { start, end: start } },
+      });
+      expect(body()).toHaveTextContent(after);
+      await press('Undo');
+      expect(draftsOf(current.getSnapshot())[0]?.body).toStrictEqual(before);
+      await press('Redo');
+      expect(body()).toHaveTextContent(after);
+    }
+
+    await fireEvent.changeText(body(), 'aa');
+    await fireEvent(body(), 'selectionChange', {
+      nativeEvent: { selection: { start: 0, end: 0 } },
+    });
+    await press('Bulleted list');
+    await fireEvent(body(), 'selectionChange', {
+      nativeEvent: { selection: { start: 1, end: 1 } },
+    });
+    await fireEvent(body(), 'keyDown', {
+      nativeEvent: { key: 'Delete', metaKey: false },
+    });
+    await fireEvent.changeText(body(), '•aa');
+    expect(draftsOf(current.getSnapshot())[0]?.body).toStrictEqual([
+      { kind: 'paragraph', spans: [{ text: 'aa' }] },
+    ]);
+    expect(body()).toHaveProp('selection', { start: 0, end: 0 });
+    await press('Undo');
+    expect(body()).toHaveTextContent('• aa');
+    await press('Redo');
+    expect(body()).toHaveTextContent('aa');
+
+    for (const modifiers of [
+      { altKey: true },
+      { ctrlKey: true },
+      { shiftKey: true },
+      { metaKey: true },
+    ]) {
+      const before = draftsOf(current.getSnapshot())[0]?.body;
+      await fireEvent(body(), 'keyDown', {
+        nativeEvent: { key: 'Delete', metaKey: false, ...modifiers },
+      });
+      expect(draftsOf(current.getSnapshot())[0]?.body).toStrictEqual(before);
+    }
+
+    await fireEvent(body(), 'selectionChange', {
+      nativeEvent: { selection: { start: 2, end: 2 } },
+    });
+    const atEnd = draftsOf(current.getSnapshot())[0]?.body;
+    await fireEvent(body(), 'keyDown', {
+      nativeEvent: { key: 'Delete', metaKey: false },
+    });
+    expect(draftsOf(current.getSnapshot())[0]?.body).toStrictEqual(atEnd);
+    await press('Undo');
+    expect(body()).toHaveTextContent('• aa');
   });
 
   it('closes an untouched composer without deleting content saved by another window', async () => {

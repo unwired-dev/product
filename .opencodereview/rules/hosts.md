@@ -20,6 +20,12 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   unrelated completed edit.
   Mac `onKeyDown` emits ordinary keys too: require the modifier before invoking
   formatting or Undo, or typing a letter can mutate formatting/history.
+  In the installed Mac TextInput, `keyDownEvents` consumes matching native input;
+  it does not limit callback dispatch. Trace the native emitter and JavaScript
+  wrapper before adding a key to that list or replacing native text editing.
+  Otherwise a key is swallowed without editing, or JavaScript competes with an
+  unmatched native edit. Preserve modifier-specific deletion, composed characters,
+  selection state and marked-text handling when intercepting editing keys.
 
 - A voluntary destination change that unmounts the Inbox or replaces its composer
   without awaiting the guard returned by `useLeaveComposer`: trace Account/RegistrationGate,

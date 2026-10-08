@@ -4,6 +4,13 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### The test proves the behavior
 
+- A host keyboard regression in `apps/{mobile,macos}/test/` that fires `keyDown`
+  directly without checking the installed native emitter, JavaScript wrapper and
+  handled-key consumption contract. A component event bypasses those layers; it
+  cannot prove which events reach the callback or which edits native performs.
+  Match native text/selection events in the journey, and distinguish that evidence
+  from native interaction. Do not assume `keyDownEvents` is a dispatch whitelist;
+  otherwise a passing test can justify swallowing an editing key or editing twice.
 - Native registration journeys creating a new `RegistrationStore` for every
   action without restoring its process-local Product Sign-In session.
   `synchronize` needs that session; otherwise `removeMailbox` only queues a
