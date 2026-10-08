@@ -128,14 +128,16 @@ extension RegistrationStore {
     return bytes
   }
 
-  // An asset's verified bytes as a `data:` URL, for showing an image in the composer.
-  func readDraftAsset(owner: String, id: String, digest: String, type: String) async throws
-    -> [String: Any]
-  {
+  // Verifies an asset's bytes; with `preview`, returns them as a `data:` URL for showing an image
+  // in the composer, and otherwise returns nothing, so an attachment's bytes stay native.
+  func readDraftAsset(
+    owner: String, id: String, digest: String, type: String, preview: Bool = true
+  ) async throws -> [String: Any] {
     let (_, bytes) = try await draftWork { store, current in
       guard owner == current else { throw PrivateInboxError.mailboxInvalidated }
       return try store.readDraftAsset(owner: owner, id: id, digest: digest)
     }
+    guard preview else { return [:] }
     let mime =
       type.range(of: "^[A-Za-z0-9.+-]+/[A-Za-z0-9.+-]+$", options: .regularExpression) == nil
       ? "application/octet-stream" : type

@@ -128,6 +128,10 @@ struct DraftTests {
     let read = try await store.readDraftAsset(
       owner: owner, id: "plan00001", digest: digest, type: "application/pdf")
     #expect(read["uri"] as? String == "data:application/pdf;base64,\(bytes.base64EncodedString())")
+    // Verifying an attachment returns no bytes.
+    let verified = try await store.readDraftAsset(
+      owner: owner, id: "plan00001", digest: digest, type: "application/pdf", preview: false)
+    #expect(verified.isEmpty)
     // Another account, another digest or ciphertext moved to another identifier never reads.
     await #expect(throws: PrivateInboxError.mailboxInvalidated) {
       _ = try await store.importDraftAsset(

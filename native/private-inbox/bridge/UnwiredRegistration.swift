@@ -694,7 +694,9 @@ extension UnwiredRegistration {
       guard let id = asset["id"] as? String, let digest = asset["digest"] as? String,
         let type = asset["type"] as? String
       else { throw RegistrationError.unavailable }
-      return try await $0.readDraftAsset(owner: owner, id: id, digest: digest, type: type)
+      return try await $0.readDraftAsset(
+        owner: owner, id: id, digest: digest, type: type,
+        preview: asset["preview"] as? Bool ?? true)
     }
   }
 

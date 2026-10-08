@@ -152,11 +152,15 @@ interrupted by quitting or relaunch, could not be read or saved, or is too large
 stays listed as **Not added** with the reason, and the composer warns that files
 not added are not sent. Only complete files can be sent: `unsendableAssets` in
 `@private-email/mail-core/drafts` lists everything else for the delivery slice.
-Bytes that no longer verify against their recorded size and digest show as
-**Damaged on this device**; bytes the device lost show as **No longer on this
-device**. One file may be up to 25 MiB, and all Drafts and their files share the
-**Outgoing Content Store**'s 100 MB on this device; a file over either limit is
-refused rather than evicting anything.
+When the composer opens, it checks every complete file's bytes against their
+recorded digest; an attachment's bytes stay in native code, and only an inline
+image's are returned to show. Bytes that no longer verify show as **Damaged on
+this device**; bytes the device lost show as **No longer on this device**. One file
+may be up to 25 MiB, and all Drafts and their files share the **Outgoing Content
+Store**'s 100 MB on this device; a file over either limit is refused rather than
+evicting anything. One pick, paste or drop adds at most 20 files; the rest of a
+larger selection is not added. A file whose import fails is deleted at once, even
+if native code had already stored its bytes.
 
 Editing in the composer while an import finishes neither loses the edit nor
 creates a conflicting copy. An import still running when its Draft is closed

@@ -5,6 +5,10 @@ import UniformTypeIdentifiers
 // empty list when the person chooses nothing. iPhone and iPad copy the chosen files into a
 // temporary folder that import or the next launch removes; a Mac file stays where it is and is
 // read through the open panel's grant.
+// One pick adds at most this many files, as TypeScript's `pickLimit`, so a huge selection is
+// never copied or listed.
+private let pickLimit = 20
+
 private func pickedFile(_ url: URL, name: String? = nil) -> [String: String] {
   let type = UTType(filenameExtension: url.pathExtension)?.preferredMIMEType ?? ""
   return ["uri": url.absoluteString, "name": name ?? url.lastPathComponent, "type": type]
@@ -36,7 +40,7 @@ private func pickedFile(_ url: URL, name: String? = nil) -> [String: String] {
         if source == "photos" {
           var configuration = PHPickerConfiguration()
           configuration.filter = .images
-          configuration.selectionLimit = 0
+          configuration.selectionLimit = pickLimit
           let picker = PHPickerViewController(configuration: configuration)
           let delegate = PhotoDelegate(finish: finish)
           picker.delegate = delegate
@@ -67,7 +71,7 @@ private func pickedFile(_ url: URL, name: String? = nil) -> [String: String] {
     private static func pasted() throws -> [[String: String]] {
       var files: [[String: String]] = []
       do {
-        for (index, image) in (UIPasteboard.general.images ?? []).enumerated() {
+        for (index, image) in (UIPasteboard.general.images ?? []).prefix(pickLimit).enumerated() {
           guard let data = image.pngData() else { continue }
           let url = try destination(
             index == 0 ? "Pasted image.png" : "Pasted image \(index + 1).png")
@@ -167,7 +171,11 @@ private func pickedFile(_ url: URL, name: String? = nil) -> [String: String] {
         finish(
           Result {
             do {
-              for url in urls {
+              // The system already copied the selection; copies past the limit are removed.
+              for url in urls.dropFirst(pickLimit) {
+                try? FileManager.default.removeItem(at: url)
+              }
+              for url in urls.prefix(pickLimit) {
                 let target = try DraftFilePicker.destination(url.lastPathComponent)
                 do {
                   try FileManager.default.moveItem(at: url, to: target)
@@ -213,7 +221,7 @@ private func pickedFile(_ url: URL, name: String? = nil) -> [String: String] {
         response = panel.runModal()
       }
       guard response == .OK else { return [] }
-      return panel.urls.map { pickedFile($0) }
+      return panel.urls.prefix(pickLimit).map { pickedFile($0) }
     }
   }
 #endif

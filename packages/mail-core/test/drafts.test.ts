@@ -1827,6 +1827,14 @@ describe('adding files and images to Drafts', () => {
       uri: 'file:///missing.txt',
     });
     expect(assetsOf(draft())[1]).toMatchObject({ state: 'failed' });
+    // Bytes written before native code rejected the import are discarded, so they never hold
+    // the Outgoing Content Store's space until relaunch.
+    storage.failNextImportAfterWrite('locked');
+    await drafts.importAsset(failing, {
+      kind: 'file',
+      uri: 'file:///notes.txt',
+    });
+    expect(storage.assets()).toStrictEqual([]);
     expect(unsendableAssets(draft()).map(({ state }) => state)).toStrictEqual([
       'cancelled',
       'failed',
@@ -1887,6 +1895,10 @@ describe('adding files and images to Drafts', () => {
     );
     const kept = completed(stored);
     expect(refused).toMatchObject({ state: 'failed', reason: 'too-large' });
+    // An attachment's bytes verify without crossing the bridge; an image's come back to show.
+    await expect(
+      drafts.readAsset(kept, { preview: false }),
+    ).resolves.toStrictEqual({ kind: 'verified' });
     // Damaged bytes and bytes the device lost read as unavailable, never as the file.
     storage.damage(kept.id);
     await expect(drafts.readAsset(kept)).resolves.toStrictEqual({
@@ -1938,6 +1950,21 @@ describe('adding files and images to Drafts', () => {
     expect(storage.assets()).toStrictEqual([]);
     // Picking files that the person dismissed adds nothing.
     await expect(drafts.pick('files')).resolves.toStrictEqual([]);
+    // One pick adds at most twenty files; the store gives back the copies past that.
+    storage.pickNext(
+      'files',
+      Array.from({ length: 23 }, (_, index) => ({
+        uri: `file:///${index}.txt`,
+        name: `${index}.txt`,
+        type: 'text/plain',
+      })),
+    );
+    await expect(drafts.pick('files')).resolves.toHaveLength(20);
+    expect(storage.discardedPicks()).toStrictEqual([
+      'file:///20.txt',
+      'file:///21.txt',
+      'file:///22.txt',
+    ]);
     storage.pickNext('photos', [
       { uri: 'file:///a.png', name: 'a.png', type: 'image/png' },
     ]);

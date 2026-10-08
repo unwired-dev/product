@@ -283,6 +283,8 @@ export const sendingMailboxes = (mailboxes: readonly MailboxConnection[]) =>
 
 // The largest file a Draft accepts, as for received attachments.
 export const assetLimit = 25 * 1024 * 1024;
+// The most files one pick, paste or drop adds, so a huge selection never floods the composer.
+export const pickLimit = 20;
 
 // Every asset of a Draft: its attachments, then its inline images in reading order.
 export const assetsOf = (draft: Draft): readonly Asset[] => [
@@ -340,10 +342,11 @@ export type PickedFile = Readonly<{
 // Photos and files from the system pickers, or images on the pasteboard.
 export type PickSource = 'photos' | 'files' | 'paste';
 
-// What a complete asset's bytes are on this device when read back.
+// What a complete asset's bytes are on this device when read back: an image to show, bytes that
+// verified without being shown, or why they are unavailable.
 export type AssetPreview =
   | Readonly<{ kind: 'ready'; uri: string }>
-  | Readonly<{ kind: 'missing' | 'damaged' | 'locked' }>;
+  | Readonly<{ kind: 'verified' | 'missing' | 'damaged' | 'locked' }>;
 
 const PickedSchema = Schema.Array(
   Schema.Struct({
@@ -360,7 +363,9 @@ const ImportedSchema = Schema.Struct({
   ),
   digest: Schema.String.check(Schema.isPattern(/^[\da-f]{64}$/u)),
 });
-const PreviewSchema = Schema.Struct({ uri: Schema.NonEmptyString });
+const PreviewSchema = Schema.Struct({
+  uri: Schema.optionalKey(Schema.NonEmptyString),
+});
 
 export const isEmptyDraft = (draft: Draft) =>
   (draft.attachments?.length ?? 0) === 0 &&
@@ -552,11 +557,17 @@ export interface NativeDrafts {
     id: string,
     source: AssetSource,
   ) => Promise<unknown>;
-  // Resolves `{ uri }`, a `data:` URL of the asset's bytes once they match `digest`; rejects with
+  // Verifies the asset's bytes against `digest`. With `preview`, resolves `{ uri }`, a `data:` URL
+  // of them; otherwise `{}`, so a large attachment never crosses the bridge. Rejects with
   // 'attachment-missing' when the device has no bytes for it.
   readonly readDraftAsset: (
     owner: string,
-    asset: Readonly<{ id: string; digest: string; type: string }>,
+    asset: Readonly<{
+      id: string;
+      digest: string;
+      type: string;
+      preview: boolean;
+    }>,
   ) => Promise<unknown>;
   // Deletes bytes that no committed Draft names, such as a cancelled import's.
   readonly discardDraftAsset: (owner: string, id: string) => Promise<unknown>;
@@ -1186,6 +1197,8 @@ export function createDrafts(
         setImporting(asset.id, false);
       }
       if (Result.isFailure(outcome)) {
+        // Native code may have written the bytes before rejecting, as when the device locked.
+        yield* discardBytes(account, asset.id);
         return yield* importFailed(current, {
           asset,
           failure: outcome.failure,
@@ -1226,6 +1239,7 @@ export function createDrafts(
   const readAsset = Effect.fnUntraced(
     function* (
       asset: Readonly<{ id: string; digest: string; type: string }>,
+      preview: boolean,
     ): Effect.fn.Return<AssetPreview, DraftStorageFailure> {
       const account = owner;
       if (account === undefined) {
@@ -1237,10 +1251,11 @@ export function createDrafts(
             id: asset.id,
             digest: asset.digest,
             type: asset.type,
+            preview,
           }),
         PreviewSchema,
       );
-      return { kind: 'ready', uri };
+      return uri === undefined ? { kind: 'verified' } : { kind: 'ready', uri };
     },
     // oxlint-disable-next-line promise/prefer-await-to-callbacks -- Effect's typed error channel.
     Effect.catchTag('DraftStorageFailure', (error) => {
@@ -1325,10 +1340,11 @@ export function createDrafts(
         settling.delete(editor);
       };
     },
-    // The bytes of a complete asset, checked against its digest, for showing it.
+    // Checks a complete asset's bytes against its digest; with `preview`, also returns them to show.
     readAsset: (
       asset: Readonly<{ id: string; digest: string; type: string }>,
-    ) => runLogged(readAsset(asset)),
+      { preview = true }: Readonly<{ preview?: boolean }> = {},
+    ) => runLogged(readAsset(asset, preview)),
     // Files the person chooses in the system picker, or images on the pasteboard.
     pick: (source: PickSource, current: () => boolean = () => true) =>
       runLogged(
@@ -1338,15 +1354,20 @@ export function createDrafts(
             () => storage.pickDraftFiles(source),
             PickedSchema,
           );
-          if (!live(pickedGeneration) || !current()) {
+          const kept =
+            live(pickedGeneration) && current()
+              ? files.slice(0, pickLimit)
+              : [];
+          if (kept.length < files.length) {
             yield* Effect.tryPromise({
               try: () =>
-                storage.discardPickedDraftFiles(files.map(({ uri }) => uri)),
+                storage.discardPickedDraftFiles(
+                  files.slice(kept.length).map(({ uri }) => uri),
+                ),
               catch: failureOf,
             });
-            return [];
           }
-          return files;
+          return kept;
         }).pipe(
           Effect.map((files) =>
             files.map(({ uri, name, type }): PickedFile => ({

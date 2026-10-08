@@ -692,10 +692,11 @@ const assetStatus = (
   );
 };
 
-// An inline image's verified bytes, read again when it completes or changes.
-function usePreview(asset: Asset | undefined) {
+// A complete asset's bytes checked against its digest, read again when it completes or changes;
+// an inline image's are also returned to show.
+function usePreview(asset: Asset, inline: boolean) {
   const store = useDraftStore();
-  const complete = asset?.state === 'complete' ? asset : undefined;
+  const complete = asset.state === 'complete' ? asset : undefined;
   const id = complete?.id;
   const digest = complete?.digest;
   const type = complete?.type;
@@ -707,7 +708,10 @@ function usePreview(asset: Asset | undefined) {
     }
     let showing = true;
     const read = async () => {
-      const next = await store.readAsset({ id, digest, type });
+      const next = await store.readAsset(
+        { id, digest, type },
+        { preview: inline },
+      );
       if (showing) {
         setPreview({ id, digest, preview: next });
       }
@@ -716,7 +720,7 @@ function usePreview(asset: Asset | undefined) {
     return () => {
       showing = false;
     };
-  }, [store, id, digest, type]);
+  }, [store, id, digest, type, inline]);
   return preview?.id === id && preview?.digest === digest
     ? preview?.preview
     : undefined;
@@ -741,7 +745,7 @@ function AssetRow({
     () => new Intl.NumberFormat(settings.locale, { maximumFractionDigits: 1 }),
     [settings.locale],
   );
-  const preview = usePreview(inline ? asset : undefined);
+  const preview = usePreview(asset, inline);
   const status = assetStatus(t, (bytes) => fileSize(t, sizeFormat, bytes), {
     asset,
     running,

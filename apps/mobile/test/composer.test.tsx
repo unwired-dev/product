@@ -1953,6 +1953,12 @@ describe('adding files and images to a Draft', () => {
     ]);
     await press('Paste Image');
     await screen.findByLabelText('Inline image Pasted image.png');
+    storage.addFile('file:///brief.txt', 'brief');
+    storage.pickNext('files', [
+      { uri: 'file:///brief.txt', name: 'brief.txt', type: 'text/plain' },
+    ]);
+    await press('Attach File');
+    await screen.findByLabelText('brief.txt, 5 bytes');
     await press('Close');
     await first.unmount();
     const [saved] = draftsOf(drafts.getSnapshot());
@@ -1960,6 +1966,11 @@ describe('adding files and images to a Draft', () => {
     const [image] = imagesOf(saved.body);
     ok(image, 'Expected an inline image');
     storage.damage(image.id);
+    // An ordinary attachment is verified too, without its bytes being shown.
+    ok(saved.attachments, 'Expected attachments');
+    const [attachment] = saved.attachments;
+    ok(attachment, 'Expected an attachment');
+    storage.damage(attachment.id);
     await render(
       <App
         drafts={createDrafts(storage.native, registration)}
@@ -1973,6 +1984,9 @@ describe('adding files and images to a Draft', () => {
       ),
     ).resolves.toBeOnTheScreen();
     expect(screen.queryByLabelText('Inline image Pasted image.png')).toBeNull();
+    await expect(
+      screen.findByLabelText('brief.txt, 5 bytes · Damaged on this device'),
+    ).resolves.toBeOnTheScreen();
     await press('Remove Pasted image.png');
     expect(screen.getByLabelText('Message body')).not.toHaveTextContent('￼');
     await press('Undo');

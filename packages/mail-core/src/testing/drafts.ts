@@ -52,6 +52,10 @@ export function createSyntheticDrafts(
   let held: Array<() => void> | undefined = undefined;
   let importsHeld: Array<() => void> | undefined = undefined;
   let failingImport: string | undefined = undefined;
+  // Rejects the next import only after storing its bytes, as when the device locks meanwhile.
+  let failingAfterWrite: string | undefined = undefined;
+  // Picked copies the store gave back, by URI.
+  const discardedPicks: string[] = [];
   const assets = new Map<
     string,
     { owner: string; bytes: string; digest: string; damaged?: true }
@@ -139,9 +143,14 @@ export function createSyntheticDrafts(
       const digest = digestOf(bytes);
       assets.set(id, { owner, bytes, digest });
       pending.add(id);
+      if (failingAfterWrite !== undefined) {
+        const code = failingAfterWrite;
+        failingAfterWrite = undefined;
+        return rejection(code);
+      }
       return { owner, size: bytes.length, digest };
     },
-    readDraftAsset: (owner, { id, digest, type }) => {
+    readDraftAsset: (owner, { id, digest, type, preview }) => {
       const asset = assets.get(id);
       if (asset === undefined) {
         return rejection('attachment-missing');
@@ -153,9 +162,9 @@ export function createSyntheticDrafts(
       ) {
         return rejection('unavailable');
       }
-      return Promise.resolve({
-        uri: `data:${type};base64,${btoa(asset.bytes)}`,
-      });
+      return Promise.resolve(
+        preview ? { uri: `data:${type};base64,${btoa(asset.bytes)}` } : {},
+      );
     },
     discardDraftAsset: (_owner, id) => {
       assets.delete(id);
@@ -167,7 +176,10 @@ export function createSyntheticDrafts(
       const [pick] = index === -1 ? [] : picks.splice(index, 1);
       return Promise.resolve(pick?.files ?? []);
     },
-    discardPickedDraftFiles: () => Promise.resolve({}),
+    discardPickedDraftFiles: (uris) => {
+      discardedPicks.push(...uris);
+      return Promise.resolve({});
+    },
   };
   return {
     native,
@@ -204,6 +216,11 @@ export function createSyntheticDrafts(
     failNextImport: (code: string) => {
       failingImport = code;
     },
+    failNextImportAfterWrite: (code: string) => {
+      failingAfterWrite = code;
+    },
+    // Picked copies the store discarded rather than adding.
+    discardedPicks: () => [...discardedPicks],
     // Holds commits until `release`, so edits can arrive while a save is in flight.
     hold: () => {
       held = [];
