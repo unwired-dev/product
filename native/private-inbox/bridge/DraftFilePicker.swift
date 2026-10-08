@@ -222,6 +222,11 @@ private func pickedFile(_ url: URL, name: String? = nil, type declared: UTType? 
                   RegistrationStore.discardPickedDraftFile(url)
                 }
               }
+              // The system's copies not yet moved, including the one that failed, are not kept
+              // either; a copy already moved is gone from its source, so removing it is a no-op.
+              for url in urls {
+                try? FileManager.default.removeItem(at: url)
+              }
               throw error
             }
           })
