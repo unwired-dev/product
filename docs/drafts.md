@@ -73,8 +73,9 @@ later events from the editor that discarded it.
 **Close** first turns any address still being typed into a recipient; text that
 is not a valid address keeps the composer open until it is corrected or removed.
 It then saves and closes only once the Draft is stored; when that fails the
-composer stays open and says so. The compact iPhone system **Back** currently has
-the separate limitation below. Closing a Draft with no recipients, subject or
+composer stays open and says so. The compact iPhone system **Back**, Mac window
+close and Mac **Quit** currently have the separate native limitations below.
+Closing a Draft with no recipients, subject or
 body text discards it only if no other window has completed its content. **Discard**
 asks before deleting a Draft from this device.
 If another storage writer edited the same Draft since it was opened, a stale
@@ -172,4 +173,17 @@ and **Save Drafts** action mitigate a failed or locked save, but do not prevent
 Back or make unsaved edits durable. Add and qualify native transition protection
 before release, covering the Back button and swipe, pending/failed/locked saves,
 unfinished recipients, selecting the same Draft to reveal it again, and successful
-retry. The component tests do not satisfy this native check.
+retry.
+
+Mac window close and **Quit** also bypass the composer's leave guard. Closing a
+window keeps unsaved changes in memory while the app runs, even after its last
+window closes. A pending autosave can still finish; if saving fails or storage is
+locked, every Inbox window, including a reopened one, shows the warning and
+**Save Drafts**. Unfinished recipient text is included when the Draft is saved.
+Quitting before the latest changes are stored loses them, including while a save
+is pending, failed or locked. The warning and retry do not prevent close or Quit.
+Add and qualify native close and quit protection before release, covering
+unfinished recipients, pending/failed/locked saves, multiple windows, closing the
+last window, and successful retry. These native exit gaps are tracked in
+[#778](https://github.com/unwired-dev/product/issues/778). The component tests do not
+satisfy these native checks.

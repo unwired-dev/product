@@ -107,6 +107,12 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   registered finish callback rejects: refuse that destination and permit a later
   attempt, or one unexpected failure blocks navigation for the session.
 
+- Reviewing a Mac composer exit only through React callbacks. Inventory native
+  window close and application Quit alongside router/pane navigation, applying
+  `.opencodereview/rules/native.md`'s AppKit exit check to the collaborating host.
+  The AppKit lifecycle exception above distinguishes ownership, not durability:
+  a shared store survives window destruction but not process termination.
+
 - Assuming router removal hooks cover native split-column navigation in mobile
   `app/_layout.tsx`. Trace the installed Expo Router and screens implementation:
   compact system Back/swipes can hide the secondary column without changing its
