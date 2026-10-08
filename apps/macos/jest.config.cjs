@@ -3,6 +3,7 @@ module.exports = {
   testMatch: ['<rootDir>/test/**/*.test.tsx'],
   moduleNameMapper: {
     '^react-native-webview$': '<rootDir>/test/webview.tsx',
+    '/language-storage\\.ts$': '<rootDir>/test/language-storage.ts',
     '^react-native$': 'react-native-macos',
     '^react-native/(.*)$': 'react-native-macos/$1',
   },

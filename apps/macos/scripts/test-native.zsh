@@ -5,7 +5,7 @@ app_path=${1:-}
 source_app="${app_path:A}"
 export UNWIRED_APP_PATH="$source_app"
 if [[ ! -d "$UNWIRED_APP_PATH" || -z "${1:-}" ]]; then
-  print -u2 'Usage: pnpm test:native /absolute/path/to/Testing/UnwiredMail.app'
+  print -u2 'Usage: pnpm test:native /absolute/path/to/Testing/UnwiredMail.app [testName]'
   exit 1
 fi
 artifact_root="${PWD}/../../artifacts/macos-inbox"
@@ -42,7 +42,7 @@ export UNWIRED_TEST_SCENARIO=$(python3 -c 'import json,sys; print(json.load(open
 cp native-tests/{WindowTests.swift,create-project.rb} "$probe_dir/"
 builtin cd -q "$probe_dir"
 "${RUBY:-ruby}" create-project.rb
-xcodebuild test -project WindowProbe.xcodeproj -scheme WindowProbe \
+xcodebuild test "-only-testing:WindowProbe/WindowTests/${2:-testIndependentWindowsCloseReopenAndQuit}" -project WindowProbe.xcodeproj -scheme WindowProbe \
   -destination 'platform=macOS' -test-timeouts-enabled YES \
   -maximum-test-execution-time-allowance 120 -derivedDataPath "$probe_dir/DerivedData" \
   -resultBundlePath "$UNWIRED_TEST_ARTIFACTS/WindowProbe.xcresult" CODE_SIGN_IDENTITY=- ARCHS=arm64 \

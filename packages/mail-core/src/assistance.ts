@@ -255,21 +255,3 @@ export type MessageSummary = ReturnType<typeof createMessageSummary>;
 export const canRetrySummary = (state: SummaryState) =>
   state.kind !== 'refused' &&
   !(state.kind === 'unavailable' && state.reason === 'device-ineligible');
-
-// What the reader says about a summary that is not shown.
-export const summaryCopy = {
-  'device-ineligible':
-    'Summaries need a device that supports Apple Intelligence.',
-  'assistance-disabled': 'Turn on Apple Intelligence to summarize messages.',
-  'model-not-ready':
-    'Apple Intelligence is still getting ready. Try again later.',
-  'unsupported-locale':
-    'Summaries are not available in this device’s language yet.',
-  refused: 'This message cannot be summarized.',
-  failed: 'The summary could not be created.',
-  cancelled: 'Summary cancelled.',
-  summarizing: 'Summarizing on this device…',
-  disclaimer:
-    'Created on this device from the text shown here. It may be inaccurate and is not saved.',
-  omitted: 'Only the beginning of this long message was summarized.',
-} as const;

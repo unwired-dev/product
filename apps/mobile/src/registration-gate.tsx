@@ -15,22 +15,15 @@ import type {
 import type { ReactNode } from 'react';
 
 import {
-  accountRemovalCopy,
-  enrollmentCopy,
   linkFailureCopy,
-  lockedCopy,
   inboxLanding,
-  mailboxCopy,
   mailboxesOf,
   offersRecovery,
   otherSignInProvider,
   privateSyncCopy,
-  providerNames,
-  recoveryKeyConfirmationCopy,
-  recoveryCopy,
+  providerName,
   recoveryKeyEntry,
   registrationCopy,
-  revocationCopy,
   revocationNotice,
   signInMethodsCopy,
   trustedDevicesOf,
@@ -54,6 +47,8 @@ import {
   View,
 } from 'react-native';
 
+import { LanguageSelector } from './language-selector.tsx';
+import { useLocalization } from './localization.ts';
 import { registration } from './registration.ts';
 import { usePalette } from './theme.ts';
 
@@ -114,6 +109,7 @@ function Mailboxes({
   readonly store: Registration;
 }) {
   const colors = usePalette();
+  const { t } = useLocalization();
   const [confirming, setConfirming] = useState<MailboxConnection['id']>();
   const mailboxes = mailboxesOf(account);
   if (mailboxes.length === 0) {
@@ -124,10 +120,10 @@ function Mailboxes({
       <Text
         accessibilityRole="header"
         style={[styles.heading, { color: colors.foreground }]}>
-        {mailboxCopy.title}
+        {t('mailboxes.title')}
       </Text>
       <Text style={[styles.text, { color: colors.secondary }]}>
-        {mailboxCopy.description}
+        {t('mailboxes.description')}
       </Text>
       {mailboxes.map((mailbox) => (
         <View
@@ -137,34 +133,40 @@ function Mailboxes({
             {mailbox.address}
           </Text>
           <Text style={[styles.text, { color: colors.secondary }]}>
-            {mailboxCopy.states[mailbox.state]}
+            {t(`mailboxes.states.${mailbox.state}`)}
           </Text>
           {mailbox.state === 'authorization'
-            ? button(mailboxCopy.allow(mailbox.address), () =>
+            ? button(t('mailboxes.allow', { address: mailbox.address }), () =>
                 store.authorizeGmail(mailbox.id),
               )
             : null}
           {confirming === mailbox.id ? (
             <>
               <Text style={[styles.text, { color: colors.foreground }]}>
-                {mailboxCopy.confirm(mailbox.address)}
+                {t('mailboxes.confirm', { address: mailbox.address })}
               </Text>
-              {button(mailboxCopy.remove(mailbox.address), async () => {
-                setConfirming(undefined);
-                await store.removeMailbox(mailbox.id);
-              })}
-              {button(mailboxCopy.cancel, async () => {
+              {button(
+                t('mailboxes.remove', { address: mailbox.address }),
+                async () => {
+                  setConfirming(undefined);
+                  await store.removeMailbox(mailbox.id);
+                },
+              )}
+              {button(t('mailboxes.cancel'), async () => {
                 setConfirming(undefined);
               })}
             </>
           ) : (
-            button(mailboxCopy.remove(mailbox.address), async () => {
-              setConfirming(mailbox.id);
-            })
+            button(
+              t('mailboxes.remove', { address: mailbox.address }),
+              async () => {
+                setConfirming(mailbox.id);
+              },
+            )
           )}
         </View>
       ))}
-      {button(mailboxCopy.add, () => store.addMailbox(true))}
+      {button(t('mailboxes.add'), () => store.addMailbox(true))}
     </>
   );
 }
@@ -176,14 +178,15 @@ function PrivateSync({
   failure,
   store,
 }: {
-  readonly account: Parameters<typeof privateSyncCopy>[0];
+  readonly account: Parameters<typeof privateSyncCopy>[1];
   readonly button: (label: string, action: () => Promise<void>) => ReactNode;
   readonly failure: RecoveryKeyFailure | undefined;
   readonly store: Registration;
 }) {
   const colors = usePalette();
+  const { t } = useLocalization();
   const [entry, setEntry] = useState('');
-  const copy = privateSyncCopy(account);
+  const copy = privateSyncCopy(t, account);
   if (copy === undefined) {
     return null;
   }
@@ -207,17 +210,17 @@ function PrivateSync({
             {recoveryKey}
           </Text>
           <Text style={[styles.text, { color: colors.secondary }]}>
-            {recoveryKeyConfirmationCopy.prompt}
+            {t('recoveryKeyConfirmation.prompt')}
           </Text>
           <TextInput
-            accessibilityLabel={recoveryKeyConfirmationCopy.label}
+            accessibilityLabel={t('recoveryKeyConfirmation.label')}
             autoCapitalize="characters"
             autoComplete="off"
             autoCorrect={false}
             onChangeText={(text) => {
               setEntry(recoveryKeyEntry(text));
             }}
-            placeholder={recoveryKeyConfirmationCopy.label}
+            placeholder={t('recoveryKeyConfirmation.label')}
             placeholderTextColor={colors.secondary}
             style={[
               styles.input,
@@ -229,10 +232,10 @@ function PrivateSync({
             <Text
               accessibilityRole="alert"
               style={[styles.text, { color: colors.foreground }]}>
-              {recoveryKeyConfirmationCopy[failure]}
+              {t(`recoveryKeyConfirmation.${failure}`)}
             </Text>
           )}
-          {button(recoveryKeyConfirmationCopy.confirm, () =>
+          {button(t('recoveryKeyConfirmation.confirm'), () =>
             store.confirmRecoveryKey(entry),
           )}
         </>
@@ -245,7 +248,7 @@ function PrivateSync({
             style={[styles.recoveryKey, { color: colors.foreground }]}>
             {copy.enrollmentCode}
           </Text>
-          {button(enrollmentCopy.check, store.refreshPrivateSync)}
+          {button(t('enrollment.check'), store.refreshPrivateSync)}
         </>
       )}
       {copy.mailboxes === undefined ? null : (
@@ -275,6 +278,7 @@ function RecoveryKeyUnlock({
   readonly store: Registration;
 }) {
   const colors = usePalette();
+  const { t } = useLocalization();
   const [entry, setEntry] = useState('');
   if (!offersRecovery(account.privateSync)) {
     return null;
@@ -284,18 +288,18 @@ function RecoveryKeyUnlock({
       <Text
         accessibilityRole="header"
         style={[styles.heading, { color: colors.foreground }]}>
-        {recoveryCopy.title}
+        {t('recovery.title')}
       </Text>
       <Text style={[styles.text, { color: colors.secondary }]}>
-        {recoveryCopy.description}
+        {t('recovery.description')}
       </Text>
       <TextInput
-        accessibilityLabel={recoveryCopy.label}
+        accessibilityLabel={t('recovery.label')}
         autoCapitalize="characters"
         autoComplete="off"
         autoCorrect={false}
         onChangeText={setEntry}
-        placeholder={recoveryCopy.label}
+        placeholder={t('recovery.label')}
         placeholderTextColor={colors.secondary}
         style={[
           styles.input,
@@ -307,12 +311,12 @@ function RecoveryKeyUnlock({
         <Text
           accessibilityRole="alert"
           style={[styles.text, { color: colors.foreground }]}>
-          {recoveryCopy[failure]}
+          {t(`recovery.${failure}`)}
         </Text>
       )}
-      {button(recoveryCopy.unlock, () => store.recoverWithRecoveryKey(entry))}
+      {button(t('recovery.unlock'), () => store.recoverWithRecoveryKey(entry))}
       <Text style={[styles.text, { color: colors.secondary }]}>
-        {recoveryCopy.lost}
+        {t('recovery.lost')}
       </Text>
     </>
   );
@@ -335,6 +339,7 @@ function DeviceApproval({
   readonly store: Registration;
 }) {
   const colors = usePalette();
+  const { t } = useLocalization();
   const [entry, setEntry] = useState('');
   const { enrollmentRequest: request } = account;
   if (
@@ -348,14 +353,14 @@ function DeviceApproval({
       <Text
         accessibilityRole="alert"
         style={[styles.text, { color: colors.foreground }]}>
-        {enrollmentCopy[failure]}
+        {t(`enrollment.${failure}`)}
       </Text>
     );
   if (request === undefined) {
     return (
       <>
         {alert}
-        {button(enrollmentCopy.find, store.refreshPrivateSync)}
+        {button(t('enrollment.find'), store.refreshPrivateSync)}
       </>
     );
   }
@@ -364,18 +369,20 @@ function DeviceApproval({
       <Text
         accessibilityRole="header"
         style={[styles.heading, { color: colors.foreground }]}>
-        {enrollmentCopy.title}
+        {t('enrollment.title')}
       </Text>
       <Text style={[styles.text, { color: colors.secondary }]}>
-        {enrollmentCopy.description(account.enrollmentDevice ?? 'device')}
+        {t('enrollment.description', {
+          device: account.enrollmentDevice ?? t('enrollment.device'),
+        })}
       </Text>
       <TextInput
-        accessibilityLabel={enrollmentCopy.label}
+        accessibilityLabel={t('enrollment.label')}
         autoCapitalize="characters"
         autoComplete="off"
         autoCorrect={false}
         onChangeText={setEntry}
-        placeholder={enrollmentCopy.label}
+        placeholder={t('enrollment.label')}
         placeholderTextColor={colors.secondary}
         style={[
           styles.input,
@@ -384,12 +391,12 @@ function DeviceApproval({
         value={entry}
       />
       {alert}
-      {button(enrollmentCopy.approve, () =>
+      {button(t('enrollment.approve'), () =>
         store.approveEnrollment(request, entry),
       )}
-      {button(enrollmentCopy.decline, () => store.declineEnrollment(request))}
+      {button(t('enrollment.decline'), () => store.declineEnrollment(request))}
       {/* A request that expired or was handled elsewhere is replaced by the newest one. */}
-      {button(enrollmentCopy.find, store.refreshPrivateSync)}
+      {button(t('enrollment.find'), store.refreshPrivateSync)}
     </>
   );
 }
@@ -411,6 +418,11 @@ function TrustedDevices({
   readonly store: Registration;
 }) {
   const colors = usePalette();
+  const { t, settings } = useLocalization();
+  const added = useMemo(
+    () => new Intl.DateTimeFormat(settings.locale, { dateStyle: 'medium' }),
+    [settings.locale],
+  );
   const [confirming, setConfirming] = useState<TrustedDevice['id']>();
   if (
     account.privateSync !== 'ready' &&
@@ -420,7 +432,7 @@ function TrustedDevices({
   }
   const devices =
     account.privateSync === 'ready' ? trustedDevicesOf(account) : [];
-  const notice = revocationNotice(account, failed);
+  const notice = revocationNotice(t, account, failed);
   if (devices.length === 0 && notice === undefined) {
     return null;
   }
@@ -429,7 +441,7 @@ function TrustedDevices({
       <Text
         accessibilityRole="header"
         style={[styles.heading, { color: colors.foreground }]}>
-        {revocationCopy.title}
+        {t('revocation.title')}
       </Text>
       {notice === undefined ? null : (
         <Text
@@ -440,7 +452,7 @@ function TrustedDevices({
       )}
       {devices.length === 0 ? null : (
         <Text style={[styles.text, { color: colors.secondary }]}>
-          {revocationCopy.description}
+          {t('revocation.description')}
         </Text>
       )}
       {devices.map((device) => (
@@ -451,22 +463,22 @@ function TrustedDevices({
             {device.name}
           </Text>
           <Text style={[styles.text, { color: colors.secondary }]}>
-            {revocationCopy.added(device.registeredAt)}
+            {t('revocation.added', { date: added.format(device.registeredAt) })}
           </Text>
           {confirming === device.id ? (
             <>
               <Text style={[styles.text, { color: colors.foreground }]}>
-                {revocationCopy.confirm(device.name)}
+                {t('revocation.confirm', { name: device.name })}
               </Text>
-              {button(revocationCopy.remove(device.name), () =>
+              {button(t('revocation.remove', { name: device.name }), () =>
                 store.revokeTrustedDevice(device.id),
               )}
-              {button(revocationCopy.cancel, async () => {
+              {button(t('revocation.cancel'), async () => {
                 setConfirming(undefined);
               })}
             </>
           ) : (
-            button(revocationCopy.remove(device.name), async () => {
+            button(t('revocation.remove', { name: device.name }), async () => {
               setConfirming(device.id);
             })
           )}
@@ -483,20 +495,21 @@ function SignInMethods({
   failure,
   store,
 }: {
-  readonly account: Parameters<typeof signInMethodsCopy>[0];
+  readonly account: Parameters<typeof signInMethodsCopy>[1];
   readonly button: (label: string, action: () => Promise<void>) => ReactNode;
   readonly failure: LinkFailure | undefined;
   readonly store: Registration;
 }) {
   const colors = usePalette();
-  const methods = signInMethodsCopy(account);
+  const { t } = useLocalization();
+  const methods = signInMethodsCopy(t, account);
   const { link } = methods;
   return (
     <>
       <Text
         accessibilityRole="header"
         style={[styles.heading, { color: colors.foreground }]}>
-        Sign-in methods
+        {t('signInMethods.title')}
       </Text>
       <Text style={[styles.text, { color: colors.secondary }]}>
         {methods.description}
@@ -506,6 +519,7 @@ function SignInMethods({
           accessibilityRole="alert"
           style={[styles.text, { color: colors.foreground }]}>
           {linkFailureCopy(
+            t,
             failure,
             otherSignInProvider(account.signInProvider),
           )}
@@ -513,7 +527,10 @@ function SignInMethods({
       )}
       {link === undefined
         ? null
-        : button(`Link ${providerNames[link]} sign-in`, () => store.link(link))}
+        : button(
+            t('signInMethods.link', { provider: providerName(t, link) }),
+            () => store.link(link),
+          )}
     </>
   );
 }
@@ -532,18 +549,19 @@ function AccountActions({
   readonly store: Registration;
 }) {
   const colors = usePalette();
+  const { t } = useLocalization();
   const [confirming, setConfirming] = useState<AccountRemoval>();
   const selected = pending ?? confirming;
   const confirmation =
     selected === 'sign-out'
       ? {
-          description: accountRemovalCopy.signOutConfirm,
-          label: accountRemovalCopy.signOut,
+          description: t('accountRemoval.signOutConfirm'),
+          label: t('accountRemoval.signOut'),
           action: store.signOut,
         }
       : {
-          description: accountRemovalCopy.deleteConfirm,
-          label: accountRemovalCopy.deletePermanently,
+          description: t('accountRemoval.deleteConfirm'),
+          label: t('accountRemoval.deletePermanently'),
           action: store.deleteProductAccount,
         };
   return (
@@ -551,21 +569,21 @@ function AccountActions({
       <Text
         accessibilityRole="header"
         style={[styles.heading, { color: colors.foreground }]}>
-        {accountRemovalCopy.title}
+        {t('accountRemoval.title')}
       </Text>
       {failure === undefined ? null : (
         <Text
           accessibilityRole="alert"
           style={[styles.text, { color: colors.foreground }]}>
-          {accountRemovalCopy[failure]}
+          {t(`accountRemoval.${failure}`)}
         </Text>
       )}
       {selected === undefined ? (
         <>
-          {button(accountRemovalCopy.signOut, async () => {
+          {button(t('accountRemoval.signOut'), async () => {
             setConfirming('sign-out');
           })}
-          {button(accountRemovalCopy.delete, async () => {
+          {button(t('accountRemoval.delete'), async () => {
             setConfirming('deletion');
           })}
         </>
@@ -576,7 +594,7 @@ function AccountActions({
           </Text>
           {button(confirmation.label, confirmation.action)}
           {pending === undefined
-            ? button(accountRemovalCopy.cancel, async () => {
+            ? button(t('accountRemoval.cancel'), async () => {
                 setConfirming(undefined);
               })
             : null}
@@ -603,6 +621,7 @@ function AccountSettings({
     enrollmentFailure,
     revocationFailed,
   } = useSyncExternalStore(store.subscribe, store.getSnapshot);
+  const { t } = useLocalization();
   if (snapshot.kind === 'signed-out') {
     return null;
   }
@@ -617,8 +636,8 @@ function AccountSettings({
   if (snapshot.kind === 'device-pending') {
     return (
       <>
-        {privateSyncCopy(snapshot)?.enrollmentCode === undefined ? (
-          button(enrollmentCopy.check, store.refreshPrivateSync)
+        {privateSyncCopy(t, snapshot)?.enrollmentCode === undefined ? (
+          button(t('enrollment.check'), store.refreshPrivateSync)
         ) : (
           <PrivateSync
             account={snapshot}
@@ -707,6 +726,7 @@ export function RegistrationGate({
     store.getSnapshot,
   );
   const colors = usePalette();
+  const { t } = useLocalization();
   // The person's choice between the account page and a connected Inbox outlasts status updates.
   const [choice, setChoice] = useState<InboxChoice>();
   const landing = inboxLanding(snapshot, choice);
@@ -779,12 +799,16 @@ export function RegistrationGate({
         <Text
           accessibilityRole="header"
           style={[styles.title, { color: colors.foreground }]}>
-          {lockedCopy.title}
+          {t('locked.title')}
         </Text>
         <Text style={[styles.text, { color: colors.secondary }]}>
-          {lockedCopy.description}
+          {t('locked.description')}
         </Text>
-        {busy ? <ActivityIndicator accessibilityLabel="Connecting" /> : null}
+        {busy ? (
+          <ActivityIndicator
+            accessibilityLabel={t('registration.connecting')}
+          />
+        ) : null}
       </View>
     </ScrollView>
   );
@@ -803,7 +827,8 @@ function RegistrationPage({
     store.getSnapshot,
   );
   const colors = usePalette();
-  const copy = registrationCopy(snapshot);
+  const { t } = useLocalization();
+  const copy = registrationCopy(t, snapshot);
   const recovering = offersSignInAgain(snapshot, failed);
   // Offered even when this device has not seen the link; Convex decides.
   const alternate =
@@ -840,10 +865,14 @@ function RegistrationPage({
             {copy.account}
           </Text>
         )}
-        {busy ? <ActivityIndicator accessibilityLabel="Connecting" /> : null}
+        {busy ? (
+          <ActivityIndicator
+            accessibilityLabel={t('registration.connecting')}
+          />
+        ) : null}
         {onInbox === undefined
           ? null
-          : button('Open Inbox', () => {
+          : button(t('registration.openInbox'), () => {
               onInbox();
               return Promise.resolve();
             })}
@@ -851,13 +880,23 @@ function RegistrationPage({
           <Text
             accessibilityRole="alert"
             style={[styles.text, { color: colors.foreground }]}>
-            Setup could not finish. Try again to resume your saved setup.
+            {t('registration.setupFailed')}
           </Text>
         ) : null}
         {snapshot.kind === 'signed-out' ? (
           <>
-            {button('Sign in with Apple', () => store.register('apple'))}
-            {button('Sign in with Google', () => store.register('google'))}
+            {button(
+              t('registration.signInWith', {
+                provider: providerName(t, 'apple'),
+              }),
+              () => store.register('apple'),
+            )}
+            {button(
+              t('registration.signInWith', {
+                provider: providerName(t, 'google'),
+              }),
+              () => store.register('google'),
+            )}
           </>
         ) : null}
         {/* The first mailbox suggests the Google sign-in, or any Google account can be chosen. */}
@@ -865,24 +904,31 @@ function RegistrationPage({
         snapshot.removalPending === undefined &&
         mailboxesOf(snapshot).length === 0 ? (
           <>
-            {button('Authorize Gmail', () => store.addMailbox(false))}
-            {button('Choose another Google mailbox', () =>
+            {button(t('registration.authorizeGmail'), () =>
+              store.addMailbox(false),
+            )}
+            {button(t('registration.chooseMailbox'), () =>
               store.addMailbox(true),
             )}
           </>
         ) : null}
         {recovering
           ? button(
-              `Sign in again with ${providerNames[snapshot.signInProvider]}`,
+              t('registration.signInAgain', {
+                provider: providerName(t, snapshot.signInProvider),
+              }),
               () => store.register(snapshot.signInProvider),
             )
           : null}
         {recovering && alternate !== undefined
-          ? button(`Sign in with ${providerNames[alternate]} instead`, () =>
-              store.register(alternate),
+          ? button(
+              t('registration.signInInstead', {
+                provider: providerName(t, alternate),
+              }),
+              () => store.register(alternate),
             )
           : null}
-        {failed ? button('Try again', store.restore) : null}
+        {failed ? button(t('common.retry'), store.restore) : null}
         {snapshot.kind === 'signed-out' ||
         snapshot.removalPending !== undefined ? null : (
           <AccountSettings
@@ -898,6 +944,7 @@ function RegistrationPage({
             store={store}
           />
         )}
+        <LanguageSelector />
       </View>
     </ScrollView>
   );

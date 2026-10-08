@@ -10,7 +10,6 @@ import {
   canRetrySummary,
   createMessageSummary,
   readableBodyText,
-  summaryCopy,
   summaryInput,
 } from '@private-email/mail-core/assistance';
 import { spacing } from '@private-email/mail-core/theme';
@@ -33,6 +32,7 @@ import {
 } from 'react-native';
 
 import { Action } from './action.tsx';
+import { useLocalization } from './localization.ts';
 import { usePalette } from './theme.ts';
 
 const styles = StyleSheet.create({
@@ -77,10 +77,11 @@ function SummaryContent({
   readonly onRetry: () => void;
 }) {
   const colors = usePalette();
+  const { t } = useLocalization();
   const dismiss = (
     <Action
-      label="Dismiss"
-      accessibilityLabel="Dismiss summary"
+      label={t('summary.dismiss')}
+      accessibilityLabel={t('summary.dismissLabel')}
       onPress={() => {
         summary.discard();
       }}
@@ -89,13 +90,13 @@ function SummaryContent({
   if (state.kind === 'summarizing') {
     return (
       <View style={styles.row}>
-        <ActivityIndicator accessibilityLabel="Summarizing" />
+        <ActivityIndicator accessibilityLabel={t('summary.progress')} />
         <Text style={[styles.secondary, { color: colors.secondary }]}>
-          {summaryCopy.summarizing}
+          {t('summary.summarizing')}
         </Text>
         <Action
-          label="Cancel"
-          accessibilityLabel="Cancel summary"
+          label={t('common.cancel')}
+          accessibilityLabel={t('summary.cancelLabel')}
           onPress={() => {
             summary.cancel();
           }}
@@ -109,7 +110,7 @@ function SummaryContent({
         <Text
           accessibilityRole="header"
           style={[styles.title, { color: colors.foreground }]}>
-          Summary
+          {t('summary.title')}
         </Text>
         <Text
           selectable
@@ -118,11 +119,11 @@ function SummaryContent({
         </Text>
         {state.omitted ? (
           <Text style={[styles.secondary, { color: colors.secondary }]}>
-            {summaryCopy.omitted}
+            {t('summary.omitted')}
           </Text>
         ) : null}
         <Text style={[styles.secondary, { color: colors.secondary }]}>
-          {summaryCopy.disclaimer}
+          {t('summary.disclaimer')}
         </Text>
         {dismiss}
       </>
@@ -133,13 +134,15 @@ function SummaryContent({
       <Text
         accessibilityRole="alert"
         style={[styles.secondary, { color: colors.secondary }]}>
-        {summaryCopy[state.kind === 'unavailable' ? state.reason : state.kind]}
+        {t(
+          `summary.${state.kind === 'unavailable' ? state.reason : state.kind}`,
+        )}
       </Text>
       <View style={styles.row}>
         {canRetrySummary(state) ? (
           <Action
-            label="Try again"
-            accessibilityLabel="Summarize this message again"
+            label={t('common.retry')}
+            accessibilityLabel={t('summary.summarizeAgainLabel')}
             onPress={onRetry}
           />
         ) : null}
@@ -164,6 +167,7 @@ export function MessageSummary({
   readonly body: ReadableBody | string;
 }) {
   const colors = usePalette();
+  const { t } = useLocalization();
   const assistance = use(AssistanceContext);
   const input = useMemo(
     () =>
@@ -225,8 +229,8 @@ export function MessageSummary({
     return (
       <View style={styles.row}>
         <Action
-          label="Summarize"
-          accessibilityLabel="Summarize this message"
+          label={t('summary.summarize')}
+          accessibilityLabel={t('summary.summarizeLabel')}
           onPress={start}
         />
       </View>
@@ -234,7 +238,7 @@ export function MessageSummary({
   }
   return (
     <View
-      accessibilityLabel="Message summary"
+      accessibilityLabel={t('summary.region')}
       style={[styles.summary, { borderColor: colors.separator }]}>
       <SummaryContent
         summary={summary}

@@ -1,6 +1,5 @@
 import type { NativeAssistance } from '@private-email/mail-core/assistance';
 
-import { summaryCopy } from '@private-email/mail-core/assistance';
 import { createGmailInbox } from '@private-email/mail-core/gmail-inbox';
 import { singleMailbox } from '@private-email/mail-core/mailboxes';
 import { makeMockInboxStorage } from '@private-email/mail-core/mock-storage';
@@ -111,7 +110,7 @@ describe('on-device message summaries in the reader', () => {
       const reads = gmail.requests.length;
       await fireEvent.press(screen.getByLabelText('Summarize this message'));
       await expect(
-        screen.findByText(summaryCopy.summarizing),
+        screen.findByText('Summarizing on this device…'),
       ).resolves.toBeOnTheScreen();
       expect(asked.map(({ input }) => input)).toStrictEqual([
         'Subject: Venue\n\nPlease confirm the venue by Friday.',
@@ -120,7 +119,7 @@ describe('on-device message summaries in the reader', () => {
       await expect(
         screen.findByText('Confirm the venue by Friday.'),
       ).resolves.toBeOnTheScreen();
-      expect(screen.getByText(summaryCopy.disclaimer)).toBeOnTheScreen();
+      expect(screen.getByText('Created on this device from the text shown here. It may be inaccurate and is not saved.')).toBeOnTheScreen();
       // The message stays readable beside its preview, and summarizing fetched nothing.
       expect(
         screen.getByText('Please confirm the venue by Friday.'),
@@ -143,7 +142,7 @@ describe('on-device message summaries in the reader', () => {
     try {
       await fireEvent.press(screen.getByLabelText('Summarize this message'));
       await expect(
-        screen.findByText(summaryCopy['model-not-ready']),
+        screen.findByText('Apple Intelligence is still getting ready. Try again later.'),
       ).resolves.toBeOnTheScreen();
       expect(
         screen.getByText('Please confirm the venue by Friday.'),
@@ -163,7 +162,7 @@ describe('on-device message summaries in the reader', () => {
     try {
       await fireEvent.press(screen.getByLabelText('Summarize this message'));
       await fireEvent.press(await screen.findByLabelText('Cancel summary'));
-      expect(screen.getByText(summaryCopy.cancelled)).toBeOnTheScreen();
+      expect(screen.getByText('Summary cancelled.')).toBeOnTheScreen();
       expect(cancelled).toStrictEqual([asked[0]?.request]);
 
       await fireEvent.press(

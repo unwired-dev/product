@@ -65,6 +65,7 @@ const config: ExpoConfig = {
   plugins: [
     'expo-router',
     './plugins/private-inbox.cjs',
+    './plugins/localization.cjs',
     'expo-background-task',
     [
       'expo-build-properties',

@@ -149,7 +149,9 @@ helper for the same isolated Keychain group. The ordinary app and its
 store are preserved. Without that profile, record native execution as deferred;
 component, bundle and runner contracts remain available.
 
-The XCTest journey opens two windows, selects different messages, focuses a
+The runner selects one XCTest journey: the mailbox lifecycle journey by default,
+or the journey named after the app path, such as the
+[language journey](localization.md#verify). The lifecycle journey opens two windows, selects different messages, focuses a
 window through its menu, closes both, checks continued application work, reopens
 through Launch Services, reads another message, and chooses the native Quit menu.
 Command-Q is checked separately through direct native UI automation because
@@ -174,3 +176,10 @@ component and bundle evidence as distinct claims in the
 [qualification record](qualification/expo-react-native-client.md). Real Gmail,
 delivery, accessibility and distribution still require their own checks.
 [Private storage](private-inbox-storage.md) has separate real integration checks. No legacy coverage is retired by this slice.
+
+## Interface language
+
+The Inbox, welcome and account pages offer System default and a saved English
+override, which also titles the native menus and windows. See
+[interface translations](localization.md) for catalogs, adding languages, native
+menu behavior, and language verification.

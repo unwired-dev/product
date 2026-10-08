@@ -279,7 +279,78 @@ final class WindowTests: XCTestCase {
     XCTAssertTrue(text(linked, in: app.windows["Inbox 1"]).waitForExistence(timeout: 15))
   }
 
-  // Keep the existing window lifecycle journey in one session for its PID and work assertions.
+  // Keep language changes, window menus, and relaunch in one native journey.
+  // swiftlint:disable:next function_body_length
+  func testLanguagePreferenceAcrossWindowsAndRelaunch() throws {
+    continueAfterFailure = false
+    let appURL = URL(
+      fileURLWithPath: try XCTUnwrap(ProcessInfo.processInfo.environment["UNWIRED_APP_PATH"]))
+    let app = XCUIApplication(url: appURL)
+    app.launch()
+    addTeardownBlock { if app.state != .notRunning { app.terminate() } }
+    let first = app.windows["Inbox 1"]
+    let english = first.descendants(matching: .any)["language-en"]
+    XCTAssertTrue(english.waitForExistence(timeout: 30))
+    english.click()
+    let checked = NSPredicate(
+      format: "value CONTAINS 'checked' AND NOT value CONTAINS 'unchecked'")
+    XCTAssertEqual(
+      XCTWaiter.wait(
+        for: [XCTNSPredicateExpectation(predicate: checked, object: english)], timeout: 10),
+      .completed)
+    app.typeKey("n", modifierFlags: .command)
+    let second = app.windows["Inbox 2"]
+    let secondEnglish = second.descendants(matching: .any)["language-en"]
+    XCTAssertTrue(secondEnglish.waitForExistence(timeout: 10))
+    XCTAssertEqual(
+      XCTWaiter.wait(
+        for: [XCTNSPredicateExpectation(predicate: checked, object: secondEnglish)], timeout: 10),
+      .completed)
+    for preference in ["language-system", "language-en", "language-system", "language-en"] {
+      let selection = second.descendants(matching: .any)[preference]
+      selection.click()
+      XCTAssertEqual(
+        XCTWaiter.wait(
+          for: [XCTNSPredicateExpectation(predicate: checked, object: selection)], timeout: 10),
+        .completed)
+      assertWindowMenu(app, titles: ["Inbox 1", "Inbox 2"])
+    }
+    app.menuBars.menuBarItems["Window"].click()
+    app.menuItems["Inbox 2"].click()
+    app.typeKey("w", modifierFlags: .command)
+    XCTAssertTrue(second.waitForNonExistence(timeout: 10))
+    assertWindowMenu(app, titles: ["Inbox 1"])
+    app.terminate()
+    app.launch()
+    XCTAssertTrue(english.waitForExistence(timeout: 30))
+    XCTAssertEqual(
+      XCTWaiter.wait(
+        for: [XCTNSPredicateExpectation(predicate: checked, object: english)], timeout: 10),
+      .completed)
+    let system = first.descendants(matching: .any)["language-system"]
+    system.click()
+    XCTAssertEqual(
+      XCTWaiter.wait(
+        for: [XCTNSPredicateExpectation(predicate: checked, object: system)], timeout: 10),
+      .completed)
+    app.menuBars.menuBarItems["File"].click()
+    XCTAssertTrue(app.menuItems["New Window"].exists)
+    app.typeKey(.escape, modifierFlags: [])
+  }
+
+  private func assertWindowMenu(
+    _ app: XCUIApplication, titles: [String], file: StaticString = #filePath, line: UInt = #line
+  ) {
+    app.menuBars.menuBarItems["Window"].click()
+    let entries = app.menuItems.matching(NSPredicate(format: "label BEGINSWITH %@", "Inbox "))
+    XCTAssertEqual(entries.count, titles.count, file: file, line: line)
+    for title in titles {
+      XCTAssertEqual(entries.matching(identifier: title).count, 1, file: file, line: line)
+    }
+    app.typeKey(.escape, modifierFlags: [])
+  }
+
+  // Keep the existing single-process lifecycle journey together.
   // swiftlint:disable:next function_body_length
   func testIndependentWindowsCloseReopenAndQuit() throws {
     continueAfterFailure = false
