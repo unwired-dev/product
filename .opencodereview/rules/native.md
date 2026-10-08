@@ -19,6 +19,14 @@ Native storage owns what TypeScript must never hold: Keychain items, the storage
   referenced or still-importing assets. Otherwise the host reports Not saved for
   a committed document and can repeatedly rebase a save that already succeeded.
 
+- `PrivateInboxStore.commitDraftDocument` admitting a replacement document against
+  only retained Draft Assets while unkept files still occupy the Outgoing Content
+  Store. Count every on-disk asset, including failed-removal leftovers, with the
+  new encoded ciphertext before writing; discount a file only after it is removed.
+  Preserve post-write best-effort cleanup and refusal without document mutation.
+  Otherwise repeated saves can exceed the non-evicting hard limit after cleanup
+  fails, even though each admission appears to fit its retained references.
+
 - `PrivateInboxStore.commitDraftDocument` or another bounded encrypted write
   admitting only the raw input size. Count the encoded envelope, including JSON
   string escaping, and the nonce/tag overhead of the exact stored format before
