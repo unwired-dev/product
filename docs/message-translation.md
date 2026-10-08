@@ -19,7 +19,8 @@ fallback and nothing is downloaded by the app.
 - A reader translation reads only the readable text already shown: the plain-text
   presentation of a Gmail body from the encrypted cache, or the preview fixture's
   body. It never fetches a missing body, attachments, Inline Images or remote
-  content, and makes no Gmail request. Input is cut at 6,000 characters (never
+  content, and makes no Gmail request. The body is read only up to the input limit, so
+  rendering a long message never joins its whole text. Input is cut at 6,000 characters (never
   inside a surrogate pair), and a cut translation says so.
 - A reader translation is a read-only preview beside the unchanged message, naming
   the identified source language and the target and saying it was made on this

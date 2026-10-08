@@ -15,7 +15,6 @@ import type {
   WebViewEvent,
 } from 'react-native-webview/lib/WebViewTypes';
 
-import { readableBodyText } from '@private-email/mail-core/assistance';
 import {
   inspectLink,
   messageLinkAt,
@@ -753,7 +752,7 @@ export function GmailMessageBody({
       <MessageTranslation
         source={inbox}
         id={id}
-        body={readableBodyText(body.presentation.readable)}
+        body={body.presentation.readable}
       />
       <Presentation
         presentation={body.presentation}

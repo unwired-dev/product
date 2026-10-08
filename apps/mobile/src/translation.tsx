@@ -1,7 +1,9 @@
+import type { ReadableBody } from '@private-email/mail-core/message-body';
 import type {
   NativeTranslation,
   Translation as TranslationStore,
   TranslationInput,
+  ReaderText,
   TranslationLanguage,
   TranslationState,
 } from '@private-email/mail-core/translation';
@@ -15,6 +17,7 @@ import {
   draftTranslationInput,
   hasTranslatableText,
   messageTranslationInput,
+  readerText,
   translationInputLimit,
   translationLanguages,
 } from '@private-email/mail-core/translation';
@@ -23,6 +26,7 @@ import {
   use,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
@@ -356,7 +360,7 @@ function TranslationPanel({
   );
 }
 
-function ReaderTranslation({ body }: { readonly body: string }) {
+function ReaderTranslation({ body }: { readonly body: ReaderText }) {
   const { t } = useLocalization();
   // Each open panel owns its queued native input; dismissal retires it before rendering.
   const session = useRef(0);
@@ -441,19 +445,20 @@ export function MessageTranslation({
   // The mailbox store the message belongs to; with the id, it identifies the translated message.
   readonly source: object;
   readonly id: string;
-  readonly body: string;
+  readonly body: ReadableBody | string;
 }) {
   const translation = use(TranslationContext);
+  const text = useMemo(() => readerText(body), [body]);
   // Another message, mailbox, account or text replaces the translation before rendering, so a
   // result for the previous one is never shown; unmounting cancels and forgets it.
-  const generation = useGeneration([translation, source, id, body]);
-  if (!hasTranslatableText(body)) {
+  const generation = useGeneration([translation, source, id, text.text]);
+  if (!hasTranslatableText(text.text)) {
     return null;
   }
   return (
     <ReaderTranslation
       key={generation}
-      body={body}
+      body={text}
     />
   );
 }

@@ -21,6 +21,7 @@ import {
   draftReplacement,
   draftTranslationInput,
   messageTranslationInput,
+  readerText,
   translationInputLimit,
   translationLanguages,
 } from '../src/translation.ts';
@@ -62,7 +63,7 @@ function scriptedTranslation(languages: unknown = []) {
 }
 
 const message = (body: string, target = 'es'): TranslationInput => {
-  const admitted = messageTranslationInput(body, target);
+  const admitted = messageTranslationInput(readerText(body), target);
   if (admitted === undefined) {
     throw new Error('Expected readable input');
   }
@@ -73,7 +74,7 @@ describe('on-device translation', () => {
   /* oxlint-disable vitest/max-expects -- Each case proves one translation path end to end. */
   it('admits bounded message text and only whole Draft selections', () => {
     expect.hasAssertions();
-    expect(messageTranslationInput(' \n​ ', 'es')).toBeUndefined();
+    expect(messageTranslationInput(readerText(' \n​ '), 'es')).toBeUndefined();
     expect(message(' Lunch at noon? ')).toStrictEqual({
       text: 'Lunch at noon?',
       omitted: false,
@@ -91,6 +92,34 @@ describe('on-device translation', () => {
       omitted: false,
       target: 'en',
     });
+  });
+
+  it('joins a reader body only until it passes the input limit', () => {
+    expect.hasAssertions();
+    const paragraph = [{ text: 'Lunch at noon? '.repeat(100) }];
+    const paragraphs = Array.from({ length: 10 }, () => paragraph);
+    // A paragraph past the limit is never read.
+    Object.defineProperty(paragraphs, 9, {
+      get: () => {
+        throw new Error('Read past the input limit');
+      },
+    });
+    const long = readerText({ paragraphs, hidesImages: false });
+    expect(long.cut).toBe(true);
+    expect(long.text).toHaveLength(translationInputLimit + 1);
+    expect(messageTranslationInput(long, 'es')).toMatchObject({
+      omitted: true,
+    });
+    expect(messageTranslationInput(long, 'es')?.text).toHaveLength(
+      translationInputLimit,
+    );
+    // Leading whitespace does not count against the limit, and a short body is whole.
+    expect(
+      readerText({
+        paragraphs: [[{ text: '  ' }], [{ text: ' Hola' }, { text: ' mundo' }]],
+        hidesImages: false,
+      }),
+    ).toStrictEqual({ text: 'Hola mundo', cut: false });
   });
 
   it('translates the captured text into the chosen language and discloses a cut', async () => {

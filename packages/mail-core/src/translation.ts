@@ -4,6 +4,7 @@ import * as Order from 'effect/Order';
 import * as Schema from 'effect/Schema';
 
 import type { SummaryInput } from './assistance.ts';
+import type { ReadableBody } from './readable-text.ts';
 
 import {
   boundedInput,
@@ -73,12 +74,38 @@ export { summaryInputLimit as translationInputLimit } from './assistance.ts';
 // Whether a text has anything to translate.
 export { hasVisibleText as hasTranslatableText } from './readable-text.ts';
 
+export type ReaderText = Readonly<{ text: string; cut: boolean }>;
+
+// The readable text of an opened message without leading whitespace, joined only until it passes
+// the input limit, so a long body is never traversed or copied whole.
+export function readerText(body: ReadableBody | string): ReaderText {
+  const paragraphs =
+    typeof body === 'string' ? [[{ text: body }]] : body.paragraphs;
+  let text = '';
+  for (const spans of paragraphs) {
+    const parts = text === '' ? spans : [{ text: '\n\n' }, ...spans];
+    for (const { text: part } of parts) {
+      const budget = Math.max(0, summaryInputLimit + 1 - text.length);
+      text += (text === '' ? part.trimStart() : part).slice(0, budget);
+      if (text.length > summaryInputLimit) {
+        return { text, cut: true };
+      }
+    }
+  }
+  return { text, cut: false };
+}
+
 // The already-local readable text of an opened message, cut at the input limit.
 export const messageTranslationInput = (
-  body: string,
+  { text, cut }: ReaderText,
   target: string,
-): TranslationInput | undefined =>
-  hasVisibleText(body) ? { ...boundedInput(body.trim()), target } : undefined;
+): TranslationInput | undefined => {
+  if (!hasVisibleText(text)) {
+    return undefined;
+  }
+  const bounded = boundedInput(text.trimEnd());
+  return { ...bounded, omitted: bounded.omitted || cut, target };
+};
 
 // Selected Draft text is never cut: accepting a translation replaces the whole selection.
 export const draftTranslationInput = (
