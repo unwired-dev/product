@@ -9,8 +9,13 @@ import UniformTypeIdentifiers
 // never copied or listed.
 private let pickLimit = 20
 
-private func pickedFile(_ url: URL, name: String? = nil) -> [String: String] {
-  let type = UTType(filenameExtension: url.pathExtension)?.preferredMIMEType ?? ""
+// The MIME type comes from the type the source declared when it has one, then the extension.
+private func pickedFile(_ url: URL, name: String? = nil, type declared: UTType? = nil)
+  -> [String: String]
+{
+  let type =
+    declared?.preferredMIMEType ?? UTType(filenameExtension: url.pathExtension)?.preferredMIMEType
+    ?? ""
   return ["uri": url.absoluteString, "name": name ?? url.lastPathComponent, "type": type]
 }
 
@@ -132,10 +137,13 @@ private func pickedFile(_ url: URL, name: String? = nil) -> [String: String] {
         _ = provider.loadFileRepresentation(for: type, openInPlace: false) { url, _, error in
           do {
             guard let url else { throw error ?? RegistrationError.unavailable }
+            // A name without an extension takes the provided image type's usual one.
+            let fileExtension =
+              url.pathExtension.isEmpty ? type.preferredFilenameExtension ?? "" : url.pathExtension
+            let base = provider.suggestedName ?? url.deletingPathExtension().lastPathComponent
             let name =
-              provider.suggestedName.map {
-                url.pathExtension.isEmpty ? $0 : "\($0).\(url.pathExtension)"
-              } ?? url.lastPathComponent
+              fileExtension.isEmpty || !URL(fileURLWithPath: base).pathExtension.isEmpty
+              ? base : "\(base).\(fileExtension)"
             let target = try DraftFilePicker.destination(name)
             do {
               try FileManager.default.copyItem(at: url, to: target)
@@ -143,7 +151,7 @@ private func pickedFile(_ url: URL, name: String? = nil) -> [String: String] {
               RegistrationStore.discardPickedDraftFile(target)
               throw error
             }
-            continuation.resume(returning: pickedFile(target, name: name))
+            continuation.resume(returning: pickedFile(target, name: name, type: type))
           } catch {
             continuation.resume(throwing: error)
           }
