@@ -41,7 +41,9 @@ hosts describe through `linkWarnings.<kind>`.
 Use complete messages with named interpolation values, such as
 `t('inbox.unreadRow', { sender, subject })`. Do not concatenate translated sentence
 fragments. A message that differs by Gmail action uses an i18next context, such as
-`gmailActions.done_archive`. React Native renders text directly, so interpolation does not HTML-escape
+`gmailActions.done_archive`. Draft recipient groups use `drafts.recipientGroups.*`
+with `{{recipients}}`, so each language can place its To, Cc and Bcc labels around
+the recipient list. React Native renders text directly, so interpolation does not HTML-escape
 message content. For counts, use i18next's `_one`, `_other`, and other plural
 categories required by the target locale, and pass `{ count }`.
 

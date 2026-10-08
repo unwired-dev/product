@@ -115,6 +115,9 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   list or omitting populated roles within its bounded prefix. Preserve each emitted role and its recipient order,
   use names with address fallback, and return No recipients only when all three
   lists are empty; otherwise a Bcc-only or mixed Draft misrepresents its addressing.
+  Format each role group through a complete catalog template with named recipient
+  interpolation rather than prefixing a translated field label; otherwise
+  translations cannot reorder the role and recipients in visible or accessible rows.
 
 - `drafts.ts.recipientSummary` or `semantic-document.ts.clip/previewOf` joining
   complete metadata or bodies before shortening a list-row preview. Bound both

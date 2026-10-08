@@ -140,16 +140,18 @@ export const recipientSummary = (t: Translate, draft: Draft, limit = 300) => {
   let summary = '';
   for (const field of ['to', 'cc', 'bcc'] as const) {
     const recipients = draft[field];
-    const role = t(`drafts.fields.${field}`);
+    let names = '';
+    let combined = summary;
     for (const [index, { name, address }] of recipients.entries()) {
-      const separator = summary === '' ? '' : ' · ';
-      summary += index === 0 ? `${separator}${role} ` : ', ';
-      summary += (name ?? address).slice(0, limit + 1);
+      names += `${index === 0 ? '' : ', '}${(name ?? address).slice(0, limit + 1)}`;
+      const group = t(`drafts.recipientGroups.${field}`, { recipients: names });
+      combined = summary === '' ? group : `${summary} · ${group}`;
       // A row shows one line: stop reading recipients once it is full.
-      if (summary.length > limit) {
-        return clip(summary, limit);
+      if (combined.length > limit) {
+        return clip(combined, limit);
       }
     }
+    summary = combined;
   }
   return summary === '' ? t('drafts.noRecipients') : summary;
 };

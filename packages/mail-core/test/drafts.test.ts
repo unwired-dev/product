@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 
-import { english } from '@private-email/localization';
+import { createLocalization, english } from '@private-email/localization';
 
 import type { Draft, DraftsState } from '../src/drafts.ts';
 import type { RegistrationSnapshot } from '../src/registration.ts';
@@ -510,6 +510,44 @@ describe('entering Draft recipients', () => {
       recipients: `To ${'x'.repeat(297)}`,
       shortened: false,
     });
+  });
+
+  it('uses complete translated recipient groups in visible and accessible Draft summaries', () => {
+    expect.hasAssertions();
+    const settings = { preference: null, language: 'en', locale: 'en-US' };
+    const { i18n } = createLocalization(settings, {
+      getSettings: async () => settings,
+      setLanguage: async () => settings,
+    });
+    i18n.addResourceBundle(
+      'en',
+      'translation',
+      {
+        drafts: {
+          recipientGroups: {
+            to: '{{recipients}} (To)',
+            cc: '{{recipients}} (Cc)',
+            bcc: '{{recipients}} (Bcc)',
+          },
+        },
+      },
+      true,
+      true,
+    );
+    const translated = i18n.getFixedT('en');
+    const addressed = {
+      ...draft,
+      to: [{ name: 'Oliver', address: 'oliver@example.invalid' }],
+      cc: [{ address: 'maya@example.invalid' }],
+      bcc: [{ name: 'Private', address: 'private@example.invalid' }],
+    };
+    const recipients =
+      'Oliver (To) · maya@example.invalid (Cc) · Private (Bcc)';
+    expect(recipientSummary(translated, addressed)).toBe(recipients);
+    expect(draftSummary(translated, addressed).recipients).toBe(recipients);
+    expect(recipientSummary(translated, { ...draft, bcc: addressed.bcc })).toBe(
+      'Private (Bcc)',
+    );
   });
 
   it('decides emptiness from the first non-whitespace character without joining the body', () => {

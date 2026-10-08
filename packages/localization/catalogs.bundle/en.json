@@ -402,6 +402,11 @@
       "cc": "Cc",
       "bcc": "Bcc"
     },
+    "recipientGroups": {
+      "to": "To {{recipients}}",
+      "cc": "Cc {{recipients}}",
+      "bcc": "Bcc {{recipients}}"
+    },
     "cannotSend": "{{from}}, cannot send",
     "cannotSendShortened": "{{from}}, address shortened, cannot send",
     "sendFrom": "Send from {{address}}",
