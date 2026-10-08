@@ -46,7 +46,7 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   shared by every connection: the device-wide budget lets one connection evict
   another's body. Refused admission preserves membership. Otherwise derived
   saved-body status remains stale despite unchanged Inbox metadata.
-- `Effect.run*` anywhere except the single run of a host-facing store method through `runLogged`; in particular inside a service method, a callback passed back into Effect, or a loop.
+- `Effect.run*` anywhere except the single run of a host-facing store method through `runLogged`; in particular inside a service method or a callback passed back into Effect. A plain async scheduler may run independent Schedule steps through `runLogged`, then invoke Promise-returning store actions outside Effect; it must abort pending waits and prevent future actions when stopped. This exception does not permit wrapping store actions in another Effect run.
 - A helper that combines Promise-returning store methods, such as
   `mailboxes.ts.savedMessageBodies`, wrapping their host-facing runs in another
   `runLogged`/`Effect.run*`. Keep that composition plain async, or compose internal

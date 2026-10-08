@@ -9,6 +9,7 @@
     "./gmail-inbox": "./src/gmail-inbox.ts",
     "./gmail-actions": "./src/gmail-actions.ts",
     "./mailboxes": "./src/mailboxes.ts",
+    "./freshness": "./src/freshness.ts",
     "./testing/gmail-mailbox": "./src/testing/gmail-mailbox.ts",
     "./mock-storage": "./src/mock-storage.ts",
     "./theme": "./src/theme.ts",

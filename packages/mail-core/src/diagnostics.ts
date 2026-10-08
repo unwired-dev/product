@@ -65,8 +65,12 @@ export function decodeDiagnostic(error: Schema.SchemaError): string {
 
 // Hosts surface console.error as failures (React Native LogBox, Xcode); Effect's
 // default logger writes through console.log.
-export async function runLogged<A>(program: Effect.Effect<A>): Promise<A> {
+export async function runLogged<A>(
+  program: Effect.Effect<A>,
+  options?: Readonly<{ signal?: Readonly<AbortSignal> }>,
+): Promise<A> {
   return Effect.runPromise(
     program.pipe(Effect.provideService(References.LogToStderr, true)),
+    options,
   );
 }

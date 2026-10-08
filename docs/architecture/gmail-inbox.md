@@ -82,6 +82,16 @@ the cached list with a retry notice rather than prompting reauthorization.
 
 ## Authorization and suspended work
 
+The app-scoped freshness coordinator verifies registration before every poll or
+background opportunity. Its plain async loop waits through independent Effect
+Schedule steps, then calls the existing store actions outside that scheduler's
+Effect runtime. Aborting the scheduler stops pending waits and future refreshes;
+an already-started store action settles normally, while explicit Mac Quit ends
+the process. On mobile the entry imports the task definition before Router,
+because headless startup mounts no layouts. Wake handling rechecks the route
+after verification before selecting the current mailbox store. Push registration
+and native delivery remain in #781.
+
 Native mailbox operations and registration changes share a FIFO operation gate
 across suspension points. Revocation cleanup cannot interleave with captured
 registration writes and resurrect removed credentials. Host foreground loads
