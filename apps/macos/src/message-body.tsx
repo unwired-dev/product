@@ -604,7 +604,16 @@ function ReceivedAttachments({
   const attachments = useSyncExternalStore(inbox.subscribe, () =>
     inbox.messageAttachments(id),
   );
-  const [shown, setShown] = useState(attachmentBatch);
+  // The expansion belongs to one Inbox and message; Gmail IDs repeat across mailboxes.
+  const [expanded, setExpanded] = useState({
+    inbox,
+    id,
+    count: attachmentBatch,
+  });
+  const shown =
+    expanded.inbox === inbox && expanded.id === id
+      ? expanded.count
+      : attachmentBatch;
   if (attachments === undefined || attachments.length === 0) {
     return null;
   }
@@ -630,7 +639,7 @@ function ReceivedAttachments({
           label={`Show ${Math.min(attachmentBatch, attachments.length - shown)} more`}
           accessibilityLabel={`Show more attachments, ${attachments.length - shown} not shown`}
           onPress={() => {
-            setShown((count) => count + attachmentBatch);
+            setExpanded({ inbox, id, count: shown + attachmentBatch });
           }}
         />
       ) : null}
