@@ -18,7 +18,9 @@ Drafts mailbox, and Drafts do not synchronize to other devices yet.
   presses create one Draft. Refused navigation leaves it available to try again.
 - **Drafts** are listed in the Inbox column apart from received mail, newest edit
   first. Each row is labelled `DRAFT` and names its subject, recipients and sending
-  mailbox. Recipient names (or addresses when unnamed) are grouped under **To**,
+  mailbox. A **From** line always shows the sending address, followed by a
+  one-line body preview when the body has text. Recipient names (or addresses when
+  unnamed) are grouped under **To**,
   **Cc** and **Bcc**, separated by `·`; empty groups are omitted and an empty
   recipient list says **No recipients**. The accessible row name keeps those same
   roles. Bcc names remain visible in the sender's Draft list, including a Bcc-only
@@ -164,7 +166,8 @@ deletion-target rebinding during recovery, and bounded retry failures. Batched
 host events verify caret movement, typing-mark changes and Undo immediately
 followed by text editing; these remain component integration evidence.
 Host regressions also cover repeated New Message presses during a held save and
-visible and accessible recipient roles in Bcc-only and mixed-role Draft rows.
+visible and accessible recipient roles in Bcc-only and mixed-role Draft rows,
+including a visible From address alongside a non-empty body preview.
 Mobile deletion regressions use the post-edit caret to preserve the remaining
 character's marks with or without a key event; they do not qualify native keyboard,
 dictation, autocorrection or IME behavior.

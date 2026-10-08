@@ -185,6 +185,14 @@ A host owns views and native adapters. It renders shared stores from `@private-e
 
 #### Platform behavior
 
+- `composer.tsx.DraftRowView` showing its From address only as an empty-body
+  fallback, or only in its accessibility label. Every Draft row must visibly
+  identify its sending address alongside any body preview, including with
+  multiple Gmail connections; otherwise adding body text hides the sender and
+  makes the outgoing identity ambiguous. Check a populated body in both hosts,
+  and keep rows sized to their content rather than introducing fixed-height
+  list measurements that clip the added line or scaled text.
+
 - `composer.tsx.DraftRowView` using a different recipient-role projection for
   its visible text and accessibility label, or concatenating To, Cc and Bcc
   without each populated role. Both hosts consume the shared Draft summary;

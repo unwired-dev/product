@@ -1424,6 +1424,7 @@ describe('composing Drafts', () => {
       {
         ...created,
         subject: 'Quiet',
+        body: [{ kind: 'paragraph', spans: [{ text: 'Only for you' }] }],
         bcc: [{ name: 'Maya Chen', address: 'maya@example.com' }],
       },
       created,
@@ -1439,6 +1440,9 @@ describe('composing Drafts', () => {
         name: 'Draft. Quiet. Bcc Maya Chen. From alex@example.invalid',
       }),
     ).resolves.toBeOnTheScreen();
+    // A Draft with body text still shows the mailbox it sends from.
+    expect(screen.getByText('From alex@example.invalid')).toBeOnTheScreen();
+    expect(screen.getByText('Only for you')).toBeOnTheScreen();
     expect(screen.getByText('Bcc Maya Chen')).toBeOnTheScreen();
     const saved = draftsOf(drafts.getSnapshot()).find((each) => each.id === id);
     ok(saved);

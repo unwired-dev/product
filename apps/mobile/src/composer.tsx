@@ -268,6 +268,8 @@ function DraftRowView({
   readonly onOpen: (id: string) => Promise<void>;
 }) {
   const colors = usePalette();
+  // The sending mailbox stays visible whatever the body holds.
+  const preview = plainText(draft.body).replaceAll('\n', ' ');
   return (
     <Pressable
       accessibilityLabel={`${draft.conflict === true ? 'Conflicting Draft' : 'Draft'}. ${draft.subject || 'No subject'}. ${recipientSummary(draft)}. From ${draft.from}`}
@@ -301,8 +303,15 @@ function DraftRowView({
       <Text
         numberOfLines={1}
         style={[styles.rowDetail, { color: colors.secondary }]}>
-        {plainText(draft.body).replaceAll('\n', ' ') || `From ${draft.from}`}
+        {`From ${draft.from}`}
       </Text>
+      {preview === '' ? null : (
+        <Text
+          numberOfLines={1}
+          style={[styles.rowDetail, { color: colors.secondary }]}>
+          {preview}
+        </Text>
+      )}
     </Pressable>
   );
 }
