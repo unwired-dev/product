@@ -24,6 +24,7 @@ private func pickedFile(_ url: URL, name: String? = nil) -> [String: String] {
       default: throw RegistrationError.unavailable
       }
       guard
+        active == nil,
         let presenter = topController(),
         !presenter.isBeingPresented, !presenter.isBeingDismissed
       else { throw RegistrationError.unavailable }
@@ -56,18 +57,36 @@ private func pickedFile(_ url: URL, name: String? = nil) -> [String: String] {
     nonisolated static func destination(_ name: String) throws -> URL {
       let folder = RegistrationStore.pickedDraftFiles.appendingPathComponent(UUID().uuidString)
       try FileManager.default.createDirectory(
-        at: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        at: folder, withIntermediateDirectories: true,
+        attributes: [.posixPermissions: 0o700, .protectionKey: FileProtectionType.complete])
       let safe = PrivateInboxStore.attachmentName(name)
       return folder.appendingPathComponent(safe)
     }
 
     // Images on the pasteboard, as PNG files.
     private static func pasted() throws -> [[String: String]] {
-      try (UIPasteboard.general.images ?? []).enumerated().compactMap { index, image in
-        guard let data = image.pngData() else { return nil }
-        let url = try destination(index == 0 ? "Pasted image.png" : "Pasted image \(index + 1).png")
-        try data.write(to: url, options: [.atomic, .completeFileProtection])
-        return pickedFile(url)
+      var files: [[String: String]] = []
+      do {
+        for (index, image) in (UIPasteboard.general.images ?? []).enumerated() {
+          guard let data = image.pngData() else { continue }
+          let url = try destination(
+            index == 0 ? "Pasted image.png" : "Pasted image \(index + 1).png")
+          do {
+            try data.write(to: url, options: [.atomic, .completeFileProtection])
+          } catch {
+            RegistrationStore.discardPickedDraftFile(url)
+            throw error
+          }
+          files.append(pickedFile(url))
+        }
+        return files
+      } catch {
+        for file in files {
+          if let uri = file["uri"], let url = URL(string: uri) {
+            RegistrationStore.discardPickedDraftFile(url)
+          }
+        }
+        throw error
       }
     }
 
@@ -88,13 +107,19 @@ private func pickedFile(_ url: URL, name: String? = nil) -> [String: String] {
       picker.dismiss(animated: true)
       let finish = self.finish
       Task { @MainActor in
+        var files: [[String: String]] = []
         do {
-          var files: [[String: String]] = []
           for result in results {
             files.append(try await Self.copy(result.itemProvider))
           }
           finish(.success(files))
         } catch {
+          // Copies from earlier selections in a failed batch are no longer needed.
+          for file in files {
+            if let uri = file["uri"], let url = URL(string: uri) {
+              RegistrationStore.discardPickedDraftFile(url)
+            }
+          }
           finish(.failure(error))
         }
       }
@@ -113,7 +138,12 @@ private func pickedFile(_ url: URL, name: String? = nil) -> [String: String] {
                 url.pathExtension.isEmpty ? $0 : "\($0).\(url.pathExtension)"
               } ?? url.lastPathComponent
             let target = try DraftFilePicker.destination(name)
-            try FileManager.default.copyItem(at: url, to: target)
+            do {
+              try FileManager.default.copyItem(at: url, to: target)
+            } catch {
+              RegistrationStore.discardPickedDraftFile(target)
+              throw error
+            }
             continuation.resume(returning: pickedFile(target, name: name))
           } catch {
             continuation.resume(throwing: error)
@@ -129,14 +159,32 @@ private func pickedFile(_ url: URL, name: String? = nil) -> [String: String] {
       self.finish = finish
     }
 
-    func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+    func documentPicker(
+      _ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]
+    ) {
       MainActor.assumeIsolated {
+        var files: [[String: String]] = []
         finish(
           Result {
-            try urls.map { url in
-              let target = try DraftFilePicker.destination(url.lastPathComponent)
-              try FileManager.default.moveItem(at: url, to: target)
-              return pickedFile(target, name: url.lastPathComponent)
+            do {
+              for url in urls {
+                let target = try DraftFilePicker.destination(url.lastPathComponent)
+                do {
+                  try FileManager.default.moveItem(at: url, to: target)
+                } catch {
+                  RegistrationStore.discardPickedDraftFile(target)
+                  throw error
+                }
+                files.append(pickedFile(target, name: url.lastPathComponent))
+              }
+              return files
+            } catch {
+              for file in files {
+                if let uri = file["uri"], let url = URL(string: uri) {
+                  RegistrationStore.discardPickedDraftFile(url)
+                }
+              }
+              throw error
             }
           })
       }

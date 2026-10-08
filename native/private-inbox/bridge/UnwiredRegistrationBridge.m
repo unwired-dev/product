@@ -30,6 +30,7 @@ RCT_EXTERN_METHOD(importDraftAsset:(NSString *)owner id:(NSString *)id source:(N
 RCT_EXTERN_METHOD(readDraftAsset:(NSString *)owner asset:(NSDictionary *)asset resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(discardDraftAsset:(NSString *)owner id:(NSString *)id resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(pickDraftFiles:(NSString *)source resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
+RCT_EXTERN_METHOD(discardPickedDraftFiles:(NSArray *)uris resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(saveAttachment:(NSDictionary *)mailbox attachment:(NSDictionary *)attachment resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(discardAttachment:(NSDictionary *)mailbox file:(NSString *)file resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(presentAttachment:(NSDictionary *)mailbox file:(NSString *)file action:(NSString *)action resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)

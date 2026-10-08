@@ -1,5 +1,8 @@
 import type { Drafts } from './drafts.ts';
+import type { GmailInbox } from './gmail-inbox.ts';
 import type { MailboxConnection } from './registration.ts';
+
+import { sendingMailboxes } from './drafts.ts';
 
 // Navigation away from an open composer: the composer registers how it finishes (completing
 // recipients and saving), and every other destination asks to leave first. One request runs at a
@@ -11,6 +14,15 @@ export interface ComposerNavigation {
   readonly create: (
     drafts: Pick<Drafts, 'create' | 'abandon'>,
     mailbox: Pick<MailboxConnection, 'id' | 'address'>,
+    prepare?: (id: string) => Promise<boolean>,
+  ) => Promise<string | undefined>;
+  readonly attachReceived: (
+    drafts: Pick<Drafts, 'create' | 'abandon' | 'attach'>,
+    attachment: Readonly<{
+      mailbox: string | undefined;
+      mailboxes: readonly MailboxConnection[];
+      saved: Readonly<NonNullable<ReturnType<GmailInbox['attachmentFile']>>>;
+    }>,
   ) => Promise<string | undefined>;
 }
 
@@ -38,6 +50,33 @@ export function createComposerNavigation(): ComposerNavigation {
       pending = false;
     }
   };
+  const create: ComposerNavigation['create'] = async (
+    drafts,
+    mailbox,
+    prepare,
+  ) => {
+    let turn = navigations;
+    const id = await drafts.create(mailbox, async () => {
+      const allowed = await leave();
+      turn = navigations;
+      return allowed;
+    });
+    if (id === undefined) {
+      return id;
+    }
+    if (prepare !== undefined && !(await prepare(id))) {
+      return undefined;
+    }
+    if (navigations === turn) {
+      return id;
+    }
+    // Selecting the new row while creation waits already opened this Draft; it is not abandoned.
+    // Locked storage keeps the removal for the next successful save.
+    if (selectedDraft !== id) {
+      await drafts.abandon(id);
+    }
+    return undefined;
+  };
   return {
     leave,
     register: (next) => {
@@ -48,22 +87,30 @@ export function createComposerNavigation(): ComposerNavigation {
         }
       };
     },
-    create: async (drafts, mailbox) => {
-      let turn = navigations;
-      const id = await drafts.create(mailbox, async () => {
-        const allowed = await leave();
-        turn = navigations;
-        return allowed;
-      });
-      if (id === undefined || navigations === turn) {
-        return id;
+    create,
+    attachReceived: async (drafts, { mailbox, mailboxes, saved }) => {
+      const senders = sendingMailboxes(mailboxes);
+      const sender = senders.find(({ id }) => id === mailbox) ?? senders[0];
+      if (sender === undefined || mailbox === undefined) {
+        return undefined;
       }
-      // Selecting the new row while creation waits already opened this Draft; it is not abandoned.
-      // Locked storage keeps the removal for the next successful save.
-      if (selectedDraft !== id) {
-        await drafts.abandon(id);
-      }
-      return undefined;
+      return create(drafts, sender, (id) =>
+        drafts.attach(id, [
+          {
+            name: saved.name,
+            type: saved.type,
+            source: {
+              kind: 'received',
+              mailbox: {
+                connection: mailbox,
+                address: saved.address,
+                generation: saved.generation,
+              },
+              file: saved.file,
+            },
+          },
+        ]),
+      );
     },
   };
 }

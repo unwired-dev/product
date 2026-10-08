@@ -28,6 +28,7 @@ import {
   sendingMailboxes,
   sendingStateOf,
   unsendableAssets,
+  prepareFiles,
   withAsset,
 } from '@private-email/mail-core/drafts';
 import {
@@ -36,7 +37,6 @@ import {
   displayOf,
   historyOf,
   imagesOf,
-  insertImage,
   marksAt,
   clip,
   previewOf,
@@ -957,6 +957,8 @@ function Editor({
           present: patch(current.present),
           future: current.future.map(patch),
         }));
+        const { past, present, future } = historyNow.current;
+        return [...past, present, ...future];
       }),
     [commitHistory, store],
   );
@@ -965,42 +967,32 @@ function Editor({
     if (files.length === 0 || discarded.current) {
       return;
     }
-    const latest = authored.current;
-    const added = files.map((file) => ({ file, asset: store.prepare(file) }));
-    const inlined = added.filter(
-      ({ file }) => inline && file.type.startsWith('image/'),
-    );
-    const attached = added.filter((each) => !inlined.includes(each));
-    let { body } = latest;
-    let at = selectionNow.current;
-    for (const { asset } of inlined) {
-      const result = insertImage(body, at, asset);
-      body = result.document;
-      at = result.selection ?? at;
-    }
-    change({
-      ...latest,
-      body,
-      ...(attached.length === 0
-        ? {}
-        : {
-            attachments: [
-              ...(latest.attachments ?? []),
-              ...attached.map(({ asset }) => asset),
-            ],
-          }),
+    const prepared = prepareFiles(authored.current, {
+      selection: selectionNow.current,
+      files,
+      inline,
     });
-    if (inlined.length > 0) {
-      caret.current = at.start;
-      selectionNow.current = at;
-      setPlaced(at);
+    change(prepared.draft);
+    if (prepared.selection !== undefined) {
+      caret.current = prepared.selection.start;
+      selectionNow.current = prepared.selection;
+      setPlaced(prepared.selection);
     }
-    for (const { asset, file } of added) {
+    for (const { asset, file } of prepared.imports) {
       void store.importAsset(asset, file.source);
     }
   };
   const choose = async (source: PickSource, inline: boolean) => {
-    addFiles(await store.pick(source), inline);
+    addFiles(
+      await store.pick(
+        source,
+        () =>
+          lifetime.current.mounted &&
+          lifetime.current.finishing === 0 &&
+          !discarded.current,
+      ),
+      inline,
+    );
   };
   const removeAsset = (id: string) => {
     void store.cancelImport(id);

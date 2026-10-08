@@ -710,6 +710,24 @@ extension UnwiredRegistration {
   }
 
   // The system picker waits for the person, so it does not hold the mailbox operation gate.
+  @objc(discardPickedDraftFiles:resolver:rejecter:)
+  func discardPickedDraftFiles(
+    _ uris: [String], resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    Task { @MainActor in
+      await Task.detached(priority: .userInitiated) {
+        for uri in uris {
+          if let file = URL(string: uri), file.isFileURL {
+            RegistrationStore.discardPickedDraftFile(file)
+          }
+        }
+      }.value
+      resolve([:])
+    }
+  }
+
+  // The system picker waits for the person, so it does not hold the mailbox operation gate.
   @objc(pickDraftFiles:resolver:rejecter:)
   func pickDraftFiles(
     _ source: String, resolve: @escaping RCTPromiseResolveBlock,

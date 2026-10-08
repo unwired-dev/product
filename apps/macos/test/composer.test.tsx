@@ -2176,5 +2176,116 @@ describe('adding files and images to a Draft', () => {
     expect(gmail.savedFiles.size).toBe(0);
     expect(storage.assets()).toHaveLength(1);
   });
+
+  it('keeps an attachment-only Draft after Close and relaunch', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    const first = await render(
+      <App
+        drafts={drafts}
+        registration={registration}
+      />,
+    );
+    await press('New Message');
+    storage.addFile('file:///plan.pdf', 'plan');
+    storage.pickNext('files', [
+      { uri: 'file:///plan.pdf', name: 'plan.pdf', type: 'application/pdf' },
+    ]);
+    await press('Attach Files…');
+    await screen.findByLabelText('plan.pdf, 4 bytes');
+    await press('Close');
+    await first.unmount();
+    const [saved] = draftsOf(drafts.getSnapshot());
+    ok(saved, 'Expected the attachment-only Draft');
+    const reopened = createDrafts(storage.native, registration);
+    await render(
+      <App
+        drafts={reopened}
+        initialDraft={saved.id}
+        registration={registration}
+      />,
+    );
+    await screen.findByLabelText('plan.pdf, 4 bytes');
+    expect(storage.assets()).toHaveLength(1);
+  });
+
+  it('restores verified image bytes with Undo after deleting an importing image', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    await render(
+      <App
+        drafts={drafts}
+        registration={registration}
+      />,
+    );
+    await press('New Message');
+    storage.holdImports();
+    storage.addFile('file:///chart.png', 'chart');
+    storage.pickNext('photos', [
+      { uri: 'file:///chart.png', name: 'chart.png', type: 'image/png' },
+    ]);
+    await press('Insert Image…');
+    await screen.findByLabelText('chart.png, Adding…');
+    await fireEvent.changeText(screen.getByLabelText('Message body'), '');
+    await act(async () => {
+      storage.releaseImports();
+    });
+    await waitFor(() => {
+      expect(drafts.getImports().size).toBe(0);
+    });
+    await press('Undo');
+    await expect(
+      screen.findByLabelText('Inline image chart.png'),
+    ).resolves.toHaveProp('source', {
+      uri: `data:image/png;base64,${btoa('chart')}`,
+    });
+    expect(storage.assets()).toHaveLength(1);
+    expect(draftsOf(drafts.getSnapshot())).toHaveLength(1);
+  });
+
+  it('discards a picker result when its composer closed while choosing', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    let finish: (
+      files: ReadonlyArray<{ uri: string; name: string; type: string }>,
+    ) => void = () => undefined;
+    // oxlint-disable-next-line promise/avoid-new -- The test controls native picker completion.
+    const picked = new Promise<
+      ReadonlyArray<{ uri: string; name: string; type: string }>
+    >((resolve) => {
+      finish = resolve;
+    });
+    const drafts = createDrafts(
+      { ...storage.native, pickDraftFiles: () => picked },
+      registration,
+    );
+    await render(
+      <App
+        drafts={drafts}
+        registration={registration}
+      />,
+    );
+    await press('New Message');
+    await press('Attach Files…');
+    await press('Close');
+    storage.addFile('file:///late.pdf', 'late');
+    await act(async () => {
+      finish([
+        { uri: 'file:///late.pdf', name: 'late.pdf', type: 'application/pdf' },
+      ]);
+      await picked;
+    });
+    await act(async () => {
+      await drafts.save();
+    });
+    expect(draftsOf(drafts.getSnapshot())).toStrictEqual([]);
+    expect(storage.assets()).toStrictEqual([]);
+    expect(screen.queryByLabelText('Subject')).toBeNull();
+  });
   /* oxlint-enable vitest/max-expects */
 });

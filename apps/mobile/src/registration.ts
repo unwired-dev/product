@@ -94,6 +94,7 @@ export const drafts = createDrafts(
     readDraftAsset: (owner, asset) => native().readDraftAsset(owner, asset),
     discardDraftAsset: (owner, id) => native().discardDraftAsset(owner, id),
     pickDraftFiles: (source) => native().pickDraftFiles(source),
+    discardPickedDraftFiles: (uris) => native().discardPickedDraftFiles(uris),
   },
   registration,
 );

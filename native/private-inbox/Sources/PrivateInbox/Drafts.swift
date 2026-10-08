@@ -54,6 +54,15 @@ extension RegistrationStore {
     FileManager.default.temporaryDirectory.appendingPathComponent("draft-picks", isDirectory: true)
   }
 
+  // Only the picker owns immediate UUID subfolders of its root; a similar path is not ours.
+  nonisolated public static func discardPickedDraftFile(_ file: URL) {
+    let folder = file.standardizedFileURL.deletingLastPathComponent()
+    guard folder.deletingLastPathComponent() == pickedDraftFiles.standardizedFileURL,
+      UUID(uuidString: folder.lastPathComponent) != nil
+    else { return }
+    try? FileManager.default.removeItem(at: folder)
+  }
+
   // Copies an asset's bytes into Draft storage for `owner`: a picked or dropped file, pasted
   // `data:` bytes, or a Downloaded Attachment of a current mailbox generation. The Draft keeps
   // only the bytes, never the mailbox they came from.
@@ -82,14 +91,11 @@ extension RegistrationStore {
       throw RegistrationError.unavailable
     }
     guard file != nil || data != nil else { throw RegistrationError.unavailable }
+    defer { if let file { Self.discardPickedDraftFile(file) } }
     let (_, imported) = try await draftWork { [file, data] store, current in
       guard owner == current else { throw PrivateInboxError.mailboxInvalidated }
       let bytes = try file.map(Self.draftFileBytes) ?? Self.draftDataBytes(data ?? "")
       return try store.importDraftAsset(owner: owner, id: id, bytes: bytes)
-    }
-    // A picker's temporary copy is no longer needed once its bytes are stored.
-    if let file, file.standardizedFileURL.path.hasPrefix(Self.pickedDraftFiles.standardizedFileURL.path) {
-      try? FileManager.default.removeItem(at: file.deletingLastPathComponent())
     }
     return ["owner": owner, "size": imported.size, "digest": imported.digest]
   }

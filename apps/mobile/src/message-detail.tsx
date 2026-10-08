@@ -1,8 +1,7 @@
 import type { ReactNode } from 'react';
 
-import { sendingMailboxes } from '@private-email/mail-core/drafts';
 import { spacing } from '@private-email/mail-core/theme';
-import { use } from 'react';
+import { use, useLayoutEffect, useRef } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -108,32 +107,32 @@ function AttachToNewMessage({
   const navigation = useComposerNavigation();
   const account = use(AccountContext);
   const mailbox = useMailbox();
+  const mounted = useRef(true);
+  const attaching = useRef(false);
+  useLayoutEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   const attach = async (saved: SavedAttachment) => {
-    const senders = sendingMailboxes(account?.mailboxes ?? []);
-    const sender = senders.find(({ id }) => id === mailbox?.id) ?? senders[0];
-    if (sender === undefined || mailbox === undefined) {
+    if (!mounted.current || attaching.current) {
       return;
     }
-    const draft = await navigation.create(store, sender);
-    if (draft === undefined) {
-      return;
+    attaching.current = true;
+    try {
+      const draft = await navigation.attachReceived(store, {
+        mailbox: mailbox?.id,
+        mailboxes: account?.mailboxes ?? [],
+        saved,
+      });
+      if (mounted.current && draft !== undefined) {
+        onCompose(draft);
+      }
+    } catch {
+      // Keep the reader usable if an unexpected host operation rejects.
     }
-    await store.attach(draft, [
-      {
-        name: saved.name,
-        type: saved.type,
-        source: {
-          kind: 'received',
-          mailbox: {
-            connection: mailbox.id,
-            address: saved.address,
-            generation: saved.generation,
-          },
-          file: saved.file,
-        },
-      },
-    ]);
-    onCompose(draft);
+    attaching.current = false;
   };
   return (
     <AttachContext
@@ -175,7 +174,11 @@ export function MessageDetail({
       {onCompose === undefined ? (
         message
       ) : (
-        <AttachToNewMessage onCompose={onCompose}>{message}</AttachToNewMessage>
+        <AttachToNewMessage
+          key={`${mailbox}/${id}`}
+          onCompose={onCompose}>
+          {message}
+        </AttachToNewMessage>
       )}
     </MailboxScope>
   );

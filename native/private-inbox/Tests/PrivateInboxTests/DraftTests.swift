@@ -29,9 +29,11 @@ struct DraftTests {
     let document = #"{"version":1,"drafts":[{"subject":"Private draft subject"}]}"#
     // A save prepared for another Product Account changes nothing.
     await #expect(throws: PrivateInboxError.mailboxInvalidated) {
-      _ = try await store.commitDrafts(owner: "another-account", expectedRevision: 0, document: document)
+      _ = try await store.commitDrafts(
+        owner: "another-account", expectedRevision: 0, document: document)
     }
-    let committed = try await store.commitDrafts(owner: owner, expectedRevision: 0, document: document)
+    let committed = try await store.commitDrafts(
+      owner: owner, expectedRevision: 0, document: document)
     #expect(committed["revision"] as? Int == 1)
     // A save from a revision that moved on is refused rather than overwriting it.
     await #expect(throws: PrivateInboxError.conflict) {
@@ -53,7 +55,8 @@ struct DraftTests {
     let probeKeys = DeviceKeychain(service: service + ".probe.database")
     defer { try? probeKeys.remove("encryption-key") }
     _ = try probe.commitMailbox(
-      connection: String(repeating: "a", count: 32), address: "alex@example.invalid", subject: "google-subject",
+      connection: String(repeating: "a", count: 32), address: "alex@example.invalid",
+      subject: "google-subject",
       expectedRevision: 0, document: "{}")
     try probeKeys.remove("encryption-key")
     #expect(throws: PrivateInboxError.unavailable) {
@@ -61,7 +64,9 @@ struct DraftTests {
     }
     #expect(throws: PrivateInboxError.unavailable) { _ = try probe.open(seed: "[]") }
     #expect(try probeKeys.read("encryption-key") == nil)
-    #expect(!FileManager.default.fileExists(atPath: probeDirectory.appendingPathComponent("drafts.enc").path))
+    #expect(
+      !FileManager.default.fileExists(
+        atPath: probeDirectory.appendingPathComponent("drafts.enc").path))
     // The Outgoing Content Store refuses a document over its limit and keeps the saved one.
     #expect(throws: PrivateInboxError.unavailable) {
       _ = try relaunched.commitDrafts(
@@ -132,7 +137,8 @@ struct DraftTests {
       _ = try cache.readDraftAsset(owner: "another-account", id: "plan00001", digest: digest)
     }
     #expect(throws: PrivateInboxError.invalidStore) {
-      _ = try cache.readDraftAsset(owner: owner, id: "plan00001", digest: String(repeating: "0", count: 64))
+      _ = try cache.readDraftAsset(
+        owner: owner, id: "plan00001", digest: String(repeating: "0", count: 64))
     }
     try FileManager.default.copyItem(
       at: sealed, to: directory.appendingPathComponent("draft-assets/moved0001"))
@@ -150,8 +156,9 @@ struct DraftTests {
     // that drops it removes its bytes, after the document is stored. Unknown files go at once.
     _ = try await store.commitDrafts(owner: owner, expectedRevision: 0, document: "{}", keep: [])
     #expect(FileManager.default.fileExists(atPath: sealed.path))
-    #expect(!FileManager.default.fileExists(
-      atPath: directory.appendingPathComponent("draft-assets/moved0001").path))
+    #expect(
+      !FileManager.default.fileExists(
+        atPath: directory.appendingPathComponent("draft-assets/moved0001").path))
     _ = try await store.commitDrafts(
       owner: owner, expectedRevision: 1, document: "{}", keep: ["plan00001"])
     #expect(FileManager.default.fileExists(atPath: sealed.path))
@@ -201,11 +208,43 @@ struct DraftTests {
         owner: owner, id: "large0001", source: ["kind": "file", "uri": large.path])
     }
 
+    // A refused picker copy is removed, while a similarly named user folder stays untouched.
+    let pickerFolder = RegistrationStore.pickedDraftFiles.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: pickerFolder, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: pickerFolder) }
+    let refusedPick = pickerFolder.appendingPathComponent("large.bin")
+    try FileManager.default.copyItem(at: large, to: refusedPick)
+    await #expect(throws: PrivateInboxError.tooLarge) {
+      _ = try await store.importDraftAsset(
+        owner: owner, id: "large0002", source: ["kind": "file", "uri": refusedPick.absoluteString])
+    }
+    #expect(!FileManager.default.fileExists(atPath: pickerFolder.path))
+    let unrelated = RegistrationStore.pickedDraftFiles.deletingLastPathComponent()
+      .appendingPathComponent("draft-picks-other-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: unrelated, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: unrelated) }
+    let original = unrelated.appendingPathComponent("plan.pdf")
+    try bytes.write(to: original)
+    _ = try await store.importDraftAsset(
+      owner: owner, id: "original1", source: ["kind": "file", "uri": original.absoluteString])
+    #expect(try Data(contentsOf: original) == bytes)
+    // Abandoned picker results use the same exact ownership boundary.
+    try FileManager.default.createDirectory(at: pickerFolder, withIntermediateDirectories: true)
+    let abandoned = pickerFolder.appendingPathComponent("plan.pdf")
+    try bytes.write(to: abandoned)
+    RegistrationStore.discardPickedDraftFile(abandoned)
+    #expect(!FileManager.default.fileExists(atPath: pickerFolder.path))
+    RegistrationStore.discardPickedDraftFile(original)
+    #expect(try Data(contentsOf: original) == bytes)
+
     // Discarding removes bytes at once, and the account purge removes the rest.
     try await store.discardDraftAsset(id: "pasted001")
-    #expect(!FileManager.default.fileExists(
-      atPath: directory.appendingPathComponent("draft-assets/pasted001").path))
+    #expect(
+      !FileManager.default.fileExists(
+        atPath: directory.appendingPathComponent("draft-assets/pasted001").path))
     _ = try await store.purge(notice: "signed-out")
-    #expect(!FileManager.default.fileExists(atPath: directory.appendingPathComponent("draft-assets").path))
+    #expect(
+      !FileManager.default.fileExists(atPath: directory.appendingPathComponent("draft-assets").path)
+    )
   }
 }

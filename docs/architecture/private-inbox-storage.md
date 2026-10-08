@@ -94,6 +94,34 @@ another writer's authored version, and `known` permits a same-account nonempty
 late edit to survive as a conflict copy with editor rebinding. This cleanup does
 not give explicit Discard the same early-removal semantics.
 
+### Local Draft Assets
+
+Issue #612 stores each asset separately under `draft-assets/<id>`, using the
+database key with authenticated Product Account and asset identifier context.
+SHA-256 verifies the imported bytes. The Draft document contains asset metadata,
+state and inline references, never asset bytes or source mailbox authorization.
+Received assets use the existing attachment retrieval boundary's connection and
+generation checks, then become independent Draft-owned bytes.
+
+The native file lock serializes admission, document replacement and asset cleanup.
+Import writes verified ciphertext before a complete reference can be committed.
+Each document commit carries a keep list; cleanup runs only after durable document
+replacement. A process-wide imported-asset set protects imports not yet named by
+a committed reference, including saves by another store instance. Relaunch drops
+that protection so the next save can remove orphaned imports. The combined
+Outgoing Content Store admission limit remains 100 MB; an individual import is
+limited to 25 MiB without evicting authored content.
+
+The shared store retains completed assets referenced by a live Draft or its
+current-session editor histories. Import settlement first patches those histories
+and registers their completed references, so deleting an importing image and
+undoing after settlement cannot restore a dangling complete reference. Rebinding
+an editor to a conflict copy transfers its held assets. Deletion initially keeps
+all pre-deletion assets through the durable deletion; after pending edits are
+reconciled into any conflict copy, the next commit releases only unused assets.
+Account generation and composer lifetime fences reject stale picker results;
+native cleanup accepts only picker-owned UUID directories under its exact root.
+
 ## Gmail body cache
 
 Issue #605 adds per-message ciphertext under each connection’s `bodies/`, separate from both

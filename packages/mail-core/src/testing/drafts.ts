@@ -167,6 +167,7 @@ export function createSyntheticDrafts(
       const [pick] = index === -1 ? [] : picks.splice(index, 1);
       return Promise.resolve(pick?.files ?? []);
     },
+    discardPickedDraftFiles: () => Promise.resolve({}),
   };
   return {
     native,

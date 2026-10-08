@@ -107,20 +107,21 @@ missing key never creates a replacement while the document exists. Every account
 purge removes the document with the caches and needs no key. Draft access needs no
 Gmail authorization or network.
 
-A Draft's files and inline images are **Draft Assets**: one encrypted file each,
-sealed to its Product Account and asset identifier with the same device-only key,
-so ciphertext moved to another identifier or read for another account does not
-open. Reading an asset also checks its SHA-256 digest. An asset is stored before
-any Draft names it as complete. Each Draft save names the assets its Drafts keep;
-once the document is stored, the others are removed, except imports this process
-has not yet seen committed, so a save racing an import cannot delete it. A
-relaunch forgets that protection, and its first save removes bytes left by an
-interrupted import. An asset is refused over 25 MiB, or when the document and the
-assets kept would exceed the Outgoing Content Store's 100 MB. Discarding an asset
-needs no key. The account purge removes every asset with the document. Picked
-files on iPhone and iPad are temporary copies that the import, or the next launch,
-deletes; a Mac file is read in place through the open panel's or drop's grant,
-which the app's user-selected read-only sandbox entitlement allows.
+A Draft's files and inline images are **Draft Assets**, encrypted for the Product
+Account and checked against their recorded digest when read. Assets moved to
+another identifier or read for another account do not open. A complete reference
+always follows stored bytes, and removing a reference does not remove bytes needed
+by a preserved conflict copy or the editor's Undo history. An asset is refused over
+25 MiB, or when the Drafts and their assets would exceed the Outgoing Content
+Store's 100 MB. Asset removal needs no key, and account purge removes every asset
+with the document. Interrupted imports are cleaned on the next save after relaunch.
+
+Picked files on iPhone and iPad are protected temporary copies removed after
+successful or failed import, an abandoned picker result, or the next launch.
+Cleanup recognizes only the picker-owned UUID folder beneath its exact temporary
+root and preserves user files in similarly named folders. Mac files are read in
+place through the open panel's or drop's grant, allowed by the user-selected
+read-only sandbox entitlement.
 
 ## Native wiring and signing
 

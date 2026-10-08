@@ -13,7 +13,7 @@ import type {
   Registration,
   RegistrationSnapshot,
 } from './registration.ts';
-import type { Asset } from './semantic-document.ts';
+import type { Asset, Selection } from './semantic-document.ts';
 
 import {
   decodeDiagnostic,
@@ -27,6 +27,7 @@ import {
   emptyDocument,
   clip,
   imagesOf,
+  insertImage,
   SemanticDocumentSchema,
   withImage,
 } from './semantic-document.ts';
@@ -372,6 +373,7 @@ const ImportedSchema = Schema.Struct({
 const PreviewSchema = Schema.Struct({ uri: Schema.NonEmptyString });
 
 export const isEmptyDraft = (draft: Draft) =>
+  (draft.attachments?.length ?? 0) === 0 &&
   draft.to.length + draft.cc.length + draft.bcc.length === 0 &&
   draft.entries === undefined &&
   !/\S/u.test(draft.subject) &&
@@ -396,6 +398,49 @@ const prepare = ({ name, type }: Pick<PickedFile, 'name' | 'type'>): Asset => {
     name: name.trim() === '' ? 'attachment' : name.trim(),
     type,
     state: 'importing',
+  };
+};
+
+// Host editors record this prepared edit in their own history, then start its imports.
+export const prepareFiles = (
+  draft: Draft,
+  {
+    selection,
+    files,
+    inline,
+  }: Readonly<{
+    selection: Selection;
+    files: readonly PickedFile[];
+    inline: boolean;
+  }>,
+) => {
+  const imports = files.map((file) => ({ file, asset: prepare(file) }));
+  const inlined = imports.filter(
+    ({ file }) => inline && file.type.startsWith('image/'),
+  );
+  const attached = imports.filter((each) => !inlined.includes(each));
+  let { body } = draft;
+  let at = selection;
+  for (const { asset } of inlined) {
+    const result = insertImage(body, at, asset);
+    body = result.document;
+    at = result.selection ?? at;
+  }
+  return {
+    draft: {
+      ...draft,
+      body,
+      ...(attached.length === 0
+        ? {}
+        : {
+            attachments: [
+              ...(draft.attachments ?? []),
+              ...attached.map(({ asset }) => asset),
+            ],
+          }),
+    },
+    selection: inlined.length > 0 ? at : undefined,
+    imports,
   };
 };
 
@@ -527,6 +572,9 @@ export interface NativeDrafts {
   readonly discardDraftAsset: (owner: string, id: string) => Promise<unknown>;
   // Resolves `[{ uri, name, type }]` for files the person chose; empty when they chose none.
   readonly pickDraftFiles: (source: PickSource) => Promise<unknown>;
+  readonly discardPickedDraftFiles: (
+    uris: readonly string[],
+  ) => Promise<unknown>;
 }
 
 // 'saving' while an edit waits for storage; 'failed' and 'locked' keep unsaved edits in memory
@@ -638,6 +686,15 @@ export function createDrafts(
   // The complete assets each Draft has used in this account's session, kept in storage while that
   // Draft exists so Undo can restore a removed image or file. A relaunch forgets them.
   const held = new Map<string, Set<string>>();
+  const remember = (draft: Draft) => {
+    const assets = held.get(draft.id) ?? new Set<string>();
+    for (const asset of assetsOf(draft)) {
+      if (asset.state === 'complete') {
+        assets.add(asset.id);
+      }
+    }
+    held.set(draft.id, assets);
+  };
   const keepOf = (drafts: readonly Draft[]) => {
     const keep = new Set<string>();
     for (const draft of drafts) {
@@ -660,7 +717,7 @@ export function createDrafts(
   // Open editors replace an asset in their own history before the store changes it, so their
   // next edit is not mistaken for a conflicting one.
   const settling = new Set<
-    (id: string, next: (asset: Asset) => Asset) => void
+    (id: string, next: (asset: Asset) => Asset) => readonly Draft[]
   >();
   const listeners = new Set<() => void>();
   const publish = (next: DraftsState, notify?: () => void) => {
@@ -668,13 +725,7 @@ export function createDrafts(
     if (next.kind === 'ready') {
       for (const draft of next.drafts) {
         known.add(draft.id);
-        const assets = held.get(draft.id) ?? new Set<string>();
-        for (const asset of assetsOf(draft)) {
-          if (asset.state === 'complete') {
-            assets.add(asset.id);
-          }
-        }
-        held.set(draft.id, assets);
+        remember(draft);
       }
     }
     // A synchronous rebind may render immediately; the copy must already be available.
@@ -684,6 +735,7 @@ export function createDrafts(
     }
   };
   const rebindPending = (from: string, to: string) => {
+    held.set(to, new Set([...(held.get(to) ?? []), ...(held.get(from) ?? [])]));
     const bindings = pendingMoves.get(from);
     if (bindings === undefined) {
       return;
@@ -857,7 +909,7 @@ export function createDrafts(
 
   // Applies an edit in memory at once, then saves it. An edit started for an earlier Product
   // Account changes nothing.
-  const change = (
+  const changing = (
     edit: (
       drafts: readonly Draft[],
       fresh: Readonly<{ now: number; id: string }>,
@@ -865,23 +917,23 @@ export function createDrafts(
     current = generation,
     notify?: () => void,
   ) =>
-    runLogged(
-      Effect.gen(function* () {
-        if (!live(current) || state.kind !== 'ready') {
-          return false;
-        }
-        const now = yield* Clock.currentTimeMillis;
-        const id = `${Math.abs(yield* Random.nextInt).toString(36)}${Math.abs(yield* Random.nextInt).toString(36)}`;
-        const drafts = edit(state.drafts, { now, id });
-        // An edit that changes nothing leaves storage alone.
-        if (drafts === state.drafts) {
-          return yield* saving(current);
-        }
-        dirty = true;
-        publish({ kind: 'ready', drafts, save: 'saving' }, notify);
+    Effect.gen(function* () {
+      if (!live(current) || state.kind !== 'ready') {
+        return false;
+      }
+      const now = yield* Clock.currentTimeMillis;
+      const id = `${Math.abs(yield* Random.nextInt).toString(36)}${Math.abs(yield* Random.nextInt).toString(36)}`;
+      const drafts = edit(state.drafts, { now, id });
+      // An edit that changes nothing leaves storage alone.
+      if (drafts === state.drafts) {
         return yield* saving(current);
-      }),
-    );
+      }
+      dirty = true;
+      publish({ kind: 'ready', drafts, save: 'saving' }, notify);
+      return yield* saving(current);
+    });
+  const change = (...args: Readonly<Parameters<typeof changing>>) =>
+    runLogged(changing(...args));
 
   // Stores the Drafts without `id`. An edit made to it while that was stored survives as a
   // conflicting copy.
@@ -896,11 +948,13 @@ export function createDrafts(
     publish({ ...state, save: 'saving' });
     const kept = state.drafts.filter((draft) => draft.id !== id);
     const document = yield* encodeDocument(kept);
+    const retaining = keepOf(state.drafts);
     const committed = yield* native(
       () =>
         storage.commitDrafts(account, revision, {
           document,
-          keep: keepOf(kept),
+          // A late edit may still need this target's assets in its conflict copy.
+          keep: retaining,
         }),
       CommittedSchema,
     );
@@ -914,7 +968,8 @@ export function createDrafts(
     base = kept;
     const edited = state.drafts.find((draft) => draft.id === id);
     const changed = edited !== undefined && !sameContent(edited, deleting);
-    dirty ||= changed;
+    // Reconcile the final asset keep-list after late edits have their own identities.
+    dirty = true;
     const copy = changed ? yield* conflictCopy(edited) : undefined;
     publish(
       {
@@ -1032,10 +1087,16 @@ export function createDrafts(
   ) => {
     if (live(current)) {
       for (const editor of settling) {
-        editor(id, next);
+        const history = editor(id, next);
+        if (!live(current)) {
+          break;
+        }
+        for (const draft of history ?? []) {
+          remember(draft);
+        }
       }
     }
-    return change((drafts) => {
+    return changing((drafts) => {
       const settled = drafts.map((draft) => withAsset(draft, id, next));
       return settled.some((draft, index) => draft !== drafts[index])
         ? settled
@@ -1069,18 +1130,16 @@ export function createDrafts(
       yield* report(failure);
     }
     if (wanted) {
-      yield* Effect.promise(() =>
-        settle(
-          current,
-          asset.id,
-          finished(({ id, name, type }) => ({
-            id,
-            name,
-            type,
-            state: 'failed',
-            ...(tooLarge ? { reason: 'too-large' as const } : {}),
-          })),
-        ),
+      yield* settle(
+        current,
+        asset.id,
+        finished(({ id, name, type }) => ({
+          id,
+          name,
+          type,
+          state: 'failed',
+          ...(tooLarge ? { reason: 'too-large' as const } : {}),
+        })),
       );
     }
   });
@@ -1096,28 +1155,22 @@ export function createDrafts(
       digest,
     }: Readonly<{ asset: Asset; size: number; digest: string }>,
   ) {
-    yield* Effect.promise(() =>
-      settle(
-        current,
-        asset.id,
-        finished(({ id, name, type }) => ({
-          id,
-          name,
-          type,
-          state: 'complete',
-          size,
-          digest,
-        })),
-      ),
+    yield* settle(
+      current,
+      asset.id,
+      finished(({ id, name, type }) => ({
+        id,
+        name,
+        type,
+        state: 'complete',
+        size,
+        digest,
+      })),
     );
     const kept =
       live(current) &&
       state.kind === 'ready' &&
-      state.drafts.some((draft) =>
-        assetsOf(draft).some(
-          (each) => each.id === asset.id && each.state === 'complete',
-        ),
-      );
+      keepOf(state.drafts).includes(asset.id);
     if (!kept) {
       yield* discardBytes(account, asset.id);
     }
@@ -1229,19 +1282,28 @@ export function createDrafts(
       }
       cancelled.add(id);
       setImporting(id, false);
-      return settle(
-        generation,
-        id,
-        finished(({ id: each, name, type }) => ({
-          id: each,
-          name,
-          type,
-          state: 'cancelled',
-        })),
+      return runLogged(
+        settle(
+          generation,
+          id,
+          finished(({ id: each, name, type }) => ({
+            id: each,
+            name,
+            type,
+            state: 'cancelled',
+          })),
+        ),
       );
     },
     // Attaches files to a Draft that no editor shows yet, such as a received attachment.
     attach: async (draft: string, files: readonly PickedFile[]) => {
+      const current = generation;
+      if (
+        state.kind !== 'ready' ||
+        !state.drafts.some(({ id }) => id === draft)
+      ) {
+        return false;
+      }
       const added = files.map((file) => ({ asset: prepare(file), file }));
       const saved = await change((drafts) =>
         drafts.map((each) =>
@@ -1256,13 +1318,18 @@ export function createDrafts(
             : each,
         ),
       );
+      if (!live(current)) {
+        return false;
+      }
       for (const { asset, file } of added) {
         void runLogged(importAsset(asset, file.source));
       }
       return saved;
     },
-    // An open editor's way to replace an asset in its history before the store does.
-    onSettle: (editor: (id: string, next: (asset: Asset) => Asset) => void) => {
+    // Editors patch their history and return its Drafts so Undo retains newly completed bytes.
+    onSettle: (
+      editor: (id: string, next: (asset: Asset) => Asset) => readonly Draft[],
+    ) => {
       settling.add(editor);
       return () => {
         settling.delete(editor);
@@ -1273,9 +1340,24 @@ export function createDrafts(
       asset: Readonly<{ id: string; digest: string; type: string }>,
     ) => runLogged(readAsset(asset)),
     // Files the person chooses in the system picker, or images on the pasteboard.
-    pick: (source: PickSource) =>
+    pick: (source: PickSource, current: () => boolean = () => true) =>
       runLogged(
-        native(() => storage.pickDraftFiles(source), PickedSchema).pipe(
+        Effect.gen(function* () {
+          const pickedGeneration = generation;
+          const files = yield* native(
+            () => storage.pickDraftFiles(source),
+            PickedSchema,
+          );
+          if (!live(pickedGeneration) || !current()) {
+            yield* Effect.tryPromise({
+              try: () =>
+                storage.discardPickedDraftFiles(files.map(({ uri }) => uri)),
+              catch: failureOf,
+            });
+            return [];
+          }
+          return files;
+        }).pipe(
           Effect.map((files) =>
             files.map(({ uri, name, type }): PickedFile => ({
               name,

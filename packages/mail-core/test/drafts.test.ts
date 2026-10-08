@@ -1906,5 +1906,110 @@ describe('adding files and images to Drafts', () => {
       file('file:///a.png', 'a.png', 'image/png'),
     ]);
   });
+
+  it('preserves completed asset bytes for an edit racing with Draft deletion', async () => {
+    expect.hasAssertions();
+    const { storage, drafts, id, draft } = await opened();
+    storage.addFile('file:///plan.pdf', 'plan');
+    await drafts.attach(id, [file('file:///plan.pdf', 'plan.pdf')]);
+    await vi.waitFor(() => {
+      expect(assetsOf(draft())[0]).toMatchObject({ state: 'complete' });
+    });
+    const before = draft();
+    storage.hold();
+    const deleting = drafts.discard(id, { expected: () => before });
+    await vi.waitFor(() => {
+      expect(drafts.getSnapshot()).toMatchObject({ save: 'saving' });
+    });
+    const editing = drafts.update(
+      { ...before, subject: 'Keep this version' },
+      before,
+    );
+    storage.release();
+    await Promise.all([deleting, editing]);
+    const [copy] = draftsOf(drafts.getSnapshot());
+    expect(copy).toMatchObject({
+      conflict: true,
+      subject: 'Keep this version',
+    });
+    expect(storage.assets()).toHaveLength(1);
+    await expect(
+      drafts.readAsset(completed(copy?.attachments?.[0])),
+    ).resolves.toMatchObject({ kind: 'ready' });
+  });
+
+  it('drops picked files after a Product Account changes while choosing', async () => {
+    expect.hasAssertions();
+    const { session, storage } = await opened();
+    const { promise: picked, resolve: finish } =
+      Promise.withResolvers<
+        ReadonlyArray<{ uri: string; name: string; type: string }>
+      >();
+    const drafts = createDrafts(
+      { ...storage.native, pickDraftFiles: () => picked },
+      session.registration,
+    );
+    await drafts.load();
+    const choosing = drafts.pick('photos');
+    session.change(connected('account-b'));
+    finish([{ uri: 'file:///a.png', name: 'a.png', type: 'image/png' }]);
+    await expect(choosing).resolves.toStrictEqual([]);
+  });
+
+  it('keeps later navigation after received-attachment preparation and fences account replacement', async () => {
+    expect.hasAssertions();
+    const { session, storage, drafts } = await opened();
+    const navigation = createComposerNavigation();
+    storage.addFile('downloaded-file', 'received');
+    const saved = {
+      name: 'invoice.pdf',
+      type: 'application/pdf',
+      address: alex.address,
+      generation: 'generation-1',
+      file: 'downloaded-file',
+    };
+    let attaching: () => void = () => undefined;
+    // oxlint-disable-next-line promise/avoid-new -- Signals when the real attach reaches held storage.
+    const prepared = new Promise<void>((resolve) => {
+      attaching = resolve;
+    });
+    const controlled = {
+      ...drafts,
+      attach: async (...args: Readonly<Parameters<typeof drafts.attach>>) => {
+        storage.hold();
+        const result = drafts.attach(...args);
+        attaching();
+        return result;
+      },
+    };
+    const creating = navigation.attachReceived(controlled, {
+      mailbox: alex.id,
+      mailboxes: [{ ...alex, state: 'connected' as const }],
+      saved,
+    });
+    await prepared;
+    await navigation.leave();
+    storage.release();
+    await expect(creating).resolves.toBeUndefined();
+    await drafts.save();
+    expect(draftsOf(drafts.getSnapshot())).toHaveLength(2);
+
+    // oxlint-disable-next-line promise/avoid-new -- A fresh signal fences the second attachment operation.
+    const secondPrepared = new Promise<void>((resolve) => {
+      attaching = resolve;
+    });
+    const replacement = createComposerNavigation();
+    const preparing = replacement.attachReceived(controlled, {
+      mailbox: alex.id,
+      mailboxes: [{ ...alex, state: 'connected' as const }],
+      saved,
+    });
+    await secondPrepared;
+    session.change(connected('account-b'));
+    storage.release();
+    await expect(preparing).resolves.toBeUndefined();
+    await drafts.load();
+    expect(draftsOf(drafts.getSnapshot())).toStrictEqual([]);
+  });
   /* oxlint-enable vitest/max-expects */
 });

@@ -69,8 +69,7 @@ Drafts mailbox, and Drafts do not synchronize to other devices yet.
   Each activation moves one step, including repeated commands before the
   composer redraws.
 
-Links, inline images, attachments, the Slash Command Menu and recipient suggestions
-are later slices.
+Links, the Slash Command Menu and recipient suggestions are later slices.
 
 ## Saving
 
@@ -97,8 +96,8 @@ is not a valid address keeps the composer open until it is corrected or removed.
 It then saves and closes only once the Draft is stored; when that fails the
 composer stays open and says so. The compact iPhone system **Back**, Mac window
 close and Mac **Quit** currently have the separate native limitations below.
-Closing a Draft with no recipients, subject or
-body text discards it only if no other window has completed its content. **Discard**
+Closing a Draft with no recipients, subject,
+body content or attachments discards it only if no other window has completed its content. **Discard**
 asks before deleting a Draft from this device.
 If another window or storage writer edited the same Draft since it was opened, a stale
 Discard preserves that writer's completed version in the Drafts list.
@@ -130,7 +129,8 @@ controls:
 - **iPhone and iPad:** **Attach File** (the Files picker), **Attach Photo** (the
   Photos picker), **Insert Image** (a photo placed inline at the caret) and
   **Paste Image** (images on the pasteboard, placed inline). The pickers copy the
-  chosen files into a temporary folder that the import, or the next launch, removes.
+  chosen files into a protected temporary folder that import completion or failure,
+  an abandoned picker result, or the next launch removes.
 - **Mac:** **Attach Files…** and **Insert Image…** open the system open panel.
   Files dropped anywhere on the composer are attached. Pasting an image into the
   body places it inline at the caret; pasting a file attaches it, and text pastes
@@ -160,7 +160,12 @@ refused rather than evicting anything.
 
 Editing in the composer while an import finishes neither loses the edit nor
 creates a conflicting copy. An import still running when its Draft is closed
-completes into the stored Draft.
+completes into the stored Draft. Closing an attachment-only Draft preserves its files.
+Deleting an importing inline image and then choosing **Undo** after import finishes
+restores its verified bytes. An edit racing **Discard** keeps the conflict copy's
+files as well as its body. A picker result arriving after the composer closes or
+the Product Account changes is discarded. Repeated **Attach to New Message**
+presses start one operation; navigation chosen while its save waits stays selected.
 
 ## Storage and isolation
 
@@ -276,7 +281,12 @@ and identifier, verifies their digest, rejects moved ciphertext and other
 accounts, keeps an uncommitted import through a save that does not name it,
 removes unused assets after a stored document, imports pasted data and a current
 Downloaded Attachment, refuses an oversized file before reading it, and purges
-assets with the account.
+assets with the account. Review regressions also cover attachment-only Close and
+relaunch, deleting an importing image before settlement and restoring it with
+**Undo**, a concurrent Discard that preserves a conflict copy's asset bytes, picker
+results arriving after Close or account replacement, and navigation during a
+received-attachment save. Native checks remove owned picker copies on rejected
+imports and preserve similarly named directories containing user files.
 
 Deferred before release: native iPhone, iPad and Mac journeys that compose, relaunch
 and reopen a Draft; the system Photos and Files pickers, the Mac open panel,
