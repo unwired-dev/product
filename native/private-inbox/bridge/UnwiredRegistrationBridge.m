@@ -24,6 +24,8 @@ RCT_EXTERN_METHOD(openMessageBody:(NSDictionary *)mailbox id:(NSString *)id reso
 RCT_EXTERN_METHOD(commitMessageBody:(NSDictionary *)mailbox id:(NSString *)id admission:(NSDictionary *)admission resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(listMessageBodies:(NSDictionary *)mailbox ids:(NSArray *)ids resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(retainMessageBodies:(NSDictionary *)mailbox ids:(NSArray *)ids protectedIds:(NSArray *)protectedIds resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
+RCT_EXTERN_METHOD(openDrafts:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
+RCT_EXTERN_METHOD(commitDrafts:(NSString *)owner expectedRevision:(double)expectedRevision document:(NSString *)document resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(saveAttachment:(NSDictionary *)mailbox attachment:(NSDictionary *)attachment resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(discardAttachment:(NSDictionary *)mailbox file:(NSString *)file resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(presentAttachment:(NSDictionary *)mailbox file:(NSString *)file action:(NSString *)action resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)

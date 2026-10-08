@@ -6,6 +6,7 @@ Documentation here is product truth that agents execute: an implementer follows 
 
 - A command, script name, path, flag, version or environment variable that does not exist as written. Check it against `package.json`, the workflow files and the tree.
 - Behavior described as shipped that the code does not implement, or planned replacement behavior stated in the present tense. Unavailable or deferred checks are described as deferred.
+- A storage or isolation boundary in `docs/drafts.md`, `docs/private-inbox-storage.md` or another feature guide that omits or misassigns Apple versus TypeScript responsibility for encryption/key custody, owner/revision refusal, limits or lifecycle cleanup. Trace the native enforcement and the shared-store caller separately, including purge execution versus in-memory invalidation; otherwise later changes can target the wrong layer and bypass a protection. State the concise ownership requirement and link to the owning guide without copying implementation mechanisms or rationale.
 - A Gmail organization summary in `docs/gmail-inbox.md` or a changeset calling every action a reader button, or promising pending intent remains until confirmation without accounting for permanent refusal and explicit discard. Check `MessageActions`/`OrganizeStatus` and `createGmailInbox` settlement/resolution: label checkboxes and Inbox Undo have different roles and locations, and terminal reconciliation removes pending intent. Wrong summaries misdirect accessibility use or misstate recovery behavior.
 - A required test-count gate or suite membership changed while documentation still cites an older run as current or final-tree evidence, falsely qualifying the changed suite. Check every such claim against the owning test runner and cited result log; label earlier runs with their historical scope and cite a passing run for the changed suite, or mark that evidence deferred.
 - A relative link or heading fragment that does not resolve, or a link left pointing at a moved section.
@@ -25,7 +26,7 @@ Documentation here is product truth that agents execute: an implementer follows 
 
 #### Authority and placement
 
-- Architecture, design rationale or internal implementation detail written into an implementer-facing file (`AGENTS.md`, `README.md`, `docs/*.md`, `docs/agents/`, `docs/product/`, `docs/domain/`). It belongs in `docs/architecture/` or an ADR; the implementer-facing file keeps setup, commands, validation and observable behavior.
+- Architecture, design rationale or internal implementation mechanisms written into an implementer-facing file (`AGENTS.md`, `README.md`, `docs/*.md`, `docs/agents/`, `docs/product/`, `docs/domain/`). They belong in `docs/architecture/` or an ADR; the implementer-facing file keeps setup, commands, validation, observable behavior and concise boundary-ownership requirements that its implementer must satisfy.
 - A requirement that exists only in a reviewer-only file after the change. The implementer must still be able to read every requirement it has to satisfy.
 - An accepted ADR edited to reverse its decision without a supersession note, or a new decision recorded outside an ADR. Use the full ADR filename where numbers collide.
 - A prototype, historical or archived statement presented as a first-release requirement or as qualification evidence.

@@ -71,6 +71,11 @@ Inside Effect code, use Effect's services instead of globals: `Effect.log*` for
 logging, `Clock` and `DateTime` for time, `Config` for environment values,
 `HttpClient` for HTTP, and `Schedule` for retries and polling.
 
+When a scheduler coordinates existing Promise-returning store actions, run only
+its Schedule steps through `runLogged` and invoke the actions from plain async
+code outside those Effects. Its owner aborts pending waits and prevents future
+actions on disposal; already-started actions settle through their own boundaries.
+
 Hosts consume shared logic as framework-independent stores:
 `getSnapshot`, `subscribe`, and Promise-returning actions. See
 `packages/mail-core/src/persistent-inbox.ts` and `registration.ts`.

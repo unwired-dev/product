@@ -8,7 +8,8 @@ a deterministic Inbox and message detail for iPhone and iPad. It uses synthetic
 messages with [native encrypted read-state persistence](private-inbox-storage.md);
 production builds now offer [Apple](apple-registration.md) and [Google](google-registration.md)
 Product Sign-In, each followed by Gmail consent.
-Mailbox synchronization and sending are later slices. The existing Convex backend
+Production mailboxes use [Gmail synchronization](gmail-inbox.md); sending is a
+later slice. The existing Convex backend
 and Swift prototype remain available. The [native Mac host](macos-client.md) consumes the same mock mailbox.
 
 Production launches offer [Apple](apple-registration.md) or [Google](google-registration.md)
@@ -102,6 +103,13 @@ config plugins. The bundle ID is `dev.unwired.mail`, the version comes from
 `native/app-icon/UnwiredMail.icon`. The app sets deployment target 27.0 and
 [`enableSceneSupport: true`](https://docs.expo.dev/versions/latest/sdk/build-properties/#pluginconfigtypeios):
 apps built with the iOS 27 SDK cannot launch with the old application lifecycle.
+The `expo-background-task` and `expo-task-manager` plugins add the `fetch` and
+`processing` background modes and the scheduler identifier for
+[Gmail freshness](gmail-inbox.md#freshness-across-app-lifecycles).
+Simulators report background tasks as restricted, so the app registers none there.
+The app entry defines the Gmail task before Router starts, including launches
+that mount no screens. A failed background-task registration logs a fixed
+diagnostic and leaves foreground catch-up available.
 
 For a packaged Release build with no running Metro server:
 

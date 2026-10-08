@@ -11,11 +11,15 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Shared runtime compatibility
 
-- Regex extraction in `message-body.ts` or another shared decoder that assumes
-  `matchAll` results retain `.groups` after a host's Babel named-group transform.
-  Hermes can omit that property while Node tests pass, silently dropping message
-  content or link destinations. Read captures portably and validate changed
-  parsing in the packaged host when its transform differs from the test runtime.
+- Named-capture extraction in `drafts.ts.recipientOf`, `gmail-inbox.ts.sender`,
+  `message-body.ts` or another shared parser that assumes `.groups` is present on
+  `exec`, `match` or `matchAll` results in code bundled for Hermes. A host's Babel
+  named-group transform can leave `.groups` unset while positional captures
+  survive and Node tests pass, rejecting valid named recipients, retaining a
+  whole From header as an address or dropping message content and link destinations.
+  Read positional captures while retaining named groups in the pattern for lint;
+  exercise absent `.groups` in a regression and validate changed parsing in the
+  packaged host when its transform differs from the test runtime.
 
 #### Untrusted boundaries fail closed
 
@@ -46,7 +50,7 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   shared by every connection: the device-wide budget lets one connection evict
   another's body. Refused admission preserves membership. Otherwise derived
   saved-body status remains stale despite unchanged Inbox metadata.
-- `Effect.run*` anywhere except the single run of a host-facing store method through `runLogged`; in particular inside a service method, a callback passed back into Effect, or a loop.
+- `Effect.run*` anywhere except the single run of a host-facing store method through `runLogged`; in particular inside a service method or a callback passed back into Effect. A plain async scheduler may run independent Schedule steps through `runLogged`, then invoke Promise-returning store actions outside Effect; it must abort pending waits and prevent future actions when stopped. This exception does not permit wrapping store actions in another Effect run.
 - A helper that combines Promise-returning store methods, such as
   `mailboxes.ts.savedMessageBodies`, wrapping their host-facing runs in another
   `runLogged`/`Effect.run*`. Keep that composition plain async, or compose internal
@@ -95,6 +99,168 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Product behavior the stores own
 
+- `createFreshness.wake` allowing registration verification to auto-load newly
+  revealed connections before its route is rechecked. Trace `Registration.refreshInbox`
+  publications and `createMailboxes` subscriptions, not just the selected load callback.
+  Scoped verification must update ownership and invalidate removed Inboxes without
+  dispatching unrelated provider reads; ordinary foreground and interactive loading
+  must remain usable. Do not coalesce differently scoped restores or suppress other
+  operations across an awaited global flag. Otherwise an ignored revoked wake still
+  synchronizes another mailbox. Cover membership revealed during verification, not
+  only connections already open before it.
+
+- `semantic-document.ts` expanding every block into per-code-unit editor objects
+  on each keystroke, rebuilding unaffected blocks, or retaining expanded arrays
+  for every history-held Block in an identity cache. Check typing, formatting,
+  Undo/Redo and a long single paragraph across the full `record` history bound.
+  Measure peak and retained memory for successive changed-block strings across
+  that history and independent composers; sharing only untouched blocks does
+  not bound the retained cost of repeatedly editing one large block.
+  Preserve immutable untouched blocks and keep retained representations compact;
+  weak keys do not release expansions while history still owns those blocks.
+  Otherwise ordinary long Draft editing stalls the shared JavaScript runtime or
+  multiplies retained memory until the host can be terminated.
+
+- `drafts.ts.recipientSummary` flattening To, Cc and Bcc into one To-prefixed
+  list or omitting populated roles within its bounded prefix. Preserve each emitted role and its recipient order,
+  use names with address fallback, and return No recipients only when all three
+  lists are empty; otherwise a Bcc-only or mixed Draft misrepresents its addressing.
+
+- `drafts.ts.recipientSummary` or `semantic-document.ts.clip/previewOf` joining
+  complete metadata or bodies before shortening a list-row preview. Bound both
+  traversal and intermediate strings, including one huge name/address/span and
+  many small recipients or empty blocks; stop once the prefix is complete.
+  Preserve short-input role order, separators, whitespace and surrogate pairs,
+  and inspect every field and accessible label in `draftSummary` and both host
+  consumers. Otherwise an admitted large Draft stalls the shared runtime before
+  native one-line truncation applies.
+- `drafts.ts.isEmptyDraft` flattening or trimming the complete semantic body to
+  decide Close, Discard or abandonment. Test whitespace directly in spans and
+  stop at the first non-whitespace character while preserving subject, recipient
+  and unfinished-entry semantics; block separators are whitespace. Otherwise
+  routine navigation duplicates a large body in memory and blocks the host.
+
+- `semantic-document.ts.marksAt` reporting collapsed-caret marks that disagree
+  with `applyText`/`splice` insertion inheritance. Without an explicit typing
+  override, both hosts' toolbar visual/accessibility selection and inserted
+  characters must agree; their formatting callbacks must toggle that same state.
+  Check block starts, empty blocks, positions inside and after list markers,
+  mixed-mark boundaries and block ends, retaining an explicit empty override.
+  Otherwise formatting is announced as off while typing applies it, and pressing
+  the control enables the mark instead of disabling it.
+
+- `createDrafts.create` returning an identifier after its starting Product Account
+  generation was invalidated. Fence the result as well as state publication,
+  including sign-out/re-entry into the same account; hosts route from that result,
+  so a stale successful native completion otherwise opens an absent Draft.
+
+- `createDrafts.create` accepting a sender captured before the open composer
+  finishes without rechecking its current connection ID, address and sending
+  eligibility. Capture the request's Product Account generation before awaiting
+  that finish and revalidate afterward, including a ready or still-loading
+  replacement account with the same Gmail connection/address and sign-out/re-entry
+  into the same account. Gmail connection IDs do not distinguish Product Accounts.
+  Otherwise stale New Message intent creates a Draft from an unavailable sender
+  or in a replacement account; fence store mutation as well as the returned ID.
+
+- `createDrafts` replacing a whole stale Draft or storage document without comparing
+  the editor's prior content and the durable base. Check simultaneous Mac windows,
+  latest-only Drafts, edit-versus-deletion conflicts and owner-checked CAS recovery;
+  retain conflicting authored versions as visible copies. Otherwise an ordinary
+  autosave silently erases another completed edit or an independently created Draft.
+- `createDrafts.update` forking an editor payload that is unchanged from its
+  supplied `previous` merely because another editor or storage writer moved on.
+  Leave that list unchanged while still flushing prior dirty work; otherwise
+  Close or a repeated native callback materializes stale content as a conflict.
+  Compare the immediate authored baseline, including ID, unfinished recipients
+  and `conflict` (ignore only edit time), so rebinds, recipient completion,
+  discard-failure restore and Undo/Redo returning to older content still save.
+- `rebaseDrafts` scanning each complete snapshot again for every Draft identifier.
+  Index each snapshot once while keeping the same identifier/content semantics;
+  otherwise a large admitted Draft document makes conflict recovery quadratic
+  and blocks the shared JavaScript runtime during saving.
+- `rebaseDrafts` converging identical authored content by retaining a stale
+  writer's earlier `updatedAt`. `sameContent` deliberately ignores edit time;
+  preserve the later timestamp when collapsing equivalent versions, while
+  retaining the selected content and identity. Check reversed edit/save order
+  through two stores and reopening, with another Draft edited between them;
+  otherwise CAS recovery moves the Draft backward in `draftsOf`'s newest-first
+  list despite preserving its content. Conflict copies keep their own version's
+  edit time rather than borrowing a different version's timestamp.
+- `createDrafts.update` deciding a fork against a different snapshot from the one
+  it mutates, or `rebaseDrafts`/`deleted` moving the pending authored version without
+  notifying its editor. Keep the newer stored version's ID and move the stale
+  payload; notify after the copy enters the snapshot and before subscribers can
+  unmount its editor. Keep the binding through failed saving and Retry, and clear
+  it after durable completion or account invalidation. Two storage writers can
+  choose the same free local copy ID; preserve both versions and follow any second
+  rename, or Discard deletes the other writer's copy despite preserving its content.
+- `createDrafts.pendingMoves` retaining only one editor callback for an unsaved
+  Draft ID, or leaving one callback bound to several IDs after a synchronous fork.
+  Identical-content edits can share the same pending version; retain and rekey
+  every bound editor through storage recovery, remove a stable callback from its
+  prior version when it changes targets, and merge bindings when copies collide.
+  Recheck membership before each notification: an earlier callback can rebind a
+  later editor or invalidate the account during fanout. Keep failed-save bindings
+  through Retry and clear them after durable completion or account invalidation.
+  Otherwise an editor can remain on, or return to, another writer's Draft and
+  subsequently edit or discard that writer's content. Check host callback identity
+  and unmount behavior before claiming one callback represents one live editor.
+  Release a closed editor's stable callback from every pending binding without
+  dropping its dirty Draft or another live editor's binding. A refused save can
+  otherwise retain its entire history and notify dead route/window owners on
+  later recovery. A pending Close or Discard still owns identity tracking until
+  its target resolution and any failed-discard restoration finish; releasing
+  that binding early can report successful Discard while saving its own copy.
+- `createDrafts.discard` publishing removal before the native commit succeeds.
+  A failed deletion must leave the Draft visible and retryable rather than
+  unmounting its editor and reporting completion while it can return after relaunch.
+  Automatic empty-Draft disposal must check the current content under the save
+  semaphore; an untouched stale composer must not delete another window's work.
+  Resolve an editor-owned deletion target under that semaphore after flushing
+  earlier saves: a queued save may rebind the editor to a conflict copy. Check
+  both explicit Discard and empty Close; capturing an identity when the command
+  is requested can delete the other writer's original and leave the intended
+  copy behind.
+  A clean stale deletion still needs bounded CAS recovery even when no autosave
+  is dirty. Re-resolve its target and repeat the empty-only content check after
+  rebasing, then settle `save` for preserved content as well as deleted content.
+  Otherwise Try again repeats the stale revision, a moved target deletes the
+  other writer's copy, or successful empty-only recovery stays at Saving.
+  Explicit stale Discard must compare every attempt's target content with the
+  discarding editor's accepted version, including the first attempt: another
+  window using the same store publishes edits without a CAS conflict. Preserve
+  a changed same-ID target while still deleting the editor's own rebound copy;
+  otherwise Discard deletes another writer's completed edit even when retry
+  checks are correct. Resolve identity and conflict metadata after earlier saves
+  without substituting native text accepted while Discard suppresses autosave.
+
+- `composer-navigation.ts.create` applying a late creation result after a later
+  accepted destination, or treating every navigation as abandonment. Track only
+  successful leaves within the owning Inbox/window, retain a newly selected
+  Draft, and remove an abandoned Draft only while it remains empty, including
+  after CAS recovery. Refused, rejected, overlapping leaves and same-Draft
+  reveal must not cancel creation. Otherwise a slow New Message overrides the
+  chosen destination, removes its selected composer, or deletes another editor's
+  completed content. Keep this coordination shared rather than duplicating it
+  in each host's `DraftList.compose`.
+  Record empty abandonment as a dirty edit even when creation or cleanup saving
+  is refused: `createDrafts.abandon` must remove it from memory and retain that
+  deletion for the next edit, Save Drafts or Retry. Reusing Discard's leading
+  flush loses this intent when storage stays locked, so a later successful save
+  persists the abandoned blank Draft. Keep explicit Discard visible and retryable
+  until durable completion. Preserve another writer's authored content during
+  abandonment CAS recovery and keep nonempty late edits through `known` and
+  editor rebinding; empty late events must not resurrect the removed identity.
+- `createDrafts.update` silently dropping authored content after the original ID
+  has been durably deleted, including after `discard({ onlyIfEmpty: true })`.
+  Preserve a same-owner nonempty late edit as a conflict copy and notify its
+  editor; ignore an empty late edit without dirtying an unchanged list. The
+  unchanged-list path in `change` must still flush prior dirty work and resolve
+  only once saving settles. Do not treat every missing ID as an owned deletion:
+  fence eligible identities to the current Product Account and clear that fence
+  on invalidation, or a previous editor's payload can enter another account.
+
 - `createGmailInbox` widening reader membership to online search results while
   attachment download or presentation still requires listed Inbox membership.
   Trace `readable`, `downloadAttachment` and `presentAttachment` together so
@@ -141,6 +307,7 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   apply the same mapping to queries and metadata. Otherwise saved mail disappears
   from offline search for ordinary case or compatibility variants. Keep this
   user-facing text matching separate from protocol identifiers and CSS keywords.
+
 - `createGmailInbox.save` returning early when native foreground verification has made an enabled Inbox cache-only, without removing its captured unsaved intents and publishing disabled organizing with settled Saving state. Trace `organize`, queued `load` follow-up and native availability/generation gates: no cache-only commit or provider dispatch is allowed, durable pending actions must remain, and discarded unsaved intent needs a visible, announced outcome outside the reader. Report the size of a discarded same-mailbox batch rather than naming only its last request, and preserve that outcome when a subsequent serialized save finds no queued intent. Keep outcome message snapshots scoped to the returned mailbox and initiating ownership epoch; otherwise an action stays saving indefinitely, silently disappears after a removal closes the reader, or exposes another mailbox's message. Do not label a saved-cache rollback as authoritative Gmail reconciliation.
 - `createGmailInbox.organize` accepting a message whose Gmail labels are still unknown during legacy-cache relisting, or `quickActions` and either host's `MessageActions` presenting label, move or other organizing controls for that snapshot. Trace intake, retained handlers and `OrganizeNotice` snapshots through queueing and Undo; treating absent labels as an empty set lets an inverse remove pre-existing Gmail memberships. Check predecessor-produced pending snapshots too: `organized` must not turn fallback memberships into a known baseline while replay is unsettled. Keep known-label cached messages usable during ordinary backfill and preserve previously accepted durable intent.
 - `createGmailInbox.dispatch` receiving a permanent provider refusal without durably retaining that outcome before its follow-up `readLabels`. An interrupted read or relaunch must make `reconcile` settle provider-derived state and announce rejection without another dispatch, even after Retry or an exhausted attempt budget. Trace `commitOver`/`rebased` so concurrent intake survives both saving the refusal and removing its head; if a refusal-save rebase removes the refused ID, `settleRefusal` must leave the new head untouched rather than read the old message and pop the next intent. Otherwise known-invalid writes repeat, consume attempts and delay later intent, or another message's intent is silently lost.
