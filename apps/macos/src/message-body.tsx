@@ -44,8 +44,8 @@ import {
 import { WebView } from 'react-native-webview';
 
 import { Action } from './action.tsx';
-import { MessageSummary } from './message-summary.tsx';
 import { useLocalization } from './localization.ts';
+import { MessageSummary } from './message-summary.tsx';
 import { usePalette } from './theme.ts';
 
 // A taller document scrolls inside its view instead of the reader.
