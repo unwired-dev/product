@@ -94,7 +94,14 @@ export function createLocalization(initial: unknown, storage: LanguageStorage) {
 
   async function apply(input: unknown) {
     const next = decodeSettings(input);
-    await i18n.changeLanguage(next.language);
+    const { language } = i18n;
+    try {
+      await i18n.changeLanguage(next.language);
+    } catch (error) {
+      // Keep the rendered language and the settings snapshot in agreement.
+      await i18n.changeLanguage(language);
+      throw error;
+    }
     settings = next;
     for (const listener of listeners) {
       listener();

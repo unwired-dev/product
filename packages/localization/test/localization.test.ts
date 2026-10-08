@@ -143,4 +143,21 @@ describe('interface language', () => {
     await app.setLanguage('en');
     expect(app.getSnapshot().preference).toBe('en');
   });
+
+  it('restores the rendered language when switching fails after the preference is saved', async () => {
+    expect.hasAssertions();
+    const native = storage();
+    const app = createLocalization(await native.getSettings(), native);
+    const change = app.i18n.changeLanguage.bind(app.i18n);
+    // The switch takes effect, then fails, as an asynchronous backend can.
+    vi.spyOn(app.i18n, 'changeLanguage').mockImplementationOnce(
+      async (language) => {
+        await change(language);
+        throw new Error('backend unavailable');
+      },
+    );
+    await expect(app.setLanguage('fr')).rejects.toThrow('backend unavailable');
+    expect(app.i18n.language).toBe('en');
+    expect(app.getSnapshot().language).toBe('en');
+  });
 });

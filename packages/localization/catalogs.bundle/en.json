@@ -188,7 +188,8 @@
     "renewed": "The previous request expired or was declined, so this device shows a new code.",
     "rejected": "The last approval could not be verified on this device, so nothing was unlocked. Approve it again with the new code.",
     "mailboxes": "Encrypted mailbox list: {{mailboxes}}.",
-    "pending": "Your Gmail mailbox changes are still waiting to finish. Try again when connected, or sign in again to finish them."
+    "pending": "Your Gmail mailbox changes are still waiting to finish. Try again when connected, or sign in again to finish them.",
+    "withNotice": "{{description}} {{notice}}"
   },
   "recoveryKeyConfirmation": {
     "prompt": "To confirm you saved it, enter the last four characters of your Recovery Key.",

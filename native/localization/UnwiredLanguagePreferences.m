@@ -11,13 +11,13 @@ static id catalog(NSString *name)
   dispatch_once(&once, ^{ catalogs = [NSMutableDictionary new]; });
   @synchronized (catalogs) {
     id cached = catalogs[name];
-    if (cached) return cached;
+    if (cached) return cached == NSNull.null ? nil : cached;
     NSURL *directory = [NSBundle.mainBundle URLForResource:@"catalogs" withExtension:@"bundle"];
     NSURL *url = [directory URLByAppendingPathComponent:[name stringByAppendingPathExtension:@"json"]];
     NSData *data = [NSData dataWithContentsOfURL:url];
-    NSCAssert(data != nil, @"Bundled translation catalogs are required.");
-    id parsed = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
-    catalogs[name] = parsed;
+    // A missing or unreadable catalog falls back to English instead of failing in Release.
+    id parsed = data == nil ? nil : [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+    catalogs[name] = parsed ?: NSNull.null;
     return parsed;
   }
 }

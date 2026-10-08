@@ -819,7 +819,10 @@ export function privateSyncCopy(t: Translate, snapshot: PrivateSyncState) {
     description:
       snapshot.privateSync === 'enrollment-pending' &&
       snapshot.enrollmentNotice !== undefined
-        ? `${description} ${t(`privateSync.${snapshot.enrollmentNotice}`)}`
+        ? t('privateSync.withNotice', {
+            description,
+            notice: t(`privateSync.${snapshot.enrollmentNotice}`),
+          })
         : description,
     mailboxes:
       snapshot.privateSyncMailboxes === undefined

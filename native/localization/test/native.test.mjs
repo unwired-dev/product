@@ -166,6 +166,17 @@ test('Apple language matching, native fallback, and override persistence across 
     const removedLocale = run('-interfaceLanguage', 'removed', ...french);
     assert.equal(removedLocale.settings.preference, null);
     assert.equal(removedLocale.settings.language, 'fr');
+    // A listed language whose catalog is missing falls back to English instead of crashing.
+    writeFileSync(
+      path.join(resources, 'languages.json'),
+      JSON.stringify([
+        { code: 'en', name: 'English' },
+        { code: 'de', name: 'Deutsch' },
+      ]),
+    );
+    const uncatalogued = run('-AppleLanguages', '(de-DE)');
+    assert.equal(uncatalogued.settings.language, 'de');
+    assert.equal(uncatalogued.showInbox, 'Show Inbox');
   } finally {
     if (compiled) {
       run('--reset');
