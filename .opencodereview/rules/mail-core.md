@@ -103,6 +103,13 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Product behavior the stores own
 
+- `composer-navigation.ts.create` keeping an unopened empty Draft after its
+  preparation refuses. Route cleanup through `drafts.abandon`, retaining a Draft
+  already selected or given content by another editor. Test the real coordinator
+  and Draft store together through snapshots and reopened storage; otherwise a
+  refused received-attachment action leaves hidden empty Drafts, while unconditional
+  cleanup can discard an active editor's work.
+
 - `drafts.ts.attach` or another store action returning a durable-save result to a
   caller that needs to know whether its requested state was retained in memory.
   Trace `composer-navigation.ts.create`/`attachReceived` and the refused-save

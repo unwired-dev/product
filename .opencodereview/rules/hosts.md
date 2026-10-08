@@ -13,6 +13,13 @@ A host owns views and native adapters. It renders shared stores from `@private-e
 
 #### React correctness
 
+- Mac `composer.tsx.transferred` relying only on a pasteboard/drag item's optional
+  MIME type to choose inline image insertion. An item with no type may still carry
+  its media type in a data URL; infer that type before `prepareFiles`, normalize
+  supported image aliases and keep byte verification at the owning store. Otherwise
+  a pasted image silently becomes an Attachment instead of an Inline Image. Cover
+  absent/empty type through the visible paste journey and preserve ordinary files.
+
 - `composer.tsx.usePreview`/`AssetRow` checking complete Inline Images while
   treating complete Attachments as healthy without reading and verifying their
   native bytes. Trace every complete asset kind through `store.readAsset` and

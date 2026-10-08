@@ -286,3 +286,37 @@ struct DraftTests {
     #expect(!FileManager.default.fileExists(atPath: abandoned.deletingLastPathComponent().path))
   }
 }
+
+extension DraftTests {
+  // Refused garbage collection after document replacement does not refuse the durable save;
+  // a later save retries the leftover ciphertext once its directory is writable again.
+  @Test @MainActor func draftSaveSucceedsWhenAssetCleanupMustWait() async throws {
+    let session = AssetSession()
+    defer { session.remove() }
+    let store = session.store
+    let owner = try await session.owner()
+    _ = try await store.importDraftAsset(
+      owner: owner, id: "cleanup01",
+      source: [
+        "kind": "data", "uri": "data:image/png;base64,\(session.bytes.base64EncodedString())",
+      ])
+    _ = try await store.commitDrafts(
+      owner: owner, expectedRevision: 0, document: "kept", keep: ["cleanup01"])
+    let folder = session.directory.appendingPathComponent("draft-assets")
+    try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: folder.path)
+    defer {
+      try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: folder.path)
+    }
+    let saved = try await store.commitDrafts(
+      owner: owner, expectedRevision: 1, document: "removed", keep: [])
+    #expect(saved["revision"] as? Int == 2)
+    #expect(session.exists("draft-assets/cleanup01"))
+    let opened = try await store.openDrafts()
+    #expect(opened["revision"] as? Int == 2)
+    #expect(opened["document"] as? String == "removed")
+    try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: folder.path)
+    _ = try await store.commitDrafts(
+      owner: owner, expectedRevision: 2, document: "retried", keep: [])
+    #expect(!session.exists("draft-assets/cleanup01"))
+  }
+}

@@ -1472,6 +1472,48 @@ describe('storing Drafts', () => {
     ]);
   });
 
+  it('cleans up failed New Message preparation without losing authored or selected Drafts', async () => {
+    expect.hasAssertions();
+    const session = account(connected('account-a'));
+    const storage = createSyntheticDrafts(session.productAccount);
+    const drafts = createDrafts(storage.native, session.registration);
+    const navigation = createComposerNavigation();
+    await drafts.load();
+    await expect(
+      navigation.create(drafts, alex, async () => false),
+    ).resolves.toBeUndefined();
+    expect(draftsOf(drafts.getSnapshot())).toStrictEqual([]);
+    const emptyReopened = createDrafts(storage.native, session.registration);
+    await emptyReopened.load();
+    expect(draftsOf(emptyReopened.getSnapshot())).toStrictEqual([]);
+
+    // Another editor's authored content survives failed preparation and relaunch.
+    await expect(
+      navigation.create(drafts, alex, async (id) => {
+        const before = present(
+          draftOf(drafts.getSnapshot(), id),
+          'authored Draft',
+        );
+        await drafts.update({ ...before, subject: 'Typed meanwhile' }, before);
+        return false;
+      }),
+    ).resolves.toBeUndefined();
+    // Selecting the new row before preparation fails keeps even its empty Draft.
+    await expect(
+      navigation.create(drafts, alex, async (id) => {
+        await navigation.leave(id);
+        return false;
+      }),
+    ).resolves.toBeUndefined();
+    const reopened = createDrafts(storage.native, session.registration);
+    await reopened.load();
+    expect(
+      draftsOf(reopened.getSnapshot())
+        .map(({ subject }) => subject)
+        .sort(),
+    ).toStrictEqual(['', 'Typed meanwhile']);
+  });
+
   it('drops an abandoned empty Draft at the next save after storage refused it', async () => {
     expect.hasAssertions();
     const session = account(connected('account-a'));

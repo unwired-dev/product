@@ -13,6 +13,12 @@ Native storage owns what TypeScript must never hold: Keychain items, the storage
 
 #### Keys, credentials and storage
 
+- `PrivateInboxStore.commitDraftDocument` allowing garbage collection after durable
+  document replacement to reject that stored revision. Keep post-write removal
+  best effort and retry leftover ciphertext on a later save, without removing
+  referenced or still-importing assets. Otherwise the host reports Not saved for
+  a committed document and can repeatedly rebase a save that already succeeded.
+
 - `PrivateInboxStore.commitDraftDocument` or another bounded encrypted write
   admitting only the raw input size. Count the encoded envelope, including JSON
   string escaping, and the nonce/tag overhead of the exact stored format before
@@ -31,6 +37,15 @@ Native storage owns what TypeScript must never hold: Keychain items, the storage
 - `AccountRemoval.signOut` or `deleteAccount` sending irreversible remote work without durable local intent, or `purge` deleting dependent items before recording acknowledgement. Relaunch must finish acknowledged cleanup before provider work and keep unanswered removal from reconnecting an unregistered device; a lost reply is not proof that nothing was removed. `deleteAccount` must clear newly recorded intent after a definite refusal, but cannot clear an earlier unanswered attempt or make the bridge claim nothing was removed; otherwise a refused retry can reopen locally retained private state after remote deletion. Sign-out must reconcile rotation and retain any unconfirmed Recovery Key instead of discarding its sole backup.
 
 #### Bridge contract
+
+- `RegistrationStore.importDraftAsset` accepting an arbitrary JavaScript file path
+  as an alternative to the generation-checked received-attachment source. Admit
+  only actual picker-owned copies or sandbox-granted external Mac files; reject
+  app-container paths and external symlink aliases to them. Trace
+  `isPickedDraftFile`/`allowsDraftFile`, picker creation and cleanup, and
+  `attachmentFile` together. Otherwise a caller can name a Downloaded Attachment's
+  plaintext path and skip its Mailbox Connection generation check. Picker cleanup
+  must still remove only its owned copies, never similarly named user folders.
 
 - `DraftFilePicker` leaving photo selection unlimited or copying/encoding every
   document or pasteboard image before applying the documented per-intake count

@@ -141,6 +141,12 @@ controls:
   through that mailbox's current generation. The Draft keeps only its copy of the
   bytes: no mailbox, generation, file name or Gmail authorization of the source.
 
+Native Apple code accepts plain file imports only from picker-owned copies, or
+on Mac from files outside the app's container that the system permits it to read.
+A Downloaded Attachment must use the received-attachment source and its current
+Mailbox Connection authorization; naming its plaintext path as a plain file is
+refused.
+
 An inline image is part of the formatted body, so typing around it, deleting it,
 **Undo** and **Redo** keep its place and reference. The composer lists
 **Attachments** and **Inline images** under the body with their name, size and a
@@ -197,7 +203,8 @@ before any Draft names them as complete, and a Draft that no longer uses an asse
 gives it up only after the document without it is stored. While the app runs, an
 asset that a still-listed Draft has used stays stored so **Undo** can restore it;
 discarding the Draft removes it, and after a relaunch the first save removes any
-asset no Draft uses.
+asset no Draft uses. If removing unused bytes fails after the document is stored,
+the save still succeeds and a later save retries that cleanup.
 
 ## Verification
 

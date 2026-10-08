@@ -2063,11 +2063,17 @@ describe('adding files and images to a Draft', () => {
               // A pasteboard item may carry no type; its data URL still does.
               uri: `data:image/png;base64,${btoa('chart')}`,
             },
+            {
+              name: 'Pasted image.jpg',
+              type: '',
+              uri: `data:image/jpg;base64,${btoa('photo')}`,
+            },
           ],
         },
       },
     });
     await screen.findByLabelText('Inline image Pasted image.png');
+    await screen.findByLabelText('Inline image Pasted image.jpg');
     storage.addFile('/Users/alex/Desktop/brief.txt', 'brief');
     await fireEvent(screen.getByTestId('composer'), 'drop', {
       nativeEvent: {
@@ -2089,8 +2095,13 @@ describe('adding files and images to a Draft', () => {
     await first.unmount();
     const [saved] = draftsOf(drafts.getSnapshot());
     ok(saved, 'Expected the saved Draft');
-    const [image] = imagesOf(saved.body);
+    const image = imagesOf(saved.body).find(
+      ({ name }) => name === 'Pasted image.png',
+    );
     ok(image, 'Expected an inline image');
+    expect(imagesOf(saved.body)).toContainEqual(
+      expect.objectContaining({ name: 'Pasted image.jpg', type: 'image/jpeg' }),
+    );
     storage.damage(image.id);
     // An ordinary attachment is verified too, without its bytes being shown.
     ok(saved.attachments, 'Expected attachments');
@@ -2140,9 +2151,9 @@ describe('adding files and images to a Draft', () => {
       screen.findByLabelText('brief.txt, 5 bytes · Damaged on this device'),
     ).resolves.toBeOnTheScreen();
     await press('Remove Pasted image.png');
-    expect(screen.getByLabelText('Message body')).not.toHaveTextContent('￼');
+    expect(screen.getByLabelText('Message body')).toHaveTextContent(/^￼$/u);
     await press('Undo');
-    expect(screen.getByLabelText('Message body')).toHaveTextContent('￼');
+    expect(screen.getByLabelText('Message body')).toHaveTextContent(/^￼￼$/u);
   });
 
   it('attaches a received attachment to a new message without keeping its mailbox', async () => {
