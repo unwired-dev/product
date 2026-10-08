@@ -352,3 +352,29 @@ System preview and sharing receive one resolved connection-owned URL. Native
 Quick Look/share runtime behavior and the complete React Native bridge build remain
 required qualification; hosted storage/transport fixtures do not establish those
 host integration results. See the operational guide's evidence and deferred checks.
+
+## Online Gmail search
+
+Issue #609 uses `messages?q=&maxResults=20` and Gmail's page tokens through the same
+native credentialed read. `mail-core` composes each connection's pages, failures and
+ordering. A view-scoped search store owns its request generation and answers; replacing
+its query, scope, Inbox identities or availability replaces the store before rendering
+and disposes its pending publications. Each Mac window owns its search independently.
+The hosts subscribe through `useSyncExternalStore` and render local and online rows as separate
+sections of one virtualized list. Native requests run to completion; stale answers are
+discarded.
+
+Result metadata stays in the connection's memory-only `found` map until forget, allowing
+the ordinary isolated reader to open mail outside the cached Inbox. These bodies retain
+the existing presentation and image bounds and never enter the encrypted body cache
+unless the message is also listed in that Inbox. Search neither persists a body index
+nor calls Convex. Controlled TypeScript pagination/failure journeys and native
+URLSession search-page responses remain separate from protected live-Gmail evidence.
+
+Received attachments use the same readable-message boundary for explicit downloads
+and system presentation, including results outside the cached Inbox. Search membership
+does not extend downloaded-file ownership when a listed message leaves the Inbox:
+that transition discards its downloads while preserving the search reader's body
+and descriptors. An explicit download can then acquire a new file. Synchronization
+does not discard an already off-Inbox result's files; its last reader closing or
+Inbox owner invalidation still cancels work and discards them.

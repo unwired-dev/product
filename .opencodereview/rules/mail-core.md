@@ -95,6 +95,14 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Product behavior the stores own
 
+- `createGmailInbox` widening reader membership to online search results while
+  attachment download or presentation still requires listed Inbox membership.
+  Trace `readable`, `downloadAttachment` and `presentAttachment` together so
+  off-Inbox results cannot expose inert Download/Open/Share controls. Search's
+  `found` membership must also preserve `settle`'s downloaded-file cleanup when
+  a previously listed message leaves the Inbox, without discarding an already
+  off-Inbox reader's files on every synchronization; otherwise plaintext file
+  ownership silently outlives its documented removal boundary.
 - `message-body.ts.safeFilename` shortening a name without its actual final suffix
   while retaining dots that can expose an earlier suffix as the saved extension.
   Preserve the final suffix within both the character and UTF-8 byte bounds, or

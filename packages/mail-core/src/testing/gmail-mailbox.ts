@@ -241,8 +241,33 @@ export function createSyntheticGmail({
         ),
       ),
     );
+  // Gmail's own search covers all mail outside spam and trash, sender, subject and content alike.
+  // Every word must appear, ignoring case; real Gmail operators are beyond this stand-in.
+  const searched = (query: string) => {
+    const words = query.toLowerCase().split(/\s+/u).filter(Boolean);
+    return Arr.sort(
+      [...messages.values()].filter(
+        ({ labels, from, subject, snippet, content }) =>
+          !labels.has('SPAM') &&
+          !labels.has('TRASH') &&
+          words.every((word) =>
+            [from, subject, snippet, content.text ?? '', content.html ?? '']
+              .join('\n')
+              .toLowerCase()
+              .includes(word),
+          ),
+      ),
+      Order.flip(
+        Order.mapInput(
+          Order.Number,
+          (message: SyntheticMessage) => message.internalDate,
+        ),
+      ),
+    );
+  };
   const listPage = (params: URLSearchParams) => {
-    const inbox = newestInbox();
+    const query = params.get('q');
+    const inbox = query === null ? newestInbox() : searched(query);
     const start = Number(params.get('pageToken') ?? 0);
     const end = start + Number(params.get('maxResults') ?? 100);
     return respond({

@@ -45,10 +45,25 @@ private final class ControlledGmailHTTP: URLProtocol, @unchecked Sendable {
   override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
   override func startLoading() {
     Self.probe.record(request)
+    let query = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems ?? []
+    let isSearch = query.contains { $0.name == "q" }
+    let authorization = request.value(forHTTPHeaderField: "Authorization")
+    let status = authorization == "Bearer synthetic-refused" ? 401
+      : authorization == "Bearer synthetic-unavailable" ? 503 : 200
+    let body: String
+    if status != 200 {
+      body = #"{"error":{"message":"Controlled refusal"}}"#
+    } else if isSearch {
+      body = query.contains { $0.name == "pageToken" }
+        ? #"{"messages":[{"id":"102","threadId":"102"}]}"#
+        : #"{"messages":[{"id":"101","threadId":"101"}],"nextPageToken":"next+page"}"#
+    } else {
+      body = #"{"id":"101","labelIds":["INBOX","STARRED"]}"#
+    }
     let response = HTTPURLResponse(
-      url: request.url!, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: nil)!
+      url: request.url!, statusCode: status, httpVersion: "HTTP/1.1", headerFields: nil)!
     client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-    client?.urlProtocol(self, didLoad: Data(#"{"id":"101","labelIds":["INBOX","STARRED"]}"#.utf8))
+    client?.urlProtocol(self, didLoad: Data(body.utf8))
     client?.urlProtocolDidFinishLoading(self)
   }
   override func stopLoading() {}
@@ -168,6 +183,55 @@ extension PrivateInboxTests {
         "https://gmail.googleapis.com/gmail/v1/users/me/messages/19a0c0ffee000001"
           + "?format=metadata&metadataHeaders=From&metadataHeaders=Subject"
       ])
+    // A search keeps its query literal: `+` and `&` stay part of it.
+    _ = try await store.gmail(
+      path: "messages",
+      query: [
+        URLQueryItem(name: "q", value: "from:a+b@example.invalid c&d"),
+        URLQueryItem(name: "maxResults", value: "20"),
+      ], connection: first, address: google.address, generation: store.generation(firstSubject))
+    #expect(
+      google.gmailRequests.last?.absoluteString
+        == "https://gmail.googleapis.com/gmail/v1/users/me/messages"
+        + "?q=from:a%2Bb@example.invalid%20c%26d&maxResults=20")
+    // Search uses the real URLSession transport with controlled first/next pages and independent
+    // connection credentials. The synthetic registration provider above supplies only its URL.
+    let searchURL = try #require(google.gmailRequests.last)
+    let (searchStatus, searchData) = try await GmailTransport.send(
+      token: "synthetic-access", url: searchURL, body: nil, session: session)
+    #expect(searchStatus == 200)
+    let firstPage = try #require(JSONSerialization.jsonObject(with: searchData) as? [String: Any])
+    let nextPage = try #require(firstPage["nextPageToken"] as? String)
+    #expect(nextPage == "next+page")
+    let searchRequest = try #require(ControlledGmailHTTP.probe.requests().last)
+    #expect(searchRequest.httpMethod == "GET")
+    #expect(searchRequest.httpBody == nil && searchRequest.httpBodyStream == nil)
+    #expect(searchRequest.url == searchURL)
+    #expect(searchRequest.value(forHTTPHeaderField: "Authorization") == "Bearer synthetic-access")
+    _ = try await store.gmail(
+      path: "messages",
+      query: [
+        URLQueryItem(name: "q", value: "from:a+b@example.invalid c&d"),
+        URLQueryItem(name: "maxResults", value: "20"),
+        URLQueryItem(name: "pageToken", value: nextPage),
+      ], connection: first, address: google.address, generation: store.generation(firstSubject))
+    let nextURL = try #require(google.gmailRequests.last)
+    #expect(nextURL.absoluteString.hasSuffix("&pageToken=next%2Bpage"))
+    let (nextStatus, nextData) = try await GmailTransport.send(
+      token: "synthetic-access", url: nextURL, body: nil, session: session)
+    #expect(nextStatus == 200)
+    let finalPage = try #require(JSONSerialization.jsonObject(with: nextData) as? [String: Any])
+    #expect(finalPage["nextPageToken"] == nil)
+    let finalMessages = try #require(finalPage["messages"] as? [[String: String]])
+    #expect(finalMessages.map { $0["id"] } == ["102"])
+    for (token, expected) in [("synthetic-refused", 401), ("synthetic-unavailable", 503)] {
+      let (failedStatus, _) = try await GmailTransport.send(
+        token: token, url: searchURL, body: nil, session: session)
+      #expect(failedStatus == expected)
+      let (healthyStatus, _) = try await GmailTransport.send(
+        token: "synthetic-access", url: searchURL, body: nil, session: session)
+      #expect(healthyStatus == 200)
+    }
     _ = try await store.gmail(
       path: "profile", query: [], connection: first, address: google.address,
       generation: store.generation(firstSubject))

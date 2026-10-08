@@ -1,5 +1,6 @@
 import type { GmailInbox } from '../src/gmail-inbox.ts';
 
+import { gmailAction } from '../src/gmail-actions.ts';
 import { createGmailInbox } from '../src/gmail-inbox.ts';
 import { attachmentLimit, safeFilename } from '../src/message-body.ts';
 import {
@@ -29,6 +30,18 @@ const listed = (inbox: GmailInbox, id: string) => {
     throw new Error('Expected attachment metadata');
   }
   return attachments;
+};
+
+const listedMessage = (inbox: GmailInbox, id: string) => {
+  const state = inbox.getSnapshot();
+  const message =
+    state.kind === 'ready'
+      ? state.messages.find((candidate) => candidate.id === id)
+      : undefined;
+  if (message === undefined) {
+    throw new Error('Expected the listed Inbox message');
+  }
+  return message;
 };
 
 const stateOf = (inbox: GmailInbox, id: string, name: string) =>
@@ -61,6 +74,71 @@ async function opened(
 
 describe('received attachments', () => {
   /* oxlint-disable vitest/max-expects -- Each journey proves one attachment path end to end. */
+  it('downloads and presents an archived search result without caching its body, and preserves reader cleanup', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    const id = gmail.deliver({ subject: 'Archived attachment' });
+    gmail.setLabel(id, 'INBOX', false);
+    const inbox = createGmailInbox(gmail.native);
+    await inbox.load();
+    await inbox.searchGmail('Archived attachment');
+    const close = inbox.retainMessage(id);
+    await inbox.readMessage(id);
+    const notes = locatorOf(inbox, id, 'notes.txt');
+    expect(stateOf(inbox, id, 'notes.txt')).toStrictEqual({
+      kind: 'available',
+    });
+    expect(attachmentRequests(gmail)).toStrictEqual([]);
+    expect(gmail.cachedBodies().has(id)).toBe(false);
+
+    await inbox.downloadAttachment(id, notes);
+    expect(stateOf(inbox, id, 'notes.txt')).toStrictEqual({
+      kind: 'downloaded',
+    });
+    await inbox.presentAttachment(id, notes, 'open');
+    await inbox.presentAttachment(id, notes, 'share');
+    expect(gmail.presentations).toStrictEqual([
+      { name: 'notes.txt', action: 'open' },
+      { name: 'notes.txt', action: 'share' },
+    ]);
+    // Synchronization does not end an already archived result's reader or download.
+    await inbox.load();
+    expect(gmail.savedFiles.size).toBe(1);
+    expect(gmail.cachedBodies().has(id)).toBe(false);
+
+    // Search membership must not bypass the existing cleanup when listed mail leaves the Inbox.
+    gmail.setLabel(id, 'INBOX', true);
+    await inbox.load();
+    gmail.setLabel(id, 'INBOX', false);
+    await inbox.load();
+    expect(gmail.savedFiles.size).toBe(0);
+    expect(stateOf(inbox, id, 'notes.txt')).toStrictEqual({
+      kind: 'available',
+    });
+    await inbox.downloadAttachment(id, notes);
+    expect(gmail.savedFiles.size).toBe(1);
+    gmail.setLabel(id, 'INBOX', true);
+    await inbox.load();
+    // Optimistic hiding precedes durable settlement, so cleanup cannot compare only UI snapshots.
+    await inbox.organize(listedMessage(inbox, id), gmailAction.archive);
+    expect(gmail.savedFiles.size).toBe(0);
+    await inbox.downloadAttachment(id, notes);
+    expect(gmail.savedFiles.size).toBe(1);
+    close();
+    expect(gmail.savedFiles.size).toBe(0);
+
+    // A later open downloads again; closing the whole Inbox clears search and file ownership.
+    const closeAgain = inbox.retainMessage(id);
+    await inbox.readMessage(id);
+    await inbox.downloadAttachment(id, notes);
+    expect(gmail.savedFiles.size).toBe(1);
+    inbox.forget();
+    expect(gmail.savedFiles.size).toBe(0);
+    expect(inbox.getSnapshot().kind).toBe('loading');
+    expect(inbox.messageAttachments(id)).toBeUndefined();
+    closeAgain();
+  });
+
   it('lists names, sizes and availability without downloading, then downloads, opens, shares and cleans up', async () => {
     expect.hasAssertions();
     const { gmail, id, inbox, close } = await opened({
@@ -226,9 +304,14 @@ describe('received attachments', () => {
     });
   });
 
-  it('cancels a download, including one already being saved, without keeping its file', async () => {
+  it('cancels a searched message download, including one already being saved, without keeping its file', async () => {
     expect.hasAssertions();
-    const { gmail, id, inbox, close } = await opened();
+    const { gmail, id, inbox, close } = await opened({
+      subject: 'Cancellation',
+    });
+    await inbox.searchGmail('Cancellation');
+    gmail.setLabel(id, 'INBOX', false);
+    await inbox.load();
     const notes = locatorOf(inbox, id, 'notes.txt');
 
     // Gmail is slow to answer: cancelling drops the download.

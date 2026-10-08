@@ -4,6 +4,8 @@ import * as Order from 'effect/Order';
 import type {
   GmailInbox,
   GmailInboxState,
+  GmailMessage,
+  GmailSearchPage,
   NativeGmailMailbox,
 } from './gmail-inbox.ts';
 import type { Registration, RegistrationSnapshot } from './registration.ts';
@@ -252,7 +254,7 @@ export type Mailboxes = ReturnType<typeof createMailboxes>;
 // One Inbox store as the only mailbox, such as the preview fixture, which has no address.
 export function singleMailbox<
   S extends Readonly<{
-    getSnapshot: () => unknown;
+    getSnapshot: () => Readonly<{ kind: string }>;
     subscribe: (listener: () => void) => () => void;
     load: () => Promise<void>;
   }>,
@@ -288,15 +290,40 @@ export type MailboxMessage<L extends Listing = Mailbox> = Readonly<{
   message: MessageOf<L>;
 }>;
 
-// The unified Inbox, or one connection's, newest first. Equal times keep the connections' order,
-// then the message ID, so the list never reorders between renders.
+// Newest first. Equal times keep the connections' order, then the message ID, so a list never
+// reorders between renders.
+const newestFirst = <
+  E extends Readonly<{ mailbox: Readonly<{ id: string }>; message: Listed }>,
+>(
+  mailboxes: ReadonlyArray<Readonly<{ id: string }>>,
+  entries: readonly E[],
+) => {
+  const rank = new Map(mailboxes.map(({ id }, index) => [id, index]));
+  const message = (entry: E): Listed => entry.message;
+  return Arr.sort(
+    entries,
+    Order.combine(
+      Order.flip(
+        Order.mapInput(Order.String, (entry: E) => message(entry).receivedAt),
+      ),
+      Order.combine(
+        Order.mapInput(
+          Order.Number,
+          ({ mailbox }: E) => rank.get(mailbox.id) ?? 0,
+        ),
+        Order.mapInput(Order.String, (entry: E) => message(entry).id),
+      ),
+    ),
+  );
+};
+
+// The unified Inbox, or one connection's, newest first.
 export function inboxMessages<L extends Listing>(
   mailboxes: readonly L[],
   scope: string | undefined,
 ): ReadonlyArray<MailboxMessage<L>> {
-  const rank = new Map(mailboxes.map(({ id }, index) => [id, index]));
-  const message = (entry: MailboxMessage<L>): Listed => entry.message;
-  return Arr.sort(
+  return newestFirst(
+    mailboxes,
     mailboxes
       .filter(({ id }) => scope === undefined || id === scope)
       .flatMap((mailbox) =>
@@ -306,24 +333,6 @@ export function inboxMessages<L extends Listing>(
             )
           : [],
       ),
-    Order.combine(
-      Order.flip(
-        Order.mapInput(
-          Order.String,
-          (entry: MailboxMessage<L>) => message(entry).receivedAt,
-        ),
-      ),
-      Order.combine(
-        Order.mapInput(
-          Order.Number,
-          ({ mailbox }: MailboxMessage<L>) => rank.get(mailbox.id) ?? 0,
-        ),
-        Order.mapInput(
-          Order.String,
-          (entry: MailboxMessage<L>) => message(entry).id,
-        ),
-      ),
-    ),
   );
 }
 
@@ -367,6 +376,18 @@ export const searchCopy = {
   saved: 'Saved on this device',
   download: 'Downloads from Gmail when opened',
   empty: (query: string) => `No mail saved on this device matches “${query}”.`,
+  online: (query: string) => `Search Gmail for “${query}”`,
+  onlineHeading: 'From Gmail',
+  searching: 'Searching Gmail',
+  more: 'More from Gmail',
+  retry: 'Search Gmail again',
+  onlineEmpty: (query: string) => `Gmail found no mail matching “${query}”.`,
+  unavailable: {
+    offline:
+      'Gmail could not be reached. Mail saved on this device is still shown.',
+    authentication: 'Allow Gmail access again to search this mailbox.',
+    failed: 'Gmail search did not finish. Try again.',
+  },
 } as const;
 
 // A listed message whose store can report its cached bodies. Preview stores keep every body
@@ -375,7 +396,7 @@ type BodyResult = Readonly<{
   mailbox: Readonly<{
     id: string;
     inbox: Readonly<{
-      getSnapshot: () => unknown;
+      getSnapshot: () => Readonly<{ kind: string }>;
       savedBodies?: (
         ids: readonly string[],
       ) => Promise<ReadonlySet<string> | undefined>;
@@ -388,7 +409,10 @@ type BodyResult = Readonly<{
 export const resultKey = ({
   mailbox,
   message,
-}: Pick<BodyResult, 'mailbox' | 'message'>) => `${mailbox.id}\n${message.id}`;
+}: Readonly<{
+  mailbox: Readonly<{ id: string }>;
+  message: Readonly<{ id: string }>;
+}>) => `${mailbox.id}\n${message.id}`;
 
 // Each connection answers from its own cache. Unknown answers remain absent, never unsaved. Each
 // store's `savedBodies` is its own host-facing run, so this only combines their answers.
@@ -418,4 +442,151 @@ export async function savedMessageBodies(results: readonly BodyResult[]) {
     }),
   );
   return new Map(answers.flat());
+}
+
+// A mailbox whose store searches Gmail; preview stores have no online search.
+type Searchable = Readonly<{
+  id: string;
+  address?: string | undefined;
+  inbox: Readonly<{
+    searchGmail: (
+      query: string,
+      pageToken?: string,
+    ) => Promise<GmailSearchPage | undefined>;
+  }>;
+}>;
+
+export type OnlineSearch<M extends Searchable = Mailbox> = Readonly<{
+  query: string;
+  // Every page so far across the searched mailboxes, newest first.
+  results: ReadonlyArray<Readonly<{ mailbox: M; message: GmailMessage }>>;
+  // The next page of each mailbox that has one, by mailbox ID.
+  next: ReadonlyMap<string, string>;
+  // Mailboxes Gmail could not search for the latest page; their earlier results stay.
+  failures: ReadonlyArray<
+    Readonly<{
+      mailbox: M;
+      reason: Extract<GmailSearchPage, { kind: 'unavailable' }>['reason'];
+    }>
+  >;
+}>;
+
+// Searches every given mailbox in Gmail at once. With `previous`, asks each mailbox that has
+// another page for it and adds the results; a mailbox that fails keeps its page to try again. Each
+// mailbox's failure stays its own, and a mailbox whose Inbox closed meanwhile adds nothing.
+export async function searchGmail<M extends Searchable>(
+  mailboxes: readonly M[],
+  query: string,
+  previous?: OnlineSearch<M>,
+): Promise<OnlineSearch<M>> {
+  const asked = mailboxes.filter(
+    ({ id }) => previous === undefined || previous.next.has(id),
+  );
+  const pages = await Promise.all(
+    asked.map(
+      async (mailbox) =>
+        [
+          mailbox,
+          await mailbox.inbox.searchGmail(
+            query,
+            previous?.next.get(mailbox.id),
+          ),
+        ] as const,
+    ),
+  );
+  const next = new Map(previous?.next);
+  const results = [...(previous?.results ?? [])];
+  const seen = new Set(results.map(resultKey));
+  const failures: Array<OnlineSearch<M>['failures'][number]> = [];
+  for (const [mailbox, page] of pages) {
+    if (page?.kind === 'unavailable') {
+      failures.push({ mailbox, reason: page.reason });
+    } else {
+      next.delete(mailbox.id);
+    }
+    if (page?.kind === 'found' && page.next !== undefined) {
+      next.set(mailbox.id, page.next);
+    }
+    const messages = page?.kind === 'found' ? page.messages : [];
+    for (const message of messages) {
+      const result = { mailbox, message };
+      // Mail arriving between pages can shift a message onto the next page as well.
+      if (!seen.has(resultKey(result))) {
+        seen.add(resultKey(result));
+        results.push(result);
+      }
+    }
+  }
+  return {
+    query,
+    results: newestFirst(mailboxes, results),
+    next,
+    failures,
+  };
+}
+
+// One view's online search. This composes Promise-returning Inbox actions without another Effect
+// run. Replacing the view's query or scope replaces this store, so an old answer cannot reappear.
+export function createGmailSearch<
+  M extends Readonly<{
+    id: string;
+    address?: string | undefined;
+    inbox: Readonly<{
+      getSnapshot: () => Readonly<{ kind: string }>;
+      searchGmail?: Searchable['inbox']['searchGmail'];
+    }>;
+  }>,
+>(shown: readonly M[], query: string, scope: string | undefined) {
+  const kinds = shown.map(({ inbox }) => inbox.getSnapshot().kind);
+  const mailboxes = shown.filter(
+    (mailbox): mailbox is M & Searchable =>
+      mailbox.inbox.getSnapshot().kind === 'ready' &&
+      mailbox.inbox.searchGmail !== undefined,
+  );
+  const listeners = new Set<() => void>();
+  let request = 0;
+  let state: Readonly<{
+    searching: boolean;
+    found?: OnlineSearch<M & Searchable>;
+  }> = { searching: false };
+  const publish = (next: typeof state) => {
+    state = next;
+    for (const listener of listeners) {
+      listener();
+    }
+  };
+  const run = async (previous?: OnlineSearch<M & Searchable>) => {
+    request += 1;
+    const asking = request;
+    publish({ searching: true, ...(previous && { found: previous }) });
+    const found = await searchGmail(mailboxes, query, previous);
+    if (asking === request) {
+      publish({ searching: false, found });
+    }
+  };
+  return {
+    getSnapshot: () => state,
+    subscribe: (listener: () => void) => {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+    matches: (next: readonly M[], text: string, view: string | undefined) =>
+      query === text &&
+      scope === view &&
+      shown.length === next.length &&
+      shown.every(
+        (mailbox, index) =>
+          mailbox.inbox === next[index]?.inbox &&
+          kinds[index] === next[index]?.inbox.getSnapshot().kind,
+      ),
+    available: mailboxes.length > 0 && query !== '',
+    search: () => run(),
+    more: () => (state.found === undefined ? undefined : run(state.found)),
+    forget: () => {
+      request += 1;
+      publish({ searching: false });
+    },
+  };
 }

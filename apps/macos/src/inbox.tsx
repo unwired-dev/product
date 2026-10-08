@@ -17,7 +17,7 @@ import { spacing } from '@private-email/mail-core/theme';
 import { use, useDeferredValue, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
-  FlatList,
+  SectionList,
   Pressable,
   StyleSheet,
   Text,
@@ -29,6 +29,7 @@ import type { InboxMailbox } from './private-storage.ts';
 
 import {
   MailboxScope,
+  useGmailSearch,
   useInbox,
   useInboxActions,
   useMailbox,
@@ -403,6 +404,104 @@ const savedStatus = (saved: boolean | undefined) => {
   return saved ? searchCopy.saved : searchCopy.download;
 };
 
+// Gmail's own search, asked for explicitly below the results saved on this device, which it never
+// replaces. Each mailbox that Gmail could not search says why.
+function OnlineResults({
+  search,
+  query,
+}: {
+  readonly search: ReturnType<typeof useGmailSearch>;
+  readonly query: string;
+}) {
+  const colors = usePalette();
+  const { found, searching } = search;
+  if (!search.available) {
+    return null;
+  }
+  if (found === undefined && !searching) {
+    return (
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={searchCopy.online(query)}
+        onPress={() => {
+          void search.search();
+        }}>
+        <Text style={[styles.notice, { color: colors.accent }]}>
+          {searchCopy.online(query)}
+        </Text>
+      </Pressable>
+    );
+  }
+  return (
+    <View>
+      {found?.results.length === 0 && found.failures.length === 0 ? (
+        <Text style={[styles.notice, { color: colors.secondary }]}>
+          {searchCopy.onlineEmpty(query)}
+        </Text>
+      ) : null}
+      {searching ? (
+        <ActivityIndicator accessibilityLabel={searchCopy.searching} />
+      ) : null}
+      {!searching && found !== undefined && found.next.size > 0 ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={searchCopy.more}
+          onPress={() => {
+            void search.more();
+          }}>
+          <Text style={[styles.notice, { color: colors.accent }]}>
+            {searchCopy.more}
+          </Text>
+        </Pressable>
+      ) : null}
+      {!searching && found !== undefined && found.failures.length > 0 ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={searchCopy.retry}
+          onPress={() => {
+            void search.search();
+          }}>
+          <Text style={[styles.notice, { color: colors.accent }]}>
+            {searchCopy.retry}
+          </Text>
+        </Pressable>
+      ) : null}
+    </View>
+  );
+}
+
+// The online section announces its source and each connection's failure before its rows.
+function OnlineHeading({
+  search,
+  several,
+}: {
+  readonly search: ReturnType<typeof useGmailSearch>;
+  readonly several: boolean;
+}) {
+  const colors = usePalette();
+  const { found } = search;
+  return (
+    <View>
+      <Text
+        accessibilityRole="header"
+        style={[styles.footer, { color: colors.secondary }]}>
+        {searchCopy.onlineHeading}
+      </Text>
+      {found?.failures.map(({ mailbox, reason }) => (
+        <Text
+          key={mailbox.id}
+          accessibilityLiveRegion="polite"
+          style={[styles.footer, { color: colors.secondary }]}>
+          {about(
+            several ? mailbox.address : undefined,
+            searchCopy.unavailable[reason],
+          )}
+        </Text>
+      ))}
+    </View>
+  );
+}
+
 // The shown mailbox's address, or what the list holds when it shows several or none.
 function subtitleOf(
   shown: readonly InboxMailbox[],
@@ -417,6 +516,20 @@ function subtitleOf(
   }
   return gmail ? 'Gmail' : 'Preview mailbox';
 }
+
+// Section data lets the native list virtualize online pages together with saved rows.
+const searchSections = <T,>(
+  messages: readonly T[],
+  online: Readonly<{
+    searching: boolean;
+    found?: Readonly<{ results: readonly T[] }> | undefined;
+  }>,
+) => [
+  { key: 'saved', data: messages },
+  ...(online.found === undefined && !online.searching
+    ? []
+    : [{ key: 'gmail', data: online.found?.results ?? [] }]),
+];
 
 export function Inbox({ selected, onSelect, onClose }: InboxProps) {
   const mailboxes = useMailboxes();
@@ -456,7 +569,9 @@ export function Inbox({ selected, onSelect, onClose }: InboxProps) {
     results,
     selected === undefined ? '' : `${selected.mailbox}\n${selected.id}`,
   );
+  const online = useGmailSearch(shown, searched, scope);
   const messages = results ?? listed;
+  const sections = searchSections(messages, online);
   // Rows render again when the selection or a result's saved state changes.
   const rows = useMemo(() => ({ selected, saved }), [selected, saved]);
   const ready = shown.some(({ state }) => state.kind === 'ready');
@@ -479,6 +594,16 @@ export function Inbox({ selected, onSelect, onClose }: InboxProps) {
         void mailbox.inbox.organize(message, action);
       }
     };
+  const empty =
+    results === undefined && gmail && syncing ? (
+      <ActivityIndicator accessibilityLabel="Loading Inbox" />
+    ) : (
+      <Text style={[styles.notice, { color: colors.secondary }]}>
+        {results === undefined
+          ? 'Your inbox is clear.'
+          : searchCopy.empty(searched)}
+      </Text>
+    );
   return (
     <View style={styles.fill}>
       <View style={[styles.fill, { backgroundColor: colors.sidebar }]}>
@@ -556,28 +681,36 @@ export function Inbox({ selected, onSelect, onClose }: InboxProps) {
           />
         ))}
         {ready ? (
-          <FlatList
+          <SectionList
             accessibilityLabel="Inbox messages"
             contentContainerStyle={styles.list}
-            data={messages}
+            sections={sections}
+            stickySectionHeadersEnabled={false}
+            renderSectionHeader={({ section }) =>
+              section.key === 'gmail' ? (
+                <OnlineHeading
+                  search={online}
+                  several={several}
+                />
+              ) : null
+            }
             extraData={rows}
             keyExtractor={resultKey}
-            ListEmptyComponent={
-              results === undefined && gmail && syncing ? (
-                <ActivityIndicator accessibilityLabel="Loading Inbox" />
-              ) : (
-                <Text style={[styles.notice, { color: colors.secondary }]}>
-                  {results === undefined
-                    ? 'Your inbox is clear.'
-                    : searchCopy.empty(searched)}
-                </Text>
-              )
+            ListFooterComponent={
+              <OnlineResults
+                query={searched}
+                search={online}
+              />
             }
-            renderItem={({ item }) => (
+            renderSectionFooter={({ section }) =>
+              section.key === 'saved' && messages.length === 0 ? empty : null
+            }
+            renderItem={({ item, section }) => (
               <MessageRow
                 mailbox={several ? item.mailbox.address : undefined}
                 message={item.message}
                 onOrganize={
+                  section.key === 'saved' &&
                   item.mailbox.state.kind === 'ready' &&
                   'organize' in item.mailbox.state &&
                   item.mailbox.state.organize
@@ -592,7 +725,7 @@ export function Inbox({ selected, onSelect, onClose }: InboxProps) {
                   selected.id === item.message.id
                 }
                 status={
-                  results === undefined
+                  section.key === 'gmail' || results === undefined
                     ? undefined
                     : savedStatus(saved?.get(resultKey(item)))
                 }
