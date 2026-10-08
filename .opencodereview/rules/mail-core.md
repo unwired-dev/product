@@ -176,10 +176,23 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   rebasing, then settle `save` for preserved content as well as deleted content.
   Otherwise Try again repeats the stale revision, a moved target deletes the
   other writer's copy, or successful empty-only recovery stays at Saving.
-  Explicit stale Discard must also compare the retry target's content with the
-  version requested before CAS recovery. Preserve a changed same-ID target from
-  another writer while still deleting the editor's own rebound copy; otherwise
-  rebasing succeeds only to delete another writer's completed edit on retry.
+  Explicit stale Discard must compare every attempt's target content with the
+  discarding editor's accepted version, including the first attempt: another
+  window using the same store publishes edits without a CAS conflict. Preserve
+  a changed same-ID target while still deleting the editor's own rebound copy;
+  otherwise Discard deletes another writer's completed edit even when retry
+  checks are correct. Resolve identity and conflict metadata after earlier saves
+  without substituting native text accepted while Discard suppresses autosave.
+
+- `composer-navigation.ts.create` applying a late creation result after a later
+  accepted destination, or treating every navigation as abandonment. Track only
+  successful leaves within the owning Inbox/window, retain a newly selected
+  Draft, and remove an abandoned Draft only while it remains empty, including
+  after CAS recovery. Refused, rejected, overlapping leaves and same-Draft
+  reveal must not cancel creation. Otherwise a slow New Message overrides the
+  chosen destination, removes its selected composer, or deletes another editor's
+  completed content. Keep this coordination shared rather than duplicating it
+  in each host's `DraftList.compose`.
 - `createDrafts.update` silently dropping authored content after the original ID
   has been durably deleted, including after `discard({ onlyIfEmpty: true })`.
   Preserve a same-owner nonempty late edit as a conflict copy and notify its

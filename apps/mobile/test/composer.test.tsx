@@ -958,6 +958,40 @@ describe('composing Drafts', () => {
     },
   );
 
+  it('discards its own version when a late keystroke arrives behind an autosave', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    await render(
+      <App
+        drafts={drafts}
+        registration={registration}
+      />,
+    );
+    await press('New Message');
+    storage.hold();
+    await fireEvent.changeText(
+      screen.getByLabelText('Subject'),
+      'Before discard',
+    );
+    await press('Discard');
+    await press('Discard Draft');
+    // This accepted native event changes the editor while its autosave is suppressed.
+    await fireEvent.changeText(
+      screen.getByLabelText('Subject'),
+      'During discard',
+    );
+    await act(async () => {
+      storage.release();
+      await drafts.save();
+    });
+    expect(screen.queryByLabelText('Subject')).not.toBeOnTheScreen();
+    const reopened = createDrafts(storage.native, registration);
+    await reopened.load();
+    expect(draftsOf(reopened.getSnapshot())).toStrictEqual([]);
+  });
+
   it('lets a composer be left again after finishing it failed', async () => {
     expect.hasAssertions();
     const registration = account(connected(['alex@example.invalid']));
@@ -1402,6 +1436,55 @@ describe('composing Drafts', () => {
         name: `Draft. Quiet. ${summary}. From alex@example.invalid`,
       }),
     ).toBeOnTheScreen();
+  });
+
+  it('keeps the new Draft selected from its row while creation is pending', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    await render(
+      <App
+        drafts={drafts}
+        registration={registration}
+      />,
+    );
+    await screen.findByRole('button', { name: 'New Message' });
+    storage.hold();
+    await press('New Message');
+    await press('Draft. No subject. No recipients. From alex@example.invalid');
+    await act(async () => {
+      storage.release();
+      await drafts.save();
+    });
+    expect(screen.getByLabelText('Subject')).toHaveProp('value', '');
+    expect(draftsOf(drafts.getSnapshot())).toHaveLength(1);
+  });
+
+  it('lets a destination chosen during a slow New Message win', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    await render(
+      <App
+        drafts={drafts}
+        registration={registration}
+      />,
+    );
+    const newMessage = await screen.findByRole('button', {
+      name: 'New Message',
+    });
+    storage.hold();
+    await fireEvent.press(newMessage);
+    // The Account page is chosen while the Draft is still being created.
+    await press('Account');
+    await act(async () => {
+      storage.release();
+      await drafts.save();
+    });
+    expect(screen.queryByLabelText('Subject')).not.toBeOnTheScreen();
+    expect(draftsOf(drafts.getSnapshot())).toStrictEqual([]);
   });
   /* oxlint-enable vitest/max-expects */
 });

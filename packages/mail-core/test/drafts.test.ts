@@ -872,6 +872,25 @@ describe('storing Drafts', () => {
     }
   });
 
+  it("keeps another editor's newer content when a stale editor of the same store discards", async () => {
+    expect.hasAssertions();
+    const session = account(connected('account-a'));
+    const storage = createSyntheticDrafts(session.productAccount);
+    const drafts = createDrafts(storage.native, session.registration);
+    await drafts.load();
+    const id = present(await drafts.create(alex), 'Draft');
+    const shown = present(
+      draftOf(drafts.getSnapshot(), id),
+      'stale editor view',
+    );
+    // Another window of this store saves an edit; the stale window still shows the old version.
+    await drafts.update({ ...shown, subject: 'Newer edit' }, shown);
+    await expect(drafts.discard(id, { expected: () => shown })).resolves.toBe(
+      true,
+    );
+    expect(draftOf(drafts.getSnapshot(), id)?.subject).toBe('Newer edit');
+  });
+
   it('discards the rebound copy when an edit arrives during a stale deletion', async () => {
     expect.hasAssertions();
     const session = account(connected('account-a'));

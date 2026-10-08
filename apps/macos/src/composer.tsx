@@ -353,7 +353,7 @@ export function useOpenDraft(
   const leave = useLeaveComposer();
   return useCallback(
     async (id: string) => {
-      if (id !== composing && (await leave())) {
+      if (id !== composing && (await leave(id))) {
         onCompose(id);
       }
     },
@@ -378,7 +378,7 @@ export function DraftList({
   const store = useDraftStore();
   const state = useDrafts();
   const colors = usePalette();
-  const leave = useLeaveComposer();
+  const navigation = useComposerNavigation();
   const creating = useRef(false);
   const [creatingShown, setCreatingShown] = useState(false);
   if (account === undefined || state.kind === 'closed') {
@@ -395,7 +395,7 @@ export function DraftList({
     creating.current = true;
     setCreatingShown(true);
     // Leaving and creating resolve rather than reject, so the press always settles here.
-    const id = (await leave()) ? await store.create(mailbox) : undefined;
+    const id = await navigation.create(store, mailbox);
     creating.current = false;
     setCreatingShown(false);
     if (id !== undefined) {
@@ -831,7 +831,10 @@ function Editor({
     let closed = false;
     try {
       closed = isEmptyDraft(finished)
-        ? await store.discard(() => authored.current.id, { onlyIfEmpty: true })
+        ? await store.discard(() => authored.current.id, {
+            onlyIfEmpty: true,
+            expected: () => authored.current,
+          })
         : await store.save();
     } catch {
       // An unexpected storage rejection keeps the composer open and retryable too.
@@ -879,7 +882,13 @@ function Editor({
     let removed = false;
     try {
       // The target follows any conflict rebind that lands before deletion runs.
-      removed = await store.discard(() => authored.current.id);
+      removed = await store.discard(() => authored.current.id, {
+        // Discard suppresses later autosaves; freeze its content while following any rebind.
+        expected: () =>
+          previous.id === authored.current.id
+            ? previous
+            : { ...previous, id: authored.current.id, conflict: true },
+      });
     } catch {
       // An unexpected storage rejection leaves the editor retryable too.
     }

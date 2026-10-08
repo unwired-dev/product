@@ -341,23 +341,20 @@ const conflictsWith = (
     !sameContent(current, draft));
 
 // Whether a deletion stops and keeps its target. Closing an untouched window cannot delete
-// content completed in another window, and after a rebase the same Draft with other content is
-// another writer's later edit; a rebind to a copy is still the deleting editor's own version.
+// content completed in another window. A same-ID version differing from the editor's expected
+// content belongs to another writer, including before any rebase; a rebound copy is still owned.
 const keepsTarget = (
   deleting: Draft | undefined,
   {
     onlyIfEmpty,
-    rebased,
     intended,
   }: Readonly<{
     onlyIfEmpty: boolean;
-    rebased: boolean;
     intended: Draft | undefined;
   }>,
 ) =>
   (onlyIfEmpty && deleting !== undefined && !isEmptyDraft(deleting)) ||
-  (rebased &&
-    deleting !== undefined &&
+  (deleting !== undefined &&
     deleting.id === intended?.id &&
     !sameContent(deleting, intended));
 
@@ -747,9 +744,14 @@ export function createDrafts(
     {
       target,
       onlyIfEmpty,
-    }: Readonly<{ target: () => string; onlyIfEmpty: boolean }>,
+      expected,
+    }: Readonly<{
+      target: () => string;
+      onlyIfEmpty: boolean;
+      expected: (() => Draft) | undefined;
+    }>,
   ) {
-    // The version this editor asked to discard.
+    // The version this editor asked to discard: the one it shows, or what storage held first.
     let intended: Draft | undefined = undefined;
     for (
       let attempt = 0;
@@ -758,9 +760,8 @@ export function createDrafts(
     ) {
       const id = target();
       const deleting = state.drafts.find((draft) => draft.id === id);
-      if (
-        keepsTarget(deleting, { onlyIfEmpty, rebased: attempt > 0, intended })
-      ) {
+      const wanted = expected?.() ?? intended;
+      if (keepsTarget(deleting, { onlyIfEmpty, intended: wanted })) {
         return;
       }
       intended = deleting;
@@ -783,7 +784,10 @@ export function createDrafts(
   const removing = (
     target: () => string,
     current: number,
-    onlyIfEmpty: boolean,
+    {
+      onlyIfEmpty,
+      expected,
+    }: Readonly<{ onlyIfEmpty: boolean; expected: (() => Draft) | undefined }>,
   ) =>
     guarded(
       current,
@@ -796,7 +800,11 @@ export function createDrafts(
         if (!live(current) || state.kind !== 'ready') {
           return false;
         }
-        yield* deleteTarget(current, account, { target, onlyIfEmpty });
+        yield* deleteTarget(current, account, {
+          target,
+          onlyIfEmpty,
+          expected,
+        });
         yield* flush(current, account);
         if (live(current) && state.kind === 'ready') {
           pendingMoves.clear();
@@ -912,12 +920,23 @@ export function createDrafts(
       );
     },
     // Deletes the Draft named by `target`, which a function resolves once earlier saves land.
-    discard: (target: string | (() => string), { onlyIfEmpty = false } = {}) =>
+    // `expected` is the version the discarding editor shows; another editor's newer content under
+    // the same identifier is kept rather than deleted.
+    discard: (
+      target: string | (() => string),
+      {
+        onlyIfEmpty = false,
+        expected,
+      }: Readonly<{ onlyIfEmpty?: boolean; expected?: () => Draft }> = {},
+    ) =>
       runLogged(
         removing(
           typeof target === 'string' ? () => target : target,
           generation,
-          onlyIfEmpty,
+          {
+            onlyIfEmpty,
+            expected,
+          },
         ),
       ),
   };

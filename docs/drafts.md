@@ -16,6 +16,9 @@ Drafts mailbox, and Drafts do not synchronize to other devices yet.
   place of the reader in a Mac window. Each Mac window has one composer.
   While starting that Draft is pending, **New Message** is disabled; repeated
   presses create one Draft. Refused navigation leaves it available to try again.
+  A destination chosen while creation waits stays selected. An abandoned empty
+  Draft is removed; selecting the new Draft's row or another editor adding content
+  keeps it available.
 - **Drafts** are listed in the Inbox column apart from received mail, newest edit
   first. Each row is labelled `DRAFT` and names its subject, recipients and sending
   mailbox. A **From** line always shows the sending address, followed by a
@@ -86,7 +89,7 @@ close and Mac **Quit** currently have the separate native limitations below.
 Closing a Draft with no recipients, subject or
 body text discards it only if no other window has completed its content. **Discard**
 asks before deleting a Draft from this device.
-If another storage writer edited the same Draft since it was opened, a stale
+If another window or storage writer edited the same Draft since it was opened, a stale
 Discard preserves that writer's completed version in the Drafts list.
 Opening **Account**, switching to another Draft, starting **New Message**, or selecting received mail
 also finishes recipient entry and waits for saving; invalid entry or a save failure
@@ -168,6 +171,9 @@ followed by text editing; these remain component integration evidence.
 Host regressions also cover repeated New Message presses during a held save and
 visible and accessible recipient roles in Bcc-only and mixed-role Draft rows,
 including a visible From address alongside a non-empty body preview.
+They also cover later destinations and selecting the new Draft's row while
+creation is pending, preserving content added to an abandoned Draft, and a
+successful Discard queued behind autosave with a late native text callback.
 Mobile deletion regressions use the post-edit caret to preserve the remaining
 character's marks with or without a key event; they do not qualify native keyboard,
 dictation, autocorrection or IME behavior.

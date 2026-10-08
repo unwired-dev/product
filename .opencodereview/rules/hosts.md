@@ -27,6 +27,10 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   but while persistence is pending otherwise creates another blank Draft. Check
   refused leaving, failed storage and owner/unmount changes without resetting
   an in-flight latch merely because the component rendered again.
+  Use the shared creation coordinator so later accepted navigation wins while
+  the newly selected Draft survives cleanup. Draft selection must name its
+  destination to that coordinator; a row becomes selectable before creation
+  finishes, so an empty selected composer must not be treated as abandoned.
 
 - Mobile `Editor` treating `onKeyPress` Backspace as physical deletion direction,
   or absence of that event as Forward Delete. Trace the installed iOS delegate,
@@ -136,6 +140,11 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   history, the authored ref and subsequent Close/reopen, or visible accepted edits
   disappear. Cancelled confirmation must leave saving enabled; a completed own
   discard must suppress queued callbacks so they cannot recreate its Draft.
+  Freeze the accepted Discard content while allowing its identity and conflict
+  metadata to follow earlier queued saves. A text event accepted while saving
+  is suppressed must not change the expected deletion content; otherwise waiting
+  behind autosave makes the editor's own stored Draft look like another writer's
+  version and closes the composer without discarding it.
 
 - `src/mailbox.tsx.useSavedBodies` refreshing derived cache-status labels only
   after query, scope or reader events. Subscribe while results are shown to the
