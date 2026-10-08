@@ -178,7 +178,10 @@ const idle: TranslationState = { kind: 'idle' };
 
 // One mounted owner's translation store. Unmounting cancels it and forgets its result before
 // passive effects, and only the committed store may start the native request.
-function useTranslation(input: TranslationInput | undefined) {
+function useTranslation(
+  input: TranslationInput | undefined,
+  isCurrent: () => boolean = () => true,
+) {
   const translation = use(TranslationContext);
   const [owner, setOwner] = useState(() => ({
     translation,
@@ -200,22 +203,30 @@ function useTranslation(input: TranslationInput | undefined) {
   const state = useSyncExternalStore(store.subscribe, () =>
     input === undefined ? idle : store.getSnapshot(input),
   );
+  const current = () => committed.current === store && isCurrent();
   const start = (next: TranslationInput | undefined) => {
-    if (next !== undefined && committed.current === store) {
+    if (next !== undefined && current()) {
       void store.start(next);
     }
   };
+  const currentResult = () =>
+    current() && input !== undefined && store.getSnapshot(input) === state;
+  const retry = () => {
+    if (currentResult()) {
+      start(input);
+    }
+  };
+  const cancel = () => {
+    if (currentResult()) {
+      store.cancel();
+    }
+  };
   const accept = (apply: (text: string) => void) => {
-    if (
-      committed.current === store &&
-      input !== undefined &&
-      state.kind === 'ready' &&
-      store.getSnapshot(input) === state
-    ) {
+    if (currentResult() && state.kind === 'ready') {
       apply(state.text);
     }
   };
-  return { store, state, start, accept };
+  return { store, state, start, retry, cancel, accept };
 }
 
 // The language named by its code, as the device lists it.
@@ -278,14 +289,12 @@ function Outcome({
 // The language choice, progress and outcome for one captured input, above the owner's actions.
 function TranslationPanel({
   label,
-  input,
   target,
   onTarget,
   translation,
   actions,
 }: {
   readonly label: string;
-  readonly input: TranslationInput | undefined;
   readonly target: TranslationLanguage | undefined;
   readonly onTarget: (language: TranslationLanguage) => void;
   readonly translation: ReturnType<typeof useTranslation>;
@@ -294,7 +303,7 @@ function TranslationPanel({
   const colors = usePalette();
   const { t } = useLocalization();
   const languages = useLanguages(use(TranslationContext));
-  const { store, state, start } = translation;
+  const { state, retry, cancel } = translation;
   return (
     <View
       accessibilityLabel={label}
@@ -314,7 +323,7 @@ function TranslationPanel({
             label={t('common.cancel')}
             accessibilityLabel={t('translation.cancelLabel')}
             onPress={() => {
-              store.cancel();
+              cancel();
             }}
           />
         </View>
@@ -337,7 +346,7 @@ function TranslationPanel({
             label={t('common.retry')}
             accessibilityLabel={t('translation.retryLabel')}
             onPress={() => {
-              start(input);
+              retry();
             }}
           />
         ) : null}
@@ -349,21 +358,29 @@ function TranslationPanel({
 
 function ReaderTranslation({ body }: { readonly body: string }) {
   const { t } = useLocalization();
-  const [open, setOpen] = useState(false);
+  // Each open panel owns its queued native input; dismissal retires it before rendering.
+  const session = useRef(0);
+  const generation = session.current;
+  const [open, setOpen] = useState<number>();
   const [target, setTarget] = useState<TranslationLanguage>();
   const input =
     target === undefined
       ? undefined
       : messageTranslationInput(body, target.code);
-  const translation = useTranslation(input);
-  if (!open) {
+  const current = () => open !== undefined && open === session.current;
+  const translation = useTranslation(input, current);
+  if (open === undefined) {
     return (
       <View style={styles.row}>
         <Action
           label={t('translation.translate')}
           accessibilityLabel={t('translation.translateMessageLabel')}
           onPress={() => {
-            setOpen(true);
+            if (generation !== session.current) {
+              return;
+            }
+            session.current += 1;
+            setOpen(session.current);
           }}
         />
       </View>
@@ -372,9 +389,11 @@ function ReaderTranslation({ body }: { readonly body: string }) {
   return (
     <TranslationPanel
       label={t('translation.messageRegion')}
-      input={input}
       target={target}
       onTarget={(language) => {
+        if (!current()) {
+          return;
+        }
         setTarget(language);
         translation.start(messageTranslationInput(body, language.code));
       }}
@@ -384,9 +403,13 @@ function ReaderTranslation({ body }: { readonly body: string }) {
           label={t('translation.dismiss')}
           accessibilityLabel={t('translation.dismissLabel')}
           onPress={() => {
+            if (!current()) {
+              return;
+            }
+            session.current += 1;
             translation.store.discard();
             setTarget(undefined);
-            setOpen(false);
+            setOpen(undefined);
           }}
         />
       }
@@ -480,7 +503,6 @@ export function DraftTranslation({
   return (
     <TranslationPanel
       label={t('translation.draftRegion')}
-      input={input}
       target={target}
       onTarget={(language) => {
         setTarget(language);

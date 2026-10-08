@@ -9,7 +9,7 @@ import {
   createMockMailSession,
   syntheticTranslation,
 } from '@private-email/mail-core/testing/mock-session';
-import { fireEvent, render, screen } from '@testing-library/react-native';
+import { act, fireEvent, render, screen } from '@testing-library/react-native';
 
 import { InboxProvider } from '../src/mailbox.tsx';
 import { GmailMessageBody } from '../src/message-body.tsx';
@@ -100,6 +100,21 @@ async function openReader(translation: NativeTranslation) {
   };
 }
 
+// Retain the rendered callback to model native input delivered after its panel closes.
+const queuedPress = (label: string) => {
+  let fiber = screen.getByLabelText(label).unstable_fiber;
+  while (fiber !== null) {
+    const handler = fiber.memoizedProps?.onPress;
+    if (typeof handler === 'function') {
+      return () => {
+        handler();
+      };
+    }
+    fiber = fiber.return;
+  }
+  throw new Error('Expected a rendered press handler');
+};
+
 const translateInto = async (language: string) => {
   await fireEvent.press(
     await screen.findByRole('radio', { name: `Translate into ${language}` }),
@@ -151,6 +166,71 @@ describe('on-device translation in the reader', () => {
       await app.unmount();
     }
   });
+
+  it.each([
+    { action: 'target', label: 'Translate into German' },
+    { action: 'retry', label: 'Translate again' },
+  ])(
+    'rejects queued $action input after reader dismissal or request replacement',
+    async ({ label }) => {
+      expect.hasAssertions();
+      const { native, asked, cancelled } = scriptedTranslation();
+      const { app } = await openReader(native);
+      try {
+        await fireEvent.press(screen.getByLabelText('Translate this message'));
+        await translateInto('Spanish');
+        const oldCancel = queuedPress('Cancel translation');
+        await fireEvent.press(screen.getByLabelText('Cancel translation'));
+        await screen.findByText('Translation cancelled.');
+        const oldAction = queuedPress(label);
+        const oldDismiss = queuedPress('Dismiss translation');
+        await act(() => {
+          oldDismiss();
+          oldAction();
+        });
+        await screen.findByLabelText('Translate this message');
+        expect(asked).toHaveLength(1);
+
+        // Reopening is a new session; input retained from the old one cannot affect it.
+        await fireEvent.press(screen.getByLabelText('Translate this message'));
+        await screen.findByRole('radio', { name: 'Translate into German' });
+        expect(screen.queryByLabelText('Translate again')).toBeNull();
+        expect(screen.queryByLabelText('Cancel translation')).toBeNull();
+        await translateInto('German');
+        await act(() => {
+          oldAction();
+          oldCancel();
+          oldDismiss();
+        });
+        expect(asked).toHaveLength(2);
+        expect(cancelled).toStrictEqual([asked[0]?.request]);
+        // An old Cancel or Retry within this session cannot replace the next language's request.
+        const supersededCancel = queuedPress('Cancel translation');
+        await fireEvent.press(screen.getByLabelText('Cancel translation'));
+        await screen.findByText('Translation cancelled.');
+        const supersededRetry = queuedPress('Translate again');
+        await translateInto('Spanish');
+        await act(() => {
+          supersededRetry();
+          supersededCancel();
+        });
+        expect(asked).toHaveLength(3);
+        expect(cancelled).toStrictEqual([asked[0]?.request, asked[1]?.request]);
+        asked[2]?.answer.resolve({
+          source: 'en',
+          text: 'Frische Übersetzung.',
+        });
+        await expect(
+          screen.findByText('Frische Übersetzung.'),
+        ).resolves.toBeOnTheScreen();
+        expect(
+          screen.getByText('Please confirm the venue by Friday.'),
+        ).toBeOnTheScreen();
+      } finally {
+        await app.unmount();
+      }
+    },
+  );
 
   it('explains an uninstalled language without downloading and keeps mail readable', async () => {
     expect.hasAssertions();

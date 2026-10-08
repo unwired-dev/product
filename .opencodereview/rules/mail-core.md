@@ -99,6 +99,13 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Product behavior the stores own
 
+- `translation.ts.draftReplacement` or a composer applying the trimmed preview
+  directly through `semantic-document.ts.replaceSelection`, losing the captured
+  selection's leading or trailing whitespace. Preserve that boundary whitespace
+  around the translated text; preview normalization must not join neighbouring
+  words or remove selected boundary line breaks. Check both hosts' accepted Draft
+  edit, including a selection ending in a space before an unselected word.
+
 - `semantic-document.ts.replaceSelection` assigning all translated lines the first
   selected block's kind. Preserve corresponding mixed list/heading/quote kinds
   when line breaks remain, and preserve a partially selected final block's kind

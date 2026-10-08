@@ -13,6 +13,14 @@ A host owns views and native adapters. It renders shared stores from `@private-e
 
 #### React correctness
 
+- `translation.tsx.ReaderTranslation` hiding a dismissed panel while leaving its
+  queued language, Retry, Cancel or Dismiss callbacks authorized by the mounted
+  store. Retire the open session synchronously and check that exact session
+  before acting, including after reopening the same message. Check the live
+  store's exact result before Retry or Cancel within that session too; a target
+  change retires the previous request's controls. Otherwise stale input starts
+  hidden inference or replaces, cancels or closes a later translation.
+
 - `translation.tsx.DraftTranslation` accepting captured ready text without checking
   the live store's exact result and committed owner, or `composer.tsx` invalidating
   the captured selection only after rendering. Recheck acceptance after a target

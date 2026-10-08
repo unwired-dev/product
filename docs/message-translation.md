@@ -36,6 +36,8 @@ fallback and nothing is downloaded by the app.
   attachments and delivery state are never changed.
 - A Draft selection longer than 6,000 characters is not cut, because applying the
   translation replaces the whole selection; the panel asks for a shorter selection.
+- Dismissed reader controls cannot restart translation or affect a later preview.
+  Cancel and Retry controls from an earlier request cannot affect its replacement.
 - While Translation works, the panel shows progress and **Cancel**. Cancelling
   stops the native request; a result that still arrives is dropped.
 - A result belongs to the input it was requested for. Opening another message,

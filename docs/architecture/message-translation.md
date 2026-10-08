@@ -23,6 +23,20 @@ checks the current ready result at acceptance, while the composer synchronously
 invalidates its captured selection when its body changes or review closes.
 Undo returning to the same body object cannot restore that invalidated capture.
 
+The ready result trims native output for presentation. At Draft acceptance, both
+composers call the shared `draftReplacement` with the captured selection text and
+the reviewed result before `replaceSelection`. It restores the selection's own
+leading and trailing whitespace around the trimmed translation, keeping adjacent
+words and boundary line breaks intact without changing the preview. The existing
+selection-ownership checks and single history edit still govern replacement.
+
+Reader dismissal also retires the open panel's session synchronously. Language
+choices and store starts check that session; Cancel and Dismiss from an old panel
+cannot affect a later opening of the same reader. The mounted store's lifetime
+alone does not authorize input from a dismissed panel.
+Retry and Cancel also recheck the live store's exact snapshot, preventing queued
+controls for a superseded target from restarting or cancelling its replacement.
+
 ## Decisions and evidence
 
 [ADR 0052](../adr/0052-keep-mail-assistance-on-device-and-input-bound.md),
