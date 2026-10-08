@@ -363,7 +363,8 @@ const ImportedSchema = Schema.Struct({
   ),
   digest: Schema.String.check(Schema.isPattern(/^[\da-f]{64}$/u)),
 });
-const PreviewSchema = Schema.Struct({
+const PreviewSchema = Schema.Struct({ uri: Schema.NonEmptyString });
+const VerificationSchema = Schema.Struct({
   uri: Schema.optionalKey(Schema.NonEmptyString),
 });
 
@@ -1253,7 +1254,7 @@ export function createDrafts(
             type: asset.type,
             preview,
           }),
-        PreviewSchema,
+        preview ? PreviewSchema : VerificationSchema,
       );
       return uri === undefined ? { kind: 'verified' } : { kind: 'ready', uri };
     },

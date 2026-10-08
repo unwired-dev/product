@@ -1899,6 +1899,14 @@ describe('adding files and images to Drafts', () => {
     await expect(
       drafts.readAsset(kept, { preview: false }),
     ).resolves.toStrictEqual({ kind: 'verified' });
+    // An empty verification reply cannot stand in for requested image bytes.
+    const read = vi
+      .spyOn(storage.native, 'readDraftAsset')
+      .mockResolvedValueOnce({});
+    await expect(drafts.readAsset(kept)).resolves.toStrictEqual({
+      kind: 'damaged',
+    });
+    read.mockRestore();
     // Damaged bytes and bytes the device lost read as unavailable, never as the file.
     storage.damage(kept.id);
     await expect(drafts.readAsset(kept)).resolves.toStrictEqual({
