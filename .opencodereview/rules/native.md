@@ -146,6 +146,13 @@ This code owns what TypeScript must never hold: Keychain items, the storage encr
 
 #### AppKit host
 
+- `AttachmentPresenter` installing a controller only through `NSResponder.nextResponder`
+  or a Quick Look data source, both unretained references. Give each window's
+  controller an explicit strong owner through its active lifetime; on close,
+  restore owned responder links, detach its panel data source and release its
+  observer and owner. Check identities before teardown so another window's preview
+  remains intact; otherwise AppKit messages a dangling controller or a closed
+  window retains presentation state indefinitely.
 - Window identity, menu routing or lifetime moved out of AppKit; more than one React factory or JavaScript runtime per process; a window root that survives its window; Quit that leaves work running or closing the last window that terminates the app.
 - An entitlement, sandbox exception, `Info.plist` privacy key or `PrivacyInfo.xcprivacy` entry added or broadened without the feature that needs it.
 - A deployment target lowered, or a newer API used without the availability the target requires.

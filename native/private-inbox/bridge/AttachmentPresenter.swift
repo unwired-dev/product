@@ -56,6 +56,37 @@ import Foundation
   import Quartz
 
   @MainActor enum AttachmentPresenter {
+    // `nextResponder` does not retain, so each window's controller is owned here until the window
+    // closes, when the window's original responder chain is restored.
+    private static var controllers: [ObjectIdentifier: PreviewController] = [:]
+
+    private static func controller(for window: NSWindow) -> PreviewController {
+      let key = ObjectIdentifier(window)
+      if let current = controllers[key] { return current }
+      let controller = PreviewController()
+      controller.nextResponder = window.nextResponder
+      window.nextResponder = controller
+      controllers[key] = controller
+      controller.closing = NotificationCenter.default.addObserver(
+        forName: NSWindow.willCloseNotification, object: window, queue: .main
+      ) { [weak window] _ in
+        MainActor.assumeIsolated {
+          guard let window, let owned = controllers.removeValue(forKey: key) else { return }
+          if window.nextResponder === owned { window.nextResponder = owned.nextResponder }
+          owned.url = nil
+          // The panel's data source does not retain the controller either.
+          if QLPreviewPanel.sharedPreviewPanelExists(), let panel = QLPreviewPanel.shared(),
+            (panel.dataSource as AnyObject?) === owned
+          {
+            panel.dataSource = nil
+            panel.orderOut(nil)
+          }
+          if let closing = owned.closing { NotificationCenter.default.removeObserver(closing) }
+        }
+      }
+      return controller
+    }
+
     static func present(_ url: URL, share: Bool) -> Bool {
       guard let window = NSApp.keyWindow ?? NSApp.mainWindow, let view = window.contentView
       else { return false }
@@ -66,15 +97,7 @@ import Foundation
         return true
       }
       // The Quick Look panel asks the responder chain for its controller.
-      let controller: PreviewController
-      if let current = window.nextResponder as? PreviewController {
-        controller = current
-      } else {
-        controller = PreviewController()
-        controller.nextResponder = window.nextResponder
-        window.nextResponder = controller
-      }
-      controller.url = url
+      controller(for: window).url = url
       guard let panel = QLPreviewPanel.shared() else { return false }
       panel.updateController()
       panel.reloadData()
@@ -85,6 +108,7 @@ import Foundation
 
   final class PreviewController: NSResponder, QLPreviewPanelDataSource {
     var url: URL?
+    var closing: (any NSObjectProtocol)?
 
     override func acceptsPreviewPanelControl(_ panel: QLPreviewPanel!) -> Bool { url != nil }
     override func beginPreviewPanelControl(_ panel: QLPreviewPanel!) { panel.dataSource = self }

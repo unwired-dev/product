@@ -334,7 +334,8 @@ Private Application Support files are grouped by connection and opaque UUID, wit
 a confined filename, iOS complete protection and backup exclusion. The 250 MiB
 store evicts least recently used files; preview refreshes their modification date.
 Files have shorter ownership than the encrypted body: the last reader closing,
-Inbox removal or owner invalidation discards them. Connection/account removal
+the message leaving the Inbox, or the Inbox closing or changing owner discards
+them. Connection/account removal
 attempts attachment cleanup even when another cache removal fails. Before exposing
 the shared registration store, launch clears previous-process files off the main
 actor and fails closed if cleanup fails. A post-write authorization rejection also

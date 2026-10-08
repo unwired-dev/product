@@ -306,6 +306,52 @@ describe('received attachments', () => {
     await refresh;
   });
 
+  it('drops a downloaded file when a refresh changes its attachment at the same position', async () => {
+    expect.hasAssertions();
+    const { gmail, id, inbox } = await opened({
+      content: {
+        text: 'Report attached.',
+        attachments: [
+          {
+            filename: 'report.pdf',
+            mimeType: 'application/pdf',
+            bytes: report,
+          },
+        ],
+      },
+    });
+    const notes = locatorOf(inbox, id, 'notes.txt');
+    const pdf = locatorOf(inbox, id, 'report.pdf');
+    await inbox.downloadAttachment(id, notes);
+    await inbox.downloadAttachment(id, pdf);
+    expect(gmail.savedFiles.size).toBe(2);
+
+    // The refreshed body names another file at the report's position.
+    await gmail.native.commitMessageBody(
+      { address: 'alex@example.invalid', generation: '0' },
+      id,
+      {
+        document: cachedBody(gmail, id).replace(
+          '"name":"report.pdf"',
+          '"name":"report-v2.pdf"',
+        ),
+        tier: 'opened',
+        protectedIds: [],
+      },
+    );
+    await inbox.readMessage(id, { refresh: true });
+
+    expect(stateOf(inbox, id, 'report-v2.pdf')).toStrictEqual({
+      kind: 'available',
+    });
+    expect(stateOf(inbox, id, 'notes.txt')).toStrictEqual({
+      kind: 'downloaded',
+    });
+    expect(
+      [...gmail.savedFiles.values()].map(({ name }) => name),
+    ).toStrictEqual(['notes.txt']);
+  });
+
   it('downloads again when the saved file is gone, and forgets downloads with the Inbox', async () => {
     expect.hasAssertions();
     const { gmail, id, inbox } = await opened();

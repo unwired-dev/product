@@ -479,6 +479,16 @@ const downloadFailure = (kind: SyncFailure['kind']): AttachmentFailure => {
   return kind === 'retry' ? 'download' : 'failed';
 };
 
+type AttachmentDescriptor = NonNullable<BodyDocument['attachments']>[number];
+const sameAttachment = (
+  left: AttachmentDescriptor,
+  right: AttachmentDescriptor,
+) =>
+  left.locator === right.locator &&
+  left.name === right.name &&
+  left.mimeType === right.mimeType &&
+  left.size === right.size;
+
 const attachmentMetadata = (payload: GmailPart) =>
   receivedAttachments(payload).map(({ locator, name, mimeType, size }) => ({
     locator,
@@ -1478,7 +1488,28 @@ export function createGmailInbox(
     return presentation(document, visibleImages);
   };
 
+  // A refreshed body keeps a download only while its attachment's descriptor is unchanged; a
+  // changed or removed attachment at the same position loses its saved file.
+  const discardChangedDownloads = (id: string, document: BodyDocument) => {
+    const previous = documents.get(id)?.attachments ?? [];
+    const kept = new Set(
+      (document.attachments ?? [])
+        .filter((next) =>
+          previous.some((before) => sameAttachment(before, next)),
+        )
+        .map(({ locator }) => locator),
+    );
+    for (const [key, download] of downloads) {
+      if (key.startsWith(`${id}\n`) && !kept.has(key.slice(id.length + 1))) {
+        downloads.delete(key);
+        download.abort?.abort();
+        discardSaved(download.saved);
+      }
+    }
+  };
+
   const prepareReaders = (id: string, document: BodyDocument) => {
+    discardChangedDownloads(id, document);
     documents.set(id, document);
     attachmentViews.delete(id);
     const count = legacyReaders.get(id) ?? 0;
