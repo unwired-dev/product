@@ -70,7 +70,8 @@ export function createSyntheticDrafts(
     Readonly<{
       source: PickSource;
       files: ReadonlyArray<
-        Readonly<{ uri: string; name: string; type: string }>
+        | Readonly<{ uri: string; name: string; type: string }>
+        | Readonly<{ name: string; type: string; oversized: 'true' }>
       >;
     }>
   > = [];
@@ -82,6 +83,9 @@ export function createSyntheticDrafts(
       const [, data] =
         /^data:[^,]*;base64,(?<data>.*)$/u.exec(source.uri) ?? [];
       return data === undefined ? undefined : atob(data);
+    }
+    if (source.kind === 'oversized') {
+      return undefined;
     }
     return files.get(source.kind === 'received' ? source.file : source.uri);
   };
@@ -202,7 +206,8 @@ export function createSyntheticDrafts(
     pickNext: (
       source: PickSource,
       chosen: ReadonlyArray<
-        Readonly<{ uri: string; name: string; type: string }>
+        | Readonly<{ uri: string; name: string; type: string }>
+        | Readonly<{ name: string; type: string; oversized: 'true' }>
       >,
     ) => {
       picks.push({ source, files: chosen });

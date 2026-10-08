@@ -2016,11 +2016,31 @@ describe('adding files and images to Drafts', () => {
       })),
     );
     await expect(drafts.pick('files')).resolves.toHaveLength(20);
+    // A file over the per-file limit is listed without a copy and fails as too large.
+    storage.pickNext('photos', [
+      { name: 'huge.heic', type: 'image/heic', oversized: 'true' },
+    ]);
+    const [huge] = await drafts.pick('photos');
+    expect(huge).toStrictEqual({
+      name: 'huge.heic',
+      type: 'image/heic',
+      source: { kind: 'oversized' },
+    });
     expect(storage.discardedPicks()).toStrictEqual([
       'file:///20.txt',
       'file:///21.txt',
       'file:///22.txt',
     ]);
+    // Adding it fails at once as too large, without asking native code to read it.
+    const target = present(await drafts.create(alex), 'a Draft');
+    await drafts.attach(target, [present(huge, 'the oversized pick')]);
+    await vi.waitFor(() => {
+      expect(
+        assetsOf(
+          present(draftOf(drafts.getSnapshot(), target), 'the Draft'),
+        )[0],
+      ).toMatchObject({ state: 'failed', reason: 'too-large' });
+    });
     storage.pickNext('photos', [
       { uri: 'file:///a.png', name: 'a.png', type: 'image/png' },
     ]);

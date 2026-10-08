@@ -10,6 +10,20 @@ import UniformTypeIdentifiers
 private let pickLimit = 20
 
 // The MIME type comes from the type the source declared when it has one, then the extension.
+// A file over the per-file limit is listed, so the composer can say it is too large, but it is
+// never copied.
+private func isOversized(_ url: URL) -> Bool {
+  (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize).flatMap { $0 }
+    .map { $0 > PrivateInboxStore.draftAssetLimit } ?? false
+}
+
+private func oversizedFile(_ url: URL, name: String, type: UTType? = nil) -> [String: String] {
+  var file = pickedFile(url, name: name, type: type)
+  file["uri"] = nil
+  file["oversized"] = "true"
+  return file
+}
+
 private func pickedFile(_ url: URL, name: String? = nil, type declared: UTType? = nil)
   -> [String: String]
 {
@@ -147,6 +161,10 @@ private func pickedFile(_ url: URL, name: String? = nil, type declared: UTType? 
             let name =
               fileExtension.isEmpty || !URL(fileURLWithPath: base).pathExtension.isEmpty
               ? base : "\(base).\(fileExtension)"
+            guard !isOversized(url) else {
+              continuation.resume(returning: oversizedFile(url, name: name, type: declared))
+              return
+            }
             let target = try DraftFilePicker.destination(name)
             do {
               try FileManager.default.copyItem(at: url, to: target)
@@ -182,6 +200,11 @@ private func pickedFile(_ url: URL, name: String? = nil, type declared: UTType? 
                 try? FileManager.default.removeItem(at: url)
               }
               for url in urls.prefix(pickLimit) {
+                guard !isOversized(url) else {
+                  files.append(oversizedFile(url, name: url.lastPathComponent))
+                  try? FileManager.default.removeItem(at: url)
+                  continue
+                }
                 let target = try DraftFilePicker.destination(url.lastPathComponent)
                 do {
                   try FileManager.default.moveItem(at: url, to: target)

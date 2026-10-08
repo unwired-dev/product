@@ -169,7 +169,8 @@ state instead of leaving another hidden Draft behind. One file
 may be up to 25 MiB, and all Drafts and their files share the **Outgoing Content
 Store**'s 100 MB on this device; a file over either limit is refused rather than
 evicting anything. One pick, paste or drop adds at most 20 files; the rest of a
-larger selection is not added. A file whose import fails is deleted at once, even
+larger selection is not added. A picked or pasted file over 25 MiB is listed as too large
+without being copied. A file whose import fails is deleted at once, even
 if native code had already stored its bytes.
 
 Editing in the composer while an import finishes neither loses the edit nor

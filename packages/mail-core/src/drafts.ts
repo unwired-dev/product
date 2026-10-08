@@ -325,6 +325,8 @@ export const withAsset = (
 // Downloaded Attachment, read through its own mailbox generation. A Draft keeps only the bytes.
 export type AssetSource =
   | Readonly<{ kind: 'file' | 'data'; uri: string }>
+  // A picked file over the per-file limit, which native code did not copy.
+  | Readonly<{ kind: 'oversized' }>
   | Readonly<{
       kind: 'received';
       mailbox: Readonly<{
@@ -349,11 +351,19 @@ export type AssetPreview =
   | Readonly<{ kind: 'verified' | 'missing' | 'damaged' | 'locked' }>;
 
 const PickedSchema = Schema.Array(
-  Schema.Struct({
-    uri: Schema.NonEmptyString,
-    name: Schema.String,
-    type: Schema.String,
-  }),
+  Schema.Union([
+    Schema.Struct({
+      uri: Schema.NonEmptyString,
+      name: Schema.String,
+      type: Schema.String,
+    }),
+    // Over the per-file limit: listed so it shows as too large, but never copied.
+    Schema.Struct({
+      name: Schema.String,
+      type: Schema.String,
+      oversized: Schema.Literal('true'),
+    }),
+  ]),
 );
 const ImportedSchema = Schema.Struct({
   owner: Schema.NonEmptyString,
@@ -1186,6 +1196,19 @@ export function createDrafts(
       if (account === undefined || importing.has(asset.id)) {
         return;
       }
+      if (source.kind === 'oversized') {
+        return yield* settle(
+          current,
+          asset.id,
+          finished(({ id, name, type }) => ({
+            id,
+            name,
+            type,
+            state: 'failed',
+            reason: 'too-large',
+          })),
+        );
+      }
       setImporting(asset.id, true);
       const outcome = yield* Effect.result(
         native(
@@ -1366,7 +1389,9 @@ export function createDrafts(
             yield* Effect.tryPromise({
               try: () =>
                 storage.discardPickedDraftFiles(
-                  files.slice(kept.length).map(({ uri }) => uri),
+                  files
+                    .slice(kept.length)
+                    .flatMap((file) => ('uri' in file ? [file.uri] : [])),
                 ),
               catch: failureOf,
             });
@@ -1374,10 +1399,13 @@ export function createDrafts(
           return kept;
         }).pipe(
           Effect.map((files) =>
-            files.map(({ uri, name, type }): PickedFile => ({
-              name,
-              type,
-              source: { kind: 'file', uri },
+            files.map((file): PickedFile => ({
+              name: file.name,
+              type: file.type,
+              source:
+                'uri' in file
+                  ? { kind: 'file', uri: file.uri }
+                  : { kind: 'oversized' },
             })),
           ),
           // oxlint-disable-next-line promise/prefer-await-to-callbacks -- Effect's typed error channel.
