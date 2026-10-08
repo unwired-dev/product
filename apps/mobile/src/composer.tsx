@@ -871,22 +871,24 @@ function Editor({
     discarded.current = true;
     lifetime.current.finishing += 1;
     let removed = false;
+    // The content Discard froze, following any conflict rebind that lands before deletion runs.
+    const baseline = () =>
+      previous.id === authored.current.id
+        ? previous
+        : { ...previous, id: authored.current.id, conflict: true as const };
     try {
-      // The target follows any conflict rebind that lands before deletion runs.
       removed = await store.discard(() => authored.current.id, {
         // Discard suppresses later autosaves; freeze its content while following any rebind.
-        expected: () =>
-          previous.id === authored.current.id
-            ? previous
-            : { ...previous, id: authored.current.id, conflict: true },
+        expected: baseline,
       });
     } catch {
       // An unexpected storage rejection leaves the editor retryable too.
     }
     if (!removed) {
       discarded.current = false;
+      // Edits accepted meanwhile follow the same version, so they save as one sequential edit.
       if (authored.current !== previous) {
-        void store.update(authored.current, previous, rebind);
+        void store.update(authored.current, baseline(), rebind);
       }
     }
     // A failed discard may have rebound its restored edit; release after that update.

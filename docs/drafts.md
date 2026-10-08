@@ -103,7 +103,9 @@ keeps the current composer open. A failed discard keeps the Draft visible and ca
 be retried. A concurrent save from another storage writer is recovered once;
 closing an empty stale composer preserves that writer's completed Draft and
 finishes with **Saved on this device**. Edits accepted while discard was pending stay available for saving and
-reopening. An unexpected failure while leaving keeps the composer open and allows
+reopening. When a pending save moved the editor to a conflict copy, edits accepted
+while a failed discard waited save into that same copy without an extra conflict
+Draft. An unexpected failure while leaving keeps the composer open and allows
 another attempt. Drafts and received mail share the Inbox column's scroll surface.
 If saving failed or private storage became locked, the Inbox also says that Draft
 changes are not saved and offers **Save Drafts**. Keep the app open until saving
@@ -178,7 +180,8 @@ before a render preserve the latest authored fields through Close and relaunch.
 Storage regressions cover copy-identifier collisions
 between writers and rebinding after failed saving and Retry.
 They also cover Discard queued behind an autosave that moves its editor to a
-conflict copy. Component regressions exercise repeated Undo and Redo before a
+conflict copy, including failed deletion after a late edit, with exactly the other
+writer's version and the edited copy retained after reopening storage. Component regressions exercise repeated Undo and Redo before a
 render, including durable Close and reopen.
 They also cover clean stale discard, empty-only recovery's final saving status,
 deletion-target rebinding during recovery, and bounded retry failures. Batched

@@ -156,6 +156,13 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   is suppressed must not change the expected deletion content; otherwise waiting
   behind autosave makes the editor's own stored Draft look like another writer's
   version and closes the composer without discarding it.
+  On failure or rejection, restore late edits against that same frozen content
+  rebound to the editor's current identity and conflict metadata, including
+  repeated rebinds. Passing the original identity as `store.update`'s baseline
+  after its edit moved creates an extra conflict Draft instead of updating the
+  existing copy. Do not normalize arbitrary mismatched baselines inside the
+  store without evidence that they belong to the same editor/version; identity
+  and conflict metadata are part of its content-equality contract.
 
 - `src/mailbox.tsx.useSavedBodies` refreshing derived cache-status labels only
   after query, scope or reader events. Subscribe while results are shown to the

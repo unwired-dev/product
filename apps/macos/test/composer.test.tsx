@@ -1158,6 +1158,67 @@ describe('composing Drafts', () => {
     ]);
   });
 
+  it('keeps a late edit as one conflict copy when its Discard behind a rebinding autosave fails', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    let refusing = false;
+    // Storage refuses the deletion that would remove this editor's conflict copy.
+    const drafts = createDrafts(
+      {
+        ...storage.native,
+        commitDrafts: async (owner, revision, document) => {
+          // oxlint-disable-next-line vitest/no-conditional-in-test -- Storage refuses only the armed deletion.
+          if (refusing && !document.includes('Discard me')) {
+            refusing = false;
+            throw Object.assign(new Error('locked'), { code: 'locked' });
+          }
+          return storage.native.commitDrafts(owner, revision, document);
+        },
+      },
+      registration,
+    );
+    await render(
+      <StrictMode>
+        <App
+          drafts={drafts}
+          registration={registration}
+        />
+      </StrictMode>,
+    );
+    await press('New Message');
+    const [before] = draftsOf(drafts.getSnapshot());
+    ok(before !== undefined);
+    const otherWriter = createDrafts(storage.native, registration);
+    await otherWriter.load();
+    await otherWriter.update({ ...before, subject: 'Other writer' }, before);
+    storage.hold();
+    await fireEvent.changeText(screen.getByLabelText('Subject'), 'Discard me');
+    await press('Discard');
+    await press('Discard Draft');
+    refusing = true;
+    // A native text event accepted while Discard waits.
+    await fireEvent.changeText(screen.getByLabelText('Subject'), 'Late edit');
+    await act(async () => {
+      storage.release();
+      await drafts.save();
+    });
+    expect(
+      screen.getByText(
+        'This Draft could not be discarded, so it stays open. Try again.',
+      ),
+    ).toBeOnTheScreen();
+    const reopened = createDrafts(storage.native, registration);
+    await reopened.load();
+    const subjects = draftsOf(reopened.getSnapshot()).map(
+      ({ subject }) => subject,
+    );
+    expect(subjects).toHaveLength(2);
+    expect(subjects).toStrictEqual(
+      expect.arrayContaining(['Late edit', 'Other writer']),
+    );
+  });
+
   it('finishes discarding its conflict copy after the composer unmounts', async () => {
     expect.hasAssertions();
     const registration = account(connected(['alex@example.invalid']));
