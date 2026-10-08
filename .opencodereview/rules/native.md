@@ -146,6 +146,14 @@ This code owns what TypeScript must never hold: Keychain items, the storage encr
 
 #### Attachment presentation
 
+- `UnwiredRegistration.presentAttachment` resolving the presentation window after
+  gate/storage suspension, or `AttachmentPresenter` capturing a window without
+  routing Quick Look's shared panel through that window's responder chain. Capture
+  the native origin before those waits, anchor sharing to its view, and verify
+  Quick Look acquired its controller before acknowledging presentation. Refuse a
+  closed/hidden origin or an inactive UIKit scene without selecting another window;
+  otherwise focus changes disclose one reader's file in another window, show the
+  wrong preview, or strand a presentation lease after false success.
 - `AttachmentPresenter` or `UnwiredRegistration` ending file ownership at reader
   unmount while Quick Look or a share service still consumes its URL. Keep each
   presentation's data source/delegate strongly owned until its own completion,

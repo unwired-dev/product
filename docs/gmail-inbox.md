@@ -716,7 +716,7 @@ the encrypted body cache retains only attachment descriptors.
 - **Open and share.** A **Downloaded Attachment** offers **Open** and **Share**.
   **Open** shows the system **Attachment Preview** with Quick Look
   (`QLPreviewController` on iPhone and iPad, the Quick Look panel on Mac). Quick
-  Look never launches another app or runs the file. **Share** opens the system share
+  Look never launches another app or runs the file. On Mac, changing focus while the file is being prepared does not move its preview or share sheet to another window. If that window closes, presentation is refused. **Share** opens the system share
   sheet (`UIActivityViewController`, or `NSSharingServicePicker` on Mac) with only
   that file. If the file is gone, the row offers **Download** again.
 
@@ -874,6 +874,9 @@ store. The #610 rendered journeys list a message's attachments, download, open a
 share one, cancel a slow download, retry after Gmail fails, and delete the file when
 the reader closes. The native Quick Look and share-sheet presentation, and a packaged
 attachment journey, remain deferred: no packaged journey downloads an attachment yet.
+Before release, check delayed **Open** and **Share** requests while another Mac
+window gains focus, the original window closes, or the iPhone/iPad app moves into
+the background during file preparation.
 The owner-approved isolated client-world measurement and bounded all-reference
 CID loading satisfy the amended requirements. Component tests exercise height
 events and fallback; they do not alone prove native content-world isolation.

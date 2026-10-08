@@ -4,14 +4,41 @@ import Foundation
 // file without launching another app or running it; sharing hands only this file to the chosen
 // service. `ended` runs once when the system no longer needs the file, so its owner can defer
 // deleting it until then.
+
+// The window whose reader asked for the presentation, captured when the request arrives so a
+// later focus change cannot move the preview or share sheet into another window.
+#if os(iOS)
+  import UIKit
+  typealias PresentationWindow = UIWindow
+#elseif os(macOS)
+  import AppKit
+  typealias PresentationWindow = NSWindow
+#endif
+@MainActor final class PresentationOrigin {
+  weak var window: PresentationWindow?
+  init(_ window: PresentationWindow?) { self.window = window }
+}
+
 #if os(iOS)
   import QuickLook
   import UIKit
 
   @MainActor enum AttachmentPresenter {
-    static func present(_ url: URL, share: Bool, ended: @escaping @MainActor () -> Void) -> Bool {
-      guard let presenter = topController(), !presenter.isBeingPresented,
-        !presenter.isBeingDismissed, presenter.viewIfLoaded?.window != nil
+    static func origin() -> PresentationOrigin {
+      let scene = UIApplication.shared.connectedScenes
+        .compactMap { $0 as? UIWindowScene }
+        .first { $0.activationState == .foregroundActive }
+      return PresentationOrigin(scene?.keyWindow)
+    }
+
+    static func present(
+      _ url: URL, share: Bool, from origin: PresentationOrigin,
+      ended: @escaping @MainActor () -> Void
+    ) -> Bool {
+      guard let window = origin.window, !window.isHidden,
+        window.windowScene?.activationState == .foregroundActive,
+        let presenter = topController(in: window), !presenter.isBeingPresented,
+        !presenter.isBeingDismissed, presenter.viewIfLoaded?.window === window
       else { return false }
       if share {
         let sheet = UIActivityViewController(activityItems: [url], applicationActivities: nil)
@@ -37,11 +64,8 @@ import Foundation
       return true
     }
 
-    private static func topController() -> UIViewController? {
-      let scene = UIApplication.shared.connectedScenes
-        .compactMap { $0 as? UIWindowScene }
-        .first { $0.activationState == .foregroundActive }
-      var controller = scene?.keyWindow?.rootViewController
+    private static func topController(in window: UIWindow?) -> UIViewController? {
+      var controller = window?.rootViewController
       while let presented = controller?.presentedViewController { controller = presented }
       return controller
     }
@@ -110,8 +134,15 @@ import Foundation
       return controller
     }
 
-    static func present(_ url: URL, share: Bool, ended: @escaping @MainActor () -> Void) -> Bool {
-      guard let window = NSApp.keyWindow ?? NSApp.mainWindow, let view = window.contentView
+    static func origin() -> PresentationOrigin {
+      PresentationOrigin(NSApp.keyWindow ?? NSApp.mainWindow)
+    }
+
+    static func present(
+      _ url: URL, share: Bool, from origin: PresentationOrigin,
+      ended: @escaping @MainActor () -> Void
+    ) -> Bool {
+      guard let window = origin.window, window.isVisible, let view = window.contentView
       else { return false }
       if share {
         let picker = NSSharingServicePicker(items: [url])
@@ -127,9 +158,17 @@ import Foundation
         return true
       }
       guard let panel = QLPreviewPanel.shared() else { return false }
-      // The Quick Look panel asks the responder chain for its controller.
-      controller(for: window).show(url, ended: ended)
+      // The shared panel negotiates through the active window's responder chain.
+      window.makeKeyAndOrderFront(nil)
+      window.makeMain()
+      let preview = controller(for: window)
+      preview.show(url, ended: nil)
       panel.updateController()
+      guard (panel.currentController as AnyObject?) === preview else {
+        preview.show(nil, ended: nil)
+        return false
+      }
+      preview.show(url, ended: ended)
       panel.reloadData()
       panel.makeKeyAndOrderFront(nil)
       return true

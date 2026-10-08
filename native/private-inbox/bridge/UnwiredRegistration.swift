@@ -774,13 +774,25 @@ extension UnwiredRegistration {
     _ scope: [String: Any], file: String, action: String,
     resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
   ) {
+    // The initiating window is captured before waiting for the gate or storage.
+    DispatchQueue.main.async {
+      let origin = AttachmentPresenter.origin()
+      self.presentAttachment(
+        scope, file: file, action: action, from: origin, resolve: resolve, reject: reject)
+    }
+  }
+
+  @MainActor private func presentAttachment(
+    _ scope: [String: Any], file: String, action: String, from origin: PresentationOrigin,
+    resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+  ) {
     mailbox("presentAttachment", resolve, reject: reject) {
       let (connection, address, generation) = try Self.scope(scope)
       guard action == "open" || action == "share" else { throw RegistrationError.unavailable }
       let url = try await $0.attachmentFile(
         connection: connection, address: address, generation: generation, file: file)
       Self.presentedAttachments[file, default: 0] += 1
-      let presented = AttachmentPresenter.present(url, share: action == "share") {
+      let presented = AttachmentPresenter.present(url, share: action == "share", from: origin) {
         Self.endPresentation(file)
       }
       guard presented else {
