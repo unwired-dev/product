@@ -437,6 +437,25 @@ export const safeFilename = (name: string) => {
   return prefix.join('') + extension;
 };
 
+// Leaf parts with their child-index locators, never descending into attached messages.
+const attachmentLeaves = (
+  part: GmailPart,
+  locator: readonly number[],
+): ReadonlyArray<Readonly<{ part: GmailPart; locator: readonly number[] }>> => {
+  if (mimeType(part) === 'message/rfc822') {
+    return [];
+  }
+  const children = part.parts ?? [];
+  return children.length === 0
+    ? [{ part, locator }]
+    : children.flatMap((child, index) =>
+        attachmentLeaves(child, [...locator, index]),
+      );
+};
+
+const namedOrAttached = (part: GmailPart) =>
+  (part.filename ?? '') !== '' || isAttachment(part);
+
 // Received attachments in MIME order, located by child indexes from the payload: named or
 // attachment-disposition leaves outside attached messages, except the readable body and the
 // inline images its HTML can resolve.
@@ -447,43 +466,19 @@ export function receivedAttachments(payload: GmailPart) {
     ...(text === undefined ? [] : [text]),
     ...inlineImageParts(path).values(),
   ]);
-  const found: Array<
-    Readonly<{
-      locator: string;
-      name: string;
-      mimeType: string;
-      size: number;
-      part: GmailPart;
-    }>
-  > = [];
-  const visit = (part: GmailPart, locator: readonly number[]) => {
-    if (mimeType(part) === 'message/rfc822') {
-      return;
-    }
-    const children = part.parts ?? [];
-    if (children.length > 0) {
-      for (const [index, child] of children.entries()) {
-        visit(child, [...locator, index]);
-      }
-      return;
-    }
-    if (
-      body.has(part) ||
-      part.body === undefined ||
-      ((part.filename ?? '') === '' && !isAttachment(part))
-    ) {
-      return;
-    }
-    found.push({
-      locator: locator.join('.'),
-      name: safeFilename(part.filename ?? ''),
-      mimeType: mimeType(part) || 'application/octet-stream',
-      size: part.body.size,
-      part,
-    });
-  };
-  visit(payload, [0]);
-  return found;
+  return attachmentLeaves(payload, [0]).flatMap(({ part, locator }) =>
+    body.has(part) || part.body === undefined || !namedOrAttached(part)
+      ? []
+      : [
+          {
+            locator: locator.join('.'),
+            name: safeFilename(part.filename ?? ''),
+            mimeType: mimeType(part) || 'application/octet-stream',
+            size: part.body.size,
+            part,
+          },
+        ],
+  );
 }
 
 const mimeToken = "[!#$%&'*+.^_`|~0-9A-Za-z-]+";
