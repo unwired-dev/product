@@ -419,6 +419,17 @@ describe('received attachments', () => {
     expect([
       safeFilename(`${'a'.repeat(200)}.docx`),
       safeFilename(`${'📎'.repeat(100)}.pdf`),
-    ]).toStrictEqual([`${'a'.repeat(115)}.docx`, `${'📎'.repeat(62)}.pdf`]);
+      // A real extension too long to keep never exposes an earlier one.
+      safeFilename(`${'a'.repeat(116)}.pdf${'b'.repeat(10)}.${'x'.repeat(17)}`),
+      // The byte bound can require shortening even below 120 characters.
+      safeFilename(
+        `${'文'.repeat(83)}ab.pdf${'b'.repeat(10)}.${'x'.repeat(17)}`,
+      ),
+    ]).toStrictEqual([
+      `${'a'.repeat(115)}.docx`,
+      `${'📎'.repeat(62)}.pdf`,
+      `${'a'.repeat(116)}_pdf`,
+      `${'文'.repeat(83)}ab_pdf`,
+    ]);
   });
 });

@@ -84,6 +84,12 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Product behavior the stores own
 
+- `message-body.ts.safeFilename` shortening a name without its actual final suffix
+  while retaining dots that can expose an earlier suffix as the saved extension.
+  Preserve the final suffix within both the character and UTF-8 byte bounds, or
+  use a dot-free neutral shortened name; trace the displayed descriptor through
+  native saving. Otherwise an untrusted attachment can appear to be a different
+  file type after truncation, including when only the byte bound is exceeded.
 - `createGmailInbox.prepareReaders` replacing attachment descriptors while retaining
   download state by message ID and positional locator alone. Reconcile derived
   state against the complete descriptor (locator, name, MIME type and size),

@@ -692,10 +692,12 @@ the encrypted body cache retains only attachment descriptors.
   attachment-disposition parts outside the readable body. Inline Images the body
   resolves are not listed. Attached messages are not offered for download. Rows appear 20 at a time, with **Show N more** for the rest, so a message with thousands of parts stays usable.
 - **Names.** Names drop path separators, control and direction-override characters
-  and leading dots, and are shortened to 120 characters and 255 UTF-8 bytes while
-  keeping the extension.
-  An empty name becomes `attachment`. The same name is shown and saved, so a name
-  cannot disguise its real extension.
+  and leading dots, and are shortened to 120 characters and 255 UTF-8 bytes.
+  Shortening keeps the final suffix when it has 1–16 characters without dots or
+  spaces; otherwise dots in the shortened name become underscores, so an earlier
+  suffix cannot become the file extension. An empty name becomes `attachment`.
+  The shortened name is shown in the list and used as the saved filename, with
+  surrounding whitespace removed on save.
 - **Download.** **Download** reads the message again from that attachment's
   mailbox, at that mailbox's current generation. It downloads the attachment only if
   its position, name, type and size are unchanged. The download counts against the

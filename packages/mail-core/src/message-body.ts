@@ -395,7 +395,8 @@ const filenameBytes = (character: string) => {
 };
 
 // A name that is safe to show and to use as a file name: no path separators, control or
-// direction-overriding characters, no leading dot, and a bounded length that keeps the extension.
+// direction-overriding characters, no leading dot, and a bounded length that cannot expose
+// an earlier extension when the real one cannot be kept.
 export const safeFilename = (name: string) => {
   const cleaned = name
     .normalize('NFC')
@@ -434,7 +435,12 @@ export const safeFilename = (name: string) => {
     prefix.push(character);
     bytes += filenameBytes(character);
   }
-  return prefix.join('') + extension;
+  // Without its real extension, a shortened name must not end in an earlier one.
+  return (
+    (extension === ''
+      ? prefix.join('').replaceAll('.', '_')
+      : prefix.join('')) + extension
+  );
 };
 
 // Leaf parts with their child-index locators, never descending into attached messages.
