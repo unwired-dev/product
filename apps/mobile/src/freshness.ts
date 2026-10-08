@@ -16,8 +16,14 @@ const task = 'dev.unwired.mail.gmail-freshness';
 // force-quit. Each opportunity verifies registration, then resumes every mailbox from its
 // committed checkpoint; activation catches up on whatever none of them reached.
 defineTask(task, async () => {
-  await createFreshness(gmailMailboxes, registration.refreshInbox).refresh();
-  return BackgroundTaskResult.Success;
+  try {
+    await createFreshness(gmailMailboxes, registration.refreshInbox).refresh();
+    return BackgroundTaskResult.Success;
+  } catch {
+    // TaskManager would log the raw rejection, which can contain account data.
+    console.error('Gmail background refresh failed');
+    return BackgroundTaskResult.Failed;
+  }
 });
 
 export const scheduleGmailFreshness = async () => {

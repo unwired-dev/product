@@ -48,6 +48,14 @@ A host owns views and native adapters. It renders shared stores from `@private-e
 
 #### Platform behavior
 
+- A framework/OS-owned async executor, such as the `defineTask` callback in
+  `src/freshness.ts` or a notification handler, that lets a thrown failure or
+  rejected store action reach the framework's raw-error logger. Inspect the
+  installed executor's failure path; catch at the host callback, emit only a
+  fixed or allow-listed diagnostic, and fulfill its declared failure-result or
+  completion contract. Otherwise a native/provider error can expose account or
+  mail data even when application log calls are sanitized. Verify a private
+  rejection resolves as failure without logging its fields.
 - A pressable without an accessible role and name, text that does not scale with Dynamic Type, a color taken from a literal rather than the light/dark tokens in `mail-core`'s `theme`, or selection and focus shown by color alone.
 - A component library, navigation library or native module added to either host. Mobile uses Router's split view and React Native `StyleSheet`; the Mac host admits `react-native-webview` only, and adding another requires updating `apps/macos/scripts/verify-bundle.ts`.
 - Mac window identity, menu routing, focus or application lifetime handled in JavaScript. AppKit owns them; closing the last window keeps the app running.
