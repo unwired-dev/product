@@ -210,6 +210,10 @@ extension PrivateInboxTests {
     configuration.protocolClasses = [AttachmentHTTP.self]
     let session = URLSession(configuration: configuration)
     defer { session.invalidateAndCancel() }
+    let (status, bytes) = try await GmailTransport.send(
+      token: "synthetic-access", url: URL(string: "https://gmail.googleapis.com/chunked")!,
+      body: nil, session: session, limit: 4)
+    #expect(status == 200 && bytes == Data([1, 2, 3, 4]))
     for part in ["length", "chunked"] {
       await #expect(throws: RegistrationError.unavailable) {
         _ = try await GmailTransport.send(
@@ -227,5 +231,39 @@ extension PrivateInboxTests {
     transfer.cancel()
     await #expect(throws: CancellationError.self) { _ = try await transfer.value }
     _ = await AttachmentHTTP.stopped.stream.first { _ in true }
+
+    // A suspended task can finish cancellation before send installs its continuation.
+    let early = CancelledAttachmentResponse()
+    let cancelled = session.dataTask(with: URL(string: "https://gmail.googleapis.com/wait")!)
+    cancelled.delegate = early
+    cancelled.cancel()
+    _ = await early.completed.stream.first { _ in true }
+    await #expect {
+      let _: (Int, Data) = try await withCheckedThrowingContinuation { continuation in
+        early.receiver.start(continuation)
+        cancelled.resume()
+      }
+    } throws: { error in
+      (error as? URLError)?.code == .cancelled
+    }
+    let preCancelled = Task {
+      withUnsafeCurrentTask { $0?.cancel() }
+      return try await GmailTransport.send(
+        token: "synthetic-access", url: URL(string: "https://gmail.googleapis.com/wait")!,
+        body: nil, session: session)
+    }
+    await #expect(throws: CancellationError.self) { _ = try await preCancelled.value }
+  }
+}
+
+private final class CancelledAttachmentResponse: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+  let receiver = BoundedResponse(limit: 4)
+  let completed = AsyncStream<Void>.makeStream()
+
+  func urlSession(
+    _ session: URLSession, task: URLSessionTask, didCompleteWithError error: (any Error)?
+  ) {
+    receiver.urlSession(session, task: task, didCompleteWithError: error)
+    completed.continuation.yield(())
   }
 }

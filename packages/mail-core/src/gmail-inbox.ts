@@ -1916,12 +1916,8 @@ export function createGmailInbox(
     listedAttachment: NonNullable<BodyDocument['attachments']>[number],
   ) {
     const payload = yield* fullMessage(scope, id, [['format', 'full']]);
-    const current = receivedAttachments(payload).find(
-      (candidate) =>
-        candidate.locator === listedAttachment.locator &&
-        candidate.name === listedAttachment.name &&
-        candidate.mimeType === listedAttachment.mimeType &&
-        candidate.size === listedAttachment.size,
+    const current = receivedAttachments(payload).find((candidate) =>
+      sameAttachment(candidate, listedAttachment),
     );
     if (current === undefined) {
       return yield* new GmailNotFound();

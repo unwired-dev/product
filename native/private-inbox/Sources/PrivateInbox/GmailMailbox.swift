@@ -435,31 +435,19 @@ enum GmailTransport {
     }
     request.timeoutInterval = 30
     do {
-      let (bytes, response) = try await session.bytes(for: request, delegate: RefusingRedirects())
-      guard let response = response as? HTTPURLResponse else {
-        throw RegistrationError.unavailable
-      }
-      guard response.expectedContentLength <= limit else {
-        bytes.task.cancel()
-        throw RegistrationError.unavailable
-      }
-      var data = Data()
-      if response.expectedContentLength > 0, let length = Int(exactly: response.expectedContentLength) {
-        data.reserveCapacity(length)
-      }
-      do {
-        // Cancellation is checked per 64 KiB rather than per byte.
-        for try await byte in bytes {
-          guard data.count < limit else { throw RegistrationError.unavailable }
-          data.append(byte)
-          if data.count & 0xFFFF == 0 { try Task.checkCancellation() }
+      // Data arrives in URLSession's chunks, bounded as each one arrives, so a large response
+      // never costs one async iteration per byte while the operation gate is held.
+      let receiver = BoundedResponse(limit: limit)
+      let task = session.dataTask(with: request)
+      task.delegate = receiver
+      return try await withTaskCancellationHandler {
+        try await withCheckedThrowingContinuation { continuation in
+          receiver.start(continuation)
+          task.resume()
         }
-        try Task.checkCancellation()
-      } catch {
-        bytes.task.cancel()
-        throw error
+      } onCancel: {
+        task.cancel()
       }
-      return (response.statusCode, data)
     } catch let error as URLError where error.code == .cancelled {
       throw CancellationError()
     } catch is CancellationError {
@@ -470,11 +458,89 @@ enum GmailTransport {
   }
 }
 
-// Redirects must not carry a mailbox bearer token to another host.
-final class RefusingRedirects: NSObject, URLSessionTaskDelegate {
+// One response's status and body, refused once it exceeds the limit, whether its length is
+// declared or streamed.
+final class BoundedResponse: NSObject, URLSessionDataDelegate, @unchecked Sendable {
+  private let limit: Int
+  private let lock = NSLock()
+  private var status: Int?
+  private var data = Data()
+  private var overflow = false
+  private var continuation: CheckedContinuation<(Int, Data), any Error>?
+  private var completion: Result<(Int, Data), any Error>?
+
+  init(limit: Int) { self.limit = limit }
+
+  // Redirects must not carry a mailbox bearer token to another host.
   func urlSession(
     _ session: URLSession, task: URLSessionTask,
     willPerformHTTPRedirection response: HTTPURLResponse,
     newRequest request: URLRequest
   ) async -> URLRequest? { nil }
+
+  func start(_ continuation: CheckedContinuation<(Int, Data), any Error>) {
+    let completion: Result<(Int, Data), any Error>? = lock.withLock {
+      if let completion { return completion }
+      self.continuation = continuation
+      return nil
+    }
+    // Cancelling a suspended task can complete before its continuation is installed.
+    if let completion { continuation.resume(with: completion) }
+  }
+
+  func urlSession(
+    _ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse
+  ) async -> URLSession.ResponseDisposition {
+    lock.withLock {
+      guard let response = response as? HTTPURLResponse,
+        response.expectedContentLength <= limit
+      else {
+        overflow = true
+        return .cancel
+      }
+      status = response.statusCode
+      if response.expectedContentLength > 0,
+        let length = Int(exactly: response.expectedContentLength)
+      {
+        data.reserveCapacity(length)
+      }
+      return .allow
+    }
+  }
+
+  func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive chunk: Data) {
+    let refused = lock.withLock {
+      guard !overflow, data.count + chunk.count <= limit else {
+        overflow = true
+        return true
+      }
+      data.append(chunk)
+      return false
+    }
+    if refused { dataTask.cancel() }
+  }
+
+  func urlSession(
+    _ session: URLSession, task: URLSessionTask, didCompleteWithError error: (any Error)?
+  ) {
+    let (continuation, result): (CheckedContinuation<(Int, Data), any Error>?, Result<(Int, Data), any Error>) =
+      lock.withLock {
+        if let completion { return (nil, completion) }
+        let continuation = self.continuation
+        self.continuation = nil
+        let result: Result<(Int, Data), any Error>
+        if overflow {
+          result = .failure(RegistrationError.unavailable)
+        } else if let error {
+          result = .failure(error)
+        } else if let status {
+          result = .success((status, data))
+        } else {
+          result = .failure(RegistrationError.unavailable)
+        }
+        completion = result
+        return (continuation, result)
+      }
+    continuation?.resume(with: result)
+  }
 }

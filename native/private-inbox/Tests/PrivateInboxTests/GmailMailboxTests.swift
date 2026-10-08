@@ -90,7 +90,7 @@ extension PrivateInboxTests {
     _ = try await GmailTransport.send(
       token: "synthetic-access", url: transportURL, body: nil, session: session)
     #expect(ControlledGmailHTTP.probe.requests().last?.httpMethod == "GET")
-    let redirected = await RefusingRedirects().urlSession(
+    let redirected = await BoundedResponse(limit: 1).urlSession(
       session, task: session.dataTask(with: transportURL),
       willPerformHTTPRedirection: HTTPURLResponse(
         url: transportURL, statusCode: 302, httpVersion: "HTTP/1.1", headerFields: nil)!,

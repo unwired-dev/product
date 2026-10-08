@@ -712,8 +712,10 @@ reader's results do not qualify rich rendering, CID resolution or recent prefetc
 received **Attachments** below its body on iPhone, iPad and Mac. Each shows its name,
 size and availability. Listing makes no separate attachment request; prefetch never
 requests attachments. Gmail can include small attachment bytes in the full MIME
-response required to open a body. That response is bounded while receiving it, and
-the encrypted body cache retains only attachment descriptors.
+response required to open a body. Every Gmail Inbox response, including an attachment
+download, is refused once it exceeds 40 MiB while it is received, separately from the
+25 MiB attachment download limit below. The encrypted body cache retains only
+attachment descriptors.
 
 - **Listing.** The list comes from the message structure Gmail returns with the
   body and is kept with the encrypted body, so it also shows offline. A body cached

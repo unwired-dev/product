@@ -17,6 +17,13 @@ This code owns what TypeScript must never hold: Keychain items, the storage encr
 
 #### Bridge contract
 
+- `GmailTransport.send` consuming an allowed large response through one async
+  iterator step per byte while the shared `RegistrationOperationGate` is held.
+  Receive bounded chunks, reject declared and streamed overflow before retaining
+  it, preserve redirect refusal and cancel the owning transfer. Keep a terminal
+  result when a suspended task completes cancellation before its continuation is
+  registered, and settle once for either ordering; otherwise a near-limit attachment
+  stalls all mailbox/registration work or cancellation strands the gate indefinitely.
 - A positive revocation found by `RegistrationStore.prepareMailbox` converted to ordinary mailbox invalidation after successful purge. Trace both `UnwiredRegistration.openMailbox` and `commitMailbox` through the shared rejection mapper and `createGmailInbox` recovery: preserve `mailbox-revoked` and its account-page hand-off, while generation changes retain bounded invalidation recovery. Collapsing the two makes already-purged mail end in retry exhaustion and a generic failure instead of the removal explanation.
 - `RegistrationStore.purge` or Gmail reselection synchronously removing the
   mailbox/body directory or waiting for its file lock on the main actor. Await
