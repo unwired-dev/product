@@ -772,6 +772,36 @@ describe('storing Drafts', () => {
     );
   });
 
+  it('stops moving an editor released after a refused save, and keeps its edit', async () => {
+    expect.hasAssertions();
+    const session = account(connected('account-a'));
+    const storage = createSyntheticDrafts(session.productAccount);
+    const first = createDrafts(storage.native, session.registration);
+    await first.load();
+    const id = present(await first.create(alex), 'Draft');
+    const second = createDrafts(storage.native, session.registration);
+    await second.load();
+    const before = present(draftOf(second.getSnapshot(), id), 'shared Draft');
+    const moves: string[] = [];
+    const moved = (copy: string) => {
+      moves.push(copy);
+    };
+    storage.failNextCommit('locked');
+    await expect(
+      second.update({ ...before, subject: 'Closed window' }, before, moved),
+    ).resolves.toBe(false);
+    // The window closes while storage refused its edit; recovery later copies that edit.
+    second.release(moved);
+    await first.update({ ...before, subject: 'Other store' }, before);
+    await expect(second.save()).resolves.toBe(true);
+    expect(moves).toStrictEqual([]);
+    const reopened = createDrafts(storage.native, session.registration);
+    await reopened.load();
+    expect(
+      ready(reopened.getSnapshot()).drafts.map(({ subject }) => subject),
+    ).toStrictEqual(expect.arrayContaining(['Other store', 'Closed window']));
+  });
+
   it('moves every editor bound to an unsaved version when storage recovery copies it', async () => {
     expect.hasAssertions();
     const session = account(connected('account-a'));

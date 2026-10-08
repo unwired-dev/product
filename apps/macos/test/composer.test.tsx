@@ -98,11 +98,13 @@ function App({
   registration,
   drafts,
   openAccount = ignore,
+  onRebind = ignore,
   initialDraft,
 }: {
   readonly registration: ReturnType<typeof account>;
   readonly drafts: ReturnType<typeof createDrafts>;
   readonly openAccount?: () => void;
+  readonly onRebind?: (id: string) => void;
   readonly initialDraft?: string;
 }) {
   const { snapshot } = useSyncExternalStore(
@@ -148,7 +150,10 @@ function App({
             onClose={() => {
               setComposing(undefined);
             }}
-            onRebind={setComposing}
+            onRebind={(id) => {
+              setComposing(id);
+              onRebind(id);
+            }}
           />
         )}
       </InboxProvider>
@@ -1153,6 +1158,47 @@ describe('composing Drafts', () => {
     ]);
   });
 
+  it('finishes discarding its conflict copy after the composer unmounts', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    const moved: string[] = [];
+    const window = await render(
+      <StrictMode>
+        <App
+          drafts={drafts}
+          registration={registration}
+          onRebind={(id) => {
+            moved.push(id);
+          }}
+        />
+      </StrictMode>,
+    );
+    await press('New Message');
+    const [before] = draftsOf(drafts.getSnapshot());
+    ok(before !== undefined);
+    const otherWriter = createDrafts(storage.native, registration);
+    await otherWriter.load();
+    await otherWriter.update({ ...before, subject: 'Other writer' }, before);
+    storage.hold();
+    await fireEvent.changeText(screen.getByLabelText('Subject'), 'Discard me');
+    await press('Discard');
+    await press('Discard Draft');
+    // A native window close destroys the composer independently of its pending Discard.
+    await window.unmount();
+    await act(async () => {
+      storage.release();
+      await drafts.save();
+    });
+    expect(moved).toStrictEqual([]);
+    const reopened = createDrafts(storage.native, registration);
+    await reopened.load();
+    expect(draftsOf(reopened.getSnapshot())).toMatchObject([
+      { id: before.id, subject: 'Other writer' },
+    ]);
+  });
+
   it('lets a composer be left again after finishing it failed', async () => {
     expect.hasAssertions();
     const registration = account(connected(['alex@example.invalid']));
@@ -1383,10 +1429,14 @@ describe('composing Drafts', () => {
       const registration = account(connected(['alex@example.invalid']));
       const storage = createSyntheticDrafts(() => 'synthetic-product-account');
       const drafts = createDrafts(storage.native, registration);
+      const moved: string[] = [];
       const first = await render(
         <App
           drafts={drafts}
           registration={registration}
+          onRebind={(id) => {
+            moved.push(id);
+          }}
         />,
       );
       await press('New Message');
@@ -1394,6 +1444,10 @@ describe('composing Drafts', () => {
         await screen.findByLabelText('Subject'),
         'Kept',
       );
+      const [saved] = draftsOf(drafts.getSnapshot());
+      ok(saved !== undefined);
+      const otherWriter = createDrafts(storage.native, registration);
+      await otherWriter.load();
       storage.failNextCommit(failure);
       await fireEvent.changeText(
         await screen.findByLabelText('To'),
@@ -1401,6 +1455,7 @@ describe('composing Drafts', () => {
       );
       await expect(screen.findByText(unsaved)).resolves.toBeOnTheScreen();
       await first.unmount();
+      await otherWriter.update({ ...saved, subject: 'Other writer' }, saved);
       const inbox = await render(
         <App
           drafts={drafts}
@@ -1411,6 +1466,7 @@ describe('composing Drafts', () => {
       await expect(screen.findByText(unsaved)).resolves.toBeOnTheScreen();
       await press('Save Drafts');
       expect(screen.queryByText(unsaved)).not.toBeOnTheScreen();
+      expect(moved).toStrictEqual([]);
       await inbox.unmount();
       await render(
         <App
@@ -1418,7 +1474,9 @@ describe('composing Drafts', () => {
           registration={registration}
         />,
       );
-      await press('Draft. Kept. No recipients. From alex@example.invalid');
+      await press(
+        'Conflicting Draft. Kept. No recipients. From alex@example.invalid',
+      );
       expect(screen.getByLabelText('Subject')).toHaveDisplayValue('Kept');
       expect(screen.getByLabelText('To')).toHaveDisplayValue('unfinished');
     },

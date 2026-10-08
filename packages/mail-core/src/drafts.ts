@@ -928,6 +928,15 @@ export function createDrafts(
         },
       );
     },
+    // Stops moving an editor that unmounted; its unsaved edits stay in memory for the next save.
+    release: (moved: (id: string) => void) => {
+      for (const [id, bindings] of pendingMoves) {
+        bindings.delete(moved);
+        if (bindings.size === 0) {
+          pendingMoves.delete(id);
+        }
+      }
+    },
     // Deletes the Draft named by `target`, which a function resolves once earlier saves land.
     // `expected` is the version the discarding editor shows; another editor's newer content under
     // the same identifier is kept rather than deleted.

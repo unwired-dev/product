@@ -170,6 +170,12 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   Otherwise an editor can remain on, or return to, another writer's Draft and
   subsequently edit or discard that writer's content. Check host callback identity
   and unmount behavior before claiming one callback represents one live editor.
+  Release a closed editor's stable callback from every pending binding without
+  dropping its dirty Draft or another live editor's binding. A refused save can
+  otherwise retain its entire history and notify dead route/window owners on
+  later recovery. A pending Close or Discard still owns identity tracking until
+  its target resolution and any failed-discard restoration finish; releasing
+  that binding early can report successful Discard while saving its own copy.
 - `createDrafts.discard` publishing removal before the native commit succeeds.
   A failed deletion must leave the Draft visible and retryable rather than
   unmounting its editor and reporting completion while it can return after relaunch.

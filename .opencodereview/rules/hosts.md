@@ -13,6 +13,17 @@ A host owns views and native adapters. It renders shared stores from `@private-e
 
 #### React correctness
 
+- `Editor` keeping a new `rebind` callback for each parent `onRebind`, or releasing
+  identity tracking on unmount while Close or Discard still uses `authored.current`
+  to resolve a conflict copy. Keep one stable callback, read the committed owner
+  callback, and release it when its mounted editor and active finishing operations
+  no longer own it. After unmount, advance only the pending operation's authored
+  identity, without updating history or calling the route/window owner. Finish
+  failed-discard restoration before releasing, including refused/rejected saves,
+  and reset mounted bookkeeping on layout-effect setup for StrictMode replay.
+  Otherwise refused saving retains dead editors indefinitely, or a pending
+  Discard reports success while leaving its rebound version durable.
+
 - `Editor.close` catching failure only through `createComposerNavigation.leave`.
   The Close button also calls it directly as `void close()`: catch unexpected
   rejection from both `save` and empty-only `discard`, keep the editor open,

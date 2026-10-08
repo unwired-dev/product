@@ -208,6 +208,9 @@ window keeps unsaved changes in memory while the app runs, even after its last
 window closes. A pending autosave can still finish; if saving fails or storage is
 locked, every Inbox window, including a reopened one, shows the warning and
 **Save Drafts**. Unfinished recipient text is included when the Draft is saved.
+Closed composers stop following later conflict copies, while their unsaved edits
+remain available to **Save Drafts**. A confirmed Discard already waiting for a save
+still finishes against its own conflicting version after the window closes.
 Quitting before the latest changes are stored loses them, including while a save
 is pending, failed or locked. The warning and retry do not prevent close or Quit.
 Add and qualify native close and quit protection before release, covering

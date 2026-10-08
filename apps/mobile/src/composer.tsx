@@ -649,20 +649,45 @@ function Editor({
     };
   }, []);
   // Keeps editing, discarding and closing this editor's own version as its conflicting copy.
+  const lifetime = useRef({ mounted: true, finishing: 0 });
+  const onRebindNow = useRef(onRebind);
+  useLayoutEffect(() => {
+    onRebindNow.current = onRebind;
+  }, [onRebind]);
+  // One callback for this editor's lifetime, released when the editor and its operations finish.
   const rebind = useCallback(
     (id: string) => {
       const bound = (each: Draft): Draft => ({ ...each, id, conflict: true });
       authored.current = bound(authored.current);
-      commitHistory((current) => ({
-        ...current,
-        past: current.past.map(bound),
-        present: bound(current.present),
-        future: current.future.map(bound),
-      }));
-      onRebind(id);
+      if (lifetime.current.mounted) {
+        commitHistory((current) => ({
+          ...current,
+          past: current.past.map(bound),
+          present: bound(current.present),
+          future: current.future.map(bound),
+        }));
+        onRebindNow.current(id);
+      }
     },
-    [commitHistory, onRebind],
+    [commitHistory],
   );
+  useLayoutEffect(() => {
+    const { current } = lifetime;
+    current.mounted = true;
+    return () => {
+      current.mounted = false;
+      // A pending Close or Discard still resolves its target through authored.current.
+      if (current.finishing === 0) {
+        store.release(rebind);
+      }
+    };
+  }, [rebind, store]);
+  const finishOperation = useCallback(() => {
+    lifetime.current.finishing -= 1;
+    if (!lifetime.current.mounted && lifetime.current.finishing === 0) {
+      store.release(rebind);
+    }
+  }, [rebind, store]);
   const [selection, setSelection] = useState<Selection>({ start: 0, end: 0 });
   // The latest body selection, ahead of rendering, for text events that follow a caret move.
   const selectionNow = useRef(selection);
@@ -813,6 +838,7 @@ function Editor({
     }
     setClosing('saving');
     let closed = false;
+    lifetime.current.finishing += 1;
     try {
       closed = isEmptyDraft(finished)
         ? await store.discard(() => authored.current.id, {
@@ -823,13 +849,17 @@ function Editor({
     } catch {
       // An unexpected storage rejection keeps the composer open and retryable too.
     }
+    finishOperation();
+    if (!lifetime.current.mounted) {
+      return closed;
+    }
     if (closed) {
       onClose();
       return true;
     }
     setClosing('blocked');
     return false;
-  }, [commitHistory, keepIdentity, onClose, store, update]);
+  }, [commitHistory, finishOperation, keepIdentity, onClose, store, update]);
   const navigation = useComposerNavigation();
   useLayoutEffect(() => navigation.register(close), [navigation, close]);
   const discard = async () => {
@@ -839,6 +869,7 @@ function Editor({
     const previous = authored.current;
     setClosing('saving');
     discarded.current = true;
+    lifetime.current.finishing += 1;
     let removed = false;
     try {
       // The target follows any conflict rebind that lands before deletion runs.
@@ -857,10 +888,15 @@ function Editor({
       if (authored.current !== previous) {
         void store.update(authored.current, previous, rebind);
       }
-      setClosing('discard-blocked');
     }
-    if (removed) {
-      onClose();
+    // A failed discard may have rebound its restored edit; release after that update.
+    finishOperation();
+    if (lifetime.current.mounted) {
+      if (removed) {
+        onClose();
+      } else {
+        setClosing('discard-blocked');
+      }
     }
   };
   const active = typing ?? marksAt(draft.body, selection);

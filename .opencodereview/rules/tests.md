@@ -22,6 +22,12 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   while preserving the concurrent writer's content. Also exercise a callback
   switching to another pending version, including during notification, so a
   single-editor or content-only assertion cannot hide stale fanout bindings.
+  Exercise forced composer unmount during failed/locked-save recovery and while
+  confirmed Discard waits behind a held save. Reopen through a fresh store and
+  check that recovery keeps both unsaved versions without notifying the closed
+  owner, while pending Discard removes its own conflict copy and preserves the
+  other writer. A test that always leaves through durable Close cannot detect
+  a retained callback or premature identity release.
 
 - A host keyboard regression in `apps/{mobile,macos}/test/` that fires `keyDown` or `keyPress`
   directly without checking the installed native emitter, JavaScript wrapper and
