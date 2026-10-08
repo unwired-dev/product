@@ -46,6 +46,17 @@ Native storage owns what TypeScript must never hold: Keychain items, the storage
 
 #### Bridge contract
 
+- `DraftFilePicker` treating a protected staging directory as sufficient for a
+  moved document-picker copy or a copied Photos/pasteboard representation. Set
+  complete file protection on each staged plaintext file itself before returning
+  its URI; existing files can retain their source protection class after a move
+  or copy. A protection-setting failure must reject intake and remove the owned
+  target through the same failure cleanup as a failed copy or move. Trace every
+  app-owned staging write and preserve user originals and system-owned provider
+  lifetimes. Otherwise staged Draft bytes can remain readable while the device
+  is locked until import or launch cleanup; a Simulator build alone does not
+  qualify locked-device enforcement.
+
 - `RegistrationStore.importDraftAsset` accepting an arbitrary JavaScript file path
   as an alternative to the generation-checked received-attachment source. Admit
   only actual picker-owned copies or sandbox-granted external Mac files; reject
