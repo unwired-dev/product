@@ -144,7 +144,9 @@ tagged individually. App Store review submission stays manual in App Store Conne
 If pending changesets advance only backend packages, the version PR also
 advances both hosts by a patch, so merging it still selects a new TestFlight
 version. Changesets with empty headers alone do not open a version PR; they
-ride along with the next non-empty changeset.
+ride along with the next non-empty changeset. The workflow removes them from
+its checkout before the action runs, so one merged while a version PR is open
+cannot block that PR's release.
 
 The workflow uses the `GH_TOKEN` secret of the `main-token` environment, a
 fine-grained personal access token with contents and pull-request write access
