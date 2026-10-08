@@ -67,6 +67,7 @@ import {
 } from 'react';
 import {
   ActivityIndicator,
+  AppState,
   Image,
   Pressable,
   ScrollView,
@@ -698,7 +699,11 @@ const assetStatus = (
   }>,
 ) => {
   if (asset.state === 'complete') {
-    if (preview?.kind === 'damaged' || preview?.kind === 'missing') {
+    if (
+      preview?.kind === 'damaged' ||
+      preview?.kind === 'missing' ||
+      preview?.kind === 'locked'
+    ) {
       return t(`drafts.assets.status.${preview.kind}`, {
         size: size(asset.size),
       });
@@ -745,15 +750,45 @@ const transferred = (
   }));
 
 // A complete asset's bytes checked against its digest, read again when it completes or changes;
-// an inline image's are also returned to show.
+// an inline image's are also returned to show. A check refused while storage was locked runs
+// again when the app becomes active, or when asked.
 function usePreview(asset: Asset, inline: boolean) {
   const store = useDraftStore();
   const complete = asset.state === 'complete' ? asset : undefined;
   const id = complete?.id;
   const digest = complete?.digest;
   const type = complete?.type;
-  const [preview, setPreview] =
-    useState<Readonly<{ id: string; digest: string; preview: AssetPreview }>>();
+  const [preview, setPreview] = useState<
+    Readonly<{
+      id: string;
+      digest: string;
+      attempt: number;
+      preview: AssetPreview;
+    }>
+  >();
+  // Each retry reads again; the last finished read stays shown meanwhile.
+  const [attempt, setAttempt] = useState(0);
+  const retry = useCallback(() => {
+    setAttempt((current) => current + 1);
+  }, []);
+  const shown =
+    preview?.id === id && preview?.digest === digest
+      ? preview?.preview
+      : undefined;
+  const locked = shown?.kind === 'locked';
+  useEffect(() => {
+    if (!locked) {
+      return undefined;
+    }
+    const subscription = AppState.addEventListener('change', (next) => {
+      if (next === 'active') {
+        retry();
+      }
+    });
+    return () => {
+      subscription.remove();
+    };
+  }, [locked, retry]);
   useEffect(() => {
     if (id === undefined || digest === undefined || type === undefined) {
       return undefined;
@@ -765,17 +800,15 @@ function usePreview(asset: Asset, inline: boolean) {
         { preview: inline },
       );
       if (showing) {
-        setPreview({ id, digest, preview: next });
+        setPreview({ id, digest, attempt, preview: next });
       }
     };
     void read();
     return () => {
       showing = false;
     };
-  }, [store, id, digest, type, inline]);
-  return preview?.id === id && preview?.digest === digest
-    ? preview?.preview
-    : undefined;
+  }, [store, id, digest, type, inline, attempt]);
+  return { preview: shown, retry };
 }
 
 function AssetRow({
@@ -797,7 +830,7 @@ function AssetRow({
     () => new Intl.NumberFormat(settings.locale, { maximumFractionDigits: 1 }),
     [settings.locale],
   );
-  const preview = usePreview(asset, inline);
+  const { preview, retry } = usePreview(asset, inline);
   const status = assetStatus(t, (bytes) => fileSize(t, sizeFormat, bytes), {
     asset,
     running,
@@ -827,6 +860,15 @@ function AssetRow({
           {status}
         </Text>
       </View>
+      {preview?.kind === 'locked' ? (
+        <Action
+          accessibilityLabel={t('drafts.assets.retryLabel', {
+            name: asset.name,
+          })}
+          label={t('common.retry')}
+          onPress={retry}
+        />
+      ) : null}
       {running ? (
         <Action
           accessibilityLabel={t('drafts.assets.cancelLabel', {

@@ -155,7 +155,11 @@ not added are not sent. Only complete files can be sent: `unsendableAssets` in
 When the composer opens, it checks every complete file's bytes against their
 recorded digest; an attachment's bytes stay in native code, and only an inline
 image's are returned to show. Bytes that no longer verify show as **Damaged on
-this device**; bytes the device lost show as **No longer on this device**. One file
+this device**; bytes the device lost show as **No longer on this device**. A check
+refused while private storage is locked says so and offers **Try again**; it also
+runs again when the app returns to the foreground. **Attach to New Message** opens
+its Draft even when storage refuses the save, so the composer shows the unsaved
+state instead of leaving another hidden Draft behind. One file
 may be up to 25 MiB, and all Drafts and their files share the **Outgoing Content
 Store**'s 100 MB on this device; a file over either limit is refused rather than
 evicting anything. One pick, paste or drop adds at most 20 files; the rest of a

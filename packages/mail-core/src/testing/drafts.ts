@@ -54,6 +54,8 @@ export function createSyntheticDrafts(
   let failingImport: string | undefined = undefined;
   // Rejects the next import only after storing its bytes, as when the device locks meanwhile.
   let failingAfterWrite: string | undefined = undefined;
+  // While true, saves and reads are refused as on a locked device.
+  let locked = false;
   // Picked copies the store gave back, by URI.
   const discardedPicks: string[] = [];
   const assets = new Map<
@@ -113,6 +115,9 @@ export function createSyntheticDrafts(
         failing = undefined;
         return rejection(code);
       }
+      if (locked) {
+        return rejection('locked');
+      }
       if (owner !== account()) {
         return rejection('mailbox-invalidated');
       }
@@ -151,6 +156,9 @@ export function createSyntheticDrafts(
       return { owner, size: bytes.length, digest };
     },
     readDraftAsset: (owner, { id, digest, type, preview }) => {
+      if (locked) {
+        return rejection('locked');
+      }
       const asset = assets.get(id);
       if (asset === undefined) {
         return rejection('attachment-missing');
@@ -215,6 +223,10 @@ export function createSyntheticDrafts(
     },
     failNextImport: (code: string) => {
       failingImport = code;
+    },
+    // Locks or unlocks storage for every later save and read.
+    setLocked: (next: boolean) => {
+      locked = next;
     },
     failNextImportAfterWrite: (code: string) => {
       failingAfterWrite = code;

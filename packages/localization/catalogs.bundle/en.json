@@ -496,8 +496,10 @@
         "tooLarge": "Not added: too large for Drafts on this device",
         "failed": "Not added: the file could not be read or saved",
         "damaged": "{{size}} · Damaged on this device",
-        "missing": "{{size}} · No longer on this device"
-      }
+        "missing": "{{size}} · No longer on this device",
+        "locked": "{{size}} · Not checked while private storage is locked"
+      },
+      "retryLabel": "Check {{name}} again"
     }
   }
 }

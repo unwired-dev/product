@@ -2097,6 +2097,8 @@ describe('adding files and images to a Draft', () => {
     const [attachment] = saved.attachments;
     ok(attachment, 'Expected an attachment');
     storage.damage(attachment.id);
+    // Checks refused while storage is locked say so, and run again when asked.
+    storage.setLocked(true);
     await render(
       <App
         drafts={createDrafts(storage.native, registration)}
@@ -2104,6 +2106,14 @@ describe('adding files and images to a Draft', () => {
         registration={registration}
       />,
     );
+    await expect(
+      screen.findByLabelText(
+        'brief.txt, 5 bytes · Not checked while private storage is locked',
+      ),
+    ).resolves.toBeOnTheScreen();
+    storage.setLocked(false);
+    await press('Check brief.txt again');
+    await press('Check Pasted image.png again');
     await expect(
       screen.findByLabelText(
         'Pasted image.png, 5 bytes · Damaged on this device',
@@ -2166,13 +2176,21 @@ describe('adding files and images to a Draft', () => {
       />,
     );
     await press('Download invoice.pdf');
+    // Storage refusing the save still opens the one Draft that holds the attachment.
+    storage.setLocked(true);
     await press('Attach invoice.pdf to a new message');
     await expect(
-      screen.findByLabelText('invoice.pdf, 12 bytes'),
+      screen.findByLabelText(
+        'invoice.pdf, 12 bytes · Not checked while private storage is locked',
+      ),
     ).resolves.toBeOnTheScreen();
+    expect(draftsOf(drafts.getSnapshot())).toHaveLength(1);
+    expect(drafts.getSnapshot()).toMatchObject({ save: 'locked' });
+    storage.setLocked(false);
     await act(async () => {
       await drafts.save();
     });
+    expect(draftsOf(drafts.getSnapshot())).toHaveLength(1);
     const document = storage.stored()?.document;
     ok(document, 'Expected a stored Draft document');
     expect(document).toContain('invoice.pdf');

@@ -1301,7 +1301,8 @@ export function createDrafts(
         ),
       );
     },
-    // Attaches files to a Draft that no editor shows yet, such as a received attachment.
+    // Attaches files to a Draft that no editor shows yet, such as a received attachment. Resolves
+    // true once the Draft holds them, false when the Draft or its account is gone.
     attach: async (draft: string, files: readonly PickedFile[]) => {
       const current = generation;
       if (
@@ -1311,7 +1312,9 @@ export function createDrafts(
         return false;
       }
       const added = files.map((file) => ({ asset: prepare(file), file }));
-      const saved = await change((drafts) =>
+      // A refused save keeps the attachment in memory, as for any edit; the caller opens the Draft,
+      // whose composer reports the failed save, rather than leaving a hidden one behind.
+      await change((drafts) =>
         drafts.map((each) =>
           each.id === draft
             ? {
@@ -1330,7 +1333,7 @@ export function createDrafts(
       for (const { asset, file } of added) {
         void runLogged(importAsset(asset, file.source));
       }
-      return saved;
+      return true;
     },
     // Editors patch their history and return its Drafts so Undo retains newly completed bytes.
     onSettle: (
