@@ -200,7 +200,10 @@ export function createMailboxes(
     }
     return changed;
   };
-  const openNew = (open: readonly OpenMailbox[]) => {
+  const openNew = (
+    open: readonly OpenMailbox[],
+    mailboxLoading: 'automatic' | 'explicit',
+  ) => {
     const added = open.filter(({ id }) => !inboxes.has(id));
     for (const { id, address, owner } of added) {
       const inbox = createGmailInbox(bound(native, id), { removed, shared });
@@ -210,16 +213,16 @@ export function createMailboxes(
         inbox,
         unsubscribe: inbox.subscribe(notify),
       });
-      if (started) {
+      if (started && mailboxLoading === 'automatic') {
         void inbox.load();
       }
     }
     return added.length > 0;
   };
-  const follow = () => {
+  const follow = (mailboxLoading: 'automatic' | 'explicit' = 'automatic') => {
     const open = openMailboxes(registration.getSnapshot().snapshot);
     const closed = forgetClosed(open);
-    const opened = openNew(open);
+    const opened = openNew(open, mailboxLoading);
     const next = open.map(({ id }) => id);
     if (closed || opened || next.join('\n') !== order.join('\n')) {
       order = next;

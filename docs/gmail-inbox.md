@@ -142,8 +142,9 @@ Later synchronizations read Gmail history from the committed history ID and appl
 arrivals, deletions, archiving and read changes. If Gmail no longer has that
 history, the Inbox is listed again; the cached messages stay visible meanwhile,
 and messages that left the Inbox are removed when the new listing completes.
-Synchronization runs when the Inbox opens and whenever the app becomes active.
-Push and background refresh are later slices.
+Synchronization runs when the Inbox opens and whenever the app becomes active;
+see [Freshness across app lifecycles](#freshness-across-app-lifecycles) for
+background work.
 
 A rejected saved listing token starts a fresh listing. When a full cache loses an
 entry, a fresh listing admits the next older Inbox message. Unreadable cache
@@ -739,6 +740,36 @@ Packaged keyboard, VoiceOver, native WebKit isolation and real Gmail qualificati
 remain required under the protected checks below. The earlier structured-text
 reader's results do not qualify rich rendering, CID resolution or recent prefetch.
 
+## Freshness across app lifecycles
+
+The application, not a window or screen, owns Gmail synchronization
+([#617](https://github.com/unwired-dev/product/issues/617)).
+
+- **Mac.** Synchronization continues after the last window closes: every five
+  minutes the running app verifies registration and synchronizes every open mailbox, and a reopened window
+  shows the committed mail at once. Explicit Quit ends it with the process. No
+  helper process runs.
+- **iPhone and iPad.** A background task asks iOS for refresh opportunities at
+  most every 15 minutes. iOS decides whether and when each runs, and none runs
+  after the person force-quits the app or turns Background App Refresh off.
+  Each opportunity verifies registration before it reads Gmail. Becoming active
+  always catches up, so the app never depends on background time. While the app
+  stays active, a five-minute fallback poll keeps an open Inbox fresh; it stops
+  when the app leaves the foreground.
+- **Interrupted work.** Every opportunity resumes from each mailbox's committed
+  checkpoint. One that the system suspends or ends repeats at most its
+  uncommitted step, and the next activation catches up on mail it never reached.
+
+**Push wake hints** carry only an opaque route. The handler reads that route and
+synchronizes only its mailbox after registration verifies. It never decodes,
+keeps or logs Gmail's history ID or address, because the mailbox's checkpoint
+says where to resume. A malformed hint, a route this device does not know, or a
+route removed while verification runs, or whose mailbox was removed or needs Gmail again, reads nothing. Registering
+routes with Gmail and the Convex relay, and receiving APNs wake hints, belongs to
+[#781](https://github.com/unwired-dev/product/issues/781). Until then no device
+registers a route, and the Mac's five-minute interval is its only background
+trigger.
+
 ## Received attachments
 
 [#610](https://github.com/unwired-dev/product/issues/610) lists each opened message's
@@ -948,6 +979,43 @@ four across mailboxes, using explicit download-start signals; a single image bud
 across readers from different mailboxes, with independent release on removal. Rendered journeys on both hosts add a second mailbox, add the
 first again without duplicating it, switch between **All inboxes** and one mailbox,
 recover a refused mailbox while the other stays readable, and confirm a removal.
+
+The #617 shared tests drive two controlled Gmail mailboxes through application
+lifecycles:
+
+- the Mac interval synchronizing with no window open, and a reopened window
+  showing the result without a Gmail request, including recovery from cache-only
+  access after connectivity returns;
+- no Gmail request after Quit, and relaunch reading only history after the
+  committed checkpoint;
+- a background synchronization suspended after its first page, then foreground
+  catch-up after a missed wake, resuming from the committed page with no
+  duplicates;
+- a wake hint synchronizing only its routed mailbox, with its history ID neither
+  committed nor logged;
+- malformed, unknown-route and removed-mailbox hints reading nothing, including
+  a route removed while verification is pending.
+- a newly revealed unrelated connection remaining unloaded during valid or
+  invalidated routed verification, then synchronizing on foreground catch-up.
+
+The mobile host's headless-entry test loads its entry without mounting a Router
+layout, restores a saved synthetic mailbox and observes the resulting committed
+mail through the shared store. It also covers restricted scheduling and failure
+to register a background task without an unhandled rejection or private error log,
+a failed background refresh reporting failure with only a fixed diagnostic, and the
+five-minute active-app poll synchronizing the real stores from a controlled Gmail
+boundary while active, stopping in the background, resuming and disposing.
+
+During #617 review, a signed simulator Release build with the background-task
+modules passed the packaged synthetic open/read/relaunch journey on iPhone 18 Pro
+and iPad Pro 11-inch M5 with iOS 27.0. This verifies launch and persisted sample
+read state; simulator background tasks remain restricted.
+
+Real iOS background scheduling, APNs delivery and packaged Mac journeys with no
+window open are pre-release evidence.
+Native wake delivery in #781 also requires mounted-screen journeys while
+restored connections change. Shared-store tests do not qualify whether those
+host updates independently trigger synchronization of unrelated mailboxes.
 
 The #608 shared test searches two controlled mailboxes after an offline relaunch
 that opens only their saved Inboxes, with no Gmail request: word, case and accent

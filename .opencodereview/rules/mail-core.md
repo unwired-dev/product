@@ -50,7 +50,7 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   shared by every connection: the device-wide budget lets one connection evict
   another's body. Refused admission preserves membership. Otherwise derived
   saved-body status remains stale despite unchanged Inbox metadata.
-- `Effect.run*` anywhere except the single run of a host-facing store method through `runLogged`; in particular inside a service method, a callback passed back into Effect, or a loop.
+- `Effect.run*` anywhere except the single run of a host-facing store method through `runLogged`; in particular inside a service method or a callback passed back into Effect. A plain async scheduler may run independent Schedule steps through `runLogged`, then invoke Promise-returning store actions outside Effect; it must abort pending waits and prevent future actions when stopped. This exception does not permit wrapping store actions in another Effect run.
 - A helper that combines Promise-returning store methods, such as
   `mailboxes.ts.savedMessageBodies`, wrapping their host-facing runs in another
   `runLogged`/`Effect.run*`. Keep that composition plain async, or compose internal
@@ -98,6 +98,16 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 - A service identifier that does not follow `@private-email/<package>/<Name>`; identifiers key the context, and a collision silently resolves the wrong service.
 
 #### Product behavior the stores own
+
+- `createFreshness.wake` allowing registration verification to auto-load newly
+  revealed connections before its route is rechecked. Trace `Registration.refreshInbox`
+  publications and `createMailboxes` subscriptions, not just the selected load callback.
+  Scoped verification must update ownership and invalidate removed Inboxes without
+  dispatching unrelated provider reads; ordinary foreground and interactive loading
+  must remain usable. Do not coalesce differently scoped restores or suppress other
+  operations across an awaited global flag. Otherwise an ignored revoked wake still
+  synchronizes another mailbox. Cover membership revealed during verification, not
+  only connections already open before it.
 
 - `semantic-document.ts` expanding every block into per-code-unit editor objects
   on each keystroke, rebuilding unaffected blocks, or retaining expanded arrays

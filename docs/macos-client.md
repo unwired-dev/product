@@ -8,7 +8,8 @@ with AppKit windows and React Native macOS views. It reads the same synthetic
 mailbox as Expo through `@private-email/mail-core`, with
 [native encrypted read-state persistence](private-inbox-storage.md). Production
 registration now creates a Convex Product Account and authorizes Gmail through
-the native adapter. Mail synchronization and sending are later slices.
+the native adapter. Production mailboxes use [Gmail synchronization](gmail-inbox.md);
+sending is a later slice.
 
 Production launches offer [Apple](apple-registration.md) or [Google](google-registration.md)
 registration with separate Gmail consent. Either can later be [linked](linked-sign-in.md)
@@ -48,9 +49,11 @@ update all windows without changing their selections.
 | Dock/Finder reopen                     | Focus an existing Inbox or create one               |
 | Unwired Mail > Quit, Command-Q         | End the process                                     |
 
-Closing the final window keeps the application and its runtime alive. Explicit
-Quit stops application work; there is no separate helper. This slice establishes
-the host lifecycle, not real synchronization or queued delivery.
+Closing the final window keeps the application and its runtime alive, and Gmail
+synchronization continues without a window, as
+[Freshness across app lifecycles](gmail-inbox.md#freshness-across-app-lifecycles)
+describes. Explicit Quit stops application work; there is no separate helper.
+Queued delivery is a later slice.
 
 Native menus use AppKit accessibility. Message buttons expose labels and selected
 state, support keyboard focus, and show a focus border. React Native macOS 0.81.9 does
