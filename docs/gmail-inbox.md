@@ -815,8 +815,11 @@ that cannot fit without deleting a presented file fails and can be retried after
 the preview closes or the share ends.
 Removal, sign-out, deletion and relaunch delete it immediately.
 
+Attachment controls ignore input queued for a reader that has changed or closed,
+including a queued **Cancel** after another reader starts a new download.
 A file saved before the mailbox was verified again is not presented; the row offers
-**Download** again.
+**Download** again. If verification interrupts a download, the row also offers
+**Download** again without reporting a storage failure or automatically retrying.
 
 ## Mailbox Sync Status
 
@@ -978,8 +981,8 @@ reader and a row with Undo, closing the reader after a row removes its message, 
 device found removed reaching the account page's explanation, one announcement
 across two Mac windows, the account page round trip, and two Mac windows over one
 store. The #610 rendered journeys list a message's attachments, download, open and
-share one, cancel a slow download, retry after Gmail fails, and delete the file when
-the reader closes. The native Quick Look and share-sheet presentation, and a packaged
+share one, cancel a slow download, retry after Gmail fails, ignore queued Open and
+Cancel input after the reader changes, and delete the file when the reader closes. The native Quick Look and share-sheet presentation, and a packaged
 attachment journey, remain deferred: no packaged journey downloads an attachment yet.
 Before release, check delayed **Open** and **Share** requests while another Mac
 window gains focus, the original window closes, or the iPhone/iPad app moves into

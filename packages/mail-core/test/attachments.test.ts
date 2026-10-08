@@ -257,6 +257,24 @@ describe('received attachments', () => {
     expect(gmail.savedFiles.size).toBe(0);
   });
 
+  it('offers Download again when the mailbox generation changed during a download', async () => {
+    expect.hasAssertions();
+    const { gmail, id, inbox } = await opened();
+    const notes = locatorOf(inbox, id, 'notes.txt');
+    // A foreground verification renewed the mailbox while the file was being saved.
+    gmail.failSave('mailbox-invalidated');
+    await inbox.downloadAttachment(id, notes);
+    expect(stateOf(inbox, id, 'notes.txt')).toStrictEqual({
+      kind: 'available',
+    });
+    expect(gmail.savedFiles.size).toBe(0);
+    await inbox.downloadAttachment(id, notes);
+    expect(stateOf(inbox, id, 'notes.txt')).toStrictEqual({
+      kind: 'downloaded',
+    });
+    expect(gmail.savedFiles.size).toBe(1);
+  });
+
   it('retries an interrupted download and reports refused grants and removed messages', async () => {
     expect.hasAssertions();
     const { gmail, id, inbox } = await opened();

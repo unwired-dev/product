@@ -321,6 +321,11 @@ request, excluding readable parts, resolved inline images and all attached-messa
 subtrees. A download rereads the owning message and revalidates the part selector,
 name, MIME type and size. Only the verified connection and generation can save it;
 bytes never enter the encrypted body cache or Product Sync.
+Host attachment actions, including cancellation, reuse the committed reader/body
+predicate before calling the store, so queued input cannot present an old file or
+cancel a later reader's download. A native generation invalidation during reading
+or saving clears only the live download attempt and offers explicit reacquisition;
+owner/controller fences preserve replacement work.
 
 The native credentialed transport caps responses at 40 MiB while receiving them,
 including unknown-length responses. TypeScript validates base64url and the exact

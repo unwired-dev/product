@@ -155,6 +155,13 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 - Opening or selecting a message that changes its unread state. Only the explicit read/unread action persists a change, and it must update every subscribed view.
 - A store that reports a connected or ready inbox while mailbox authorization is missing, expired, stale or cancelled, rather than the resumable setup or reconnect state.
 - `createGmailInbox` treating a native `mailbox-invalidated` rejection as a terminal storage failure before bounded reopening of the committed cache through the registration gate. A successful same-mailbox foreground restore renews the native generation and must not hide usable cached mail. Reopening must preserve the `forget` publication fence after an ownership change or purge; recovery cannot resurrect the former owner's mail.
+- `createGmailInbox.downloadAttachment` mapping a native `mailbox-invalidated`
+  rejection from Gmail reading or private saving to an attachment storage failure.
+  Same-mailbox foreground verification can renew the generation without `forget`;
+  clear only the still-live attempt so the row offers an explicit Download again.
+  Preserve owner and exact controller fencing so a late invalidated attempt cannot
+  erase its replacement, and do not automatically redownload. Otherwise ordinary
+  generation renewal falsely reports device-storage failure or clears newer work.
 - Gmail HTTP 403 classification that treats documented usage-limit reasons (`dailyLimitExceeded`, `rateLimitExceeded`, `userRateLimitExceeded`) as missing mailbox authorization. A project quota or user rate limit requires retry presentation with cached mail retained; reauthorization cannot fix it.
 - Registration, enrollment or recovery state from one Product Account, device or deployment reused after the identity changes.
 - A `mailbox-revoked` rejection recovered as a storage failure claiming data was kept after native purge, or a registration handoff that infers revocation from every bare signed-out restore. The purging result establishes the reason; `deviceRemoved` must retain the explanation across ordinary foreground restores, fence it against accepted account changes and explicit removal, and preserve authoritative deletion notices. Otherwise a queued restore erases the explanation or a stale callback mislabels sign-out/deletion.

@@ -2055,9 +2055,14 @@ export function createGmailInbox(
               Effect.as(unavailable('authentication')),
             );
           }
+          // Work from an earlier mailbox generation failed for staleness, not storage; the row
+          // offers Download again.
+          if (kind === 'invalidated') {
+            return Effect.succeed('stale' as const);
+          }
           const reason = downloadFailure(kind);
           return (
-            kind === 'locked' || kind === 'invalidated'
+            kind === 'locked'
               ? Effect.void
               : Effect.logError('Attachment download failed:', diagnostic)
           ).pipe(Effect.as(unavailable(reason)));
@@ -2065,9 +2070,10 @@ export function createGmailInbox(
       }),
       Effect.flatMap((failure) =>
         Effect.sync(() => {
-          if (failure !== undefined && live()) {
-            setDownload(id, locator, failure);
+          if (failure === undefined || !live()) {
+            return;
           }
+          setDownload(id, locator, failure === 'stale' ? undefined : failure);
         }),
       ),
     );

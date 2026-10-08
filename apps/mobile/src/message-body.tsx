@@ -506,10 +506,13 @@ function AttachmentRow({
   inbox,
   id,
   attachment,
+  current,
 }: {
   readonly inbox: GmailInbox;
   readonly id: string;
   readonly attachment: ReceivedAttachment;
+  // False once native input from a previous reader arrives after the message changed.
+  readonly current: () => boolean;
 }) {
   const colors = usePalette();
   const { locator, name, size, state } = attachment;
@@ -521,7 +524,9 @@ function AttachmentRow({
         label="Download"
         accessibilityLabel={`Download ${name}`}
         onPress={() => {
-          void inbox.downloadAttachment(id, locator);
+          if (current()) {
+            void inbox.downloadAttachment(id, locator);
+          }
         }}
       />
     );
@@ -531,7 +536,9 @@ function AttachmentRow({
         label="Cancel"
         accessibilityLabel={`Cancel downloading ${name}`}
         onPress={() => {
-          inbox.cancelAttachment(id, locator);
+          if (current()) {
+            inbox.cancelAttachment(id, locator);
+          }
         }}
       />
     );
@@ -542,14 +549,18 @@ function AttachmentRow({
           label="Open"
           accessibilityLabel={`Open ${name}`}
           onPress={() => {
-            void inbox.presentAttachment(id, locator, 'open');
+            if (current()) {
+              void inbox.presentAttachment(id, locator, 'open');
+            }
           }}
         />
         <Action
           label="Share"
           accessibilityLabel={`Share ${name}`}
           onPress={() => {
-            void inbox.presentAttachment(id, locator, 'share');
+            if (current()) {
+              void inbox.presentAttachment(id, locator, 'share');
+            }
           }}
         />
       </>
@@ -561,7 +572,9 @@ function AttachmentRow({
           label="Try again"
           accessibilityLabel={`Try downloading ${name} again`}
           onPress={() => {
-            void inbox.downloadAttachment(id, locator);
+            if (current()) {
+              void inbox.downloadAttachment(id, locator);
+            }
           }}
         />
       );
@@ -596,9 +609,11 @@ const attachmentBatch = 20;
 function ReceivedAttachments({
   inbox,
   id,
+  current,
 }: {
   readonly inbox: GmailInbox;
   readonly id: string;
+  readonly current: () => boolean;
 }) {
   const colors = usePalette();
   const attachments = useSyncExternalStore(inbox.subscribe, () =>
@@ -632,6 +647,7 @@ function ReceivedAttachments({
           inbox={inbox}
           id={id}
           attachment={attachment}
+          current={current}
         />
       ))}
       {attachments.length > shown ? (
@@ -740,6 +756,7 @@ export function GmailMessageBody({
       <ReceivedAttachments
         inbox={inbox}
         id={id}
+        current={current}
       />
     </View>
   );

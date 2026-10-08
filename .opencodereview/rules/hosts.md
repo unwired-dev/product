@@ -55,6 +55,14 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   approval requests, so foreground restore cannot hide new setup.
   Preserve an explicit Account choice and an Inbox choice over unchanged setup.
 
+- `message-body.tsx.AttachmentRow` accepting queued Download, retry, Open, Share
+  or Cancel input after its reader changed or closed. Reuse `GmailMessageBody`'s
+  committed mailbox/message and exact body predicate before these store actions;
+  `readable(id)` and native file ownership do not identify the invoking reader.
+  Check the switch's commit before passive `retainMessage` cleanup and a new
+  download of the same message/part after the previous reader closes. Otherwise
+  old input can expose a previous message's file or cancel a later reader's work.
+
 #### Platform behavior
 
 - A pressable without an accessible role and name, text that does not scale with Dynamic Type, a color taken from a literal rather than the light/dark tokens in `mail-core`'s `theme`, or selection and focus shown by color alone.

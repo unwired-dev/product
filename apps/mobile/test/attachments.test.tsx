@@ -1,8 +1,31 @@
 import { createGmailInbox } from '@private-email/mail-core/gmail-inbox';
 import { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mailbox';
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
+import { useLayoutEffect } from 'react';
 
 import { GmailMessageBody } from '../src/message-body.tsx';
+
+// The application callback behind a rendered control, as delayed native input would invoke it.
+const pressHandler = (
+  element: Parameters<typeof fireEvent.press>[0],
+): (() => void) => {
+  let fiber = element.unstable_fiber;
+  while (fiber !== null) {
+    const handler = fiber.memoizedProps?.onPress;
+    if (typeof handler === 'function') {
+      return () => {
+        handler();
+      };
+    }
+    fiber = fiber.return;
+  }
+  throw new Error('Expected a rendered press handler');
+};
+
+function CommitProbe({ inspect }: { readonly inspect: () => void }) {
+  useLayoutEffect(inspect, [inspect]);
+  return null;
+}
 
 // A rendered host/store test of received attachments. Only WebKit is substituted.
 describe('received attachments in the reader', () => {
@@ -140,6 +163,100 @@ describe('received attachments in the reader', () => {
     } finally {
       await app.unmount();
     }
+  });
+
+  it('ignores an Open press from the previous message delivered after the reader changed', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    const first = gmail.deliver({ content: { text: 'First.' } });
+    const second = gmail.deliver({ content: { text: 'Second.' } });
+    const inbox = createGmailInbox(gmail.native);
+    await inbox.load();
+    const app = await render(
+      <GmailMessageBody
+        inbox={inbox}
+        id={first}
+      />,
+    );
+    try {
+      await fireEvent.press(await screen.findByLabelText('Download notes.txt'));
+      // Native input queued against the first message's Open control.
+      const staleOpen = pressHandler(
+        await screen.findByLabelText('Open notes.txt'),
+      );
+      // Delivered during the switch's commit, before the previous reader's passive cleanup.
+      await app.rerender(
+        <>
+          <GmailMessageBody
+            inbox={inbox}
+            id={second}
+          />
+          <CommitProbe inspect={staleOpen} />
+        </>,
+      );
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(gmail.presentations).toStrictEqual([]);
+    } finally {
+      await app.unmount();
+    }
+  });
+
+  it('ignores a Cancel press from the previous reader while a new reader downloads the same attachment', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    const id = gmail.deliver({ content: { text: 'Notes attached.' } });
+    const inbox = createGmailInbox(gmail.native);
+    await inbox.load();
+    const app = await render(
+      <GmailMessageBody
+        key="previous"
+        inbox={inbox}
+        id={id}
+      />,
+    );
+    const save = gmail.native.saveAttachment;
+    let release: () => void = () => undefined;
+    // oxlint-disable-next-line promise/avoid-new -- Keep both saves pending until the stale Cancel is delivered.
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    gmail.native.saveAttachment = async (...args) => {
+      await held;
+      return save(...args);
+    };
+    try {
+      await fireEvent.press(await screen.findByLabelText('Download notes.txt'));
+      const staleCancel = pressHandler(
+        await screen.findByLabelText('Cancel downloading notes.txt'),
+      );
+      // Closing the previous reader cancels its attempt; the replacement owns a new one.
+      await app.rerender(
+        <GmailMessageBody
+          key="replacement"
+          inbox={inbox}
+          id={id}
+        />,
+      );
+      await fireEvent.press(await screen.findByLabelText('Download notes.txt'));
+      await act(async () => {
+        staleCancel();
+      });
+      expect(
+        screen.getByLabelText('Cancel downloading notes.txt'),
+      ).toBeOnTheScreen();
+      await act(async () => {
+        release();
+      });
+      await expect(
+        screen.findByLabelText('Open notes.txt'),
+      ).resolves.toBeOnTheScreen();
+    } finally {
+      release();
+      await app.unmount();
+    }
+    expect(gmail.savedFiles.size).toBe(0);
   });
 
   it('cancels a slow download and offers Try again after Gmail fails', async () => {
