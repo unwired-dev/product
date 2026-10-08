@@ -5,6 +5,7 @@ import type { SemanticDocument } from '../src/semantic-document.ts';
 import {
   addRecipients,
   createDrafts,
+  recipientSummary,
   draftOf,
   sendingStateOf,
 } from '../src/drafts.ts';
@@ -323,6 +324,30 @@ describe('entering Draft recipients', () => {
     expect(duplicate.notice).toBe('duplicate');
     expect(duplicate.text).toBe('');
     expect(duplicate.draft.bcc).toStrictEqual([]);
+  });
+
+  it('summarizes recipients by their To, Cc and Bcc roles', () => {
+    expect.hasAssertions();
+    expect(recipientSummary(draft)).toBe('No recipients');
+    expect(
+      recipientSummary({
+        ...draft,
+        bcc: [{ name: 'Maya Chen', address: 'maya@example.com' }],
+      }),
+    ).toBe('Bcc Maya Chen');
+    expect(
+      recipientSummary({
+        ...draft,
+        to: [
+          { name: 'Oliver', address: 'oliver@example.com' },
+          { address: 'alex@example.invalid' },
+        ],
+        cc: [{ name: 'Maya Chen', address: 'maya@example.com' }],
+        bcc: [{ address: 'private@example.invalid' }],
+      }),
+    ).toBe(
+      'To Oliver, alex@example.invalid · Cc Maya Chen · Bcc private@example.invalid',
+    );
   });
 
   it('parses named recipients when regular expression results carry no named groups, as on Hermes', () => {

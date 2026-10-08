@@ -19,6 +19,7 @@ import {
   isEmptyDraft,
   recipientCopy,
   recipientLabel,
+  recipientSummary,
   sendingCopy,
   sendingMailboxes,
   sendingStateOf,
@@ -223,13 +224,6 @@ const fieldNames: Record<RecipientField, string> = {
   to: 'To',
   cc: 'Cc',
   bcc: 'Bcc',
-};
-
-const recipientSummary = (draft: Draft) => {
-  const all = [...draft.to, ...draft.cc, ...draft.bcc];
-  return all.length === 0
-    ? 'No recipients'
-    : `To ${all.map(({ name, address }) => name ?? address).join(', ')}`;
 };
 
 function Action({

@@ -18,7 +18,11 @@ Drafts mailbox, and Drafts do not synchronize to other devices yet.
   presses create one Draft. Refused navigation leaves it available to try again.
 - **Drafts** are listed in the Inbox column apart from received mail, newest edit
   first. Each row is labelled `DRAFT` and names its subject, recipients and sending
-  mailbox. Sender/subject search lists received mail alone; clearing the search
+  mailbox. Recipient names (or addresses when unnamed) are grouped under **To**,
+  **Cc** and **Bcc**, separated by `·`; empty groups are omitted and an empty
+  recipient list says **No recipients**. The accessible row name keeps those same
+  roles. Bcc names remain visible in the sender's Draft list, including a Bcc-only
+  Draft. Sender/subject search lists received mail alone; clearing the search
   restores the Draft rows. Selecting one opens it directly for editing; Drafts have no reader.
 - **From** always shows the sending mailbox and lists every mailbox that can send.
   A mailbox waiting for Gmail authorization cannot be chosen. If the Draft's mailbox
@@ -159,14 +163,16 @@ They also cover clean stale discard, empty-only recovery's final saving status,
 deletion-target rebinding during recovery, and bounded retry failures. Batched
 host events verify caret movement, typing-mark changes and Undo immediately
 followed by text editing; these remain component integration evidence.
-Host regressions also cover repeated New Message presses during a held save.
+Host regressions also cover repeated New Message presses during a held save and
+visible and accessible recipient roles in Bcc-only and mixed-role Draft rows.
 Mobile deletion regressions use the post-edit caret to preserve the remaining
 character's marks with or without a key event; they do not qualify native keyboard,
 dictation, autocorrection or IME behavior.
 
 Deferred before release: native iPhone, iPad and Mac journeys that compose, relaunch
 and reopen a Draft; VoiceOver, hardware-keyboard and Dynamic Type qualification of
-the composer; and physical-device lock behavior.
+the composer (including Draft row role labels and middle-dot separators at
+different VoiceOver punctuation settings); and physical-device lock behavior.
 
 Known native gap, deferred before release: compact iPhone system **Back** can hide
 a composer without first validating recipient entry or saving its changes. The

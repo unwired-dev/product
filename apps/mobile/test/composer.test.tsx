@@ -1340,5 +1340,64 @@ describe('composing Drafts', () => {
     await press('Close');
     expect(screen.queryByLabelText('Subject')).not.toBeOnTheScreen();
   });
+
+  it('shows and announces recipient roles in Bcc-only and mixed Drafts', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    await drafts.load();
+    const id = await drafts.create({
+      id: alex,
+      address: 'alex@example.invalid',
+    });
+    const created = draftsOf(drafts.getSnapshot()).find(
+      (each) => each.id === id,
+    );
+    ok(created);
+    await drafts.update(
+      {
+        ...created,
+        subject: 'Quiet',
+        bcc: [{ name: 'Maya Chen', address: 'maya@example.com' }],
+      },
+      created,
+    );
+    await render(
+      <App
+        drafts={drafts}
+        registration={registration}
+      />,
+    );
+    await expect(
+      screen.findByRole('button', {
+        name: 'Draft. Quiet. Bcc Maya Chen. From alex@example.invalid',
+      }),
+    ).resolves.toBeOnTheScreen();
+    expect(screen.getByText('Bcc Maya Chen')).toBeOnTheScreen();
+    const saved = draftsOf(drafts.getSnapshot()).find((each) => each.id === id);
+    ok(saved);
+    await act(async () => {
+      await drafts.update(
+        {
+          ...saved,
+          to: [
+            { name: 'Oliver', address: 'oliver@example.com' },
+            { address: 'sam@example.invalid' },
+          ],
+          cc: [{ address: 'copy@example.invalid' }],
+        },
+        saved,
+      );
+    });
+    const summary =
+      'To Oliver, sam@example.invalid · Cc copy@example.invalid · Bcc Maya Chen';
+    expect(screen.getByText(summary)).toBeOnTheScreen();
+    expect(
+      screen.getByRole('button', {
+        name: `Draft. Quiet. ${summary}. From alex@example.invalid`,
+      }),
+    ).toBeOnTheScreen();
+  });
   /* oxlint-enable vitest/max-expects */
 });

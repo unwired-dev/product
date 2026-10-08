@@ -132,6 +132,26 @@ const entriesOf = (text: string) => {
 export const recipientLabel = ({ name, address }: Recipient) =>
   name === undefined ? address : `${name} <${address}>`;
 
+// The recipients of a Draft by role, as its list row shows and announces them: a Bcc-only Draft
+// never reads as addressed To someone.
+export const recipientSummary = (draft: Draft) => {
+  const roles = (
+    [
+      ['To', draft.to],
+      ['Cc', draft.cc],
+      ['Bcc', draft.bcc],
+    ] as const
+  ).filter(([, recipients]) => recipients.length > 0);
+  return roles.length === 0
+    ? 'No recipients'
+    : roles
+        .map(
+          ([role, recipients]) =>
+            `${role} ${recipients.map(({ name, address }) => name ?? address).join(', ')}`,
+        )
+        .join(' · ');
+};
+
 export type RecipientNotice = 'invalid' | 'duplicate';
 
 // The text still being typed in a recipient field.

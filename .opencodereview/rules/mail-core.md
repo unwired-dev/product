@@ -99,6 +99,11 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Product behavior the stores own
 
+- `drafts.ts.recipientSummary` flattening To, Cc and Bcc into one To-prefixed
+  list or omitting populated roles. Preserve each role and its recipient order,
+  use names with address fallback, and return No recipients only when all three
+  lists are empty; otherwise a Bcc-only or mixed Draft misrepresents its addressing.
+
 - `semantic-document.ts.marksAt` reporting collapsed-caret marks that disagree
   with `applyText`/`splice` insertion inheritance. Without an explicit typing
   override, both hosts' toolbar visual/accessibility selection and inserted

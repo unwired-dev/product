@@ -185,6 +185,13 @@ A host owns views and native adapters. It renders shared stores from `@private-e
 
 #### Platform behavior
 
+- `composer.tsx.DraftRowView` using a different recipient-role projection for
+  its visible text and accessibility label, or concatenating To, Cc and Bcc
+  without each populated role. Both hosts consume the shared Draft summary;
+  check Bcc-only and mixed-role rows so confidential addressing is not announced
+  as To. Explicit role words must retain meaning when punctuation is omitted;
+  component label assertions do not qualify native VoiceOver pronunciation.
+
 - A pressable without an accessible role and name, text that does not scale with Dynamic Type, a color taken from a literal rather than the light/dark tokens in `mail-core`'s `theme`, or selection and focus shown by color alone.
 - A component library, navigation library or native module added to either host. Mobile uses Router's split view and React Native `StyleSheet`; the Mac host admits `react-native-webview` only, and adding another requires updating `apps/macos/scripts/verify-bundle.ts`.
 - Mac window identity, menu routing, focus or application lifetime handled in JavaScript. AppKit owns them; closing the last window keeps the app running.
