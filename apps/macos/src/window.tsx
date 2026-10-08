@@ -3,6 +3,7 @@ import { StyleSheet, View } from 'react-native';
 
 import type { Selection } from './inbox.tsx';
 
+import { Composer } from './composer.tsx';
 import { Inbox } from './inbox.tsx';
 import { InboxProvider } from './mailbox.tsx';
 import { MessageDetail } from './message-detail.tsx';
@@ -17,6 +18,8 @@ const styles = StyleSheet.create({
 
 export function PreviewWindow({ windowId }: { readonly windowId: string }) {
   const [selected, setSelected] = useState<Selection>();
+  // The window's one composer replaces the reader while it is open.
+  const [composing, setComposing] = useState<string>();
   const colors = usePalette();
   // Either pane closes the reader when its message leaves the Inbox.
   const close = () => {
@@ -29,17 +32,34 @@ export function PreviewWindow({ windowId }: { readonly windowId: string }) {
         style={styles.window}>
         <View style={[styles.sidebar, { borderRightColor: colors.separator }]}>
           <Inbox
+            composing={composing}
             selected={selected}
             onClose={close}
-            onSelect={setSelected}
+            onCompose={(id) => {
+              setSelected(undefined);
+              setComposing(id);
+            }}
+            onSelect={(selection) => {
+              setComposing(undefined);
+              setSelected(selection);
+            }}
           />
         </View>
         <View style={styles.detail}>
-          <MessageDetail
-            id={selected?.id}
-            mailbox={selected?.mailbox}
-            onClose={close}
-          />
+          {composing === undefined ? (
+            <MessageDetail
+              id={selected?.id}
+              mailbox={selected?.mailbox}
+              onClose={close}
+            />
+          ) : (
+            <Composer
+              id={composing}
+              onClose={() => {
+                setComposing(undefined);
+              }}
+            />
+          )}
         </View>
       </View>
     </InboxProvider>

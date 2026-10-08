@@ -1,6 +1,13 @@
+import type { Drafts } from '@private-email/mail-core/drafts';
 import type { ReactNode } from 'react';
 
-import { createContext, use, useEffect, useSyncExternalStore } from 'react';
+import {
+  createContext,
+  use,
+  useEffect,
+  useMemo,
+  useSyncExternalStore,
+} from 'react';
 import { AppState } from 'react-native';
 
 import type {
@@ -11,21 +18,64 @@ import type {
 
 import { mailboxes as defaultMailboxes } from './private-storage.ts';
 import { AccountContext } from './registration-gate.tsx';
+import { drafts as defaultDrafts } from './registration.ts';
 
 const MailboxesContext = createContext<MailboxList>(defaultMailboxes);
+const DraftsContext = createContext<Drafts>(defaultDrafts);
 // The mailbox a reader or status belongs to.
 const MailboxContext = createContext<InboxMailbox | undefined>(undefined);
+
+interface ComposerNavigation {
+  readonly register: (finish: () => Promise<boolean>) => () => void;
+  readonly leave: () => Promise<boolean>;
+}
+function createComposerNavigation(): ComposerNavigation {
+  let finish: (() => Promise<boolean>) | undefined = undefined;
+  let pending = false;
+  return {
+    register: (next) => {
+      finish = next;
+      return () => {
+        if (finish === next) {
+          finish = undefined;
+        }
+      };
+    },
+    leave: async () => {
+      if (pending) {
+        return false;
+      }
+      pending = true;
+      const allowed = (await finish?.()) ?? true;
+      pending = false;
+      return allowed;
+    },
+  };
+}
+const ComposerNavigationContext = createContext(createComposerNavigation());
+export function useComposerNavigation() {
+  return use(ComposerNavigationContext);
+}
+export function useLeaveComposer() {
+  return useComposerNavigation().leave;
+}
 
 const waitingForMailbox = { kind: 'loading' } as const;
 
 export function InboxProvider({
   children,
   mailboxes = defaultMailboxes,
+  drafts = defaultDrafts,
 }: {
   readonly children: ReactNode;
   readonly mailboxes?: MailboxList;
+  readonly drafts?: Drafts;
 }) {
   const account = use(AccountContext);
+  const navigation = useMemo(() => createComposerNavigation(), []);
+  useEffect(() => {
+    void drafts.load();
+  }, [drafts]);
   useEffect(() => {
     void mailboxes.load();
     const subscription = AppState.addEventListener('change', (state) => {
@@ -39,7 +89,25 @@ export function InboxProvider({
       subscription.remove();
     };
   }, [account, mailboxes]);
-  return <MailboxesContext value={mailboxes}>{children}</MailboxesContext>;
+  return (
+    <MailboxesContext value={mailboxes}>
+      <DraftsContext value={drafts}>
+        <ComposerNavigationContext value={navigation}>
+          {children}
+        </ComposerNavigationContext>
+      </DraftsContext>
+    </MailboxesContext>
+  );
+}
+
+// The signed-in Product Account's Drafts store and its state.
+export function useDraftStore() {
+  return use(DraftsContext);
+}
+
+export function useDrafts() {
+  const drafts = use(DraftsContext);
+  return useSyncExternalStore(drafts.subscribe, drafts.getSnapshot);
 }
 
 // Every mailbox the Inbox shows, in the order the connections were added.

@@ -22,9 +22,11 @@ import { SafeAreaView } from 'react-native-screens/experimental';
 
 import type { InboxMailbox } from './private-storage.ts';
 
+import { DraftList } from './composer.tsx';
 import {
   MailboxScope,
   useInbox,
+  useLeaveComposer,
   useInboxActions,
   useMailbox,
   useMailboxes,
@@ -98,6 +100,9 @@ interface InboxProps {
   readonly onSelect: (selection: Selection) => void;
   // Closes the reader when a row action takes its message out of the Inbox.
   readonly onClose?: (() => void) | undefined;
+  // Opens a Draft in the composer; without it the Inbox offers no Drafts.
+  readonly onCompose?: ((id: string) => void) | undefined;
+  readonly composing?: string | undefined;
 }
 
 const dateFormat = new Intl.DateTimeFormat('en', {
@@ -377,8 +382,20 @@ function subtitleOf(
   return gmail ? 'Gmail' : 'Preview mailbox';
 }
 
-export function Inbox({ selected, onSelect, onClose }: InboxProps) {
+export function Inbox({
+  selected,
+  onSelect,
+  onClose,
+  onCompose,
+  composing,
+}: InboxProps) {
   const mailboxes = useMailboxes();
+  const leave = useLeaveComposer();
+  const select = async (selection: Selection) => {
+    if (await leave()) {
+      onSelect(selection);
+    }
+  };
   const reload = useReloadMailboxes();
   const account = use(AccountContext);
   const colors = usePalette();
@@ -406,6 +423,18 @@ export function Inbox({ selected, onSelect, onClose }: InboxProps) {
       (state.kind === 'ready' && 'sync' in state && state.sync === 'syncing'),
   );
   const subtitle = subtitleOf(shown, { several, gmail });
+  const emptyInbox = () => {
+    if (!ready) {
+      return null;
+    }
+    return gmail && syncing ? (
+      <ActivityIndicator accessibilityLabel="Loading Inbox" />
+    ) : (
+      <Text style={[styles.notice, { color: colors.secondary }]}>
+        Your inbox is clear.
+      </Text>
+    );
+  };
   const organize =
     (mailbox: InboxMailbox) => (message: GmailMessage, action: GmailAction) => {
       if (
@@ -474,45 +503,44 @@ export function Inbox({ selected, onSelect, onClose }: InboxProps) {
             }}
           />
         ))}
-        {ready ? (
-          <FlatList
-            accessibilityLabel="Inbox messages"
-            contentContainerStyle={styles.list}
-            data={messages}
-            extraData={selected}
-            keyExtractor={({ mailbox, message }) =>
-              `${mailbox.id}\n${message.id}`
-            }
-            ListEmptyComponent={
-              gmail && syncing ? (
-                <ActivityIndicator accessibilityLabel="Loading Inbox" />
-              ) : (
-                <Text style={[styles.notice, { color: colors.secondary }]}>
-                  Your inbox is clear.
-                </Text>
-              )
-            }
-            renderItem={({ item: { mailbox, message } }) => (
-              <MessageRow
-                mailbox={several ? mailbox.address : undefined}
-                message={message}
-                onOrganize={
-                  mailbox.state.kind === 'ready' &&
-                  'organize' in mailbox.state &&
-                  mailbox.state.organize
-                    ? organize(mailbox)
-                    : undefined
-                }
-                onSelect={() => {
-                  onSelect({ mailbox: mailbox.id, id: message.id });
-                }}
-                selected={
-                  selected?.mailbox === mailbox.id && selected.id === message.id
-                }
+        <FlatList
+          accessibilityLabel="Inbox messages"
+          contentContainerStyle={styles.list}
+          data={messages}
+          extraData={selected}
+          keyExtractor={({ mailbox, message }) =>
+            `${mailbox.id}\n${message.id}`
+          }
+          ListHeaderComponent={
+            onCompose === undefined ? null : (
+              <DraftList
+                composing={composing}
+                onCompose={onCompose}
+                scope={scope}
               />
-            )}
-          />
-        ) : null}
+            )
+          }
+          ListEmptyComponent={emptyInbox()}
+          renderItem={({ item: { mailbox, message } }) => (
+            <MessageRow
+              mailbox={several ? mailbox.address : undefined}
+              message={message}
+              onOrganize={
+                mailbox.state.kind === 'ready' &&
+                'organize' in mailbox.state &&
+                mailbox.state.organize
+                  ? organize(mailbox)
+                  : undefined
+              }
+              onSelect={() => {
+                void select({ mailbox: mailbox.id, id: message.id });
+              }}
+              selected={
+                selected?.mailbox === mailbox.id && selected.id === message.id
+              }
+            />
+          )}
+        />
         <Text style={[styles.footer, { color: colors.secondary }]}>
           {gmail
             ? 'Gmail · Encrypted on this device'

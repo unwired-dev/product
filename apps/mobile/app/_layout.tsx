@@ -13,19 +13,27 @@ import { RegistrationGate } from '../src/registration-gate.tsx';
 
 export default function RootLayout() {
   const splitView = useRef<SplitHostCommands>(null);
-  const { id, mailbox } = useGlobalSearchParams<{
+  const { id, mailbox, draft } = useGlobalSearchParams<{
     id?: string;
     mailbox?: string;
+    draft?: string;
   }>();
+  const detail = Boolean(id) || Boolean(draft);
 
   useEffect(() => {
-    if (id) {
+    if (detail) {
       splitView.current?.show('secondary');
     }
-  }, [id]);
+  }, [detail]);
 
   function selectMessage(selection: Selection) {
     router.replace({ pathname: '/message/[id]', params: selection });
+    splitView.current?.show('secondary');
+  }
+
+  // A Draft opens in the detail column, a destination of its own on iPhone.
+  function compose(opened: string) {
+    router.replace({ pathname: '/compose/[draft]', params: { draft: opened } });
     splitView.current?.show('secondary');
   }
 
@@ -37,12 +45,14 @@ export default function RootLayout() {
           ref={splitView}
           preferredDisplayMode="oneBesideSecondary"
           preferredSplitBehavior="tile"
-          topColumnForCollapsing={id ? 'secondary' : 'primary'}>
+          topColumnForCollapsing={detail ? 'secondary' : 'primary'}>
           <SplitView.Column>
             <Inbox
+              composing={draft}
               onClose={() => {
                 router.replace('/');
               }}
+              onCompose={compose}
               onSelect={selectMessage}
               selected={
                 id === undefined || mailbox === undefined

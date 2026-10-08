@@ -18,7 +18,10 @@
     "./registration-mode": "./src/registration-mode.ts",
     "./testing/registration-session": "./src/testing/registration-session.ts",
     "./message-body": "./src/message-body.ts",
-    "./link-inspection": "./src/link-inspection.ts"
+    "./link-inspection": "./src/link-inspection.ts",
+    "./drafts": "./src/drafts.ts",
+    "./semantic-document": "./src/semantic-document.ts",
+    "./testing/drafts": "./src/testing/drafts.ts"
   },
   "scripts": {
     "check-types": "tsc --noEmit",

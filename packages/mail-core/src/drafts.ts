@@ -1,0 +1,691 @@
+import * as Arr from 'effect/Array';
+import * as Clock from 'effect/Clock';
+import * as Effect from 'effect/Effect';
+import * as Option from 'effect/Option';
+import * as Order from 'effect/Order';
+import * as Random from 'effect/Random';
+import * as Result from 'effect/Result';
+import * as Schema from 'effect/Schema';
+import * as Semaphore from 'effect/Semaphore';
+
+import type {
+  MailboxConnection,
+  Registration,
+  RegistrationSnapshot,
+} from './registration.ts';
+
+import {
+  decodeDiagnostic,
+  rejectionDiagnostic,
+  runLogged,
+} from './diagnostics.ts';
+import { canOpenInbox } from './registration.ts';
+import {
+  emptyDocument,
+  plainText,
+  SemanticDocumentSchema,
+} from './semantic-document.ts';
+
+const RecipientSchema = Schema.Struct({
+  name: Schema.optionalKey(Schema.NonEmptyString),
+  address: Schema.NonEmptyString,
+});
+export type Recipient = typeof RecipientSchema.Type;
+
+// An unsent outgoing message kept on this device until it is discarded. It names the Mailbox
+// Connection it sends from and that connection's address when chosen, so a later removal never
+// silently substitutes another sender.
+const DraftSchema = Schema.Struct({
+  id: Schema.NonEmptyString,
+  connection: Schema.NonEmptyString,
+  from: Schema.NonEmptyString,
+  to: Schema.Array(RecipientSchema),
+  cc: Schema.Array(RecipientSchema),
+  bcc: Schema.Array(RecipientSchema),
+  // Cc and Bcc stay shown once revealed or holding a recipient.
+  copies: Schema.optionalKey(Schema.Literal(true)),
+  conflict: Schema.optionalKey(Schema.Literal(true)),
+  subject: Schema.String,
+  body: SemanticDocumentSchema,
+  // Milliseconds since 1970 of the last edit.
+  updatedAt: Schema.Finite,
+});
+export type Draft = typeof DraftSchema.Type;
+const equivalentDraft = Schema.toEquivalence(DraftSchema);
+const sameContent = (left: Draft | undefined, right: Draft | undefined) =>
+  left === undefined || right === undefined
+    ? left === right
+    : equivalentDraft({ ...left, updatedAt: 0 }, { ...right, updatedAt: 0 });
+export type RecipientField = 'to' | 'cc' | 'bcc';
+
+const DraftDocumentSchema = Schema.Struct({
+  version: Schema.Literal(1),
+  drafts: Schema.Array(DraftSchema).check(
+    Schema.makeFilter(
+      (drafts) => new Set(drafts.map(({ id }) => id)).size === drafts.length,
+    ),
+  ),
+});
+const OpenedSchema = Schema.Struct({
+  owner: Schema.NonEmptyString,
+  revision: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+  document: Schema.NullOr(Schema.fromJsonString(DraftDocumentSchema)),
+});
+const CommittedSchema = Schema.Struct({
+  owner: Schema.NonEmptyString,
+  revision: Schema.Int.check(Schema.isGreaterThanOrEqualTo(1)),
+});
+
+// Recipients ------------------------------------------------------------------------------------
+
+// A pragmatic addr-spec: one @, a dotted domain, and no spaces, quotes, brackets or separators.
+const addressPattern =
+  /^[^\s@<>()[\]\\,;:"]+@(?:[A-Za-z0-9-]+\.)+[A-Za-z0-9-]{2,}$/u;
+const named =
+  /^\s*(?:"(?<quoted>[^"]*)"|(?<plain>[^"<]*?))\s*<(?<address>[^<>]*)>\s*$/u;
+
+// One entry as a recipient, or undefined when it is not a valid address.
+const recipientOf = (entry: string): Recipient | undefined => {
+  const match = named.exec(entry);
+  const address = (match?.groups?.address ?? entry).trim();
+  if (!addressPattern.test(address)) {
+    return undefined;
+  }
+  const name = (match?.groups?.quoted ?? match?.groups?.plain ?? '').trim();
+  return name === '' ? { address } : { name, address };
+};
+
+// Entries end at a comma, semicolon or line break outside a quoted name or angle brackets.
+const entriesOf = (text: string) => {
+  const entries: string[] = [];
+  let current = '';
+  let quoted = false;
+  let bracketed = false;
+  for (const ch of text) {
+    if (ch === '"' && !bracketed) {
+      quoted = !quoted;
+    } else if (ch === '<' && !quoted) {
+      bracketed = true;
+    } else if (ch === '>' && !quoted) {
+      bracketed = false;
+    }
+    if (!quoted && !bracketed && (ch === ',' || ch === ';' || ch === '\n')) {
+      entries.push(current);
+      current = '';
+    } else {
+      current += ch;
+    }
+  }
+  return { entries, rest: current };
+};
+
+export const recipientLabel = ({ name, address }: Recipient) =>
+  name === undefined ? address : `${name} <${address}>`;
+
+export type RecipientNotice = 'invalid' | 'duplicate';
+
+// Turns finished entries of a recipient field's text into recipients. With `all`, as when the
+// field is left or Return is pressed, the unfinished entry is finished too. Invalid text stays in
+// the field; an address already in To, Cc or Bcc is not added again.
+export function addRecipients(
+  draft: Draft,
+  {
+    field,
+    text,
+    all = false,
+  }: Readonly<{ field: RecipientField; text: string; all?: boolean }>,
+): Readonly<{ draft: Draft; text: string; notice?: RecipientNotice }> {
+  const { entries, rest: unfinished } = entriesOf(text);
+  // The entry still being typed, without the space that followed the last separator.
+  const rest = entries.length === 0 ? unfinished : unfinished.trimStart();
+  const pending = (all ? [...entries, rest] : entries).filter(
+    (entry) => entry.trim() !== '',
+  );
+  const present = new Set(
+    [...draft.to, ...draft.cc, ...draft.bcc].map(({ address }) =>
+      address.toLowerCase(),
+    ),
+  );
+  const added: Recipient[] = [];
+  const invalid: string[] = [];
+  let duplicate = false;
+  for (const entry of pending) {
+    const recipient = recipientOf(entry);
+    if (recipient === undefined) {
+      invalid.push(entry.trim());
+    } else if (present.has(recipient.address.toLowerCase())) {
+      duplicate = true;
+    } else {
+      present.add(recipient.address.toLowerCase());
+      added.push(recipient);
+    }
+  }
+  const unfinishedText = all ? '' : rest;
+  // Invalid entries stay for correction, ahead of the entry still being typed.
+  const kept =
+    invalid.length === 0
+      ? unfinishedText
+      : [...invalid, unfinishedText].filter((entry) => entry !== '').join(', ');
+  const notice = invalid.length > 0 ? 'invalid' : undefined;
+  const reported = duplicate ? 'duplicate' : undefined;
+  const shown = notice ?? reported;
+  return {
+    draft:
+      added.length === 0
+        ? draft
+        : { ...draft, [field]: [...draft[field], ...added] },
+    text: kept,
+    ...(shown === undefined ? {} : { notice: shown }),
+  };
+}
+
+export const recipientCopy: Record<RecipientNotice, string> = {
+  invalid: 'Enter a valid email address.',
+  duplicate: 'Already added',
+};
+
+// Sending identity ------------------------------------------------------------------------------
+
+// The Draft's sending connection on this device: usable, waiting for Gmail authorization, or
+// removed. Only a usable connection can be chosen as the sender.
+export type SendingState = 'available' | 'authorization' | 'removed';
+
+export const sendingStateOf = (
+  draft: Pick<Draft, 'connection'>,
+  mailboxes: readonly MailboxConnection[],
+): SendingState => {
+  const connection = mailboxes.find(({ id }) => id === draft.connection);
+  if (connection === undefined) {
+    return 'removed';
+  }
+  return connection.state === 'authorization' ? 'authorization' : 'available';
+};
+
+export const sendingCopy: Record<Exclude<SendingState, 'available'>, string> = {
+  authorization:
+    'This mailbox needs Gmail access again before it can send. Allow access or choose another mailbox.',
+  removed:
+    'This mailbox was removed from this account. Choose another mailbox to send from.',
+};
+
+export const isEmptyDraft = (draft: Draft) =>
+  draft.to.length + draft.cc.length + draft.bcc.length === 0 &&
+  draft.subject.trim() === '' &&
+  plainText(draft.body).trim() === '';
+
+// The newest edits first; equal times keep the identifier order, so the list is stable.
+const draftOrder: Order.Order<Draft> = Order.combine(
+  Order.flip(Order.mapInput(Order.Number, ({ updatedAt }: Draft) => updatedAt)),
+  Order.mapInput(Order.String, ({ id }: Draft) => id),
+);
+
+const rebaseDrafts = Effect.fnUntraced(function* (
+  base: readonly Draft[],
+  local: readonly Draft[],
+  latest: readonly Draft[],
+) {
+  const merged: Draft[] = [];
+  const ids = new Set([...base, ...local, ...latest].map(({ id }) => id));
+  for (const id of ids) {
+    const before = base.find((draft) => draft.id === id);
+    const ours = local.find((draft) => draft.id === id);
+    const theirs = latest.find((draft) => draft.id === id);
+    if (sameContent(before, ours)) {
+      if (theirs !== undefined) {
+        merged.push(theirs);
+      }
+    } else if (sameContent(before, theirs) || sameContent(ours, theirs)) {
+      if (ours !== undefined) {
+        merged.push(ours);
+      }
+    } else {
+      // An edit racing another edit or a deletion retains every authored version.
+      if (theirs !== undefined) {
+        merged.push(theirs);
+      }
+      if (ours !== undefined) {
+        const suffix = Math.abs(yield* Random.nextInt).toString(36);
+        merged.push({
+          ...ours,
+          id: `${ours.id}-conflict-${suffix}`,
+          conflict: true,
+        });
+      }
+    }
+  }
+  return merged;
+});
+
+// Store -----------------------------------------------------------------------------------------
+
+// The native module's Draft storage for the Product Account signed in on this device. Native code
+// keeps the document encrypted for that account and replaces it only from the revision read.
+export interface NativeDrafts {
+  // Resolves `{ owner, revision, document }`; the document is null before the account's first save.
+  readonly openDrafts: () => Promise<unknown>;
+  // Resolves `{ owner, revision }`; rejects with 'conflict' when the revision moved on and with
+  // 'mailbox-invalidated' when `owner` is no longer the signed-in Product Account.
+  readonly commitDrafts: (
+    owner: string,
+    expectedRevision: number,
+    document: string,
+  ) => Promise<unknown>;
+}
+
+// 'saving' while an edit waits for storage; 'failed' and 'locked' keep unsaved edits in memory
+// until a later save succeeds.
+export type DraftSave = 'saved' | 'saving' | 'failed' | 'locked';
+
+export type DraftsState =
+  // No Product Account with an open Inbox on this device.
+  | { readonly kind: 'closed' }
+  | { readonly kind: 'loading' | 'locked' | 'failed' }
+  | {
+      readonly kind: 'ready';
+      readonly drafts: readonly Draft[];
+      readonly save: DraftSave;
+    };
+
+class DraftStorageFailure extends Schema.TaggedError<DraftStorageFailure>()(
+  'DraftStorageFailure',
+  {
+    kind: Schema.Literals(['locked', 'conflict', 'failed']),
+    cause: Schema.Defect(),
+    // Logged instead of the cause; see rejectionDiagnostic.
+    diagnostic: Schema.String,
+  },
+) {}
+
+const storageCode = Schema.decodeUnknownOption(
+  Schema.Struct({ code: Schema.Literals(['locked', 'conflict']) }),
+);
+const failureOf = (cause: unknown) =>
+  new DraftStorageFailure({
+    kind: Option.match(storageCode(cause), {
+      onNone: () => 'failed' as const,
+      onSome: ({ code }) => code,
+    }),
+    cause,
+    diagnostic: rejectionDiagnostic(cause),
+  });
+const malformed = (error: Schema.SchemaError) =>
+  new DraftStorageFailure({
+    kind: 'failed',
+    cause: error,
+    diagnostic: decodeDiagnostic(error),
+  });
+const ownerMismatch = () =>
+  new DraftStorageFailure({
+    kind: 'failed',
+    cause: undefined,
+    diagnostic: 'owner mismatch',
+  });
+
+const native = Effect.fnUntraced(function* <S extends Schema.Top>(
+  operation: () => Promise<unknown>,
+  schema: S,
+) {
+  const value = yield* Effect.tryPromise({ try: operation, catch: failureOf });
+  return yield* Schema.decodeUnknownEffect(schema)(value).pipe(
+    Effect.mapError(malformed),
+  );
+});
+
+const encodeDocument = (drafts: readonly Draft[]) =>
+  Schema.encodeEffect(Schema.fromJsonString(DraftDocumentSchema))({
+    version: 1,
+    drafts,
+  }).pipe(Effect.mapError(malformed));
+
+// Locked storage is expected while the device is locked; any other failure is logged.
+const report = (
+  error: Readonly<Pick<DraftStorageFailure, 'kind' | 'diagnostic'>>,
+) =>
+  error.kind === 'locked'
+    ? Effect.void
+    : Effect.logError('Draft storage failed:', error.diagnostic);
+
+const ownerOf = (snapshot: RegistrationSnapshot) =>
+  canOpenInbox(snapshot) && snapshot.kind !== 'signed-out'
+    ? snapshot.productAccountId
+    : undefined;
+
+// The signed-in Product Account's Drafts. Every edit is in memory at once and saved in order;
+// a failed save keeps it in memory, and the next edit or `save` retries. Another Product Account
+// never sees these Drafts: a change of account forgets them and opens that account's own.
+export function createDrafts(
+  storage: NativeDrafts,
+  registration: Pick<Registration, 'subscribe' | 'getSnapshot'>,
+) {
+  const semaphore = Semaphore.makeUnsafe(1);
+  // Advances with each Product Account opened; work for an earlier one never publishes.
+  let generation = 0;
+  let owner: string | undefined = undefined;
+  let revision = 0;
+  let base: readonly Draft[] = [];
+  // Edits in memory that storage does not hold yet.
+  let dirty = false;
+  let state: DraftsState = { kind: 'closed' };
+  let started = false;
+  const listeners = new Set<() => void>();
+  const publish = (next: DraftsState) => {
+    state = next;
+    for (const listener of listeners) {
+      listener();
+    }
+  };
+  const live = (current: number) => current === generation;
+  const failed = (
+    current: number,
+    error: Readonly<Pick<DraftStorageFailure, 'kind'>>,
+  ) =>
+    Effect.sync(() => {
+      if (!live(current)) {
+        return;
+      }
+      if (state.kind === 'ready') {
+        dirty = true;
+        publish({
+          ...state,
+          save: error.kind === 'locked' ? 'locked' : 'failed',
+        });
+      } else {
+        publish({ kind: error.kind === 'locked' ? 'locked' : 'failed' });
+      }
+    });
+
+  const opening = (current: number, account: string) =>
+    Effect.gen(function* () {
+      // An open account keeps its in-memory Drafts; a reload only follows a failure.
+      if (!live(current) || state.kind === 'ready') {
+        return;
+      }
+      publish({ kind: 'loading' });
+      const opened = yield* native(storage.openDrafts, OpenedSchema);
+      if (!live(current)) {
+        return;
+      }
+      if (opened.owner !== account) {
+        return yield* ownerMismatch();
+      }
+      ({ revision } = opened);
+      base = opened.document?.drafts ?? [];
+      publish({
+        kind: 'ready',
+        drafts: opened.document?.drafts ?? [],
+        save: 'saved',
+      });
+    }).pipe(
+      // oxlint-disable-next-line promise/prefer-await-to-callbacks -- Effect's typed error channel.
+      Effect.catchTag('DraftStorageFailure', (error) =>
+        report(error).pipe(Effect.andThen(failed(current, error))),
+      ),
+      semaphore.withPermit,
+    );
+
+  // One bounded rebase preserves independent edits, additions and conflicting versions.
+  const commit = Effect.fnUntraced(function* (
+    current: number,
+    account: string,
+  ) {
+    for (
+      let attempt = 0;
+      live(current) && state.kind === 'ready';
+      attempt += 1
+    ) {
+      dirty = false;
+      const captured = state.drafts;
+      const document = yield* encodeDocument(captured);
+      const expected = revision;
+      const outcome = yield* Effect.result(
+        native(
+          () => storage.commitDrafts(account, expected, document),
+          CommittedSchema,
+        ),
+      );
+      if (Result.isSuccess(outcome)) {
+        if (outcome.success.owner !== account) {
+          return yield* ownerMismatch();
+        }
+        if (live(current)) {
+          ({ revision } = outcome.success);
+          base = captured;
+        }
+        return;
+      }
+      dirty = true;
+      if (outcome.failure.kind !== 'conflict' || attempt > 0) {
+        return yield* outcome.failure;
+      }
+      const opened = yield* native(storage.openDrafts, OpenedSchema);
+      if (opened.owner !== account) {
+        return yield* ownerMismatch();
+      }
+      if (live(current) && state.kind === 'ready') {
+        ({ revision } = opened);
+        const latest = opened.document?.drafts ?? [];
+        const local = state.drafts;
+        const merged = yield* rebaseDrafts(base, local, latest);
+        base = latest;
+        publish({ ...state, drafts: merged, save: 'saving' });
+      }
+    }
+  });
+
+  // Saves every edit made so far; succeeds with true once storage holds them all.
+  const saving = (current: number) =>
+    Effect.gen(function* () {
+      const account = owner;
+      if (account === undefined) {
+        return false;
+      }
+      const pending = () => live(current) && dirty;
+      while (pending()) {
+        yield* commit(current, account);
+      }
+      if (live(current) && state.kind === 'ready' && !dirty) {
+        publish({ ...state, save: 'saved' });
+      }
+      return live(current) && !dirty;
+    }).pipe(
+      // oxlint-disable-next-line promise/prefer-await-to-callbacks -- Effect's typed error channel.
+      Effect.catchTag('DraftStorageFailure', (error) =>
+        report(error).pipe(
+          Effect.andThen(failed(current, error)),
+          Effect.as(false),
+        ),
+      ),
+      semaphore.withPermit,
+    );
+
+  // Applies an edit in memory at once, then saves it. An edit started for an earlier Product
+  // Account changes nothing.
+  const change = (
+    edit: (
+      drafts: readonly Draft[],
+      fresh: Readonly<{ now: number; id: string }>,
+    ) => readonly Draft[],
+    current = generation,
+  ) =>
+    runLogged(
+      Effect.gen(function* () {
+        if (!live(current) || state.kind !== 'ready') {
+          return false;
+        }
+        const now = yield* Clock.currentTimeMillis;
+        const id = `${Math.abs(yield* Random.nextInt).toString(36)}${Math.abs(yield* Random.nextInt).toString(36)}`;
+        dirty = true;
+        publish({
+          kind: 'ready',
+          drafts: edit(state.drafts, { now, id }),
+          save: 'saving',
+        });
+        return yield* saving(current);
+      }),
+    );
+
+  // Keep a Draft visible until its deletion is durable, so a refused discard can be retried.
+  const removing = (id: string, current: number, onlyIfEmpty: boolean) =>
+    Effect.gen(function* () {
+      const account = owner;
+      if (account === undefined || !live(current) || state.kind !== 'ready') {
+        return false;
+      }
+      const pending = () => live(current) && dirty;
+      while (pending()) {
+        yield* commit(current, account);
+      }
+      if (!live(current) || state.kind !== 'ready') {
+        return false;
+      }
+      const deleting = state.drafts.find((draft) => draft.id === id);
+      // Closing an untouched window cannot delete content completed in another window.
+      if (onlyIfEmpty && deleting !== undefined && !isEmptyDraft(deleting)) {
+        return true;
+      }
+      publish({ ...state, save: 'saving' });
+      const kept = state.drafts.filter((draft) => draft.id !== id);
+      const document = yield* encodeDocument(kept);
+      const committed = yield* native(
+        () => storage.commitDrafts(account, revision, document),
+        CommittedSchema,
+      );
+      if (committed.owner !== account) {
+        return yield* ownerMismatch();
+      }
+      if (!live(current) || state.kind !== 'ready') {
+        return false;
+      }
+      ({ revision } = committed);
+      base = kept;
+      const edited = state.drafts.find((draft) => draft.id === id);
+      const conflicts: Draft[] = [];
+      if (edited !== undefined && !sameContent(edited, deleting)) {
+        const suffix = Math.abs(yield* Random.nextInt).toString(36);
+        conflicts.push({
+          ...edited,
+          id: `${id}-conflict-${suffix}`,
+          conflict: true,
+        });
+        dirty = true;
+      }
+      publish({
+        ...state,
+        drafts: [
+          ...state.drafts.filter((draft) => draft.id !== id),
+          ...conflicts,
+        ],
+      });
+      while (pending()) {
+        yield* commit(current, account);
+      }
+      if (live(current) && state.kind === 'ready') {
+        publish({ ...state, save: 'saved' });
+      }
+      return live(current);
+    }).pipe(
+      // oxlint-disable-next-line promise/prefer-await-to-callbacks -- Effect's typed error channel.
+      Effect.catchTag('DraftStorageFailure', (error) =>
+        report(error).pipe(
+          Effect.andThen(failed(current, error)),
+          Effect.as(false),
+        ),
+      ),
+      semaphore.withPermit,
+    );
+
+  const follow = () => {
+    const next = ownerOf(registration.getSnapshot().snapshot);
+    if (next === owner) {
+      return;
+    }
+    generation += 1;
+    owner = next;
+    revision = 0;
+    base = [];
+    dirty = false;
+    publish(next === undefined ? { kind: 'closed' } : { kind: 'loading' });
+    if (started && next !== undefined) {
+      void runLogged(opening(generation, next));
+    }
+  };
+  registration.subscribe(follow);
+  follow();
+
+  return {
+    getSnapshot: () => state,
+    subscribe: (listener: () => void) => {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+    load: async () => {
+      started = true;
+      if (owner !== undefined) {
+        await runLogged(opening(generation, owner));
+      }
+    },
+    save: () => runLogged(saving(generation)),
+    // Starts a Draft sending from `mailbox`; resolves its identifier, or undefined while Drafts
+    // cannot be saved.
+    create: async (mailbox: Pick<MailboxConnection, 'id' | 'address'>) => {
+      const created: { id?: string } = {};
+      await change((drafts, { now, id }) => {
+        created.id = id;
+        return [
+          ...drafts,
+          {
+            id,
+            connection: mailbox.id,
+            from: mailbox.address,
+            to: [],
+            cc: [],
+            bcc: [],
+            subject: '',
+            body: emptyDocument,
+            updatedAt: now,
+          },
+        ];
+      });
+      return created.id;
+    },
+    // Replaces a Draft's content; resolves true once it is saved.
+    update: (draft: Draft, previous?: Draft) =>
+      change((drafts, { now, id }) => {
+        const current = drafts.find((each) => each.id === draft.id);
+        const conflict =
+          current !== undefined &&
+          previous !== undefined &&
+          !sameContent(current, previous) &&
+          !sameContent(current, draft);
+        return [
+          ...drafts.map((each) =>
+            each.id === draft.id ? { ...draft, updatedAt: now } : each,
+          ),
+          ...(conflict
+            ? [{ ...current, id, updatedAt: now, conflict: true as const }]
+            : []),
+        ];
+      }),
+    discard: (id: string, { onlyIfEmpty = false } = {}) =>
+      runLogged(removing(id, generation, onlyIfEmpty)),
+  };
+}
+
+export type Drafts = ReturnType<typeof createDrafts>;
+
+// The connections a Draft may send from: every one whose Gmail access is usable on this device.
+export const sendingMailboxes = (mailboxes: readonly MailboxConnection[]) =>
+  mailboxes.filter(({ state }) => state !== 'authorization');
+
+export const draftsOf = (state: DraftsState) =>
+  state.kind === 'ready' ? Arr.sort(state.drafts, draftOrder) : [];
+
+const draftId = Schema.decodeUnknownOption(Schema.NonEmptyString);
+export const draftOf = (state: DraftsState, id: unknown) => {
+  const decoded = Option.getOrUndefined(draftId(id));
+  return state.kind === 'ready' && decoded !== undefined
+    ? state.drafts.find((draft) => draft.id === decoded)
+    : undefined;
+};

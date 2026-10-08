@@ -1,0 +1,966 @@
+import type {
+  Draft,
+  RecipientField,
+  RecipientNotice,
+} from '@private-email/mail-core/drafts';
+import type { MailboxConnection } from '@private-email/mail-core/registration';
+import type {
+  BlockKind,
+  Mark,
+  Selection,
+} from '@private-email/mail-core/semantic-document';
+import type { StyleProp, TextStyle } from 'react-native';
+
+import {
+  addRecipients,
+  draftOf,
+  draftsOf,
+  isEmptyDraft,
+  recipientCopy,
+  recipientLabel,
+  sendingCopy,
+  sendingMailboxes,
+  sendingStateOf,
+} from '@private-email/mail-core/drafts';
+import {
+  applyText,
+  blockKindAt,
+  displayOf,
+  historyOf,
+  marksAt,
+  plainText,
+  record,
+  redo,
+  setBlockKind,
+  toggled,
+  toggleMark,
+  undo,
+} from '@private-email/mail-core/semantic-document';
+import { spacing } from '@private-email/mail-core/theme';
+import { use, useCallback, useLayoutEffect, useRef, useState } from 'react';
+import {
+  ActivityIndicator,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-screens/experimental';
+
+import {
+  useComposerNavigation,
+  useDrafts,
+  useDraftStore,
+  useLeaveComposer,
+} from './mailbox.tsx';
+import { AccountContext } from './registration-gate.tsx';
+import { usePalette } from './theme.ts';
+
+const styles = StyleSheet.create({
+  fill: { flex: 1 },
+  content: {
+    width: '100%',
+    maxWidth: 760,
+    alignSelf: 'center',
+    padding: spacing.large,
+    gap: spacing.medium,
+  },
+  bar: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: spacing.small,
+  },
+  grow: { flex: 1 },
+  action: { minHeight: 44, justifyContent: 'center', paddingHorizontal: 8 },
+  actionText: { fontSize: 16 },
+  status: { fontSize: 13 },
+  label: { fontSize: 13, fontWeight: '600' },
+  field: {
+    gap: 6,
+    paddingBottom: spacing.small,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  input: { fontSize: 17, minHeight: 44, paddingVertical: 8 },
+  tokens: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  token: {
+    minHeight: 32,
+    justifyContent: 'center',
+    paddingHorizontal: 10,
+    borderRadius: 16,
+  },
+  notice: { fontSize: 14 },
+  choice: {
+    minHeight: 44,
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+    borderWidth: 2,
+    borderRadius: 8,
+    borderCurve: 'continuous',
+  },
+  format: {
+    minWidth: 44,
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 8,
+  },
+  body: { fontSize: 17, lineHeight: 26, minHeight: 240, paddingVertical: 8 },
+  section: {
+    fontSize: 13,
+    fontWeight: '600',
+    paddingHorizontal: spacing.large,
+    paddingTop: spacing.small,
+  },
+  row: {
+    marginHorizontal: spacing.small,
+    padding: 14,
+    gap: 4,
+    borderWidth: 2,
+    borderRadius: 12,
+    borderCurve: 'continuous',
+  },
+  rowTitle: { flexDirection: 'row', gap: spacing.small, alignItems: 'center' },
+  badge: { fontSize: 12, fontWeight: '700' },
+  rowSubject: { flex: 1, fontSize: 15, fontWeight: '500' },
+  rowDetail: { fontSize: 13 },
+  footer: { fontSize: 13, paddingHorizontal: spacing.large },
+});
+
+const kindStyles: Record<BlockKind, TextStyle> = {
+  paragraph: {},
+  heading1: { fontSize: 26, lineHeight: 34, fontWeight: '700' },
+  heading2: { fontSize: 22, lineHeight: 30, fontWeight: '700' },
+  heading3: { fontSize: 19, lineHeight: 28, fontWeight: '600' },
+  bulleted: {},
+  numbered: {},
+  quote: { fontStyle: 'italic' },
+  code: { fontFamily: 'Menlo' },
+};
+
+const decorations = {
+  underline: 'underline',
+  strikethrough: 'line-through',
+  both: 'underline line-through',
+} as const;
+
+const markStyle = (marks: readonly Mark[] = []): TextStyle => {
+  const underline = marks.includes('underline');
+  const strikethrough = marks.includes('strikethrough');
+  let decoration: (typeof decorations)[keyof typeof decorations] | undefined =
+    undefined;
+  if (underline && strikethrough) {
+    decoration = decorations.both;
+  } else if (underline) {
+    decoration = decorations.underline;
+  } else if (strikethrough) {
+    decoration = decorations.strikethrough;
+  }
+  return {
+    ...(marks.includes('bold') ? { fontWeight: '700' } : {}),
+    ...(marks.includes('italic') ? { fontStyle: 'italic' } : {}),
+    ...(marks.includes('code') ? { fontFamily: 'Menlo' } : {}),
+    ...(decoration === undefined ? {} : { textDecorationLine: decoration }),
+  };
+};
+
+const markControls: ReadonlyArray<
+  readonly [Mark, string, string, StyleProp<TextStyle>]
+> = [
+  ['bold', 'B', 'Bold', { fontWeight: '700' }],
+  ['italic', 'I', 'Italic', { fontStyle: 'italic' }],
+  ['underline', 'U', 'Underline', { textDecorationLine: 'underline' }],
+  [
+    'strikethrough',
+    'S',
+    'Strikethrough',
+    { textDecorationLine: 'line-through' },
+  ],
+  ['code', '</>', 'Inline code', { fontFamily: 'Menlo' }],
+];
+
+const blockControls: ReadonlyArray<readonly [BlockKind, string, string]> = [
+  ['heading1', 'H1', 'Heading 1'],
+  ['heading2', 'H2', 'Heading 2'],
+  ['heading3', 'H3', 'Heading 3'],
+  ['bulleted', '•', 'Bulleted list'],
+  ['numbered', '1.', 'Numbered list'],
+  ['quote', '❝', 'Quote'],
+  ['code', '{ }', 'Code block'],
+];
+
+const saveCopy = {
+  saved: 'Saved on this device',
+  saving: 'Saving…',
+  failed: 'Not saved. Your changes are kept here until saving succeeds.',
+  locked: 'Not saved while private storage is locked. Unlock your device.',
+} as const;
+
+const fieldNames: Record<RecipientField, string> = {
+  to: 'To',
+  cc: 'Cc',
+  bcc: 'Bcc',
+};
+
+const recipientSummary = (draft: Draft) => {
+  const all = [...draft.to, ...draft.cc, ...draft.bcc];
+  return all.length === 0
+    ? 'No recipients'
+    : `To ${all.map(({ name, address }) => name ?? address).join(', ')}`;
+};
+
+function Action({
+  label,
+  onPress,
+  disabled = false,
+  destructive = false,
+  accessibilityLabel,
+}: {
+  readonly label: string;
+  readonly onPress: () => void;
+  readonly disabled?: boolean;
+  readonly destructive?: boolean;
+  readonly accessibilityLabel?: string;
+}) {
+  const colors = usePalette();
+  let color = destructive ? colors.destructive : colors.accent;
+  if (disabled) {
+    color = colors.secondary;
+  }
+  return (
+    <Pressable
+      accessibilityLabel={accessibilityLabel ?? label}
+      accessibilityRole="button"
+      accessibilityState={{ disabled }}
+      disabled={disabled}
+      onPress={onPress}
+      style={styles.action}>
+      <Text style={[styles.actionText, { color }]}>{label}</Text>
+    </Pressable>
+  );
+}
+
+// The account's Drafts, apart from received mail, and starting a new one.
+export function DraftList({
+  composing,
+  onCompose,
+  scope,
+}: {
+  readonly composing: string | undefined;
+  readonly onCompose: (id: string) => void;
+  // The mailbox the Inbox shows, which a new message sends from when it can.
+  readonly scope: string | undefined;
+}) {
+  const account = use(AccountContext);
+  const store = useDraftStore();
+  const state = useDrafts();
+  const colors = usePalette();
+  const leave = useLeaveComposer();
+  if (account === undefined || state.kind === 'closed') {
+    return null;
+  }
+  const senders = sendingMailboxes(account.mailboxes);
+  const sender = senders.find(({ id }) => id === scope) ?? senders[0];
+  const drafts = draftsOf(state);
+  const compose = async (mailbox: MailboxConnection) => {
+    if (!(await leave())) {
+      return;
+    }
+    const id = await store.create(mailbox);
+    if (id !== undefined) {
+      onCompose(id);
+    }
+  };
+  const open = async (id: string) => {
+    if (id === composing) {
+      return;
+    }
+    if (await leave()) {
+      onCompose(id);
+    }
+  };
+  return (
+    <View>
+      <View style={[styles.bar, { paddingHorizontal: spacing.large }]}>
+        <Action
+          disabled={state.kind !== 'ready' || sender === undefined}
+          label="New Message"
+          onPress={() => {
+            if (sender !== undefined) {
+              void compose(sender);
+            }
+          }}
+        />
+      </View>
+      {state.kind === 'locked' || state.kind === 'failed' ? (
+        <View style={[styles.bar, { paddingHorizontal: spacing.large }]}>
+          <Text
+            accessibilityRole="alert"
+            style={[styles.notice, styles.grow, { color: colors.foreground }]}>
+            {state.kind === 'locked'
+              ? 'Drafts are locked. Unlock your device and try again.'
+              : 'Drafts could not be opened. They have been kept.'}
+          </Text>
+          <Action
+            label="Try again"
+            onPress={() => {
+              void store.load();
+            }}
+          />
+        </View>
+      ) : null}
+      {drafts.length === 0 ? null : (
+        <>
+          <Text
+            accessibilityRole="header"
+            style={[styles.section, { color: colors.secondary }]}>
+            Drafts
+          </Text>
+          {drafts.map((draft) => (
+            <Pressable
+              key={draft.id}
+              accessibilityLabel={`${draft.conflict === true ? 'Conflicting Draft' : 'Draft'}. ${draft.subject || 'No subject'}. ${recipientSummary(draft)}. From ${draft.from}`}
+              accessibilityRole="button"
+              accessibilityState={{ selected: composing === draft.id }}
+              onPress={() => {
+                void open(draft.id);
+              }}
+              style={[
+                styles.row,
+                {
+                  backgroundColor:
+                    composing === draft.id ? colors.selected : colors.sidebar,
+                  borderColor: 'transparent',
+                },
+              ]}>
+              <View style={styles.rowTitle}>
+                <Text style={[styles.badge, { color: colors.accent }]}>
+                  {draft.conflict === true ? 'DRAFT · CONFLICT' : 'DRAFT'}
+                </Text>
+                <Text
+                  numberOfLines={1}
+                  style={[styles.rowSubject, { color: colors.foreground }]}>
+                  {draft.subject || 'No subject'}
+                </Text>
+              </View>
+              <Text
+                numberOfLines={1}
+                style={[styles.rowDetail, { color: colors.secondary }]}>
+                {recipientSummary(draft)}
+              </Text>
+              <Text
+                numberOfLines={1}
+                style={[styles.rowDetail, { color: colors.secondary }]}>
+                {plainText(draft.body).replaceAll('\n', ' ') ||
+                  `From ${draft.from}`}
+              </Text>
+            </Pressable>
+          ))}
+        </>
+      )}
+    </View>
+  );
+}
+
+function SendingMailbox({
+  draft,
+  onChange,
+}: {
+  readonly draft: Draft;
+  readonly onChange: (mailbox: MailboxConnection) => void;
+}) {
+  const account = use(AccountContext);
+  const colors = usePalette();
+  const mailboxes = account?.mailboxes ?? [];
+  const state = sendingStateOf(draft, mailboxes);
+  const senders = sendingMailboxes(mailboxes);
+  return (
+    <View style={styles.field}>
+      <Text style={[styles.label, { color: colors.secondary }]}>From</Text>
+      <View style={styles.bar}>
+        {state === 'available' ? null : (
+          <View
+            accessibilityLabel={`${draft.from}, cannot send`}
+            style={[styles.choice, { borderColor: colors.separator }]}>
+            <Text style={{ color: colors.secondary }}>{draft.from}</Text>
+          </View>
+        )}
+        {senders.map((mailbox) => {
+          const selected =
+            state === 'available' && mailbox.id === draft.connection;
+          return (
+            <Pressable
+              key={mailbox.id}
+              accessibilityLabel={`Send from ${mailbox.address}`}
+              accessibilityRole="button"
+              accessibilityState={{ selected }}
+              onPress={() => {
+                onChange(mailbox);
+              }}
+              style={[
+                styles.choice,
+                {
+                  backgroundColor: selected ? colors.selected : colors.sidebar,
+                  borderColor: selected ? colors.accent : 'transparent',
+                },
+              ]}>
+              <Text style={{ color: colors.foreground }}>
+                {mailbox.address}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+      {state === 'available' ? null : (
+        <Text
+          accessibilityRole="alert"
+          style={[styles.notice, { color: colors.foreground }]}>
+          {sendingCopy[state]}
+        </Text>
+      )}
+    </View>
+  );
+}
+
+function Recipients({
+  draft,
+  field,
+  text,
+  onText,
+  onChange,
+}: {
+  readonly draft: Draft;
+  readonly field: RecipientField;
+  // The field's unfinished entry, which closing the Draft finishes.
+  readonly text: string;
+  readonly onText: (text: string) => void;
+  readonly onChange: (draft: Draft) => void;
+}) {
+  const colors = usePalette();
+  const [notice, setNotice] = useState<RecipientNotice>();
+  const name = fieldNames[field];
+  const add = (value: string, all: boolean) => {
+    const result = addRecipients(draft, { field, text: value, all });
+    if (result.draft !== draft) {
+      onChange(result.draft);
+    }
+    onText(result.text);
+    setNotice(result.notice);
+  };
+  return (
+    <View style={styles.field}>
+      <Text style={[styles.label, { color: colors.secondary }]}>{name}</Text>
+      <View style={styles.tokens}>
+        {draft[field].map((recipient) => (
+          <Pressable
+            key={recipient.address}
+            accessibilityHint="Removes this recipient"
+            accessibilityLabel={`${name}: ${recipientLabel(recipient)}`}
+            accessibilityRole="button"
+            onPress={() => {
+              onChange({
+                ...draft,
+                [field]: draft[field].filter((each) => each !== recipient),
+              });
+            }}
+            style={[styles.token, { backgroundColor: colors.selected }]}>
+            <Text style={{ color: colors.foreground }}>
+              {`${recipient.name ?? recipient.address} ×`}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
+      <TextInput
+        accessibilityLabel={name}
+        autoCapitalize="none"
+        autoComplete="email"
+        autoCorrect={false}
+        submitBehavior="submit"
+        inputMode="email"
+        onBlur={() => {
+          add(text, true);
+        }}
+        onChangeText={(value) => {
+          add(value, false);
+        }}
+        onSubmitEditing={() => {
+          add(text, true);
+        }}
+        placeholder="Name or email address"
+        placeholderTextColor={colors.secondary}
+        returnKeyType="next"
+        style={[styles.input, { color: colors.foreground }]}
+        textContentType="emailAddress"
+        value={text}
+      />
+      {notice === undefined ? null : (
+        <Text
+          accessibilityLiveRegion="polite"
+          style={[styles.notice, { color: colors.foreground }]}>
+          {recipientCopy[notice]}
+        </Text>
+      )}
+    </View>
+  );
+}
+
+function Editor({
+  initial,
+  onClose,
+}: {
+  readonly initial: Draft;
+  readonly onClose: () => void;
+}) {
+  const store = useDraftStore();
+  const state = useDrafts();
+  const colors = usePalette();
+  const [history, setHistory] = useState(() => historyOf(initial));
+  const [selection, setSelection] = useState<Selection>({ start: 0, end: 0 });
+  // Where the editor must place the caret after a change it did not type itself.
+  const [placed, setPlaced] = useState<Selection>();
+  // Marks toggled at a caret apply to the text typed there next.
+  const [typing, setTyping] = useState<readonly Mark[]>();
+  const [closing, setClosing] = useState<
+    'saving' | 'blocked' | 'discard-blocked' | 'discard' | 'recipients'
+  >();
+  const [entries, setEntries] = useState<Record<RecipientField, string>>({
+    to: '',
+    cc: '',
+    bcc: '',
+  });
+  const caret = useRef<number | undefined>(undefined);
+  const typingField = useRef<string | undefined>(undefined);
+  const subjectSelection = useRef<Selection>({ start: 0, end: 0 });
+  const subjectCaret = useRef<number | undefined>(undefined);
+  const draft = history.present;
+  const display = displayOf(draft.body);
+  const save = state.kind === 'ready' ? state.save : 'failed';
+
+  const change = (next: Draft, word = false, field?: string) => {
+    setHistory(
+      record(
+        { ...history, typing: history.typing && typingField.current === field },
+        next,
+        word,
+      ),
+    );
+    typingField.current = word ? field : undefined;
+    setClosing(undefined);
+    void store.update(next, draft);
+  };
+  const travel = (to: typeof history) => {
+    setHistory(to);
+    setTyping(undefined);
+    void store.update(to.present, draft);
+  };
+  const edit = (text: string) => {
+    const result = applyText(draft.body, text, { marks: typing, selection });
+    // One character added after the caret continues a typing step until a word ends.
+    const added = text.length === display.text.length + 1;
+    const word = added && !/\s/u.test(text[selection.start] ?? ' ');
+    caret.current = selection.end + text.length - display.text.length;
+    if (result.literal === undefined) {
+      change({ ...draft, body: result.document }, word, 'body');
+    } else {
+      // The literal marker is its own step, so one Undo restores it.
+      const literal = record(history, { ...draft, body: result.literal });
+      setHistory(record(literal, { ...draft, body: result.document }));
+      void store.update({ ...draft, body: result.document }, draft);
+    }
+    if (result.selection !== undefined) {
+      caret.current = result.selection.start;
+      setPlaced(result.selection);
+    }
+  };
+  const format = (mark: Mark) => {
+    if (selection.start === selection.end) {
+      setTyping(toggled(typing ?? marksAt(draft.body, selection), mark));
+      return;
+    }
+    change({ ...draft, body: toggleMark(draft.body, selection, mark) });
+  };
+  const block = (kind: BlockKind) => {
+    const result = setBlockKind(draft.body, selection, kind);
+    change({ ...draft, body: result.document });
+    setPlaced(result.selection);
+  };
+  const close = useCallback(async () => {
+    // Entries still being typed become recipients; invalid text keeps the Draft open.
+    let finished = draft;
+    const left = { ...entries };
+    for (const field of ['to', 'cc', 'bcc'] as const) {
+      const result = addRecipients(finished, {
+        field,
+        text: entries[field],
+        all: true,
+      });
+      finished = result.draft;
+      left[field] = result.text;
+    }
+    setEntries(left);
+    if (finished !== draft) {
+      setHistory(record(history, finished));
+      void store.update(finished, draft);
+    }
+    if (Object.values(left).some((text) => text !== '')) {
+      setClosing('recipients');
+      return false;
+    }
+    setClosing('saving');
+    if (isEmptyDraft(finished)) {
+      if (await store.discard(draft.id, { onlyIfEmpty: true })) {
+        onClose();
+        return true;
+      }
+      setClosing('blocked');
+      return false;
+    }
+    if (await store.save()) {
+      onClose();
+      return true;
+    }
+    setClosing('blocked');
+    return false;
+  }, [draft, entries, history, onClose, store]);
+  const navigation = useComposerNavigation();
+  useLayoutEffect(() => navigation.register(close), [navigation, close]);
+  const discard = async () => {
+    setClosing('saving');
+    if (await store.discard(draft.id)) {
+      onClose();
+    } else {
+      setClosing('discard-blocked');
+    }
+  };
+  const active = typing ?? marksAt(draft.body, selection);
+  const kind = blockKindAt(draft.body, selection.start);
+
+  return (
+    <SafeAreaView
+      edges={{ top: true, bottom: true, left: true, right: true }}
+      style={[styles.fill, { backgroundColor: colors.background }]}>
+      <ScrollView
+        automaticallyAdjustKeyboardInsets
+        contentContainerStyle={styles.content}
+        keyboardDismissMode="interactive"
+        keyboardShouldPersistTaps="handled">
+        <View style={styles.bar}>
+          <Action
+            disabled={closing === 'saving'}
+            label="Close"
+            onPress={() => {
+              void close();
+            }}
+          />
+          <Text
+            accessibilityRole="header"
+            numberOfLines={1}
+            style={[
+              styles.grow,
+              styles.actionText,
+              { color: colors.foreground, fontWeight: '600' },
+            ]}>
+            {draft.subject || 'New Message'}
+          </Text>
+          <Action
+            disabled={history.past.length === 0}
+            label="Undo"
+            onPress={() => {
+              travel(undo(history));
+            }}
+          />
+          <Action
+            disabled={history.future.length === 0}
+            label="Redo"
+            onPress={() => {
+              travel(redo(history));
+            }}
+          />
+          <Action
+            destructive
+            label="Discard"
+            onPress={() => {
+              setClosing('discard');
+            }}
+          />
+        </View>
+        <Text
+          accessibilityLiveRegion="polite"
+          style={[styles.status, { color: colors.secondary }]}>
+          {`Draft · ${saveCopy[save]}`}
+        </Text>
+        {closing === 'blocked' || closing === 'discard-blocked' ? (
+          <View style={styles.bar}>
+            <Text
+              accessibilityRole="alert"
+              style={[
+                styles.notice,
+                styles.grow,
+                { color: colors.foreground },
+              ]}>
+              {closing === 'discard-blocked'
+                ? 'This Draft could not be discarded, so it stays open. Try again.'
+                : 'This Draft could not be saved, so it stays open. Try again, or discard it.'}
+            </Text>
+            <Action
+              label="Try again"
+              onPress={() => {
+                void (closing === 'discard-blocked' ? discard() : close());
+              }}
+            />
+          </View>
+        ) : null}
+        {closing === 'recipients' ? (
+          <Text
+            accessibilityRole="alert"
+            style={[styles.notice, { color: colors.foreground }]}>
+            Correct or remove the invalid address to close this Draft.
+          </Text>
+        ) : null}
+        {closing === 'discard' ? (
+          <View style={styles.bar}>
+            <Text
+              accessibilityRole="alert"
+              style={[
+                styles.notice,
+                styles.grow,
+                { color: colors.foreground },
+              ]}>
+              Discard this Draft? It is deleted from this device.
+            </Text>
+            <Action
+              destructive
+              label="Discard Draft"
+              onPress={() => {
+                void discard();
+              }}
+            />
+            <Action
+              label="Keep Editing"
+              onPress={() => {
+                setClosing(undefined);
+              }}
+            />
+          </View>
+        ) : null}
+        <SendingMailbox
+          draft={draft}
+          onChange={(mailbox) => {
+            change({ ...draft, connection: mailbox.id, from: mailbox.address });
+          }}
+        />
+        <Recipients
+          draft={draft}
+          field="to"
+          onChange={change}
+          onText={(text) => {
+            setEntries((current) => ({ ...current, to: text }));
+          }}
+          text={entries.to}
+        />
+        {draft.copies === true || draft.cc.length + draft.bcc.length > 0 ? (
+          <>
+            <Recipients
+              draft={draft}
+              field="cc"
+              onChange={change}
+              onText={(text) => {
+                setEntries((current) => ({ ...current, cc: text }));
+              }}
+              text={entries.cc}
+            />
+            <Recipients
+              draft={draft}
+              field="bcc"
+              onChange={change}
+              onText={(text) => {
+                setEntries((current) => ({ ...current, bcc: text }));
+              }}
+              text={entries.bcc}
+            />
+          </>
+        ) : (
+          <Action
+            accessibilityLabel="Show Cc and Bcc"
+            label="Cc/Bcc"
+            onPress={() => {
+              change({ ...draft, copies: true });
+            }}
+          />
+        )}
+        <View style={styles.field}>
+          <TextInput
+            accessibilityLabel="Subject"
+            onChangeText={(subject) => {
+              subjectCaret.current =
+                subjectSelection.current.end +
+                subject.length -
+                draft.subject.length;
+              change({ ...draft, subject }, !subject.endsWith(' '), 'subject');
+            }}
+            onSelectionChange={({ nativeEvent }) => {
+              const next = nativeEvent.selection;
+              if (
+                next.start !== next.end ||
+                next.start !== subjectCaret.current
+              ) {
+                setHistory((current) => ({ ...current, typing: false }));
+              }
+              subjectCaret.current = undefined;
+              subjectSelection.current = next;
+            }}
+            placeholder="Subject"
+            placeholderTextColor={colors.secondary}
+            style={[styles.input, { color: colors.foreground }]}
+            value={draft.subject}
+          />
+        </View>
+        <View
+          accessibilityLabel="Formatting"
+          accessibilityRole="toolbar"
+          style={styles.bar}>
+          {markControls.map(([mark, label, name, style]) => (
+            <Pressable
+              key={mark}
+              accessibilityLabel={name}
+              accessibilityRole="button"
+              accessibilityState={{ selected: active.includes(mark) }}
+              onPress={() => {
+                format(mark);
+              }}
+              style={[
+                styles.format,
+                {
+                  backgroundColor: active.includes(mark)
+                    ? colors.selected
+                    : 'transparent',
+                },
+              ]}>
+              <Text style={[{ color: colors.foreground }, style]}>{label}</Text>
+            </Pressable>
+          ))}
+          {blockControls.map(([value, label, name]) => (
+            <Pressable
+              key={value}
+              accessibilityLabel={name}
+              accessibilityRole="button"
+              accessibilityState={{ selected: kind === value }}
+              onPress={() => {
+                block(value);
+              }}
+              style={[
+                styles.format,
+                {
+                  backgroundColor:
+                    kind === value ? colors.selected : 'transparent',
+                },
+              ]}>
+              <Text style={{ color: colors.foreground }}>{label}</Text>
+            </Pressable>
+          ))}
+        </View>
+        <TextInput
+          accessibilityLabel="Message body"
+          multiline
+          onChangeText={edit}
+          onSelectionChange={({ nativeEvent }) => {
+            const next = nativeEvent.selection;
+            // Moving the caret anywhere but past typed text ends marks toggled for typing.
+            if (next.start !== next.end || next.start !== caret.current) {
+              setTyping(undefined);
+              setHistory((current) => ({ ...current, typing: false }));
+            }
+            caret.current = undefined;
+            setPlaced(undefined);
+            setSelection(next);
+          }}
+          placeholder="Message"
+          placeholderTextColor={colors.secondary}
+          scrollEnabled={false}
+          selection={placed}
+          style={[styles.body, { color: colors.foreground }]}
+          textAlignVertical="top">
+          {display.lines.map((line, index) => (
+            <Text
+              // oxlint-disable-next-line react/no-array-index-key -- Blocks are positional.
+              key={index}
+              style={[
+                kindStyles[line.kind],
+                line.kind === 'quote' ? { color: colors.secondary } : null,
+              ]}>
+              {line.marker}
+              {line.spans.map((span, at) => (
+                <Text
+                  // oxlint-disable-next-line react/no-array-index-key -- Spans are positional.
+                  key={at}
+                  style={markStyle(span.marks)}>
+                  {span.text}
+                </Text>
+              ))}
+              {index < display.lines.length - 1 ? '\n' : ''}
+            </Text>
+          ))}
+        </TextInput>
+      </ScrollView>
+    </SafeAreaView>
+  );
+}
+
+// Opens a Draft directly for editing; it has no read-only presentation.
+export function Composer({
+  id,
+  onClose,
+}: {
+  readonly id: string;
+  readonly onClose: () => void;
+}) {
+  const state = useDrafts();
+  const store = useDraftStore();
+  const colors = usePalette();
+  const draft = draftOf(state, id);
+  if (draft !== undefined) {
+    return (
+      <Editor
+        key={draft.id}
+        initial={draft}
+        onClose={onClose}
+      />
+    );
+  }
+  const waiting = state.kind === 'loading';
+  return (
+    <SafeAreaView
+      edges={{ top: true, bottom: true, left: true, right: true }}
+      style={[styles.fill, { backgroundColor: colors.background }]}>
+      <View style={styles.content}>
+        {waiting ? (
+          <ActivityIndicator accessibilityLabel="Loading Draft" />
+        ) : (
+          <>
+            <Text
+              accessibilityRole="header"
+              style={[styles.actionText, { color: colors.foreground }]}>
+              {state.kind === 'locked'
+                ? 'Drafts are locked. Unlock your device and try again.'
+                : 'This Draft is not available.'}
+            </Text>
+            {state.kind === 'locked' || state.kind === 'failed' ? (
+              <Action
+                label="Try again"
+                onPress={() => {
+                  void store.load();
+                }}
+              />
+            ) : null}
+            <Action
+              label="Close"
+              onPress={onClose}
+            />
+          </>
+        )}
+      </View>
+    </SafeAreaView>
+  );
+}

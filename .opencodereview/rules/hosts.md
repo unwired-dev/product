@@ -13,6 +13,15 @@ A host owns views and native adapters. It renders shared stores from `@private-e
 
 #### React correctness
 
+- Composer text editing that infers a replacement solely from identical display
+  text instead of using the selection and deletion direction, or coalesces Undo across fields or caret
+  moves. Check repeated characters with different semantic marks and subject-to-body
+  editing; otherwise formatting moves to the wrong character or Undo removes an
+  unrelated completed edit. Navigating to mail or another Draft must finish recipient
+  entry and wait for saving, keeping the composer open on failure.
+  Mac `onKeyDown` emits ordinary keys too: require the modifier before invoking
+  formatting or Undo, or typing a letter can mutate formatting/history.
+
 - An effect that subscribes, listens (`AppState`, `Linking`, a native emitter) or starts async work without returning cleanup, or whose async result is applied after unmount or after its inputs changed.
 - A store action whose returned Promise is awaited in render or left to reject; actions are fired as `void store.action()` and report failure through state.
 - An event handled indirectly by an effect that can repeat a store action or apply it to a later selection; trace the user handler and the effect to prove the incorrect transition.

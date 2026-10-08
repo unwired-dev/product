@@ -1,13 +1,15 @@
+import type { NativeDrafts } from '@private-email/mail-core/drafts';
 import type { NativeGmailMailboxes } from '@private-email/mail-core/mailboxes';
 import type { NativeRegistration } from '@private-email/mail-core/registration';
 import type { TurboModule } from 'react-native';
 
+import { createDrafts } from '@private-email/mail-core/drafts';
 import { createMailboxes } from '@private-email/mail-core/mailboxes';
 import { createRegistration } from '@private-email/mail-core/registration';
 import { TurboModuleRegistry } from 'react-native';
 
 interface RegistrationModule
-  extends TurboModule, NativeRegistration, NativeGmailMailboxes {}
+  extends TurboModule, NativeRegistration, NativeGmailMailboxes, NativeDrafts {}
 const native = () =>
   TurboModuleRegistry.getEnforcing<RegistrationModule>('UnwiredRegistration');
 
@@ -53,4 +55,14 @@ export const gmailMailboxes = createMailboxes(
       void registration.deviceRemoved();
     },
   },
+);
+
+// The signed-in Product Account's encrypted Drafts on this device.
+export const drafts = createDrafts(
+  {
+    openDrafts: () => native().openDrafts(),
+    commitDrafts: (owner, expectedRevision, document) =>
+      native().commitDrafts(owner, expectedRevision, document),
+  },
+  registration,
 );

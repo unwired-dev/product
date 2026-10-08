@@ -33,6 +33,14 @@ struct MailboxCache: Codable {
   let document: String
 }
 
+// The Product Account's Drafts. Their document is TypeScript's; native keeps it encrypted for the
+// account that wrote it and replaces it only from the revision the caller read.
+struct DraftStore: Codable {
+  let revision: Int
+  let owner: String
+  let document: String
+}
+
 // Mailbox body work runs off the main actor: state is immutable and every transaction holds the
 // store's file lock, which also serializes threads within this process.
 public final class PrivateInboxStore: @unchecked Sendable {
@@ -43,6 +51,8 @@ public final class PrivateInboxStore: @unchecked Sendable {
   private let bodyLimit: Int
   private let associatedData = Data("dev.unwired.private-inbox.v1".utf8)
   private let mailboxAssociatedData = Data("dev.unwired.private-inbox.mailbox.v1".utf8)
+  private let draftsAssociatedData = Data("dev.unwired.private-inbox.drafts.v1".utf8)
+  static let outgoingContentLimit = 100 * 1024 * 1024
 
   public convenience init(directory: URL, service: String) {
     self.init(
@@ -99,13 +109,7 @@ public final class PrivateInboxStore: @unchecked Sendable {
         let messages = try JSONDecoder().decode([StoredMessage].self, from: Data(seed.utf8))
         let snapshot = InboxSnapshot(version: 1, revision: 0, messages: messages)
         try validate(snapshot)
-        let key: Data
-        if let existing = availableKey {
-          key = existing
-        } else {
-          key = SymmetricKey(size: .bits256).withUnsafeBytes { Data($0) }
-          try keychain.insert(key, account: "encryption-key")
-        }
+        let key = try writingKey(replacing: false)
         try save(snapshot, key: key)
         return try encode(snapshot)
       }
@@ -204,17 +208,7 @@ public final class PrivateInboxStore: @unchecked Sendable {
       let file = try connectionPath(connection, "mailbox.enc")
       let cache = try readMailbox(file: file)
       guard (cache?.revision ?? 0) == expectedRevision else { throw PrivateInboxError.conflict }
-      let key: Data
-      if cache != nil {
-        key = try existingKey()
-      } else if let existing = try keychain.read("encryption-key") {
-        key = existing
-      } else {
-        guard !FileManager.default.fileExists(atPath: directory.appendingPathComponent("inbox.enc").path)
-        else { throw PrivateInboxError.unavailable }
-        key = SymmetricKey(size: .bits256).withUnsafeBytes { Data($0) }
-        try keychain.insert(key, account: "encryption-key")
-      }
+      let key = try writingKey(replacing: cache != nil)
       let next = MailboxCache(
         revision: expectedRevision + 1, address: address, subject: subject, document: document)
       try FileManager.default.createDirectory(
@@ -226,6 +220,78 @@ public final class PrivateInboxStore: @unchecked Sendable {
     }
   }
 
+  // The key for a commit: the existing one when replacing encrypted data, and otherwise a new one
+  // only while no other encrypted file depends on a key.
+  private func writingKey(replacing: Bool) throws -> Data {
+    if replacing { return try existingKey() }
+    if let existing = try keychain.read("encryption-key") { return existing }
+    for name in ["inbox.enc", "drafts.enc", "mailbox.enc", "mailboxes", "bodies"] {
+      guard !FileManager.default.fileExists(atPath: directory.appendingPathComponent(name).path)
+      else { throw PrivateInboxError.unavailable }
+    }
+    let key = SymmetricKey(size: .bits256).withUnsafeBytes { Data($0) }
+    try keychain.insert(key, account: "encryption-key")
+    return key
+  }
+
+  // The Product Account's Drafts, sealed to the account that wrote them. Another account's
+  // Drafts read as empty and its first commit replaces them; replies omit the other account.
+  public func openDrafts(owner: String) throws -> [String: Any] {
+    let opened = try openDraftDocument(owner: owner)
+    return ["owner": owner, "revision": opened.revision, "document": opened.document ?? NSNull()]
+  }
+
+  func openDraftDocument(owner: String) throws -> (revision: Int, document: String?) {
+    try transaction {
+      let stored = try readDrafts()
+      return (stored?.revision ?? 0, stored.flatMap { $0.owner == owner ? $0.document : nil })
+    }
+  }
+
+  public func commitDrafts(owner: String, expectedRevision: Int, document: String) throws
+    -> [String: Any]
+  {
+    let revision = try commitDraftDocument(owner: owner, expectedRevision: expectedRevision, document: document)
+    return ["owner": owner, "revision": revision]
+  }
+
+  func commitDraftDocument(owner: String, expectedRevision: Int, document: String) throws -> Int {
+    try transaction {
+      // The Outgoing Content Store's device-wide limit never evicts; a larger document is refused.
+      guard document.utf8.count <= Self.outgoingContentLimit else {
+        throw PrivateInboxError.unavailable
+      }
+      let stored = try readDrafts()
+      guard (stored?.revision ?? 0) == expectedRevision else { throw PrivateInboxError.conflict }
+      let key = try writingKey(replacing: stored != nil)
+      let next = DraftStore(revision: expectedRevision + 1, owner: owner, document: document)
+      try write(
+        JSONEncoder().encode(next), file: "drafts.enc", key: key,
+        authenticating: draftsAssociatedData)
+      return next.revision
+    }
+  }
+
+  private func readDrafts() throws -> DraftStore? {
+    let data: Data
+    do {
+      data = try Data(contentsOf: directory.appendingPathComponent("drafts.enc"))
+    } catch CocoaError.fileReadNoSuchFile {
+      return nil
+    }
+    let key = try existingKey()
+    do {
+      let box = try AES.GCM.SealedBox(combined: data)
+      let plaintext = try AES.GCM.open(
+        box, using: SymmetricKey(data: key), authenticating: draftsAssociatedData)
+      let stored = try JSONDecoder().decode(DraftStore.self, from: plaintext)
+      guard stored.revision > 0 else { throw PrivateInboxError.invalidStore }
+      return stored
+    } catch {
+      throw PrivateInboxError.invalidStore
+    }
+  }
+
   // Needs no key, so a locked device can still forget a connection's cache and bodies.
   public func removeMailbox(connection: String, includingLegacy: Bool = false) throws {
     let path = try connectionPath(connection, "")
@@ -234,9 +300,12 @@ public final class PrivateInboxStore: @unchecked Sendable {
     }
   }
 
-  // Every connection's cache and bodies, including the cache written before connections.
+  // Every connection's cache and bodies, including the cache written before connections, and the
+  // account's Drafts: everything an account purge removes from this store.
   public func removeMailboxes() throws {
-    try unlockedTransaction { try removeItems(["mailboxes", "mailbox.enc", "bodies"]) }
+    try unlockedTransaction {
+      try removeItems(["mailboxes", "mailbox.enc", "bodies", "drafts.enc"])
+    }
   }
 
   private func removeItems(_ names: [String]) throws {
