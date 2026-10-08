@@ -357,7 +357,7 @@ const PickedSchema = Schema.Array(
       name: Schema.String,
       type: Schema.String,
     }),
-    // Over the per-file limit: listed so it shows as too large, but never copied.
+    // Over the per-file limit: listed so it shows as too large, with no app-owned staging copy.
     Schema.Struct({
       name: Schema.String,
       type: Schema.String,
@@ -582,7 +582,8 @@ export interface NativeDrafts {
   ) => Promise<unknown>;
   // Deletes bytes that no committed Draft names, such as a cancelled import's.
   readonly discardDraftAsset: (owner: string, id: string) => Promise<unknown>;
-  // Resolves `[{ uri, name, type }]` for files the person chose; empty when they chose none.
+  // Resolves `[{ uri, name, type }]`, or `{ name, type, oversized: 'true' }` without a uri
+  // for a representation over the per-file limit; empty when the person chose none.
   readonly pickDraftFiles: (source: PickSource) => Promise<unknown>;
   readonly discardPickedDraftFiles: (
     uris: readonly string[],

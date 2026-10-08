@@ -1,17 +1,17 @@
 import Foundation
 import UniformTypeIdentifiers
 
-// The system's own ways to choose files for a Draft. Each resolves `[{ uri, name, type }]`, or an
-// empty list when the person chooses nothing. iPhone and iPad copy the chosen files into a
+// The system's own ways to choose files for a Draft. Each resolves `[{ uri, name, type }]`, or
+// `{ name, type, oversized: "true" }` without a uri for an oversized representation, or an empty
+// list when the person chooses nothing. iPhone and iPad copy admitted files into a
 // temporary folder that import or the next launch removes; a Mac file stays where it is and is
 // read through the open panel's grant.
 // One pick adds at most this many files, as TypeScript's `pickLimit`, so a huge selection is
 // never copied or listed.
 private let pickLimit = 20
 
-// The MIME type comes from the type the source declared when it has one, then the extension.
 // A file over the per-file limit is listed, so the composer can say it is too large, but it is
-// never copied.
+// never copied into app-owned staging. The system may already have made a temporary copy.
 private func isOversized(_ url: URL) -> Bool {
   (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize).flatMap { $0 }
     .map { $0 > PrivateInboxStore.draftAssetLimit } ?? false
@@ -24,6 +24,7 @@ private func oversizedFile(_ url: URL, name: String, type: UTType? = nil) -> [St
   return file
 }
 
+// The MIME type comes from the type the source declared when it has one, then the extension.
 private func pickedFile(_ url: URL, name: String? = nil, type declared: UTType? = nil)
   -> [String: String]
 {

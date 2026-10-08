@@ -18,6 +18,7 @@ import {
   createDrafts,
   draftSummary,
   isEmptyDraft,
+  prepareFiles,
   recipientSummary,
   draftOf,
   draftsOf,
@@ -2041,6 +2042,25 @@ describe('adding files and images to Drafts', () => {
         )[0],
       ).toMatchObject({ state: 'failed', reason: 'too-large' });
     });
+    // Insert Image uses the same refused representation inside the body.
+    const before = present(draftOf(drafts.getSnapshot(), target), 'the Draft');
+    const prepared = prepareFiles(before, {
+      selection: { start: 0, end: 0 },
+      files: [present(huge, 'the oversized pick')],
+      inline: true,
+    });
+    await drafts.update(prepared.draft, before);
+    for (const { asset, file: picked } of prepared.imports) {
+      await drafts.importAsset(asset, picked.source);
+    }
+    const refused = present(draftOf(drafts.getSnapshot(), target), 'the Draft');
+    expect(imagesOf(refused.body)).toHaveLength(1);
+    expect(imagesOf(refused.body)[0]).toMatchObject({
+      state: 'failed',
+      reason: 'too-large',
+    });
+    expect(unsendableAssets(refused)).toHaveLength(2);
+    expect(storage.assets()).toStrictEqual([]);
     storage.pickNext('photos', [
       { uri: 'file:///a.png', name: 'a.png', type: 'image/png' },
     ]);

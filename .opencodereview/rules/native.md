@@ -59,6 +59,17 @@ Native storage owns what TypeScript must never hold: Keychain items, the storage
   paste/drop consumers too; otherwise large selections create unbounded plaintext
   staging and composer work outside the encrypted store's byte-admission limit.
 
+- `DraftFilePicker.PhotoDelegate.copy` or document intake checking the per-file
+  byte limit only after copying or moving a loaded representation into app-owned
+  staging. Check the loaded file's logical size before that work; keep oversized
+  items visible as URI-less too-large results and trace their decoding, inline
+  preparation, import settlement and cleanup in `drafts.ts`. Preserve the native
+  import's final byte-admission check and never remove a user-owned original.
+  System-created temporary representations may precede inspection, so do not
+  claim the limit prevents that platform work. Otherwise a bounded selection of
+  oversized assets still consumes substantial plaintext staging space and time
+  before encrypted storage refuses it.
+
 - `pickedFile` in `DraftFilePicker.swift` or `PhotoDelegate.copy` inferring an imported
   image's MIME type only from its display name or renamed staging path, despite
   the source's declared type or original URL extension. Prefer a concrete
