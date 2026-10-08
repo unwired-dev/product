@@ -18,6 +18,7 @@ import {
 } from '../src/testing/mock-session.ts';
 import {
   createTranslation,
+  draftReplacement,
   draftTranslationInput,
   messageTranslationInput,
   translationInputLimit,
@@ -246,6 +247,13 @@ describe('on-device translation', () => {
 });
 
 describe('applying a translation to selected Draft text', () => {
+  it('keeps the selection boundary whitespace around the trimmed translation', () => {
+    expect.hasAssertions();
+    expect(draftReplacement('Hola ', 'Hello')).toBe('Hello ');
+    expect(draftReplacement(' \nHola\n', ' Hello ')).toBe(' \nHello\n');
+    expect(draftReplacement('Hola', 'Hello ')).toBe('Hello');
+  });
+
   const draft: SemanticDocument = [
     { kind: 'paragraph', spans: [{ text: 'Hello ', marks: ['bold'] }] },
     { kind: 'bulleted', spans: [{ text: 'first item' }] },

@@ -89,6 +89,11 @@ export const draftTranslationInput = (
     ? { text, omitted: false, target }
     : undefined;
 
+// The text that replaces a Draft selection: its translation, trimmed for the preview, between the
+// selection's own leading and trailing whitespace so neighbouring words stay separated.
+export const draftReplacement = (selected: string, translated: string) =>
+  `${/^\s*/u.exec(selected)?.[0] ?? ''}${translated.trim()}${/\s*$/u.exec(selected)?.[0] ?? ''}`;
+
 export type TranslationState =
   | { readonly kind: 'idle' }
   | { readonly kind: 'translating' }

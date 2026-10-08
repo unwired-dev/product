@@ -1934,6 +1934,18 @@ describe('composing Drafts', () => {
       'Hola! Nos vemos el viernes.',
       { exact: true },
     );
+
+    // The selection's boundary whitespace survives, though the preview trims the translation.
+    await select(0, 6);
+    await translateSelection();
+    expect(asked[5]?.input).toBe('Hola! ');
+    asked[5]?.answer.resolve({ source: 'es', text: 'Hello! ' });
+    await screen.findByText('Hello!');
+    await press('Replace the selected text with this translation');
+    expect(screen.getByLabelText('Message body')).toHaveTextContent(
+      'Hello! Nos vemos el viernes.',
+      { exact: true },
+    );
   });
   /* oxlint-enable vitest/max-expects */
 });

@@ -31,7 +31,9 @@ fallback and nothing is downloaded by the app.
   the captured selection as one edit that one **Undo** reverts. **Keep original**
   closes the panel. When the translation retains the selected line breaks, those
   lines keep their list and block formatting. The inserted text takes the formatting of the text
-  before it. Recipients, the subject, attachments and delivery state are never changed.
+  before it. The selection's own leading and trailing whitespace is kept around the
+  translation, so neighbouring words stay separated. Recipients, the subject,
+  attachments and delivery state are never changed.
 - A Draft selection longer than 6,000 characters is not cut, because applying the
   translation replaces the whole selection; the panel asks for a shorter selection.
 - While Translation works, the panel shows progress and **Cancel**. Cancelling

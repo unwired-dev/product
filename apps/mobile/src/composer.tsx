@@ -41,6 +41,7 @@ import {
 } from '@private-email/mail-core/semantic-document';
 import { spacing } from '@private-email/mail-core/theme';
 import {
+  draftReplacement,
   hasTranslatableText,
   translationInputLimit,
 } from '@private-email/mail-core/translation';
@@ -874,7 +875,7 @@ function Editor({
     const result = replaceSelection(
       latest.body,
       translating.selection,
-      translated,
+      draftReplacement(translating.text, translated),
     );
     change({ ...latest, body: result.document });
     placeTyping(undefined);
