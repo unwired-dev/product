@@ -1110,6 +1110,96 @@ describe('storing Drafts', () => {
     ]);
   });
 
+  it('drops an abandoned empty Draft at the next save after storage refused it', async () => {
+    expect.hasAssertions();
+    const session = account(connected('account-a'));
+    const storage = createSyntheticDrafts(session.productAccount);
+    const drafts = createDrafts(storage.native, session.registration);
+    await drafts.load();
+    storage.failNextCommit('locked');
+    const id = present(await drafts.create(alex), 'Draft id');
+    storage.failNextCommit('locked');
+    await expect(drafts.abandon(id)).resolves.toBe(false);
+    expect(draftOf(drafts.getSnapshot(), id)).toBeUndefined();
+    // Recovery saves without the abandoned Draft, while a Draft that gained content stays.
+    const kept = present(await drafts.create(alex), 'kept Draft');
+    const empty = present(draftOf(drafts.getSnapshot(), kept), 'kept editor');
+    await drafts.update({ ...empty, subject: 'Typed meanwhile' }, empty);
+    await expect(drafts.abandon(kept)).resolves.toBe(true);
+    const reopened = createDrafts(storage.native, session.registration);
+    await reopened.load();
+    expect(ready(reopened.getSnapshot()).drafts).toStrictEqual([
+      expect.objectContaining({ id: kept, subject: 'Typed meanwhile' }),
+    ]);
+  });
+
+  it('keeps a late authored edit after abandoning an unsaved empty Draft', async () => {
+    expect.hasAssertions();
+    const session = account(connected('account-a'));
+    const storage = createSyntheticDrafts(session.productAccount);
+    const drafts = createDrafts(storage.native, session.registration);
+    await drafts.load();
+    storage.failNextCommit('locked');
+    const id = present(await drafts.create(alex), 'Draft id');
+    const empty = present(draftOf(drafts.getSnapshot(), id), 'empty editor');
+    storage.failNextCommit('locked');
+    await drafts.abandon(id);
+    storage.failNextCommit('locked');
+    await expect(drafts.update(empty, empty)).resolves.toBe(false);
+    expect(ready(drafts.getSnapshot()).drafts).toStrictEqual([]);
+    let followed = id;
+    storage.failNextCommit('locked');
+    await expect(
+      drafts.update({ ...empty, subject: 'Late content' }, empty, (copy) => {
+        followed = copy;
+      }),
+    ).resolves.toBe(false);
+    expect(followed).not.toBe(id);
+    await expect(drafts.save()).resolves.toBe(true);
+    const reopened = createDrafts(storage.native, session.registration);
+    await reopened.load();
+    expect(ready(reopened.getSnapshot()).drafts).toStrictEqual([
+      expect.objectContaining({
+        id: followed,
+        subject: 'Late content',
+        conflict: true,
+      }),
+    ]);
+  });
+
+  it.each([
+    { subject: '', retained: [] },
+    { subject: 'Other writer', retained: [{ subject: 'Other writer' }] },
+  ])(
+    'rebases abandoned deletion without losing concurrent content ($subject)',
+    async ({ subject, retained }) => {
+      expect.hasAssertions();
+      const session = account(connected('account-a'));
+      const storage = createSyntheticDrafts(session.productAccount);
+      const first = createDrafts(storage.native, session.registration);
+      await first.load();
+      const id = present(await first.create(alex), 'Draft id');
+      const second = createDrafts(storage.native, session.registration);
+      await second.load();
+      const empty = present(draftOf(second.getSnapshot(), id), 'other editor');
+      const independent = present(
+        await second.create(other),
+        'independent Draft',
+      );
+      await second.update({ ...empty, subject }, empty);
+      await expect(first.abandon(id)).resolves.toBe(true);
+      expect(ready(first.getSnapshot()).save).toBe('saved');
+      const reopened = createDrafts(storage.native, session.registration);
+      await reopened.load();
+      expect(ready(reopened.getSnapshot()).drafts).toStrictEqual([
+        ...retained.map((content) =>
+          expect.objectContaining({ id, ...content }),
+        ),
+        expect.objectContaining({ id: independent }),
+      ]);
+    },
+  );
+
   it('keeps an editor bound to its copy when another storage writer chose the same copy ID', async () => {
     expect.hasAssertions();
     const session = account(connected('account-a'));

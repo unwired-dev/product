@@ -1486,5 +1486,57 @@ describe('composing Drafts', () => {
     expect(screen.queryByLabelText('Subject')).not.toBeOnTheScreen();
     expect(draftsOf(drafts.getSnapshot())).toStrictEqual([]);
   });
+
+  it('removes an abandoned New Message after locked storage recovers from Save Drafts', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    let commit = storage.native.commitDrafts;
+    const drafts = createDrafts(
+      {
+        ...storage.native,
+        commitDrafts: (...args) => commit(...args),
+      },
+      registration,
+    );
+    await render(
+      <App
+        drafts={drafts}
+        registration={registration}
+      />,
+    );
+    const newMessage = await screen.findByRole('button', {
+      name: 'New Message',
+    });
+    storage.hold();
+    await fireEvent.press(newMessage);
+    await press('Account');
+    // Refuse both the held creation and every cleanup save until the person retries.
+    storage.failNextCommit('locked');
+    commit = async () => {
+      throw Object.assign(new Error('Storage locked'), { code: 'locked' });
+    };
+    await act(async () => {
+      storage.release();
+    });
+    await waitFor(() => {
+      expect(
+        screen.getByRole('button', { name: 'New Message' }),
+      ).not.toBeDisabled();
+    });
+    expect(screen.queryByLabelText('Subject')).not.toBeOnTheScreen();
+    expect(draftsOf(drafts.getSnapshot())).toStrictEqual([]);
+    await screen.findByRole('button', { name: 'Save Drafts' });
+    commit = storage.native.commitDrafts;
+    await press('Save Drafts');
+    await waitFor(() => {
+      expect(
+        screen.queryByRole('button', { name: 'Save Drafts' }),
+      ).not.toBeOnTheScreen();
+    });
+    const reopened = createDrafts(storage.native, registration);
+    await reopened.load();
+    expect(draftsOf(reopened.getSnapshot())).toStrictEqual([]);
+  });
   /* oxlint-enable vitest/max-expects */
 });

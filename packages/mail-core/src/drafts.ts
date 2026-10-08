@@ -874,6 +874,15 @@ export function createDrafts(
       // A Draft started before the Product Account changed belongs to no open store now.
       return live(creating) ? created.id : undefined;
     },
+    // Removes an empty Draft nobody opened, at once in memory, so the next successful save drops it
+    // even when storage refuses this one. A Draft that gained content is kept.
+    abandon: (id: string) =>
+      change((drafts) => {
+        const abandoned = drafts.find((draft) => draft.id === id);
+        return abandoned === undefined || !isEmptyDraft(abandoned)
+          ? drafts
+          : drafts.filter((draft) => draft !== abandoned);
+      }),
     // Replaces a Draft's content; resolves true once it is saved. When another editor changed the
     // Draft since `previous`, its newer version keeps the identifier and this edit becomes a
     // conflicting copy: `moved` learns the copy's identifier at once and again if storage

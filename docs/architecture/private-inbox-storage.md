@@ -84,8 +84,15 @@ shared store. Discard publishes removal only after durable storage completion.
 An update equal to its editor's immediate prior content leaves the list alone,
 while still flushing earlier dirty work. Equality includes identity, conflict
 metadata and unfinished recipients and ignores only `updatedAt`.
-Automatic empty-Draft disposal checks current content under that same serialized
+Closing an empty composer checks current content under that same serialized
 operation, so a stale empty editor cannot delete another window's completed work.
+Separately, `composer-navigation.create` abandons an empty New Message when a
+later destination won and its row was not selected. `createDrafts.abandon`
+checks current content and removes it through `change` before saving; failed
+saving retains the dirty deletion for the next edit or retry. CAS recovery keeps
+another writer's authored version, and `known` permits a same-account nonempty
+late edit to survive as a conflict copy with editor rebinding. This cleanup does
+not give explicit Discard the same early-removal semantics.
 
 ## Gmail body cache
 

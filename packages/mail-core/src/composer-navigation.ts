@@ -9,7 +9,7 @@ export interface ComposerNavigation {
   readonly leave: (draft?: string) => Promise<boolean>;
   // Starts a Draft only after leaving, and returns it only if no later destination was chosen.
   readonly create: (
-    drafts: Pick<Drafts, 'create' | 'discard'>,
+    drafts: Pick<Drafts, 'create' | 'abandon'>,
     mailbox: Pick<MailboxConnection, 'id' | 'address'>,
   ) => Promise<string | undefined>;
 }
@@ -58,8 +58,9 @@ export function createComposerNavigation(): ComposerNavigation {
         return id;
       }
       // Selecting the new row while creation waits already opened this Draft; it is not abandoned.
+      // Locked storage keeps the removal for the next successful save.
       if (selectedDraft !== id) {
-        await drafts.discard(id, { onlyIfEmpty: true });
+        await drafts.abandon(id);
       }
       return undefined;
     },

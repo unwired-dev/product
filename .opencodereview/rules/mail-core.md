@@ -193,6 +193,14 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   chosen destination, removes its selected composer, or deletes another editor's
   completed content. Keep this coordination shared rather than duplicating it
   in each host's `DraftList.compose`.
+  Record empty abandonment as a dirty edit even when creation or cleanup saving
+  is refused: `createDrafts.abandon` must remove it from memory and retain that
+  deletion for the next edit, Save Drafts or Retry. Reusing Discard's leading
+  flush loses this intent when storage stays locked, so a later successful save
+  persists the abandoned blank Draft. Keep explicit Discard visible and retryable
+  until durable completion. Preserve another writer's authored content during
+  abandonment CAS recovery and keep nonempty late edits through `known` and
+  editor rebinding; empty late events must not resurrect the removed identity.
 - `createDrafts.update` silently dropping authored content after the original ID
   has been durably deleted, including after `discard({ onlyIfEmpty: true })`.
   Preserve a same-owner nonempty late edit as a conflict copy and notify its

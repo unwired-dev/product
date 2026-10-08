@@ -17,8 +17,9 @@ Drafts mailbox, and Drafts do not synchronize to other devices yet.
   While starting that Draft is pending, **New Message** is disabled; repeated
   presses create one Draft. Refused navigation leaves it available to try again.
   A destination chosen while creation waits stays selected. An abandoned empty
-  Draft is removed; selecting the new Draft's row or another editor adding content
-  keeps it available.
+  Draft disappears from the list immediately; when storage refuses saving, the
+  next successful save makes its removal durable. Selecting the new Draft's row
+  or another editor adding content keeps it available.
 - **Drafts** are listed in the Inbox column apart from received mail, newest edit
   first. Each row is labelled `DRAFT` and names its subject, recipients and sending
   mailbox. A **From** line always shows the sending address, followed by a
@@ -144,6 +145,10 @@ composer, then reopen the content through a fresh Draft store. The mobile journe
 checks that selecting the current Draft dispatches its reveal action even with
 invalid recipient text and a failed save; this does not prove native column
 visibility.
+Shared regressions preserve late authored edits and concurrent storage edits
+after abandoning an empty New Message. Both host journeys keep a later destination
+selected through locked creation and cleanup, then use **Save Drafts** and reopen
+the store to verify that the abandoned blank Draft was not saved.
 
 The hosted iOS 27 storage suite checks the Draft document with the real
 filesystem, CryptoKit and Simulator Keychain: ciphertext without its plaintext,
