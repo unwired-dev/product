@@ -5,12 +5,8 @@ uses the repository-root [`.coderabbit.yaml`](../../.coderabbit.yaml) together w
 the nearest `AGENTS.md` instructions. It automatically reviews non-draft pull
 requests to the default branch and incrementally reviews new pushes. Pull
 requests from common dependency and automation bots are skipped, as are pull
-requests whose title contains `[WIP]` or `[skip review]` or that carry the
-`do-not-review` label. Because CodeRabbit skips bot-authored pull requests by
-default, [`.github/workflows/coderabbit-bot-review.yml`](../../.github/workflows/coderabbit-bot-review.yml)
-explicitly requests reviews for non-draft pull requests authored by
-`gipity-bot[bot]` when they become ready for review (`ready_for_review`). Generated
-Convex client files are excluded from review.
+requests whose title contains `[WIP]`, `[skip review]` or `Version packages`, or that carry the
+`do-not-review` label. Generated Convex client files are excluded from review.
 
 Codex can close the feedback loop with a
 [Scheduled task](https://learn.chatgpt.com/docs/automations?surface=app) and an installed
@@ -69,7 +65,7 @@ To attach a concern to the next sweep from a top-level PR comment, a repository
 maintainer can use this exact first nonblank line:
 
 ```text
-@gipity-bot babysit
+/babysit
 ```
 
 Optional concern text can follow on later lines. The command address identifies
@@ -96,3 +92,37 @@ active as recovery even after such a bridge is configured.
 Keep one authoritative writer through durable per-PR leases outside disposable
 worktrees. Preserve this validation and credential boundary when the client
 implementation changes. A skill installation does not replace repository policy.
+
+## Automatic merge
+
+[`.github/workflows/auto-merge.yml`](../../.github/workflows/auto-merge.yml) runs
+[`scripts/auto-merge.sh`](../../scripts/auto-merge.sh) every 15 minutes and
+squash-merges each open pull request to `main` that meets every condition:
+
+- It is ready for review, from a same-repository branch, and has no merge conflict.
+- Every status check the `main` ruleset requires concluded success or skipped,
+  from its required GitHub App when one is specified. When the ruleset requires
+  branches to be up to date, the head must also contain the latest `main`.
+- Every review thread is resolved.
+- Codex reacted with 👍 and its latest "Didn't find any major issues" comment
+  names the current head commit.
+- CodeRabbit's latest approving or change-requesting review approves, and its
+  `CodeRabbit` status on the head commit is posted by `coderabbitai` and reads
+  "Review completed" or "Review approved". A previous approval can remain after
+  later pushes, and a successful status can indicate a paused or rate-limited review.
+
+When CodeRabbit has not reviewed the head commit, or its latest review requests
+changes, the merger waits until the other conditions hold and the pull request
+has had no new commits, comments or reviews for more than 2 hours. It then merges,
+first dismissing a change request as stale. It never merges a pull request
+without both reviewers, a pull request CodeRabbit is configured to skip, a fork
+head, a bot-authored pull request, or the `changeset-release/main` version pull request.
+Incomplete label, required-check or review-thread pages block the merge. The merge uses the
+`GH_TOKEN` personal token so the push to `main` runs its workflows; because that
+token's owner may bypass the ruleset, the script checks the required status
+checks itself. Eligibility is checked again before acting and after a stale-review
+dismissal. The head commit is fenced at merge time; comments, labels and review
+state can still change between the final check and GitHub accepting the merge.
+Run the workflow manually on `main` with `dry_run` to see each decision
+without dismissing or merging, or locally with
+`DRY_RUN=1 GITHUB_REPOSITORY=unwired-dev/product bash scripts/auto-merge.sh [number...]`.
