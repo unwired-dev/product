@@ -183,53 +183,10 @@ export type Edit = Readonly<{
   literal?: SemanticDocument;
 }>;
 
-// The changed span between two texts: what remained before and after it, and what replaced it.
-const changeOf = (
-  previous: string,
-  next: string,
-  {
-    selection,
-    deletion,
-  }: Readonly<{
-    selection?: Selection | undefined;
-    deletion?: 'backward' | 'forward' | undefined;
-  }>,
-) => {
-  // Repeated characters are ambiguous in a text-only diff. Prefer the selected replacement,
-  // insertion at the caret, or deletion immediately beside it when the unchanged text agrees.
-  if (selection !== undefined) {
-    const start = Math.min(selection.start, selection.end);
-    const end = Math.max(selection.start, selection.end);
-    const delta = next.length - previous.length;
-    const backward = [start + delta, end];
-    const forward = [start, end - delta];
-    let ranges = [[start, end]];
-    if (start === end && delta < 0) {
-      ranges =
-        deletion === 'forward' ? [forward, backward] : [backward, forward];
-    }
-    for (const [from, to] of ranges) {
-      if (
-        from !== undefined &&
-        to !== undefined &&
-        from >= 0 &&
-        to <= previous.length
-      ) {
-        const insertedEnd = to + delta;
-        if (
-          insertedEnd >= from &&
-          previous.slice(0, from) === next.slice(0, from) &&
-          previous.slice(to) === next.slice(insertedEnd)
-        ) {
-          return {
-            start: from,
-            end: to,
-            inserted: next.slice(from, insertedEnd),
-          };
-        }
-      }
-    }
-  }
+type Change = Readonly<{ start: number; end: number; inserted: string }>;
+
+// The changed span between two texts from their unchanged start and end.
+const diffOf = (previous: string, next: string): Change => {
   const limit = Math.min(previous.length, next.length);
   let prefix = 0;
   while (prefix < limit && previous[prefix] === next[prefix]) {
@@ -249,6 +206,59 @@ const changeOf = (
   };
 };
 
+// The span `from`..`to` of `previous`, when replacing it alone turns `previous` into `next`.
+const replacing = (
+  previous: string,
+  next: string,
+  [from, to]: readonly [number, number],
+): Change | undefined => {
+  const insertedEnd = to + next.length - previous.length;
+  const fits =
+    from >= 0 &&
+    to <= previous.length &&
+    insertedEnd >= from &&
+    previous.slice(0, from) === next.slice(0, from) &&
+    previous.slice(to) === next.slice(insertedEnd);
+  return fits
+    ? { start: from, end: to, inserted: next.slice(from, insertedEnd) }
+    : undefined;
+};
+
+// The changed span between two texts: what remained before and after it, and what replaced it.
+// Repeated characters are ambiguous in a text-only diff, so the selected replacement, insertion
+// at the caret, or deletion immediately beside it wins when the unchanged text agrees.
+const changeOf = (
+  previous: string,
+  next: string,
+  {
+    selection,
+    deletion,
+  }: Readonly<{
+    selection?: Selection | undefined;
+    deletion?: 'backward' | 'forward' | undefined;
+  }>,
+): Change => {
+  if (selection === undefined) {
+    return diffOf(previous, next);
+  }
+  const start = Math.min(selection.start, selection.end);
+  const end = Math.max(selection.start, selection.end);
+  const delta = next.length - previous.length;
+  const backward = [start + delta, end] as const;
+  const forward = [start, end - delta] as const;
+  const deleting = start === end && delta < 0;
+  const ordered =
+    deletion === 'forward' ? [forward, backward] : [backward, forward];
+  const candidates = deleting ? ordered : [[start, end] as const];
+  for (const range of candidates) {
+    const change = replacing(previous, next, range);
+    if (change !== undefined) {
+      return change;
+    }
+  }
+  return diffOf(previous, next);
+};
+
 // The kind of each block a change creates. Return continues the block it splits; at the start of
 // a block, it inserts a block before it and keeps this block's kind.
 const createdKind = (
@@ -265,35 +275,44 @@ const createdKind = (
   return above && index === count - 1 ? kind : continuation(kind);
 };
 
-// Replaces the changed span of the lines, returning the new lines and the caret after it.
-const splice = (
-  lines: readonly Line[],
-  { start, end, inserted }: Readonly<ReturnType<typeof changeOf>>,
-  marks: readonly Mark[] | undefined,
-) => {
+// The kept text before and after a change, and the kind of the block it starts in. Typing before
+// a list marker belongs to the item; any other change to the marker removes it.
+const edgesOf = (lines: readonly Line[], { start, end }: Change) => {
   const from = locate(lines, start);
   const to = locate(lines, end);
   const first = lines[from.line] ?? { kind: 'paragraph', chars: [] };
   const last = lines[to.line] ?? first;
-  // Typing before a list marker belongs to the item; any other change to it removes it.
   const intoMarker = from.column < from.marker;
-  const kind =
-    intoMarker && (start !== end || from.column !== 0)
-      ? 'paragraph'
-      : first.kind;
-  const head = first.chars.slice(0, Math.max(0, from.column - from.marker));
-  const tail = last.chars.slice(Math.max(0, to.column - to.marker));
+  const removesMarker = intoMarker && (start !== end || from.column !== 0);
+  return {
+    from,
+    to,
+    kind: removesMarker ? 'paragraph' : first.kind,
+    head: first.chars.slice(0, Math.max(0, from.column - from.marker)),
+    tail: last.chars.slice(Math.max(0, to.column - to.marker)),
+  } as const;
+};
+
+// Replaces the changed span of the lines, returning the new lines and the caret after it.
+// fallow-ignore-next-line complexity -- Inherited marks and created block kinds are one splice.
+const splice = (
+  lines: readonly Line[],
+  change: Change,
+  marks: readonly Mark[] | undefined,
+) => {
+  const { from, to, kind, head, tail } = edgesOf(lines, change);
   const typed = marks ?? head.at(-1)?.marks ?? tail[0]?.marks ?? [];
-  const parts = inserted
+  const parts = change.inserted
     .split('\n')
     .map((part) => part.split('').map((ch) => ({ ch, marks: typed })));
   const above = head.length === 0 && parts.length > 1 && parts[0]?.length === 0;
+  const last = parts.length - 1;
   const created: Line[] = parts.map((chars, index) => ({
     kind: createdKind(kind, { index, count: parts.length, above }),
     chars: [
       ...(index === 0 ? head : []),
       ...chars,
-      ...(index === parts.length - 1 ? tail : []),
+      ...(index === last ? tail : []),
     ],
   }));
   return {
@@ -302,9 +321,8 @@ const splice = (
       ...created,
       ...lines.slice(to.line + 1),
     ],
-    line: from.line + parts.length - 1,
-    column:
-      (parts.length === 1 ? head.length : 0) + (parts.at(-1)?.length ?? 0),
+    line: from.line + last,
+    column: (last === 0 ? head.length : 0) + (parts.at(-1)?.length ?? 0),
   };
 };
 

@@ -96,20 +96,20 @@ const recipientOf = (entry: string): Recipient | undefined => {
 };
 
 // Entries end at a comma, semicolon or line break outside a quoted name or angle brackets.
+const separators = new Set([',', ';', '\n']);
+// fallow-ignore-next-line complexity -- One scan keeps separators inside quoted names and addresses.
 const entriesOf = (text: string) => {
   const entries: string[] = [];
   let current = '';
-  let quoted = false;
-  let bracketed = false;
+  // Inside a quoted name or angle-bracketed address, which a separator never ends.
+  let quote: '"' | '<' | undefined = undefined;
   for (const ch of text) {
-    if (ch === '"' && !bracketed) {
-      quoted = !quoted;
-    } else if (ch === '<' && !quoted) {
-      bracketed = true;
-    } else if (ch === '>' && !quoted) {
-      bracketed = false;
+    if (quote === undefined && (ch === '"' || ch === '<')) {
+      quote = ch;
+    } else if ((quote === '"' && ch === '"') || (quote === '<' && ch === '>')) {
+      quote = undefined;
     }
-    if (!quoted && !bracketed && (ch === ',' || ch === ';' || ch === '\n')) {
+    if (quote === undefined && separators.has(ch)) {
       entries.push(current);
       current = '';
     } else {
@@ -219,6 +219,14 @@ const draftOrder: Order.Order<Draft> = Order.combine(
   Order.mapInput(Order.String, ({ id }: Draft) => id),
 );
 
+// A conflicting version of a Draft, kept beside the stored one under a new identifier.
+const conflictCopy = Effect.fnUntraced(function* (
+  draft: Draft,
+): Effect.fn.Return<Draft> {
+  const suffix = Math.abs(yield* Random.nextInt).toString(36);
+  return { ...draft, id: `${draft.id}-conflict-${suffix}`, conflict: true };
+});
+
 const rebaseDrafts = Effect.fnUntraced(function* (
   base: readonly Draft[],
   local: readonly Draft[],
@@ -230,27 +238,14 @@ const rebaseDrafts = Effect.fnUntraced(function* (
     const before = base.find((draft) => draft.id === id);
     const ours = local.find((draft) => draft.id === id);
     const theirs = latest.find((draft) => draft.id === id);
-    if (sameContent(before, ours)) {
-      if (theirs !== undefined) {
-        merged.push(theirs);
-      }
-    } else if (sameContent(before, theirs) || sameContent(ours, theirs)) {
-      if (ours !== undefined) {
-        merged.push(ours);
-      }
-    } else {
-      // An edit racing another edit or a deletion retains every authored version.
-      if (theirs !== undefined) {
-        merged.push(theirs);
-      }
-      if (ours !== undefined) {
-        const suffix = Math.abs(yield* Random.nextInt).toString(36);
-        merged.push({
-          ...ours,
-          id: `${ours.id}-conflict-${suffix}`,
-          conflict: true,
-        });
-      }
+    // Only one side changed it: that side wins. Otherwise an edit racing another edit or a
+    // deletion retains every authored version.
+    const oursOnly = sameContent(before, theirs) || sameContent(ours, theirs);
+    if (sameContent(before, ours) || !oursOnly) {
+      merged.push(...(theirs === undefined ? [] : [theirs]));
+    }
+    if (!sameContent(before, ours) && ours !== undefined) {
+      merged.push(oursOnly ? ours : yield* conflictCopy(ours));
     }
   }
   return merged;
@@ -423,6 +418,40 @@ export function createDrafts(
       semaphore.withPermit,
     );
 
+  // Rebases the Drafts in memory onto the revision another writer stored.
+  const rebase = Effect.fnUntraced(function* (
+    current: number,
+    account: string,
+  ) {
+    const opened = yield* native(storage.openDrafts, OpenedSchema);
+    if (opened.owner !== account) {
+      return yield* ownerMismatch();
+    }
+    if (live(current) && state.kind === 'ready') {
+      ({ revision } = opened);
+      const latest = opened.document?.drafts ?? [];
+      const merged = yield* rebaseDrafts(base, state.drafts, latest);
+      base = latest;
+      publish({ ...state, drafts: merged, save: 'saving' });
+    }
+  });
+
+  // Runs one storage operation alone; a failure keeps edits in memory and resolves false.
+  const guarded = (
+    current: number,
+    operation: Effect.Effect<boolean, DraftStorageFailure>,
+  ) =>
+    operation.pipe(
+      // oxlint-disable-next-line promise/prefer-await-to-callbacks -- Effect's typed error channel.
+      Effect.catchTag('DraftStorageFailure', (error) =>
+        report(error).pipe(
+          Effect.andThen(failed(current, error)),
+          Effect.as(false),
+        ),
+      ),
+      semaphore.withPermit,
+    );
+
   // One bounded rebase preserves independent edits, additions and conflicting versions.
   const commit = Effect.fnUntraced(function* (
     current: number,
@@ -457,45 +486,33 @@ export function createDrafts(
       if (outcome.failure.kind !== 'conflict' || attempt > 0) {
         return yield* outcome.failure;
       }
-      const opened = yield* native(storage.openDrafts, OpenedSchema);
-      if (opened.owner !== account) {
-        return yield* ownerMismatch();
-      }
-      if (live(current) && state.kind === 'ready') {
-        ({ revision } = opened);
-        const latest = opened.document?.drafts ?? [];
-        const local = state.drafts;
-        const merged = yield* rebaseDrafts(base, local, latest);
-        base = latest;
-        publish({ ...state, drafts: merged, save: 'saving' });
-      }
+      yield* rebase(current, account);
+    }
+  });
+
+  // Commits until storage holds every edit made so far.
+  const flush = Effect.fnUntraced(function* (current: number, account: string) {
+    const pending = () => live(current) && dirty;
+    while (pending()) {
+      yield* commit(current, account);
     }
   });
 
   // Saves every edit made so far; succeeds with true once storage holds them all.
   const saving = (current: number) =>
-    Effect.gen(function* () {
-      const account = owner;
-      if (account === undefined) {
-        return false;
-      }
-      const pending = () => live(current) && dirty;
-      while (pending()) {
-        yield* commit(current, account);
-      }
-      if (live(current) && state.kind === 'ready' && !dirty) {
-        publish({ ...state, save: 'saved' });
-      }
-      return live(current) && !dirty;
-    }).pipe(
-      // oxlint-disable-next-line promise/prefer-await-to-callbacks -- Effect's typed error channel.
-      Effect.catchTag('DraftStorageFailure', (error) =>
-        report(error).pipe(
-          Effect.andThen(failed(current, error)),
-          Effect.as(false),
-        ),
-      ),
-      semaphore.withPermit,
+    guarded(
+      current,
+      Effect.gen(function* () {
+        const account = owner;
+        if (account === undefined) {
+          return false;
+        }
+        yield* flush(current, account);
+        if (live(current) && state.kind === 'ready' && !dirty) {
+          publish({ ...state, save: 'saved' });
+        }
+        return live(current) && !dirty;
+      }),
     );
 
   // Applies an edit in memory at once, then saves it. An edit started for an earlier Product
@@ -524,74 +541,68 @@ export function createDrafts(
       }),
     );
 
+  // Stores the Drafts without `id`. An edit made to it while that was stored survives as a
+  // conflicting copy.
+  const deleted = Effect.fnUntraced(function* (
+    current: number,
+    account: string,
+    { id, draft: deleting }: Readonly<{ id: string; draft: Draft | undefined }>,
+  ) {
+    if (state.kind !== 'ready') {
+      return;
+    }
+    publish({ ...state, save: 'saving' });
+    const kept = state.drafts.filter((draft) => draft.id !== id);
+    const document = yield* encodeDocument(kept);
+    const committed = yield* native(
+      () => storage.commitDrafts(account, revision, document),
+      CommittedSchema,
+    );
+    if (committed.owner !== account) {
+      return yield* ownerMismatch();
+    }
+    if (!live(current) || state.kind !== 'ready') {
+      return;
+    }
+    ({ revision } = committed);
+    base = kept;
+    const edited = state.drafts.find((draft) => draft.id === id);
+    const changed = edited !== undefined && !sameContent(edited, deleting);
+    dirty ||= changed;
+    publish({
+      ...state,
+      drafts: [
+        ...state.drafts.filter((draft) => draft.id !== id),
+        ...(changed ? [yield* conflictCopy(edited)] : []),
+      ],
+    });
+  });
+
   // Keep a Draft visible until its deletion is durable, so a refused discard can be retried.
   const removing = (id: string, current: number, onlyIfEmpty: boolean) =>
-    Effect.gen(function* () {
-      const account = owner;
-      if (account === undefined || !live(current) || state.kind !== 'ready') {
-        return false;
-      }
-      const pending = () => live(current) && dirty;
-      while (pending()) {
-        yield* commit(current, account);
-      }
-      if (!live(current) || state.kind !== 'ready') {
-        return false;
-      }
-      const deleting = state.drafts.find((draft) => draft.id === id);
-      // Closing an untouched window cannot delete content completed in another window.
-      if (onlyIfEmpty && deleting !== undefined && !isEmptyDraft(deleting)) {
-        return true;
-      }
-      publish({ ...state, save: 'saving' });
-      const kept = state.drafts.filter((draft) => draft.id !== id);
-      const document = yield* encodeDocument(kept);
-      const committed = yield* native(
-        () => storage.commitDrafts(account, revision, document),
-        CommittedSchema,
-      );
-      if (committed.owner !== account) {
-        return yield* ownerMismatch();
-      }
-      if (!live(current) || state.kind !== 'ready') {
-        return false;
-      }
-      ({ revision } = committed);
-      base = kept;
-      const edited = state.drafts.find((draft) => draft.id === id);
-      const conflicts: Draft[] = [];
-      if (edited !== undefined && !sameContent(edited, deleting)) {
-        const suffix = Math.abs(yield* Random.nextInt).toString(36);
-        conflicts.push({
-          ...edited,
-          id: `${id}-conflict-${suffix}`,
-          conflict: true,
-        });
-        dirty = true;
-      }
-      publish({
-        ...state,
-        drafts: [
-          ...state.drafts.filter((draft) => draft.id !== id),
-          ...conflicts,
-        ],
-      });
-      while (pending()) {
-        yield* commit(current, account);
-      }
-      if (live(current) && state.kind === 'ready') {
-        publish({ ...state, save: 'saved' });
-      }
-      return live(current);
-    }).pipe(
-      // oxlint-disable-next-line promise/prefer-await-to-callbacks -- Effect's typed error channel.
-      Effect.catchTag('DraftStorageFailure', (error) =>
-        report(error).pipe(
-          Effect.andThen(failed(current, error)),
-          Effect.as(false),
-        ),
-      ),
-      semaphore.withPermit,
+    guarded(
+      current,
+      Effect.gen(function* () {
+        const account = owner;
+        if (account === undefined) {
+          return false;
+        }
+        yield* flush(current, account);
+        if (!live(current) || state.kind !== 'ready') {
+          return false;
+        }
+        const deleting = state.drafts.find((draft) => draft.id === id);
+        // Closing an untouched window cannot delete content completed in another window.
+        if (onlyIfEmpty && deleting !== undefined && !isEmptyDraft(deleting)) {
+          return true;
+        }
+        yield* deleted(current, account, { id, draft: deleting });
+        yield* flush(current, account);
+        if (live(current) && state.kind === 'ready') {
+          publish({ ...state, save: 'saved' });
+        }
+        return live(current);
+      }),
     );
 
   const follow = () => {

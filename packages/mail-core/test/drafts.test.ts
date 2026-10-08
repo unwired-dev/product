@@ -395,6 +395,11 @@ describe('storing Drafts', () => {
     expect(draftOf(drafts.getSnapshot(), id)).toBeDefined();
     await expect(drafts.discard(id)).resolves.toBe(true);
     expect(draftOf(drafts.getSnapshot(), id)).toBeUndefined();
+    // A repeated discard still confirms deletion durably and reports refused storage.
+    storage.failNextCommit('locked');
+    await expect(drafts.discard(id)).resolves.toBe(false);
+    expect(ready(drafts.getSnapshot()).save).toBe('locked');
+    await expect(drafts.discard(id)).resolves.toBe(true);
     const reopened = createDrafts(storage.native, session.registration);
     await reopened.load();
     expect(ready(reopened.getSnapshot()).drafts).toStrictEqual([]);
