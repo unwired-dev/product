@@ -69,6 +69,9 @@ allow-listed native code or decode path, never mail or summary text.
   that switching messages cancels the request and drops its late result, through
   both the Gmail reader and the preview fixture. Changed captured input discards
   both completed previews and pending work, even if the input later changes back.
+  A layout-phase observer also verifies that pending availability requests are
+  cancelled during reader replacement and unmount, before passive cleanup, and
+  that the store remains usable after StrictMode replay.
 - [Mock Mail Sessions](mock-mail-sessions.md#boundaries-and-scenarios) supply fixed
   assistance outcomes, and every selected native mock build answers with the
   same fixed synthetic summary instead of running the model.

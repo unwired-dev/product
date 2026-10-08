@@ -1,4 +1,5 @@
 import type { NativeAssistance } from '@private-email/mail-core/assistance';
+import type { ReactNode } from 'react';
 
 import { createGmailInbox } from '@private-email/mail-core/gmail-inbox';
 import { singleMailbox } from '@private-email/mail-core/mailboxes';
@@ -7,11 +8,12 @@ import { createPersistentInbox } from '@private-email/mail-core/persistent-inbox
 import { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mailbox';
 import { createMockMailSession } from '@private-email/mail-core/testing/mock-session';
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
+import { StrictMode, useLayoutEffect } from 'react';
 
 import { InboxProvider } from '../src/mailbox.tsx';
 import { GmailMessageBody } from '../src/message-body.tsx';
 import { MessageDetail } from '../src/message-detail.tsx';
-import { AssistanceContext } from '../src/message-summary.tsx';
+import { AssistanceContext, MessageSummary } from '../src/message-summary.tsx';
 
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Jest's host adapter boundary.
 jest.mock('../src/private-storage.ts', () => ({
@@ -59,6 +61,18 @@ function scriptedAssistance() {
   return { native, asked, cancelled };
 }
 
+// Observe the native cancellation boundary during commit, before act flushes passive effects.
+function CommitObservation({
+  children,
+  observe,
+}: {
+  readonly children: ReactNode;
+  readonly observe: () => void;
+}) {
+  useLayoutEffect(observe, [children, observe]);
+  return children;
+}
+
 async function openReader(assistance: NativeAssistance) {
   const gmail = createSyntheticGmail();
   const venue = gmail.deliver({
@@ -96,6 +110,67 @@ async function openReader(assistance: NativeAssistance) {
 // are substituted.
 describe('on-device message summaries in the reader', () => {
   /* oxlint-disable vitest/max-expects -- Each journey proves one summary path end to end. */
+  it('retires pending availability before replacement and unmount commits', async () => {
+    expect.hasAssertions();
+    const { native, asked, cancelled } = scriptedAssistance();
+    let makeAvailable: (value: unknown) => void = () => {
+      throw new Error('Expected a pending availability check');
+    };
+    // oxlint-disable-next-line promise/avoid-new -- Hold availability across the reader commit.
+    const availability = new Promise<unknown>((resolve) => {
+      makeAvailable = resolve;
+    });
+    const assistance = {
+      ...native,
+      availability: () => availability,
+    };
+    const source = {};
+    const commits: string[][] = [];
+    const observe = () => {
+      commits.push([...cancelled]);
+    };
+    const summary = (id: string) => (
+      <MessageSummary
+        source={source}
+        id={id}
+        body="Already-local text."
+      />
+    );
+    const reader = (children: ReactNode) => (
+      <StrictMode>
+        <AssistanceContext value={assistance}>
+          <CommitObservation observe={observe}>{children}</CommitObservation>
+        </AssistanceContext>
+      </StrictMode>
+    );
+    const app = await render(reader(summary('first')));
+    try {
+      // The same store is still usable after StrictMode's setup/cleanup/setup replay.
+      expect(commits).toHaveLength(2);
+      await fireEvent.press(screen.getByLabelText('Summarize this message'));
+      await screen.findByLabelText('Cancel summary');
+      await app.rerender(reader(summary('second')));
+      expect(cancelled).toHaveLength(1);
+      expect(commits.at(-1)).toStrictEqual(cancelled);
+      expect(screen.getByLabelText('Summarize this message')).toBeOnTheScreen();
+
+      await fireEvent.press(screen.getByLabelText('Summarize this message'));
+      await screen.findByLabelText('Cancel summary');
+      await app.rerender(reader(null));
+      expect(cancelled).toHaveLength(2);
+      expect(commits.at(-1)).toStrictEqual(cancelled);
+      await act(async () => {
+        makeAvailable('available');
+        await availability;
+      });
+      expect(asked).toHaveLength(0);
+      expect(screen.queryByText('Summarizing on this device…')).toBeNull();
+    } finally {
+      makeAvailable('available');
+      await app.unmount();
+    }
+  });
+
   it('summarizes the opened message only when asked, from its local text', async () => {
     expect.hasAssertions();
     const { native, asked } = scriptedAssistance();

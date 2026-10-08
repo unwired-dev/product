@@ -16,7 +16,6 @@ import { spacing } from '@private-email/mail-core/theme';
 import {
   createContext,
   use,
-  useEffect,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -204,14 +203,16 @@ export function MessageSummary({
     setOwner(current);
   }
   const { summary } = current;
-  useEffect(() => summary.discard, [summary]);
   // Native input can be queued before the reader's message, mailbox, account or input changes and
-  // be delivered afterward; only the committed summary may start inference.
+  // be delivered afterward; only the committed summary may start inference. A replaced summary is
+  // cancelled and forgotten as the new one commits, before passive effects, so a pending
+  // availability check cannot start the model on the previous message.
   const committed = useRef<SummaryStore>(undefined);
   useLayoutEffect(() => {
     committed.current = summary;
     return () => {
       committed.current = undefined;
+      summary.discard();
     };
   }, [summary]);
   const state = useSyncExternalStore(summary.subscribe, () =>

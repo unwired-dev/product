@@ -13,6 +13,16 @@ A host owns views and native adapters. It renders shared stores from `@private-e
 
 #### React correctness
 
+- `message-summary.tsx.MessageSummary` retiring its store only in a passive
+  effect. A pending availability check can settle after the replacement reader
+  commits but before that cleanup, starting inference on the previous message.
+  Discard request ownership during layout cleanup on message, mailbox/account,
+  captured-input or assistance-provider replacement and unmount; fencing queued
+  button callbacks alone is insufficient. Preserve store reuse through
+  StrictMode's setup/cleanup/setup replay. Check cancellation at the commit
+  boundary with the real store and a controlled native provider, since an
+  assertion after `act` flushes passive effects cannot detect this gap.
+
 - `Editor` keeping a new `rebind` callback for each parent `onRebind`, or releasing
   identity tracking on unmount while Close or Discard still uses `authored.current`
   to resolve a conflict copy. Keep one stable callback, read the committed owner
