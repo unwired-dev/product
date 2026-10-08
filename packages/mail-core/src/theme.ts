@@ -8,6 +8,7 @@ export const palette = {
     secondary: '#596574',
     separator: '#E5E9EF',
     accent: '#245CCA',
+    destructive: '#B42318',
     selected: '#E8EFFC',
   },
   dark: {
@@ -17,6 +18,7 @@ export const palette = {
     secondary: '#A3AFBF',
     separator: '#303842',
     accent: '#8DB2FF',
+    destructive: '#FF8A80',
     selected: '#243B61',
   },
 };

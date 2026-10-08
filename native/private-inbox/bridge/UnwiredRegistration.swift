@@ -647,6 +647,26 @@ extension UnwiredRegistration {
     }
   }
 
+  @objc(openDrafts:rejecter:)
+  func openDrafts(
+    _ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+  ) {
+    mailbox("openDrafts", resolve, reject: reject) { try await $0.openDrafts() }
+  }
+
+  @objc(commitDrafts:expectedRevision:document:resolver:rejecter:)
+  func commitDrafts(
+    _ owner: String, expectedRevision: Double, document: String,
+    resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+  ) {
+    mailbox("commitDrafts", resolve, reject: reject) {
+      guard let revision = Int(exactly: expectedRevision), revision >= 0 else {
+        throw RegistrationError.unavailable
+      }
+      return try await $0.commitDrafts(owner: owner, expectedRevision: revision, document: document)
+    }
+  }
+
   // The connection, address and generation that every mailbox call names.
   private static func scope(_ scope: [String: Any]) throws -> (String, String, String) {
     guard let connection = scope["connection"] as? String,
