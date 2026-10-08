@@ -118,6 +118,12 @@ device's removal purges them, and a different account starts with none. Storage
 needs no Gmail access, so Drafts open offline. Locked storage shows **Drafts are
 locked** with **Try again**. Logs carry no Draft content.
 
+Native Apple code owns [that storage](private-inbox-storage.md#draft-storage):
+encryption and its key, the Product Account owner and revision checks, the
+**Outgoing Content Store**'s 100 MB limit and the purge. The TypeScript Draft store in `@private-email/mail-core/drafts`
+owns ordered autosave, rebasing onto a newer revision and conflicting copies; it
+never handles key material.
+
 ## Verification
 
 ```sh
