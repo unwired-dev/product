@@ -153,15 +153,16 @@ final class UnwiredRegistration: NSObject {
   @MainActor private static var busy = false
   @MainActor private static let operations = RegistrationOperationGate()
   @MainActor private static var sharedStore: RegistrationStore?
+  @MainActor private static var reads: [String: Task<Void, Never>] = [:]
 
-  @MainActor private func store() throws -> RegistrationStore {
+  @MainActor private func store() async throws -> RegistrationStore {
     if let store = Self.sharedStore { return store }
     #if UNWIRED_REGISTRATION_MOCK
       guard let bundle = Bundle.main.bundleIdentifier,
         let scenario = Bundle.main.object(forInfoDictionaryKey: "UnwiredMockScenario") as? String
       else { throw RegistrationError.unavailable }
       let store = try mockRegistrationStore(
-        bundle: bundle, scenario: scenario, mailCache: try? UnwiredPrivateInbox.store())
+        bundle: bundle, scenario: scenario, mailCache: try await Self.launchMailCache())
       Self.sharedStore = store
       return store
     #else
@@ -219,7 +220,7 @@ final class UnwiredRegistration: NSObject {
               "trustedDeviceCredential": product.trustedDeviceCredential,
             ], function: "query")
         },
-        mailCache: try? UnwiredPrivateInbox.store(),
+        mailCache: try await Self.launchMailCache(),
         connect: { identity, deviceIdentifier, previous in
           try await Self.connect(
             base: base, identity: identity, deviceIdentifier: deviceIdentifier,
@@ -228,6 +229,16 @@ final class UnwiredRegistration: NSObject {
       Self.sharedStore = store
       return store
     #endif
+  }
+
+  // The mailbox cache for this process. Downloaded Attachments from an earlier process have no
+  // reader left, so they are removed before any Inbox opens.
+  @MainActor private static func launchMailCache() async throws -> PrivateInboxStore? {
+    let cache = try? UnwiredPrivateInbox.store()
+    if let cache {
+      try await Task.detached(priority: .userInitiated) { try cache.removeAttachments() }.value
+    }
+    return cache
   }
 
   // Convex error codes the registration flow distinguishes; others are unavailable.
@@ -516,27 +527,49 @@ extension UnwiredRegistration {
   private func mailbox(
     _ name: String, _ resolve: @escaping RCTPromiseResolveBlock,
     reject: @escaping RCTPromiseRejectBlock,
+    request: String? = nil,
     operation: @escaping @MainActor (RegistrationStore) async throws -> [String: Any]
   ) {
-    Task { @MainActor in
-      do {
-        resolve(try await Self.operations.perform { try await operation(store()) })
-      } catch {
-        switch error {
-        case RegistrationError.revoked:
-          reject("mailbox-revoked", "This device no longer has access.", nil)
-        case RegistrationError.gmailUnavailable:
-          reject("gmail-unavailable", "Gmail needs authorization again.", nil)
-        case PrivateInboxError.locked: reject("locked", "Private storage is locked.", nil)
-        case PrivateInboxError.conflict: reject("conflict", "The mailbox changed.", nil)
-        case PrivateInboxError.mailboxInvalidated:
-          reject("mailbox-invalidated", "The mailbox is no longer available.", nil)
-        default:
-          Self.logger.error("\(name, privacy: .public) failed: unavailable")
-          reject("unavailable", "Gmail could not be reached.", nil)
+    DispatchQueue.main.async {
+      if let request, Self.reads[request] != nil {
+        reject("unavailable", "Gmail could not be reached.", nil)
+        return
+      }
+      let task = Task { @MainActor in
+        defer { if let request { Self.reads.removeValue(forKey: request) } }
+        do {
+          resolve(
+            try await Self.operations.perform {
+              try Task.checkCancellation()
+              return try await operation(self.store())
+            })
+        } catch {
+          switch error {
+          case is CancellationError:
+            reject("cancelled", "The Gmail request was cancelled.", nil)
+          case RegistrationError.revoked:
+            reject("mailbox-revoked", "This device no longer has access.", nil)
+          case RegistrationError.gmailUnavailable:
+            reject("gmail-unavailable", "Gmail needs authorization again.", nil)
+          case PrivateInboxError.locked: reject("locked", "Private storage is locked.", nil)
+          case PrivateInboxError.attachmentMissing:
+            reject("attachment-missing", "The attachment is no longer on this device.", nil)
+          case PrivateInboxError.conflict: reject("conflict", "The mailbox changed.", nil)
+          case PrivateInboxError.mailboxInvalidated:
+            reject("mailbox-invalidated", "The mailbox is no longer available.", nil)
+          default:
+            Self.logger.error("\(name, privacy: .public) failed: unavailable")
+            reject("unavailable", "Gmail could not be reached.", nil)
+          }
         }
       }
+      if let request { Self.reads[request] = task }
     }
+  }
+
+  @objc(cancelGmailRequest:)
+  func cancelGmailRequest(_ request: String) {
+    DispatchQueue.main.async { Self.reads[request]?.cancel() }
   }
 
   @objc(gmailRequest:query:mailbox:resolver:rejecter:)
@@ -545,7 +578,16 @@ extension UnwiredRegistration {
     resolve: @escaping RCTPromiseResolveBlock,
     reject: @escaping RCTPromiseRejectBlock
   ) {
-    mailbox("gmailRequest", resolve, reject: reject) {
+    let request = scope["request"] as? String
+    if let request,
+      request.count > 200
+        || request.range(
+          of: "^[0-9A-Za-z:-]+$", options: .regularExpression) == nil
+    {
+      reject("unavailable", "Gmail could not be reached.", nil)
+      return
+    }
+    mailbox("gmailRequest", resolve, reject: reject, request: request) {
       let (connection, address, generation) = try Self.scope(scope)
       // Name-value pairs, so repeated parameters keep their order.
       let items = try query.map { pair in
@@ -664,6 +706,100 @@ extension UnwiredRegistration {
       return try await $0.retainMessageBodies(
         connection: connection, address: address, generation: generation,
         expectedRevision: revision, ids: ids, protectedIds: protectedIds)
+    }
+  }
+
+  @objc(saveAttachment:attachment:resolver:rejecter:)
+  func saveAttachment(
+    _ scope: [String: Any], attachment: [String: Any],
+    resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+  ) {
+    mailbox("saveAttachment", resolve, reject: reject) {
+      let (connection, address, generation) = try Self.scope(scope)
+      guard let name = attachment["name"] as? String, let data = attachment["data"] as? String,
+        let value = attachment["size"] as? Double, let size = Int(exactly: value), size >= 0
+      else { throw RegistrationError.unavailable }
+      return try await $0.saveAttachment(
+        connection: connection, address: address, generation: generation, name: name,
+        data: data, size: size, protectedFiles: Set(Self.presentedAttachments.keys))
+    }
+  }
+
+  @objc(discardAttachment:file:resolver:rejecter:)
+  func discardAttachment(
+    _ scope: [String: Any], file: String, resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    mailbox("discardAttachment", resolve, reject: reject) {
+      let (connection, _, _) = try Self.scope(scope)
+      // A file the system is still previewing or sharing is deleted when that presentation ends.
+      if Self.presentedAttachments[file] != nil {
+        Self.deferredDiscards[file] = connection
+        return [:]
+      }
+      try await $0.discardAttachment(connection: connection, file: file)
+      return [:]
+    }
+  }
+
+  // Presentation leases: active previews and shares by file, and discards waiting for them.
+  @MainActor private static var presentedAttachments: [String: Int] = [:]
+  @MainActor private static var deferredDiscards: [String: String] = [:]
+
+  @MainActor private static func endPresentation(_ file: String) {
+    let remaining = (Self.presentedAttachments[file] ?? 1) - 1
+    Self.presentedAttachments[file] = remaining > 0 ? remaining : nil
+    guard remaining <= 0, let connection = Self.deferredDiscards.removeValue(forKey: file),
+      let store = Self.sharedStore
+    else { return }
+    Task { @MainActor in
+      do {
+        try await Self.operations.perform {
+          // A queued Open/Share may have acquired a new lease while this task awaited the gate.
+          if Self.presentedAttachments[file] != nil {
+            Self.deferredDiscards[file] = connection
+            return
+          }
+          try await store.discardAttachment(connection: connection, file: file)
+        }
+      } catch {
+        Self.logger.error("Deferred attachment discard failed: unavailable")
+      }
+    }
+  }
+
+  // Resolves once the preview or share sheet is shown.
+  @objc(presentAttachment:file:action:resolver:rejecter:)
+  func presentAttachment(
+    _ scope: [String: Any], file: String, action: String,
+    resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+  ) {
+    // The initiating window is captured before waiting for the gate or storage.
+    DispatchQueue.main.async {
+      let origin = AttachmentPresenter.origin()
+      self.presentAttachment(
+        scope, file: file, action: action, from: origin, resolve: resolve, reject: reject)
+    }
+  }
+
+  @MainActor private func presentAttachment(
+    _ scope: [String: Any], file: String, action: String, from origin: PresentationOrigin,
+    resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+  ) {
+    mailbox("presentAttachment", resolve, reject: reject) {
+      let (connection, address, generation) = try Self.scope(scope)
+      guard action == "open" || action == "share" else { throw RegistrationError.unavailable }
+      let url = try await $0.attachmentFile(
+        connection: connection, address: address, generation: generation, file: file)
+      Self.presentedAttachments[file, default: 0] += 1
+      let presented = AttachmentPresenter.present(url, share: action == "share", from: origin) {
+        Self.endPresentation(file)
+      }
+      guard presented else {
+        Self.endPresentation(file)
+        throw RegistrationError.unavailable
+      }
+      return [:]
     }
   }
 

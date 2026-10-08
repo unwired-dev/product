@@ -1,6 +1,7 @@
 import * as Arr from 'effect/Array';
 import * as Base64Url from 'effect/encoding/Base64Url';
 import * as Order from 'effect/Order';
+import * as Result from 'effect/Result';
 
 import type { NativeGmailMailbox } from '../gmail-inbox.ts';
 import type { NativeGmailMailboxes } from '../mailboxes.ts';
@@ -37,7 +38,21 @@ export interface SyntheticContent {
     // Declared size when it differs from the bytes, as a truncated download would.
     readonly size?: number;
   }>;
+  // Attached files after the default `notes.txt`, served through the attachments resource.
+  readonly attachments?: ReadonlyArray<{
+    readonly filename: string;
+    readonly mimeType: string;
+    readonly bytes: readonly number[];
+    readonly disposition?: string;
+    // Declared size when it differs from the bytes, as a truncated download would.
+    readonly size?: number;
+    // Served data replacing the bytes' encoding, as a damaged response would.
+    readonly data?: string;
+  }>;
 }
+
+// The default attached file every multipart message carries.
+export const notesText = 'Notes here.\n';
 
 const base64Url = (text: string, charset: SyntheticContent['charset']) =>
   Base64Url.encode(
@@ -92,6 +107,22 @@ const imageAttachment = (content: SyntheticContent, attachmentId: string) => {
         data: Base64Url.encode(Uint8Array.from(image.bytes)),
       });
 };
+const fileAttachment = (content: SyntheticContent, attachmentId: string) => {
+  if (attachmentId === 'attached-file') {
+    return respond({
+      size: notesText.length,
+      data: Base64Url.encode(notesText),
+    });
+  }
+  const file =
+    content.attachments?.[Number(attachmentId.slice('file-'.length))];
+  return file === undefined
+    ? notFound()
+    : respond({
+        size: file.size ?? file.bytes.length,
+        data: file.data ?? Base64Url.encode(Uint8Array.from(file.bytes)),
+      });
+};
 const partAttachment = (content: SyntheticContent, attachmentId: string) => {
   const text = attachmentId === 'part-0-0' ? content.text : content.html;
   return text === undefined
@@ -134,6 +165,13 @@ export function createSyntheticGmail({
   const excludedBodies = new Set<string>();
   const bodyFailures: string[] = [];
   const retainFailures: string[] = [];
+  // Downloaded Attachments native code holds for this connection, by opaque file name, and the
+  // system presentations requested for them.
+  const savedFiles = new Map<string, { name: string; bytes: Uint8Array }>();
+  const presentations: Array<{ name: string; action: string }> = [];
+  let nextFile = 0;
+  const saveFailures: string[] = [];
+  const presentFailures: string[] = [];
   // Each body commit's tier and protected working set, as native admission receives them.
   const bodyCommits: Array<{
     id: string;
@@ -309,8 +347,23 @@ export function createSyntheticGmail({
         {
           mimeType: 'text/plain',
           filename: 'notes.txt',
-          body: { size: 12, attachmentId: 'attached-file' },
+          body: { size: notesText.length, attachmentId: 'attached-file' },
         },
+        ...(content.attachments ?? []).map((file, index) => ({
+          mimeType: file.mimeType,
+          filename: file.filename,
+          headers: [
+            { name: 'Content-Type', value: file.mimeType },
+            {
+              name: 'Content-Disposition',
+              value: file.disposition ?? 'attachment',
+            },
+          ],
+          body: {
+            size: file.size ?? file.bytes.length,
+            attachmentId: `file-${index}`,
+          },
+        })),
       ],
     };
   };
@@ -319,9 +372,12 @@ export function createSyntheticGmail({
     if (content === undefined) {
       return notFound();
     }
-    return attachmentId.startsWith('image-')
-      ? imageAttachment(content, attachmentId)
-      : partAttachment(content, attachmentId);
+    if (attachmentId.startsWith('image-')) {
+      return imageAttachment(content, attachmentId);
+    }
+    return attachmentId.startsWith('part-')
+      ? partAttachment(content, attachmentId)
+      : fileAttachment(content, attachmentId);
   };
   const metadata = (id: string, params: URLSearchParams) => {
     const message = messages.get(id);
@@ -483,10 +539,15 @@ export function createSyntheticGmail({
   const current = (owner: Readonly<{ address: string; generation: string }>) =>
     owner.address === address && owner.generation === String(generation);
   const native = {
-    gmailRequest: (path, query, owner) =>
-      owner.address === address && owner.generation === String(generation)
+    gmailRequest: (path, query, owner) => {
+      if (owner.signal?.aborted === true) {
+        throw new Error('The Gmail request was cancelled.');
+      }
+      return owner.address === address &&
+        owner.generation === String(generation)
         ? readGmail(path, query)
-        : rejection('mailbox-invalidated'),
+        : rejection('mailbox-invalidated');
+    },
     gmailModify: async ({ message: id, add, remove }, owner) => {
       if (
         owner.address !== address ||
@@ -606,6 +667,43 @@ export function createSyntheticGmail({
       }
       return Promise.resolve(null);
     },
+    // Native code decodes the data again and refuses bytes that differ from the declared size.
+    saveAttachment: (owner, { name, data, size }) => {
+      const code = saveFailures.shift();
+      if (code !== undefined) {
+        return rejection(code);
+      }
+      if (!current(owner)) {
+        return rejection('mailbox-invalidated');
+      }
+      const bytes = Base64Url.decode(data);
+      if (Result.isFailure(bytes) || bytes.success.length !== size) {
+        return rejection('unavailable');
+      }
+      nextFile += 1;
+      const file = `00000000-0000-4000-8000-${String(nextFile).padStart(12, '0')}`;
+      savedFiles.set(file, { name, bytes: bytes.success });
+      return Promise.resolve({ file });
+    },
+    discardAttachment: (_owner, file) => {
+      savedFiles.delete(file);
+      return Promise.resolve(null);
+    },
+    presentAttachment: (owner, file, action) => {
+      const saved = savedFiles.get(file);
+      if (!current(owner)) {
+        return rejection('mailbox-invalidated');
+      }
+      if (saved === undefined) {
+        return rejection('attachment-missing');
+      }
+      const code = presentFailures.shift();
+      if (code !== undefined) {
+        return rejection(code);
+      }
+      presentations.push({ name: saved.name, action });
+      return Promise.resolve(null);
+    },
   } satisfies NativeGmailMailbox;
 
   return {
@@ -646,6 +744,16 @@ export function createSyntheticGmail({
     },
     bodyCommits,
     bodyRetains,
+    // Attachment files saved for this connection, with the name and bytes each was saved with.
+    savedFiles,
+    presentations,
+    failSave: (code: string) => {
+      saveFailures.push(code);
+    },
+    // The system cannot show the next presentation, as without a window or presenter.
+    failPresent: (code: string) => {
+      presentFailures.push(code);
+    },
     // Native admission refuses this message's body, as when it cannot fit.
     refuseBody: (id: string) => {
       refusedBodies.add(id);
@@ -664,6 +772,8 @@ export function createSyntheticGmail({
       generation += 1;
       cache = null;
       bodies.clear();
+      // Native code removes the previous connection's files with its cache.
+      savedFiles.clear();
       excludedBodies.clear();
       messages.clear();
       userLabels.clear();
@@ -729,6 +839,13 @@ export function syntheticConnections(
       of(mailbox.connection)?.listMessageBodies(mailbox, ids) ?? missing(),
     retainMessageBodies: (mailbox, ids, protectedIds) =>
       of(mailbox.connection)?.retainMessageBodies(mailbox, ids, protectedIds) ??
+      missing(),
+    saveAttachment: (mailbox, attachment) =>
+      of(mailbox.connection)?.saveAttachment(mailbox, attachment) ?? missing(),
+    discardAttachment: (mailbox, file) =>
+      of(mailbox.connection)?.discardAttachment(mailbox, file) ?? missing(),
+    presentAttachment: (mailbox, file, action) =>
+      of(mailbox.connection)?.presentAttachment(mailbox, file, action) ??
       missing(),
   };
 }

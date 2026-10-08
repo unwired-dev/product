@@ -61,6 +61,14 @@ const firstOf = <T>(items: readonly T[]) => {
   return item;
 };
 
+const attachmentsOf = (inbox: Mailbox['inbox'], id: string) => {
+  const attachments = inbox.messageAttachments(id);
+  if (attachments === undefined) {
+    throw new Error('Expected attachment metadata');
+  }
+  return attachments;
+};
+
 // Holds every body download until released, counting how many run at once overall and per
 // connection.
 function holdingBodies(base: NativeGmailMailboxes) {
@@ -746,6 +754,45 @@ describe('mailbox connections and the unified Inbox', () => {
       },
     });
     closeReopened();
+  });
+
+  it('downloads an attachment only through its own connection and deletes it when that mailbox is removed', async () => {
+    expect.hasAssertions();
+    const { gmail, mailboxes, registration } = await twoMailboxes();
+    const content = { text: 'Attached.' };
+    // Gmail message IDs repeat across mailboxes.
+    const alexMessage = gmail.alex.deliver({ content });
+    const otherMessage = gmail.other.deliver({ content });
+    expect(otherMessage).toBe(alexMessage);
+    await mailboxes.load();
+    const a = mailbox(mailboxes.getSnapshot(), alex).inbox;
+    const b = mailbox(mailboxes.getSnapshot(), other).inbox;
+    a.retainMessage(alexMessage);
+    b.retainMessage(otherMessage);
+    await a.readMessage(alexMessage);
+    await b.readMessage(otherMessage);
+    const otherRequests = gmail.other.requests.length;
+
+    await a.downloadAttachment(
+      alexMessage,
+      firstOf(attachmentsOf(a, alexMessage)).locator,
+    );
+
+    expect(firstOf(attachmentsOf(a, alexMessage)).state).toStrictEqual({
+      kind: 'downloaded',
+    });
+    expect(firstOf(attachmentsOf(b, otherMessage)).state).toStrictEqual({
+      kind: 'available',
+    });
+    expect(gmail.alex.savedFiles.size).toBe(1);
+    expect(gmail.other.savedFiles.size).toBe(0);
+    expect(gmail.other.requests).toHaveLength(otherRequests);
+
+    await registration.removeMailbox(alex);
+    expect(gmail.alex.savedFiles.size).toBe(0);
+    expect(firstOf(attachmentsOf(b, otherMessage)).state).toStrictEqual({
+      kind: 'available',
+    });
   });
 
   it('runs at most two body downloads per connection and four across connections', async () => {

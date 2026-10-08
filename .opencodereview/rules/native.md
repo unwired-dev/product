@@ -17,6 +17,13 @@ This code owns what TypeScript must never hold: Keychain items, the storage encr
 
 #### Bridge contract
 
+- `GmailTransport.send` consuming an allowed large response through one async
+  iterator step per byte while the shared `RegistrationOperationGate` is held.
+  Receive bounded chunks, reject declared and streamed overflow before retaining
+  it, preserve redirect refusal and cancel the owning transfer. Keep a terminal
+  result when a suspended task completes cancellation before its continuation is
+  registered, and settle once for either ordering; otherwise a near-limit attachment
+  stalls all mailbox/registration work or cancellation strands the gate indefinitely.
 - A positive revocation found by `RegistrationStore.prepareMailbox` converted to ordinary mailbox invalidation after successful purge. Trace both `UnwiredRegistration.openMailbox` and `commitMailbox` through the shared rejection mapper and `createGmailInbox` recovery: preserve `mailbox-revoked` and its account-page hand-off, while generation changes retain bounded invalidation recovery. Collapsing the two makes already-purged mail end in retry exhaustion and a generic failure instead of the removal explanation.
 - `RegistrationStore.purge` or Gmail reselection synchronously removing the
   mailbox/body directory or waiting for its file lock on the main actor. Await
@@ -145,8 +152,35 @@ This code owns what TypeScript must never hold: Keychain items, the storage encr
 - Synthetic registration providers reachable without the `UNWIRED_REGISTRATION_MOCK` compilation guard, or a Mock Mail Session selected from runtime input rather than the fixed build-time `UNWIRED_MOCK_SCENARIO` list. Other mock journeys and the isolated native `SyntheticCredential` integration fixture have their own test-only boundaries; preserve those instead of requiring the registration flag for every fixture. `SyntheticCredential` keeps its own Keychain service and never shares the production one.
 - A reset, seed or backdoor added to production code to make a journey testable.
 
+#### Attachment presentation
+
+- `UnwiredRegistration.presentAttachment` resolving the presentation window after
+  gate/storage suspension, or `AttachmentPresenter` capturing a window without
+  routing Quick Look's shared panel through that window's responder chain. Capture
+  the native origin before those waits, anchor sharing to its view, and verify
+  Quick Look acquired its controller before acknowledging presentation. Refuse a
+  closed/hidden origin or an inactive UIKit scene without selecting another window;
+  otherwise focus changes disclose one reader's file in another window, show the
+  wrong preview, or strand a presentation lease after false success.
+- `AttachmentPresenter` or `UnwiredRegistration` ending file ownership at reader
+  unmount while Quick Look or a share service still consumes its URL. Keep each
+  presentation's data source/delegate strongly owned until its own completion,
+  release its lease once, and recheck leases inside the operation gate before a
+  deferred discard. `PrivateInboxStore.saveAttachment` must skip leased files
+  without exceeding its hard quota; refuse admission before deletion when they
+  leave insufficient space. Check replacement, stacked previews, panel/window
+  close, picker cancellation and service success/failure; otherwise delayed
+  preview or sharing fails, or leaked leases retain plaintext until relaunch.
+
 #### AppKit host
 
+- `AttachmentPresenter` installing a controller only through `NSResponder.nextResponder`
+  or a Quick Look data source, both unretained references. Give each window's
+  controller an explicit strong owner through its active lifetime; on close,
+  restore owned responder links, detach its panel data source and release its
+  observer and owner. Check identities before teardown so another window's preview
+  remains intact; otherwise AppKit messages a dangling controller or a closed
+  window retains presentation state indefinitely.
 - Window identity, menu routing or lifetime moved out of AppKit; more than one React factory or JavaScript runtime per process; a window root that survives its window; Quit that leaves work running or closing the last window that terminates the app.
 - An entitlement, sandbox exception, `Info.plist` privacy key or `PrivacyInfo.xcprivacy` entry added or broadened without the feature that needs it.
 - A deployment target lowered, or a newer API used without the availability the target requires.

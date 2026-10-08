@@ -127,6 +127,17 @@ const BodyDocumentSchema = Schema.Struct({
     }),
   ),
   excluded: Schema.optionalKey(Schema.Literal(true)),
+  // Received attachment metadata, without bytes; absent in bodies cached before it was kept.
+  attachments: Schema.optionalKey(
+    Schema.Array(
+      Schema.Struct({
+        locator: Schema.String.check(Schema.isPattern(/^\d+(?:\.\d+)*$/u)),
+        name: Schema.String,
+        mimeType: Schema.String,
+        size: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+      }),
+    ),
+  ),
 });
 export type BodyDocument = typeof BodyDocumentSchema.Type;
 export const decodeBodyDocument = Schema.decodeUnknownOption(
@@ -363,6 +374,147 @@ export function inlineImageParts(
     imagesUnder(scope, path, found);
   }
   return found;
+}
+
+// ponytail: Gmail's own per-message limit; larger attachments are not offered on this device.
+export const attachmentLimit = 25 * 1024 * 1024;
+
+// Count a Unicode code point without depending on a host TextEncoder polyfill.
+const filenameBytes = (character: string) => {
+  const point = character.codePointAt(0) ?? 0;
+  if (point <= 127) {
+    return 1;
+  }
+  if (point <= 2047) {
+    return 2;
+  }
+  if (point <= 65_535) {
+    return 3;
+  }
+  return 4;
+};
+
+// A name that is safe to show and to use as a file name: no path separators, control or
+// direction-overriding characters, no leading dot, and a bounded length that cannot expose
+// an earlier extension when the real one cannot be kept.
+// Bound sender-supplied names before normalization, cleanup and code-point expansion.
+const filenameInput = { head: 960, tail: 64 };
+
+export const safeFilename = (name: string) => {
+  // The discarded middle may contain the real suffix. Only the tail may supply a dot,
+  // even if cleaning its padding leaves the head below the output bounds.
+  const bounded =
+    name.length > filenameInput.head + filenameInput.tail
+      ? name.slice(0, filenameInput.head).replaceAll('.', '_') +
+        name.slice(-filenameInput.tail)
+      : name;
+  // Bounding can split a surrogate pair; lone surrogates are dropped with other format characters.
+  const cleaned = bounded
+    .normalize('NFC')
+    .replaceAll(/[\p{Cc}\p{Cf}\p{Cs}\u2028\u2029]/gu, '')
+    .replaceAll(/[/\\:]/gu, '_')
+    .replaceAll(/\s+/gu, ' ')
+    .replace(/^[\s.]+/u, '')
+    .replace(/[\s.]+$/u, '');
+  const characters = [...cleaned];
+  if (
+    characters.length <= 120 &&
+    characters.reduce(
+      (bytes, character) => bytes + filenameBytes(character),
+      0,
+    ) <= 255
+  ) {
+    return cleaned === '' ? 'attachment' : cleaned;
+  }
+  const extension = /\.[^.\s]{1,16}$/u.exec(cleaned)?.[0] ?? '';
+  const ending = [...extension];
+  let bytes = ending.reduce(
+    (size, character) => size + filenameBytes(character),
+    0,
+  );
+  const prefix: string[] = [];
+  for (const character of characters.slice(
+    0,
+    characters.length - ending.length,
+  )) {
+    if (
+      prefix.length + ending.length === 120 ||
+      bytes + filenameBytes(character) > 255
+    ) {
+      break;
+    }
+    prefix.push(character);
+    bytes += filenameBytes(character);
+  }
+  // Without its real extension, a shortened name must not end in an earlier one.
+  return (
+    (extension === ''
+      ? prefix.join('').replaceAll('.', '_')
+      : prefix.join('')) + extension
+  );
+};
+
+// Gmail's type and every Content-Type header name the same media type.
+const consistentType = (part: GmailPart) => {
+  const types = [
+    ...(part.mimeType === undefined ? [] : [part.mimeType.toLowerCase()]),
+    ...headerValues(part, 'content-type').map(headerToken),
+  ];
+  return (
+    types.length > 0 && types.every((type) => type !== '' && type === types[0])
+  );
+};
+
+const attachedMessage = (part: GmailPart) =>
+  part.mimeType?.toLowerCase() === 'message/rfc822' ||
+  headerValues(part, 'content-type')
+    .map(headerToken)
+    .includes('message/rfc822');
+
+// Leaf parts with their child-index locators, never descending into attached messages.
+const attachmentLeaves = (
+  part: GmailPart,
+  locator: readonly number[],
+): ReadonlyArray<Readonly<{ part: GmailPart; locator: readonly number[] }>> => {
+  const children = part.parts ?? [];
+  // Attached messages, however any of their type declarations names them, and containers whose
+  // declarations contradict each other are never searched for attachments.
+  if (attachedMessage(part) || (children.length > 0 && !consistentType(part))) {
+    return [];
+  }
+  return children.length === 0
+    ? [{ part, locator }]
+    : children.flatMap((child, index) =>
+        attachmentLeaves(child, [...locator, index]),
+      );
+};
+
+const namedOrAttached = (part: GmailPart) =>
+  (part.filename ?? '') !== '' || isAttachment(part);
+
+// Received attachments in MIME order, located by child indexes from the payload: named or
+// attachment-disposition leaves outside attached messages, except the readable body and the
+// inline images its HTML can resolve.
+export function receivedAttachments(payload: GmailPart) {
+  const { html, text, path } = bodyParts(payload);
+  const body = new Set<GmailPart>([
+    ...(html === undefined ? [] : [html]),
+    ...(text === undefined ? [] : [text]),
+    ...inlineImageParts(path).values(),
+  ]);
+  return attachmentLeaves(payload, [0]).flatMap(({ part, locator }) =>
+    body.has(part) || part.body === undefined || !namedOrAttached(part)
+      ? []
+      : [
+          {
+            locator: locator.join('.'),
+            name: safeFilename(part.filename ?? ''),
+            mimeType: mimeType(part) || 'application/octet-stream',
+            size: part.body.size,
+            part,
+          },
+        ],
+  );
 }
 
 const mimeToken = "[!#$%&'*+.^_`|~0-9A-Za-z-]+";

@@ -322,6 +322,61 @@ unsaved actions and late reads. Ordinary verification keeps the epoch and retain
 same-connection work. Older readable epoch-less records use the legacy lifetime
 until authoritative reconciliation or current explicit consent binds them.
 
+## Received attachment ownership
+
+Issue [#610](https://github.com/unwired-dev/product/issues/610) implements the on-demand
+Gmail slice of [ADR 0030](../adr/0030-gate-incoming-attachment-downloads.md).
+`message-body.ts` derives descriptors from the MIME tree without an attachment
+request, excluding readable parts, resolved inline images and all attached-message
+subtrees. Any Gmail MIME type or Content-Type header token declaring
+`message/rfc822` excludes that part, even when repeated headers disagree.
+Attachment traversal requires a non-empty, agreeing media type across every
+present declaration, including Gmail's `mimeType` and all Content-Type header
+tokens. Case, header comments and header parameters do not affect that comparison;
+Gmail-only and header-only containers remain eligible. This is stricter than
+body/CID traversal's header-first type selection. Ordinary non-message leaves
+retain explicit download with a neutral `application/octet-stream` descriptor when
+their repeated Content-Type tokens disagree.
+A download rereads the owning message and revalidates the part selector,
+name, MIME type and size. Only the verified connection and generation can save it;
+bytes never enter the encrypted body cache or Product Sync.
+Host attachment actions, including cancellation, reuse the committed reader/body
+predicate before calling the store, so queued input cannot present an old file or
+cancel a later reader's download. A native generation invalidation during reading
+or saving clears only the live download attempt and offers explicit reacquisition;
+owner/controller fences preserve replacement work.
+
+The native credentialed transport caps responses at 40 MiB while receiving them,
+including unknown-length responses. TypeScript validates base64url and the exact
+25 MiB-bounded decoded size; native storage independently validates that size.
+Host adapters forward Effect interruption through an opaque request identifier to
+cancel the owning native task and URLSession transfer. Registration refresh checks
+cancellation before starting the provider read. Saving and recording ownership are
+uninterruptible, with rejected or cancelled saves explicitly discarded.
+
+Private Application Support files are grouped by connection and opaque UUID, with
+a confined filename, iOS complete protection and backup exclusion. The 250 MiB
+store evicts least recently used files; preview refreshes their modification date.
+Files have shorter ownership than the encrypted body: the last reader closing,
+the message leaving the Inbox, or the Inbox closing or changing owner discards
+them.
+
+For system preview/share, the native bridge retains a counted presentation lease
+per file. Reader, message and Inbox discards wait for the last lease; deferred deletion
+rechecks ownership under the registration gate. Admission receives the gated
+snapshot of leased IDs, counts their bytes toward the same hard limit and skips
+them during eviction, refusing before deletion if the remaining files cannot
+make space. Connection/account removal
+attempts attachment cleanup even when another cache removal fails. Before exposing
+the shared registration store, launch clears previous-process files off the main
+actor and fails closed if cleanup fails. A post-write authorization rejection also
+removes the unacknowledged file.
+
+System preview and sharing receive one resolved connection-owned URL. Native
+Quick Look/share runtime behavior and the complete React Native bridge build remain
+required qualification; hosted storage/transport fixtures do not establish those
+host integration results. See the operational guide's evidence and deferred checks.
+
 ## Online Gmail search
 
 Issue #609 uses `messages?q=&maxResults=20` and Gmail's page tokens through the same
@@ -339,3 +394,11 @@ the existing presentation and image bounds and never enter the encrypted body ca
 unless the message is also listed in that Inbox. Search neither persists a body index
 nor calls Convex. Controlled TypeScript pagination/failure journeys and native
 URLSession search-page responses remain separate from protected live-Gmail evidence.
+
+Received attachments use the same readable-message boundary for explicit downloads
+and system presentation, including results outside the cached Inbox. Search membership
+does not extend downloaded-file ownership when a listed message leaves the Inbox:
+that transition discards its downloads while preserving the search reader's body
+and descriptors. An explicit download can then acquire a new file. Synchronization
+does not discard an already off-Inbox result's files; its last reader closing or
+Inbox owner invalidation still cancels work and discards them.
