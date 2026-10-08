@@ -153,16 +153,20 @@ function MessageRow({
         name,
         label,
       }))}
-      accessibilityLabel={[
-        t(message.unread ? 'inbox.unreadRow' : 'inbox.row', {
+      accessibilityLabel={t('inbox.rowLabel', {
+        context: [
+          mailbox === undefined ? undefined : 'mailbox',
+          status === undefined ? undefined : 'status',
+        ]
+          .filter((part) => part !== undefined)
+          .join('_'),
+        row: t(message.unread ? 'inbox.unreadRow' : 'inbox.row', {
           sender: message.sender,
           subject: message.subject,
         }),
-        mailbox === undefined ? undefined : t('inbox.inMailbox', { mailbox }),
+        mailbox,
         status,
-      ]
-        .filter((part) => part !== undefined)
-        .join('. ')}
+      })}
       accessibilityRole="button"
       accessibilityState={{ selected }}
       focusable

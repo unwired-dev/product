@@ -1,6 +1,6 @@
 ---
 '@private-email/localization': minor
-'@private-email/mail-core': patch
+'@private-email/mail-core': minor
 '@private-email/mobile': minor
 '@private-email/macos': minor
 ---

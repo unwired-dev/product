@@ -779,34 +779,51 @@ Mock Mail Session tests prove application behavior through a substituted native
 boundary. They are distinct from the real storage tests and the packaged-app
 journeys above. This slice retires no legacy coverage.
 
-## Interface language foundation — 2026-09-29
+## Interface language foundation — 2026-10-08
 
 Issue [#677](https://github.com/unwired-dev/product/issues/677) adds shared English
 catalogs with i18next/react-i18next, device-language selection, and a saved local
-override. English is the only production locale. A temporary French catalog is
-used only in tests.
+override across the current registration, Inbox and reader surfaces. English is
+the only production language; French resources exist only in tests.
 
-Local evidence:
+This replaces the localization evidence cherry-picked from PR #678's September
+branch. That branch's test counts and Mac journey do not qualify the current
+runner or implementation.
 
-- All 24 scoped Turbo lint, format, typecheck, and test tasks passed, including
-  shared localization (4 tests), Expo (7 tests), and Mac (5 tests).
-- Both production bundles and native dependency-boundary checks passed. Frozen
-  installation with strict peers passed. Root and host Fallow dependency/unused
-  checks reported no findings; repository health advisories remain separate.
-- The Foundation integration test passed regional language matching, missing-key
-  English fallback, separate-process preference persistence/removal, and conversion
-  of Apple's `en_US@rg=czzzzz` region override to an Intl-compatible `en-CZ` tag.
-- The packaged iOS Release app passed language selection/relaunch and the Inbox
-  journey on fresh iPhone 18 Pro and iPad Pro 11-inch M5 simulators running iOS 27.
-  Evidence: `artifacts/expo-bootstrap/native-vh6OVt/` in the localization worktree.
-- The native Mac Testing build and focused language journey passed: shared choice
-  across windows, relaunch persistence, reset to System default, and native menus.
-  Evidence: `artifacts/macos-inbox/journey.mYf9iJ/` in the localization worktree.
-  This journey does not access mailbox Keychain items. The separately documented
-  signed Mac mailbox qualification remains deferred pending provisioning.
-- Swift formatting/lint, the native preference test's lint/format, and all 10
-  native runner failure-handling checks passed.
+Implementation-run evidence on macOS 27.0.1 with Xcode 27.0 and the mise Node 24
+and pnpm toolchain:
 
-These checks qualify the English language foundation, not additional translations
-or right-to-left layouts. Follow [the localization guide](../localization.md)
-before registering a new production language.
+- The independent review reran all eight scoped type and test tasks after its
+  runtime fixes: mobile 51, Mac 46, mail-core 332 and shared localization 5 tests
+  passed. Repository formatting and lint (excluding untracked task probes), all
+  10 tooling checks, Expo dependency compatibility, frozen strict-peer installation
+  and both production bundle/boundary checks passed. Fallow exited successfully
+  with no findings outside the untracked task probes; health advisories remain
+  separate from that check.
+- The Foundation integration test passed native regional matching, missing-key
+  English fallback, separate-process preference persistence/removal, and locale
+  conversion. It uses an isolated preferences domain and temporary test catalogs.
+- The packaged ad-hoc signed iOS Release app passed
+  `testSelectAndReplaceMessage`, including language selection/relaunch, on owned
+  iPhone and iPad simulators running iOS 27.0. Evidence:
+  `artifacts/expo-bootstrap/native-P4Ddoo/` records the implementation run;
+  `artifacts/expo-bootstrap/native-HBUk2A/` records both journeys passing again
+  against the rebuilt app after the independent review's runtime fixes.
+- Implementation-run Mac Testing and Release builds passed with ad-hoc signing
+  and packaged catalogs. The independent review rebuilt production Release after
+  its fixes and verified the packaged catalog against disk. An initial CocoaPods
+  `pathname contains null byte` failure passed on one retry. This establishes
+  compilation and packaging only.
+
+Deferred:
+
+- Both current Mac XCTest journeys, including
+  `testLanguagePreferenceAcrossWindowsAndRelaunch`: this host has no development
+  signing identity or profile covering `dev.unwired.mock.*`. The current runner
+  requires that isolated signed identity for every selected journey.
+- Real VoiceOver, right-to-left layouts and physical devices, plus language-specific
+  qualification before shipping any additional catalog.
+
+Mocked host/store tests, native Foundation integration, packaged journeys and
+build evidence remain distinct. Follow [the localization guide](../localization.md)
+for commands and release checks. No legacy coverage is retired by this slice.

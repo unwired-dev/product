@@ -3,6 +3,8 @@ import { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mai
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { useLayoutEffect } from 'react';
 
+import { languageStorage } from '../src/language-storage.ts';
+import { localization } from '../src/localization.ts';
 import { GmailMessageBody } from '../src/message-body.tsx';
 
 // The application callback behind a rendered control, as delayed native input would invoke it.
@@ -29,8 +31,14 @@ function CommitProbe({ inspect }: { readonly inspect: () => void }) {
 
 // A rendered host/store test of received attachments. Only WebKit is substituted.
 describe('received attachments in the reader', () => {
-  it('lists attachments, then downloads, opens and shares one only when asked', async () => {
+  it('formats attachment sizes by the selected locale, then downloads, opens and shares only when asked', async () => {
     expect.hasAssertions();
+    jest.spyOn(languageStorage, 'getSettings').mockResolvedValueOnce({
+      preference: null,
+      language: 'en',
+      locale: 'en-u-nu-arab',
+    });
+    await localization.refresh();
     const gmail = createSyntheticGmail();
     const id = gmail.deliver({
       content: {
@@ -41,6 +49,7 @@ describe('received attachments in the reader', () => {
             mimeType: 'application/pdf',
             bytes: [...Buffer.from('%PDF-1.7 synthetic')],
           },
+          { filename: 'one-byte.txt', mimeType: 'text/plain', bytes: [65] },
         ],
       },
     });
@@ -54,12 +63,24 @@ describe('received attachments in the reader', () => {
     );
     try {
       await expect(
-        screen.findByText('2 attachments'),
+        screen.findByText('3 attachments'),
       ).resolves.toBeOnTheScreen();
-      expect(screen.getByText('18 bytes')).toBeOnTheScreen();
-      expect(
-        gmail.requests.filter(({ path }) => path.includes('/attachments/')),
-      ).toHaveLength(0);
+      expect([
+        screen.getByText('١٨ bytes').props.children,
+        screen.getByText('١ byte').props.children,
+      ]).toStrictEqual(['١٨ bytes', '١ byte']);
+      await act(async () => {
+        await localization.setLanguage('en');
+      });
+      expect({
+        sizes: [
+          screen.getByText('18 bytes').props.children,
+          screen.getByText('1 byte').props.children,
+        ],
+        downloads: gmail.requests.filter(({ path }) =>
+          path.includes('/attachments/'),
+        ),
+      }).toStrictEqual({ sizes: ['18 bytes', '1 byte'], downloads: [] });
 
       await fireEvent.press(screen.getByLabelText('Download report.pdf'));
       const open = await screen.findByLabelText('Open report.pdf');
@@ -73,6 +94,8 @@ describe('received attachments in the reader', () => {
       expect(screen.getByLabelText('Download notes.txt')).toBeOnTheScreen();
     } finally {
       await app.unmount();
+      await localization.setLanguage('en');
+      jest.restoreAllMocks();
     }
     // Closing the reader deletes the Downloaded Attachment.
     expect(gmail.savedFiles.size).toBe(0);

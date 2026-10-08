@@ -1,7 +1,4 @@
-import type {
-  LanguageSettings,
-  LanguageStorage,
-} from '@private-email/localization';
+import type { LanguageStorage } from '@private-email/localization';
 import type { TurboModule } from 'react-native';
 
 import {
@@ -11,7 +8,7 @@ import {
 } from 'react-native';
 
 interface NativeLocalization extends TurboModule, LanguageStorage {
-  readonly getConstants: () => LanguageSettings;
+  readonly getConstants: () => Readonly<Record<string, unknown>>;
   readonly addListener: (eventName: string) => void;
   readonly removeListeners: (count: number) => void;
 }

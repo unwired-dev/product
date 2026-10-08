@@ -29,6 +29,47 @@ function storage() {
 }
 
 describe('interface language', () => {
+  it('rejects malformed native settings before publishing and accepts a later valid update', async () => {
+    expect.hasAssertions();
+    const native = storage();
+    const initial = await native.getSettings();
+    let reply: unknown = initial;
+    const app = createLocalization(initial, {
+      getSettings: async () => reply,
+      setLanguage: async () => reply,
+    });
+    const listener = vi.fn<() => void>();
+    app.subscribe(listener);
+    for (const invalid of [
+      {},
+      { ...initial, preference: 'unsupported' },
+      { ...initial, language: 42 },
+      { ...initial, locale: 'not_a_locale' },
+    ]) {
+      expect(() => createLocalization(invalid, native)).toThrow(
+        'Invalid native language settings.',
+      );
+      reply = invalid;
+      await expect(app.refresh()).rejects.toThrow(
+        'Invalid native language settings.',
+      );
+      await expect(app.setLanguage('en')).rejects.toThrow(
+        'Invalid native language settings.',
+      );
+      expect({
+        settings: app.getSnapshot(),
+        language: app.i18n.language,
+        publications: listener.mock.calls.length,
+      }).toStrictEqual({ settings: initial, language: 'en', publications: 0 });
+    }
+    reply = { preference: 'en', language: 'en', locale: 'en' };
+    await app.setLanguage('en');
+    expect({
+      settings: app.getSnapshot(),
+      publications: listener.mock.calls.length,
+    }).toStrictEqual({ settings: reply, publications: 1 });
+  });
+
   it('renders English on first use, preserves message text, and falls back for untranslated keys', async () => {
     expect.hasAssertions();
     const native = storage();

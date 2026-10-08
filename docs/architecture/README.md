@@ -30,6 +30,7 @@ release scopes; a moved passage is not a new requirement or proof of qualificati
 | [docs/expo-client.md](../expo-client.md)                                         | [expo-client.md](expo-client.md)                                         |
 | [docs/gmail-inbox.md](../gmail-inbox.md)                                         | [gmail-inbox.md](gmail-inbox.md)                                         |
 | [docs/google-registration.md](../google-registration.md)                         | [google-registration.md](google-registration.md)                         |
+| [docs/localization.md](../localization.md)                                       | [localization.md](localization.md)                                       |
 | [docs/linked-sign-in.md](../linked-sign-in.md)                                   | [linked-sign-in.md](linked-sign-in.md)                                   |
 | [docs/macos-client.md](../macos-client.md)                                       | [macos-client.md](macos-client.md)                                       |
 | [docs/mail-test-environment.md](../mail-test-environment.md)                     | [mail-test-environment.md](mail-test-environment.md)                     |

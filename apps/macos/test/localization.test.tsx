@@ -80,7 +80,11 @@ describe('language selection', () => {
     const app = await render(<Surface />);
     const first = within(app.getByTestId('first'));
     await fireEvent.press(first.getByRole('radio', { name: 'System default' }));
-    await expect(first.findByText('Boîte de réception')).resolves.toBeVisible();
+    await expect(
+      first.findByRole('header', {
+        name: 'Boîte de réception. Preview mailbox',
+      }),
+    ).resolves.toBeVisible();
     expect(first.getByRole('radio', { name: 'System default' })).toBeChecked();
     const second = within(app.getByTestId('second'));
     expect(second.getByText('Boîte de réception')).toBeVisible();

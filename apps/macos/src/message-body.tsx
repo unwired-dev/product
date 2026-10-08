@@ -487,7 +487,7 @@ function Presentation({
 
 const fileSize = (t: Translate, format: Intl.NumberFormat, bytes: number) => {
   if (bytes < 1024) {
-    return t('attachment.bytes', { count: bytes });
+    return t('attachment.bytes', { count: bytes, size: format.format(bytes) });
   }
   return bytes < 1024 * 1024
     ? t('attachment.kilobytes', { size: format.format(bytes / 1024) })

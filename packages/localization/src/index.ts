@@ -1,5 +1,7 @@
 import type { TFunction } from 'i18next';
 
+import * as Result from 'effect/Result';
+import * as Schema from 'effect/Schema';
 import { createInstance } from 'i18next';
 
 import catalog from '../catalogs.bundle/en.json' with { type: 'json' };
@@ -16,9 +18,46 @@ export interface LanguageSettings {
 }
 
 export interface LanguageStorage {
-  readonly getSettings: () => Promise<LanguageSettings>;
-  readonly setLanguage: (language: string | null) => Promise<LanguageSettings>;
+  readonly getSettings: () => Promise<unknown>;
+  readonly setLanguage: (language: string | null) => Promise<unknown>;
 }
+
+const languageCode = Schema.NonEmptyString.check(
+  Schema.makeFilter((code) =>
+    languages.some((language) => language.code === code),
+  ),
+);
+const locale = Schema.NonEmptyString.check(
+  Schema.makeFilter((value) => {
+    try {
+      return (
+        new Intl.DateTimeFormat(value).resolvedOptions().locale !== '' &&
+        new Intl.NumberFormat(value).resolvedOptions().locale !== ''
+      );
+    } catch {
+      return false;
+    }
+  }),
+);
+const settingsSchema = Schema.Struct({
+  preference: Schema.NullOr(languageCode),
+  language: languageCode,
+  locale,
+});
+class InvalidLanguageSettings extends Schema.TaggedError<InvalidLanguageSettings>()(
+  'InvalidLanguageSettings',
+  { cause: Schema.Defect(), message: Schema.String },
+) {}
+const decodeSettings = (input: unknown): LanguageSettings => {
+  const decoded = Schema.decodeUnknownResult(settingsSchema)(input);
+  if (Result.isFailure(decoded)) {
+    throw new InvalidLanguageSettings({
+      cause: decoded.failure,
+      message: 'Invalid native language settings.',
+    });
+  }
+  return decoded.success;
+};
 
 declare module 'i18next' {
   interface CustomTypeOptions {
@@ -47,24 +86,22 @@ function createTranslations(language: string) {
 // The shipped English catalog, for tests and code that runs before a host chooses a language.
 export const english: Translate = createTranslations('en').getFixedT('en');
 
-export function createLocalization(
-  initial: LanguageSettings,
-  storage: LanguageStorage,
-) {
-  const i18n = createTranslations(initial.language);
-  let settings = initial;
+export function createLocalization(initial: unknown, storage: LanguageStorage) {
+  let settings = decodeSettings(initial);
+  const i18n = createTranslations(settings.language);
   const listeners = new Set<() => void>();
   let pending = Promise.resolve();
 
-  async function apply(next: LanguageSettings) {
-    settings = next;
+  async function apply(input: unknown) {
+    const next = decodeSettings(input);
     await i18n.changeLanguage(next.language);
+    settings = next;
     for (const listener of listeners) {
       listener();
     }
   }
 
-  function enqueue(operation: () => Promise<LanguageSettings>) {
+  function enqueue(operation: () => Promise<unknown>) {
     const previous = pending;
     async function run() {
       try {

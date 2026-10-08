@@ -513,6 +513,9 @@ importers:
 
   packages/localization:
     dependencies:
+      effect:
+        specifier: 'catalog:'
+        version: 4.0.0
       i18next:
         specifier: 'catalog:'
         version: 26.4.2(typescript@7.0.2)

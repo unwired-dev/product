@@ -1,6 +1,7 @@
 {
   "inbox": {
     "title": "Inbox",
+    "heading": "{{title}}. {{subtitle}}",
     "subtitle": "Preview mailbox",
     "loading": "Loading Inbox",
     "messages": "Inbox messages",
@@ -13,7 +14,11 @@
     "account": "Account",
     "footerGmail": "Gmail · Encrypted on this device",
     "inMailbox": "In {{mailbox}}",
-    "about": "{{address}}: {{text}}"
+    "about": "{{address}}: {{text}}",
+    "rowLabel": "{{row}}",
+    "rowLabel_mailbox": "{{row}}. In {{mailbox}}",
+    "rowLabel_status": "{{row}}. {{status}}",
+    "rowLabel_mailbox_status": "{{row}}. In {{mailbox}}. {{status}}"
   },
   "common": {
     "retry": "Try again",
@@ -256,8 +261,8 @@
     "locked": "Private storage is locked. Unlock your device and try again.",
     "failed": "This attachment could not be saved on this device.",
     "damaged": "Gmail sent an incomplete or damaged copy of this attachment.",
-    "bytes_one": "{{count}} byte",
-    "bytes_other": "{{count}} bytes",
+    "bytes_one": "{{size}} byte",
+    "bytes_other": "{{size}} bytes",
     "kilobytes": "{{size}} KB",
     "megabytes": "{{size}} MB",
     "downloading": "Downloading…",
