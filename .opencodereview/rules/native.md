@@ -49,8 +49,11 @@ Native storage owns what TypeScript must never hold: Keychain items, the storage
 
 - `DraftFilePicker` leaving photo selection unlimited or copying/encoding every
   document or pasteboard image before applying the documented per-intake count
-  limit. Bound work at the earliest platform boundary; where the system already
-  copied document selections, remove unused system copies and move only the
+  limit. Bound work at the earliest platform boundary: applying `prefix` after
+  an eager platform API such as `UIPasteboard.images` has materialized or decoded
+  the whole collection does not bound that work. Filter provider metadata and
+  cap the lazy sequence before loading image representations. Where the system
+  already copied document selections, remove unused system copies and move only the
   admitted prefix into picker-owned storage. Preserve cancellation/failure cleanup
   and never delete user-owned originals. Trace the shared `drafts.ts.pick` and Mac
   paste/drop consumers too; otherwise large selections create unbounded plaintext
