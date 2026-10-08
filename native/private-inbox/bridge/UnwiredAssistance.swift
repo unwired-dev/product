@@ -68,7 +68,8 @@ final class UnwiredAssistance: NSObject {
     _ request: String, input: String, resolve: @escaping RCTPromiseResolveBlock,
     reject: @escaping RCTPromiseRejectBlock
   ) {
-    Task { @MainActor in
+    // Preserve the serial bridge's call order when registering and cancelling requests.
+    DispatchQueue.main.async {
       if let reason = Self.unavailable() {
         reject(reason, "On-device assistance is unavailable.", nil)
         return
@@ -77,6 +78,7 @@ final class UnwiredAssistance: NSObject {
       Self.summaries[request] = Task { @MainActor in
         defer { Self.summaries[request] = nil }
         do {
+          try Task.checkCancellation()
           let summary = try await Self.generate(input)
           try Task.checkCancellation()
           resolve(summary)
@@ -92,7 +94,7 @@ final class UnwiredAssistance: NSObject {
     _ request: String, resolve: @escaping RCTPromiseResolveBlock,
     reject: @escaping RCTPromiseRejectBlock
   ) {
-    Task { @MainActor in
+    DispatchQueue.main.async {
       Self.summaries.removeValue(forKey: request)?.cancel()
       resolve(nil)
     }

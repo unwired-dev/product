@@ -17,6 +17,12 @@ This code owns what TypeScript must never hold: Keychain items, the storage encr
 
 #### Bridge contract
 
+- `UnwiredAssistance.summarize` and `cancel` losing the serial bridge's invocation
+  order while dispatching to their shared request registry. Preserve registration
+  before a later cancellation and check cancellation before generation starts;
+  independent unstructured actor tasks can let cancellation find no request and
+  then start explicitly cancelled inference. Cancellation during availability or
+  after completion must not accumulate request IDs that will never be consumed.
 - `GmailTransport.send` consuming an allowed large response through one async
   iterator step per byte while the shared `RegistrationOperationGate` is held.
   Receive bounded chunks, reject declared and streamed overflow before retaining
