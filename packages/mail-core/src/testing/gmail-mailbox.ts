@@ -161,6 +161,8 @@ export function createSyntheticGmail({
     null;
   // The Bounded Encrypted Body Cache, keyed by address and message ID.
   const bodies = new Map<string, string>();
+  // The bodies stored as prefetch exclusion markers, in native's own tier.
+  const excludedBodies = new Set<string>();
   const bodyFailures: string[] = [];
   const retainFailures: string[] = [];
   // Downloaded Attachments native code holds for this connection, by opaque file name, and the
@@ -598,15 +600,27 @@ export function createSyntheticGmail({
       if (refusedBodies.has(id)) {
         return Promise.resolve({ admitted: false });
       }
-      bodies.set(bodyKey(owner.address, id), document);
+      const key = bodyKey(owner.address, id);
+      bodies.set(key, document);
+      if (tier === 'excluded') {
+        excludedBodies.add(key);
+      } else {
+        excludedBodies.delete(key);
+      }
       return Promise.resolve({ admitted: true });
     },
-    listMessageBodies: (owner, ids) =>
-      current(owner)
-        ? Promise.resolve({
-            stored: ids.filter((id) => bodies.has(bodyKey(owner.address, id))),
-          })
-        : rejection('mailbox-invalidated'),
+    listMessageBodies: (owner, ids) => {
+      if (!current(owner)) {
+        return rejection('mailbox-invalidated');
+      }
+      const stored = ids.filter((id) => bodies.has(bodyKey(owner.address, id)));
+      return Promise.resolve({
+        stored,
+        excluded: stored.filter((id) =>
+          excludedBodies.has(bodyKey(owner.address, id)),
+        ),
+      });
+    },
     retainMessageBodies: (owner, ids, protectedIds) => {
       bodyRetains.push(protectedIds);
       const code = retainFailures.shift();
@@ -623,6 +637,7 @@ export function createSyntheticGmail({
       for (const key of bodies.keys()) {
         if (!kept.has(key)) {
           bodies.delete(key);
+          excludedBodies.delete(key);
         }
       }
       return Promise.resolve(null);
@@ -734,6 +749,7 @@ export function createSyntheticGmail({
       bodies.clear();
       // Native code removes the previous connection's files with its cache.
       savedFiles.clear();
+      excludedBodies.clear();
       messages.clear();
       userLabels.clear();
     },

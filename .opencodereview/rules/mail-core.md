@@ -40,7 +40,18 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Running programs and shared state
 
+- `createGmailInbox.store` or `retainBodies` changing body-cache membership
+  without notifying the cache subscribers exposed by `createMailboxes.bodies`.
+  Publish after admitted commits and successful pruning, using the coordinator
+  shared by every connection: the device-wide budget lets one connection evict
+  another's body. Refused admission preserves membership. Otherwise derived
+  saved-body status remains stale despite unchanged Inbox metadata.
 - `Effect.run*` anywhere except the single run of a host-facing store method through `runLogged`; in particular inside a service method, a callback passed back into Effect, or a loop.
+- A helper that combines Promise-returning store methods, such as
+  `mailboxes.ts.savedMessageBodies`, wrapping their host-facing runs in another
+  `runLogged`/`Effect.run*`. Keep that composition plain async, or compose internal
+  Effect programs before one boundary run; otherwise each mailbox starts a fresh
+  fiber inside the outer program, losing its inherited context and interruption.
 - A host-facing action whose Promise can reject for an expected state. Hosts call actions as `void store.load()`, so a rejection is an unhandled promise rejection; expected failures become snapshot state.
 - Overlapping asynchronous store actions that read, change or publish shared state without the store's `Semaphore`, so they interleave a read-modify-write or a slower earlier call publishes over a newer result. Synchronous `getSnapshot` and listener bookkeeping do not require an Effect run or permit. Use `withPermit` to queue and `withPermitsIfAvailable` only where dropping the overlapping request is the intended behavior.
 - `createRegistration.resume` dropping a foreground activation because the account is unlocked or a pending operation holds the semaphore. Queue every activation's native restore after the current operation, preserving unchanged setup feedback while publishing changed verification or locked results; otherwise unlock retries are lost or a running account remains connected after verification becomes unavailable. ADR 0020 requires foreground Trusted Device revalidation; a locked-storage retry must not exempt unlocked accounts, and native reconnect alone does not prove that revocation rejection purges local state.
@@ -97,6 +108,13 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   downloads. Trace `downloadAttachment`'s late-save fence and `presentAttachment`
   after refresh; otherwise a replacement at the same position appears downloaded
   and Open/Share serves the previous file, or a cancelled save restores stale bytes.
+- `mailboxes.ts.folded` implementing case-insensitive sender/subject search with
+  lowercasing alone or ordering normalization, accent removal and case mapping so equivalent
+  text gets different search keys. Check sharp S in both cases, dotted/dotless I,
+  compatibility letters exposed by normalization, and sigma in partial words;
+  apply the same mapping to queries and metadata. Otherwise saved mail disappears
+  from offline search for ordinary case or compatibility variants. Keep this
+  user-facing text matching separate from protocol identifiers and CSS keywords.
 - `createGmailInbox.save` returning early when native foreground verification has made an enabled Inbox cache-only, without removing its captured unsaved intents and publishing disabled organizing with settled Saving state. Trace `organize`, queued `load` follow-up and native availability/generation gates: no cache-only commit or provider dispatch is allowed, durable pending actions must remain, and discarded unsaved intent needs a visible, announced outcome outside the reader. Report the size of a discarded same-mailbox batch rather than naming only its last request, and preserve that outcome when a subsequent serialized save finds no queued intent. Keep outcome message snapshots scoped to the returned mailbox and initiating ownership epoch; otherwise an action stays saving indefinitely, silently disappears after a removal closes the reader, or exposes another mailbox's message. Do not label a saved-cache rollback as authoritative Gmail reconciliation.
 - `createGmailInbox.organize` accepting a message whose Gmail labels are still unknown during legacy-cache relisting, or `quickActions` and either host's `MessageActions` presenting label, move or other organizing controls for that snapshot. Trace intake, retained handlers and `OrganizeNotice` snapshots through queueing and Undo; treating absent labels as an empty set lets an inverse remove pre-existing Gmail memberships. Check predecessor-produced pending snapshots too: `organized` must not turn fallback memberships into a known baseline while replay is unsettled. Keep known-label cached messages usable during ordinary backfill and preserve previously accepted durable intent.
 - `createGmailInbox.dispatch` receiving a permanent provider refusal without durably retaining that outcome before its follow-up `readLabels`. An interrupted read or relaunch must make `reconcile` settle provider-derived state and announce rejection without another dispatch, even after Retry or an exhausted attempt budget. Trace `commitOver`/`rebased` so concurrent intake survives both saving the refusal and removing its head; if a refusal-save rebase removes the refused ID, `settleRefusal` must leave the new head untouched rather than read the old message and pop the next intent. Otherwise known-invalid writes repeat, consume attempts and delay later intent, or another message's intent is silently lost.

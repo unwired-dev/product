@@ -1297,13 +1297,17 @@ describe('the isolated rich reader', () => {
       expect(gmail.bodyCommits).toHaveLength(3);
     });
     expect(listedIds(inbox)).not.toContain(trashed);
-    expect(gmail.bodyCommits).toStrictEqual(
-      [recentHtml, recentText, multipart].map((id) => ({
-        id,
-        tier: 'prefetched',
-        protectedIds: [recentHtml, recentText, multipart],
-      })),
-    );
+    const protectedIds = [recentHtml, recentText, multipart];
+    expect(gmail.bodyCommits).toStrictEqual([
+      { id: recentHtml, tier: 'prefetched', protectedIds },
+      { id: recentText, tier: 'prefetched', protectedIds },
+      // The exclusion marker has its own tier, so it never reads as a saved body.
+      { id: multipart, tier: 'excluded', protectedIds },
+    ]);
+    // Search reports only real bodies as saved; the exclusion marker and old message are not.
+    await expect(
+      inbox.savedBodies([recentHtml, recentText, multipart, old]),
+    ).resolves.toStrictEqual(new Set([recentHtml, recentText]));
     // Pruning an over-budget cache keeps the same recent working set.
     expect(gmail.bodyRetains.at(-1)).toStrictEqual([
       recentHtml,
@@ -1339,6 +1343,9 @@ describe('the isolated rich reader', () => {
       id: multipart,
       tier: 'prefetched',
     });
+    await expect(inbox.savedBodies([multipart])).resolves.toStrictEqual(
+      new Set([multipart]),
+    );
 
     // Later synchronizations neither repeat the preflight nor download stored bodies again.
     const preflights = gmail.requests.filter(({ query }) =>
