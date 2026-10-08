@@ -99,8 +99,9 @@ and excluded from backups. Draft access requires the signed-in, admitted Product
 Account with no removal under way; a save prepared for another account or a stale
 storage revision is refused.
 A pending device or an account being removed has no Drafts. Another account's
-document reads as empty, and its first save replaces it. A document over the
-**Outgoing Content Store**'s 100 MB limit is refused rather than evicting anything.
+document reads as empty, and its first save replaces it. A save whose encrypted
+file would exceed the **Outgoing Content Store**'s 100 MB limit is refused rather
+than evicting anything.
 Damaged or unreadable Drafts are preserved and reported as unavailable, and a
 missing key never creates a replacement while the document exists. Every account
 purge removes the document with the caches and needs no key. Draft access needs no

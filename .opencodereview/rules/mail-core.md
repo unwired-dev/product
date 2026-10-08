@@ -99,6 +99,15 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Product behavior the stores own
 
+- `semantic-document.ts` expanding every block into per-code-unit editor objects
+  on each keystroke, rebuilding unaffected blocks, or retaining expanded arrays
+  for every history-held Block in an identity cache. Check typing, formatting,
+  Undo/Redo and a long single paragraph across the full `record` history bound.
+  Preserve immutable untouched blocks and keep retained representations compact;
+  weak keys do not release expansions while history still owns those blocks.
+  Otherwise ordinary long Draft editing stalls the shared JavaScript runtime or
+  multiplies retained memory until the host can be terminated.
+
 - `drafts.ts.recipientSummary` flattening To, Cc and Bcc into one To-prefixed
   list or omitting populated roles. Preserve each role and its recipient order,
   use names with address fallback, and return No recipients only when all three

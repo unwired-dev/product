@@ -68,6 +68,12 @@ struct DraftTests {
         owner: owner, expectedRevision: 1,
         document: String(repeating: "x", count: PrivateInboxStore.outgoingContentLimit + 1))
     }
+    // Escaping counts: a document under the limit whose encrypted file would exceed it is refused.
+    #expect(throws: PrivateInboxError.unavailable) {
+      _ = try relaunched.commitDrafts(
+        owner: owner, expectedRevision: 1,
+        document: String(repeating: "\"", count: PrivateInboxStore.outgoingContentLimit / 2 + 1))
+    }
     var damaged = ciphertext
     damaged[damaged.count - 1] ^= 1
     try damaged.write(to: file)

@@ -46,40 +46,76 @@ export const emptyDocument: SemanticDocument = [
 // The editor shows one text: blocks joined by line breaks, list items after a marker that is
 // displayed but never stored.
 type Char = Readonly<{ ch: string; marks: readonly Mark[] }>;
-type Line = Readonly<{ kind: BlockKind; chars: readonly Char[] }>;
+type Line = Readonly<{
+  kind: BlockKind;
+  length: number;
+  chars: readonly Char[];
+}>;
+
+// Cache compact wrappers, never expanded characters: history keeps old blocks alive. Only the
+// edited blocks expand; unchanged blocks keep their identity across history versions.
+// ponytail: one very long block still expands whole per edit; chunk it if typing stalls.
+const lineOfBlock = new WeakMap<Block, Line>();
+const blockOfLine = new WeakMap<Line, Block>();
 
 const linesOf = (document: SemanticDocument): Line[] =>
-  document.map(({ kind, spans }) => ({
-    kind,
-    chars: spans.flatMap(({ text, marks = [] }) =>
-      // Code units, as editor offsets count them; a split surrogate pair rejoins in order.
-      text.split('').map((ch) => ({ ch, marks })),
-    ),
-  }));
+  document.map((block) => {
+    const cached = lineOfBlock.get(block);
+    if (cached !== undefined) {
+      return cached;
+    }
+    const line: Line = {
+      kind: block.kind,
+      length: block.spans.reduce((count, { text }) => count + text.length, 0),
+      get chars() {
+        return block.spans.flatMap(({ text, marks = [] }) =>
+          // Code units, as editor offsets count them; a split surrogate pair rejoins in order.
+          text.split('').map((ch) => ({ ch, marks })),
+        );
+      },
+    };
+    lineOfBlock.set(block, line);
+    blockOfLine.set(line, block);
+    return line;
+  });
+
+const lineOf = (kind: BlockKind, chars: readonly Char[]): Line => ({
+  kind,
+  length: chars.length,
+  chars,
+});
 
 const sameMarks = (left: readonly Mark[], right: readonly Mark[]) =>
   left.length === right.length && left.every((mark, i) => right[i] === mark);
 
-const documentOf = (lines: readonly Line[]): SemanticDocument => {
-  const blocks = lines.map(({ kind, chars }): Block => {
-    const spans: Array<{ text: string; marks: readonly Mark[] }> = [];
-    for (const { ch, marks } of chars) {
-      const last = spans.at(-1);
-      if (last !== undefined && sameMarks(last.marks, marks)) {
-        last.text += ch;
-      } else {
-        spans.push({ text: ch, marks });
-      }
+const blockOf = ({ kind, chars }: Line): Block => {
+  const spans: Array<{ text: string; marks: readonly Mark[] }> = [];
+  for (const { ch, marks } of chars) {
+    const last = spans.at(-1);
+    if (last !== undefined && sameMarks(last.marks, marks)) {
+      last.text += ch;
+    } else {
+      spans.push({ text: ch, marks });
     }
-    return {
-      kind,
-      spans: spans.map(({ text, marks }) => {
-        const [first, ...rest] = marks;
-        return first === undefined
-          ? { text }
-          : { text, marks: [first, ...rest] };
-      }),
-    };
+  }
+  return {
+    kind,
+    spans: spans.map(({ text, marks }) => {
+      const [first, ...rest] = marks;
+      return first === undefined ? { text } : { text, marks: [first, ...rest] };
+    }),
+  };
+};
+
+const documentOf = (lines: readonly Line[]): SemanticDocument => {
+  const blocks = lines.map((line) => {
+    const cached = blockOfLine.get(line);
+    if (cached !== undefined) {
+      return cached;
+    }
+    const block = blockOf(line);
+    blockOfLine.set(line, block);
+    return block;
   });
   const [first, ...rest] = blocks;
   return first === undefined ? emptyDocument : [first, ...rest];
@@ -132,9 +168,9 @@ const locate = (lines: readonly Line[], offset: number) => {
   let start = 0;
   for (const [index, line] of lines.entries()) {
     const marker = markers[index]?.length ?? 0;
-    const end = start + marker + line.chars.length;
+    const end = start + marker + line.length;
     if (offset <= end || index === lines.length - 1) {
-      const column = Math.min(offset - start, marker + line.chars.length);
+      const column = Math.min(offset - start, marker + line.length);
       return { line: index, column, marker };
     }
     start = end + 1;
@@ -146,8 +182,7 @@ const offsetOf = (lines: readonly Line[], line: number, column: number) => {
   const markers = markersOf(lines);
   let offset = 0;
   for (let index = 0; index < line; index += 1) {
-    offset +=
-      (markers[index]?.length ?? 0) + (lines[index]?.chars.length ?? 0) + 1;
+    offset += (markers[index]?.length ?? 0) + (lines[index]?.length ?? 0) + 1;
   }
   return offset + (markers[line]?.length ?? 0) + column;
 };
@@ -280,16 +315,18 @@ const createdKind = (
 const edgesOf = (lines: readonly Line[], { start, end }: Change) => {
   const from = locate(lines, start);
   const to = locate(lines, end);
-  const first = lines[from.line] ?? { kind: 'paragraph', chars: [] };
+  const first = lines[from.line] ?? lineOf('paragraph', []);
   const last = lines[to.line] ?? first;
+  const firstChars = first.chars;
+  const lastChars = first === last ? firstChars : last.chars;
   const intoMarker = from.column < from.marker;
   const removesMarker = intoMarker && (start !== end || from.column !== 0);
   return {
     from,
     to,
     kind: removesMarker ? 'paragraph' : first.kind,
-    head: first.chars.slice(0, Math.max(0, from.column - from.marker)),
-    tail: last.chars.slice(Math.max(0, to.column - to.marker)),
+    head: firstChars.slice(0, Math.max(0, from.column - from.marker)),
+    tail: lastChars.slice(Math.max(0, to.column - to.marker)),
   } as const;
 };
 
@@ -307,14 +344,13 @@ const splice = (
     .map((part) => part.split('').map((ch) => ({ ch, marks: typed })));
   const above = head.length === 0 && parts.length > 1 && parts[0]?.length === 0;
   const last = parts.length - 1;
-  const created: Line[] = parts.map((chars, index) => ({
-    kind: createdKind(kind, { index, count: parts.length, above }),
-    chars: [
+  const created = parts.map((chars, index) =>
+    lineOf(createdKind(kind, { index, count: parts.length, above }), [
       ...(index === 0 ? head : []),
       ...chars,
       ...(index === last ? tail : []),
-    ],
-  }));
+    ]),
+  );
   return {
     lines: [
       ...lines.slice(0, from.line),
@@ -372,9 +408,7 @@ export function applyText(
   const shortcut = shortcutAt(current, column, change.inserted);
   if (current !== undefined && shortcut !== undefined) {
     const converted = lines.map((each, index) =>
-      index === line
-        ? { kind: shortcut, chars: current.chars.slice(column) }
-        : each,
+      index === line ? lineOf(shortcut, current.chars.slice(column)) : each,
     );
     return {
       document: documentOf(converted),
@@ -399,9 +433,7 @@ const covered = (lines: readonly Line[], { start, end }: Selection) => {
     const first =
       index === from.line ? Math.max(0, from.column - from.marker) : 0;
     const last =
-      index === to.line
-        ? Math.max(0, to.column - to.marker)
-        : line.chars.length;
+      index === to.line ? Math.max(0, to.column - to.marker) : line.length;
     return [first, last] as const;
   });
 };
@@ -418,9 +450,9 @@ export function marksAt(document: SemanticDocument, selection: Selection) {
     const at = Math.max(0, column - marker);
     return chars[at - 1]?.marks ?? chars[at]?.marks ?? [];
   }
-  const chars = lines.flatMap(({ chars: all }, index) => {
+  const chars = lines.flatMap((line, index) => {
     const [first, last] = ranges[index] ?? [0, 0];
-    return all.slice(first, last);
+    return first === last ? [] : line.chars.slice(first, last);
   });
   return markOrder.filter(
     (mark) =>
@@ -440,9 +472,12 @@ export function toggleMark(
   return documentOf(
     lines.map((line, index) => {
       const [first, last] = ranges[index] ?? [0, 0];
-      return {
-        kind: line.kind,
-        chars: line.chars.map((char, column) =>
+      if (first === last) {
+        return line;
+      }
+      return lineOf(
+        line.kind,
+        line.chars.map((char, column) =>
           column < first || column >= last
             ? char
             : {
@@ -452,7 +487,7 @@ export function toggleMark(
                 ),
               },
         ),
-      };
+      );
     }),
   );
 }
@@ -478,9 +513,7 @@ export function setBlockKind(
   const chosen = lines.slice(from.line, to.line + 1);
   const next = chosen.every((line) => line.kind === kind) ? 'paragraph' : kind;
   const result = lines.map((line, index) =>
-    index < from.line || index > to.line
-      ? line
-      : { kind: next, chars: line.chars },
+    index < from.line || index > to.line ? line : lineOf(next, line.chars),
   );
   const column = (at: Readonly<typeof from>) =>
     Math.max(0, at.column - at.marker);

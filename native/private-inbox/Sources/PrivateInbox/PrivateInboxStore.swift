@@ -270,11 +270,14 @@ public final class PrivateInboxStore: @unchecked Sendable {
       }
       let stored = try readDrafts()
       guard (stored?.revision ?? 0) == expectedRevision else { throw PrivateInboxError.conflict }
-      let key = try writingKey(replacing: stored != nil)
       let next = DraftStore(revision: expectedRevision + 1, owner: owner, document: document)
-      try write(
-        JSONEncoder().encode(next), file: "drafts.enc", key: key,
-        authenticating: draftsAssociatedData)
+      let plaintext = try JSONEncoder().encode(next)
+      // The limit holds for the file written: escaping, the envelope and the AES-GCM nonce and tag.
+      guard plaintext.count + 28 <= Self.outgoingContentLimit else {
+        throw PrivateInboxError.unavailable
+      }
+      let key = try writingKey(replacing: stored != nil)
+      try write(plaintext, file: "drafts.enc", key: key, authenticating: draftsAssociatedData)
       return next.revision
     }
   }

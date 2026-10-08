@@ -1,3 +1,5 @@
+import { execFileSync } from 'node:child_process';
+
 import type { Draft, DraftsState } from '../src/drafts.ts';
 import type { RegistrationSnapshot } from '../src/registration.ts';
 import type { SemanticDocument } from '../src/semantic-document.ts';
@@ -229,6 +231,74 @@ describe('editing a Semantic Message Document', () => {
     history = redo(history);
     expect(history.present).toBe('Hi ');
     expect(redo(redo(redo(history))).present).toBe('Hi there');
+  });
+
+  it('rebuilds only the edited block, so history versions share the rest', () => {
+    expect.hasAssertions();
+    const before: SemanticDocument = [
+      { kind: 'paragraph', spans: [{ text: 'First' }] },
+      { kind: 'quote', spans: [{ text: 'Second', marks: ['bold'] }] },
+      { kind: 'paragraph', spans: [{ text: 'Third' }] },
+    ];
+    const after = applyText(before, 'First\nSecond!\nThird', {
+      selection: { start: 13, end: 13 },
+    }).document;
+    expect(after[0]).toBe(before[0]);
+    expect(after[2]).toBe(before[2]);
+    expect(after[1]).toStrictEqual({
+      kind: 'quote',
+      spans: [{ text: 'Second!', marks: ['bold'] }],
+    });
+    const marked = toggleMark(after, { start: 6, end: 13 }, 'italic');
+    const quoted = setBlockKind(
+      marked,
+      { start: 6, end: 13 },
+      'heading1',
+    ).document;
+    const history = record(record(historyOf(before), after), quoted);
+    expect(undo(history).present).toBe(after);
+    expect(redo(undo(history)).present).toBe(quoted);
+    for (const version of [...history.past, history.present]) {
+      expect(version[0]).toBe(before[0]);
+      expect(version[2]).toBe(before[2]);
+    }
+    expect(before[1]?.spans).toStrictEqual([
+      { text: 'Second', marks: ['bold'] },
+    ]);
+  });
+
+  it('keeps long-paragraph undo history compact instead of retaining expanded character arrays', () => {
+    expect.hasAssertions();
+    // An isolated Node heap and explicit GC make this a retained-memory check, not a timing test.
+    const source = new URL('../src/semantic-document.ts', import.meta.url).href;
+    const retained = Number(
+      execFileSync(
+        process.execPath,
+        [
+          '--expose-gc',
+          '--input-type=module',
+          '--eval',
+          `
+        import { applyText, historyOf, record } from ${JSON.stringify(source)};
+        let history = historyOf([{ kind: 'paragraph', spans: [{ text: 'x'.repeat(100_000) }] }]);
+        globalThis.gc();
+        const before = process.memoryUsage().heapUsed;
+        for (let i = 0; i < 100; i += 1) {
+          const text = history.present[0].spans.map(({ text }) => text).join('') + ' word';
+          history = record(history, applyText(history.present, text).document);
+        }
+        globalThis.gc();
+        console.log(process.memoryUsage().heapUsed - before);
+        if (history.past.length !== 100 || history.present[0].spans[0].text.length !== 100_500) {
+          process.exitCode = 1;
+        }
+      `,
+        ],
+        { encoding: 'utf8', timeout: 20_000 },
+      ),
+    );
+    // The strings need roughly 10 MiB; expanded arrays retained by the old cache need over 120 MiB.
+    expect(retained).toBeLessThan(64 * 1024 * 1024);
   });
 
   it('edits the selected occurrence of repeated characters without moving their marks', () => {
