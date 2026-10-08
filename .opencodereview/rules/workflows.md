@@ -14,6 +14,7 @@ Workflows hold the release credentials (App Store Connect key, Convex URL, OAuth
 
 #### Gates stay honest
 
+- `release.yml` preflight or `changesets/action` integration treating zero-release changeset files as actionable changesets. Check the action's no-change, empty-only and version paths after preprocessing; an empty file left after a version PR merges must not suppress tagging and TestFlight, and checkout-only cleanup must not be committed to `main` by the publish path.
 - A required check removed, made `continue-on-error`, skipped by a path filter that misses files it covers, or changed to pass with zero tests selected.
 - A workflow command that diverges from the local validation command documented in `README.md` and `docs/expo-client.md`, so CI and local runs prove different things.
 - A path filter that omits a dependency of the job: shared `packages/`, `pnpm-lock.yaml`, `pnpm-workspace.yaml`, `scripts/` or the workflow file itself.

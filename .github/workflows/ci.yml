@@ -61,7 +61,7 @@ jobs:
         run: node scripts/check-changesets.mjs
 
       - name: Check changeset validation, release planning and auto-merge contracts
-        run: node --test scripts/check-changesets.test.mjs scripts/release-plan.test.mjs scripts/auto-merge.test.mjs
+        run: node --test scripts/check-changesets.test.mjs scripts/release.test.mjs scripts/auto-merge.test.mjs
 
       - name: Install native runner contract shell
         run: sudo apt-get update && sudo apt-get install -y zsh
