@@ -42,7 +42,7 @@ const decodeOutcome = Schema.decodeUnknownOption(
   }),
 );
 
-// The most message text one summary reads.
+// The most message text one summary or translation reads.
 // ponytail: a character bound well inside the system model's context window; count tokens if
 // long messages are refused for their size.
 export const summaryInputLimit = 6000;
@@ -65,7 +65,13 @@ export function summaryInput({
   if (!hasVisibleText(body)) {
     return undefined;
   }
-  const text = `${subject === undefined ? '' : `Subject: ${subject}\n\n`}${body.trim()}`;
+  return boundedInput(
+    `${subject === undefined ? '' : `Subject: ${subject}\n\n`}${body.trim()}`,
+  );
+}
+
+// At most the input limit of `text`, and whether the rest was left out.
+export function boundedInput(text: string): SummaryInput {
   if (text.length <= summaryInputLimit) {
     return { text, omitted: false };
   }
@@ -102,26 +108,38 @@ class AssistanceFailure extends Schema.TaggedError<AssistanceFailure>()(
   },
 ) {}
 
+// A native rejection's fields for an assistance failure: its allow-listed code as the outcome,
+// or `failed` for anything else.
+export const rejectionFields =
+  <Code extends string>(
+    decode: (cause: unknown) => Option.Option<Readonly<{ code: Code }>>,
+  ) =>
+  (cause: unknown) => ({
+    outcome: Option.match(decode(cause), {
+      onNone: () => 'failed' as const,
+      onSome: ({ code }) => code,
+    }),
+    cause,
+    diagnostic: rejectionDiagnostic(cause),
+  });
+
+// A malformed native result's fields for an assistance failure.
+export const malformedFields = (error: Schema.SchemaError) => ({
+  outcome: 'failed' as const,
+  cause: error,
+  diagnostic: decodeDiagnostic(error),
+});
+
+const rejection = rejectionFields(decodeOutcome);
+
 const call = (operation: () => Promise<unknown>) =>
   Effect.tryPromise({
     try: operation,
-    catch: (cause) =>
-      new AssistanceFailure({
-        outcome: Option.match(decodeOutcome(cause), {
-          onNone: () => 'failed' as const,
-          onSome: ({ code }) => code,
-        }),
-        cause,
-        diagnostic: rejectionDiagnostic(cause),
-      }),
+    catch: (cause) => new AssistanceFailure(rejection(cause)),
   });
 
 const malformed = (error: Schema.SchemaError) =>
-  new AssistanceFailure({
-    outcome: 'failed',
-    cause: error,
-    diagnostic: decodeDiagnostic(error),
-  });
+  new AssistanceFailure(malformedFields(error));
 
 const isUnavailable = Schema.is(Unavailable);
 
@@ -175,33 +193,46 @@ const summarizeLocal = Effect.fnUntraced(
 );
 
 let requests = 0;
-const idle: SummaryState = { kind: 'idle' };
 
-// One reader's explicitly requested summary of one message. A result belongs to the input it was
-// requested for: any other input reads as idle, and a cancelled or discarded request's late
-// result is dropped. Nothing is stored or written to mail.
-export function createMessageSummary(native: NativeAssistance) {
-  let shown:
-    | Readonly<{ input: SummaryInput; state: SummaryState }>
-    | undefined = undefined;
-  let running: Readonly<{ input: SummaryInput; request: string }> | undefined =
+// One explicitly requested on-device operation on captured local input. A result belongs to the
+// input it was requested for: any other input reads as idle, and a cancelled or discarded
+// request's late result is dropped. Nothing is stored or written to mail.
+export function createAssistanceRequest<Input, State extends { kind: string }>({
+  run,
+  cancel,
+  same,
+  idle,
+  pending,
+  cancelled,
+}: Readonly<{
+  run: (
+    request: string,
+    input: Input,
+    isCurrent: () => boolean,
+  ) => Promise<State>;
+  cancel: (request: string) => Promise<unknown>;
+  same: (left: Input, right: Input) => boolean;
+  idle: State;
+  pending: State;
+  cancelled: State;
+}>) {
+  let shown: Readonly<{ input: Input; state: State }> | undefined = undefined;
+  let running: Readonly<{ input: Input; request: string }> | undefined =
     undefined;
   const listeners = new Set<() => void>();
-  const publish = (input: SummaryInput | undefined, state: SummaryState) => {
+  const publish = (input: Input | undefined, state: State) => {
     shown = input === undefined ? undefined : { input, state };
     for (const listener of listeners) {
       listener();
     }
   };
-  const same = (left: SummaryInput, right: SummaryInput) =>
-    left.text === right.text && left.omitted === right.omitted;
   const stop = () => {
     if (running === undefined) {
       return undefined;
     }
     const { input, request } = running;
     running = undefined;
-    void runLogged(call(() => native.cancel(request)).pipe(Effect.ignore));
+    void runLogged(call(() => cancel(request)).pipe(Effect.ignore));
     return input;
   };
   return {
@@ -211,24 +242,22 @@ export function createMessageSummary(native: NativeAssistance) {
         listeners.delete(listener);
       };
     },
-    // The state for the reader's current input.
-    getSnapshot: (input: SummaryInput) =>
+    // The state for the caller's current input.
+    getSnapshot: (input: Input) =>
       shown !== undefined && same(shown.input, input) ? shown.state : idle,
-    summarize: async (input: SummaryInput) => {
+    start: async (input: Input) => {
       if (running !== undefined && same(running.input, input)) {
         return;
       }
       stop();
       requests += 1;
-      const request = `summary-${requests}`;
+      const request = `assistance-${requests}`;
       running = { input, request };
-      publish(input, { kind: 'summarizing' });
-      const state = await runLogged(
-        summarizeLocal(
-          native,
-          { request, input },
-          () => running?.request === request,
-        ),
+      publish(input, pending);
+      const state = await run(
+        request,
+        input,
+        () => running?.request === request,
       );
       if (running?.request === request) {
         running = undefined;
@@ -238,15 +267,33 @@ export function createMessageSummary(native: NativeAssistance) {
     cancel: () => {
       const input = stop();
       if (input !== undefined) {
-        publish(input, { kind: 'cancelled' });
+        publish(input, cancelled);
       }
     },
-    // Dismissal, or a reader whose message or account changed: forget the preview.
+    // Dismissal, or a caller whose message, account or input changed: forget the preview.
     discard: () => {
       stop();
       publish(undefined, idle);
     },
   };
+}
+
+// One reader's explicitly requested summary of one message.
+export function createMessageSummary(native: NativeAssistance) {
+  const { start, ...summary } = createAssistanceRequest<
+    SummaryInput,
+    SummaryState
+  >({
+    run: (request, input, isCurrent) =>
+      runLogged(summarizeLocal(native, { request, input }, isCurrent)),
+    cancel: (request) => native.cancel(request),
+    same: (left, right) =>
+      left.text === right.text && left.omitted === right.omitted,
+    idle: { kind: 'idle' },
+    pending: { kind: 'summarizing' },
+    cancelled: { kind: 'cancelled' },
+  });
+  return { ...summary, summarize: start };
 }
 
 export type MessageSummary = ReturnType<typeof createMessageSummary>;

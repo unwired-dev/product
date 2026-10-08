@@ -15,6 +15,7 @@ import type {
   WebViewEvent,
 } from 'react-native-webview/lib/WebViewTypes';
 
+import { readableBodyText } from '@private-email/mail-core/assistance';
 import {
   inspectLink,
   messageLinkAt,
@@ -47,6 +48,7 @@ import { Action } from './action.tsx';
 import { useLocalization } from './localization.ts';
 import { MessageSummary } from './message-summary.tsx';
 import { usePalette } from './theme.ts';
+import { MessageTranslation } from './translation.tsx';
 
 // A taller document scrolls inside its view instead of the reader.
 const heightCap = 20_000;
@@ -747,6 +749,11 @@ export function GmailMessageBody({
         id={id}
         subject={subject}
         body={body.presentation.readable}
+      />
+      <MessageTranslation
+        source={inbox}
+        id={id}
+        body={readableBodyText(body.presentation.readable)}
       />
       <Presentation
         presentation={body.presentation}

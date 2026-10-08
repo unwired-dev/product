@@ -22,11 +22,15 @@ const nativeCodes = new Set([
   'mailbox-invalidated',
   'mailbox-revoked',
   'model-not-ready',
+  'not-installed',
   'refused',
   'removal-refused',
+  'same-language',
   'stale-authentication',
   'unavailable',
+  'unidentified-language',
   'unsupported-locale',
+  'unsupported-pair',
 ]);
 const errorNames = new Set([
   'AbortError',

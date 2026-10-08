@@ -482,6 +482,56 @@ const covered = (lines: readonly Line[], { start, end }: Selection) => {
   });
 };
 
+// A document's lines and where a selection, in either direction, starts and ends among them.
+const bounds = (document: SemanticDocument, selection: Selection) => {
+  const lines = linesOf(document);
+  return {
+    lines,
+    from: locate(lines, Math.min(selection.start, selection.end)),
+    to: locate(lines, Math.max(selection.start, selection.end)),
+  };
+};
+
+// The text a selection covers, its lines joined by line breaks, without list markers.
+export function selectedText(document: SemanticDocument, selection: Selection) {
+  const { lines, from, to } = bounds(document, selection);
+  const ranges = covered(lines, selection);
+  return lines
+    .slice(from.line, to.line + 1)
+    .map((line, index) => {
+      const [first, last] = ranges[from.line + index] ?? [0, 0];
+      return line.chars
+        .slice(first, last)
+        .map(({ ch }) => ch)
+        .join('');
+    })
+    .join('\n');
+}
+
+// Replaces the text a selection covers with `text` as one edit. List markers inside the
+// selection stay, and the inserted text takes the marks of the text before it.
+export function replaceSelection(
+  document: SemanticDocument,
+  selection: Selection,
+  text: string,
+): Edit {
+  const { lines, from, to } = bounds(document, selection);
+  const result = splice(
+    lines,
+    {
+      start: offsetOf(lines, from.line, Math.max(0, from.column - from.marker)),
+      end: offsetOf(lines, to.line, Math.max(0, to.column - to.marker)),
+      inserted: text,
+    },
+    undefined,
+  );
+  const caret = offsetOf(result.lines, result.line, result.column);
+  return {
+    document: documentOf(result.lines),
+    selection: { start: caret, end: caret },
+  };
+}
+
 // The marks shared by every selected character, or of the character before a caret.
 export function marksAt(document: SemanticDocument, selection: Selection) {
   const lines = linesOf(document);
@@ -551,9 +601,7 @@ export function setBlockKind(
   selection: Selection,
   kind: BlockKind,
 ): Edit {
-  const lines = linesOf(document);
-  const from = locate(lines, Math.min(selection.start, selection.end));
-  const to = locate(lines, Math.max(selection.start, selection.end));
+  const { lines, from, to } = bounds(document, selection);
   const chosen = lines.slice(from.line, to.line + 1);
   const next = chosen.every((line) => line.kind === kind) ? 'paragraph' : kind;
   const result = lines.map((line, index) =>

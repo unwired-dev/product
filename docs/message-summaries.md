@@ -46,7 +46,7 @@ module offers:
 | --------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
 | `availability()`            | `available`, `device-ineligible`, `assistance-disabled`, `model-not-ready` or `unsupported-locale`                      |
 | `summarize(request, input)` | The summary text, or a rejection coded `refused`, `cancelled`, `unsupported-locale`, `model-not-ready` or `unavailable` |
-| `cancel(request)`           | Cancels that request's generation                                                                                       |
+| `cancel(request)`           | Cancels that request's generation or [translation](message-translation.md)                                              |
 
 The prompt treats the email as untrusted content to describe, never as
 instructions, and asks for at most four sentences covering the topic, requests,
