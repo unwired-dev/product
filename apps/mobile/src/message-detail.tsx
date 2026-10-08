@@ -1,4 +1,8 @@
+import type { ReactNode } from 'react';
+
+import { sendingMailboxes } from '@private-email/mail-core/drafts';
 import { spacing } from '@private-email/mail-core/theme';
+import { use } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -9,14 +13,23 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-screens/experimental';
 
+import type { SavedAttachment } from './message-body.tsx';
+
 import {
   MailboxScope,
+  useComposerNavigation,
+  useDraftStore,
   useInbox,
   useInboxActions,
   useMailbox,
 } from './mailbox.tsx';
-import { GmailMessageBody, LinkConfirmationProvider } from './message-body.tsx';
+import {
+  AttachContext,
+  GmailMessageBody,
+  LinkConfirmationProvider,
+} from './message-body.tsx';
 import { MessageActions } from './organize.tsx';
+import { AccountContext } from './registration-gate.tsx';
 import { usePalette } from './theme.ts';
 
 const styles = StyleSheet.create({
@@ -82,28 +95,88 @@ function EmptyDetail({ id }: { readonly id: string | undefined }) {
   );
 }
 
+// Starts a Draft from the reader's mailbox when it can send, or the first one that can, with a
+// copy of a Downloaded Attachment. The Draft keeps the bytes, never the mailbox they came from.
+function AttachToNewMessage({
+  onCompose,
+  children,
+}: {
+  readonly onCompose: (id: string) => void;
+  readonly children: ReactNode;
+}) {
+  const store = useDraftStore();
+  const navigation = useComposerNavigation();
+  const account = use(AccountContext);
+  const mailbox = useMailbox();
+  const attach = async (saved: SavedAttachment) => {
+    const senders = sendingMailboxes(account?.mailboxes ?? []);
+    const sender = senders.find(({ id }) => id === mailbox?.id) ?? senders[0];
+    if (sender === undefined || mailbox === undefined) {
+      return;
+    }
+    const draft = await navigation.create(store, sender);
+    if (draft === undefined) {
+      return;
+    }
+    await store.attach(draft, [
+      {
+        name: saved.name,
+        type: saved.type,
+        source: {
+          kind: 'received',
+          mailbox: {
+            connection: mailbox.id,
+            address: saved.address,
+            generation: saved.generation,
+          },
+          file: saved.file,
+        },
+      },
+    ]);
+    onCompose(draft);
+  };
+  return (
+    <AttachContext
+      value={(saved) => {
+        void attach(saved);
+      }}>
+      {children}
+    </AttachContext>
+  );
+}
+
 export function MessageDetail({
   mailbox,
   id,
   onClose,
+  onCompose,
 }: {
   // The mailbox the message belongs to; Gmail message IDs are unique only within it.
   readonly mailbox: string | undefined;
   readonly id: string | undefined;
   // Leaves the reader after its message leaves the Inbox.
   readonly onClose?: (() => void) | undefined;
+  // Opens a Draft the reader started, such as one with a received attachment.
+  readonly onCompose?: ((id: string) => void) | undefined;
 }) {
   if (mailbox === undefined || id === undefined) {
     return <EmptyDetail id={id} />;
   }
+  const message = (
+    <MailboxMessage
+      id={id}
+      onClose={onClose}
+    />
+  );
   return (
     <MailboxScope
       id={mailbox}
       fallback={<EmptyDetail id={id} />}>
-      <MailboxMessage
-        id={id}
-        onClose={onClose}
-      />
+      {onCompose === undefined ? (
+        message
+      ) : (
+        <AttachToNewMessage onCompose={onCompose}>{message}</AttachToNewMessage>
+      )}
     </MailboxScope>
   );
 }

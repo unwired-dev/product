@@ -86,4 +86,126 @@ struct DraftTests {
     #expect(!FileManager.default.fileExists(atPath: file.path))
     await #expect(throws: PrivateInboxError.mailboxInvalidated) { _ = try await store.openDrafts() }
   }
+
+  // Draft assets are sealed to their Product Account and identifier, verified by digest when read,
+  // kept while a stored Draft names them or their import is uncommitted, and purged with the account.
+  @Test @MainActor func draftAssetsStayWithTheirDraftsUntilNoDraftKeepsThem() async throws {
+    let service = "dev.unwired.registration.tests.\(UUID().uuidString)"
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    let keys = DeviceKeychain(service: service)
+    defer {
+      try? keys.remove("registration")
+      try? DeviceKeychain(service: service + ".database").remove("encryption-key")
+      try? FileManager.default.removeItem(at: directory)
+    }
+    let google = SyntheticGoogleRegistrationProvider()
+    google.scopes = [RegistrationStore.gmailScope]
+    let cache = PrivateInboxStore(
+      directory: directory, service: service, attachments: directory.appendingPathComponent("tmp"),
+      protectedDataAvailable: { true })
+    let store = google.store(keys: keys, mailCache: cache, deviceRevoked: { _ in false })
+    _ = try await store.signIn()
+    _ = try await store.authorizeGmail()
+    let owner = try #require(try await store.openDrafts()["owner"] as? String)
+    let bytes = Data("Private plan bytes".utf8)
+    let picked = directory.appendingPathComponent("plan.pdf")
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    try bytes.write(to: picked)
+
+    // A picked file's bytes are sealed, and only their size and digest come back.
+    let imported = try await store.importDraftAsset(
+      owner: owner, id: "plan00001", source: ["kind": "file", "uri": picked.absoluteString])
+    let digest = try #require(imported["digest"] as? String)
+    #expect(imported["size"] as? Int == bytes.count)
+    #expect(digest.count == 64)
+    let sealed = directory.appendingPathComponent("draft-assets/plan00001")
+    #expect(try Data(contentsOf: sealed).range(of: bytes) == nil)
+    let read = try await store.readDraftAsset(
+      owner: owner, id: "plan00001", digest: digest, type: "application/pdf")
+    #expect(read["uri"] as? String == "data:application/pdf;base64,\(bytes.base64EncodedString())")
+    // Another account, another digest or ciphertext moved to another identifier never reads.
+    await #expect(throws: PrivateInboxError.mailboxInvalidated) {
+      _ = try await store.importDraftAsset(
+        owner: "another-account", id: "plan00002", source: ["kind": "file", "uri": picked.path])
+    }
+    #expect(throws: PrivateInboxError.invalidStore) {
+      _ = try cache.readDraftAsset(owner: "another-account", id: "plan00001", digest: digest)
+    }
+    #expect(throws: PrivateInboxError.invalidStore) {
+      _ = try cache.readDraftAsset(owner: owner, id: "plan00001", digest: String(repeating: "0", count: 64))
+    }
+    try FileManager.default.copyItem(
+      at: sealed, to: directory.appendingPathComponent("draft-assets/moved0001"))
+    #expect(throws: PrivateInboxError.invalidStore) {
+      _ = try cache.readDraftAsset(owner: owner, id: "moved0001", digest: digest)
+    }
+    #expect(throws: PrivateInboxError.attachmentMissing) {
+      _ = try cache.readDraftAsset(owner: owner, id: "absent001", digest: digest)
+    }
+    #expect(throws: PrivateInboxError.invalidStore) {
+      _ = try cache.readDraftAsset(owner: owner, id: "../drafts", digest: digest)
+    }
+
+    // A save that does not name an uncommitted import keeps it; once a save keeps it, a later save
+    // that drops it removes its bytes, after the document is stored. Unknown files go at once.
+    _ = try await store.commitDrafts(owner: owner, expectedRevision: 0, document: "{}", keep: [])
+    #expect(FileManager.default.fileExists(atPath: sealed.path))
+    #expect(!FileManager.default.fileExists(
+      atPath: directory.appendingPathComponent("draft-assets/moved0001").path))
+    _ = try await store.commitDrafts(
+      owner: owner, expectedRevision: 1, document: "{}", keep: ["plan00001"])
+    #expect(FileManager.default.fileExists(atPath: sealed.path))
+    _ = try await store.commitDrafts(owner: owner, expectedRevision: 2, document: "{}", keep: [])
+    #expect(!FileManager.default.fileExists(atPath: sealed.path))
+
+    // Pasted data and a Downloaded Attachment import the same way; the Draft keeps only bytes.
+    let pasted = try await store.importDraftAsset(
+      owner: owner, id: "pasted001",
+      source: ["kind": "data", "uri": "data:image/png;base64,\(bytes.base64EncodedString())"])
+    #expect(pasted["digest"] as? String == digest)
+    await #expect(throws: PrivateInboxError.unavailable) {
+      _ = try await store.importDraftAsset(
+        owner: owner, id: "pasted002", source: ["kind": "data", "uri": "data:image/png,plain"])
+    }
+    let connection = MailboxConnection.id(subject: google.subject)
+    let generation = store.generation(google.subject)
+    let encoded = bytes.base64EncodedString().replacingOccurrences(of: "=", with: "")
+      .replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_")
+    let downloaded = try #require(
+      try await store.saveAttachment(
+        connection: connection, address: google.address, generation: generation,
+        name: "plan.pdf", data: encoded, size: bytes.count)["file"] as? String)
+    let mailbox: [String: Any] = [
+      "connection": connection, "address": google.address, "generation": generation,
+    ]
+    let received = try await store.importDraftAsset(
+      owner: owner, id: "received1",
+      source: ["kind": "received", "mailbox": mailbox, "file": downloaded])
+    #expect(received["digest"] as? String == digest)
+    var stale = mailbox
+    stale["generation"] = UUID().uuidString
+    await #expect(throws: PrivateInboxError.mailboxInvalidated) {
+      _ = try await store.importDraftAsset(
+        owner: owner, id: "received2",
+        source: ["kind": "received", "mailbox": stale, "file": downloaded])
+    }
+
+    // A file over the per-file limit is refused before it is read.
+    let large = directory.appendingPathComponent("large.bin")
+    FileManager.default.createFile(atPath: large.path, contents: nil)
+    let handle = try FileHandle(forWritingTo: large)
+    try handle.truncate(atOffset: UInt64(PrivateInboxStore.draftAssetLimit + 1))
+    try handle.close()
+    await #expect(throws: PrivateInboxError.tooLarge) {
+      _ = try await store.importDraftAsset(
+        owner: owner, id: "large0001", source: ["kind": "file", "uri": large.path])
+    }
+
+    // Discarding removes bytes at once, and the account purge removes the rest.
+    try await store.discardDraftAsset(id: "pasted001")
+    #expect(!FileManager.default.fileExists(
+      atPath: directory.appendingPathComponent("draft-assets/pasted001").path))
+    _ = try await store.purge(notice: "signed-out")
+    #expect(!FileManager.default.fileExists(atPath: directory.appendingPathComponent("draft-assets").path))
+  }
 }

@@ -51,6 +51,10 @@ export function PreviewWindow({ windowId }: { readonly windowId: string }) {
               id={selected?.id}
               mailbox={selected?.mailbox}
               onClose={close}
+              onCompose={(id) => {
+                setSelected(undefined);
+                setComposing(id);
+              }}
             />
           ) : (
             <Composer

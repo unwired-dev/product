@@ -480,7 +480,7 @@ function Presentation({
 const sizeFormat = new Intl.NumberFormat('en', {
   maximumFractionDigits: 1,
 });
-const fileSize = (bytes: number) => {
+export const fileSize = (bytes: number) => {
   if (bytes < 1024) {
     return `${bytes} bytes`;
   }
@@ -501,6 +501,15 @@ const attachmentStatus = (state: ReceivedAttachment['state']) => {
     : undefined;
 };
 
+// A Downloaded Attachment as a Draft can copy it, through its mailbox's current generation.
+export type SavedAttachment = NonNullable<
+  ReturnType<GmailInbox['attachmentFile']>
+>;
+// Starts a new message with a Downloaded Attachment, where the reader can open a composer.
+export const AttachContext = createContext<
+  ((attachment: SavedAttachment) => void) | undefined
+>(undefined);
+
 // One received attachment: its name and size, and what can be done with it now.
 function AttachmentRow({
   inbox,
@@ -515,6 +524,7 @@ function AttachmentRow({
   readonly current: () => boolean;
 }) {
   const colors = usePalette();
+  const attach = use(AttachContext);
   const { locator, name, size, state } = attachment;
   const status = attachmentStatus(state);
   let actions: ReactNode = null;
@@ -563,6 +573,18 @@ function AttachmentRow({
             }
           }}
         />
+        {attach === undefined ? null : (
+          <Action
+            label="Attach to New Message"
+            accessibilityLabel={`Attach ${name} to a new message`}
+            onPress={() => {
+              const saved = inbox.attachmentFile(id, locator);
+              if (current() && saved !== undefined) {
+                attach(saved);
+              }
+            }}
+          />
+        )}
       </>
     );
   } else if (state.kind === 'unavailable') {

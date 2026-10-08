@@ -107,6 +107,21 @@ missing key never creates a replacement while the document exists. Every account
 purge removes the document with the caches and needs no key. Draft access needs no
 Gmail authorization or network.
 
+A Draft's files and inline images are **Draft Assets**: one encrypted file each,
+sealed to its Product Account and asset identifier with the same device-only key,
+so ciphertext moved to another identifier or read for another account does not
+open. Reading an asset also checks its SHA-256 digest. An asset is stored before
+any Draft names it as complete. Each Draft save names the assets its Drafts keep;
+once the document is stored, the others are removed, except imports this process
+has not yet seen committed, so a save racing an import cannot delete it. A
+relaunch forgets that protection, and its first save removes bytes left by an
+interrupted import. An asset is refused over 25 MiB, or when the document and the
+assets kept would exceed the Outgoing Content Store's 100 MB. Discarding an asset
+needs no key. The account purge removes every asset with the document. Picked
+files on iPhone and iPad are temporary copies that the import, or the next launch,
+deletes; a Mac file is read in place through the open panel's or drop's grant,
+which the app's user-selected read-only sandbox entitlement allows.
+
 ## Native wiring and signing
 
 The Expo config plugin copies the native sources into its generated iOS project.
@@ -143,7 +158,7 @@ window selection and read changes. They do not prove encryption or process
 persistence. Run their lint, format, type and test checks through the root workspace.
 
 The app-hosted Swift Testing suite uses the real filesystem, CryptoKit and
-Keychain. It checks reopening, ciphertext without fixture plaintext, Draft owner and revision checks, rejection
+Keychain. It checks reopening, ciphertext without fixture plaintext, Draft owner and revision checks, Draft Asset sealing, digests and cleanup, rejection
 with a wrong or missing key, preserved corrupt data, credential use/removal,
 credential/database isolation and competing native store instances. A controlled
 protected-data availability boundary also checks locked first-run access, preservation

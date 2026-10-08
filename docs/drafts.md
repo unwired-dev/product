@@ -121,6 +121,47 @@ After an interruption or relaunch the Drafts list shows every saved Draft, and
 opening one restores its sending mailbox, recipients, subject and formatted body
 without sending it.
 
+## Files and images
+
+[#612](https://github.com/unwired-dev/product/issues/612) adds files and inline
+images to Drafts. Each host offers its own system affordances rather than identical
+controls:
+
+- **iPhone and iPad:** **Attach File** (the Files picker), **Attach Photo** (the
+  Photos picker), **Insert Image** (a photo placed inline at the caret) and
+  **Paste Image** (images on the pasteboard, placed inline). The pickers copy the
+  chosen files into a temporary folder that the import, or the next launch, removes.
+- **Mac:** **Attach Files…** and **Insert Image…** open the system open panel.
+  Files dropped anywhere on the composer are attached. Pasting an image into the
+  body places it inline at the caret; pasting a file attaches it, and text pastes
+  as usual. The app reads only files the person chose or dropped.
+- **Received attachments:** a Downloaded Attachment in the reader offers **Attach
+  to New Message**. It starts a Draft from the reader's mailbox when that mailbox
+  can send, otherwise the first one that can, and copies the downloaded bytes
+  through that mailbox's current generation. The Draft keeps only its copy of the
+  bytes: no mailbox, generation, file name or Gmail authorization of the source.
+
+An inline image is part of the formatted body, so typing around it, deleting it,
+**Undo** and **Redo** keep its place and reference. The composer lists
+**Attachments** and **Inline images** under the body with their name, size and a
+**Remove** action; an inline image shows its picture.
+
+An added file is **importing** until its bytes are stored. While it imports, its
+row says **Adding…** and offers **Cancel**. A file whose import was cancelled,
+interrupted by quitting or relaunch, could not be read or saved, or is too large
+stays listed as **Not added** with the reason, and the composer warns that files
+not added are not sent. Only complete files can be sent: `unsendableAssets` in
+`@private-email/mail-core/drafts` lists everything else for the delivery slice.
+Bytes that no longer verify against their recorded size and digest show as
+**Damaged on this device**; bytes the device lost show as **No longer on this
+device**. One file may be up to 25 MiB, and all Drafts and their files share the
+**Outgoing Content Store**'s 100 MB on this device; a file over either limit is
+refused rather than evicting anything.
+
+Editing in the composer while an import finishes neither loses the edit nor
+creates a conflicting copy. An import still running when its Draft is closed
+completes into the stored Draft.
+
 ## Storage and isolation
 
 Drafts are stored in the [private Inbox storage](private-inbox-storage.md#draft-storage)
@@ -135,6 +176,15 @@ encryption and its key, the Product Account owner and revision checks, the
 **Outgoing Content Store**'s 100 MB limit and the purge. The TypeScript Draft store in `@private-email/mail-core/drafts`
 owns ordered autosave, rebasing onto a newer revision and conflicting copies; it
 never handles key material.
+
+A Draft's files and inline images are stored as separate [Draft Assets](private-inbox-storage.md#draft-storage).
+The Draft document records each one's name, type, state, and once complete its
+size and SHA-256 digest; the bytes never enter the document. Bytes are stored
+before any Draft names them as complete, and a Draft that no longer uses an asset
+gives it up only after the document without it is stored. While the app runs, an
+asset that a still-listed Draft has used stays stored so **Undo** can restore it;
+discarding the Draft removes it, and after a relaunch the first save removes any
+asset no Draft uses.
 
 ## Verification
 
@@ -210,8 +260,28 @@ Mobile deletion regressions use the post-edit caret to preserve the remaining
 character's marks with or without a key event; they do not qualify native keyboard,
 dictation, autocorrection or IME behavior.
 
+Asset coverage (#612): shared store tests insert, delete, round-trip and Undo an
+inline image; store verified bytes through relaunch, Undo and Draft deletion;
+keep cancelled, failed and interrupted imports unsendable while their stray bytes
+are removed; refuse files over the limits; read damaged or missing bytes as
+unavailable; and copy a received attachment without its mailbox, for its Product
+Account only. Both hosts' component journeys attach files and an inline image
+through the pickers, cancel an import, edit while an import completes without a
+conflict copy, show an interrupted import and the stored files after relaunch,
+show damaged image bytes, remove and restore an inline image with **Undo**, and
+attach a Downloaded Attachment from the reader. The Mac journey also pastes an
+image and drops a file. These use the synthetic Draft storage and remain component
+evidence. The hosted iOS 27 storage suite seals assets to their Product Account
+and identifier, verifies their digest, rejects moved ciphertext and other
+accounts, keeps an uncommitted import through a save that does not name it,
+removes unused assets after a stored document, imports pasted data and a current
+Downloaded Attachment, refuses an oversized file before reading it, and purges
+assets with the account.
+
 Deferred before release: native iPhone, iPad and Mac journeys that compose, relaunch
-and reopen a Draft; VoiceOver, hardware-keyboard and Dynamic Type qualification of
+and reopen a Draft; the system Photos and Files pickers, the Mac open panel,
+pasteboard images, Mac drag and drop and Mac sandbox file grants with real files;
+how the body shows an inline image's place in its text on each platform; VoiceOver, hardware-keyboard and Dynamic Type qualification of
 the composer (including Draft row role labels and middle-dot separators at
 different VoiceOver punctuation settings); and physical-device lock behavior.
 

@@ -36,13 +36,112 @@ extension RegistrationStore {
   }
 
   // A save read for another Product Account, or after its removal began, changes nothing.
-  func commitDrafts(owner: String, expectedRevision: Int, document: String) async throws
-    -> [String: Any]
+  func commitDrafts(
+    owner: String, expectedRevision: Int, document: String, keep: [String] = []
+  )
+    async throws -> [String: Any]
   {
     let (_, revision) = try await draftWork { store, current in
       guard owner == current else { throw PrivateInboxError.mailboxInvalidated }
-      return try store.commitDraftDocument(owner: owner, expectedRevision: expectedRevision, document: document)
+      return try store.commitDraftDocument(
+        owner: owner, expectedRevision: expectedRevision, document: document, keep: keep)
     }
     return ["owner": owner, "revision": revision]
+  }
+
+  // Files the system pickers copied for this process; launch removes any left behind.
+  nonisolated public static var pickedDraftFiles: URL {
+    FileManager.default.temporaryDirectory.appendingPathComponent("draft-picks", isDirectory: true)
+  }
+
+  // Copies an asset's bytes into Draft storage for `owner`: a picked or dropped file, pasted
+  // `data:` bytes, or a Downloaded Attachment of a current mailbox generation. The Draft keeps
+  // only the bytes, never the mailbox they came from.
+  func importDraftAsset(owner: String, id: String, source: [String: Any]) async throws
+    -> [String: Any]
+  {
+    let kind = source["kind"] as? String
+    var file: URL?
+    var data: String?
+    switch kind {
+    case "file":
+      guard let uri = source["uri"] as? String else { throw RegistrationError.unavailable }
+      file = uri.hasPrefix("file:") ? URL(string: uri) : URL(fileURLWithPath: uri)
+    case "data":
+      data = source["uri"] as? String
+    case "received":
+      guard let mailbox = source["mailbox"] as? [String: Any],
+        let connection = mailbox["connection"] as? String,
+        let address = mailbox["address"] as? String,
+        let generation = mailbox["generation"] as? String,
+        let name = source["file"] as? String
+      else { throw RegistrationError.unavailable }
+      file = try await attachmentFile(
+        connection: connection, address: address, generation: generation, file: name)
+    default:
+      throw RegistrationError.unavailable
+    }
+    guard file != nil || data != nil else { throw RegistrationError.unavailable }
+    let (_, imported) = try await draftWork { [file, data] store, current in
+      guard owner == current else { throw PrivateInboxError.mailboxInvalidated }
+      let bytes = try file.map(Self.draftFileBytes) ?? Self.draftDataBytes(data ?? "")
+      return try store.importDraftAsset(owner: owner, id: id, bytes: bytes)
+    }
+    // A picker's temporary copy is no longer needed once its bytes are stored.
+    if let file, file.standardizedFileURL.path.hasPrefix(Self.pickedDraftFiles.standardizedFileURL.path) {
+      try? FileManager.default.removeItem(at: file.deletingLastPathComponent())
+    }
+    return ["owner": owner, "size": imported.size, "digest": imported.digest]
+  }
+
+  nonisolated private static func draftFileBytes(_ url: URL) throws -> Data {
+    // A file the person dropped or chose stays readable while this process holds its grant.
+    let scoped = url.startAccessingSecurityScopedResource()
+    defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+    let values = try url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey])
+    guard values.isRegularFile == true else { throw PrivateInboxError.unavailable }
+    guard (values.fileSize ?? 0) <= PrivateInboxStore.draftAssetLimit else {
+      throw PrivateInboxError.tooLarge
+    }
+    let bytes = try Data(contentsOf: url)
+    guard bytes.count <= PrivateInboxStore.draftAssetLimit else { throw PrivateInboxError.tooLarge }
+    return bytes
+  }
+
+  nonisolated private static func draftDataBytes(_ uri: String) throws -> Data {
+    guard uri.hasPrefix("data:"), let comma = uri.firstIndex(of: ","),
+      uri[..<comma].hasSuffix(";base64")
+    else { throw PrivateInboxError.unavailable }
+    let encoded = uri[uri.index(after: comma)...]
+    guard encoded.utf8.count <= 4 * ((PrivateInboxStore.draftAssetLimit + 2) / 3) else {
+      throw PrivateInboxError.tooLarge
+    }
+    guard let bytes = Data(base64Encoded: String(encoded)) else {
+      throw PrivateInboxError.unavailable
+    }
+    return bytes
+  }
+
+  // An asset's verified bytes as a `data:` URL, for showing an image in the composer.
+  func readDraftAsset(owner: String, id: String, digest: String, type: String) async throws
+    -> [String: Any]
+  {
+    let (_, bytes) = try await draftWork { store, current in
+      guard owner == current else { throw PrivateInboxError.mailboxInvalidated }
+      return try store.readDraftAsset(owner: owner, id: id, digest: digest)
+    }
+    let mime =
+      type.range(of: "^[A-Za-z0-9.+-]+/[A-Za-z0-9.+-]+$", options: .regularExpression) == nil
+      ? "application/octet-stream" : type
+    // ponytail: the whole image crosses the bridge as base64; a file URL scales past 25 MiB.
+    return ["uri": "data:\(mime);base64,\(bytes.base64EncodedString())"]
+  }
+
+  // Removes bytes no stored Draft names; needs no key, so it also runs while the device is locked.
+  func discardDraftAsset(id: String) async throws {
+    guard let mailCache else { return }
+    try await Task.detached(priority: .userInitiated) {
+      try mailCache.discardDraftAsset(id: id)
+    }.value
   }
 }

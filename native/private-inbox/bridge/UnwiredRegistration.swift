@@ -238,6 +238,8 @@ final class UnwiredRegistration: NSObject {
     if let cache {
       try await Task.detached(priority: .userInitiated) { try cache.removeAttachments() }.value
     }
+    // Picked files an earlier process did not import have no Draft left to add them to.
+    try? FileManager.default.removeItem(at: RegistrationStore.pickedDraftFiles)
     return cache
   }
 
@@ -554,6 +556,8 @@ extension UnwiredRegistration {
           case PrivateInboxError.locked: reject("locked", "Private storage is locked.", nil)
           case PrivateInboxError.attachmentMissing:
             reject("attachment-missing", "The attachment is no longer on this device.", nil)
+          case PrivateInboxError.tooLarge:
+            reject("too-large", "The file is too large for Drafts on this device.", nil)
           case PrivateInboxError.conflict: reject("conflict", "The mailbox changed.", nil)
           case PrivateInboxError.mailboxInvalidated:
             reject("mailbox-invalidated", "The mailbox is no longer available.", nil)
@@ -654,16 +658,72 @@ extension UnwiredRegistration {
     mailbox("openDrafts", resolve, reject: reject) { try await $0.openDrafts() }
   }
 
-  @objc(commitDrafts:expectedRevision:document:resolver:rejecter:)
+  // `commit` carries the document and the assets its Drafts keep.
+  @objc(commitDrafts:expectedRevision:commit:resolver:rejecter:)
   func commitDrafts(
-    _ owner: String, expectedRevision: Double, document: String,
+    _ owner: String, expectedRevision: Double, commit: [String: Any],
     resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
   ) {
     mailbox("commitDrafts", resolve, reject: reject) {
-      guard let revision = Int(exactly: expectedRevision), revision >= 0 else {
+      guard let revision = Int(exactly: expectedRevision), revision >= 0,
+        let document = commit["document"] as? String, let keep = commit["keep"] as? [String]
+      else {
         throw RegistrationError.unavailable
       }
-      return try await $0.commitDrafts(owner: owner, expectedRevision: revision, document: document)
+      return try await $0.commitDrafts(
+        owner: owner, expectedRevision: revision, document: document, keep: keep)
+    }
+  }
+
+  @objc(importDraftAsset:id:source:resolver:rejecter:)
+  func importDraftAsset(
+    _ owner: String, id: String, source: [String: Any],
+    resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+  ) {
+    mailbox("importDraftAsset", resolve, reject: reject) {
+      try await $0.importDraftAsset(owner: owner, id: id, source: source)
+    }
+  }
+
+  @objc(readDraftAsset:asset:resolver:rejecter:)
+  func readDraftAsset(
+    _ owner: String, asset: [String: Any],
+    resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+  ) {
+    mailbox("readDraftAsset", resolve, reject: reject) {
+      guard let id = asset["id"] as? String, let digest = asset["digest"] as? String,
+        let type = asset["type"] as? String
+      else { throw RegistrationError.unavailable }
+      return try await $0.readDraftAsset(owner: owner, id: id, digest: digest, type: type)
+    }
+  }
+
+  @objc(discardDraftAsset:id:resolver:rejecter:)
+  func discardDraftAsset(
+    _ owner: String, id: String,
+    resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+  ) {
+    mailbox("discardDraftAsset", resolve, reject: reject) {
+      try await $0.discardDraftAsset(id: id)
+      return [:]
+    }
+  }
+
+  // The system picker waits for the person, so it does not hold the mailbox operation gate.
+  @objc(pickDraftFiles:resolver:rejecter:)
+  func pickDraftFiles(
+    _ source: String, resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    DispatchQueue.main.async {
+      Task { @MainActor in
+        do {
+          resolve(try await DraftFilePicker.pick(source))
+        } catch {
+          Self.logger.error("pickDraftFiles failed: unavailable")
+          reject("unavailable", "The files could not be added.", nil)
+        }
+      }
     }
   }
 

@@ -87,8 +87,13 @@ export const gmailMailboxes = createMailboxes(
 export const drafts = createDrafts(
   {
     openDrafts: () => native().openDrafts(),
-    commitDrafts: (owner, expectedRevision, document) =>
-      native().commitDrafts(owner, expectedRevision, document),
+    commitDrafts: (owner, expectedRevision, commit) =>
+      native().commitDrafts(owner, expectedRevision, commit),
+    importDraftAsset: (owner, id, source) =>
+      native().importDraftAsset(owner, id, source),
+    readDraftAsset: (owner, asset) => native().readDraftAsset(owner, asset),
+    discardDraftAsset: (owner, id) => native().discardDraftAsset(owner, id),
+    pickDraftFiles: (source) => native().pickDraftFiles(source),
   },
   registration,
 );
