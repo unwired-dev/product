@@ -13,6 +13,12 @@ A host owns views and native adapters. It renders shared stores from `@private-e
 
 #### React correctness
 
+- `message-body.tsx` or `translation.tsx.MessageTranslation` flattening all readable
+  spans during render before the shared translation input cap applies. Pass the
+  structured readable body to the bounded shared builder and memoize by body;
+  otherwise opening or rerendering a long message traverses its whole text even
+  when Translate is never pressed.
+
 - `translation.tsx.ReaderTranslation` hiding a dismissed panel while leaving its
   queued language, Retry, Cancel or Dismiss callbacks authorized by the mounted
   store. Retire the open session synchronously and check that exact session

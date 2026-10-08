@@ -18,7 +18,12 @@ translation.
 
 The shared store decodes results with Effect Schema. Each mounted host owner
 retires the store during layout cleanup. Reader ownership includes the native
-provider, mailbox store, message identifier and full readable input. Draft review
+provider, mailbox store, message identifier and bounded readable input. The shared
+`readerText` walks paragraphs and spans only until the 6,000-character limit plus
+one lookahead character, without flattening the remaining body or copying a whole
+span array. Hosts memoize that prefix per immutable body. Changes beyond it retain
+a valid translation of the same captured input; the lookahead also preserves the
+omission disclosure and surrogate-pair cut. Draft review
 checks the current ready result at acceptance, while the composer synchronously
 invalidates its captured selection when its body changes or review closes.
 Undo returning to the same body object cannot restore that invalidated capture.

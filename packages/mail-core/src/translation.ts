@@ -83,8 +83,13 @@ export function readerText(body: ReadableBody | string): ReaderText {
     typeof body === 'string' ? [[{ text: body }]] : body.paragraphs;
   let text = '';
   for (const spans of paragraphs) {
-    const parts = text === '' ? spans : [{ text: '\n\n' }, ...spans];
-    for (const { text: part } of parts) {
+    if (text !== '') {
+      text += '\n\n'.slice(0, summaryInputLimit + 1 - text.length);
+      if (text.length > summaryInputLimit) {
+        return { text, cut: true };
+      }
+    }
+    for (const { text: part } of spans) {
       const budget = Math.max(0, summaryInputLimit + 1 - text.length);
       text += (text === '' ? part.trimStart() : part).slice(0, budget);
       if (text.length > summaryInputLimit) {

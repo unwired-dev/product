@@ -99,6 +99,13 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Product behavior the stores own
 
+- `translation.ts.readerText` or another bounded input builder flattening a whole
+  readable body or eagerly spreading a paragraph's spans before applying its
+  character cap. Stop traversal and intermediate allocation inside paragraphs as
+  well as between them, retaining the omission and surrogate-pair disclosure;
+  otherwise opening an ordinary long message stalls both host runtimes even
+  before translation is requested.
+
 - `translation.ts.draftReplacement` or a composer applying the trimmed preview
   directly through `semantic-document.ts.replaceSelection`, losing the captured
   selection's leading or trailing whitespace. Preserve that boundary whitespace

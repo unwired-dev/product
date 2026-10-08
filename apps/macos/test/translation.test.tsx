@@ -325,6 +325,47 @@ describe('on-device translation in the reader', () => {
     }
   });
 
+  it('keeps a bounded reader translation until its captured prefix changes', async () => {
+    expect.hasAssertions();
+    const { native, asked } = scriptedTranslation();
+    const source = {};
+    const prefix = 'Please confirm. '.repeat(500);
+    const reader = (text: string, tail: string) => (
+      <TranslationContext value={native}>
+        <MessageTranslation
+          source={source}
+          id="message"
+          body={{
+            paragraphs: [[{ text }], [{ text: tail }]],
+            hidesImages: false,
+          }}
+        />
+      </TranslationContext>
+    );
+    const app = await render(reader(prefix, 'Original tail'));
+    try {
+      await fireEvent.press(screen.getByLabelText('Translate this message'));
+      await translateInto('German');
+      asked[0]?.answer.resolve({ source: 'en', text: 'Bitte bestätigen.' });
+      await screen.findByText('Bitte bestätigen.');
+      expect(asked[0]?.input).toBe(prefix.slice(0, 6000));
+      await app.rerender(reader(prefix, 'Changed untranslated tail'));
+      expect(screen.getByText('Bitte bestätigen.')).toBeOnTheScreen();
+      expect(
+        screen.getByText(
+          'Only the beginning of this long message was translated.',
+        ),
+      ).toBeOnTheScreen();
+      await app.rerender(
+        reader(`Changed ${prefix}`, 'Changed untranslated tail'),
+      );
+      expect(screen.queryByText('Bitte bestätigen.')).toBeNull();
+      expect(screen.getByLabelText('Translate this message')).toBeOnTheScreen();
+    } finally {
+      await app.unmount();
+    }
+  });
+
   it('translates the preview fixture with the fixed Mock Mail Session outcome', async () => {
     expect.hasAssertions();
     const session = createMockMailSession('open-read-relaunch');

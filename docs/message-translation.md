@@ -42,8 +42,10 @@ fallback and nothing is downloaded by the app.
 - While Translation works, the panel shows progress and **Cancel**. Cancelling
   stops the native request; a result that still arrives is dropped.
 - A result belongs to the input it was requested for. Opening another message,
-  switching mailbox or account, or a changed body cancels a reader translation and
-  forgets its preview before the next render. Any edit to the Draft body cancels a
+  switching mailbox or account, or changing the bounded reader input cancels a
+  reader translation and forgets its preview before the next render. Changes only
+  beyond the captured prefix keep the translation valid: that text was not translated.
+  Any edit to the Draft body cancels a
   pending Draft translation and closes its review, so a stale result is never
   offered or applied.
 - When Translation cannot run, mail and the Draft stay unchanged and the panel says

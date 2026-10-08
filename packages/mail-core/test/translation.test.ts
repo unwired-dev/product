@@ -113,6 +113,35 @@ describe('on-device translation', () => {
     expect(messageTranslationInput(long, 'es')?.text).toHaveLength(
       translationInputLimit,
     );
+    // Later paragraphs must not copy spans beyond the bounded prefix either.
+    const spans = [
+      { text: 'x'.repeat(translationInputLimit) },
+      { text: 'tail' },
+    ];
+    Object.defineProperty(spans, 1, {
+      get: () => {
+        throw new Error('Read a span past the input limit');
+      },
+    });
+    expect(
+      readerText({
+        paragraphs: [[{ text: 'Start' }], spans],
+        hidesImages: false,
+      }),
+    ).toStrictEqual({
+      text: `Start\n\n${'x'.repeat(translationInputLimit - 6)}`,
+      cut: true,
+    });
+    // The separator alone can fill the prefix before any next-paragraph span is read.
+    expect(
+      readerText({
+        paragraphs: [[{ text: 'x'.repeat(translationInputLimit) }], spans],
+        hidesImages: false,
+      }),
+    ).toStrictEqual({
+      text: `${'x'.repeat(translationInputLimit)}\n`,
+      cut: true,
+    });
     // Leading whitespace does not count against the limit, and a short body is whole.
     expect(
       readerText({
