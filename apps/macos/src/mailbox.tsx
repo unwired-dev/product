@@ -46,9 +46,14 @@ function createComposerNavigation(): ComposerNavigation {
         return false;
       }
       pending = true;
-      const allowed = (await finish?.()) ?? true;
-      pending = false;
-      return allowed;
+      try {
+        return (await finish?.()) ?? true;
+      } catch {
+        // A composer that failed to finish stays open; a later attempt can leave again.
+        return false;
+      } finally {
+        pending = false;
+      }
     },
   };
 }

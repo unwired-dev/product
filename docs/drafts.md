@@ -60,6 +60,9 @@ follows its own conflicting copy, including its Undo and Redo history. Further
 edits, Close and Discard affect that editor's version. An edit racing a deletion
 survives as a conflicting copy while the deleted identity stays removed. Review a
 conflicting copy and discard it explicitly when it is no longer needed.
+This also applies to authored edits arriving after an empty Draft was closed;
+an empty late edit creates no copy. A completed explicit discard suppresses
+later events from the editor that discarded it.
 
 **Close** first turns any address still being typed into a recipient; text that
 is not a valid address keeps the composer open until it is corrected or removed.
@@ -70,7 +73,9 @@ asks before deleting a Draft from this device.
 Opening **Account**, switching to another Draft, starting **New Message**, or selecting received mail
 also finishes recipient entry and waits for saving; invalid entry or a save failure
 keeps the current composer open. A failed discard keeps the Draft visible and can
-be retried. Drafts and received mail share the Inbox column's scroll surface.
+be retried; edits accepted while it was pending stay available for saving and
+reopening. An unexpected failure while leaving keeps the composer open and allows
+another attempt. Drafts and received mail share the Inbox column's scroll surface.
 After an interruption or relaunch the Drafts list shows every saved Draft, and
 opening one restores its sending mailbox, recipients, subject and formatted body
 without sending it.

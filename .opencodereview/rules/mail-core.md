@@ -106,6 +106,14 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   unmounting its editor and reporting completion while it can return after relaunch.
   Automatic empty-Draft disposal must check the current content under the save
   semaphore; an untouched stale composer must not delete another window's work.
+- `createDrafts.update` silently dropping authored content after the original ID
+  has been durably deleted, including after `discard({ onlyIfEmpty: true })`.
+  Preserve a same-owner nonempty late edit as a conflict copy and notify its
+  editor; ignore an empty late edit without dirtying an unchanged list. The
+  unchanged-list path in `change` must still flush prior dirty work and resolve
+  only once saving settles. Do not treat every missing ID as an owned deletion:
+  fence eligible identities to the current Product Account and clear that fence
+  on invalidation, or a previous editor's payload can enter another account.
 
 - `createGmailInbox.save` returning early when native foreground verification has made an enabled Inbox cache-only, without removing its captured unsaved intents and publishing disabled organizing with settled Saving state. Trace `organize`, queued `load` follow-up and native availability/generation gates: no cache-only commit or provider dispatch is allowed, durable pending actions must remain, and discarded unsaved intent needs a visible, announced outcome outside the reader. Report the size of a discarded same-mailbox batch rather than naming only its last request, and preserve that outcome when a subsequent serialized save finds no queued intent. Keep outcome message snapshots scoped to the returned mailbox and initiating ownership epoch; otherwise an action stays saving indefinitely, silently disappears after a removal closes the reader, or exposes another mailbox's message. Do not label a saved-cache rollback as authoritative Gmail reconciliation.
 - `createGmailInbox.organize` accepting a message whose Gmail labels are still unknown during legacy-cache relisting, or `quickActions` and either host's `MessageActions` presenting label, move or other organizing controls for that snapshot. Trace intake, retained handlers and `OrganizeNotice` snapshots through queueing and Undo; treating absent labels as an empty set lets an inverse remove pre-existing Gmail memberships. Check predecessor-produced pending snapshots too: `organized` must not turn fallback memberships into a known baseline while replay is unsettled. Keep known-label cached messages usable during ordinary backfill and preserve previously accepted durable intent.

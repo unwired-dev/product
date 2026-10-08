@@ -299,6 +299,17 @@ const copyId = (id: string, drafts: readonly Draft[]) => {
   return `${id}-conflict-${index}`;
 };
 
+// The saved version is gone or both the saved version and this editor changed since its baseline.
+const conflictsWith = (
+  current: Draft | undefined,
+  draft: Draft,
+  previous?: Draft,
+) =>
+  current === undefined ||
+  (previous !== undefined &&
+    !sameContent(current, previous) &&
+    !sameContent(current, draft));
+
 // Store -----------------------------------------------------------------------------------------
 
 // The native module's Draft storage for the Product Account signed in on this device. Native code
@@ -412,9 +423,16 @@ export function createDrafts(
   let started = false;
   // Only unsaved versions can move during CAS recovery or an in-flight deletion.
   const pendingMoves = new Map<string, (id: string) => void>();
+  // Missing identities can keep late edits only within the account that opened them.
+  const known = new Set<string>();
   const listeners = new Set<() => void>();
   const publish = (next: DraftsState, notify?: () => void) => {
     state = next;
+    if (next.kind === 'ready') {
+      for (const draft of next.drafts) {
+        known.add(draft.id);
+      }
+    }
     // A synchronous rebind may render immediately; the copy must already be available.
     notify?.();
     for (const listener of listeners) {
@@ -597,15 +615,13 @@ export function createDrafts(
         }
         const now = yield* Clock.currentTimeMillis;
         const id = `${Math.abs(yield* Random.nextInt).toString(36)}${Math.abs(yield* Random.nextInt).toString(36)}`;
+        const drafts = edit(state.drafts, { now, id });
+        // An edit that changes nothing leaves storage alone.
+        if (drafts === state.drafts) {
+          return yield* saving(current);
+        }
         dirty = true;
-        publish(
-          {
-            kind: 'ready',
-            drafts: edit(state.drafts, { now, id }),
-            save: 'saving',
-          },
-          notify,
-        );
+        publish({ kind: 'ready', drafts, save: 'saving' }, notify);
         return yield* saving(current);
       }),
     );
@@ -694,6 +710,7 @@ export function createDrafts(
     base = [];
     dirty = false;
     pendingMoves.clear();
+    known.clear();
     publish(next === undefined ? { kind: 'closed' } : { kind: 'loading' });
     if (started && next !== undefined) {
       void runLogged(opening(generation, next));
@@ -750,11 +767,14 @@ export function createDrafts(
         (drafts, { now }) => {
           // Decide against the same snapshot this edit changes, before notifying any editor.
           const current = drafts.find((each) => each.id === draft.id);
-          const conflict =
-            current !== undefined &&
-            previous !== undefined &&
-            !sameContent(current, previous) &&
-            !sameContent(current, draft);
+          // An edit arriving after its Draft was deleted keeps any authored content as a copy.
+          if (
+            current === undefined &&
+            (!known.has(draft.id) || isEmptyDraft(draft))
+          ) {
+            return drafts;
+          }
+          const conflict = conflictsWith(current, draft, previous);
           const id = conflict ? copyId(draft.id, drafts) : draft.id;
           if (moved !== undefined) {
             pendingMoves.set(id, moved);

@@ -94,6 +94,9 @@ const styles = StyleSheet.create({
   },
 });
 
+// The open-Draft callback for an Inbox without Drafts, stable so Draft rows stay memoized.
+const composeNothing = () => undefined;
+
 // A message in a mailbox; Gmail message IDs are unique only within their mailbox.
 export type Selection = Readonly<{ mailbox: string; id: string }>;
 
@@ -406,7 +409,7 @@ export function Inbox({
   };
   const draftState = useDrafts();
   const drafts = onCompose === undefined ? [] : draftsOf(draftState);
-  const openDraft = useOpenDraft(composing, onCompose ?? (() => undefined));
+  const openDraft = useOpenDraft(composing, onCompose ?? composeNothing);
   const reload = useReloadMailboxes();
   const account = use(AccountContext);
   const colors = usePalette();

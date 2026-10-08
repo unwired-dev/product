@@ -656,6 +656,8 @@ function Editor({
   const display = displayOf(draft.body);
   const save = state.kind === 'ready' ? state.save : 'failed';
 
+  // Holds saving during discard; a failed discard restores edits accepted while it waited.
+  const discarded = useRef(false);
   const update = useCallback(
     (next: Draft) => {
       const previous = authored.current;
@@ -664,7 +666,9 @@ function Editor({
           ? next
           : { ...next, id: previous.id, conflict: true as const };
       authored.current = bound;
-      void store.update(bound, previous, rebind);
+      if (!discarded.current) {
+        void store.update(bound, previous, rebind);
+      }
     },
     [rebind, store],
   );
@@ -680,7 +684,9 @@ function Editor({
       ),
     );
     typingField.current = word ? field : undefined;
-    setClosing(undefined);
+    if (!discarded.current) {
+      setClosing(undefined);
+    }
     update(next);
   };
   const travel = (to: typeof history) => {
@@ -736,6 +742,9 @@ function Editor({
     setPlaced(result.selection);
   };
   const close = useCallback(async () => {
+    if (discarded.current) {
+      return false;
+    }
     // Entries still being typed become recipients; invalid text keeps the Draft open.
     const latest = authored.current;
     let finished = latest;
@@ -797,11 +806,27 @@ function Editor({
     }
   };
   const discard = async () => {
+    if (discarded.current) {
+      return;
+    }
+    const previous = authored.current;
     setClosing('saving');
-    if (await store.discard(authored.current.id)) {
-      onClose();
-    } else {
+    discarded.current = true;
+    let removed = false;
+    try {
+      removed = await store.discard(previous.id);
+    } catch {
+      // An unexpected storage rejection leaves the editor retryable too.
+    }
+    if (!removed) {
+      discarded.current = false;
+      if (authored.current !== previous) {
+        void store.update(authored.current, previous, rebind);
+      }
       setClosing('discard-blocked');
+    }
+    if (removed) {
+      onClose();
     }
   };
   const active = typing ?? marksAt(draft.body, selection);

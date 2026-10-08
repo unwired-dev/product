@@ -58,6 +58,16 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   lost. Distinguish forced account/device invalidation, which must purge private
   state, and AppKit window destruction from voluntary navigation. Cover invalid
   entry and failed saving through the affected exit, not only the Close button.
+  `createComposerNavigation.leave` must also release its pending guard when the
+  registered finish callback rejects: refuse that destination and permit a later
+  attempt, or one unexpected failure blocks navigation for the session.
+
+- `Editor` suppressing autosave during explicit Discard without retaining the
+  latest authored payload and restoring it when deletion fails or rejects.
+  Text and Undo events can still arrive while storage is pending; trace rendered
+  history, the authored ref and subsequent Close/reopen, or visible accepted edits
+  disappear. Cancelled confirmation must leave saving enabled; a completed own
+  discard must suppress queued callbacks so they cannot recreate its Draft.
 
 - An effect that subscribes, listens (`AppState`, `Linking`, a native emitter) or starts async work without returning cleanup, or whose async result is applied after unmount or after its inputs changed.
 - A store action whose returned Promise is awaited in render or left to reject; actions are fired as `void store.action()` and report failure through state.

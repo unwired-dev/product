@@ -68,6 +68,29 @@ function account(initial: RegistrationSnapshot) {
 
 const ignore = () => undefined;
 
+// A save that throws once, as when storage fails unexpectedly, then saves normally.
+const failingOnce = (save: () => Promise<boolean>) => {
+  let failed = false;
+  return async () => {
+    if (!failed) {
+      failed = true;
+      throw new Error('storage failed');
+    }
+    return save();
+  };
+};
+
+// Exercise refused and unexpectedly rejected deletion with the real store underneath.
+const discardOutcome =
+  (discard: ReturnType<typeof createDrafts>['discard'], failure: string) =>
+  async (...args: Parameters<typeof discard>) => {
+    const removed = await discard(...args);
+    if (!removed && failure === 'rejected') {
+      throw new Error('unexpected discard failure');
+    }
+    return removed;
+  };
+
 // The app's composition: the Inbox column and the detail column, which shows the composer.
 function App({
   registration,
@@ -801,6 +824,114 @@ describe('composing Drafts', () => {
         to: [{ address: 'maya@example.invalid' }],
       },
     ]);
+  });
+
+  it.each(['refused', 'rejected'])(
+    'keeps edits accepted while a discard is %s through Close and reopen',
+    async (failure) => {
+      expect.hasAssertions();
+      const registration = account(connected(['alex@example.invalid']));
+      const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+      const base = createDrafts(storage.native, registration);
+      const drafts = {
+        ...base,
+        discard: discardOutcome(base.discard, failure),
+      };
+      await render(
+        <App
+          drafts={drafts}
+          registration={registration}
+        />,
+      );
+      await press('New Message');
+      await fireEvent.changeText(
+        screen.getByLabelText('Subject'),
+        'Before discard',
+      );
+      await waitFor(() => {
+        expect(
+          screen.getByText('Draft · Saved on this device'),
+        ).toBeOnTheScreen();
+      });
+      await press('Discard');
+      await press('Keep Editing');
+      await fireEvent.changeText(
+        screen.getByLabelText('Message body'),
+        'After cancelling discard',
+      );
+      await waitFor(() => {
+        expect(
+          screen.getByText('Draft · Saved on this device'),
+        ).toBeOnTheScreen();
+      });
+      await press('Discard');
+      storage.hold();
+      storage.failNextCommit('locked');
+      await press('Discard Draft');
+      await fireEvent.changeText(
+        screen.getByLabelText('Subject'),
+        'During discard',
+      );
+      await press('New Message');
+      expect(screen.getByLabelText('Subject')).toHaveProp(
+        'value',
+        'During discard',
+      );
+      await act(async () => {
+        storage.release();
+      });
+      await waitFor(() => {
+        expect(
+          screen.getByText(
+            'This Draft could not be discarded, so it stays open. Try again.',
+          ),
+        ).toBeOnTheScreen();
+      });
+      await press('Close');
+      await press(
+        'Draft. During discard. No recipients. From alex@example.invalid',
+      );
+      expect(screen.getByLabelText('Subject')).toHaveProp(
+        'value',
+        'During discard',
+      );
+      expect(screen.getByLabelText('Message body')).toHaveTextContent(
+        'After cancelling discard',
+      );
+      // A callback already queued by this editor cannot recreate its completed discard.
+      const queuedSubject = screen.getByLabelText('Subject');
+      await press('Discard');
+      await press('Discard Draft');
+      await act(async () => {
+        queuedSubject.props.onChangeText('After completed discard');
+        await drafts.save();
+      });
+      const reopened = createDrafts(storage.native, registration);
+      await reopened.load();
+      expect(draftsOf(reopened.getSnapshot())).toStrictEqual([]);
+    },
+  );
+
+  it('lets a composer be left again after finishing it failed', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const base = createDrafts(storage.native, registration);
+    const drafts = { ...base, save: failingOnce(base.save) };
+    await render(
+      <App
+        drafts={drafts}
+        registration={registration}
+      />,
+    );
+    await press('New Message');
+    await fireEvent.changeText(await screen.findByLabelText('Subject'), 'Kept');
+    // Finishing the open composer fails once: it stays open.
+    await press('New Message');
+    expect(screen.getByLabelText('Subject')).toHaveProp('value', 'Kept');
+    // The next attempt is not blocked by the failed one.
+    await press('New Message');
+    expect(screen.getByLabelText('Subject')).toHaveProp('value', '');
   });
   /* oxlint-enable vitest/max-expects */
 });

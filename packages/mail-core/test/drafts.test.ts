@@ -499,6 +499,75 @@ describe('storing Drafts', () => {
     );
   });
 
+  it('ignores a previous account editor after the next account has loaded', async () => {
+    expect.hasAssertions();
+    const session = account(connected('account-a'));
+    const storage = createSyntheticDrafts(session.productAccount);
+    const drafts = createDrafts(storage.native, session.registration);
+    await drafts.load();
+    const id = present(await drafts.create(alex), 'Draft id');
+    const before = present(draftOf(drafts.getSnapshot(), id), 'Draft');
+    session.change(connected('account-b'));
+    await drafts.load();
+    const revision = storage.stored()?.revision;
+    await expect(
+      drafts.update({ ...before, subject: 'Previous account content' }, before),
+    ).resolves.toBe(true);
+    expect(ready(drafts.getSnapshot()).drafts).toStrictEqual([]);
+    expect(storage.stored()?.revision).toBe(revision);
+  });
+
+  it('keeps an authored edit that arrives after its Draft was deleted', async () => {
+    expect.hasAssertions();
+    const session = account(connected('account-a'));
+    const storage = createSyntheticDrafts(session.productAccount);
+    const drafts = createDrafts(storage.native, session.registration);
+    await drafts.load();
+    const id = present(await drafts.create(alex), 'Draft id');
+    const before = present(draftOf(drafts.getSnapshot(), id), 'Draft');
+    await expect(drafts.discard(id, { onlyIfEmpty: true })).resolves.toBe(true);
+    const revision = storage.stored()?.revision;
+    // An empty late edit changes nothing, not even storage.
+    await expect(drafts.update(before, before)).resolves.toBe(true);
+    expect(storage.stored()?.revision).toBe(revision);
+    // An authored one survives as a copy its editor is told about.
+    const moved: string[] = [];
+    await drafts.update({ ...before, subject: 'Late edit' }, before, (copy) => {
+      moved.push(copy);
+    });
+    expect(moved).toStrictEqual([`${id}-conflict-1`]);
+    expect(ready(drafts.getSnapshot()).drafts).toStrictEqual([
+      expect.objectContaining({
+        id: `${id}-conflict-1`,
+        subject: 'Late edit',
+        conflict: true,
+      }),
+    ]);
+  });
+
+  it('flushes earlier failed work when an empty late edit changes nothing', async () => {
+    expect.hasAssertions();
+    const session = account(connected('account-a'));
+    const storage = createSyntheticDrafts(session.productAccount);
+    const drafts = createDrafts(storage.native, session.registration);
+    await drafts.load();
+    const id = present(await drafts.create(alex), 'Draft id');
+    const empty = present(draftOf(drafts.getSnapshot(), id), 'Empty Draft');
+    await drafts.discard(id);
+    const keptId = present(await drafts.create(alex), 'Kept Draft id');
+    const kept = present(draftOf(drafts.getSnapshot(), keptId), 'Kept Draft');
+    storage.failNextCommit('locked');
+    await expect(
+      drafts.update({ ...kept, subject: 'Still needs saving' }, kept),
+    ).resolves.toBe(false);
+    await expect(drafts.update(empty, empty)).resolves.toBe(true);
+    const reopened = createDrafts(storage.native, session.registration);
+    await reopened.load();
+    expect(ready(reopened.getSnapshot()).drafts).toStrictEqual([
+      expect.objectContaining({ id: keptId, subject: 'Still needs saving' }),
+    ]);
+  });
+
   it('keeps a refused deletion visible and retryable without losing the durable Draft', async () => {
     expect.hasAssertions();
     const session = account(connected('account-a'));
