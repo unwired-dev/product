@@ -2,7 +2,11 @@ import type { GmailInbox } from '../src/gmail-inbox.ts';
 
 import { gmailAction } from '../src/gmail-actions.ts';
 import { createGmailInbox } from '../src/gmail-inbox.ts';
-import { attachmentLimit, safeFilename } from '../src/message-body.ts';
+import {
+  attachmentLimit,
+  receivedAttachments,
+  safeFilename,
+} from '../src/message-body.ts';
 import {
   createSyntheticGmail,
   notesText,
@@ -510,6 +514,75 @@ describe('received attachments', () => {
     online();
   });
   /* oxlint-enable vitest/max-expects */
+
+  it('never lists files inside attached messages or contradictory containers', () => {
+    expect.hasAssertions();
+    const file = (filename: string) => ({
+      mimeType: 'application/pdf',
+      filename,
+      headers: [{ name: 'Content-Disposition', value: 'attachment' }],
+      body: { size: 3, attachmentId: 'synthetic' },
+    });
+    const payload = {
+      mimeType: 'multipart/mixed',
+      parts: [
+        { mimeType: 'text/plain', body: { size: 2, data: 'aGk' } },
+        // Gmail names an attached message, but its repeated headers disagree.
+        {
+          mimeType: 'message/rfc822',
+          headers: [
+            { name: 'Content-Type', value: 'message/rfc822' },
+            { name: 'Content-Type', value: 'text/plain' },
+          ],
+          parts: [file('inside-message.pdf')],
+        },
+        // A container whose declarations contradict each other.
+        {
+          mimeType: 'multipart/mixed',
+          headers: [
+            { name: 'Content-Type', value: 'multipart/mixed' },
+            { name: 'Content-Type', value: 'multipart/alternative' },
+          ],
+          parts: [file('inside-container.pdf')],
+        },
+        file('outer.pdf'),
+        // A named message leaf stays excluded even when its headers disagree.
+        {
+          ...file('forwarded.eml'),
+          mimeType: 'message/rfc822',
+          headers: [
+            { name: 'Content-Type', value: 'application/pdf' },
+            { name: 'Content-Type', value: 'text/plain' },
+          ],
+        },
+        // Any attached-message header counts, including a later repeated one.
+        {
+          ...file('header-message.eml'),
+          headers: [
+            { name: 'Content-Type', value: 'application/pdf' },
+            { name: 'Content-Type', value: '(forwarded) MESSAGE/RFC822' },
+          ],
+        },
+        // A contradictory ordinary leaf needs no subtree interpretation.
+        {
+          ...file('ambiguous.pdf'),
+          headers: [
+            { name: 'Content-Type', value: 'application/pdf' },
+            { name: 'Content-Type', value: 'text/plain' },
+          ],
+        },
+      ],
+    };
+    expect(
+      receivedAttachments(payload).map(({ name, mimeType }) => ({
+        name,
+        mimeType,
+      })),
+    ).toStrictEqual([
+      { name: 'outer.pdf', mimeType: 'application/pdf' },
+      { name: 'ambiguous.pdf', mimeType: 'application/octet-stream' },
+    ]);
+  });
 
   it('keeps file names safe to show and save', () => {
     expect.hasAssertions();

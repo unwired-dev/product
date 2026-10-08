@@ -109,6 +109,13 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   use a dot-free neutral shortened name; trace the displayed descriptor through
   native saving. Otherwise an untrusted attachment can appear to be a different
   file type after truncation, including when only the byte bound is exceeded.
+- `message-body.ts.attachmentLeaves` identifying attached messages only through
+  the consensus media type. Any Gmail `mimeType` or Content-Type header token
+  declaring `message/rfc822` must exclude the part and its descendants, even when
+  other declarations conflict. Keep contradictory containers opaque during both
+  descriptor listing and download revalidation; ordinary non-message leaves may
+  retain the neutral file type. Otherwise ambiguous metadata exposes an attached
+  message's contents as downloadable files of the outer message.
 - `createGmailInbox.prepareReaders` replacing attachment descriptors while retaining
   download state by message ID and positional locator alone. Reconcile derived
   state against the complete descriptor (locator, name, MIME type and size),

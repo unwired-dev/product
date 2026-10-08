@@ -755,7 +755,11 @@ attachment descriptors.
   before attachment metadata was kept reads it from Gmail once, on its next online
   open; offline, that body shows no list. Attachments are named or
   attachment-disposition parts outside the readable body. Inline Images the body
-  resolves are not listed. Attached messages are not offered for download. Rows appear 20 at a time, with **Show N more** for the rest, so a message with thousands of parts stays usable.
+  resolves are not listed. Attached messages and their contents are not offered for
+  download, even when their type declarations conflict. Containers with conflicting
+  Content-Type tokens are not searched for attachments. An ordinary file whose type
+  tokens conflict remains available as a generic file. Rows appear 20 at a time,
+  with **Show N more** for the rest, so a message with thousands of parts stays usable.
 - **Names.** Names drop path separators, control and direction-override characters
   and leading dots, and are shortened to 120 characters and 255 UTF-8 bytes.
   Shortening keeps the final suffix when it has 1–16 characters without dots or

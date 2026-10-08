@@ -318,7 +318,12 @@ Issue [#610](https://github.com/unwired-dev/product/issues/610) implements the o
 Gmail slice of [ADR 0030](../adr/0030-gate-incoming-attachment-downloads.md).
 `message-body.ts` derives descriptors from the MIME tree without an attachment
 request, excluding readable parts, resolved inline images and all attached-message
-subtrees. A download rereads the owning message and revalidates the part selector,
+subtrees. Any Gmail MIME type or Content-Type header token declaring
+`message/rfc822` excludes that part, even when repeated headers disagree.
+Containers with ambiguous media-type tokens are opaque, matching body/CID
+traversal; ordinary non-message leaves retain explicit download with a neutral
+`application/octet-stream` descriptor when their type tokens disagree.
+A download rereads the owning message and revalidates the part selector,
 name, MIME type and size. Only the verified connection and generation can save it;
 bytes never enter the encrypted body cache or Product Sync.
 Host attachment actions, including cancellation, reuse the committed reader/body

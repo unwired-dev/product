@@ -443,15 +443,23 @@ export const safeFilename = (name: string) => {
   );
 };
 
+const attachedMessage = (part: GmailPart) =>
+  part.mimeType?.toLowerCase() === 'message/rfc822' ||
+  headerValues(part, 'content-type')
+    .map(headerToken)
+    .includes('message/rfc822');
+
 // Leaf parts with their child-index locators, never descending into attached messages.
 const attachmentLeaves = (
   part: GmailPart,
   locator: readonly number[],
 ): ReadonlyArray<Readonly<{ part: GmailPart; locator: readonly number[] }>> => {
-  if (mimeType(part) === 'message/rfc822') {
+  const children = part.parts ?? [];
+  // Attached messages, however any of their type declarations names them, and containers whose
+  // declarations contradict each other are never searched for attachments.
+  if (attachedMessage(part) || (children.length > 0 && mimeType(part) === '')) {
     return [];
   }
-  const children = part.parts ?? [];
   return children.length === 0
     ? [{ part, locator }]
     : children.flatMap((child, index) =>
