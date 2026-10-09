@@ -108,8 +108,9 @@ constant clarification.
   at the start of each development job and whenever a new domain comes up
   (testing, animation, a library, CI). Pick an installed skill from the session
   catalogue first. When none fits, search the ecosystem with
-  `npx skills find <query>`, vet the best candidate with `skill-inspector`, then
-  install it with `npx skills add <package>` and follow it. If `find-skills`
+  `npx skills find <query>`, vet the best candidate with `skill-inspector` (or,
+  when that skill is unavailable, by reading its `SKILL.md` and bundled scripts),
+  then install it with `npx skills add <package>` and follow it. If `find-skills`
   itself is missing, install it with `npx skills add vercel-labs/skills@find-skills`.
 
 ## Verify
