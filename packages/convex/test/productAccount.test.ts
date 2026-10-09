@@ -3710,7 +3710,7 @@ describe('gmail operational connection registration', () => {
   });
 
   it('logs an allow-listed diagnostic before a misconfigured revocation recovery aborts', async () => {
-    expect.assertions(3);
+    expect.assertions(4);
     vi.useFakeTimers();
     // Convex records console.error output at error level, which alerts depend on.
     const errors = vi.spyOn(console, 'error').mockReturnValue();
@@ -3759,6 +3759,9 @@ describe('gmail operational connection registration', () => {
         'Apple revocation recovery failed:',
         'Error',
       ]);
+      expect(JSON.stringify(errors.mock.calls)).not.toMatch(
+        /recovery-refresh-token|recent-apple-authorization-code/u,
+      );
     } finally {
       vi.stubEnv(
         'APPLE_SIGN_IN_PRIVATE_KEY',

@@ -2187,7 +2187,7 @@ describe('gmail push relay', () => {
   });
 
   it('enqueues a legacy Gmail route once during routing-key rotation', async () => {
-    expect.assertions(1);
+    expect.assertions(2);
     vi.useFakeTimers();
 
     const t = convexTest(schema, modules);
@@ -2227,7 +2227,7 @@ describe('gmail push relay', () => {
     vi.stubEnv('GMAIL_ROUTING_PREVIOUS_KEY_VERSION', '1');
     vi.stubEnv('GMAIL_PUSH_VERIFICATION_TOKEN', 'push-secret');
     try {
-      await t.fetch('/gmail/push?token=push-secret', {
+      const response = await t.fetch('/gmail/push?token=push-secret', {
         body: JSON.stringify({
           message: {
             data: btoa(
@@ -2240,6 +2240,7 @@ describe('gmail push relay', () => {
         }),
         method: 'POST',
       });
+      expect(response.status).toBe(204);
 
       const scheduled = await t.run(async (ctx) =>
         ctx.db.system.query('_scheduled_functions').collect(),
