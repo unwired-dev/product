@@ -10,6 +10,9 @@ import * as Result from 'effect/Result';
 import * as Schema from 'effect/Schema';
 import * as Semaphore from 'effect/Semaphore';
 
+import type { Draft, Recipient, Synced } from './draft-model.ts';
+import type { DraftStorageFailure } from './draft-native.ts';
+import type { DraftSyncOptions, Pulled } from './draft-sync.ts';
 import type {
   MailboxConnection,
   Registration,
@@ -17,63 +20,41 @@ import type {
 } from './registration.ts';
 import type { Asset, Selection } from './semantic-document.ts';
 
+import { rejectionCode, runLogged } from './diagnostics.ts';
 import {
-  decodeDiagnostic,
-  rejectionCode,
-  rejectionDiagnostic,
-  runLogged,
-} from './diagnostics.ts';
+  assetsOf,
+  DraftSchema,
+  ImportedSchema,
+  SyncedSchema,
+  sameContent,
+  sameDrafts,
+  syncedAssets,
+} from './draft-model.ts';
+import {
+  failureOf,
+  malformed,
+  native,
+  ownerMismatch,
+  report,
+} from './draft-native.ts';
+import {
+  createDraftSynchronizer,
+  equivalentSynced,
+  notifyRemoval,
+  syncedDrafts,
+  readRecords,
+} from './draft-sync.ts';
 import { canOpenInbox, mailboxesOf } from './registration.ts';
 import {
-  AssetSchema,
   emptyDocument,
   clip,
-  imagesOf,
   insertImage,
-  SemanticDocumentSchema,
   withImage,
 } from './semantic-document.ts';
 
-const RecipientSchema = Schema.Struct({
-  name: Schema.optionalKey(Schema.NonEmptyString),
-  address: Schema.NonEmptyString,
-});
-export type Recipient = typeof RecipientSchema.Type;
-
-// An unsent outgoing message kept on this device until it is discarded. It names the Mailbox
-// Connection it sends from and that connection's address when chosen, so a later removal never
-// silently substitutes another sender.
-const DraftSchema = Schema.Struct({
-  id: Schema.NonEmptyString,
-  connection: Schema.NonEmptyString,
-  from: Schema.NonEmptyString,
-  to: Schema.Array(RecipientSchema),
-  cc: Schema.Array(RecipientSchema),
-  bcc: Schema.Array(RecipientSchema),
-  // Cc and Bcc stay shown once revealed or holding a recipient.
-  copies: Schema.optionalKey(Schema.Literal(true)),
-  // Text still being typed in To, Cc or Bcc, kept so an interruption never loses it.
-  entries: Schema.optionalKey(
-    Schema.Struct({
-      to: Schema.optionalKey(Schema.NonEmptyString),
-      cc: Schema.optionalKey(Schema.NonEmptyString),
-      bcc: Schema.optionalKey(Schema.NonEmptyString),
-    }),
-  ),
-  conflict: Schema.optionalKey(Schema.Literal(true)),
-  subject: Schema.String,
-  body: SemanticDocumentSchema,
-  // Files attached apart from the body's inline images, in the order added.
-  attachments: Schema.optionalKey(Schema.Array(AssetSchema)),
-  // Milliseconds since 1970 of the last edit.
-  updatedAt: Schema.Finite,
-});
-export type Draft = typeof DraftSchema.Type;
-const equivalentDraft = Schema.toEquivalence(DraftSchema);
-const sameContent = (left: Draft | undefined, right: Draft | undefined) =>
-  left === undefined || right === undefined
-    ? left === right
-    : equivalentDraft({ ...left, updatedAt: 0 }, { ...right, updatedAt: 0 });
+export type { Draft, Recipient, SyncedAsset } from './draft-model.ts';
+export type { NativeDraftSync } from './draft-sync.ts';
+export { assetsOf } from './draft-model.ts';
 export type RecipientField = 'to' | 'cc' | 'bcc';
 
 const DraftDocumentSchema = Schema.Struct({
@@ -83,6 +64,7 @@ const DraftDocumentSchema = Schema.Struct({
       (drafts) => new Set(drafts.map(({ id }) => id)).size === drafts.length,
     ),
   ),
+  synced: Schema.optionalKey(Schema.Array(SyncedSchema)),
 });
 const OpenedSchema = Schema.Struct({
   owner: Schema.NonEmptyString,
@@ -282,15 +264,9 @@ export const sendingMailboxes = (mailboxes: readonly MailboxConnection[]) =>
 // Files and images ------------------------------------------------------------------------------
 
 // The largest file a Draft accepts, as for received attachments.
-export const assetLimit = 25 * 1024 * 1024;
+export { assetLimit } from './draft-model.ts';
 // The most files one pick, paste or drop adds, so a huge selection never floods the composer.
 export const pickLimit = 20;
-
-// Every asset of a Draft: its attachments, then its inline images in reading order.
-export const assetsOf = (draft: Draft): readonly Asset[] => [
-  ...(draft.attachments ?? []),
-  ...imagesOf(draft.body),
-];
 
 // Assets that must not be sent: imports still running, interrupted, cancelled or failed.
 export const unsendableAssets = (draft: Draft) =>
@@ -348,7 +324,11 @@ export type PickSource = 'photos' | 'files' | 'paste';
 // verified without being shown, or why they are unavailable.
 export type AssetPreview =
   | Readonly<{ kind: 'ready'; uri: string }>
-  | Readonly<{ kind: 'verified' | 'missing' | 'damaged' | 'locked' }>;
+  | Readonly<{
+      // 'incomplete': another device synchronized the Draft, and this one cannot download its
+      // bytes yet.
+      kind: 'verified' | 'missing' | 'incomplete' | 'damaged' | 'locked';
+    }>;
 
 const PickedSchema = Schema.Array(
   Schema.Union([
@@ -365,14 +345,6 @@ const PickedSchema = Schema.Array(
     }),
   ]),
 );
-const ImportedSchema = Schema.Struct({
-  owner: Schema.NonEmptyString,
-  size: Schema.Int.check(
-    Schema.isGreaterThanOrEqualTo(0),
-    Schema.isLessThanOrEqualTo(assetLimit),
-  ),
-  digest: Schema.String.check(Schema.isPattern(/^[\da-f]{64}$/u)),
-});
 const PreviewSchema = Schema.Struct({
   uri: Schema.NullOr(Schema.NonEmptyString),
 });
@@ -472,6 +444,9 @@ const withLaterTime = (ours: Draft, theirs: Draft | undefined): Draft => ({
   updatedAt: Math.max(ours.updatedAt, theirs?.updatedAt ?? 0),
 });
 
+const indexed = (drafts: readonly Draft[]) =>
+  new Map(drafts.map((draft) => [draft.id, draft]));
+
 const rebaseDrafts = Effect.fnUntraced(function* (
   base: readonly Draft[],
   local: readonly Draft[],
@@ -480,8 +455,6 @@ const rebaseDrafts = Effect.fnUntraced(function* (
   const merged: Draft[] = [];
   const moved: Array<Readonly<{ from: string; to: string }>> = [];
   // Indexed once, so a rebase stays linear in the number of Drafts.
-  const indexed = (drafts: readonly Draft[]) =>
-    new Map(drafts.map((draft) => [draft.id, draft]));
   const [baseById, localById, latestById] = [base, local, latest].map(indexed);
   const ids = new Set([...base, ...local, ...latest].map(({ id }) => id));
   for (const id of ids) {
@@ -607,64 +580,20 @@ export type DraftsState =
       readonly save: DraftSave;
     };
 
-class DraftStorageFailure extends Schema.TaggedError<DraftStorageFailure>()(
-  'DraftStorageFailure',
-  {
-    kind: Schema.Literals(['locked', 'conflict', 'failed']),
-    cause: Schema.Defect(),
-    // Logged instead of the cause; see rejectionDiagnostic.
-    diagnostic: Schema.String,
-  },
-) {}
-
-const storageCode = Schema.decodeUnknownOption(
-  Schema.Struct({ code: Schema.Literals(['locked', 'conflict']) }),
-);
-const failureOf = (cause: unknown) =>
-  new DraftStorageFailure({
-    kind: Option.match(storageCode(cause), {
-      onNone: () => 'failed' as const,
-      onSome: ({ code }) => code,
-    }),
-    cause,
-    diagnostic: rejectionDiagnostic(cause),
-  });
-const malformed = (error: Schema.SchemaError) =>
-  new DraftStorageFailure({
-    kind: 'failed',
-    cause: error,
-    diagnostic: decodeDiagnostic(error),
-  });
-const ownerMismatch = () =>
-  new DraftStorageFailure({
-    kind: 'failed',
-    cause: undefined,
-    diagnostic: 'owner mismatch',
-  });
-
-const native = Effect.fnUntraced(function* <S extends Schema.Top>(
-  operation: () => Promise<unknown>,
-  schema: S,
-) {
-  const value = yield* Effect.tryPromise({ try: operation, catch: failureOf });
-  return yield* Schema.decodeUnknownEffect(schema)(value).pipe(
-    Effect.mapError(malformed),
-  );
-});
-
-const encodeDocument = (drafts: readonly Draft[]) =>
+const encodeDocument = (drafts: readonly Draft[], synced: readonly Synced[]) =>
   Schema.encodeEffect(Schema.fromJsonString(DraftDocumentSchema))({
     version: 1,
     drafts,
+    ...(synced.length === 0 ? {} : { synced }),
   }).pipe(Effect.mapError(malformed));
-
-// Locked storage is expected while the device is locked; any other failure is logged.
-const report = (
+const unavailable = (
   error: Readonly<Pick<DraftStorageFailure, 'kind' | 'diagnostic'>>,
 ) =>
-  error.kind === 'locked'
-    ? Effect.void
-    : Effect.logError('Draft storage failed:', error.diagnostic);
+  report(error).pipe(
+    Effect.as<AssetPreview>({
+      kind: error.kind === 'locked' ? 'locked' : 'damaged',
+    }),
+  );
 
 const ownerOf = (snapshot: RegistrationSnapshot) =>
   canOpenInbox(snapshot) && snapshot.kind !== 'signed-out'
@@ -674,9 +603,12 @@ const ownerOf = (snapshot: RegistrationSnapshot) =>
 // The signed-in Product Account's Drafts. Every edit is in memory at once and saved in order;
 // a failed save keeps it in memory, and the next edit or `save` retries. Another Product Account
 // never sees these Drafts: a change of account forgets them and opens that account's own.
+// With `sync`, the Drafts also synchronize through Product Sync: on opening, `delay` milliseconds
+// after edits, and on `sync`.
 export function createDrafts(
   storage: NativeDrafts,
   registration: Pick<Registration, 'subscribe' | 'getSnapshot'>,
+  sync?: DraftSyncOptions,
 ) {
   const semaphore = Semaphore.makeUnsafe(1);
   // Advances with each Product Account opened; work for an earlier one never publishes.
@@ -684,18 +616,20 @@ export function createDrafts(
   let owner: string | undefined = undefined;
   let revision = 0;
   let base: readonly Draft[] = [];
+  // Each Draft's Product Sync record as this device last read or wrote it.
+  let synced: readonly Synced[] = [];
   // Edits in memory that storage does not hold yet.
   let dirty = false;
   let state: DraftsState = { kind: 'closed' };
   let started = false;
-  // Only unsaved versions can move during CAS recovery or an in-flight deletion.
-  // Every editor bound to an unsaved version follows it, and each editor is bound to one version.
-  const pendingMoves = new Map<string, Set<(id: string) => void>>();
-  const bindPending = (id: string, moved: (id: string) => void) => {
-    for (const bindings of pendingMoves.values()) {
+  // Every open editor by the version it edits, saved or not, so a version that synchronization
+  // moves to a conflicting copy takes its editor along.
+  const editors = new Map<string, Set<(id: string) => void>>();
+  const bindEditor = (id: string, moved: (id: string) => void) => {
+    for (const bindings of editors.values()) {
       bindings.delete(moved);
     }
-    pendingMoves.set(id, new Set([...(pendingMoves.get(id) ?? []), moved]));
+    editors.set(id, new Set([...(editors.get(id) ?? []), moved]));
   };
   // Missing identities can keep late edits only within the account that opened them.
   const known = new Set<string>();
@@ -750,20 +684,17 @@ export function createDrafts(
       listener();
     }
   };
-  const rebindPending = (from: string, to: string) => {
+  const rebindEditors = (from: string, to: string) => {
     held.set(to, new Set([...(held.get(to) ?? []), ...(held.get(from) ?? [])]));
-    const bindings = pendingMoves.get(from);
+    const bindings = editors.get(from);
     if (bindings === undefined) {
       return;
     }
-    pendingMoves.delete(from);
-    pendingMoves.set(
-      to,
-      new Set([...(pendingMoves.get(to) ?? []), ...bindings]),
-    );
+    editors.delete(from);
+    editors.set(to, new Set([...(editors.get(to) ?? []), ...bindings]));
     for (const moved of bindings) {
       // An earlier notification may move another editor or invalidate the account.
-      if (pendingMoves.get(to)?.has(moved)) {
+      if (editors.get(to)?.has(moved)) {
         moved(to);
       }
     }
@@ -803,12 +734,10 @@ export function createDrafts(
         return yield* ownerMismatch();
       }
       ({ revision } = opened);
-      base = opened.document?.drafts ?? [];
-      publish({
-        kind: 'ready',
-        drafts: opened.document?.drafts ?? [],
-        save: 'saved',
-      });
+      const { drafts = [], synced: latest = [] } = opened.document ?? {};
+      base = drafts;
+      synced = latest;
+      publish({ kind: 'ready', drafts, save: 'saved' });
     }).pipe(
       // oxlint-disable-next-line promise/prefer-await-to-callbacks -- Effect's typed error channel.
       Effect.catchTag('DraftStorageFailure', (error) =>
@@ -831,9 +760,11 @@ export function createDrafts(
       const latest = opened.document?.drafts ?? [];
       const merged = yield* rebaseDrafts(base, state.drafts, latest);
       base = latest;
+      // The other writer read or wrote Product Sync no earlier than this store's base.
+      synced = opened.document?.synced ?? synced;
       publish({ ...state, drafts: merged.drafts, save: 'saving' }, () => {
         for (const { from, to } of merged.moved) {
-          rebindPending(from, to);
+          rebindEditors(from, to);
         }
       });
     }
@@ -867,7 +798,7 @@ export function createDrafts(
     ) {
       dirty = false;
       const captured = state.drafts;
-      const document = yield* encodeDocument(captured);
+      const document = yield* encodeDocument(captured, synced);
       const expected = revision;
       const outcome = yield* Effect.result(
         native(
@@ -916,12 +847,92 @@ export function createDrafts(
         }
         yield* flush(current, account);
         if (live(current) && state.kind === 'ready' && !dirty) {
-          pendingMoves.clear();
           publish({ ...state, save: 'saved' });
         }
         return live(current) && !dirty;
       }),
     );
+
+  // Product Sync ---------------------------------------------------------------------------------
+
+  // Merges the records Product Sync holds into this device's Drafts. A Draft changed on one side
+  // only takes that side. An edit racing another device's edit or deletion keeps every version:
+  // the record's under the Draft's identifier and this device's as a conflicting copy, which its
+  // editors follow.
+  const adopt = (current: number, account: string, pulled: Pulled) =>
+    Effect.gen(function* (): Effect.fn.Return<
+      ReadonlySet<string> | undefined,
+      DraftStorageFailure
+    > {
+      yield* flush(current, account);
+      if (!live(current) || state.kind !== 'ready') {
+        return undefined;
+      }
+      const { latest, skipped } = readRecords(synced, pulled);
+      const merged = yield* rebaseDrafts(
+        syncedDrafts(synced),
+        state.drafts,
+        syncedDrafts(latest),
+      );
+      const moved = !sameDrafts(merged.drafts, state.drafts);
+      if (!moved && equivalentSynced(latest, synced)) {
+        return skipped;
+      }
+      synced = latest;
+      dirty = true;
+      if (moved) {
+        publish({ ...state, drafts: merged.drafts, save: 'saving' }, () => {
+          for (const { from, to } of merged.moved) {
+            rebindEditors(from, to);
+          }
+        });
+      }
+      yield* flush(current, account);
+      if (!live(current) || dirty || state.kind !== 'ready') {
+        return undefined;
+      }
+      publish({ ...state, save: 'saved' });
+      return skipped;
+    }).pipe(
+      // oxlint-disable-next-line promise/prefer-await-to-callbacks -- Effect's typed error channel.
+      Effect.catchTag('DraftStorageFailure', (error) =>
+        report(error).pipe(
+          Effect.andThen(failed(current, error)),
+          Effect.as(undefined),
+        ),
+      ),
+      semaphore.withPermit,
+    );
+
+  // Stores the records this device wrote as its new base.
+  const recording = (current: number, account: string, written: Synced) =>
+    guarded(
+      current,
+      Effect.gen(function* () {
+        if (!live(current) || state.kind !== 'ready') {
+          return false;
+        }
+        synced = [...synced.filter(({ id }) => id !== written.id), written];
+        dirty = true;
+        yield* flush(current, account);
+        return live(current) && !dirty;
+      }),
+    );
+
+  const { synchronize, schedule } = createDraftSynchronizer(sync, {
+    context: () =>
+      owner === undefined || state.kind !== 'ready'
+        ? undefined
+        : {
+            current: generation,
+            account: owner,
+            drafts: state.drafts,
+            synced,
+          },
+    live,
+    adopt,
+    record: recording,
+  });
 
   // Applies an edit in memory at once, then saves it. An edit started for an earlier Product
   // Account changes nothing.
@@ -948,8 +959,11 @@ export function createDrafts(
       publish({ kind: 'ready', drafts, save: 'saving' }, notify);
       return yield* saving(current);
     });
-  const change = (...args: Readonly<Parameters<typeof changing>>) =>
-    runLogged(changing(...args));
+  const change = async (...args: Readonly<Parameters<typeof changing>>) => {
+    const changed = await runLogged(changing(...args));
+    schedule();
+    return changed;
+  };
 
   // Stores the Drafts without `id`. An edit made to it while that was stored survives as a
   // conflicting copy.
@@ -963,7 +977,7 @@ export function createDrafts(
     }
     publish({ ...state, save: 'saving' });
     const kept = state.drafts.filter((draft) => draft.id !== id);
-    const document = yield* encodeDocument(kept);
+    const document = yield* encodeDocument(kept, synced);
     const retaining = keepOf(state.drafts);
     const committed = yield* native(
       () =>
@@ -997,7 +1011,7 @@ export function createDrafts(
       },
       () => {
         if (copy !== undefined) {
-          rebindPending(id, copy.id);
+          rebindEditors(id, copy.id);
         }
       },
     );
@@ -1075,7 +1089,6 @@ export function createDrafts(
         });
         yield* flush(current, account);
         if (live(current) && state.kind === 'ready') {
-          pendingMoves.clear();
           publish({ ...state, save: 'saved' });
         }
         return live(current);
@@ -1248,8 +1261,9 @@ export function createDrafts(
     owner = next;
     revision = 0;
     base = [];
+    synced = [];
     dirty = false;
-    pendingMoves.clear();
+    editors.clear();
     known.clear();
     held.clear();
     cancelled.clear();
@@ -1258,47 +1272,93 @@ export function createDrafts(
     }
     publish(next === undefined ? { kind: 'closed' } : { kind: 'loading' });
     if (started && next !== undefined) {
-      void runLogged(opening(generation, next));
+      const opened = runLogged(opening(generation, next));
+      void (async () => {
+        await opened;
+        await synchronize();
+      })();
     }
   };
   registration.subscribe(follow);
   follow();
 
-  const readAsset = Effect.fnUntraced(
-    function* (
-      asset: Readonly<{ id: string; digest: string; type: string }>,
-      preview: boolean,
-    ): Effect.fn.Return<AssetPreview, DraftStorageFailure> {
-      const account = owner;
-      if (account === undefined) {
-        return { kind: 'missing' };
-      }
-      const { uri } = yield* native(
-        () =>
-          storage.readDraftAsset(account, {
-            id: asset.id,
-            digest: asset.digest,
-            type: asset.type,
-            preview,
-          }),
-        preview ? PreviewSchema : VerificationSchema,
-      );
-      return uri === undefined || uri === null
-        ? { kind: 'verified' }
-        : { kind: 'ready', uri };
-    },
-    // oxlint-disable-next-line promise/prefer-await-to-callbacks -- Effect's typed error channel.
-    Effect.catchTag('DraftStorageFailure', (error) => {
-      if (rejectionCode(error.cause) === 'attachment-missing') {
-        return Effect.succeed<AssetPreview>({ kind: 'missing' });
-      }
-      return report(error).pipe(
-        Effect.as<AssetPreview>({
-          kind: error.kind === 'locked' ? 'locked' : 'damaged',
+  const readStored = Effect.fnUntraced(function* (
+    account: string,
+    asset: Readonly<{ id: string; digest: string; type: string }>,
+    preview: boolean,
+  ): Effect.fn.Return<AssetPreview, DraftStorageFailure> {
+    const { uri } = yield* native(
+      () =>
+        storage.readDraftAsset(account, {
+          id: asset.id,
+          digest: asset.digest,
+          type: asset.type,
+          preview,
         }),
-      );
-    }),
-  );
+      preview ? PreviewSchema : VerificationSchema,
+    );
+    return uri === undefined || uri === null
+      ? { kind: 'verified' }
+      : { kind: 'ready', uri };
+  });
+
+  // Bytes a synchronized Draft names but this device lacks are downloaded first; until that
+  // succeeds, the asset is incomplete.
+  const download = Effect.fnUntraced(function* (
+    { current, account }: Readonly<{ current: number; account: string }>,
+    asset: Readonly<{ id: string; digest: string; type: string }>,
+    preview: boolean,
+  ): Effect.fn.Return<AssetPreview> {
+    const remote = sync?.native;
+    const listed = syncedAssets(syncedDrafts(synced)).get(
+      `${asset.id}:${asset.digest}`,
+    );
+    if (remote === undefined || listed === undefined) {
+      return { kind: 'missing' };
+    }
+    const fetched = yield* Effect.result(
+      native(() => remote.downloadDraftAsset(account, listed), ImportedSchema),
+    );
+    if (Result.isFailure(fetched)) {
+      if (live(current)) {
+        notifyRemoval(fetched.failure, sync?.removed);
+      }
+      return { kind: 'incomplete' };
+    }
+    if (
+      fetched.success.owner !== account ||
+      fetched.success.digest !== listed.digest
+    ) {
+      return { kind: 'incomplete' };
+    }
+    return yield* readStored(account, asset, preview).pipe(
+      Effect.catchTag('DraftStorageFailure', unavailable),
+    );
+  });
+
+  const readAsset = Effect.fnUntraced(function* (
+    asset: Readonly<{ id: string; digest: string; type: string }>,
+    preview: boolean,
+  ): Effect.fn.Return<AssetPreview> {
+    const current = generation;
+    const account = owner;
+    if (account === undefined) {
+      return { kind: 'missing' };
+    }
+    return yield* readStored(account, asset, preview).pipe(
+      Effect.catchTag('DraftStorageFailure', (error) =>
+        rejectionCode(error.cause) === 'attachment-missing'
+          ? download({ current, account }, asset, preview)
+          : unavailable(error),
+      ),
+    );
+  });
+
+  const importThenPublish = async (asset: Asset, source: AssetSource) => {
+    const outcome = await runLogged(importAsset(asset, source));
+    schedule();
+    return outcome;
+  };
 
   return {
     getSnapshot: () => state,
@@ -1308,16 +1368,15 @@ export function createDrafts(
     prepare,
     // Copies a prepared asset's bytes into Draft storage; every Draft naming it then completes,
     // or fails when the bytes cannot be read or stored.
-    importAsset: (asset: Asset, source: AssetSource) =>
-      runLogged(importAsset(asset, source)),
+    importAsset: importThenPublish,
     // Stops an import; its asset stays in the Draft as cancelled, and is never sent.
-    cancelImport: (id: string) => {
+    cancelImport: async (id: string) => {
       if (!importing.has(id)) {
-        return Promise.resolve(false);
+        return false;
       }
       cancelled.add(id);
       setImporting(id, false);
-      return runLogged(
+      const settled = await runLogged(
         settle(
           generation,
           id,
@@ -1329,6 +1388,8 @@ export function createDrafts(
           })),
         ),
       );
+      schedule();
+      return settled;
     },
     // Attaches files to a Draft that no editor shows yet, such as a received attachment. Resolves
     // true once the Draft holds them, false when the Draft or its account is gone.
@@ -1360,7 +1421,7 @@ export function createDrafts(
         return false;
       }
       for (const { asset, file } of added) {
-        void runLogged(importAsset(asset, file.source));
+        void importThenPublish(asset, file.source);
       }
       return true;
     },
@@ -1430,8 +1491,12 @@ export function createDrafts(
       started = true;
       if (owner !== undefined) {
         await runLogged(opening(generation, owner));
+        void synchronize();
       }
     },
+    // Merges Product Sync into this device's Drafts and publishes this device's changes, such as
+    // when the app returns to the foreground; resolves once no pass is running.
+    sync: synchronize,
     save: () => runLogged(saving(generation)),
     // Starts a Draft sending from `mailbox`; resolves its identifier, or undefined when Draft
     // storage is not open, the mailbox cannot send for the current Product Account, or that
@@ -1514,7 +1579,7 @@ export function createDrafts(
           const conflict = conflictsWith(current, draft, previous);
           const id = conflict ? copyId(draft.id, drafts) : draft.id;
           if (moved !== undefined) {
-            bindPending(id, moved);
+            bindEditor(id, moved);
           }
           if (conflict) {
             copy = id;
@@ -1537,24 +1602,24 @@ export function createDrafts(
     },
     // Stops moving an editor that unmounted; its unsaved edits stay in memory for the next save.
     release: (moved: (id: string) => void) => {
-      for (const [id, bindings] of pendingMoves) {
+      for (const [id, bindings] of editors) {
         bindings.delete(moved);
         if (bindings.size === 0) {
-          pendingMoves.delete(id);
+          editors.delete(id);
         }
       }
     },
     // Deletes the Draft named by `target`, which a function resolves once earlier saves land.
     // `expected` is the version the discarding editor shows; another editor's newer content under
     // the same identifier is kept rather than deleted.
-    discard: (
+    discard: async (
       target: string | (() => string),
       {
         onlyIfEmpty = false,
         expected,
       }: Readonly<{ onlyIfEmpty?: boolean; expected?: () => Draft }> = {},
-    ) =>
-      runLogged(
+    ) => {
+      const removed = await runLogged(
         removing(
           typeof target === 'string' ? () => target : target,
           generation,
@@ -1563,7 +1628,10 @@ export function createDrafts(
             expected,
           },
         ),
-      ),
+      );
+      schedule();
+      return removed;
+    },
   };
 }
 

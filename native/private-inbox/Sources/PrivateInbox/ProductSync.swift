@@ -64,6 +64,10 @@ struct ProductSyncBackend {
       ProductSignInIdentity, ProductRegistrationReceipt, String, EncryptedPayload, EncryptedPayload,
       String, Double
     ) async throws -> Void
+  // One record, or nil when none is stored.
+  var get: (ProductSignInIdentity, ProductRegistrationReceipt, String) async throws -> StoredPayload? =
+    { _, _, _ in throw RegistrationError.unavailable }
+
 }
 
 struct KeyRotation: Equatable {

@@ -392,3 +392,40 @@ continues to span native credential and detached storage work.
 These additions extend the existing flow before ADR 0067's sequenced migration;
 issues #756–#759 still own moving registration and descriptor coordination into
 TypeScript. They do not authorize new native application subsystems.
+
+## Synchronized Draft records and assets
+
+Issue #614 keeps merge orchestration in the framework-independent TypeScript Draft
+store; native `DraftSync` seals/opens and moves ciphertext, with keys retained in
+Apple code. Draft identifiers are account-specific HMAC addresses under `draft.`.
+Each authenticated record carries its Draft identity, write version and semantic
+JSON, or a nil Draft deletion tombstone. The local encrypted document retains the
+last synchronized records, including tombstones, as its three-way merge base and
+version floor. CAS uses Convex's unauthenticated row revision; lower authenticated
+versions and unreadable records are read-only. Removing ciphertext or replaying a
+record to a device that never observed its newer version remains a backend
+availability/rollback limitation, not a cryptographic guarantee.
+
+Immutable assets use account-specific HMAC addresses over asset identity and
+SHA-256 digest, followed by the chunk position. AES-GCM associated data authenticates
+the account, opaque identifier, schema and epoch. The authenticated Draft version
+names each asset's identity, size and digest; this reference binds verified bytes
+to that Draft version while allowing conflict copies and Undo to share immutable
+bytes. Native download opens every chunk in place and verifies total size and
+SHA-256 before storing bytes. Complete references publish only after successful
+upload or verification of already-retained cloud bytes; partial uploads leave the
+local edit pending for a later pass. Missing chunks remain visibly incomplete.
+
+The review decision panel unanimously selected retention over a new atomic
+asset-reference fencing protocol: uploaded asset ciphertext remains until Product
+Account deletion. Deleting chunks based on one device's last read can destroy an
+offline or concurrently published conflict copy's only bytes. No unconditional
+asset deletion endpoint is introduced. Storage growth and safe individual cloud
+reclamation remain follow-up work; local unreferenced-file cleanup is unchanged.
+
+The bridge reads a trusted, published vault and session under the registration
+gate, then releases it for network transfers. Credential-only revocation preflight
+runs before use. Results revalidate current owner/key availability under the gate;
+revoked/deleted responses purge only the same account that began the operation.
+Shared hosts hand the removal back to the registration store. A late rejection
+for an earlier account cannot purge or relabel the current one.

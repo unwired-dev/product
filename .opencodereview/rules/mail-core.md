@@ -96,6 +96,13 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   only the affected owner on forget. Otherwise multi-mailbox Mac windows multiply
   the decoded-pixel/encoded-byte bound or one removal uncharges another live reader.
 
+- `drafts.ts.readAsset` swallowing `mailbox-revoked` from lazy Product Sync asset
+  downloads as an incomplete-file fallback. Hand the same-account rejection to
+  registration just as record synchronization does, while fencing earlier-account
+  results by generation; otherwise native purge leaves the host showing private
+  Drafts under a stale connected account. Exercise the real registration and Draft
+  stores together and assert the closed Draft state, not only a removal callback.
+
 #### Services
 
 - A `Context.Service` introduced where no caller needs a replaceable dependency; a value a closure already owns stays a plain value.

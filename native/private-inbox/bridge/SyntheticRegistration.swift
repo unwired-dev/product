@@ -426,6 +426,9 @@
               epoch: recovery.keyVersion, transition: transition, recovery: recovery,
               verifier: verifier)
           }
+        },
+        get: { [self] _, product, identifier in
+          try state().records[product.productAccountId]?[identifier]
         })
     }
   }

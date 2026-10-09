@@ -300,6 +300,10 @@ import Testing
           loseReply = false
           throw URLError(.networkConnectionLost)
         }
+      },
+      get: { [self] _, product, identifier in
+        try trusted(product)
+        return records[product.productAccountId]?[identifier]
       })
   }
 
