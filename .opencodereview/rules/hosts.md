@@ -13,6 +13,13 @@ A host owns views and native adapters. It renders shared stores from `@private-e
 
 #### React correctness
 
+- `composer.tsx.Editor` eligibility checks repeating whole-document projection
+  through a shared helper such as `draftAssistanceSelection`. Follow render-called
+  helpers, not only the component, and reuse the existing `display` for the same
+  rendered body; otherwise every keystroke allocates the body again before any
+  bounded text check. Press handlers must still use `authored.current` and
+  event-facing selection so reuse does not admit stale input before React commits.
+
 - `message-detail.tsx.AttachToNewMessage` offering creation without an eligible
   sending mailbox or ready Draft storage, or swallowing an unexpected
   `attachReceived` rejection. Keep unavailable-storage feedback and retry in the

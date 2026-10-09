@@ -21,7 +21,8 @@ system language model. There is no cloud or product-backend model fallback.
   the authored body, the display names of the To and Cc recipients and the Draft's
   already-local quoted message. It never reads recipient address fields, Bcc, the
   subject, attachments or Inline Images, and drops every word containing "@" from
-  the names and quoted text, so no raw address, such as the sender in the quoted
+  the names and quoted text. Any word cut at the input bound is dropped too,
+  so no raw address or address fragment, such as the sender in the quoted
   attribution line, reaches the model. It never fetches mail, makes no Gmail
   request and never sends.
 - Recipient context uses a 500-character name prefix, including separators.
@@ -31,7 +32,8 @@ system language model. There is no cloud or product-backend model fallback.
   it. Text over 6,000 characters, or containing an Inline Image, is refused with
   guidance and the Draft is unchanged. The quoted message is cut so the whole reply
   input stays within 6,000 characters (never inside a surrogate pair), and a cut
-  suggestion says so. Requests that leave no room for quoted text are declined
+  suggestion says so. If its only word exceeds the bound, no usable quoted text
+  remains and the request is declined. Requests that leave no room for quoted text are declined
   before inference.
 - The result is an ephemeral preview, marked as written on this device, possibly
   inaccurate and not saved. The Draft is unchanged until **Replace text** (rewrite)

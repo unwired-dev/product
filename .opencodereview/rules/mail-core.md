@@ -104,6 +104,14 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Product behavior the stores own
 
+- `assistance.ts.draftAssistanceSelection` or another shared document helper
+  called during host rendering flattening the whole body to derive a length or
+  other value the caller already holds for that body revision. Trace its render
+  callers and reuse their existing projection; a bounded downstream text read
+  does not bound an earlier flatten. Otherwise every keystroke repeats whole-body
+  allocation and can stall the shared JavaScript runtime for large Drafts. Keep event-time callers
+  tied to their latest authored body rather than a previous render's projection.
+
 - `assistance.ts.replyInput` or `quotedInput` excluding recipient address fields
   while admitting raw addresses embedded in To/Cc display names, quoted
   attribution lines or other admitted source-message text. Check the complete
@@ -114,6 +122,10 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   Charge the cumulative raw recipient-name prefix before redaction; a
   post-redaction length cap can scan the entire recipient list when addresses
   consume no output, multiplying synchronous work beyond the admitted prefix.
+  A cut can omit the "@" while retaining an address fragment. Drop the entire
+  cut whitespace token even when preceding punctuation or text makes it longer
+  than an address local part, and bound before trimming leading whitespace;
+  otherwise a length heuristic or hidden cutoff admits the fragment.
 
 - `readable-text.ts.paragraphBuilder` or another readable-content filter dropping
   an admitted image occurrence because its alt text is empty or whitespace-only.

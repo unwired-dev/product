@@ -1654,7 +1654,11 @@ function Editor({
               !hasAssistableText(
                 selectedText(
                   draft.body,
-                  draftAssistanceSelection('rewrite', draft.body, selection),
+                  draftAssistanceSelection(
+                    'rewrite',
+                    display.text.length,
+                    selection,
+                  ),
                   translationInputLimit + 1,
                 ),
               )
@@ -1665,7 +1669,7 @@ function Editor({
               const { body } = authored.current;
               const at = draftAssistanceSelection(
                 'rewrite',
-                body,
+                () => displayOf(body).text.length,
                 selectionNow.current,
               );
               if (

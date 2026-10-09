@@ -378,12 +378,13 @@ describe('on-device Draft rewrites and reply suggestions', () => {
     const long = replyInput({
       authored: '',
       recipients,
-      quoted: quoted(`Shall we meet? ${'x'.repeat(9000)}`),
+      quoted: quoted(`Shall we meet? ${'some words '.repeat(1000)}`),
     });
-    expect(long?.text).toHaveLength(
+    expect(long?.text.length).toBeLessThanOrEqual(
       // The attribution's address is removed after the cut.
       summaryInputLimit - '<maya@example.invalid>'.length,
     );
+    expect(long?.text).toContain('Shall we meet? some words');
     expect(long?.omitted).toBe(true);
     // Framing and recipient names consume the same budget; never send a reply without context.
     expect(
@@ -418,6 +419,93 @@ describe('on-device Draft rewrites and reply suggestions', () => {
     expect(rewriteInput('a'.repeat(summaryInputLimit + 1))).toBeUndefined();
   });
 
+  it('drops an address cut before its "@" in names and quoted text', () => {
+    expect.hasAssertions();
+    // The name budget ends inside "<maya", before the "@" that marks it as an address.
+    const named = replyInput({
+      authored: '',
+      recipients: [
+        {
+          name: `${'x'.repeat(495)} <maya@example.invalid>`,
+          address: 'maya@example.invalid',
+        },
+      ],
+      quoted: quoted('Hi'),
+    });
+    expect(named?.text).not.toContain('<may');
+    const head = 'Recipients: \n\nReply so far:\n\n\nMessage being answered:\n';
+    const budget = summaryInputLimit - head.length;
+    // The quoted budget ends inside "<maya" too.
+    const cut = replyInput({
+      authored: '',
+      recipients: [],
+      quoted: [
+        {
+          kind: 'quote',
+          spans: [
+            { text: `${'q'.repeat(budget - 3)} <maya@example.invalid> more` },
+          ],
+        },
+      ],
+    });
+    expect(cut?.text.startsWith(head)).toBe(true);
+    expect(cut?.text).not.toContain('<m');
+    expect(cut?.omitted).toBe(true);
+  });
+
+  it('drops cut address fragments in long tokens and after leading whitespace', () => {
+    expect.hasAssertions();
+    const head = 'Recipients: \n\nReply so far:\n\n\nMessage being answered:\n';
+    const budget = summaryInputLimit - head.length;
+    for (const prefix of ['From:<', `${'x'.repeat(70)}<`]) {
+      const fragment = prefix + 'm'.repeat(64);
+      const named = replyInput({
+        authored: '',
+        recipients: [
+          {
+            name: `${'x'.repeat(499 - fragment.length)} ${fragment}@example.invalid>`,
+            address: 'maya@example.invalid',
+          },
+        ],
+        quoted: quoted('Hi'),
+      });
+      expect(named?.text).toContain('Message being answered:');
+      expect(named?.text).not.toContain(fragment);
+      const cut = replyInput({
+        authored: '',
+        recipients: [],
+        quoted: [
+          {
+            kind: 'quote',
+            spans: [
+              {
+                text: `${'q'.repeat(budget - fragment.length - 1)} ${fragment}@example.invalid>`,
+              },
+            ],
+          },
+        ],
+      });
+      expect(cut?.text.startsWith(head)).toBe(true);
+      expect(cut?.text).not.toContain(fragment);
+      expect(cut?.omitted).toBe(true);
+    }
+    const spaced = replyInput({
+      authored: '',
+      recipients: [],
+      quoted: [
+        {
+          kind: 'quote',
+          spans: [
+            { text: ` ${'q'.repeat(budget - 5)} <maya@example.invalid>` },
+          ],
+        },
+      ],
+    });
+    expect(spaced?.text.startsWith(head)).toBe(true);
+    expect(spaced?.text).not.toContain('<m');
+    expect(spaced?.omitted).toBe(true);
+  });
+
   it('stops reading quoted spans and recipient names even when the name prefix is redacted', () => {
     expect.hasAssertions();
     const reply = replyInput({
@@ -435,7 +523,7 @@ describe('on-device Draft rewrites and reply suggestions', () => {
         },
       ],
       quoted: [
-        { kind: 'paragraph', spans: [{ text: 'q'.repeat(100_000) }] },
+        { kind: 'paragraph', spans: [{ text: 'q '.repeat(50_000) }] },
         {
           kind: 'paragraph',
           get spans(): SemanticDocument[number]['spans'] {
@@ -444,8 +532,25 @@ describe('on-device Draft rewrites and reply suggestions', () => {
         },
       ],
     });
-    expect(reply?.text).toHaveLength(summaryInputLimit);
+    expect(reply?.text.length).toBeLessThanOrEqual(summaryInputLimit);
+    expect(reply?.text).toContain('q q q');
     expect(reply?.omitted).toBe(true);
+  });
+
+  it('declines a reply when its only quoted word exceeds the input bound', () => {
+    expect.hasAssertions();
+    expect(
+      replyInput({
+        authored: '',
+        recipients: [],
+        quoted: [
+          {
+            kind: 'quote',
+            spans: [{ text: 'x'.repeat(9000) }],
+          },
+        ],
+      }),
+    ).toBeUndefined();
   });
 
   it('keeps address-redacted recipient context well-formed at the name bound', async () => {

@@ -373,13 +373,14 @@ export type CapturedDraftText = Readonly<{
 }>;
 
 // Rewrite defaults to the whole body; a reply suggestion always replaces the whole body.
+// Render callers supply their displayed length; event callers project only when needed.
 export const draftAssistanceSelection = (
   purpose: CapturedDraftText['purpose'],
-  body: Draft['body'],
+  length: number | (() => number),
   at: Selection,
 ): Selection =>
   purpose === 'reply' || (purpose === 'rewrite' && at.start === at.end)
-    ? { start: 0, end: displayOf(body).text.length }
+    ? { start: 0, end: typeof length === 'number' ? length : length() }
     : at;
 
 // Only Reply and Reply All Drafts with local quoted correspondence admit a reply suggestion.
@@ -412,6 +413,22 @@ const withoutAddresses = (text: string) =>
     .filter((word) => !word.includes('@'))
     .join('');
 
+// Drop a cut word regardless of length: it may contain an address whose "@" was left out.
+function redactedBoundedInput(text: string, limit: number): SummaryInput {
+  const bounded = boundedInput(text, limit);
+  const cut = bounded.text.length;
+  let start = cut;
+  if (bounded.omitted && /\S/u.test(text[cut] ?? '')) {
+    while (start > 0 && /\S/u.test(bounded.text[start - 1] ?? '')) {
+      start -= 1;
+    }
+  }
+  return {
+    text: withoutAddresses(bounded.text.slice(0, start)),
+    omitted: bounded.omitted,
+  };
+}
+
 // Read only the quoted prefix plus one lookahead character, excluding semantic images.
 function quotedInput(quoted: SemanticDocument, limit: number): SummaryInput {
   const pieces = function* () {
@@ -432,7 +449,7 @@ function quotedInput(quoted: SemanticDocument, limit: number): SummaryInput {
     }
   }
   return {
-    text: withoutAddresses(boundedInput(text.trim(), limit).text).trim(),
+    text: redactedBoundedInput(text, limit).text.trim(),
     omitted: text.length > limit,
   };
 }
@@ -463,7 +480,7 @@ export function replyInput({
     }
   }
   // Bound the raw prefix before redaction; removed addresses never refill its budget.
-  const shown = withoutAddresses(boundedInput(names, 500).text).trim();
+  const shown = redactedBoundedInput(names, 500).text.trim();
   const head = `Recipients: ${shown}\n\nReply so far:\n${authored.trim()}\n\nMessage being answered:\n`;
   const budget = summaryInputLimit - head.length;
   if (budget <= 0) {
@@ -486,7 +503,11 @@ export function captureDraftText(
   draft: Draft,
   at: Selection,
 ): CapturedDraftText {
-  const selection = draftAssistanceSelection(purpose, draft.body, at);
+  const selection = draftAssistanceSelection(
+    purpose,
+    () => displayOf(draft.body).text.length,
+    at,
+  );
   const text = selectedText(draft.body, selection, summaryInputLimit + 1);
   let input: DraftAssistanceInput | undefined = undefined;
   if (purpose === 'rewrite') {
