@@ -39,7 +39,12 @@
     "markRead": "Mark as read",
     "markUnread": "Mark as unread",
     "received": "{{date}} UTC",
-    "labels": "Labels: {{labels}}"
+    "labels": "Labels: {{labels}}",
+    "reply": "Reply",
+    "replyAll": "Reply All",
+    "forward": "Forward",
+    "preparingForward": "Preparing to forward…",
+    "respondFailed": "A reply or forward could not be started. Try again."
   },
   "language": {
     "title": "Language",
@@ -555,6 +560,17 @@
         "locked": "{{size}} · Not checked while private storage is locked"
       },
       "retryLabel": "Check {{name}} again"
+    },
+    "response": {
+      "wrote": "On {{date}}, {{sender}} wrote:",
+      "forwarded": "---------- Forwarded message ---------",
+      "forwardedFrom": "From: {{value}}",
+      "forwardedDate": "Date: {{value}}",
+      "forwardedSubject": "Subject: {{value}}",
+      "forwardedTo": "To: {{value}}",
+      "forwardedCc": "Cc: {{value}}",
+      "showQuoted": "Show quoted text",
+      "hideQuoted": "Hide quoted text"
     }
   }
 }

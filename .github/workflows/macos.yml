@@ -32,6 +32,9 @@ jobs:
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile --strict-peer-dependencies
+      - uses: ruby/setup-ruby@14594264cd68ce8a2345dd349bc3d138a4ef85c8 # v1
+        with:
+          ruby-version: '3.3.12'
       - run: pnpm --filter @private-email/macos fallow
       - run: pnpm --filter @private-email/macos build
       - run: pnpm --filter @private-email/macos verify:bundle

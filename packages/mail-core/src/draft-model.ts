@@ -14,6 +14,27 @@ const RecipientSchema = Schema.Struct({
 });
 export type Recipient = typeof RecipientSchema.Type;
 
+// What a reply or forward answers: the received message and, for a reply, the RFC 5322 threading
+// headers the sent reply carries and the Gmail thread of the mailbox that received it. A forward
+// starts a conversation of its own.
+const ResponseSchema = Schema.Union([
+  Schema.Struct({
+    kind: Schema.Literals(['reply', 'replyAll']),
+    message: Schema.NonEmptyString,
+    thread: Schema.Struct({
+      connection: Schema.NonEmptyString,
+      id: Schema.NonEmptyString,
+    }),
+    inReplyTo: Schema.optionalKey(Schema.NonEmptyString),
+    references: Schema.Array(Schema.NonEmptyString),
+  }),
+  Schema.Struct({
+    kind: Schema.Literal('forward'),
+    message: Schema.NonEmptyString,
+  }),
+]);
+export type Response = typeof ResponseSchema.Type;
+
 // An unsent outgoing message kept on this device until it is discarded. It names the Mailbox
 // Connection it sends from and that connection's address when chosen, so a later removal never
 // silently substitutes another sender.
@@ -39,6 +60,10 @@ export const DraftSchema = Schema.Struct({
   body: SemanticDocumentSchema,
   // Files attached apart from the body's inline images, in the order added.
   attachments: Schema.optionalKey(Schema.Array(AssetSchema)),
+  // The received message a reply or forward answers, in the Draft's own Mailbox Connection.
+  response: Schema.optionalKey(ResponseSchema),
+  // The answered correspondence, kept apart from the authored body and never edited with it.
+  quoted: Schema.optionalKey(SemanticDocumentSchema),
   // Milliseconds since 1970 of the last edit.
   updatedAt: Schema.Finite,
 });
@@ -68,10 +93,12 @@ export type SyncedAsset = Readonly<{
   size: number;
 }>;
 
-// Every asset of a Draft: its attachments, then its inline images in reading order.
+// Every asset of a Draft: its attachments, then its inline images in reading order, the quoted
+// correspondence's last.
 export const assetsOf = (draft: Draft): readonly Asset[] => [
   ...(draft.attachments ?? []),
   ...imagesOf(draft.body),
+  ...(draft.quoted === undefined ? [] : imagesOf(draft.quoted)),
 ];
 
 // The complete assets a Draft names, as Product Sync stores them.

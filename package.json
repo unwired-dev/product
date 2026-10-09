@@ -25,7 +25,7 @@
     "test:native-runner": "node --test scripts/native-runner.test.mjs scripts/mock-mail-runner.test.mjs scripts/testflight.test.mjs",
     "test:native:ios": "turbo run test:native --filter=@private-email/mobile --",
     "test:native:macos": "turbo run test:native --filter=@private-email/macos --",
-    "test:tooling": "node --test scripts/oxlint-effect-imports.test.mjs scripts/oxlint-effect-boundaries.test.mjs scripts/opencodereview-rules.test.mjs",
+    "test:tooling": "node --test scripts/oxlint-effect-imports.test.mjs scripts/oxlint-effect-boundaries.test.mjs scripts/opencodereview-rules.test.mjs scripts/native-autolinking.test.mjs",
     "testflight": "node scripts/testflight-env.mjs",
     "verify:bundle": "turbo run verify:bundle",
     "version-packages": "changeset version"

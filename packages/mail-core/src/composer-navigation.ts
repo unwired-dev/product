@@ -14,7 +14,11 @@ export interface ComposerNavigation {
   readonly create: (
     drafts: Pick<Drafts, 'create' | 'abandon'>,
     mailbox: Pick<MailboxConnection, 'id' | 'address'>,
-    prepare?: (id: string) => Promise<boolean>,
+    preparation?: Readonly<{
+      prepare?: (id: string) => Promise<boolean>;
+      // Preparation before creation, within the initiating account and navigation lifetime.
+      before?: () => Promise<boolean>;
+    }>,
   ) => Promise<string | undefined>;
   readonly attachReceived: (
     drafts: Pick<Drafts, 'create' | 'abandon' | 'attach'>,
@@ -54,13 +58,13 @@ export function createComposerNavigation(): ComposerNavigation {
   const create: ComposerNavigation['create'] = async (
     drafts,
     mailbox,
-    prepare,
+    { prepare, before } = {},
   ) => {
     let turn = navigations;
     const id = await drafts.create(mailbox, async () => {
       const allowed = await leave();
       turn = navigations;
-      return allowed;
+      return allowed && ((await before?.()) ?? true) && navigations === turn;
     });
     if (id === undefined) {
       return id;
@@ -99,23 +103,24 @@ export function createComposerNavigation(): ComposerNavigation {
       if (sender === undefined) {
         return undefined;
       }
-      return create(drafts, sender, (id) =>
-        drafts.attach(id, [
-          {
-            name: saved.name,
-            type: saved.type,
-            source: {
-              kind: 'received',
-              mailbox: {
-                connection: mailbox,
-                address: saved.address,
-                generation: saved.generation,
+      return create(drafts, sender, {
+        prepare: (id) =>
+          drafts.attach(id, [
+            {
+              name: saved.name,
+              type: saved.type,
+              source: {
+                kind: 'received',
+                mailbox: {
+                  connection: mailbox,
+                  address: saved.address,
+                  generation: saved.generation,
+                },
+                file: saved.file,
               },
-              file: saved.file,
             },
-          },
-        ]),
-      );
+          ]),
+      });
     },
   };
 }

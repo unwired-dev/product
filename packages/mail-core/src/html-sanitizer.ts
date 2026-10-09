@@ -1552,6 +1552,7 @@ const whiteSpaceIn = (
 export function sanitizeHtml(
   html: string,
   images: ReadonlyMap<string, InlineImage> = new Map(),
+  preserveImages = false,
 ): SanitizedHtml {
   const builder = paragraphBuilder();
   const contentIds: string[] = [];
@@ -1675,9 +1676,13 @@ export function sanitizeHtml(
 
   // Descriptions stay in the readable fallback. Only placeholder descriptions are painted;
   // admitted image alt text supplies a rich link label when there is no painted text.
-  const describeImage = (alt: string, painted = true) => {
-    if (readableNow()) {
-      builder.add(altText(alt), link?.href);
+  const describeImage = (alt: string, painted = true, contentId?: string) => {
+    if (readableNow() || (preserveImages && contentId !== undefined)) {
+      builder.add(
+        altText(alt),
+        link?.href,
+        preserveImages ? contentId : undefined,
+      );
       if (link !== undefined) {
         if (painted) {
           link.text += altText(alt);
@@ -1745,7 +1750,7 @@ export function sanitizeHtml(
       return;
     }
     output += `<img${attributes(element, style)} src="data:${admittedImage.mimeType};base64,${admittedImage.data}">`;
-    describeImage(alt, false);
+    describeImage(alt, false, admittedImage.contentId);
   };
 
   const anchor = (element: Element, style: FilteredStyle) => {

@@ -13,6 +13,7 @@ import type {
   BlockKind,
   Mark,
   Selection,
+  SemanticDocument,
 } from '@private-email/mail-core/semantic-document';
 import type {
   KeyEvent,
@@ -35,12 +36,14 @@ import {
   unsendableAssets,
   prepareFiles,
   withAsset,
+  withSender,
 } from '@private-email/mail-core/drafts';
 import {
   applyText,
   blockKindAt,
   displayOf,
   historyOf,
+  imageCharacter,
   imagesOf,
   marksAt,
   clip,
@@ -130,6 +133,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
   },
   notice: { fontSize: 14 },
+  quoted: { fontSize: 15, lineHeight: 22, paddingVertical: 8 },
   choice: {
     minHeight: 44,
     justifyContent: 'center',
@@ -927,7 +931,14 @@ function DraftAssets({
   const { t } = useLocalization();
   const running = useSyncExternalStore(store.subscribe, store.getImports);
   const attachments = draft.attachments ?? [];
-  const images = imagesOf(draft.body);
+  const images = [
+    ...new Map(
+      [
+        ...imagesOf(draft.body),
+        ...(draft.quoted === undefined ? [] : imagesOf(draft.quoted)),
+      ].map((asset) => [asset.id, asset]),
+    ).values(),
+  ];
   if (attachments.length + images.length === 0) {
     return null;
   }
@@ -973,6 +984,36 @@ function DraftAssets({
         </View>
       ) : null}
       {rows(images, true)}
+    </View>
+  );
+}
+
+// A reply's or forward's quoted correspondence, read-only beneath the authored body when shown.
+function QuotedText({ quoted }: { readonly quoted: SemanticDocument }) {
+  const colors = usePalette();
+  const { t } = useLocalization();
+  const [shown, setShown] = useState(false);
+  return (
+    <View>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityState={{ expanded: shown }}
+        onPress={() => {
+          setShown((current) => !current);
+        }}>
+        <Text style={[styles.notice, { color: colors.accent }]}>
+          {shown
+            ? t('drafts.response.hideQuoted')
+            : t('drafts.response.showQuoted')}
+        </Text>
+      </Pressable>
+      {shown ? (
+        <Text
+          selectable
+          style={[styles.quoted, { color: colors.secondary }]}>
+          {displayOf(quoted).text.replaceAll(imageCharacter, '')}
+        </Text>
+      ) : null}
     </View>
   );
 }
@@ -1203,6 +1244,9 @@ function Editor({
     change({
       ...latest,
       body: withoutImage(latest.body, id),
+      ...(latest.quoted === undefined
+        ? {}
+        : { quoted: withoutImage(latest.quoted, id) }),
       ...(latest.attachments === undefined
         ? {}
         : {
@@ -1520,11 +1564,7 @@ function Editor({
         <SendingMailbox
           draft={draft}
           onChange={(mailbox) => {
-            change({
-              ...authored.current,
-              connection: mailbox.id,
-              from: mailbox.address,
-            });
+            change(withSender(authored.current, mailbox));
           }}
         />
         <Recipients
@@ -1755,6 +1795,9 @@ function Editor({
             </Text>
           ))}
         </TextInput>
+        {draft.quoted === undefined ? null : (
+          <QuotedText quoted={draft.quoted} />
+        )}
         <DraftAssets
           draft={draft}
           onCancel={(id) => {

@@ -1,8 +1,6 @@
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
-import path from 'node:path';
 
 import * as Schema from 'effect/Schema';
 
@@ -69,34 +67,6 @@ for (const source of sources) {
     assert.match(source, /react-native-macos@0\.81\.9[/_]/u);
   }
 }
-const nativeDependencies = Schema.Record(Schema.String, Schema.Unknown);
-const autolinkingSchema = Schema.fromJsonString(
-  Schema.Struct({
-    root: Schema.String,
-    reactNativePath: Schema.String,
-    dependencies: nativeDependencies,
-  }),
-);
-const autolinking = Schema.decodeSync(autolinkingSchema)(
-  execFileSync('pnpm', ['exec', 'react-native', 'config'], {
-    cwd: new URL('../', import.meta.url),
-    encoding: 'utf8',
-  }),
-);
-assert.equal(
-  autolinking.reactNativePath,
-  path.dirname(require.resolve('react-native-macos/package.json')),
-);
-assert.equal(
-  autolinking.root,
-  path.dirname(require.resolve('../package.json')),
-);
-// The isolated WebKit message reader is the only autolinked module.
-assert.deepEqual(
-  Object.keys(autolinking.dependencies),
-  ['react-native-webview'],
-  'Review native modules before expanding the Mac autolinking scope.',
-);
 // Registration scenarios substitute a native provider only; their JavaScript stays production.
 const scenario: unknown = process.env.UNWIRED_MOCK_SCENARIO;
 const nativeOnly =
@@ -110,5 +80,5 @@ assert.equal(
   'Mock providers must appear only in explicitly selected test bundles.',
 );
 process.stdout.write(
-  `Verified ${sources.length} Mac sources, shared fixture and host-only autolinking.\n`,
+  `Verified ${sources.length} Mac sources and shared fixture.\n`,
 );

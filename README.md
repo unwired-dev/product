@@ -31,6 +31,7 @@ One root workspace and lockfile use a shared catalog and named `mobile` and `mac
 ## Local development
 
 Use mise, Node 24, and the exact pnpm version in `package.json`, currently 11.5.2.
+The mise-managed Ruby is required for Mac Podfile verification and tooling tests.
 Expo builds need the Xcode toolchain and simulator runtime documented in
 [Expo setup](docs/expo-client.md#install-and-run).
 
@@ -66,7 +67,7 @@ Turborepo runs the app and backend tasks from the repository root:
 | `mise exec -- pnpm native:build:macos`      | The Release Mac app; pass `Debug` or `Testing` instead    |
 | `mise exec -- pnpm dev:convex`              | Convex development against the root `.env.local`          |
 | `mise exec -- pnpm build`                   | Both production JavaScript bundles                        |
-| `mise exec -- pnpm verify:bundle`           | Both bundles, then their bundle checks                    |
+| `mise exec -- pnpm verify:bundle`           | Both bundles, then their bundle and autolinking checks    |
 | `mise exec -- pnpm native:generate`         | Both generated native projects                            |
 | `mise exec -- pnpm test:native:ios <app>`   | The iOS native runner for a built `.app`                  |
 | `mise exec -- pnpm test:native:macos <app>` | The Mac native runner for a built `.app`                  |

@@ -2762,3 +2762,109 @@ describe('adding files and images to a Draft', () => {
   });
   /* oxlint-enable vitest/max-expects */
 });
+
+describe('replying to and forwarding from the reader', () => {
+  /* oxlint-disable vitest/max-expects -- One journey from the reader through the composer. */
+  it('opens Reply All in the composer with quoted text kept apart, and edits it without sending', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const gmail = createSyntheticGmail({ messages: 0 });
+    const message = gmail.deliver({
+      subject: 'Plans',
+      content: { text: 'Shall we meet on Friday?' },
+      headers: {
+        To: 'alex@example.invalid, Bob <bob@example.invalid>',
+        Cc: 'carol@example.invalid',
+        'Message-ID': '<plans@example.invalid>',
+      },
+    });
+    const drafts = createDrafts(storage.native, registration);
+    await render(
+      <ReaderApp
+        drafts={drafts}
+        gmail={gmail}
+        message={message}
+        registration={registration}
+      />,
+    );
+    await press('Reply All');
+    await expect(screen.findByLabelText('Subject')).resolves.toHaveProp(
+      'value',
+      'Re: Plans',
+    );
+    const [draft] = draftsOf(drafts.getSnapshot());
+    expect(draft).toMatchObject({
+      connection: alex,
+      from: 'alex@example.invalid',
+      to: [
+        { name: 'Maya Chen', address: 'maya@example.invalid' },
+        { name: 'Bob', address: 'bob@example.invalid' },
+      ],
+      cc: [{ address: 'carol@example.invalid' }],
+      response: { kind: 'replyAll', inReplyTo: '<plans@example.invalid>' },
+    });
+    // Reply All reveals its populated Cc; the quoted text stays out of the editable body.
+    expect(screen.getByLabelText('Cc')).toBeOnTheScreen();
+    expect(screen.getByLabelText('Message body')).toHaveTextContent('');
+    expect(screen.queryByText(/Shall we meet/u)).not.toBeOnTheScreen();
+    await press('Show quoted text');
+    expect(screen.getByText(/Shall we meet on Friday\?/u)).toBeOnTheScreen();
+
+    await fireEvent.changeText(screen.getByLabelText('Message body'), 'Yes!');
+    await press('Undo');
+    expect(screen.getByLabelText('Message body')).toHaveTextContent('');
+    await press('Redo');
+    expect(screen.getByLabelText('Message body')).toHaveTextContent('Yes!');
+    await press('Hide quoted text');
+    expect(screen.queryByText(/Shall we meet/u)).not.toBeOnTheScreen();
+    await press('Close');
+    // Closing keeps the reply as a Draft; nothing was sent.
+    await waitFor(() => {
+      expect(storage.stored()?.document).toContain('Yes!');
+    });
+    expect(draftsOf(drafts.getSnapshot())[0]?.quoted).toStrictEqual(
+      draft?.quoted,
+    );
+  });
+
+  it('starts only the first queued response and ignores its old reader callback', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const gmail = createSyntheticGmail({ messages: 0 });
+    const message = gmail.deliver({
+      subject: 'Plans',
+      content: { text: 'Forward me.' },
+    });
+    const drafts = createDrafts(storage.native, registration);
+    await render(
+      <ReaderApp
+        drafts={drafts}
+        gmail={gmail}
+        message={message}
+        registration={registration}
+      />,
+    );
+    await screen.findByRole('button', { name: 'Forward' });
+    const forward = queuedPress('Forward');
+    const reply = queuedPress('Reply');
+    await act(() => {
+      forward();
+      reply();
+      forward();
+    });
+    await expect(screen.findByLabelText('Subject')).resolves.toHaveProp(
+      'value',
+      'Fwd: Plans',
+    );
+    expect(draftsOf(drafts.getSnapshot())).toHaveLength(1);
+    await act(() => {
+      reply();
+    });
+    await drafts.save();
+    expect(draftsOf(drafts.getSnapshot())).toHaveLength(1);
+    expect(draftsOf(drafts.getSnapshot())[0]?.response?.kind).toBe('forward');
+  });
+  /* oxlint-enable vitest/max-expects */
+});

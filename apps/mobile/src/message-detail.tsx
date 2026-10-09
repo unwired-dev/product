@@ -1,8 +1,16 @@
+import type { ResponseKind } from '@private-email/mail-core/responses';
 import type { ReactNode } from 'react';
 
 import { sendingMailboxes } from '@private-email/mail-core/drafts';
+import { startResponse } from '@private-email/mail-core/responses';
 import { spacing } from '@private-email/mail-core/theme';
-import { use, useLayoutEffect, useRef, useState } from 'react';
+import {
+  use,
+  useLayoutEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -57,6 +65,12 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   sender: { fontSize: 16, fontWeight: '600' },
+  responses: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.large,
+    marginTop: spacing.large,
+  },
   secondary: { fontSize: 14, lineHeight: 21 },
   body: { fontSize: 17, lineHeight: 28, marginTop: spacing.large },
   empty: {
@@ -224,6 +238,7 @@ export function MessageDetail({
     <MailboxMessage
       id={id}
       onClose={onClose}
+      onCompose={onCompose}
     />
   );
   return (
@@ -254,12 +269,143 @@ const shownMessage = (state: ReturnType<typeof useInbox>, id: string) => {
   );
 };
 
+// Reply, Reply All and Forward, once an opened Gmail message's body and headers are read. A
+// response always sends from the reader's own mailbox; one that cannot send offers none.
+function ResponseActions({
+  message,
+  onCompose,
+}: {
+  readonly message: NonNullable<ReturnType<typeof shownMessage>>;
+  readonly onCompose: ((id: string) => void) | undefined;
+}) {
+  const inbox = useInboxActions();
+  const store = useDraftStore();
+  const drafts = useDrafts();
+  const navigation = useComposerNavigation();
+  const account = use(AccountContext);
+  const mailbox = useMailbox();
+  const colors = usePalette();
+  const { t } = useLocalization();
+  const dateFormat = useMessageDateFormat(true);
+  const mounted = useRef(true);
+  const starting = useRef(false);
+  const [pending, setPending] = useState<ResponseKind | undefined>();
+  const [failed, setFailed] = useState(false);
+  const source = useSyncExternalStore(inbox.subscribe, () =>
+    'responseSource' in inbox ? inbox.responseSource(message.id) : undefined,
+  );
+  useLayoutEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  const sender = sendingMailboxes(account?.mailboxes ?? []).find(
+    ({ id }) => id === mailbox?.id,
+  );
+  if (
+    !('readMessage' in inbox) ||
+    !('threadId' in message) ||
+    onCompose === undefined ||
+    sender === undefined ||
+    source === undefined ||
+    drafts.kind !== 'ready'
+  ) {
+    return null;
+  }
+  const received = t('message.received', {
+    date: dateFormat.format(new Date(message.receivedAt)),
+  });
+  const start = async (kind: ResponseKind) => {
+    if (
+      !mounted.current ||
+      starting.current ||
+      inbox.responseSource(message.id) !== source
+    ) {
+      return;
+    }
+    starting.current = true;
+    setPending(kind);
+    setFailed(false);
+    try {
+      const draft = await startResponse(
+        { navigation, drafts: store, inbox },
+        t,
+        {
+          kind,
+          mailbox: sender,
+          message,
+          received,
+          mailboxes: account?.mailboxes ?? [sender],
+          current: () => mounted.current,
+        },
+      );
+      if (mounted.current && draft !== undefined) {
+        onCompose(draft);
+      }
+    } catch {
+      // The reader stays usable when an unexpected host operation rejects, and says so.
+      if (mounted.current) {
+        setFailed(true);
+      }
+    }
+    // Not in `finally`: React Compiler cannot compile a finally clause.
+    starting.current = false;
+    if (mounted.current) {
+      setPending(undefined);
+    }
+  };
+  const actions = [
+    ['reply', t('message.reply')],
+    ['replyAll', t('message.replyAll')],
+    ['forward', t('message.forward')],
+  ] as const;
+  return (
+    <View>
+      <View style={styles.responses}>
+        {actions.map(([kind, label]) => (
+          <Pressable
+            key={kind}
+            accessibilityRole="button"
+            accessibilityLabel={label}
+            accessibilityState={{ disabled: pending !== undefined }}
+            disabled={pending !== undefined}
+            onPress={() => {
+              void start(kind);
+            }}>
+            <Text style={[styles.secondary, { color: colors.accent }]}>
+              {label}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
+      {pending === 'forward' ? (
+        <Text
+          accessibilityLiveRegion="polite"
+          style={[styles.secondary, { color: colors.secondary }]}>
+          {t('message.preparingForward')}
+        </Text>
+      ) : null}
+      {failed ? (
+        <Text
+          accessibilityLiveRegion="polite"
+          accessibilityRole="alert"
+          style={[styles.secondary, { color: colors.foreground }]}>
+          {t('message.respondFailed')}
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+
 function MailboxMessage({
   id,
   onClose,
+  onCompose,
 }: {
   readonly id: string;
   readonly onClose: (() => void) | undefined;
+  readonly onCompose: ((id: string) => void) | undefined;
 }) {
   const state = useInbox();
   const actions = useInboxActions();
@@ -383,6 +529,11 @@ function MailboxMessage({
                 </Text>
               )}
             </View>
+            <ResponseActions
+              key={`${address}:${message.id}`}
+              message={message}
+              onCompose={onCompose}
+            />
             {'readMessage' in actions ? (
               <GmailMessageBody
                 key={message.id}
