@@ -26,7 +26,7 @@ The permanent **Mail View** that shows every Thread in the selected mailbox scop
 _Avoid_: All Mail, All emails
 
 **Catch Up**:
-A chat-style presentation of the Inbox that shows each message as one bubble, newest at the bottom, with its **Background Message Summary** or preview. It is an alternative to the message list, not a **Mail View**, and shares the same mail and state. Planned; see [Catch Up](../catch-up.md).
+A planned chat-style presentation of the Inbox that shows each message as one bubble with its **Background Message Summary** or preview. It is an alternative to the message list, not a **Mail View**; see the [Catch Up requirements](../catch-up.md).
 _Avoid_: Chat View, group chat, Conversation Feed, digest
 
 **Pin**:

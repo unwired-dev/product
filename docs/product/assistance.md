@@ -19,7 +19,7 @@ implemented.
 
 ## Assistance inputs, previews and acceptance
 
-- **Mail Assistance Enablement** is a **Device-Local Preference** scoped to one Product Account and Mail Profile. It defaults off independently on every device, never synchronizes, permits only explicit assistance actions and [Background Message Summaries](../catch-up.md#summaries), and remains usable during **Quiet State**
+- **Mail Assistance Enablement** is a **Device-Local Preference** scoped to one Product Account and Mail Profile. It defaults off independently on every device, never synchronizes, is cleared when the Product Account is removed, permits only explicit assistance actions and [Background Message Summaries](../catch-up.md#summaries), and remains usable during **Quiet State**
 - **Compose Assistance** admits only the authored **Semantic Message Document**, current selection, separate subject, and parsed recipient display identities. It excludes signatures, quoted correspondence, attachments, source Thread content, **Remote Message Content**, and delivery actions; proofreading is mechanical, while every rewrite preserves facts, questions, commitments, dates, amounts, links, quotes, meaning, and surrounding formatting or asks for clarification
 - Ask Compose Assistance uses the current selection when present and otherwise only the authored body; Draft from Prompt previews insertion at the caret without overwriting existing text; Rewrite Selection, Proofread, Shorten, and Change Tone require a selection; Suggest Subject reads the authored body and previews a separate subject
 - **Compose Assistance** previews and refinements remain ephemeral outside the editor. Dismissal destroys their transcript, source changes invalidate them, and explicit Insert or Replace creates one undoable authored-body edit. Accepted content becomes ordinary encrypted Draft content without an assistance marker and never sends automatically
@@ -35,17 +35,10 @@ implemented.
 
 ## Background Message Summaries
 
-Planned [Catch Up](../catch-up.md#summaries) summaries are the sole exception to
-per-message invocation and ephemeral summary storage, recorded in
-[ADR 0068](../adr/0068-allow-device-local-background-message-summaries.md). They require device-local,
-default-off Mail Assistance Enablement, use only bounded already-local new
-message text with quoted history removed, and never fetch additional content for
-inference. Their results remain in the encrypted local cache beside the message,
-are deleted with it and never enter Product Sync, servers, provider mail or Drafts.
-Owner and input-revision checks apply before display or storage; disabling
-assistance or losing account or Profile access cancels active work and rejects
-late results, and changed source text invalidates the summary. Disabled or
-unavailable assistance leaves previews and ordinary mail usable.
+The [Catch Up requirements](../catch-up.md#summaries) own the planned Background
+Message Summary behavior, including inputs, enablement, local retention,
+cancellation and preview fallback. [ADR 0068](../adr/0068-allow-device-local-background-message-summaries.md)
+records this exception to explicit invocation and ephemeral summary storage.
 
 ## Profile lock and assistance
 

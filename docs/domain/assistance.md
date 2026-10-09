@@ -19,7 +19,7 @@ Help for composing, responding to, understanding, or transforming mail through A
 _Avoid_: Email assistant, cloud inference
 
 **Mail Assistance Enablement**:
-A device-local opt-in scoped to one Product Account and Mail Profile that permits explicit On-Device Mail Assistance actions and **Background Message Summaries**. It defaults off independently on every device, starts no inference by itself other than Background Message Summaries, and is cleared when the Product Account is removed.
+A device-local, default-off opt-in scoped to one Product Account and Mail Profile that permits explicit On-Device Mail Assistance actions and **Background Message Summaries**. See the [enablement requirements](../product/assistance.md#assistance-inputs-previews-and-acceptance).
 _Avoid_: Synchronized AI preference, automatic assistance, background enablement
 
 **Assistance Context**:
@@ -45,7 +45,7 @@ An explicitly requested, device-local, ephemeral, source-linked summary of alrea
 _Avoid_: authoritative summary, background Thread analysis, full-Thread claim
 
 **Background Message Summary**:
-A device-local summary of one message's new content, created without a per-message request while **Mail Assistance Enablement** is on and shown in **Catch Up**. It is the only assistance that runs without an explicit request; it is stored only in the device's encrypted cache beside its message, deleted with it, and never synchronized. Planned; see [Catch Up](../catch-up.md) and [ADR 0068](../adr/0068-allow-device-local-background-message-summaries.md).
+A planned, device-local summary of one message's new content, created without a per-message request while **Mail Assistance Enablement** is on and shown in **Catch Up**. See the [Catch Up requirements](../catch-up.md#summaries) and [ADR 0068](../adr/0068-allow-device-local-background-message-summaries.md).
 _Avoid_: Thread summary, cloud summary, synced summary
 
 **Translation Assistance**:
