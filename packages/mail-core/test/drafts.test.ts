@@ -1944,7 +1944,7 @@ describe('adding files and images to Drafts', () => {
     );
     const kept = completed(stored);
     expect(refused).toMatchObject({ state: 'failed', reason: 'too-large' });
-    // An attachment's bytes verify without crossing the bridge; an image's come back to show.
+    // An attachment's bytes verify without crossing the bridge; an image returns a thumbnail.
     await expect(
       drafts.readAsset(kept, { preview: false }),
     ).resolves.toStrictEqual({ kind: 'verified' });
@@ -1954,6 +1954,11 @@ describe('adding files and images to Drafts', () => {
       .mockResolvedValueOnce({});
     await expect(drafts.readAsset(kept)).resolves.toStrictEqual({
       kind: 'damaged',
+    });
+    // Verified bytes without a decodable thumbnail are explicit, distinct from a malformed reply.
+    read.mockResolvedValueOnce({ uri: null });
+    await expect(drafts.readAsset(kept)).resolves.toStrictEqual({
+      kind: 'verified',
     });
     read.mockRestore();
     // Damaged bytes and bytes the device lost read as unavailable, never as the file.

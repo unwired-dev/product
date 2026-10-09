@@ -27,8 +27,9 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 - A decode failure that becomes a default, an empty list or a `ready` state. It must map to the boundary's existing tagged error, with the decode error as `cause`, and surface as a non-ready state.
 - A schema widened (`Schema.Unknown`, optional field, loose union) to make a fixture or a new native result pass, without the consumer handling the widened case.
 - `drafts.ts.readAsset` using the verify-only response schema for a requested
-  image preview. Require a nonempty URI when preview bytes were requested and
-  admit the empty native-only verification reply only for that mode; otherwise a
+  image preview. Require a nonempty URI or the explicit `uri: null` no-thumbnail
+  success reply, mapping the latter to verified bytes without a picture. Admit
+  the empty native-only verification reply only when preview is false; otherwise a
   malformed preview silently becomes a healthy asset with no image or warning.
 - `message-body.ts.decodeFullMessage` recursively decoding an unbounded MIME
   tree before applying traversal limits. Bound depth and total parts iteratively

@@ -2276,6 +2276,47 @@ describe('adding files and images to a Draft', () => {
     ).toBeNull();
   });
 
+  it('keeps verified inline bytes without a thumbnail available after reopening', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const read = jest
+      .spyOn(storage.native, 'readDraftAsset')
+      .mockResolvedValue({ uri: null });
+    const drafts = createDrafts(storage.native, registration);
+    const first = await render(
+      <App
+        drafts={drafts}
+        registration={registration}
+      />,
+    );
+    await press('New Message');
+    storage.addFile('file:///chart.png', 'chart');
+    storage.pickNext('photos', [
+      { uri: 'file:///chart.png', name: 'chart.png', type: 'image/png' },
+    ]);
+    await press('Insert Image');
+    await screen.findByLabelText('chart.png, 5 bytes');
+    await press('Close');
+    await first.unmount();
+    const [saved] = draftsOf(drafts.getSnapshot());
+    ok(saved, 'Expected the saved Draft');
+    await render(
+      <App
+        drafts={createDrafts(storage.native, registration)}
+        initialDraft={saved.id}
+        registration={registration}
+      />,
+    );
+    await expect(
+      screen.findByLabelText('chart.png, 5 bytes'),
+    ).resolves.toBeOnTheScreen();
+    expect(screen.queryByLabelText('Inline image chart.png')).toBeNull();
+    expect(imagesOf(saved.body)[0]?.state).toBe('complete');
+    expect(screen.getByLabelText('Message body')).toHaveTextContent('￼');
+    read.mockRestore();
+  });
+
   it('shows damaged image bytes as unavailable and removes an inline image', async () => {
     expect.hasAssertions();
     const registration = account(connected(['alex@example.invalid']));

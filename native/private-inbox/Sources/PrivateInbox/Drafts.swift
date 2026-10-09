@@ -153,7 +153,7 @@ extension RegistrationStore {
 
   // Verifies an asset's bytes; with `preview`, returns a thumbnail at most `draftPreviewSize`
   // pixels on its longest side as a PNG `data:` URL for showing an inline image, so a large
-  // image's full bytes never cross the bridge. Content that is not an image returns no preview.
+  // image's full bytes never cross the bridge. Undecodable content returns an explicit null URI.
   func readDraftAsset(
     owner: String, id: String, digest: String, type: String, preview: Bool = true
   ) async throws -> [String: Any] {
@@ -162,7 +162,8 @@ extension RegistrationStore {
       let bytes = try store.readDraftAsset(owner: owner, id: id, digest: digest)
       return preview ? Self.draftThumbnail(bytes) : nil
     }
-    guard let thumbnail else { return [:] }
+    guard preview else { return [:] }
+    guard let thumbnail else { return ["uri": NSNull()] }
     return ["uri": "data:image/png;base64,\(thumbnail.base64EncodedString())"]
   }
 

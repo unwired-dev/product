@@ -373,7 +373,9 @@ const ImportedSchema = Schema.Struct({
   ),
   digest: Schema.String.check(Schema.isPattern(/^[\da-f]{64}$/u)),
 });
-const PreviewSchema = Schema.Struct({ uri: Schema.NonEmptyString });
+const PreviewSchema = Schema.Struct({
+  uri: Schema.NullOr(Schema.NonEmptyString),
+});
 const VerificationSchema = Schema.Struct({
   uri: Schema.optionalKey(Schema.NonEmptyString),
 });
@@ -569,7 +571,7 @@ export interface NativeDrafts {
     source: AssetSource,
   ) => Promise<unknown>;
   // Verifies the asset's bytes against `digest`. With `preview`, resolves `{ uri }`, a bounded PNG
-  // thumbnail as a `data:` URL, or `{}` when the bytes are not an image; otherwise `{}`, so an
+  // thumbnail as a `data:` URL, or `{ uri: null }` when no thumbnail can be decoded; otherwise `{}`, so an
   // asset's full bytes never cross the bridge. Rejects with
   // 'attachment-missing' when the device has no bytes for it.
   readonly readDraftAsset: (
@@ -1281,7 +1283,9 @@ export function createDrafts(
           }),
         preview ? PreviewSchema : VerificationSchema,
       );
-      return uri === undefined ? { kind: 'verified' } : { kind: 'ready', uri };
+      return uri === undefined || uri === null
+        ? { kind: 'verified' }
+        : { kind: 'ready', uri };
     },
     // oxlint-disable-next-line promise/prefer-await-to-callbacks -- Effect's typed error channel.
     Effect.catchTag('DraftStorageFailure', (error) => {
@@ -1369,7 +1373,7 @@ export function createDrafts(
         settling.delete(editor);
       };
     },
-    // Checks a complete asset's bytes against its digest; with `preview`, also returns them to show.
+    // Checks a complete asset's bytes against its digest; with `preview`, also returns a thumbnail.
     readAsset: (
       asset: Readonly<{ id: string; digest: string; type: string }>,
       { preview = true }: Readonly<{ preview?: boolean }> = {},

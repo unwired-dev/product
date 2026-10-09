@@ -46,6 +46,16 @@ Native storage owns what TypeScript must never hold: Keychain items, the storage
 
 #### Bridge contract
 
+- `RegistrationStore.readDraftAsset` returning full decrypted image bytes as a
+  base64 URI merely to show a composer thumbnail, or decoding previews on the
+  main actor. Keep verification and thumbnail work off-main, return bounded
+  presentation pixels, and trace `UnwiredRegistration.mailbox`'s operation gate
+  across the awaited read so several rows/windows do not multiply full-byte
+  working sets. Preserve original encrypted asset bytes, owner/protected-data
+  fences and explicit no-thumbnail success in the shared `drafts.ts.readAsset`
+  decoder; malformed replies still fail closed. Otherwise permitted large images
+  can exhaust memory on composer opening or valid assets appear damaged.
+
 - `DraftFilePicker` treating a protected staging directory as sufficient for a
   moved document-picker copy or a copied Photos/pasteboard representation. Set
   complete file protection on each staged plaintext file itself before returning

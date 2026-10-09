@@ -158,10 +158,10 @@ struct DraftTests {
     #expect(!FileManager.default.fileExists(atPath: picked.path))
     let sealed = session.directory.appendingPathComponent("draft-assets/plan00001")
     #expect(try Data(contentsOf: sealed).range(of: bytes) == nil)
-    // A preview of content that is not an image returns nothing.
+    // Verified content without a decodable image has an explicit no-thumbnail reply.
     let read = try await store.readDraftAsset(
       owner: owner, id: "plan00001", digest: digest, type: "application/pdf")
-    #expect(read.isEmpty)
+    #expect(read["uri"] is NSNull)
     // A large image previews as a bounded PNG thumbnail; its full bytes never cross the bridge.
     let image = try Self.png(width: 1_600, height: 900)
     let photo = try await store.importDraftAsset(
@@ -179,6 +179,9 @@ struct DraftTests {
         CGImageSourceCreateImageAtIndex($0, 0, nil)
       })
     #expect(max(decoded.width, decoded.height) <= RegistrationStore.draftPreviewSize)
+    #expect(
+      try cache.readDraftAsset(
+        owner: owner, id: "photo0001", digest: try #require(photo["digest"] as? String)) == image)
     // Verifying an attachment returns no bytes.
     let verified = try await store.readDraftAsset(
       owner: owner, id: "plan00001", digest: digest, type: "application/pdf", preview: false)
