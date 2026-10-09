@@ -21,14 +21,17 @@ exists. Nothing here is implemented yet. The work is tracked in
   message has attachments. Messages the person sent appear as right-aligned
   “me” bubbles.
 - The newest message is at the bottom. Catch Up opens at an unread divider above
-  the oldest message not yet seen in Catch Up. On first open, already read
-  messages count as seen and unread ones as unseen; with nothing unseen, Catch Up
-  opens at the bottom. Afterwards, scrolling past a bubble marks it seen in
-  Catch Up only; it never changes [Message Read State](domain/messages-and-delivery.md).
-- Mail in Gmail's Promotions, Social, Updates and Forums categories collapses into
-  one bubble, such as "12 newsletters", which expands inline into message bubbles
-  when tapped. It has no other interactions; the ones below apply to message
-  bubbles.
+  the oldest message not yet seen in Catch Up; with nothing unseen, it opens at
+  the bottom. Messages that enter Catch Up on first open, from a newly connected
+  mailbox or through history backfill count as seen when already read and unseen
+  otherwise; newly arriving mail is unseen. Scrolling past a bubble marks it seen
+  in Catch Up only; it never changes [Message Read State](domain/messages-and-delivery.md).
+- Each run of consecutive messages in Gmail's Promotions, Social, Updates and
+  Forums categories collapses into one bubble, such as "12 newsletters", so the
+  timeline stays in order; a run of one shows as a message bubble. Tapping the
+  collapsed bubble expands it inline into message bubbles, and scrolling past it
+  marks all its messages seen. It has no other interactions; the ones below apply
+  to message bubbles.
 - Tapping a bubble opens the Thread view scrolled to that message and highlights
   it. The Thread view is the existing
   [conversation reader](product/messages-and-delivery.md), with its message order,
@@ -60,8 +63,10 @@ exists. Nothing here is implemented yet. The work is tracked in
 - Summarizing runs in background time when iOS grants it and whenever the app
   opens. Each pass prioritizes unseen messages, newest first, at most 50.
 - A summary is stored only in the device's encrypted local cache beside its
-  message and is deleted with it. It is never synchronized, sent to a server or
-  written into mail or Drafts.
+  message body. It counts toward the
+  [Bounded Encrypted Body Cache](product/privacy-and-sync.md) limit and is removed
+  when the body is evicted or the cache is cleared, or when the message is deleted.
+  It is never synchronized, sent to a server or written into mail or Drafts.
 - While a summary is pending, the bubble shows the preview with a "Summary coming
   soon" note and swaps in the summary when it arrives. Without enablement, or on a
   device where the model cannot run, bubbles show the preview without the note.
