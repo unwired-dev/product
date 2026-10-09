@@ -1026,6 +1026,10 @@ function QuotedText({ quoted }: { readonly quoted: SemanticDocument }) {
   );
 }
 
+/**
+ * Choose the accessibility label for rewriting the selection or, at a caret,
+ * the Draft.
+ */
 const rewriteLabel = (at: Selection) =>
   at.start === at.end
     ? 'assistance.rewriteDraftLabel'
