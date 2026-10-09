@@ -17,6 +17,7 @@ import {
   useMailbox,
 } from './mailbox.tsx';
 import { GmailMessageBody, LinkConfirmationProvider } from './message-body.tsx';
+import { MessageSummary } from './message-summary.tsx';
 import { MessageActions } from './organize.tsx';
 import { usePalette } from './theme.ts';
 
@@ -247,13 +248,22 @@ function MailboxMessage({
                 key={message.id}
                 id={message.id}
                 inbox={actions}
+                subject={message.subject}
               />
             ) : (
-              <Text
-                selectable
-                style={[styles.body, { color: colors.foreground }]}>
-                {'body' in message ? message.body : message.preview}
-              </Text>
+              <>
+                <MessageSummary
+                  source={actions}
+                  id={message.id}
+                  subject={message.subject}
+                  body={'body' in message ? message.body : message.preview}
+                />
+                <Text
+                  selectable
+                  style={[styles.body, { color: colors.foreground }]}>
+                  {'body' in message ? message.body : message.preview}
+                </Text>
+              </>
             )}
           </ScrollView>
         </LinkConfirmationProvider>

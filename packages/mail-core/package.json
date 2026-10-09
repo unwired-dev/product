@@ -20,6 +20,7 @@
     "./testing/registration-session": "./src/testing/registration-session.ts",
     "./message-body": "./src/message-body.ts",
     "./link-inspection": "./src/link-inspection.ts",
+    "./assistance": "./src/assistance.ts",
     "./drafts": "./src/drafts.ts",
     "./semantic-document": "./src/semantic-document.ts",
     "./testing/drafts": "./src/testing/drafts.ts",

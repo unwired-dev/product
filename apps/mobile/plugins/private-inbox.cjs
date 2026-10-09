@@ -52,12 +52,19 @@ module.exports = function privateInbox(config) {
         )
           .replaceAll('"', '')
           .replaceAll('UNWIRED_REGISTRATION_MOCK', '')
+          .replaceAll('UNWIRED_ASSISTANCE_MOCK', '')
           .trim();
         configuration.buildSettings.SWIFT_ACTIVE_COMPILATION_CONDITIONS =
           JSON.stringify(
-            scenario?.startsWith('registration-')
-              ? `${current} UNWIRED_REGISTRATION_MOCK`
-              : current,
+            [
+              current,
+              scenario ? 'UNWIRED_ASSISTANCE_MOCK' : '',
+              scenario?.startsWith('registration-')
+                ? 'UNWIRED_REGISTRATION_MOCK'
+                : '',
+            ]
+              .filter(Boolean)
+              .join(' '),
           );
       }
     }

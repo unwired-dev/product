@@ -280,6 +280,27 @@
     "moreLabel": "Show more attachments, {{count}} not shown",
     "downloadAction": "Download"
   },
+  "summary": {
+    "summarize": "Summarize",
+    "summarizeLabel": "Summarize this message",
+    "summarizeAgainLabel": "Summarize this message again",
+    "cancelLabel": "Cancel summary",
+    "dismiss": "Dismiss",
+    "dismissLabel": "Dismiss summary",
+    "title": "Summary",
+    "region": "Message summary",
+    "progress": "Summarizing",
+    "summarizing": "Summarizing on this device…",
+    "disclaimer": "Created on this device from the text shown here. It may be inaccurate and is not saved.",
+    "omitted": "Only the beginning of this long message was summarized.",
+    "device-ineligible": "Summaries need a device that supports Apple Intelligence.",
+    "assistance-disabled": "Turn on Apple Intelligence to summarize messages.",
+    "model-not-ready": "Apple Intelligence is still getting ready. Try again later.",
+    "unsupported-locale": "Summaries are not available in this device’s language yet.",
+    "refused": "This message cannot be summarized.",
+    "failed": "The summary could not be created.",
+    "cancelled": "Summary cancelled."
+  },
   "search": {
     "label": "Search senders and subjects",
     "saved": "Saved on this device",

@@ -21,9 +21,16 @@ an assistance service. There is no token or backend-authority representation.
 The factory offers `open-read-relaunch`, `identity-unavailable`,
 `mail-unavailable` and `assistance-unavailable`. Identity and mail failures use
 the real application's unavailable-state path; assistance failure leaves mail
-available. Identity and assistance currently have provider-contract coverage,
-not sign-in or assistance UI journeys. Later feature slices extend these
-contracts when their application paths exist.
+available. The assistance provider follows the native
+[message summary](message-summaries.md#native-binding) contract: it reports the
+model as available and returns a fixed synthetic summary, or, in
+`assistance-unavailable`, reports the model as not ready. The rendered reader
+tests use it for the summary journeys. Identity currently has provider-contract
+coverage, not a sign-in UI journey. Later feature slices extend these contracts
+when their application paths exist. Native builds for every selected mock scenario
+compile a synthetic assistance answer with the same fixed summary instead of
+running Apple's model. The open, mark-read and relaunch journey also explicitly
+summarizes a message through this synthetic native binding.
 
 Native builds can select `open-read-relaunch` or `mail-unavailable` using
 `UNWIRED_MOCK_SCENARIO`. Unselected bundles exclude all mock-provider code;

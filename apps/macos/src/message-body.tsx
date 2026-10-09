@@ -43,7 +43,9 @@ import {
 } from 'react-native';
 import { WebView } from 'react-native-webview';
 
+import { Action } from './action.tsx';
 import { useLocalization } from './localization.ts';
+import { MessageSummary } from './message-summary.tsx';
 import { usePalette } from './theme.ts';
 
 // A taller document scrolls inside its view instead of the reader.
@@ -107,27 +109,6 @@ async function openLink(href: string) {
   } catch {
     // A refused system handoff leaves the reader usable.
   }
-}
-
-function Action({
-  label,
-  accessibilityLabel,
-  onPress,
-}: {
-  readonly label: string;
-  readonly accessibilityLabel?: string;
-  readonly onPress: () => void;
-}) {
-  const colors = usePalette();
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={accessibilityLabel}
-      focusable
-      onPress={onPress}>
-      <Text style={[styles.secondary, { color: colors.accent }]}>{label}</Text>
-    </Pressable>
-  );
 }
 
 // Confirms a link's full destination before the system opens it. A link with warning signs
@@ -683,9 +664,12 @@ function ReceivedAttachments({
 export function GmailMessageBody({
   inbox,
   id,
+  subject,
 }: {
   readonly inbox: GmailInbox;
   readonly id: string;
+  // Read by an explicitly requested summary with the body.
+  readonly subject?: string | undefined;
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
@@ -758,6 +742,12 @@ export function GmailMessageBody({
     inbox.messageBody(id, reader) === body;
   return (
     <View style={styles.body}>
+      <MessageSummary
+        source={inbox}
+        id={id}
+        subject={subject}
+        body={body.presentation.readable}
+      />
       <Presentation
         presentation={body.presentation}
         onFailure={() => {

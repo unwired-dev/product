@@ -5,13 +5,15 @@ import * as Predicate from 'effect/Predicate';
 import * as References from 'effect/References';
 import * as SchemaIssue from 'effect/SchemaIssue';
 
-// Codes the native Private Inbox and Registration bridges reject with.
+// Codes the native Private Inbox, Registration and Assistance bridges reject with.
 const nativeCodes = new Set([
+  'assistance-disabled',
   'busy',
   'attachment-missing',
   'cancelled',
   'conflict',
   'declined',
+  'device-ineligible',
   'enrollment-unavailable',
   'gmail-unavailable',
   'identity-owned',
@@ -19,9 +21,12 @@ const nativeCodes = new Set([
   'locked',
   'mailbox-invalidated',
   'mailbox-revoked',
+  'model-not-ready',
+  'refused',
   'removal-refused',
   'stale-authentication',
   'unavailable',
+  'unsupported-locale',
 ]);
 const errorNames = new Set([
   'AbortError',
