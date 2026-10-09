@@ -5,7 +5,8 @@ The review agent owns the separate [architecture companion](../architecture/prod
 
 [Vocabulary](../domain/assistance.md) · [Domain index](../../GLOSSARY.md)
 
-Explicit on-device assistance remains part of the replacement. Profile-specific
+On-device assistance remains part of the replacement. Planned Catch Up adds
+Background Message Summaries alongside explicit assistance. Profile-specific
 terms also describe prototype or follow-up behavior; platform and launch scope
 come from the accepted replacement decisions.
 
@@ -31,6 +32,20 @@ implemented.
 - **Understanding Assistance** results remain ephemeral, are excluded from **Product Sync** and Drafts, and become unusable until regenerated whenever their local Thread sources change
 - **Translation Assistance** uses Apple's Translation framework, accepts only an already-local message body or explicit Draft selection, and lets the person correct source and target languages before translating. It distinguishes installed, downloadable, and unsupported device language pairs; a required language download uses the system permission flow and never starts in the background
 - An incoming translation remains beside its unchanged original and is explicitly non-authoritative. A reviewed Draft translation replaces only its captured selection as one undoable **Semantic Message Document** edit; accepted text becomes ordinary encrypted Draft content with no provenance marker and never sends automatically. Cancellation, rejection, failure, stale input, Profile Lock, and unsupported language pairs preserve the source
+
+## Background Message Summaries
+
+Planned [Catch Up](../catch-up.md#summaries) summaries are the sole exception to
+per-message invocation and ephemeral summary storage, recorded in
+[ADR 0068](../adr/0068-allow-device-local-background-message-summaries.md). They require device-local,
+default-off Mail Assistance Enablement, use only bounded already-local new
+message text with quoted history removed, and never fetch additional content for
+inference. Their results remain in the encrypted local cache beside the message,
+are deleted with it and never enter Product Sync, servers, provider mail or Drafts.
+Owner and input-revision checks apply before display or storage; disabling
+assistance or losing account or Profile access cancels active work and rejects
+late results, and changed source text invalidates the summary. Disabled or
+unavailable assistance leaves previews and ordinary mail usable.
 
 ## Profile lock and assistance
 

@@ -53,6 +53,12 @@ or a Recovery Key. Product Account sign-in supplies neither the mailbox grant no
 the decryption keys by itself. Clearing the current unused development database
 is a one-time cutover step, not a replacement for production enrollment or recovery.
 
+[ADR 0068](0068-allow-device-local-background-message-summaries.md) amends the
+explicit-invocation restriction in the assistance scope below solely for planned
+Catch Up Background Message Summaries. They require device-local, default-off
+Mail Assistance Enablement and remain in the encrypted local cache, never
+synchronized or sent to a server. Other assistance stays explicitly invoked.
+
 Preserve explicit, on-device-only Mail Assistance and useful mail functionality
 when AI is unavailable. The version 27 deployment floor replaces the version 26
 floor in [ADR 0052](0052-keep-mail-assistance-on-device-and-input-bound.md) for the

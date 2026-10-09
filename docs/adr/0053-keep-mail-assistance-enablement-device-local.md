@@ -4,6 +4,13 @@
 
 Accepted.
 
+For planned Catch Up only,
+[ADR 0068](0068-allow-device-local-background-message-summaries.md) permits
+Background Message Summaries while the device-local, default-off enablement gate
+is on. It supersedes the clauses below that enablement never starts inference and
+all generation needs an explicit action, solely for this feature. Other
+assistance retains those restrictions and the existing lifecycle protections.
+
 ## Context
 
 On-Device Mail Assistance can process private mail and Draft content only after an explicit request. A person may trust that processing on one device but not another, and a synchronized opt-in could silently enable it on a newly trusted device. Profile Lock must also prevent retained assistance state from surviving the transition to concealed content.

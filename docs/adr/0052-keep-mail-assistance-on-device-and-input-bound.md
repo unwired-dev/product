@@ -9,6 +9,12 @@ raises the planned replacement client's deployment floor to version 27. The
 on-device privacy and model-unavailability requirements remain accepted; the
 existing Swift implementation retains its current version 26 floor until retired.
 
+For planned Catch Up only,
+[ADR 0068](0068-allow-device-local-background-message-summaries.md) supersedes the
+explicit-invocation restriction for Background Message Summaries and permits
+storage of their results in the encrypted local cache. The model itself retains
+no persistence or network dependency; other assistance remains explicitly invoked.
+
 ## Context
 
 Compose, response, and understanding features need a shared model boundary before they add user interfaces. Mail and Draft content is private, can contain adversarial instructions, and can change while inference is running. The application must also remain useful when the system model is unavailable.

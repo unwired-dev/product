@@ -2,7 +2,8 @@
 
 [Domain index](../../GLOSSARY.md) · [behavior notes](../product/assistance.md)
 
-Explicit on-device assistance remains part of the replacement. Profile-specific
+On-device assistance remains part of the replacement. Planned Catch Up adds
+Background Message Summaries alongside explicit assistance. Profile-specific
 terms also describe prototype or follow-up behavior; platform and launch scope
 come from the accepted replacement decisions.
 
@@ -14,8 +15,8 @@ for launch scope; a term's presence does not establish implementation or release
 ## Language
 
 **On-Device Mail Assistance**:
-Explicitly requested help for composing, responding to, understanding, or transforming mail through Apple system models on a trusted device, with no cloud or product-backend model fallback.
-_Avoid_: Email assistant, background AI processing, cloud inference
+Help for composing, responding to, understanding, or transforming mail through Apple system models on a trusted device, with no cloud or product-backend model fallback. It requires an explicit request except for **Background Message Summaries**.
+_Avoid_: Email assistant, cloud inference
 
 **Mail Assistance Enablement**:
 A device-local opt-in scoped to one Product Account and Mail Profile that permits explicit On-Device Mail Assistance actions and **Background Message Summaries**. It defaults off independently on every device, starts no inference by itself other than Background Message Summaries, and is cleared when the Product Account is removed.
@@ -44,7 +45,7 @@ An explicitly requested, device-local, ephemeral, source-linked summary of alrea
 _Avoid_: authoritative summary, background Thread analysis, full-Thread claim
 
 **Background Message Summary**:
-A device-local summary of one message's new content, created without a per-message request while **Mail Assistance Enablement** is on and shown in **Catch Up**. It is the only assistance that runs without an explicit request; it is stored only in the device's encrypted cache beside its message, deleted with it, and never synchronized. Planned; see [Catch Up](../catch-up.md).
+A device-local summary of one message's new content, created without a per-message request while **Mail Assistance Enablement** is on and shown in **Catch Up**. It is the only assistance that runs without an explicit request; it is stored only in the device's encrypted cache beside its message, deleted with it, and never synchronized. Planned; see [Catch Up](../catch-up.md) and [ADR 0068](../adr/0068-allow-device-local-background-message-summaries.md).
 _Avoid_: Thread summary, cloud summary, synced summary
 
 **Translation Assistance**:

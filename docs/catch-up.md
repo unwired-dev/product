@@ -17,19 +17,19 @@ exists. Nothing here is implemented yet. The work is tracked in
   sender's avatar and name, the subject as one muted line, the summary or preview
   in up to three lines, the time, an unread dot and an attachment icon when the
   message has attachments. Messages the person sent appear as right-aligned
-  bubbles.
+  “me” bubbles.
 - The newest message is at the bottom. Catch Up opens at an unread divider above
   the oldest message not yet seen in Catch Up. Scrolling past a bubble marks it
   seen in Catch Up only; it never changes [Message Read State](domain/messages-and-delivery.md).
 - Mail in Gmail's Promotions, Social, Updates and Forums categories collapses into
-  one bubble per run, such as "12 newsletters", which expands inline when tapped.
+  one bubble, such as "12 newsletters", which expands inline when tapped.
 - Tapping a bubble opens the Thread view scrolled to that message and highlights
   it. The Thread view stacks every locally cached message of the Thread as a
-  document, oldest first, with quoted history collapsed.
+  document, oldest first, with quoted history collapsed and expandable.
 - Swiping right on a bubble opens quick reply: a composer bar at the bottom with a
   chip quoting the message and showing its recipients. It replies to everyone when
   the message had several recipients and sends through the Outbox with an undo
-  window.
+  window. Quoted history follows the existing Reply All Draft behavior.
 - Long-pressing a bubble opens archive, delete, mark unread, reply and open Thread.
 
 ## Summaries
@@ -41,10 +41,14 @@ exists. Nothing here is implemented yet. The work is tracked in
   [Mail Assistance Enablement](domain/assistance.md) on that device. It defaults
   off, and Catch Up offers it with an explanation that summaries stay on the
   device. Until then, bubbles show previews.
-- Only the message's new content is summarized; quoted history is removed first.
-  Collapsed category mail is not summarized.
+- Only bounded new content already on the device is summarized; quoted history
+  is removed first. Inference never fetches missing bodies, attachments, Inline
+  Images or Remote Message Content. Collapsed category mail is not summarized.
+- Results belong to their owning account, mailbox and message input revision.
+  Disabling assistance or losing account or Profile access cancels active work
+  and rejects late results; changed source text invalidates the summary.
 - Summarizing runs in background time when iOS grants it and whenever the app
-  opens. Each pass takes unseen messages newest first, at most 50.
+  opens. Each pass prioritizes unseen messages, newest first, at most 50.
 - A summary is stored only in the device's encrypted local cache beside its
   message and is deleted with it. It is never synchronized, sent to a server or
   written into mail or Drafts.
