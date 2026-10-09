@@ -156,14 +156,18 @@ export function createOutbox({
 
   // The sending mailbox's problem on this device, if it can no longer send.
   const senderProblem = (draft: Draft): DeliveryProblem | undefined => {
-    const sending = sendingStateOf(
-      draft,
-      mailboxesOf(registration.getSnapshot().snapshot),
-    );
-    if (sending === 'available') {
-      return undefined;
+    const connections = mailboxesOf(registration.getSnapshot().snapshot);
+    const sending = sendingStateOf(draft, connections);
+    if (sending !== 'available') {
+      return sending === 'authorization' ? 'authorization' : 'mailbox';
     }
-    return sending === 'authorization' ? 'authorization' : 'mailbox';
+    // A connection whose address changed is chosen again, so no message claims an old sender.
+    const address = connections.find(
+      ({ id }) => id === draft.connection,
+    )?.address;
+    return address?.toLowerCase() === draft.from.toLowerCase()
+      ? undefined
+      : 'mailbox';
   };
 
   const record = (id: string, outcome: SendOutcome) => {

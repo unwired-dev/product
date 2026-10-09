@@ -19,7 +19,8 @@ in the background or with Mac windows closed is
   - has text that is not a valid address;
   - has a sender or recipient address that is not plain ASCII, which native code
     cannot send;
-  - sends from a mailbox that cannot send;
+  - sends from a mailbox that cannot send, or whose address changed since the Draft
+    chose it;
   - has a file that is still importing, failed, or does not verify on this device;
   - is over Gmail's 35 MB message limit;
   - was changed in another window meanwhile;
@@ -41,7 +42,8 @@ in the background or with Mac windows closed is
   cancellable and retries after the same delay.
 - **Not sent** explains a definite refusal and offers **Edit**:
   - another of the account's devices claimed the Draft first;
-  - the mailbox needs Gmail access again or is no longer connected;
+  - the mailbox needs Gmail access again, is no longer connected, or changed its
+    address;
   - its files are no longer on this device;
   - it is too large;
   - Gmail refused it.

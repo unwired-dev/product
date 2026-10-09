@@ -780,6 +780,10 @@ describe('sending a Draft through the Outbox', () => {
     await expect(
       send({ ...draft, connection: 'connection-gone' }),
     ).resolves.toBe('sender');
+    // A connection renamed since the Draft chose it must be chosen again.
+    await expect(
+      send({ ...draft, from: 'old-name@example.invalid' }),
+    ).resolves.toBe('sender');
     await expect(send({ ...draft, attachments: [notes] })).resolves.toBe(
       'assets',
     );
