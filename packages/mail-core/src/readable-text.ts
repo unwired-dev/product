@@ -71,24 +71,16 @@ export function paragraphBuilder() {
       // span, so count finalized fallback spans independently of collected rich anchors.
       paragraphs.push(
         trimmed.map((span) => {
-          if (span.href === undefined || !hasVisibleText(span.text)) {
-            return {
-              text: span.text,
-              ...(span.contentId === undefined
-                ? {}
-                : { contentId: span.contentId }),
-            };
+          if (
+            span.href !== undefined &&
+            hasVisibleText(span.text) &&
+            links < messageLinkLimit
+          ) {
+            links += 1;
+            return span;
           }
-          if (links >= messageLinkLimit) {
-            return {
-              text: span.text,
-              ...(span.contentId === undefined
-                ? {}
-                : { contentId: span.contentId }),
-            };
-          }
-          links += 1;
-          return span;
+          const { href: _inactive, ...unlinked } = span;
+          return unlinked;
         }),
       );
     }

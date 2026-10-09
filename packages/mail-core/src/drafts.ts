@@ -168,7 +168,7 @@ const entriesOf = (text: string) => {
 };
 
 // A group's `Display Name:` before its first member, outside any quoted name or address.
-const groupLabel = /^(?:"(?:\\.|[^"\\])*"|[^"<>@:]*):/u;
+const groupLabel = /^(?:"(?:\\.|[^"\\])*"\s*|[^"<>@:]*):/u;
 
 // The valid addresses of a received address-list header, such as To or Reply-To. A group keeps its
 // members without its display name; entries that are not an address are left out.

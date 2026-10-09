@@ -331,7 +331,7 @@ describe('replying to and forwarding a received message', () => {
     ).toStrictEqual([]);
     expect(
       recipientsOf(
-        'Bob (friend, not a recipient) <bob@example.invalid>, "Friends": carol@example.invalid, jane@example.invalid;',
+        'Bob (friend, not a recipient) <bob@example.invalid>, "Friends" (team): carol@example.invalid, jane@example.invalid;',
       ),
     ).toStrictEqual([
       { name: 'Bob', address: 'bob@example.invalid' },
