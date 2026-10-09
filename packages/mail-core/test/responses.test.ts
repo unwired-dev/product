@@ -299,6 +299,7 @@ describe('replying to and forwarding a received message', () => {
           sender: 'Maya',
         },
         document: { version: 2, id: 'm1', text: 'Body', headers: sent },
+        connection: work.id,
         from: work.address,
         received: 'today',
         prepare,
@@ -533,6 +534,33 @@ describe('replying to and forwarding a received message', () => {
         { subject: 'My work', to: [{ address: 'bob@example.invalid' }] },
       ],
     });
+  });
+
+  it('keeps the receiving thread scoped while another editor changes the sender during creation', async () => {
+    expect.hasAssertions();
+    const { start, draft, drafts, storage, message, registration } =
+      await reader();
+    storage.hold();
+    const pending = start('reply');
+    await vi.waitFor(() =>
+      expect(drafts.getSnapshot()).toMatchObject({ drafts: [{ subject: '' }] }),
+    );
+    const state = drafts.getSnapshot();
+    const existing = present(
+      // oxlint-disable-next-line vitest/no-conditional-in-test -- Narrows the public store snapshot.
+      state.kind === 'ready' ? state.drafts[0] : undefined,
+      'new row',
+    );
+    const editing = drafts.update(withSender(existing, alex), existing);
+    storage.release();
+    await editing;
+    const reply = draft(await pending);
+    expect(reply.connection).toBe(alex.id);
+    expect(threadOf(reply)).toBeUndefined();
+    expect(threadOf(withSender(reply, work))).toBe(message.threadId);
+    const reopened = createDrafts(storage.native, registration);
+    await reopened.load();
+    expect(draftOf(reopened.getSnapshot(), reply.id)).toStrictEqual(reply);
   });
 
   it('keeps reply ancestry from a single parent In-Reply-To and ignores comment identifiers', async () => {

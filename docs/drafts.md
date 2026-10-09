@@ -202,6 +202,8 @@ reopening, **Undo** and **Discard** work as for any Draft.
   Choosing another sender in **From** is explicit; the reply then keeps its
   In-Reply-To and References headers but not the receiving mailbox's Gmail thread.
   Choosing the receiving mailbox again joins that thread again.
+  The thread stays scoped to the receiving mailbox if another editor chooses a
+  sender while the response's first save is pending.
 - **Recipients.** **Reply** goes to Reply-To, or else to From. A message this mailbox
   sent is answered to its original To recipients. **Reply All** adds the original
   To recipients in To and keeps Cc in Cc, which the composer shows. All known Gmail
@@ -373,7 +375,8 @@ sender change, messages this mailbox sent, malformed headers, and forwarded text
 inline images and attachments read back byte for byte. Failed oversized and damaged
 attachments, refusal for a mailbox awaiting authorization or an unrelated sending
 mailbox, and reader closure, account replacement or navigation during preparation
-are covered too. Header regressions cover comments, quoted groups, reply ancestry
+are covered too, including a sender change by another editor during the first save.
+Header regressions cover comments, quoted groups, reply ancestry
 and oversized values; inline-image regressions preserve positions and repetitions.
 Both hosts' component journeys ignore queued response presses and callbacks from
 an old reader. They also open **Reply All** from the reader, show

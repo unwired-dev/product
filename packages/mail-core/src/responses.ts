@@ -146,6 +146,7 @@ const repliedTo = (
 type ResponseSource = Readonly<{
   message: Pick<GmailMessage, 'id' | 'threadId' | 'subject' | 'sender'>;
   document: BodyDocument;
+  connection: string;
   from: string;
   identities?: readonly string[];
   received: string;
@@ -310,7 +311,7 @@ function replied(
       response: {
         kind,
         message: message.id,
-        thread: { connection: draft.connection, id: message.threadId },
+        thread: { connection: source.connection, id: message.threadId },
         ...(inReplyTo === undefined ? {} : { inReplyTo }),
         references,
       },
@@ -470,6 +471,7 @@ export async function startResponse(
       response = respond(t, kind, {
         message,
         document,
+        connection: mailbox.id,
         from: mailbox.address,
         identities: mailboxes.map(({ address }) => address),
         received,
