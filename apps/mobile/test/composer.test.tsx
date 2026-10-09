@@ -3021,6 +3021,21 @@ describe('replying to and forwarding from the reader', () => {
     await screen.findByLabelText('Subject');
     const [draft] = draftsOf(drafts.getSnapshot());
     const requests = gmail.requests.length;
+    const oversized = '"'.repeat(3000);
+    await fireEvent.changeText(
+      screen.getByLabelText('Message body'),
+      oversized,
+    );
+    await press('Suggest a reply to the quoted message');
+    await screen.findByText(
+      'Your reply is too long for a suggestion. Up to 6,000 characters can be read.',
+    );
+    expect(screen.getByLabelText('Message body')).toHaveTextContent(oversized, {
+      exact: true,
+    });
+    expect(asked).toHaveLength(0);
+    expect(gmail.requests).toHaveLength(requests);
+    await press('Keep your text and close this suggestion');
     await fireEvent.changeText(screen.getByLabelText('Message body'), 'Yes');
     await press('Suggest a reply to the quoted message');
     // Only display names, the authored text and the quoted message already in the Draft are read.

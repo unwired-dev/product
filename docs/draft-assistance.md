@@ -91,13 +91,15 @@ allow-listed native code or decode path, never Draft or generated text.
 
 - `packages/mail-core/test/assistance.test.ts` covers the admitted reply context
   (names and quoted text without addresses, the quoted message without images, the input bound and
-  its disclosure, delimiter spoofing and JSON escaping), refused authored text, routing to `rewrite` or `suggestReply`,
+  its disclosure, delimiter spoofing and JSON escaping), refused authored text and the distinction between
+  encoded reply overflow and unusable quoted context, routing to `rewrite` or `suggestReply`,
   refusal, unavailability and failure without logging Draft text, retry rules, an
   oversized result, cancellation with a late result, and Mock Mail Session outcomes.
 - The composer tests in `apps/mobile/test/composer.test.tsx` and
   `apps/macos/test/composer.test.tsx` rewrite the whole body and a selection,
   review and apply the whole-body result as one undoable edit without touching recipients, keep the
-  original against a queued apply, show a refusal, cancel and retry, and drop a
+  original against a queued apply, show reply-length guidance without inference when the encoded authored
+  reply leaves no room for context, show a refusal, cancel and retry, and drop a
   pending result when the body is edited or the Product Account changes. From the real reader with a synthetic
   Gmail mailbox, they request a reply suggestion for a Reply All Draft, check its
   admitted input and that no Gmail request is made, apply it to the authored body

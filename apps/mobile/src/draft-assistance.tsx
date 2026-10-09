@@ -1,4 +1,5 @@
 import type {
+  CapturedDraftText,
   DraftAssistance as DraftAssistanceStore,
   DraftAssistanceInput,
   DraftAssistanceState,
@@ -7,7 +8,6 @@ import type {
 import {
   canRetryAssistance,
   createDraftAssistance,
-  draftTextIssue,
 } from '@private-email/mail-core/assistance';
 import { spacing } from '@private-email/mail-core/theme';
 import {
@@ -94,14 +94,13 @@ function useDraftAssistance(input: DraftAssistanceInput | undefined) {
 // Why captured text cannot be sent to the model.
 function Refusal({
   purpose,
-  text,
+  issue,
 }: {
   readonly purpose: Purpose;
-  readonly text: string;
+  readonly issue: CapturedDraftText['issue'];
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
-  const issue = draftTextIssue(text, purpose);
   return (
     <Text
       accessibilityRole="alert"
@@ -182,14 +181,14 @@ function Status({
 // replaces exactly the captured text as one undoable edit. Nothing is saved or sent.
 export function DraftAssistance({
   purpose,
-  text,
+  issue,
   input,
   onApply,
   onClose,
 }: {
   readonly purpose: Purpose;
-  // The captured authored text the result replaces.
-  readonly text: string;
+  // Why the captured text was refused, when the person can act on it.
+  readonly issue: CapturedDraftText['issue'];
   readonly input: DraftAssistanceInput | undefined;
   readonly onApply: (replacement: string) => void;
   readonly onClose: () => void;
@@ -205,7 +204,7 @@ export function DraftAssistance({
       {input === undefined ? (
         <Refusal
           purpose={purpose}
-          text={text}
+          issue={issue}
         />
       ) : (
         <Status

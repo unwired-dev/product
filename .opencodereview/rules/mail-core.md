@@ -113,6 +113,13 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Product behavior the stores own
 
+- `assistance.ts.captureDraftText` or a host recomputing refusal guidance from
+  raw text instead of the input builder's actual refusal cause. Encoded authored
+  text and request framing can exhaust the reply budget despite fitting the raw
+  cap; redaction or cut-word removal can instead leave no usable quoted context.
+  Carry the builder's diagnosis to both panels, or a refused reply shows generic
+  failure for encoded overflow or asks to shorten even an empty authored body.
+
 - `assistance.ts` input builders or `UnwiredAssistance` model prompts using flat
   labelled concatenation instead of a typed JSON request with an explicit
   operation and distinct fields for each admitted context source,

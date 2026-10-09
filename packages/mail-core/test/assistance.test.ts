@@ -1,9 +1,11 @@
 import type { NativeAssistance, SummaryInput } from '../src/assistance.ts';
+import type { Draft } from '../src/drafts.ts';
 import type { SemanticDocument } from '../src/semantic-document.ts';
 
 import {
   canRetryAssistance,
   canRewrite,
+  captureDraftText,
   createDraftAssistance,
   createMessageSummary,
   replyInput,
@@ -558,6 +560,60 @@ describe('on-device Draft rewrites and reply suggestions', () => {
     expect(rewriteInput(' \n ')).toBeUndefined();
     expect(rewriteInput(`See ${imageCharacter}`)).toBeUndefined();
     expect(rewriteInput('a'.repeat(summaryInputLimit + 1))).toBeUndefined();
+  });
+
+  it('reports a reply that leaves no room for its quoted message as too long', () => {
+    expect.hasAssertions();
+    // Within the raw limit, but every quotation mark doubles when the request is encoded.
+    const authored = '"'.repeat(3000);
+    const draft: Draft = {
+      id: 'draft',
+      connection: 'connection',
+      from: 'alex@example.invalid',
+      to: [{ name: 'Maya Chen', address: 'maya@example.invalid' }],
+      cc: [],
+      bcc: [],
+      subject: 'Re: Plans',
+      body: [{ kind: 'paragraph', spans: [{ text: authored }] }],
+      response: {
+        kind: 'reply',
+        message: 'message',
+        thread: { connection: 'connection', id: 'thread' },
+        references: [],
+      },
+      quoted: quoted('Shall we meet?'),
+      updatedAt: 0,
+    };
+    const capture = captureDraftText('reply', draft, { start: 0, end: 0 });
+    expect(capture.input).toBeUndefined();
+    expect(capture.issue).toBe('too-long');
+    // A reply that fits gets an input and no issue.
+    const fits = captureDraftText(
+      'reply',
+      { ...draft, body: [{ kind: 'paragraph', spans: [{ text: 'Yes' }] }] },
+      { start: 0, end: 0 },
+    );
+    expect(fits.input?.purpose).toBe('reply');
+    expect(fits.issue).toBeUndefined();
+    // Missing usable context is not an oversized authored reply: shortening cannot fix it.
+    for (const source of [
+      'maya@example.invalid',
+      'a'.repeat(summaryInputLimit + 1),
+      '"'.repeat(4000),
+      ' \n ',
+    ]) {
+      const noContext = captureDraftText(
+        'reply',
+        {
+          ...draft,
+          body: [{ kind: 'paragraph', spans: [] }],
+          quoted: [{ kind: 'quote', spans: [{ text: source }] }],
+        },
+        { start: 0, end: 0 },
+      );
+      expect(noContext.input).toBeUndefined();
+      expect(noContext.issue).toBeUndefined();
+    }
   });
 
   it('finds rewritable text without scanning past the first visible span', () => {

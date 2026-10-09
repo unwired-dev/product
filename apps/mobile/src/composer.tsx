@@ -1715,7 +1715,7 @@ function Editor({
           <DraftAssistance
             key={captured.id}
             purpose={captured.purpose}
-            text={captured.text}
+            issue={captured.issue}
             input={captured.input}
             onApply={applyCaptured}
             onClose={closeCaptured}

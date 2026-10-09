@@ -438,6 +438,8 @@ export type CapturedDraftText = Readonly<{
   text: string;
   // Translation chooses its own language; a refused model input cannot run.
   input: DraftAssistanceInput | undefined;
+  // Why a rewrite or reply input was refused, when the person can act on it.
+  issue: 'too-long' | 'inline-image' | undefined;
 }>;
 
 // Whether Rewrite has text: the selection's, or with a collapsed caret any authored text.
@@ -527,7 +529,7 @@ function quotedInput(quoted: SemanticDocument, limit: number): SummaryInput {
 // A reply Draft's admitted context: its authored text, the display names of its To and Cc
 // recipients (never addresses or Bcc) and its already-local quoted message, which is cut so the
 // whole input stays within the limit. Only the authored text is replaced by the result.
-export function replyInput({
+function captureReplyInput({
   authored,
   recipients,
   quoted,
@@ -535,9 +537,10 @@ export function replyInput({
   authored: string;
   recipients: readonly Recipient[];
   quoted: SemanticDocument;
-}>): DraftAssistanceInput | undefined {
-  if (draftTextIssue(authored) !== undefined) {
-    return undefined;
+}>): Pick<CapturedDraftText, 'input' | 'issue'> {
+  const issue = draftTextIssue(authored);
+  if (issue !== undefined) {
+    return { input: undefined, issue };
   }
   let names = '';
   for (const { name } of recipients) {
@@ -559,20 +562,27 @@ export function replyInput({
   } as const;
   const budget = summaryInputLimit - encodeModelRequest(request).length;
   if (budget <= 0) {
-    return undefined;
+    return { input: undefined, issue: 'too-long' };
   }
   const raw = quotedInput(quoted, budget);
   const bounded = jsonBoundedInput(raw.text, budget);
   const context = redactedBoundedInput(raw.text, bounded.text.length);
   if (!hasVisibleText(context.text)) {
-    return undefined;
+    return { input: undefined, issue: undefined };
   }
   return {
-    purpose: 'reply',
-    text: encodeModelRequest({ ...request, quotedText: context.text.trim() }),
-    omitted: raw.omitted || context.omitted,
+    input: {
+      purpose: 'reply',
+      text: encodeModelRequest({ ...request, quotedText: context.text.trim() }),
+      omitted: raw.omitted || context.omitted,
+    },
+    issue: undefined,
   };
 }
+
+export const replyInput = (
+  source: Parameters<typeof captureReplyInput>[0],
+): DraftAssistanceInput | undefined => captureReplyInput(source).input;
 
 // Capture policy is shared by both editors; hosts retain ownership and apply the reviewed edit.
 export function captureDraftText(
@@ -587,16 +597,18 @@ export function captureDraftText(
       : at;
   const text = selectedText(draft.body, selection, summaryInputLimit + 1);
   let input: DraftAssistanceInput | undefined = undefined;
+  let issue: CapturedDraftText['issue'] = undefined;
   if (purpose === 'rewrite') {
     input = rewriteInput(text);
+    issue = input === undefined ? draftTextIssue(text, purpose) : undefined;
   } else if (purpose === 'reply' && draft.quoted !== undefined) {
-    input = replyInput({
+    ({ input, issue } = captureReplyInput({
       authored: text,
       recipients: [...draft.to, ...draft.cc],
       quoted: draft.quoted,
-    });
+    }));
   }
-  return { purpose, draft, selection, text, input };
+  return { purpose, draft, selection, text, input, issue };
 }
 
 // One composer's explicitly requested rewrite or reply suggestion. The preview is never stored or
