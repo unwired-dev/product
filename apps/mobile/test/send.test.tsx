@@ -59,7 +59,7 @@ function device() {
     registration,
     claims: storage.delivery,
   });
-  return { gmail, drafts, mailboxes, outbox };
+  return { gmail, drafts, mailboxes, outbox, storage };
 }
 
 function App({ sender }: { readonly sender: ReturnType<typeof device> }) {
@@ -170,8 +170,23 @@ describe('sending a Draft', () => {
       screen.getByLabelText('Lunch. To sam@example.invalid. Sending soon'),
     ).toBeOnTheScreen();
     expect(screen.queryByRole('header', { name: 'Drafts' })).toBeNull();
-    await press('Undo');
-    expect(screen.getByLabelText('Subject')).toHaveProp('value', 'Lunch');
+    sender.storage.hold();
+    const undo = screen.getByRole('button', { name: 'Undo' });
+    await act(async () => {
+      await fireEvent.press(undo);
+      await fireEvent.press(undo);
+    });
+    await act(async () => {
+      sender.storage.release();
+    });
+    await expect(screen.findByLabelText('Subject')).resolves.toHaveProp(
+      'value',
+      'Lunch',
+    );
+    expect(sender.drafts.getSnapshot()).toMatchObject({
+      kind: 'ready',
+      drafts: [{ subject: 'Lunch' }],
+    });
     expect(screen.queryByRole('header', { name: 'Outbox' })).toBeNull();
     await later(sender, 10_000);
     expect(sender.gmail.sends).toStrictEqual([]);
@@ -186,6 +201,57 @@ describe('sending a Draft', () => {
     expect(sender.gmail.sends[0]?.raw).toContain('To: sam@example.invalid');
     expect(screen.queryByRole('header', { name: 'Outbox' })).toBeNull();
     sender.outbox.dispose();
+  });
+
+  it('keeps a long Outbox virtualized and hides it during received-mail search', async () => {
+    expect.hasAssertions();
+    const sender = device();
+    const entries = Array.from({ length: 100 }, (_, index) => ({
+      id: `queued${index}`,
+      state: 'unknown',
+      message: { segments: [{ text: 'Synthetic message' }], size: 17 },
+      sendAt: clock.now,
+      draft: {
+        id: `queued${index}`,
+        connection: alex,
+        from: 'alex@example.invalid',
+        to: [{ address: 'sam@example.invalid' }],
+        cc: [],
+        bcc: [],
+        subject: `Queued ${index}`,
+        body: [{ kind: 'paragraph', spans: [] }],
+        updatedAt: clock.now,
+      },
+    }));
+    await sender.storage.native.commitDrafts(account, 0, {
+      document: JSON.stringify({ version: 1, drafts: [], outbox: entries }),
+      keep: [],
+    });
+    await act(async () => {
+      await sender.mailboxes.load();
+    });
+    try {
+      await render(<App sender={sender} />);
+      expect(sender.drafts.getOutbox()).toHaveLength(100);
+      expect(screen.getByRole('header', { name: 'Outbox' })).toBeOnTheScreen();
+      const mounted = screen.getAllByLabelText(/^Queued \d+\. To/u);
+      expect(mounted.length).toBeLessThan(100);
+      expect(screen.queryByLabelText(/^Queued 99\. To/u)).toBeNull();
+      await fireEvent.changeText(
+        screen.getByLabelText('Search senders and subjects'),
+        'Queued',
+      );
+      expect(screen.queryByRole('header', { name: 'Outbox' })).toBeNull();
+      expect(screen.queryAllByLabelText(/^Queued \d+\. To/u)).toStrictEqual([]);
+      await fireEvent.changeText(
+        screen.getByLabelText('Search senders and subjects'),
+        '',
+      );
+      expect(screen.getByRole('header', { name: 'Outbox' })).toBeOnTheScreen();
+    } finally {
+      await screen.unmount();
+      sender.outbox.dispose();
+    }
   });
 
   it('explains a refused Send, a refusal by Gmail and an unknown outcome', async () => {

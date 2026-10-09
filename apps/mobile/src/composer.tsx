@@ -16,14 +16,12 @@ import type {
   Selection,
   SemanticDocument,
 } from '@private-email/mail-core/semantic-document';
-import type { ReactNode } from 'react';
 import type { StyleProp, TextInputChangeEvent, TextStyle } from 'react-native';
 
 import {
   addRecipients,
   draftOf,
   entryOf,
-  draftsOf,
   isEmptyDraft,
   recipientLabel,
   draftSummary,
@@ -385,13 +383,7 @@ export function useOpenDraft(
 export function DraftList({
   onCompose,
   scope,
-  searching = false,
-  children,
 }: {
-  // Shown above the Drafts, such as the Outbox; hidden with them during search.
-  readonly children?: ReactNode;
-  // Search lists received mail alone, so the Drafts heading is hidden meanwhile.
-  readonly searching?: boolean;
   readonly onCompose: (id: string) => void;
   // The mailbox the Inbox shows, which a new message sends from when it can.
   readonly scope: string | undefined;
@@ -409,7 +401,6 @@ export function DraftList({
   }
   const senders = sendingMailboxes(account.mailboxes);
   const sender = senders.find(({ id }) => id === scope) ?? senders[0];
-  const drafts = draftsOf(state);
   // One new Draft at a time: a second press while one is being created does nothing.
   const compose = async (mailbox: MailboxConnection) => {
     if (creating.current) {
@@ -475,15 +466,19 @@ export function DraftList({
           />
         </View>
       ) : null}
-      {searching ? null : children}
-      {drafts.length === 0 || searching ? null : (
-        <Text
-          accessibilityRole="header"
-          style={[styles.section, { color: colors.secondary }]}>
-          {t('drafts.heading')}
-        </Text>
-      )}
     </View>
+  );
+}
+
+export function DraftHeading() {
+  const colors = usePalette();
+  const { t } = useLocalization();
+  return (
+    <Text
+      accessibilityRole="header"
+      style={[styles.section, { color: colors.secondary }]}>
+      {t('drafts.heading')}
+    </Text>
   );
 }
 

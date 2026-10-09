@@ -794,8 +794,15 @@ const encodeDocument = (
 // The confirmed sends kept to tell a repeated outcome from a new one.
 const sentLimit = 20;
 const equivalentEntry = Schema.toEquivalence(OutboxEntrySchema);
-// Another writer's Outbox, with each message this store changed since `base` taken from this
-// store: a message is changed or removed by whichever side touched it.
+const changedEntry = (
+  previous: OutboxEntry | undefined,
+  current: OutboxEntry | undefined,
+) =>
+  previous === undefined || current === undefined
+    ? previous !== current
+    : !equivalentEntry(previous, current);
+
+// Keep another writer's progress when both sides changed an entry; recovery cannot undo delivery.
 const rebaseOutbox = (
   base: readonly OutboxEntry[],
   ours: readonly OutboxEntry[],
@@ -803,13 +810,10 @@ const rebaseOutbox = (
 ) => {
   const before = new Map(base.map((entry) => [entry.id, entry]));
   const mine = new Map(ours.map((entry) => [entry.id, entry]));
-  const touched = (id: string) => {
-    const previous = before.get(id);
-    const current = mine.get(id);
-    return previous === undefined || current === undefined
-      ? previous !== current
-      : !equivalentEntry(previous, current);
-  };
+  const latest = new Map(theirs.map((entry) => [entry.id, entry]));
+  const touched = (id: string) =>
+    changedEntry(before.get(id), mine.get(id)) &&
+    !changedEntry(before.get(id), latest.get(id));
   return [
     ...theirs.filter(({ id }) => !touched(id)),
     ...ours.filter(({ id }) => touched(id)),
@@ -883,10 +887,10 @@ export function createDrafts(
     }
     held.set(draft.id, assets);
   };
-  const keepOf = (drafts: readonly Draft[]) => {
+  const keepOf = (drafts: readonly Draft[], messages = outbox) => {
     const keep = new Set<string>();
     // A queued message keeps its files until its outcome is final.
-    for (const draft of [...drafts, ...outbox.map((entry) => entry.draft)]) {
+    for (const draft of [...drafts, ...messages.map((entry) => entry.draft)]) {
       for (const id of held.get(draft.id) ?? []) {
         keep.add(id);
       }
@@ -1046,6 +1050,35 @@ export function createDrafts(
       semaphore.withPermit,
     );
 
+  // Every write retains assets from the document being stored, not the previous Outbox.
+  const writeDocument = Effect.fnUntraced(function* (
+    account: string,
+    {
+      drafts,
+      delivery,
+      retaining = drafts,
+    }: Readonly<{
+      drafts: readonly Draft[];
+      delivery: Delivery;
+      retaining?: readonly Draft[];
+    }>,
+  ) {
+    const document = yield* encodeDocument(drafts, synced, delivery);
+    const expected = revision;
+    const committed = yield* native(
+      () =>
+        storage.commitDrafts(account, expected, {
+          document,
+          keep: keepOf(retaining, delivery.outbox),
+        }),
+      CommittedSchema,
+    );
+    if (committed.owner !== account) {
+      return yield* ownerMismatch();
+    }
+    return committed;
+  });
+
   // One bounded rebase preserves independent edits, additions and conflicting versions.
   const commit = Effect.fnUntraced(function* (
     current: number,
@@ -1059,22 +1092,10 @@ export function createDrafts(
       dirty = false;
       const captured = state.drafts;
       const delivery = { outbox, sent };
-      const document = yield* encodeDocument(captured, synced, delivery);
-      const expected = revision;
       const outcome = yield* Effect.result(
-        native(
-          () =>
-            storage.commitDrafts(account, expected, {
-              document,
-              keep: keepOf(captured),
-            }),
-          CommittedSchema,
-        ),
+        writeDocument(account, { drafts: captured, delivery }),
       );
       if (Result.isSuccess(outcome)) {
-        if (outcome.success.owner !== account) {
-          return yield* ownerMismatch();
-        }
         if (live(current)) {
           ({ revision } = outcome.success);
           base = captured;
@@ -1269,20 +1290,12 @@ export function createDrafts(
           : [...outbox, admit(deleting)],
       sent,
     };
-    const document = yield* encodeDocument(kept, synced, delivery);
-    const retaining = keepOf(state.drafts);
-    const committed = yield* native(
-      () =>
-        storage.commitDrafts(account, revision, {
-          document,
-          // A late edit may still need this target's assets in its conflict copy.
-          keep: retaining,
-        }),
-      CommittedSchema,
-    );
-    if (committed.owner !== account) {
-      return yield* ownerMismatch();
-    }
+    // A late edit may still need this target's assets in its conflict copy.
+    const committed = yield* writeDocument(account, {
+      drafts: kept,
+      delivery,
+      retaining: state.drafts,
+    });
     if (!live(current) || state.kind !== 'ready') {
       return false;
     }
@@ -1443,8 +1456,7 @@ export function createDrafts(
       }),
     );
 
-  // Applies one Outbox step under the storage permit and saves it. Resolves whether the step holds
-  // in storage; a refused step changes nothing.
+  // Publishes a step only after its CAS succeeds; a competing writer's progress is rechecked.
   const delivering = (
     current: number,
     id: string,
@@ -1454,21 +1466,46 @@ export function createDrafts(
       current,
       Effect.gen(function* () {
         const account = owner;
-        const entry = outbox.find((each) => each.id === id);
-        const next = entry === undefined ? undefined : step(entry);
-        if (account === undefined || next === undefined || !live(current)) {
+        if (account === undefined) {
           return false;
         }
-        if ('draft' in next) {
-          outbox = outbox.map((each) => (each.id === id ? next : each));
-        } else {
-          outbox = outbox.filter((each) => each.id !== id);
-          sent = latestSent(sent, [next]);
-        }
-        dirty = true;
-        publish(state);
         yield* flush(current, account);
-        return live(current) && !dirty;
+        for (let attempt = 0; attempt < 2; attempt += 1) {
+          const entry = outbox.find((each) => each.id === id);
+          const next = entry === undefined ? undefined : step(entry);
+          if (next === undefined || !live(current) || state.kind !== 'ready') {
+            return false;
+          }
+          const captured = state.drafts;
+          const delivery = {
+            outbox:
+              'draft' in next
+                ? outbox.map((each) => (each.id === id ? next : each))
+                : outbox.filter((each) => each.id !== id),
+            sent: 'draft' in next ? sent : latestSent(sent, [next]),
+          };
+          const outcome = yield* Effect.result(
+            writeDocument(account, { drafts: captured, delivery }),
+          );
+          if (Result.isSuccess(outcome)) {
+            if (!live(current)) {
+              return false;
+            }
+            ({ revision } = outcome.success);
+            base = captured;
+            ({ outbox, sent } = delivery);
+            outboxBase = outbox;
+            publish(state);
+            yield* settleSaving(current, account);
+            return live(current);
+          }
+          if (outcome.failure.kind !== 'conflict' || attempt > 0) {
+            return yield* outcome.failure;
+          }
+          yield* rebase(current, account);
+          yield* flush(current, account);
+        }
+        return false;
       }),
     );
 
@@ -1479,32 +1516,58 @@ export function createDrafts(
       current,
       Effect.gen(function* () {
         const account = owner;
-        const entry = outbox.find((each) => each.id === id);
-        if (
-          account === undefined ||
-          entry === undefined ||
-          entry.state === 'sending' ||
-          entry.state === 'unknown' ||
-          !live(current) ||
-          state.kind !== 'ready'
-        ) {
+        if (account === undefined) {
           return false;
         }
-        const now = yield* Clock.currentTimeMillis;
-        const fresh = `${Math.abs(yield* Random.nextInt).toString(36)}${Math.abs(yield* Random.nextInt).toString(36)}`;
-        const reused =
-          entry.claim === undefined &&
-          !state.drafts.some((draft) => draft.id === id);
-        const draft = {
-          ...entry.draft,
-          id: reused ? id : fresh,
-          updatedAt: now,
-        };
-        outbox = outbox.filter((each) => each.id !== id);
-        dirty = true;
-        publish({ ...state, drafts: [...state.drafts, draft], save: 'saving' });
-        yield* settleSaving(current, account);
-        return draft.id;
+        yield* flush(current, account);
+        for (let attempt = 0; attempt < 2; attempt += 1) {
+          const entry = outbox.find((each) => each.id === id);
+          if (
+            entry === undefined ||
+            entry.state === 'sending' ||
+            entry.state === 'unknown' ||
+            !live(current) ||
+            state.kind !== 'ready'
+          ) {
+            return false;
+          }
+          const now = yield* Clock.currentTimeMillis;
+          const fresh = `${Math.abs(yield* Random.nextInt).toString(36)}${Math.abs(yield* Random.nextInt).toString(36)}`;
+          const reused =
+            entry.claim === undefined &&
+            !state.drafts.some((draft) => draft.id === id);
+          const draft = {
+            ...entry.draft,
+            id: reused ? id : fresh,
+            updatedAt: now,
+          };
+          const captured = [...state.drafts, draft];
+          const delivery = {
+            outbox: outbox.filter((each) => each.id !== id),
+            sent,
+          };
+          const outcome = yield* Effect.result(
+            writeDocument(account, { drafts: captured, delivery }),
+          );
+          if (Result.isSuccess(outcome)) {
+            if (!live(current) || state.kind !== 'ready') {
+              return false;
+            }
+            ({ revision } = outcome.success);
+            base = captured;
+            ({ outbox } = delivery);
+            outboxBase = outbox;
+            publish({ ...state, drafts: [...state.drafts, draft] });
+            yield* settleSaving(current, account);
+            return draft.id;
+          }
+          if (outcome.failure.kind !== 'conflict' || attempt > 0) {
+            return yield* outcome.failure;
+          }
+          yield* rebase(current, account);
+          yield* flush(current, account);
+        }
+        return false;
       }),
     );
 

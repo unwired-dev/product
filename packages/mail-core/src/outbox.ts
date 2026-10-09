@@ -1,5 +1,6 @@
 import * as Effect from 'effect/Effect';
 import * as Option from 'effect/Option';
+import * as Schedule from 'effect/Schedule';
 import * as Schema from 'effect/Schema';
 
 import type { DeliveryProblem, Draft, OutboxEntry } from './draft-model.ts';
@@ -76,6 +77,7 @@ const withState = (
 ): OutboxEntry => ({
   id: entry.id,
   draft: entry.draft,
+  message: entry.message,
   sendAt: entry.sendAt,
   state,
   ...(entry.claim === undefined ? {} : { claim: entry.claim }),
@@ -113,13 +115,22 @@ export function createOutbox({
   registration: Pick<Registration, 'getSnapshot'>;
   claims: NativeDeliveryClaim | undefined;
 }>) {
-  // When each queued message may try again; one without an entry is due now.
+  // When each pending message may try again; one without an entry uses its Send deadline.
   const retryAt = new Map<string, number>();
-  let timer: ReturnType<typeof setTimeout> | undefined = undefined;
+  let timer: AbortController | undefined = undefined;
   let disposed = false;
 
   const entryOf = (id: string) =>
     drafts.getOutbox().find((each) => each.id === id);
+  // Both scheduling and processing use the same deadline, including a refused storage step.
+  const dueAt = (entry: OutboxEntry) => {
+    if (entry.state === 'waiting') {
+      return Math.max(entry.sendAt, retryAt.get(entry.id) ?? 0);
+    }
+    return entry.state === 'queued'
+      ? (retryAt.get(entry.id) ?? 0)
+      : Number.POSITIVE_INFINITY;
+  };
   const claim = async (account: string, id: string) => {
     try {
       const claimed = decodeClaimed(
@@ -173,12 +184,11 @@ export function createOutbox({
     );
   };
 
-  // Holds this device's claim on a queued message. Resolves 'held', 'retry' when Convex or storage
-  // could not answer, or 'refused' when another device holds it.
+  // Resolves true only once storage holds this device's confirmed claim on a queued message.
   const holdClaim = async (account: string, entry: OutboxEntry) => {
     const { id } = entry;
     if (entry.claim === 'held') {
-      return 'held';
+      return true;
     }
     // Recorded first: a Draft whose claim may exist never returns under the same identifier.
     if (
@@ -188,7 +198,7 @@ export function createOutbox({
         step('queued', (each) => ({ ...each, claim: 'requested' })),
       ))
     ) {
-      return 'retry';
+      return false;
     }
     const claimed = await claim(account, id);
     if (claimed === undefined) {
@@ -196,23 +206,22 @@ export function createOutbox({
         id,
         step('queued', (each) => withState(each, 'queued', 'offline')),
       );
-      return 'retry';
+      return false;
     }
     if (!claimed) {
       await drafts.deliver(
         id,
         step('queued', (each) => withState(each, 'failed', 'claimed')),
       );
-      return 'refused';
+      return false;
     }
-    const held = await drafts.deliver(
+    return drafts.deliver(
       id,
       step('queued', (each) => ({ ...each, claim: 'held' })),
     );
-    return held ? 'held' : 'retry';
   };
 
-  // Hands a claimed message to Gmail once. Resolves whether it should try again later.
+  // Hands a claimed message to Gmail once, after its durable handoff.
   const handOff = async (id: string) => {
     // Storage holds 'sending' before Gmail sees the message, so an interruption reads as unknown.
     const handed = await drafts.deliver(id, (each) =>
@@ -221,11 +230,7 @@ export function createOutbox({
         : undefined,
     );
     if (!handed) {
-      await drafts.deliver(
-        id,
-        step('sending', (each) => withState(each, 'queued', 'locked')),
-      );
-      return true;
+      return;
     }
     const sending = entryOf(id);
     const inbox = mailboxes
@@ -234,27 +239,30 @@ export function createOutbox({
     const outcome: SendOutcome =
       sending === undefined || inbox === undefined
         ? { kind: 'queued', problem: 'offline' }
-        : await inbox.send(messageOf(sending.draft));
+        : await inbox.send(sending.message);
     await record(id, outcome);
-    return outcome.kind === 'queued';
   };
 
-  // Advances one message as far as it can go now. Resolves whether it should try again later.
-  const advance = async (id: string): Promise<boolean> => {
+  // Advances one message as far as it can go now; the persisted state decides what remains due.
+  const advance = async (id: string) => {
     const account = ownerOf(registration);
     const waiting = entryOf(id);
     if (account === undefined || waiting === undefined) {
-      return waiting?.state === 'queued';
+      return;
     }
-    if (waiting.state === 'waiting' && Date.now() >= waiting.sendAt) {
-      await drafts.deliver(
+    if (
+      waiting.state === 'waiting' &&
+      Date.now() >= waiting.sendAt &&
+      !(await drafts.deliver(
         id,
         step('waiting', (each) => withState(each, 'queued')),
-      );
+      ))
+    ) {
+      return;
     }
     const entry = entryOf(id);
     if (entry?.state !== 'queued') {
-      return false;
+      return;
     }
     const problem = senderProblem(entry.draft);
     if (problem !== undefined) {
@@ -262,15 +270,16 @@ export function createOutbox({
         id,
         step('queued', (each) => withState(each, 'failed', problem)),
       );
-      return false;
+      return;
     }
-    const holding = await holdClaim(account, entry);
-    return holding === 'held' ? handOff(id) : holding === 'retry';
+    if (await holdClaim(account, entry)) {
+      await handOff(id);
+    }
   };
 
   // Runs `due` when a message is next due: the end of an Undo Send Window or a retry.
   const plan = (due: () => void) => {
-    clearTimeout(timer);
+    timer?.abort();
     timer = undefined;
     if (disposed) {
       return;
@@ -278,20 +287,36 @@ export function createOutbox({
     const now = Date.now();
     let next = Number.POSITIVE_INFINITY;
     for (const entry of drafts.getOutbox()) {
-      if (entry.state === 'waiting') {
-        next = Math.min(next, entry.sendAt);
-      } else if (entry.state === 'queued') {
-        next = Math.min(next, retryAt.get(entry.id) ?? now);
-      }
+      next = Math.min(next, dueAt(entry));
     }
     if (Number.isFinite(next)) {
-      timer = setTimeout(
-        () => {
-          timer = undefined;
-          due();
-        },
-        Math.max(0, next - now),
-      );
+      const pending = new AbortController();
+      timer = pending;
+      const wait = async () => {
+        try {
+          await runLogged(
+            Effect.repeat(
+              Effect.void,
+              Schedule.duration(Math.max(0, next - now)),
+            ),
+            { signal: pending.signal },
+          );
+          if (!pending.signal.aborted && !disposed) {
+            timer = undefined;
+            due();
+          }
+        } catch (error) {
+          if (!pending.signal.aborted) {
+            await runLogged(
+              Effect.logError(
+                'Outbox wait failed:',
+                rejectionDiagnostic(error),
+              ),
+            );
+          }
+        }
+      };
+      void wait();
     }
   };
 
@@ -300,10 +325,13 @@ export function createOutbox({
   let requested = false;
   const pass = async () => {
     const now = Date.now();
-    for (const { id } of drafts.getOutbox()) {
-      if ((retryAt.get(id) ?? now) <= now) {
+    for (const entry of drafts.getOutbox()) {
+      const { id } = entry;
+      if (dueAt(entry) <= now) {
         retryAt.delete(id);
-        if (await advance(id)) {
+        await advance(id);
+        const pending = entryOf(id);
+        if (pending !== undefined && Number.isFinite(dueAt(pending))) {
           retryAt.set(id, Date.now() + retryDelay);
         }
       }
@@ -372,13 +400,15 @@ export function createOutbox({
           }
         }
       }
-      if (messageOf(draft).size > gmailMessageLimit) {
+      const message = messageOf(draft);
+      if (message.size > gmailMessageLimit) {
         return 'too-large';
       }
       const sendAt = Date.now() + undoSendWindow;
       const admitted = await drafts.admit(draft.id, expected, (stored) => ({
         id: stored.id,
         draft: stored,
+        message,
         sendAt,
         state: 'waiting',
       }));
@@ -405,7 +435,7 @@ export function createOutbox({
     },
     dispose: () => {
       disposed = true;
-      clearTimeout(timer);
+      timer?.abort();
       unsubscribe();
     },
   };

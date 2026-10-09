@@ -10,7 +10,7 @@ import { StyleSheet, Text, View } from 'react-native';
 
 import { Action } from './composer.tsx';
 import { useLocalization } from './localization.ts';
-import { useOutbox, useOutboxEntries } from './mailbox.tsx';
+import { useOutbox } from './mailbox.tsx';
 import { usePalette } from './theme.ts';
 
 const styles = StyleSheet.create({
@@ -59,7 +59,7 @@ const statusOf = (t: Translate, { state, problem }: OutboxEntry) => {
   return t(`outbox.state.${state === 'queued' ? 'sending' : state}`);
 };
 
-function OutboxRow({
+export function OutboxRow({
   entry,
   onOpen,
 }: {
@@ -116,36 +116,17 @@ function OutboxRow({
   );
 }
 
-// Messages sent from this device that Gmail has not confirmed yet, shown only while there are any.
-export function OutboxList({
-  onOpen,
-}: {
-  // Opens a message returned to the Drafts in the composer.
-  readonly onOpen: (id: string) => Promise<void>;
-}) {
-  const entries = useOutboxEntries();
+export function OutboxHeading() {
   const colors = usePalette();
   const { t } = useLocalization();
-  if (entries.length === 0) {
-    return null;
-  }
   return (
-    <View>
-      <View
-        accessible
-        accessibilityLabel={t('outbox.heading')}
-        accessibilityRole="header">
-        <Text style={[styles.section, { color: colors.secondary }]}>
-          {t('outbox.heading')}
-        </Text>
-      </View>
-      {entries.map((entry) => (
-        <OutboxRow
-          entry={entry}
-          key={entry.id}
-          onOpen={onOpen}
-        />
-      ))}
+    <View
+      accessible
+      accessibilityLabel={t('outbox.heading')}
+      accessibilityRole="header">
+      <Text style={[styles.section, { color: colors.secondary }]}>
+        {t('outbox.heading')}
+      </Text>
     </View>
   );
 }

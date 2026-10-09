@@ -42,7 +42,7 @@
   "devDependencies": {
     "@rajzik/tsconfig": "catalog:",
     "@types/node": "catalog:",
-    "postal-mime": "^4.0.5",
+    "postal-mime": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
   }

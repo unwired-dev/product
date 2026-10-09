@@ -121,6 +121,22 @@ export const OutboxEntrySchema = Schema.Struct({
   // The Draft's identifier, which its Convex claim names.
   id: Schema.NonEmptyString,
   draft: DraftSchema,
+  // The rendered message admitted at Send; native code inserts only the verified asset bytes.
+  message: Schema.Struct({
+    segments: Schema.Array(
+      Schema.Union([
+        Schema.Struct({ text: Schema.String }),
+        Schema.Struct({
+          asset: Schema.Struct({
+            id: Schema.NonEmptyString,
+            digest: Schema.String,
+          }),
+        }),
+      ]),
+    ),
+    size: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+    threadId: Schema.optionalKey(Schema.NonEmptyString),
+  }),
   // Milliseconds since 1970 when the Undo Send Window ends.
   sendAt: Schema.Finite,
   state: Schema.Literals(['waiting', 'queued', 'sending', 'failed', 'unknown']),

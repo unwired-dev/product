@@ -3,6 +3,7 @@ import PostalMime from 'postal-mime';
 import type { Draft } from '../src/drafts.ts';
 import type { SyntheticProductSync } from '../src/testing/drafts.ts';
 
+import { createDrafts } from '../src/drafts.ts';
 import { createMailboxes } from '../src/mailboxes.ts';
 import { createOutbox, undoSendWindow } from '../src/outbox.ts';
 import {
@@ -187,10 +188,19 @@ describe('sending a Draft through the Outbox', () => {
       {
         id,
         draft: shown,
+        message: expect.objectContaining({
+          segments: expect.any(Array),
+          size: expect.any(Number),
+          threadId: 'thread-7',
+        }),
         sendAt: clock.now + undoSendWindow,
         state: 'waiting',
       },
     ]);
+    expect(
+      JSON.parse(present(sending.storage.stored(), 'stored Drafts').document)
+        .outbox,
+    ).toStrictEqual(sending.drafts.getOutbox());
     later(undoSendWindow - 1);
     await sending.outbox.process();
     expect(gmail.sends).toStrictEqual([]);
@@ -206,11 +216,13 @@ describe('sending a Draft through the Outbox', () => {
     ]);
     const [sent] = gmail.sends;
     expect(sent?.threadId).toBe('thread-7');
+    expect(sent?.raw).toContain('Date: Fri, 09 Oct 2026 12:00:00 +0000');
     expect(sending.drafts.getOutbox()).toStrictEqual([]);
     expect(
       JSON.parse(present(sending.storage.stored(), 'stored Drafts').document),
     ).toMatchObject({ sent: [{ id, message: sent?.id, sentAt: clock.now }] });
     expect(sending.storage.stored()?.document).not.toContain('"outbox"');
+    expect(sending.storage.assets()).toStrictEqual([]);
 
     const message = await PostalMime.parse(present(sent, 'a send').raw, {
       attachmentEncoding: 'utf8',
@@ -366,14 +378,71 @@ describe('sending a Draft through the Outbox', () => {
     second.outbox.dispose();
   });
 
+  it('keeps Undo retryable when its cancellation cannot be saved', async () => {
+    expect.hasAssertions();
+    const { server, gmail } = sharedAccount();
+    const sending = await sender(server, gmail, 'phone');
+    const id = await addressed(sending);
+    await sending.outbox.send(() => sending.draft(id));
+    sending.storage.failNextCommit('locked');
+
+    await expect(sending.outbox.undo(id)).resolves.toBe(false);
+    expect(sending.drafts.getOutbox()).toMatchObject([
+      { id, state: 'waiting' },
+    ]);
+    expect(sending.list()).toStrictEqual([]);
+    await expect(sending.outbox.undo(id)).resolves.toBe(id);
+    await sending.relaunch();
+    later(undoSendWindow);
+    await sending.outbox.process();
+    expect(gmail.sends).toStrictEqual([]);
+    expect(sending.draft(id).subject).toBe('Lunch');
+    sending.outbox.dispose();
+  });
+
+  it('lets only one local storage writer hand the same claimed message to Gmail', async () => {
+    expect.hasAssertions();
+    const { server, gmail } = sharedAccount();
+    const sending = await sender(server, gmail, 'phone');
+    const id = await addressed(sending);
+    await sending.outbox.send(() => sending.draft(id));
+    const drafts = createDrafts(sending.storage.native, sending.registration);
+    await drafts.load();
+    const mailboxes = createMailboxes(
+      syntheticConnections({ [alex.id]: gmail }),
+      sending.registration,
+    );
+    await mailboxes.load();
+    const other = createOutbox({
+      drafts,
+      mailboxes,
+      registration: sending.registration,
+      claims: sending.storage.delivery,
+    });
+    later(undoSendWindow);
+
+    await Promise.all([sending.outbox.process(), other.process()]);
+
+    expect(gmail.sends).toHaveLength(1);
+    await sending.relaunch();
+    expect(sending.drafts.getOutbox()).toStrictEqual([]);
+    sending.outbox.dispose();
+    other.dispose();
+  });
+
   it('keeps a message queued while its claim is unreachable or uncertain, then sends it once', async () => {
     expect.hasAssertions();
     let phone: Device | undefined = undefined;
     const { server, gmail } = sharedAccount(() => phone);
+    const submit = vi.spyOn(gmail.native, 'gmailSend');
     const sending = await sender(server, gmail, 'phone');
     phone = sending;
     const id = await addressed(sending);
     await sending.outbox.send(() => sending.draft(id));
+    const admitted = present(
+      sending.drafts.getOutbox()[0],
+      'the admitted message',
+    ).message;
     server.setReachable(false);
     later(undoSendWindow);
 
@@ -392,7 +461,125 @@ describe('sending a Draft through the Outbox', () => {
 
     await sending.outbox.process();
     expect(gmail.sends).toHaveLength(1);
+    expect(submit).toHaveBeenCalledWith(admitted, expect.anything());
     expect(sending.drafts.getOutbox()).toStrictEqual([]);
+    sending.outbox.dispose();
+  });
+
+  it('does not resurrect a confirmed send when a stale recovery writer saves', async () => {
+    expect.hasAssertions();
+    const { server, gmail } = sharedAccount();
+    const sending = await sender(server, gmail, 'phone');
+    const id = await addressed(sending);
+    await sending.outbox.send(() => sending.draft(id));
+    const reply = Promise.withResolvers<undefined>();
+    const submit = gmail.native.gmailSend;
+    gmail.native.gmailSend = async (...args) => {
+      await reply.promise;
+      return submit(...args);
+    };
+    later(undoSendWindow);
+    const processing = sending.outbox.process();
+    await vi.waitFor(() => {
+      expect(sending.drafts.getOutbox()).toMatchObject([{ state: 'sending' }]);
+    });
+    const recovering = createDrafts(
+      sending.storage.native,
+      sending.registration,
+    );
+    await recovering.load();
+    expect(recovering.getOutbox()).toMatchObject([{ state: 'unknown' }]);
+    reply.resolve(undefined);
+    await processing;
+
+    await expect(recovering.save()).resolves.toBe(true);
+    expect(recovering.getOutbox()).toStrictEqual([]);
+    await sending.relaunch();
+    await sending.outbox.process();
+    expect(sending.drafts.getOutbox()).toStrictEqual([]);
+    expect(gmail.sends).toHaveLength(1);
+    sending.outbox.dispose();
+  });
+
+  it('processes the Undo Send deadline automatically and stops scheduled work on disposal', async () => {
+    expect.hasAssertions();
+    vi.useFakeTimers();
+    const { server, gmail } = sharedAccount();
+    const sending = await sender(server, gmail, 'phone');
+    const first = await addressed(sending);
+    await sending.outbox.send(() => sending.draft(first));
+    await vi.advanceTimersByTimeAsync(undoSendWindow - 1);
+    expect(gmail.sends).toStrictEqual([]);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(gmail.sends).toHaveLength(1);
+    const second = await addressed(sending);
+    await sending.outbox.send(() => sending.draft(second));
+    sending.outbox.dispose();
+    await vi.advanceTimersByTimeAsync(undoSendWindow);
+    expect(gmail.sends).toHaveLength(1);
+    expect(sending.drafts.getOutbox()).toMatchObject([
+      { id: second, state: 'waiting' },
+    ]);
+  });
+
+  it('delays retries when storage cannot record a deadline or claim refusal', async () => {
+    expect.hasAssertions();
+    vi.useFakeTimers();
+    const { server, gmail } = sharedAccount();
+    const sending = await sender(server, gmail, 'phone');
+    const id = await addressed(sending);
+    await sending.outbox.send(() => sending.draft(id));
+    let writes = 0;
+    const commit = sending.storage.native.commitDrafts;
+    vi.spyOn(sending.storage.native, 'commitDrafts').mockImplementation(
+      (...args) => {
+        writes += 1;
+        return commit(...args);
+      },
+    );
+    sending.storage.setLocked(true);
+
+    await vi.advanceTimersByTimeAsync(undoSendWindow + 10);
+
+    expect(writes).toBe(1);
+    expect(sending.drafts.getOutbox()).toMatchObject([
+      { id, state: 'waiting' },
+    ]);
+    expect(gmail.sends).toStrictEqual([]);
+    sending.storage.setLocked(false);
+    await vi.advanceTimersByTimeAsync(29_989);
+    expect(writes).toBe(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(gmail.sends).toHaveLength(1);
+    expect(sending.drafts.getOutbox()).toStrictEqual([]);
+
+    // A refused claim also remains queued if storage cannot record its final state.
+    const second = await addressed(sending);
+    await sending.outbox.send(() => sending.draft(second));
+    server.claim(account, `draft-delivery.${second}`, 'mac');
+    const delivery = present(sending.storage.delivery, 'delivery claims');
+    const claim = delivery.claimDraftDelivery;
+    let requests = 0;
+    const claims = vi
+      .spyOn(delivery, 'claimDraftDelivery')
+      .mockImplementation(async (...args) => {
+        requests += 1;
+        const reply = await claim(...args);
+        sending.storage.setLocked(true);
+        return reply;
+      });
+    await vi.advanceTimersByTimeAsync(undoSendWindow + 10);
+    expect(requests).toBe(1);
+    expect(sending.drafts.getOutbox()).toMatchObject([
+      { id: second, state: 'queued', claim: 'requested' },
+    ]);
+    claims.mockRestore();
+    sending.storage.setLocked(false);
+    await vi.advanceTimersByTimeAsync(29_990);
+    expect(sending.drafts.getOutbox()).toMatchObject([
+      { id: second, state: 'failed', problem: 'claimed' },
+    ]);
+    expect(gmail.sends).toHaveLength(1);
     sending.outbox.dispose();
   });
 

@@ -28,6 +28,7 @@ release scopes; a moved passage is not a new requirement or proof of qualificati
 | [docs/domain/messages-and-delivery.md](../domain/messages-and-delivery.md)       | [domain/messages-and-delivery.md](domain/messages-and-delivery.md)       |
 | [docs/domain/privacy-and-sync.md](../domain/privacy-and-sync.md)                 | [domain/privacy-and-sync.md](domain/privacy-and-sync.md)                 |
 | [docs/expo-client.md](../expo-client.md)                                         | [expo-client.md](expo-client.md)                                         |
+| [docs/outbox.md](../outbox.md)                                                   | [outbox.md](outbox.md)                                                   |
 | [docs/gmail-inbox.md](../gmail-inbox.md)                                         | [gmail-inbox.md](gmail-inbox.md)                                         |
 | [docs/google-registration.md](../google-registration.md)                         | [google-registration.md](google-registration.md)                         |
 | [docs/localization.md](../localization.md)                                       | [localization.md](localization.md)                                       |

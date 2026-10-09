@@ -19,7 +19,7 @@ const claimIdentifier = `draft-delivery.${'0123456789abcdef'.repeat(2)}`;
 describe('claiming a Draft for delivery', () => {
   /* oxlint-disable vitest/max-expects -- One journey proves the claim's whole contract. */
   it('lets the first Trusted Device hold a claim, again after a lost reply, and refuses the others', async () => {
-    expect.assertions(6);
+    expect.assertions(7);
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(identity('apple-user-001'));
     const phone = await connectTrusted(t, asUser, {
@@ -100,6 +100,12 @@ describe('claiming a Draft for delivery', () => {
         trustedDeviceId: phone.trustedDeviceId,
       }),
     ).rejects.toThrow('Trusted device required');
+    await expect(
+      t.mutation(api.draftDelivery.claim, {
+        claimIdentifier,
+        trustedDeviceId: phone.trustedDeviceId,
+      }),
+    ).rejects.toThrow('Authentication required');
   });
 
   it('refuses a revoked Trusted Device', async () => {

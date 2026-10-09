@@ -80,7 +80,8 @@ const header = (name: string, items: readonly string[], separator = ' ') => {
 };
 const unstructured = (name: string, text: string) => {
   const value = headerText(text);
-  return printable.test(value)
+  return printable.test(value) &&
+    value.split(' ').every((word) => word.length <= 60)
     ? header(
         name,
         value.split(' ').filter((word) => word !== ''),
@@ -89,9 +90,9 @@ const unstructured = (name: string, text: string) => {
 };
 
 const quotedName = (name: string) =>
-  printable.test(name)
+  printable.test(name) && name.length <= 60
     ? `"${name.replaceAll(/["\\]/gu, String.raw`\$&`)}"`
-    : encodedWords(name).join(' ');
+    : encodedWords(name).join(`${crlf} `);
 const mailbox = ({ name, address }: Recipient) => {
   const shown = name === undefined ? '' : headerText(name);
   return shown === '' ? address : `${quotedName(shown)} <${address}>`;
@@ -123,17 +124,27 @@ const dateOf = (at: number) => {
 // Parameter values: quoted when printable, otherwise RFC 2231 percent-encoded UTF-8.
 const parameter = (name: string, value: string) => {
   const text = headerText(value);
-  if (printable.test(text)) {
+  if (printable.test(text) && text.length <= 60) {
     return `${name}="${text.replaceAll(/["\\]/gu, String.raw`\$&`)}"`;
   }
-  const encoded = [...utf8(text)]
-    .map((byte) =>
-      /[\w.~-]/u.test(String.fromCodePoint(byte))
-        ? String.fromCodePoint(byte)
-        : `%${byte.toString(16).toUpperCase().padStart(2, '0')}`,
-    )
-    .join('');
-  return `${name}*=UTF-8''${encoded}`;
+  const parts = [''];
+  for (const byte of utf8(text)) {
+    const token = /[\w.~-]/u.test(String.fromCodePoint(byte))
+      ? String.fromCodePoint(byte)
+      : `%${byte.toString(16).toUpperCase().padStart(2, '0')}`;
+    if ((parts.at(-1)?.length ?? 0) + token.length > 60) {
+      parts.push('');
+    }
+    parts[parts.length - 1] += token;
+  }
+  return parts.length === 1
+    ? `${name}*=UTF-8''${parts[0]}`
+    : parts
+        .map(
+          (part, index) =>
+            `${name}*${index}*=${index === 0 ? "UTF-8''" : ''}${part}`,
+        )
+        .join(`;${crlf} `);
 };
 // A picker-reported type is used only when it is a plain MIME type.
 const contentType = (asset: Asset) =>

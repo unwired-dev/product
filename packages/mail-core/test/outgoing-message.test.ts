@@ -115,4 +115,37 @@ describe('building an outgoing message', () => {
       'Agenda\n1. First\n2. Second\n- a < b & c\n\nlet x = 1;\nx += 1;\n> Quoted',
     );
   });
+
+  it('preserves long subjects, recipient names and UTF-8 filenames within MIME line limits', async () => {
+    expect.hasAssertions();
+    const subject = 'x'.repeat(1200);
+    const recipient = {
+      name: 'Sam '.repeat(300).trim(),
+      address: 'sam@example.invalid',
+    };
+    const filename = `${'ž'.repeat(240)}.txt`;
+    const raw = assemble(
+      build(
+        draft({
+          subject,
+          to: [recipient],
+          attachments: [
+            {
+              id: 'a1b2c3d4e5',
+              name: filename,
+              type: 'text/plain',
+              state: 'complete',
+              size: 200,
+              digest: '0'.repeat(64),
+            },
+          ],
+        }),
+      ),
+    );
+    expect(raw.split('\r\n').every((line) => line.length <= 998)).toBe(true);
+    const parsed = await PostalMime.parse(raw);
+    expect(parsed.subject).toBe(subject);
+    expect(parsed.to).toStrictEqual([recipient]);
+    expect(parsed.attachments[0]?.filename).toBe(filename);
+  });
 });

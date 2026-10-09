@@ -35,6 +35,8 @@ in the background or with Mac windows closed is
 - A message that could not reach Convex or Gmail, or found storage locked or Gmail
   rate limited, says it is **Waiting to send** and why. It tries again after 30
   seconds and whenever the app becomes active, and offers **Edit**.
+  If storage is locked when the Undo Send Window ends, the message remains
+  cancellable and retries after the same delay.
 - **Not sent** explains a definite refusal and offers **Edit**:
   - another of the account's devices claimed the Draft first;
   - the mailbox needs Gmail access again or is no longer connected;
@@ -50,35 +52,24 @@ in the background or with Mac windows closed is
 
 ## Delivery rules
 
-- The Outbox lives in the account's encrypted
-  [Draft document](private-inbox-storage.md#draft-storage) on this device, the
-  **Delivery Owner**. Admission removes the Draft and stores its exact content in
-  the same write. The Outbox never synchronizes. Its files stay stored until the
-  message is sent or returns to the Drafts.
-- Before Gmail sees the message, storage records it as handed over. A request
-  whose answer may have been lost, an unreadable reply or an app stopped
-  meanwhile reads as unknown, never as permission to send again.
-- The Convex claim (`draftDelivery:claim`) names the Draft only by an opaque
-  identifier that native code derives with the account's Product Sync keys,
-  together with the claiming Trusted Device and the time. The first device to claim
-  holds it for good. Asking again from that device, as after a lost reply, keeps the
-  claim; other devices are refused. A claim whose reply is lost keeps the message
-  waiting and is asked again. Claims are deleted with the Product Account.
-- Native code reads each file's verified bytes from Draft storage and inserts
-  them into the message, so they never cross the bridge. It sends through Gmail's
-  multipart `messages.send` upload with the reply's thread. It accepts only ASCII
-  message text from TypeScript and refuses a message over 35 MB.
-- The message has HTML and plain-text alternatives built from the **Semantic Message
-  Document**, followed by any quoted correspondence. Inline images are related
-  parts referenced by Content-ID, and attachments carry RFC 2231 file names.
-  Non-ASCII headers are RFC 2047 encoded and folded, with line breaks removed.
-  Replies carry In-Reply-To and References, and join the Gmail thread only from the
-  receiving mailbox (`threadOf`). Gmail removes Bcc from what others receive.
-- Logs carry no message content, addresses or identifiers; claim and send failures
-  log allow-listed codes only.
+- This device is the **Delivery Owner**. Admission removes the Draft and stores
+  the exact rendered message and verified asset references in one encrypted write.
+  The Outbox remains local; its files remain available through Undo and delivery.
+- Undo succeeds only after cancellation is saved. If storage refuses it, the
+  Outbox row remains available to try again.
+- Before provider submission, the device must durably record both a confirmed
+  Convex claim and the handoff state. A failed, interrupted or unreadable claim
+  response never grants permission to submit.
+- Claims contain no message content. Another device cannot take over delivery;
+  an uncertain provider outcome never causes automatic resubmission.
+- Native code owns encrypted file access and Gmail credentials. Keys, credentials
+  and asset bytes never cross the JavaScript bridge; logs contain no mail content,
+  addresses or identifiers.
+- Sent messages preserve the formatted body, plain-text alternative, quoted
+  correspondence, attachments, inline images and eligible reply threading.
 
-`createOutbox` in `@private-email/mail-core/outbox` runs delivery for both hosts.
-`outgoingMessage` in `@private-email/mail-core/outgoing-message` builds the message.
+The reviewer-only [Outbox companion](architecture/outbox.md) records internal
+mechanisms and the scope of the retry policy.
 
 ## Verification
 
@@ -97,8 +88,15 @@ after the Undo Send Window, and parse it with an independent MIME parser. They a
 cover:
 
 - Undo before anything is claimed or sent, with the Draft continuing on another
-  device;
-- two devices sending the same Draft, of which one submits;
+  device, and refusal when cancellation cannot be saved;
+- two devices, or two local storage writers, sending the same Draft, of which
+  one submits;
+- preserving a confirmed send when a stale storage writer saves;
+- automatic delivery after the Undo Send deadline and cancellation of scheduled
+  work when the Outbox is disposed, with delayed retries when storage is locked;
+- reclaiming sent files without another Draft edit or app relaunch;
+- immutable message segments through retries and folded long headers and file
+  names that round-trip through an independent MIME parser;
 - an unreachable claim and a claim whose reply is lost;
 - a Gmail refusal and an accepted message whose reply is lost, kept apart and
   never sent again through relaunch;
