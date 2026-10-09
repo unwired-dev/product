@@ -3,7 +3,8 @@
 Setup, coding rules, validation and observable requirements remain in this file.
 
 [Catch Up](domain/organization.md) is a planned chat-style presentation of the
-Inbox for getting through mail quickly. Each message appears as one bubble with its
+Inbox for getting through mail quickly. Except for collapsed category mail described
+below, each message appears as one bubble with its
 [Background Message Summary](domain/assistance.md), or its preview when no summary
 exists. Nothing here is implemented yet. The work is tracked in
 [#807](https://github.com/unwired-dev/product/issues/807) and its sub-issues.
