@@ -106,7 +106,14 @@ Native storage owns what TypeScript must never hold: Keychain items, the storage
   the original URL's extension fallback independently of naming. Preserve an
   unnamed source's complete filename, including dots in its stem, and avoid
   duplicating extensions already present in suggested names. Check extensionless
-  concrete image providers and generic providers with dotted names; otherwise
+  concrete image providers and generic providers with dotted names. Apply this
+  check to every shared `pickedFile` caller, including Mac open-panel selections,
+  iOS staged document copies and URI-less oversized entries. Filesystem
+  `contentTypeKey` metadata can return `public.data` for valid extensionless image
+  bytes; require real-file evidence rather than assuming metadata inspects the
+  content. Preserve concrete declared types, bounded header work, grants and
+  staging/size/cleanup boundaries when identifying an otherwise unknown image;
+  otherwise
   `prepareFiles` can silently turn Insert Image or Paste Image into an attachment
   or retain incorrect asset metadata.
 

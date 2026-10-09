@@ -1,4 +1,5 @@
 import Foundation
+import ImageIO
 import UniformTypeIdentifiers
 
 // The system's own ways to choose files for a Draft. Each resolves `[{ uri, name, type }]`, or
@@ -24,17 +25,35 @@ private func oversizedFile(_ url: URL, name: String, type: UTType? = nil) -> [St
   return file
 }
 
-// The MIME type comes from the type the source declared when it has one, then the extension.
+// Concrete source types win. Filesystem metadata and names can leave extensionless images unknown,
+// so inspect only a bounded header with ImageIO, without decoding or loading a complete image.
+private func pickedType(_ url: URL, declared: UTType?) -> String {
+  if let type = declared?.preferredMIMEType { return type }
+  let scoped = url.startAccessingSecurityScopedResource()
+  defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+  let values = try? url.resourceValues(forKeys: [.contentTypeKey, .isRegularFileKey])
+  if let type = values?.contentType?.preferredMIMEType
+    ?? UTType(filenameExtension: url.pathExtension)?.preferredMIMEType
+  { return type }
+  guard values?.isRegularFile == true, let file = try? FileHandle(forReadingFrom: url) else {
+    return ""
+  }
+  defer { try? file.close() }
+  guard
+    let bytes = try? file.read(upToCount: 4_096),
+    let source = CGImageSourceCreateWithData(bytes as CFData, nil),
+    let identifier = CGImageSourceGetType(source)
+  else { return "" }
+  return UTType(identifier as String)?.preferredMIMEType ?? ""
+}
+
 private func pickedFile(_ url: URL, name: String? = nil, type declared: UTType? = nil)
   -> [String: String]
 {
-  // A file without an extension, such as one the Mac open panel chose, keeps the content type the
-  // system recognized for it.
-  let recognized = (try? url.resourceValues(forKeys: [.contentTypeKey]))?.contentType
-  let type =
-    declared?.preferredMIMEType ?? recognized?.preferredMIMEType
-    ?? UTType(filenameExtension: url.pathExtension)?.preferredMIMEType ?? ""
-  return ["uri": url.absoluteString, "name": name ?? url.lastPathComponent, "type": type]
+  return [
+    "uri": url.absoluteString, "name": name ?? url.lastPathComponent,
+    "type": pickedType(url, declared: declared),
+  ]
 }
 
 #if os(iOS)

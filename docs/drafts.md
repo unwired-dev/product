@@ -310,6 +310,16 @@ results arriving after Close or account replacement, and navigation during a
 received-attachment save. Native checks remove owned picker copies on rejected
 imports and preserve similarly named directories containing user files.
 
+Run `mise exec -- zsh native/private-inbox/integration/picker.zsh` on Mac for
+the picker MIME regression. It compiles the actual bridge helpers alongside
+the native owners and uses real files and ImageIO to verify extensionless PNGs,
+declared-type precedence, renamed/moved copies, unknown files and URI-less
+oversized results. It does not open a panel or qualify sandbox grants, iOS file
+protection, encrypted import or the visible composer. Selected extensionless
+images keep their image type even when filesystem metadata leaves it unknown;
+the system panel's image-filter admission still requires native interaction
+qualification.
+
 Deferred before release: native iPhone, iPad and Mac journeys that compose, relaunch
 and reopen a Draft; the system Photos and Files pickers, the Mac open panel,
 pasteboard images, Mac drag and drop and Mac sandbox file grants with real files;
