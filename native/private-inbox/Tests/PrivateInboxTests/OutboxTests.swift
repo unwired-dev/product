@@ -104,13 +104,35 @@ struct OutboxTests {
       segments: segments, threadId: nil, connection: connection, address: google.address,
       generation: generation)
     #expect(refused["status"] as? Int == 400)
+    // A transport failure that proves the request never left this device stays a retry.
     google.gmailFailure = RegistrationError.unavailable
+    await #expect(throws: RegistrationError.unavailable) {
+      _ = try await store.gmailSend(
+        segments: segments, threadId: nil, connection: connection, address: google.address,
+        generation: generation)
+    }
+    google.gmailFailure = GmailRequestInterrupted()
     await #expect(throws: PrivateInboxError.deliveryUnknown) {
       _ = try await store.gmailSend(
         segments: segments, threadId: nil, connection: connection, address: google.address,
         generation: generation)
     }
-    #expect(google.gmailRequests.count == requests + 2)
+    // A read that fails the same way is only a retry.
+    await #expect(throws: RegistrationError.unavailable) {
+      _ = try await store.gmail(
+        path: "profile", query: [], connection: connection, address: google.address,
+        generation: generation)
+    }
+    #expect(google.gmailRequests.count == requests + 4)
+    // URLSession failures that prove nothing left the device are told apart from the rest.
+    for code: URLError.Code in [.notConnectedToInternet, .cannotFindHost, .secureConnectionFailed]
+    {
+      #expect(GmailTransport.failure(URLError(code)) as? RegistrationError == .unavailable)
+    }
+    for code: URLError.Code in [.networkConnectionLost, .timedOut, .badServerResponse] {
+      #expect(GmailTransport.failure(URLError(code)) is GmailRequestInterrupted)
+    }
+    #expect(GmailTransport.failure(URLError(.cancelled)) is CancellationError)
   }
 
   @Test @MainActor func deliveryClaimsNameNoDraftAndAreHeldByOneTrustedDevice() async throws {

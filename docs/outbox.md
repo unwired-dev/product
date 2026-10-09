@@ -49,6 +49,8 @@ in the background or with Mac windows closed is
   no answer arrived, Gmail answered with a server error, or the app stopped while
   Gmail had it. The message is never sent again automatically and offers no Edit;
   check Gmail's Sent mailbox. Explaining and reconciling it is #616.
+  A connection that never reached Gmail (no network, no host, or a secure
+  connection that was never established) is not unknown: the message waits to send.
 - **Edit** returns the message to the Drafts and opens it. A message whose claim
   was requested returns under a new identifier, because its old one stays claimed.
 

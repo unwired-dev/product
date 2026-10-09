@@ -255,8 +255,13 @@ extension RegistrationStore {
     do {
       (status, data) = try await provider.gmail(
         identity, url: url, body: body, contentType: contentType)
+    } catch RegistrationError.unavailable where sending {
+      // It never left this device, so it is safe to try again.
+      throw RegistrationError.unavailable
     } catch where sending {
       throw PrivateInboxError.deliveryUnknown
+    } catch is GmailRequestInterrupted {
+      throw RegistrationError.unavailable
     }
     guard sending || current() else { throw PrivateInboxError.mailboxInvalidated }
     return ["status": status, "body": String(decoding: data, as: UTF8.self)]
@@ -521,15 +526,38 @@ enum GmailTransport {
       } onCancel: {
         task.cancel()
       }
-    } catch let error as URLError where error.code == .cancelled {
-      throw CancellationError()
-    } catch is CancellationError {
-      throw CancellationError()
     } catch {
-      throw RegistrationError.unavailable
+      throw failure(error)
     }
   }
+
+  // Failures that prove the request never left this device: no connection, no host, or a secure
+  // connection that was never established.
+  static let unsent: Set<URLError.Code> = [
+    .notConnectedToInternet, .cannotFindHost, .cannotConnectToHost, .dnsLookupFailed,
+    .dataNotAllowed, .internationalRoamingOff, .callIsActive, .secureConnectionFailed,
+    .serverCertificateUntrusted, .serverCertificateHasBadDate, .serverCertificateNotYetValid,
+    .serverCertificateHasUnknownRoot, .appTransportSecurityRequiresSecureConnection,
+  ]
+
+  // A request that never left this device is unavailable, a retry; any other failure may follow
+  // Gmail receiving it, which only a write must tell apart.
+  static func failure(_ error: any Error) -> any Error {
+    if let error = error as? URLError, error.code == .cancelled {
+      return CancellationError()
+    }
+    if error is CancellationError {
+      return error
+    }
+    if let error = error as? URLError, unsent.contains(error.code) {
+      return RegistrationError.unavailable
+    }
+    return GmailRequestInterrupted()
+  }
 }
+
+// A Gmail request that failed after it may have reached Gmail.
+struct GmailRequestInterrupted: Error {}
 
 // One response's status and body, refused once it exceeds the limit, whether its length is
 // declared or streamed.
