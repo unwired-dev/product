@@ -13,6 +13,20 @@ Native storage owns what TypeScript must never hold: Keychain items, the storage
 
 #### Keys, credentials and storage
 
+- `DraftSync.push` mapping every failed expected-revision write to a conflict.
+  Only the coded conditional-write refusal, reconciled with authenticated record
+  absence, can become `committed: false`; preserve transport, cancellation and
+  other failures even when the record is absent. Otherwise synchronization hides
+  failed backend operations as concurrency, suppressing diagnostics and recovery.
+
+- `PrivateInboxStore.importDraftAsset` applying process-wide pending-import protection
+  to bytes downloaded for an already-stored Draft reference. Trace every import caller,
+  including `RegistrationStore.storeDraftAsset`: protect picker/received imports only
+  until reference adoption or abandonment, while synced downloads rely on the document's
+  keep list. Verify that a later stored document dropping the downloaded asset reclaims
+  it in the same process, while live/history-held references remain protected.
+  Otherwise Discard leaves orphaned ciphertext consuming the non-evicting quota until relaunch.
+
 - `PrivateInboxStore.discardDraftAsset` retaining process-local import protection
   after an abandoned import's file removal throws. Release that protection under
   the storage lock on both success and failure, preserving the deletion error,
@@ -159,7 +173,7 @@ Native storage owns what TypeScript must never hold: Keychain items, the storage
   result when a suspended task completes cancellation before its continuation is
   registered, and settle once for either ordering; otherwise a near-limit attachment
   stalls all mailbox/registration work or cancellation strands the gate indefinitely.
-- A positive revocation found by `RegistrationStore.prepareMailbox` converted to ordinary mailbox invalidation after successful purge. Trace both `UnwiredRegistration.openMailbox` and `commitMailbox` through the shared rejection mapper and `createGmailInbox` recovery: preserve `mailbox-revoked` and its account-page hand-off, while generation changes retain bounded invalidation recovery. Collapsing the two makes already-purged mail end in retry exhaustion and a generic failure instead of the removal explanation.
+- A positive revocation found by `RegistrationStore.prepareMailbox` converted to ordinary mailbox invalidation after successful purge. Trace both `UnwiredRegistration.openMailbox` and `commitMailbox` through the shared rejection mapper and `createGmailInbox` recovery: preserve `mailbox-revoked` and its account-page hand-off, while generation changes retain bounded invalidation recovery. Collapsing the two makes already-purged mail end in retry exhaustion and a generic failure instead of the removal explanation. `UnwiredRegistration.syncDrafts` must likewise preserve both revoked and deleted account rejections through `rejectMailbox`; registration restore retains the deletion notice. Mapping deletion to ordinary unavailability leaves shared Draft state open after native account purge.
 - `RegistrationStore.purge` or Gmail reselection synchronously removing the
   mailbox/body directory or waiting for its file lock on the main actor. Await
   detached `removeMailboxCache` work under the registration gate until deletion

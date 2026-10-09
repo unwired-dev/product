@@ -58,6 +58,11 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 - An assertion that cannot fail for the regression in question: it asserts the fixture, a mock's return value, a call count or call order, or mirrors the implementation line by line. Ask what plausible defect would turn it red.
 - The collaboration under test replaced by a mock. Substitute only the external boundary (provider response, native module, clock); stores, Effect services and layers, and Convex functions run for real.
 - A store or Convex function tested through an internal helper rather than its public interface (`getSnapshot`/`subscribe`/actions, or the registered function against the test database and identity context).
+- An HTTP-driven Convex test in `packages/convex/test`, such as the Gmail ingress
+  scenarios in `pushRelay.test.ts`, checking stored or scheduled work without
+  asserting the protocol response status. Work can commit before a route returns
+  an error, so side-effect assertions alone can pass while the provider retries
+  a failed request.
 - A changed behavior covered only on its success path when the change adds a failure, cancellation, conflict or recovery path.
 - A bug fix with neither a regression test that fails without the fix nor a documented reason automation is unavailable, as permitted by `docs/agents/testing.md`.
 - A test whose name states a risk it does not exercise, or a new test with no nameable risk: a trivial accessor, a constant, framework behavior, or one more permutation of a contract already covered at another layer.
@@ -67,6 +72,11 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 - A test for authorization, account or connection isolation, encryption, key safety, data loss or duplicate delivery removed, skipped, weakened or rewritten to assert less, without the pull request naming the retained coverage or why the risk is gone.
 - A Convex test that never calls the function as an unauthenticated caller, as a different account, or with a malformed argument when the function guards account data.
 - A fixture containing a real email address, token, key or message. Fixtures are synthetic.
+- A diagnostic privacy regression, such as deletion recovery in
+  `packages/convex/test/productAccount.test.ts`, asserting only that the expected
+  allow-listed log call exists. Check that synthetic secrets are absent from all
+  captured calls as well; an additional leaking call otherwise leaves the test
+  green.
 
 #### Determinism and isolation
 

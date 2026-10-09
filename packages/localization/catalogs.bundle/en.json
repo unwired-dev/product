@@ -590,6 +590,7 @@
         "failed": "Not added: the file could not be read or saved",
         "damaged": "{{size}} · Damaged on this device",
         "missing": "{{size}} · No longer on this device",
+        "incomplete": "{{size}} · Not downloaded from your other devices yet",
         "locked": "{{size}} · Not checked while private storage is locked"
       },
       "retryLabel": "Check {{name}} again"

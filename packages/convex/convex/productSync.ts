@@ -6,9 +6,10 @@ import {
   encryptedProductSyncPayloadValidator,
   maybeEncryptedProductSyncPayloadValidator,
   productSyncInitializationResponseValidator,
+  productSyncPayloadChangedErrorCode,
 } from '@private-email/contracts/productSync';
 import { paginationOptsValidator } from 'convex/server';
-import { v } from 'convex/values';
+import { ConvexError, v } from 'convex/values';
 
 import type { Doc, Id } from './_generated/dataModel.js';
 import type { MutationCtx, QueryCtx } from './_generated/server.js';
@@ -579,7 +580,7 @@ async function writeEncryptedPayloadIfUnchanged(
   const { account, existingPayload } = await preparePayloadWrite(ctx, args);
   if (existingPayload === null) {
     if (args.expectedUpdatedAt !== undefined) {
-      throw new Error('Encrypted Product Sync payload changed');
+      throw new ConvexError({ code: productSyncPayloadChangedErrorCode });
     }
     return serializePayload(await insertMissingPayload(ctx, account, args));
   }
@@ -731,6 +732,11 @@ export const getEncryptedPayloadsForTrustedDevice = query({
       args.trustedDeviceId,
       args.trustedDeviceCredential,
     );
+    if (
+      args.payloadIdentifiers.length > encryptedProductSyncAtomicMutationLimit
+    ) {
+      throw new Error('Encrypted Product Sync read has too many identifiers');
+    }
     return getEncryptedPayloadsForProductAccount(
       ctx,
       productAccountId,

@@ -149,6 +149,8 @@ import Testing
         }
         let existing = records[product.productAccountId]?[identifier]
         if let existing, existing.updatedAt != expected { return existing }
+        // As Convex does, a compare-and-set against a record that no longer exists is refused.
+        if existing == nil, expected != nil { throw ProductSyncWriteFailure.payloadChanged }
         clock += 1
         let stored = StoredPayload(
           payloadIdentifier: identifier, encryptedPayload: payload, updatedAt: clock)
@@ -300,6 +302,10 @@ import Testing
           loseReply = false
           throw URLError(.networkConnectionLost)
         }
+      },
+      get: { [self] _, product, identifier in
+        try trusted(product)
+        return records[product.productAccountId]?[identifier]
       })
   }
 

@@ -144,10 +144,6 @@ function createGoogleIdentityToken(
   return `${signingInput}.${signature.toString('base64url')}`;
 }
 
-const badDeviceIdentityToken = createGoogleIdentityToken(
-  'bad-device@example.com',
-  'bad-device-gmail',
-);
 const busyIdentityToken = createGoogleIdentityToken(
   'busy@example.com',
   'gmail-user-001',
@@ -2191,7 +2187,7 @@ describe('gmail push relay', () => {
   });
 
   it('enqueues a legacy Gmail route once during routing-key rotation', async () => {
-    expect.assertions(1);
+    expect.assertions(2);
     vi.useFakeTimers();
 
     const t = convexTest(schema, modules);
@@ -2229,14 +2225,40 @@ describe('gmail push relay', () => {
     vi.stubEnv('GMAIL_ROUTING_KEY_VERSION', '2');
     vi.stubEnv('GMAIL_ROUTING_PREVIOUS_KEY', 'gmail-routing-test-key');
     vi.stubEnv('GMAIL_ROUTING_PREVIOUS_KEY_VERSION', '1');
+    vi.stubEnv('GMAIL_PUSH_VERIFICATION_TOKEN', 'push-secret');
     try {
-      await expect(
-        t.action(internal.pushRelay.enqueueGmailWakeupsFromMetadata, {
-          emailAddress: 'legacy-rotation@example.com',
-          historyId: 'history-rotation',
+      const response = await t.fetch('/gmail/push?token=push-secret', {
+        body: JSON.stringify({
+          message: {
+            data: btoa(
+              JSON.stringify({
+                emailAddress: 'legacy-rotation@example.com',
+                historyId: 'history-rotation',
+              }),
+            ),
+          },
         }),
-      ).resolves.toStrictEqual({ recipientCount: 1 });
+        method: 'POST',
+      });
+      expect(response.status).toBe(204);
+
+      const scheduled = await t.run(async (ctx) =>
+        ctx.db.system.query('_scheduled_functions').collect(),
+      );
+      expect(
+        scheduled
+          .filter(({ name }) => name.includes('deliverQueuedGmailWakeups'))
+          .flatMap(({ args }) => args),
+      ).toStrictEqual([
+        expect.objectContaining({
+          historyId: 'history-rotation',
+          recipients: [
+            expect.objectContaining({ apnsToken: 'legacy-rotation-token' }),
+          ],
+        }),
+      ]);
     } finally {
+      vi.stubEnv('GMAIL_PUSH_VERIFICATION_TOKEN', '');
       vi.stubEnv('GMAIL_ROUTING_KEY', 'gmail-routing-test-key');
       vi.stubEnv('GMAIL_ROUTING_KEY_VERSION', '');
       vi.stubEnv('GMAIL_ROUTING_PREVIOUS_KEY', '');
@@ -3295,21 +3317,30 @@ describe('gmail push relay', () => {
     });
   });
 
-  it('preserves UTF-8 Gmail addresses from Pub/Sub', () => {
-    expect.assertions(1);
+  it('preserves UTF-8 Gmail addresses from Pub/Sub in either base64 alphabet', () => {
+    expect.assertions(2);
 
+    // This history ID encodes to '+', '/' and padding in standard base64.
     const metadata = JSON.stringify({
       emailAddress: 'josé@example.com',
-      historyId: 'history-utf8',
+      historyId: 'h~~~>>>???',
     });
-    const encodedData = Buffer.from(metadata, 'utf8').toString('base64url');
 
     expect(
-      decodeGmailPushEnvelope({ message: { data: encodedData } }),
-    ).toStrictEqual({
-      emailAddress: 'josé@example.com',
-      historyId: 'history-utf8',
-    });
+      (['base64', 'base64url'] as const).map((encoding) =>
+        decodeGmailPushEnvelope({
+          message: {
+            data: Buffer.from(metadata, 'utf8').toString(encoding),
+          },
+        }),
+      ),
+    ).toStrictEqual([
+      { emailAddress: 'josé@example.com', historyId: 'h~~~>>>???' },
+      { emailAddress: 'josé@example.com', historyId: 'h~~~>>>???' },
+    ]);
+    expect(Buffer.from(metadata, 'utf8').toString('base64')).toMatch(
+      /\+.*\/.*=$/u,
+    );
   });
 
   it('authenticates and validates the Gmail Pub/Sub HTTP ingress', async () => {
@@ -3405,38 +3436,50 @@ describe('gmail push relay', () => {
         deviceIdentifier: 'bad-device',
         platform: 'ios',
       });
-      await registerGmailConnection(asUser, {
-        emailAddress: 'bad-device@example.com',
-        providerAccountIdentifier: 'bad-device-gmail',
-        trustedDeviceId: badDevice.trustedDeviceId,
-      });
-      await asUser.action(api.pushRelay.verifyGmailWatch, {
-        gmailIdentityToken: badDeviceIdentityToken,
-        opaqueConnectionId: opaqueConnectionIdFromIdentityToken(
-          badDeviceIdentityToken,
-        ),
-        historyId: '100',
-        trustedDeviceId: badDevice.trustedDeviceId,
-      });
-      await t.mutation(internal.pushRelay.enqueueGmailWakeups, {
-        routingDigest: routingDigest('bad-device@example.com'),
-        historyId: '100',
-      });
+      for (const route of [
+        {
+          device: badDevice,
+          emailAddress: 'bad-device@example.com',
+          providerAccountIdentifier: 'bad-device-gmail',
+        },
+        {
+          device: goodDevice,
+          emailAddress: 'good-device@example.com',
+          providerAccountIdentifier: 'good-device-gmail',
+        },
+      ]) {
+        const gmailIdentityToken = createGoogleIdentityToken(
+          route.emailAddress,
+          route.providerAccountIdentifier,
+        );
+        await registerGmailConnection(asUser, {
+          ...route,
+          trustedDeviceId: route.device.trustedDeviceId,
+        });
+        await asUser.action(api.pushRelay.verifyGmailWatch, {
+          gmailIdentityToken,
+          opaqueConnectionId:
+            opaqueConnectionIdFromIdentityToken(gmailIdentityToken),
+          historyId: '100',
+          trustedDeviceId: route.device.trustedDeviceId,
+        });
+        await t.mutation(internal.pushRelay.enqueueGmailWakeups, {
+          routingDigest: routingDigest(route.emailAddress),
+          historyId: '100',
+        });
+      }
       await asUser.mutation(api.pushRelay.registerDevice, {
-        apnsEnvironment: 'production',
-        apnsToken: 'bad-device-token',
-        trustedDeviceId: badDevice.trustedDeviceId,
+        apnsEnvironment: 'sandbox',
+        apnsToken: 'device-token',
+        trustedDeviceId: goodDevice.trustedDeviceId,
       });
-      await t.action(internal.apns.deliverGmailWakeups, {
+      const goodRecipients = await t.query(
+        internal.pushRelay.resolveGmailRecipients,
+        { routingDigest: routingDigest('good-device@example.com') },
+      );
+      await t.action(internal.apns.deliverQueuedGmailWakeups, {
         historyId: 'history-123',
-        recipients: [
-          {
-            apnsEnvironment: 'sandbox',
-            apnsToken: 'device-token',
-            routeId: 'good-route',
-            trustedDeviceId: goodDevice.trustedDeviceId,
-          },
-        ],
+        recipients: goodRecipients,
       });
 
       expect(apnsMock.requests).toHaveLength(1);
@@ -3458,30 +3501,33 @@ describe('gmail push relay', () => {
         aps: { 'content-available': 1 },
         historyId: 'history-123',
         provider: 'gmail',
-        routeId: 'good-route',
+        routeId: goodRecipients[0]?.routeId,
       });
 
       apnsMock.responseBody = '{"reason":"BadDeviceToken"}';
       apnsMock.statusByToken = { 'bad-device-token': 410 };
+      await asUser.mutation(api.pushRelay.registerDevice, {
+        apnsEnvironment: 'production',
+        apnsToken: 'bad-device-token',
+        trustedDeviceId: badDevice.trustedDeviceId,
+      });
+      await asUser.mutation(api.pushRelay.registerDevice, {
+        apnsEnvironment: 'production',
+        apnsToken: 'good-device-token',
+        trustedDeviceId: goodDevice.trustedDeviceId,
+      });
+      const recipients = await Promise.all(
+        ['bad-device@example.com', 'good-device@example.com'].map(
+          async (emailAddress) =>
+            t.query(internal.pushRelay.resolveGmailRecipients, {
+              routingDigest: routingDigest(emailAddress),
+            }),
+        ),
+      );
       await expect(
-        t.action(internal.apns.deliverGmailWakeups, {
+        t.action(internal.apns.deliverQueuedGmailWakeups, {
           historyId: 'history-124',
-          recipients: [
-            {
-              apnsEnvironment: 'production',
-              apnsToken: 'bad-device-token',
-              pushCleanupGeneration: 1,
-              routeId: 'bad-route',
-              trustedDeviceId: badDevice.trustedDeviceId,
-            },
-            {
-              apnsEnvironment: 'production',
-              apnsToken: 'good-device-token',
-              pushCleanupGeneration: 0,
-              routeId: 'good-route',
-              trustedDeviceId: goodDevice.trustedDeviceId,
-            },
-          ],
+          recipients: recipients.flat(),
         }),
       ).resolves.toBeNull();
       const prunedDevice = await t.run(async (ctx) =>
@@ -3535,6 +3581,9 @@ describe('gmail push relay', () => {
     apnsMock.stallResponseBody = true;
     vi.stubEnv('APNS_KEY_ID', 'key-id');
     vi.stubEnv('APNS_TEAM_ID', 'team-id');
+    vi.stubEnv('GMAIL_OAUTH_CLIENT_ID', 'gmail-client-id');
+    vi.stubEnv('GMAIL_IDENTITY_BINDING_KEY', 'gmail-identity-binding-test-key');
+    vi.stubEnv('GMAIL_ROUTING_KEY', 'gmail-routing-test-key');
     const { privateKey } = generateKeyPairSync('ec', { namedCurve: 'P-256' });
     vi.stubEnv(
       'APNS_PRIVATE_KEY',
@@ -3548,17 +3597,36 @@ describe('gmail push relay', () => {
         deviceIdentifier: 'stalled-device',
         platform: 'ios',
       });
-      const delivery = t.action(internal.apns.deliverGmailWakeups, {
+      const gmailIdentityToken = createGoogleIdentityToken(
+        'stalled@example.com',
+        'stalled-gmail',
+      );
+      await registerGmailConnection(asUser, {
+        emailAddress: 'stalled@example.com',
+        providerAccountIdentifier: 'stalled-gmail',
+        trustedDeviceId: device.trustedDeviceId,
+      });
+      await asUser.action(api.pushRelay.verifyGmailWatch, {
+        gmailIdentityToken,
+        opaqueConnectionId:
+          opaqueConnectionIdFromIdentityToken(gmailIdentityToken),
+        historyId: '100',
+        trustedDeviceId: device.trustedDeviceId,
+      });
+      await t.mutation(internal.pushRelay.enqueueGmailWakeups, {
+        routingDigest: routingDigest('stalled@example.com'),
+        historyId: '100',
+      });
+      await asUser.mutation(api.pushRelay.registerDevice, {
+        apnsEnvironment: 'production',
+        apnsToken: 'stalled-device-token',
+        trustedDeviceId: device.trustedDeviceId,
+      });
+      const delivery = t.action(internal.apns.deliverQueuedGmailWakeups, {
         historyId: 'history-125',
-        recipients: [
-          {
-            apnsEnvironment: 'production',
-            apnsToken: 'stalled-device-token',
-            pushCleanupGeneration: 0,
-            routeId: 'stalled-route',
-            trustedDeviceId: device.trustedDeviceId,
-          },
-        ],
+        recipients: await t.query(internal.pushRelay.resolveGmailRecipients, {
+          routingDigest: routingDigest('stalled@example.com'),
+        }),
       });
 
       await vi.advanceTimersByTimeAsync(0);

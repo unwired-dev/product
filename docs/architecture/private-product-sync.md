@@ -392,3 +392,99 @@ continues to span native credential and detached storage work.
 These additions extend the existing flow before ADR 0067's sequenced migration;
 issues #756–#759 still own moving registration and descriptor coordination into
 TypeScript. They do not authorize new native application subsystems.
+
+## Synchronized Draft records and assets
+
+Issue #614 keeps merge orchestration in the framework-independent TypeScript Draft
+store; native `DraftSync` seals/opens and moves ciphertext, with keys retained in
+Apple code. Draft identifiers are account-specific HMAC addresses under `draft.`.
+Each authenticated record carries its Draft identity, write version and semantic
+JSON, or a nil Draft deletion tombstone. The local encrypted document retains the
+last synchronized records, including tombstones, as its three-way merge base and
+version floor. CAS uses Convex's unauthenticated row revision; lower authenticated
+versions and unreadable records are read-only. Removing ciphertext or replaying a
+record to a device that never observed its newer version remains a backend
+availability/rollback limitation, not a cryptographic guarantee.
+
+Before a first Draft publication, the local encrypted document durably stores its
+exact proposed record without a Convex `updatedAt`. Local storage CAS recovery
+must confirm that this intent survived before the remote write. An intent is not
+a confirmed version floor: a matching pull confirms it, while a competing first
+record preserves different retained local content as a conflict copy. An
+authenticated tombstone removes unchanged intended content and preserves only
+divergent local edits. Remote absence retains the intent because its write may
+still arrive; a retained Draft retries publication, while a locally discarded
+identity publishes a tombstone against that absent identity. This preserves
+Discard across concurrent local stores, lost replies and relaunch. Confirmed absent records still retain their floors and stay
+read-only.
+
+Before updating a confirmed Draft, the local encrypted document retains the exact
+pending payload and version beside its confirmed record. Intent persistence must
+survive local CAS recovery before publication; the current account and authored
+content are checked again after awaited preparation. Only an authenticated pull
+matching the pending payload and version advances the merge base to that write,
+so this device's later Discard or edit does not conflict with its own lost reply.
+The confirmed replay floor remains independent. Reading the prior confirmed
+version retains pending evidence because its write may still arrive; another
+publication clears it and follows ordinary conflict preservation. This is an
+optional local field, with no change to the encrypted wire record or native API.
+The review panel selected this repair over accepting the residual resurrection
+window, 3–0.
+
+One pending payload is immutable for each confirmed CAS revision, enforced during
+local admission and checked after storage CAS recovery. A retained Draft settles
+that exact admitted write before a distinct update, even after reverting to the
+confirmed content. This recovery retains the account fence but may replay older
+admitted content; newer local edits remain separate. A committed replay ends the
+pass and requires a new pull before newer publication. Discard instead writes a
+tombstone directly without replacing pending evidence. On a confirmed update's
+CAS refusal, refresh shared local state before deriving a remote conflict; late
+confirmations cannot regress a newer floor or erase another pending write. The
+panel chose this ordering over retaining an expanding collection of candidates,
+3–0. Recovery can briefly expose the older admitted record and delays newer
+publication while its outcome remains uncertain.
+
+The missing-row conditional-write refusal carries the content-free
+`PRODUCT_SYNC_PAYLOAD_CHANGED` error code. Native Draft synchronization requires
+that specific refusal, an expected revision and confirmed row absence before
+returning a conflict; generic backend, transport and cancellation errors propagate.
+Request and success envelopes are unchanged. Older clients keep their generic
+unknown-error fallback; updated clients against an older backend safely report
+unavailability until the coded refusal is deployed.
+
+The Draft merge preserves an offline local Discard even when a remote edit was
+published first, copying that edit before tombstoning its original identity.
+An editor of the published version follows an accepted, surviving conflict copy
+whose generated identifier names its removed original and whose authored content
+matches after normalizing identity and conflict metadata. Repeated copies restart
+from the root when their source identity exceeds 100 characters, keeping generated
+identifiers below the native bridge's 200-character limit. Association groups local
+sources by the same bounded base and requires one removed exact-content match.
+Identical removed sources sharing that base remain recoverable but unassociated;
+explicit synchronized provenance would be needed to distinguish them. The review
+panel chose this bounded association without extending the wire format. Other authored
+versions and already-rebound editors do not acquire that association.
+
+Immutable assets use account-specific HMAC addresses over asset identity and
+SHA-256 digest, followed by the chunk position. AES-GCM associated data authenticates
+the account, opaque identifier, schema and epoch. The authenticated Draft version
+names each asset's identity, size and digest; this reference binds verified bytes
+to that Draft version while allowing conflict copies and Undo to share immutable
+bytes. Native download opens every chunk in place and verifies total size and
+SHA-256 before storing bytes. Complete references publish only after successful
+upload or verification of already-retained cloud bytes; partial uploads leave the
+local edit pending for a later pass. Missing chunks remain visibly incomplete.
+
+The review decision panel unanimously selected retention over a new atomic
+asset-reference fencing protocol: uploaded asset ciphertext remains until Product
+Account deletion. Deleting chunks based on one device's last read can destroy an
+offline or concurrently published conflict copy's only bytes. No unconditional
+asset deletion endpoint is introduced. Storage growth and safe individual cloud
+reclamation remain follow-up work; local unreferenced-file cleanup is unchanged.
+
+The bridge reads a trusted, published vault and session under the registration
+gate, then releases it for network transfers. Credential-only revocation preflight
+runs before use. Results revalidate current owner/key availability under the gate;
+revoked/deleted responses purge only the same account that began the operation.
+Shared hosts hand the removal back to the registration store. A late rejection
+for an earlier account cannot purge or relabel the current one.

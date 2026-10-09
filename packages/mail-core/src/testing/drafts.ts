@@ -1,4 +1,12 @@
-import type { AssetSource, NativeDrafts, PickSource } from '../drafts.ts';
+import * as Option from 'effect/Option';
+import * as Schema from 'effect/Schema';
+
+import type {
+  AssetSource,
+  NativeDrafts,
+  NativeDraftSync,
+  PickSource,
+} from '../drafts.ts';
 
 import { assetLimit } from '../drafts.ts';
 
@@ -22,6 +30,16 @@ const digestOf = (bytes: string) =>
     )
     .join('');
 
+// A Draft record's sealed content: the Draft's identifier, the record's write count and its JSON.
+const RecordSchema = Schema.fromJsonString(
+  Schema.Struct({
+    id: Schema.String,
+    version: Schema.Finite,
+    draft: Schema.NullOr(Schema.String),
+  }),
+);
+const openRecord = Schema.decodeUnknownOption(RecordSchema);
+
 // Waits while a test holds this kind of work, until it releases it.
 const waitWhile = async (holding: () => Array<() => void> | undefined) => {
   const queue = holding();
@@ -33,16 +51,135 @@ const waitWhile = async (holding: () => Array<() => void> | undefined) => {
   }
 };
 
+const key = (account: string, identifier: string) =>
+  `${account}\n${identifier}`;
+const chunkId = (id: string, digest: string, index: number) =>
+  `draft-asset.${id}:${digest}.${index}`;
+
+const SealedSchema = Schema.fromJsonString(
+  Schema.Struct({
+    account: Schema.String,
+    identifier: Schema.String,
+    plaintext: Schema.String,
+  }),
+);
+const openSealed = Schema.decodeUnknownOption(SealedSchema);
+
+// Product Sync's records as Convex holds them, shared by the synthetic devices of a test. Sealing
+// is simulated: a record opens only for the Product Account and identifier it was sealed under,
+// as native code's AES-GCM binding requires, so a test can move, replay or damage ciphertext.
+export function createSyntheticProductSync() {
+  let clock = 0;
+  const records = new Map<
+    string,
+    { account: string; sealed: string; updatedAt: number }
+  >();
+  // While false, every request rejects as without a session or a connection.
+  let reachable = true;
+  // Stores the next write but rejects its reply, as when the response is lost.
+  let losingReply = false;
+  const reach = () =>
+    reachable
+      ? undefined
+      : Object.assign(new Error('Product Sync: unavailable'), {
+          code: 'unavailable',
+        });
+  return {
+    reach,
+    seal: (account: string, identifier: string, plaintext: string) =>
+      JSON.stringify({ account, identifier, plaintext }),
+    open: (sealed: string, account: string, identifier: string) => {
+      const opened = Option.getOrUndefined(openSealed(sealed));
+      return opened?.account === account && opened.identifier === identifier
+        ? opened.plaintext
+        : undefined;
+    },
+    list: (account: string, prefix: string) =>
+      [...records.entries()]
+        .filter(
+          ([name, record]) =>
+            record.account === account && name.startsWith(key(account, prefix)),
+        )
+        .map(([name, record]) => ({
+          identifier: name.slice(account.length + 1),
+          ...record,
+        })),
+    get: (account: string, identifier: string) =>
+      records.get(key(account, identifier)),
+    // Compare-and-set: the stored record when another write won, as Convex replies.
+    put: (
+      account: string,
+      identifier: string,
+      {
+        sealed,
+        expected,
+      }: Readonly<{
+        sealed?: string | undefined;
+        expected?: number | undefined;
+      }>,
+    ) => {
+      const name = key(account, identifier);
+      const existing = records.get(name);
+      if (existing?.updatedAt !== expected) {
+        return { committed: false, updatedAt: existing?.updatedAt };
+      }
+      clock += 1;
+      if (sealed === undefined) {
+        records.delete(name);
+      } else {
+        records.set(name, { account, sealed, updatedAt: clock });
+      }
+      if (losingReply) {
+        losingReply = false;
+        throw Object.assign(new Error('Product Sync: unavailable'), {
+          code: 'unavailable',
+        });
+      }
+      return { committed: true, updatedAt: clock };
+    },
+    remove: (account: string, identifier: string) => {
+      records.delete(key(account, identifier));
+    },
+    // Identifiers of the records stored for `account`.
+    identifiers: (account: string) =>
+      [...records.keys()]
+        .filter((name) => records.get(name)?.account === account)
+        .map((name) => name.slice(account.length + 1)),
+    // Replaces a stored record's ciphertext, keeping its revision.
+    replace: (account: string, identifier: string, sealed: string) => {
+      const existing = records.get(key(account, identifier));
+      if (existing !== undefined) {
+        existing.sealed = sealed;
+      }
+    },
+    setReachable: (next: boolean) => {
+      reachable = next;
+    },
+    loseNextReply: () => {
+      losingReply = true;
+    },
+  };
+}
+export type SyntheticProductSync = ReturnType<
+  typeof createSyntheticProductSync
+>;
+
 // Draft storage with native code's rules: one document bound to the Product Account that wrote
 // it, which another account opens as empty, replaced only from the revision read. Asset bytes are
 // bound to their account and identifier, stored before any Draft names them, and removed once a
 // stored document no longer keeps them, unless their import has not been committed yet. It holds
 // no encryption; the hosted native suite covers ciphertext and keys.
+// With `server`, `sync` is this device's view of it: Draft records and asset chunks sealed for
+// the signed-in account.
 export function createSyntheticDrafts(
   account: () => string | undefined,
   {
     outgoingLimit = 100 * 1024 * 1024,
-  }: Readonly<{ outgoingLimit?: number }> = {},
+    server,
+  }: Readonly<{
+    outgoingLimit?: number;
+    server?: Readonly<SyntheticProductSync>;
+  }> = {},
 ) {
   let stored:
     | Readonly<{ owner: string; revision: number; document: string }>
@@ -51,6 +188,7 @@ export function createSyntheticDrafts(
   let failing: string | undefined = undefined;
   let held: Array<() => void> | undefined = undefined;
   let importsHeld: Array<() => void> | undefined = undefined;
+  let uploadsHeld: Array<() => void> | undefined = undefined;
   let failingImport: string | undefined = undefined;
   // Rejects the next import only after storing its bytes, as when the device locks meanwhile.
   let failingAfterWrite: string | undefined = undefined;
@@ -193,8 +331,128 @@ export function createSyntheticDrafts(
       return Promise.resolve({});
     },
   };
+  // Few characters per chunk, so every asset spans several, as large files do natively.
+  const chunk = 4;
+  const chunks = (size: number) => Math.max(1, Math.ceil(size / chunk));
+  const signedIn = (owner: string) => {
+    const refused = server?.reach();
+    if (refused !== undefined) {
+      return Promise.reject(refused);
+    }
+    return owner === account() ? undefined : rejection('mailbox-invalidated');
+  };
+  const sync: NativeDraftSync | undefined =
+    server === undefined
+      ? undefined
+      : {
+          pullDrafts: (owner, known) => {
+            const opened = server
+              .list(owner, 'draft.')
+              .map(({ identifier, sealed, updatedAt }) => {
+                const record = Option.getOrUndefined(
+                  openRecord(server.open(sealed, owner, identifier) ?? ''),
+                );
+                return record === undefined ||
+                  identifier !== `draft.${record.id}`
+                  ? { identifier }
+                  : { identifier, record: { ...record, updatedAt } };
+              });
+            return (
+              signedIn(owner) ??
+              Promise.resolve({
+                owner,
+                records: opened.flatMap(({ record }) =>
+                  record === undefined ? [] : [record],
+                ),
+                unreadable: known.filter((id) =>
+                  opened.some(
+                    ({ identifier, record }) =>
+                      identifier === `draft.${id}` && record === undefined,
+                  ),
+                ),
+              })
+            );
+          },
+          pushDraft: async (
+            owner,
+            { id, version, draft, expectedUpdatedAt },
+          ) => {
+            const identifier = `draft.${id}`;
+            await signedIn(owner);
+            return {
+              owner,
+              ...server.put(owner, identifier, {
+                sealed: server.seal(
+                  owner,
+                  identifier,
+                  JSON.stringify({ id, version, draft }),
+                ),
+                expected: expectedUpdatedAt,
+              }),
+            };
+          },
+          uploadDraftAsset: (owner, { id, digest, size }) => {
+            const refused = signedIn(owner);
+            if (refused !== undefined) {
+              return refused;
+            }
+            const asset = assets.get(id);
+            if (
+              asset?.owner !== owner ||
+              asset.damaged === true ||
+              asset.digest !== digest
+            ) {
+              return rejection('unavailable');
+            }
+            for (let index = 0; index < chunks(size); index += 1) {
+              const identifier = chunkId(id, digest, index);
+              if (server.get(owner, identifier) === undefined) {
+                server.put(owner, identifier, {
+                  sealed: server.seal(
+                    owner,
+                    identifier,
+                    asset.bytes.slice(index * chunk, (index + 1) * chunk),
+                  ),
+                });
+              }
+            }
+            // Held until `releaseUploads`, so a test can change the Draft while its files upload.
+            return waitWhile(() => uploadsHeld).then(() => ({ owner }));
+          },
+          downloadDraftAsset: (owner, { id, digest, size }) => {
+            const refused = signedIn(owner);
+            if (refused !== undefined) {
+              return refused;
+            }
+            let bytes = '';
+            for (let index = 0; index < chunks(size); index += 1) {
+              const identifier = chunkId(id, digest, index);
+              const record = server.get(owner, identifier);
+              const opened =
+                record === undefined
+                  ? undefined
+                  : server.open(record.sealed, owner, identifier);
+              if (opened === undefined) {
+                return rejection('attachment-missing');
+              }
+              bytes += opened;
+            }
+            if (bytes.length !== size || digestOf(bytes) !== digest) {
+              return rejection('attachment-missing');
+            }
+            if (used() + bytes.length > outgoingLimit) {
+              return rejection('too-large');
+            }
+            // Held with imports, so a test can change the Draft while the bytes arrive.
+            return waitWhile(() => importsHeld).then(() => {
+              assets.set(id, { owner, bytes, digest });
+              return { owner, size, digest };
+            });
+          },
+        };
   return {
     native,
+    sync,
     stored: () => stored,
     // The identifiers of asset bytes on this device.
     assets: () => [...assets.keys()],
@@ -245,6 +503,17 @@ export function createSyntheticDrafts(
     release: () => {
       const waiting = held ?? [];
       held = undefined;
+      for (const resolve of waiting) {
+        resolve();
+      }
+    },
+    // Holds Product Sync uploads after their chunks are stored, until `releaseUploads`.
+    holdUploads: () => {
+      uploadsHeld = [];
+    },
+    releaseUploads: () => {
+      const waiting = uploadsHeld ?? [];
+      uploadsHeld = undefined;
       for (const resolve of waiting) {
         resolve();
       }

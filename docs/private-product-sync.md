@@ -178,6 +178,11 @@ description containing its provider and address, including whether it was remove
 Gmail credentials, access tokens, the Google subject and message content never
 enter it. Mailbox credentials stay on each authorized device.
 
+[Drafts](drafts.md#continuing-on-another-device) synchronize as sealed records,
+including deletion tombstones, and their files as verified encrypted chunks.
+All writes retain compare-and-set. Uploaded files remain encrypted until Product
+Account deletion so offline conflicting copies can recover them.
+
 Every description a device cannot open or decode is read-only. This includes
 newer formats, missing keys and failed authentication. The device neither shows
 nor replaces it, and an unreadable description cannot acknowledge a removal.

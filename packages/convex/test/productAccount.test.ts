@@ -3709,6 +3709,71 @@ describe('gmail operational connection registration', () => {
     }
   });
 
+  it('logs an allow-listed diagnostic before a misconfigured revocation recovery aborts', async () => {
+    expect.assertions(4);
+    vi.useFakeTimers();
+    // Convex records console.error output at error level, which alerts depend on.
+    const errors = vi.spyOn(console, 'error').mockReturnValue();
+    try {
+      const t = convexTest(schema, modules);
+      const asUser = t.withIdentity(appleIdentity);
+      const currentDevice = await connectTrusted(t, asUser, {
+        deviceIdentifier: 'device-001',
+        platform: 'ios',
+      });
+      const prepared = await asUser.mutation(
+        internal.productAccountDeletionData.prepareDeletion,
+        {
+          attemptId: 'deletion-attempt-001',
+          authorizationCode: 'recent-apple-authorization-code',
+          trustedDeviceId: currentDevice.trustedDeviceId,
+        },
+      );
+      const requestId = pendingDeletionRequestId(prepared);
+      await asUser.mutation(
+        internal.productAccountDeletionData.storeRevocationToken,
+        {
+          attemptId: 'deletion-attempt-001',
+          requestId,
+          token: { kind: 'refresh-token', value: 'recovery-refresh-token' },
+        },
+      );
+      vi.stubEnv('APPLE_SIGN_IN_PRIVATE_KEY', '');
+
+      await asUser.mutation(
+        internal.productAccountDeletionData.markRevocationAttemptStarted,
+        { attemptId: 'deletion-attempt-001', requestId },
+      );
+      await t.finishAllScheduledFunctions(() => vi.advanceTimersByTime(60_000));
+
+      await expect(
+        t.run(async (ctx) => ctx.db.query('productAccounts').collect()),
+      ).resolves.toHaveLength(1);
+      await expect(
+        t.run(async (ctx) =>
+          ctx.db.query('productAccountDeletionRequests').collect(),
+        ),
+      ).resolves.toStrictEqual([]);
+      expect(errors.mock.calls).toContainEqual([
+        expect.any(String),
+        'Apple revocation recovery failed:',
+        'Error',
+      ]);
+      expect(JSON.stringify(errors.mock.calls)).not.toMatch(
+        /recovery-refresh-token|recent-apple-authorization-code/u,
+      );
+    } finally {
+      vi.stubEnv(
+        'APPLE_SIGN_IN_PRIVATE_KEY',
+        appleSignInPrivateKey
+          .export({ format: 'pem', type: 'pkcs8' })
+          .toString(),
+      );
+      errors.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
   it('schedules durable cleanup with the revocation-complete transition', async () => {
     expect.assertions(1);
     vi.useFakeTimers();

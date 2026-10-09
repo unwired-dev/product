@@ -72,6 +72,47 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   fiber inside the outer program, losing its inherited context and interruption.
 - A host-facing action whose Promise can reject for an expected state. Hosts call actions as `void store.load()`, so a rejection is an unhandled promise rejection; expected failures become snapshot state.
 - Overlapping asynchronous store actions that read, change or publish shared state without the store's `Semaphore`, so they interleave a read-modify-write or a slower earlier call publishes over a newer result. Synchronous `getSnapshot` and listener bookkeeping do not require an Effect run or permit. Use `withPermit` to queue and `withPermitsIfAvailable` only where dropping the overlapping request is the intended behavior.
+- `draft-sync.ts.createDraftSynchronizer.synchronize` or another shared in-flight
+  Promise/flag cleared only after normal completion. Release its ownership in
+  `finally` on every exit, including defects and interruption outside typed-error
+  recovery, so later requests can start fresh work instead of awaiting a rejected
+  Promise forever. Preserve serialization and verify recovery through public
+  actions after a rejected pass.
+- `draft-sync.ts` automatic activation, load or debounce triggers discarding a
+  synchronization Promise that can reject on a defect. Handle automatic rejection
+  with allow-listed diagnostics while preserving explicit callers' rejection and
+  later-pass recovery; otherwise a subscriber defect becomes an unhandled rejection.
+- `draft-sync.ts.pushing` publishing a never-confirmed Draft before its exact
+  intent is durable, including a local storage CAS rebase that replaces `synced`.
+  Verify the stored entry still matches before the remote side effect, and recheck
+  Discard after asset uploads. In `readRecords`/`mergeSyncedDrafts`, an unconfirmed
+  intent is neither a confirmed version floor nor evidence that remote absence is
+  deletion. Accept competing first records, preserve authored conflicts and local
+  Discard, and retry a write that never landed. Do not erase intent on an absent
+  pull while another local store may still publish it; tombstones remove unchanged
+  intended content and preserve only divergent edits. Otherwise interrupted first
+  publication can erase local content, resurrect a Discard or reject the winner
+  forever. Exercise lost replies, pre-write failure, competing local writers and
+  relaunch through public stores.
+- `draft-sync.ts.pushing` using a captured non-null Draft after awaited uploads,
+  encoding or intent persistence without rechecking the live account and authored
+  content. Stop a superseded write and let the next pass publish the current edit
+  or tombstone. Confirmed updates also need durable exact pending payload/version
+  evidence beside their confirmed base and replay floor; recognize only that exact
+  authenticated publication during merge, retain it while the prior record remains,
+  and preserve competing authorship otherwise. Keep one pending payload immutable
+  per confirmed CAS, including admission by separate local stores; recover its
+  exact durable write before admitting a distinct update, with the account fence
+  intact and a new pull before newer publication. Recovery may replay admitted
+  content the user has since edited, while Discard directly writes a tombstone
+  without replacing pending evidence. Reject late local confirmations that regress
+  the floor or erase another pending write, and rebase shared local state after a
+  confirmed update loses CAS before deriving a conflict from stale content.
+  Exercise Discard, continued editing and reverting to confirmed content during
+  held writes, lost replies, pre-commit failures, failed confirmation saves, both
+  tombstone race orderings, multiple local stores and relaunch.
+  Otherwise this device's own superseded content returns as a conflict copy, even
+  when an upload-time guard protects first publication.
 - `createRegistration.resume` dropping a foreground activation because the account is unlocked or a pending operation holds the semaphore. Queue every activation's native restore after the current operation, preserving unchanged setup feedback while publishing changed verification or locked results; otherwise unlock retries are lost or a running account remains connected after verification becomes unavailable. ADR 0020 requires foreground Trusted Device revalidation; a locked-storage retry must not exempt unlocked accounts, and native reconnect alone does not prove that revocation rejection purges local state.
 - `createRegistration.resume` treating each Mac window's report of one application activation as a separate restore. The windows share one store and AppState dispatches listeners synchronously, so coalesce those reports or give the subscription one application-level owner; otherwise native Product Account and Gmail verification repeats per window and prolongs the busy state. Coalescing must end with that dispatch, not with the pending restore, so a later activation after unlock still queues a fresh verification.
 - A successful persisted state published before the native operation has durably completed, with no failure path that restores the previous state. Explicit busy/pending presentation states are permitted, as in `createRegistration`.
@@ -104,6 +145,13 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   and readers, distinguish same provider IDs in different owner ledgers, and release
   only the affected owner on forget. Otherwise multi-mailbox Mac windows multiply
   the decoded-pixel/encoded-byte bound or one removal uncharges another live reader.
+
+- `drafts.ts.readAsset` swallowing `mailbox-revoked` from lazy Product Sync asset
+  downloads as an incomplete-file fallback. Hand the same-account rejection to
+  registration just as record synchronization does, while fencing earlier-account
+  results by generation; otherwise native purge leaves the host showing private
+  Drafts under a stale connected account. Exercise the real registration and Draft
+  stores together and assert the closed Draft state, not only a removal callback.
 
 #### Services
 
@@ -202,6 +250,15 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   including cancelled or stale-owner attempts. Preserve committed/history-held
   assets and keyless cleanup while locked. Otherwise `ImportedAssets` protects
   failed writes until relaunch and exhausts the non-evicting Outgoing Content Store.
+- `drafts.ts.download` or another asynchronous Draft asset transfer storing bytes
+  after a document commit already dropped their last reference. Recheck the owning
+  account's live Draft and history-held keep list after verified completion, reclaim
+  unkept bytes and report a missing asset. Exercise Discard while the transfer is
+  held, with no later save, while preserving bytes another Draft or Undo still keeps;
+  distinguish a stale read's generation from current retention after same-account
+  re-entry, so earlier-session cleanup cannot delete a reopened Draft's verified bytes;
+  otherwise late writes evade commit-time cleanup and consume the non-evicting
+  Outgoing Content Store until an unrelated save or relaunch.
 - `drafts.ts.pick` admitting every native picker result, or both hosts passing
   unbounded paste/drop collections to `prepareFiles`. Apply the documented
   per-intake limit before preparing assets or starting imports, and return unused
@@ -302,6 +359,12 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   latest-only Drafts, edit-versus-deletion conflicts and owner-checked CAS recovery;
   retain conflicting authored versions as visible copies. Otherwise an ordinary
   autosave silently erases another completed edit or an independently created Draft.
+- `createDrafts.save` or another successful recovery action making retained edits
+  durable without requesting downstream synchronization abandoned by a failed
+  automatic pass. Exercise the debounced pass failing while storage is locked or
+  unavailable, then retry without another edit or activation and verify remote
+  content. Otherwise Save Drafts reports success but the edits remain device-local
+  until an unrelated trigger; failed or stale-owner saves must not publish them.
 - `createDrafts.update` forking an editor payload that is unchanged from its
   supplied `previous` merely because another editor or storage writer moved on.
   Leave that list unchanged while still flushing prior dirty work; otherwise
@@ -313,6 +376,26 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   Index each snapshot once while keeping the same identifier/content semantics;
   otherwise a large admitted Draft document makes conflict recovery quadratic
   and blocks the shared JavaScript runtime during saving.
+- `drafts.ts.conflictCopy` or `copyId` repeatedly suffixing derived identifiers beyond
+  a native/transport boundary's length limit. Exercise nested copies through both
+  local stale edits and synchronization; keep identifiers bounded without changing
+  an existing Draft's identity. Any shortened base must also be used by
+  `movesToSyncedCopies`, preserving exact accepted/surviving-content checks and
+  existing movements. Require a unique removed source and refuse ambiguous association;
+  cover continued editing, Discard and relaunch after shortening, and retained recovery
+  of identical-content siblings. Otherwise deep conflict chains cannot synchronize,
+  or their editors keep targeting a removed identity despite converged Draft lists.
+- `createDrafts.adopt` preserving deletion in only one publication order of an edit-versus-Discard
+  race. Check local deletion against a remote edit already published as well as
+  a local edit against a published tombstone: the original identity must stay
+  removed and the exact authored edit must survive as a conflict copy. Follow
+  the editing device's open editor to its preserved copy even when another
+  device created it; an identifier prefix without matching authored content
+  cannot establish that binding. Exercise continued editing, Discard and relaunch
+  through the public stores, including interrupted copy publication before its
+  tombstone: compare the actual surviving merged target, which can have newer
+  local edits, rather than its last remote record. Otherwise a merge can undo the deletion, lose the edit or
+  leave the editor targeting the discarded identity despite converged lists.
 - `rebaseDrafts` converging identical authored content by retaining a stale
   writer's earlier `updatedAt`. `sameContent` deliberately ignores edit time;
   preserve the later timestamp when collapsing equivalent versions, while
@@ -325,22 +408,23 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   it mutates, or `rebaseDrafts`/`deleted` moving the pending authored version without
   notifying its editor. Keep the newer stored version's ID and move the stale
   payload; notify after the copy enters the snapshot and before subscribers can
-  unmount its editor. Keep the binding through failed saving and Retry, and clear
-  it after durable completion or account invalidation. Two storage writers can
+  unmount its editor. Keep the binding through saving and Retry, including durable
+  completion; Product Sync `adopt` also moves editors through `rebindEditors`.
+  Clear it only on editor release or account invalidation. Two storage writers can
   choose the same free local copy ID; preserve both versions and follow any second
   rename, or Discard deletes the other writer's copy despite preserving its content.
-- `createDrafts.pendingMoves` retaining only one editor callback for an unsaved
+- `createDrafts.editors` retaining only one editor callback for a saved or unsaved
   Draft ID, or leaving one callback bound to several IDs after a synchronous fork.
-  Identical-content edits can share the same pending version; retain and rekey
+  Identical-content edits can share the same version; retain and rekey
   every bound editor through storage recovery, remove a stable callback from its
   prior version when it changes targets, and merge bindings when copies collide.
   Recheck membership before each notification: an earlier callback can rebind a
-  later editor or invalidate the account during fanout. Keep failed-save bindings
-  through Retry and clear them after durable completion or account invalidation.
+  later editor or invalidate the account during fanout. Keep bindings through
+  failed saving, Retry and durable completion, until release or account invalidation.
   Otherwise an editor can remain on, or return to, another writer's Draft and
   subsequently edit or discard that writer's content. Check host callback identity
   and unmount behavior before claiming one callback represents one live editor.
-  Release a closed editor's stable callback from every pending binding without
+  Release a closed editor's stable callback from every binding without
   dropping its dirty Draft or another live editor's binding. A refused save can
   otherwise retain its entire history and notify dead route/window owners on
   later recovery. A pending Close or Discard still owns identity tracking until

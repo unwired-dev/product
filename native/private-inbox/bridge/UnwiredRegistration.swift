@@ -138,14 +138,6 @@ extension RegistrationError {
   }
 }
 
-// The Convex HTTP API response; ConvexError data carries a stable code.
-private struct ConvexEnvelope<Value: Decodable>: Decodable {
-  struct Failure: Decodable { let code: String }
-  let status: String
-  let value: Value?
-  let errorData: Failure?
-}
-
 @objc(UnwiredRegistration)
 final class UnwiredRegistration: NSObject {
   private static let logger = Logger(
@@ -322,6 +314,11 @@ final class UnwiredRegistration: NSObject {
     }
     if result.status == "success", (response as? HTTPURLResponse)?.statusCode == 200 {
       return result.value
+    }
+    if result.status == "error", path == "productSync:putEncryptedPayloadIfUnchanged",
+      let code = result.errorData?.code, let refusal = ProductSyncWriteFailure(rawValue: code)
+    {
+      throw refusal
     }
     throw result.errorData.flatMap { backendErrors[$0.code] } ?? RegistrationError.unavailable
   }
@@ -546,28 +543,135 @@ extension UnwiredRegistration {
               return try await operation(self.store())
             })
         } catch {
-          switch error {
-          case is CancellationError:
-            reject("cancelled", "The Gmail request was cancelled.", nil)
-          case RegistrationError.revoked:
-            reject("mailbox-revoked", "This device no longer has access.", nil)
-          case RegistrationError.gmailUnavailable:
-            reject("gmail-unavailable", "Gmail needs authorization again.", nil)
-          case PrivateInboxError.locked: reject("locked", "Private storage is locked.", nil)
-          case PrivateInboxError.attachmentMissing:
-            reject("attachment-missing", "The attachment is no longer on this device.", nil)
-          case PrivateInboxError.tooLarge:
-            reject("too-large", "The file is too large for Drafts on this device.", nil)
-          case PrivateInboxError.conflict: reject("conflict", "The mailbox changed.", nil)
-          case PrivateInboxError.mailboxInvalidated:
-            reject("mailbox-invalidated", "The mailbox is no longer available.", nil)
-          default:
-            Self.logger.error("\(name, privacy: .public) failed: unavailable")
-            reject("unavailable", "Gmail could not be reached.", nil)
-          }
+          Self.rejectMailbox(name, error, reject)
         }
       }
       if let request { Self.reads[request] = task }
+    }
+  }
+
+  private static func rejectMailbox(
+    _ name: String, _ error: any Error, _ reject: RCTPromiseRejectBlock
+  ) {
+    switch error {
+    case is CancellationError:
+      reject("cancelled", "The Gmail request was cancelled.", nil)
+    case RegistrationError.revoked, RegistrationError.deleted:
+      reject("mailbox-revoked", "This device no longer has access.", nil)
+    case RegistrationError.gmailUnavailable:
+      reject("gmail-unavailable", "Gmail needs authorization again.", nil)
+    case PrivateInboxError.locked: reject("locked", "Private storage is locked.", nil)
+    case PrivateInboxError.attachmentMissing:
+      reject("attachment-missing", "The attachment is no longer on this device.", nil)
+    case PrivateInboxError.tooLarge:
+      reject("too-large", "The file is too large for Drafts on this device.", nil)
+    case PrivateInboxError.conflict: reject("conflict", "The mailbox changed.", nil)
+    case PrivateInboxError.mailboxInvalidated:
+      reject("mailbox-invalidated", "The mailbox is no longer available.", nil)
+    default:
+      logger.error("\(name, privacy: .public) failed: unavailable")
+      reject("unavailable", "Gmail could not be reached.", nil)
+    }
+  }
+
+  // Reads the Draft sync keys and session under the registration gate, then works on the network
+  // without holding it, so a large upload never stalls saving Drafts or reading Gmail.
+  private func syncDrafts(
+    _ name: String, owner: String, _ resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock,
+    operation: @escaping @MainActor (RegistrationStore, DraftSync) async throws -> [String: Any]
+  ) {
+    DispatchQueue.main.async {
+      Task { @MainActor in
+        do {
+          let (store, sync) = try await Self.operations.perform {
+            let store = try await self.store()
+            return (store, try await store.prepareDraftSync(owner: owner))
+          }
+          do {
+            let result = try await operation(store, sync)
+            _ = try await Self.operations.perform { try store.draftSync(owner: owner) }
+            resolve(result)
+          } catch {
+            try await Self.operations.perform {
+              try await store.draftSyncFailure(owner: owner, error: error)
+            }
+          }
+        } catch {
+          Self.rejectMailbox(name, error, reject)
+        }
+      }
+    }
+  }
+
+  // An asset as TypeScript names it for Product Sync: its file identifier, SHA-256 and size.
+  private static func syncedAsset(_ asset: Any) throws -> (id: String, digest: String, size: Int) {
+    guard let asset = asset as? [String: Any], let id = asset["id"] as? String,
+      id.range(of: "^[0-9a-z]{8,64}$", options: .regularExpression) != nil,
+      let digest = asset["digest"] as? String,
+      digest.range(of: "^[0-9a-f]{64}$", options: .regularExpression) != nil,
+      let size = (asset["size"] as? Double).flatMap({ Int(exactly: $0) }), size >= 0,
+      size <= PrivateInboxStore.draftAssetLimit
+    else { throw RegistrationError.unavailable }
+    return (id, digest, size)
+  }
+
+  @objc(pullDrafts:known:resolver:rejecter:)
+  func pullDrafts(
+    _ owner: String, known: [String],
+    resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+  ) {
+    syncDrafts("pullDrafts", owner: owner, resolve, reject: reject) { _, sync in
+      try await sync.pull(known: known)
+    }
+  }
+
+  // `record` carries the Draft's identifier, the record's write count, its JSON or null to delete
+  // it, and the revision it replaces.
+  @objc(pushDraft:record:resolver:rejecter:)
+  func pushDraft(
+    _ owner: String, record: [String: Any],
+    resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+  ) {
+    syncDrafts("pushDraft", owner: owner, resolve, reject: reject) { _, sync in
+      guard let id = record["id"] as? String, !id.isEmpty, id.count <= 200,
+        let version = (record["version"] as? Double).flatMap({ Int(exactly: $0) }), version >= 1
+      else { throw RegistrationError.unavailable }
+      let draft = record["draft"] as? String
+      guard draft != nil || record["draft"] is NSNull else { throw RegistrationError.unavailable }
+      return try await sync.push(
+        id: id, version: version, draft: draft,
+        expected: record["expectedUpdatedAt"] as? Double)
+    }
+  }
+
+  @objc(uploadDraftAsset:asset:resolver:rejecter:)
+  func uploadDraftAsset(
+    _ owner: String, asset: [String: Any],
+    resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+  ) {
+    syncDrafts("uploadDraftAsset", owner: owner, resolve, reject: reject) { store, sync in
+      let (id, digest, size) = try Self.syncedAsset(asset)
+      let bytes = try await Self.operations.perform {
+        try await store.draftAssetBytes(owner: owner, id: id, digest: digest)
+      }
+      guard bytes.count == size else { throw RegistrationError.unavailable }
+      try await sync.upload(bytes, id: id, digest: digest)
+      return ["owner": owner]
+    }
+  }
+
+  @objc(downloadDraftAsset:asset:resolver:rejecter:)
+  func downloadDraftAsset(
+    _ owner: String, asset: [String: Any],
+    resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+  ) {
+    syncDrafts("downloadDraftAsset", owner: owner, resolve, reject: reject) { store, sync in
+      let (id, digest, size) = try Self.syncedAsset(asset)
+      let bytes = try await sync.download(id: id, digest: digest, size: size)
+      return try await Self.operations.perform {
+        try await store.storeDraftAsset(owner: owner, id: id, bytes: bytes)
+      }
     }
   }
 
@@ -1081,6 +1185,12 @@ extension UnwiredRegistration {
           // until synchronization compares its exact transition with the authoritative one.
           throw URLError(.badServerResponse)
         }
+      },
+      get: { identity, product, identifier in
+        try await optionalResult(
+          base: base, identity: identity, path: "productSync:getEncryptedPayloadForTrustedDevice",
+          args: proof(product).merging(["payloadIdentifier": identifier]) { $1 },
+          function: "query")
       })
   }
 

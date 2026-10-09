@@ -4,9 +4,11 @@ Setup, coding rules, validation and observable requirements remain in this file.
 
 [#611](https://github.com/unwired-dev/product/issues/611) adds product-authored
 **Drafts** to the connected Gmail Inbox on iPhone, iPad and Mac. A Draft is an
-unsent message kept encrypted on this device until it is discarded. This slice
-adds no delivery: nothing is sent, queued in an **Outbox** or written to Gmail's
-Drafts mailbox, and Drafts do not synchronize to other devices yet.
+unsent message kept encrypted on this device until it is discarded. No slice adds
+delivery yet: nothing is sent, queued in an **Outbox** or written to Gmail's
+Drafts mailbox. [#614](https://github.com/unwired-dev/product/issues/614)
+[synchronizes Drafts](#continuing-on-another-device) between the Product Account's
+Trusted Devices through End-to-End Encrypted Product Sync.
 
 ## Composing
 
@@ -188,6 +190,54 @@ restores its verified bytes. An edit racing **Discard** keeps the conflict copy'
 files as well as its body. A picker result arriving after the composer closes or
 the Product Account changes is discarded. Repeated **Attach to New Message**
 presses start one operation; navigation chosen while its save waits stays selected.
+
+## Continuing on another device
+
+A Draft and its files continue on every Trusted Device of the Product Account.
+Another device lists the Draft once it synchronizes, after its own Gmail
+authorization lets it show the Inbox; the Draft keeps its identifier, sending
+mailbox, recipients, subject, formatted body, and any reply or forward details
+with their quoted text. Synchronizing gives no device
+delivery ownership; the delivery slice claims a Draft by that same identifier.
+
+- **When:** opening Drafts, two seconds after edits pause, and when the app becomes
+  active or moves to the background. Without a Product Sign-In session (an Apple
+  device after relaunch) or Product Sync keys, or while offline, Drafts stay as
+  they are on this device and the next synchronization catches up.
+  A failed first publication also keeps the saved Draft available for retry after
+  relaunch. Discard during that publication remains discarded even if its reply
+  is lost; a Draft discarded while its first files upload is not published.
+- **Conflicts:** a Draft changed on one device only takes that device's version.
+  When two devices edit the same Draft before synchronizing, the version that
+  reached Product Sync first keeps the Draft's identity, and the other device's
+  edit becomes a **DRAFT · CONFLICT** copy on every device; an editor showing that
+  edit follows its copy. An edit racing another device's **Discard** survives the
+  same way while the discarded Draft stays removed. Review a copy and discard it
+  when it is no longer needed. Nothing picks a winner silently.
+  Repeated conflicts remain synchronizable. When deeply nested copies with identical
+  content cannot be distinguished after another device preserves them, the open editor
+  does not automatically follow a copy; select the retained conflict copy from Drafts
+  before continuing or discarding it.
+- **Files:** a complete file uploads before the Draft that names it. Another device
+  downloads it when the composer first checks it, verified against its size and
+  SHA-256 digest. Until then, or when part of it is missing or does not open, the
+  file shows **Not downloaded from your other devices yet** with **Try again**, and
+  it is checked again when the app becomes active. A file still importing, cancelled
+  or failed on the device that added it stays incomplete everywhere and is never
+  sent. Downloaded bytes count towards the Outgoing Content Store's 100 MB.
+  Complete files are published only after their uploaded chunks can be verified.
+
+Native Apple code owns encryption and key custody; the TypeScript Draft store owns
+merging. JavaScript never handles encryption keys. Draft records, deletion
+tombstones and verified assets are bound to the Product Account and their
+identities and versions. Unreadable or older records are refused, and interrupted
+publication is retried without treating complete local files as uploaded.
+
+Uploaded encrypted files remain in Product Sync until Product Account deletion,
+even after Discard removes the Draft and its unreferenced local files. This keeps
+files recoverable for conflicting edits made on an offline device. Cloud storage
+can therefore grow with discarded files; individual cloud-file cleanup is deferred
+until it can preserve offline copies and concurrent publication safely.
 
 ## Replies and forwards
 
@@ -381,6 +431,11 @@ and oversized values; inline-image regressions preserve positions and repetition
 Both hosts' component journeys ignore queued response presses and callbacks from
 an old reader. They also open **Reply All** from the reader, show
 and hide the quoted text, edit, **Undo** and **Redo**, and close without sending.
+Product Sync regressions also continue replies and forwards on a second synthetic
+device and through relaunch, retain threading and quoted correspondence, preserve
+response-only and quoted-only divergent edits as copies, and automatically publish
+quoted images after a held import finishes. Verified image bytes survive later
+saves and relaunch. These checks use synthetic storage and backend boundaries.
 Deferred before release: native reader-to-composer journeys on each platform, Mock
 Mail Session native scenarios with response headers, real Gmail header decoding,
 and VoiceOver qualification of the response controls and quoted-text disclosure.
@@ -395,12 +450,74 @@ images keep their image type even when filesystem metadata leaves it unknown;
 the system panel's image-filter admission still requires native interaction
 qualification.
 
+Synchronization coverage (#614): shared two-device journeys in
+`packages/mail-core/test/draft-sync.test.ts`,
+`packages/mail-core/test/draft-sync-publication.test.ts` and
+`packages/mail-core/test/draft-sync-continuation.test.ts` use `createSyntheticProductSync`
+from `@private-email/mail-core/testing/drafts`, which follows Convex's
+compare-and-set records and native code's account and identifier binding without
+encryption. They continue a Draft with its files on a second device, keep an
+importing file and a file with a missing chunk incomplete, preserve concurrent
+edits as a conflict copy that the editor follows, keep an edit racing a deletion,
+check both publication orders of that race, keep the exact edit and its editor's
+target through continued editing, Discard and relaunch, and refuse to bind an
+editor to a different authored conflict copy, including one edited locally
+before an interrupted deletion finishes publishing. They also resume synchronization
+after a subscriber defect rejects a pass, keep repeated copies within the identifier
+bound, continue the editor after a deeply nested copy is shortened, retain
+ambiguous identical copies for explicit selection and Discard,
+reclaim downloaded local bytes when their Draft is removed, including downloads
+that finish after Discard, preserve a late download still referenced after
+re-entering the same account, recover an offline
+conflict whose assets were never downloaded, retry interrupted
+uploads before publishing complete references, retain deletion versions through
+relaunch and reject replayed live records, resume after a lost reply and
+relaunches without extra copies, refuse moved, replayed and foreign records, and
+synchronize after edits pause or a successful **Save Drafts** retry. Shared registration/Draft journeys also close
+account-owned Draft state when a lazy file download discovers device revocation
+or Product Account deletion. The hosted iOS 27 storage suite adds
+`DraftSyncTests`: real CryptoKit sealing with the synthetic Convex boundary, a
+Draft record without its plaintext under an opaque identifier, a stale
+compare-and-set, a moved record reported unreadable, another account's keys
+reading nothing, a three-chunk file that downloads exactly and refuses swapped or
+missing chunks, storing downloaded bytes for the signed-in account only and
+reclaiming them in the same process after the stored Draft stops naming them, and
+sealed deletion tombstones and revocation preflight purging local keys and data.
+
+Shared regressions also cover a synchronized Draft discarded during a new file's
+upload, and Discard or continued editing during a later record write whose reply
+is lost or whose local confirmation cannot be saved. Relaunch keeps the intended
+local outcome without extra copies, preserves a different device's competing edit,
+and retains the confirmed replay floor while a write is unconfirmed. A failed
+local intent save prevents publication and remains retryable. These scenarios use
+the synthetic storage and Product Sync boundaries.
+Separate stores sharing local storage also cover two held updates with a lost
+reply, Discard, continued editing, a revert to confirmed content, a tombstone
+winning the race, recovery after a pre-commit failure, and an earlier reply
+arriving after another store confirmed a newer version.
+
+Host component journeys in `apps/mobile/test/draft-sync.test.tsx` and
+`apps/macos/test/draft-sync.test.tsx` exercise foreground and background AppState
+events against real Draft stores with synthetic storage and Product Sync. They
+verify that an unexpected subscriber failure is logged without its private
+message, consumed by the automatic pass, and followed by successful synchronization.
+The Mac journey also checks that multiple windows share one Draft pass per app
+transition, closing one keeps refreshing the surviving window, and closing and
+reopening the final window removes and reinstalls its lifecycle subscriptions.
+These component tests do not qualify native lifecycle or live backend behavior.
+
 Deferred before release: native iPhone, iPad and Mac journeys that compose, relaunch
 and reopen a Draft; the system Photos and Files pickers, the Mac open panel,
 pasteboard images, Mac drag and drop and Mac sandbox file grants with real files;
 how the body shows an inline image's place in its text on each platform; VoiceOver, hardware-keyboard and Dynamic Type qualification of
 the composer (including Draft row role labels and middle-dot separators at
 different VoiceOver punctuation settings); and physical-device lock behavior.
+Synchronization still needs packaged two-device journeys on iPhone, iPad and Mac
+and protected real Convex qualification: two signed Trusted Devices continuing a
+Draft with files, conflicting edits, a deletion race, an Apple relaunch without a
+session, and the Convex dashboard showing only opaque `draft.` and `draft-asset.`
+records. The packaged Mock Mail Sessions' synthetic backend supports the records
+but no journey drives a second device yet.
 
 Known native gap, deferred before release: compact iPhone system **Back** can hide
 a composer without first validating recipient entry or saving its changes. The

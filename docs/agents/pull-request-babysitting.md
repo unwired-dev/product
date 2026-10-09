@@ -96,8 +96,9 @@ implementation changes. A skill installation does not replace repository policy.
 ## Automatic merge
 
 [`.github/workflows/auto-merge.yml`](../../.github/workflows/auto-merge.yml) runs
-[`scripts/auto-merge.sh`](../../scripts/auto-merge.sh) every 15 minutes and
-squash-merges each open pull request to `main` that meets every condition:
+[`scripts/auto-merge.sh`](../../scripts/auto-merge.sh) whenever a CI, Mac or
+Mobile workflow run finishes, and hourly at minute 5 on a schedule that GitHub
+can delay or skip. It squash-merges each open pull request to `main` that meets every condition:
 
 - It is ready for review, from a same-repository branch, and has no merge conflict.
 - Every status check the `main` ruleset requires concluded success or skipped,

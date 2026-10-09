@@ -24,6 +24,22 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   Press handlers must still use `authored.current` and event-facing selection
   so reuse does not admit stale input before React commits.
 
+- `apps/macos/src/mailbox.tsx.InboxProvider` installing one application lifecycle
+  subscription per mounted window on the shared Draft store. Give that store one
+  subscription owner across windows, preserving later distinct transitions and
+  removing view-owned subscriptions after their final owner closes. Exercise real
+  synchronization through the external pull boundary with multiple windows,
+  one closing and reopening; otherwise each activation queues redundant network
+  passes, while premature cleanup leaves surviving windows unable to refresh.
+
+- `mailbox.tsx.InboxProvider` discarding a rejecting `drafts.sync()` Promise from
+  automatic AppState callbacks. Use the store's `syncInBackground` action so
+  foreground and background passes consume and log defects through the canonical
+  diagnostic boundary; explicit `sync` must still reject to awaiting callers.
+  Exercise both lifecycle states with the real store and a failing subscriber,
+  then verify later synchronization. Otherwise the host bypasses the core's
+  automatic catcher and creates unhandled rejections.
+
 - `message-detail.tsx.AttachToNewMessage` offering creation without an eligible
   sending mailbox or ready Draft storage, or swallowing an unexpected
   `attachReceived` rejection. Keep unavailable-storage feedback and retry in the

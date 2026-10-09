@@ -54,6 +54,15 @@ export function InboxProvider({
   const navigation = useMemo(() => createComposerNavigation(), []);
   useEffect(() => {
     void drafts.load();
+    // Returning picks up other devices' Draft changes; leaving publishes this device's.
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active' || state === 'background') {
+        void drafts.syncInBackground();
+      }
+    });
+    return () => {
+      subscription.remove();
+    };
   }, [drafts]);
   useEffect(() => {
     void mailboxes.load();
