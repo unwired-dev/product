@@ -13,6 +13,14 @@ Native storage owns what TypeScript must never hold: Keychain items, the storage
 
 #### Keys, credentials and storage
 
+- `PrivateInboxStore.discardDraftAsset` retaining process-local import protection
+  after an abandoned import's file removal throws. Release that protection under
+  the storage lock on both success and failure, preserving the deletion error,
+  so a later save can retry cleanup. Trace `drafts.ts` import settlement and
+  discard callers: live imports and committed keep references must remain
+  protected. Otherwise failed discards keep orphaned ciphertext against the hard
+  quota until relaunch, or premature release deletes bytes still needed by a Draft.
+
 - `PrivateInboxStore.commitDraftDocument` allowing garbage collection after durable
   document replacement to reject that stored revision. Keep post-write removal
   best effort and retry leftover ciphertext on a later save, without removing
