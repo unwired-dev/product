@@ -400,6 +400,35 @@ describe('sending a Draft through the Outbox', () => {
     sending.outbox.dispose();
   });
 
+  it('timestamps Undo after rebasing onto a competing local writer', async () => {
+    expect.hasAssertions();
+    const { server, gmail } = sharedAccount();
+    const sending = await sender(server, gmail, 'phone');
+    const id = await addressed(sending);
+    await sending.outbox.send(() => sending.draft(id));
+    const other = createDrafts(sending.storage.native, sending.registration);
+    await other.load();
+    later(1000);
+    const independent = present(await other.create(alex), 'another Draft');
+    const open = sending.storage.native.openDrafts;
+    vi.spyOn(sending.storage.native, 'openDrafts').mockImplementationOnce(
+      () => {
+        later(1000);
+        return open();
+      },
+    );
+
+    await expect(sending.outbox.undo(id)).resolves.toBe(id);
+
+    expect(sending.draft(id).updatedAt).toBe(clock.now);
+    expect(sending.list().map((draft) => draft.id)).toContain(independent);
+    await sending.relaunch();
+    expect(sending.draft(id).updatedAt).toBe(clock.now);
+    expect(sending.drafts.getOutbox()).toStrictEqual([]);
+    expect(gmail.sends).toStrictEqual([]);
+    sending.outbox.dispose();
+  });
+
   it('lets only one local storage writer hand the same claimed message to Gmail', async () => {
     expect.hasAssertions();
     const { server, gmail } = sharedAccount();

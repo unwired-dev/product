@@ -1474,9 +1474,9 @@ export function createDrafts(
       drafts: readonly Draft[];
       delivery: Delivery;
     }>,
-  >(current: number, account: string, make: () => T | undefined) {
+  >(current: number, account: string, make: Effect.Effect<T | undefined>) {
     for (let attempt = 0; attempt < 2; attempt += 1) {
-      const prepared = live(current) ? make() : undefined;
+      const prepared = live(current) ? yield* make : undefined;
       if (prepared === undefined) {
         return undefined;
       }
@@ -1513,28 +1513,32 @@ export function createDrafts(
         if (account === undefined) {
           return false;
         }
-        const written = yield* writeOutbox(current, account, () => {
-          const entry = outbox.find((each) => each.id === id);
-          const next = entry === undefined ? undefined : step(entry);
-          if (next === undefined || state.kind !== 'ready') {
-            return undefined;
-          }
-          return {
-            drafts: state.drafts,
-            delivery:
-              'draft' in next
-                ? {
-                    outbox: outbox.map((each) =>
-                      each.id === id ? next : each,
-                    ),
-                    sent,
-                  }
-                : {
-                    outbox: outbox.filter((each) => each.id !== id),
-                    sent: latestSent(sent, [next]),
-                  },
-          };
-        });
+        const written = yield* writeOutbox(
+          current,
+          account,
+          Effect.sync(() => {
+            const entry = outbox.find((each) => each.id === id);
+            const next = entry === undefined ? undefined : step(entry);
+            if (next === undefined || state.kind !== 'ready') {
+              return undefined;
+            }
+            return {
+              drafts: state.drafts,
+              delivery:
+                'draft' in next
+                  ? {
+                      outbox: outbox.map((each) =>
+                        each.id === id ? next : each,
+                      ),
+                      sent,
+                    }
+                  : {
+                      outbox: outbox.filter((each) => each.id !== id),
+                      sent: latestSent(sent, [next]),
+                    },
+            };
+          }),
+        );
         if (written === undefined) {
           return false;
         }
@@ -1554,27 +1558,34 @@ export function createDrafts(
         if (account === undefined) {
           return false;
         }
-        const now = yield* Clock.currentTimeMillis;
-        const fresh = `${Math.abs(yield* Random.nextInt).toString(36)}${Math.abs(yield* Random.nextInt).toString(36)}`;
-        const written = yield* writeOutbox(current, account, () => {
-          const entry = outbox.find((each) => each.id === id);
-          if (!restorable(entry) || state.kind !== 'ready') {
-            return undefined;
-          }
-          const reused =
-            entry.claim === undefined &&
-            !state.drafts.some((draft) => draft.id === id);
-          const draft = {
-            ...entry.draft,
-            id: reused ? id : fresh,
-            updatedAt: now,
-          };
-          return {
-            drafts: [...state.drafts, draft],
-            delivery: { outbox: outbox.filter((each) => each.id !== id), sent },
-            draft,
-          };
-        });
+        const written = yield* writeOutbox(
+          current,
+          account,
+          Effect.gen(function* () {
+            const entry = outbox.find((each) => each.id === id);
+            if (!restorable(entry) || state.kind !== 'ready') {
+              return undefined;
+            }
+            const now = yield* Clock.currentTimeMillis;
+            const fresh = `${Math.abs(yield* Random.nextInt).toString(36)}${Math.abs(yield* Random.nextInt).toString(36)}`;
+            const reused =
+              entry.claim === undefined &&
+              !state.drafts.some((draft) => draft.id === id);
+            const draft = {
+              ...entry.draft,
+              id: reused ? id : fresh,
+              updatedAt: now,
+            };
+            return {
+              drafts: [...state.drafts, draft],
+              delivery: {
+                outbox: outbox.filter((each) => each.id !== id),
+                sent,
+              },
+              draft,
+            };
+          }),
+        );
         if (written === undefined || state.kind !== 'ready') {
           return false;
         }
