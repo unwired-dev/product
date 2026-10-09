@@ -38,10 +38,9 @@ exists. Nothing here is implemented yet. The work is tracked in
   the message had several recipients and sends through the Outbox with an undo
   window. Quoted history follows the existing Reply All Draft behavior.
 - Long-pressing a bubble opens archive, delete, mark unread, reply and open Thread.
-  As in the [conversation reader](product/messages-and-delivery.md), archive,
-  delete and mark unread act on the whole Thread, so every bubble of that Thread
-  changes together; the menu labels them as Thread actions. Reply and quick reply
-  target the pressed message.
+  Archive, delete and mark unread are labelled as Thread actions and act on the
+  whole Thread, changing all its bubbles together. Reply and quick reply target
+  the pressed message.
 
 ## Summaries
 
