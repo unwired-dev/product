@@ -21,6 +21,7 @@
     "./message-body": "./src/message-body.ts",
     "./link-inspection": "./src/link-inspection.ts",
     "./assistance": "./src/assistance.ts",
+    "./translation": "./src/translation.ts",
     "./drafts": "./src/drafts.ts",
     "./semantic-document": "./src/semantic-document.ts",
     "./testing/drafts": "./src/testing/drafts.ts",

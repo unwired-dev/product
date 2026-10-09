@@ -1,0 +1,59 @@
+# Translation: architecture notes
+
+Reviewer-only companion to [on-device translation](../message-translation.md).
+Read under the [implementation and review workflow](../agents/implementation-review.md).
+
+## Native boundary
+
+Both hosts compile `UnwiredAssistance`. Translation remains separate from the
+Foundation Models summary operation. The adapter identifies a source using
+`NLLanguageRecognizer`, lists `LanguageAvailability().supportedLanguages` with
+localized names, and checks `LanguageAvailability.status(from:to:)`.
+Only an installed pair enters `TranslationSession(installedSource:target:)`;
+this initializer cannot request downloads. The supported-but-uninstalled state
+is reported as `not-installed`, leaving the person to install languages through
+system settings. Cancelling the request task invokes the session's cancellation.
+No provider or backend participates and mail content is never downloaded by
+translation.
+
+The shared store decodes results with Effect Schema. Each mounted host owner
+retires the store during layout cleanup. Reader ownership includes the native
+provider, mailbox store, message identifier and bounded readable input. The shared
+`readerText` walks paragraphs and spans only until the 6,000-character limit plus
+one lookahead character, without flattening the remaining body or copying a whole
+span array. Hosts memoize that prefix per immutable body. Changes beyond it retain
+a valid translation of the same captured input; the lookahead also preserves the
+omission disclosure and surrogate-pair cut. Draft review
+checks the current ready result at acceptance, while the composer synchronously
+invalidates its captured selection when its body changes or review closes.
+Undo returning to the same body object cannot restore that invalidated capture.
+
+The ready result trims native output for presentation. At Draft acceptance, both
+composers call the shared `draftReplacement` with the captured selection text and
+the reviewed result before `replaceSelection`. It restores the selection's own
+leading and trailing whitespace around the trimmed translation, keeping adjacent
+words and boundary line breaks intact without changing the preview. The existing
+selection-ownership checks and single history edit still govern replacement.
+
+Reader dismissal also retires the open panel's session synchronously. Language
+choices and store starts check that session; Cancel and Dismiss from an old panel
+cannot affect a later opening of the same reader. The mounted store's lifetime
+alone does not authorize input from a dismissed panel.
+Retry and Cancel also recheck the live store's exact snapshot, preventing queued
+controls for a superseded target from restarting or cancelling its replacement.
+
+## Decisions and evidence
+
+[ADR 0052](../adr/0052-keep-mail-assistance-on-device-and-input-bound.md),
+[ADR 0059](../adr/0059-replace-the-client-for-a-shared-cross-platform-product.md)
+and [ADR 0060](../adr/0060-pair-mocked-mail-journeys-with-real-integration-evidence.md)
+own the privacy, replacement and qualification boundaries. This slice exposes
+explicit target-language selection and installed-only translation. It provides no
+source-language override or in-app language-download presentation;
+[#622](https://github.com/unwired-dev/product/issues/622) specifies explicit target
+selection and available on-device capabilities. Device-local assistance enablement
+is tracked separately by [#788](https://github.com/unwired-dev/product/issues/788).
+The broader prototype behavior notes are not passing evidence
+for this slice. Live Apple Translation and physical-device qualification remain
+required before release, separately from deterministic host journeys and build
+compilation.

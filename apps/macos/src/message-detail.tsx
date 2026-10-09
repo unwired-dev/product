@@ -19,6 +19,7 @@ import { GmailMessageBody, LinkConfirmationProvider } from './message-body.tsx';
 import { MessageSummary } from './message-summary.tsx';
 import { MessageActions } from './organize.tsx';
 import { usePalette } from './theme.ts';
+import { MessageTranslation } from './translation.tsx';
 
 const styles = StyleSheet.create({
   fill: { flex: 1 },
@@ -261,6 +262,11 @@ function MailboxMessage({
                   source={actions}
                   id={message.id}
                   subject={message.subject}
+                  body={'body' in message ? message.body : message.preview}
+                />
+                <MessageTranslation
+                  source={actions}
+                  id={message.id}
                   body={'body' in message ? message.body : message.preview}
                 />
                 <Text

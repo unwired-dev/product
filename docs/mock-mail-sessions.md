@@ -24,12 +24,15 @@ the real application's unavailable-state path; assistance failure leaves mail
 available. The assistance provider follows the native
 [message summary](message-summaries.md#native-binding) contract: it reports the
 model as available and returns a fixed synthetic summary, or, in
-`assistance-unavailable`, reports the model as not ready. The rendered reader
-tests use it for the summary journeys. Identity currently has provider-contract
+`assistance-unavailable`, reports the model as not ready. Its translation
+provider follows the [translation](message-translation.md#native-binding) contract:
+it lists two synthetic target languages and returns a fixed synthetic translation,
+or, in `assistance-unavailable`, reports the language as not installed. The
+rendered reader tests use them for the summary and translation journeys. Identity currently has provider-contract
 coverage, not a sign-in UI journey. Later feature slices extend these contracts
 when their application paths exist. Native builds for every selected mock scenario
-compile a synthetic assistance answer with the same fixed summary instead of
-running Apple's model. The open, mark-read and relaunch journey also explicitly
+compile a synthetic assistance answer with the same fixed summary, translation
+and language list instead of running Apple's model or Translation. The open, mark-read and relaunch journey also explicitly
 summarizes a message through this synthetic native binding.
 
 Native builds can select `open-read-relaunch` or `mail-unavailable` using

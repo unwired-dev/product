@@ -1,12 +1,15 @@
 import Foundation
 import FoundationModels
+import NaturalLanguage
 import React
+import Translation
 
-// On-device Understanding Assistance through Apple's system language model. It reads only the
-// text the reader passes, never fetches mail and has no cloud model fallback.
+// On-device assistance through Apple's system language model and Translation. It reads only the
+// text the app passes, never fetches mail and has no cloud fallback.
 @objc(UnwiredAssistance)
 final class UnwiredAssistance: NSObject {
-  @MainActor private static var summaries: [String: Task<Void, Never>] = [:]
+  // Summary and translation requests by id, so `cancel` stops either.
+  @MainActor private static var tasks: [String: Task<Void, Never>] = [:]
 
   @objc static func requiresMainQueueSetup() -> Bool { false }
 
@@ -74,9 +77,9 @@ final class UnwiredAssistance: NSObject {
         reject(reason, "On-device assistance is unavailable.", nil)
         return
       }
-      Self.summaries[request]?.cancel()
-      Self.summaries[request] = Task { @MainActor in
-        defer { Self.summaries[request] = nil }
+      Self.tasks[request]?.cancel()
+      Self.tasks[request] = Task { @MainActor in
+        defer { Self.tasks[request] = nil }
         do {
           try Task.checkCancellation()
           let summary = try await Self.generate(input)
@@ -95,8 +98,98 @@ final class UnwiredAssistance: NSObject {
     reject: @escaping RCTPromiseRejectBlock
   ) {
     DispatchQueue.main.async {
-      Self.summaries.removeValue(forKey: request)?.cancel()
+      Self.tasks.removeValue(forKey: request)?.cancel()
       resolve(nil)
+    }
+  }
+
+  // A translation that cannot run, with the code the app maps to its explanation.
+  private struct TranslationUnavailable: Error { let code: String }
+
+  // Translates with installed languages only: a supported pair that is not downloaded is
+  // reported, never downloaded here, so nothing leaves the device.
+  private static func translation(_ input: String, to target: Locale.Language) async throws
+    -> (source: String, text: String)
+  {
+    #if UNWIRED_ASSISTANCE_MOCK
+      // Matches the TypeScript session's syntheticTranslation.
+      return ("en", "Synthetic translation of local mail.")
+    #else
+      let recognizer = NLLanguageRecognizer()
+      recognizer.processString(input)
+      guard let detected = recognizer.dominantLanguage, detected != .undetermined else {
+        throw TranslationUnavailable(code: "unidentified-language")
+      }
+      let source = Locale.Language(identifier: detected.rawValue)
+      if source.isEquivalent(to: target) {
+        throw TranslationUnavailable(code: "same-language")
+      }
+      switch await LanguageAvailability().status(from: source, to: target) {
+      case .installed: break
+      case .supported: throw TranslationUnavailable(code: "not-installed")
+      default: throw TranslationUnavailable(code: "unsupported-pair")
+      }
+      let session = TranslationSession(installedSource: source, target: target)
+      let response = try await withTaskCancellationHandler {
+        try await session.translate(input)
+      } onCancel: {
+        session.cancel()
+      }
+      return (source.minimalIdentifier, response.targetText)
+    #endif
+  }
+
+  private static func translationCode(_ error: any Error) -> String {
+    if error is CancellationError { return "cancelled" }
+    if let unavailable = error as? TranslationUnavailable { return unavailable.code }
+    switch error {
+    case TranslationError.notInstalled: return "not-installed"
+    case TranslationError.unableToIdentifyLanguage: return "unidentified-language"
+    case TranslationError.unsupportedSourceLanguage, TranslationError.unsupportedTargetLanguage,
+      TranslationError.unsupportedLanguagePairing:
+      return "unsupported-pair"
+    default: return "unavailable"
+    }
+  }
+
+  @objc(translationLanguages:rejecter:)
+  func translationLanguages(
+    _ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+  ) {
+    Task { @MainActor in
+      #if UNWIRED_ASSISTANCE_MOCK
+        // Matches the TypeScript session's syntheticTranslationLanguages.
+        resolve([["code": "de", "name": "German"], ["code": "es", "name": "Spanish"]])
+      #else
+        let languages = await LanguageAvailability().supportedLanguages
+        resolve(
+          languages.map { language -> [String: String] in
+            let code = language.minimalIdentifier
+            return ["code": code, "name": Locale.current.localizedString(forIdentifier: code) ?? code]
+          })
+      #endif
+    }
+  }
+
+  @objc(translate:input:target:resolver:rejecter:)
+  func translate(
+    _ request: String, input: String, target: String,
+    resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+  ) {
+    // Preserve the serial bridge's call order when registering and cancelling requests.
+    DispatchQueue.main.async {
+      Self.tasks[request]?.cancel()
+      Self.tasks[request] = Task { @MainActor in
+        defer { Self.tasks[request] = nil }
+        do {
+          try Task.checkCancellation()
+          let result = try await Self.translation(input, to: Locale.Language(identifier: target))
+          try Task.checkCancellation()
+          resolve(["source": result.source, "text": result.text])
+        } catch {
+          reject(Self.translationCode(error), "The translation could not be created.", nil)
+        }
+      }
     }
   }
 }

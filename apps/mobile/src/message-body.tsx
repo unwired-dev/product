@@ -47,6 +47,7 @@ import { Action } from './action.tsx';
 import { useLocalization } from './localization.ts';
 import { MessageSummary } from './message-summary.tsx';
 import { usePalette } from './theme.ts';
+import { MessageTranslation } from './translation.tsx';
 
 // A taller document scrolls inside its view instead of the reader.
 const heightCap = 20_000;
@@ -746,6 +747,11 @@ export function GmailMessageBody({
         source={inbox}
         id={id}
         subject={subject}
+        body={body.presentation.readable}
+      />
+      <MessageTranslation
+        source={inbox}
+        id={id}
         body={body.presentation.readable}
       />
       <Presentation

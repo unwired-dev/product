@@ -32,12 +32,19 @@ import {
   previewOf,
   record,
   redo,
+  replaceSelection,
+  selectedText,
   setBlockKind,
   toggled,
   toggleMark,
   undo,
 } from '@private-email/mail-core/semantic-document';
 import { spacing } from '@private-email/mail-core/theme';
+import {
+  draftReplacement,
+  hasTranslatableText,
+  translationInputLimit,
+} from '@private-email/mail-core/translation';
 import {
   memo,
   use,
@@ -65,6 +72,7 @@ import {
 } from './mailbox.tsx';
 import { AccountContext } from './registration-gate.tsx';
 import { usePalette } from './theme.ts';
+import { DraftTranslation } from './translation.tsx';
 
 const styles = StyleSheet.create({
   fill: { flex: 1 },
@@ -738,6 +746,17 @@ function Editor({
     }
   }, [rebind, store]);
   const [selection, setSelection] = useState<Selection>({ start: 0, end: 0 });
+  // Body text captured for an explicitly requested translation, until it is applied or kept.
+  const [translating, setTranslating] = useState<
+    Readonly<{
+      body: Draft['body'];
+      selection: Selection;
+      text: string;
+      id: number;
+    }>
+  >();
+  const captureNow = useRef<typeof translating>(undefined);
+  const captureGeneration = useRef(0);
   // The latest body selection, ahead of rendering, for text events that follow a caret move.
   const selectionNow = useRef(selection);
   // Where the editor must place the caret after a change it did not type itself.
@@ -758,6 +777,10 @@ function Editor({
   const subjectCaret = useRef<number | undefined>(undefined);
   const deletion = useRef<'backward' | 'forward' | undefined>(undefined);
   const draft = history.present;
+  // Any body edit makes the captured text stale, so its translation is forgotten.
+  if (translating !== undefined && translating.body !== draft.body) {
+    setTranslating(undefined);
+  }
   const breakTyping = () => {
     commitHistory((current) => ({ ...current, typing: false }));
   };
@@ -773,6 +796,10 @@ function Editor({
         next.id === previous.id
           ? next
           : { ...next, id: previous.id, conflict: true as const };
+      if (bound.body !== previous.body) {
+        captureNow.current = undefined;
+        setTranslating(undefined);
+      }
       authored.current = bound;
       if (!discarded.current) {
         void store.update(bound, previous, rebind);
@@ -846,6 +873,30 @@ function Editor({
       return;
     }
     change({ ...latest, body: toggleMark(latest.body, at, mark) });
+  };
+  // Replaces exactly the captured selection with its reviewed translation as one undoable edit.
+  // Recipients, attachments and delivery state are left as they are.
+  const applyTranslation = (translated: string) => {
+    const latest = authored.current;
+    if (
+      !lifetime.current.mounted ||
+      translating === undefined ||
+      captureNow.current !== translating ||
+      latest.body !== translating.body
+    ) {
+      return;
+    }
+    captureNow.current = undefined;
+    setTranslating(undefined);
+    const result = replaceSelection(
+      latest.body,
+      translating.selection,
+      draftReplacement(translating.text, translated),
+    );
+    change({ ...latest, body: result.document });
+    placeTyping(undefined);
+    selectionNow.current = result.selection ?? selectionNow.current;
+    setPlaced(result.selection);
   };
   const block = (kind: BlockKind) => {
     const at = selectionNow.current;
@@ -1192,7 +1243,46 @@ function Editor({
               <Text style={{ color: colors.foreground }}>{label}</Text>
             </Pressable>
           ))}
+          <Action
+            disabled={
+              !hasTranslatableText(
+                selectedText(draft.body, selection, translationInputLimit + 1),
+              )
+            }
+            label={t('translation.translate')}
+            accessibilityLabel={t('translation.translateSelectionLabel')}
+            onPress={() => {
+              const at = selectionNow.current;
+              const { body } = authored.current;
+              const text = selectedText(body, at, translationInputLimit + 1);
+              if (!lifetime.current.mounted || !hasTranslatableText(text)) {
+                return;
+              }
+              captureGeneration.current += 1;
+              const capture = {
+                body,
+                selection: at,
+                text,
+                id: captureGeneration.current,
+              };
+              captureNow.current = capture;
+              setTranslating(capture);
+            }}
+          />
         </View>
+        {translating === undefined ? null : (
+          <DraftTranslation
+            key={translating.id}
+            text={translating.text}
+            onApply={applyTranslation}
+            onClose={() => {
+              if (captureNow.current === translating) {
+                captureNow.current = undefined;
+                setTranslating(undefined);
+              }
+            }}
+          />
+        )}
         <TextInput
           accessibilityLabel={t('drafts.body')}
           keyDownEvents={shortcuts}
