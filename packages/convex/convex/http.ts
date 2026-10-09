@@ -13,6 +13,7 @@ import {
   trustedDeviceReconnectRequiredErrorCode,
   trustedDeviceRevokedErrorCode,
 } from './productAccountAuth.js';
+import { enqueueGmailWakeupsFromMetadata } from './pushRelay.js';
 import { signInLinkErrorCodes } from './signInLinks.js';
 
 const http = httpRouter();
@@ -27,7 +28,9 @@ const RecentAuthenticationClaimsSchema = Schema.Struct({
 });
 type RecentAuthenticationClaims = typeof RecentAuthenticationClaimsSchema.Type;
 const decodeRecentAuthenticationClaims = Schema.decodeUnknownOption(
-  Schema.fromJsonString(RecentAuthenticationClaimsSchema),
+  Schema.StringFromBase64Url.pipe(
+    Schema.decodeTo(Schema.fromJsonString(RecentAuthenticationClaimsSchema)),
+  ),
 );
 
 // Numbers keep the receiving mutation's v.number() domain, which admits non-finite values.
@@ -112,23 +115,6 @@ const decodeMicrosoftGraphNotificationBatch = Schema.decodeUnknownOption(
   Schema.Struct({ value: Schema.Array(Schema.Unknown) }),
 );
 
-function decodeBase64Url(value: string): string | null {
-  try {
-    const encoded = value.replaceAll('-', '+').replaceAll('_', '/');
-    const padded = encoded.padEnd(
-      encoded.length + ((4 - (encoded.length % 4)) % 4),
-      '=',
-    );
-    const bytes = Uint8Array.from(
-      atob(padded),
-      (character) => character.codePointAt(0) ?? 0,
-    );
-    return new TextDecoder().decode(bytes);
-  } catch {
-    return null;
-  }
-}
-
 // fallow-ignore-next-line complexity -- Authentication parsing keeps every malformed form fail-closed.
 function bearerToken(request: Request): string | null {
   const authorization = request.headers.get('authorization');
@@ -145,12 +131,9 @@ function identityTokenClaims(
   identityToken: string,
 ): RecentAuthenticationClaims | null {
   const segments = identityToken.split('.');
-  const claimsSegment = segments.length === 3 ? segments[1] : undefined;
-  const claimsJSON =
-    claimsSegment === undefined ? null : decodeBase64Url(claimsSegment);
-  return claimsJSON === null
-    ? null
-    : Option.getOrNull(decodeRecentAuthenticationClaims(claimsJSON));
+  return segments.length === 3
+    ? Option.getOrNull(decodeRecentAuthenticationClaims(segments[1]))
+    : null;
 }
 
 function recentlyIssuedForIdentity(
@@ -491,10 +474,7 @@ http.route({
       return new Response('Invalid Gmail push', { status: 400 });
     }
 
-    await ctx.runAction(
-      internal.pushRelay.enqueueGmailWakeupsFromMetadata,
-      metadata,
-    );
+    await enqueueGmailWakeupsFromMetadata(ctx, metadata);
     return new Response(null, { status: 204 });
   }),
 });

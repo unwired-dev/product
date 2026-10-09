@@ -499,24 +499,6 @@ function deliverGmailWakeupBatch(
   ).pipe(Effect.as(null));
 }
 
-export const deliverGmailWakeups = internalAction({
-  args: {
-    historyId: v.string(),
-    recipients: v.array(
-      v.object({
-        apnsEnvironment: apnsEnvironmentValidator,
-        apnsToken: v.string(),
-        pushCleanupGeneration: v.optional(v.number()),
-        routeId: v.string(),
-        trustedDeviceId: v.id('trustedDevices'),
-      }),
-    ),
-  },
-  handler: async (ctx, args): Promise<null> =>
-    runConvexProgram(deliverGmailWakeupBatch(ctx, args), thrownBatchError),
-  returns: v.null(),
-});
-
 export const deliverQueuedGmailWakeups = internalAction({
   args: {
     historyId: v.string(),

@@ -200,6 +200,29 @@ describe('productSync encrypted payloads', () => {
     ).rejects.toThrow('Validator error');
   });
 
+  it('bounds exact trusted-device reads to one atomic batch', async () => {
+    expect.assertions(2);
+
+    const { asUser, connect } = await connectAppleDevice();
+    const identifiers = Array.from(
+      { length: 101 },
+      (_, index) => `payload-${String(index)}`,
+    );
+
+    await expect(
+      asUser.query(api.productSync.getEncryptedPayloadsForTrustedDevice, {
+        payloadIdentifiers: identifiers.slice(0, 100),
+        trustedDeviceId: connect.trustedDeviceId,
+      }),
+    ).resolves.toStrictEqual([]);
+    await expect(
+      asUser.query(api.productSync.getEncryptedPayloadsForTrustedDevice, {
+        payloadIdentifiers: identifiers,
+        trustedDeviceId: connect.trustedDeviceId,
+      }),
+    ).rejects.toThrow('Encrypted Product Sync read has too many identifiers');
+  });
+
   it('updates an encrypted payload only when its version is unchanged', async () => {
     expect.assertions(3);
 

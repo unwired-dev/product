@@ -25,7 +25,7 @@ import type { CallFailed } from './effectRuntime.js';
 
 import { internal } from './_generated/api.js';
 import { action, internalAction } from './_generated/server.js';
-import { call, runConvexProgram } from './effectRuntime.js';
+import { call, failureDiagnostic, runConvexProgram } from './effectRuntime.js';
 import { trustedDeviceCredentialArgs } from './productAccountAuth.js';
 
 const appleAudience = 'https://appleid.apple.com';
@@ -46,8 +46,14 @@ type RevocationToken = Exclude<
   { kind: 'authorization-code' }
 >;
 
-const decodeJson = Schema.decodeUnknownOption(
-  Schema.fromJsonString(Schema.Unknown),
+const decodeJwtPart = Schema.decodeUnknownOption(
+  Schema.StringFromBase64Url.pipe(
+    Schema.decodeTo(Schema.fromJsonString(Schema.Unknown)),
+  ),
+);
+
+const decodeJwtSignature = Schema.decodeUnknownOption(
+  Schema.Uint8ArrayFromBase64Url,
 );
 
 const isAppleIdentityTokenHeader = Schema.is(
@@ -263,7 +269,7 @@ function readAppleJson(
 
 // A token part that is not a JSON object is malformed; a JSON object with the wrong claims does not match.
 function decodedJwtPart(encoded: string): Effect.Effect<object, AppleRejected> {
-  return decodeJson(Buffer.from(encoded, 'base64url').toString('utf8')).pipe(
+  return decodeJwtPart(encoded).pipe(
     Option.filter(Predicate.isObjectOrArray),
     Effect.fromOption,
     Effect.mapError(exchangeFailed),
@@ -316,6 +322,10 @@ const verifyAppleIdentityToken = Effect.fnUntraced(function* (
   if (key === undefined) {
     return yield* exchangeFailed();
   }
+  const signature = yield* decodeJwtSignature(encodedSignature).pipe(
+    Effect.fromOption,
+    Effect.mapError(exchangeFailed),
+  );
   const verified = yield* Effect.try({
     try: () =>
       verify(
@@ -325,7 +335,7 @@ const verifyAppleIdentityToken = Effect.fnUntraced(function* (
           format: 'jwk',
           key: { e: key.e, kty: 'RSA', n: key.n },
         }),
-        Buffer.from(encodedSignature, 'base64url'),
+        signature,
       ),
     catch: (cause) => new AppleFailed({ cause }),
   });
@@ -483,17 +493,22 @@ const resumeRevocation = Effect.fnUntraced(function* (
           ),
         ).pipe(Effect.mapError((cause) => new RevocationUnrecorded({ cause })));
       });
+  const logAndAbortRecovery = (cause: unknown) =>
+    Effect.logError(
+      'Apple revocation recovery failed:',
+      failureDiagnostic(cause),
+    ).pipe(Effect.andThen(abortRecovery));
   // A retryable or unrecorded revocation leaves recovery for its next run.
   const completed = yield* revocation.pipe(
     Effect.as(true),
     Effect.catchTags({
-      AppleFailed: () => abortRecovery,
+      AppleFailed: (failure) => logAndAbortRecovery(failure.cause),
       AppleRejected: () => abortRecovery,
       AppleUnavailable: () => Effect.succeed(false),
       RevocationUnrecorded: () => Effect.succeed(false),
     }),
     // An unexpected defect aborts recovery, like a terminal failure.
-    Effect.catchDefect(() => abortRecovery),
+    Effect.catchDefect(logAndAbortRecovery),
   );
   if (completed) {
     yield* call(async () =>

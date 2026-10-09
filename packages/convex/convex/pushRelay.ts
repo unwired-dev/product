@@ -12,13 +12,12 @@ import * as Effect from 'effect/Effect';
 import * as Schema from 'effect/Schema';
 
 import type { Doc, Id } from './_generated/dataModel.js';
-import type { MutationCtx, QueryCtx } from './_generated/server.js';
+import type { ActionCtx, MutationCtx, QueryCtx } from './_generated/server.js';
 import type { CallFailed } from './effectRuntime.js';
 
 import { internal } from './_generated/api.js';
 import {
   action,
-  internalAction,
   internalMutation,
   internalQuery,
   mutation,
@@ -106,27 +105,35 @@ type VerifiedGoogleIdentity = Readonly<{
 }>;
 
 const decodeGoogleIdentityTokenHeader = Schema.decodeUnknownOption(
-  Schema.fromJsonString(
-    Schema.Struct({
-      alg: Schema.Literal('RS256'),
-      kid: Schema.NonEmptyString,
-    }),
+  Schema.StringFromBase64Url.pipe(
+    Schema.decodeTo(
+      Schema.fromJsonString(
+        Schema.Struct({
+          alg: Schema.Literal('RS256'),
+          kid: Schema.NonEmptyString,
+        }),
+      ),
+    ),
   ),
 );
 
 const decodeGoogleIdentityTokenClaims = Schema.decodeUnknownOption(
-  Schema.fromJsonString(
-    Schema.Struct({
-      aud: Schema.NonEmptyString,
-      email: Schema.NonEmptyString,
-      email_verified: Schema.Literals([true, 'true']),
-      exp: Schema.Union([Schema.Finite, Schema.FiniteFromString]),
-      iss: Schema.Literals([
-        'accounts.google.com',
-        'https://accounts.google.com',
-      ]),
-      sub: Schema.NonEmptyString,
-    }),
+  Schema.StringFromBase64Url.pipe(
+    Schema.decodeTo(
+      Schema.fromJsonString(
+        Schema.Struct({
+          aud: Schema.NonEmptyString,
+          email: Schema.NonEmptyString,
+          email_verified: Schema.Literals([true, 'true']),
+          exp: Schema.Union([Schema.Finite, Schema.FiniteFromString]),
+          iss: Schema.Literals([
+            'accounts.google.com',
+            'https://accounts.google.com',
+          ]),
+          sub: Schema.NonEmptyString,
+        }),
+      ),
+    ),
   ),
 );
 
@@ -180,26 +187,16 @@ function thrownGmailError(
     : error.cause;
 }
 
-function decodeBase64Url(value: string): ArrayBuffer {
-  const normalized = value.replaceAll('-', '+').replaceAll('_', '/');
-  const padding = '='.repeat((4 - (normalized.length % 4)) % 4);
-  const decoded = atob(`${normalized}${padding}`);
-  const bytes = new Uint8Array(decoded.length);
-  for (const [index, character] of [...decoded].entries()) {
-    bytes[index] = character.codePointAt(0) ?? 0;
-  }
-  return bytes.buffer;
-}
+const decodeJwtSignature = Schema.decodeUnknownOption(
+  Schema.Uint8ArrayFromBase64Url,
+);
 
 // Every malformed segment gets the common rejection, which does not disclose token contents.
 function decodeJwtSegment<A>(
-  decode: (json: string) => Option.Option<A>,
+  decode: (segment: string) => Option.Option<A>,
   segment: string,
 ): Effect.Effect<A, GmailRequestRejected> {
-  return Effect.try(() =>
-    new TextDecoder().decode(decodeBase64Url(segment)),
-  ).pipe(
-    Effect.flatMap((json) => Effect.fromOption(decode(json))),
+  return Effect.fromOption(decode(segment)).pipe(
     Effect.mapError(proofRejected),
   );
 }
@@ -315,7 +312,7 @@ const googleSigningKey = Effect.fnUntraced(function* (keyId: string) {
 
 const hasValidGoogleSignature = Effect.fnUntraced(function* (
   signingInput: string,
-  signature: ArrayBuffer,
+  signature: Uint8Array,
   keyId: string,
 ) {
   const signingKey = yield* googleSigningKey(keyId);
@@ -331,7 +328,7 @@ const hasValidGoogleSignature = Effect.fnUntraced(function* (
       return crypto.subtle.verify(
         'RSASSA-PKCS1-v1_5',
         key,
-        signature,
+        new Uint8Array(signature),
         new TextEncoder().encode(signingInput),
       );
     },
@@ -366,10 +363,10 @@ const verifyGoogleIdentityToken = Effect.fnUntraced(function* (
   ) {
     return yield* proofRejected();
   }
-  const signature = yield* Effect.try({
-    try: () => decodeBase64Url(signatureSegment),
-    catch: proofRejected,
-  });
+  const signature = yield* decodeJwtSegment(
+    decodeJwtSignature,
+    signatureSegment,
+  );
   const { kid: keyId } = yield* decodeJwtSegment(
     decodeGoogleIdentityTokenHeader,
     headerSegment,
@@ -2035,31 +2032,22 @@ export const revalidateGmailRecipients = internalQuery({
   returns: v.array(apnsRecipientValidator),
 });
 
-export const enqueueGmailWakeupsFromMetadata = internalAction({
-  args: {
-    emailAddress: v.string(),
-    historyId: v.string(),
-  },
-  handler: async (ctx, args) => {
-    const routings = await gmailRoutingDigests(args.emailAddress);
-    const results: Array<{ recipientCount: number }> = await Promise.all(
-      routings.map((routing, index) =>
-        ctx.runMutation(internal.pushRelay.enqueueGmailWakeups, {
-          ...(index === 0 ? { emailAddress: args.emailAddress } : {}),
-          historyId: args.historyId,
-          routingDigest: routing.digest,
-        }),
-      ),
-    );
-    return {
-      recipientCount: results.reduce(
-        (count, result) => count + result.recipientCount,
-        0,
-      ),
-    };
-  },
-  returns: v.object({ recipientCount: v.number() }),
-});
+// Gmail push delivery runs in the HTTP action's runtime, so it calls this directly.
+export async function enqueueGmailWakeupsFromMetadata(
+  ctx: Pick<ActionCtx, 'runMutation'>,
+  metadata: Readonly<{ emailAddress: string; historyId: string }>,
+): Promise<void> {
+  const routings = await gmailRoutingDigests(metadata.emailAddress);
+  await Promise.all(
+    routings.map(async (routing, index) =>
+      ctx.runMutation(internal.pushRelay.enqueueGmailWakeups, {
+        ...(index === 0 ? { emailAddress: metadata.emailAddress } : {}),
+        historyId: metadata.historyId,
+        routingDigest: routing.digest,
+      }),
+    ),
+  );
+}
 
 export const enqueueGmailWakeups = internalMutation({
   args: {

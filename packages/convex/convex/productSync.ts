@@ -732,6 +732,11 @@ export const getEncryptedPayloadsForTrustedDevice = query({
       args.trustedDeviceId,
       args.trustedDeviceCredential,
     );
+    if (
+      args.payloadIdentifiers.length > encryptedProductSyncAtomicMutationLimit
+    ) {
+      throw new Error('Encrypted Product Sync read has too many identifiers');
+    }
     return getEncryptedPayloadsForProductAccount(
       ctx,
       productAccountId,
