@@ -103,6 +103,13 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Product behavior the stores own
 
+- `translation.ts.draftTranslationInput` admitting a selected U+FFFC from an inline
+  image into text translation. `semantic-document.ts.replaceSelection` cannot
+  reconstruct image metadata from translated text, so accepting the result drops
+  the selected image reference. Refuse image-containing selections before native
+  inference, explain the refusal in both hosts, and cover text ranges before and
+  after images through acceptance, Undo/Redo and reopened Draft storage.
+
 - `composer-navigation.ts.create` keeping an unopened empty Draft after its
   preparation refuses. Route cleanup through `drafts.abandon`, retaining a Draft
   already selected or given content by another editor. Test the real coordinator

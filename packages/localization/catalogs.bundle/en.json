@@ -326,6 +326,7 @@
     "replaceLabel": "Replace the selected text with this translation",
     "keepOriginal": "Keep original",
     "keepOriginalLabel": "Keep the original text and close the translation",
+    "selectionHasImage": "Select text without inline images to translate. Your images are unchanged.",
     "selectionTooLong": "Select less text to translate. Up to 6,000 characters can be translated at once.",
     "not-installed": "Download this language in the system Translate settings, then try again. Nothing is downloaded here.",
     "unsupported-pair": "This device cannot translate between these languages.",

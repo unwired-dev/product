@@ -15,10 +15,10 @@ import {
   canRetryTranslation,
   createTranslation,
   draftTranslationInput,
+  draftTranslationIssue,
   hasTranslatableText,
   messageTranslationInput,
   readerText,
-  translationInputLimit,
   translationLanguages,
 } from '@private-email/mail-core/translation';
 import {
@@ -137,6 +137,7 @@ function TargetLanguages({
   if (languages === 'unavailable') {
     return (
       <Text
+        selectable
         accessibilityRole="alert"
         style={[styles.secondary, { color: colors.secondary }]}>
         {t('translation.noLanguages')}
@@ -258,6 +259,7 @@ function Outcome({
   if (state.kind !== 'ready') {
     return (
       <Text
+        selectable
         accessibilityRole="alert"
         style={[styles.secondary, { color: colors.secondary }]}>
         {t(
@@ -269,6 +271,7 @@ function Outcome({
   return (
     <>
       <Text
+        selectable
         accessibilityRole="header"
         style={[styles.title, { color: colors.foreground }]}>
         {t('translation.title', { language: target })}
@@ -279,11 +282,15 @@ function Outcome({
         {state.text}
       </Text>
       {state.omitted ? (
-        <Text style={[styles.secondary, { color: colors.secondary }]}>
+        <Text
+          selectable
+          style={[styles.secondary, { color: colors.secondary }]}>
           {t('translation.omitted')}
         </Text>
       ) : null}
-      <Text style={[styles.secondary, { color: colors.secondary }]}>
+      <Text
+        selectable
+        style={[styles.secondary, { color: colors.secondary }]}>
         {t('translation.disclaimer', { source, target })}
       </Text>
     </>
@@ -320,7 +327,9 @@ function TranslationPanel({
       {state.kind === 'translating' ? (
         <View style={styles.row}>
           <ActivityIndicator accessibilityLabel={t('translation.progress')} />
-          <Text style={[styles.secondary, { color: colors.secondary }]}>
+          <Text
+            selectable
+            style={[styles.secondary, { color: colors.secondary }]}>
             {t('translation.translating')}
           </Text>
           <Action
@@ -491,15 +500,21 @@ export function DraftTranslation({
       }}
     />
   );
-  if (text.length > translationInputLimit) {
+  const issue = draftTranslationIssue(text);
+  if (issue !== undefined) {
     return (
       <View
         accessibilityLabel={t('translation.draftRegion')}
         style={[styles.panel, { borderColor: colors.separator }]}>
         <Text
+          selectable
           accessibilityRole="alert"
           style={[styles.secondary, { color: colors.secondary }]}>
-          {t('translation.selectionTooLong')}
+          {t(
+            issue === 'inline-image'
+              ? 'translation.selectionHasImage'
+              : 'translation.selectionTooLong',
+          )}
         </Text>
         {keep}
       </View>

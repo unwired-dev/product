@@ -2119,6 +2119,132 @@ function ReaderApp({
 
 describe('adding files and images to a Draft', () => {
   /* oxlint-disable vitest/max-expects -- Each journey proves one asset path end to end. */
+  it('refuses image-containing translations and preserves assets when translating surrounding text', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    const inputs: string[] = [];
+    const answers = new Map([
+      ['Hola', 'Hello'],
+      ['mundo', 'world'],
+    ]);
+    const translation: NativeTranslation = {
+      translationLanguages: () =>
+        Promise.resolve([{ code: 'en', name: 'English' }]),
+      translate: (_request, input) => {
+        inputs.push(input);
+        return Promise.resolve({
+          source: 'es',
+          text: answers.get(input),
+        });
+      },
+      cancel: () => Promise.resolve(null),
+    };
+    const app = await render(
+      <TranslationContext value={translation}>
+        <App
+          drafts={drafts}
+          registration={registration}
+        />
+      </TranslationContext>,
+    );
+    await press('New Message');
+    await fireEvent.changeText(
+      screen.getByLabelText('Message body'),
+      'Hola mundo',
+    );
+    const select = async (start: number, end: number) => {
+      await fireEvent(
+        screen.getByLabelText('Message body'),
+        'selectionChange',
+        {
+          nativeEvent: { selection: { start, end } },
+        },
+      );
+    };
+    await select(5, 5);
+    storage.addFile('file:///chart.png', 'chart');
+    storage.pickNext('photos', [
+      { uri: 'file:///chart.png', name: 'chart.png', type: 'image/png' },
+    ]);
+    await press('Insert Image…');
+    await screen.findByLabelText('Inline image chart.png');
+    await waitFor(() => {
+      const [current] = draftsOf(drafts.getSnapshot());
+      ok(current, 'Expected the current Draft');
+      expect(imagesOf(current.body)[0]?.state).toBe('complete');
+      expect(drafts.getSnapshot()).toMatchObject({
+        kind: 'ready',
+        save: 'saved',
+      });
+    });
+    const [before] = draftsOf(drafts.getSnapshot());
+    ok(before, 'Expected a Draft with an image');
+    const originalImages = imagesOf(before.body);
+    const guidance =
+      'Select text without inline images to translate. Your images are unchanged.';
+    // Neither a mixed selection nor an image alone starts a native request or changes the Draft.
+    for (const [start, end] of [
+      [0, 11],
+      [5, 6],
+    ] as const) {
+      await select(start, end);
+      await press('Translate the selected text');
+      await screen.findByText(guidance);
+      expect(
+        screen.queryByRole('radio', { name: 'Translate into English' }),
+      ).toBeNull();
+      expect(draftsOf(drafts.getSnapshot())[0]?.body).toStrictEqual(
+        before.body,
+      );
+      await press('Keep the original text and close the translation');
+    }
+    expect(inputs).toStrictEqual([]);
+    // Text entirely before and after the image still translates and keeps its reference.
+    for (const [start, end] of [
+      [0, 4],
+      [7, 12],
+    ] as const) {
+      await select(start, end);
+      await press('Translate the selected text');
+      await fireEvent.press(
+        await screen.findByRole('radio', { name: 'Translate into English' }),
+      );
+      await screen.findByLabelText(
+        'Replace the selected text with this translation',
+      );
+      await press('Replace the selected text with this translation');
+    }
+    expect(inputs).toStrictEqual(['Hola', 'mundo']);
+    expect(screen.getByLabelText('Message body')).toHaveTextContent(
+      'Hello \uFFFCworld',
+      { exact: true },
+    );
+    const [translated] = draftsOf(drafts.getSnapshot());
+    ok(translated, 'Expected the translated Draft');
+    expect(imagesOf(translated.body)).toStrictEqual(originalImages);
+    await press('Undo');
+    expect(screen.getByLabelText('Message body')).toHaveTextContent(
+      'Hello \uFFFCmundo',
+      { exact: true },
+    );
+    await press('Redo');
+    await press('Close');
+    await app.unmount();
+    storage.relaunch();
+    const reopened = createDrafts(storage.native, registration);
+    await reopened.load();
+    const [saved] = draftsOf(reopened.getSnapshot());
+    ok(saved, 'Expected the saved Draft');
+    expect(imagesOf(saved.body)).toStrictEqual(originalImages);
+    const [image] = imagesOf(saved.body);
+    ok(image?.state === 'complete', 'Expected the complete saved inline image');
+    await expect(reopened.readAsset(image)).resolves.toMatchObject({
+      kind: 'ready',
+    });
+  });
+
   it('attaches files, places an inline image, and keeps them through relaunch', async () => {
     expect.hasAssertions();
     const registration = account(connected(['alex@example.invalid']));

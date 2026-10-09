@@ -28,6 +28,12 @@ checks the current ready result at acceptance, while the composer synchronously
 invalidates its captured selection when its body changes or review closes.
 Undo returning to the same body object cannot restore that invalidated capture.
 
+Draft intake rejects any bounded selection containing U+FFFC before native inference.
+That character owns an inline image span which plain translated text cannot recreate.
+The host review panel explains the refusal; text ranges wholly before or after images
+remain supported. Oversized selections are already refused without traversing beyond
+the bound. This avoids segmentation or image-anchor reconstruction in this slice.
+
 The ready result trims native output for presentation. At Draft acceptance, both
 composers call the shared `draftReplacement` with the captured selection text and
 the reviewed result before `replaceSelection`. It restores the selection's own

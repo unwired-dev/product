@@ -13,12 +13,27 @@ A host owns views and native adapters. It renders shared stores from `@private-e
 
 #### React correctness
 
+- Mac `message-summary.tsx` or `translation.tsx` rendering standalone title,
+  progress, failure, omission or privacy disclosure only in nonselectable `Text`.
+  The installed Mac Fabric paragraph is not an accessibility element; use
+  selectable text or an accessible labeled wrapper. A generic panel label alone
+  does not expose its children. Otherwise VoiceOver reads the result but misses
+  why it is partial, unavailable, inaccurate or unsaved. Keep labels inside native
+  controls owned by those controls; component evidence does not qualify VoiceOver.
+
 - Mac `composer.tsx.transferred` relying only on a pasteboard/drag item's optional
   MIME type to choose inline image insertion. An item with no type may still carry
   its media type in a data URL; infer that type before `prepareFiles`, normalize
   supported image aliases and keep byte verification at the owning store. Otherwise
   a pasted image silently becomes an Attachment instead of an Inline Image. Cover
   absent/empty type through the visible paste journey and preserve ordinary files.
+
+- `composer.tsx` independently patching equal body identities in `authored.current`
+  and Undo history when an asset import settles. Preserve their shared immutable
+  body identity through that metadata patch; Draft translation captures from the
+  authored ref and checks the rendered history identity. Otherwise every translation
+  opened after an image settles is immediately discarded, even for surrounding text.
+  Exercise the visible selection journey after settlement, not only after reopening.
 
 - `composer.tsx.usePreview`/`AssetRow` checking complete Inline Images while
   treating complete Attachments as healthy without reading and verifying their

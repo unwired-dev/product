@@ -1142,7 +1142,15 @@ function Editor({
   useLayoutEffect(
     () =>
       store.onSettle((id, next) => {
-        const patch = (each: Draft) => withAsset(each, id, next);
+        // Keep shared body identity across the event-facing Draft and its history. Translation
+        // ownership compares that identity, including after an import settles.
+        const bodies = new Map<Draft['body'], Draft['body']>();
+        const patch = (each: Draft) => {
+          const patched = withAsset(each, id, next);
+          const body = bodies.get(each.body) ?? patched.body;
+          bodies.set(each.body, body);
+          return { ...patched, body };
+        };
         authored.current = patch(authored.current);
         commitHistory((current) => ({
           ...current,

@@ -87,6 +87,8 @@ describe('on-device translation', () => {
     expect(
       draftTranslationInput('a'.repeat(translationInputLimit + 1), 'es'),
     ).toBeUndefined();
+    expect(draftTranslationInput('Hola \uFFFC mundo', 'en')).toBeUndefined();
+    expect(draftTranslationInput('\uFFFC', 'en')).toBeUndefined();
     expect(draftTranslationInput('Hola', 'en')).toStrictEqual({
       text: 'Hola',
       omitted: false,
