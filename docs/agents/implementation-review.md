@@ -87,11 +87,15 @@ not itself restrict filesystem or Git-history access.
 
 4. Pause all implementer writes to the shared checkout while the OCR reviewer
    owns it. Wait for its final report.
-5. Then spawn the thermo-nuclear reviewer with the same explicit arguments,
-   `"task_name": "thermo_nuclear_review"`, and the same handoff plus the OCR
-   reviewer's final report. Keep the comparison pinned to the starting commit so
-   it covers the implementation and the OCR reviewer's fixes. Keep implementer
-   writes paused until its final report. Never run the two reviewers at once.
+5. Then spawn the thermo-nuclear reviewer with the same explicit arguments and
+   `"task_name": "thermo_nuclear_review"`. Write it a separate self-contained
+   message with the same context and comparison, plus the OCR reviewer's final
+   report. Tell it to read this workflow and follow the
+   [thermo-nuclear code quality review](#thermo-nuclear-code-quality-review)
+   instead of the OCR delegation step. Keep the comparison pinned to the
+   starting commit so it covers the implementation and the OCR reviewer's fixes.
+   Keep implementer writes paused until its final report. Never run the two
+   reviewers at once.
 6. Both reviews form one implementation review. Additional implementation
    edits, including fixes after review or PR feedback, require another pinned
    review by both reviewers. Give every reviewer and its children the same ownership boundary: no PR
