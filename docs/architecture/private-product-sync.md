@@ -406,6 +406,26 @@ versions and unreadable records are read-only. Removing ciphertext or replaying 
 record to a device that never observed its newer version remains a backend
 availability/rollback limitation, not a cryptographic guarantee.
 
+Before a first Draft publication, the local encrypted document durably stores its
+exact proposed record without a Convex `updatedAt`. Local storage CAS recovery
+must confirm that this intent survived before the remote write. An intent is not
+a confirmed version floor: a matching pull confirms it, while a competing first
+record preserves different retained local content as a conflict copy. An
+authenticated tombstone removes unchanged intended content and preserves only
+divergent local edits. Remote absence retains the intent because its write may
+still arrive; a retained Draft retries publication, while a locally discarded
+identity publishes a tombstone against that absent identity. This preserves
+Discard across concurrent local stores, lost replies and relaunch. Confirmed absent records still retain their floors and stay
+read-only.
+
+The missing-row conditional-write refusal carries the content-free
+`PRODUCT_SYNC_PAYLOAD_CHANGED` error code. Native Draft synchronization requires
+that specific refusal, an expected revision and confirmed row absence before
+returning a conflict; generic backend, transport and cancellation errors propagate.
+Request and success envelopes are unchanged. Older clients keep their generic
+unknown-error fallback; updated clients against an older backend safely report
+unavailability until the coded refusal is deployed.
+
 The Draft merge preserves an offline local Discard even when a remote edit was
 published first, copying that edit before tombstoning its original identity.
 An editor of the published version follows an accepted, surviving conflict copy

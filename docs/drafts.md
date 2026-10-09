@@ -204,6 +204,9 @@ delivery ownership; the delivery slice claims a Draft by that same identifier.
   active or moves to the background. Without a Product Sign-In session (an Apple
   device after relaunch) or Product Sync keys, or while offline, Drafts stay as
   they are on this device and the next synchronization catches up.
+  A failed first publication also keeps the saved Draft available for retry after
+  relaunch. Discard during that publication remains discarded even if its reply
+  is lost; a Draft discarded while its first files upload is not published.
 - **Conflicts:** a Draft changed on one device only takes that device's version.
   When two devices edit the same Draft before synchronizing, the version that
   reached Product Sync first keeps the Draft's identity, and the other device's
@@ -448,7 +451,8 @@ the system panel's image-filter admission still requires native interaction
 qualification.
 
 Synchronization coverage (#614): shared two-device journeys in
-`packages/mail-core/test/draft-sync.test.ts` and
+`packages/mail-core/test/draft-sync.test.ts`,
+`packages/mail-core/test/draft-sync-publication.test.ts` and
 `packages/mail-core/test/draft-sync-continuation.test.ts` use `createSyntheticProductSync`
 from `@private-email/mail-core/testing/drafts`, which follows Convex's
 compare-and-set records and native code's account and identifier binding without
@@ -479,6 +483,13 @@ reading nothing, a three-chunk file that downloads exactly and refuses swapped o
 missing chunks, storing downloaded bytes for the signed-in account only and
 reclaiming them in the same process after the stored Draft stops naming them, and
 sealed deletion tombstones and revocation preflight purging local keys and data.
+
+Host component journeys in `apps/mobile/test/draft-sync.test.tsx` and
+`apps/macos/test/draft-sync.test.tsx` exercise foreground and background AppState
+events against real Draft stores with synthetic storage and Product Sync. They
+verify that an unexpected subscriber failure is logged without its private
+message, consumed by the automatic pass, and followed by successful synchronization.
+These component tests do not qualify native lifecycle or live backend behavior.
 
 Deferred before release: native iPhone, iPad and Mac journeys that compose, relaunch
 and reopen a Draft; the system Photos and Files pickers, the Mac open panel,

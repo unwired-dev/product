@@ -77,13 +77,14 @@ export const sameContent = (
     ? left === right
     : equivalentDraft({ ...left, updatedAt: 0 }, { ...right, updatedAt: 0 });
 // A Draft as its Product Sync record last held it on this device: the base that tells which side
-// changed since. `version` counts the record's writes and is sealed with it, so an older record
-// served again is refused; `updatedAt` is Convex's compare-and-set revision.
+// changed since. `version` identifies a sealed record revision; an older confirmed record served
+// again is refused. `updatedAt` is Convex's compare-and-set revision. A first publication
+// is stored without one before it is sent, so a Discard during it still deletes what was sent.
 export const SyncedSchema = Schema.Struct({
   id: Schema.NonEmptyString,
   draft: Schema.NullOr(DraftSchema),
   version: Schema.Int.check(Schema.isGreaterThanOrEqualTo(1)),
-  updatedAt: Schema.Finite,
+  updatedAt: Schema.optionalKey(Schema.Finite),
 });
 export type Synced = typeof SyncedSchema.Type;
 

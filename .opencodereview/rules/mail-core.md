@@ -69,6 +69,22 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   recovery, so later requests can start fresh work instead of awaiting a rejected
   Promise forever. Preserve serialization and verify recovery through public
   actions after a rejected pass.
+- `draft-sync.ts` automatic activation, load or debounce triggers discarding a
+  synchronization Promise that can reject on a defect. Handle automatic rejection
+  with allow-listed diagnostics while preserving explicit callers' rejection and
+  later-pass recovery; otherwise a subscriber defect becomes an unhandled rejection.
+- `draft-sync.ts.pushing` publishing a never-confirmed Draft before its exact
+  intent is durable, including a local storage CAS rebase that replaces `synced`.
+  Verify the stored entry still matches before the remote side effect, and recheck
+  Discard after asset uploads. In `readRecords`/`mergeSyncedDrafts`, an unconfirmed
+  intent is neither a confirmed version floor nor evidence that remote absence is
+  deletion. Accept competing first records, preserve authored conflicts and local
+  Discard, and retry a write that never landed. Do not erase intent on an absent
+  pull while another local store may still publish it; tombstones remove unchanged
+  intended content and preserve only divergent edits. Otherwise interrupted first
+  publication can erase local content, resurrect a Discard or reject the winner
+  forever. Exercise lost replies, pre-write failure, competing local writers and
+  relaunch through public stores.
 - `createRegistration.resume` dropping a foreground activation because the account is unlocked or a pending operation holds the semaphore. Queue every activation's native restore after the current operation, preserving unchanged setup feedback while publishing changed verification or locked results; otherwise unlock retries are lost or a running account remains connected after verification becomes unavailable. ADR 0020 requires foreground Trusted Device revalidation; a locked-storage retry must not exempt unlocked accounts, and native reconnect alone does not prove that revocation rejection purges local state.
 - `createRegistration.resume` treating each Mac window's report of one application activation as a separate restore. The windows share one store and AppState dispatches listeners synchronously, so coalesce those reports or give the subscription one application-level owner; otherwise native Product Account and Gmail verification repeats per window and prolongs the busy state. Coalescing must end with that dispatch, not with the pending restore, so a later activation after unlock still queues a fresh verification.
 - A successful persisted state published before the native operation has durably completed, with no failure path that restores the previous state. Explicit busy/pending presentation states are permitted, as in `createRegistration`.

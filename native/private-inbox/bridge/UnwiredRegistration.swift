@@ -138,14 +138,6 @@ extension RegistrationError {
   }
 }
 
-// The Convex HTTP API response; ConvexError data carries a stable code.
-private struct ConvexEnvelope<Value: Decodable>: Decodable {
-  struct Failure: Decodable { let code: String }
-  let status: String
-  let value: Value?
-  let errorData: Failure?
-}
-
 @objc(UnwiredRegistration)
 final class UnwiredRegistration: NSObject {
   private static let logger = Logger(
@@ -322,6 +314,11 @@ final class UnwiredRegistration: NSObject {
     }
     if result.status == "success", (response as? HTTPURLResponse)?.statusCode == 200 {
       return result.value
+    }
+    if result.status == "error", path == "productSync:putEncryptedPayloadIfUnchanged",
+      let code = result.errorData?.code, let refusal = ProductSyncWriteFailure(rawValue: code)
+    {
+      throw refusal
     }
     throw result.errorData.flatMap { backendErrors[$0.code] } ?? RegistrationError.unavailable
   }

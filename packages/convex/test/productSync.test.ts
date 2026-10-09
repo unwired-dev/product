@@ -9,6 +9,7 @@ import { convexTest } from 'convex-test';
 
 import type { Id } from '../convex/_generated/dataModel.js';
 
+import payloadChangedError from '../../contracts/fixtures/productSync.payloadChanged.error.json' with { type: 'json' };
 import { api } from '../convex/_generated/api.js';
 import schema from '../convex/schema.js';
 import { connectTrusted, recoveryVerifier } from './devices.js';
@@ -248,6 +249,41 @@ describe('productSync encrypted payloads', () => {
     expect(concurrent.updatedAt).toBeGreaterThan(first.updatedAt);
     expect(staleAttempt).toStrictEqual(concurrent);
     expect(updated.encryptedPayload.ciphertextBase64).toBe('bWVyZ2Vk');
+  });
+
+  it('reports a coded conflict without recreating a payload deleted before its conditional write', async () => {
+    expect.hasAssertions();
+    const { asUser, connect } = await connectAppleDevice();
+    const first = await putPayload(
+      asUser,
+      connect.trustedDeviceId,
+      'draft-gone',
+    );
+    await asUser.mutation(api.productSync.putEncryptedPayloadsAtomically, {
+      checks: [],
+      deletes: [
+        {
+          payloadIdentifier: first.payloadIdentifier,
+          expectedUpdatedAt: first.updatedAt,
+        },
+      ],
+      writes: [],
+      trustedDeviceId: connect.trustedDeviceId,
+    });
+    await expect(
+      asUser.mutation(api.productSync.putEncryptedPayloadIfUnchanged, {
+        encryptedPayload,
+        expectedUpdatedAt: first.updatedAt,
+        payloadIdentifier: first.payloadIdentifier,
+        trustedDeviceId: connect.trustedDeviceId,
+      }),
+    ).rejects.toMatchObject({ data: payloadChangedError });
+    await expect(
+      asUser.query(api.productSync.getEncryptedPayloadForTrustedDevice, {
+        payloadIdentifier: first.payloadIdentifier,
+        trustedDeviceId: connect.trustedDeviceId,
+      }),
+    ).resolves.toBeNull();
   });
 
   it('commits multi-record writes and deletes only when every revision matches', async () => {

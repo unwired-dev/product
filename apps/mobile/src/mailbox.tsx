@@ -57,7 +57,7 @@ export function InboxProvider({
     // Returning picks up other devices' Draft changes; leaving publishes this device's.
     const subscription = AppState.addEventListener('change', (state) => {
       if (state === 'active' || state === 'background') {
-        void drafts.sync();
+        void drafts.syncInBackground();
       }
     });
     return () => {

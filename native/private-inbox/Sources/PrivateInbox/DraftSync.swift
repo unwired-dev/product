@@ -70,11 +70,14 @@ struct DraftRecord: Codable, Equatable {
     do {
       stored = try await backend.put(session, product, identifier, sealed, expected)
     } catch {
-      // Convex refuses a compare-and-set against a record that was deleted meanwhile.
       if error as? RegistrationError == .revoked || error as? RegistrationError == .deleted {
         throw error
       }
-      guard expected != nil else { throw error }
+      // Convex refuses a compare-and-set against a record that was deleted meanwhile: that is a
+      // conflict for the next pull. Any other failure is reported.
+      guard error as? ProductSyncWriteFailure == .payloadChanged, expected != nil,
+        (try? await backend.get(session, product, identifier)) == .some(nil)
+      else { throw error }
       return ["owner": owner, "committed": false]
     }
     guard stored.payloadIdentifier == identifier, stored.encryptedPayload == sealed else {

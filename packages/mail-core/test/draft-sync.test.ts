@@ -531,6 +531,63 @@ describe('synchronizing Drafts through Product Sync', () => {
     expect(mac.draft(id).body).toStrictEqual(edited.body);
   });
 
+  it.each(['load', 'syncInBackground'] as const)(
+    'logs an automatic %s pass rejected by a subscriber defect instead of leaving it unhandled',
+    async (trigger) => {
+      expect.hasAssertions();
+      const server = createSyntheticProductSync();
+      const phone = await device(server);
+      const mac = await device(server);
+      const id = present(await phone.drafts.create(alex), 'a Draft');
+      await phone.drafts.sync();
+      await mac.drafts.sync();
+      const edited = write(phone.draft(id), 'Edited on the phone');
+      await phone.drafts.update(edited, phone.draft(id));
+      await phone.drafts.sync();
+
+      // Each automatic trigger starts a pass whose merge notifies a failing subscriber.
+      let thrown = false;
+      const unsubscribe = mac.drafts.subscribe(() => {
+        thrown = true;
+        throw new Error('Subscriber failed');
+      });
+      try {
+        await mac.drafts[trigger]();
+        await vi.waitFor(() => {
+          expect(thrown).toBe(true);
+        });
+      } finally {
+        unsubscribe();
+      }
+      // Once the failed automatic pass settles, the next one succeeds.
+      await vi.waitFor(async () => {
+        await mac.drafts.sync();
+      });
+      expect(mac.draft(id).body).toStrictEqual(edited.body);
+    },
+  );
+
+  it('keeps a Discard after a first publication whose reply was lost, through relaunch', async () => {
+    expect.hasAssertions();
+    const server = createSyntheticProductSync();
+    const phone = await device(server);
+    const mac = await device(server);
+    const id = present(await phone.drafts.create(alex), 'a Draft');
+    await phone.drafts.update(
+      write(phone.draft(id), 'Short-lived'),
+      phone.draft(id),
+    );
+    // The first publication lands, but the process never learns it did.
+    server.loseNextReply();
+    await phone.drafts.sync();
+    await phone.drafts.discard(id);
+    await phone.relaunch();
+    await phone.drafts.sync();
+    await mac.drafts.sync();
+    expect(phone.list()).toStrictEqual([]);
+    expect(mac.list()).toStrictEqual([]);
+  });
+
   it('keeps conflict copies of conflict copies within the identifier bound, so they still synchronize', async () => {
     expect.hasAssertions();
     const server = createSyntheticProductSync();

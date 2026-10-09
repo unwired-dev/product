@@ -599,9 +599,23 @@ const mergeSyncedDrafts = Effect.fnUntraced(function* (
 ) {
   const kept = new Set(local.map(({ id }) => id));
   const base = indexed(syncedDrafts(synced));
+  const unconfirmed = new Set(
+    synced
+      .filter(({ updatedAt }) => updatedAt === undefined)
+      .map(({ id }) => id),
+  );
   const copies: Draft[] = [];
   for (const theirs of syncedDrafts(latest)) {
     const prior = base.get(theirs.id);
+    // A competing first publication has no shared base: the normal merge preserves both authors.
+    // Tombstones retain the intended base, deleting unchanged content and copying divergent edits.
+    if (
+      kept.has(theirs.id) &&
+      unconfirmed.has(theirs.id) &&
+      !sameContent(prior, theirs)
+    ) {
+      base.delete(theirs.id);
+    }
     if (
       !kept.has(theirs.id) &&
       prior !== undefined &&
@@ -1059,11 +1073,19 @@ export function createDrafts(
         synced = [...synced.filter(({ id }) => id !== written.id), written];
         dirty = true;
         yield* flush(current, account);
-        return live(current) && !dirty;
+        // A storage CAS rebase can replace this entry with another writer's base.
+        return (
+          live(current) &&
+          !dirty &&
+          equivalentSynced(
+            synced.filter(({ id }) => id === written.id),
+            [written],
+          )
+        );
       }),
     );
 
-  const { synchronize, schedule } = createDraftSynchronizer(sync, {
+  const { synchronize, background, schedule } = createDraftSynchronizer(sync, {
     context: () =>
       owner === undefined || state.kind !== 'ready'
         ? undefined
@@ -1448,7 +1470,7 @@ export function createDrafts(
       const opened = runLogged(opening(generation, next));
       void (async () => {
         await opened;
-        await synchronize();
+        await background();
       })();
     }
   };
@@ -1664,12 +1686,14 @@ export function createDrafts(
       started = true;
       if (owner !== undefined) {
         await runLogged(opening(generation, owner));
-        void synchronize();
+        void background();
       }
     },
-    // Merges Product Sync into this device's Drafts and publishes this device's changes, such as
-    // when the app returns to the foreground; resolves once no pass is running.
+    // Merges Product Sync into this device's Drafts and publishes this device's changes;
+    // resolves once no pass is running, rejecting unexpected defects to the caller.
     sync: synchronize,
+    // Automatic foreground/background requests consume and log unexpected defects.
+    syncInBackground: background,
     // A retry that stores edits whose synchronization failed meanwhile synchronizes them too.
     save: async () => {
       const saved = await runLogged(saving(generation));

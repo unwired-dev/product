@@ -6,7 +6,11 @@ import * as Schema from 'effect/Schema';
 import type { Draft, Synced, SyncedAsset } from './draft-model.ts';
 import type { DraftStorageFailure } from './draft-native.ts';
 
-import { rejectionCode, runLogged } from './diagnostics.ts';
+import {
+  rejectionCode,
+  rejectionDiagnostic,
+  runLogged,
+} from './diagnostics.ts';
 import {
   DraftSchema,
   ImportedSchema,
@@ -110,6 +114,7 @@ export const equivalentSynced = Schema.toEquivalence(
 );
 const sameRecord = Schema.toEquivalence(Schema.NullOr(DraftSchema));
 const acceptsVersion = (draft: Draft | null, version: number, prior: Synced) =>
+  prior.updatedAt === undefined ||
   version > prior.version ||
   (version === prior.version && sameRecord(prior.draft, draft));
 const readRecord = (
@@ -144,9 +149,9 @@ export const readRecords = (
   const read = new Map(synced.map((entry) => [entry.id, entry]));
   const skipped = new Set(unreadable);
   const present = new Set(records.map(({ id }) => id));
-  // Deletion requires an authenticated tombstone; absence cannot erase a version floor.
-  for (const { id } of synced) {
-    if (!present.has(id)) {
+  // Absence cannot erase a confirmed version floor or an intent whose write may still arrive.
+  for (const { id, updatedAt } of synced) {
+    if (!present.has(id) && updatedAt !== undefined) {
       skipped.add(id);
     }
   }
@@ -160,7 +165,12 @@ export const readRecords = (
     }
   }
   // A record this pass cannot read keeps this device's base for it.
-  latest.push(...synced.filter(({ id }) => skipped.has(id)));
+  latest.push(
+    ...synced.filter(
+      ({ id, updatedAt }) =>
+        skipped.has(id) || (updatedAt === undefined && !present.has(id)),
+    ),
+  );
   return { latest, skipped };
 };
 
@@ -217,6 +227,25 @@ const pushing = Effect.fnUntraced(function* (
       }
     }
   });
+  // A first publication is skipped when its Draft was discarded while its files uploaded, and
+  // otherwise recorded before it is sent; see SyncedSchema.
+  const announce = Effect.fnUntraced(function* (
+    entry: Readonly<{ id: string; draft: Draft | null; version: number }>,
+    prior: Synced | undefined,
+  ) {
+    if (entry.draft === null || prior?.updatedAt !== undefined) {
+      return 'send' as const;
+    }
+    if (local.context()?.drafts.some(({ id }) => id === entry.id) !== true) {
+      return 'skip' as const;
+    }
+    return (yield* local.record(current, account, {
+      ...entry,
+      draft: entry.draft,
+    }))
+      ? ('send' as const)
+      : ('stop' as const);
+  });
   const push = Effect.fnUntraced(function* (
     id: string,
     draft: Draft | null,
@@ -224,15 +253,18 @@ const pushing = Effect.fnUntraced(function* (
   ) {
     const version = (prior?.version ?? 0) + 1;
     const json = draft === null ? null : yield* encodeDraft(draft);
+    const expectedUpdatedAt = prior?.updatedAt;
+    const step = yield* announce({ id, draft, version }, prior);
+    if (step !== 'send') {
+      return step === 'skip';
+    }
     const pushed = yield* native(
       () =>
         remote.pushDraft(account, {
           id,
           version,
           draft: json,
-          ...(prior === undefined
-            ? {}
-            : { expectedUpdatedAt: prior.updatedAt }),
+          ...(expectedUpdatedAt === undefined ? {} : { expectedUpdatedAt }),
         }),
       PushedSchema,
     );
@@ -255,7 +287,8 @@ const pushing = Effect.fnUntraced(function* (
       const prior = read.get(draft.id);
       return (
         !skipped.has(draft.id) &&
-        (prior === undefined || !sameContent(prior.draft ?? undefined, draft))
+        (prior?.updatedAt === undefined ||
+          !sameContent(prior.draft ?? undefined, draft))
       );
     })
     .map((draft) => ({ id: draft.id, draft, prior: read.get(draft.id) }));
@@ -375,6 +408,19 @@ export function createDraftSynchronizer(
     })();
     await passing;
   };
+  // Automatic passes log a rejection rather than leaving it unhandled.
+  const background = async () => {
+    try {
+      await synchronize();
+    } catch (error) {
+      await runLogged(
+        Effect.logError(
+          'Draft synchronization failed:',
+          rejectionDiagnostic(error),
+        ),
+      );
+    }
+  };
   let timer: ReturnType<typeof setTimeout> | undefined = undefined;
   // Edits synchronize once they pause, rather than once per keystroke.
   const schedule = () => {
@@ -382,9 +428,9 @@ export function createDraftSynchronizer(
       clearTimeout(timer);
       timer = setTimeout(() => {
         timer = undefined;
-        void synchronize();
+        void background();
       }, options.delay ?? 2000);
     }
   };
-  return { synchronize, schedule };
+  return { synchronize, background, schedule };
 }

@@ -13,6 +13,14 @@ A host owns views and native adapters. It renders shared stores from `@private-e
 
 #### React correctness
 
+- `mailbox.tsx.InboxProvider` discarding a rejecting `drafts.sync()` Promise from
+  automatic AppState callbacks. Use the store's `syncInBackground` action so
+  foreground and background passes consume and log defects through the canonical
+  diagnostic boundary; explicit `sync` must still reject to awaiting callers.
+  Exercise both lifecycle states with the real store and a failing subscriber,
+  then verify later synchronization. Otherwise the host bypasses the core's
+  automatic catcher and creates unhandled rejections.
+
 - `message-detail.tsx.AttachToNewMessage` offering creation without an eligible
   sending mailbox or ready Draft storage, or swallowing an unexpected
   `attachReceived` rejection. Keep unavailable-storage feedback and retry in the

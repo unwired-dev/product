@@ -65,6 +65,32 @@ struct DraftSyncTests {
     // A write against an older revision is not committed.
     let stale = try await mac.push(id: "draft-1", version: 2, draft: "{}", expected: updatedAt - 1)
     #expect(stale["committed"] as? Bool == false)
+    // Decode the content-free conditional-write refusal; unknown codes cannot become conflicts.
+    let refusal = try JSONDecoder().decode(
+      ConvexEnvelope<StoredPayload>.self,
+      from: Data(#"{"status":"error","errorData":{"code":"PRODUCT_SYNC_PAYLOAD_CHANGED"}}"#.utf8))
+    let code = try #require(refusal.errorData?.code)
+    #expect(ProductSyncWriteFailure(rawValue: code) == .payloadChanged)
+    #expect(ProductSyncWriteFailure(rawValue: "unavailable") == nil)
+    // A write against a record deleted meanwhile is a conflict too; any other failure is reported.
+    let gone = try #require(
+      try await phone.push(id: "draft-gone", version: 1, draft: "{}", expected: nil)["updatedAt"]
+        as? Double)
+    backend.records[owner]?[try phone.identifier(draft: "draft-gone")] = nil
+    let vanished = try await mac.push(id: "draft-gone", version: 2, draft: "{}", expected: gone)
+    #expect(vanished["committed"] as? Bool == false)
+    backend.beforePut = { _, _ in throw URLError(.timedOut) }
+    await #expect(throws: URLError.self) {
+      _ = try await mac.push(id: "draft-1", version: 2, draft: "{}", expected: updatedAt)
+    }
+    await #expect(throws: URLError.self) {
+      _ = try await mac.push(id: "draft-gone", version: 2, draft: "{}", expected: gone)
+    }
+    backend.beforePut = { _, _ in throw RegistrationError.unavailable }
+    await #expect(throws: RegistrationError.unavailable) {
+      _ = try await mac.push(id: "draft-gone", version: 2, draft: "{}", expected: gone)
+    }
+    backend.beforePut = nil
 
     // A record moved under another Draft's identifier is reported unreadable for that known Draft
     // and never listed. Another account's keys cannot even locate the records.

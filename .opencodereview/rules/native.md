@@ -13,6 +13,12 @@ Native storage owns what TypeScript must never hold: Keychain items, the storage
 
 #### Keys, credentials and storage
 
+- `DraftSync.push` mapping every failed expected-revision write to a conflict.
+  Only the coded conditional-write refusal, reconciled with authenticated record
+  absence, can become `committed: false`; preserve transport, cancellation and
+  other failures even when the record is absent. Otherwise synchronization hides
+  failed backend operations as concurrency, suppressing diagnostics and recovery.
+
 - `PrivateInboxStore.importDraftAsset` applying process-wide pending-import protection
   to bytes downloaded for an already-stored Draft reference. Trace every import caller,
   including `RegistrationStore.storeDraftAsset`: protect picker/received imports only
