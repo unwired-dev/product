@@ -193,6 +193,17 @@ export default defineSchema({
       'dueAt',
     ]),
 
+  // A Trusted Device's permission to send one Draft, under an identifier opaque to the backend.
+  draftDeliveryClaims: defineTable({
+    claimIdentifier: v.string(),
+    claimedAt: v.number(),
+    productAccountId: v.id('productAccounts'),
+    trustedDeviceId: v.id('trustedDevices'),
+  }).index('by_productAccountId_and_claimIdentifier', [
+    'productAccountId',
+    'claimIdentifier',
+  ]),
+
   encryptedProductSyncPayloads: defineTable({
     encryptedPayload: v.object({
       algorithm: v.literal('AES-GCM-256'),

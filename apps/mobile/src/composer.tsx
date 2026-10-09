@@ -7,6 +7,7 @@ import type {
   RecipientField,
   RecipientNotice,
 } from '@private-email/mail-core/drafts';
+import type { SendRefusal } from '@private-email/mail-core/outbox';
 import type { MailboxConnection } from '@private-email/mail-core/registration';
 import type {
   Asset,
@@ -15,6 +16,7 @@ import type {
   Selection,
   SemanticDocument,
 } from '@private-email/mail-core/semantic-document';
+import type { ReactNode } from 'react';
 import type { StyleProp, TextInputChangeEvent, TextStyle } from 'react-native';
 
 import {
@@ -88,6 +90,7 @@ import {
   useDrafts,
   useDraftStore,
   useLeaveComposer,
+  useOutbox,
 } from './mailbox.tsx';
 import { fileSize } from './message-body.tsx';
 import { AccountContext } from './registration-gate.tsx';
@@ -249,7 +252,7 @@ const blockControls: ReadonlyArray<readonly [BlockKind, string, BlockName]> = [
   ['code', '{ }', 'drafts.blocks.code'],
 ];
 
-function Action({
+export function Action({
   label,
   onPress,
   disabled = false,
@@ -383,7 +386,10 @@ export function DraftList({
   onCompose,
   scope,
   searching = false,
+  children,
 }: {
+  // Shown above the Drafts, such as the Outbox; hidden with them during search.
+  readonly children?: ReactNode;
   // Search lists received mail alone, so the Drafts heading is hidden meanwhile.
   readonly searching?: boolean;
   readonly onCompose: (id: string) => void;
@@ -469,6 +475,7 @@ export function DraftList({
           />
         </View>
       ) : null}
+      {searching ? null : children}
       {drafts.length === 0 || searching ? null : (
         <Text
           accessibilityRole="header"
@@ -1062,6 +1069,9 @@ function Editor({
   const [closing, setClosing] = useState<
     'saving' | 'blocked' | 'discard-blocked' | 'discard' | 'recipients'
   >();
+  // Why the last Send left this Draft here.
+  const [refused, setRefused] = useState<SendRefusal>();
+  const outbox = useOutbox();
   const caret = useRef<number | undefined>(undefined);
   const typingField = useRef<string | undefined>(undefined);
   const subjectSelection = useRef<Selection>({ start: 0, end: 0 });
@@ -1364,6 +1374,61 @@ function Editor({
       }
     }
   };
+  // Admits the Draft as this editor shows it to the Outbox, then closes; a refusal keeps it open.
+  const send = async () => {
+    if (discarded.current) {
+      return;
+    }
+    const latest = authored.current;
+    let finished = latest;
+    for (const field of ['to', 'cc', 'bcc'] as const) {
+      finished = addRecipients(finished, {
+        field,
+        text: entryOf(finished, field),
+        all: true,
+      }).draft;
+    }
+    if (finished !== latest) {
+      commitHistory((current) => keepIdentity(record(current, finished)));
+      update(finished);
+    }
+    if (finished.entries !== undefined) {
+      setClosing(undefined);
+      setRefused('entries');
+      return;
+    }
+    const previous = authored.current;
+    setRefused(undefined);
+    setClosing('saving');
+    // As for Discard, later edits wait: the version shown at Send is the one sent.
+    discarded.current = true;
+    lifetime.current.finishing += 1;
+    const baseline = () =>
+      previous.id === authored.current.id
+        ? previous
+        : { ...previous, id: authored.current.id, conflict: true as const };
+    let refusal: SendRefusal | undefined = 'storage';
+    try {
+      refusal = await outbox.send(baseline);
+    } catch {
+      // An unexpected rejection keeps the Draft open to send again.
+    }
+    if (refusal !== undefined) {
+      discarded.current = false;
+      if (authored.current !== previous) {
+        void store.update(authored.current, baseline(), rebind);
+      }
+    }
+    finishOperation();
+    if (lifetime.current.mounted) {
+      if (refusal === undefined) {
+        onClose();
+      } else {
+        setClosing(undefined);
+        setRefused(refusal);
+      }
+    }
+  };
   const title = clip(draft.subject) || t('drafts.newMessage');
   const titleLabel =
     title.length < draft.subject.length
@@ -1421,6 +1486,13 @@ function Editor({
               setClosing('discard');
             }}
           />
+          <Action
+            disabled={closing === 'saving'}
+            label={t('drafts.send')}
+            onPress={() => {
+              void send();
+            }}
+          />
         </View>
         <Text
           accessibilityLiveRegion="polite"
@@ -1455,6 +1527,13 @@ function Editor({
             {t('drafts.invalidRecipients')}
           </Text>
         ) : null}
+        {refused === undefined ? null : (
+          <Text
+            accessibilityRole="alert"
+            style={[styles.notice, { color: colors.foreground }]}>
+            {t(`drafts.sendRefused.${refused}`)}
+          </Text>
+        )}
         {closing === 'discard' ? (
           <View style={styles.bar}>
             <Text

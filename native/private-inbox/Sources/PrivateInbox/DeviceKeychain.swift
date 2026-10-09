@@ -12,6 +12,8 @@ public enum PrivateInboxError: Error, Equatable {
   case attachmentMissing
   // A Draft asset over the per-file limit or the Outgoing Content Store's remaining space.
   case tooLarge
+  // A message send failed after its request may have reached Gmail, so it may have been sent.
+  case deliveryUnknown
 }
 
 struct DeviceKeychain {

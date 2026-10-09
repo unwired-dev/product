@@ -3,8 +3,10 @@ import * as Base64Url from 'effect/encoding/Base64Url';
 import * as Order from 'effect/Order';
 import * as Result from 'effect/Result';
 
-import type { NativeGmailMailbox } from '../gmail-inbox.ts';
+import type { NativeGmailMailbox, OutgoingSend } from '../gmail-inbox.ts';
 import type { NativeGmailMailboxes } from '../mailboxes.ts';
+
+import { base64Lines } from '../outgoing-message.ts';
 
 // A controlled Gmail API and native mailbox cache for tests. It answers the Gmail reads the
 // Inbox makes with Gmail's response shapes and keeps the cache's revision and address rules.
@@ -78,6 +80,8 @@ type Failure =
 
 // A modify Gmail applies before the connection drops, so its response is lost.
 type ModifyFailure = Failure | { readonly lost: true };
+// A send Gmail accepts before the connection drops, so native code cannot tell the outcome.
+type SendFailure = Failure | { readonly lost: true };
 
 const systemLabels = [
   'INBOX',
@@ -137,7 +141,13 @@ const partAttachment = (content: SyntheticContent, attachmentId: string) => {
 export function createSyntheticGmail({
   address: initialAddress = 'alex@example.invalid',
   messages: count = 0,
-}: { readonly address?: string; readonly messages?: number } = {}) {
+  assets,
+}: {
+  readonly address?: string;
+  readonly messages?: number;
+  // Verified Draft Asset bytes, as native code reads them from Draft storage to send.
+  readonly assets?: (id: string, digest: string) => Uint8Array | undefined;
+} = {}) {
   let address = initialAddress;
   let historyId = 1000;
   let nextId = 0x1_00;
@@ -156,6 +166,9 @@ export function createSyntheticGmail({
     remove: readonly string[];
   }> = [];
   const modifyFailures: ModifyFailure[] = [];
+  // Messages Gmail accepted from messages.send, as assembled, with the thread each joined.
+  const sends: Array<{ raw: string; threadId?: string; id: string }> = [];
+  const sendFailures: SendFailure[] = [];
   const userLabels = new Map<string, string>();
   let nextLabel = 0;
   const commits: string[] = [];
@@ -553,6 +566,43 @@ export function createSyntheticGmail({
       ? rejection(failure.code)
       : Promise.resolve({ status: failure.status, body: failure.body ?? '{}' });
   };
+  // The message as native code assembles it from verified Draft Asset bytes; undefined when a
+  // file's bytes are missing.
+  const assemble = (segments: OutgoingSend['segments']) => {
+    let raw = '';
+    for (const segment of segments) {
+      if ('text' in segment) {
+        raw += segment.text;
+      } else {
+        const bytes = assets?.(segment.asset.id, segment.asset.digest);
+        if (bytes === undefined) {
+          return undefined;
+        }
+        raw += base64Lines(bytes);
+      }
+    }
+    return raw;
+  };
+  // Gmail keeps an accepted message in Sent and in history.
+  const accept = (raw: string, threadId: string | undefined) => {
+    nextId += 1;
+    const id = nextId.toString(16);
+    const subject =
+      /^Subject: (?<subject>.*)$/mu.exec(raw)?.groups?.subject ?? '';
+    messages.set(id, {
+      id,
+      from: address,
+      subject,
+      snippet: subject,
+      internalDate: Date.UTC(2026, 8, 1) + nextId * 60_000,
+      labels: new Set(['SENT']),
+      content: { text: '' },
+      headers: [],
+    });
+    record('messagesAdded', id);
+    sends.push({ raw, id, ...(threadId === undefined ? {} : { threadId }) });
+    return id;
+  };
   let generation = 0;
   const current = (owner: Readonly<{ address: string; generation: string }>) =>
     owner.address === address && owner.generation === String(generation);
@@ -585,6 +635,33 @@ export function createSyntheticGmail({
       return 'code' in failure
         ? rejection(failure.code)
         : { status: failure.status, body: failure.body ?? '{}' };
+    },
+    gmailSend: async ({ segments, threadId }, owner) => {
+      if (!current(owner)) {
+        return rejection('mailbox-invalidated');
+      }
+      const raw = assemble(segments);
+      if (raw === undefined) {
+        return rejection('attachment-missing');
+      }
+      const failure = sendFailures.shift();
+      if (failure !== undefined && !('lost' in failure)) {
+        return 'code' in failure
+          ? rejection(failure.code)
+          : { status: failure.status, body: failure.body ?? '{}' };
+      }
+      const id = accept(raw, threadId);
+      await Promise.resolve();
+      return failure === undefined
+        ? {
+            status: 200,
+            body: JSON.stringify({
+              id,
+              threadId: threadId ?? id,
+              labelIds: ['SENT'],
+            }),
+          }
+        : rejection('delivery-unknown');
     },
     openMailbox: () => {
       const code = openFailures.shift();
@@ -730,6 +807,11 @@ export function createSyntheticGmail({
     commits,
     // Modify requests that reached Gmail, in order.
     modifies,
+    // Messages Gmail accepted, in order.
+    sends,
+    failSend: (...next: readonly SendFailure[]) => {
+      sendFailures.push(...next);
+    },
     deliver,
     labelsOf: (id: string) => [...(messages.get(id)?.labels ?? [])],
     // A label created in Gmail; its ID never matches its name.
@@ -844,6 +926,8 @@ export function syntheticConnections(
       of(mailbox.connection)?.gmailRequest(path, query, mailbox) ?? missing(),
     gmailModify: (change, mailbox) =>
       of(mailbox.connection)?.gmailModify(change, mailbox) ?? missing(),
+    gmailSend: (message, mailbox) =>
+      of(mailbox.connection)?.gmailSend(message, mailbox) ?? missing(),
     openMailbox: (connection) => of(connection)?.openMailbox() ?? missing(),
     commitMailbox: (mailbox, revision, document) =>
       of(mailbox.connection)?.commitMailbox(mailbox, revision, document) ??

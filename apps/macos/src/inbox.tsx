@@ -44,6 +44,7 @@ import {
   useSavedBodies,
 } from './mailbox.tsx';
 import { OrganizeStatus } from './organize.tsx';
+import { OutboxList } from './outbox.tsx';
 import { AccountContext } from './registration-gate.tsx';
 import { usePalette } from './theme.ts';
 
@@ -799,8 +800,9 @@ export function Inbox({
               <DraftList
                 onCompose={onCompose}
                 scope={scope}
-                searching={results !== undefined}
-              />
+                searching={results !== undefined}>
+                <OutboxList onOpen={openDraft} />
+              </DraftList>
             )
           }
           ListFooterComponent={

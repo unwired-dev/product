@@ -85,9 +85,9 @@
         } ?? [])
     }
 
-    func gmail(_ identity: GoogleRegistrationIdentity, url: URL, body request: Data?) async throws
-      -> (Int, Data)
-    {
+    func gmail(
+      _ identity: GoogleRegistrationIdentity, url: URL, body request: Data?, contentType: String
+    ) async throws -> (Int, Data) {
       guard identity.subject == "synthetic-alternate-mailbox" else { return (401, Data()) }
       let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
       let query = Dictionary(
@@ -98,6 +98,8 @@
       let body: Any
       switch url.lastPathComponent {
       case "profile": body = ["emailAddress": "other@example.invalid", "historyId": "100"]
+      // Synthetic Gmail accepts every message and keeps nothing of it.
+      case "send": body = ["id": "19a0c0ffee0000ff", "threadId": "19a0c0ffee0000ff"]
       case "history": body = ["historyId": "100"]
       case "labels":
         body = ["labels": [["id": "Label_1", "name": "Travel", "type": "user"]]]
@@ -193,6 +195,8 @@
       // The Recovery Key verifier published with each account's recovery envelope.
       var verifiers: [String: String] = [:]
       var records: [String: [String: StoredPayload]] = [:]
+      // Delivery claims this device holds, by account; no other device claims in mock sessions.
+      var claims: [String: Set<String>]?
       // Open enrollment requests by Pending Device id.
       var requests: [String: Request] = [:]
       // Pending Devices whose Recovery Key proof matched.
@@ -429,6 +433,14 @@
         },
         get: { [self] _, product, identifier in
           try state().records[product.productAccountId]?[identifier]
+        },
+        claimDelivery: { [self] _, product, identifier in
+          try update { state in
+            state.claims = (state.claims ?? [:]).merging([
+              product.productAccountId: [identifier]
+            ]) { $0.union($1) }
+          }
+          return true
         })
     }
   }

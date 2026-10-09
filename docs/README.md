@@ -19,6 +19,7 @@ their scope below; publication of a plan does not prove implementation or releas
 - [On-device message summaries](message-summaries.md)
 - [On-device translation](message-translation.md)
 - [Local rich-text Drafts and the composer](drafts.md)
+- [Sending Drafts through the Outbox](outbox.md)
 - [Linked Google and Apple sign-in](linked-sign-in.md)
 - [Private Product Sync and the Recovery Key](private-product-sync.md)
 - [Sign-out and Product Account deletion](account-removal.md)

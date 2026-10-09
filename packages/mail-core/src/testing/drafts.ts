@@ -7,6 +7,7 @@ import type {
   NativeDraftSync,
   PickSource,
 } from '../drafts.ts';
+import type { NativeDeliveryClaim } from '../outbox.ts';
 
 import { assetLimit } from '../drafts.ts';
 
@@ -78,6 +79,9 @@ export function createSyntheticProductSync() {
   let reachable = true;
   // Stores the next write but rejects its reply, as when the response is lost.
   let losingReply = false;
+  // Each Draft's delivery claim, by account and opaque identifier, and the device holding it.
+  const claims = new Map<string, string>();
+  let losingClaimReply = false;
   const reach = () =>
     reachable
       ? undefined
@@ -140,6 +144,29 @@ export function createSyntheticProductSync() {
     remove: (account: string, identifier: string) => {
       records.delete(key(account, identifier));
     },
+    // Convex's atomic claim: the first device to ask holds it, and asking again keeps it.
+    claim: (account: string, identifier: string, device: string) => {
+      const name = key(account, identifier);
+      const holder = claims.get(name) ?? device;
+      claims.set(name, holder);
+      if (losingClaimReply) {
+        losingClaimReply = false;
+        throw Object.assign(new Error('Product Sync: unavailable'), {
+          code: 'unavailable',
+        });
+      }
+      return holder === device;
+    },
+    // The device holding each claim of `account`, by opaque identifier.
+    claimsOf: (account: string) =>
+      new Map(
+        [...claims]
+          .filter(([name]) => name.startsWith(`${account}\n`))
+          .map(([name, device]) => [name.slice(account.length + 1), device]),
+      ),
+    loseNextClaimReply: () => {
+      losingClaimReply = true;
+    },
     // Identifiers of the records stored for `account`.
     identifiers: (account: string) =>
       [...records.keys()]
@@ -176,9 +203,12 @@ export function createSyntheticDrafts(
   {
     outgoingLimit = 100 * 1024 * 1024,
     server,
+    device = 'this-device',
   }: Readonly<{
     outgoingLimit?: number;
     server?: Readonly<SyntheticProductSync>;
+    // This Trusted Device, as Convex knows it when it claims a Draft for delivery.
+    device?: string;
   }> = {},
 ) {
   let stored:
@@ -450,10 +480,37 @@ export function createSyntheticDrafts(
             });
           },
         };
+  // Delivery claims through Convex, under an identifier opaque to it, as native code asks for them.
+  const delivery: NativeDeliveryClaim | undefined =
+    server === undefined
+      ? undefined
+      : {
+          claimDraftDelivery: async (owner, id) => {
+            await signedIn(owner);
+            return {
+              owner,
+              claimed: server.claim(owner, `draft-delivery.${id}`, device),
+            };
+          },
+        };
   return {
     native,
     sync,
+    delivery,
     stored: () => stored,
+    // An asset's verified bytes for `owner`, as native code reads them to send; undefined when
+    // missing, damaged or another account's.
+    bytesOf: (owner: string, id: string, digest: string) => {
+      const asset = assets.get(id);
+      return asset?.owner !== owner ||
+        asset.damaged === true ||
+        asset.digest !== digest
+        ? undefined
+        : Uint8Array.from(
+            asset.bytes,
+            (character) => character.codePointAt(0) ?? 0,
+          );
+    },
     // The identifiers of asset bytes on this device.
     assets: () => [...assets.keys()],
     // A file at `uri` (or a Downloaded Attachment named `uri`) with these bytes.

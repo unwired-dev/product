@@ -109,11 +109,12 @@ import os
     return GmailRegistrationReceipt(subject: identity.subject, address: profile.emailAddress)
   }
 
-  func gmail(_ identity: GoogleRegistrationIdentity, url: URL, body: Data?) async throws -> (
-    Int, Data
-  ) {
+  func gmail(
+    _ identity: GoogleRegistrationIdentity, url: URL, body: Data?, contentType: String
+  ) async throws -> (Int, Data) {
     try await GmailTransport.send(
-      token: identity.accessToken, url: url, body: body, session: mailSession)
+      token: identity.accessToken, url: url, body: body, session: mailSession,
+      contentType: contentType)
   }
 }
 
@@ -568,6 +569,8 @@ extension UnwiredRegistration {
     case PrivateInboxError.conflict: reject("conflict", "The mailbox changed.", nil)
     case PrivateInboxError.mailboxInvalidated:
       reject("mailbox-invalidated", "The mailbox is no longer available.", nil)
+    case PrivateInboxError.deliveryUnknown:
+      reject("delivery-unknown", "Gmail may have received the message.", nil)
     default:
       logger.error("\(name, privacy: .public) failed: unavailable")
       reject("unavailable", "Gmail could not be reached.", nil)
@@ -675,6 +678,18 @@ extension UnwiredRegistration {
     }
   }
 
+  // Claims Draft `id` for delivery from this Trusted Device through Convex.
+  @objc(claimDraftDelivery:id:resolver:rejecter:)
+  func claimDraftDelivery(
+    _ owner: String, id: String,
+    resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+  ) {
+    syncDrafts("claimDraftDelivery", owner: owner, resolve, reject: reject) { _, sync in
+      guard !id.isEmpty, id.count <= 200 else { throw RegistrationError.unavailable }
+      return try await sync.claimDelivery(draft: id)
+    }
+  }
+
   @objc(cancelGmailRequest:)
   func cancelGmailRequest(_ request: String) {
     DispatchQueue.main.async { Self.reads[request]?.cancel() }
@@ -724,6 +739,25 @@ extension UnwiredRegistration {
       return try await $0.gmailModify(
         message: message, add: add, remove: remove, connection: connection, address: address,
         generation: generation)
+    }
+  }
+
+  // `message` carries `segments`, each `{ text }` or `{ asset: { id, digest } }`, and an optional
+  // `threadId`. Not cancellable: once started, its outcome may only be unknown.
+  @objc(gmailSend:mailbox:resolver:rejecter:)
+  func gmailSend(
+    _ message: [String: Any], mailbox scope: [String: Any],
+    resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    mailbox("gmailSend", resolve, reject: reject) {
+      let (connection, address, generation) = try Self.scope(scope)
+      guard let segments = message["segments"] as? [Any],
+        message["threadId"] == nil || message["threadId"] is String
+      else { throw RegistrationError.unavailable }
+      return try await $0.gmailSend(
+        segments: segments, threadId: message["threadId"] as? String, connection: connection,
+        address: address, generation: generation)
     }
   }
 
@@ -1191,6 +1225,13 @@ extension UnwiredRegistration {
           base: base, identity: identity, path: "productSync:getEncryptedPayloadForTrustedDevice",
           args: proof(product).merging(["payloadIdentifier": identifier]) { $1 },
           function: "query")
+      },
+      claimDelivery: { identity, product, identifier in
+        struct Response: Decodable { let claimed: Bool }
+        let response: Response = try await mutation(
+          base: base, identity: identity, path: "draftDelivery:claim",
+          args: proof(product).merging(["claimIdentifier": identifier]) { $1 })
+        return response.claimed
       })
   }
 

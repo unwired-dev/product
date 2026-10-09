@@ -10,7 +10,14 @@ import * as Result from 'effect/Result';
 import * as Schema from 'effect/Schema';
 import * as Semaphore from 'effect/Semaphore';
 
-import type { Draft, Recipient, Synced, SyncedAsset } from './draft-model.ts';
+import type {
+  Draft,
+  OutboxEntry,
+  Recipient,
+  Sent,
+  Synced,
+  SyncedAsset,
+} from './draft-model.ts';
 import type { DraftStorageFailure } from './draft-native.ts';
 import type {
   DraftSyncOptions,
@@ -29,6 +36,8 @@ import {
   assetsOf,
   DraftSchema,
   ImportedSchema,
+  OutboxEntrySchema,
+  SentSchema,
   SyncedSchema,
   sameContent,
   sameDrafts,
@@ -59,7 +68,14 @@ import {
   withImage,
 } from './semantic-document.ts';
 
-export type { Draft, Recipient, Response, SyncedAsset } from './draft-model.ts';
+export type {
+  DeliveryProblem,
+  Draft,
+  OutboxEntry,
+  Recipient,
+  Response,
+  SyncedAsset,
+} from './draft-model.ts';
 export type { NativeDraftSync } from './draft-sync.ts';
 export { assetsOf } from './draft-model.ts';
 export type RecipientField = 'to' | 'cc' | 'bcc';
@@ -72,6 +88,9 @@ const DraftDocumentSchema = Schema.Struct({
     ),
   ),
   synced: Schema.optionalKey(Schema.Array(SyncedSchema)),
+  // Messages sent on this device and not yet confirmed, and the latest confirmed ones.
+  outbox: Schema.optionalKey(Schema.Array(OutboxEntrySchema)),
+  sent: Schema.optionalKey(Schema.Array(SentSchema)),
 });
 const OpenedSchema = Schema.Struct({
   owner: Schema.NonEmptyString,
@@ -755,12 +774,52 @@ export type DraftsState =
       readonly save: DraftSave;
     };
 
-const encodeDocument = (drafts: readonly Draft[], synced: readonly Synced[]) =>
+type Delivery = Readonly<{
+  outbox: readonly OutboxEntry[];
+  sent: readonly Sent[];
+}>;
+const encodeDocument = (
+  drafts: readonly Draft[],
+  synced: readonly Synced[],
+  { outbox, sent }: Delivery,
+) =>
   Schema.encodeEffect(Schema.fromJsonString(DraftDocumentSchema))({
     version: 1,
     drafts,
     ...(synced.length === 0 ? {} : { synced }),
+    ...(outbox.length === 0 ? {} : { outbox }),
+    ...(sent.length === 0 ? {} : { sent }),
   }).pipe(Effect.mapError(malformed));
+
+// The confirmed sends kept to tell a repeated outcome from a new one.
+const sentLimit = 20;
+const equivalentEntry = Schema.toEquivalence(OutboxEntrySchema);
+// Another writer's Outbox, with each message this store changed since `base` taken from this
+// store: a message is changed or removed by whichever side touched it.
+const rebaseOutbox = (
+  base: readonly OutboxEntry[],
+  ours: readonly OutboxEntry[],
+  theirs: readonly OutboxEntry[],
+) => {
+  const before = new Map(base.map((entry) => [entry.id, entry]));
+  const mine = new Map(ours.map((entry) => [entry.id, entry]));
+  const touched = (id: string) => {
+    const previous = before.get(id);
+    const current = mine.get(id);
+    return previous === undefined || current === undefined
+      ? previous !== current
+      : !equivalentEntry(previous, current);
+  };
+  return [
+    ...theirs.filter(({ id }) => !touched(id)),
+    ...ours.filter(({ id }) => touched(id)),
+  ];
+};
+const latestSent = (left: readonly Sent[], right: readonly Sent[]) =>
+  Arr.sort(
+    new Map([...left, ...right].map((each) => [each.id, each])).values(),
+    Order.mapInput(Order.Number, ({ sentAt }: Sent) => sentAt),
+  ).slice(-sentLimit);
 const unavailable = (
   error: Readonly<Pick<DraftStorageFailure, 'kind' | 'diagnostic'>>,
 ) =>
@@ -793,6 +852,10 @@ export function createDrafts(
   let base: readonly Draft[] = [];
   // Each Draft's Product Sync record as this device last read or wrote it.
   let synced: readonly Synced[] = [];
+  // The Outbox as in memory and as storage last held it, and the latest confirmed sends.
+  let outbox: readonly OutboxEntry[] = [];
+  let outboxBase: readonly OutboxEntry[] = [];
+  let sent: readonly Sent[] = [];
   // Edits in memory that storage does not hold yet.
   let dirty = false;
   let state: DraftsState = { kind: 'closed' };
@@ -822,7 +885,8 @@ export function createDrafts(
   };
   const keepOf = (drafts: readonly Draft[]) => {
     const keep = new Set<string>();
-    for (const draft of drafts) {
+    // A queued message keeps its files until its outcome is final.
+    for (const draft of [...drafts, ...outbox.map((entry) => entry.draft)]) {
       for (const id of held.get(draft.id) ?? []) {
         keep.add(id);
       }
@@ -914,9 +978,21 @@ export function createDrafts(
         return yield* ownerMismatch();
       }
       ({ revision } = opened);
-      const { drafts = [], synced: latest = [] } = opened.document ?? {};
+      const {
+        drafts = [],
+        synced: latest = [],
+        outbox: stored = [],
+        sent: confirmed = [],
+      } = opened.document ?? {};
       base = drafts;
       synced = latest;
+      outboxBase = stored;
+      // A message handed to Gmail before the app stopped has no known outcome.
+      outbox = stored.map((entry) =>
+        entry.state === 'sending' ? { ...entry, state: 'unknown' } : entry,
+      );
+      sent = confirmed;
+      dirty = outbox.some((entry, index) => entry !== stored[index]);
       publish({ kind: 'ready', drafts, save: 'saved' });
     }).pipe(
       // oxlint-disable-next-line promise/prefer-await-to-callbacks -- Effect's typed error channel.
@@ -940,6 +1016,10 @@ export function createDrafts(
       const latest = opened.document?.drafts ?? [];
       const merged = yield* rebaseDrafts(base, state.drafts, latest);
       base = latest;
+      const latestOutbox = opened.document?.outbox ?? [];
+      outbox = rebaseOutbox(outboxBase, outbox, latestOutbox);
+      outboxBase = latestOutbox;
+      sent = latestSent(opened.document?.sent ?? [], sent);
       // The other writer read or wrote Product Sync no earlier than this store's base.
       synced = opened.document?.synced ?? synced;
       publish({ ...state, drafts: merged.drafts, save: 'saving' }, () => {
@@ -951,16 +1031,16 @@ export function createDrafts(
   });
 
   // Runs one storage operation alone; a failure keeps edits in memory and resolves false.
-  const guarded = (
+  const guarded = <A>(
     current: number,
-    operation: Effect.Effect<boolean, DraftStorageFailure>,
+    operation: Effect.Effect<A, DraftStorageFailure>,
   ) =>
     operation.pipe(
       // oxlint-disable-next-line promise/prefer-await-to-callbacks -- Effect's typed error channel.
       Effect.catchTag('DraftStorageFailure', (error) =>
         report(error).pipe(
           Effect.andThen(failed(current, error)),
-          Effect.as(false),
+          Effect.as(false as const),
         ),
       ),
       semaphore.withPermit,
@@ -978,7 +1058,8 @@ export function createDrafts(
     ) {
       dirty = false;
       const captured = state.drafts;
-      const document = yield* encodeDocument(captured, synced);
+      const delivery = { outbox, sent };
+      const document = yield* encodeDocument(captured, synced, delivery);
       const expected = revision;
       const outcome = yield* Effect.result(
         native(
@@ -997,6 +1078,7 @@ export function createDrafts(
         if (live(current)) {
           ({ revision } = outcome.success);
           base = captured;
+          outboxBase = delivery.outbox;
         }
         return;
       }
@@ -1157,19 +1239,37 @@ export function createDrafts(
     return changed;
   };
 
-  // Stores the Drafts without `id`. An edit made to it while that was stored survives as a
-  // conflicting copy.
+  // Stores the Drafts without `id`, with `admit` in the same write admitting it to the Outbox.
+  // An edit made to it while that was stored survives as a conflicting copy. True once stored.
   const deleted = Effect.fnUntraced(function* (
     current: number,
     account: string,
-    { id, draft: deleting }: Readonly<{ id: string; draft: Draft | undefined }>,
+    {
+      id,
+      draft: deleting,
+      admit,
+    }: Readonly<{
+      id: string;
+      draft: Draft | undefined;
+      admit: ((draft: Draft) => OutboxEntry) | undefined;
+    }>,
   ) {
-    if (state.kind !== 'ready') {
-      return;
+    if (
+      state.kind !== 'ready' ||
+      (admit !== undefined && deleting === undefined)
+    ) {
+      return false;
     }
     publish({ ...state, save: 'saving' });
     const kept = state.drafts.filter((draft) => draft.id !== id);
-    const document = yield* encodeDocument(kept, synced);
+    const delivery = {
+      outbox:
+        admit === undefined || deleting === undefined
+          ? outbox
+          : [...outbox, admit(deleting)],
+      sent,
+    };
+    const document = yield* encodeDocument(kept, synced, delivery);
     const retaining = keepOf(state.drafts);
     const committed = yield* native(
       () =>
@@ -1184,10 +1284,12 @@ export function createDrafts(
       return yield* ownerMismatch();
     }
     if (!live(current) || state.kind !== 'ready') {
-      return;
+      return false;
     }
     ({ revision } = committed);
     base = kept;
+    ({ outbox } = delivery);
+    outboxBase = outbox;
     const edited = state.drafts.find((draft) => draft.id === id);
     const changed = edited !== undefined && !sameContent(edited, deleting);
     // Reconcile the final asset keep-list after late edits have their own identities.
@@ -1207,6 +1309,7 @@ export function createDrafts(
         }
       },
     );
+    return true;
   });
 
   // Deletes the target's Draft from the current revision, keeping completed content for an
@@ -1219,10 +1322,12 @@ export function createDrafts(
       target,
       onlyIfEmpty,
       expected,
+      admit,
     }: Readonly<{
       target: () => string;
       onlyIfEmpty: boolean;
       expected: (() => Draft) | undefined;
+      admit?: (draft: Draft) => OutboxEntry;
     }>,
   ) {
     // The version this editor asked to discard: the one it shows, or what storage held first.
@@ -1236,14 +1341,14 @@ export function createDrafts(
       const deleting = state.drafts.find((draft) => draft.id === id);
       const wanted = expected?.() ?? intended;
       if (keepsTarget(deleting, { onlyIfEmpty, intended: wanted })) {
-        return;
+        return false;
       }
       intended = deleting;
       const outcome = yield* Effect.result(
-        deleted(current, account, { id, draft: deleting }),
+        deleted(current, account, { id, draft: deleting, admit }),
       );
       if (Result.isSuccess(outcome)) {
-        return;
+        return outcome.success;
       }
       if (outcome.failure.kind !== 'conflict' || attempt > 0) {
         return yield* outcome.failure;
@@ -1251,6 +1356,7 @@ export function createDrafts(
       yield* rebase(current, account);
       yield* flush(current, account);
     }
+    return false;
   });
 
   // Keep a Draft visible until its deletion is durable, so a refused discard can be retried.
@@ -1284,6 +1390,121 @@ export function createDrafts(
           publish({ ...state, save: 'saved' });
         }
         return live(current);
+      }),
+    );
+
+  // Saves what earlier steps left unsaved. A failure is shown as unsaved Drafts without undoing a
+  // step that already holds in memory or storage.
+  const settleSaving = Effect.fnUntraced(function* (
+    current: number,
+    account: string,
+  ) {
+    const saved = yield* Effect.result(flush(current, account));
+    if (Result.isFailure(saved)) {
+      yield* report(saved.failure);
+      yield* failed(current, saved.failure);
+    } else if (live(current) && state.kind === 'ready' && !dirty) {
+      publish({ ...state, save: 'saved' });
+    }
+  });
+
+  // Moves the target's Draft into the Outbox in one write, as `expected` shows it. False, leaving
+  // the Draft in place, when another editor changed it meanwhile or storage refused the write.
+  const admitting = (
+    target: () => string,
+    current: number,
+    {
+      expected,
+      admit,
+    }: Readonly<{
+      expected: () => Draft;
+      admit: (draft: Draft) => OutboxEntry;
+    }>,
+  ) =>
+    guarded(
+      current,
+      Effect.gen(function* () {
+        const account = owner;
+        if (account === undefined) {
+          return false;
+        }
+        yield* flush(current, account);
+        if (!live(current) || state.kind !== 'ready') {
+          return false;
+        }
+        const admitted = yield* deleteTarget(current, account, {
+          target,
+          onlyIfEmpty: false,
+          expected,
+          admit,
+        });
+        yield* settleSaving(current, account);
+        return admitted && live(current);
+      }),
+    );
+
+  // Applies one Outbox step under the storage permit and saves it. Resolves whether the step holds
+  // in storage; a refused step changes nothing.
+  const delivering = (
+    current: number,
+    id: string,
+    step: (entry: OutboxEntry) => OutboxEntry | Sent | undefined,
+  ) =>
+    guarded(
+      current,
+      Effect.gen(function* () {
+        const account = owner;
+        const entry = outbox.find((each) => each.id === id);
+        const next = entry === undefined ? undefined : step(entry);
+        if (account === undefined || next === undefined || !live(current)) {
+          return false;
+        }
+        if ('draft' in next) {
+          outbox = outbox.map((each) => (each.id === id ? next : each));
+        } else {
+          outbox = outbox.filter((each) => each.id !== id);
+          sent = latestSent(sent, [next]);
+        }
+        dirty = true;
+        publish(state);
+        yield* flush(current, account);
+        return live(current) && !dirty;
+      }),
+    );
+
+  // Returns an Outbox message that was never handed to Gmail to the Drafts. One whose claim was
+  // requested keeps its claim's identifier retired and returns under a new one.
+  const restoring = (current: number, id: string) =>
+    guarded(
+      current,
+      Effect.gen(function* () {
+        const account = owner;
+        const entry = outbox.find((each) => each.id === id);
+        if (
+          account === undefined ||
+          entry === undefined ||
+          entry.state === 'sending' ||
+          entry.state === 'unknown' ||
+          !live(current) ||
+          state.kind !== 'ready'
+        ) {
+          return false;
+        }
+        const now = yield* Clock.currentTimeMillis;
+        const fresh = `${Math.abs(yield* Random.nextInt).toString(36)}${Math.abs(yield* Random.nextInt).toString(36)}`;
+        const reused =
+          entry.claim === undefined &&
+          !state.drafts.some((draft) => draft.id === id);
+        const draft = {
+          ...entry.draft,
+          id: reused ? id : fresh,
+          updatedAt: now,
+        };
+        outbox = outbox.filter((each) => each.id !== id);
+        dirty = true;
+        publish({ ...state, drafts: [...state.drafts, draft], save: 'saving' });
+        yield* settleSaving(current, account);
+        return draft.id;
       }),
     );
 
@@ -1483,6 +1704,9 @@ export function createDrafts(
     revision = 0;
     base = [];
     synced = [];
+    outbox = [];
+    outboxBase = [];
+    sent = [];
     dirty = false;
     editors.clear();
     known.clear();
@@ -1595,6 +1819,8 @@ export function createDrafts(
 
   return {
     getSnapshot: () => state,
+    // The Outbox of the open Product Account, oldest Send first.
+    getOutbox: () => outbox,
     // Imports running now, by asset; an 'importing' asset outside it was interrupted.
     getImports: () => importing,
     // A new asset for a file, importing until its bytes are stored.
@@ -1861,6 +2087,36 @@ export function createDrafts(
       );
       schedule();
       return removed;
+    },
+    // Admits the Draft named by `target` to the Outbox exactly as `expected` shows it, the entry
+    // made by `admit`, and removes it from the Drafts in the same write. Resolves whether it did.
+    admit: async (
+      target: string | (() => string),
+      expected: () => Draft,
+      admit: (draft: Draft) => OutboxEntry,
+    ) => {
+      const admitted = await runLogged(
+        admitting(
+          typeof target === 'string' ? () => target : target,
+          generation,
+          { expected, admit },
+        ),
+      );
+      schedule();
+      return admitted;
+    },
+    // Applies an Outbox step: a changed entry, a confirmed send that removes it, or undefined to
+    // refuse. Resolves whether the step holds in storage.
+    deliver: (
+      id: string,
+      step: (entry: OutboxEntry) => OutboxEntry | Sent | undefined,
+    ) => runLogged(delivering(generation, id, step)),
+    // Returns an Outbox message that was never handed to Gmail to the Drafts. Resolves the Draft's
+    // identifier, or false when the message can no longer return.
+    restore: async (id: string) => {
+      const restored = await runLogged(restoring(generation, id));
+      schedule();
+      return restored;
     },
   };
 }

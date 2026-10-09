@@ -177,7 +177,8 @@ permission, so it is not added to an unsigned hosted runner.
 Run normal and selected exports with their matching `verify:bundle` commands.
 [Private Inbox storage integration](private-inbox-storage.md#verification)
 separately qualifies CryptoKit and Keychain. Native mock journeys do not qualify
-real Gmail authorization or transport, assistance engines, delivery, physical-device
+real Gmail authorization or transport, assistance engines, delivery (synthetic Gmail
+accepts every send), physical-device
 lock behavior or approval between two real devices. Keep that evidence distinct under
 [ADR 0060](adr/0060-pair-mocked-mail-journeys-with-real-integration-evidence.md).
 No legacy tests are retired by this slice. See the

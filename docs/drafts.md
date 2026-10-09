@@ -4,9 +4,9 @@ Setup, coding rules, validation and observable requirements remain in this file.
 
 [#611](https://github.com/unwired-dev/product/issues/611) adds product-authored
 **Drafts** to the connected Gmail Inbox on iPhone, iPad and Mac. A Draft is an
-unsent message kept encrypted on this device until it is discarded. No slice adds
-delivery yet: nothing is sent, queued in an **Outbox** or written to Gmail's
-Drafts mailbox. [#614](https://github.com/unwired-dev/product/issues/614)
+unsent message kept encrypted on this device until it is discarded or
+[sent through the Outbox](outbox.md); nothing is written to Gmail's Drafts
+mailbox. [#614](https://github.com/unwired-dev/product/issues/614)
 [synchronizes Drafts](#continuing-on-another-device) between the Product Account's
 Trusted Devices through End-to-End Encrypted Product Sync.
 
@@ -159,7 +159,7 @@ row says **Adding…** and offers **Cancel**. A file whose import was cancelled,
 interrupted by quitting or relaunch, could not be read or saved, or is too large
 stays listed as **Not added** with the reason, and the composer warns that files
 not added are not sent. Only complete files can be sent: `unsendableAssets` in
-`@private-email/mail-core/drafts` lists everything else for the delivery slice.
+`@private-email/mail-core/drafts` lists everything else, which [Send](outbox.md) refuses.
 When the composer opens, it checks every complete file's bytes against their
 recorded digest; the bytes stay in native code, and an inline image returns only
 a thumbnail at most 256 pixels on its longest side to show. Verified bytes that
@@ -198,7 +198,7 @@ Another device lists the Draft once it synchronizes, after its own Gmail
 authorization lets it show the Inbox; the Draft keeps its identifier, sending
 mailbox, recipients, subject, formatted body, and any reply or forward details
 with their quoted text. Synchronizing gives no device
-delivery ownership; the delivery slice claims a Draft by that same identifier.
+delivery ownership; [Send](outbox.md) claims a Draft by that same identifier.
 
 - **When:** opening Drafts, two seconds after edits pause, and when the app becomes
   active or moves to the background. Without a Product Sign-In session (an Apple

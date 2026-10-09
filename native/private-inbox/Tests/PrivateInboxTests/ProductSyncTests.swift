@@ -22,6 +22,8 @@ import Testing
   // The digest of the proof of the Recovery Key that opens the committed recovery envelope.
   var verifiers: [String: String] = [:]
   var records: [String: [String: StoredPayload]] = [:]
+  // Each account's Draft delivery claims and the Trusted Device holding each.
+  var claims: [String: [String: String]] = [:]
   // Runs before each record write, as another device's write that lands first.
   var beforePut: ((String, String) throws -> Void)?
   // Controls read-back independently of the CAS response.
@@ -306,6 +308,13 @@ import Testing
       get: { [self] _, product, identifier in
         try trusted(product)
         return records[product.productAccountId]?[identifier]
+      },
+      claimDelivery: { [self] _, product, identifier in
+        try trusted(product)
+        let holder =
+          claims[product.productAccountId]?[identifier] ?? product.trustedDeviceId
+        claims[product.productAccountId, default: [:]][identifier] = holder
+        return holder == product.trustedDeviceId
       })
   }
 

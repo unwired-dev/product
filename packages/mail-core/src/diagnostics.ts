@@ -13,6 +13,7 @@ const nativeCodes = new Set([
   'cancelled',
   'conflict',
   'declined',
+  'delivery-unknown',
   'device-ineligible',
   'enrollment-unavailable',
   'gmail-unavailable',
