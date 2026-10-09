@@ -1958,11 +1958,13 @@ function ReaderApp({
   drafts,
   gmail,
   message,
+  senders,
 }: {
   readonly registration: ReturnType<typeof account>;
   readonly drafts: ReturnType<typeof createDrafts>;
   readonly gmail: ReturnType<typeof createSyntheticGmail>;
   readonly message: string;
+  readonly senders?: ReturnType<typeof mailboxesOf>;
 }) {
   const { snapshot } = useSyncExternalStore(
     registration.subscribe,
@@ -1977,7 +1979,7 @@ function ReaderApp({
   return (
     <AccountContext
       value={{
-        mailboxes: mailboxesOf(snapshot),
+        mailboxes: senders ?? mailboxesOf(snapshot),
         openAccount: ignore,
         authorizeGmail: () => Promise.resolve(),
         refreshInbox: (load) => load(),
@@ -1992,11 +1994,13 @@ function ReaderApp({
           selected={undefined}
         />
         {composing === undefined ? (
-          <MessageDetail
-            id={message}
-            mailbox={alex}
-            onCompose={setComposing}
-          />
+          <View testID="message-reader">
+            <MessageDetail
+              id={message}
+              mailbox={alex}
+              onCompose={setComposing}
+            />
+          </View>
         ) : (
           <Composer
             id={composing}
@@ -2356,6 +2360,145 @@ describe('adding files and images to a Draft', () => {
     expect(screen.getByLabelText('Message body')).toHaveTextContent('￼');
   });
 
+  it('offers attaching a downloaded file only while a sending mailbox is available', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const gmail = createSyntheticGmail({ messages: 0 });
+    const message = gmail.deliver({
+      content: {
+        text: 'Invoice attached.',
+        attachments: [
+          {
+            filename: 'invoice.pdf',
+            mimeType: 'application/pdf',
+            bytes: [...Buffer.from('%PDF invoice')],
+          },
+        ],
+      },
+    });
+    const drafts = createDrafts(storage.native, registration);
+    const shown = (senders: ReturnType<typeof mailboxesOf>) => (
+      <ReaderApp
+        drafts={drafts}
+        gmail={gmail}
+        message={message}
+        registration={registration}
+        senders={senders}
+      />
+    );
+    // Keep the downloaded reader alive while changing the host's sending eligibility.
+    const senders = mailboxesOf(registration.getSnapshot().snapshot);
+    await render(shown(senders));
+    await press('Download invoice.pdf');
+    await expect(
+      screen.findByRole('button', {
+        name: 'Attach invoice.pdf to a new message',
+      }),
+    ).resolves.toBeOnTheScreen();
+    await screen.rerender(
+      shown(senders.map((mailbox) => ({ ...mailbox, state: 'authorization' }))),
+    );
+    expect(
+      screen.queryByRole('button', {
+        name: 'Attach invoice.pdf to a new message',
+      }),
+    ).not.toBeOnTheScreen();
+    expect(
+      screen.getByRole('button', { name: 'Open invoice.pdf' }),
+    ).toBeOnTheScreen();
+    expect(draftsOf(drafts.getSnapshot())).toHaveLength(0);
+    await screen.rerender(shown(senders));
+    await expect(
+      screen.findByRole('button', {
+        name: 'Attach invoice.pdf to a new message',
+      }),
+    ).resolves.toBeOnTheScreen();
+  });
+
+  it.each(['locked', 'failed'])(
+    'keeps unavailable %s Draft storage retryable in the reader',
+    async (failure) => {
+      expect.hasAssertions();
+      const registration = account(connected(['alex@example.invalid']));
+      const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+      const gmail = createSyntheticGmail({ messages: 0 });
+      const message = gmail.deliver({
+        content: {
+          text: 'Invoice attached.',
+          attachments: [
+            {
+              filename: 'invoice.pdf',
+              mimeType: 'application/pdf',
+              bytes: [...Buffer.from('%PDF invoice')],
+            },
+          ],
+        },
+      });
+      let open: typeof storage.native.openDrafts = () =>
+        Promise.reject(
+          Object.assign(new Error('synthetic storage refusal'), {
+            code: failure,
+          }),
+        );
+      const drafts = createDrafts(
+        {
+          ...storage.native,
+          openDrafts: () => open(),
+          importDraftAsset: async (owner, id, source) => {
+            // oxlint-disable-next-line vitest/no-conditional-in-test -- Only received sources read a download.
+            if (source.kind === 'received') {
+              const downloaded = gmail.savedFiles.get(source.file);
+              ok(downloaded, 'Expected the Downloaded Attachment');
+              storage.addFile(
+                source.file,
+                Buffer.from(downloaded.bytes).toString('latin1'),
+              );
+            }
+            return storage.native.importDraftAsset(owner, id, source);
+          },
+        },
+        registration,
+      );
+      await render(
+        <ReaderApp
+          drafts={drafts}
+          gmail={gmail}
+          message={message}
+          registration={registration}
+        />,
+      );
+      await press('Download invoice.pdf');
+      const reader = within(screen.getByTestId('message-reader'));
+      await expect(reader.findByRole('alert')).resolves.toBeOnTheScreen();
+      expect(drafts.getSnapshot()).toMatchObject({ kind: failure });
+      expect(
+        reader.queryByRole('button', {
+          name: 'Attach invoice.pdf to a new message',
+        }),
+      ).not.toBeOnTheScreen();
+      expect(
+        reader.getByRole('button', { name: 'Open invoice.pdf' }),
+      ).toBeOnTheScreen();
+      open = storage.native.openDrafts;
+      await act(async () => {
+        await fireEvent.press(
+          reader.getByRole('button', { name: 'Try again' }),
+        );
+      });
+      await press('Attach invoice.pdf to a new message');
+      await expect(
+        screen.findByLabelText('invoice.pdf, 12 bytes'),
+      ).resolves.toBeOnTheScreen();
+      expect(draftsOf(drafts.getSnapshot())).toHaveLength(1);
+      expect(drafts.getSnapshot()).toMatchObject({
+        kind: 'ready',
+        save: 'saved',
+      });
+      expect(storage.stored()?.document).toContain('invoice.pdf');
+    },
+  );
+
   it('says so when attaching a received attachment fails unexpectedly', async () => {
     expect.hasAssertions();
     const registration = account(connected(['alex@example.invalid']));
@@ -2374,7 +2517,7 @@ describe('adding files and images to a Draft', () => {
       },
     });
     const drafts = createDrafts(storage.native, registration);
-    // Starting the Draft rejects, as an unexpected host failure would.
+    // Fault injection for the defensive catch; native storage refusal is covered separately.
     const failing = {
       ...drafts,
       create: () => Promise.reject(new Error('host failure')),
@@ -2390,9 +2533,9 @@ describe('adding files and images to a Draft', () => {
     await press('Download invoice.pdf');
     await press('Attach invoice.pdf to a new message');
     await expect(
-      screen.findByLabelText(
-        'This attachment could not be added to a new message. Try again.',
-      ),
+      screen.findByRole('alert', {
+        name: 'This attachment could not be added to a new message. Try again.',
+      }),
     ).resolves.toBeOnTheScreen();
     expect(draftsOf(drafts.getSnapshot())).toHaveLength(0);
   });

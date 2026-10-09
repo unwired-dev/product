@@ -163,8 +163,13 @@ recorded digest; an attachment's bytes stay in native code, and only an inline
 image's are returned to show. Bytes that no longer verify show as **Damaged on
 this device**; bytes the device lost show as **No longer on this device**. A check
 refused while private storage is locked says so and offers **Try again**; it also
-runs again when the app returns to the foreground. **Attach to New Message** opens
-its Draft even when storage refuses the save, so the composer shows the unsaved
+runs again when the app returns to the foreground. **Attach to New Message** is offered only when a sending mailbox is available
+and Draft storage is open. If opening Draft storage fails or it is locked, the
+reader says so and offers **Try again**; downloaded files can still be opened or
+shared. An unexpected failure to start the new message is reported in the reader
+and the next attempt clears that notice. A refused composer exit or a later
+navigation choice does not report an attachment failure. Once storage is open,
+**Attach to New Message** opens its Draft even when storage refuses the save, so the composer shows the unsaved
 state instead of leaving another hidden Draft behind. One file
 may be up to 25 MiB, and all Drafts and their files share the **Outgoing Content
 Store**'s 100 MB on this device; a file over either limit is refused rather than

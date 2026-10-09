@@ -20,6 +20,7 @@ import {
   MailboxScope,
   useComposerNavigation,
   useDraftStore,
+  useDrafts,
   useInbox,
   useInboxActions,
   useMailbox,
@@ -101,6 +102,7 @@ function AttachToNewMessage({
   readonly children: ReactNode;
 }) {
   const store = useDraftStore();
+  const drafts = useDrafts();
   const navigation = useComposerNavigation();
   const account = use(AccountContext);
   const mailbox = useMailbox();
@@ -109,7 +111,7 @@ function AttachToNewMessage({
   const mounted = useRef(true);
   const attaching = useRef(false);
   const [failed, setFailed] = useState(false);
-  // Without a mailbox that can send, the action could never start a Draft, so it is not offered.
+  // Only open Draft storage and an eligible sender can start a new message.
   const canSend = sendingMailboxes(account?.mailboxes ?? []).length > 0;
   useLayoutEffect(() => {
     mounted.current = true;
@@ -137,7 +139,8 @@ function AttachToNewMessage({
       }
     } catch {
       // Keep the reader usable if an unexpected host operation rejects, and say so. An undefined
-      // result is not a failure: a later destination was chosen or the open composer stayed open.
+      // result can mean a later destination was chosen, the open composer stayed open, or its
+      // Draft/account disappeared. Non-ready storage has its own subscribed feedback below.
       if (mounted.current) {
         setFailed(true);
       }
@@ -149,12 +152,41 @@ function AttachToNewMessage({
   return (
     <AttachContext
       value={
-        canSend
+        canSend && drafts.kind === 'ready'
           ? (saved) => {
               void attach(saved);
             }
           : undefined
       }>
+      {canSend && (drafts.kind === 'locked' || drafts.kind === 'failed') ? (
+        <View>
+          <View
+            accessible
+            accessibilityLabel={
+              drafts.kind === 'locked'
+                ? t('drafts.listLocked')
+                : t('drafts.listFailed')
+            }
+            accessibilityLiveRegion="polite"
+            accessibilityRole="alert">
+            <Text style={[styles.secondary, { color: colors.foreground }]}>
+              {drafts.kind === 'locked'
+                ? t('drafts.listLocked')
+                : t('drafts.listFailed')}
+            </Text>
+          </View>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={t('common.retry')}
+            onPress={() => {
+              void store.load();
+            }}>
+            <Text style={[styles.secondary, { color: colors.accent }]}>
+              {t('common.retry')}
+            </Text>
+          </Pressable>
+        </View>
+      ) : null}
       {failed ? (
         <View
           accessible

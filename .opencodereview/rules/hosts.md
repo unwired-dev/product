@@ -13,6 +13,17 @@ A host owns views and native adapters. It renders shared stores from `@private-e
 
 #### React correctness
 
+- `message-detail.tsx.AttachToNewMessage` offering creation without an eligible
+  sending mailbox or ready Draft storage, or swallowing an unexpected
+  `attachReceived` rejection. Keep unavailable-storage feedback and retry in the
+  reader itself, since the iPhone reader can hide the Inbox's Draft notice. Trace
+  every undefined result through `composer-navigation` and the real Draft store:
+  refused composer exit, superseding navigation and invalidated ownership are
+  intentional outcomes, not generic attachment failures. Check sender eligibility
+  changes and failed/locked storage recovery through the visible reader; a mocked
+  `Drafts.create` rejection proves only the defensive catch. Expose standalone
+  failures through an accessible labeled parent on Mac, or VoiceOver misses them.
+
 - Mac `message-summary.tsx` or `translation.tsx` rendering standalone title,
   progress, failure, omission or privacy disclosure only in nonselectable `Text`.
   The installed Mac Fabric paragraph is not an accessibility element; use
