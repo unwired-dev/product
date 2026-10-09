@@ -42,11 +42,11 @@ shared bridge folder, so no setup step is needed. It uses `FoundationModels`
 `SystemLanguageModel.default` and never `PrivateCloudComputeLanguageModel`. The
 module offers:
 
-| Method                      | Result                                                                                                                  |
-| --------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `availability()`            | `available`, `device-ineligible`, `assistance-disabled`, `model-not-ready` or `unsupported-locale`                      |
-| `summarize(request, input)` | The summary text, or a rejection coded `refused`, `cancelled`, `unsupported-locale`, `model-not-ready` or `unavailable` |
-| `cancel(request)`           | Cancels that request's generation or [translation](message-translation.md)                                              |
+| Method                      | Result                                                                                                                                 |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `availability()`            | `available`, `device-ineligible`, `assistance-disabled`, `model-not-ready` or `unsupported-locale`                                     |
+| `summarize(request, input)` | The summary text, or a rejection coded `refused`, `cancelled`, `unsupported-locale`, `model-not-ready` or `unavailable`                |
+| `cancel(request)`           | Cancels that request's generation, including a [Draft rewrite or reply](draft-assistance.md), or [translation](message-translation.md) |
 
 The prompt treats the email as untrusted content to describe, never as
 instructions, and asks for at most four sentences covering the topic, requests,

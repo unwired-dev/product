@@ -1,12 +1,20 @@
 import type { NativeAssistance, SummaryInput } from '../src/assistance.ts';
+import type { SemanticDocument } from '../src/semantic-document.ts';
 
 import {
+  canRetryAssistance,
+  createDraftAssistance,
   createMessageSummary,
+  replyInput,
+  rewriteInput,
   summaryInput,
   summaryInputLimit,
 } from '../src/assistance.ts';
+import { imageCharacter } from '../src/semantic-document.ts';
 import {
   createMockMailSession,
+  syntheticReply,
+  syntheticRewrite,
   syntheticSummary,
 } from '../src/testing/mock-session.ts';
 
@@ -14,25 +22,30 @@ interface Asked {
   readonly request: string;
   readonly input: string;
   readonly answer: PromiseWithResolvers<unknown>;
+  readonly operation: 'summarize' | 'rewrite' | 'reply';
 }
 
 // A native model whose answers the test releases, recording what it was asked.
 function scriptedAssistance(availability: unknown = 'available') {
   const asked: Asked[] = [];
   const cancelled: string[] = [];
+  const respond =
+    (operation: Asked['operation']) => (request: string, input: string) => {
+      const answer = Promise.withResolvers<unknown>();
+      asked.push({ request, input, answer, operation });
+      return answer.promise;
+    };
   const native: NativeAssistance = {
     availability: () => Promise.resolve(availability),
-    summarize: (request, input) => {
-      const answer = Promise.withResolvers<unknown>();
-      asked.push({ request, input, answer });
-      return answer.promise;
-    },
+    summarize: respond('summarize'),
+    rewrite: respond('rewrite'),
+    suggestReply: respond('reply'),
     cancel: (request) => {
       cancelled.push(request);
       return Promise.resolve(null);
     },
   };
-  // The nth summarize call, once the store has made it.
+  // The nth model call, once the store has made it.
   const nth = async (index: number) => {
     await vi.waitFor(() => {
       expect(asked.length).toBeGreaterThan(index);
@@ -89,7 +102,7 @@ describe('on-device message summaries', () => {
     await done;
     expect(summary.getSnapshot(long)).toStrictEqual({
       kind: 'ready',
-      summary: 'Confirm the venue by Friday.',
+      text: 'Confirm the venue by Friday.',
       omitted: true,
     });
   });
@@ -219,7 +232,7 @@ describe('on-device message summaries', () => {
     await again;
     expect(summary.getSnapshot(message)).toMatchObject({
       kind: 'ready',
-      summary: 'Lunch at noon.',
+      text: 'Lunch at noon.',
     });
   });
 
@@ -237,6 +250,8 @@ describe('on-device message summaries', () => {
       const summary = createMessageSummary({
         availability: () => availability.promise,
         summarize: generate,
+        rewrite: generate,
+        suggestReply: generate,
         cancel: () => Promise.resolve(null),
       });
       const message = input('Lunch at noon?');
@@ -270,7 +285,7 @@ describe('on-device message summaries', () => {
     editedCall.answer.resolve('Lunch at one.');
     await editedDone;
     expect(summary.getSnapshot(edited)).toMatchObject({
-      summary: 'Lunch at one.',
+      text: 'Lunch at one.',
     });
     expect(summary.getSnapshot(first)).toStrictEqual({ kind: 'idle' });
 
@@ -294,10 +309,255 @@ describe('on-device message summaries', () => {
     ]);
     expect(available.getSnapshot(message)).toStrictEqual({
       kind: 'ready',
-      summary: syntheticSummary,
+      text: syntheticSummary,
       omitted: false,
     });
     expect(unavailable.getSnapshot(message)).toStrictEqual({
+      kind: 'unavailable',
+      reason: 'model-not-ready',
+    });
+  });
+});
+
+// A reply's quoted correspondence, with an inline image the model never reads.
+const quoted = (text: string): SemanticDocument => [
+  { kind: 'paragraph', spans: [{ text: 'On Monday, Maya wrote:' }] },
+  {
+    kind: 'quote',
+    spans: [
+      { text },
+      {
+        text: imageCharacter,
+        image: {
+          id: 'image0001',
+          name: 'map.png',
+          type: 'image/png',
+          state: 'importing',
+        },
+      },
+    ],
+  },
+];
+
+// Admitted input, or a failed test.
+const admitted = <T>(value: T | undefined) => {
+  if (value === undefined) {
+    throw new Error('Expected admitted input');
+  }
+  return value;
+};
+
+// The fixture rewrite every store case requests.
+const rewriteFixture = () => admitted(rewriteInput('Lets meet friday ok'));
+
+const recipients = [
+  { name: 'Maya Chen', address: 'maya@example.invalid' },
+  { address: 'carol@example.invalid' },
+];
+
+describe('on-device Draft rewrites and reply suggestions', () => {
+  /* oxlint-disable vitest/max-expects -- Each case proves one Draft assistance path end to end. */
+  it('admits only authored text, recipient names and the quoted message, within the limit', () => {
+    expect.hasAssertions();
+    const reply = replyInput({
+      authored: 'Friday works.',
+      recipients,
+      quoted: quoted('Shall we meet on Friday?'),
+    });
+    expect(reply).toStrictEqual({
+      purpose: 'reply',
+      text: 'Recipients: Maya Chen\n\nReply so far:\nFriday works.\n\nMessage being answered:\nOn Monday, Maya wrote:\nShall we meet on Friday?',
+      omitted: false,
+    });
+    // Addresses are never admitted, only display names.
+    expect(reply?.text).not.toContain('@');
+    // A long quoted message is cut so the whole input stays within the limit, and says so.
+    const long = replyInput({
+      authored: '',
+      recipients,
+      quoted: quoted(`Shall we meet? ${'x'.repeat(9000)}`),
+    });
+    expect(long?.text).toHaveLength(summaryInputLimit);
+    expect(long?.omitted).toBe(true);
+    // Framing and recipient names consume the same budget; never send a reply without context.
+    expect(
+      replyInput({
+        authored: 'a'.repeat(summaryInputLimit),
+        recipients,
+        quoted: quoted('Hi'),
+      }),
+    ).toBeUndefined();
+    // The authored text is replaced by the result, so it is never cut or stripped of images.
+    expect(
+      replyInput({
+        authored: 'a'.repeat(summaryInputLimit + 1),
+        recipients,
+        quoted: quoted('Hi'),
+      }),
+    ).toBeUndefined();
+    expect(
+      replyInput({
+        authored: `See ${imageCharacter}`,
+        recipients,
+        quoted: quoted('Hi'),
+      }),
+    ).toBeUndefined();
+    expect(rewriteInput('Lets meet friday ok')).toStrictEqual({
+      purpose: 'rewrite',
+      text: 'Lets meet friday ok',
+      omitted: false,
+    });
+    expect(rewriteInput(' \n ')).toBeUndefined();
+    expect(rewriteInput(`See ${imageCharacter}`)).toBeUndefined();
+    expect(rewriteInput('a'.repeat(summaryInputLimit + 1))).toBeUndefined();
+  });
+
+  it('stops reading quoted spans and recipient names once their prefixes are full', () => {
+    expect.hasAssertions();
+    const reply = replyInput({
+      authored: 'Yes',
+      recipients: [
+        { name: 'x'.repeat(100_000), address: 'maya@example.invalid' },
+        {
+          get name(): string {
+            throw new Error('Read beyond the recipient prefix');
+          },
+          address: 'bob@example.invalid',
+        },
+      ],
+      quoted: [
+        { kind: 'paragraph', spans: [{ text: 'q'.repeat(100_000) }] },
+        {
+          kind: 'paragraph',
+          get spans(): SemanticDocument[number]['spans'] {
+            throw new Error('Read beyond the quoted prefix');
+          },
+        },
+      ],
+    });
+    expect(reply?.text).toHaveLength(summaryInputLimit);
+    expect(reply?.omitted).toBe(true);
+  });
+
+  it('asks the model for the requested operation and keeps its trimmed result', async () => {
+    expect.hasAssertions();
+    const { native, nth } = scriptedAssistance();
+    const assistance = createDraftAssistance(native);
+    const rewrite = rewriteFixture();
+    const reply = admitted(
+      replyInput({
+        authored: '',
+        recipients,
+        quoted: quoted('Shall we meet?'),
+      }),
+    );
+    const rewriting = assistance.start(rewrite);
+    const first = await nth(0);
+    expect(first).toMatchObject({ operation: 'rewrite', input: rewrite.text });
+    expect(assistance.getSnapshot(rewrite)).toStrictEqual({
+      kind: 'generating',
+    });
+    first.answer.resolve(' Shall we meet on Friday? ');
+    await rewriting;
+    expect(assistance.getSnapshot(rewrite)).toStrictEqual({
+      kind: 'ready',
+      text: 'Shall we meet on Friday?',
+      omitted: false,
+    });
+    // A result belongs to its own input.
+    expect(assistance.getSnapshot(reply)).toStrictEqual({ kind: 'idle' });
+    const replying = assistance.start(reply);
+    const second = await nth(1);
+    expect(second).toMatchObject({ operation: 'reply', input: reply.text });
+    second.answer.resolve('Friday works for me.');
+    await replying;
+    expect(assistance.getSnapshot(reply)).toMatchObject({
+      kind: 'ready',
+      text: 'Friday works for me.',
+    });
+  });
+
+  it.each([
+    {
+      outcome: 'refused',
+      rejection: { code: 'refused' },
+      expected: { kind: 'refused' },
+      retry: false,
+    },
+    {
+      outcome: 'unavailable',
+      rejection: { code: 'model-not-ready' },
+      expected: { kind: 'unavailable', reason: 'model-not-ready' },
+      retry: true,
+    },
+    {
+      outcome: 'failed',
+      rejection: new Error('Lets meet friday ok'),
+      expected: { kind: 'failed' },
+      retry: true,
+    },
+  ] as const)(
+    'leaves the Draft text unchanged when the model is $outcome, without logging it',
+    async ({ rejection, expected, retry }) => {
+      expect.hasAssertions();
+      const logged = vi.spyOn(console, 'error').mockReturnValue(undefined);
+      const { native, nth } = scriptedAssistance();
+      const assistance = createDraftAssistance(native);
+      const rewrite = rewriteFixture();
+      const done = assistance.start(rewrite);
+      const call = await nth(0);
+      call.answer.reject(rejection);
+      await done;
+      const state = assistance.getSnapshot(rewrite);
+      expect(state).toStrictEqual(expected);
+      expect(canRetryAssistance(state)).toBe(retry);
+      expect(JSON.stringify(logged.mock.calls)).not.toContain('friday');
+    },
+  );
+
+  it('rejects an oversized result and drops a cancelled late result', async () => {
+    expect.hasAssertions();
+    vi.spyOn(console, 'error').mockReturnValue(undefined);
+    const { native, nth, cancelled } = scriptedAssistance();
+    const assistance = createDraftAssistance(native);
+    const rewrite = rewriteFixture();
+    const oversized = assistance.start(rewrite);
+    const first = await nth(0);
+    first.answer.resolve('x'.repeat(summaryInputLimit * 2 + 1));
+    await oversized;
+    expect(assistance.getSnapshot(rewrite)).toStrictEqual({ kind: 'failed' });
+    const late = assistance.start(rewrite);
+    const call = await nth(1);
+    assistance.cancel();
+    expect(cancelled).toStrictEqual([call.request]);
+    call.answer.resolve('Too late.');
+    await late;
+    expect(assistance.getSnapshot(rewrite)).toStrictEqual({
+      kind: 'cancelled',
+    });
+  });
+  /* oxlint-enable vitest/max-expects */
+
+  it('gives Mock Mail Sessions fixed Draft outcomes', async () => {
+    expect.hasAssertions();
+    const rewrite = rewriteFixture();
+    const reply = { ...rewrite, purpose: 'reply' as const };
+    const available = createDraftAssistance(
+      createMockMailSession('open-read-relaunch').assistance,
+    );
+    await available.start(rewrite);
+    expect(available.getSnapshot(rewrite)).toMatchObject({
+      text: syntheticRewrite,
+    });
+    await available.start(reply);
+    expect(available.getSnapshot(reply)).toMatchObject({
+      text: syntheticReply,
+    });
+    const unavailable = createDraftAssistance(
+      createMockMailSession('assistance-unavailable').assistance,
+    );
+    await unavailable.start(reply);
+    expect(unavailable.getSnapshot(reply)).toStrictEqual({
       kind: 'unavailable',
       reason: 'model-not-ready',
     });

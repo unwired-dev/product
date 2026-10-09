@@ -53,6 +53,9 @@ function scriptedAssistance() {
       new Promise((resolve) => {
         asked.push({ request, input, answer: resolve });
       }),
+    // The reader never asks for Draft assistance.
+    rewrite: () => Promise.reject(new Error('unused')),
+    suggestReply: () => Promise.reject(new Error('unused')),
     cancel: (request) => {
       cancelled.push(request);
       return Promise.resolve(null);

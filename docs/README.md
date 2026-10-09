@@ -18,6 +18,7 @@ their scope below; publication of a plan does not prove implementation or releas
 - [Gmail Inbox synchronization and its encrypted cache](gmail-inbox.md)
 - [On-device message summaries](message-summaries.md)
 - [On-device translation](message-translation.md)
+- [On-device Draft rewrites and reply suggestions](draft-assistance.md)
 - [Local rich-text Drafts and the composer](drafts.md)
 - [Linked Google and Apple sign-in](linked-sign-in.md)
 - [Private Product Sync and the Recovery Key](private-product-sync.md)

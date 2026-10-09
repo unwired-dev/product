@@ -4,6 +4,7 @@ import type {
   TranslationInput,
 } from '../src/translation.ts';
 
+import { draftReplacement } from '../src/assistance.ts';
 import {
   displayOf,
   historyOf,
@@ -18,7 +19,6 @@ import {
 } from '../src/testing/mock-session.ts';
 import {
   createTranslation,
-  draftReplacement,
   draftTranslationInput,
   messageTranslationInput,
   readerText,
