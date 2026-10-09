@@ -352,6 +352,21 @@ extension DraftTests {
     _ = try await store.commitDrafts(
       owner: owner, expectedRevision: 2, document: "retried", keep: [])
     #expect(!session.exists("draft-assets/cleanup01"))
+
+    // A discard that cannot remove an uncommitted import still releases its import protection,
+    // so a later save removes the leftover file instead of keeping it until relaunch.
+    _ = try await store.importDraftAsset(
+      owner: owner, id: "discard01",
+      source: [
+        "kind": "data", "uri": "data:image/png;base64,\(session.bytes.base64EncodedString())",
+      ])
+    try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: folder.path)
+    await #expect(throws: (any Error).self) { try await store.discardDraftAsset(id: "discard01") }
+    try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: folder.path)
+    #expect(session.exists("draft-assets/discard01"))
+    _ = try await store.commitDrafts(
+      owner: owner, expectedRevision: 3, document: "discarded", keep: [])
+    #expect(!session.exists("draft-assets/discard01"))
   }
 
   // A solid-colour PNG of the given size, as a photo-sized image.

@@ -383,8 +383,9 @@ public final class PrivateInboxStore: @unchecked Sendable {
   public func discardDraftAsset(id: String) throws {
     let url = try draftAssetURL(id)
     try unlockedTransaction {
+      // Released even when removal fails, so a later save can retry removing an unkept file.
+      defer { Self.importedAssets.remove([id]) }
       try removeAttachmentItem(url)
-      Self.importedAssets.remove([id])
     }
   }
 
