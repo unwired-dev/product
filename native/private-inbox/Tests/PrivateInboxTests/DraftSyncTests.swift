@@ -136,6 +136,13 @@ struct DraftSyncTests {
     #expect(restored["digest"] as? String == digest)
     #expect(
       try await store.draftAssetBytes(owner: owner, id: "assetabc123", digest: digest) == bytes)
+    // Downloaded bytes are not an unfinished import: a stored document without them reclaims them.
+    let revision = try #require(try await store.openDrafts()["revision"] as? Int)
+    _ = try await store.commitDrafts(
+      owner: owner, expectedRevision: revision, document: #"{"version":1,"drafts":[]}"#)
+    await #expect(throws: PrivateInboxError.attachmentMissing) {
+      _ = try await store.draftAssetBytes(owner: owner, id: "assetabc123", digest: digest)
+    }
 
     // A revoked device cannot use its cached sync context; preflight purges local keys and data.
     backend.revoked.insert(phone.product.trustedDeviceId)

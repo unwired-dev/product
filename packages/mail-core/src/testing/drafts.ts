@@ -442,7 +442,6 @@ export function createSyntheticDrafts(
               return rejection('too-large');
             }
             assets.set(id, { owner, bytes, digest });
-            pending.add(id);
             return Promise.resolve({ owner, size, digest });
           },
         };

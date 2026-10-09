@@ -257,6 +257,15 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   Index each snapshot once while keeping the same identifier/content semantics;
   otherwise a large admitted Draft document makes conflict recovery quadratic
   and blocks the shared JavaScript runtime during saving.
+- `drafts.ts.conflictCopy` or `copyId` repeatedly suffixing derived identifiers beyond
+  a native/transport boundary's length limit. Exercise nested copies through both
+  local stale edits and synchronization; keep identifiers bounded without changing
+  an existing Draft's identity. Any shortened base must also be used by
+  `movesToSyncedCopies`, preserving exact accepted/surviving-content checks and
+  existing movements. Require a unique removed source and refuse ambiguous association;
+  cover continued editing, Discard and relaunch after shortening, and retained recovery
+  of identical-content siblings. Otherwise deep conflict chains cannot synchronize,
+  or their editors keep targeting a removed identity despite converged Draft lists.
 - `createDrafts.adopt` preserving deletion in only one publication order of an edit-versus-Discard
   race. Check local deletion against a remote edit already published as well as
   a local edit against a published tombstone: the original identity must stay

@@ -410,8 +410,14 @@ The Draft merge preserves an offline local Discard even when a remote edit was
 published first, copying that edit before tombstoning its original identity.
 An editor of the published version follows an accepted, surviving conflict copy
 whose generated identifier names its removed original and whose authored content
-matches after normalizing identity and conflict metadata. Other authored versions
-and already-rebound editors do not acquire that association.
+matches after normalizing identity and conflict metadata. Repeated copies restart
+from the root when their source identity exceeds 100 characters, keeping generated
+identifiers below the native bridge's 200-character limit. Association groups local
+sources by the same bounded base and requires one removed exact-content match.
+Identical removed sources sharing that base remain recoverable but unassociated;
+explicit synchronized provenance would be needed to distinguish them. The review
+panel chose this bounded association without extending the wire format. Other authored
+versions and already-rebound editors do not acquire that association.
 
 Immutable assets use account-specific HMAC addresses over asset identity and
 SHA-256 digest, followed by the chunk position. AES-GCM associated data authenticates

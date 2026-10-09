@@ -430,12 +430,21 @@ const draftOrder: Order.Order<Draft> = Order.combine(
   Order.mapInput(Order.String, ({ id }: Draft) => id),
 );
 
+// A copy names the version it copies, so its editors can follow it. A copy of a long chain of copies
+// restarts from the original Draft, keeping identifiers within the native bridge's 200 characters.
+const copyBase = (id: string) =>
+  id.length > 100 ? (id.split('-conflict-')[0] ?? id) : id;
+
 // A conflicting version of a Draft, kept beside the stored one under a new identifier.
 const conflictCopy = Effect.fnUntraced(function* (
   draft: Draft,
 ): Effect.fn.Return<Draft> {
   const suffix = Math.abs(yield* Random.nextInt).toString(36);
-  return { ...draft, id: `${draft.id}-conflict-${suffix}`, conflict: true };
+  return {
+    ...draft,
+    id: `${copyBase(draft.id)}-conflict-${suffix}`,
+    conflict: true,
+  };
 });
 
 // The same content saved by both writers keeps the later edit time, so the list order holds.
@@ -480,6 +489,18 @@ const rebaseDrafts = Effect.fnUntraced(function* (
   return { drafts: merged, moved };
 });
 
+// Indexes possible source versions by the same bounded base used when making their copies.
+const indexedCopySources = (local: readonly Draft[]) => {
+  const before = new Map<string, Draft[]>();
+  for (const draft of local) {
+    const base = copyBase(draft.id);
+    const drafts = before.get(base) ?? [];
+    drafts.push(draft);
+    before.set(base, drafts);
+  }
+  return before;
+};
+
 // Finds an editor's published version copied by another device, excluding already-rebound edits.
 const movesToSyncedCopies = (
   local: readonly Draft[],
@@ -489,23 +510,27 @@ const movesToSyncedCopies = (
     moved: ReadonlyArray<Readonly<{ from: string; to: string }>>;
   }>,
 ) => {
-  const before = indexed(local);
+  const before = indexedCopySources(local);
   const surviving = indexed(merged.drafts);
   const moved = new Map(merged.moved.map(({ from, to }) => [from, to]));
   for (const copy of latest) {
-    const from = copy.id.slice(0, copy.id.lastIndexOf('-conflict-'));
-    const ours = before.get(from);
+    const from = copy.id.slice(
+      0,
+      Math.max(0, copy.id.lastIndexOf('-conflict-')),
+    );
     const target = surviving.get(copy.id);
-    if (
-      copy.conflict === true &&
-      copy.id.startsWith(`${from}-conflict-`) &&
-      !surviving.has(from) &&
-      !moved.has(from) &&
-      ours !== undefined &&
-      sameContent({ ...ours, id: copy.id, conflict: true }, target) &&
-      sameContent(copy, target)
-    ) {
-      moved.set(from, copy.id);
+    if (copy.conflict === true && sameContent(copy, target)) {
+      const sources = (before.get(from) ?? []).filter(
+        (ours) =>
+          !surviving.has(ours.id) &&
+          sameContent({ ...ours, id: copy.id, conflict: true }, target),
+      );
+      const [ours] = sources;
+      // shortcut: identical removed versions sharing a shortened base cannot be distinguished;
+      // explicit synchronized provenance is needed before those editors can be safely rebound.
+      if (sources.length === 1 && ours !== undefined && !moved.has(ours.id)) {
+        moved.set(ours.id, copy.id);
+      }
     }
   }
   return [...moved].map(([from, to]) => ({ from, to }));
@@ -547,10 +572,11 @@ const mergeSyncedDrafts = Effect.fnUntraced(function* (
 const copyId = (id: string, drafts: readonly Draft[]) => {
   const used = new Set(drafts.map((draft) => draft.id));
   let index = 1;
-  while (used.has(`${id}-conflict-${index}`)) {
+  const base = copyBase(id);
+  while (used.has(`${base}-conflict-${index}`)) {
     index += 1;
   }
-  return `${id}-conflict-${index}`;
+  return `${base}-conflict-${index}`;
 };
 
 // The saved version is gone or both the saved version and this editor changed since its baseline.

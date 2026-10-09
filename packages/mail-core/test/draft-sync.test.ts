@@ -390,6 +390,13 @@ describe('synchronizing Drafts through Product Sync', () => {
     await phone.drafts.discard(kept);
     await phone.drafts.discard(racing);
     await mac.drafts.update(write(mac.draft(racing), ' on'), mac.draft(racing));
+    // The second device downloads the unchanged Draft's file just before its deletion arrives.
+    await expect(
+      mac.drafts.readAsset(complete(mac.draft(kept), notes.id), {
+        preview: false,
+      }),
+    ).resolves.toStrictEqual({ kind: 'verified' });
+    expect(mac.storage.assets()).toStrictEqual([notes.id]);
     await phone.drafts.sync();
     // Cloud bytes remain recoverable for offline copies even when all known records delete.
     expect(chunks().length).toBeGreaterThan(1);
@@ -407,66 +414,85 @@ describe('synchronizing Drafts through Product Sync', () => {
     expect(mac.storage.assets()).toStrictEqual([]);
   });
 
-  it('keeps an offline Discard when another device publishes an edit first, and keeps that edit as a copy', async () => {
-    expect.hasAssertions();
-    const server = createSyntheticProductSync();
-    const phone = await device(server);
-    const mac = await device(server);
-    const id = present(await phone.drafts.create(alex), 'a Draft');
-    await phone.drafts.update(
-      write(phone.draft(id), 'Shared'),
-      phone.draft(id),
-    );
-    await phone.drafts.sync();
-    await mac.drafts.sync();
+  it.each([0, 101])(
+    'keeps an offline Discard when another device publishes an edit first, and keeps that edit as a copy (minimum source length: %i)',
+    async (minimumLength) => {
+      expect.hasAssertions();
+      const server = createSyntheticProductSync();
+      const phone = await device(server);
+      const mac = await device(server);
+      let id = present(await phone.drafts.create(alex), 'a Draft');
+      for (let round = 0; id.length < minimumLength; round += 1) {
+        const stale = phone.draft(id);
+        await phone.drafts.update(write(stale, `kept ${round}`), stale);
+        const moves: string[] = [];
+        await phone.drafts.update(
+          write(stale, `copied ${round}`),
+          stale,
+          (copy) => {
+            moves.push(copy);
+          },
+        );
+        const prior = id;
+        id = present(moves.at(-1), 'the conflicting copy');
+        await phone.drafts.discard(prior);
+      }
+      expect(id.length).toBeGreaterThanOrEqual(minimumLength);
+      await phone.drafts.update(
+        write(phone.draft(id), 'Shared'),
+        phone.draft(id),
+      );
+      await phone.drafts.sync();
+      await mac.drafts.sync();
 
-    // The phone discards offline; the Mac's edit reaches Product Sync first.
-    server.setReachable(false);
-    await phone.drafts.discard(id);
-    server.setReachable(true);
-    const edited = write(mac.draft(id), ' edited');
-    const moves: string[] = [];
-    let target = id;
-    await mac.drafts.update(edited, mac.draft(id), (copy) => {
-      moves.push(copy);
-      target = copy;
-    });
-    await mac.drafts.sync();
-    await phone.drafts.sync();
-    await mac.drafts.sync();
-
-    // The discarded identity stays removed; the Mac's edit survives as a copy on both devices.
-    for (const each of [phone, mac]) {
-      expect(each.list().map((draft) => draft.id)).not.toContain(id);
-      expect(each.list()).toHaveLength(1);
-      expect(each.list()[0]).toMatchObject({
-        conflict: true,
-        body: edited.body,
+      // The phone discards offline; the Mac's edit reaches Product Sync first.
+      server.setReachable(false);
+      await phone.drafts.discard(id);
+      server.setReachable(true);
+      const edited = write(mac.draft(id), ' edited');
+      const moves: string[] = [];
+      let target = id;
+      await mac.drafts.update(edited, mac.draft(id), (copy) => {
+        moves.push(copy);
+        target = copy;
       });
-    }
-    expect(phone.list()[0]?.body).toStrictEqual(mac.list()[0]?.body);
-    const copy = present(mac.list()[0], 'the conflicting copy');
-    expect(moves).toStrictEqual([copy.id]);
+      await mac.drafts.sync();
+      await phone.drafts.sync();
+      await mac.drafts.sync();
 
-    const continued = write(mac.draft(target), '!');
-    await mac.drafts.update(continued, mac.draft(target));
-    await mac.drafts.sync();
-    await phone.drafts.sync();
-    await phone.relaunch();
-    await mac.relaunch();
-    for (const each of [phone, mac]) {
-      await each.drafts.sync();
-      expect(each.list()).toHaveLength(1);
-      expect(each.draft(copy.id).body).toStrictEqual(continued.body);
-      expect(each.list().map((draft) => draft.id)).not.toContain(id);
-    }
+      // The discarded identity stays removed; the Mac's edit survives as a copy on both devices.
+      for (const each of [phone, mac]) {
+        expect(each.list().map((draft) => draft.id)).not.toContain(id);
+        expect(each.list()).toHaveLength(1);
+        expect(each.list()[0]).toMatchObject({
+          conflict: true,
+          body: edited.body,
+        });
+      }
+      expect(phone.list()[0]?.body).toStrictEqual(mac.list()[0]?.body);
+      const copy = present(mac.list()[0], 'the conflicting copy');
+      expect(moves).toStrictEqual([copy.id]);
 
-    await mac.drafts.discard(() => target);
-    await mac.drafts.sync();
-    await phone.drafts.sync();
-    expect(mac.list()).toStrictEqual([]);
-    expect(phone.list()).toStrictEqual([]);
-  });
+      const continued = write(mac.draft(target), '!');
+      await mac.drafts.update(continued, mac.draft(target));
+      await mac.drafts.sync();
+      await phone.drafts.sync();
+      await phone.relaunch();
+      await mac.relaunch();
+      for (const each of [phone, mac]) {
+        await each.drafts.sync();
+        expect(each.list()).toHaveLength(1);
+        expect(each.draft(copy.id).body).toStrictEqual(continued.body);
+        expect(each.list().map((draft) => draft.id)).not.toContain(id);
+      }
+
+      await mac.drafts.discard(() => target);
+      await mac.drafts.sync();
+      await phone.drafts.sync();
+      expect(mac.list()).toStrictEqual([]);
+      expect(phone.list()).toStrictEqual([]);
+    },
+  );
 
   it('does not move an editor to another authored version merely because its conflict copy names the discarded Draft', async () => {
     expect.hasAssertions();
@@ -567,6 +593,94 @@ describe('synchronizing Drafts through Product Sync', () => {
     expect(mac.draft(id).body).toStrictEqual(edited.body);
     await mac.relaunch();
     expect(mac.draft(id).body).toStrictEqual(edited.body);
+  });
+
+  it('keeps conflict copies of conflict copies within the identifier bound, so they still synchronize', async () => {
+    expect.hasAssertions();
+    const server = createSyntheticProductSync();
+    const phone = await device(server);
+    const mac = await device(server);
+    let id = present(await phone.drafts.create(alex), 'a Draft');
+    // Each stale edit of the newest copy preserves itself as a copy of that copy.
+    for (let round = 0; round < 25; round += 1) {
+      const stale = phone.draft(id);
+      await phone.drafts.update(write(stale, `kept ${round}`), stale);
+      const moves: string[] = [];
+      await phone.drafts.update(
+        write(stale, `copied ${round}`),
+        stale,
+        (copy) => {
+          moves.push(copy);
+        },
+      );
+      id = present(moves.at(-1), 'the conflicting copy');
+    }
+    expect(phone.list().every((draft) => draft.id.length <= 200)).toBe(true);
+    await phone.drafts.sync();
+    await mac.drafts.sync();
+    expect(mac.list()).toHaveLength(phone.list().length);
+  });
+
+  it('keeps ambiguous shortened copies recoverable without binding an editor to another removed Draft', async () => {
+    expect.hasAssertions();
+    const server = createSyntheticProductSync();
+    const phone = await device(server);
+    const mac = await device(server);
+    const root = present(await phone.drafts.create(alex), 'a Draft');
+    const draft = phone.draft(root);
+    const ids = [1, 2].map(
+      (suffix) => `${root}${'-conflict-1'.repeat(8)}-conflict-${suffix}`,
+    );
+    for (const id of ids) {
+      expect(id.length).toBeGreaterThan(100);
+      expect(id.length).toBeLessThanOrEqual(200);
+    }
+    // Two already-stored long siblings have the same authored content and shortened base.
+    const stored = present(phone.storage.stored(), 'the stored document');
+    await phone.storage.native.commitDrafts('account-a', stored.revision, {
+      document: JSON.stringify({
+        version: 1,
+        drafts: ids.map((id) => ({ ...draft, id, conflict: true })),
+      }),
+      keep: [],
+    });
+    await phone.relaunch();
+    await phone.drafts.sync();
+    await mac.drafts.sync();
+    const moves: string[] = [];
+    for (const id of ids) {
+      await phone.drafts.discard(id);
+      await mac.drafts.update(
+        write(mac.draft(id), 'Identical'),
+        mac.draft(id),
+        (copy) => {
+          moves.push(copy);
+        },
+      );
+    }
+    await mac.drafts.sync();
+    await phone.drafts.sync();
+    await mac.drafts.sync();
+    expect(moves).toStrictEqual([]);
+    expect(mac.list()).toHaveLength(2);
+    for (const id of ids) {
+      expect(mac.list().map((copy) => copy.id)).not.toContain(id);
+    }
+    for (const copy of mac.list()) {
+      expect(copy.body).toStrictEqual(write(draft, 'Identical').body);
+    }
+    expect(mac.list().map(({ body }) => body)).toStrictEqual(
+      phone.list().map(({ body }) => body),
+    );
+    await mac.relaunch();
+    expect(mac.list()).toHaveLength(2);
+    for (const copy of mac.list()) {
+      await mac.drafts.discard(copy.id);
+    }
+    await mac.drafts.sync();
+    await phone.drafts.sync();
+    expect(mac.list()).toStrictEqual([]);
+    expect(phone.list()).toStrictEqual([]);
   });
 
   it('resumes after an interrupted write and a relaunch without inventing conflicts', async () => {

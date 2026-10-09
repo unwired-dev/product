@@ -175,7 +175,7 @@ extension RegistrationStore {
   func storeDraftAsset(owner: String, id: String, bytes: Data) async throws -> [String: Any] {
     let (_, stored) = try await draftWork { store, current in
       guard owner == current else { throw PrivateInboxError.mailboxInvalidated }
-      return try store.importDraftAsset(owner: owner, id: id, bytes: bytes)
+      return try store.importDraftAsset(owner: owner, id: id, bytes: bytes, pending: false)
     }
     return ["owner": owner, "size": stored.size, "digest": stored.digest]
   }

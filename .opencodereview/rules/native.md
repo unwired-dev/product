@@ -13,6 +13,14 @@ Native storage owns what TypeScript must never hold: Keychain items, the storage
 
 #### Keys, credentials and storage
 
+- `PrivateInboxStore.importDraftAsset` applying process-wide pending-import protection
+  to bytes downloaded for an already-stored Draft reference. Trace every import caller,
+  including `RegistrationStore.storeDraftAsset`: protect picker/received imports only
+  until reference adoption or abandonment, while synced downloads rely on the document's
+  keep list. Verify that a later stored document dropping the downloaded asset reclaims
+  it in the same process, while live/history-held references remain protected.
+  Otherwise Discard leaves orphaned ciphertext consuming the non-evicting quota until relaunch.
+
 - `PrivateInboxStore.discardDraftAsset` retaining process-local import protection
   after an abandoned import's file removal throws. Release that protection under
   the storage lock on both success and failure, preserving the deletion error,

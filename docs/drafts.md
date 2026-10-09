@@ -210,6 +210,10 @@ delivery ownership; the delivery slice claims a Draft by that same identifier.
   edit follows its copy. An edit racing another device's **Discard** survives the
   same way while the discarded Draft stays removed. Review a copy and discard it
   when it is no longer needed. Nothing picks a winner silently.
+  Repeated conflicts remain synchronizable. When deeply nested copies with identical
+  content cannot be distinguished after another device preserves them, the open editor
+  does not automatically follow a copy; select the retained conflict copy from Drafts
+  before continuing or discarding it.
 - **Files:** a complete file uploads before the Draft that names it. Another device
   downloads it when the composer first checks it, verified against its size and
   SHA-256 digest. Until then, or when part of it is missing or does not open, the
@@ -374,8 +378,11 @@ check both publication orders of that race, keep the exact edit and its editor's
 target through continued editing, Discard and relaunch, and refuse to bind an
 editor to a different authored conflict copy, including one edited locally
 before an interrupted deletion finishes publishing. They also resume synchronization
-after a subscriber defect rejects a pass,
-recover an offline conflict whose assets were never downloaded, retry interrupted
+after a subscriber defect rejects a pass, keep repeated copies within the identifier
+bound, continue the editor after a deeply nested copy is shortened, and retain
+ambiguous identical copies for explicit selection and Discard,
+reclaim downloaded local bytes when their Draft is removed, recover an offline
+conflict whose assets were never downloaded, retry interrupted
 uploads before publishing complete references, retain deletion versions through
 relaunch and reject replayed live records, resume after a lost reply and
 relaunches without extra copies, refuse moved, replayed and foreign records, and
@@ -386,7 +393,8 @@ or Product Account deletion. The hosted iOS 27 storage suite adds
 Draft record without its plaintext under an opaque identifier, a stale
 compare-and-set, a moved record reported unreadable, another account's keys
 reading nothing, a three-chunk file that downloads exactly and refuses swapped or
-missing chunks, storing downloaded bytes for the signed-in account only, and
+missing chunks, storing downloaded bytes for the signed-in account only and
+reclaiming them in the same process after the stored Draft stops naming them, and
 sealed deletion tombstones and revocation preflight purging local keys and data.
 
 Deferred before release: native iPhone, iPad and Mac journeys that compose, relaunch
