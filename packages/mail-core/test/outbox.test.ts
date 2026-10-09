@@ -698,6 +698,10 @@ describe('sending a Draft through the Outbox', () => {
     await expect(send({ ...draft, entries: { to: 'sam@' } })).resolves.toBe(
       'entries',
     );
+    // Native code sends ASCII only; such an address would otherwise wait forever.
+    await expect(
+      send({ ...draft, to: [{ address: 'žofie@example.invalid' }] }),
+    ).resolves.toBe('addresses');
     await expect(
       send({ ...draft, connection: 'connection-gone' }),
     ).resolves.toBe('sender');

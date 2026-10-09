@@ -17,6 +17,8 @@ in the background or with Mac windows closed is
   composer. It refuses, and keeps the Draft open with the reason, when the Draft:
   - has no recipient;
   - has text that is not a valid address;
+  - has a sender or recipient address that is not plain ASCII, which native code
+    cannot send;
   - sends from a mailbox that cannot send;
   - has a file that is still importing, failed, or does not verify on this device;
   - is over Gmail's 35 MB message limit;

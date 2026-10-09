@@ -493,6 +493,7 @@
     "sendRefused": {
       "recipients": "Add a recipient before sending.",
       "entries": "Correct or remove the invalid address before sending.",
+      "addresses": "An address in this message uses characters this app cannot send yet. Use a plain email address.",
       "sender": "This mailbox cannot send now. Choose another mailbox to send from.",
       "assets": "Some files are not ready to send. Remove them, or wait until they are added.",
       "too-large": "This message is too large for Gmail. Remove some files and try again.",

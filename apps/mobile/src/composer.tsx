@@ -1116,6 +1116,7 @@ function Editor({
     typingField.current = word ? field : undefined;
     if (!discarded.current) {
       setClosing(undefined);
+      setRefused(undefined);
     }
     update(next);
   };

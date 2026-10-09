@@ -47,6 +47,14 @@ describe('building an outgoing message', () => {
         to: recipients,
         // A line break in a name or subject must not start another header.
         subject: 'Plán\r\nBcc: someone@example.invalid',
+        // A received identifier that is not ASCII is left out; native code sends ASCII only.
+        response: {
+          kind: 'reply',
+          message: 'm-1',
+          thread: { connection: 'connection-alex', id: 'thread-1' },
+          inReplyTo: '<m-1@example.invalid>',
+          references: ['<starý@example.invalid>', '<m-1@example.invalid>'],
+        },
         attachments: [
           {
             id: 'a1b2c3d4e5',
@@ -67,6 +75,8 @@ describe('building an outgoing message', () => {
     expect(lines.every((line) => line.length <= 78)).toBe(true);
     expect(lines.filter((line) => line.startsWith('Bcc:'))).toStrictEqual([]);
     expect(raw).not.toContain('X-Injected');
+    expect([...raw].every((character) => character <= '\u007F')).toBe(true);
+    expect(head).toContain('References: <m-1@example.invalid>\r\n');
     expect(head).toContain('Date: Fri, 09 Oct 2026 08:05:03 +0000');
     const parsed = await PostalMime.parse(raw);
     expect(parsed.subject).toBe('Plán Bcc: someone@example.invalid');

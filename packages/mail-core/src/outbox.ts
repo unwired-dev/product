@@ -16,7 +16,11 @@ import {
 } from './diagnostics.ts';
 import { assetsOf } from './draft-model.ts';
 import { sendingStateOf, threadOf, unsendableAssets } from './drafts.ts';
-import { gmailMessageLimit, outgoingMessage } from './outgoing-message.ts';
+import {
+  gmailMessageLimit,
+  outgoingMessage,
+  sendableAddress,
+} from './outgoing-message.ts';
 import { canOpenInbox, mailboxesOf } from './registration.ts';
 
 // The native module's delivery claim through Convex. Native code names the Draft by an identifier
@@ -44,6 +48,7 @@ const retryDelay = 30_000;
 export type SendRefusal =
   | 'recipients'
   | 'entries'
+  | 'addresses'
   | 'sender'
   | 'assets'
   | 'too-large'
@@ -260,6 +265,16 @@ export function createOutbox({
     if (draft.entries !== undefined) {
       return 'entries';
     }
+    if (
+      ![
+        draft.from,
+        ...[...draft.to, ...draft.cc, ...draft.bcc].map(
+          ({ address }) => address,
+        ),
+      ].every(sendableAddress)
+    ) {
+      return 'addresses';
+    }
     if (senderProblem(draft) !== undefined) {
       return 'sender';
     }
@@ -420,13 +435,18 @@ export function createOutbox({
         return 'too-large';
       }
       const sendAt = Date.now() + undoSendWindow;
-      const admitted = await drafts.admit(draft.id, expected, (stored) => ({
-        id: stored.id,
-        draft: stored,
-        message,
-        sendAt,
-        state: 'waiting',
-      }));
+      // Resolved at write time, so an editor rebound to a conflict copy admits its own copy.
+      const admitted = await drafts.admit(
+        () => expected().id,
+        expected,
+        (stored) => ({
+          id: stored.id,
+          draft: stored,
+          message,
+          sendAt,
+          state: 'waiting',
+        }),
+      );
       if (admitted) {
         return undefined;
       }

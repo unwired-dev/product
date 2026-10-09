@@ -155,52 +155,55 @@ describe('sending a Draft', () => {
   it('sends from the composer after the Undo Send Window, and Undo returns the Draft to edit', async () => {
     expect.hasAssertions();
     const sender = device();
-    await act(async () => {
-      await sender.mailboxes.load();
-    });
-    await render(<App sender={sender} />);
-    await compose('Lunch');
+    try {
+      await act(async () => {
+        await sender.mailboxes.load();
+      });
+      await render(<App sender={sender} />);
+      await compose('Lunch');
 
-    await press('Send');
+      await press('Send');
 
-    // The composer closes; the message waits in the Outbox, and no Draft row remains.
-    expect(screen.queryByLabelText('Subject')).toBeNull();
-    expect(screen.getByRole('header', { name: 'Outbox' })).toBeOnTheScreen();
-    expect(
-      screen.getByLabelText('Lunch. To sam@example.invalid. Sending soon'),
-    ).toBeOnTheScreen();
-    expect(screen.queryByRole('header', { name: 'Drafts' })).toBeNull();
-    sender.storage.hold();
-    const undo = screen.getByRole('button', { name: 'Undo' });
-    await act(async () => {
-      await fireEvent.press(undo);
-      await fireEvent.press(undo);
-    });
-    await act(async () => {
-      sender.storage.release();
-    });
-    await expect(screen.findByLabelText('Subject')).resolves.toHaveProp(
-      'value',
-      'Lunch',
-    );
-    expect(sender.drafts.getSnapshot()).toMatchObject({
-      kind: 'ready',
-      drafts: [{ subject: 'Lunch' }],
-    });
-    expect(screen.queryByRole('header', { name: 'Outbox' })).toBeNull();
-    await later(sender, 10_000);
-    expect(sender.gmail.sends).toStrictEqual([]);
+      // The composer closes; the message waits in the Outbox, and no Draft row remains.
+      expect(screen.queryByLabelText('Subject')).toBeNull();
+      expect(screen.getByRole('header', { name: 'Outbox' })).toBeOnTheScreen();
+      expect(
+        screen.getByLabelText('Lunch. To sam@example.invalid. Sending soon'),
+      ).toBeOnTheScreen();
+      expect(screen.queryByRole('header', { name: 'Drafts' })).toBeNull();
+      sender.storage.hold();
+      const undo = screen.getByRole('button', { name: 'Undo' });
+      await act(async () => {
+        await fireEvent.press(undo);
+        await fireEvent.press(undo);
+      });
+      await act(async () => {
+        sender.storage.release();
+      });
+      await expect(screen.findByLabelText('Subject')).resolves.toHaveProp(
+        'value',
+        'Lunch',
+      );
+      expect(sender.drafts.getSnapshot()).toMatchObject({
+        kind: 'ready',
+        drafts: [{ subject: 'Lunch' }],
+      });
+      expect(screen.queryByRole('header', { name: 'Outbox' })).toBeNull();
+      await later(sender, 10_000);
+      expect(sender.gmail.sends).toStrictEqual([]);
 
-    await press('Send');
-    await later(sender, 9999);
-    expect(sender.gmail.sends).toStrictEqual([]);
-    await later(sender, 1);
+      await press('Send');
+      await later(sender, 9999);
+      expect(sender.gmail.sends).toStrictEqual([]);
+      await later(sender, 1);
 
-    expect(sender.gmail.sends).toHaveLength(1);
-    expect(sender.gmail.sends[0]?.raw).toContain('Subject: Lunch');
-    expect(sender.gmail.sends[0]?.raw).toContain('To: sam@example.invalid');
-    expect(screen.queryByRole('header', { name: 'Outbox' })).toBeNull();
-    sender.outbox.dispose();
+      expect(sender.gmail.sends).toHaveLength(1);
+      expect(sender.gmail.sends[0]?.raw).toContain('Subject: Lunch');
+      expect(sender.gmail.sends[0]?.raw).toContain('To: sam@example.invalid');
+      expect(screen.queryByRole('header', { name: 'Outbox' })).toBeNull();
+    } finally {
+      sender.outbox.dispose();
+    }
   });
 
   it('keeps a long Outbox virtualized and hides it during received-mail search', async () => {
@@ -257,44 +260,47 @@ describe('sending a Draft', () => {
   it('explains a refused Send, a refusal by Gmail and an unknown outcome', async () => {
     expect.hasAssertions();
     const sender = device();
-    await act(async () => {
-      await sender.mailboxes.load();
-    });
-    await render(<App sender={sender} />);
-    await press('New Message');
+    try {
+      await act(async () => {
+        await sender.mailboxes.load();
+      });
+      await render(<App sender={sender} />);
+      await press('New Message');
 
-    await press('Send');
+      await press('Send');
 
-    expect(
-      screen.getByRole('alert', { name: 'Add a recipient before sending.' }),
-    ).toBeOnTheScreen();
-    expect(screen.getByLabelText('Subject')).toBeOnTheScreen();
-    await press('Discard');
-    await press('Discard Draft');
-    sender.gmail.failSend({ status: 400, body: '{}' }, { lost: true });
-    await compose('Refused');
-    await press('Send');
-    await compose('Lost');
-    await press('Send');
-    await later(sender, 10_000);
+      expect(
+        screen.getByRole('alert', { name: 'Add a recipient before sending.' }),
+      ).toBeOnTheScreen();
+      expect(screen.getByLabelText('Subject')).toBeOnTheScreen();
+      await press('Discard');
+      await press('Discard Draft');
+      sender.gmail.failSend({ status: 400, body: '{}' }, { lost: true });
+      await compose('Refused');
+      await press('Send');
+      await compose('Lost');
+      await press('Send');
+      await later(sender, 10_000);
 
-    expect(sender.gmail.sends).toHaveLength(1);
-    expect(
-      screen.getByLabelText(
-        'Refused. To sam@example.invalid. Not sent. Gmail refused this message.',
-      ),
-    ).toBeOnTheScreen();
-    expect(
-      screen.getByLabelText(
-        'Lost. To sam@example.invalid. Delivery unknown. Check Sent in Gmail before sending it again.',
-      ),
-    ).toBeOnTheScreen();
-    // Only the refused message returns to edit; the unknown one offers no way to send it again.
-    expect(screen.getAllByRole('button', { name: 'Edit' })).toHaveLength(1);
-    await press('Edit');
-    expect(screen.getByLabelText('Subject')).toHaveProp('value', 'Refused');
-    await later(sender, 60_000);
-    expect(sender.gmail.sends).toHaveLength(1);
-    sender.outbox.dispose();
+      expect(sender.gmail.sends).toHaveLength(1);
+      expect(
+        screen.getByLabelText(
+          'Refused. To sam@example.invalid. Not sent. Gmail refused this message.',
+        ),
+      ).toBeOnTheScreen();
+      expect(
+        screen.getByLabelText(
+          'Lost. To sam@example.invalid. Delivery unknown. Check Sent in Gmail before sending it again.',
+        ),
+      ).toBeOnTheScreen();
+      // Only the refused message returns to edit; the unknown one offers no way to send it again.
+      expect(screen.getAllByRole('button', { name: 'Edit' })).toHaveLength(1);
+      await press('Edit');
+      expect(screen.getByLabelText('Subject')).toHaveProp('value', 'Refused');
+      await later(sender, 60_000);
+      expect(sender.gmail.sends).toHaveLength(1);
+    } finally {
+      sender.outbox.dispose();
+    }
   });
 });

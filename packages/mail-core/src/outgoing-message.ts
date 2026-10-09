@@ -93,6 +93,14 @@ const quotedName = (name: string) =>
   printable.test(name) && name.length <= 60
     ? `"${name.replaceAll(/["\\]/gu, String.raw`\$&`)}"`
     : encodedWords(name).join(`${crlf} `);
+// An address or message identifier in a header is printable ASCII without spaces; native code
+// sends ASCII text only.
+export const sendableAddress = (address: string) =>
+  /^[\u0021-\u007E]+$/u.test(address);
+// Received identifiers that are not printable ASCII are left out of the reply's headers.
+const messageIds = (ids: readonly string[]) =>
+  ids.map(headerText).filter(sendableAddress);
+
 const mailbox = ({ name, address }: Recipient) => {
   const shown = name === undefined ? '' : headerText(name);
   return shown === '' ? address : `${quotedName(shown)} <${address}>`;
@@ -333,15 +341,19 @@ export function outgoingMessage(
     ...(draft.attachments ?? []).map((asset) => assetPart(asset, false)),
   ]);
   const { response } = draft;
-  const threading =
+  const inReplyTo =
     response === undefined || response.kind === 'forward'
-      ? ''
-      : (response.inReplyTo === undefined
-          ? ''
-          : header('In-Reply-To', [headerText(response.inReplyTo)])) +
-        (response.references.length === 0
-          ? ''
-          : header('References', response.references.map(headerText)));
+      ? []
+      : messageIds(
+          response.inReplyTo === undefined ? [] : [response.inReplyTo],
+        );
+  const references =
+    response === undefined || response.kind === 'forward'
+      ? []
+      : messageIds(response.references);
+  const threading =
+    (inReplyTo.length === 0 ? '' : header('In-Reply-To', inReplyTo)) +
+    (references.length === 0 ? '' : header('References', references));
   // Gmail delivers to Bcc recipients and removes the header from what others receive.
   const head = `From: ${draft.from}${crlf}${addressList('To', draft.to)}${addressList('Cc', draft.cc)}${addressList('Bcc', draft.bcc)}${unstructured('Subject', draft.subject)}Date: ${dateOf(date)}${crlf}${threading}MIME-Version: 1.0${crlf}`;
   const segments = [
