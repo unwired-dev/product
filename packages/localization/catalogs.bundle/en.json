@@ -482,7 +482,8 @@
     },
     "sending": {
       "authorization": "This mailbox needs Gmail access again before it can send. Allow access or choose another mailbox.",
-      "removed": "This mailbox was removed from this account. Choose another mailbox to send from."
+      "removed": "This mailbox was removed from this account. Choose another mailbox to send from.",
+      "renamed": "This mailbox changed its address. Choose it again in From to use its current address, or choose another mailbox."
     },
     "titleShortened": "{{title}}, subject shortened",
     "close": "Close",

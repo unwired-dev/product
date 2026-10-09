@@ -350,6 +350,44 @@ describe('composing Drafts', () => {
     );
     expect(screen.getByLabelText('Message body')).toHaveTextContent('• Notes');
 
+    // A refreshed address does not silently replace the Draft's chosen sender.
+    const refreshed = connected(['alex@example.invalid']);
+    ok(refreshed.kind === 'connected');
+    await act(async () => {
+      registration.change({
+        ...refreshed,
+        mailboxes: JSON.stringify([
+          { id: alex, address: 'renamed@example.invalid', state: 'connected' },
+        ]),
+      });
+    });
+    expect(
+      screen.getByLabelText('alex@example.invalid, cannot send'),
+    ).toBeOnTheScreen();
+    expect(
+      screen.getByText(
+        'This mailbox changed its address. Choose it again in From to use its current address, or choose another mailbox.',
+      ),
+    ).toBeOnTheScreen();
+    expect(
+      screen.getByRole('button', { name: 'Send from renamed@example.invalid' }),
+    ).toHaveProp('accessibilityState', { selected: false });
+    await press('Close');
+    await press(
+      'Draft. Studio review. To Maya Chen, oliver@example.com. From alex@example.invalid',
+    );
+    await press('Send from renamed@example.invalid');
+    expect(
+      screen.queryByLabelText('alex@example.invalid, cannot send'),
+    ).not.toBeOnTheScreen();
+    expect(
+      screen.getByRole('button', { name: 'Send from renamed@example.invalid' }),
+    ).toHaveProp('accessibilityState', { selected: true });
+    await press('Close');
+    await press(
+      'Draft. Studio review. To Maya Chen, oliver@example.com. From renamed@example.invalid',
+    );
+
     // Removing its sending mailbox keeps the Draft and asks for another sender.
     await act(async () => {
       registration.change(connected(['other@example.invalid']));

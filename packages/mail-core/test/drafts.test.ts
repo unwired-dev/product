@@ -24,6 +24,7 @@ import {
   draftsOf,
   sendingStateOf,
   unsendableAssets,
+  withSender,
 } from '../src/drafts.ts';
 import { mailboxesOf } from '../src/registration.ts';
 import {
@@ -843,22 +844,55 @@ describe('storing Drafts', () => {
     const drafts = createDrafts(storage.native, session.registration);
     await drafts.load();
     const id = await drafts.create(other);
-    expect(sendingStateOf({ connection: other.id }, session.mailboxes())).toBe(
-      'available',
-    );
+    expect(
+      sendingStateOf(
+        { connection: other.id, from: other.address },
+        session.mailboxes(),
+      ),
+    ).toBe('available');
     session.change(
       connected('account-a', [alex, { ...other, state: 'authorization' }]),
     );
-    expect(sendingStateOf({ connection: other.id }, session.mailboxes())).toBe(
-      'authorization',
+    expect(
+      sendingStateOf(
+        { connection: other.id, from: other.address },
+        session.mailboxes(),
+      ),
+    ).toBe('authorization');
+    // Address casing is equivalent; a different address requires explicit selection again.
+    const draft = present(draftOf(drafts.getSnapshot(), id), 'chosen sender');
+    session.change(
+      connected('account-a', [
+        alex,
+        { ...other, address: other.address.toUpperCase() },
+      ]),
     );
+    expect(sendingStateOf(draft, session.mailboxes())).toBe('available');
+    const renamed = { ...other, address: 'renamed@example.invalid' };
+    session.change(
+      connected('account-a', [alex, { ...renamed, state: 'authorization' }]),
+    );
+    expect(sendingStateOf(draft, session.mailboxes())).toBe('authorization');
+    session.change(connected('account-a', [alex, renamed]));
+    expect(sendingStateOf(draft, session.mailboxes())).toBe('renamed');
+    await drafts.update(withSender(draft, renamed), draft);
+    const selected = present(
+      draftOf(drafts.getSnapshot(), id),
+      'selected sender',
+    );
+    expect(sendingStateOf(selected, session.mailboxes())).toBe('available');
+    expect(selected.from).toBe(renamed.address);
+    // Removing the connection still retains the explicitly selected sender.
     session.change(connected('account-a', [alex]));
     const kept = draftOf(drafts.getSnapshot(), id);
     expect(kept?.connection).toBe(other.id);
-    expect(kept?.from).toBe(other.address);
-    expect(sendingStateOf({ connection: other.id }, session.mailboxes())).toBe(
-      'removed',
-    );
+    expect(kept?.from).toBe(renamed.address);
+    expect(
+      sendingStateOf(
+        { connection: other.id, from: other.address },
+        session.mailboxes(),
+      ),
+    ).toBe('removed');
   });
 
   it('preserves concurrent Drafts and conflicting editor versions, including after relaunch', async () => {

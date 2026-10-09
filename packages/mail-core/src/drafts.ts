@@ -289,18 +289,27 @@ export function addRecipients(
 // Sending identity ------------------------------------------------------------------------------
 
 // The Draft's sending connection on this device: usable, waiting for Gmail authorization, or
-// removed. Only a usable connection can be chosen as the sender.
-export type SendingState = 'available' | 'authorization' | 'removed';
+// removed or renamed. Only a usable connection can be chosen as the sender.
+export type SendingState =
+  | 'available'
+  | 'authorization'
+  | 'removed'
+  | 'renamed';
 
 export const sendingStateOf = (
-  draft: Pick<Draft, 'connection'>,
+  draft: Pick<Draft, 'connection' | 'from'>,
   mailboxes: readonly MailboxConnection[],
 ): SendingState => {
   const connection = mailboxes.find(({ id }) => id === draft.connection);
   if (connection === undefined) {
     return 'removed';
   }
-  return connection.state === 'authorization' ? 'authorization' : 'available';
+  if (connection.state === 'authorization') {
+    return 'authorization';
+  }
+  return connection.address.toLowerCase() === draft.from.toLowerCase()
+    ? 'available'
+    : 'renamed';
 };
 
 // The Draft sending from `mailbox` instead, as the person chose.

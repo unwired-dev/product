@@ -60,6 +60,12 @@ export async function device(
   return {
     storage,
     registration,
+    change: (next: RegistrationSnapshot) => {
+      snapshot = next;
+      for (const listener of listeners) {
+        listener();
+      }
+    },
     get drafts() {
       return drafts;
     },

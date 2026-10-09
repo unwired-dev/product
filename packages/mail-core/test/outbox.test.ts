@@ -45,6 +45,7 @@ async function sender(
   let outbox = open();
   return {
     ...phone,
+    mailboxes,
     get drafts() {
       return phone.drafts;
     },
@@ -91,6 +92,41 @@ async function addressed(phone: Device, text = 'See you there') {
     created,
   );
   return id;
+}
+
+// Places a profile refresh at one controlled external boundary of delivery.
+async function renameDuring(
+  phase: 'queued' | 'claim' | 'handoff',
+  sending: Awaited<ReturnType<typeof sender>>,
+  rename: () => Promise<void>,
+) {
+  const delivery = present(sending.storage.delivery, 'delivery claims');
+  const claim = delivery.claimDraftDelivery;
+  const claims = vi
+    .spyOn(delivery, 'claimDraftDelivery')
+    .mockImplementation(async (...args) => {
+      const reply = await claim(...args);
+      if (phase === 'claim') {
+        await rename();
+      }
+      return reply;
+    });
+  if (phase === 'queued') {
+    await rename();
+  }
+  if (phase === 'handoff') {
+    const commit = sending.storage.native.commitDrafts;
+    vi.spyOn(sending.storage.native, 'commitDrafts').mockImplementation(
+      async (...args) => {
+        const reply = await commit(...args);
+        if (args[2].document.includes('"state":"sending"')) {
+          await rename();
+        }
+        return reply;
+      },
+    );
+  }
+  return claims;
 }
 
 // The controlled clock every journey runs on.
@@ -686,6 +722,64 @@ describe('sending a Draft through the Outbox', () => {
     expect(gmail.sends).toHaveLength(1);
     sending.outbox.dispose();
   });
+
+  it.each([
+    ['queued', 0],
+    ['claim', 1],
+    ['handoff', 1],
+  ] as const)(
+    'refuses a mailbox renamed during %s without submitting its frozen sender',
+    async (phase, expectedClaims) => {
+      expect.hasAssertions();
+      const { server, gmail } = sharedAccount();
+      const sending = await sender(server, gmail, 'phone');
+      try {
+        const id = await addressed(sending);
+        const shown = sending.draft(id);
+        await sending.outbox.send(() => shown);
+        const rename = async () => {
+          gmail.reselect('renamed@example.invalid');
+          sending.change({
+            kind: 'connected',
+            productAccountId: account,
+            signInProvider: 'google',
+            mailboxes: JSON.stringify([
+              {
+                ...alex,
+                address: 'renamed@example.invalid',
+                state: 'connected',
+              },
+            ]),
+          });
+          await sending.mailboxes.load();
+          await vi.waitFor(() => {
+            expect(sending.mailboxes.getSnapshot()[0]?.state).toMatchObject({
+              kind: 'ready',
+              address: 'renamed@example.invalid',
+            });
+          });
+        };
+        const claims = await renameDuring(phase, sending, rename);
+        later(undoSendWindow);
+        await sending.outbox.process();
+        expect(sending.drafts.getOutbox()).toMatchObject([
+          {
+            id,
+            state: 'failed',
+            problem: 'mailbox',
+            draft: { from: shown.from },
+          },
+        ]);
+        expect(gmail.sends).toStrictEqual([]);
+        expect(claims).toHaveBeenCalledTimes(expectedClaims);
+        const restored = await sending.outbox.undo(id);
+        expect(restored).not.toBe(false);
+        expect(sending.draft(String(restored)).from).toBe(shown.from);
+      } finally {
+        sending.outbox.dispose();
+      }
+    },
+  );
 
   it('records a definite refusal and an unknown outcome apart, and never sends an unknown one again', async () => {
     expect.hasAssertions();

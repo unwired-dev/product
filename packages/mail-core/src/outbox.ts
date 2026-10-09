@@ -156,18 +156,14 @@ export function createOutbox({
 
   // The sending mailbox's problem on this device, if it can no longer send.
   const senderProblem = (draft: Draft): DeliveryProblem | undefined => {
-    const connections = mailboxesOf(registration.getSnapshot().snapshot);
-    const sending = sendingStateOf(draft, connections);
-    if (sending !== 'available') {
-      return sending === 'authorization' ? 'authorization' : 'mailbox';
+    const sending = sendingStateOf(
+      draft,
+      mailboxesOf(registration.getSnapshot().snapshot),
+    );
+    if (sending === 'available') {
+      return undefined;
     }
-    // A connection whose address changed is chosen again, so no message claims an old sender.
-    const address = connections.find(
-      ({ id }) => id === draft.connection,
-    )?.address;
-    return address?.toLowerCase() === draft.from.toLowerCase()
-      ? undefined
-      : 'mailbox';
+    return sending === 'authorization' ? 'authorization' : 'mailbox';
   };
 
   const record = (id: string, outcome: SendOutcome) => {
@@ -245,6 +241,14 @@ export function createOutbox({
     const inbox = mailboxes
       .getSnapshot()
       .find((mailbox) => mailbox.id === sending?.draft.connection)?.inbox;
+    // Claim and storage awaited meanwhile; recheck before invoking the current Inbox.
+    if (sending !== undefined) {
+      const problem = senderProblem(sending.draft);
+      if (problem !== undefined) {
+        await record(id, { kind: 'failed', problem });
+        return;
+      }
+    }
     const outcome: SendOutcome =
       sending === undefined || inbox === undefined
         ? { kind: 'queued', problem: 'offline' }

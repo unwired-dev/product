@@ -44,9 +44,10 @@ Trusted Devices through End-to-End Encrypted Product Sync.
   restores the Draft rows. Selecting one opens it directly for editing; Drafts have no reader.
 - **From** always shows the sending mailbox and lists every mailbox that can send.
   A mailbox waiting for Gmail authorization cannot be chosen. If the Draft's mailbox
-  needs authorization again or is removed from the account, the Draft keeps it and
+  needs authorization again, is removed from the account, or changes its address, the Draft keeps it and
   explains why it cannot send; another mailbox is used only after the person chooses
-  it. Nothing substitutes a sender silently.
+  it. When its address changes, choose that mailbox again in From to use the current
+  address. Nothing substitutes a sender silently.
 - **To**, and **Cc** and **Bcc** after **Cc/Bcc**, accept `Name <address>`,
   `"Last, First" <address>` or a bare address. A comma, semicolon, Return or leaving
   the field turns finished entries into removable recipients. Text that is not a

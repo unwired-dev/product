@@ -152,6 +152,16 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Product behavior the stores own
 
+- `drafts.ts.sendingStateOf`, `outbox.ts.senderProblem` or another sender check
+  matching only the connection ID while its current address differs from the
+  Draft's frozen From address. Keep the displayed selection consistent with the
+  frozen identity, require explicit reselection after a rename, and revalidate
+  after awaited claim/storage work immediately before provider handoff. Otherwise
+  the composer shows one sender while immutable MIME names another, or a rename
+  during those waits bypasses admission's guard. Exercise casing equivalence,
+  queued and held-claim/handoff renames, and visible reselection in both hosts;
+  do not rewrite an admitted message or add a deferred alias system.
+
 - `outbox.ts.send` or another editor-owned write pinning a Draft identifier before
   awaited asset verification or earlier saves. Resolve the live editor target at
   the serialized write and on each CAS retry while preserving Send's frozen

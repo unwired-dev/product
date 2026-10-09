@@ -25,6 +25,9 @@ in the background or with Mac windows closed is
   - is over Gmail's 35 MB message limit;
   - was changed in another window meanwhile;
   - cannot be saved.
+- If a mailbox changes its address, **From** keeps the Draft's original address
+  visible with an explanation. Choose that mailbox again to use its current
+  address, or choose another mailbox.
 - The **Outbox** appears in the Inbox column above the Drafts only while it holds
   a message. Each row names its subject and recipients and says where the message
   stands, and is hidden during search with the Drafts.
@@ -107,6 +110,8 @@ cover:
 - a Gmail refusal and an accepted message whose reply is lost, kept apart and
   never sent again through relaunch;
 - the app stopping while Gmail has the message;
+- a renamed sender while queued, during a claim, or while handoff is being saved,
+  without submitting the frozen message;
 - each refusal at Send.
 
 `outgoing-message.test.ts` checks header folding, encoding and injection, the
@@ -119,6 +124,8 @@ deletion test removes claims.
 The host journeys in `apps/*/test/send.test.tsx` send from the composer, use
 **Undo** and send again. They also show a refused Send, a Gmail refusal with
 **Edit**, and an unknown outcome without it. These are rendered component tests.
+The composer journeys also retain the original sender after a mailbox rename and
+choose its current address explicitly before reopening the Draft.
 
 The hosted iOS 27 suite adds `OutboxTests`:
 
