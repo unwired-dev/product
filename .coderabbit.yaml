@@ -96,7 +96,8 @@ reviews:
     enabled: true
     drafts: false
     auto_incremental_review: true
-    auto_pause_after_reviewed_commits: 5
+    # 0 disables auto-pause so every push stays reviewed.
+    auto_pause_after_reviewed_commits: 0
     ignore_title_keywords:
       - '[WIP]'
       - '[skip review]'
