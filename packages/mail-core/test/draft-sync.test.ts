@@ -1,6 +1,5 @@
-import type { Draft, DraftsState } from '../src/drafts.ts';
+import type { Draft } from '../src/drafts.ts';
 import type { RegistrationSnapshot } from '../src/registration.ts';
-import type { SyntheticProductSync } from '../src/testing/drafts.ts';
 
 import {
   assetsOf,
@@ -15,93 +14,14 @@ import {
   createSyntheticProductSync,
 } from '../src/testing/drafts.ts';
 import { createMockRegistrationSession } from '../src/testing/registration-session.ts';
-
-const alex = { id: 'connection-alex', address: 'alex@example.invalid' };
-
-const connected = (productAccountId: string): RegistrationSnapshot => ({
-  kind: 'connected',
-  productAccountId,
-  signInProvider: 'google',
-  mailboxes: JSON.stringify([{ ...alex, state: 'connected' }]),
-});
-
-const ready = (state: DraftsState) => {
-  if (state.kind !== 'ready') {
-    throw new Error(`Expected ready Drafts, received ${state.kind}`);
-  }
-  return state;
-};
-
-const present = <T>(value: T | undefined, what: string): T => {
-  if (value === undefined) {
-    throw new Error(`Expected ${what}`);
-  }
-  return value;
-};
-
-// One enrolled device of `productAccountId` with its own encrypted Draft storage. Automatic
-// synchronization waits a minute, so each scenario decides when a device synchronizes.
-async function device(
-  server: SyntheticProductSync,
-  productAccountId = 'account-a',
-) {
-  let snapshot: RegistrationSnapshot = connected(productAccountId);
-  const listeners = new Set<() => void>();
-  const registration = {
-    getSnapshot: () => ({ snapshot, busy: false, failed: false }),
-    subscribe: (listener: () => void) => {
-      listeners.add(listener);
-      return () => listeners.delete(listener);
-    },
-  };
-  const storage = createSyntheticDrafts(() => productAccountId, {
-    server,
-  });
-  const open = async () => {
-    const store = createDrafts(storage.native, registration, {
-      native: present(storage.sync, 'Draft sync'),
-      delay: 60_000,
-    });
-    await store.load();
-    return store;
-  };
-  let drafts = await open();
-  return {
-    storage,
-    get drafts() {
-      return drafts;
-    },
-    // A relaunch reopens the same storage in a new process.
-    relaunch: async () => {
-      storage.relaunch();
-      drafts = await open();
-    },
-    reconnect: async () => {
-      snapshot = { kind: 'signed-out' };
-      for (const listener of listeners) {
-        listener();
-      }
-      snapshot = connected(productAccountId);
-      for (const listener of listeners) {
-        listener();
-      }
-      await drafts.load();
-      await drafts.sync();
-    },
-    list: () => ready(drafts.getSnapshot()).drafts,
-    draft: (id: string) =>
-      present(draftOf(drafts.getSnapshot(), id), `Draft ${id}`),
-  };
-}
-
-// The complete asset `id` of a Draft, or a failed test.
-const complete = (draft: Draft, id: string | undefined) => {
-  const asset = assetsOf(draft).find((each) => each.id === id);
-  if (asset?.state !== 'complete') {
-    throw new Error('Expected a complete asset');
-  }
-  return asset;
-};
+import {
+  alex,
+  complete,
+  connected,
+  device,
+  present,
+  ready,
+} from './draft-sync-fixture.ts';
 
 const write = (draft: Draft, text: string): Draft => ({
   ...draft,
@@ -318,86 +238,6 @@ describe('synchronizing Drafts through Product Sync', () => {
     } finally {
       vi.useRealTimers();
     }
-  });
-
-  it('reclaims a file whose download finishes after its Draft was discarded', async () => {
-    expect.hasAssertions();
-    const server = createSyntheticProductSync();
-    const phone = await device(server);
-    const mac = await device(server);
-    const id = present(await phone.drafts.create(alex), 'a Draft');
-    phone.storage.addFile('file:///notes.txt', 'notes bytes');
-    const notes = phone.drafts.prepare({
-      name: 'notes.txt',
-      type: 'text/plain',
-    });
-    await phone.drafts.update(
-      { ...phone.draft(id), attachments: [notes] },
-      phone.draft(id),
-    );
-    await phone.drafts.importAsset(notes, {
-      kind: 'file',
-      uri: 'file:///notes.txt',
-    });
-    await phone.drafts.sync();
-    await mac.drafts.sync();
-
-    // The Mac discards the Draft while its file is still downloading.
-    mac.storage.holdImports();
-    const reading = mac.drafts.readAsset(complete(mac.draft(id), notes.id), {
-      preview: false,
-    });
-    await expect(mac.drafts.discard(id)).resolves.toBe(true);
-    mac.storage.releaseImports();
-    await expect(reading).resolves.toStrictEqual({ kind: 'missing' });
-    expect(mac.storage.assets()).toStrictEqual([]);
-  });
-
-  it('keeps a late download referenced after re-entering the same account', async () => {
-    expect.hasAssertions();
-    const server = createSyntheticProductSync();
-    const phone = await device(server);
-    const mac = await device(server);
-    const id = present(await phone.drafts.create(alex), 'a Draft');
-    phone.storage.addFile('file:///notes.txt', 'notes bytes');
-    const notes = phone.drafts.prepare({
-      name: 'notes.txt',
-      type: 'text/plain',
-    });
-    await phone.drafts.update(
-      { ...phone.draft(id), attachments: [notes] },
-      phone.draft(id),
-    );
-    await phone.drafts.importAsset(notes, {
-      kind: 'file',
-      uri: 'file:///notes.txt',
-    });
-    await phone.drafts.sync();
-    await mac.drafts.sync();
-
-    const native = present(mac.storage.sync, 'Draft sync');
-    const download = native.downloadDraftAsset;
-    const started = Promise.withResolvers<undefined>();
-    const held = vi
-      .spyOn(native, 'downloadDraftAsset')
-      .mockImplementation((...args) => {
-        started.resolve(undefined);
-        return download(...args);
-      });
-    mac.storage.holdImports();
-    const asset = complete(mac.draft(id), notes.id);
-    const reading = mac.drafts.readAsset(asset, { preview: false });
-    await started.promise;
-    await mac.reconnect();
-    expect(complete(mac.draft(id), notes.id)).toStrictEqual(asset);
-    mac.storage.releaseImports();
-    await expect(reading).resolves.toStrictEqual({ kind: 'missing' });
-    held.mockRestore();
-    expect(mac.storage.assets()).toStrictEqual([notes.id]);
-    server.setReachable(false);
-    await expect(
-      mac.drafts.readAsset(asset, { preview: false }),
-    ).resolves.toStrictEqual({ kind: 'verified' });
   });
 
   it('preserves edits made on two devices as separate Drafts, and the editor follows its own copy', async () => {

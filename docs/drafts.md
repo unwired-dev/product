@@ -428,6 +428,11 @@ and oversized values; inline-image regressions preserve positions and repetition
 Both hosts' component journeys ignore queued response presses and callbacks from
 an old reader. They also open **Reply All** from the reader, show
 and hide the quoted text, edit, **Undo** and **Redo**, and close without sending.
+Product Sync regressions also continue replies and forwards on a second synthetic
+device and through relaunch, retain threading and quoted correspondence, preserve
+response-only and quoted-only divergent edits as copies, and automatically publish
+quoted images after a held import finishes. Verified image bytes survive later
+saves and relaunch. These checks use synthetic storage and backend boundaries.
 Deferred before release: native reader-to-composer journeys on each platform, Mock
 Mail Session native scenarios with response headers, real Gmail header decoding,
 and VoiceOver qualification of the response controls and quoted-text disclosure.
@@ -443,7 +448,8 @@ the system panel's image-filter admission still requires native interaction
 qualification.
 
 Synchronization coverage (#614): shared two-device journeys in
-`packages/mail-core/test/draft-sync.test.ts` use `createSyntheticProductSync`
+`packages/mail-core/test/draft-sync.test.ts` and
+`packages/mail-core/test/draft-sync-continuation.test.ts` use `createSyntheticProductSync`
 from `@private-email/mail-core/testing/drafts`, which follows Convex's
 compare-and-set records and native code's account and identifier binding without
 encryption. They continue a Draft with its files on a second device, keep an
