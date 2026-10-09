@@ -2969,5 +2969,44 @@ describe('replying to and forwarding from the reader', () => {
       draft?.quoted,
     );
   });
+
+  it('starts only the first queued response and ignores its old reader callback', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const gmail = createSyntheticGmail({ messages: 0 });
+    const message = gmail.deliver({
+      subject: 'Plans',
+      content: { text: 'Forward me.' },
+    });
+    const drafts = createDrafts(storage.native, registration);
+    await render(
+      <ReaderApp
+        drafts={drafts}
+        gmail={gmail}
+        message={message}
+        registration={registration}
+      />,
+    );
+    await screen.findByRole('button', { name: 'Forward' });
+    const forward = queuedPress('Forward');
+    const reply = queuedPress('Reply');
+    await act(() => {
+      forward();
+      reply();
+      forward();
+    });
+    await expect(screen.findByLabelText('Subject')).resolves.toHaveProp(
+      'value',
+      'Fwd: Plans',
+    );
+    expect(draftsOf(drafts.getSnapshot())).toHaveLength(1);
+    await act(() => {
+      reply();
+    });
+    await drafts.save();
+    expect(draftsOf(drafts.getSnapshot())).toHaveLength(1);
+    expect(draftsOf(drafts.getSnapshot())[0]?.response?.kind).toBe('forward');
+  });
   /* oxlint-enable vitest/max-expects */
 });

@@ -6,6 +6,8 @@ export interface BodySpan {
   readonly text: string;
   // Only http, https, mailto and tel destinations; the host confirms before opening one.
   readonly href?: string;
+  // An admitted CID image at this position when building forwarded correspondence.
+  readonly contentId?: string;
 }
 export interface ReadableBody {
   readonly paragraphs: ReadonlyArray<readonly BodySpan[]>;
@@ -32,12 +34,21 @@ export function paragraphBuilder() {
   const paragraphs: BodySpan[][] = [];
   let spans: BodySpan[] = [];
   let links = 0;
-  const add = (text: string, href: string | undefined) => {
+  const add = (text: string, href: string | undefined, contentId?: string) => {
     const last = spans.at(-1);
-    if (last !== undefined && last.href === href) {
+    if (
+      last !== undefined &&
+      last.href === href &&
+      last.contentId === undefined &&
+      contentId === undefined
+    ) {
       spans[spans.length - 1] = { ...last, text: last.text + text };
     } else if (text !== '') {
-      spans.push(href === undefined ? { text } : { text, href });
+      spans.push({
+        text,
+        ...(href === undefined ? {} : { href }),
+        ...(contentId === undefined ? {} : { contentId }),
+      });
     }
   };
   const end = () => {
@@ -61,10 +72,20 @@ export function paragraphBuilder() {
       paragraphs.push(
         trimmed.map((span) => {
           if (span.href === undefined || !hasVisibleText(span.text)) {
-            return { text: span.text };
+            return {
+              text: span.text,
+              ...(span.contentId === undefined
+                ? {}
+                : { contentId: span.contentId }),
+            };
           }
           if (links >= messageLinkLimit) {
-            return { text: span.text };
+            return {
+              text: span.text,
+              ...(span.contentId === undefined
+                ? {}
+                : { contentId: span.contentId }),
+            };
           }
           links += 1;
           return span;

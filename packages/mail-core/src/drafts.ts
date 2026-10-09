@@ -23,6 +23,7 @@ import {
   rejectionDiagnostic,
   runLogged,
 } from './diagnostics.ts';
+import { withoutComments } from './message-body.ts';
 import { canOpenInbox, mailboxesOf } from './registration.ts';
 import {
   AssetSchema,
@@ -123,7 +124,7 @@ const addressPattern =
   /^[^\s@<>()[\]\\,;:"]+@(?:[A-Za-z0-9-]+\.)+[A-Za-z0-9-]{2,}$/u;
 // A quoted or plain display name, then the address in angle brackets.
 const named =
-  /^\s*(?:"(?<quoted>[^"]*)"|(?<plain>[^"<]*?))\s*<(?<address>[^<>]*)>\s*$/u;
+  /^\s*(?:"(?<quoted>(?:\\.|[^"\\])*)"|(?<plain>[^"<]*?))\s*<(?<address>[^<>]*)>\s*$/u;
 
 // One entry as a recipient, or undefined when it is not a valid address.
 const recipientOf = (entry: string): Recipient | undefined => {
@@ -133,7 +134,9 @@ const recipientOf = (entry: string): Recipient | undefined => {
   if (!addressPattern.test(address)) {
     return undefined;
   }
-  const name = (quoted ?? plain ?? '').trim();
+  const name = (quoted ?? plain ?? '')
+    .replaceAll(/\\(?<char>.)/gu, '$1')
+    .trim();
   return name === '' ? { address } : { name, address };
 };
 
@@ -145,8 +148,11 @@ const entriesOf = (text: string) => {
   let current = '';
   // Inside a quoted name or angle-bracketed address, which a separator never ends.
   let quote: '"' | '<' | undefined = undefined;
+  let escaped = false;
   for (const ch of text) {
-    if (quote === undefined && (ch === '"' || ch === '<')) {
+    if (quote === '"' && (escaped || ch === '\\')) {
+      escaped = !escaped;
+    } else if (quote === undefined && (ch === '"' || ch === '<')) {
       quote = ch;
     } else if ((quote === '"' && ch === '"') || (quote === '<' && ch === '>')) {
       quote = undefined;
@@ -162,14 +168,16 @@ const entriesOf = (text: string) => {
 };
 
 // A group's `Display Name:` before its first member, outside any quoted name or address.
-const groupLabel = /^[^"<>@:]*:/u;
+const groupLabel = /^(?:"(?:\\.|[^"\\])*"|[^"<>@:]*):/u;
 
 // The valid addresses of a received address-list header, such as To or Reply-To. A group keeps its
 // members without its display name; entries that are not an address are left out.
 export const recipientsOf = (header: string): readonly Recipient[] => {
-  const { entries, rest } = entriesOf(header);
+  const { entries, rest } = entriesOf(
+    withoutComments(header.replaceAll(/\r\n(?=[ \t])/gu, ' '), ' '),
+  );
   return [...entries, rest].flatMap((entry) => {
-    const recipient = recipientOf(entry.replace(groupLabel, ''));
+    const recipient = recipientOf(entry.trim().replace(groupLabel, ''));
     return recipient === undefined ? [] : [recipient];
   });
 };

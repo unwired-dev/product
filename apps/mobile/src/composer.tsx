@@ -869,8 +869,12 @@ function DraftAssets({
   const running = useSyncExternalStore(store.subscribe, store.getImports);
   const attachments = draft.attachments ?? [];
   const images = [
-    ...imagesOf(draft.body),
-    ...(draft.quoted === undefined ? [] : imagesOf(draft.quoted)),
+    ...new Map(
+      [
+        ...imagesOf(draft.body),
+        ...(draft.quoted === undefined ? [] : imagesOf(draft.quoted)),
+      ].map((asset) => [asset.id, asset]),
+    ).values(),
   ];
   if (attachments.length + images.length === 0) {
     return null;

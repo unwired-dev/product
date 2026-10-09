@@ -291,6 +291,7 @@ function ResponseActions({
   const { t } = useLocalization();
   const dateFormat = useMessageDateFormat(true);
   const mounted = useRef(true);
+  const starting = useRef(false);
   const [pending, setPending] = useState<ResponseKind | undefined>();
   const [failed, setFailed] = useState(false);
   const source = useSyncExternalStore(inbox.subscribe, () =>
@@ -319,16 +320,28 @@ function ResponseActions({
     date: dateFormat.format(new Date(message.receivedAt)),
   });
   const start = async (kind: ResponseKind) => {
-    if (pending !== undefined) {
+    if (
+      !mounted.current ||
+      starting.current ||
+      inbox.responseSource(message.id) !== source
+    ) {
       return;
     }
+    starting.current = true;
     setPending(kind);
     setFailed(false);
     try {
       const draft = await startResponse(
         { navigation, drafts: store, inbox },
         t,
-        { kind, mailbox: sender, message, received },
+        {
+          kind,
+          mailbox: sender,
+          message,
+          received,
+          mailboxes: account?.mailboxes ?? [sender],
+          current: () => mounted.current,
+        },
       );
       if (mounted.current && draft !== undefined) {
         onCompose(draft);
@@ -340,6 +353,7 @@ function ResponseActions({
       }
     }
     // Not in `finally`: React Compiler cannot compile a finally clause.
+    starting.current = false;
     if (mounted.current) {
       setPending(undefined);
     }
@@ -356,6 +370,7 @@ function ResponseActions({
           <Pressable
             key={kind}
             accessibilityRole="button"
+            accessibilityLabel={label}
             accessibilityState={{ disabled: pending !== undefined }}
             disabled={pending !== undefined}
             onPress={() => {
@@ -368,19 +383,25 @@ function ResponseActions({
         ))}
       </View>
       {pending === 'forward' ? (
-        <Text
-          accessibilityLiveRegion="polite"
-          style={[styles.secondary, { color: colors.secondary }]}>
-          {t('message.preparingForward')}
-        </Text>
+        <View
+          accessible
+          accessibilityLabel={t('message.preparingForward')}
+          accessibilityLiveRegion="polite">
+          <Text style={[styles.secondary, { color: colors.secondary }]}>
+            {t('message.preparingForward')}
+          </Text>
+        </View>
       ) : null}
       {failed ? (
-        <Text
+        <View
+          accessible
+          accessibilityLabel={t('message.respondFailed')}
           accessibilityLiveRegion="polite"
-          accessibilityRole="alert"
-          style={[styles.secondary, { color: colors.foreground }]}>
-          {t('message.respondFailed')}
-        </Text>
+          accessibilityRole="alert">
+          <Text style={[styles.secondary, { color: colors.foreground }]}>
+            {t('message.respondFailed')}
+          </Text>
+        </View>
       ) : null}
     </View>
   );
@@ -520,6 +541,7 @@ function MailboxMessage({
               )}
             </View>
             <ResponseActions
+              key={`${address}:${message.id}`}
               message={message}
               onCompose={onCompose}
             />

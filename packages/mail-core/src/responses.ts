@@ -9,12 +9,18 @@ import type {
   Recipient,
 } from './drafts.ts';
 import type { GmailInbox, GmailMessage } from './gmail-inbox.ts';
-import type { BodyDocument } from './message-body.ts';
+import type { BodyDocument, BodySpan } from './message-body.ts';
 import type { MailboxConnection } from './registration.ts';
 import type { Asset, Block, SemanticDocument } from './semantic-document.ts';
 
-import { recipientLabel, recipientsOf } from './drafts.ts';
-import { presentation } from './message-body.ts';
+import {
+  draftOf,
+  isEmptyDraft,
+  recipientLabel,
+  recipientsOf,
+} from './drafts.ts';
+import { sanitizeHtml } from './html-sanitizer.ts';
+import { presentation, withoutComments } from './message-body.ts';
 import { imageCharacter } from './semantic-document.ts';
 
 // Reply, Reply All and Forward from the reader: a Draft addressed from the received message, in
@@ -26,7 +32,7 @@ export type ResponseKind = 'reply' | 'replyAll' | 'forward';
 const referenceLimit = 20;
 
 const messageIds = (header: string | undefined) =>
-  header?.match(/<[^<>\s]+>/gu) ?? [];
+  withoutComments(header ?? '', ' ').match(/<[^<>@\s()]+@[^<>@\s()]+>/gu) ?? [];
 
 // Recipients in order, each address once, without `excluded` addresses.
 const distinct = (
@@ -63,6 +69,62 @@ const correspondence = (document: BodyDocument, kind: Block['kind']) =>
     ...blocksOf(kind, spans.map(({ text }) => text).join('')),
   ]);
 
+const forwardedParagraph = (
+  paragraph: readonly BodySpan[],
+  images: ReadonlyMap<string, Asset>,
+): readonly Block[] => {
+  const blocks: Block[] = [];
+  let spans: Array<Block['spans'][number]> = [];
+  for (const span of paragraph) {
+    const asset =
+      span.contentId === undefined ? undefined : images.get(span.contentId);
+    const [first, ...rest] = documentOf(
+      asset === undefined
+        ? blocksOf('paragraph', span.text)
+        : [
+            {
+              kind: 'paragraph',
+              spans: [{ text: imageCharacter, image: asset }],
+            },
+          ],
+    );
+    spans.push(...first.spans);
+    for (const block of rest) {
+      blocks.push({ kind: 'paragraph', spans });
+      spans = [...block.spans];
+    }
+  }
+  return [...blocks, { kind: 'paragraph', spans }];
+};
+
+const forwardedBody = (
+  document: BodyDocument,
+  images: ReadonlyMap<string, Asset>,
+): readonly Block[] => {
+  if (document.html !== undefined) {
+    try {
+      const sanitized = sanitizeHtml(
+        document.html,
+        new Map(
+          (document.images?.admitted ?? []).map((image) => [
+            image.contentId,
+            image,
+          ]),
+        ),
+        true,
+      );
+      if (sanitized.renderable) {
+        return sanitized.readable.paragraphs.flatMap((spans) =>
+          forwardedParagraph(spans, images),
+        );
+      }
+    } catch {
+      // A failed sanitizer keeps the same readable fallback as the reader.
+    }
+  }
+  return correspondence(document, 'paragraph');
+};
+
 // Who a reply goes to: Reply-To when given, else the sender. A message this mailbox sent is
 // answered to its original recipients instead.
 const repliedTo = (
@@ -85,6 +147,7 @@ type ResponseSource = Readonly<{
   message: Pick<GmailMessage, 'id' | 'threadId' | 'subject' | 'sender'>;
   document: BodyDocument;
   from: string;
+  identities?: readonly string[];
   received: string;
   attachments?: readonly PickedFile[];
   // A new importing asset for a file, as the Draft store prepares one.
@@ -101,6 +164,7 @@ function forwarded(t: Translate, source: ResponseSource) {
   const { message, document, received, attachments = [], prepare } = source;
   const headers = document.headers ?? {};
   const images = (document.images?.admitted ?? []).map((image) => ({
+    contentId: image.contentId,
     asset: prepare({
       name: `image.${image.mimeType.slice('image/'.length)}`,
       type: image.mimeType,
@@ -116,7 +180,7 @@ function forwarded(t: Translate, source: ResponseSource) {
   }));
   const fields = [
     t('drafts.response.forwardedFrom', { value: senderOf(source) }),
-    t('drafts.response.forwardedDate', { value: received }),
+    t('drafts.response.forwardedDate', { value: headers.date ?? received }),
     t('drafts.response.forwardedSubject', { value: message.subject }),
     ...(headers.to === undefined
       ? []
@@ -129,11 +193,10 @@ function forwarded(t: Translate, source: ResponseSource) {
     ...blocksOf('paragraph', t('drafts.response.forwarded')),
     ...fields.flatMap((field) => blocksOf('paragraph', field)),
     { kind: 'paragraph', spans: [] },
-    ...correspondence(document, 'paragraph'),
-    ...images.map(({ asset }): Block => ({
-      kind: 'paragraph',
-      spans: [{ text: imageCharacter, image: asset }],
-    })),
+    ...forwardedBody(
+      document,
+      new Map(images.map(({ contentId, asset }) => [contentId, asset])),
+    ),
   ]);
   return {
     edit: (draft: Draft): Draft => ({
@@ -153,25 +216,50 @@ function forwarded(t: Translate, source: ResponseSource) {
 
 // Reply's or Reply All's recipients, each once and, but for a message to oneself alone, without
 // the sending address.
+const replyOnlyRecipients = (target: readonly Recipient[], self: string) =>
+  distinct(
+    target,
+    target.every(({ address }) => address.toLowerCase() === self)
+      ? new Set()
+      : new Set([self]),
+  );
+
 const replyRecipients = (
   kind: 'reply' | 'replyAll',
   headers: NonNullable<BodyDocument['headers']>,
-  self: string,
+  {
+    self,
+    identities,
+  }: Readonly<{ self: string; identities: readonly string[] }>,
 ) => {
   const target = repliedTo(headers, self);
   if (kind === 'reply') {
-    return { to: distinct(target), cc: [] };
+    return {
+      to: replyOnlyRecipients(target, self),
+      cc: [],
+    };
   }
+  const original = [
+    ...recipientsOf(headers.to ?? ''),
+    ...recipientsOf(headers.cc ?? ''),
+  ];
   const toSelf =
     target.length > 0 &&
-    target.every(({ address }) => address.toLowerCase() === self);
+    target.every(({ address }) => address.toLowerCase() === self) &&
+    original.every(({ address }) => address.toLowerCase() === self);
+  const excluded = new Set([
+    self,
+    ...identities.map((address) => address.toLowerCase()),
+  ]);
   const to = distinct(
     [...target, ...recipientsOf(headers.to ?? '')],
-    toSelf ? new Set() : new Set([self]),
+    toSelf
+      ? new Set([...excluded].filter((address) => address !== self))
+      : excluded,
   );
   const cc = distinct(
     recipientsOf(headers.cc ?? ''),
-    new Set([self, ...to.map(({ address }) => address.toLowerCase())]),
+    new Set([...excluded, ...to.map(({ address }) => address.toLowerCase())]),
   );
   return { to, cc };
 };
@@ -184,18 +272,29 @@ function replied(
 ) {
   const { message, document, from, received } = source;
   const headers = document.headers ?? {};
-  const { to, cc } = replyRecipients(kind, headers, from.toLowerCase());
+  const { to, cc } = replyRecipients(kind, headers, {
+    self: from.toLowerCase(),
+    identities: source.identities ?? [],
+  });
   const [inReplyTo] = messageIds(headers.messageId);
+  const parent = messageIds(headers.inReplyTo);
+  const ancestry =
+    headers.references === undefined && parent.length === 1
+      ? parent
+      : messageIds(headers.references);
   const references = [
     ...new Set([
-      ...messageIds(headers.references),
+      ...ancestry.filter((id) => id !== inReplyTo),
       ...(inReplyTo === undefined ? [] : [inReplyTo]),
     ]),
   ].slice(-referenceLimit);
   const quoted = documentOf([
     ...blocksOf(
       'paragraph',
-      t('drafts.response.wrote', { date: received, sender: senderOf(source) }),
+      t('drafts.response.wrote', {
+        date: headers.date ?? received,
+        sender: senderOf(source),
+      }),
     ),
     ...correspondence(document, 'quote'),
   ]);
@@ -294,10 +393,14 @@ export async function startResponse(
     inbox,
   }: Readonly<{
     navigation: Pick<ComposerNavigation, 'create'>;
-    drafts: Pick<Drafts, 'create' | 'abandon' | 'fill' | 'prepare'>;
+    drafts: Pick<
+      Drafts,
+      'create' | 'abandon' | 'fill' | 'prepare' | 'getSnapshot'
+    >;
     inbox: Pick<
       GmailInbox,
       | 'responseSource'
+      | 'getSnapshot'
       | 'messageAttachments'
       | 'downloadAttachment'
       | 'attachmentFile'
@@ -310,33 +413,70 @@ export async function startResponse(
     mailbox,
     message,
     received,
+    mailboxes = [mailbox],
+    current = () => true,
   }: Readonly<{
     kind: ResponseKind;
     mailbox: Pick<MailboxConnection, 'id' | 'address'>;
     message: Pick<GmailMessage, 'id' | 'threadId' | 'subject' | 'sender'>;
     received: string;
+    mailboxes?: ReadonlyArray<Pick<MailboxConnection, 'id' | 'address'>>;
+    current?: () => boolean;
   }>,
 ) {
   const document = inbox.responseSource(message.id);
-  if (document === undefined) {
+  const state = inbox.getSnapshot();
+  if (
+    !current() ||
+    document === undefined ||
+    state.kind !== 'ready' ||
+    state.address !== mailbox.address
+  ) {
     return undefined;
   }
-  const attachments =
-    kind === 'forward'
-      ? await forwardedAttachments(inbox, {
-          mailbox: mailbox.id,
-          id: message.id,
-        })
-      : [];
-  const { edit, imports } = respond(t, kind, {
-    message,
-    document,
-    from: mailbox.address,
-    received,
-    attachments,
-    prepare: drafts.prepare,
+  let response: ReturnType<typeof respond> | undefined = undefined;
+  return navigation.create(drafts, mailbox, {
+    prepare: (id) => {
+      const draft = draftOf(drafts.getSnapshot(), id);
+      if (
+        !current() ||
+        inbox.responseSource(message.id) !== document ||
+        response === undefined ||
+        draft === undefined ||
+        !isEmptyDraft(draft)
+      ) {
+        return Promise.resolve(false);
+      }
+      const prepared = response;
+      // Another editor may complete the visible row during creation's first save. Preparation
+      // must not replace that editor's recipients or subject, including an edit queued meanwhile.
+      return drafts.fill(
+        id,
+        (each) => (isEmptyDraft(each) ? prepared.edit(each) : each),
+        prepared.imports,
+      );
+    },
+    before: async () => {
+      const attachments =
+        kind === 'forward'
+          ? await forwardedAttachments(inbox, {
+              mailbox: mailbox.id,
+              id: message.id,
+            })
+          : [];
+      if (!current() || inbox.responseSource(message.id) !== document) {
+        return false;
+      }
+      response = respond(t, kind, {
+        message,
+        document,
+        from: mailbox.address,
+        identities: mailboxes.map(({ address }) => address),
+        received,
+        attachments,
+        prepare: drafts.prepare,
+      });
+      return true;
+    },
   });
-  return navigation.create(drafts, mailbox, (id) =>
-    drafts.fill(id, edit, imports),
-  );
 }

@@ -13,12 +13,17 @@ import {
   draftOf,
   isEmptyDraft,
   unsendableAssets,
+  recipientsOf,
   withSender,
 } from '../src/drafts.ts';
 import { createGmailInbox } from '../src/gmail-inbox.ts';
 import { attachmentLimit } from '../src/message-body.ts';
 import { respond, startResponse } from '../src/responses.ts';
-import { emptyDocument, plainText } from '../src/semantic-document.ts';
+import {
+  emptyDocument,
+  imageCharacter,
+  plainText,
+} from '../src/semantic-document.ts';
 import { createSyntheticDrafts } from '../src/testing/drafts.ts';
 import {
   createSyntheticGmail,
@@ -33,7 +38,7 @@ const connected = (
   mailboxes: ReadonlyArray<
     Readonly<{ id: string; address: string; state?: 'authorization' }>
   > = [alex, work],
-): RegistrationSnapshot => ({
+): Extract<RegistrationSnapshot, { readonly kind: 'connected' }> => ({
   kind: 'connected',
   productAccountId: 'account-a',
   signInProvider: 'google',
@@ -46,10 +51,25 @@ const connected = (
   ),
 });
 
-const registrationOf = (snapshot: RegistrationSnapshot) => ({
-  getSnapshot: () => ({ snapshot, busy: false, failed: false }),
-  subscribe: () => () => undefined,
-});
+const registrationOf = (initial: RegistrationSnapshot) => {
+  let snapshot = initial;
+  const listeners = new Set<() => void>();
+  return {
+    getSnapshot: () => ({ snapshot, busy: false, failed: false }),
+    subscribe: (listener: () => void) => {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+    replace: (next: RegistrationSnapshot) => {
+      snapshot = next;
+      for (const listener of listeners) {
+        listener();
+      }
+    },
+  };
+};
 
 const present = <T>(value: T | undefined, what: string): T => {
   if (value === undefined) {
@@ -123,8 +143,11 @@ async function reader(
   await inbox.load();
   const close = inbox.retainMessage(id);
   await inbox.readMessage(id);
-  const storage = createSyntheticDrafts(() => 'account-a');
   const registration = registrationOf(snapshot);
+  const storage = createSyntheticDrafts(() => {
+    const current = registration.getSnapshot().snapshot;
+    return current.kind === 'connected' ? current.productAccountId : undefined;
+  });
   const drafts = createDrafts(storage.native, registration);
   await drafts.load();
   const navigation = createComposerNavigation();
@@ -141,6 +164,7 @@ async function reader(
       mailbox,
       message,
       received: 'Sep 1, 2026',
+      mailboxes: [alex, work],
     });
   const draft = (draftId: string | undefined) =>
     present(
@@ -154,6 +178,7 @@ async function reader(
     close,
     storage,
     registration,
+    navigation,
     drafts,
     message,
     start,
@@ -203,13 +228,11 @@ describe('replying to and forwarding a received message', () => {
       true,
     );
 
-    // Reply All keeps every other recipient once, without this mailbox's own address, and keeps
-    // the other identity of the same account.
+    // Reply All keeps external recipients once, without either identity of this account.
     const all = draft(await start('replyAll'));
     expect(all.to.map(({ address }) => address)).toStrictEqual([
       'maya.lists@example.invalid',
       'bob@example.invalid',
-      'alex@example.invalid',
     ]);
     expect(all.cc).toStrictEqual([
       { name: 'Doe, Jane', address: 'jane@example.invalid' },
@@ -299,6 +322,36 @@ describe('replying to and forwarding a received message', () => {
     expect(
       answer('replyAll', { from: work.address, to: work.address }).to,
     ).toStrictEqual([{ address: work.address }]);
+    expect(
+      answer('replyAll', {
+        from: work.address,
+        to: work.address,
+        cc: 'bob@example.invalid',
+      }).to,
+    ).toStrictEqual([]);
+    expect(
+      recipientsOf(
+        'Bob (friend, not a recipient) <bob@example.invalid>, "Friends": carol@example.invalid, jane@example.invalid;',
+      ),
+    ).toStrictEqual([
+      { name: 'Bob', address: 'bob@example.invalid' },
+      { address: 'carol@example.invalid' },
+      { address: 'jane@example.invalid' },
+    ]);
+    expect(
+      answer('reply', {
+        from: 'wrong@example.invalid',
+        replyTo: 'bob@example.invalid (Bob)',
+        messageId: '(comment <wrong@example.invalid>) <real@example.invalid>',
+        references: '<real@example.invalid> <older@example.invalid>',
+      }),
+    ).toMatchObject({
+      to: [{ address: 'bob@example.invalid' }],
+      response: {
+        inReplyTo: '<real@example.invalid>',
+        references: ['<older@example.invalid>', '<real@example.invalid>'],
+      },
+    });
 
     // Unparseable senders and recipients leave the fields for the person to fill, never with
     // this mailbox's own address or a header's raw text.
@@ -324,7 +377,7 @@ describe('replying to and forwarding a received message', () => {
     const { id, start, draft, storage, gmail, drafts } = await reader({
       subject: 'Fwd: Report',
       content: {
-        html: '<p>See the chart</p><img src="cid:chart@example" alt="chart">',
+        html: '<p>See the chart</p><img src="cid:chart@example" alt="chart"><p>Between charts</p><img src="cid:chart@example" alt="chart"><p>After charts</p>',
         images: [
           { contentId: 'chart@example', mimeType: 'image/png', bytes: logo },
         ],
@@ -375,6 +428,17 @@ describe('replying to and forwarding a received message', () => {
     );
     expect(plainText(quoted)).toContain(`To: ${headers.To}`);
     expect(plainText(quoted)).toContain('See the chart');
+    expect(
+      quoted
+        .slice(-5)
+        .map(({ spans }) => spans.map(({ text }) => text).join('')),
+    ).toStrictEqual([
+      'See the chart',
+      imageCharacter,
+      'Between charts',
+      imageCharacter,
+      'After charts',
+    ]);
 
     await vi.waitFor(() => {
       expect(
@@ -429,8 +493,120 @@ describe('replying to and forwarding a received message', () => {
 
     // A message whose reader closed has no response source.
     const { close, start, drafts } = await reader();
+    await expect(start('reply', alex)).resolves.toBeUndefined();
     close();
     await expect(start('reply')).resolves.toBeUndefined();
     expect(drafts.getSnapshot()).toMatchObject({ drafts: [] });
   });
+
+  it('preserves another editor’s content while response creation waits for storage', async () => {
+    expect.hasAssertions();
+    const { start, drafts, storage } = await reader();
+    storage.hold();
+    const pending = start('reply');
+    await vi.waitFor(() =>
+      expect(drafts.getSnapshot()).toMatchObject({ drafts: [{ subject: '' }] }),
+    );
+    const state = drafts.getSnapshot();
+    const existing = present(
+      // oxlint-disable-next-line vitest/no-conditional-in-test -- Narrows the public store snapshot.
+      state.kind === 'ready' ? state.drafts[0] : undefined,
+      'new row',
+    );
+    const editing = drafts.update(
+      {
+        ...existing,
+        subject: 'My work',
+        to: [{ address: 'bob@example.invalid' }],
+      },
+      existing,
+    );
+    storage.release();
+    await editing;
+    await expect(pending).resolves.toBeUndefined();
+    expect(drafts.getSnapshot()).toMatchObject({
+      drafts: [
+        { subject: 'My work', to: [{ address: 'bob@example.invalid' }] },
+      ],
+    });
+  });
+
+  it('keeps reply ancestry from a single parent In-Reply-To and ignores comment identifiers', async () => {
+    expect.hasAssertions();
+    const { start, draft } = await reader({
+      headers: {
+        From: 'maya@example.invalid',
+        'Message-ID':
+          '(ignore <wrong@example.invalid>) <parent@example.invalid>',
+        'In-Reply-To':
+          '(ignore <fake@example.invalid>) <ancestor@example.invalid>',
+        'Reply-To': `wrong@example.invalid${' '.repeat(64 * 1024)}`,
+        Date: 'Tue, 1 Sep 2026 09:00:00 +0000',
+      },
+    });
+    const reply = draft(await start('reply'));
+    expect(reply.to.map(({ address }) => address)).toStrictEqual([
+      'maya@example.invalid',
+    ]);
+    expect(plainText(present(reply.quoted, 'quoted text'))).toContain(
+      'On Tue, 1 Sep 2026 09:00:00 +0000,',
+    );
+    expect(reply.response).toMatchObject({
+      inReplyTo: '<parent@example.invalid>',
+      references: ['<ancestor@example.invalid>', '<parent@example.invalid>'],
+    });
+  });
+
+  it.each(['reader closes', 'account changes', 'navigation changes'] as const)(
+    'refuses a Forward if %s during attachment preparation',
+    async (replacement) => {
+      expect.hasAssertions();
+      const {
+        inbox,
+        close,
+        drafts,
+        navigation,
+        registration,
+        storage,
+        message,
+      } = await reader();
+      const gate = Promise.withResolvers<undefined>();
+      const begun = Promise.withResolvers<undefined>();
+      const pending = startResponse(
+        {
+          navigation,
+          drafts,
+          inbox: {
+            ...inbox,
+            downloadAttachment: async (id, locator) => {
+              begun.resolve(undefined);
+              await gate.promise;
+              await inbox.downloadAttachment(id, locator);
+            },
+          },
+        },
+        english,
+        { kind: 'forward', mailbox: work, message, received: 'today' },
+      );
+      await begun.promise;
+      await {
+        'reader closes': close,
+        'account changes': async () => {
+          inbox.forget();
+          registration.replace({
+            ...connected(),
+            productAccountId: 'account-b',
+          });
+          await drafts.load();
+        },
+        'navigation changes': () => navigation.leave(),
+      }[replacement]();
+      gate.resolve(undefined);
+      await expect(pending).resolves.toBeUndefined();
+      expect(drafts.getSnapshot()).toMatchObject({ drafts: [] });
+      const reopened = createDrafts(storage.native, registration);
+      await reopened.load();
+      expect(reopened.getSnapshot()).toMatchObject({ drafts: [] });
+    },
+  );
 });

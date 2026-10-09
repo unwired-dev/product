@@ -148,6 +148,7 @@ const BodyDocumentSchema = Schema.Struct({
       cc: Schema.optionalKey(Schema.String),
       date: Schema.optionalKey(Schema.String),
       messageId: Schema.optionalKey(Schema.String),
+      inReplyTo: Schema.optionalKey(Schema.String),
       references: Schema.optionalKey(Schema.String),
     }),
   ),
@@ -182,6 +183,7 @@ export const responseHeadersOf = (
     cc: 'cc',
     date: 'date',
     messageId: 'message-id',
+    inReplyTo: 'in-reply-to',
     references: 'references',
   } as const;
   const headers: Record<string, string> = {};
@@ -189,8 +191,8 @@ export const responseHeadersOf = (
     const value = payload.headers?.find(
       (candidate) => candidate.name.toLowerCase() === name,
     )?.value;
-    if (value !== undefined) {
-      headers[key] = value.slice(0, responseHeaderLimit);
+    if (value !== undefined && value.length <= responseHeaderLimit) {
+      headers[key] = value;
     }
   }
   return headers;
@@ -226,7 +228,7 @@ const commentDelimiters = (value: string) =>
 // RFC comments may be nested and may escape parentheses; they are not header tokens.
 // Comments become the separator, empty by default; a Content-ID passes a space so a comment
 // inside the ID leaves whitespace there instead of joining its halves.
-const withoutComments = (value: string, separator = '') => {
+export const withoutComments = (value: string, separator = '') => {
   let from = 0;
   let output = '';
   for (const delimiter of commentDelimiters(value)) {
