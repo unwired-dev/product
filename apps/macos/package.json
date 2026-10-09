@@ -15,7 +15,7 @@
     "native:pods": "cd macos && pod install",
     "test": "jest --runInBand",
     "test:native": "zsh scripts/test-native.zsh",
-    "verify:bundle": "node scripts/verify-bundle.ts"
+    "verify:bundle": "node scripts/verify-bundle.ts && node scripts/verify-native.ts"
   },
   "dependencies": {
     "@private-email/localization": "workspace:*",

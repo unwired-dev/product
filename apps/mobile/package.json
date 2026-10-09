@@ -13,7 +13,7 @@
     "native:generate": "expo prebuild --platform ios",
     "test": "jest --runInBand",
     "test:native": "zsh scripts/test-native.zsh",
-    "verify:bundle": "node scripts/verify-bundle.ts"
+    "verify:bundle": "node scripts/verify-bundle.ts && node scripts/verify-native.ts"
   },
   "dependencies": {
     "@expo/log-box": "catalog:mobile",

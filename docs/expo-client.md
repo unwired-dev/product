@@ -147,7 +147,9 @@ mise exec -- pnpm verify:bundle
 `build` exports production Hermes bytecode and source maps. `verify:bundle`
 checks the mobile React/native versions, shared mailbox source, Effect and native
 split view, and rejects the Mac renderer graph, React DOM and backend sources.
-This is bundle evidence, not a substitute for a native build or interaction test.
+It then requires Expo's native autolinking result to match the allowed Expo and
+React Native modules exactly. Adding a native module requires an explicit update to
+`scripts/verify-native.ts`. This is bundle and autolinking evidence, not a substitute for a native build or interaction test.
 The primary CI job lints and formats the whole repository from the root, and
 runs types and tests for mobile, core, contracts and the retained Convex backend,
 plus the Effect import-policy tests. Formatting skips `AGENTS.md` files, whose

@@ -32,8 +32,8 @@ UTF-8 encoding only, not a general message-charset decoder.
 The production source-map check rejects the mobile renderer, Expo, React DOM and
 backend code, checks the shared fixture against disk, and verifies native
 autolinking. The host autolinks only `react-native-webview`, patched for the isolated message
-reader. Adding
-one requires an explicit update to that check.
+reader, and its Podfile declares only the `GoogleSignIn` pod. Adding either kind of
+native dependency requires an explicit update to `scripts/verify-native.ts`.
 
 Each window owns its selected message. Opening another starts with no selection.
 Reading leaves unread flags unchanged. Explicit read/unread actions persist and
