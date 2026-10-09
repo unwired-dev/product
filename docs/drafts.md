@@ -159,8 +159,8 @@ stays listed as **Not added** with the reason, and the composer warns that files
 not added are not sent. Only complete files can be sent: `unsendableAssets` in
 `@private-email/mail-core/drafts` lists everything else for the delivery slice.
 When the composer opens, it checks every complete file's bytes against their
-recorded digest; an attachment's bytes stay in native code, and only an inline
-image's are returned to show. Bytes that no longer verify show as **Damaged on
+recorded digest; the bytes stay in native code, and an inline image returns only
+a thumbnail at most 256 pixels on its longest side to show. Bytes that no longer verify show as **Damaged on
 this device**; bytes the device lost show as **No longer on this device**. A check
 refused while private storage is locked says so and offers **Try again**; it also
 runs again when the app returns to the foreground. **Attach to New Message** is offered only when a sending mailbox is available

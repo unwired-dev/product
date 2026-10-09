@@ -1,5 +1,8 @@
+import CoreGraphics
 import Foundation
+import ImageIO
 import Testing
+import UniformTypeIdentifiers
 
 @testable import PrivateInbox
 
@@ -155,9 +158,27 @@ struct DraftTests {
     #expect(!FileManager.default.fileExists(atPath: picked.path))
     let sealed = session.directory.appendingPathComponent("draft-assets/plan00001")
     #expect(try Data(contentsOf: sealed).range(of: bytes) == nil)
+    // A preview of content that is not an image returns nothing.
     let read = try await store.readDraftAsset(
       owner: owner, id: "plan00001", digest: digest, type: "application/pdf")
-    #expect(read["uri"] as? String == "data:application/pdf;base64,\(bytes.base64EncodedString())")
+    #expect(read.isEmpty)
+    // A large image previews as a bounded PNG thumbnail; its full bytes never cross the bridge.
+    let image = try Self.png(width: 1_600, height: 900)
+    let photo = try await store.importDraftAsset(
+      owner: owner, id: "photo0001",
+      source: ["kind": "data", "uri": "data:image/png;base64,\(image.base64EncodedString())"])
+    let thumbnail = try await store.readDraftAsset(
+      owner: owner, id: "photo0001", digest: try #require(photo["digest"] as? String),
+      type: "image/png")
+    let uri = try #require(thumbnail["uri"] as? String)
+    #expect(uri.hasPrefix("data:image/png;base64,"))
+    let encoded = try #require(Data(base64Encoded: String(uri.dropFirst("data:image/png;base64,".count))))
+    #expect(encoded.count < image.count)
+    let decoded = try #require(
+      CGImageSourceCreateWithData(encoded as CFData, nil).flatMap {
+        CGImageSourceCreateImageAtIndex($0, 0, nil)
+      })
+    #expect(max(decoded.width, decoded.height) <= RegistrationStore.draftPreviewSize)
     // Verifying an attachment returns no bytes.
     let verified = try await store.readDraftAsset(
       owner: owner, id: "plan00001", digest: digest, type: "application/pdf", preview: false)
@@ -328,5 +349,23 @@ extension DraftTests {
     _ = try await store.commitDrafts(
       owner: owner, expectedRevision: 2, document: "retried", keep: [])
     #expect(!session.exists("draft-assets/cleanup01"))
+  }
+
+  // A solid-colour PNG of the given size, as a photo-sized image.
+  private static func png(width: Int, height: Int) throws -> Data {
+    let context = try #require(
+      CGContext(
+        data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+        space: CGColorSpaceCreateDeviceRGB(),
+        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+    context.setFillColor(CGColor(red: 0.2, green: 0.4, blue: 0.8, alpha: 1))
+    context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+    let image = try #require(context.makeImage())
+    let output = NSMutableData()
+    let destination = try #require(
+      CGImageDestinationCreateWithData(output, UTType.png.identifier as CFString, 1, nil))
+    CGImageDestinationAddImage(destination, image, nil)
+    #expect(CGImageDestinationFinalize(destination))
+    return output as Data
   }
 }

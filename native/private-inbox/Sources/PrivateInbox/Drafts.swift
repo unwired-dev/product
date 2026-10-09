@@ -1,4 +1,6 @@
 import Foundation
+import ImageIO
+import UniformTypeIdentifiers
 
 // The signed-in Product Account's Drafts for TypeScript's composer. They need no Gmail access, so
 // they open offline and while a mailbox waits for authorization; an account that is pending or
@@ -149,21 +151,41 @@ extension RegistrationStore {
     return bytes
   }
 
-  // Verifies an asset's bytes; with `preview`, returns them as a `data:` URL for showing an image
-  // in the composer, and otherwise returns nothing, so an attachment's bytes stay native.
+  // Verifies an asset's bytes; with `preview`, returns a thumbnail at most `draftPreviewSize`
+  // pixels on its longest side as a PNG `data:` URL for showing an inline image, so a large
+  // image's full bytes never cross the bridge. Content that is not an image returns no preview.
   func readDraftAsset(
     owner: String, id: String, digest: String, type: String, preview: Bool = true
   ) async throws -> [String: Any] {
-    let (_, bytes) = try await draftWork { store, current in
+    let (_, thumbnail) = try await draftWork { store, current in
       guard owner == current else { throw PrivateInboxError.mailboxInvalidated }
-      return try store.readDraftAsset(owner: owner, id: id, digest: digest)
+      let bytes = try store.readDraftAsset(owner: owner, id: id, digest: digest)
+      return preview ? Self.draftThumbnail(bytes) : nil
     }
-    guard preview else { return [:] }
-    let mime =
-      type.range(of: "^[A-Za-z0-9.+-]+/[A-Za-z0-9.+-]+$", options: .regularExpression) == nil
-      ? "application/octet-stream" : type
-    // ponytail: the whole image crosses the bridge as base64; a file URL scales past 25 MiB.
-    return ["uri": "data:\(mime);base64,\(bytes.base64EncodedString())"]
+    guard let thumbnail else { return [:] }
+    return ["uri": "data:image/png;base64,\(thumbnail.base64EncodedString())"]
+  }
+
+  nonisolated static let draftPreviewSize = 256
+
+  // Decodes only as much of the image as the thumbnail needs, honouring its orientation.
+  nonisolated static func draftThumbnail(_ bytes: Data) -> Data? {
+    guard let source = CGImageSourceCreateWithData(bytes as CFData, nil),
+      let image = CGImageSourceCreateThumbnailAtIndex(
+        source, 0,
+        [
+          kCGImageSourceCreateThumbnailFromImageAlways: true,
+          kCGImageSourceCreateThumbnailWithTransform: true,
+          kCGImageSourceThumbnailMaxPixelSize: draftPreviewSize,
+        ] as CFDictionary)
+    else { return nil }
+    let output = NSMutableData()
+    guard
+      let destination = CGImageDestinationCreateWithData(
+        output, UTType.png.identifier as CFString, 1, nil)
+    else { return nil }
+    CGImageDestinationAddImage(destination, image, nil)
+    return CGImageDestinationFinalize(destination) ? output as Data : nil
   }
 
   // Removes bytes no stored Draft names; needs no key, so it also runs while the device is locked.

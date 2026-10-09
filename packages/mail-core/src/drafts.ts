@@ -568,8 +568,9 @@ export interface NativeDrafts {
     id: string,
     source: AssetSource,
   ) => Promise<unknown>;
-  // Verifies the asset's bytes against `digest`. With `preview`, resolves `{ uri }`, a `data:` URL
-  // of them; otherwise `{}`, so a large attachment never crosses the bridge. Rejects with
+  // Verifies the asset's bytes against `digest`. With `preview`, resolves `{ uri }`, a bounded PNG
+  // thumbnail as a `data:` URL, or `{}` when the bytes are not an image; otherwise `{}`, so an
+  // asset's full bytes never cross the bridge. Rejects with
   // 'attachment-missing' when the device has no bytes for it.
   readonly readDraftAsset: (
     owner: string,
