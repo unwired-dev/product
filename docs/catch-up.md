@@ -28,6 +28,11 @@ exists. Nothing here is implemented yet. The work is tracked in
   otherwise; newly arriving mail is unseen.
 - Scrolling past a bubble marks it seen in Catch Up only; it never changes
   [Message Read State](domain/messages-and-delivery.md).
+- Seen markers are durable device-local state for one Product Account and
+  Mailbox Connection. They survive relaunches, are never synchronized, and are
+  removed with the message's local data, its Mailbox Connection or the Product
+  Account. Each device keeps its own divider; another device starts from the
+  read-state baseline.
 - Each run of consecutive messages in Gmail's Promotions, Social, Updates and
   Forums categories collapses into one bubble, such as "12 newsletters", so the
   timeline stays in order; a run of one shows as a message bubble.
