@@ -41,33 +41,23 @@ export function useLeaveComposer() {
 
 const waitingForMailbox = { kind: 'loading' } as const;
 
-// Every window shows the same Draft store, so one lifecycle subscription serves them all: returning
-// picks up other devices' Draft changes, and leaving publishes this device's.
-const lifecycles = new Map<Drafts, { windows: number; remove: () => void }>();
-const followLifecycle = (drafts: Drafts) => {
-  const followed = lifecycles.get(drafts);
-  if (followed === undefined) {
-    const subscription = AppState.addEventListener('change', (state) => {
-      if (state === 'active' || state === 'background') {
-        void drafts.syncInBackground();
-      }
-    });
-    lifecycles.set(drafts, {
-      windows: 1,
-      remove: () => {
-        subscription.remove();
-      },
-    });
+// Every window shows the same Draft and mailbox stores, so one subscription per store serves them
+// all; the last window to close removes it.
+const followed = new Map<object, { windows: number; remove: () => void }>();
+const followOnce = (store: object, follow: () => () => void) => {
+  const current = followed.get(store);
+  if (current === undefined) {
+    followed.set(store, { windows: 1, remove: follow() });
   } else {
-    followed.windows += 1;
+    current.windows += 1;
   }
   return () => {
-    const current = lifecycles.get(drafts);
-    if (current !== undefined) {
-      current.windows -= 1;
-      if (current.windows === 0) {
-        current.remove();
-        lifecycles.delete(drafts);
+    const entry = followed.get(store);
+    if (entry !== undefined) {
+      entry.windows -= 1;
+      if (entry.windows === 0) {
+        entry.remove();
+        followed.delete(store);
       }
     }
   };
@@ -82,25 +72,40 @@ export function InboxProvider({
   readonly mailboxes?: MailboxList;
   readonly drafts?: Drafts;
 }) {
-  const account = use(AccountContext);
+  const refreshInbox = use(AccountContext)?.refreshInbox;
   const navigation = useMemo(() => createComposerNavigation(), []);
   useEffect(() => {
     void drafts.load();
-    return followLifecycle(drafts);
-  }, [drafts]);
-  useEffect(() => {
-    void mailboxes.load();
-    const subscription = AppState.addEventListener('change', (state) => {
-      if (state === 'active') {
-        void (account === undefined
-          ? mailboxes.load()
-          : account.refreshInbox(mailboxes.load));
-      }
+    // Returning picks up other devices' Draft changes; leaving publishes this device's.
+    return followOnce(drafts, () => {
+      const subscription = AppState.addEventListener('change', (state) => {
+        if (state === 'active' || state === 'background') {
+          void drafts.syncInBackground();
+        }
+      });
+      return () => {
+        subscription.remove();
+      };
     });
-    return () => {
-      subscription.remove();
-    };
-  }, [account, mailboxes]);
+  }, [drafts]);
+  // Each load decrypts and opens every mailbox natively, so windows share one.
+  useEffect(
+    () =>
+      followOnce(mailboxes, () => {
+        void mailboxes.load();
+        const subscription = AppState.addEventListener('change', (state) => {
+          if (state === 'active') {
+            void (refreshInbox === undefined
+              ? mailboxes.load()
+              : refreshInbox(mailboxes.load));
+          }
+        });
+        return () => {
+          subscription.remove();
+        };
+      }),
+    [refreshInbox, mailboxes],
+  );
   return (
     <MailboxesContext value={mailboxes}>
       <DraftsContext value={drafts}>

@@ -28,5 +28,7 @@
     "@rajzik/oxfmt-config",
     "@rajzik/oxlint-config",
     "@rajzik/tsconfig",
+    // Build tooling (scripts/mock-mail-build.cjs) runs from the development install.
+    "effect",
   ],
 }

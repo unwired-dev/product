@@ -1,8 +1,8 @@
 import { inspect } from 'node:util';
 
 import { fixtureMessages } from '../src/index.ts';
-import { makeMockInboxStorage } from '../src/mock-storage.ts';
 import { createPersistentInbox } from '../src/persistent-inbox.ts';
+import { makeMockInboxStorage } from '../src/testing/mock-storage.ts';
 
 describe('mock Mail Session persistence boundary', () => {
   it('recovers committed read state in a new session without losing competing changes', async () => {

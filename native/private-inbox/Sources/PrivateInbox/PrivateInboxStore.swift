@@ -844,11 +844,21 @@ public final class PrivateInboxStore: @unchecked Sendable {
     #else
       try encrypted.write(to: file, options: .atomic)
     #endif
-    // A fulfilled mutation means ciphertext has reached the filesystem, before publishing it to windows.
-    let descriptor = Darwin.open(file.path, O_RDONLY)
+    // A fulfilled mutation means ciphertext and the rename that replaced the file have reached
+    // the drive, before publishing it to windows.
+    try fullSync(file)
+    try fullSync(file.deletingLastPathComponent())
+  }
+
+  // Darwin's fsync leaves data in the drive cache; F_FULLFSYNC flushes it, falling back to fsync
+  // where the file system does not support it.
+  private func fullSync(_ url: URL) throws {
+    let descriptor = Darwin.open(url.path, O_RDONLY)
     guard descriptor >= 0 else { throw PrivateInboxError.unavailable }
     defer { close(descriptor) }
-    guard fsync(descriptor) == 0 else { throw PrivateInboxError.unavailable }
+    guard fcntl(descriptor, F_FULLFSYNC) == 0 || fsync(descriptor) == 0 else {
+      throw PrivateInboxError.unavailable
+    }
   }
 
   private func transaction<T>(_ operation: () throws -> T) throws -> T {

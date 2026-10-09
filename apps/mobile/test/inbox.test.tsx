@@ -6,7 +6,6 @@ import {
   createMailboxes,
   singleMailbox,
 } from '@private-email/mail-core/mailboxes';
-import { makeMockInboxStorage } from '@private-email/mail-core/mock-storage';
 import { createPersistentInbox } from '@private-email/mail-core/persistent-inbox';
 import { createRegistration } from '@private-email/mail-core/registration';
 import {
@@ -14,6 +13,7 @@ import {
   syntheticConnections,
 } from '@private-email/mail-core/testing/gmail-mailbox';
 import { createMockMailSession } from '@private-email/mail-core/testing/mock-session';
+import { makeMockInboxStorage } from '@private-email/mail-core/testing/mock-storage';
 import { syntheticMailboxes } from '@private-email/mail-core/testing/registration-session';
 import {
   act,

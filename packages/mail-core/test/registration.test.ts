@@ -2,6 +2,7 @@ import { english } from '@private-email/localization';
 
 import type { RegistrationSnapshot, SignInOffer } from '../src/registration.ts';
 
+import scenarios from '../../../scripts/mock-mail-scenarios.json' with { type: 'json' };
 import {
   approvesDevices,
   createRegistration,
@@ -14,6 +15,7 @@ import {
 import {
   createMockRegistrationSession,
   createSyntheticAccount,
+  registrationScenarios,
   syntheticEnrollmentCode,
   syntheticEnrollmentRequest,
   syntheticMailboxes,
@@ -42,6 +44,17 @@ const accounts = {
 } as const;
 
 describe('product registration', () => {
+  it('fakes only canonical Mock Mail Session scenarios besides test-only success', () => {
+    expect.assertions(1);
+    expect(scenarios.build).toStrictEqual(
+      expect.arrayContaining(
+        registrationScenarios.filter(
+          (scenario) => scenario !== 'registration-success',
+        ),
+      ),
+    );
+  });
+
   it('keeps a mailbox removal explanation after refused sign-out and across foreground restore until explicit sign-out', async () => {
     expect.hasAssertions();
     const session = createMockRegistrationSession('registration-success');
@@ -553,13 +566,14 @@ describe('product registration', () => {
     });
   });
 
+  // A refused link is an expected outcome and stays quiet; any other rejection logs only its code.
   it.each([
-    ['identity-owned', 'identity-owned'],
-    ['stale-authentication', 'stale-authentication'],
-    ['unavailable', 'failed'],
+    ['identity-owned', 'identity-owned', false],
+    ['stale-authentication', 'stale-authentication', false],
+    ['unavailable', 'failed', true],
   ] as const)(
     'reports a %s link rejection without changing the Product Account or logging its message',
-    async (code, linkFailure) => {
+    async (code, linkFailure, logsFailure) => {
       expect.hasAssertions();
       const logged: unknown[] = [];
       vi.spyOn(console, 'error').mockImplementation((...values) => {
@@ -584,7 +598,10 @@ describe('product registration', () => {
         failed: false,
         linkFailure,
       });
-      expect(logged).toContain(`code ${code}`);
+      expect([
+        logged.includes('Registration failed:'),
+        logged.includes(`code ${code}`),
+      ]).toStrictEqual([logsFailure, logsFailure]);
       expect(String(logged)).not.toMatch(/sealed@/u);
       const feedback = store.getSnapshot();
       await store.resume();

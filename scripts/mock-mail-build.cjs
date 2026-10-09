@@ -1,9 +1,13 @@
 const path = require('node:path');
 
-const scenarios = require('./mock-mail-scenarios.json');
+const Schema = require('effect/Schema');
+
+const { build } = Schema.decodeSync(
+  Schema.Struct({ build: Schema.Array(Schema.NonEmptyString) }),
+)(require('./mock-mail-scenarios.json'));
 
 const scenario = process.env.UNWIRED_MOCK_SCENARIO;
-if (scenario && !scenarios.build.includes(scenario)) {
+if (scenario && !Schema.is(Schema.Literals(build))(scenario)) {
   throw new Error('Unknown Mock Mail Session scenario');
 }
 

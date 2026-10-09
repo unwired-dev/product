@@ -1,9 +1,9 @@
-import { makeMockInboxStorage } from '../src/mock-storage.ts';
 import { createPersistentInbox } from '../src/persistent-inbox.ts';
 import {
   createMockMailSession,
   syntheticSummary,
 } from '../src/testing/mock-session.ts';
+import { makeMockInboxStorage } from '../src/testing/mock-storage.ts';
 
 describe('isolated synthetic providers', () => {
   it('replays open, mark-read and relaunch without changing another session or reseeding committed state', async () => {

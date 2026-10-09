@@ -36,7 +36,7 @@ jest.mock('../src/private-storage.ts', () => {
     '@private-email/mail-core/persistent-inbox',
   );
   const { makeMockInboxStorage } = jest.requireActual(
-    '@private-email/mail-core/mock-storage',
+    '@private-email/mail-core/testing/mock-storage',
   );
   const { singleMailbox } = jest.requireActual(
     '@private-email/mail-core/mailboxes',
