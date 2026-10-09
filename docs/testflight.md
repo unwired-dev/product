@@ -1,6 +1,6 @@
 # TestFlight builds
 
-On-demand TestFlight builds of the iPhone/iPad and Mac hosts, for the owner's
+On-demand and nightly TestFlight builds of the iPhone/iPad and Mac hosts, for the owner's
 devices. Tracked in [#724](https://github.com/unwired-dev/product/issues/724).
 The qualified beta and its evidence remain
 [#628](https://github.com/unwired-dev/product/issues/628): an uploaded build is
@@ -37,6 +37,10 @@ logs stay on the runner because Xcode diagnostics may contain signing tokens.
 The workflow deliberately has no approval gate. Write access and the selected
 branch's code are trusted with the App Store Connect key; a read-only GitHub
 token does not constrain what that code can do with the Apple credentials.
+
+The same workflow also uploads both hosts from `main` every night at 01:17 UTC,
+whether or not `main` changed since the previous night. GitHub can delay
+scheduled runs.
 
 After the upload, App Store Connect processes the build for several minutes. It
 then appears under **Unwired Mail** in the TestFlight app on every device of the

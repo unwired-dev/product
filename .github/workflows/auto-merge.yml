@@ -1,9 +1,9 @@
 name: Auto-merge
 
 on:
-  # GitHub drops most runs of frequent schedules, so finished check workflows also start a run.
+  # GitHub delays or drops scheduled runs, so finished check workflows also start a run.
   schedule:
-    - cron: '7,22,37,52 * * * *'
+    - cron: '5 * * * *'
   workflow_run:
     workflows: [CI, Mac, Mobile]
     types: [completed]

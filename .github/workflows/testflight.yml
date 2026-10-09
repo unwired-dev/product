@@ -1,6 +1,9 @@
 name: TestFlight
 
 on:
+  # Nightly upload of both hosts from main; scheduled runs have no inputs.
+  schedule:
+    - cron: '17 1 * * *'
   workflow_dispatch:
     inputs:
       platform:
@@ -41,7 +44,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        host: ${{ fromJSON(inputs.platform == 'both' && '["ios","macos"]' || inputs.platform == 'ios' && '["ios"]' || '["macos"]') }}
+        host: ${{ fromJSON((inputs.platform || 'both') == 'both' && '["ios","macos"]' || inputs.platform == 'ios' && '["ios"]' || '["macos"]') }}
     runs-on: xcode-27
     environment: testflight
     timeout-minutes: 60
@@ -55,7 +58,7 @@ jobs:
     steps:
       - name: Validate host selection
         env:
-          PLATFORM: ${{ inputs.platform }}
+          PLATFORM: ${{ inputs.platform || 'both' }}
         run: |
           case "$PLATFORM" in
             ios|macos|both) ;;

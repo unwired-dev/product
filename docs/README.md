@@ -8,7 +8,7 @@ their scope below; publication of a plan does not prove implementation or releas
 
 - [Expo bootstrap, stack, setup and checks](expo-client.md)
 - [Native Mac windows, setup and checks](macos-client.md)
-- [On-demand TestFlight builds from CI and a Mac](testflight.md)
+- [On-demand and nightly TestFlight builds from CI and a Mac](testflight.md)
 - [Convex production deploys from CI](convex-deploy.md)
 
 - [Deterministic Mock Mail Sessions and external runners](mock-mail-sessions.md)
