@@ -1582,7 +1582,14 @@ export function createDrafts(
     // Merges Product Sync into this device's Drafts and publishes this device's changes, such as
     // when the app returns to the foreground; resolves once no pass is running.
     sync: synchronize,
-    save: () => runLogged(saving(generation)),
+    // A retry that stores edits whose synchronization failed meanwhile synchronizes them too.
+    save: async () => {
+      const saved = await runLogged(saving(generation));
+      if (saved) {
+        schedule();
+      }
+      return saved;
+    },
     // Starts a Draft sending from `mailbox`; resolves its identifier, or undefined when Draft
     // storage is not open, the mailbox cannot send for the current Product Account, or that
     // account changes before creation finishes.

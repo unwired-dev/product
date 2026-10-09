@@ -936,9 +936,35 @@ describe('synchronizing Drafts through Product Sync', () => {
       { native: present(storage.sync, 'Draft sync'), delay: 1 },
     );
     await drafts.load();
+    await drafts.sync();
     const id = present(await drafts.create(alex), 'a Draft');
     await vi.waitFor(() => {
       expect(server.identifiers('account-a')).toStrictEqual([`draft.${id}`]);
+    });
+    await drafts.sync();
+
+    const record = () =>
+      server.open(
+        present(server.get('account-a', `draft.${id}`), 'the record').sealed,
+        'account-a',
+        `draft.${id}`,
+      );
+    // An edit made while storage is locked synchronizes once Save Drafts stores it.
+    storage.setLocked(true);
+    const draft = present(draftOf(drafts.getSnapshot(), id), 'the Draft');
+    await drafts.update({ ...draft, subject: 'Saved later' }, draft);
+    // The edit's own synchronization runs, and fails, while storage is still locked.
+    const failedEdit = drafts.getSnapshot();
+    await vi.waitFor(() => {
+      expect(drafts.getSnapshot()).not.toBe(failedEdit);
+      expect(ready(drafts.getSnapshot()).save).toBe('locked');
+    });
+    await drafts.sync();
+    expect(record()).not.toContain('Saved later');
+    storage.setLocked(false);
+    await expect(drafts.save()).resolves.toBe(true);
+    await vi.waitFor(() => {
+      expect(record()).toContain('Saved later');
     });
   });
 });

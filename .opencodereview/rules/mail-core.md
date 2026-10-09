@@ -246,6 +246,12 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   latest-only Drafts, edit-versus-deletion conflicts and owner-checked CAS recovery;
   retain conflicting authored versions as visible copies. Otherwise an ordinary
   autosave silently erases another completed edit or an independently created Draft.
+- `createDrafts.save` or another successful recovery action making retained edits
+  durable without requesting downstream synchronization abandoned by a failed
+  automatic pass. Exercise the debounced pass failing while storage is locked or
+  unavailable, then retry without another edit or activation and verify remote
+  content. Otherwise Save Drafts reports success but the edits remain device-local
+  until an unrelated trigger; failed or stale-owner saves must not publish them.
 - `createDrafts.update` forking an editor payload that is unchanged from its
   supplied `previous` merely because another editor or storage writer moved on.
   Leave that list unchanged while still flushing prior dirty work; otherwise

@@ -379,14 +379,14 @@ target through continued editing, Discard and relaunch, and refuse to bind an
 editor to a different authored conflict copy, including one edited locally
 before an interrupted deletion finishes publishing. They also resume synchronization
 after a subscriber defect rejects a pass, keep repeated copies within the identifier
-bound, continue the editor after a deeply nested copy is shortened, and retain
+bound, continue the editor after a deeply nested copy is shortened, retain
 ambiguous identical copies for explicit selection and Discard,
 reclaim downloaded local bytes when their Draft is removed, recover an offline
 conflict whose assets were never downloaded, retry interrupted
 uploads before publishing complete references, retain deletion versions through
 relaunch and reject replayed live records, resume after a lost reply and
 relaunches without extra copies, refuse moved, replayed and foreign records, and
-synchronize after edits pause. Shared registration/Draft journeys also close
+synchronize after edits pause or a successful **Save Drafts** retry. Shared registration/Draft journeys also close
 account-owned Draft state when a lazy file download discovers device revocation
 or Product Account deletion. The hosted iOS 27 storage suite adds
 `DraftSyncTests`: real CryptoKit sealing with the synthetic Convex boundary, a
