@@ -4,6 +4,10 @@ status: accepted
 
 # Allow device-local Background Message Summaries
 
+Amended on 2026-10-10 following the product owner's answers on
+[PR #814](https://github.com/unwired-dev/product/pull/814): summaries share the
+Bounded Encrypted Body Cache budget and lifetime, as specified below.
+
 ## Context
 
 [Catch Up #807](https://github.com/unwired-dev/product/issues/807) presents the
@@ -30,9 +34,12 @@ decision does not add advanced Profiles to replacement launch scope. The
 pre-implementation decision panel selected this gate unanimously (3–0:
 `claude-fable-5-1`, `gpt-6.1-sol`, `gpt-6-astra`).
 
-Store the result only beside its message in the device's encrypted local cache,
-and delete it with that message. Never synchronize it, even as Product Sync
-ciphertext, send it to any server, or write it into provider mail or Drafts.
+Store the result only beside its message body in the device's
+[Bounded Encrypted Body Cache](../product/privacy-and-sync.md). Summary bytes
+count toward that cache's existing device-wide limit. Remove the summary when
+its body is evicted, the cache is cleared, or the message is deleted. Never
+synchronize it, even as Product Sync ciphertext, send it to any server, or write
+it into provider mail or Drafts.
 The model binding returns a value; the local cache owns persistence, preserving
 the model's independence from storage and network access.
 
@@ -70,7 +77,8 @@ The version-27 deployment floors and platform availability checks remain.
 - Catch Up remains planned, with mobile first and macOS following. Stand-in
   summaries with real synced Gmail exercise the product interface; they do not
   qualify Apple's model or background execution on devices.
-- Implementation must verify encrypted local retention and deletion, absence of
-  network or Product Sync output, enablement, cancellation and stale-result
-  handling. Native iOS, iPadOS and macOS 27 model and background-execution evidence
-  remains required before release.
+- Implementation must verify encrypted local retention within the body-cache
+  limit and deletion on body eviction, cache clearing and message deletion,
+  absence of network or Product Sync output, enablement, cancellation and
+  stale-result handling. Native iOS, iPadOS and macOS 27 model and
+  background-execution evidence remains required before release.
