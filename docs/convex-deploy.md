@@ -42,9 +42,12 @@ production does not change which backend existing TestFlight builds use.
    gh secret set CONVEX_DEPLOY_KEY --env convex-production
    ```
 
-The environment exists with its `main` branch policy. Recreate it if needed:
+The environment exists with its `main` branch policy. To recreate it, delete it
+first so no other branch policy survives, then repeat step 2, because deleting
+the environment also deletes its secret:
 
 ```sh
+gh api -X DELETE repos/unwired-dev/product/environments/convex-production
 gh api -X PUT repos/unwired-dev/product/environments/convex-production \
   -F 'deployment_branch_policy[protected_branches]=false' \
   -F 'deployment_branch_policy[custom_branch_policies]=true'
