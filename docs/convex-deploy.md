@@ -15,8 +15,9 @@ cannot read the deploy key. Runs execute one at a time, with up to 100 pending
 runs queued; additional runs are cancelled when the queue is full.
 
 Deployment environment variables (`APPLE_BUNDLE_ID`, `GOOGLE_PRODUCT_CLIENT_IDS`
-and the rest listed in `.env.example`) live on the Convex deployment, not in
-GitHub. Set them in the Convex dashboard or with `npx convex env set --prod`
+and the rest declared in
+[`convex.config.ts`](../packages/convex/convex/convex.config.ts)) live on the
+Convex deployment, not in GitHub. Set them in the Convex dashboard or with `npx convex env set --prod`
 before the first deploy.
 
 The hosts call whichever deployment their build's `CONVEX_URL` names; deploying
