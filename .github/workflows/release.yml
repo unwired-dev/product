@@ -57,7 +57,8 @@ jobs:
     with:
       platform: both
       ref: ${{ needs.plan.outputs.tag }}
-    # Only the hosts' public backend configuration; never the personal token.
+    # Named deploy-key mapping is resolved by the convex-production environment.
     secrets:
+      CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
       CONVEX_URL: ${{ secrets.CONVEX_URL }}
       GMAIL_OAUTH_CLIENT_ID: ${{ secrets.GMAIL_OAUTH_CLIENT_ID }}

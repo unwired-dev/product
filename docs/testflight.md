@@ -42,6 +42,14 @@ The same workflow also uploads both hosts from `main` every night at 01:17 UTC,
 whether or not `main` changed since the previous night. GitHub can delay
 scheduled runs.
 
+Runs from `main`, including nightly and release uploads, first deploy the
+triggering main commit's backend through the [Convex workflow](convex-deploy.md).
+This updates functions, schema and auth configuration without resetting stored
+data. The optional build `ref` does not select the backend revision: a dispatch
+from `main` that builds an older tag still deploys the triggering main commit.
+A failed deploy stops the upload. Runs dispatched from another branch skip the
+deploy, because only `main` can read its key.
+
 After the upload, App Store Connect processes the build for several minutes. It
 then appears under **Unwired Mail** in the TestFlight app on every device of the
 internal testing group.

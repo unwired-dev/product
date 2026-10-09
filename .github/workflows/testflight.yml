@@ -23,9 +23,11 @@ on:
       ref:
         type: string
         default: ''
-    # Callers pass only the hosts' public backend configuration. The signing
-    # key comes from the testflight environment.
+    # Environment secrets still need a named mapping across reusable calls.
+    # Signing keys come from testflight; the deploy key comes from convex-production.
     secrets:
+      CONVEX_DEPLOY_KEY:
+        required: true
       CONVEX_URL:
         required: true
       GMAIL_OAUTH_CLIENT_ID:
@@ -39,8 +41,19 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  convex:
+    name: Convex
+    # Uploads from main first deploy the triggering main commit's backend.
+    if: github.ref == 'refs/heads/main'
+    uses: ./.github/workflows/convex.yml
+    secrets:
+      CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+
   upload:
     name: Upload ${{ matrix.host }}
+    needs: convex
+    # A skipped deploy (another branch) still uploads; a failed one stops the upload.
+    if: ${{ !failure() && !cancelled() }}
     strategy:
       fail-fast: false
       matrix:

@@ -2,6 +2,10 @@ name: Convex
 
 on:
   workflow_dispatch:
+  workflow_call:
+    secrets:
+      CONVEX_DEPLOY_KEY:
+        required: true
 
 permissions:
   contents: read
