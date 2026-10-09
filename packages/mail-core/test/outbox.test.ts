@@ -378,6 +378,78 @@ describe('sending a Draft through the Outbox', () => {
     second.outbox.dispose();
   });
 
+  it('admits the editor conflict copy when synchronization rebinds it during asset verification', async () => {
+    expect.hasAssertions();
+    const { server, gmail } = sharedAccount();
+    const sending = await sender(server, gmail, 'phone');
+    const checked = Promise.withResolvers<undefined>();
+    const resume = Promise.withResolvers<undefined>();
+    try {
+      const mac = await device(server, account, 'mac');
+      const id = await addressed(sending);
+      const created = sending.draft(id);
+      sending.storage.addFile('file:///notes.txt', 'notes');
+      const notes = sending.drafts.prepare({
+        name: 'notes.txt',
+        type: 'text/plain',
+      });
+      await sending.drafts.update(
+        { ...created, attachments: [notes] },
+        created,
+      );
+      await sending.drafts.importAsset(notes, {
+        kind: 'file',
+        uri: 'file:///notes.txt',
+      });
+      await sending.drafts.sync();
+      await mac.drafts.sync();
+      const original = sending.draft(id);
+      let shown = { ...original, subject: 'Phone version' };
+      await sending.drafts.update(shown, original, (moved) => {
+        shown = { ...shown, id: moved, conflict: true };
+      });
+      await mac.drafts.update(
+        { ...mac.draft(id), subject: 'Mac version' },
+        mac.draft(id),
+      );
+      await mac.drafts.sync();
+      const read = sending.storage.native.readDraftAsset;
+      vi.spyOn(sending.storage.native, 'readDraftAsset').mockImplementationOnce(
+        async (...args) => {
+          checked.resolve(undefined);
+          await resume.promise;
+          return read(...args);
+        },
+      );
+      const pending = sending.outbox.send(() => shown);
+      await checked.promise;
+      await sending.drafts.sync();
+      expect(shown.id).not.toBe(id);
+      resume.resolve(undefined);
+
+      await expect(pending).resolves.toBeUndefined();
+
+      expect(sending.list()).toMatchObject([{ id, subject: 'Mac version' }]);
+      expect(sending.drafts.getOutbox()).toMatchObject([
+        { id: shown.id, draft: { id: shown.id, subject: 'Phone version' } },
+      ]);
+      expect(sending.drafts.getOutbox()[0]?.message.segments).toContainEqual(
+        expect.objectContaining({
+          text: expect.stringContaining('Subject: Phone version'),
+        }),
+      );
+      await sending.relaunch();
+      expect(sending.list()).toMatchObject([{ id, subject: 'Mac version' }]);
+      expect(sending.drafts.getOutbox()).toMatchObject([
+        { id: shown.id, draft: { subject: 'Phone version' } },
+      ]);
+      expect(gmail.sends).toStrictEqual([]);
+    } finally {
+      resume.resolve(undefined);
+      sending.outbox.dispose();
+    }
+  });
+
   it('keeps Undo retryable when its cancellation cannot be saved', async () => {
     expect.hasAssertions();
     const { server, gmail } = sharedAccount();
@@ -404,29 +476,32 @@ describe('sending a Draft through the Outbox', () => {
     expect.hasAssertions();
     const { server, gmail } = sharedAccount();
     const sending = await sender(server, gmail, 'phone');
-    const id = await addressed(sending);
-    await sending.outbox.send(() => sending.draft(id));
-    const other = createDrafts(sending.storage.native, sending.registration);
-    await other.load();
-    later(1000);
-    const independent = present(await other.create(alex), 'another Draft');
-    const open = sending.storage.native.openDrafts;
-    vi.spyOn(sending.storage.native, 'openDrafts').mockImplementationOnce(
-      () => {
-        later(1000);
-        return open();
-      },
-    );
+    try {
+      const id = await addressed(sending);
+      await sending.outbox.send(() => sending.draft(id));
+      const other = createDrafts(sending.storage.native, sending.registration);
+      await other.load();
+      later(1000);
+      const independent = present(await other.create(alex), 'another Draft');
+      const open = sending.storage.native.openDrafts;
+      vi.spyOn(sending.storage.native, 'openDrafts').mockImplementationOnce(
+        () => {
+          later(1000);
+          return open();
+        },
+      );
 
-    await expect(sending.outbox.undo(id)).resolves.toBe(id);
+      await expect(sending.outbox.undo(id)).resolves.toBe(id);
 
-    expect(sending.draft(id).updatedAt).toBe(clock.now);
-    expect(sending.list().map((draft) => draft.id)).toContain(independent);
-    await sending.relaunch();
-    expect(sending.draft(id).updatedAt).toBe(clock.now);
-    expect(sending.drafts.getOutbox()).toStrictEqual([]);
-    expect(gmail.sends).toStrictEqual([]);
-    sending.outbox.dispose();
+      expect(sending.draft(id).updatedAt).toBe(clock.now);
+      expect(sending.list().map((draft) => draft.id)).toContain(independent);
+      await sending.relaunch();
+      expect(sending.draft(id).updatedAt).toBe(clock.now);
+      expect(sending.drafts.getOutbox()).toStrictEqual([]);
+      expect(gmail.sends).toStrictEqual([]);
+    } finally {
+      sending.outbox.dispose();
+    }
   });
 
   it('lets only one local storage writer hand the same claimed message to Gmail', async () => {

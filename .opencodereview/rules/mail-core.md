@@ -152,6 +152,23 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Product behavior the stores own
 
+- `outbox.ts.send` or another editor-owned write pinning a Draft identifier before
+  awaited asset verification or earlier saves. Resolve the live editor target at
+  the serialized write and on each CAS retry while preserving Send's frozen
+  content. Product Sync can rebind the editor to a conflict copy during that
+  await; a mismatched target and expected identifier otherwise deletes another
+  writer's version and admits it alongside the first editor's rendered message.
+  Hold a native asset read, trigger a real editor rebind, and verify admission,
+  the other writer's retained Draft and reopened storage.
+- `outgoing-message.ts` allowing non-ASCII/control text into native-bound MIME
+  segments. Names, subjects and filenames need their existing encodings; raw
+  sender/recipient addresses must be refused before Outbox admission, and invalid
+  received reply identifiers must be omitted without dropping valid threading.
+  Trace every literal header and MIME parameter, including asset identifiers and
+  boundaries. Native Gmail accepts ASCII only, so its `unavailable` rejection
+  otherwise becomes an endlessly retried offline message rather than useful
+  composer feedback. Verify both refusal and ASCII output with Unicode content.
+
 - `readable-text.ts.paragraphBuilder` or another readable-content filter dropping
   an admitted image occurrence because its alt text is empty or whitespace-only.
   Preserve non-text metadata through span merging, trimming and paragraph

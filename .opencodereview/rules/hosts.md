@@ -13,6 +13,12 @@ A host owns views and native adapters. It renders shared stores from `@private-e
 
 #### React correctness
 
+- `composer.tsx` clearing a Send refusal only on one editing path. Clear stale
+  refusal feedback whenever an accepted edit changes the authored Draft, including
+  Undo/Redo and Markdown edits that bypass `change`; preserve feedback while a
+  frozen Send is pending. Otherwise restoring a valid recipient still announces
+  that the message has none. Exercise the visible refused-Send-then-Undo journey.
+
 - `apps/macos/src/mailbox.tsx.InboxProvider` installing one application lifecycle
   subscription per mounted window on the shared Draft store. Give that store one
   subscription owner across windows, preserving later distinct transitions and

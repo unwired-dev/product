@@ -1163,6 +1163,7 @@ function Editor({
       }
       authored.current = bound;
       if (!discarded.current) {
+        setRefused(undefined);
         void store.update(bound, previous, rebind);
       }
     },
@@ -1182,7 +1183,6 @@ function Editor({
     typingField.current = word ? field : undefined;
     if (!discarded.current) {
       setClosing(undefined);
-      setRefused(undefined);
     }
     update(next);
   };

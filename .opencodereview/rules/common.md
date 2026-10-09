@@ -18,6 +18,14 @@ Use the handoff's actual pinned comparison and inventory task-owned staged, unst
 
 #### R3 — Validated findings and evidence (all files)
 
+Match local validation to the actual CI invocation and gate, not only a similarly
+named package script. For Fallow changes, check `.github/workflows/ci.yml` and run
+`git fetch origin main` followed by
+`mise exec -- pnpm exec fallow audit --root . --quiet --changed-since origin/main --gate new-only`.
+Record the audit verdict; `pnpm fallow` reports health findings without enforcing
+that new-only gate and cannot establish a pass. Leave individual tool-decided
+complexity/duplication findings to Fallow, while reviewing suppressions under R0.
+
 Independently reproduce or substantiate each finding against source and applicable decisions. Fix confirmed issues in the authorized checkout, preserving unrelated work; update affected tests and operational/architecture documentation. Rerun appropriate checks, refresh coverage and resolved rules after edits, and rereview the corrected artifact until no in-scope issue remains. Reviewer fixes stay within this review; later implementer edits require a new pinned review. Report sources consulted, applicable conditional sections and their dispositions, coverage, validated findings/fixes, changed files, checks/results, unavailable tooling and unresolved decision blockers. Separate OCR selection/rule-resolution evidence from host reasoning and actual integration/native/CI evidence; an unavailable check is deferred or blocked, never passing. Do not disclose architecture source or rule bodies in the implementer handback. Review completion and required CI are independent.
 
 #### R4 — Identity, authorization and recovery (conditional)

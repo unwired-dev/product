@@ -204,31 +204,31 @@ describe('sending a Draft', () => {
   it('keeps a long Outbox virtualized and hides it during received-mail search', async () => {
     expect.hasAssertions();
     const sender = device();
-    const entries = Array.from({ length: 100 }, (_, index) => ({
-      id: `queued${index}`,
-      state: 'unknown',
-      message: { segments: [{ text: 'Synthetic message' }], size: 17 },
-      sendAt: clock.now,
-      draft: {
-        id: `queued${index}`,
-        connection: alex,
-        from: 'alex@example.invalid',
-        to: [{ address: 'sam@example.invalid' }],
-        cc: [],
-        bcc: [],
-        subject: `Queued ${index}`,
-        body: [{ kind: 'paragraph', spans: [] }],
-        updatedAt: clock.now,
-      },
-    }));
-    await sender.storage.native.commitDrafts(account, 0, {
-      document: JSON.stringify({ version: 1, drafts: [], outbox: entries }),
-      keep: [],
-    });
-    await act(async () => {
-      await sender.mailboxes.load();
-    });
     try {
+      const entries = Array.from({ length: 100 }, (_, index) => ({
+        id: `queued${index}`,
+        state: 'unknown',
+        message: { segments: [{ text: 'Synthetic message' }], size: 17 },
+        sendAt: clock.now,
+        draft: {
+          id: `queued${index}`,
+          connection: alex,
+          from: 'alex@example.invalid',
+          to: [{ address: 'sam@example.invalid' }],
+          cc: [],
+          bcc: [],
+          subject: `Queued ${index}`,
+          body: [{ kind: 'paragraph', spans: [] }],
+          updatedAt: clock.now,
+        },
+      }));
+      await sender.storage.native.commitDrafts(account, 0, {
+        document: JSON.stringify({ version: 1, drafts: [], outbox: entries }),
+        keep: [],
+      });
+      await act(async () => {
+        await sender.mailboxes.load();
+      });
       await render(<App sender={sender} />);
       expect(sender.drafts.getOutbox()).toHaveLength(100);
       expect(screen.getByRole('header', { name: 'Outbox' })).toBeOnTheScreen();
@@ -247,8 +247,8 @@ describe('sending a Draft', () => {
       );
       expect(screen.getByRole('header', { name: 'Outbox' })).toBeOnTheScreen();
     } finally {
-      await screen.unmount();
       sender.outbox.dispose();
+      await screen.unmount();
     }
   });
 
@@ -268,6 +268,30 @@ describe('sending a Draft', () => {
         screen.getByRole('alert', { name: 'Add a recipient before sending.' }),
       ).toBeOnTheScreen();
       expect(screen.getByLabelText('Subject')).toBeOnTheScreen();
+      await fireEvent.changeText(
+        screen.getByLabelText('To'),
+        'sam@example.invalid',
+      );
+      await fireEvent(screen.getByLabelText('To'), 'submitEditing');
+      expect(
+        screen.queryByRole('alert', {
+          name: 'Add a recipient before sending.',
+        }),
+      ).toBeNull();
+      await press('To: sam@example.invalid');
+      await press('Send');
+      expect(
+        screen.getByRole('alert', { name: 'Add a recipient before sending.' }),
+      ).toBeOnTheScreen();
+      await press('Undo');
+      expect(
+        screen.getByRole('button', { name: 'To: sam@example.invalid' }),
+      ).toBeOnTheScreen();
+      expect(
+        screen.queryByRole('alert', {
+          name: 'Add a recipient before sending.',
+        }),
+      ).toBeNull();
       await press('Discard');
       await press('Discard Draft');
       sender.gmail.failSend({ status: 400, body: '{}' }, { lost: true });
