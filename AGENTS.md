@@ -23,8 +23,8 @@ for every implementation, including later implementation fixes.
   `docs/architecture/`, ADRs, `.patterns/`, `.opencodereview/rule.json`, `.opencodereview/rules/`, and the reviewer-only sources listed
   in the workflow. This role boundary takes precedence over architecture-reading
   instructions in other repository guides or skills.
-- Invoke the `ponytail` and `unlazy` skills before implementing, and follow both
-  throughout the implementation.
+- Invoke the `ponytail` skill before implementing, and follow it and the
+  [coding principles](#coding-principles) throughout the implementation.
 - For React, React Native or Expo work, also invoke `vercel-react-native-skills`
   and `vercel-composition-patterns` before editing, and follow both.
 - After implementing and running the relevant checks, spawn a separate review
@@ -37,16 +37,81 @@ for every implementation, including later implementation fixes.
   [decision panel](docs/agents/implementation-review.md#decision-panel)
   (`claude-fable-5-1`, `gpt-6.1-sol`, `gpt-6-astra`); the majority wins.
 
+## Coding principles
+
+### Think before coding
+
+State assumptions, surface confusion, and name tradeoffs before implementing.
+
+- State your assumptions explicitly.
+- When the request has several interpretations, list them rather than picking one
+  silently.
+- When a simpler approach exists, say so and push back where warranted.
+- When something is unclear or uncertain, name what is confusing and send the
+  question to the [decision panel](#implementation-and-review) instead of guessing.
+
+### Simplicity first
+
+Write the minimum code that solves the problem, with nothing speculative.
+
+- Build only the requested features.
+- Inline single-use code instead of abstracting it.
+- Add flexibility or configuration only when requested.
+- Handle only errors that can actually occur.
+- When 200 lines could be 50, rewrite them.
+
+Ask: would a senior engineer call this overcomplicated? If so, simplify.
+
+### Surgical changes
+
+Touch only what the request requires, and clean up only your own mess.
+
+- Leave adjacent code, comments, and formatting as they are; refactor only what
+  is broken.
+- Match the existing style, even where you would write it differently.
+- Mention unrelated dead code instead of deleting it.
+- Remove imports, variables, and functions that your changes made unused.
+- Preserve unrelated working-tree changes.
+
+Every changed line should trace directly to the request.
+
+### Goal-driven execution
+
+Define success criteria, then loop until they are verified.
+
+Turn each task into a verifiable goal:
+
+- "Add validation" → write tests for invalid inputs, then make them pass.
+- "Fix the bug" → write a test that reproduces it, then make it pass.
+- "Refactor X" → ensure tests pass before and after.
+
+For multi-step tasks, state a brief plan:
+
+```text
+1. [Step] → verify: [check]
+2. [Step] → verify: [check]
+3. [Step] → verify: [check]
+```
+
+Strong criteria let you loop independently; weak ones ("make it work") need
+constant clarification.
+
 ## Work
 
-- Preserve unrelated working-tree changes and keep edits within the requested scope.
 - When changing product terminology or `GLOSSARY.md`, follow the
   [domain documentation policy](docs/agents/domain.md).
 - Put temporary probes in `scratchpad/`, run TypeScript with plain Node 24,
   and remove task-owned probes afterward.
 - Invoke `task-observer` for task-oriented work and consult relevant open skill
   observations. Resolve skills through the session catalogue.
-- Use the `find-skills` skill to choose the correct skill for each job.
+- Invoke the [`find-skills`](https://agenticskills.io/skills/find-skills) skill
+  at the start of each development job and whenever a new domain comes up
+  (testing, animation, a library, CI). Pick an installed skill from the session
+  catalogue first. When none fits, search the ecosystem with
+  `npx skills find <query>`, vet the best candidate with `skill-inspector` (or,
+  when that skill is unavailable, by reading its `SKILL.md` and bundled scripts),
+  then install it with `npx skills add <package>` and follow it. If `find-skills`
+  itself is missing, install it with `npx skills add vercel-labs/skills@find-skills`.
 
 ## Verify
 
