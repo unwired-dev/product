@@ -784,7 +784,9 @@ attachment descriptors.
 - **Listing.** The list comes from the message structure Gmail returns with the
   body and is kept with the encrypted body, so it also shows offline. A body cached
   before attachment metadata was kept reads it from Gmail once, on its next online
-  open; offline, that body shows no list. Attachments are named or
+  open; offline, that body shows no list. The same read keeps the message's From,
+  Reply-To, To, Cc, Date, Message-ID and References headers with the body, each at
+  most 64 KiB, for [Reply, Reply All and Forward](drafts.md#replies-and-forwards). Attachments are named or
   attachment-disposition parts outside the readable body. Inline Images the body
   resolves are not listed. Attached messages and their contents are not offered for
   download, even when their type declarations conflict. Containers are searched only

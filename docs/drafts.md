@@ -189,6 +189,46 @@ files as well as its body. A picker result arriving after the composer closes or
 the Product Account changes is discarded. Repeated **Attach to New Message**
 presses start one operation; navigation chosen while its save waits stays selected.
 
+## Replies and forwards
+
+[#613](https://github.com/unwired-dev/product/issues/613) adds **Reply**,
+**Reply All** and **Forward** to the Gmail reader on iPhone, iPad and Mac. They
+appear once the opened message's body and headers are read, and only while the
+reader's own mailbox can send: a response never starts from another mailbox. Each
+opens the new Draft in the existing composer. Nothing is sent; editing, Close,
+reopening, **Undo** and **Discard** work as for any Draft.
+
+- **Sender.** The Draft sends from the Mailbox Connection that received the message.
+  Choosing another sender in **From** is explicit; the reply then keeps its
+  In-Reply-To and References headers but not the receiving mailbox's Gmail thread.
+- **Recipients.** **Reply** goes to Reply-To, or else to From. A message this mailbox
+  sent is answered to its original To recipients. **Reply All** adds the original
+  To recipients in To and keeps Cc in Cc, which the composer shows. The sending
+  address is left out, unless the message was sent to it alone. Each address appears
+  once, compared without case, and a group keeps its members without its display
+  name. Entries that are not a valid address are left out, so a malformed header
+  can leave a field empty for the person to fill.
+- **Subject and threading.** A reply's subject starts with `Re:` and a forward's
+  with `Fwd:`, unless it already does. A reply records the Gmail thread, the
+  message's Message-ID as In-Reply-To, and up to 20 References ending with it, for
+  the delivery slice. A forward records only the message it forwards.
+- **Quoted correspondence.** The Draft keeps the answered message's text apart from
+  the authored body as read-only quoted text. **Show quoted text** reveals it beneath the body.
+  A reply quotes the readable text after an `On … wrote:` line; a forward starts with
+  a forwarded-message header naming From, Date, Subject, To and Cc. The text comes from
+  the plain alternative or the sanitized HTML's readable text, so formatting and links
+  are not kept.
+- **Forwarded files.** **Forward** first downloads every listed attachment, showing
+  **Preparing to forward…**, then attaches the copies as Draft Assets. A forward also
+  copies the message's resolved Inline Images into its quoted text. They import like other
+  files and appear under **Inline images**. An attachment too large to download, or one
+  that could not be downloaded, is listed as **Not added** and is never sent.
+  Replies carry no attachments.
+
+`startResponse` in `@private-email/mail-core/responses` performs these steps for
+both hosts; `withSender` in `@private-email/mail-core/drafts` changes a Draft's
+sender.
+
 ## Storage and isolation
 
 Drafts are stored in the [private Inbox storage](private-inbox-storage.md#draft-storage)
@@ -310,6 +350,20 @@ relaunch, deleting an importing image before settlement and restoring it with
 results arriving after Close or account replacement, and navigation during a
 received-attachment save. Native checks remove owned picker copies on rejected
 imports and preserve similarly named directories containing user files.
+
+Response coverage (#613): shared integration tests open a message through the real
+Gmail Inbox and synthetic Gmail, then start responses with the real Draft store and
+composer navigation. They check the receiving identity among two mailboxes, Reply
+and Reply All recipients with duplicates, groups and the sender's own address, threading
+headers, quoted text apart from the body, and a save and reopen. They also check a
+sender change, messages this mailbox sent, malformed headers, and forwarded text,
+inline images and attachments read back byte for byte. Failed oversized and damaged
+attachments, refusal for a mailbox awaiting authorization, and a closed reader are
+covered too. Both hosts' component journeys open **Reply All** from the reader, show
+and hide the quoted text, edit, **Undo** and **Redo**, and close without sending.
+Deferred before release: native reader-to-composer journeys on each platform, Mock
+Mail Session native scenarios with response headers, real Gmail header decoding,
+and VoiceOver qualification of the response controls and quoted-text disclosure.
 
 Run `mise exec -- zsh native/private-inbox/integration/picker.zsh` on Mac for
 the picker MIME regression. It compiles the actual bridge helpers alongside
