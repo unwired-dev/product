@@ -8,32 +8,27 @@ const GmailMinimalPushMetadataSchema = Schema.Struct({
 export type GmailMinimalPushMetadata =
   typeof GmailMinimalPushMetadataSchema.Type;
 
+// Pub/Sub encodes message data as base64; URL-safe encoding is accepted too.
 const decodePubSubEnvelope = Schema.decodeUnknownOption(
-  Schema.Struct({ message: Schema.Struct({ data: Schema.String }) }),
-);
-const decodeGmailMinimalPushMetadata = Schema.decodeUnknownOption(
-  Schema.fromJsonString(GmailMinimalPushMetadataSchema),
+  Schema.Struct({
+    message: Schema.Struct({
+      data: Schema.Union([
+        Schema.StringFromBase64,
+        Schema.StringFromBase64Url,
+      ]).pipe(
+        Schema.decodeTo(Schema.fromJsonString(GmailMinimalPushMetadataSchema)),
+      ),
+    }),
+  }),
 );
 
 export function decodeGmailPushEnvelope(
   envelope: unknown,
 ): GmailMinimalPushMetadata {
-  const { data } = Option.getOrThrowWith(
-    decodePubSubEnvelope(envelope),
-    () => new TypeError('Gmail push data required'),
-  ).message;
-
-  const base64 = data
-    .replaceAll('-', '+')
-    .replaceAll('_', '/')
-    .padEnd(Math.ceil(data.length / 4) * 4, '=');
-  const metadataJson = new TextDecoder().decode(
-    Uint8Array.from(atob(base64), (character) => character.codePointAt(0) ?? 0),
-  );
   return Option.getOrThrowWith(
-    decodeGmailMinimalPushMetadata(metadataJson),
+    decodePubSubEnvelope(envelope),
     () => new Error('Invalid Gmail push metadata'),
-  );
+  ).message.data;
 }
 
 export function gmailWakeupPayload(

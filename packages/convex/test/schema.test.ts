@@ -1,20 +1,19 @@
-import { readFileSync } from 'node:fs';
+import schema from '../convex/schema.js';
 
 describe('convex schema identifiers', () => {
-  it('uses valid index names', () => {
-    expect.assertions(1);
+  // Convex rejects these index names only at deployment.
+  it('uses index names the deployment accepts', () => {
+    expect.assertions(2);
 
-    const schemaSource = readFileSync(
-      new URL('../convex/schema.ts', import.meta.url),
-      'utf8',
+    const indexNames = Object.values(schema.tables).flatMap((table) =>
+      table[' indexes']().map(({ indexDescriptor }) => indexDescriptor),
     );
-    const invalidIndexNames = [
-      ...schemaSource.matchAll(/\.index\(\s*['"](?<indexName>[^'"]+)['"]/gu),
-    ]
-      .map((match) => match.groups?.indexName)
-      .filter((indexName): indexName is string => indexName !== undefined)
-      .filter((indexName) => !/^[A-Za-z][A-Za-z0-9_]{0,63}$/u.test(indexName));
 
-    expect(invalidIndexNames).toStrictEqual([]);
+    expect(indexNames).toContain('by_tokenIdentifier');
+    expect(
+      indexNames.filter(
+        (indexName) => !/^[A-Za-z][A-Za-z0-9_]{0,63}$/u.test(indexName),
+      ),
+    ).toStrictEqual([]);
   });
 });
