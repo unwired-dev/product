@@ -20,8 +20,13 @@ system language model. There is no cloud or product-backend model fallback.
 - A rewrite reads only the captured authored text. A reply suggestion reads only
   the authored body, the display names of the To and Cc recipients and the Draft's
   already-local quoted message. It never reads recipient address fields, Bcc, the
-  subject, attachments or Inline Images. It never fetches mail, makes no Gmail
+  subject, attachments or Inline Images, and drops every word containing "@" from
+  the names and quoted text, so no raw address, such as the sender in the quoted
+  attribution line, reaches the model. It never fetches mail, makes no Gmail
   request and never sends.
+- Recipient context uses a 500-character name prefix, including separators.
+  Names and quoted text are each bounded before addresses are removed; removing
+  addresses does not extend either prefix.
 - Captured authored text is never cut, because applying the result replaces all of
   it. Text over 6,000 characters, or containing an Inline Image, is refused with
   guidance and the Draft is unchanged. The quoted message is cut so the whole reply
@@ -32,7 +37,10 @@ system language model. There is no cloud or product-backend model fallback.
   inaccurate and not saved. The Draft is unchanged until **Replace text** (rewrite)
   or **Use reply** (reply suggestion). That replaces exactly the captured text as
   one edit that one **Undo** reverts, keeping the capture's own leading and
-  trailing whitespace. Recipients, the sender, the subject, quoted text,
+  trailing whitespace. Line and list formatting is kept where the result keeps the
+  line breaks; the inserted text takes the inline style (bold, italic and so on)
+  of the text before it, as with Draft translation, because the model returns
+  plain text. The preview says so. Recipients, the sender, the subject, quoted text,
   attachments, threading and delivery state are never changed. **Keep original**
   closes the panel.
 - A result belongs to the text it was captured from. Any edit to the Draft body, or to the To/Cc recipients
@@ -71,7 +79,7 @@ allow-listed native code or decode path, never Draft or generated text.
 ## Deterministic evidence
 
 - `packages/mail-core/test/assistance.test.ts` covers the admitted reply context
-  (names without addresses, the quoted message without images, the input bound and
+  (names and quoted text without addresses, the quoted message without images, the input bound and
   its disclosure), refused authored text, routing to `rewrite` or `suggestReply`,
   refusal, unavailability and failure without logging Draft text, retry rules, an
   oversized result, cancellation with a late result, and Mock Mail Session outcomes.

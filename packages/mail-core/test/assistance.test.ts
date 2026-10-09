@@ -321,7 +321,10 @@ describe('on-device message summaries', () => {
 
 // A reply's quoted correspondence, with an inline image the model never reads.
 const quoted = (text: string): SemanticDocument => [
-  { kind: 'paragraph', spans: [{ text: 'On Monday, Maya wrote:' }] },
+  {
+    kind: 'paragraph',
+    spans: [{ text: 'On Monday, Maya Chen <maya@example.invalid> wrote:' }],
+  },
   {
     kind: 'quote',
     spans: [
@@ -366,7 +369,7 @@ describe('on-device Draft rewrites and reply suggestions', () => {
     });
     expect(reply).toStrictEqual({
       purpose: 'reply',
-      text: 'Recipients: Maya Chen\n\nReply so far:\nFriday works.\n\nMessage being answered:\nOn Monday, Maya wrote:\nShall we meet on Friday?',
+      text: 'Recipients: Maya Chen\n\nReply so far:\nFriday works.\n\nMessage being answered:\nOn Monday, Maya Chen  wrote:\nShall we meet on Friday?',
       omitted: false,
     });
     // Addresses are never admitted, only display names.
@@ -377,7 +380,10 @@ describe('on-device Draft rewrites and reply suggestions', () => {
       recipients,
       quoted: quoted(`Shall we meet? ${'x'.repeat(9000)}`),
     });
-    expect(long?.text).toHaveLength(summaryInputLimit);
+    expect(long?.text).toHaveLength(
+      // The attribution's address is removed after the cut.
+      summaryInputLimit - '<maya@example.invalid>'.length,
+    );
     expect(long?.omitted).toBe(true);
     // Framing and recipient names consume the same budget; never send a reply without context.
     expect(
@@ -412,12 +418,15 @@ describe('on-device Draft rewrites and reply suggestions', () => {
     expect(rewriteInput('a'.repeat(summaryInputLimit + 1))).toBeUndefined();
   });
 
-  it('stops reading quoted spans and recipient names once their prefixes are full', () => {
+  it('stops reading quoted spans and recipient names even when the name prefix is redacted', () => {
     expect.hasAssertions();
     const reply = replyInput({
       authored: 'Yes',
       recipients: [
-        { name: 'x'.repeat(100_000), address: 'maya@example.invalid' },
+        {
+          name: `${'x'.repeat(499)}@${'x'.repeat(100_000)}`,
+          address: 'maya@example.invalid',
+        },
         {
           get name(): string {
             throw new Error('Read beyond the recipient prefix');
@@ -437,6 +446,28 @@ describe('on-device Draft rewrites and reply suggestions', () => {
     });
     expect(reply?.text).toHaveLength(summaryInputLimit);
     expect(reply?.omitted).toBe(true);
+  });
+
+  it('keeps address-redacted recipient context well-formed at the name bound', async () => {
+    expect.hasAssertions();
+    const { native, nth } = scriptedAssistance();
+    const assistance = createDraftAssistance(native);
+    const reply = admitted(
+      replyInput({
+        authored: 'Yes',
+        recipients: [
+          { name: `a@b ${'x'.repeat(496)}😀`, address: 'maya@example.invalid' },
+        ],
+        quoted: quoted('Shall we meet?'),
+      }),
+    );
+    const replying = assistance.start(reply);
+    const request = await nth(0);
+    expect(request.input.isWellFormed()).toBe(true);
+    expect(request.input).not.toContain('@');
+    request.answer.resolve('Yes, let us meet.');
+    await replying;
+    expect(assistance.getSnapshot(reply)).toMatchObject({ kind: 'ready' });
   });
 
   it('asks the model for the requested operation and keeps its trimmed result', async () => {

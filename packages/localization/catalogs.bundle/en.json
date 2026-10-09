@@ -355,7 +355,7 @@
     "retryLabel": "Try writing help again",
     "rewriteTitle": "Rewrite",
     "replyTitle": "Suggested reply",
-    "disclaimer": "Written on this device. It may be inaccurate, is not saved, and changes nothing until you use it.",
+    "disclaimer": "Written on this device. It may be inaccurate, is not saved, and changes nothing until you use it. Used text takes the style of the text before it.",
     "omitted": "Only the beginning of the quoted message was read.",
     "replace": "Replace text",
     "replaceLabel": "Replace your text with this rewrite",

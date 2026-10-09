@@ -104,6 +104,17 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Product behavior the stores own
 
+- `assistance.ts.replyInput` or `quotedInput` excluding recipient address fields
+  while admitting raw addresses embedded in To/Cc display names, quoted
+  attribution lines or other admitted source-message text. Check the complete
+  model input, not only its selected fields; otherwise Response Assistance
+  processes identities its context contract excludes. Keep traversal and string
+  work bounded before filtering, and preserve surrogate-safe cuts even when
+  redaction shortens a prefix below its final output bound.
+  Charge the cumulative raw recipient-name prefix before redaction; a
+  post-redaction length cap can scan the entire recipient list when addresses
+  consume no output, multiplying synchronous work beyond the admitted prefix.
+
 - `readable-text.ts.paragraphBuilder` or another readable-content filter dropping
   an admitted image occurrence because its alt text is empty or whitespace-only.
   Preserve non-text metadata through span merging, trimming and paragraph

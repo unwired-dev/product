@@ -404,6 +404,14 @@ export const sameDraftAssistanceSource = (
       captured.cc === current.cc &&
       captured.quoted === current.quoted));
 
+// Response Assistance never admits raw addresses, such as the one in a quoted attribution line:
+// every word containing "@" is dropped. Linear in the bounded text it is given.
+const withoutAddresses = (text: string) =>
+  text
+    .split(/(?<space>\s+)/u)
+    .filter((word) => !word.includes('@'))
+    .join('');
+
 // Read only the quoted prefix plus one lookahead character, excluding semantic images.
 function quotedInput(quoted: SemanticDocument, limit: number): SummaryInput {
   const pieces = function* () {
@@ -423,7 +431,10 @@ function quotedInput(quoted: SemanticDocument, limit: number): SummaryInput {
       break;
     }
   }
-  return { ...boundedInput(text.trim(), limit), omitted: text.length > limit };
+  return {
+    text: withoutAddresses(boundedInput(text.trim(), limit).text).trim(),
+    omitted: text.length > limit,
+  };
 }
 
 // A reply Draft's admitted context: its authored text, the display names of its To and Cc
@@ -451,7 +462,9 @@ export function replyInput({
       }
     }
   }
-  const head = `Recipients: ${boundedInput(names, 500).text}\n\nReply so far:\n${authored.trim()}\n\nMessage being answered:\n`;
+  // Bound the raw prefix before redaction; removed addresses never refill its budget.
+  const shown = withoutAddresses(boundedInput(names, 500).text).trim();
+  const head = `Recipients: ${shown}\n\nReply so far:\n${authored.trim()}\n\nMessage being answered:\n`;
   const budget = summaryInputLimit - head.length;
   if (budget <= 0) {
     return undefined;

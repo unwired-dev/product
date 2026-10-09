@@ -3164,8 +3164,8 @@ describe('replying to and forwarding from the reader', () => {
       'Recipients: Maya Chen, Bob\n\nReply so far:\nYes\n\nMessage being answered:\n',
     );
     expect(asked[0]?.input).toContain('Shall we meet on Friday?');
-    // Recipient addresses are never admitted; the quoted attribution line is message text.
-    expect(asked[0]?.input).not.toMatch(/bob@|carol@/u);
+    // No raw address is admitted, including the sender in the quoted attribution line.
+    expect(asked[0]?.input).not.toContain('@');
     expect(gmail.requests).toHaveLength(requests);
     asked[0]?.answer.resolve('Yes, Friday works. See you then.');
     await screen.findByText('Yes, Friday works. See you then.');
