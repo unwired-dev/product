@@ -243,6 +243,42 @@ export function createOutbox({
     await record(id, outcome);
   };
 
+  // Ends a message's Undo Send Window once it has passed. Resolves false when storage refused that.
+  const release = async (entry: OutboxEntry) =>
+    entry.state !== 'waiting' ||
+    Date.now() < entry.sendAt ||
+    drafts.deliver(
+      entry.id,
+      step('waiting', (each) => withState(each, 'queued')),
+    );
+
+  // Why the Draft cannot be sent as it is, checked before reading its files.
+  const refusalOf = (draft: Draft): SendRefusal | undefined => {
+    if (draft.to.length + draft.cc.length + draft.bcc.length === 0) {
+      return 'recipients';
+    }
+    if (draft.entries !== undefined) {
+      return 'entries';
+    }
+    if (senderProblem(draft) !== undefined) {
+      return 'sender';
+    }
+    return unsendableAssets(draft).length > 0 ? 'assets' : undefined;
+  };
+
+  // Whether every file is on this device with bytes matching its digest.
+  const verified = async (draft: Draft) => {
+    for (const asset of assetsOf(draft)) {
+      if (asset.state === 'complete') {
+        const read = await drafts.readAsset(asset, { preview: false });
+        if (read.kind !== 'verified') {
+          return false;
+        }
+      }
+    }
+    return true;
+  };
+
   // Advances one message as far as it can go now; the persisted state decides what remains due.
   const advance = async (id: string) => {
     const account = ownerOf(registration);
@@ -250,14 +286,7 @@ export function createOutbox({
     if (account === undefined || waiting === undefined) {
       return;
     }
-    if (
-      waiting.state === 'waiting' &&
-      Date.now() >= waiting.sendAt &&
-      !(await drafts.deliver(
-        id,
-        step('waiting', (each) => withState(each, 'queued')),
-      ))
-    ) {
+    if (!(await release(waiting))) {
       return;
     }
     const entry = entryOf(id);
@@ -379,26 +408,12 @@ export function createOutbox({
     // Resolves why it was refused, or undefined once admitted.
     send: async (expected: () => Draft): Promise<SendRefusal | undefined> => {
       const draft = expected();
-      if (draft.to.length + draft.cc.length + draft.bcc.length === 0) {
-        return 'recipients';
+      const refusal = refusalOf(draft);
+      if (refusal !== undefined) {
+        return refusal;
       }
-      if (draft.entries !== undefined) {
-        return 'entries';
-      }
-      if (senderProblem(draft) !== undefined) {
-        return 'sender';
-      }
-      if (unsendableAssets(draft).length > 0) {
+      if (!(await verified(draft))) {
         return 'assets';
-      }
-      for (const asset of assetsOf(draft)) {
-        // Every file must be on this device with bytes matching its digest.
-        if (asset.state === 'complete') {
-          const verified = await drafts.readAsset(asset, { preview: false });
-          if (verified.kind !== 'verified') {
-            return 'assets';
-          }
-        }
       }
       const message = messageOf(draft);
       if (message.size > gmailMessageLimit) {

@@ -947,24 +947,32 @@ const sendRejection = (cause: unknown): SendOutcome =>
 
 // Gmail answered: a 2xx accepted the message. Refusals that Gmail reports before accepting it are
 // final, apart from rate limits; a server error may follow acceptance, so its outcome is unknown.
+// Gmail's final refusals by status, apart from a rate limit's 403.
+const refusedStatuses = new Map<number, SendOutcome>([
+  [401, { kind: 'failed', problem: 'authorization' }],
+  [403, { kind: 'failed', problem: 'authorization' }],
+  [413, { kind: 'failed', problem: 'too-large' }],
+  [429, { kind: 'queued', problem: 'rate-limited' }],
+]);
 const sendStatus = ({
   status,
   body,
 }: Readonly<{ status: number; body: string }>): SendOutcome => {
   if (status >= 200 && status < 300) {
-    const sent = decodeSent(body);
-    return Option.isSome(sent)
-      ? { kind: 'sent', message: sent.value.id }
-      : { kind: 'sent' };
+    return {
+      kind: 'sent',
+      ...Option.match(decodeSent(body), {
+        onNone: () => ({}),
+        onSome: ({ id }) => ({ message: id }),
+      }),
+    };
   }
-  if (status === 429 || (status === 403 && Option.isSome(rateLimited(body)))) {
+  if (status === 403 && Option.isSome(rateLimited(body))) {
     return { kind: 'queued', problem: 'rate-limited' };
   }
-  if (status === 401 || status === 403) {
-    return { kind: 'failed', problem: 'authorization' };
-  }
-  if (status === 413) {
-    return { kind: 'failed', problem: 'too-large' };
+  const refused = refusedStatuses.get(status);
+  if (refused !== undefined) {
+    return refused;
   }
   return status >= 400 && status < 500
     ? { kind: 'failed', problem: 'refused' }

@@ -203,6 +203,7 @@ const htmlBlock = ({ kind, spans }: Block) => {
   return kind === 'code' ? inner : `<p>${inner === '' ? '<br>' : inner}</p>`;
 };
 // Consecutive list items, quotes and code lines share one container.
+// fallow-ignore-next-line complexity -- One pass opens and closes each run of blocks in reading order.
 const htmlOf = (document: readonly Block[]) => {
   let html = '';
   for (const [index, block] of document.entries()) {
