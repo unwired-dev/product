@@ -14,8 +14,7 @@ app's Info.plist as `UnwiredCommit` and in the build's English TestFlight
 
 The timestamp has minute precision. Two uploads of the same host and marketing
 version in one minute can collide; queue them or wait for the next minute.
-CI serializes runs for the same ref, while different refs and local uploads
-need that coordination.
+CI serializes TestFlight runs across all refs; local uploads need that coordination.
 
 ## Request a build from CI
 

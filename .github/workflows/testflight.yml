@@ -36,9 +36,11 @@ on:
 permissions:
   contents: read
 
+# One queue for every upload: build numbers have minute precision.
 concurrency:
-  group: testflight-${{ inputs.ref || github.ref }}
+  group: testflight
   cancel-in-progress: false
+  queue: max
 
 jobs:
   convex:
