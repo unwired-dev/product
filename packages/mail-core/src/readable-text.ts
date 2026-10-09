@@ -6,6 +6,8 @@ export interface BodySpan {
   readonly text: string;
   // Only http, https, mailto and tel destinations; the host confirms before opening one.
   readonly href?: string;
+  // An admitted CID image at this position when building forwarded correspondence.
+  readonly contentId?: string;
 }
 export interface ReadableBody {
   readonly paragraphs: ReadonlyArray<readonly BodySpan[]>;
@@ -32,12 +34,21 @@ export function paragraphBuilder() {
   const paragraphs: BodySpan[][] = [];
   let spans: BodySpan[] = [];
   let links = 0;
-  const add = (text: string, href: string | undefined) => {
+  const add = (text: string, href: string | undefined, contentId?: string) => {
     const last = spans.at(-1);
-    if (last !== undefined && last.href === href) {
+    if (
+      last !== undefined &&
+      last.href === href &&
+      last.contentId === undefined &&
+      contentId === undefined
+    ) {
       spans[spans.length - 1] = { ...last, text: last.text + text };
-    } else if (text !== '') {
-      spans.push(href === undefined ? { text } : { text, href });
+    } else if (text !== '' || contentId !== undefined) {
+      spans.push({
+        text,
+        ...(href === undefined ? {} : { href }),
+        ...(contentId === undefined ? {} : { contentId }),
+      });
     }
   };
   const end = () => {
@@ -46,7 +57,7 @@ export function paragraphBuilder() {
         ...span,
         text: span.text.replaceAll(/ {2,}/gu, ' ').replaceAll(/ *\n */gu, '\n'),
       }))
-      .filter((span) => span.text !== '');
+      .filter((span) => span.text !== '' || span.contentId !== undefined);
     const first = trimmed.at(0);
     if (first !== undefined) {
       trimmed[0] = { ...first, text: first.text.trimStart() };
@@ -55,19 +66,26 @@ export function paragraphBuilder() {
     if (last !== undefined) {
       trimmed[trimmed.length - 1] = { ...last, text: last.text.trimEnd() };
     }
-    if (trimmed.some((span) => span.text.trim() !== '')) {
+    // An image with empty alt text still holds its place in forwarded correspondence.
+    if (
+      trimmed.some(
+        (span) => span.text.trim() !== '' || span.contentId !== undefined,
+      )
+    ) {
       // One HTML anchor can cross many paragraphs. Hosts offer a control for each linked
       // span, so count finalized fallback spans independently of collected rich anchors.
       paragraphs.push(
         trimmed.map((span) => {
-          if (span.href === undefined || !hasVisibleText(span.text)) {
-            return { text: span.text };
+          if (
+            span.href !== undefined &&
+            hasVisibleText(span.text) &&
+            links < messageLinkLimit
+          ) {
+            links += 1;
+            return span;
           }
-          if (links >= messageLinkLimit) {
-            return { text: span.text };
-          }
-          links += 1;
-          return span;
+          const { href: _inactive, ...unlinked } = span;
+          return unlinked;
         }),
       );
     }

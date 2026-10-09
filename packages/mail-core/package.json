@@ -25,7 +25,8 @@
     "./drafts": "./src/drafts.ts",
     "./semantic-document": "./src/semantic-document.ts",
     "./testing/drafts": "./src/testing/drafts.ts",
-    "./composer-navigation": "./src/composer-navigation.ts"
+    "./composer-navigation": "./src/composer-navigation.ts",
+    "./responses": "./src/responses.ts"
   },
   "scripts": {
     "check-types": "tsc --noEmit",

@@ -1481,7 +1481,7 @@ describe('storing Drafts', () => {
     const navigation = createComposerNavigation();
     await drafts.load();
     await expect(
-      navigation.create(drafts, alex, async () => false),
+      navigation.create(drafts, alex, { prepare: async () => false }),
     ).resolves.toBeUndefined();
     expect(draftsOf(drafts.getSnapshot())).toStrictEqual([]);
     const emptyReopened = createDrafts(storage.native, session.registration);
@@ -1490,20 +1490,27 @@ describe('storing Drafts', () => {
 
     // Another editor's authored content survives failed preparation and relaunch.
     await expect(
-      navigation.create(drafts, alex, async (id) => {
-        const before = present(
-          draftOf(drafts.getSnapshot(), id),
-          'authored Draft',
-        );
-        await drafts.update({ ...before, subject: 'Typed meanwhile' }, before);
-        return false;
+      navigation.create(drafts, alex, {
+        prepare: async (id) => {
+          const before = present(
+            draftOf(drafts.getSnapshot(), id),
+            'authored Draft',
+          );
+          await drafts.update(
+            { ...before, subject: 'Typed meanwhile' },
+            before,
+          );
+          return false;
+        },
       }),
     ).resolves.toBeUndefined();
     // Selecting the new row before preparation fails keeps even its empty Draft.
     await expect(
-      navigation.create(drafts, alex, async (id) => {
-        await navigation.leave(id);
-        return false;
+      navigation.create(drafts, alex, {
+        prepare: async (id) => {
+          await navigation.leave(id);
+          return false;
+        },
       }),
     ).resolves.toBeUndefined();
     const reopened = createDrafts(storage.native, session.registration);

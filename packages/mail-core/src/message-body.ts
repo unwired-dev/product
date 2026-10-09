@@ -138,6 +138,20 @@ const BodyDocumentSchema = Schema.Struct({
       }),
     ),
   ),
+  // The message's own addressing and threading headers, for Reply, Reply All and Forward; absent
+  // in bodies cached before they were kept.
+  headers: Schema.optionalKey(
+    Schema.Struct({
+      from: Schema.optionalKey(Schema.String),
+      replyTo: Schema.optionalKey(Schema.String),
+      to: Schema.optionalKey(Schema.String),
+      cc: Schema.optionalKey(Schema.String),
+      date: Schema.optionalKey(Schema.String),
+      messageId: Schema.optionalKey(Schema.String),
+      inReplyTo: Schema.optionalKey(Schema.String),
+      references: Schema.optionalKey(Schema.String),
+    }),
+  ),
 });
 export type BodyDocument = typeof BodyDocumentSchema.Type;
 export const decodeBodyDocument = Schema.decodeUnknownOption(
@@ -154,6 +168,35 @@ export const encodeBodyDocument = Schema.encodeEffect(
 export const header = (part: GmailPart, name: string) =>
   part.headers?.find((candidate) => candidate.name.toLowerCase() === name)
     ?.value ?? '';
+
+// Sender-controlled header text kept for a response; recipient parsing is linear in it.
+const responseHeaderLimit = 64 * 1024;
+
+// A message's top-level headers that Reply, Reply All and Forward read; each present one is kept.
+export const responseHeadersOf = (
+  payload: GmailPart,
+): NonNullable<BodyDocument['headers']> => {
+  const names = {
+    from: 'from',
+    replyTo: 'reply-to',
+    to: 'to',
+    cc: 'cc',
+    date: 'date',
+    messageId: 'message-id',
+    inReplyTo: 'in-reply-to',
+    references: 'references',
+  } as const;
+  const headers: Record<string, string> = {};
+  for (const [key, name] of Object.entries(names)) {
+    const value = payload.headers?.find(
+      (candidate) => candidate.name.toLowerCase() === name,
+    )?.value;
+    if (value !== undefined && value.length <= responseHeaderLimit) {
+      headers[key] = value;
+    }
+  }
+  return headers;
+};
 
 const headerValues = (part: GmailPart, name: string) =>
   (part.headers ?? [])
@@ -185,7 +228,7 @@ const commentDelimiters = (value: string) =>
 // RFC comments may be nested and may escape parentheses; they are not header tokens.
 // Comments become the separator, empty by default; a Content-ID passes a space so a comment
 // inside the ID leaves whitespace there instead of joining its halves.
-const withoutComments = (value: string, separator = '') => {
+export const withoutComments = (value: string, separator = '') => {
   let from = 0;
   let output = '';
   for (const delimiter of commentDelimiters(value)) {

@@ -84,7 +84,7 @@ export function createSyntheticDrafts(
         /^data:[^,]*;base64,(?<data>.*)$/u.exec(source.uri) ?? [];
       return data === undefined ? undefined : atob(data);
     }
-    if (source.kind === 'oversized') {
+    if (source.kind === 'oversized' || source.kind === 'unavailable') {
       return undefined;
     }
     return files.get(source.kind === 'received' ? source.file : source.uri);

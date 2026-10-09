@@ -16,6 +16,8 @@ interface SyntheticMessage {
   readonly internalDate: number;
   readonly labels: Set<string>;
   readonly content: SyntheticContent;
+  // Further top-level headers, such as To, Cc, Reply-To, Message-ID and References.
+  readonly headers: ReadonlyArray<Readonly<{ name: string; value: string }>>;
 }
 
 // A message's readable content: HTML and/or plain text, encoded in `charset`. A `separate` part
@@ -194,6 +196,7 @@ export function createSyntheticGmail({
     unread = true,
     at = Date.UTC(2026, 8, 1) + nextId * 60_000,
     content = { text: `${snippet}\n\nSynthetic body.` },
+    headers = {},
   }: {
     readonly from?: string;
     readonly subject?: string;
@@ -201,6 +204,7 @@ export function createSyntheticGmail({
     readonly unread?: boolean;
     readonly at?: number;
     readonly content?: SyntheticContent;
+    readonly headers?: Readonly<Record<string, string>>;
   } = {}) => {
     nextId += 1;
     const id = nextId.toString(16);
@@ -212,6 +216,10 @@ export function createSyntheticGmail({
       internalDate: at,
       labels: new Set(unread ? ['INBOX', 'UNREAD'] : ['INBOX']),
       content,
+      headers: Object.entries(headers).map(([name, value]) => ({
+        name,
+        value,
+      })),
     });
     record('messagesAdded', id);
     return id;
@@ -277,7 +285,14 @@ export function createSyntheticGmail({
   };
   // Gmail's `format=full` shape: one readable part, or an alternative of the text and HTML parts
   // and the inline images in a related scope, beside an attachment.
-  const fullPayload = ({ content }: SyntheticMessage) => {
+  const fullPayload = (message: SyntheticMessage) => {
+    const { content } = message;
+    // The message's own headers lead its top-level part, as in Gmail's response.
+    const top = [
+      { name: 'From', value: message.from },
+      { name: 'Subject', value: message.subject },
+      ...message.headers,
+    ];
     const part = (mimeType: string, text: string, partId: string) => ({
       partId,
       mimeType,
@@ -303,9 +318,11 @@ export function createSyntheticGmail({
           },
     });
     if (content.single === true) {
-      return content.html === undefined
-        ? part('text/plain', content.text ?? '', '0-0')
-        : part('text/html', content.html, '0-1');
+      const single =
+        content.html === undefined
+          ? part('text/plain', content.text ?? '', '0-0')
+          : part('text/html', content.html, '0-1');
+      return { ...single, headers: [...top, ...single.headers] };
     }
     const images = (content.images ?? []).map((image, index) => ({
       partId: `1-${index}`,
@@ -324,6 +341,7 @@ export function createSyntheticGmail({
     return {
       mimeType: 'multipart/mixed',
       filename: '',
+      headers: top,
       parts: [
         {
           mimeType: 'multipart/related',

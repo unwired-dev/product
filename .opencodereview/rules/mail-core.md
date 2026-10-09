@@ -104,6 +104,22 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Product behavior the stores own
 
+- `readable-text.ts.paragraphBuilder` or another readable-content filter dropping
+  an admitted image occurrence because its alt text is empty or whitespace-only.
+  Preserve non-text metadata through span merging, trimming and paragraph
+  admission, then trace `responses.ts.forwardedBody` through Draft-owned assets
+  and reopened storage. Otherwise Forward silently loses an inline image or its
+  position despite having copied its bytes; include image-only paragraphs and
+  repeated occurrences in the public forward journey.
+- `drafts.ts.withSender` or another reversible selection destructively removing
+  mailbox-scoped response metadata. Keep the receiving connection with its Gmail
+  thread and derive eligibility from the selected sender through `threadOf`;
+  switching away and back must restore that thread while retaining RFC headers.
+  `responses.ts.replied` must capture that owner from the initiating source,
+  including a sender change by another editor during the first save, rather than
+  assign the receiving thread to the Draft's later sender. Otherwise a reversible
+  edit loses threading or exposes one mailbox's thread as belonging to another.
+
 - `translation.ts.draftTranslationInput` admitting a selected U+FFFC from an inline
   image into text translation. `semantic-document.ts.replaceSelection` cannot
   reconstruct image metadata from translated text, so accepting the result drops

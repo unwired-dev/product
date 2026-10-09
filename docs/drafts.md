@@ -189,6 +189,61 @@ files as well as its body. A picker result arriving after the composer closes or
 the Product Account changes is discarded. Repeated **Attach to New Message**
 presses start one operation; navigation chosen while its save waits stays selected.
 
+## Replies and forwards
+
+[#613](https://github.com/unwired-dev/product/issues/613) adds **Reply**,
+**Reply All** and **Forward** to the Gmail reader on iPhone, iPad and Mac. They
+appear once the opened message's body and headers are read, and only while the
+reader's own mailbox can send: a response never starts from another mailbox. Each
+opens the new Draft in the existing composer. Nothing is sent; editing, Close,
+reopening, **Undo** and **Discard** work as for any Draft.
+
+- **Sender.** The Draft sends from the Mailbox Connection that received the message.
+  Choosing another sender in **From** is explicit; the reply then keeps its
+  In-Reply-To and References headers but not the receiving mailbox's Gmail thread.
+  Choosing the receiving mailbox again joins that thread again.
+  The thread stays scoped to the receiving mailbox if another editor chooses a
+  sender while the response's first save is pending.
+- **Recipients.** **Reply** goes to Reply-To, or else to From. A message this mailbox
+  sent is answered to its original To recipients. **Reply All** adds the original
+  To recipients in To and keeps Cc in Cc, which the composer shows. All known Gmail
+  addresses belonging to the Product Account are left out, unless the message was
+  sent to the active sender alone. An excluded address can be added manually. Each address appears
+  once, compared without case, and a group keeps its members without its display
+  name. Folded headers, comments and quoted group names retain their valid addresses.
+  Entries that are not a valid address are left out, so a malformed header
+  can leave a field empty for the person to fill.
+- **Subject and threading.** A reply's subject starts with `Re:` and a forward's
+  with `Fwd:`, unless it already does. A reply records the Gmail thread, the
+  message's Message-ID as In-Reply-To, and up to 20 References ending with it, for
+  the delivery slice. When References is absent, a single parent In-Reply-To supplies
+  the earlier identifier. Identifiers inside comments are ignored. A forward records
+  only the message it forwards.
+- **Quoted correspondence.** The Draft keeps the answered message's text apart from
+  the authored body as read-only quoted text. **Show quoted text** reveals it beneath the body.
+  A reply quotes the readable text after an `On … wrote:` line; a forward starts with
+  a forwarded-message header naming From, Date, Subject, To and Cc. The text comes from
+  the plain alternative or the sanitized HTML's readable text. Rich quote formatting,
+  links and editing the correspondence are deferred.
+- **Forwarded files.** **Forward** first downloads every listed attachment, showing
+  **Preparing to forward…**, then attaches the copies as Draft Assets. A forward also
+  copies the message's resolved Inline Images into its quoted text. They import like other
+  files and appear under **Inline images**. Their positions and repeated occurrences
+  are kept; repeated occurrences use the same copied bytes. An attachment too large to download, or one
+  that could not be downloaded, is listed as **Not added** and is never sent.
+  Replies carry no attachments.
+
+Preparation belongs to the initiating reader, Product Account and navigation.
+Closing that reader, changing accounts or choosing another destination while the
+attachments download prevents the response Draft from being created. Queued
+presses start only one response.
+If another editor completes the new Draft while its first save is pending, that
+editor's content is preserved and response preparation stops.
+
+`startResponse` in `@private-email/mail-core/responses` performs these steps for
+both hosts; `withSender` in `@private-email/mail-core/drafts` changes a Draft's
+sender, and `threadOf` gives the Gmail thread a reply joins from its current sender.
+
 ## Storage and isolation
 
 Drafts are stored in the [private Inbox storage](private-inbox-storage.md#draft-storage)
@@ -310,6 +365,25 @@ relaunch, deleting an importing image before settlement and restoring it with
 results arriving after Close or account replacement, and navigation during a
 received-attachment save. Native checks remove owned picker copies on rejected
 imports and preserve similarly named directories containing user files.
+
+Response coverage (#613): shared integration tests open a message through the real
+Gmail Inbox and synthetic Gmail, then start responses with the real Draft store and
+composer navigation. They check the receiving identity among two mailboxes, Reply
+and Reply All recipients with duplicates, groups and the sender's own address, threading
+headers, quoted text apart from the body, and a save and reopen. They also check a
+sender change, messages this mailbox sent, malformed headers, and forwarded text,
+inline images and attachments read back byte for byte. Failed oversized and damaged
+attachments, refusal for a mailbox awaiting authorization or an unrelated sending
+mailbox, and reader closure, account replacement or navigation during preparation
+are covered too, including a sender change by another editor during the first save.
+Header regressions cover comments, quoted groups, reply ancestry
+and oversized values; inline-image regressions preserve positions and repetitions.
+Both hosts' component journeys ignore queued response presses and callbacks from
+an old reader. They also open **Reply All** from the reader, show
+and hide the quoted text, edit, **Undo** and **Redo**, and close without sending.
+Deferred before release: native reader-to-composer journeys on each platform, Mock
+Mail Session native scenarios with response headers, real Gmail header decoding,
+and VoiceOver qualification of the response controls and quoted-text disclosure.
 
 Run `mise exec -- zsh native/private-inbox/integration/picker.zsh` on Mac for
 the picker MIME regression. It compiles the actual bridge helpers alongside

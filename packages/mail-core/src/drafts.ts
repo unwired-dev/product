@@ -23,6 +23,7 @@ import {
   rejectionDiagnostic,
   runLogged,
 } from './diagnostics.ts';
+import { withoutComments } from './message-body.ts';
 import { canOpenInbox, mailboxesOf } from './registration.ts';
 import {
   AssetSchema,
@@ -39,6 +40,27 @@ const RecipientSchema = Schema.Struct({
   address: Schema.NonEmptyString,
 });
 export type Recipient = typeof RecipientSchema.Type;
+
+// What a reply or forward answers: the received message and, for a reply, the RFC 5322 threading
+// headers the sent reply carries and the Gmail thread of the mailbox that received it. A forward
+// starts a conversation of its own.
+const ResponseSchema = Schema.Union([
+  Schema.Struct({
+    kind: Schema.Literals(['reply', 'replyAll']),
+    message: Schema.NonEmptyString,
+    thread: Schema.Struct({
+      connection: Schema.NonEmptyString,
+      id: Schema.NonEmptyString,
+    }),
+    inReplyTo: Schema.optionalKey(Schema.NonEmptyString),
+    references: Schema.Array(Schema.NonEmptyString),
+  }),
+  Schema.Struct({
+    kind: Schema.Literal('forward'),
+    message: Schema.NonEmptyString,
+  }),
+]);
+export type Response = typeof ResponseSchema.Type;
 
 // An unsent outgoing message kept on this device until it is discarded. It names the Mailbox
 // Connection it sends from and that connection's address when chosen, so a later removal never
@@ -65,6 +87,10 @@ const DraftSchema = Schema.Struct({
   body: SemanticDocumentSchema,
   // Files attached apart from the body's inline images, in the order added.
   attachments: Schema.optionalKey(Schema.Array(AssetSchema)),
+  // The received message a reply or forward answers, in the Draft's own Mailbox Connection.
+  response: Schema.optionalKey(ResponseSchema),
+  // The answered correspondence, kept apart from the authored body and never edited with it.
+  quoted: Schema.optionalKey(SemanticDocumentSchema),
   // Milliseconds since 1970 of the last edit.
   updatedAt: Schema.Finite,
 });
@@ -101,7 +127,7 @@ const addressPattern =
   /^[^\s@<>()[\]\\,;:"]+@(?:[A-Za-z0-9-]+\.)+[A-Za-z0-9-]{2,}$/u;
 // A quoted or plain display name, then the address in angle brackets.
 const named =
-  /^\s*(?:"(?<quoted>[^"]*)"|(?<plain>[^"<]*?))\s*<(?<address>[^<>]*)>\s*$/u;
+  /^\s*(?:"(?<quoted>(?:\\.|[^"\\])*)"|(?<plain>[^"<]*?))\s*<(?<address>[^<>]*)>\s*$/u;
 
 // One entry as a recipient, or undefined when it is not a valid address.
 const recipientOf = (entry: string): Recipient | undefined => {
@@ -111,7 +137,9 @@ const recipientOf = (entry: string): Recipient | undefined => {
   if (!addressPattern.test(address)) {
     return undefined;
   }
-  const name = (quoted ?? plain ?? '').trim();
+  const name = (quoted ?? plain ?? '')
+    .replaceAll(/\\(?<char>.)/gu, '$1')
+    .trim();
   return name === '' ? { address } : { name, address };
 };
 
@@ -123,8 +151,11 @@ const entriesOf = (text: string) => {
   let current = '';
   // Inside a quoted name or angle-bracketed address, which a separator never ends.
   let quote: '"' | '<' | undefined = undefined;
+  let escaped = false;
   for (const ch of text) {
-    if (quote === undefined && (ch === '"' || ch === '<')) {
+    if (quote === '"' && (escaped || ch === '\\')) {
+      escaped = !escaped;
+    } else if (quote === undefined && (ch === '"' || ch === '<')) {
       quote = ch;
     } else if ((quote === '"' && ch === '"') || (quote === '<' && ch === '>')) {
       quote = undefined;
@@ -137,6 +168,21 @@ const entriesOf = (text: string) => {
     }
   }
   return { entries, rest: current };
+};
+
+// A group's `Display Name:` before its first member, outside any quoted name or address.
+const groupLabel = /^(?:"(?:\\.|[^"\\])*"\s*|[^"<>@:]*):/u;
+
+// The valid addresses of a received address-list header, such as To or Reply-To. A group keeps its
+// members without its display name; entries that are not an address are left out.
+export const recipientsOf = (header: string): readonly Recipient[] => {
+  const { entries, rest } = entriesOf(
+    withoutComments(header.replaceAll(/\r\n(?=[ \t])/gu, ' '), ' '),
+  );
+  return [...entries, rest].flatMap((entry) => {
+    const recipient = recipientOf(entry.trim().replace(groupLabel, ''));
+    return recipient === undefined ? [] : [recipient];
+  });
 };
 
 export const recipientLabel = ({ name, address }: Recipient) =>
@@ -275,6 +321,21 @@ export const sendingStateOf = (
   return connection.state === 'authorization' ? 'authorization' : 'available';
 };
 
+// The Draft sending from `mailbox` instead, as the person chose.
+export const withSender = (
+  draft: Draft,
+  mailbox: Pick<MailboxConnection, 'id' | 'address'>,
+): Draft => ({ ...draft, connection: mailbox.id, from: mailbox.address });
+
+// The Gmail thread a reply joins: only while it sends from the mailbox that received the message,
+// as a thread belongs to that mailbox. From any other sender it keeps only its threading headers.
+export const threadOf = ({ connection, response }: Draft) =>
+  response !== undefined &&
+  'thread' in response &&
+  response.thread.connection === connection
+    ? response.thread.id
+    : undefined;
+
 // The connections a Draft may send from: every one whose Gmail access is usable on this device.
 export const sendingMailboxes = (mailboxes: readonly MailboxConnection[]) =>
   mailboxes.filter(({ state }) => state !== 'authorization');
@@ -286,10 +347,12 @@ export const assetLimit = 25 * 1024 * 1024;
 // The most files one pick, paste or drop adds, so a huge selection never floods the composer.
 export const pickLimit = 20;
 
-// Every asset of a Draft: its attachments, then its inline images in reading order.
+// Every asset of a Draft: its attachments, then its inline images in reading order, the quoted
+// correspondence's last.
 export const assetsOf = (draft: Draft): readonly Asset[] => [
   ...(draft.attachments ?? []),
   ...imagesOf(draft.body),
+  ...(draft.quoted === undefined ? [] : imagesOf(draft.quoted)),
 ];
 
 // Assets that must not be sent: imports still running, interrupted, cancelled or failed.
@@ -302,15 +365,18 @@ export const withAsset = (
   id: string,
   next: (asset: Asset) => Asset,
 ): Draft => {
-  const { attachments } = draft;
+  const { attachments, quoted } = draft;
   const attached = attachments?.some((asset) => asset.id === id) === true;
   const body = withImage(draft.body, id, next);
-  if (!attached && body === draft.body) {
+  const quotedNext =
+    quoted === undefined ? undefined : withImage(quoted, id, next);
+  if (!attached && body === draft.body && quotedNext === quoted) {
     return draft;
   }
   return {
     ...draft,
     body,
+    ...(quotedNext === undefined ? {} : { quoted: quotedNext }),
     ...(attachments === undefined || !attached
       ? {}
       : {
@@ -327,6 +393,8 @@ export type AssetSource =
   | Readonly<{ kind: 'file' | 'data'; uri: string }>
   // A picked file over the per-file limit, which native code did not copy.
   | Readonly<{ kind: 'oversized' }>
+  // A forwarded attachment that could not be downloaded.
+  | Readonly<{ kind: 'unavailable' }>
   | Readonly<{
       kind: 'received';
       mailbox: Readonly<{
@@ -382,11 +450,20 @@ const VerificationSchema = Schema.Struct({
 
 export const isEmptyDraft = (draft: Draft) =>
   (draft.attachments?.length ?? 0) === 0 &&
+  draft.quoted === undefined &&
   draft.to.length + draft.cc.length + draft.bcc.length === 0 &&
   draft.entries === undefined &&
   !/\S/u.test(draft.subject) &&
   // Stops at the first non-whitespace character rather than joining the whole body.
   draft.body.every(({ spans }) => spans.every(({ text }) => !/\S/u.test(text)));
+
+// How an asset fails without native code reading anything, for a source it could not copy.
+const unreadable = (source: AssetSource) => {
+  if (source.kind === 'oversized') {
+    return { reason: 'too-large' } as const;
+  }
+  return source.kind === 'unavailable' ? {} : undefined;
+};
 
 // An asset still importing becomes `next`; one cancelled or removed meanwhile is left alone.
 const finished =
@@ -1200,7 +1277,8 @@ export function createDrafts(
       if (account === undefined || importing.has(asset.id)) {
         return;
       }
-      if (source.kind === 'oversized') {
+      const failure = unreadable(source);
+      if (failure !== undefined) {
         return yield* settle(
           current,
           asset.id,
@@ -1209,7 +1287,7 @@ export function createDrafts(
             name,
             type,
             state: 'failed',
-            reason: 'too-large',
+            ...failure,
           })),
         );
       }
@@ -1238,6 +1316,32 @@ export function createDrafts(
       }
       yield* imported(current, account, { asset, ...outcome.success });
     });
+
+  const fill = async (
+    draft: string,
+    edit: (draft: Draft) => Draft,
+    imports: ReadonlyArray<Readonly<{ asset: Asset; source: AssetSource }>>,
+  ) => {
+    const current = generation;
+    if (
+      state.kind !== 'ready' ||
+      !state.drafts.some(({ id }) => id === draft)
+    ) {
+      return false;
+    }
+    // A refused save keeps the content in memory, as for any edit; the caller opens the Draft,
+    // whose composer reports the failed save, rather than leaving a hidden one behind.
+    await change((drafts) =>
+      drafts.map((each) => (each.id === draft ? edit(each) : each)),
+    );
+    if (!live(current)) {
+      return false;
+    }
+    for (const { asset, source } of imports) {
+      void runLogged(importAsset(asset, source));
+    }
+    return true;
+  };
 
   const follow = () => {
     const next = ownerOf(registration.getSnapshot().snapshot);
@@ -1332,38 +1436,26 @@ export function createDrafts(
     },
     // Attaches files to a Draft that no editor shows yet, such as a received attachment. Resolves
     // true once the Draft holds them, false when the Draft or its account is gone.
-    attach: async (draft: string, files: readonly PickedFile[]) => {
-      const current = generation;
-      if (
-        state.kind !== 'ready' ||
-        !state.drafts.some(({ id }) => id === draft)
-      ) {
-        return false;
-      }
-      const added = files.map((file) => ({ asset: prepare(file), file }));
-      // A refused save keeps the attachment in memory, as for any edit; the caller opens the Draft,
-      // whose composer reports the failed save, rather than leaving a hidden one behind.
-      await change((drafts) =>
-        drafts.map((each) =>
-          each.id === draft
-            ? {
-                ...each,
-                attachments: [
-                  ...(each.attachments ?? []),
-                  ...added.map(({ asset }) => asset),
-                ],
-              }
-            : each,
-        ),
+    attach: (draft: string, files: readonly PickedFile[]) => {
+      const added = files.map((file) => ({
+        asset: prepare(file),
+        source: file.source,
+      }));
+      return fill(
+        draft,
+        (each) => ({
+          ...each,
+          attachments: [
+            ...(each.attachments ?? []),
+            ...added.map(({ asset }) => asset),
+          ],
+        }),
+        added,
       );
-      if (!live(current)) {
-        return false;
-      }
-      for (const { asset, file } of added) {
-        void runLogged(importAsset(asset, file.source));
-      }
-      return true;
     },
+    // Fills a Draft that no editor shows yet, such as a reply, then imports the prepared assets it
+    // now names. Resolves as `attach` does.
+    fill,
     // Editors patch their history and return its Drafts so Undo retains newly completed bytes.
     onSettle: (
       editor: (id: string, next: (asset: Asset) => Asset) => readonly Draft[],

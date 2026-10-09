@@ -48,6 +48,7 @@ import {
   presentation,
   receivedAttachments,
   recentWorkingSet,
+  responseHeadersOf,
   singleReadablePart,
   unescapeHtml,
 } from './message-body.ts';
@@ -1716,6 +1717,7 @@ export function createGmailInbox(
       version: 2,
       id,
       attachments: attachmentMetadata(payload),
+      headers: responseHeadersOf(payload),
       ...(text === undefined
         ? {}
         : { text: yield* fetchPart(scope, id, text) }),
@@ -1748,7 +1750,9 @@ export function createGmailInbox(
   ) {
     const references = contentIdsOf(document);
     const needsImages = document.images === undefined && references.length > 0;
-    const needsAttachments = document.attachments === undefined;
+    // Bodies cached before headers were kept read them too, so the message can be answered.
+    const needsAttachments =
+      document.attachments === undefined || document.headers === undefined;
     if (!needsImages && !needsAttachments) {
       return { document, changed: false, authentication: false };
     }
@@ -1756,7 +1760,11 @@ export function createGmailInbox(
       ['format', 'full'],
     ]);
     const withList = needsAttachments
-      ? { ...document, attachments: attachmentMetadata(payload) }
+      ? {
+          ...document,
+          attachments: document.attachments ?? attachmentMetadata(payload),
+          headers: responseHeadersOf(payload),
+        }
       : document;
     if (!needsImages) {
       return { document: withList, changed: true, authentication: false };
@@ -2210,6 +2218,7 @@ export function createGmailInbox(
         version: 2,
         id,
         attachments: [],
+        headers: responseHeadersOf(payload),
         ...(html ? { html: content } : { text: content }),
       },
       admission,
@@ -3291,6 +3300,14 @@ export function createGmailInbox(
         generation: scope.generation,
         file: saved.file,
       };
+    },
+    // An opened message's body and headers, which Reply, Reply All and Forward start from;
+    // undefined until both are read.
+    responseSource: (id: string) => {
+      const document = documents.get(id);
+      return readable(id) && document?.headers !== undefined
+        ? document
+        : undefined;
     },
     // The listed messages whose bodies open from this device without Gmail; undefined when unknown.
     savedBodies: (ids: readonly string[]) => runLogged(savedBodies(ids)),
