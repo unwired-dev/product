@@ -480,6 +480,69 @@ const rebaseDrafts = Effect.fnUntraced(function* (
   return { drafts: merged, moved };
 });
 
+// Finds an editor's published version copied by another device, excluding already-rebound edits.
+const movesToSyncedCopies = (
+  local: readonly Draft[],
+  latest: readonly Draft[],
+  merged: Readonly<{
+    drafts: readonly Draft[];
+    moved: ReadonlyArray<Readonly<{ from: string; to: string }>>;
+  }>,
+) => {
+  const before = indexed(local);
+  const surviving = indexed(merged.drafts);
+  const moved = new Map(merged.moved.map(({ from, to }) => [from, to]));
+  for (const copy of latest) {
+    const from = copy.id.slice(0, copy.id.lastIndexOf('-conflict-'));
+    const ours = before.get(from);
+    const target = surviving.get(copy.id);
+    if (
+      copy.conflict === true &&
+      copy.id.startsWith(`${from}-conflict-`) &&
+      !surviving.has(from) &&
+      !moved.has(from) &&
+      ours !== undefined &&
+      sameContent({ ...ours, id: copy.id, conflict: true }, target) &&
+      sameContent(copy, target)
+    ) {
+      moved.set(from, copy.id);
+    }
+  }
+  return [...moved].map(([from, to]) => ({ from, to }));
+};
+
+// A Draft this device discarded keeps its discard when another device's edit was published first:
+// that edit becomes a conflicting copy, and its record becomes the base the discard replaces.
+const mergeSyncedDrafts = Effect.fnUntraced(function* (
+  synced: readonly Synced[],
+  local: readonly Draft[],
+  latest: readonly Synced[],
+) {
+  const kept = new Set(local.map(({ id }) => id));
+  const base = indexed(syncedDrafts(synced));
+  const copies: Draft[] = [];
+  for (const theirs of syncedDrafts(latest)) {
+    const prior = base.get(theirs.id);
+    if (
+      !kept.has(theirs.id) &&
+      prior !== undefined &&
+      !sameContent(prior, theirs)
+    ) {
+      copies.push(yield* conflictCopy(theirs));
+      base.set(theirs.id, theirs);
+    }
+  }
+  const merged = yield* rebaseDrafts(
+    [...base.values()],
+    [...local, ...copies],
+    syncedDrafts(latest),
+  );
+  return {
+    ...merged,
+    moved: movesToSyncedCopies(local, syncedDrafts(latest), merged),
+  };
+});
+
 // The first conflicting-copy identifier for `id` that no Draft uses.
 const copyId = (id: string, drafts: readonly Draft[]) => {
   const used = new Set(drafts.map((draft) => draft.id));
@@ -869,11 +932,7 @@ export function createDrafts(
         return undefined;
       }
       const { latest, skipped } = readRecords(synced, pulled);
-      const merged = yield* rebaseDrafts(
-        syncedDrafts(synced),
-        state.drafts,
-        syncedDrafts(latest),
-      );
+      const merged = yield* mergeSyncedDrafts(synced, state.drafts, latest);
       const moved = !sameDrafts(merged.drafts, state.drafts);
       if (!moved && equivalentSynced(latest, synced)) {
         return skipped;

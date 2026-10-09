@@ -406,6 +406,13 @@ versions and unreadable records are read-only. Removing ciphertext or replaying 
 record to a device that never observed its newer version remains a backend
 availability/rollback limitation, not a cryptographic guarantee.
 
+The Draft merge preserves an offline local Discard even when a remote edit was
+published first, copying that edit before tombstoning its original identity.
+An editor of the published version follows an accepted, surviving conflict copy
+whose generated identifier names its removed original and whose authored content
+matches after normalizing identity and conflict metadata. Other authored versions
+and already-rebound editors do not acquire that association.
+
 Immutable assets use account-specific HMAC addresses over asset identity and
 SHA-256 digest, followed by the chunk position. AES-GCM associated data authenticates
 the account, opaque identifier, schema and epoch. The authenticated Draft version

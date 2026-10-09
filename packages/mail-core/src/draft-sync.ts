@@ -351,23 +351,27 @@ export function createDraftSynchronizer(
     }
     requested = true;
     passing ??= (async () => {
-      while (requested) {
-        requested = false;
-        for (let attempt = 0; attempt < 3; attempt += 1) {
-          const conflicted = await runLogged(
-            synchronizing(remote).pipe(
-              Effect.catchTag('DraftStorageFailure', (error) => {
-                notifyRemoval(error, options?.removed);
-                return quietly(error);
-              }),
-            ),
-          );
-          if (!conflicted) {
-            break;
+      // A defect or interruption rejects the pass; the next request must still start a new one.
+      try {
+        while (requested) {
+          requested = false;
+          for (let attempt = 0; attempt < 3; attempt += 1) {
+            const conflicted = await runLogged(
+              synchronizing(remote).pipe(
+                Effect.catchTag('DraftStorageFailure', (error) => {
+                  notifyRemoval(error, options?.removed);
+                  return quietly(error);
+                }),
+              ),
+            );
+            if (!conflicted) {
+              break;
+            }
           }
         }
+      } finally {
+        passing = undefined;
       }
-      passing = undefined;
     })();
     await passing;
   };

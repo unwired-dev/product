@@ -407,6 +407,168 @@ describe('synchronizing Drafts through Product Sync', () => {
     expect(mac.storage.assets()).toStrictEqual([]);
   });
 
+  it('keeps an offline Discard when another device publishes an edit first, and keeps that edit as a copy', async () => {
+    expect.hasAssertions();
+    const server = createSyntheticProductSync();
+    const phone = await device(server);
+    const mac = await device(server);
+    const id = present(await phone.drafts.create(alex), 'a Draft');
+    await phone.drafts.update(
+      write(phone.draft(id), 'Shared'),
+      phone.draft(id),
+    );
+    await phone.drafts.sync();
+    await mac.drafts.sync();
+
+    // The phone discards offline; the Mac's edit reaches Product Sync first.
+    server.setReachable(false);
+    await phone.drafts.discard(id);
+    server.setReachable(true);
+    const edited = write(mac.draft(id), ' edited');
+    const moves: string[] = [];
+    let target = id;
+    await mac.drafts.update(edited, mac.draft(id), (copy) => {
+      moves.push(copy);
+      target = copy;
+    });
+    await mac.drafts.sync();
+    await phone.drafts.sync();
+    await mac.drafts.sync();
+
+    // The discarded identity stays removed; the Mac's edit survives as a copy on both devices.
+    for (const each of [phone, mac]) {
+      expect(each.list().map((draft) => draft.id)).not.toContain(id);
+      expect(each.list()).toHaveLength(1);
+      expect(each.list()[0]).toMatchObject({
+        conflict: true,
+        body: edited.body,
+      });
+    }
+    expect(phone.list()[0]?.body).toStrictEqual(mac.list()[0]?.body);
+    const copy = present(mac.list()[0], 'the conflicting copy');
+    expect(moves).toStrictEqual([copy.id]);
+
+    const continued = write(mac.draft(target), '!');
+    await mac.drafts.update(continued, mac.draft(target));
+    await mac.drafts.sync();
+    await phone.drafts.sync();
+    await phone.relaunch();
+    await mac.relaunch();
+    for (const each of [phone, mac]) {
+      await each.drafts.sync();
+      expect(each.list()).toHaveLength(1);
+      expect(each.draft(copy.id).body).toStrictEqual(continued.body);
+      expect(each.list().map((draft) => draft.id)).not.toContain(id);
+    }
+
+    await mac.drafts.discard(() => target);
+    await mac.drafts.sync();
+    await phone.drafts.sync();
+    expect(mac.list()).toStrictEqual([]);
+    expect(phone.list()).toStrictEqual([]);
+  });
+
+  it('does not move an editor to another authored version merely because its conflict copy names the discarded Draft', async () => {
+    expect.hasAssertions();
+    const server = createSyntheticProductSync();
+    const phone = await device(server);
+    const mac = await device(server);
+    const id = present(await mac.drafts.create(alex), 'a Draft');
+    const moves: string[] = [];
+    await mac.drafts.update(
+      write(mac.draft(id), 'Published'),
+      mac.draft(id),
+      (copy) => {
+        moves.push(copy);
+      },
+    );
+    await mac.drafts.sync();
+    await phone.drafts.sync();
+    const before = phone.draft(id);
+
+    // The phone knowingly discards that version, then keeps a different late edit as a copy.
+    await phone.drafts.discard(id);
+    await phone.drafts.update(write(before, ' different'), before);
+    await phone.drafts.sync();
+    await mac.drafts.sync();
+
+    expect(mac.list().map((draft) => draft.id)).not.toContain(id);
+    expect(mac.list()).toHaveLength(1);
+    expect(mac.list()[0]).toMatchObject({
+      conflict: true,
+      body: phone.list()[0]?.body,
+    });
+    expect(moves).toStrictEqual([]);
+  });
+
+  it('does not rebind to a copy edited locally before an interrupted Discard finishes publishing', async () => {
+    expect.hasAssertions();
+    const server = createSyntheticProductSync();
+    const phone = await device(server);
+    const mac = await device(server);
+    const id = present(await phone.drafts.create(alex), 'a Draft');
+    await phone.drafts.sync();
+    await mac.drafts.sync();
+    server.setReachable(false);
+    await phone.drafts.discard(id);
+    server.setReachable(true);
+    const moves: string[] = [];
+    await mac.drafts.update(
+      write(mac.draft(id), 'Published'),
+      mac.draft(id),
+      (copy) => {
+        moves.push(copy);
+      },
+    );
+    await mac.drafts.sync();
+
+    // The copy lands first, but the phone never receives that reply or writes the tombstone.
+    server.loseNextReply();
+    await phone.drafts.sync();
+    await mac.drafts.sync();
+    const copy = present(
+      mac.list().find((draft) => draft.conflict === true),
+      'the copy',
+    );
+    const changed = write(copy, ' changed locally');
+    await mac.drafts.update(changed, copy);
+
+    await phone.drafts.sync();
+    await mac.drafts.sync();
+    expect(mac.list()).toHaveLength(1);
+    expect(mac.draft(copy.id).body).toStrictEqual(changed.body);
+    expect(mac.list().map((draft) => draft.id)).not.toContain(id);
+    expect(moves).toStrictEqual([]);
+    await phone.drafts.sync();
+    expect(phone.draft(copy.id).body).toStrictEqual(changed.body);
+  });
+
+  it('synchronizes later edits after a subscriber defect rejects an earlier pass', async () => {
+    expect.hasAssertions();
+    const server = createSyntheticProductSync();
+    const phone = await device(server);
+    const mac = await device(server);
+    const id = present(await phone.drafts.create(alex), 'a Draft');
+    await phone.drafts.sync();
+
+    const unsubscribe = mac.drafts.subscribe(() => {
+      throw new Error('Subscriber failed');
+    });
+    try {
+      await expect(mac.drafts.sync()).rejects.toThrow('Subscriber failed');
+    } finally {
+      unsubscribe();
+    }
+
+    const edited = write(phone.draft(id), 'After the failed pass');
+    await phone.drafts.update(edited, phone.draft(id));
+    await phone.drafts.sync();
+    await expect(mac.drafts.sync()).resolves.toBeUndefined();
+    expect(mac.draft(id).body).toStrictEqual(edited.body);
+    await mac.relaunch();
+    expect(mac.draft(id).body).toStrictEqual(edited.body);
+  });
+
   it('resumes after an interrupted write and a relaunch without inventing conflicts', async () => {
     expect.hasAssertions();
     const server = createSyntheticProductSync();

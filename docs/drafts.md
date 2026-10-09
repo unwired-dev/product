@@ -370,6 +370,11 @@ compare-and-set records and native code's account and identifier binding without
 encryption. They continue a Draft with its files on a second device, keep an
 importing file and a file with a missing chunk incomplete, preserve concurrent
 edits as a conflict copy that the editor follows, keep an edit racing a deletion,
+check both publication orders of that race, keep the exact edit and its editor's
+target through continued editing, Discard and relaunch, and refuse to bind an
+editor to a different authored conflict copy, including one edited locally
+before an interrupted deletion finishes publishing. They also resume synchronization
+after a subscriber defect rejects a pass,
 recover an offline conflict whose assets were never downloaded, retry interrupted
 uploads before publishing complete references, retain deletion versions through
 relaunch and reject replayed live records, resume after a lost reply and
