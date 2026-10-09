@@ -200,6 +200,10 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   Charge the cumulative raw recipient-name prefix before redaction; a
   post-redaction length cap can scan the entire recipient list when addresses
   consume no output, multiplying synchronous work beyond the admitted prefix.
+  Independently bound recipient entries, including missing or empty names: a
+  name-character budget alone cannot stop an address-only list. Trace
+  `captureDraftText` too; spreading whole To/Cc arrays before truncation leaves
+  collection and allocation unbounded even when `replyInput` stops early.
   A cut can omit the "@" while retaining an address fragment. Drop the entire
   cut whitespace token even when preceding punctuation or text makes it longer
   than an address local part, and bound before trimming leading whitespace;

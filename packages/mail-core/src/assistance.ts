@@ -66,6 +66,10 @@ const decodeOutcome = Schema.decodeUnknownOption(
 // long messages are refused for their size.
 export const summaryInputLimit = 6000;
 
+// The most To and Cc recipients a reply suggestion inspects for display names, so a Draft with
+// very many address-only recipients is never walked whole.
+const recipientLimit = 100;
+
 export type SummaryInput = Readonly<{ text: string; omitted: boolean }>;
 
 const ModelRequest = Schema.Union([
@@ -543,7 +547,7 @@ function captureReplyInput({
     return { input: undefined, issue };
   }
   let names = '';
-  for (const { name } of recipients) {
+  for (const { name } of recipients.slice(0, recipientLimit)) {
     if (name !== undefined) {
       names += names === '' ? '' : ', '.slice(0, 501 - names.length);
       names += name.slice(0, 501 - names.length);
@@ -604,7 +608,10 @@ export function captureDraftText(
   } else if (purpose === 'reply' && draft.quoted !== undefined) {
     ({ input, issue } = captureReplyInput({
       authored: text,
-      recipients: [...draft.to, ...draft.cc],
+      recipients: [
+        ...draft.to.slice(0, recipientLimit),
+        ...draft.cc.slice(0, recipientLimit),
+      ],
       quoted: draft.quoted,
     }));
   }

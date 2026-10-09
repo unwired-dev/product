@@ -25,9 +25,11 @@ system language model. There is no cloud or product-backend model fallback.
   so no raw address or address fragment, such as the sender in the quoted
   attribution line, reaches the model. It never fetches mail, makes no Gmail
   request and never sends.
-- Recipient context uses a 500-character name prefix, including separators.
-  Names and quoted text are each bounded before addresses are removed; removing
-  addresses does not extend either prefix.
+- Recipient context considers at most the first 100 To/Cc recipients, in To-then-Cc
+  order, including recipients without display names. Their names use a
+  500-character prefix, including separators. Later names may be omitted even
+  when that prefix has room. Names and quoted text are each bounded before
+  addresses are removed; removing addresses does not extend either prefix.
 - Captured authored text is never cut, because applying the result replaces all of
   it. Text whose encoded request exceeds 6,000 characters, or containing an Inline Image, is refused with
   guidance and the Draft is unchanged. The quoted message is cut so the whole reply
@@ -89,6 +91,8 @@ allow-listed native code or decode path, never Draft or generated text.
 
 ## Deterministic evidence
 
+- `packages/mail-core/test/assistance-input.test.ts` checks that reply input and
+  Draft capture stop at the recipient-entry bound, including address-only lists.
 - `packages/mail-core/test/assistance.test.ts` covers the admitted reply context
   (names and quoted text without addresses, the quoted message without images, the input bound and
   its disclosure, delimiter spoofing and JSON escaping), refused authored text and the distinction between
