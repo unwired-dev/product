@@ -163,6 +163,14 @@ Native storage owns what TypeScript must never hold: Keychain items, the storage
   result when a suspended task completes cancellation before its continuation is
   registered, and settle once for either ordering; otherwise a near-limit attachment
   stalls all mailbox/registration work or cancellation strands the gate indefinitely.
+- `GmailTransport.failure` or `RegistrationStore.gmail` collapsing definite
+  pre-handoff transport failures and possibly delivered sends into one error.
+  Admit an error to the unsent classification only when its transport contract
+  proves no request body could have reached Gmail; interrupted uploads, lost
+  replies, cancellation and response overflow retain an unknown send outcome.
+  Preserve ordinary unavailability for reads and label modifications and the
+  fixed `rejectMailbox` codes. Otherwise offline sends lose their queued retry
+  and Edit path, or an ambiguous send is submitted twice.
 - A positive revocation found by `RegistrationStore.prepareMailbox` converted to ordinary mailbox invalidation after successful purge. Trace both `UnwiredRegistration.openMailbox` and `commitMailbox` through the shared rejection mapper and `createGmailInbox` recovery: preserve `mailbox-revoked` and its account-page hand-off, while generation changes retain bounded invalidation recovery. Collapsing the two makes already-purged mail end in retry exhaustion and a generic failure instead of the removal explanation. `UnwiredRegistration.syncDrafts` must likewise preserve both revoked and deleted account rejections through `rejectMailbox`; registration restore retains the deletion notice. Mapping deletion to ordinary unavailability leaves shared Draft state open after native account purge.
 - `RegistrationStore.purge` or Gmail reselection synchronously removing the
   mailbox/body directory or waiting for its file lock on the main actor. Await
