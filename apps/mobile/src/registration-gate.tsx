@@ -8,13 +8,13 @@ import type {
   RecoveryFailure,
   RecoveryKeyFailure,
   Registration,
-  RegistrationSnapshot,
   RemovalFailure,
   TrustedDevice,
 } from '@private-email/mail-core/registration';
 import type { ReactNode } from 'react';
 
 import {
+  approvesDevices,
   linkFailureCopy,
   inboxLanding,
   mailboxesOf,
@@ -23,6 +23,7 @@ import {
   privateSyncCopy,
   providerName,
   recoveryKeyEntry,
+  registrationActions,
   registrationCopy,
   revocationNotice,
   signInMethodsCopy,
@@ -30,6 +31,7 @@ import {
 } from '@private-email/mail-core/registration';
 import { previewInbox } from '@private-email/mail-core/registration-mode';
 import {
+  Fragment,
   createContext,
   useEffect,
   useMemo,
@@ -330,7 +332,7 @@ function DeviceApproval({
   store,
 }: {
   readonly account: Readonly<{
-    privateSync?: string;
+    privateSync?: PrivateSyncState;
     enrollmentRequest?: string;
     enrollmentDevice?: string;
   }>;
@@ -342,10 +344,7 @@ function DeviceApproval({
   const { t } = useLocalization();
   const [entry, setEntry] = useState('');
   const { enrollmentRequest: request } = account;
-  if (
-    account.privateSync !== 'ready' &&
-    account.privateSync !== 'recovery-key'
-  ) {
+  if (!approvesDevices(account.privateSync)) {
     return null;
   }
   const alert =
@@ -424,10 +423,7 @@ function TrustedDevices({
     [settings.locale],
   );
   const [confirming, setConfirming] = useState<TrustedDevice['id']>();
-  if (
-    account.privateSync !== 'ready' &&
-    account.privateSync !== 'recovery-key'
-  ) {
+  if (!approvesDevices(account.privateSync)) {
     return null;
   }
   const devices =
@@ -689,29 +685,6 @@ function AccountSettings({
   );
 }
 
-// A retained account can be reopened with its own or its linked Sign-In Provider,
-// which also finishes Product Sync setup that could not reach the backend.
-function offersSignInAgain(
-  snapshot: RegistrationSnapshot,
-  failed: boolean,
-): snapshot is Exclude<RegistrationSnapshot, { kind: 'signed-out' }> {
-  if (snapshot.kind === 'signed-out' || snapshot.removalPending !== undefined) {
-    return false;
-  }
-  // A Pending Device is admitted by approval or the Recovery Key, not by another sign-in.
-  if (snapshot.kind === 'device-pending') {
-    return failed;
-  }
-  return (
-    snapshot.privateSync === 'setup-pending' ||
-    snapshot.privateSyncPending !== undefined ||
-    (snapshot.kind === 'mailbox-needed' &&
-      (failed ||
-        snapshot.reason === 'interrupted' ||
-        snapshot.reason === 'unavailable'))
-  );
-}
-
 export function RegistrationGate({
   children,
   store = registration,
@@ -829,12 +802,7 @@ function RegistrationPage({
   const colors = usePalette();
   const { t } = useLocalization();
   const copy = registrationCopy(t, snapshot);
-  const recovering = offersSignInAgain(snapshot, failed);
-  // Offered even when this device has not seen the link; Convex decides.
-  const alternate =
-    snapshot.kind === 'signed-out'
-      ? undefined
-      : otherSignInProvider(snapshot.signInProvider);
+  const actions = registrationActions(snapshot, failed);
   const button = (label: string, action: () => Promise<void>) => (
     <Pressable
       accessibilityRole="button"
@@ -883,26 +851,7 @@ function RegistrationPage({
             {t('registration.setupFailed')}
           </Text>
         ) : null}
-        {snapshot.kind === 'signed-out' ? (
-          <>
-            {button(
-              t('registration.signInWith', {
-                provider: providerName(t, 'apple'),
-              }),
-              () => store.register('apple'),
-            )}
-            {button(
-              t('registration.signInWith', {
-                provider: providerName(t, 'google'),
-              }),
-              () => store.register('google'),
-            )}
-          </>
-        ) : null}
-        {/* The first mailbox suggests the Google sign-in, or any Google account can be chosen. */}
-        {snapshot.kind === 'mailbox-needed' &&
-        snapshot.removalPending === undefined &&
-        mailboxesOf(snapshot).length === 0 ? (
+        {actions.firstMailbox ? (
           <>
             {button(t('registration.authorizeGmail'), () =>
               store.addMailbox(false),
@@ -912,30 +861,23 @@ function RegistrationPage({
             )}
           </>
         ) : null}
-        {recovering
-          ? button(
-              t('registration.signInAgain', {
-                provider: providerName(t, snapshot.signInProvider),
+        {actions.signIn.map(({ offer, provider }) => (
+          <Fragment key={`${offer}-${provider}`}>
+            {button(
+              t(`registration.${offer}`, {
+                provider: providerName(t, provider),
               }),
-              () => store.register(snapshot.signInProvider),
-            )
-          : null}
-        {recovering && alternate !== undefined
-          ? button(
-              t('registration.signInInstead', {
-                provider: providerName(t, alternate),
-              }),
-              () => store.register(alternate),
-            )
-          : null}
-        {failed ? button(t('common.retry'), store.restore) : null}
-        {snapshot.kind === 'signed-out' ||
-        snapshot.removalPending !== undefined ? null : (
+              () => store.register(provider),
+            )}
+          </Fragment>
+        ))}
+        {actions.retry ? button(t('common.retry'), store.restore) : null}
+        {actions.settings ? (
           <AccountSettings
             button={button}
             store={store}
           />
-        )}
+        ) : null}
         {snapshot.kind === 'signed-out' ? null : (
           <AccountActions
             button={button}

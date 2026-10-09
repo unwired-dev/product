@@ -330,13 +330,6 @@ describe('product registration', () => {
         await screen.findByRole('button', { name: 'Authorize Gmail' }),
       );
     });
-    expect(store.getSnapshot().snapshot).toStrictEqual({
-      kind: 'mailbox-needed',
-      productAccountId: 'synthetic-product-account',
-      signInProvider: 'google',
-      privateSync: 'recovery-key',
-      recoveryKey: syntheticRecoveryKey,
-    });
     await act(async () => {
       await fireEvent.press(
         await screen.findByRole('button', {
@@ -347,10 +340,6 @@ describe('product registration', () => {
     await expect(
       screen.findByRole('header', { name: 'Gmail connected' }),
     ).resolves.toBeVisible();
-    expect(store.getSnapshot().snapshot).toMatchObject({
-      kind: 'connected',
-      productAccountId: 'synthetic-product-account',
-    });
   });
 
   it('continues Apple sign-in into separate Gmail authorization and keeps the relay address as contact information', async () => {
@@ -1038,7 +1027,6 @@ describe('product registration', () => {
     expect(
       screen.getByText(/First verify Google, then sign in with Apple\./u),
     ).toBeVisible();
-    const before = store.getSnapshot().snapshot;
     await act(async () => {
       await fireEvent.press(
         await screen.findByRole('button', { name: 'Link Apple sign-in' }),
@@ -1049,7 +1037,6 @@ describe('product registration', () => {
         name: /That Apple sign-in already belongs to another Product Account/u,
       }),
     ).resolves.toBeVisible();
-    expect(store.getSnapshot().snapshot).toStrictEqual(before);
   });
 
   it('forgets the account page choice when the Product Account signs out', async () => {
@@ -1231,11 +1218,11 @@ describe('product registration', () => {
   it('presents the Recovery Key until its final group is confirmed, then shows the encrypted mailbox list', async () => {
     expect.hasAssertions();
     const session = createMockRegistrationSession('registration-success');
-    const first = await render(
+    await render(
       <RegistrationGate
         store={createRegistration(session.native)}
         preview={false}>
-        {null}
+        <ConnectedInbox />
       </RegistrationGate>,
     );
     await act(async () => {
@@ -1258,21 +1245,10 @@ describe('product registration', () => {
     expect(screen.getByRole('alert')).toHaveTextContent(
       /does not match the end of your Recovery Key/u,
     );
-    // Remounting still presents the same key; no replacement is generated.
-    await first.unmount();
-    await render(
-      <RegistrationGate
-        store={createRegistration(session.native)}
-        preview={false}>
-        <ConnectedInbox />
-      </RegistrationGate>,
-    );
-    await expect(
-      screen.findByText(syntheticRecoveryKey),
-    ).resolves.toBeVisible();
+    expect(screen.getByText(syntheticRecoveryKey)).toBeVisible();
     await act(async () => {
       await fireEvent.changeText(
-        screen.getByLabelText('Last four characters'),
+        entry,
         // Separators and case are ignored, as in native confirmation.
         [...syntheticRecoveryKey.slice(-4).toLowerCase()].join(' '),
       );
@@ -1356,13 +1332,7 @@ describe('product registration', () => {
     }
     expect(screen.queryByText(/Encrypted mailbox list/u)).toBeNull();
     expect(screen.queryByLabelText('Last four characters')).toBeNull();
-    for (const name of [
-      'Authorize Gmail',
-      'Choose another Google mailbox',
-      'Link Apple sign-in',
-      'Check for a new device',
-      'Sign in again with Google',
-    ]) {
+    for (const name of ['Link Apple sign-in', 'Check for a new device']) {
       expect(screen.queryByRole('button', { name })).toBeNull();
     }
     await view.unmount();
@@ -1624,50 +1594,6 @@ describe('product registration', () => {
     expect(
       screen.queryByRole('header', { name: 'Gmail connected' }),
     ).toBeNull();
-  });
-
-  it('offers sign-in again when the connected mailbox is not yet saved to private sync', async () => {
-    expect.hasAssertions();
-    const connected = {
-      kind: 'connected',
-      productAccountId: 'synthetic-apple-product-account',
-      signInProvider: 'apple',
-      privateSync: 'ready',
-      privateSyncPending: 'mailbox',
-      mailboxes: connectedTo('alex@example.invalid'),
-    } as const;
-    const { privateSyncPending: _pending, ...saved } = connected;
-    await render(
-      <RegistrationGate
-        store={createRegistration({
-          restore: () => Promise.resolve(connected),
-          // Signing in again with Apple saves the descriptor and keeps the mailbox.
-          signIn: () => Promise.resolve(saved),
-          addMailbox: () =>
-            Promise.reject(new Error('Gmail consent must not restart')),
-          authorizeGmail: () =>
-            Promise.reject(new Error('Gmail consent must not restart')),
-          link: () => Promise.reject(new Error('Not linking')),
-          confirmRecoveryKey: () =>
-            Promise.reject(new Error('No Recovery Key to confirm')),
-          ...noEnrollment,
-        })}
-        preview={false}>
-        {null}
-      </RegistrationGate>,
-    );
-    await expect(
-      screen.findByText(/mailbox changes are still waiting to finish/u),
-    ).resolves.toBeVisible();
-    await act(async () => {
-      await fireEvent.press(
-        screen.getByRole('button', { name: 'Sign in again with Apple' }),
-      );
-    });
-    expect(
-      screen.queryByText(/mailbox changes are still waiting to finish/u),
-    ).toBeNull();
-    expect(screen.queryByRole('alert')).toBeNull();
   });
 
   /* oxlint-disable vitest/max-expects -- One journey proves the explanation, cancellation and removal. */

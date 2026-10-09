@@ -871,6 +871,72 @@ export const recoveryKeyEntry = (text: string) =>
 export const offersRecovery = (privateSync: PrivateSync | undefined) =>
   privateSync === 'enrollment-needed' || privateSync === 'enrollment-pending';
 
+// Only a device holding the account keys approves another device or removes a Trusted Device.
+export const approvesDevices = (privateSync: PrivateSync | undefined) =>
+  privateSync === 'ready' || privateSync === 'recovery-key';
+
+// A retained account can be reopened with its own or its linked Sign-In Provider,
+// which also finishes Product Sync setup that could not reach the backend.
+function offersSignInAgain(snapshot: RegistrationSnapshot, failed: boolean) {
+  if (snapshot.kind === 'signed-out' || snapshot.removalPending !== undefined) {
+    return false;
+  }
+  // A Pending Device is admitted by approval or the Recovery Key, not by another sign-in.
+  if (snapshot.kind === 'device-pending') {
+    return failed;
+  }
+  return (
+    snapshot.privateSync === 'setup-pending' ||
+    snapshot.privateSyncPending !== undefined ||
+    (snapshot.kind === 'mailbox-needed' &&
+      (failed ||
+        snapshot.reason === 'interrupted' ||
+        snapshot.reason === 'unavailable'))
+  );
+}
+
+// A sign-in the registration page offers; `offer` names its `registration.*` label.
+export type SignInOffer = Readonly<{
+  offer: 'signInWith' | 'signInAgain' | 'signInInstead';
+  provider: SignInProvider;
+}>;
+
+// The registration page's actions in this state, in page order; hosts only render them.
+export function registrationActions(
+  snapshot: RegistrationSnapshot,
+  failed: boolean,
+) {
+  const account = snapshot.kind !== 'signed-out';
+  const removing = account && snapshot.removalPending !== undefined;
+  let signIn: readonly SignInOffer[] = [];
+  if (!account) {
+    signIn = [
+      { offer: 'signInWith', provider: 'apple' },
+      { offer: 'signInWith', provider: 'google' },
+    ];
+  } else if (offersSignInAgain(snapshot, failed)) {
+    signIn = [
+      { offer: 'signInAgain', provider: snapshot.signInProvider },
+      // Offered even when this device has not seen the link; Convex decides.
+      {
+        offer: 'signInInstead',
+        provider: otherSignInProvider(snapshot.signInProvider),
+      },
+    ];
+  }
+  return {
+    // The first mailbox suggests the Google sign-in, or any Google account can be chosen.
+    firstMailbox:
+      snapshot.kind === 'mailbox-needed' &&
+      !removing &&
+      mailboxesOf(snapshot).length === 0,
+    signIn,
+    retry: failed,
+    // Until a removal finishes, only the removal itself stays available.
+    settings: account && !removing,
+  } as const;
+}
+
 // A connected mailbox's Inbox can open unless a sign-out or deletion is unfinished.
 export const canOpenInbox = (snapshot: RegistrationSnapshot) =>
   (snapshot.kind === 'connected' || snapshot.kind === 'cached') &&
