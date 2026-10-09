@@ -76,13 +76,32 @@ test('Mac autolinking rejects a foreign native dependency', () => {
   assert.match(result.stderr, /Mac autolinking scope[\s\S]*foreign-native/u);
 });
 
-test('Mac Podfile rejects a foreign pod', () => {
+test('Mac Podfile accepts a parenthesized allowed pod', () => {
   const result = verifyFixture('macos', macFiles, (fixture) => {
-    appendFileSync(
-      path.join(fixture, 'macos/Podfile'),
-      "  pod 'ExpoModulesCore'\n",
+    const podfile = path.join(fixture, 'macos/Podfile');
+    writeFileSync(
+      podfile,
+      readFileSync(podfile, 'utf8').replace(
+        "pod 'GoogleSignIn', '10.0.0'",
+        "pod('GoogleSignIn', '10.0.0')",
+      ),
     );
   });
-  assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /Mac Podfile scope[\s\S]*ExpoModulesCore/u);
+  assert.equal(result.status, 0, result.stderr);
+});
+
+test('Mac Podfile rejects a foreign pod', () => {
+  for (const declaration of [
+    "  pod 'ExpoModulesCore'\n",
+    "  pod('ExpoModulesCore')\n",
+    '  pod (\n    "ExpoModulesCore"\n  )\n',
+    "  platform :macos, '27.0'; pod 'ExpoModulesCore'\n",
+    '  pod %q(ExpoModulesCore)\n',
+  ]) {
+    const result = verifyFixture('macos', macFiles, (fixture) => {
+      appendFileSync(path.join(fixture, 'macos/Podfile'), declaration);
+    });
+    assert.notEqual(result.status, 0, declaration);
+    assert.match(result.stderr, /Mac Podfile scope/u);
+  }
 });

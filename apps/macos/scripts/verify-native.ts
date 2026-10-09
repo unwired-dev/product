@@ -36,9 +36,12 @@ assert.deepEqual(
   'Review native modules before expanding the Mac autolinking scope.',
 );
 const podfile = await readFile(path.join(root, 'macos/Podfile'), 'utf8');
+// Unrecognized pod arguments stay undefined so the allowlist fails closed.
 assert.deepEqual(
   Array.from(
-    podfile.matchAll(/^\s*pod\s+['"](?<pod>[^'"]+)['"]/gmu),
+    podfile.matchAll(
+      /(?:^|;)\s*pod\b\s*(?:\(\s*)?(?:['"](?<pod>[^'"]+)['"])?/gmu,
+    ),
     (match) => match.groups?.pod,
   ),
   ['GoogleSignIn'],
