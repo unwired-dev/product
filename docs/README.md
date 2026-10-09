@@ -27,7 +27,7 @@ their scope below; publication of a plan does not prove implementation or releas
 
 - [Root agent guide](../AGENTS.md) and [backend guide](../packages/convex/AGENTS.md)
 - [Implement a GitHub issue through PR babysitting](../.agents/skills/implement-issue/SKILL.md)
-- [Implementation handoff, pinned review agent and OCR architecture review](agents/implementation-review.md)
+- [Implementation handoff, pinned OCR and thermo-nuclear review agents](agents/implementation-review.md)
 - [Domain vocabulary by topic](../GLOSSARY.md) and [maintenance policy](agents/domain.md)
 - [Test admission, retirement, and feedback budgets](agents/testing.md)
 - [Effect conventions and lint enforcement](agents/effect.md)

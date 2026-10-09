@@ -14,8 +14,9 @@ Respect explicit limits such as “local changes only” or “do not push.”
 Use the current checkout, its configured GitHub remote, authenticated `gh`, and
 the project toolchain. Resolve companion skills from the session catalogue,
 especially `ponytail`, `unlazy`, and `babysit-pr`. The required independent review
-needs an agent host supporting `gpt-6.1-sol` with `high` reasoning and the OCR
-version specified by the repository workflow. Report unavailable prerequisites
+needs an agent host supporting `gpt-6.1-sol` with `high` reasoning, the OCR
+version specified by the repository workflow, and the global
+`thermo-nuclear-code-quality-review` skill. Report unavailable prerequisites
 accurately; do not substitute a different reviewer or claim a completed handoff.
 
 ## Establish the issue and scope
@@ -109,8 +110,10 @@ Hand the complete task diff and evidence to a separate reviewer with explicit
 `model: "gpt-6.1-sol"`, `reasoning_effort: "high"`, and `fork_turns: "none"`.
 Follow the linked workflow's handoff and Open Code Review delegation procedure,
 including task-owned untracked files and any pre-existing changes. The reviewer
-owns architecture checking and fixes to validated findings. Pause implementer
-writes until its final report. Later implementation edits require another review.
+owns architecture checking and fixes to validated findings. After its final
+report, hand the same pinned diff, evidence and that report to a second reviewer
+with the same arguments for the workflow's thermo-nuclear code quality review.
+Pause implementer writes until both final reports. Later implementation edits require another review.
 An unavailable or incomplete required review blocks delivery.
 
 ## Publish and hand off

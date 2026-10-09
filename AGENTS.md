@@ -31,8 +31,10 @@ for every implementation, including later implementation fixes.
   agent with explicit `model: "gpt-6.1-sol"`, `reasoning_effort: "high"`, and
   `fork_turns: "none"`, regardless of the implementer's model or reasoning effort.
   Use the workflow's Open Code Review delegation step and resolved repository
-  rules for architecture checking inside that review agent.
-  Pause writes until its final report; later implementer edits need another review.
+  rules for architecture checking inside that review agent. After its final
+  report, spawn a second review agent with the same arguments to run the global
+  `thermo-nuclear-code-quality-review` skill.
+  Pause writes until both final reports; later implementer edits need another review.
 - Never pause implementation for a user decision. Send it to the workflow's
   [decision panel](docs/agents/implementation-review.md#decision-panel)
   (`claude-fable-5-1`, `gpt-6.1-sol`, `gpt-6-astra`); the majority wins.
