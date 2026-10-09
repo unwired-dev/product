@@ -13,7 +13,7 @@ Respect explicit limits such as “local changes only” or “do not push.”
 
 Use the current checkout, its configured GitHub remote, authenticated `gh`, and
 the project toolchain. Resolve companion skills from the session catalogue,
-especially `ponytail`, `unlazy`, and `babysit-pr`. The required independent review
+especially `ponytail` and `babysit-pr`. The required independent review
 needs an agent host supporting `gpt-6.1-sol` with `high` reasoning and the OCR
 version specified by the repository workflow. Report unavailable prerequisites
 accurately; do not substitute a different reviewer or claim a completed handoff.
@@ -95,8 +95,8 @@ starting unrelated work or changing priorities, labels, or dependencies to quali
 
 ## Implement, verify, and review
 
-Invoke `ponytail` and `unlazy` before implementation, and follow the repository's
-skill selection and observation requirements. Use its context graph before
+Invoke `ponytail` before implementation, and follow the repository's coding
+principles and its skill selection and observation requirements. Use its context graph before
 source searches. Complete the issue's requested behavior, update affected
 documentation, and add a changeset when required by repository policy.
 
