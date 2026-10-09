@@ -17,8 +17,14 @@ runs queued; additional runs are cancelled when the queue is full.
 Deployment environment variables (`APPLE_BUNDLE_ID`, `GOOGLE_PRODUCT_CLIENT_IDS`
 and the rest declared in
 [`convex.config.ts`](../packages/convex/convex/convex.config.ts)) live on the
-Convex deployment, not in GitHub. Set them in the Convex dashboard or with `npx convex env set --prod`
-before the first deploy.
+Convex deployment, not in GitHub. Set them before the first deploy in the Convex
+dashboard or, using the [local deployment configuration](../README.md#local-development),
+run this from the repository root:
+
+```sh
+mise exec -- pnpm --filter @private-email/convex exec -- convex env set \
+  --env-file ../../.env.local --prod NAME 'value'
+```
 
 The hosts call whichever deployment their build's `CONVEX_URL` names; deploying
 production does not change which backend existing TestFlight builds use.
