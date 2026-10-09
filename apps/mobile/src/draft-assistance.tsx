@@ -101,7 +101,7 @@ function Refusal({
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
-  const issue = draftTextIssue(text);
+  const issue = draftTextIssue(text, purpose);
   return (
     <Text
       accessibilityRole="alert"

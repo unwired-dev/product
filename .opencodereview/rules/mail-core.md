@@ -104,6 +104,16 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Product behavior the stores own
 
+- `assistance.ts` input builders or `UnwiredAssistance` model prompts using flat
+  labelled concatenation instead of a typed JSON request with an explicit
+  operation and distinct fields for each admitted context source,
+  as required by ADR 0052. Quoted labels or field names must remain escaped data,
+  never authored intent or framing. Measure the complete encoded payload against
+  the input bound, preserve full admitted authored text, surrogate-safe cuts,
+  cut-word address removal and omission disclosure, and keep fixed native
+  instructions aligned with the fields. Otherwise adversarial correspondence
+  can impersonate the person's reply or escaping can exceed the model budget.
+
 - `assistance.ts.canRewrite` or another shared document helper called during
   host rendering projecting the whole body for an existence check or to derive
   a value the caller already holds for that body revision. Trace its render

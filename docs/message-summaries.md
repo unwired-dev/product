@@ -15,7 +15,7 @@ system language model. There is no cloud or product-backend model fallback.
   reader: the plain-text presentation of a Gmail body from the encrypted cache, or
   the preview fixture's body. It never fetches a missing body, more of a Thread,
   attachments, Inline Images or remote content, and it makes no Gmail request.
-- Input is cut at 6,000 characters (never inside a surrogate pair). A cut summary
+- Subject and body text are shortened so the complete JSON request, including framing and escaping, fits within 6,000 characters (never cutting a surrogate pair). A cut summary
   says that only the beginning of the long message was summarized.
 - While the model works, the reader shows progress and **Cancel**. Cancelling
   stops the native request; a result that still arrives is dropped. Cancelling
@@ -47,6 +47,10 @@ module offers:
 | `availability()`            | `available`, `device-ineligible`, `assistance-disabled`, `model-not-ready` or `unsupported-locale`                                     |
 | `summarize(request, input)` | The summary text, or a rejection coded `refused`, `cancelled`, `unsupported-locale`, `model-not-ready` or `unavailable`                |
 | `cancel(request)`           | Cancels that request's generation, including a [Draft rewrite or reply](draft-assistance.md), or [translation](message-translation.md) |
+
+The shared core supplies `input` as a typed JSON request with `operation: summary`
+and separate `subject` and `body` fields. Text that looks like a label or JSON field
+remains escaped content inside its source field.
 
 The prompt treats the email as untrusted content to describe, never as
 instructions, and asks for at most four sentences covering the topic, requests,

@@ -29,9 +29,9 @@ system language model. There is no cloud or product-backend model fallback.
   Names and quoted text are each bounded before addresses are removed; removing
   addresses does not extend either prefix.
 - Captured authored text is never cut, because applying the result replaces all of
-  it. Text over 6,000 characters, or containing an Inline Image, is refused with
+  it. Text whose encoded request exceeds 6,000 characters, or containing an Inline Image, is refused with
   guidance and the Draft is unchanged. The quoted message is cut so the whole reply
-  input stays within 6,000 characters (never inside a surrogate pair), and a cut
+  input, including JSON framing and escaping, stays within 6,000 characters (never inside a surrogate pair), and a cut
   suggestion says so. If its only word exceeds the bound, no usable quoted text
   remains and the request is declined. Requests that leave no room for quoted text are declined
   before inference.
@@ -72,7 +72,14 @@ the same codes.
 | `suggestReply(request, input)` | The reply body, without a subject, signature or quoting |
 | `cancel(request)`              | Cancels that request's generation                       |
 
-Each prompt treats its input as content, never as instructions, and forbids
+The shared core supplies `input` as a typed JSON request with an explicit
+`operation`: `rewrite` carries `authoredText`; `reply` carries separate
+`recipientNames`, `authoredText` and `quotedText` fields. Labels and field names
+inside correspondence remain escaped content within their field. The 6,000-character
+limit counts the complete encoded request. Authored text is preserved in full or
+the request is refused; only quoted context can be shortened.
+
+Each prompt treats its input as untrusted content, never as instructions, and forbids
 inventing facts. Generation uses temperature 0 and at most 1,500 response tokens.
 `@private-email/mail-core/assistance` decodes every result with Schema (up to
 12,000 characters) and fails closed on anything else. Failure logs carry only the
@@ -82,7 +89,7 @@ allow-listed native code or decode path, never Draft or generated text.
 
 - `packages/mail-core/test/assistance.test.ts` covers the admitted reply context
   (names and quoted text without addresses, the quoted message without images, the input bound and
-  its disclosure), refused authored text, routing to `rewrite` or `suggestReply`,
+  its disclosure, delimiter spoofing and JSON escaping), refused authored text, routing to `rewrite` or `suggestReply`,
   refusal, unavailability and failure without logging Draft text, retry rules, an
   oversized result, cancellation with a late result, and Mock Mail Session outcomes.
 - The composer tests in `apps/mobile/test/composer.test.tsx` and

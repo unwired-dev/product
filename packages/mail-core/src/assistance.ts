@@ -64,6 +64,45 @@ export const summaryInputLimit = 6000;
 
 export type SummaryInput = Readonly<{ text: string; omitted: boolean }>;
 
+const ModelRequest = Schema.Union([
+  Schema.Struct({
+    operation: Schema.Literal('summary'),
+    subject: Schema.String,
+    body: Schema.String,
+  }),
+  Schema.Struct({
+    operation: Schema.Literal('rewrite'),
+    authoredText: Schema.String,
+  }),
+  Schema.Struct({
+    operation: Schema.Literal('reply'),
+    recipientNames: Schema.String,
+    authoredText: Schema.String,
+    quotedText: Schema.String,
+  }),
+]);
+// oxlint-disable-next-line node/no-sync -- Pure JSON serialization of locally constructed string fields, not synchronous I/O.
+const encodeModelRequest = Schema.encodeSync(
+  Schema.fromJsonString(ModelRequest),
+);
+// oxlint-disable-next-line node/no-sync -- Pure string escaping for the model input budget, not synchronous I/O.
+const encodeString = Schema.encodeSync(Schema.fromJsonString(Schema.String));
+
+// Fit the escaped string, not its raw length, without cutting a surrogate pair.
+function jsonBoundedInput(text: string, limit: number): SummaryInput {
+  let low = 0;
+  let high = Math.min(text.length, limit);
+  while (low < high) {
+    const middle = Math.ceil((low + high) / 2);
+    if (encodeString(boundedInput(text, middle).text).length - 2 <= limit) {
+      low = middle;
+    } else {
+      high = middle - 1;
+    }
+  }
+  return boundedInput(text, low);
+}
+
 export const readableBodyText = (body: ReadableBody) =>
   body.paragraphs
     .map((spans) => spans.map(({ text }) => text).join(''))
@@ -80,9 +119,21 @@ export function summaryInput({
   if (!hasVisibleText(body)) {
     return undefined;
   }
-  return boundedInput(
-    `${subject === undefined ? '' : `Subject: ${subject}\n\n`}${body.trim()}`,
+  const empty = { operation: 'summary', subject: '', body: '' } as const;
+  const budget = summaryInputLimit - encodeModelRequest(empty).length;
+  const title = jsonBoundedInput(subject ?? '', budget);
+  const text = jsonBoundedInput(
+    body.trim(),
+    budget - (encodeString(title.text).length - 2),
   );
+  return {
+    text: encodeModelRequest({
+      ...empty,
+      subject: title.text,
+      body: text.text,
+    }),
+    omitted: title.omitted || text.omitted,
+  };
 }
 
 // At most `limit` code units of `text`, and whether the rest was left out.
@@ -346,11 +397,24 @@ export const canRetryAssistance = (state: AssistanceState<string>) =>
 
 // Why captured Draft text cannot go to assistance. Accepting a result replaces all of it, so it is
 // never cut, and a text result cannot retain selected semantic image spans.
-export const draftTextIssue = (text: string) => {
+export const draftTextIssue = (
+  text: string,
+  purpose: 'translate' | 'rewrite' | 'reply' = 'translate',
+) => {
   if (text.length > summaryInputLimit) {
     return 'too-long';
   }
-  return text.includes(imageCharacter) ? 'inline-image' : undefined;
+  if (text.includes(imageCharacter)) {
+    return 'inline-image';
+  }
+  if (
+    purpose === 'rewrite' &&
+    encodeModelRequest({ operation: 'rewrite', authoredText: text }).length >
+      summaryInputLimit
+  ) {
+    return 'too-long';
+  }
+  return undefined;
 };
 
 // The text that replaces captured Draft text: the result, trimmed for the preview, between the
@@ -387,8 +451,12 @@ export const canSuggestReply = ({ quoted, response }: Draft) =>
 
 // Selected authored text, or the whole authored body, to rewrite.
 export const rewriteInput = (text: string): DraftAssistanceInput | undefined =>
-  hasVisibleText(text) && draftTextIssue(text) === undefined
-    ? { purpose: 'rewrite', text, omitted: false }
+  hasVisibleText(text) && draftTextIssue(text, 'rewrite') === undefined
+    ? {
+        purpose: 'rewrite',
+        text: encodeModelRequest({ operation: 'rewrite', authoredText: text }),
+        omitted: false,
+      }
     : undefined;
 
 // Captured text belongs to its body revision; replies also capture their admitted context.
@@ -479,19 +547,26 @@ export function replyInput({
   }
   // Bound the raw prefix before redaction; removed addresses never refill its budget.
   const shown = redactedBoundedInput(names, 500).text.trim();
-  const head = `Recipients: ${shown}\n\nReply so far:\n${authored.trim()}\n\nMessage being answered:\n`;
-  const budget = summaryInputLimit - head.length;
+  const request = {
+    operation: 'reply',
+    recipientNames: shown,
+    authoredText: authored.trim(),
+    quotedText: '',
+  } as const;
+  const budget = summaryInputLimit - encodeModelRequest(request).length;
   if (budget <= 0) {
     return undefined;
   }
-  const context = quotedInput(quoted, budget);
+  const raw = quotedInput(quoted, budget);
+  const bounded = jsonBoundedInput(raw.text, budget);
+  const context = redactedBoundedInput(raw.text, bounded.text.length);
   if (!hasVisibleText(context.text)) {
     return undefined;
   }
   return {
     purpose: 'reply',
-    text: head + context.text,
-    omitted: context.omitted,
+    text: encodeModelRequest({ ...request, quotedText: context.text.trim() }),
+    omitted: raw.omitted || context.omitted,
   };
 }
 

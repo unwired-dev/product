@@ -2011,7 +2011,11 @@ describe('composing Drafts', () => {
 
     // With nothing selected, the whole authored body is rewritten.
     await press('Rewrite the message body');
-    expect(asked[0]).toMatchObject({ operation: 'rewrite', input: original });
+    expect(asked[0]?.operation).toBe('rewrite');
+    expect(JSON.parse(asked[0]!.input)).toStrictEqual({
+      operation: 'rewrite',
+      authoredText: original,
+    });
     await screen.findByLabelText('Cancel writing help');
     asked[0]?.answer.resolve('Let us meet on Friday. Thanks!');
     await screen.findByText('Let us meet on Friday. Thanks!');
@@ -2032,7 +2036,10 @@ describe('composing Drafts', () => {
       nativeEvent: { selection: { start: 0, end: 17 } },
     });
     await press('Rewrite the selected text');
-    expect(asked[1]?.input).toBe('lets meet friday.');
+    expect(JSON.parse(asked[1]!.input)).toStrictEqual({
+      operation: 'rewrite',
+      authoredText: 'lets meet friday.',
+    });
     asked[1]?.answer.resolve('Shall we meet on Friday?');
     await screen.findByText('Shall we meet on Friday?');
     const replace = queuedPress('Replace your text with this rewrite');
@@ -3018,9 +3025,12 @@ describe('replying to and forwarding from the reader', () => {
     await press('Suggest a reply to the quoted message');
     // Only display names, the authored text and the quoted message already in the Draft are read.
     expect(asked[0]?.operation).toBe('reply');
-    expect(asked[0]?.input).toContain(
-      'Recipients: Maya Chen, Bob\n\nReply so far:\nYes\n\nMessage being answered:\n',
-    );
+    expect(JSON.parse(asked[0]!.input)).toMatchObject({
+      operation: 'reply',
+      recipientNames: 'Maya Chen, Bob',
+      authoredText: 'Yes',
+      quotedText: expect.stringContaining('Shall we meet on Friday?'),
+    });
     expect(asked[0]?.input).toContain('Shall we meet on Friday?');
     // No raw address is admitted, including the sender in the quoted attribution line.
     expect(asked[0]?.input).not.toContain('@');
