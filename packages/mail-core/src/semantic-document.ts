@@ -549,6 +549,113 @@ const covered = (lines: readonly Line[], { start, end }: Selection) => {
   });
 };
 
+// A document's lines and where a selection, in either direction, starts and ends among them.
+const bounds = (document: SemanticDocument, selection: Selection) => {
+  const lines = linesOf(document);
+  return {
+    lines,
+    from: locate(lines, Math.min(selection.start, selection.end)),
+    to: locate(lines, Math.max(selection.start, selection.end)),
+  };
+};
+
+// Read a selected span range directly, without expanding editor character objects.
+const selectedLineText = (
+  block: Block | undefined,
+  [first, last]: readonly [number, number],
+  limit: number,
+) => {
+  let text = '';
+  let offset = 0;
+  for (const span of block?.spans ?? []) {
+    const spanEnd = offset + span.text.length;
+    if (spanEnd > first && offset < last) {
+      const start = Math.max(0, first - offset);
+      const end = Math.min(
+        span.text.length,
+        last - offset,
+        start + limit - text.length,
+      );
+      text += span.text.slice(start, end);
+    }
+    offset = spanEnd;
+    if (offset >= last || text.length >= limit) {
+      break;
+    }
+  }
+  return text;
+};
+
+// Selected authored text without list markers. A bound lets assistance refuse oversized
+// selections without flattening a whole paragraph or allocating editor character objects.
+export function selectedText(
+  document: SemanticDocument,
+  selection: Selection,
+  limit = Infinity,
+) {
+  if (selection.start === selection.end || limit <= 0) {
+    return '';
+  }
+  const { lines, from, to } = bounds(document, selection);
+  const ranges = covered(lines, selection);
+  let text = '';
+  for (
+    let index = from.line;
+    index <= to.line && text.length < limit;
+    index += 1
+  ) {
+    if (index > from.line) {
+      text += '\n';
+    }
+    const range = ranges[index] ?? [0, 0];
+    text += selectedLineText(document[index], range, limit - text.length);
+  }
+  return text;
+}
+
+// Replaces the text a selection covers with `text` as one edit. List markers inside the
+// selection stay, and the inserted text takes the marks of the text before it.
+export function replaceSelection(
+  document: SemanticDocument,
+  selection: Selection,
+  text: string,
+): Edit {
+  const { lines, from, to } = bounds(document, selection);
+  const result = splice(
+    lines,
+    {
+      start: offsetOf(lines, from.line, Math.max(0, from.column - from.marker)),
+      end: offsetOf(lines, to.line, Math.max(0, to.column - to.marker)),
+      inserted: text,
+    },
+    undefined,
+  );
+  const last = lines[to.line];
+  const tailRemains = last !== undefined && to.column - to.marker < last.length;
+  const originals = lines.slice(from.line, to.line + 1);
+  const lastKind = last?.kind ?? 'paragraph';
+  const translated = result.lines
+    .slice(from.line, result.line + 1)
+    .map((line, index) => {
+      // Retain corresponding selected block kinds, and the block of an unselected suffix.
+      let kind = originals[index]?.kind ?? continuation(lastKind);
+      if (index === result.line - from.line && index > 0 && tailRemains) {
+        kind = lastKind;
+      }
+      return kind === line.kind ? line : lineOf(kind, line.chars);
+    });
+  const keptKinds = [
+    ...result.lines.slice(0, from.line),
+    ...translated,
+    ...result.lines.slice(result.line + 1),
+  ];
+  const caret = offsetOf(keptKinds, result.line, result.column);
+  return {
+    document: documentOf(keptKinds),
+    selection: { start: caret, end: caret },
+  };
+}
+
 // The marks shared by every selected character, or of the character before a caret.
 export function marksAt(document: SemanticDocument, selection: Selection) {
   const lines = linesOf(document);
@@ -699,9 +806,7 @@ export function setBlockKind(
   selection: Selection,
   kind: BlockKind,
 ): Edit {
-  const lines = linesOf(document);
-  const from = locate(lines, Math.min(selection.start, selection.end));
-  const to = locate(lines, Math.max(selection.start, selection.end));
+  const { lines, from, to } = bounds(document, selection);
   const chosen = lines.slice(from.line, to.line + 1);
   const next = chosen.every((line) => line.kind === kind) ? 'paragraph' : kind;
   const result = lines.map((line, index) =>

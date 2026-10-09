@@ -1,6 +1,7 @@
 import { ok } from 'node:assert/strict';
 
 import type { RegistrationSnapshot } from '@private-email/mail-core/registration';
+import type { NativeTranslation } from '@private-email/mail-core/translation';
 
 import { createDrafts, draftsOf } from '@private-email/mail-core/drafts';
 import { createMailboxes } from '@private-email/mail-core/mailboxes';
@@ -30,6 +31,7 @@ import { Inbox } from '../src/inbox.tsx';
 import { InboxProvider } from '../src/mailbox.tsx';
 import { MessageDetail } from '../src/message-detail.tsx';
 import { AccountContext } from '../src/registration-gate.tsx';
+import { TranslationContext } from '../src/translation.tsx';
 
 const alex = syntheticMailboxes['alex@example.invalid'];
 const other = syntheticMailboxes['other@example.invalid'];
@@ -69,6 +71,33 @@ function account(initial: RegistrationSnapshot) {
     },
   };
 }
+
+// A promise the test settles.
+function deferred() {
+  let settle: (value: unknown) => void = () => undefined;
+  let fail: (reason: unknown) => void = () => undefined;
+  // oxlint-disable-next-line promise/avoid-new -- Hold the native answer until the test settles it.
+  const promise = new Promise<unknown>((resolve, reject) => {
+    settle = resolve;
+    fail = reject;
+  });
+  return { promise, resolve: settle, reject: fail };
+}
+
+// Capture queued native input at the same composite-fiber boundary used by fireEvent.
+const queuedPress = (label: string, event = 'onPress') => {
+  let fiber = screen.getByLabelText(label).unstable_fiber;
+  while (fiber !== null) {
+    const handler = fiber.memoizedProps?.[event];
+    if (typeof handler === 'function') {
+      return (text?: string) => {
+        handler(text);
+      };
+    }
+    fiber = fiber.return;
+  }
+  throw new Error('Expected a rendered input handler');
+};
 
 const ignore = () => undefined;
 
@@ -1843,6 +1872,188 @@ describe('composing Drafts', () => {
     const reopened = createDrafts(storage.native, registration);
     await reopened.load();
     expect(draftsOf(reopened.getSnapshot())).toStrictEqual([]);
+  });
+
+  it('translates selected Draft text and applies it only after review as one undoable edit', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const asked: Array<{
+      request: string;
+      input: string;
+      answer: ReturnType<typeof deferred>;
+    }> = [];
+    const cancelled: string[] = [];
+    const translation: NativeTranslation = {
+      translationLanguages: () =>
+        Promise.resolve([
+          { code: 'en', name: 'English' },
+          { code: 'de', name: 'German' },
+        ]),
+      translate: (request, input) => {
+        const answer = deferred();
+        asked.push({ request, input, answer });
+        return answer.promise;
+      },
+      cancel: (request) => {
+        cancelled.push(request);
+        return Promise.resolve(null);
+      },
+    };
+    await render(
+      <TranslationContext value={translation}>
+        <App
+          drafts={createDrafts(storage.native, registration)}
+          registration={registration}
+        />
+      </TranslationContext>,
+    );
+    await press('New Message');
+    await fireEvent.changeText(
+      screen.getByLabelText('To'),
+      'maya@example.com, ',
+    );
+    const recipient = screen.getByRole('button', {
+      name: 'To: maya@example.com',
+    });
+    const body = screen.getByLabelText('Message body');
+    await fireEvent.changeText(body, 'Hola. Nos vemos el viernes.');
+    // Only selected text can be translated.
+    expect(
+      screen.getByRole('button', { name: 'Translate the selected text' }),
+    ).toBeDisabled();
+    const select = async (start: number, end: number) => {
+      await fireEvent(
+        screen.getByLabelText('Message body'),
+        'selectionChange',
+        {
+          nativeEvent: { selection: { start, end } },
+        },
+      );
+    };
+    const translateSelection = async () => {
+      await press('Translate the selected text');
+      await fireEvent.press(
+        await screen.findByRole('radio', { name: 'Translate into English' }),
+      );
+    };
+    await select(6, 27);
+    await translateSelection();
+    expect(asked[0]?.input).toBe('Nos vemos el viernes.');
+    asked[0]?.answer.resolve({ source: 'es', text: 'See you on Friday.' });
+    await screen.findByText('See you on Friday.');
+    // The Draft is unchanged until the translation is applied.
+    expect(screen.getByLabelText('Message body')).toHaveTextContent(
+      'Hola. Nos vemos el viernes.',
+      { exact: true },
+    );
+    await press('Replace the selected text with this translation');
+    expect(screen.getByLabelText('Message body')).toHaveTextContent(
+      'Hola. See you on Friday.',
+      { exact: true },
+    );
+    expect(
+      screen.queryByLabelText('Translation of the selected text'),
+    ).toBeNull();
+    expect(recipient).toBeOnTheScreen();
+    // One Undo restores the original selection text.
+    await press('Undo');
+    expect(screen.getByLabelText('Message body')).toHaveTextContent(
+      'Hola. Nos vemos el viernes.',
+      { exact: true },
+    );
+
+    // Keeping the original changes nothing.
+    await select(0, 5);
+    await translateSelection();
+    asked[1]?.answer.resolve({ source: 'es', text: 'Hello.' });
+    await screen.findByText('Hello.');
+    // Capture the actual handler as native input queued before React removes the control.
+    const dismissedReplace = queuedPress(
+      'Replace the selected text with this translation',
+    );
+    const keepOriginal = queuedPress(
+      'Keep the original text and close the translation',
+    );
+    await act(() => {
+      keepOriginal();
+      dismissedReplace();
+    });
+    expect(screen.queryByText('Hello.')).toBeNull();
+    expect(screen.getByLabelText('Message body')).toHaveTextContent(
+      'Hola. Nos vemos el viernes.',
+      { exact: true },
+    );
+
+    // Changing the target invalidates the ready result before React removes its Replace button.
+    await translateSelection();
+    asked[2]?.answer.resolve({ source: 'es', text: 'Hello.' });
+    await screen.findByText('Hello.');
+    const supersededReplace = queuedPress(
+      'Replace the selected text with this translation',
+    );
+    const chooseGerman = queuedPress('Translate into German');
+    await act(() => {
+      chooseGerman();
+      supersededReplace();
+    });
+    expect(screen.getByLabelText('Message body')).toHaveTextContent(
+      'Hola. Nos vemos el viernes.',
+      { exact: true },
+    );
+    asked[3]?.answer.resolve({ source: 'es', text: 'Hallo.' });
+    await screen.findByText('Hallo.');
+    const editedReplace = queuedPress(
+      'Replace the selected text with this translation',
+    );
+    const undoEdit = queuedPress('Undo');
+    const editBody = queuedPress('Message body', 'onChangeText');
+    await act(() => {
+      editBody('Hola! Nos vemos el viernes.');
+      undoEdit();
+      editedReplace();
+    });
+    expect(screen.getByLabelText('Message body')).toHaveTextContent(
+      'Hola. Nos vemos el viernes.',
+      { exact: true },
+    );
+    expect(
+      screen.queryByLabelText('Translation of the selected text'),
+    ).toBeNull();
+
+    // Editing the Draft while a translation is pending makes it stale: it is cancelled and its
+    // late result is never offered.
+    await translateSelection();
+    await screen.findByLabelText('Cancel translation');
+    await fireEvent.changeText(
+      screen.getByLabelText('Message body'),
+      'Hola! Nos vemos el viernes.',
+    );
+    expect(
+      screen.queryByLabelText('Translation of the selected text'),
+    ).toBeNull();
+    expect(cancelled).toStrictEqual([asked[4]?.request]);
+    asked[4]?.answer.resolve({ source: 'es', text: 'Hello!' });
+    await expect(
+      screen.findByLabelText('Translate the selected text'),
+    ).resolves.toBeOnTheScreen();
+    expect(screen.queryByText('Hello!')).toBeNull();
+    expect(screen.getByLabelText('Message body')).toHaveTextContent(
+      'Hola! Nos vemos el viernes.',
+      { exact: true },
+    );
+
+    // The selection's boundary whitespace survives, though the preview trims the translation.
+    await select(0, 6);
+    await translateSelection();
+    expect(asked[5]?.input).toBe('Hola! ');
+    asked[5]?.answer.resolve({ source: 'es', text: 'Hello! ' });
+    await screen.findByText('Hello!');
+    await press('Replace the selected text with this translation');
+    expect(screen.getByLabelText('Message body')).toHaveTextContent(
+      'Hello! Nos vemos el viernes.',
+      { exact: true },
+    );
   });
   /* oxlint-enable vitest/max-expects */
 });

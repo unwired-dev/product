@@ -37,6 +37,37 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   `drafts.ts.pickLimit`. Bound each pick, paste and drop before that amplification,
   with `store.pick` owning picker-copy cleanup; otherwise a large user selection
   blocks the shared host runtime even when each file meets its byte limit.
+- `message-body.tsx` or `translation.tsx.MessageTranslation` flattening all readable
+  spans during render before the shared translation input cap applies. Pass the
+  structured readable body to the bounded shared builder and memoize by body;
+  otherwise opening or rerendering a long message traverses its whole text even
+  when Translate is never pressed.
+
+- `translation.tsx.ReaderTranslation` hiding a dismissed panel while leaving its
+  queued language, Retry, Cancel or Dismiss callbacks authorized by the mounted
+  store. Retire the open session synchronously and check that exact session
+  before acting, including after reopening the same message. Check the live
+  store's exact result before Retry or Cancel within that session too; a target
+  change retires the previous request's controls. Otherwise stale input starts
+  hidden inference or replaces, cancels or closes a later translation.
+
+- `translation.tsx.DraftTranslation` accepting captured ready text without checking
+  the live store's exact result and committed owner, or `composer.tsx` invalidating
+  the captured selection only after rendering. Recheck acceptance after a target
+  change, Keep Original, body editing followed by Undo before commit, and unmount.
+  Clear capture ownership synchronously on editing and dismissal; returning to
+  the same body identity cannot restore a discarded preview. Otherwise queued
+  native Replace input applies a superseded language or dismissed translation.
+
+- `message-summary.tsx.MessageSummary` retiring its store only in a passive
+  effect. A pending availability check can settle after the replacement reader
+  commits but before that cleanup, starting inference on the previous message.
+  Discard request ownership during layout cleanup on message, mailbox/account,
+  captured-input or assistance-provider replacement and unmount; fencing queued
+  button callbacks alone is insufficient. Preserve store reuse through
+  StrictMode's setup/cleanup/setup replay. Check cancellation at the commit
+  boundary with the real store and a controlled native provider, since an
+  assertion after `act` flushes passive effects cannot detect this gap.
 
 - `Editor` keeping a new `rebind` callback for each parent `onRebind`, or releasing
   identity tracking on unmount while Close or Discard still uses `authored.current`

@@ -1,6 +1,9 @@
 import { makeMockInboxStorage } from '../src/mock-storage.ts';
 import { createPersistentInbox } from '../src/persistent-inbox.ts';
-import { createMockMailSession } from '../src/testing/mock-session.ts';
+import {
+  createMockMailSession,
+  syntheticSummary,
+} from '../src/testing/mock-session.ts';
 
 describe('isolated synthetic providers', () => {
   it('replays open, mark-read and relaunch without changing another session or reseeding committed state', async () => {
@@ -40,7 +43,7 @@ describe('isolated synthetic providers', () => {
       address: 'alex@example.invalid',
     });
     await expect(session.assistance.summarize()).resolves.toBe(
-      'Synthetic summary: a studio review and a weekend walk.',
+      syntheticSummary,
     );
   });
 
@@ -61,6 +64,9 @@ describe('isolated synthetic providers', () => {
   it('controls assistance failure without affecting the synthetic mailbox', async () => {
     expect.hasAssertions();
     const session = createMockMailSession('assistance-unavailable');
+    await expect(session.assistance.availability()).resolves.toBe(
+      'model-not-ready',
+    );
     await expect(session.assistance.summarize()).rejects.toThrow(
       'Synthetic provider unavailable',
     );

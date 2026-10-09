@@ -34,6 +34,7 @@ release scopes; a moved passage is not a new requirement or proof of qualificati
 | [docs/linked-sign-in.md](../linked-sign-in.md)                                   | [linked-sign-in.md](linked-sign-in.md)                                   |
 | [docs/macos-client.md](../macos-client.md)                                       | [macos-client.md](macos-client.md)                                       |
 | [docs/mail-test-environment.md](../mail-test-environment.md)                     | [mail-test-environment.md](mail-test-environment.md)                     |
+| [docs/message-translation.md](../message-translation.md)                         | [message-translation.md](message-translation.md)                         |
 | [docs/mock-mail-sessions.md](../mock-mail-sessions.md)                           | [mock-mail-sessions.md](mock-mail-sessions.md)                           |
 | [docs/private-inbox-storage.md](../private-inbox-storage.md)                     | [private-inbox-storage.md](private-inbox-storage.md)                     |
 | [docs/private-product-sync.md](../private-product-sync.md)                       | [private-product-sync.md](private-product-sync.md)                       |
