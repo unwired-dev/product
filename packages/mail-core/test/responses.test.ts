@@ -379,34 +379,35 @@ describe('replying to and forwarding a received message', () => {
 
   it('forwards text, inline images and attachments with verified bytes, failing only what cannot be copied', async () => {
     expect.hasAssertions();
-    const { id, start, draft, storage, gmail, drafts } = await reader({
-      subject: 'Fwd: Report',
-      content: {
-        html: '<p>See the chart</p><img src="cid:chart@example" alt="chart"><p>Between charts</p><img src="cid:chart@example" alt=""><p>After charts</p>',
-        images: [
-          { contentId: 'chart@example', mimeType: 'image/png', bytes: logo },
-        ],
-        attachments: [
-          {
-            filename: 'report.pdf',
-            mimeType: 'application/pdf',
-            bytes: report,
-          },
-          {
-            filename: 'huge.bin',
-            mimeType: 'application/octet-stream',
-            bytes: [1],
-            size: attachmentLimit + 1,
-          },
-          {
-            filename: 'broken.bin',
-            mimeType: 'application/octet-stream',
-            bytes: [1, 2, 3],
-            size: 9,
-          },
-        ],
-      },
-    });
+    const { id, start, draft, storage, gmail, drafts, registration } =
+      await reader({
+        subject: 'Fwd: Report',
+        content: {
+          html: '<p>See the chart</p><img src="cid:chart@example" alt="chart"><p>Between charts</p><img src="cid:chart@example" alt=""><p>After empty alt</p><img src="cid:chart@example" alt="   "><p>After whitespace alt</p><img src="cid:chart@example"><p>After charts</p>',
+          images: [
+            { contentId: 'chart@example', mimeType: 'image/png', bytes: logo },
+          ],
+          attachments: [
+            {
+              filename: 'report.pdf',
+              mimeType: 'application/pdf',
+              bytes: report,
+            },
+            {
+              filename: 'huge.bin',
+              mimeType: 'application/octet-stream',
+              bytes: [1],
+              size: attachmentLimit + 1,
+            },
+            {
+              filename: 'broken.bin',
+              mimeType: 'application/octet-stream',
+              bytes: [1, 2, 3],
+              size: 9,
+            },
+          ],
+        },
+      });
 
     // Native Draft storage reads the Downloaded Attachments that Gmail's mailbox saved.
     storage.holdImports();
@@ -435,12 +436,16 @@ describe('replying to and forwarding a received message', () => {
     expect(plainText(quoted)).toContain('See the chart');
     expect(
       quoted
-        .slice(-5)
+        .slice(-9)
         .map(({ spans }) => spans.map(({ text }) => text).join('')),
     ).toStrictEqual([
       'See the chart',
       imageCharacter,
       'Between charts',
+      imageCharacter,
+      'After empty alt',
+      imageCharacter,
+      'After whitespace alt',
       imageCharacter,
       'After charts',
     ]);
@@ -484,6 +489,10 @@ describe('replying to and forwarding a received message', () => {
     for (const name of gmail.savedFiles.keys()) {
       expect(stored).not.toContain(name);
     }
+    // Empty, whitespace-only and absent alt text preserve each image through reopening too.
+    const reopened = createDrafts(storage.native, registration);
+    await reopened.load();
+    expect(draftOf(reopened.getSnapshot(), forward.id)).toStrictEqual(settled);
   });
 
   it('never answers from another mailbox, and needs the opened message first', async () => {
