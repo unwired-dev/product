@@ -332,8 +332,10 @@ public final class PrivateInboxStore: @unchecked Sendable {
 
   // Seals an asset's bytes to its Product Account and identifier, within the per-file limit and the
   // Outgoing Content Store's space, which never evicts. Returns the plaintext size and SHA-256.
-  public func importDraftAsset(owner: String, id: String, bytes: Data) throws
-    -> (size: Int, digest: String)
+  // A `pending` import is kept until a stored document names it; bytes downloaded for a Draft the
+  // stored document already names are not, so a later save without them reclaims them.
+  public func importDraftAsset(owner: String, id: String, bytes: Data, pending: Bool = true)
+    throws -> (size: Int, digest: String)
   {
     let url = try draftAssetURL(id)
     guard bytes.count <= Self.draftAssetLimit else { throw PrivateInboxError.tooLarge }
@@ -349,7 +351,7 @@ public final class PrivateInboxStore: @unchecked Sendable {
         at: url.deletingLastPathComponent(), withIntermediateDirectories: true,
         attributes: [.posixPermissions: 0o700])
       // Protected before its file exists, so a commit racing this import keeps it.
-      Self.importedAssets.insert(id)
+      if pending { Self.importedAssets.insert(id) }
       try write(
         bytes, file: "draft-assets/\(id)", key: key,
         authenticating: draftAssetIdentity(owner: owner, id: id))

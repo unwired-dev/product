@@ -6,7 +6,7 @@ import UniformTypeIdentifiers
 // they open offline and while a mailbox waits for authorization; an account that is pending or
 // being removed has none.
 extension RegistrationStore {
-  private func draftOwner() throws -> (PrivateInboxStore, String) {
+  func draftOwner() throws -> (PrivateInboxStore, String) {
     guard let mailCache else { throw RegistrationError.unavailable }
     guard let saved = try load(), saved.accountRemoval == nil, let product = saved.product,
       product.pending != true
@@ -14,7 +14,7 @@ extension RegistrationStore {
     return (mailCache, product.productAccountId)
   }
 
-  private func draftWork<Value: Sendable>(
+  func draftWork<Value: Sendable>(
     _ work: @escaping @Sendable (PrivateInboxStore, String) throws -> Value
   ) async throws -> (String, Value) {
     let (store, owner) = try draftOwner()

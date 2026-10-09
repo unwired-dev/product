@@ -1,4 +1,7 @@
-import type { NativeDrafts } from '@private-email/mail-core/drafts';
+import type {
+  NativeDrafts,
+  NativeDraftSync,
+} from '@private-email/mail-core/drafts';
 import type { NativeGmailMailboxes } from '@private-email/mail-core/mailboxes';
 import type { NativeRegistration } from '@private-email/mail-core/registration';
 import type { TurboModule } from 'react-native';
@@ -9,7 +12,12 @@ import { createRegistration } from '@private-email/mail-core/registration';
 import { TurboModuleRegistry } from 'react-native';
 
 interface RegistrationModule
-  extends TurboModule, NativeRegistration, NativeGmailMailboxes, NativeDrafts {
+  extends
+    TurboModule,
+    NativeRegistration,
+    NativeGmailMailboxes,
+    NativeDrafts,
+    NativeDraftSync {
   readonly cancelGmailRequest: (request: string) => void;
 }
 const native = () =>
@@ -83,7 +91,8 @@ export const gmailMailboxes = createMailboxes(
   },
 );
 
-// The signed-in Product Account's encrypted Drafts on this device.
+// The signed-in Product Account's encrypted Drafts on this device, synchronized through Product
+// Sync with its other Trusted Devices.
 export const drafts = createDrafts(
   {
     openDrafts: () => native().openDrafts(),
@@ -97,4 +106,17 @@ export const drafts = createDrafts(
     discardPickedDraftFiles: (uris) => native().discardPickedDraftFiles(uris),
   },
   registration,
+  {
+    removed: () => {
+      void registration.deviceRemoved();
+    },
+    native: {
+      pullDrafts: (owner, known) => native().pullDrafts(owner, known),
+      pushDraft: (owner, record) => native().pushDraft(owner, record),
+      uploadDraftAsset: (owner, asset) =>
+        native().uploadDraftAsset(owner, asset),
+      downloadDraftAsset: (owner, asset) =>
+        native().downloadDraftAsset(owner, asset),
+    },
+  },
 );

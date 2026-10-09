@@ -9,6 +9,19 @@ struct StoredPayload: Codable, Equatable {
   let updatedAt: Double
 }
 
+// The Convex HTTP API response; ConvexError data carries a stable code.
+struct ConvexEnvelope<Value: Decodable>: Decodable {
+  struct Failure: Decodable { let code: String }
+  let status: String
+  let value: Value?
+  let errorData: Failure?
+}
+
+// The only conditional-write refusal distinguishable from transport or backend failure.
+enum ProductSyncWriteFailure: String, Error {
+  case payloadChanged = "PRODUCT_SYNC_PAYLOAD_CHANGED"
+}
+
 // Backend steps for End-to-End Encrypted Product Sync. Every call presents this device's proof:
 // a Trusted Device's, or for its own admission, a Pending Device's.
 struct ProductSyncBackend {
@@ -21,6 +34,7 @@ struct ProductSyncBackend {
   let list:
     (ProductSignInIdentity, ProductRegistrationReceipt, String) async throws -> [StoredPayload]
   // Compare-and-set: returns the stored record, which differs from ours when another write won.
+  // Throws ProductSyncWriteFailure.payloadChanged when an expected record no longer exists.
   let put:
     (ProductSignInIdentity, ProductRegistrationReceipt, String, EncryptedPayload, Double?)
       async throws -> StoredPayload
@@ -64,6 +78,10 @@ struct ProductSyncBackend {
       ProductSignInIdentity, ProductRegistrationReceipt, String, EncryptedPayload, EncryptedPayload,
       String, Double
     ) async throws -> Void
+  // One record, or nil when none is stored.
+  var get: (ProductSignInIdentity, ProductRegistrationReceipt, String) async throws -> StoredPayload? =
+    { _, _, _ in throw RegistrationError.unavailable }
+
 }
 
 struct KeyRotation: Equatable {

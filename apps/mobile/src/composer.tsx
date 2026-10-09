@@ -684,6 +684,7 @@ const assetStatus = (
     if (
       preview?.kind === 'damaged' ||
       preview?.kind === 'missing' ||
+      preview?.kind === 'incomplete' ||
       preview?.kind === 'locked'
     ) {
       return t(`drafts.assets.status.${preview.kind}`, {
@@ -735,9 +736,10 @@ function usePreview(asset: Asset, inline: boolean) {
     preview?.id === id && preview?.digest === digest
       ? preview?.preview
       : undefined;
-  const locked = shown?.kind === 'locked';
+  // A locked check, or bytes another device has not uploaded yet, may succeed later.
+  const waiting = shown?.kind === 'locked' || shown?.kind === 'incomplete';
   useEffect(() => {
-    if (!locked) {
+    if (!waiting) {
       return undefined;
     }
     const subscription = AppState.addEventListener('change', (next) => {
@@ -748,7 +750,7 @@ function usePreview(asset: Asset, inline: boolean) {
     return () => {
       subscription.remove();
     };
-  }, [locked, retry]);
+  }, [waiting, retry]);
   useEffect(() => {
     if (id === undefined || digest === undefined || type === undefined) {
       return undefined;
@@ -820,7 +822,7 @@ function AssetRow({
           {status}
         </Text>
       </View>
-      {preview?.kind === 'locked' ? (
+      {preview?.kind === 'locked' || preview?.kind === 'incomplete' ? (
         <Action
           accessibilityLabel={t('drafts.assets.retryLabel', {
             name: asset.name,

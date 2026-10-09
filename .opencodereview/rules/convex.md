@@ -25,6 +25,11 @@ Before reviewing, read `packages/convex/convex/_generated/ai/guidelines.md`; it 
 #### Writes, conflicts and atomicity
 
 - A Product Sync payload write that is unconditional or write-if-absent. Writes are compare-and-set on `expectedUpdatedAt`; the atomic mutation checks every revision before any write or delete.
+- `productSync.writeEncryptedPayloadIfUnchanged` making a missing-row revision
+  refusal indistinguishable from other failures. Keep its content-free code in
+  the shared contract and native decoder; only this refusal permits conflict
+  recovery. Otherwise clients either swallow outages as races or cannot reconcile
+  an ordinary deleted-record race. Preserve older clients' unknown-error fallback.
 - An ordinary Product Sync record write before the account's recovery envelope is published (`requireRecoveryEnvelope`), or initialization that publishes its initialized marker separately from the recovery envelope. `initialize`/`publishFirstRecoveryEnvelope` atomically create the first envelope and marker; they cannot require a pre-existing envelope.
 - An ownership claim, admission, enrollment adoption or rotation split across several `ctx.runMutation` calls from an action. Each mutation is its own transaction, so a concurrent caller interleaves between them; the invariant belongs in one mutation.
 - Destructive cleanup (old key material, routes, credentials, enrollment requests) ordered before the replacement is durably adopted, or with no recovery for a crash between the two.

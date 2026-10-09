@@ -2,6 +2,10 @@ import type { Infer } from 'convex/values';
 
 import { v } from 'convex/values';
 
+// A conditional write expected a record that no longer exists; other failures are not conflicts.
+export const productSyncPayloadChangedErrorCode =
+  'PRODUCT_SYNC_PAYLOAD_CHANGED';
+
 export const encryptedProductSyncPayloadBodyValidator = v.object({
   algorithm: v.literal('AES-GCM-256'),
   ciphertextBase64: v.string(),
