@@ -13,7 +13,8 @@ exists. Nothing here is implemented yet. The work is tracked in
 - A list/chat toggle in the Inbox header switches between the message list and
   Catch Up and remembers the last choice. The list is the default. Both views
   show the same mail and share archive, delete and read state.
-- Each message is one bubble, with no grouping by Thread. A bubble shows the
+- Each message is one bubble, with no grouping by Thread, except collapsed
+  category mail described below. A message bubble shows the
   sender's avatar and name, the subject as one muted line, the summary or preview
   in up to three lines, the time, an unread dot and an attachment icon when the
   message has attachments. Messages the person sent appear as right-aligned
@@ -22,7 +23,8 @@ exists. Nothing here is implemented yet. The work is tracked in
   the oldest message not yet seen in Catch Up. Scrolling past a bubble marks it
   seen in Catch Up only; it never changes [Message Read State](domain/messages-and-delivery.md).
 - Mail in Gmail's Promotions, Social, Updates and Forums categories collapses into
-  one bubble, such as "12 newsletters", which expands inline when tapped.
+  one bubble, such as "12 newsletters", which expands inline into message bubbles
+  when tapped.
 - Tapping a bubble opens the Thread view scrolled to that message and highlights
   it. The Thread view is the existing
   [conversation reader](product/messages-and-delivery.md), with its message order,
