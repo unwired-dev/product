@@ -13,6 +13,28 @@ Native storage owns what TypeScript must never hold: Keychain items, the storage
 
 #### Keys, credentials and storage
 
+- `PrivateInboxStore.discardDraftAsset` retaining process-local import protection
+  after an abandoned import's file removal throws. Release that protection under
+  the storage lock on both success and failure, preserving the deletion error,
+  so a later save can retry cleanup. Trace `drafts.ts` import settlement and
+  discard callers: live imports and committed keep references must remain
+  protected. Otherwise failed discards keep orphaned ciphertext against the hard
+  quota until relaunch, or premature release deletes bytes still needed by a Draft.
+
+- `PrivateInboxStore.commitDraftDocument` allowing garbage collection after durable
+  document replacement to reject that stored revision. Keep post-write removal
+  best effort and retry leftover ciphertext on a later save, without removing
+  referenced or still-importing assets. Otherwise the host reports Not saved for
+  a committed document and can repeatedly rebase a save that already succeeded.
+
+- `PrivateInboxStore.commitDraftDocument` admitting a replacement document against
+  only retained Draft Assets while unkept files still occupy the Outgoing Content
+  Store. Count every on-disk asset, including failed-removal leftovers, with the
+  new encoded ciphertext before writing; discount a file only after it is removed.
+  Preserve post-write best-effort cleanup and refusal without document mutation.
+  Otherwise repeated saves can exceed the non-evicting hard limit after cleanup
+  fails, even though each admission appears to fit its retained references.
+
 - `PrivateInboxStore.commitDraftDocument` or another bounded encrypted write
   admitting only the raw input size. Count the encoded envelope, including JSON
   string escaping, and the nonce/tag overhead of the exact stored format before
@@ -32,12 +54,94 @@ Native storage owns what TypeScript must never hold: Keychain items, the storage
 
 #### Bridge contract
 
+- `RegistrationStore.readDraftAsset` returning full decrypted image bytes as a
+  base64 URI merely to show a composer thumbnail, or decoding previews on the
+  main actor. Keep verification and thumbnail work off-main, return bounded
+  presentation pixels, and trace `UnwiredRegistration.mailbox`'s operation gate
+  across the awaited read so several rows/windows do not multiply full-byte
+  working sets. Preserve original encrypted asset bytes, owner/protected-data
+  fences and explicit no-thumbnail success in the shared `drafts.ts.readAsset`
+  decoder; malformed replies still fail closed. Otherwise permitted large images
+  can exhaust memory on composer opening or valid assets appear damaged.
+
+- `DraftFilePicker` treating a protected staging directory as sufficient for a
+  moved document-picker copy or a copied Photos/pasteboard representation. Set
+  complete file protection on each staged plaintext file itself before returning
+  its URI; existing files can retain their source protection class after a move
+  or copy. A protection-setting failure must reject intake and remove the owned
+  target through the same failure cleanup as a failed copy or move. Trace every
+  app-owned staging write and preserve user originals and system-owned provider
+  lifetimes. Otherwise staged Draft bytes can remain readable while the device
+  is locked until import or launch cleanup; a Simulator build alone does not
+  qualify locked-device enforcement.
+
+- `RegistrationStore.importDraftAsset` accepting an arbitrary JavaScript file path
+  as an alternative to the generation-checked received-attachment source. Admit
+  only actual picker-owned copies or sandbox-granted external Mac files; reject
+  app-container paths and external symlink aliases to them. Trace
+  `isPickedDraftFile`/`allowsDraftFile`, picker creation and cleanup, and
+  `attachmentFile` together. Otherwise a caller can name a Downloaded Attachment's
+  plaintext path and skip its Mailbox Connection generation check. Picker cleanup
+  must still remove only its owned copies, never similarly named user folders.
+
+- `DraftFilePicker` leaving photo selection unlimited or copying/encoding every
+  document or pasteboard image before applying the documented per-intake count
+  limit. Bound work at the earliest platform boundary: applying `prefix` after
+  an eager platform API such as `UIPasteboard.images` has materialized or decoded
+  the whole collection does not bound that work. Filter provider metadata and
+  cap the lazy sequence before loading image representations. Where the system
+  already copied document selections, remove unused system copies and move only the
+  admitted prefix into picker-owned storage. Preserve cancellation/failure cleanup
+  and never delete user-owned originals. Trace the shared `drafts.ts.pick` and Mac
+  paste/drop consumers too; otherwise large selections create unbounded plaintext
+  staging and composer work outside the encrypted store's byte-admission limit.
+
+- `DocumentDelegate.documentPicker` in `DraftFilePicker.swift` cleaning up only
+  files already moved into `draft-picks` when a selected batch fails. The picker
+  uses `asCopy: true`; attempt
+  removal of every system-created selection URL, including
+  the failing and not-yet-processed copies, as well as already-moved targets.
+  Verify destination-creation and move failures after an earlier successful move;
+  preserve the original error and never apply this removal to open-in-place or
+  user-owned URLs. Otherwise plaintext remains in the system picker inbox outside
+  the root that launch cleanup removes.
+
+- `DraftFilePicker.PhotoDelegate.copy` or document intake checking the per-file
+  byte limit only after copying or moving a loaded representation into app-owned
+  staging. Check the loaded file's logical size before that work; keep oversized
+  items visible as URI-less too-large results and trace their decoding, inline
+  preparation, import settlement and cleanup in `drafts.ts`. Preserve the native
+  import's final byte-admission check and never remove a user-owned original.
+  System-created temporary representations may precede inspection, so do not
+  claim the limit prevents that platform work. Otherwise a bounded selection of
+  oversized assets still consumes substantial plaintext staging space and time
+  before encrypted storage refuses it.
+
+- `pickedFile` in `DraftFilePicker.swift` or `PhotoDelegate.copy` inferring an imported
+  image's MIME type only from its display name or renamed staging path, despite
+  the source's declared type or original URL extension. Prefer a concrete
+  declared MIME type; generic types such as `public.image` have none, so preserve
+  the original URL's extension fallback independently of naming. Preserve an
+  unnamed source's complete filename, including dots in its stem, and avoid
+  duplicating extensions already present in suggested names. Check extensionless
+  concrete image providers and generic providers with dotted names. Apply this
+  check to every shared `pickedFile` caller, including Mac open-panel selections,
+  iOS staged document copies and URI-less oversized entries. Filesystem
+  `contentTypeKey` metadata can return `public.data` for valid extensionless image
+  bytes; require real-file evidence rather than assuming metadata inspects the
+  content. Preserve concrete declared types, bounded header work, grants and
+  staging/size/cleanup boundaries when identifying an otherwise unknown image;
+  otherwise
+  `prepareFiles` can silently turn Insert Image or Paste Image into an attachment
+  or retain incorrect asset metadata.
+
 - `UnwiredAssistance.summarize` and `cancel` losing the serial bridge's invocation
   order while dispatching to their shared request registry. Preserve registration
   before a later cancellation and check cancellation before generation starts;
   independent unstructured actor tasks can let cancellation find no request and
   then start explicitly cancelled inference. Cancellation during availability or
   after completion must not accumulate request IDs that will never be consumed.
+
 - `GmailTransport.send` consuming an allowed large response through one async
   iterator step per byte while the shared `RegistrationOperationGate` is held.
   Receive bounded chunks, reject declared and streamed overflow before retaining

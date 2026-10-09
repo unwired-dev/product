@@ -57,6 +57,10 @@ public final class PrivateInboxStore: @unchecked Sendable {
   private let mailboxAssociatedData = Data("dev.unwired.private-inbox.mailbox.v1".utf8)
   private let draftsAssociatedData = Data("dev.unwired.private-inbox.drafts.v1".utf8)
   static let outgoingContentLimit = 100 * 1024 * 1024
+  static let draftAssetLimit = 25 * 1024 * 1024
+  // Draft assets imported by this process that no stored Draft document keeps yet: commits never
+  // remove them, so a save racing an import cannot delete its bytes. A relaunch forgets them.
+  private static let importedAssets = ImportedAssets()
 
   public convenience init(directory: URL, service: String, attachments: URL? = nil) {
     self.init(
@@ -232,7 +236,7 @@ public final class PrivateInboxStore: @unchecked Sendable {
   private func writingKey(replacing: Bool) throws -> Data {
     if replacing { return try existingKey() }
     if let existing = try keychain.read("encryption-key") { return existing }
-    for name in ["inbox.enc", "drafts.enc", "mailbox.enc", "mailboxes", "bodies"] {
+    for name in ["inbox.enc", "drafts.enc", "draft-assets", "mailbox.enc", "mailboxes", "bodies"] {
       guard !FileManager.default.fileExists(atPath: directory.appendingPathComponent(name).path)
       else { throw PrivateInboxError.unavailable }
     }
@@ -255,14 +259,19 @@ public final class PrivateInboxStore: @unchecked Sendable {
     }
   }
 
-  public func commitDrafts(owner: String, expectedRevision: Int, document: String) throws
-    -> [String: Any]
-  {
-    let revision = try commitDraftDocument(owner: owner, expectedRevision: expectedRevision, document: document)
+  public func commitDrafts(
+    owner: String, expectedRevision: Int, document: String, keep: [String] = []
+  ) throws -> [String: Any] {
+    let revision = try commitDraftDocument(
+      owner: owner, expectedRevision: expectedRevision, document: document, keep: keep)
     return ["owner": owner, "revision": revision]
   }
 
-  func commitDraftDocument(owner: String, expectedRevision: Int, document: String) throws -> Int {
+  // `keep` names the assets the document's Drafts use. Once the document is stored, every other
+  // asset's bytes are removed, except imports this process has not seen committed yet.
+  func commitDraftDocument(
+    owner: String, expectedRevision: Int, document: String, keep: [String] = []
+  ) throws -> Int {
     try transaction {
       // The Outgoing Content Store's device-wide limit never evicts; a larger document is refused.
       guard document.utf8.count <= Self.outgoingContentLimit else {
@@ -272,14 +281,116 @@ public final class PrivateInboxStore: @unchecked Sendable {
       guard (stored?.revision ?? 0) == expectedRevision else { throw PrivateInboxError.conflict }
       let next = DraftStore(revision: expectedRevision + 1, owner: owner, document: document)
       let plaintext = try JSONEncoder().encode(next)
-      // The limit holds for the file written: escaping, the envelope and the AES-GCM nonce and tag.
-      guard plaintext.count + 28 <= Self.outgoingContentLimit else {
+      let kept = Set(keep)
+      let assets = try draftAssets()
+      let retained = assets.filter {
+        kept.contains($0.id) || Self.importedAssets.contains($0.id)
+      }
+      // The limit holds for the files written: escaping, the envelope and the AES-GCM nonce and
+      // tag, with every asset file still on disk. Unkept files are removed only after the write,
+      // and one whose removal failed earlier still takes space until a later save removes it.
+      guard plaintext.count + 28 + assets.reduce(0, { $0 + $1.size }) <= Self.outgoingContentLimit
+      else {
         throw PrivateInboxError.unavailable
       }
       let key = try writingKey(replacing: stored != nil)
       try write(plaintext, file: "drafts.enc", key: key, authenticating: draftsAssociatedData)
+      Self.importedAssets.remove(kept)
+      // The document is stored, so removal is best effort: a file that stays is listed again and
+      // removed by a later save, rather than turning this stored save into a refusal.
+      for asset in assets where !retained.contains(where: { $0.id == asset.id }) {
+        try? removeAttachmentItem(asset.url)
+      }
       return next.revision
     }
+  }
+
+  private func draftAssetURL(_ id: String) throws -> URL {
+    guard id.range(of: "^[0-9a-z]{8,64}$", options: .regularExpression) != nil else {
+      throw PrivateInboxError.invalidStore
+    }
+    return directory.appendingPathComponent("draft-assets/\(id)")
+  }
+
+  private func draftAssetIdentity(owner: String, id: String) -> Data {
+    Data("dev.unwired.private-inbox.draft-asset.v1\n\(owner)\n\(id)".utf8)
+  }
+
+  private func draftAssets() throws -> [(id: String, url: URL, size: Int)] {
+    let folder = directory.appendingPathComponent("draft-assets")
+    let urls: [URL]
+    do {
+      urls = try FileManager.default.contentsOfDirectory(
+        at: folder, includingPropertiesForKeys: [.fileSizeKey])
+    } catch CocoaError.fileReadNoSuchFile {
+      return []
+    }
+    return try urls.map {
+      ($0.lastPathComponent, $0, try $0.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0)
+    }
+  }
+
+  // Seals an asset's bytes to its Product Account and identifier, within the per-file limit and the
+  // Outgoing Content Store's space, which never evicts. Returns the plaintext size and SHA-256.
+  public func importDraftAsset(owner: String, id: String, bytes: Data) throws
+    -> (size: Int, digest: String)
+  {
+    let url = try draftAssetURL(id)
+    guard bytes.count <= Self.draftAssetLimit else { throw PrivateInboxError.tooLarge }
+    return try transaction {
+      let drafts = (try? FileManager.default.attributesOfItem(
+        atPath: directory.appendingPathComponent("drafts.enc").path)[.size] as? Int) ?? 0
+      let used = try draftAssets().filter { $0.id != id }.reduce(drafts) { $0 + $1.size }
+      guard used + bytes.count + 28 <= Self.outgoingContentLimit else {
+        throw PrivateInboxError.tooLarge
+      }
+      let key = try writingKey(replacing: false)
+      try FileManager.default.createDirectory(
+        at: url.deletingLastPathComponent(), withIntermediateDirectories: true,
+        attributes: [.posixPermissions: 0o700])
+      // Protected before its file exists, so a commit racing this import keeps it.
+      Self.importedAssets.insert(id)
+      try write(
+        bytes, file: "draft-assets/\(id)", key: key,
+        authenticating: draftAssetIdentity(owner: owner, id: id))
+      return (bytes.count, Self.hex(SHA256.hash(data: bytes)))
+    }
+  }
+
+  // An asset's bytes when they open for `owner` and match `digest`; a missing file is reported as
+  // missing, and anything else that does not verify as an invalid store.
+  public func readDraftAsset(owner: String, id: String, digest: String) throws -> Data {
+    let url = try draftAssetURL(id)
+    return try transaction {
+      let data: Data
+      do {
+        data = try Data(contentsOf: url)
+      } catch CocoaError.fileReadNoSuchFile {
+        throw PrivateInboxError.attachmentMissing
+      }
+      let key = try existingKey()
+      guard let box = try? AES.GCM.SealedBox(combined: data),
+        let bytes = try? AES.GCM.open(
+          box, using: SymmetricKey(data: key),
+          authenticating: draftAssetIdentity(owner: owner, id: id)),
+        Self.hex(SHA256.hash(data: bytes)) == digest
+      else { throw PrivateInboxError.invalidStore }
+      return bytes
+    }
+  }
+
+  // Needs no key: a cancelled import's bytes are removed even while the device is locked.
+  public func discardDraftAsset(id: String) throws {
+    let url = try draftAssetURL(id)
+    try unlockedTransaction {
+      // Released even when removal fails, so a later save can retry removing an unkept file.
+      defer { Self.importedAssets.remove([id]) }
+      try removeAttachmentItem(url)
+    }
+  }
+
+  private static func hex(_ digest: SHA256.Digest) -> String {
+    digest.map { String(format: "%02x", $0) }.joined()
   }
 
   private func readDrafts() throws -> DraftStore? {
@@ -315,12 +426,12 @@ public final class PrivateInboxStore: @unchecked Sendable {
   }
 
   // Every connection's cache, bodies and Downloaded Attachments, including the cache written
-  // before connections, and the account's Drafts: everything an account purge removes from this
-  // store.
+  // before connections, and the account's Drafts and their assets: everything an account purge
+  // removes from this store.
   public func removeMailboxes() throws {
     try unlockedTransaction {
       try removeURLs(
-        ["mailboxes", "mailbox.enc", "bodies", "drafts.enc"].map {
+        ["mailboxes", "mailbox.enc", "bodies", "drafts.enc", "draft-assets"].map {
           directory.appendingPathComponent($0)
         } + [attachments])
     }
@@ -764,4 +875,13 @@ public final class PrivateInboxStore: @unchecked Sendable {
     defer { flock(descriptor, LOCK_UN) }
     return try operation()
   }
+}
+
+// Draft asset identifiers imported in this process and not yet committed, shared by every store.
+final class ImportedAssets: @unchecked Sendable {
+  private let lock = NSLock()
+  private var ids: Set<String> = []
+  func insert(_ id: String) { lock.withLock { _ = ids.insert(id) } }
+  func remove(_ removed: Set<String>) { lock.withLock { ids.subtract(removed) } }
+  func contains(_ id: String) -> Bool { lock.withLock { ids.contains(id) } }
 }

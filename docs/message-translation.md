@@ -35,6 +35,9 @@ fallback and nothing is downloaded by the app.
   before it. The selection's own leading and trailing whitespace is kept around the
   translation, so neighbouring words stay separated. Recipients, the subject,
   attachments and delivery state are never changed.
+- A Draft selection containing an Inline Image is refused with guidance to select
+  text without images. Text selected before or after an image still translates;
+  the image and its stored bytes stay unchanged.
 - A Draft selection longer than 6,000 characters is not cut, because applying the
   translation replaces the whole selection; the panel asks for a shorter selection.
 - Dismissed reader controls cannot restart translation or affect a later preview.

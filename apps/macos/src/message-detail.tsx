@@ -1,4 +1,8 @@
+import type { ReactNode } from 'react';
+
+import { sendingMailboxes } from '@private-email/mail-core/drafts';
 import { spacing } from '@private-email/mail-core/theme';
+import { use, useLayoutEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -8,16 +12,26 @@ import {
   View,
 } from 'react-native';
 
+import type { SavedAttachment } from './message-body.tsx';
+
 import { useLocalization, useMessageDateFormat } from './localization.ts';
 import {
   MailboxScope,
+  useComposerNavigation,
+  useDraftStore,
+  useDrafts,
   useInbox,
   useInboxActions,
   useMailbox,
 } from './mailbox.tsx';
-import { GmailMessageBody, LinkConfirmationProvider } from './message-body.tsx';
+import {
+  AttachContext,
+  GmailMessageBody,
+  LinkConfirmationProvider,
+} from './message-body.tsx';
 import { MessageSummary } from './message-summary.tsx';
 import { MessageActions } from './organize.tsx';
+import { AccountContext } from './registration-gate.tsx';
 import { usePalette } from './theme.ts';
 import { MessageTranslation } from './translation.tsx';
 
@@ -81,28 +95,153 @@ function EmptyDetail({ id }: { readonly id: string | undefined }) {
   );
 }
 
+// Starts a Draft from the reader's mailbox when it can send, or the first one that can, with a
+// copy of a Downloaded Attachment. The Draft keeps the bytes, never the mailbox they came from.
+function AttachToNewMessage({
+  onCompose,
+  children,
+}: {
+  readonly onCompose: (id: string) => void;
+  readonly children: ReactNode;
+}) {
+  const store = useDraftStore();
+  const drafts = useDrafts();
+  const navigation = useComposerNavigation();
+  const account = use(AccountContext);
+  const mailbox = useMailbox();
+  const { t } = useLocalization();
+  const colors = usePalette();
+  const mounted = useRef(true);
+  const attaching = useRef(false);
+  const [failed, setFailed] = useState(false);
+  // Only open Draft storage and an eligible sender can start a new message.
+  const canSend = sendingMailboxes(account?.mailboxes ?? []).length > 0;
+  useLayoutEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  const attach = async (saved: SavedAttachment) => {
+    if (!mounted.current || attaching.current) {
+      return;
+    }
+    if (mailbox === undefined) {
+      return;
+    }
+    attaching.current = true;
+    setFailed(false);
+    try {
+      const draft = await navigation.attachReceived(store, {
+        mailbox: mailbox.id,
+        mailboxes: account?.mailboxes ?? [],
+        saved,
+      });
+      if (mounted.current && draft !== undefined) {
+        onCompose(draft);
+      }
+    } catch {
+      // Keep the reader usable if an unexpected host operation rejects, and say so. An undefined
+      // result can mean a later destination was chosen, the open composer stayed open, or its
+      // Draft/account disappeared. Non-ready storage has its own subscribed feedback below.
+      if (mounted.current) {
+        setFailed(true);
+      }
+    }
+    // Not in `finally`: React Compiler cannot compile a finally clause, and the catch above
+    // handles every rejection.
+    attaching.current = false;
+  };
+  return (
+    <AttachContext
+      value={
+        canSend && drafts.kind === 'ready'
+          ? (saved) => {
+              void attach(saved);
+            }
+          : undefined
+      }>
+      {canSend && (drafts.kind === 'locked' || drafts.kind === 'failed') ? (
+        <View>
+          <View
+            accessible
+            accessibilityLabel={
+              drafts.kind === 'locked'
+                ? t('drafts.listLocked')
+                : t('drafts.listFailed')
+            }
+            accessibilityLiveRegion="polite"
+            accessibilityRole="alert">
+            <Text style={[styles.secondary, { color: colors.foreground }]}>
+              {drafts.kind === 'locked'
+                ? t('drafts.listLocked')
+                : t('drafts.listFailed')}
+            </Text>
+          </View>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={t('common.retry')}
+            onPress={() => {
+              void store.load();
+            }}>
+            <Text style={[styles.secondary, { color: colors.accent }]}>
+              {t('common.retry')}
+            </Text>
+          </Pressable>
+        </View>
+      ) : null}
+      {failed ? (
+        <View
+          accessible
+          accessibilityLabel={t('attachment.attachFailed')}
+          accessibilityLiveRegion="polite"
+          accessibilityRole="alert">
+          <Text style={[styles.secondary, { color: colors.foreground }]}>
+            {t('attachment.attachFailed')}
+          </Text>
+        </View>
+      ) : null}
+      {children}
+    </AttachContext>
+  );
+}
+
 export function MessageDetail({
   mailbox,
   id,
   onClose,
+  onCompose,
 }: {
   // The mailbox the message belongs to; Gmail message IDs are unique only within it.
   readonly mailbox: string | undefined;
   readonly id: string | undefined;
   // Leaves the reader after its message leaves the Inbox.
   readonly onClose?: (() => void) | undefined;
+  // Opens a Draft the reader started, such as one with a received attachment.
+  readonly onCompose?: ((id: string) => void) | undefined;
 }) {
   if (mailbox === undefined || id === undefined) {
     return <EmptyDetail id={id} />;
   }
+  const message = (
+    <MailboxMessage
+      id={id}
+      onClose={onClose}
+    />
+  );
   return (
     <MailboxScope
       id={mailbox}
       fallback={<EmptyDetail id={id} />}>
-      <MailboxMessage
-        id={id}
-        onClose={onClose}
-      />
+      {onCompose === undefined ? (
+        message
+      ) : (
+        <AttachToNewMessage
+          key={`${mailbox}/${id}`}
+          onCompose={onCompose}>
+          {message}
+        </AttachToNewMessage>
+      )}
     </MailboxScope>
   );
 }

@@ -90,7 +90,9 @@ function SummaryContent({
     return (
       <View style={styles.row}>
         <ActivityIndicator accessibilityLabel={t('summary.progress')} />
-        <Text style={[styles.secondary, { color: colors.secondary }]}>
+        <Text
+          selectable
+          style={[styles.secondary, { color: colors.secondary }]}>
           {t('summary.summarizing')}
         </Text>
         <Action
@@ -107,6 +109,7 @@ function SummaryContent({
     return (
       <>
         <Text
+          selectable
           accessibilityRole="header"
           style={[styles.title, { color: colors.foreground }]}>
           {t('summary.title')}
@@ -117,11 +120,15 @@ function SummaryContent({
           {state.summary}
         </Text>
         {state.omitted ? (
-          <Text style={[styles.secondary, { color: colors.secondary }]}>
+          <Text
+            selectable
+            style={[styles.secondary, { color: colors.secondary }]}>
             {t('summary.omitted')}
           </Text>
         ) : null}
-        <Text style={[styles.secondary, { color: colors.secondary }]}>
+        <Text
+          selectable
+          style={[styles.secondary, { color: colors.secondary }]}>
           {t('summary.disclaimer')}
         </Text>
         {dismiss}
@@ -131,6 +138,7 @@ function SummaryContent({
   return (
     <>
       <Text
+        selectable
         accessibilityRole="alert"
         style={[styles.secondary, { color: colors.secondary }]}>
         {t(

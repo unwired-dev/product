@@ -13,6 +13,56 @@ A host owns views and native adapters. It renders shared stores from `@private-e
 
 #### React correctness
 
+- `message-detail.tsx.AttachToNewMessage` offering creation without an eligible
+  sending mailbox or ready Draft storage, or swallowing an unexpected
+  `attachReceived` rejection. Keep unavailable-storage feedback and retry in the
+  reader itself, since the iPhone reader can hide the Inbox's Draft notice. Trace
+  every undefined result through `composer-navigation` and the real Draft store:
+  refused composer exit, superseding navigation and invalidated ownership are
+  intentional outcomes, not generic attachment failures. Check sender eligibility
+  changes and failed/locked storage recovery through the visible reader; a mocked
+  `Drafts.create` rejection proves only the defensive catch. Expose standalone
+  failures through an accessible labeled parent on Mac, or VoiceOver misses them.
+
+- Mac `message-summary.tsx` or `translation.tsx` rendering standalone title,
+  progress, failure, omission or privacy disclosure only in nonselectable `Text`.
+  The installed Mac Fabric paragraph is not an accessibility element; use
+  selectable text or an accessible labeled wrapper. A generic panel label alone
+  does not expose its children. Otherwise VoiceOver reads the result but misses
+  why it is partial, unavailable, inaccurate or unsaved. Keep labels inside native
+  controls owned by those controls; component evidence does not qualify VoiceOver.
+
+- Mac `composer.tsx.transferred` relying only on a pasteboard/drag item's optional
+  MIME type to choose inline image insertion. An item with no type may still carry
+  its media type in a data URL; infer that type before `prepareFiles`, normalize
+  supported image aliases and keep byte verification at the owning store. Otherwise
+  a pasted image silently becomes an Attachment instead of an Inline Image. Cover
+  absent/empty type through the visible paste journey and preserve ordinary files.
+
+- `composer.tsx` independently patching equal body identities in `authored.current`
+  and Undo history when an asset import settles. Preserve their shared immutable
+  body identity through that metadata patch; Draft translation captures from the
+  authored ref and checks the rendered history identity. Otherwise every translation
+  opened after an image settles is immediately discarded, even for surrounding text.
+  Exercise the visible selection journey after settlement, not only after reopening.
+
+- `composer.tsx.usePreview`/`AssetRow` checking complete Inline Images while
+  treating complete Attachments as healthy without reading and verifying their
+  native bytes. Trace every complete asset kind through `store.readAsset` and
+  `RegistrationStore.readDraftAsset`; verify-only reads must keep attachment
+  bytes native and preserve missing/damaged feedback and the store's locked
+  outcome. A transient locked result must say verification was refused and allow
+  another check, including on foreground activation while locked; test explicit
+  retry and the host lifecycle event through the visible composer. Otherwise the
+  composer claims an ordinary attachment is healthy after its bytes are lost or
+  damaged, or permanently hides an Inline Image after storage unlocks. Fence
+  retry, replacement and unmount results as for image previews, and remove
+  foreground subscriptions when their row no longer needs them.
+- `composer.tsx.transferred` or picker handlers constructing a prepared asset,
+  starting an import or mounting a row for every selected file before applying
+  `drafts.ts.pickLimit`. Bound each pick, paste and drop before that amplification,
+  with `store.pick` owning picker-copy cleanup; otherwise a large user selection
+  blocks the shared host runtime even when each file meets its byte limit.
 - `message-body.tsx` or `translation.tsx.MessageTranslation` flattening all readable
   spans during render before the shared translation input cap applies. Pass the
   structured readable body to the bounded shared builder and memoize by body;

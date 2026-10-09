@@ -27,6 +27,7 @@ const nativeCodes = new Set([
   'removal-refused',
   'same-language',
   'stale-authentication',
+  'too-large',
   'unavailable',
   'unidentified-language',
   'unsupported-locale',
@@ -40,6 +41,12 @@ const errorNames = new Set([
   'TimeoutError',
   'TypeError',
 ]);
+
+// A native rejection's string code, if any.
+export const rejectionCode = (cause: unknown) =>
+  Predicate.hasProperty(cause, 'code') && Predicate.isString(cause.code)
+    ? cause.code
+    : undefined;
 
 // Rejections from native hosts and seed providers can carry account data in any
 // field, so logs keep only allow-listed codes and error names.

@@ -278,7 +278,10 @@
     "count_other": "{{count}} attachments",
     "more": "Show {{count}} more",
     "moreLabel": "Show more attachments, {{count}} not shown",
-    "downloadAction": "Download"
+    "downloadAction": "Download",
+    "attachToNew": "Attach to New Message",
+    "attachToNewLabel": "Attach {{name}} to a new message",
+    "attachFailed": "This attachment could not be added to a new message. Try again."
   },
   "summary": {
     "summarize": "Summarize",
@@ -324,6 +327,7 @@
     "replaceLabel": "Replace the selected text with this translation",
     "keepOriginal": "Keep original",
     "keepOriginalLabel": "Keep the original text and close the translation",
+    "selectionHasImage": "Select text without inline images to translate. Your images are unchanged.",
     "selectionTooLong": "Select less text to translate. Up to 6,000 characters can be translated at once.",
     "not-installed": "Download this language in the system Translate settings, then try again. Nothing is downloaded here.",
     "unsupported-pair": "This device cannot translate between these languages.",
@@ -521,6 +525,35 @@
     },
     "conflictBadge": "DRAFT · CONFLICT",
     "conflictRowLabel": "Conflicting Draft. {{subject}}. {{recipients}}. From {{from}}",
-    "conflictRowLabelShortened": "Conflicting Draft. {{subject}}. {{recipients}}. From {{from}}. Preview shortened."
+    "conflictRowLabelShortened": "Conflicting Draft. {{subject}}. {{recipients}}. From {{from}}. Preview shortened.",
+    "assets": {
+      "toolbar": "Add files",
+      "attachFile": "Attach File",
+      "attachPhoto": "Attach Photo",
+      "insertImage": "Insert Image",
+      "pasteImage": "Paste Image",
+      "attachFilesPanel": "Attach Files…",
+      "insertImagePanel": "Insert Image…",
+      "attachments": "Attachments",
+      "inlineImages": "Inline images",
+      "unsendable": "Files that were not added are not sent with this Draft. Remove them and add them again.",
+      "row": "{{name}}, {{status}}",
+      "inlineImage": "Inline image {{name}}",
+      "cancelLabel": "Cancel adding {{name}}",
+      "remove": "Remove",
+      "removeLabel": "Remove {{name}}",
+      "pastedImage": "Pasted image",
+      "status": {
+        "adding": "Adding…",
+        "interrupted": "Not added: adding was interrupted",
+        "cancelled": "Not added: cancelled",
+        "tooLarge": "Not added: too large for Drafts on this device",
+        "failed": "Not added: the file could not be read or saved",
+        "damaged": "{{size}} · Damaged on this device",
+        "missing": "{{size}} · No longer on this device",
+        "locked": "{{size}} · Not checked while private storage is locked"
+      },
+      "retryLabel": "Check {{name}} again"
+    }
   }
 }

@@ -150,7 +150,7 @@ describe('on-device translation in the reader', () => {
         screen.getByText(
           'Translated from English to Spanish on this device. It may be inaccurate and is not saved.',
         ),
-      ).toBeOnTheScreen();
+      ).toHaveProp('selectable', true);
       // The message stays readable beside its preview, and translating fetched nothing.
       expect(
         screen.getByText('Please confirm the venue by Friday.'),
@@ -244,7 +244,7 @@ describe('on-device translation in the reader', () => {
         screen.findByText(
           'Download this language in the system Translate settings, then try again. Nothing is downloaded here.',
         ),
-      ).resolves.toBeOnTheScreen();
+      ).resolves.toHaveProp('selectable', true);
       expect(
         screen.getByText('Please confirm the venue by Friday.'),
       ).toBeOnTheScreen();
@@ -355,7 +355,7 @@ describe('on-device translation in the reader', () => {
         screen.getByText(
           'Only the beginning of this long message was translated.',
         ),
-      ).toBeOnTheScreen();
+      ).toHaveProp('selectable', true);
       await app.rerender(
         reader(`Changed ${prefix}`, 'Changed untranslated tail'),
       );

@@ -1,10 +1,15 @@
+import type { Translate } from '@private-email/localization';
 import type {
+  AssetPreview,
   Draft,
+  PickedFile,
+  PickSource,
   RecipientField,
   RecipientNotice,
 } from '@private-email/mail-core/drafts';
 import type { MailboxConnection } from '@private-email/mail-core/registration';
 import type {
+  Asset,
   BlockKind,
   Mark,
   Selection,
@@ -21,12 +26,16 @@ import {
   draftSummary,
   sendingMailboxes,
   sendingStateOf,
+  unsendableAssets,
+  prepareFiles,
+  withAsset,
 } from '@private-email/mail-core/drafts';
 import {
   applyText,
   blockKindAt,
   displayOf,
   historyOf,
+  imagesOf,
   marksAt,
   clip,
   previewOf,
@@ -38,6 +47,7 @@ import {
   toggled,
   toggleMark,
   undo,
+  withoutImage,
 } from '@private-email/mail-core/semantic-document';
 import { spacing } from '@private-email/mail-core/theme';
 import {
@@ -49,12 +59,17 @@ import {
   memo,
   use,
   useCallback,
+  useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
 } from 'react';
 import {
   ActivityIndicator,
+  AppState,
+  Image,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -71,6 +86,7 @@ import {
   useDraftStore,
   useLeaveComposer,
 } from './mailbox.tsx';
+import { fileSize } from './message-body.tsx';
 import { AccountContext } from './registration-gate.tsx';
 import { usePalette } from './theme.ts';
 import { DraftTranslation } from './translation.tsx';
@@ -149,6 +165,14 @@ const styles = StyleSheet.create({
   rowSubject: { flex: 1, fontSize: 15, fontWeight: '500' },
   rowDetail: { fontSize: 13 },
   footer: { fontSize: 13, paddingHorizontal: spacing.large },
+  asset: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: spacing.small,
+    paddingVertical: 4,
+  },
+  thumbnail: { width: 64, height: 64, borderRadius: 6 },
 });
 
 const kindStyles: Record<BlockKind, TextStyle> = {
@@ -638,6 +662,252 @@ function Recipients({
   );
 }
 
+// What a Draft's file or image is on this device now.
+const assetStatus = (
+  t: Translate,
+  size: (bytes: number) => string,
+  {
+    asset,
+    running,
+    preview,
+  }: Readonly<{
+    asset: Asset;
+    running: boolean;
+    preview: AssetPreview | undefined;
+  }>,
+) => {
+  if (asset.state === 'complete') {
+    if (
+      preview?.kind === 'damaged' ||
+      preview?.kind === 'missing' ||
+      preview?.kind === 'locked'
+    ) {
+      return t(`drafts.assets.status.${preview.kind}`, {
+        size: size(asset.size),
+      });
+    }
+    return size(asset.size);
+  }
+  if (asset.state === 'importing') {
+    return t(
+      running
+        ? 'drafts.assets.status.adding'
+        : 'drafts.assets.status.interrupted',
+    );
+  }
+  if (asset.state === 'cancelled') {
+    return t('drafts.assets.status.cancelled');
+  }
+  return t(
+    'reason' in asset
+      ? 'drafts.assets.status.tooLarge'
+      : 'drafts.assets.status.failed',
+  );
+};
+
+// A complete asset's bytes checked against its digest, read again when it completes or changes;
+// an inline image's are also returned to show. A check refused while storage was locked runs
+// again when the app becomes active, or when asked.
+function usePreview(asset: Asset, inline: boolean) {
+  const store = useDraftStore();
+  const complete = asset.state === 'complete' ? asset : undefined;
+  const id = complete?.id;
+  const digest = complete?.digest;
+  const type = complete?.type;
+  const [preview, setPreview] = useState<
+    Readonly<{
+      id: string;
+      digest: string;
+      attempt: number;
+      preview: AssetPreview;
+    }>
+  >();
+  // Each retry reads again; the last finished read stays shown meanwhile.
+  const [attempt, setAttempt] = useState(0);
+  const retry = useCallback(() => {
+    setAttempt((current) => current + 1);
+  }, []);
+  const shown =
+    preview?.id === id && preview?.digest === digest
+      ? preview?.preview
+      : undefined;
+  const locked = shown?.kind === 'locked';
+  useEffect(() => {
+    if (!locked) {
+      return undefined;
+    }
+    const subscription = AppState.addEventListener('change', (next) => {
+      if (next === 'active') {
+        retry();
+      }
+    });
+    return () => {
+      subscription.remove();
+    };
+  }, [locked, retry]);
+  useEffect(() => {
+    if (id === undefined || digest === undefined || type === undefined) {
+      return undefined;
+    }
+    let showing = true;
+    const read = async () => {
+      const next = await store.readAsset(
+        { id, digest, type },
+        { preview: inline },
+      );
+      if (showing) {
+        setPreview({ id, digest, attempt, preview: next });
+      }
+    };
+    void read();
+    return () => {
+      showing = false;
+    };
+  }, [store, id, digest, type, inline, attempt]);
+  return { preview: shown, retry };
+}
+
+function AssetRow({
+  asset,
+  inline,
+  running,
+  onRemove,
+  onCancel,
+}: {
+  readonly asset: Asset;
+  readonly inline: boolean;
+  readonly running: boolean;
+  readonly onRemove: (id: string) => void;
+  readonly onCancel: (id: string) => void;
+}) {
+  const colors = usePalette();
+  const { t, settings } = useLocalization();
+  const sizeFormat = useMemo(
+    () => new Intl.NumberFormat(settings.locale, { maximumFractionDigits: 1 }),
+    [settings.locale],
+  );
+  const { preview, retry } = usePreview(asset, inline);
+  const status = assetStatus(t, (bytes) => fileSize(t, sizeFormat, bytes), {
+    asset,
+    running,
+    preview,
+  });
+  return (
+    <View style={styles.asset}>
+      {preview?.kind === 'ready' ? (
+        <Image
+          accessibilityIgnoresInvertColors
+          accessibilityLabel={t('drafts.assets.inlineImage', {
+            name: asset.name,
+          })}
+          source={{ uri: preview.uri }}
+          style={styles.thumbnail}
+        />
+      ) : null}
+      <View
+        accessible
+        accessibilityLabel={t('drafts.assets.row', {
+          name: asset.name,
+          status,
+        })}
+        style={styles.grow}>
+        <Text style={{ color: colors.foreground }}>{asset.name}</Text>
+        <Text style={[styles.status, { color: colors.secondary }]}>
+          {status}
+        </Text>
+      </View>
+      {preview?.kind === 'locked' ? (
+        <Action
+          accessibilityLabel={t('drafts.assets.retryLabel', {
+            name: asset.name,
+          })}
+          label={t('common.retry')}
+          onPress={retry}
+        />
+      ) : null}
+      {running ? (
+        <Action
+          accessibilityLabel={t('drafts.assets.cancelLabel', {
+            name: asset.name,
+          })}
+          label={t('common.cancel')}
+          onPress={() => {
+            onCancel(asset.id);
+          }}
+        />
+      ) : null}
+      <Action
+        accessibilityLabel={t('drafts.assets.removeLabel', {
+          name: asset.name,
+        })}
+        label={t('drafts.assets.remove')}
+        onPress={() => {
+          onRemove(asset.id);
+        }}
+      />
+    </View>
+  );
+}
+
+// A Draft's attachments and inline images, with what can still be done to each.
+function DraftAssets({
+  draft,
+  onRemove,
+  onCancel,
+}: {
+  readonly draft: Draft;
+  readonly onRemove: (id: string) => void;
+  readonly onCancel: (id: string) => void;
+}) {
+  const store = useDraftStore();
+  const colors = usePalette();
+  const { t } = useLocalization();
+  const running = useSyncExternalStore(store.subscribe, store.getImports);
+  const attachments = draft.attachments ?? [];
+  const images = imagesOf(draft.body);
+  if (attachments.length + images.length === 0) {
+    return null;
+  }
+  const rows = (assets: readonly Asset[], inline: boolean) =>
+    assets.map((asset) => (
+      <AssetRow
+        key={asset.id}
+        asset={asset}
+        inline={inline}
+        onCancel={onCancel}
+        onRemove={onRemove}
+        running={running.has(asset.id)}
+      />
+    ));
+  return (
+    <View>
+      {unsendableAssets(draft).length > 0 ? (
+        <Text
+          accessibilityRole="alert"
+          style={[styles.notice, { color: colors.foreground }]}>
+          {t('drafts.assets.unsendable')}
+        </Text>
+      ) : null}
+      {attachments.length > 0 ? (
+        <Text
+          accessibilityRole="header"
+          style={[styles.label, { color: colors.secondary }]}>
+          {t('drafts.assets.attachments')}
+        </Text>
+      ) : null}
+      {rows(attachments, false)}
+      {images.length > 0 ? (
+        <Text
+          accessibilityRole="header"
+          style={[styles.label, { color: colors.secondary }]}>
+          {t('drafts.assets.inlineImages')}
+        </Text>
+      ) : null}
+      {rows(images, true)}
+    </View>
+  );
+}
+
 function Editor({
   initial,
   onClose,
@@ -800,6 +1070,77 @@ function Editor({
       setClosing(undefined);
     }
     update(next);
+  };
+  // An import settles in this editor's history before the store changes, so the next edit here
+  // is not taken for a conflicting one.
+  useLayoutEffect(
+    () =>
+      store.onSettle((id, next) => {
+        // Keep shared body identity across the event-facing Draft and its history. Translation
+        // ownership compares that identity, including after an import settles.
+        const bodies = new Map<Draft['body'], Draft['body']>();
+        const patch = (each: Draft) => {
+          const patched = withAsset(each, id, next);
+          const body = bodies.get(each.body) ?? patched.body;
+          bodies.set(each.body, body);
+          return { ...patched, body };
+        };
+        authored.current = patch(authored.current);
+        commitHistory((current) => ({
+          ...current,
+          past: current.past.map(patch),
+          present: patch(current.present),
+          future: current.future.map(patch),
+        }));
+        const { past, present, future } = historyNow.current;
+        return [...past, present, ...future];
+      }),
+    [commitHistory, store],
+  );
+  // Files become attachments; images placed inline go at the caret, replacing any selection.
+  const addFiles = (files: readonly PickedFile[], inline: boolean) => {
+    if (files.length === 0 || discarded.current) {
+      return;
+    }
+    const prepared = prepareFiles(authored.current, {
+      selection: selectionNow.current,
+      files,
+      inline,
+    });
+    change(prepared.draft);
+    if (prepared.selection !== undefined) {
+      caret.current = prepared.selection.start;
+      selectionNow.current = prepared.selection;
+      setPlaced(prepared.selection);
+    }
+    for (const { asset, file } of prepared.imports) {
+      void store.importAsset(asset, file.source);
+    }
+  };
+  const choose = async (source: PickSource, inline: boolean) => {
+    addFiles(
+      await store.pick(
+        source,
+        () =>
+          lifetime.current.mounted &&
+          lifetime.current.finishing === 0 &&
+          !discarded.current,
+      ),
+      inline,
+    );
+  };
+  const removeAsset = (id: string) => {
+    void store.cancelImport(id);
+    const latest = authored.current;
+    change({
+      ...latest,
+      body: withoutImage(latest.body, id),
+      ...(latest.attachments === undefined
+        ? {}
+        : {
+            attachments: latest.attachments.filter((asset) => asset.id !== id),
+          }),
+    });
   };
   // Undo and Redo step from the latest history, so repeated presses each move one step.
   const travel = (step: (current: typeof history) => typeof history) => {
@@ -1243,6 +1584,35 @@ function Editor({
             }}
           />
         </View>
+        <View
+          accessibilityLabel={t('drafts.assets.toolbar')}
+          accessibilityRole="toolbar"
+          style={styles.bar}>
+          <Action
+            label={t('drafts.assets.attachFile')}
+            onPress={() => {
+              void choose('files', false);
+            }}
+          />
+          <Action
+            label={t('drafts.assets.attachPhoto')}
+            onPress={() => {
+              void choose('photos', false);
+            }}
+          />
+          <Action
+            label={t('drafts.assets.insertImage')}
+            onPress={() => {
+              void choose('photos', true);
+            }}
+          />
+          <Action
+            label={t('drafts.assets.pasteImage')}
+            onPress={() => {
+              void choose('paste', true);
+            }}
+          />
+        </View>
         {translating === undefined ? null : (
           <DraftTranslation
             key={translating.id}
@@ -1302,6 +1672,13 @@ function Editor({
             </Text>
           ))}
         </TextInput>
+        <DraftAssets
+          draft={draft}
+          onCancel={(id) => {
+            void store.cancelImport(id);
+          }}
+          onRemove={removeAsset}
+        />
       </ScrollView>
     </SafeAreaView>
   );

@@ -6,6 +6,7 @@ import type { NativeTranslation } from '@private-email/mail-core/translation';
 import { createDrafts, draftsOf } from '@private-email/mail-core/drafts';
 import { createMailboxes } from '@private-email/mail-core/mailboxes';
 import { mailboxesOf } from '@private-email/mail-core/registration';
+import { imagesOf } from '@private-email/mail-core/semantic-document';
 import { createSyntheticDrafts } from '@private-email/mail-core/testing/drafts';
 import {
   createSyntheticGmail,
@@ -21,13 +22,14 @@ import {
   within,
 } from '@testing-library/react-native';
 import { StrictMode, useMemo, useState, useSyncExternalStore } from 'react';
-import { View } from 'react-native';
+import { AppState, View } from 'react-native';
 
 import type { Selection } from '../src/inbox.tsx';
 
 import { Composer } from '../src/composer.tsx';
 import { Inbox } from '../src/inbox.tsx';
 import { InboxProvider } from '../src/mailbox.tsx';
+import { MessageDetail } from '../src/message-detail.tsx';
 import { AccountContext } from '../src/registration-gate.tsx';
 import { TranslationContext } from '../src/translation.tsx';
 
@@ -1196,13 +1198,13 @@ describe('composing Drafts', () => {
     const drafts = createDrafts(
       {
         ...storage.native,
-        commitDrafts: async (owner, revision, document) => {
+        commitDrafts: async (owner, revision, commit) => {
           // oxlint-disable-next-line vitest/no-conditional-in-test -- Storage refuses only the armed deletion.
-          if (refusing && !document.includes('Discard me')) {
+          if (refusing && !commit.document.includes('Discard me')) {
             refusing = false;
             throw Object.assign(new Error('locked'), { code: 'locked' });
           }
-          return storage.native.commitDrafts(owner, revision, document);
+          return storage.native.commitDrafts(owner, revision, commit);
         },
       },
       registration,
@@ -2052,6 +2054,853 @@ describe('composing Drafts', () => {
       'Hello! Nos vemos el viernes.',
       { exact: true },
     );
+  });
+  /* oxlint-enable vitest/max-expects */
+});
+
+// The reader and composer of one window, with a Downloaded Attachment to attach.
+function ReaderApp({
+  registration,
+  drafts,
+  gmail,
+  message,
+  senders,
+}: {
+  readonly registration: ReturnType<typeof account>;
+  readonly drafts: ReturnType<typeof createDrafts>;
+  readonly gmail: ReturnType<typeof createSyntheticGmail>;
+  readonly message: string;
+  readonly senders?: ReturnType<typeof mailboxesOf>;
+}) {
+  const { snapshot } = useSyncExternalStore(
+    registration.subscribe,
+    registration.getSnapshot,
+  );
+  const mailboxes = useMemo(
+    () =>
+      createMailboxes(syntheticConnections({ [alex]: gmail }), registration),
+    [gmail, registration],
+  );
+  const [composing, setComposing] = useState<string>();
+  return (
+    <AccountContext
+      value={{
+        mailboxes: senders ?? mailboxesOf(snapshot),
+        openAccount: ignore,
+        authorizeGmail: () => Promise.resolve(),
+        refreshInbox: (load) => load(),
+      }}>
+      <InboxProvider
+        drafts={drafts}
+        mailboxes={mailboxes}>
+        <Inbox
+          composing={composing}
+          onCompose={setComposing}
+          onSelect={ignore}
+          selected={undefined}
+        />
+        {composing === undefined ? (
+          <View testID="message-reader">
+            <MessageDetail
+              id={message}
+              mailbox={alex}
+              onCompose={setComposing}
+            />
+          </View>
+        ) : (
+          <Composer
+            id={composing}
+            onClose={() => {
+              setComposing(undefined);
+            }}
+            onRebind={setComposing}
+          />
+        )}
+      </InboxProvider>
+    </AccountContext>
+  );
+}
+
+describe('adding files and images to a Draft', () => {
+  /* oxlint-disable vitest/max-expects -- Each journey proves one asset path end to end. */
+  it('refuses image-containing translations and preserves assets when translating surrounding text', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    const inputs: string[] = [];
+    const answers = new Map([
+      ['Hola', 'Hello'],
+      ['mundo', 'world'],
+    ]);
+    const translation: NativeTranslation = {
+      translationLanguages: () =>
+        Promise.resolve([{ code: 'en', name: 'English' }]),
+      translate: (_request, input) => {
+        inputs.push(input);
+        return Promise.resolve({
+          source: 'es',
+          text: answers.get(input),
+        });
+      },
+      cancel: () => Promise.resolve(null),
+    };
+    const app = await render(
+      <TranslationContext value={translation}>
+        <App
+          drafts={drafts}
+          registration={registration}
+        />
+      </TranslationContext>,
+    );
+    await press('New Message');
+    await fireEvent.changeText(
+      screen.getByLabelText('Message body'),
+      'Hola mundo',
+    );
+    const select = async (start: number, end: number) => {
+      await fireEvent(
+        screen.getByLabelText('Message body'),
+        'selectionChange',
+        {
+          nativeEvent: { selection: { start, end } },
+        },
+      );
+    };
+    await select(5, 5);
+    storage.addFile('file:///chart.png', 'chart');
+    storage.pickNext('photos', [
+      { uri: 'file:///chart.png', name: 'chart.png', type: 'image/png' },
+    ]);
+    await press('Insert Image…');
+    await screen.findByLabelText('Inline image chart.png');
+    await waitFor(() => {
+      const [current] = draftsOf(drafts.getSnapshot());
+      ok(current, 'Expected the current Draft');
+      expect(imagesOf(current.body)[0]?.state).toBe('complete');
+      expect(drafts.getSnapshot()).toMatchObject({
+        kind: 'ready',
+        save: 'saved',
+      });
+    });
+    const [before] = draftsOf(drafts.getSnapshot());
+    ok(before, 'Expected a Draft with an image');
+    const originalImages = imagesOf(before.body);
+    const guidance =
+      'Select text without inline images to translate. Your images are unchanged.';
+    // Neither a mixed selection nor an image alone starts a native request or changes the Draft.
+    for (const [start, end] of [
+      [0, 11],
+      [5, 6],
+    ] as const) {
+      await select(start, end);
+      await press('Translate the selected text');
+      await screen.findByText(guidance);
+      expect(
+        screen.queryByRole('radio', { name: 'Translate into English' }),
+      ).toBeNull();
+      expect(draftsOf(drafts.getSnapshot())[0]?.body).toStrictEqual(
+        before.body,
+      );
+      await press('Keep the original text and close the translation');
+    }
+    expect(inputs).toStrictEqual([]);
+    // Text entirely before and after the image still translates and keeps its reference.
+    for (const [start, end] of [
+      [0, 4],
+      [7, 12],
+    ] as const) {
+      await select(start, end);
+      await press('Translate the selected text');
+      await fireEvent.press(
+        await screen.findByRole('radio', { name: 'Translate into English' }),
+      );
+      await screen.findByLabelText(
+        'Replace the selected text with this translation',
+      );
+      await press('Replace the selected text with this translation');
+    }
+    expect(inputs).toStrictEqual(['Hola', 'mundo']);
+    expect(screen.getByLabelText('Message body')).toHaveTextContent(
+      'Hello \uFFFCworld',
+      { exact: true },
+    );
+    const [translated] = draftsOf(drafts.getSnapshot());
+    ok(translated, 'Expected the translated Draft');
+    expect(imagesOf(translated.body)).toStrictEqual(originalImages);
+    await press('Undo');
+    expect(screen.getByLabelText('Message body')).toHaveTextContent(
+      'Hello \uFFFCmundo',
+      { exact: true },
+    );
+    await press('Redo');
+    await press('Close');
+    await app.unmount();
+    storage.relaunch();
+    const reopened = createDrafts(storage.native, registration);
+    await reopened.load();
+    const [saved] = draftsOf(reopened.getSnapshot());
+    ok(saved, 'Expected the saved Draft');
+    expect(imagesOf(saved.body)).toStrictEqual(originalImages);
+    const [image] = imagesOf(saved.body);
+    ok(image?.state === 'complete', 'Expected the complete saved inline image');
+    await expect(reopened.readAsset(image)).resolves.toMatchObject({
+      kind: 'ready',
+    });
+  });
+
+  it('attaches files, places an inline image, and keeps them through relaunch', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    const first = await render(
+      <App
+        drafts={drafts}
+        registration={registration}
+      />,
+    );
+    await press('New Message');
+    await fireEvent.changeText(screen.getByLabelText('Subject'), 'Files');
+    const body = screen.getByLabelText('Message body');
+    await fireEvent.changeText(body, 'See chart');
+    await fireEvent(body, 'selectionChange', {
+      nativeEvent: { selection: { start: 4, end: 4 } },
+    });
+
+    // A file from the Files picker is attached; a photo inserted inline goes at the caret.
+    storage.addFile('file:///plan.pdf', 'plan');
+    storage.pickNext('files', [
+      { uri: 'file:///plan.pdf', name: 'plan.pdf', type: 'application/pdf' },
+    ]);
+    await press('Attach Files…');
+    await expect(
+      screen.findByLabelText('plan.pdf, 4 bytes'),
+    ).resolves.toBeOnTheScreen();
+    storage.addFile('file:///chart.png', 'chart');
+    storage.pickNext('photos', [
+      { uri: 'file:///chart.png', name: 'chart.png', type: 'image/png' },
+    ]);
+    await press('Insert Image…');
+    await expect(
+      screen.findByLabelText('Inline image chart.png'),
+    ).resolves.toHaveProp('source', {
+      uri: `data:image/png;base64,${btoa('chart')}`,
+    });
+    expect(screen.getByLabelText('Message body')).toHaveTextContent(
+      'See ￼chart',
+    );
+    // Dismissing the open panel adds nothing.
+    await press('Attach Files…');
+    expect(screen.queryByText('Not added', { exact: false })).toBeNull();
+
+    // An import in progress can be cancelled; a cancelled file is never sent and its bytes go.
+    storage.holdImports();
+    storage.addFile('file:///large.mov', 'movie');
+    storage.pickNext('files', [
+      { uri: 'file:///large.mov', name: 'large.mov', type: 'video/quicktime' },
+    ]);
+    await press('Attach Files…');
+    await press('Cancel adding large.mov');
+    await act(async () => {
+      storage.releaseImports();
+      await drafts.save();
+    });
+    expect(
+      screen.getByLabelText('large.mov, Not added: cancelled'),
+    ).toBeOnTheScreen();
+    expect(
+      screen.getByText(
+        'Files that were not added are not sent with this Draft. Remove them and add them again.',
+      ),
+    ).toBeOnTheScreen();
+    expect(storage.assets()).toHaveLength(2);
+    await press('Remove large.mov');
+    expect(
+      screen.queryByText('Files that were not added', { exact: false }),
+    ).toBeNull();
+
+    // Editing while an import completes neither loses the edit nor creates a conflicting copy.
+    storage.holdImports();
+    storage.addFile('file:///notes.txt', 'notes');
+    storage.pickNext('files', [
+      { uri: 'file:///notes.txt', name: 'notes.txt', type: 'text/plain' },
+    ]);
+    await press('Attach Files…');
+    await fireEvent.changeText(
+      screen.getByLabelText('Subject'),
+      'Files and notes',
+    );
+    await act(async () => {
+      storage.releaseImports();
+      await drafts.save();
+    });
+    await expect(
+      screen.findByLabelText('notes.txt, 5 bytes'),
+    ).resolves.toBeOnTheScreen();
+    await fireEvent.changeText(
+      screen.getByLabelText('Subject'),
+      'Files, notes',
+    );
+    await waitFor(() => {
+      expect(
+        screen.getByText('Draft · Saved on this device'),
+      ).toBeOnTheScreen();
+    });
+    expect(draftsOf(drafts.getSnapshot())).toHaveLength(1);
+    expect(screen.queryByText('DRAFT · CONFLICT')).toBeNull();
+
+    // An import the app quits during is shown as interrupted after relaunch.
+    storage.holdImports();
+    storage.addFile('file:///late.txt', 'late');
+    storage.pickNext('files', [
+      { uri: 'file:///late.txt', name: 'late.txt', type: 'text/plain' },
+    ]);
+    await press('Attach Files…');
+    await press('Close');
+    await first.unmount();
+    storage.relaunch();
+    const [saved] = draftsOf(drafts.getSnapshot());
+    ok(saved, 'Expected the saved Draft');
+    await render(
+      <App
+        drafts={createDrafts(storage.native, registration)}
+        initialDraft={saved.id}
+        registration={registration}
+      />,
+    );
+    await expect(
+      screen.findByLabelText('late.txt, Not added: adding was interrupted'),
+    ).resolves.toBeOnTheScreen();
+    expect(screen.getByLabelText('plan.pdf, 4 bytes')).toBeOnTheScreen();
+    expect(screen.getByLabelText('notes.txt, 5 bytes')).toBeOnTheScreen();
+    await expect(
+      screen.findByLabelText('Inline image chart.png'),
+    ).resolves.toBeOnTheScreen();
+    expect(
+      screen.queryByRole('button', { name: 'Cancel adding late.txt' }),
+    ).toBeNull();
+  });
+
+  it('pastes an inline image, attaches a dropped file, and shows damaged bytes as unavailable', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    const first = await render(
+      <App
+        drafts={drafts}
+        registration={registration}
+      />,
+    );
+    await press('New Message');
+    // A pasted image arrives as data and goes inline; a dropped file is attached.
+    await fireEvent(screen.getByLabelText('Message body'), 'paste', {
+      nativeEvent: {
+        dataTransfer: {
+          files: [
+            {
+              name: 'Pasted image.png',
+              // A pasteboard item may carry no type; its data URL still does.
+              uri: `data:image/png;base64,${btoa('chart')}`,
+            },
+            {
+              name: 'Pasted image.jpg',
+              type: '',
+              uri: `data:image/jpg;base64,${btoa('photo')}`,
+            },
+          ],
+        },
+      },
+    });
+    await screen.findByLabelText('Inline image Pasted image.png');
+    await screen.findByLabelText('Inline image Pasted image.jpg');
+    storage.addFile('/Users/alex/Desktop/brief.txt', 'brief');
+    await fireEvent(screen.getByTestId('composer'), 'drop', {
+      nativeEvent: {
+        dataTransfer: {
+          files: [
+            {
+              name: 'brief.txt',
+              type: 'text/plain',
+              uri: '/Users/alex/Desktop/brief.txt',
+            },
+          ],
+        },
+      },
+    });
+    await expect(
+      screen.findByLabelText('brief.txt, 5 bytes'),
+    ).resolves.toBeOnTheScreen();
+    await press('Close');
+    await first.unmount();
+    const [saved] = draftsOf(drafts.getSnapshot());
+    ok(saved, 'Expected the saved Draft');
+    const image = imagesOf(saved.body).find(
+      ({ name }) => name === 'Pasted image.png',
+    );
+    ok(image, 'Expected an inline image');
+    expect(imagesOf(saved.body)).toContainEqual(
+      expect.objectContaining({ name: 'Pasted image.jpg', type: 'image/jpeg' }),
+    );
+    storage.damage(image.id);
+    // An ordinary attachment is verified too, without its bytes being shown.
+    ok(saved.attachments, 'Expected attachments');
+    const [attachment] = saved.attachments;
+    ok(attachment, 'Expected an attachment');
+    storage.damage(attachment.id);
+    // Checks refused while storage is locked say so, and run again when asked.
+    storage.setLocked(true);
+    const listenersBeforeRender = jest.mocked(AppState.addEventListener).mock
+      .calls.length;
+    await render(
+      <App
+        drafts={createDrafts(storage.native, registration)}
+        initialDraft={saved.id}
+        registration={registration}
+      />,
+    );
+    await expect(
+      screen.findByLabelText(
+        'brief.txt, 5 bytes · Not checked while private storage is locked',
+      ),
+    ).resolves.toBeOnTheScreen();
+    await screen.findByLabelText(
+      'Pasted image.png, 5 bytes · Not checked while private storage is locked',
+    );
+    storage.setLocked(false);
+    await press('Check brief.txt again');
+    await expect(
+      screen.findByLabelText('brief.txt, 5 bytes · Damaged on this device'),
+    ).resolves.toBeOnTheScreen();
+    // A foreground activation retries the image without pressing its retry control.
+    await act(async () => {
+      for (const [, activate] of jest
+        .mocked(AppState.addEventListener)
+        .mock.calls.slice(listenersBeforeRender)) {
+        activate('active');
+      }
+      await Promise.resolve();
+    });
+    await expect(
+      screen.findByLabelText(
+        'Pasted image.png, 5 bytes · Damaged on this device',
+      ),
+    ).resolves.toBeOnTheScreen();
+    expect(screen.queryByLabelText('Inline image Pasted image.png')).toBeNull();
+    await expect(
+      screen.findByLabelText('brief.txt, 5 bytes · Damaged on this device'),
+    ).resolves.toBeOnTheScreen();
+    await press('Remove Pasted image.png');
+    expect(screen.getByLabelText('Message body')).toHaveTextContent(/^￼$/u);
+    await press('Undo');
+    expect(screen.getByLabelText('Message body')).toHaveTextContent(/^￼￼$/u);
+  });
+
+  it('keeps verified inline bytes without a thumbnail available after reopening', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const read = jest
+      .spyOn(storage.native, 'readDraftAsset')
+      .mockResolvedValue({ uri: null });
+    const drafts = createDrafts(storage.native, registration);
+    const first = await render(
+      <App
+        drafts={drafts}
+        registration={registration}
+      />,
+    );
+    await press('New Message');
+    storage.addFile('file:///chart.png', 'chart');
+    storage.pickNext('photos', [
+      { uri: 'file:///chart.png', name: 'chart.png', type: 'image/png' },
+    ]);
+    await press('Insert Image…');
+    await screen.findByLabelText('chart.png, 5 bytes');
+    await press('Close');
+    await first.unmount();
+    const [saved] = draftsOf(drafts.getSnapshot());
+    ok(saved, 'Expected the saved Draft');
+    await render(
+      <App
+        drafts={createDrafts(storage.native, registration)}
+        initialDraft={saved.id}
+        registration={registration}
+      />,
+    );
+    await expect(
+      screen.findByLabelText('chart.png, 5 bytes'),
+    ).resolves.toBeOnTheScreen();
+    expect(screen.queryByLabelText('Inline image chart.png')).toBeNull();
+    expect(imagesOf(saved.body)[0]?.state).toBe('complete');
+    expect(screen.getByLabelText('Message body')).toHaveTextContent('￼');
+    read.mockRestore();
+  });
+
+  it('offers attaching a downloaded file only while a sending mailbox is available', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const gmail = createSyntheticGmail({ messages: 0 });
+    const message = gmail.deliver({
+      content: {
+        text: 'Invoice attached.',
+        attachments: [
+          {
+            filename: 'invoice.pdf',
+            mimeType: 'application/pdf',
+            bytes: [...Buffer.from('%PDF invoice')],
+          },
+        ],
+      },
+    });
+    const drafts = createDrafts(storage.native, registration);
+    const shown = (senders: ReturnType<typeof mailboxesOf>) => (
+      <ReaderApp
+        drafts={drafts}
+        gmail={gmail}
+        message={message}
+        registration={registration}
+        senders={senders}
+      />
+    );
+    // Keep the downloaded reader alive while changing the host's sending eligibility.
+    const senders = mailboxesOf(registration.getSnapshot().snapshot);
+    await render(shown(senders));
+    await press('Download invoice.pdf');
+    await expect(
+      screen.findByRole('button', {
+        name: 'Attach invoice.pdf to a new message',
+      }),
+    ).resolves.toBeOnTheScreen();
+    await screen.rerender(
+      shown(senders.map((mailbox) => ({ ...mailbox, state: 'authorization' }))),
+    );
+    expect(
+      screen.queryByRole('button', {
+        name: 'Attach invoice.pdf to a new message',
+      }),
+    ).not.toBeOnTheScreen();
+    expect(
+      screen.getByRole('button', { name: 'Open invoice.pdf' }),
+    ).toBeOnTheScreen();
+    expect(draftsOf(drafts.getSnapshot())).toHaveLength(0);
+    await screen.rerender(shown(senders));
+    await expect(
+      screen.findByRole('button', {
+        name: 'Attach invoice.pdf to a new message',
+      }),
+    ).resolves.toBeOnTheScreen();
+  });
+
+  it.each(['locked', 'failed'])(
+    'keeps unavailable %s Draft storage retryable in the reader',
+    async (failure) => {
+      expect.hasAssertions();
+      const registration = account(connected(['alex@example.invalid']));
+      const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+      const gmail = createSyntheticGmail({ messages: 0 });
+      const message = gmail.deliver({
+        content: {
+          text: 'Invoice attached.',
+          attachments: [
+            {
+              filename: 'invoice.pdf',
+              mimeType: 'application/pdf',
+              bytes: [...Buffer.from('%PDF invoice')],
+            },
+          ],
+        },
+      });
+      let open: typeof storage.native.openDrafts = () =>
+        Promise.reject(
+          Object.assign(new Error('synthetic storage refusal'), {
+            code: failure,
+          }),
+        );
+      const drafts = createDrafts(
+        {
+          ...storage.native,
+          openDrafts: () => open(),
+          importDraftAsset: async (owner, id, source) => {
+            // oxlint-disable-next-line vitest/no-conditional-in-test -- Only received sources read a download.
+            if (source.kind === 'received') {
+              const downloaded = gmail.savedFiles.get(source.file);
+              ok(downloaded, 'Expected the Downloaded Attachment');
+              storage.addFile(
+                source.file,
+                Buffer.from(downloaded.bytes).toString('latin1'),
+              );
+            }
+            return storage.native.importDraftAsset(owner, id, source);
+          },
+        },
+        registration,
+      );
+      await render(
+        <ReaderApp
+          drafts={drafts}
+          gmail={gmail}
+          message={message}
+          registration={registration}
+        />,
+      );
+      await press('Download invoice.pdf');
+      const reader = within(screen.getByTestId('message-reader'));
+      await expect(reader.findByRole('alert')).resolves.toBeOnTheScreen();
+      expect(drafts.getSnapshot()).toMatchObject({ kind: failure });
+      expect(
+        reader.queryByRole('button', {
+          name: 'Attach invoice.pdf to a new message',
+        }),
+      ).not.toBeOnTheScreen();
+      expect(
+        reader.getByRole('button', { name: 'Open invoice.pdf' }),
+      ).toBeOnTheScreen();
+      open = storage.native.openDrafts;
+      await act(async () => {
+        await fireEvent.press(
+          reader.getByRole('button', { name: 'Try again' }),
+        );
+      });
+      await press('Attach invoice.pdf to a new message');
+      await expect(
+        screen.findByLabelText('invoice.pdf, 12 bytes'),
+      ).resolves.toBeOnTheScreen();
+      expect(draftsOf(drafts.getSnapshot())).toHaveLength(1);
+      expect(drafts.getSnapshot()).toMatchObject({
+        kind: 'ready',
+        save: 'saved',
+      });
+      expect(storage.stored()?.document).toContain('invoice.pdf');
+    },
+  );
+
+  it('says so when attaching a received attachment fails unexpectedly', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const gmail = createSyntheticGmail({ messages: 0 });
+    const message = gmail.deliver({
+      content: {
+        text: 'Invoice attached.',
+        attachments: [
+          {
+            filename: 'invoice.pdf',
+            mimeType: 'application/pdf',
+            bytes: [...Buffer.from('%PDF invoice')],
+          },
+        ],
+      },
+    });
+    const drafts = createDrafts(storage.native, registration);
+    // Fault injection for the defensive catch; native storage refusal is covered separately.
+    const failing = {
+      ...drafts,
+      create: () => Promise.reject(new Error('host failure')),
+    };
+    await render(
+      <ReaderApp
+        drafts={failing}
+        gmail={gmail}
+        message={message}
+        registration={registration}
+      />,
+    );
+    await press('Download invoice.pdf');
+    await press('Attach invoice.pdf to a new message');
+    await expect(
+      screen.findByRole('alert', {
+        name: 'This attachment could not be added to a new message. Try again.',
+      }),
+    ).resolves.toBeOnTheScreen();
+    expect(draftsOf(drafts.getSnapshot())).toHaveLength(0);
+  });
+
+  it('attaches a received attachment to a new message without keeping its mailbox', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const gmail = createSyntheticGmail({ messages: 0 });
+    const message = gmail.deliver({
+      content: {
+        text: 'Invoice attached.',
+        attachments: [
+          {
+            filename: 'invoice.pdf',
+            mimeType: 'application/pdf',
+            bytes: [...Buffer.from('%PDF invoice')],
+          },
+        ],
+      },
+    });
+    const copied: string[] = [];
+    const drafts = createDrafts(
+      {
+        ...storage.native,
+        // The Downloaded Attachment's file, as native code reads it for the current generation.
+        importDraftAsset: async (owner, id, source) => {
+          // oxlint-disable-next-line vitest/no-conditional-in-test -- Only received sources read a download.
+          if (source.kind === 'received') {
+            const downloaded = gmail.savedFiles.get(source.file);
+            ok(downloaded, 'Expected the Downloaded Attachment');
+            copied.push(source.file);
+            storage.addFile(
+              source.file,
+              Buffer.from(downloaded.bytes).toString('latin1'),
+            );
+          }
+          return storage.native.importDraftAsset(owner, id, source);
+        },
+      },
+      registration,
+    );
+    await render(
+      <ReaderApp
+        drafts={drafts}
+        gmail={gmail}
+        message={message}
+        registration={registration}
+      />,
+    );
+    await press('Download invoice.pdf');
+    // Storage refusing the save still opens the one Draft that holds the attachment.
+    storage.setLocked(true);
+    await press('Attach invoice.pdf to a new message');
+    await expect(
+      screen.findByLabelText(
+        'invoice.pdf, 12 bytes · Not checked while private storage is locked',
+      ),
+    ).resolves.toBeOnTheScreen();
+    expect(draftsOf(drafts.getSnapshot())).toHaveLength(1);
+    expect(drafts.getSnapshot()).toMatchObject({ save: 'locked' });
+    storage.setLocked(false);
+    await act(async () => {
+      await drafts.save();
+    });
+    expect(draftsOf(drafts.getSnapshot())).toHaveLength(1);
+    const document = storage.stored()?.document;
+    ok(document, 'Expected a stored Draft document');
+    expect(document).toContain('invoice.pdf');
+    // Neither the downloaded file nor the mailbox it was read through is kept.
+    expect(copied).toHaveLength(1);
+    expect(document).not.toContain(copied[0]);
+    expect(document).not.toMatch(/"(?:generation|mailbox|file)"/u);
+    // Leaving the reader deleted its download; the Draft keeps its own copy of the bytes.
+    expect(gmail.savedFiles.size).toBe(0);
+    expect(storage.assets()).toHaveLength(1);
+  });
+
+  it('keeps an attachment-only Draft after Close and relaunch', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    const first = await render(
+      <App
+        drafts={drafts}
+        registration={registration}
+      />,
+    );
+    await press('New Message');
+    storage.addFile('file:///plan.pdf', 'plan');
+    storage.pickNext('files', [
+      { uri: 'file:///plan.pdf', name: 'plan.pdf', type: 'application/pdf' },
+    ]);
+    await press('Attach Files…');
+    await screen.findByLabelText('plan.pdf, 4 bytes');
+    await press('Close');
+    await first.unmount();
+    const [saved] = draftsOf(drafts.getSnapshot());
+    ok(saved, 'Expected the attachment-only Draft');
+    const reopened = createDrafts(storage.native, registration);
+    await render(
+      <App
+        drafts={reopened}
+        initialDraft={saved.id}
+        registration={registration}
+      />,
+    );
+    await screen.findByLabelText('plan.pdf, 4 bytes');
+    expect(storage.assets()).toHaveLength(1);
+  });
+
+  it('restores verified image bytes with Undo after deleting an importing image', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    await render(
+      <App
+        drafts={drafts}
+        registration={registration}
+      />,
+    );
+    await press('New Message');
+    storage.holdImports();
+    storage.addFile('file:///chart.png', 'chart');
+    storage.pickNext('photos', [
+      { uri: 'file:///chart.png', name: 'chart.png', type: 'image/png' },
+    ]);
+    await press('Insert Image…');
+    await screen.findByLabelText('chart.png, Adding…');
+    await fireEvent.changeText(screen.getByLabelText('Message body'), '');
+    await act(async () => {
+      storage.releaseImports();
+    });
+    await waitFor(() => {
+      expect(drafts.getImports().size).toBe(0);
+    });
+    await press('Undo');
+    await expect(
+      screen.findByLabelText('Inline image chart.png'),
+    ).resolves.toHaveProp('source', {
+      uri: `data:image/png;base64,${btoa('chart')}`,
+    });
+    expect(storage.assets()).toHaveLength(1);
+    expect(draftsOf(drafts.getSnapshot())).toHaveLength(1);
+  });
+
+  it('discards a picker result when its composer closed while choosing', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    let finish: (
+      files: ReadonlyArray<{ uri: string; name: string; type: string }>,
+    ) => void = () => undefined;
+    // oxlint-disable-next-line promise/avoid-new -- The test controls native picker completion.
+    const picked = new Promise<
+      ReadonlyArray<{ uri: string; name: string; type: string }>
+    >((resolve) => {
+      finish = resolve;
+    });
+    const drafts = createDrafts(
+      { ...storage.native, pickDraftFiles: () => picked },
+      registration,
+    );
+    await render(
+      <App
+        drafts={drafts}
+        registration={registration}
+      />,
+    );
+    await press('New Message');
+    await press('Attach Files…');
+    await press('Close');
+    storage.addFile('file:///late.pdf', 'late');
+    await act(async () => {
+      finish([
+        { uri: 'file:///late.pdf', name: 'late.pdf', type: 'application/pdf' },
+      ]);
+      await picked;
+    });
+    await act(async () => {
+      await drafts.save();
+    });
+    expect(draftsOf(drafts.getSnapshot())).toStrictEqual([]);
+    expect(storage.assets()).toStrictEqual([]);
+    expect(screen.queryByLabelText('Subject')).toBeNull();
   });
   /* oxlint-enable vitest/max-expects */
 });
