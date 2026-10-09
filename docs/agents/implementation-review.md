@@ -1,7 +1,15 @@
 # Implementation and review
 
-Every implementation hands off to a separate code review agent before delivery.
-The review agent always uses `gpt-6.1-sol` with `high` reasoning, regardless of
+Every implementation hands off to two separate review agents, in sequence,
+before delivery:
+
+1. The **OCR reviewer** runs the [Open Code Review delegation](#open-code-review-delegation)
+   and the repository rules, including architecture checks.
+2. After the OCR reviewer's final report, the **thermo-nuclear reviewer** runs
+   the [thermo-nuclear code quality review](#thermo-nuclear-code-quality-review)
+   on the result.
+
+Both review agents always use `gpt-6.1-sol` with `high` reasoning, regardless of
 the implementer's model or reasoning effort. Pass both settings explicitly.
 If that configuration or agent spawning is unavailable, report the review as
 blocked. An implementer self-review or a different model does not satisfy it.
@@ -53,7 +61,7 @@ not itself restrict filesystem or Git-history access.
 2. Implement the requested behavior and run the relevant checks under the
    [testing policy](testing.md). Documentation changes use formatting and local
    link checks.
-3. Spawn the reviewer with these explicit arguments:
+3. Spawn the OCR reviewer with these explicit arguments:
 
    ```json
    {
@@ -77,10 +85,20 @@ not itself restrict filesystem or Git-history access.
    - For committed work, pin the starting commit or merge-base and inspect the
      full task diff, plus any task-owned uncommitted files.
 
-4. Pause all implementer writes to the shared checkout while the reviewer owns
-   it. Wait for the reviewer's final report. Additional implementation edits,
-   including fixes after review or PR feedback, require another pinned review.
-   Give every reviewer and its children the same ownership boundary: no PR
+4. Pause all implementer writes to the shared checkout while the OCR reviewer
+   owns it. Wait for its final report.
+5. Then spawn the thermo-nuclear reviewer with the same explicit arguments and
+   `"task_name": "thermo_nuclear_review"`. Write it a separate self-contained
+   message with the same context and comparison, plus the OCR reviewer's final
+   report. Tell it to read this workflow and follow the
+   [thermo-nuclear code quality review](#thermo-nuclear-code-quality-review)
+   instead of the OCR delegation step. Keep the comparison pinned to the
+   starting commit so it covers the implementation and the OCR reviewer's fixes.
+   Keep implementer writes paused until its final report. Never run the two
+   reviewers at once.
+6. Both reviews form one implementation review. Additional implementation
+   edits, including fixes after review or PR feedback, require another pinned
+   review by both reviewers. Give every reviewer and its children the same ownership boundary: no PR
    watchers, scheduled work, or writes after their final report. A notification
    cannot renew checkout ownership. Stop any pre-existing review watcher before
    returning the checkout; a later review starts as a new delegated task with a
@@ -123,6 +141,27 @@ not itself restrict filesystem or Git-history access.
    PR watchers or recurring tasks in review threads. Stop any existing review
    watcher before reporting, and do not act on later PR notifications or resume
    writes without a new delegated review and explicit checkout handoff.
+
+## Thermo-nuclear code quality review
+
+The thermo-nuclear reviewer has the same responsibilities, reading access, write
+ownership and final-report boundary as the OCR reviewer above, with this review
+pass in place of the OCR delegation step:
+
+1. Read the global `thermo-nuclear-code-quality-review` skill's `SKILL.md` from
+   the host's global skill install and follow it. The skill disables model
+   invocation, so read the file instead of invoking it. If the skill is not
+   installed, report the review as blocked.
+2. Review the full task diff from the pinned starting commit, including the OCR
+   reviewer's fixes and task-owned uncommitted files. A documentation-only task
+   records that no code changed and reviews any scripts or config it touched.
+3. Validate each finding and apply behavior-preserving fixes directly. Resolve
+   rules with `ocr delegate rule` for every file the fixes touch and keep the
+   result within those rules. A fix that would change product scope or an
+   architectural decision goes to the [decision panel](#decision-panel).
+4. Rerun the relevant checks and review the corrected result again. Return the
+   reviewed scope, findings and their dispositions, files changed, checks and
+   results, unavailable checks, and any panel outcomes.
 
 ## Decision panel
 
@@ -259,9 +298,9 @@ and new code areas that need their own rule.
 
 ## Completion
 
-The implementer delivers only after the required reviewer has finished fixing
+The implementer delivers only after both required reviewers have finished fixing
 validated issues and verifying the final artifact, including the Open Code Review
-delegation step. Unresolved findings or an
+delegation step and the thermo-nuclear code quality review. Unresolved findings or an
 unavailable reviewer leave implementation review incomplete; report them
 accurately. Review completion and required CI remain independent gates.
 For PR work, also follow the existing
