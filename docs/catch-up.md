@@ -24,8 +24,9 @@ exists. Nothing here is implemented yet. The work is tracked in
 - Mail in Gmail's Promotions, Social, Updates and Forums categories collapses into
   one bubble, such as "12 newsletters", which expands inline when tapped.
 - Tapping a bubble opens the Thread view scrolled to that message and highlights
-  it. The Thread view stacks every locally cached message of the Thread as a
-  document, oldest first, with quoted history collapsed and expandable.
+  it. The Thread view is the existing
+  [conversation reader](product/messages-and-delivery.md), with its message order,
+  and keeps quoted history collapsed and expandable.
 - Swiping right on a bubble opens quick reply: a composer bar at the bottom with a
   chip quoting the message and showing its recipients. It replies to everyone when
   the message had several recipients and sends through the Outbox with an undo
