@@ -280,7 +280,8 @@
     "moreLabel": "Show more attachments, {{count}} not shown",
     "downloadAction": "Download",
     "attachToNew": "Attach to New Message",
-    "attachToNewLabel": "Attach {{name}} to a new message"
+    "attachToNewLabel": "Attach {{name}} to a new message",
+    "attachFailed": "This attachment could not be added to a new message. Try again."
   },
   "summary": {
     "summarize": "Summarize",

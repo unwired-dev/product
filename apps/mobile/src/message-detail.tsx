@@ -1,7 +1,8 @@
 import type { ReactNode } from 'react';
 
+import { sendingMailboxes } from '@private-email/mail-core/drafts';
 import { spacing } from '@private-email/mail-core/theme';
-import { use, useLayoutEffect, useRef } from 'react';
+import { use, useLayoutEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -103,8 +104,13 @@ function AttachToNewMessage({
   const navigation = useComposerNavigation();
   const account = use(AccountContext);
   const mailbox = useMailbox();
+  const { t } = useLocalization();
+  const colors = usePalette();
   const mounted = useRef(true);
   const attaching = useRef(false);
+  const [failed, setFailed] = useState(false);
+  // Without a mailbox that can send, the action could never start a Draft, so it is not offered.
+  const canSend = sendingMailboxes(account?.mailboxes ?? []).length > 0;
   useLayoutEffect(() => {
     mounted.current = true;
     return () => {
@@ -119,6 +125,7 @@ function AttachToNewMessage({
       return;
     }
     attaching.current = true;
+    setFailed(false);
     try {
       const draft = await navigation.attachReceived(store, {
         mailbox: mailbox.id,
@@ -129,7 +136,11 @@ function AttachToNewMessage({
         onCompose(draft);
       }
     } catch {
-      // Keep the reader usable if an unexpected host operation rejects.
+      // Keep the reader usable if an unexpected host operation rejects, and say so. An undefined
+      // result is not a failure: a later destination was chosen or the open composer stayed open.
+      if (mounted.current) {
+        setFailed(true);
+      }
     }
     // Not in `finally`: React Compiler cannot compile a finally clause, and the catch above
     // handles every rejection.
@@ -137,9 +148,24 @@ function AttachToNewMessage({
   };
   return (
     <AttachContext
-      value={(saved) => {
-        void attach(saved);
-      }}>
+      value={
+        canSend
+          ? (saved) => {
+              void attach(saved);
+            }
+          : undefined
+      }>
+      {failed ? (
+        <View
+          accessible
+          accessibilityLabel={t('attachment.attachFailed')}
+          accessibilityLiveRegion="polite"
+          accessibilityRole="alert">
+          <Text style={[styles.secondary, { color: colors.foreground }]}>
+            {t('attachment.attachFailed')}
+          </Text>
+        </View>
+      ) : null}
       {children}
     </AttachContext>
   );

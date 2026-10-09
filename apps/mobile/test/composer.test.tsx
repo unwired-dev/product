@@ -2356,6 +2356,47 @@ describe('adding files and images to a Draft', () => {
     expect(screen.getByLabelText('Message body')).toHaveTextContent('￼');
   });
 
+  it('says so when attaching a received attachment fails unexpectedly', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const gmail = createSyntheticGmail({ messages: 0 });
+    const message = gmail.deliver({
+      content: {
+        text: 'Invoice attached.',
+        attachments: [
+          {
+            filename: 'invoice.pdf',
+            mimeType: 'application/pdf',
+            bytes: [...Buffer.from('%PDF invoice')],
+          },
+        ],
+      },
+    });
+    const drafts = createDrafts(storage.native, registration);
+    // Starting the Draft rejects, as an unexpected host failure would.
+    const failing = {
+      ...drafts,
+      create: () => Promise.reject(new Error('host failure')),
+    };
+    await render(
+      <ReaderApp
+        drafts={failing}
+        gmail={gmail}
+        message={message}
+        registration={registration}
+      />,
+    );
+    await press('Download invoice.pdf');
+    await press('Attach invoice.pdf to a new message');
+    await expect(
+      screen.findByLabelText(
+        'This attachment could not be added to a new message. Try again.',
+      ),
+    ).resolves.toBeOnTheScreen();
+    expect(draftsOf(drafts.getSnapshot())).toHaveLength(0);
+  });
+
   it('attaches a received attachment to a new message without keeping its mailbox', async () => {
     expect.hasAssertions();
     const registration = account(connected(['alex@example.invalid']));
