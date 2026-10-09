@@ -381,7 +381,9 @@ before an interrupted deletion finishes publishing. They also resume synchroniza
 after a subscriber defect rejects a pass, keep repeated copies within the identifier
 bound, continue the editor after a deeply nested copy is shortened, retain
 ambiguous identical copies for explicit selection and Discard,
-reclaim downloaded local bytes when their Draft is removed, recover an offline
+reclaim downloaded local bytes when their Draft is removed, including downloads
+that finish after Discard, preserve a late download still referenced after
+re-entering the same account, recover an offline
 conflict whose assets were never downloaded, retry interrupted
 uploads before publishing complete references, retain deletion versions through
 relaunch and reject replayed live records, resume after a lost reply and

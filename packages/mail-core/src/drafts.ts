@@ -10,9 +10,13 @@ import * as Result from 'effect/Result';
 import * as Schema from 'effect/Schema';
 import * as Semaphore from 'effect/Semaphore';
 
-import type { Draft, Recipient, Synced } from './draft-model.ts';
+import type { Draft, Recipient, Synced, SyncedAsset } from './draft-model.ts';
 import type { DraftStorageFailure } from './draft-native.ts';
-import type { DraftSyncOptions, Pulled } from './draft-sync.ts';
+import type {
+  DraftSyncOptions,
+  NativeDraftSync,
+  Pulled,
+} from './draft-sync.ts';
 import type {
   MailboxConnection,
   Registration,
@@ -789,6 +793,11 @@ export function createDrafts(
     }
   };
   const live = (current: number) => current === generation;
+  // Bytes stored late, after an import or download, stay only while a Draft of this account keeps them.
+  const keeps = (current: number, id: string) =>
+    live(current) &&
+    state.kind === 'ready' &&
+    keepOf(state.drafts).includes(id);
   const failed = (
     current: number,
     error: Readonly<Pick<DraftStorageFailure, 'kind'>>,
@@ -1281,11 +1290,7 @@ export function createDrafts(
         digest,
       })),
     );
-    const kept =
-      live(current) &&
-      state.kind === 'ready' &&
-      keepOf(state.drafts).includes(asset.id);
-    if (!kept) {
+    if (!keeps(current, asset.id)) {
       yield* discardBytes(account, asset.id);
     }
   });
@@ -1389,18 +1394,12 @@ export function createDrafts(
 
   // Bytes a synchronized Draft names but this device lacks are downloaded first; until that
   // succeeds, the asset is incomplete.
-  const download = Effect.fnUntraced(function* (
+  // Whether a synchronized asset's bytes arrived on this device, verified for this account.
+  const fetching = Effect.fnUntraced(function* (
     { current, account }: Readonly<{ current: number; account: string }>,
-    asset: Readonly<{ id: string; digest: string; type: string }>,
-    preview: boolean,
-  ): Effect.fn.Return<AssetPreview> {
-    const remote = sync?.native;
-    const listed = syncedAssets(syncedDrafts(synced)).get(
-      `${asset.id}:${asset.digest}`,
-    );
-    if (remote === undefined || listed === undefined) {
-      return { kind: 'missing' };
-    }
+    remote: NativeDraftSync,
+    listed: SyncedAsset,
+  ) {
     const fetched = yield* Effect.result(
       native(() => remote.downloadDraftAsset(account, listed), ImportedSchema),
     );
@@ -1408,13 +1407,37 @@ export function createDrafts(
       if (live(current)) {
         notifyRemoval(fetched.failure, sync?.removed);
       }
+      return false;
+    }
+    return (
+      fetched.success.owner === account &&
+      fetched.success.digest === listed.digest
+    );
+  });
+
+  const download = Effect.fnUntraced(function* (
+    context: Readonly<{ current: number; account: string }>,
+    asset: Readonly<{ id: string; digest: string; type: string }>,
+    preview: boolean,
+  ): Effect.fn.Return<AssetPreview> {
+    const { current, account } = context;
+    const remote = sync?.native;
+    const listed = syncedAssets(syncedDrafts(synced)).get(
+      `${asset.id}:${asset.digest}`,
+    );
+    if (remote === undefined || listed === undefined) {
+      return { kind: 'missing' };
+    }
+    if (!(yield* fetching(context, remote, listed))) {
       return { kind: 'incomplete' };
     }
-    if (
-      fetched.success.owner !== account ||
-      fetched.success.digest !== listed.digest
-    ) {
-      return { kind: 'incomplete' };
+    // A Draft discarded or edited while the bytes arrived may have been stored without them.
+    if (!keeps(current, asset.id)) {
+      // Re-entry can retain these bytes even though this read belongs to the earlier session.
+      if (owner !== account || !keeps(generation, asset.id)) {
+        yield* discardBytes(account, asset.id);
+      }
+      return { kind: 'missing' };
     }
     return yield* readStored(account, asset, preview).pipe(
       Effect.catchTag('DraftStorageFailure', unavailable),

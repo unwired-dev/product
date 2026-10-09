@@ -441,8 +441,11 @@ export function createSyntheticDrafts(
             if (used() + bytes.length > outgoingLimit) {
               return rejection('too-large');
             }
-            assets.set(id, { owner, bytes, digest });
-            return Promise.resolve({ owner, size, digest });
+            // Held with imports, so a test can change the Draft while the bytes arrive.
+            return waitWhile(() => importsHeld).then(() => {
+              assets.set(id, { owner, bytes, digest });
+              return { owner, size, digest };
+            });
           },
         };
   return {

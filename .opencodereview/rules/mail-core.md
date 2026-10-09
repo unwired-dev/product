@@ -146,6 +146,15 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   including cancelled or stale-owner attempts. Preserve committed/history-held
   assets and keyless cleanup while locked. Otherwise `ImportedAssets` protects
   failed writes until relaunch and exhausts the non-evicting Outgoing Content Store.
+- `drafts.ts.download` or another asynchronous Draft asset transfer storing bytes
+  after a document commit already dropped their last reference. Recheck the owning
+  account's live Draft and history-held keep list after verified completion, reclaim
+  unkept bytes and report a missing asset. Exercise Discard while the transfer is
+  held, with no later save, while preserving bytes another Draft or Undo still keeps;
+  distinguish a stale read's generation from current retention after same-account
+  re-entry, so earlier-session cleanup cannot delete a reopened Draft's verified bytes;
+  otherwise late writes evade commit-time cleanup and consume the non-evicting
+  Outgoing Content Store until an unrelated save or relaunch.
 - `drafts.ts.pick` admitting every native picker result, or both hosts passing
   unbounded paste/drop collections to `prepareFiles`. Apply the documented
   per-intake limit before preparing assets or starting imports, and return unused
