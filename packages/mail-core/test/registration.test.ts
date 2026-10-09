@@ -1,11 +1,13 @@
 import { english } from '@private-email/localization';
 
-import type { RegistrationSnapshot } from '../src/registration.ts';
+import type { RegistrationSnapshot, SignInOffer } from '../src/registration.ts';
 
 import {
+  approvesDevices,
   createRegistration,
   offersRecovery,
   privateSyncCopy,
+  registrationActions,
   revocationNotice,
   trustedDevicesOf,
 } from '../src/registration.ts';
@@ -272,22 +274,19 @@ describe('product registration', () => {
   it('verifies a connected account once per store and drops the connected status when verification fails', async () => {
     expect.hasAssertions();
     const session = createMockRegistrationSession('registration-success');
-    let restores = 0;
     let nativeRestore = session.native.restore;
     const store = createRegistration({
       ...session.native,
-      restore: () => {
-        restores += 1;
-        return nativeRestore();
-      },
+      restore: () => nativeRestore(),
     });
     await store.register('google');
     expect(store.getSnapshot().snapshot.kind).toBe('connected');
     await store.restoreOnce();
-    await store.restoreOnce();
-    expect(restores).toBe(1);
-    expect(store.getSnapshot().snapshot.kind).toBe('connected');
+    const verified = store.getSnapshot();
+    // A later launch request in the same store does not verify again, so it cannot fail.
     nativeRestore = () => Promise.reject(new Error('Synthetic host offline'));
+    await store.restoreOnce();
+    expect(store.getSnapshot()).toStrictEqual(verified);
     await store.restore();
     expect(store.getSnapshot()).toStrictEqual({
       snapshot: {
@@ -954,5 +953,174 @@ describe('product registration', () => {
     removal = () => Promise.resolve(unconfirmed);
     await store.revokeTrustedDevice(otherDevice.id);
     expect(store.getSnapshot().snapshot).toStrictEqual(unconfirmed);
+  });
+});
+
+describe('registration page actions', () => {
+  const account = {
+    productAccountId: 'synthetic-product-account',
+    signInProvider: 'apple',
+  } as const;
+  const again: readonly SignInOffer[] = [
+    { offer: 'signInAgain', provider: 'apple' },
+    { offer: 'signInInstead', provider: 'google' },
+  ];
+  const mailboxes = connectedTo('alex@example.invalid');
+  const cases: ReadonlyArray<
+    Readonly<{
+      name: string;
+      snapshot: RegistrationSnapshot;
+      failed: boolean;
+      actions: Partial<ReturnType<typeof registrationActions>>;
+    }>
+  > = [
+    {
+      name: 'a signed-out device offers both providers and no account settings',
+      snapshot: { kind: 'signed-out' },
+      failed: false,
+      actions: {
+        firstMailbox: false,
+        signIn: [
+          { offer: 'signInWith', provider: 'apple' },
+          { offer: 'signInWith', provider: 'google' },
+        ],
+        settings: false,
+      },
+    },
+    {
+      name: 'a new account asks for its first mailbox without another sign-in',
+      snapshot: { kind: 'mailbox-needed', ...account },
+      failed: false,
+      actions: { firstMailbox: true, signIn: [], settings: true },
+    },
+    {
+      name: 'a failed mailbox setup offers both Sign-In Providers again',
+      snapshot: { kind: 'mailbox-needed', ...account, reason: 'cancelled' },
+      failed: true,
+      actions: { firstMailbox: true, signIn: again, retry: true },
+    },
+    {
+      name: 'an interrupted mailbox setup offers both Sign-In Providers again',
+      snapshot: { kind: 'mailbox-needed', ...account, reason: 'interrupted' },
+      failed: false,
+      actions: { signIn: again, retry: false },
+    },
+    {
+      name: 'a mailbox setup that found registration unavailable offers sign-in again',
+      snapshot: { kind: 'mailbox-needed', ...account, reason: 'unavailable' },
+      failed: false,
+      actions: { signIn: again },
+    },
+    {
+      name: 'a declined grant only asks for the mailbox again',
+      snapshot: { kind: 'mailbox-needed', ...account, reason: 'declined' },
+      failed: false,
+      actions: { firstMailbox: true, signIn: [] },
+    },
+    {
+      name: 'a mailbox waiting for authorization again is not a first mailbox',
+      snapshot: {
+        kind: 'mailbox-needed',
+        ...account,
+        mailboxes: JSON.stringify([
+          {
+            id: syntheticMailboxes['alex@example.invalid'],
+            address: 'alex@example.invalid',
+            state: 'authorization',
+          },
+        ]),
+      },
+      failed: false,
+      actions: { firstMailbox: false },
+    },
+    {
+      name: 'Product Sync setup that could not reach the backend offers sign-in again',
+      snapshot: {
+        kind: 'connected',
+        ...account,
+        privateSync: 'setup-pending',
+        mailboxes,
+      },
+      failed: false,
+      actions: { signIn: again },
+    },
+    {
+      name: 'a mailbox not yet saved to Product Sync offers sign-in again',
+      snapshot: {
+        kind: 'cached',
+        ...account,
+        privateSync: 'ready',
+        privateSyncPending: 'mailbox',
+        mailboxes,
+      },
+      failed: false,
+      actions: { signIn: again },
+    },
+    {
+      name: 'a settled connected account offers no sign-in',
+      snapshot: {
+        kind: 'connected',
+        ...account,
+        privateSync: 'ready',
+        mailboxes,
+      },
+      failed: false,
+      actions: { firstMailbox: false, signIn: [], settings: true },
+    },
+    {
+      name: 'a Pending Device is admitted by approval or Recovery Key, not another sign-in',
+      snapshot: {
+        kind: 'device-pending',
+        ...account,
+        privateSync: 'setup-pending',
+      },
+      failed: false,
+      actions: { firstMailbox: false, signIn: [], settings: true },
+    },
+    {
+      name: 'a Pending Device whose sign-in failed may sign in again',
+      snapshot: {
+        kind: 'device-pending',
+        ...account,
+        privateSync: 'enrollment-pending',
+      },
+      failed: true,
+      actions: { signIn: again, retry: true },
+    },
+    {
+      name: 'an unfinished removal offers only the removal',
+      snapshot: {
+        kind: 'mailbox-needed',
+        ...account,
+        privateSync: 'setup-pending',
+        reason: 'interrupted',
+        removalPending: 'deletion',
+      },
+      failed: true,
+      actions: { firstMailbox: false, signIn: [], settings: false },
+    },
+  ];
+
+  // Each host renders these; its own tests cover only rendering and host differences.
+  it.each(cases)('$name', ({ snapshot, failed, actions }) => {
+    expect.hasAssertions();
+    expect(registrationActions(snapshot, failed)).toMatchObject(actions);
+  });
+
+  it('lets only a device holding the account keys approve or remove devices', () => {
+    expect.hasAssertions();
+    expect(
+      (
+        [
+          'setup-pending',
+          'recovery-key',
+          'ready',
+          'enrollment-needed',
+          'enrollment-pending',
+          'unavailable',
+          undefined,
+        ] as const
+      ).filter(approvesDevices),
+    ).toStrictEqual(['recovery-key', 'ready']);
   });
 });
