@@ -9,3 +9,19 @@ Compose behavior uses the versioned `mail-workflow-preferences:compose` singleto
 Reading behavior and Read Receipt policy use the separate versioned `mail-workflow-preferences:reading` singleton. It synchronizes message-open timing, optional mark-read behavior after replying or archive/delete, account-wide incoming and outgoing Read Receipt defaults, and sparse per-Mailbox Connection receipt overrides. Provider capabilities remain device-observed connection state rather than synchronized preference data; unsupported receipt controls stay visible and disabled instead of silently substituting another policy.
 
 Swipe assignments use the versioned `mail-workflow-preferences:swipes` singleton. Leading and trailing edges each retain an ordered list of at most two actions, and the full-swipe choice is synchronized with them. A trusted device resolves each configured action against the affected message's current state and Mailbox Connection capabilities; unsupported actions are omitted without changing the meaning of the remaining assignments.
+
+## Amendment — 2026-10-10: Catch Up seen state
+
+For planned [Catch Up](../catch-up.md), per-message seen markers are durable
+device-local state scoped to one Product Account and Mailbox Connection. They
+survive relaunches, never synchronize, and are removed with the message's local
+data, its Mailbox Connection or the Product Account. Each device retains its own
+divider; another device initializes from the read-state baseline specified in
+Catch Up. Scrolling changes only Catch Up seen state, never Message Read State.
+
+This extends the device-local navigation-state boundary above: progress through
+one device's timeline is not a portable mail-handling preference. It does not
+change synchronized reading preferences or provider read state. The decision
+panel for [PR #814](https://github.com/unwired-dev/product/pull/814) selected this
+boundary with two matching votes (`claude-fable-5-1` and `gpt-6.1-sol`);
+`gpt-6-astra` was pending when the majority was established.
