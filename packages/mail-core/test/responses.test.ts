@@ -14,6 +14,7 @@ import {
   isEmptyDraft,
   unsendableAssets,
   recipientsOf,
+  threadOf,
   withSender,
 } from '../src/drafts.ts';
 import { createGmailInbox } from '../src/gmail-inbox.ts';
@@ -206,7 +207,7 @@ describe('replying to and forwarding a received message', () => {
       response: {
         kind: 'reply',
         message: message.id,
-        thread: message.threadId,
+        thread: { connection: work.id, id: message.threadId },
         inReplyTo: '<m2@example.invalid>',
         references: [
           '<m0@example.invalid>',
@@ -259,8 +260,12 @@ describe('replying to and forwarding a received message', () => {
     expect(isEmptyDraft({ ...kept, to: [], cc: [], subject: '' })).toBe(false);
 
     // Explicitly sending from another mailbox keeps the threading headers but not the receiving
-    // mailbox's Gmail thread.
-    expect(withSender(kept, alex)).toMatchObject({
+    // mailbox's Gmail thread; choosing the receiving mailbox again joins that thread again.
+    const elsewhere = withSender(kept, alex);
+    expect(threadOf(kept)).toBe(message.threadId);
+    expect(threadOf(elsewhere)).toBeUndefined();
+    expect(threadOf(withSender(elsewhere, work))).toBe(message.threadId);
+    expect(elsewhere).toMatchObject({
       connection: alex.id,
       from: alex.address,
       response: {
@@ -273,7 +278,6 @@ describe('replying to and forwarding a received message', () => {
         ],
       },
     });
-    expect(withSender(kept, alex).response).not.toHaveProperty('thread');
   });
 
   it('answers a message this mailbox sent to its original recipients, and tolerates malformed headers', () => {
@@ -367,7 +371,7 @@ describe('replying to and forwarding a received message', () => {
     expect(malformed.response).toStrictEqual({
       kind: 'replyAll',
       message: 'm1',
-      thread: 't1',
+      thread: { connection: work.id, id: 't1' },
       references: ['<a@x>', '<b@x>'],
     });
   });
@@ -377,7 +381,7 @@ describe('replying to and forwarding a received message', () => {
     const { id, start, draft, storage, gmail, drafts } = await reader({
       subject: 'Fwd: Report',
       content: {
-        html: '<p>See the chart</p><img src="cid:chart@example" alt="chart"><p>Between charts</p><img src="cid:chart@example" alt="chart"><p>After charts</p>',
+        html: '<p>See the chart</p><img src="cid:chart@example" alt="chart"><p>Between charts</p><img src="cid:chart@example" alt=""><p>After charts</p>',
         images: [
           { contentId: 'chart@example', mimeType: 'image/png', bytes: logo },
         ],

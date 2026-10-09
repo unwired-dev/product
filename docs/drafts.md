@@ -201,6 +201,7 @@ reopening, **Undo** and **Discard** work as for any Draft.
 - **Sender.** The Draft sends from the Mailbox Connection that received the message.
   Choosing another sender in **From** is explicit; the reply then keeps its
   In-Reply-To and References headers but not the receiving mailbox's Gmail thread.
+  Choosing the receiving mailbox again joins that thread again.
 - **Recipients.** **Reply** goes to Reply-To, or else to From. A message this mailbox
   sent is answered to its original To recipients. **Reply All** adds the original
   To recipients in To and keeps Cc in Cc, which the composer shows. All known Gmail
@@ -239,7 +240,7 @@ editor's content is preserved and response preparation stops.
 
 `startResponse` in `@private-email/mail-core/responses` performs these steps for
 both hosts; `withSender` in `@private-email/mail-core/drafts` changes a Draft's
-sender.
+sender, and `threadOf` gives the Gmail thread a reply joins from its current sender.
 
 ## Storage and isolation
 

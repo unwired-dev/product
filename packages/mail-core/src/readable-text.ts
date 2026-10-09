@@ -43,7 +43,7 @@ export function paragraphBuilder() {
       contentId === undefined
     ) {
       spans[spans.length - 1] = { ...last, text: last.text + text };
-    } else if (text !== '') {
+    } else if (text !== '' || contentId !== undefined) {
       spans.push({
         text,
         ...(href === undefined ? {} : { href }),
@@ -57,7 +57,7 @@ export function paragraphBuilder() {
         ...span,
         text: span.text.replaceAll(/ {2,}/gu, ' ').replaceAll(/ *\n */gu, '\n'),
       }))
-      .filter((span) => span.text !== '');
+      .filter((span) => span.text !== '' || span.contentId !== undefined);
     const first = trimmed.at(0);
     if (first !== undefined) {
       trimmed[0] = { ...first, text: first.text.trimStart() };
@@ -66,7 +66,12 @@ export function paragraphBuilder() {
     if (last !== undefined) {
       trimmed[trimmed.length - 1] = { ...last, text: last.text.trimEnd() };
     }
-    if (trimmed.some((span) => span.text.trim() !== '')) {
+    // An image with empty alt text still holds its place in forwarded correspondence.
+    if (
+      trimmed.some(
+        (span) => span.text.trim() !== '' || span.contentId !== undefined,
+      )
+    ) {
       // One HTML anchor can cross many paragraphs. Hosts offer a control for each linked
       // span, so count finalized fallback spans independently of collected rich anchors.
       paragraphs.push(

@@ -42,13 +42,16 @@ const RecipientSchema = Schema.Struct({
 export type Recipient = typeof RecipientSchema.Type;
 
 // What a reply or forward answers: the received message and, for a reply, the RFC 5322 threading
-// headers the sent reply carries, and its Gmail thread while it sends from the mailbox that received
-// it. A forward starts a conversation of its own.
+// headers the sent reply carries and the Gmail thread of the mailbox that received it. A forward
+// starts a conversation of its own.
 const ResponseSchema = Schema.Union([
   Schema.Struct({
     kind: Schema.Literals(['reply', 'replyAll']),
     message: Schema.NonEmptyString,
-    thread: Schema.optionalKey(Schema.NonEmptyString),
+    thread: Schema.Struct({
+      connection: Schema.NonEmptyString,
+      id: Schema.NonEmptyString,
+    }),
     inReplyTo: Schema.optionalKey(Schema.NonEmptyString),
     references: Schema.Array(Schema.NonEmptyString),
   }),
@@ -318,28 +321,20 @@ export const sendingStateOf = (
   return connection.state === 'authorization' ? 'authorization' : 'available';
 };
 
-// The Draft sending from `mailbox` instead, as the person chose. A Gmail thread belongs to the
-// mailbox that received it, so a reply sent from another one keeps only its threading headers.
+// The Draft sending from `mailbox` instead, as the person chose.
 export const withSender = (
   draft: Draft,
   mailbox: Pick<MailboxConnection, 'id' | 'address'>,
-): Draft => {
-  const { response } = draft;
-  if (
-    mailbox.id === draft.connection ||
-    response === undefined ||
-    !('thread' in response)
-  ) {
-    return { ...draft, connection: mailbox.id, from: mailbox.address };
-  }
-  const { thread: _other, ...unthreaded } = response;
-  return {
-    ...draft,
-    connection: mailbox.id,
-    from: mailbox.address,
-    response: unthreaded,
-  };
-};
+): Draft => ({ ...draft, connection: mailbox.id, from: mailbox.address });
+
+// The Gmail thread a reply joins: only while it sends from the mailbox that received the message,
+// as a thread belongs to that mailbox. From any other sender it keeps only its threading headers.
+export const threadOf = ({ connection, response }: Draft) =>
+  response !== undefined &&
+  'thread' in response &&
+  response.thread.connection === connection
+    ? response.thread.id
+    : undefined;
 
 // The connections a Draft may send from: every one whose Gmail access is usable on this device.
 export const sendingMailboxes = (mailboxes: readonly MailboxConnection[]) =>

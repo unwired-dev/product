@@ -310,7 +310,7 @@ function replied(
       response: {
         kind,
         message: message.id,
-        thread: message.threadId,
+        thread: { connection: draft.connection, id: message.threadId },
         ...(inReplyTo === undefined ? {} : { inReplyTo }),
         references,
       },
