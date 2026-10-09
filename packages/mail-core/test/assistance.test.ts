@@ -3,6 +3,7 @@ import type { SemanticDocument } from '../src/semantic-document.ts';
 
 import {
   canRetryAssistance,
+  canRewrite,
   createDraftAssistance,
   createMessageSummary,
   replyInput,
@@ -417,6 +418,47 @@ describe('on-device Draft rewrites and reply suggestions', () => {
     expect(rewriteInput(' \n ')).toBeUndefined();
     expect(rewriteInput(`See ${imageCharacter}`)).toBeUndefined();
     expect(rewriteInput('a'.repeat(summaryInputLimit + 1))).toBeUndefined();
+  });
+
+  it('finds rewritable text without scanning past the first visible span', () => {
+    expect.hasAssertions();
+    const caret = { start: 0, end: 0 };
+    const image = {
+      text: imageCharacter,
+      image: {
+        id: 'image0001',
+        name: 'map.png',
+        type: 'image/png',
+        state: 'importing',
+      },
+    } as const;
+    expect(canRewrite([{ kind: 'paragraph', spans: [image] }], caret)).toBe(
+      false,
+    );
+    expect(
+      canRewrite([{ kind: 'paragraph', spans: [{ text: ' ' }] }], caret),
+    ).toBe(false);
+    // With a collapsed caret, later blocks are never read once text is found.
+    expect(
+      canRewrite(
+        [
+          { kind: 'paragraph', spans: [{ text: 'Hi' }] },
+          {
+            kind: 'paragraph',
+            get spans(): SemanticDocument[number]['spans'] {
+              throw new Error('Read beyond the first visible span');
+            },
+          },
+        ],
+        caret,
+      ),
+    ).toBe(true);
+    // A selection is judged by its own text.
+    const body: SemanticDocument = [
+      { kind: 'paragraph', spans: [{ text: 'Hi  there' }] },
+    ];
+    expect(canRewrite(body, { start: 2, end: 4 })).toBe(false);
+    expect(canRewrite(body, { start: 0, end: 2 })).toBe(true);
   });
 
   it('drops an address cut before its "@" in names and quoted text', () => {

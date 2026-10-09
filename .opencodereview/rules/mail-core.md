@@ -104,13 +104,17 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Product behavior the stores own
 
-- `assistance.ts.draftAssistanceSelection` or another shared document helper
-  called during host rendering flattening the whole body to derive a length or
-  other value the caller already holds for that body revision. Trace its render
-  callers and reuse their existing projection; a bounded downstream text read
-  does not bound an earlier flatten. Otherwise every keystroke repeats whole-body
-  allocation and can stall the shared JavaScript runtime for large Drafts. Keep event-time callers
-  tied to their latest authored body rather than a previous render's projection.
+- `assistance.ts.canRewrite` or another shared document helper called during
+  host rendering projecting the whole body for an existence check or to derive
+  a value the caller already holds for that body revision. Trace its render
+  callers and `selectedText`'s `bounds`/`covered` work: a capped text result does
+  not bound earlier document-wide traversal or allocation. A collapsed-caret
+  Rewrite existence check must stop at the first visible non-image authored span;
+  reuse the caller's existing projection when a check needs a document length.
+  Otherwise every keystroke repeats whole-body allocation and can stall the
+  shared JavaScript runtime for large Drafts. Preserve selected-range eligibility
+  and capture-time size/image refusal. Keep event-time callers tied to their
+  latest authored body rather than a previous render's projection.
 
 - `assistance.ts.replyInput` or `quotedInput` excluding recipient address fields
   while admitting raw addresses embedded in To/Cc display names, quoted

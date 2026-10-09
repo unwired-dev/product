@@ -372,16 +372,14 @@ export type CapturedDraftText = Readonly<{
   input: DraftAssistanceInput | undefined;
 }>;
 
-// Rewrite defaults to the whole body; a reply suggestion always replaces the whole body.
-// Render callers supply their displayed length; event callers project only when needed.
-export const draftAssistanceSelection = (
-  purpose: CapturedDraftText['purpose'],
-  length: number | (() => number),
-  at: Selection,
-): Selection =>
-  purpose === 'reply' || (purpose === 'rewrite' && at.start === at.end)
-    ? { start: 0, end: typeof length === 'number' ? length : length() }
-    : at;
+// Whether Rewrite has text: the selection's, or with a collapsed caret any authored text.
+// The whole-body check stops at the first visible span without projecting document ranges.
+export const canRewrite = (body: Draft['body'], at: Selection) =>
+  at.start === at.end
+    ? body.some(({ spans }) =>
+        spans.some((span) => !('image' in span) && hasVisibleText(span.text)),
+      )
+    : hasVisibleText(selectedText(body, at, summaryInputLimit + 1));
 
 // Only Reply and Reply All Drafts with local quoted correspondence admit a reply suggestion.
 export const canSuggestReply = ({ quoted, response }: Draft) =>
@@ -503,11 +501,11 @@ export function captureDraftText(
   draft: Draft,
   at: Selection,
 ): CapturedDraftText {
-  const selection = draftAssistanceSelection(
-    purpose,
-    () => displayOf(draft.body).text.length,
-    at,
-  );
+  // Rewrite defaults to the whole body; a reply suggestion always replaces the whole body.
+  const selection =
+    purpose === 'reply' || (purpose === 'rewrite' && at.start === at.end)
+      ? { start: 0, end: displayOf(draft.body).text.length }
+      : at;
   const text = selectedText(draft.body, selection, summaryInputLimit + 1);
   let input: DraftAssistanceInput | undefined = undefined;
   if (purpose === 'rewrite') {
@@ -553,6 +551,3 @@ export const createDraftAssistance = (native: NativeAssistance) =>
   });
 
 export type DraftAssistance = ReturnType<typeof createDraftAssistance>;
-
-// Whether captured Draft text has anything to rewrite.
-export { hasVisibleText as hasAssistableText } from './readable-text.ts';

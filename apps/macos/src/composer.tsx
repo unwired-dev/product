@@ -24,11 +24,10 @@ import type {
 } from 'react-native';
 
 import {
+  canRewrite,
   canSuggestReply,
   captureDraftText,
-  draftAssistanceSelection,
   draftReplacement,
-  hasAssistableText,
   sameDraftAssistanceSource,
 } from '@private-email/mail-core/assistance';
 import {
@@ -1730,37 +1729,17 @@ function Editor({
             }}
           />
           <Action
-            disabled={
-              !hasAssistableText(
-                selectedText(
-                  draft.body,
-                  draftAssistanceSelection(
-                    'rewrite',
-                    display.text.length,
-                    selection,
-                  ),
-                  translationInputLimit + 1,
-                ),
-              )
-            }
+            disabled={!canRewrite(draft.body, selection)}
             label={t('assistance.rewrite')}
             accessibilityLabel={t(rewriteLabel(selection))}
             onPress={() => {
-              const { body } = authored.current;
-              const at = draftAssistanceSelection(
-                'rewrite',
-                () => displayOf(body).text.length,
-                selectionNow.current,
-              );
+              const at = selectionNow.current;
               if (
-                !lifetime.current.mounted ||
-                !hasAssistableText(
-                  selectedText(body, at, translationInputLimit + 1),
-                )
+                lifetime.current.mounted &&
+                canRewrite(authored.current.body, at)
               ) {
-                return;
+                capture('rewrite', at);
               }
-              capture('rewrite', at);
             }}
           />
           {canSuggestReply(draft) ? (
