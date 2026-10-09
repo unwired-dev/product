@@ -34,6 +34,7 @@ backend code, checks the shared fixture against disk, and verifies native
 autolinking. The host autolinks only `react-native-webview`, patched for the isolated message
 reader, and its Podfile declares only the `GoogleSignIn` pod. Adding either kind of
 native dependency requires an explicit update to `scripts/verify-native.ts`.
+The Podfile check requires the mise-managed Ruby and accepts only literal pod names.
 
 Each window owns its selected message. Opening another starts with no selection.
 Reading leaves unread flags unchanged. Explicit read/unread actions persist and

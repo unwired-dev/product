@@ -31,6 +31,7 @@ One root workspace and lockfile use a shared catalog and named `mobile` and `mac
 ## Local development
 
 Use mise, Node 24, and the exact pnpm version in `package.json`, currently 11.5.2.
+The mise-managed Ruby is required for Mac Podfile verification and tooling tests.
 Expo builds need the Xcode toolchain and simulator runtime documented in
 [Expo setup](docs/expo-client.md#install-and-run).
 

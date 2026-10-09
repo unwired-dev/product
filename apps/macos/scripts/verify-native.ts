@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -35,15 +34,19 @@ assert.deepEqual(
   ['react-native-webview'],
   'Review native modules before expanding the Mac autolinking scope.',
 );
-const podfile = await readFile(path.join(root, 'macos/Podfile'), 'utf8');
-// Unrecognized pod arguments stay undefined so the allowlist fails closed.
+const podSchema = Schema.fromJsonString(
+  Schema.Array(Schema.NullOr(Schema.String)),
+);
+const podOutput = execFileSync(
+  'ruby',
+  [
+    fileURLToPath(new URL('verify-pods.rb', import.meta.url)),
+    path.join(root, 'macos/Podfile'),
+  ],
+  { encoding: 'utf8' },
+);
 assert.deepEqual(
-  Array.from(
-    podfile.matchAll(
-      /(?:^|;)\s*pod\b\s*(?:\(\s*)?(?:['"](?<pod>[^'"]+)['"])?/gmu,
-    ),
-    (match) => match.groups?.pod,
-  ),
+  Schema.decodeSync(podSchema)(podOutput),
   ['GoogleSignIn'],
   'Review pods before expanding the Mac Podfile scope.',
 );
