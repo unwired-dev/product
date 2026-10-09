@@ -1,6 +1,7 @@
 import { ok } from 'node:assert/strict';
 
 import type { RegistrationSnapshot } from '@private-email/mail-core/registration';
+import type { AppStateStatus } from 'react-native';
 
 import { createDrafts, draftOf } from '@private-email/mail-core/drafts';
 import { createMailboxes } from '@private-email/mail-core/mailboxes';
@@ -115,4 +116,104 @@ describe('automatic Draft synchronization', () => {
       }
     },
   );
+
+  it('starts one automatic pass per app transition however many windows are open', async () => {
+    expect.hasAssertions();
+    jest.useFakeTimers();
+    const registration = {
+      getSnapshot: () => ({ snapshot, busy: false, failed: false }),
+      subscribe: () => () => undefined,
+    };
+    const server = createServer();
+    const storage = createSyntheticDrafts(() => 'account-a', { server });
+    ok(storage.sync, 'Expected a synchronization boundary');
+    const drafts = createDrafts(storage.native, registration, {
+      native: storage.sync,
+      delay: 60_000,
+    });
+    await drafts.load();
+    await drafts.sync();
+    const phoneStorage = createSyntheticDrafts(() => 'account-a', { server });
+    ok(phoneStorage.sync, 'Expected a synchronization boundary');
+    const phone = createDrafts(phoneStorage.native, registration, {
+      native: phoneStorage.sync,
+      delay: 60_000,
+    });
+    await phone.load();
+    await phone.sync();
+    const id = await phone.create(alex);
+    ok(id, 'Expected a Draft');
+    await phone.sync();
+    const pulls = jest.spyOn(storage.sync, 'pullDrafts');
+    const background = jest.spyOn(drafts, 'syncInBackground');
+    // Substitute only the platform's dispatch/removal boundary; synchronization runs for real.
+    const listeners = new Set<(state: AppStateStatus) => void>();
+    const lifecycle = jest
+      .spyOn(AppState, 'addEventListener')
+      .mockImplementation((_event, listener) => {
+        listeners.add(listener);
+        return {
+          remove: () => {
+            listeners.delete(listener);
+          },
+        };
+      });
+    const mailboxes = createMailboxes(syntheticConnections({}), registration);
+    const window = () => (
+      <InboxProvider
+        drafts={drafts}
+        mailboxes={mailboxes}>
+        <View />
+      </InboxProvider>
+    );
+    const first = await render(window());
+    const second = await render(window());
+    try {
+      await drafts.sync();
+      const transition = async (
+        state: 'active' | 'background',
+        subject: string,
+      ) => {
+        const before = draftOf(phone.getSnapshot(), id);
+        ok(before, 'Expected the phone Draft');
+        await phone.update({ ...before, subject }, before);
+        await phone.sync();
+        pulls.mockClear();
+        background.mockClear();
+        await act(async () => {
+          for (const listener of listeners) {
+            listener(state);
+          }
+          // Drain the real host-facing action without requesting another pass.
+          await Promise.all(background.mock.results.map(({ value }) => value));
+        });
+        await waitFor(() => {
+          expect(draftOf(drafts.getSnapshot(), id)?.subject).toBe(subject);
+        });
+        // oxlint-disable-next-line vitest/prefer-called-once -- Jest has no toHaveBeenCalledOnce matcher.
+        expect(pulls).toHaveBeenCalledTimes(1);
+      };
+      await transition('active', 'Two windows');
+      await first.unmount();
+      await transition('background', 'One window');
+      await second.unmount();
+      expect(listeners.size).toBe(0);
+      const reopened = await render(window());
+      try {
+        await drafts.sync();
+        await transition('active', 'Reopened');
+      } finally {
+        await reopened.unmount();
+      }
+      expect(listeners.size).toBe(0);
+    } finally {
+      await first.unmount();
+      await second.unmount();
+      pulls.mockRestore();
+      background.mockRestore();
+      lifecycle.mockRestore();
+      jest.clearAllTimers();
+      jest.useRealTimers();
+    }
+  });
 });

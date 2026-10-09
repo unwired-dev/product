@@ -41,6 +41,38 @@ export function useLeaveComposer() {
 
 const waitingForMailbox = { kind: 'loading' } as const;
 
+// Every window shows the same Draft store, so one lifecycle subscription serves them all: returning
+// picks up other devices' Draft changes, and leaving publishes this device's.
+const lifecycles = new Map<Drafts, { windows: number; remove: () => void }>();
+const followLifecycle = (drafts: Drafts) => {
+  const followed = lifecycles.get(drafts);
+  if (followed === undefined) {
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active' || state === 'background') {
+        void drafts.syncInBackground();
+      }
+    });
+    lifecycles.set(drafts, {
+      windows: 1,
+      remove: () => {
+        subscription.remove();
+      },
+    });
+  } else {
+    followed.windows += 1;
+  }
+  return () => {
+    const current = lifecycles.get(drafts);
+    if (current !== undefined) {
+      current.windows -= 1;
+      if (current.windows === 0) {
+        current.remove();
+        lifecycles.delete(drafts);
+      }
+    }
+  };
+};
+
 export function InboxProvider({
   children,
   mailboxes = defaultMailboxes,
@@ -54,15 +86,7 @@ export function InboxProvider({
   const navigation = useMemo(() => createComposerNavigation(), []);
   useEffect(() => {
     void drafts.load();
-    // Returning picks up other devices' Draft changes; leaving publishes this device's.
-    const subscription = AppState.addEventListener('change', (state) => {
-      if (state === 'active' || state === 'background') {
-        void drafts.syncInBackground();
-      }
-    });
-    return () => {
-      subscription.remove();
-    };
+    return followLifecycle(drafts);
   }, [drafts]);
   useEffect(() => {
     void mailboxes.load();

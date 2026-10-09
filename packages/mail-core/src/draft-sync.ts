@@ -113,10 +113,32 @@ export const equivalentSynced = Schema.toEquivalence(
   Schema.Array(SyncedSchema),
 );
 const sameRecord = Schema.toEquivalence(Schema.NullOr(DraftSchema));
+export const matchesPending = (prior: Synced, published: Synced) =>
+  prior.pending?.version === published.version &&
+  sameRecord(prior.pending.draft, published.draft);
+// An earlier store's late reply cannot replace a newer floor or another admitted write.
+export const canRecord = (prior: Synced | undefined, written: Synced) => {
+  if (prior?.updatedAt === undefined || written.version > prior.version) {
+    return true;
+  }
+  if (written.version < prior.version) {
+    return false;
+  }
+  return (
+    prior.updatedAt === written.updatedAt &&
+    sameRecord(prior.draft, written.draft) &&
+    (prior.pending === undefined || equivalentSynced([prior], [written]))
+  );
+};
 const acceptsVersion = (draft: Draft | null, version: number, prior: Synced) =>
   prior.updatedAt === undefined ||
   version > prior.version ||
   (version === prior.version && sameRecord(prior.draft, draft));
+// The prior record may be read while another store's attempted update is still in flight.
+const retainedPending = (prior: Synced | undefined, version: number) =>
+  prior?.pending !== undefined && version === prior.version
+    ? { pending: prior.pending }
+    : {};
 const readRecord = (
   {
     id,
@@ -135,7 +157,13 @@ const readRecord = (
   ) {
     return undefined;
   }
-  return { id, draft, version, updatedAt };
+  return {
+    id,
+    draft,
+    version,
+    updatedAt,
+    ...retainedPending(prior, version),
+  };
 };
 export const syncedDrafts = (entries: readonly Synced[]) =>
   entries.flatMap(({ draft }) => (draft === null ? [] : [draft]));
@@ -205,6 +233,12 @@ const uploadAsset = Effect.fnUntraced(function* (
   }
 });
 
+const recovering = (draft: Draft | null, prior: Synced | undefined) =>
+  draft !== null && prior?.pending !== undefined;
+// Discard publishes directly; retained Drafts recover the admitted payload before newer edits.
+const publicationDraft = (retained: Draft | null, prior: Synced | undefined) =>
+  retained === null ? null : (prior?.pending?.draft ?? retained);
+
 const pushing = Effect.fnUntraced(function* (
   remote: NativeDraftSync,
   {
@@ -227,36 +261,84 @@ const pushing = Effect.fnUntraced(function* (
       }
     }
   });
-  // A first publication is skipped when its Draft was discarded while its files uploaded, and
-  // otherwise recorded before it is sent; see SyncedSchema.
+  const stillHeld = (id: string, draft: Draft | null) => {
+    const held = local.context();
+    return (
+      held?.current === current &&
+      (draft === null ||
+        sameContent(
+          held.drafts.find((entry) => entry.id === id),
+          draft,
+        ))
+    );
+  };
+  // Recheck after uploads, then retain the exact write through an uncertain reply or local save.
   const announce = Effect.fnUntraced(function* (
     entry: Readonly<{ id: string; draft: Draft | null; version: number }>,
     prior: Synced | undefined,
   ) {
-    if (entry.draft === null || prior?.updatedAt !== undefined) {
+    if (entry.draft === null) {
       return 'send' as const;
     }
-    if (local.context()?.drafts.some(({ id }) => id === entry.id) !== true) {
+    if (prior?.pending !== undefined) {
+      return (yield* local.record(current, account, prior))
+        ? ('send' as const)
+        : ('stop' as const);
+    }
+    if (!stillHeld(entry.id, entry.draft)) {
       return 'skip' as const;
     }
-    return (yield* local.record(current, account, {
-      ...entry,
-      draft: entry.draft,
-    }))
+    return (yield* local.record(
+      current,
+      account,
+      prior?.updatedAt === undefined
+        ? { ...entry, draft: entry.draft }
+        : { ...prior, pending: { draft: entry.draft, version: entry.version } },
+    ))
       ? ('send' as const)
       : ('stop' as const);
+  });
+  const settle = Effect.fnUntraced(function* (
+    entry: Readonly<{ id: string; draft: Draft | null; version: number }>,
+    prior: Synced | undefined,
+    pushed: typeof PushedSchema.Type,
+  ) {
+    if (pushed.owner !== account) {
+      return yield* ownerMismatch();
+    }
+    if (pushed.committed) {
+      return yield* local.record(current, account, {
+        ...entry,
+        updatedAt: pushed.updatedAt,
+      });
+    }
+    conflicted = true;
+    if (prior?.updatedAt === undefined) {
+      return true;
+    }
+    // A shared local store may have saved Discard while this request was in flight.
+    // Rebase the live durable entry before deriving a remote conflict from stale content.
+    const held = local.context()?.synced.find(({ id }) => id === entry.id);
+    return held !== undefined && (yield* local.record(current, account, held));
   });
   const push = Effect.fnUntraced(function* (
     id: string,
     draft: Draft | null,
     prior: Synced | undefined,
   ) {
+    // Settle the exact admitted write before admitting a different payload at the same CAS.
+    // Newer local content stays separate and is reconciled by the following pull.
+    const recovery = recovering(draft, prior);
     const version = (prior?.version ?? 0) + 1;
     const json = draft === null ? null : yield* encodeDraft(draft);
     const expectedUpdatedAt = prior?.updatedAt;
     const step = yield* announce({ id, draft, version }, prior);
     if (step !== 'send') {
       return step === 'skip';
+    }
+    // Recording can await storage while Discard or a newer edit changes the live Draft.
+    if (recovery ? !local.live(current) : !stillHeld(id, draft)) {
+      return true;
     }
     const pushed = yield* native(
       () =>
@@ -268,26 +350,15 @@ const pushing = Effect.fnUntraced(function* (
         }),
       PushedSchema,
     );
-    if (pushed.owner !== account) {
-      return yield* ownerMismatch();
-    }
-    if (!pushed.committed) {
-      conflicted = true;
-      return true;
-    }
-    return yield* local.record(current, account, {
-      id,
-      draft,
-      version,
-      updatedAt: pushed.updatedAt,
-    });
+    return yield* settle({ id, draft, version }, prior, pushed);
   });
   const changed = drafts
     .filter((draft) => {
       const prior = read.get(draft.id);
       return (
         !skipped.has(draft.id) &&
-        (prior?.updatedAt === undefined ||
+        (prior?.pending !== undefined ||
+          prior?.updatedAt === undefined ||
           !sameContent(prior.draft ?? undefined, draft))
       );
     })
@@ -298,10 +369,11 @@ const pushing = Effect.fnUntraced(function* (
       ({ id, draft }) => draft !== null && !kept.has(id) && !skipped.has(id),
     )
     .map((prior) => ({ id: prior.id, draft: null, prior }));
-  for (const { id, draft, prior } of [...changed, ...removed]) {
+  for (const { id, draft: retained, prior } of [...changed, ...removed]) {
     if (!local.live(current)) {
       return conflicted;
     }
+    const draft = publicationDraft(retained, prior);
     if (draft !== null) {
       yield* upload(draft);
     }
@@ -310,6 +382,9 @@ const pushing = Effect.fnUntraced(function* (
     }
     if (!(yield* push(id, draft, prior))) {
       return false;
+    }
+    if (recovering(draft, prior)) {
+      return true;
     }
   }
   return conflicted;

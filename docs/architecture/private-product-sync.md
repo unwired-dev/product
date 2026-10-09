@@ -418,6 +418,32 @@ identity publishes a tombstone against that absent identity. This preserves
 Discard across concurrent local stores, lost replies and relaunch. Confirmed absent records still retain their floors and stay
 read-only.
 
+Before updating a confirmed Draft, the local encrypted document retains the exact
+pending payload and version beside its confirmed record. Intent persistence must
+survive local CAS recovery before publication; the current account and authored
+content are checked again after awaited preparation. Only an authenticated pull
+matching the pending payload and version advances the merge base to that write,
+so this device's later Discard or edit does not conflict with its own lost reply.
+The confirmed replay floor remains independent. Reading the prior confirmed
+version retains pending evidence because its write may still arrive; another
+publication clears it and follows ordinary conflict preservation. This is an
+optional local field, with no change to the encrypted wire record or native API.
+The review panel selected this repair over accepting the residual resurrection
+window, 3–0.
+
+One pending payload is immutable for each confirmed CAS revision, enforced during
+local admission and checked after storage CAS recovery. A retained Draft settles
+that exact admitted write before a distinct update, even after reverting to the
+confirmed content. This recovery retains the account fence but may replay older
+admitted content; newer local edits remain separate. A committed replay ends the
+pass and requires a new pull before newer publication. Discard instead writes a
+tombstone directly without replacing pending evidence. On a confirmed update's
+CAS refusal, refresh shared local state before deriving a remote conflict; late
+confirmations cannot regress a newer floor or erase another pending write. The
+panel chose this ordering over retaining an expanding collection of candidates,
+3–0. Recovery can briefly expose the older admitted record and delays newer
+publication while its outcome remains uncertain.
+
 The missing-row conditional-write refusal carries the content-free
 `PRODUCT_SYNC_PAYLOAD_CHANGED` error code. Native Draft synchronization requires
 that specific refusal, an expected revision and confirmed row absence before

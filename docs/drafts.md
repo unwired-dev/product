@@ -484,11 +484,26 @@ missing chunks, storing downloaded bytes for the signed-in account only and
 reclaiming them in the same process after the stored Draft stops naming them, and
 sealed deletion tombstones and revocation preflight purging local keys and data.
 
+Shared regressions also cover a synchronized Draft discarded during a new file's
+upload, and Discard or continued editing during a later record write whose reply
+is lost or whose local confirmation cannot be saved. Relaunch keeps the intended
+local outcome without extra copies, preserves a different device's competing edit,
+and retains the confirmed replay floor while a write is unconfirmed. A failed
+local intent save prevents publication and remains retryable. These scenarios use
+the synthetic storage and Product Sync boundaries.
+Separate stores sharing local storage also cover two held updates with a lost
+reply, Discard, continued editing, a revert to confirmed content, a tombstone
+winning the race, recovery after a pre-commit failure, and an earlier reply
+arriving after another store confirmed a newer version.
+
 Host component journeys in `apps/mobile/test/draft-sync.test.tsx` and
 `apps/macos/test/draft-sync.test.tsx` exercise foreground and background AppState
 events against real Draft stores with synthetic storage and Product Sync. They
 verify that an unexpected subscriber failure is logged without its private
 message, consumed by the automatic pass, and followed by successful synchronization.
+The Mac journey also checks that multiple windows share one Draft pass per app
+transition, closing one keeps refreshing the surviving window, and closing and
+reopening the final window removes and reinstalls its lifecycle subscriptions.
 These component tests do not qualify native lifecycle or live backend behavior.
 
 Deferred before release: native iPhone, iPad and Mac journeys that compose, relaunch

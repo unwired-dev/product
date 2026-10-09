@@ -13,6 +13,14 @@ A host owns views and native adapters. It renders shared stores from `@private-e
 
 #### React correctness
 
+- `apps/macos/src/mailbox.tsx.InboxProvider` installing one application lifecycle
+  subscription per mounted window on the shared Draft store. Give that store one
+  subscription owner across windows, preserving later distinct transitions and
+  removing view-owned subscriptions after their final owner closes. Exercise real
+  synchronization through the external pull boundary with multiple windows,
+  one closing and reopening; otherwise each activation queues redundant network
+  passes, while premature cleanup leaves surviving windows unable to refresh.
+
 - `mailbox.tsx.InboxProvider` discarding a rejecting `drafts.sync()` Promise from
   automatic AppState callbacks. Use the store's `syncInBackground` action so
   foreground and background passes consume and log defects through the canonical

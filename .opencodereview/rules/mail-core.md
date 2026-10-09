@@ -85,6 +85,25 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   publication can erase local content, resurrect a Discard or reject the winner
   forever. Exercise lost replies, pre-write failure, competing local writers and
   relaunch through public stores.
+- `draft-sync.ts.pushing` using a captured non-null Draft after awaited uploads,
+  encoding or intent persistence without rechecking the live account and authored
+  content. Stop a superseded write and let the next pass publish the current edit
+  or tombstone. Confirmed updates also need durable exact pending payload/version
+  evidence beside their confirmed base and replay floor; recognize only that exact
+  authenticated publication during merge, retain it while the prior record remains,
+  and preserve competing authorship otherwise. Keep one pending payload immutable
+  per confirmed CAS, including admission by separate local stores; recover its
+  exact durable write before admitting a distinct update, with the account fence
+  intact and a new pull before newer publication. Recovery may replay admitted
+  content the user has since edited, while Discard directly writes a tombstone
+  without replacing pending evidence. Reject late local confirmations that regress
+  the floor or erase another pending write, and rebase shared local state after a
+  confirmed update loses CAS before deriving a conflict from stale content.
+  Exercise Discard, continued editing and reverting to confirmed content during
+  held writes, lost replies, pre-commit failures, failed confirmation saves, both
+  tombstone race orderings, multiple local stores and relaunch.
+  Otherwise this device's own superseded content returns as a conflict copy, even
+  when an upload-time guard protects first publication.
 - `createRegistration.resume` dropping a foreground activation because the account is unlocked or a pending operation holds the semaphore. Queue every activation's native restore after the current operation, preserving unchanged setup feedback while publishing changed verification or locked results; otherwise unlock retries are lost or a running account remains connected after verification becomes unavailable. ADR 0020 requires foreground Trusted Device revalidation; a locked-storage retry must not exempt unlocked accounts, and native reconnect alone does not prove that revocation rejection purges local state.
 - `createRegistration.resume` treating each Mac window's report of one application activation as a separate restore. The windows share one store and AppState dispatches listeners synchronously, so coalesce those reports or give the subscription one application-level owner; otherwise native Product Account and Gmail verification repeats per window and prolongs the busy state. Coalescing must end with that dispatch, not with the pending restore, so a later activation after unlock still queues a fresh verification.
 - A successful persisted state published before the native operation has durably completed, with no failure path that restores the previous state. Explicit busy/pending presentation states are permitted, as in `createRegistration`.

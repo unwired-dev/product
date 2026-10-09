@@ -42,8 +42,10 @@ import {
   report,
 } from './draft-native.ts';
 import {
+  canRecord,
   createDraftSynchronizer,
   equivalentSynced,
+  matchesPending,
   notifyRemoval,
   syncedDrafts,
   readRecords,
@@ -590,6 +592,22 @@ const movesToSyncedCopies = (
   return [...moved].map(([from, to]) => ({ from, to }));
 };
 
+// An exact pending publication is this device's own merge base, without raising its replay floor.
+const publicationBase = (
+  synced: readonly Synced[],
+  latest: readonly Synced[],
+) => {
+  const publishedById = new Map(latest.map((entry) => [entry.id, entry]));
+  return synced.flatMap((prior) => {
+    const published = publishedById.get(prior.id);
+    const draft =
+      published !== undefined && matchesPending(prior, published)
+        ? published.draft
+        : prior.draft;
+    return draft === null ? [] : [draft];
+  });
+};
+
 // A Draft this device discarded keeps its discard when another device's edit was published first:
 // that edit becomes a conflicting copy, and its record becomes the base the discard replaces.
 const mergeSyncedDrafts = Effect.fnUntraced(function* (
@@ -598,7 +616,7 @@ const mergeSyncedDrafts = Effect.fnUntraced(function* (
   latest: readonly Synced[],
 ) {
   const kept = new Set(local.map(({ id }) => id));
-  const base = indexed(syncedDrafts(synced));
+  const base = indexed(publicationBase(synced, latest));
   const unconfirmed = new Set(
     synced
       .filter(({ updatedAt }) => updatedAt === undefined)
@@ -1068,6 +1086,14 @@ export function createDrafts(
       current,
       Effect.gen(function* () {
         if (!live(current) || state.kind !== 'ready') {
+          return false;
+        }
+        if (
+          !canRecord(
+            synced.find(({ id }) => id === written.id),
+            written,
+          )
+        ) {
           return false;
         }
         synced = [...synced.filter(({ id }) => id !== written.id), written];

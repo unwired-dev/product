@@ -188,6 +188,7 @@ export function createSyntheticDrafts(
   let failing: string | undefined = undefined;
   let held: Array<() => void> | undefined = undefined;
   let importsHeld: Array<() => void> | undefined = undefined;
+  let uploadsHeld: Array<() => void> | undefined = undefined;
   let failingImport: string | undefined = undefined;
   // Rejects the next import only after storing its bytes, as when the device locks meanwhile.
   let failingAfterWrite: string | undefined = undefined;
@@ -415,7 +416,8 @@ export function createSyntheticDrafts(
                 });
               }
             }
-            return Promise.resolve({ owner });
+            // Held until `releaseUploads`, so a test can change the Draft while its files upload.
+            return waitWhile(() => uploadsHeld).then(() => ({ owner }));
           },
           downloadDraftAsset: (owner, { id, digest, size }) => {
             const refused = signedIn(owner);
@@ -501,6 +503,17 @@ export function createSyntheticDrafts(
     release: () => {
       const waiting = held ?? [];
       held = undefined;
+      for (const resolve of waiting) {
+        resolve();
+      }
+    },
+    // Holds Product Sync uploads after their chunks are stored, until `releaseUploads`.
+    holdUploads: () => {
+      uploadsHeld = [];
+    },
+    releaseUploads: () => {
+      const waiting = uploadsHeld ?? [];
+      uploadsHeld = undefined;
       for (const resolve of waiting) {
         resolve();
       }
