@@ -580,19 +580,6 @@ function captureReplyInput({
   };
 }
 
-/**
- * Build bounded reply context, or return undefined when the source cannot be
- * admitted. Recipient names and local quoted text have address-bearing words
- * removed; authored text is preserved in full.
- *
- * @example
- *   const input = replyInput({
- *     authored: 'Thanks!',
- *     recipients: [],
- *     quoted: [{ kind: 'quote', spans: [{ text: 'Shall we meet?' }] }],
- *   });
- *   input?.purpose; // 'reply'
- */
 export const replyInput = (
   source: Parameters<typeof captureReplyInput>[0],
 ): DraftAssistanceInput | undefined => captureReplyInput(source).input;

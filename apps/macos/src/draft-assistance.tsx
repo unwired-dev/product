@@ -46,7 +46,6 @@ type Purpose = 'rewrite' | 'reply';
 
 const idle: DraftAssistanceState = { kind: 'idle' };
 
-/** Whether the request has reached an outcome that can be checked for retry. */
 const finished = (state: DraftAssistanceState) =>
   state.kind !== 'idle' && state.kind !== 'generating';
 
