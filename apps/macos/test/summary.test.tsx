@@ -193,7 +193,7 @@ describe('on-device message summaries in the reader', () => {
         screen.getByText(
           'Created on this device from the text shown here. It may be inaccurate and is not saved.',
         ),
-      ).toBeOnTheScreen();
+      ).toHaveProp('selectable', true);
       // The message stays readable beside its preview, and summarizing fetched nothing.
       expect(
         screen.getByText('Please confirm the venue by Friday.'),
@@ -219,7 +219,7 @@ describe('on-device message summaries in the reader', () => {
         screen.findByText(
           'Apple Intelligence is still getting ready. Try again later.',
         ),
-      ).resolves.toBeOnTheScreen();
+      ).resolves.toHaveProp('selectable', true);
       expect(
         screen.getByText('Please confirm the venue by Friday.'),
       ).toBeOnTheScreen();

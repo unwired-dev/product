@@ -15,10 +15,10 @@ import {
   canRetryTranslation,
   createTranslation,
   draftTranslationInput,
+  draftTranslationIssue,
   hasTranslatableText,
   messageTranslationInput,
   readerText,
-  translationInputLimit,
   translationLanguages,
 } from '@private-email/mail-core/translation';
 import {
@@ -491,7 +491,8 @@ export function DraftTranslation({
       }}
     />
   );
-  if (text.length > translationInputLimit) {
+  const issue = draftTranslationIssue(text);
+  if (issue !== undefined) {
     return (
       <View
         accessibilityLabel={t('translation.draftRegion')}
@@ -499,7 +500,11 @@ export function DraftTranslation({
         <Text
           accessibilityRole="alert"
           style={[styles.secondary, { color: colors.secondary }]}>
-          {t('translation.selectionTooLong')}
+          {t(
+            issue === 'inline-image'
+              ? 'translation.selectionHasImage'
+              : 'translation.selectionTooLong',
+          )}
         </Text>
         {keep}
       </View>

@@ -819,6 +819,9 @@ attachment descriptors.
   **Gmail sent an incomplete or damaged copy of this attachment.**,
   **This attachment could not be saved on this device.**, or the locked-storage
   message. **This attachment is no longer in Gmail.** has no **Try again**.
+- **Attach.** A Downloaded Attachment also offers **Attach to New Message**, which
+  copies its bytes into a new Draft through the mailbox's current generation; see
+  [Drafts](drafts.md#files-and-images).
 - **Open and share.** A **Downloaded Attachment** offers **Open** and **Share**.
   **Open** shows the system **Attachment Preview** with Quick Look
   (`QLPreviewController` on iPhone and iPad, the Quick Look panel on Mac). Quick

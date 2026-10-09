@@ -26,6 +26,11 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 - A native bridge result, seed, persisted JSON value, HTTP body, token or route parameter used before a `Schema` decode, or narrowed with `as`, a hand-written property check or a truthiness test. The Apple host's checks do not make its results trusted in TypeScript.
 - A decode failure that becomes a default, an empty list or a `ready` state. It must map to the boundary's existing tagged error, with the decode error as `cause`, and surface as a non-ready state.
 - A schema widened (`Schema.Unknown`, optional field, loose union) to make a fixture or a new native result pass, without the consumer handling the widened case.
+- `drafts.ts.readAsset` using the verify-only response schema for a requested
+  image preview. Require a nonempty URI or the explicit `uri: null` no-thumbnail
+  success reply, mapping the latter to verified bytes without a picture. Admit
+  the empty native-only verification reply only when preview is false; otherwise a
+  malformed preview silently becomes a healthy asset with no image or warning.
 - `message-body.ts.decodeFullMessage` recursively decoding an unbounded MIME
   tree before applying traversal limits. Bound depth and total parts iteratively
   before `GmailPartSchema` runs, counting attachment and discarded subtrees too;
@@ -99,6 +104,41 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Product behavior the stores own
 
+- `translation.ts.draftTranslationInput` admitting a selected U+FFFC from an inline
+  image into text translation. `semantic-document.ts.replaceSelection` cannot
+  reconstruct image metadata from translated text, so accepting the result drops
+  the selected image reference. Refuse image-containing selections before native
+  inference, explain the refusal in both hosts, and cover text ranges before and
+  after images through acceptance, Undo/Redo and reopened Draft storage.
+
+- `composer-navigation.ts.create` keeping an unopened empty Draft after its
+  preparation refuses. Route cleanup through `drafts.abandon`, retaining a Draft
+  already selected or given content by another editor. Test the real coordinator
+  and Draft store together through snapshots and reopened storage; otherwise a
+  refused received-attachment action leaves hidden empty Drafts, while unconditional
+  cleanup can discard an active editor's work.
+
+- `drafts.ts.attach` or another store action returning a durable-save result to a
+  caller that needs to know whether its requested state was retained in memory.
+  Trace `composer-navigation.ts.create`/`attachReceived` and the refused-save
+  snapshot separately from persistence: retained work must remain visible and
+  recoverable even when saving is locked or unavailable. Otherwise the caller
+  leaves a hidden Draft/import behind and repeated commands create duplicates
+  that become durable on a later save. Keep owner and removal fences; do not
+  reinterpret a durability-dependent action such as Close as successful.
+
+- `drafts.ts.importAsset` assuming a rejected native import wrote nothing. Trace
+  rejection after ciphertext replacement, file synchronization or the final
+  protected-data check; discard unadopted bytes before settling the failed asset,
+  including cancelled or stale-owner attempts. Preserve committed/history-held
+  assets and keyless cleanup while locked. Otherwise `ImportedAssets` protects
+  failed writes until relaunch and exhausts the non-evicting Outgoing Content Store.
+- `drafts.ts.pick` admitting every native picker result, or both hosts passing
+  unbounded paste/drop collections to `prepareFiles`. Apply the documented
+  per-intake limit before preparing assets or starting imports, and return unused
+  picker-owned copies through `discardPickedDraftFiles`, preserving account and
+  composer-lifetime fences. Otherwise a large selection amplifies copied bytes,
+  queued work and native composer rows despite each file satisfying its byte limit.
 - `translation.ts.readerText` or another bounded input builder flattening a whole
   readable body or eagerly spreading a paragraph's spans before applying its
   character cap. Stop traversal and intermediate allocation inside paragraphs as

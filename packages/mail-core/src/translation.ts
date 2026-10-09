@@ -15,6 +15,7 @@ import {
 } from './assistance.ts';
 import { runLogged } from './diagnostics.ts';
 import { hasVisibleText } from './readable-text.ts';
+import { imageCharacter } from './semantic-document.ts';
 
 // The host's on-device Apple Translation. It translates only the text it is given, with
 // languages already installed on the device, and has no remote fallback.
@@ -112,12 +113,20 @@ export const messageTranslationInput = (
   return { ...bounded, omitted: bounded.omitted || cut, target };
 };
 
+// A text translation cannot retain selected semantic image spans. Refuse them before inference.
+export const draftTranslationIssue = (text: string) => {
+  if (text.length > summaryInputLimit) {
+    return 'too-long';
+  }
+  return text.includes(imageCharacter) ? 'inline-image' : undefined;
+};
+
 // Selected Draft text is never cut: accepting a translation replaces the whole selection.
 export const draftTranslationInput = (
   text: string,
   target: string,
 ): TranslationInput | undefined =>
-  hasVisibleText(text) && text.length <= summaryInputLimit
+  hasVisibleText(text) && draftTranslationIssue(text) === undefined
     ? { text, omitted: false, target }
     : undefined;
 

@@ -14,6 +14,9 @@ export default function MessageRoute() {
       onClose={() => {
         router.replace('/');
       }}
+      onCompose={(draft) => {
+        router.replace({ pathname: '/compose/[draft]', params: { draft } });
+      }}
     />
   );
 }

@@ -1,21 +1,29 @@
 import { execFileSync } from 'node:child_process';
 
 import { createLocalization, english } from '@private-email/localization';
+import * as Schema from 'effect/Schema';
 
 import type { Draft, DraftsState } from '../src/drafts.ts';
 import type { RegistrationSnapshot } from '../src/registration.ts';
-import type { Block, SemanticDocument } from '../src/semantic-document.ts';
+import type {
+  Asset,
+  Block,
+  SemanticDocument,
+} from '../src/semantic-document.ts';
 
 import { createComposerNavigation } from '../src/composer-navigation.ts';
 import {
   addRecipients,
+  assetsOf,
   createDrafts,
   draftSummary,
   isEmptyDraft,
+  prepareFiles,
   recipientSummary,
   draftOf,
   draftsOf,
   sendingStateOf,
+  unsendableAssets,
 } from '../src/drafts.ts';
 import { mailboxesOf } from '../src/registration.ts';
 import {
@@ -24,11 +32,15 @@ import {
   displayOf,
   emptyDocument,
   historyOf,
+  imageCharacter,
+  imagesOf,
+  insertImage,
   marksAt,
   plainText,
   previewOf,
   record,
   redo,
+  SemanticDocumentSchema,
   setBlockKind,
   toggled,
   toggleMark,
@@ -92,6 +104,14 @@ const ready = (state: DraftsState) => {
 
 const typed = (document: SemanticDocument, text: string) =>
   applyText(document, text).document;
+
+// A complete asset's verified fields, or a failed test.
+const completed = (asset: Asset | undefined) => {
+  if (asset?.state !== 'complete') {
+    throw new Error('Expected a complete asset');
+  }
+  return asset;
+};
 
 const present = <T>(value: T | undefined, what: string): T => {
   if (value === undefined) {
@@ -326,18 +346,21 @@ describe('editing a Semantic Message Document', () => {
     ]);
   });
 
-  it('keeps long-paragraph undo history compact instead of retaining expanded character arrays', () => {
-    expect.hasAssertions();
-    // An isolated Node heap and explicit GC make this a retained-memory check, not a timing test.
-    const source = new URL('../src/semantic-document.ts', import.meta.url).href;
-    const retained = Number(
-      execFileSync(
-        process.execPath,
-        [
-          '--expose-gc',
-          '--input-type=module',
-          '--eval',
-          `
+  it(
+    'keeps long-paragraph undo history compact instead of retaining expanded character arrays',
+    () => {
+      expect.hasAssertions();
+      // An isolated Node heap and explicit GC make this a retained-memory check, not a timing test.
+      const source = new URL('../src/semantic-document.ts', import.meta.url)
+        .href;
+      const retained = Number(
+        execFileSync(
+          process.execPath,
+          [
+            '--expose-gc',
+            '--input-type=module',
+            '--eval',
+            `
         import { applyText, historyOf, record } from ${JSON.stringify(source)};
         let history = historyOf([{ kind: 'paragraph', spans: [{ text: 'x'.repeat(100_000) }] }]);
         globalThis.gc();
@@ -352,13 +375,16 @@ describe('editing a Semantic Message Document', () => {
           process.exitCode = 1;
         }
       `,
-        ],
-        { encoding: 'utf8', timeout: 20_000 },
-      ),
-    );
-    // The strings need roughly 10 MiB; expanded arrays retained by the old cache need over 120 MiB.
-    expect(retained).toBeLessThan(64 * 1024 * 1024);
-  });
+          ],
+          { encoding: 'utf8', timeout: 20_000 },
+        ),
+      );
+      // The strings need roughly 10 MiB; expanded arrays retained by the old cache need over 120 MiB.
+      expect(retained).toBeLessThan(64 * 1024 * 1024);
+    },
+    // The child process may take up to its own 20 s limit on a busy CI runner.
+    30_000,
+  );
 
   it('edits the selected occurrence of repeated characters without moving their marks', () => {
     expect.hasAssertions();
@@ -1447,6 +1473,48 @@ describe('storing Drafts', () => {
     ]);
   });
 
+  it('cleans up failed New Message preparation without losing authored or selected Drafts', async () => {
+    expect.hasAssertions();
+    const session = account(connected('account-a'));
+    const storage = createSyntheticDrafts(session.productAccount);
+    const drafts = createDrafts(storage.native, session.registration);
+    const navigation = createComposerNavigation();
+    await drafts.load();
+    await expect(
+      navigation.create(drafts, alex, async () => false),
+    ).resolves.toBeUndefined();
+    expect(draftsOf(drafts.getSnapshot())).toStrictEqual([]);
+    const emptyReopened = createDrafts(storage.native, session.registration);
+    await emptyReopened.load();
+    expect(draftsOf(emptyReopened.getSnapshot())).toStrictEqual([]);
+
+    // Another editor's authored content survives failed preparation and relaunch.
+    await expect(
+      navigation.create(drafts, alex, async (id) => {
+        const before = present(
+          draftOf(drafts.getSnapshot(), id),
+          'authored Draft',
+        );
+        await drafts.update({ ...before, subject: 'Typed meanwhile' }, before);
+        return false;
+      }),
+    ).resolves.toBeUndefined();
+    // Selecting the new row before preparation fails keeps even its empty Draft.
+    await expect(
+      navigation.create(drafts, alex, async (id) => {
+        await navigation.leave(id);
+        return false;
+      }),
+    ).resolves.toBeUndefined();
+    const reopened = createDrafts(storage.native, session.registration);
+    await reopened.load();
+    expect(
+      draftsOf(reopened.getSnapshot())
+        .map(({ subject }) => subject)
+        .toSorted(),
+    ).toStrictEqual(['', 'Typed meanwhile']);
+  });
+
   it('drops an abandoned empty Draft at the next save after storage refused it', async () => {
     expect.hasAssertions();
     const session = account(connected('account-a'));
@@ -1624,6 +1692,491 @@ describe('storing Drafts', () => {
     locked = false;
     await drafts.load();
     expect(ready(drafts.getSnapshot()).drafts).toStrictEqual([]);
+  });
+  /* oxlint-enable vitest/max-expects */
+});
+
+describe('adding files and images to Drafts', () => {
+  /* oxlint-disable vitest/max-expects -- Each journey proves one asset path end to end. */
+  const file = (uri: string, name: string, type = 'application/pdf') =>
+    ({ name, type, source: { kind: 'file', uri } }) as const;
+
+  // A store, its storage and a new Draft from alex's mailbox.
+  const opened = async () => {
+    const session = account(connected('account-a'));
+    const storage = createSyntheticDrafts(session.productAccount);
+    const drafts = createDrafts(storage.native, session.registration);
+    await drafts.load();
+    const id = present(await drafts.create(alex), 'a new Draft');
+    const draft = () => present(draftOf(drafts.getSnapshot(), id), 'the Draft');
+    return { session, storage, drafts, id, draft };
+  };
+
+  it('places, removes and restores an inline image with the text around it', () => {
+    expect.hasAssertions();
+    const image = {
+      id: 'image0001',
+      name: 'chart.png',
+      type: 'image/png',
+      state: 'importing',
+    } as const;
+    const before = typed(emptyDocument, 'Before after');
+    const inserted = insertImage(before, { start: 7, end: 7 }, image);
+    expect(displayOf(inserted.document).text).toBe(
+      `Before ${imageCharacter}after`,
+    );
+    expect(inserted.selection).toStrictEqual({ start: 8, end: 8 });
+    expect(imagesOf(inserted.document)).toStrictEqual([image]);
+    // The stored form round-trips, and typed text around it keeps the reference.
+    const encoded = Schema.encodeSync(
+      Schema.fromJsonString(SemanticDocumentSchema),
+    )(inserted.document);
+    expect(
+      Schema.decodeSync(Schema.fromJsonString(SemanticDocumentSchema))(encoded),
+    ).toStrictEqual(inserted.document);
+    const typedAround = applyText(
+      inserted.document,
+      `Before ${imageCharacter}and after`,
+    ).document;
+    expect(imagesOf(typedAround)).toStrictEqual([image]);
+    // A typed or pasted replacement character never becomes an image.
+    const pasted = applyText(before, `Before ${imageCharacter}after`).document;
+    expect(imagesOf(pasted)).toStrictEqual([]);
+    expect(displayOf(pasted).text).toBe('Before after');
+    // Deleting the character removes the image; Undo restores the same reference.
+    const history = record(
+      historyOf(typedAround),
+      typed(typedAround, 'Before and after'),
+    );
+    expect(imagesOf(history.present)).toStrictEqual([]);
+    expect(imagesOf(undo(history).present)).toStrictEqual([image]);
+    // Previews leave images out, and a body with only an image is not empty.
+    expect(previewOf(inserted.document)).toBe('Before after');
+    expect(
+      isEmptyDraft({
+        id: 'd',
+        connection: alex.id,
+        from: alex.address,
+        to: [],
+        cc: [],
+        bcc: [],
+        subject: '',
+        body: insertImage(emptyDocument, { start: 0, end: 0 }, image).document,
+        updatedAt: 0,
+      }),
+    ).toBe(false);
+  });
+
+  it('stores verified bytes under the Draft through relaunch, Undo and deletion', async () => {
+    expect.hasAssertions();
+    const { session, storage, drafts, id, draft } = await opened();
+    storage.addFile('file:///plan.pdf', 'plan bytes');
+    storage.addFile('file:///chart.png', 'chart bytes');
+    const attachment = drafts.prepare({
+      name: ' plan.pdf ',
+      type: 'application/pdf',
+    });
+    const image = drafts.prepare({ name: 'chart.png', type: 'image/png' });
+    expect(attachment.name).toBe('plan.pdf');
+    const created = draft();
+    await drafts.update(
+      {
+        ...created,
+        attachments: [attachment],
+        body: insertImage(created.body, { start: 0, end: 0 }, image).document,
+      },
+      created,
+    );
+    expect(unsendableAssets(draft())).toHaveLength(2);
+    await Promise.all([
+      drafts.importAsset(attachment, { kind: 'file', uri: 'file:///plan.pdf' }),
+      drafts.importAsset(image, { kind: 'file', uri: 'file:///chart.png' }),
+    ]);
+    const [stored, inline] = assetsOf(draft());
+    expect(stored).toMatchObject({ state: 'complete', size: 10 });
+    expect(inline).toMatchObject({ id: image.id, state: 'complete', size: 11 });
+    expect(unsendableAssets(draft())).toStrictEqual([]);
+    expect(storage.assets().toSorted()).toStrictEqual(
+      [attachment.id, image.id].toSorted(),
+    );
+    // The document names the asset; its bytes never enter it.
+    expect(storage.stored()?.document).toContain(attachment.id);
+    expect(storage.stored()?.document).not.toContain('plan bytes');
+
+    // Removing the image keeps its bytes for Undo while the Draft exists in this session.
+    const complete = draft();
+    const removed = { ...complete, body: typed(complete.body, '') };
+    await drafts.update(removed, complete);
+    expect(storage.assets()).toContain(image.id);
+    await drafts.update(complete, removed);
+    await expect(drafts.readAsset(completed(inline))).resolves.toStrictEqual({
+      kind: 'ready',
+      uri: `data:image/png;base64,${btoa('chart bytes')}`,
+    });
+
+    // After a relaunch, the reopened Draft keeps both. An image removed then stays for Undo
+    // until the next relaunch, whose first save removes it.
+    const relaunch = async () => {
+      storage.relaunch();
+      const store = createDrafts(storage.native, session.registration);
+      await store.load();
+      return store;
+    };
+    let relaunched = await relaunch();
+    const reopened = present(
+      draftOf(relaunched.getSnapshot(), id),
+      'the reopened Draft',
+    );
+    expect(assetsOf(reopened)).toStrictEqual(assetsOf(complete));
+    const withoutImage = { ...reopened, body: typed(reopened.body, '') };
+    await relaunched.update(withoutImage, reopened);
+    expect(storage.assets()).toHaveLength(2);
+    relaunched = await relaunch();
+    await relaunched.update({ ...withoutImage, subject: 'Plan' }, withoutImage);
+    expect(storage.assets()).toStrictEqual([attachment.id]);
+
+    // Discarding the Draft removes its bytes with it.
+    await expect(relaunched.discard(id)).resolves.toBe(true);
+    expect(storage.assets()).toStrictEqual([]);
+  });
+
+  it('keeps cancelled, failed and interrupted imports out of what can be sent', async () => {
+    expect.hasAssertions();
+    const { session, storage, drafts, id, draft } = await opened();
+    storage.addFile('file:///large.mov', 'movie');
+    storage.addFile('file:///notes.txt', 'notes');
+    const cancelling = drafts.prepare({
+      name: 'large.mov',
+      type: 'video/quicktime',
+    });
+    const failing = drafts.prepare({ name: 'missing.txt', type: 'text/plain' });
+    const created = draft();
+    await drafts.update(
+      { ...created, attachments: [cancelling, failing] },
+      created,
+    );
+
+    // Cancelling while native code copies leaves the asset cancelled and discards its bytes.
+    storage.holdImports();
+    const copying = drafts.importAsset(cancelling, {
+      kind: 'file',
+      uri: 'file:///large.mov',
+    });
+    expect(drafts.getImports().has(cancelling.id)).toBe(true);
+    await drafts.cancelImport(cancelling.id);
+    expect(drafts.getImports().has(cancelling.id)).toBe(false);
+    storage.releaseImports();
+    await copying;
+    expect(assetsOf(draft())[0]).toMatchObject({ state: 'cancelled' });
+    expect(storage.assets()).toStrictEqual([]);
+
+    // Unreadable source bytes fail the import.
+    await drafts.importAsset(failing, {
+      kind: 'file',
+      uri: 'file:///missing.txt',
+    });
+    expect(assetsOf(draft())[1]).toMatchObject({ state: 'failed' });
+    // Bytes written before native code rejected the import are discarded, so they never hold
+    // the Outgoing Content Store's space until relaunch.
+    storage.failNextImportAfterWrite('locked');
+    await drafts.importAsset(failing, {
+      kind: 'file',
+      uri: 'file:///notes.txt',
+    });
+    expect(storage.assets()).toStrictEqual([]);
+    expect(unsendableAssets(draft()).map(({ state }) => state)).toStrictEqual([
+      'cancelled',
+      'failed',
+    ]);
+
+    // An import that a relaunch interrupts stays importing, and its stray bytes never survive.
+    const interrupted = drafts.prepare({
+      name: 'notes.txt',
+      type: 'text/plain',
+    });
+    const current = draft();
+    await drafts.update(
+      {
+        ...current,
+        // This Draft has attachments only, so its assets are its attachments.
+        attachments: [...assetsOf(current), interrupted],
+      },
+      current,
+    );
+    await storage.native.importDraftAsset('account-a', interrupted.id, {
+      kind: 'file',
+      uri: 'file:///notes.txt',
+    });
+    storage.relaunch();
+    const relaunched = createDrafts(storage.native, session.registration);
+    await relaunched.load();
+    expect(relaunched.getImports().size).toBe(0);
+    const reopened = present(
+      draftOf(relaunched.getSnapshot(), id),
+      'the reopened Draft',
+    );
+    expect(assetsOf(reopened)[2]).toMatchObject({ state: 'importing' });
+    await relaunched.update({ ...reopened, subject: 'Notes' }, reopened);
+    expect(storage.assets()).toStrictEqual([]);
+    expect(unsendableAssets(reopened)).toHaveLength(3);
+  });
+
+  it('refuses files over the limits and reports damaged or missing bytes', async () => {
+    expect.hasAssertions();
+    const session = account(connected('account-a'));
+    const storage = createSyntheticDrafts(session.productAccount, {
+      outgoingLimit: 600,
+    });
+    const drafts = createDrafts(storage.native, session.registration);
+    await drafts.load();
+    const id = await drafts.create(alex);
+    storage.addFile('file:///big.bin', 'x'.repeat(400));
+    storage.addFile('file:///small.txt', 'small');
+    const big = drafts.prepare({ name: 'big.bin', type: '' });
+    const small = drafts.prepare({ name: 'small.txt', type: 'text/plain' });
+    const created = present(draftOf(drafts.getSnapshot(), id), 'the Draft');
+    await drafts.update({ ...created, attachments: [big, small] }, created);
+    // The Outgoing Content Store refuses rather than evicting anything.
+    await drafts.importAsset(big, { kind: 'file', uri: 'file:///big.bin' });
+    await drafts.importAsset(small, { kind: 'file', uri: 'file:///small.txt' });
+    const [refused, stored] = assetsOf(
+      present(draftOf(drafts.getSnapshot(), id), 'the Draft'),
+    );
+    const kept = completed(stored);
+    expect(refused).toMatchObject({ state: 'failed', reason: 'too-large' });
+    // An attachment's bytes verify without crossing the bridge; an image returns a thumbnail.
+    await expect(
+      drafts.readAsset(kept, { preview: false }),
+    ).resolves.toStrictEqual({ kind: 'verified' });
+    // An empty verification reply cannot stand in for requested image bytes.
+    const read = vi
+      .spyOn(storage.native, 'readDraftAsset')
+      .mockResolvedValueOnce({});
+    await expect(drafts.readAsset(kept)).resolves.toStrictEqual({
+      kind: 'damaged',
+    });
+    // Verified bytes without a decodable thumbnail are explicit, distinct from a malformed reply.
+    read.mockResolvedValueOnce({ uri: null });
+    await expect(drafts.readAsset(kept)).resolves.toStrictEqual({
+      kind: 'verified',
+    });
+    read.mockRestore();
+    // Damaged bytes and bytes the device lost read as unavailable, never as the file.
+    storage.damage(kept.id);
+    await expect(drafts.readAsset(kept)).resolves.toStrictEqual({
+      kind: 'damaged',
+    });
+    await expect(
+      drafts.readAsset({ ...kept, id: 'notstored0' }),
+    ).resolves.toStrictEqual({ kind: 'missing' });
+  });
+
+  it('copies a received attachment without keeping its mailbox, and only for its account', async () => {
+    expect.hasAssertions();
+    const { session, storage, drafts, id, draft } = await opened();
+    storage.addFile('downloaded-file', 'received bytes');
+    // The attachment came from another mailbox than the Draft sends from.
+    const received = {
+      name: 'invoice.pdf',
+      type: 'application/pdf',
+      source: {
+        kind: 'received',
+        mailbox: {
+          connection: other.id,
+          address: other.address,
+          generation: 'generation-1',
+        },
+        file: 'downloaded-file',
+      },
+    } as const;
+    await drafts.attach(id, [received]);
+    await vi.waitFor(() => {
+      expect(assetsOf(draft())[0]).toMatchObject({
+        state: 'complete',
+        size: 14,
+      });
+    });
+    expect(storage.stored()?.document).not.toContain(other.id);
+    expect(storage.stored()?.document).not.toContain('generation-1');
+    expect(storage.stored()?.document).not.toContain('downloaded-file');
+
+    // Another Product Account neither reads nor keeps the first account's bytes.
+    const asset = completed(assetsOf(draft())[0]);
+    await expect(drafts.save()).resolves.toBe(true);
+    session.change(connected('account-b'));
+    await drafts.load();
+    await expect(drafts.readAsset(asset)).resolves.toStrictEqual({
+      kind: 'damaged',
+    });
+    await drafts.create(alex);
+    expect(storage.assets()).toStrictEqual([]);
+    // Picking files that the person dismissed adds nothing.
+    await expect(drafts.pick('files')).resolves.toStrictEqual([]);
+    // One pick adds at most twenty files; the store gives back the copies past that.
+    storage.pickNext(
+      'files',
+      Array.from({ length: 23 }, (_, index) => ({
+        uri: `file:///${index}.txt`,
+        name: `${index}.txt`,
+        type: 'text/plain',
+      })),
+    );
+    await expect(drafts.pick('files')).resolves.toHaveLength(20);
+    // A file over the per-file limit is listed without a copy and fails as too large.
+    storage.pickNext('photos', [
+      { name: 'huge.heic', type: 'image/heic', oversized: 'true' },
+    ]);
+    const [huge] = await drafts.pick('photos');
+    expect(huge).toStrictEqual({
+      name: 'huge.heic',
+      type: 'image/heic',
+      source: { kind: 'oversized' },
+    });
+    expect(storage.discardedPicks()).toStrictEqual([
+      'file:///20.txt',
+      'file:///21.txt',
+      'file:///22.txt',
+    ]);
+    // Adding it fails at once as too large, without asking native code to read it.
+    const target = present(await drafts.create(alex), 'a Draft');
+    await drafts.attach(target, [present(huge, 'the oversized pick')]);
+    await vi.waitFor(() => {
+      expect(
+        assetsOf(
+          present(draftOf(drafts.getSnapshot(), target), 'the Draft'),
+        )[0],
+      ).toMatchObject({ state: 'failed', reason: 'too-large' });
+    });
+    // Insert Image uses the same refused representation inside the body.
+    const before = present(draftOf(drafts.getSnapshot(), target), 'the Draft');
+    const prepared = prepareFiles(before, {
+      selection: { start: 0, end: 0 },
+      files: [present(huge, 'the oversized pick')],
+      inline: true,
+    });
+    await drafts.update(prepared.draft, before);
+    for (const { asset, file: picked } of prepared.imports) {
+      await drafts.importAsset(asset, picked.source);
+    }
+    const refused = present(draftOf(drafts.getSnapshot(), target), 'the Draft');
+    expect(imagesOf(refused.body)).toHaveLength(1);
+    expect(imagesOf(refused.body)[0]).toMatchObject({
+      state: 'failed',
+      reason: 'too-large',
+    });
+    expect(unsendableAssets(refused)).toHaveLength(2);
+    expect(storage.assets()).toStrictEqual([]);
+    storage.pickNext('photos', [
+      { uri: 'file:///a.png', name: 'a.png', type: 'image/png' },
+    ]);
+    await expect(drafts.pick('photos')).resolves.toStrictEqual([
+      file('file:///a.png', 'a.png', 'image/png'),
+    ]);
+  });
+
+  it('preserves completed asset bytes for an edit racing with Draft deletion', async () => {
+    expect.hasAssertions();
+    const { storage, drafts, id, draft } = await opened();
+    storage.addFile('file:///plan.pdf', 'plan');
+    await drafts.attach(id, [file('file:///plan.pdf', 'plan.pdf')]);
+    await vi.waitFor(() => {
+      expect(assetsOf(draft())[0]).toMatchObject({ state: 'complete' });
+    });
+    const before = draft();
+    storage.hold();
+    const deleting = drafts.discard(id, { expected: () => before });
+    await vi.waitFor(() => {
+      expect(drafts.getSnapshot()).toMatchObject({ save: 'saving' });
+    });
+    const editing = drafts.update(
+      { ...before, subject: 'Keep this version' },
+      before,
+    );
+    storage.release();
+    await Promise.all([deleting, editing]);
+    const [copy] = draftsOf(drafts.getSnapshot());
+    expect(copy).toMatchObject({
+      conflict: true,
+      subject: 'Keep this version',
+    });
+    expect(storage.assets()).toHaveLength(1);
+    await expect(
+      drafts.readAsset(completed(copy?.attachments?.[0])),
+    ).resolves.toMatchObject({ kind: 'ready' });
+  });
+
+  it('drops picked files after a Product Account changes while choosing', async () => {
+    expect.hasAssertions();
+    const { session, storage } = await opened();
+    const { promise: picked, resolve: finish } =
+      Promise.withResolvers<
+        ReadonlyArray<{ uri: string; name: string; type: string }>
+      >();
+    const drafts = createDrafts(
+      { ...storage.native, pickDraftFiles: () => picked },
+      session.registration,
+    );
+    await drafts.load();
+    const choosing = drafts.pick('photos');
+    session.change(connected('account-b'));
+    finish([{ uri: 'file:///a.png', name: 'a.png', type: 'image/png' }]);
+    await expect(choosing).resolves.toStrictEqual([]);
+  });
+
+  it('keeps later navigation after received-attachment preparation and fences account replacement', async () => {
+    expect.hasAssertions();
+    const { session, storage, drafts } = await opened();
+    const navigation = createComposerNavigation();
+    storage.addFile('downloaded-file', 'received');
+    const saved = {
+      name: 'invoice.pdf',
+      type: 'application/pdf',
+      address: alex.address,
+      generation: 'generation-1',
+      file: 'downloaded-file',
+    };
+    let attaching: () => void = () => undefined;
+    // oxlint-disable-next-line promise/avoid-new -- Signals when the real attach reaches held storage.
+    const prepared = new Promise<void>((resolve) => {
+      attaching = resolve;
+    });
+    const controlled = {
+      ...drafts,
+      attach: async (...args: Readonly<Parameters<typeof drafts.attach>>) => {
+        storage.hold();
+        const result = drafts.attach(...args);
+        attaching();
+        return result;
+      },
+    };
+    const creating = navigation.attachReceived(controlled, {
+      mailbox: alex.id,
+      mailboxes: [{ ...alex, state: 'connected' as const }],
+      saved,
+    });
+    await prepared;
+    await navigation.leave();
+    storage.release();
+    await expect(creating).resolves.toBeUndefined();
+    await drafts.save();
+    expect(draftsOf(drafts.getSnapshot())).toHaveLength(2);
+
+    // oxlint-disable-next-line promise/avoid-new -- A fresh signal fences the second attachment operation.
+    const secondPrepared = new Promise<void>((resolve) => {
+      attaching = resolve;
+    });
+    const replacement = createComposerNavigation();
+    const preparing = replacement.attachReceived(controlled, {
+      mailbox: alex.id,
+      mailboxes: [{ ...alex, state: 'connected' as const }],
+      saved,
+    });
+    await secondPrepared;
+    session.change(connected('account-b'));
+    storage.release();
+    await expect(preparing).resolves.toBeUndefined();
+    await drafts.load();
+    expect(draftsOf(drafts.getSnapshot())).toStrictEqual([]);
   });
   /* oxlint-enable vitest/max-expects */
 });

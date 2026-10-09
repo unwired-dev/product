@@ -25,12 +25,54 @@ export const BlockKindSchema = Schema.Literals([
 ]);
 export type BlockKind = typeof BlockKindSchema.Type;
 
-const SpanSchema = Schema.Struct({
-  text: Schema.NonEmptyString.check(
-    Schema.makeFilter((text) => !text.includes('\n')),
-  ),
-  marks: Schema.optionalKey(Schema.NonEmptyArray(MarkSchema)),
-});
+// The character an inline image occupies in the editor's text; typed text never contains it.
+export const imageCharacter = '\uFFFC';
+
+const assetFields = {
+  // Random and unique within the account's Drafts; native storage files the bytes under it.
+  id: Schema.String.check(Schema.isPattern(/^[\da-z]{8,64}$/u)),
+  name: Schema.NonEmptyString,
+  // The MIME type, empty when unknown.
+  type: Schema.String,
+};
+// A file or image added to a Draft. Only a complete asset has verified bytes on this device: its
+// size and SHA-256 digest. An interrupted import stays 'importing' after a relaunch.
+export const AssetSchema = Schema.Union([
+  Schema.Struct({
+    ...assetFields,
+    state: Schema.Literals(['importing', 'cancelled']),
+  }),
+  Schema.Struct({
+    ...assetFields,
+    state: Schema.Literal('failed'),
+    // Over the per-file limit or the space left for Drafts on this device.
+    reason: Schema.optionalKey(Schema.Literal('too-large')),
+  }),
+  Schema.Struct({
+    ...assetFields,
+    state: Schema.Literal('complete'),
+    size: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+    digest: Schema.String.check(Schema.isPattern(/^[\da-f]{64}$/u)),
+  }),
+]);
+export type Asset = typeof AssetSchema.Type;
+
+const SpanSchema = Schema.Union([
+  Schema.Struct({
+    text: Schema.NonEmptyString.check(
+      Schema.makeFilter(
+        (text) => !text.includes('\n') && !text.includes(imageCharacter),
+      ),
+    ),
+    marks: Schema.optionalKey(Schema.NonEmptyArray(MarkSchema)),
+  }),
+  // An inline image: one character of the text, carrying the image it shows.
+  Schema.Struct({
+    text: Schema.Literal(imageCharacter),
+    image: AssetSchema,
+    marks: Schema.optionalKey(Schema.NonEmptyArray(MarkSchema)),
+  }),
+]);
 export const BlockSchema = Schema.Struct({
   kind: BlockKindSchema,
   spans: Schema.Array(SpanSchema),
@@ -45,7 +87,7 @@ export const emptyDocument: SemanticDocument = [
 
 // The editor shows one text: blocks joined by line breaks, list items after a marker that is
 // displayed but never stored.
-type Char = Readonly<{ ch: string; marks: readonly Mark[] }>;
+type Char = Readonly<{ ch: string; marks: readonly Mark[]; image?: Asset }>;
 type Line = Readonly<{
   kind: BlockKind;
   length: number;
@@ -68,9 +110,19 @@ const linesOf = (document: SemanticDocument): Line[] =>
       kind: block.kind,
       length: block.spans.reduce((count, { text }) => count + text.length, 0),
       get chars() {
-        return block.spans.flatMap(({ text, marks = [] }) =>
-          // Code units, as editor offsets count them; a split surrogate pair rejoins in order.
-          text.split('').map((ch) => ({ ch, marks })),
+        return block.spans.flatMap((span) =>
+          'image' in span
+            ? [
+                {
+                  ch: imageCharacter,
+                  marks: span.marks ?? [],
+                  image: span.image,
+                },
+              ]
+            : // Code units, as editor offsets count them; a split surrogate pair rejoins in order.
+              span.text
+                .split('')
+                .map((ch) => ({ ch, marks: span.marks ?? [] })),
         );
       },
     };
@@ -89,20 +141,33 @@ const sameMarks = (left: readonly Mark[], right: readonly Mark[]) =>
   left.length === right.length && left.every((mark, i) => right[i] === mark);
 
 const blockOf = ({ kind, chars }: Line): Block => {
-  const spans: Array<{ text: string; marks: readonly Mark[] }> = [];
-  for (const { ch, marks } of chars) {
+  const spans: Array<{ text: string; marks: readonly Mark[]; image?: Asset }> =
+    [];
+  for (const { ch, marks, image } of chars) {
     const last = spans.at(-1);
-    if (last !== undefined && sameMarks(last.marks, marks)) {
+    // An image is a span of its own.
+    if (
+      last !== undefined &&
+      image === undefined &&
+      last.image === undefined &&
+      sameMarks(last.marks, marks)
+    ) {
       last.text += ch;
     } else {
-      spans.push({ text: ch, marks });
+      spans.push(
+        image === undefined ? { text: ch, marks } : { text: ch, marks, image },
+      );
     }
   }
   return {
     kind,
-    spans: spans.map(({ text, marks }) => {
+    spans: spans.map(({ text, marks, image }) => {
       const [first, ...rest] = marks;
-      return first === undefined ? { text } : { text, marks: [first, ...rest] };
+      const marked =
+        first === undefined ? {} : { marks: [first, ...rest] as const };
+      return image === undefined
+        ? { text, ...marked }
+        : { text: imageCharacter, image, ...marked };
     }),
   };
 };
@@ -192,8 +257,8 @@ export const previewOf = (document: SemanticDocument, limit = 300) => {
   const pieces = function* () {
     for (const [index, { spans }] of document.entries()) {
       yield index === 0 ? '' : ' ';
-      for (const { text } of spans) {
-        yield text;
+      for (const span of spans) {
+        yield 'image' in span ? '' : span.text;
       }
     }
   };
@@ -384,6 +449,8 @@ const splice = (
   const { from, to, kind, head, tail } = edgesOf(lines, change);
   const typed = marks ?? head.at(-1)?.marks ?? tail[0]?.marks ?? [];
   const parts = change.inserted
+    // Only an inserted image carries its character; typed or pasted ones are dropped.
+    .replaceAll(imageCharacter, '')
     .split('\n')
     .map((part) => part.split('').map((ch) => ({ ch, marks: typed })));
   const above = head.length === 0 && parts.length > 1 && parts[0]?.length === 0;
@@ -632,7 +699,7 @@ export function toggleMark(
           column < first || column >= last
             ? char
             : {
-                ch: char.ch,
+                ...char,
                 marks: markOrder.filter((each) =>
                   each === mark ? !has : char.marks.includes(each),
                 ),
@@ -651,6 +718,87 @@ export const blockKindAt = (document: SemanticDocument, offset: number) => {
   const lines = linesOf(document);
   return lines[locate(lines, offset).line]?.kind ?? 'paragraph';
 };
+
+// Replaces the selection with an inline image, leaving the caret after it.
+export function insertImage(
+  document: SemanticDocument,
+  selection: Selection,
+  image: Asset,
+): Edit {
+  const start = Math.min(selection.start, selection.end);
+  const end = Math.max(selection.start, selection.end);
+  const { lines, line, column } = splice(
+    linesOf(document),
+    { start, end, inserted: '' },
+    undefined,
+  );
+  const result = lines.map((each, index) =>
+    index === line
+      ? lineOf(each.kind, [
+          ...each.chars.slice(0, column),
+          { ch: imageCharacter, marks: [], image },
+          ...each.chars.slice(column),
+        ])
+      : each,
+  );
+  const offset = offsetOf(result, line, column + 1);
+  return {
+    document: documentOf(result),
+    selection: { start: offset, end: offset },
+  };
+}
+
+// The document's inline images, in reading order.
+export const imagesOf = (document: SemanticDocument) =>
+  document.flatMap(({ spans }) =>
+    spans.flatMap((span) => ('image' in span ? [span.image] : [])),
+  );
+
+const showsImage = (span: Block['spans'][number], id: string) =>
+  'image' in span && span.image.id === id;
+
+// Applies `edit` to each block showing the inline image `id`; the same document when none does.
+const editImageBlocks = (
+  document: SemanticDocument,
+  id: string,
+  edit: (block: Block) => Block,
+): SemanticDocument => {
+  if (!imagesOf(document).some((image) => image.id === id)) {
+    return document;
+  }
+  const [first, ...rest] = document.map((block) =>
+    block.spans.some((span) => showsImage(span, id)) ? edit(block) : block,
+  );
+  return first === undefined ? document : [first, ...rest];
+};
+
+// The document with the inline image `id` replaced; the same document when it has none.
+export const withImage = (
+  document: SemanticDocument,
+  id: string,
+  next: (image: Asset) => Asset,
+) =>
+  editImageBlocks(document, id, (block) => ({
+    ...block,
+    spans: block.spans.map((span) =>
+      'image' in span && span.image.id === id
+        ? { ...span, image: next(span.image) }
+        : span,
+    ),
+  }));
+
+// The document without the inline image `id`, keeping the text around it.
+export const withoutImage = (document: SemanticDocument, id: string) =>
+  editImageBlocks(document, id, (block) =>
+    blockOf(
+      lineOf(
+        block.kind,
+        (linesOf([block])[0]?.chars ?? []).filter(
+          (char) => char.image?.id !== id,
+        ),
+      ),
+    ),
+  );
 
 // Sets every selected block to `kind`, or back to a paragraph when they all have it already.
 export function setBlockKind(

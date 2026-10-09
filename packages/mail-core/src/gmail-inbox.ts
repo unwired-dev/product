@@ -5,7 +5,6 @@ import * as Effect from 'effect/Effect';
 import * as Latch from 'effect/Latch';
 import * as Option from 'effect/Option';
 import * as Order from 'effect/Order';
-import * as Predicate from 'effect/Predicate';
 import * as Random from 'effect/Random';
 import * as Schedule from 'effect/Schedule';
 import * as Schema from 'effect/Schema';
@@ -20,6 +19,7 @@ import type {
 
 import {
   decodeDiagnostic,
+  rejectionCode,
   rejectionDiagnostic,
   runLogged,
 } from './diagnostics.ts';
@@ -345,11 +345,6 @@ class GmailInvalidPage extends Schema.TaggedError<GmailInvalidPage>()(
   'GmailInvalidPage',
   {},
 ) {}
-
-const rejectionCode = (cause: unknown) =>
-  Predicate.hasProperty(cause, 'code') && Predicate.isString(cause.code)
-    ? cause.code
-    : undefined;
 
 const rejected = (
   cause: unknown,
@@ -3270,6 +3265,32 @@ export function createGmailInbox(
           ),
         ),
       );
+    },
+    // A Downloaded Attachment saved for the open mailbox generation, which a Draft can copy; native
+    // code reads it only while that generation is current.
+    attachmentFile: (id: string, locator: string) => {
+      const saved = downloads.get(attachmentKey(id, locator))?.saved;
+      const descriptor = documents
+        .get(id)
+        ?.attachments?.find((attachment) => attachment.locator === locator);
+      const scope = opened;
+      if (
+        saved === undefined ||
+        descriptor === undefined ||
+        scope === undefined ||
+        !readable(id) ||
+        saved.scope.address !== scope.address ||
+        saved.scope.generation !== scope.generation
+      ) {
+        return undefined;
+      }
+      return {
+        name: descriptor.name,
+        type: descriptor.mimeType,
+        address: scope.address,
+        generation: scope.generation,
+        file: saved.file,
+      };
     },
     // The listed messages whose bodies open from this device without Gmail; undefined when unknown.
     savedBodies: (ids: readonly string[]) => runLogged(savedBodies(ids)),

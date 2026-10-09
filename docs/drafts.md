@@ -69,8 +69,7 @@ Drafts mailbox, and Drafts do not synchronize to other devices yet.
   Each activation moves one step, including repeated commands before the
   composer redraws.
 
-Links, inline images, attachments, the Slash Command Menu and recipient suggestions
-are later slices.
+Links, the Slash Command Menu and recipient suggestions are later slices.
 
 ## Saving
 
@@ -97,8 +96,8 @@ is not a valid address keeps the composer open until it is corrected or removed.
 It then saves and closes only once the Draft is stored; when that fails the
 composer stays open and says so. The compact iPhone system **Back**, Mac window
 close and Mac **Quit** currently have the separate native limitations below.
-Closing a Draft with no recipients, subject or
-body text discards it only if no other window has completed its content. **Discard**
+Closing a Draft with no recipients, subject,
+body content or attachments discards it only if no other window has completed its content. **Discard**
 asks before deleting a Draft from this device.
 If another window or storage writer edited the same Draft since it was opened, a stale
 Discard preserves that writer's completed version in the Drafts list.
@@ -121,6 +120,75 @@ After an interruption or relaunch the Drafts list shows every saved Draft, and
 opening one restores its sending mailbox, recipients, subject and formatted body
 without sending it.
 
+## Files and images
+
+[#612](https://github.com/unwired-dev/product/issues/612) adds files and inline
+images to Drafts. Each host offers its own system affordances rather than identical
+controls:
+
+- **iPhone and iPad:** **Attach File** (the Files picker), **Attach Photo** (the
+  Photos picker), **Insert Image** (a photo placed inline at the caret) and
+  **Paste Image** (images on the pasteboard, placed inline). The pickers copy the
+  chosen files into a protected temporary folder that import completion or failure,
+  an abandoned picker result, or the next launch removes.
+- **Mac:** **Attach Files…** and **Insert Image…** open the system open panel.
+  Files dropped anywhere on the composer are attached. Pasting an image into the
+  body places it inline at the caret; pasting a file attaches it, and text pastes
+  as usual. The app reads only files the person chose or dropped.
+- **Received attachments:** a Downloaded Attachment in the reader offers **Attach
+  to New Message**. It starts a Draft from the reader's mailbox when that mailbox
+  can send, otherwise the first one that can, and copies the downloaded bytes
+  through that mailbox's current generation. The Draft keeps only its copy of the
+  bytes: no mailbox, generation, file name or Gmail authorization of the source.
+
+Native Apple code accepts plain file imports only from picker-owned copies, or
+on Mac from files outside the app's container that the system permits it to read.
+A Downloaded Attachment must use the received-attachment source and its current
+Mailbox Connection authorization; naming its plaintext path as a plain file is
+refused.
+
+An inline image is part of the formatted body, so typing around it, deleting it,
+**Undo** and **Redo** keep its place and reference. The composer lists
+**Attachments** and **Inline images** under the body with their name, size and a
+**Remove** action; an inline image shows its picture.
+
+An added file is **importing** until its bytes are stored. While it imports, its
+row says **Adding…** and offers **Cancel**. A file whose import was cancelled,
+interrupted by quitting or relaunch, could not be read or saved, or is too large
+stays listed as **Not added** with the reason, and the composer warns that files
+not added are not sent. Only complete files can be sent: `unsendableAssets` in
+`@private-email/mail-core/drafts` lists everything else for the delivery slice.
+When the composer opens, it checks every complete file's bytes against their
+recorded digest; the bytes stay in native code, and an inline image returns only
+a thumbnail at most 256 pixels on its longest side to show. Verified bytes that
+cannot be decoded as an image stay listed without a picture. Bytes that no longer verify show as **Damaged on
+this device**; bytes the device lost show as **No longer on this device**. A check
+refused while private storage is locked says so and offers **Try again**; it also
+runs again when the app returns to the foreground. **Attach to New Message** is offered only when a sending mailbox is available
+and Draft storage is open. If opening Draft storage fails or it is locked, the
+reader says so and offers **Try again**; downloaded files can still be opened or
+shared. An unexpected failure to start the new message is reported in the reader
+and the next attempt clears that notice. A refused composer exit or a later
+navigation choice does not report an attachment failure. Once storage is open,
+**Attach to New Message** opens its Draft even when storage refuses the save, so the composer shows the unsaved
+state instead of leaving another hidden Draft behind. One file
+may be up to 25 MiB, and all Drafts and their files share the **Outgoing Content
+Store**'s 100 MB on this device; a file over either limit is refused rather than
+evicting anything. One pick, paste or drop adds at most 20 files; the rest of a
+larger selection is not added. A picked or pasted file over 25 MiB is listed as too large
+without an app-owned staging copy; the system may first create a temporary representation.
+A file whose import fails is deleted at once, even
+if native code had already stored its bytes.
+
+Editing in the composer while an import finishes neither loses the edit nor
+creates a conflicting copy. An import still running when its Draft is closed
+completes into the stored Draft. Closing an attachment-only Draft preserves its files.
+Deleting an importing inline image and then choosing **Undo** after import finishes
+restores its verified bytes. An edit racing **Discard** keeps the conflict copy's
+files as well as its body. A picker result arriving after the composer closes or
+the Product Account changes is discarded. Repeated **Attach to New Message**
+presses start one operation; navigation chosen while its save waits stays selected.
+
 ## Storage and isolation
 
 Drafts are stored in the [private Inbox storage](private-inbox-storage.md#draft-storage)
@@ -135,6 +203,16 @@ encryption and its key, the Product Account owner and revision checks, the
 **Outgoing Content Store**'s 100 MB limit and the purge. The TypeScript Draft store in `@private-email/mail-core/drafts`
 owns ordered autosave, rebasing onto a newer revision and conflicting copies; it
 never handles key material.
+
+A Draft's files and inline images are stored as separate [Draft Assets](private-inbox-storage.md#draft-storage).
+The Draft document records each one's name, type, state, and once complete its
+size and SHA-256 digest; the bytes never enter the document. Bytes are stored
+before any Draft names them as complete, and a Draft that no longer uses an asset
+gives it up only after the document without it is stored. While the app runs, an
+asset that a still-listed Draft has used stays stored so **Undo** can restore it;
+discarding the Draft removes it, and after a relaunch the first save removes any
+asset no Draft uses. If removing unused bytes fails after the document is stored,
+the save still succeeds and a later save retries that cleanup.
 
 ## Verification
 
@@ -210,8 +288,43 @@ Mobile deletion regressions use the post-edit caret to preserve the remaining
 character's marks with or without a key event; they do not qualify native keyboard,
 dictation, autocorrection or IME behavior.
 
+Asset coverage (#612): shared store tests insert, delete, round-trip and Undo an
+inline image; store verified bytes through relaunch, Undo and Draft deletion;
+keep cancelled, failed and interrupted imports unsendable while their stray bytes
+are removed; refuse files over the limits; read damaged or missing bytes as
+unavailable; and copy a received attachment without its mailbox, for its Product
+Account only. Both hosts' component journeys attach files and an inline image
+through the pickers, cancel an import, edit while an import completes without a
+conflict copy, show an interrupted import and the stored files after relaunch,
+show damaged image bytes, remove and restore an inline image with **Undo**, and
+attach a Downloaded Attachment from the reader. The Mac journey also pastes an
+image and drops a file. These use the synthetic Draft storage and remain component
+evidence. The hosted iOS 27 storage suite seals assets to their Product Account
+and identifier, verifies their digest, rejects moved ciphertext and other
+accounts, keeps an uncommitted import through a save that does not name it,
+removes unused assets after a stored document, imports pasted data and a current
+Downloaded Attachment, refuses an oversized file before reading it, and purges
+assets with the account. Review regressions also cover attachment-only Close and
+relaunch, deleting an importing image before settlement and restoring it with
+**Undo**, a concurrent Discard that preserves a conflict copy's asset bytes, picker
+results arriving after Close or account replacement, and navigation during a
+received-attachment save. Native checks remove owned picker copies on rejected
+imports and preserve similarly named directories containing user files.
+
+Run `mise exec -- zsh native/private-inbox/integration/picker.zsh` on Mac for
+the picker MIME regression. It compiles the actual bridge helpers alongside
+the native owners and uses real files and ImageIO to verify extensionless PNGs,
+declared-type precedence, renamed/moved copies, unknown files and URI-less
+oversized results. It does not open a panel or qualify sandbox grants, iOS file
+protection, encrypted import or the visible composer. Selected extensionless
+images keep their image type even when filesystem metadata leaves it unknown;
+the system panel's image-filter admission still requires native interaction
+qualification.
+
 Deferred before release: native iPhone, iPad and Mac journeys that compose, relaunch
-and reopen a Draft; VoiceOver, hardware-keyboard and Dynamic Type qualification of
+and reopen a Draft; the system Photos and Files pickers, the Mac open panel,
+pasteboard images, Mac drag and drop and Mac sandbox file grants with real files;
+how the body shows an inline image's place in its text on each platform; VoiceOver, hardware-keyboard and Dynamic Type qualification of
 the composer (including Draft row role labels and middle-dot separators at
 different VoiceOver punctuation settings); and physical-device lock behavior.
 

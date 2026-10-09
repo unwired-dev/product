@@ -100,12 +100,29 @@ Account with no removal under way; a save prepared for another account or a stal
 storage revision is refused.
 A pending device or an account being removed has no Drafts. Another account's
 document reads as empty, and its first save replaces it. A save whose encrypted
-file would exceed the **Outgoing Content Store**'s 100 MB limit is refused rather
-than evicting anything.
+file, with every Draft Asset file still on the device, would exceed the **Outgoing
+Content Store**'s 100 MB limit is refused rather than evicting anything. An asset
+whose removal failed keeps counting until a later save removes it.
 Damaged or unreadable Drafts are preserved and reported as unavailable, and a
 missing key never creates a replacement while the document exists. Every account
 purge removes the document with the caches and needs no key. Draft access needs no
 Gmail authorization or network.
+
+A Draft's files and inline images are **Draft Assets**, encrypted for the Product
+Account and checked against their recorded digest when read. Assets moved to
+another identifier or read for another account do not open. A complete reference
+always follows stored bytes, and removing a reference does not remove bytes needed
+by a preserved conflict copy or the editor's Undo history. An asset is refused over
+25 MiB, or when the Drafts and their assets would exceed the Outgoing Content
+Store's 100 MB. Asset removal needs no key, and account purge removes every asset
+with the document. Interrupted imports are cleaned on the next save after relaunch.
+
+Picked files on iPhone and iPad are protected temporary copies removed after
+successful or failed import, an abandoned picker result, or the next launch.
+Cleanup recognizes only the picker-owned UUID folder beneath its exact temporary
+root and preserves user files in similarly named folders. Mac files are read in
+place through the open panel's or drop's grant, allowed by the user-selected
+read-only sandbox entitlement.
 
 ## Native wiring and signing
 
@@ -143,7 +160,7 @@ window selection and read changes. They do not prove encryption or process
 persistence. Run their lint, format, type and test checks through the root workspace.
 
 The app-hosted Swift Testing suite uses the real filesystem, CryptoKit and
-Keychain. It checks reopening, ciphertext without fixture plaintext, Draft owner and revision checks, rejection
+Keychain. It checks reopening, ciphertext without fixture plaintext, Draft owner and revision checks, Draft Asset sealing, digests and cleanup, rejection
 with a wrong or missing key, preserved corrupt data, credential use/removal,
 credential/database isolation and competing native store instances. A controlled
 protected-data availability boundary also checks locked first-run access, preservation

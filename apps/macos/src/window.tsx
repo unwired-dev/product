@@ -21,6 +21,11 @@ export function PreviewWindow({ windowId }: { readonly windowId: string }) {
   // The window's one composer replaces the reader while it is open.
   const [composing, setComposing] = useState<string>();
   const colors = usePalette();
+  // Opening a Draft from either pane replaces the reader with the window's composer.
+  const compose = (id: string) => {
+    setSelected(undefined);
+    setComposing(id);
+  };
   // Either pane closes the reader when its message leaves the Inbox.
   const close = () => {
     setSelected(undefined);
@@ -35,10 +40,7 @@ export function PreviewWindow({ windowId }: { readonly windowId: string }) {
             composing={composing}
             selected={selected}
             onClose={close}
-            onCompose={(id) => {
-              setSelected(undefined);
-              setComposing(id);
-            }}
+            onCompose={compose}
             onSelect={(selection) => {
               setComposing(undefined);
               setSelected(selection);
@@ -51,6 +53,7 @@ export function PreviewWindow({ windowId }: { readonly windowId: string }) {
               id={selected?.id}
               mailbox={selected?.mailbox}
               onClose={close}
+              onCompose={compose}
             />
           ) : (
             <Composer
