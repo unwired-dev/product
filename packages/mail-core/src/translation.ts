@@ -16,6 +16,7 @@ import {
 } from './assistance.ts';
 import { runLogged } from './diagnostics.ts';
 import { hasVisibleText } from './readable-text.ts';
+import { imageCharacter } from './semantic-document.ts';
 
 // The host's on-device Apple Translation. It translates only the text it is given, with
 // languages already installed on the device, and has no remote fallback.
@@ -55,7 +56,10 @@ const decodeTranslation = Schema.decodeUnknownEffect(
   Schema.Struct({
     source: LanguageCode,
     // Translated text can be longer than its source, but not without bound.
-    text: Schema.String.check(Schema.isMaxLength(summaryInputLimit * 4)),
+    text: Schema.String.check(
+      Schema.isMaxLength(summaryInputLimit * 4),
+      Schema.makeFilter((text) => !text.includes(imageCharacter)),
+    ),
   }),
 );
 const decodeOutcome = Schema.decodeUnknownOption(

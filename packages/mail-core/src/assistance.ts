@@ -45,8 +45,12 @@ const decodeSummary = Schema.decodeUnknownEffect(
   Schema.String.check(Schema.isMaxLength(4000)),
 );
 // Rewritten text can be longer than its source, but not without bound: twice the input limit.
+// Applying text drops image placeholders, so a result containing one could delete authored text.
 const decodeDraftText = Schema.decodeUnknownEffect(
-  Schema.String.check(Schema.isMaxLength(12_000)),
+  Schema.String.check(
+    Schema.isMaxLength(12_000),
+    Schema.makeFilter((text) => !text.includes(imageCharacter)),
+  ),
 );
 const decodeOutcome = Schema.decodeUnknownOption(
   Schema.Struct({

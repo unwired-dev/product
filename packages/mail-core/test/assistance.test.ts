@@ -851,6 +851,27 @@ describe('on-device Draft rewrites and reply suggestions', () => {
     },
   );
 
+  it.each([imageCharacter, `Generated ${imageCharacter} text`])(
+    'rejects a result containing an image placeholder, which applying would drop: %j',
+    async (text) => {
+      expect.hasAssertions();
+      const logged = vi.spyOn(console, 'error').mockReturnValue(undefined);
+      const { native, nth } = scriptedAssistance();
+      const assistance = createDraftAssistance(native);
+      const rewrite = rewriteFixture();
+      const done = assistance.start(rewrite);
+      const call = await nth(0);
+      call.answer.resolve(text);
+      await done;
+      expect(assistance.getSnapshot(rewrite)).toStrictEqual({ kind: 'failed' });
+      expect(logged).toHaveBeenCalledWith(
+        expect.any(String),
+        'On-device assistance failed:',
+        'invalid at (root)',
+      );
+    },
+  );
+
   it('rejects an oversized result and drops a cancelled late result', async () => {
     expect.hasAssertions();
     vi.spyOn(console, 'error').mockReturnValue(undefined);

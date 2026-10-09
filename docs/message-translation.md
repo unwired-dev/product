@@ -77,7 +77,9 @@ The native host identifies the source language and accepts only installed pairs;
 it never requests a language download. Cancellation stops its translation session.
 The shared store must validate every returned language and translation: BCP 47-shaped
 codes, names up to 100 characters, at most 500 languages and translations up to
-24,000 characters. Invalid results leave the source unchanged. Failure logs carry
+24,000 characters. Results containing image placeholder characters fail for both
+reader and Draft translations, so accepting a Draft translation cannot silently
+drop generated characters. Invalid results leave the source unchanged. Failure logs carry
 only an allow-listed native code or decode path, never mail or translated text.
 
 ## Deterministic evidence

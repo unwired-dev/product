@@ -82,7 +82,9 @@ the request is refused; only quoted context can be shortened.
 Each prompt treats its input as untrusted content, never as instructions, and forbids
 inventing facts. Generation uses temperature 0 and at most 1,500 response tokens.
 `@private-email/mail-core/assistance` decodes every result with Schema (up to
-12,000 characters) and fails closed on anything else. Failure logs carry only the
+12,000 characters) and fails closed on anything else. Results containing image
+placeholder characters are rejected, keeping the Draft unchanged rather than
+applying text the editor would drop. Failure logs carry only the
 allow-listed native code or decode path, never Draft or generated text.
 
 ## Deterministic evidence

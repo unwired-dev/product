@@ -26,6 +26,15 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 - A native bridge result, seed, persisted JSON value, HTTP body, token or route parameter used before a `Schema` decode, or narrowed with `as`, a hand-written property check or a truthiness test. The Apple host's checks do not make its results trusted in TypeScript.
 - A decode failure that becomes a default, an empty list or a `ready` state. It must map to the boundary's existing tagged error, with the decode error as `cause`, and surface as a non-ready state.
 - A schema widened (`Schema.Unknown`, optional field, loose union) to make a fixture or a new native result pass, without the consumer handling the widened case.
+- `assistance.ts.decodeDraftText`, `translation.ts.decodeTranslation` or another
+  generated-text decoder admitting content the Draft editor cannot insert as
+  reviewed. Validate against `draftReplacement` and
+  `semantic-document.ts.replaceSelection` before publishing `ready`, including
+  rejecting U+FFFC image placeholders that replacement strips. Otherwise a
+  nonblank preview can become an empty insertion and delete captured authored
+  text, or the accepted edit silently differs from its preview. Fail closed
+  rather than silently sanitizing the generated result; test the public store
+  with placeholder-only and mixed-text output.
 - `drafts.ts.readAsset` using the verify-only response schema for a requested
   image preview. Require a nonempty URI or the explicit `uri: null` no-thumbnail
   success reply, mapping the latter to verified bytes without a picture. Admit
