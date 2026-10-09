@@ -11,6 +11,7 @@ These scripts are the gates and runners other evidence depends on: the bundle ch
 - A check that exits zero despite missing inputs required to prove its stated outcome: no bundle source maps, no selected native tests, or a required tool that was missing. The bundle check's "export the bundle first" assertion guards this. A documented no-op, such as no changeset files to validate, is permitted.
 - An error swallowed so the script continues: `|| true`, a `catch` that only logs, a pipeline without `pipefail`, an unchecked child-process exit status or signal.
 - A bundle or contract assertion removed, loosened to a substring that always matches, or updated to the new value with no explanation of why the old expectation no longer holds.
+- `apps/macos/scripts/verify-native.ts` or `verify-pods.rb` accepting only a quoted prefix of a Podfile pod-name expression, or missing a direct call because of its syntax. Require complete literal names and reject computed arguments; otherwise concatenation or an inline conditional can add a foreign pod while the native allowlist passes.
 - A custom lint rule changed without its test in `scripts/*.test.mjs` covering both a rejected and an accepted case; `pnpm test:tooling` runs them for every configuration.
 
 #### Runners own what they touch
