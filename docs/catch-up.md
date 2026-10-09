@@ -21,11 +21,14 @@ exists. Nothing here is implemented yet. The work is tracked in
   message has attachments. Messages the person sent appear as right-aligned
   “me” bubbles.
 - The newest message is at the bottom. Catch Up opens at an unread divider above
-  the oldest message not yet seen in Catch Up. Scrolling past a bubble marks it
-  seen in Catch Up only; it never changes [Message Read State](domain/messages-and-delivery.md).
+  the oldest message not yet seen in Catch Up. On first open, already read
+  messages count as seen and unread ones as unseen; with nothing unseen, Catch Up
+  opens at the bottom. Afterwards, scrolling past a bubble marks it seen in
+  Catch Up only; it never changes [Message Read State](domain/messages-and-delivery.md).
 - Mail in Gmail's Promotions, Social, Updates and Forums categories collapses into
   one bubble, such as "12 newsletters", which expands inline into message bubbles
-  when tapped.
+  when tapped. It has no other interactions; the ones below apply to message
+  bubbles.
 - Tapping a bubble opens the Thread view scrolled to that message and highlights
   it. The Thread view is the existing
   [conversation reader](product/messages-and-delivery.md), with its message order,
@@ -35,6 +38,10 @@ exists. Nothing here is implemented yet. The work is tracked in
   the message had several recipients and sends through the Outbox with an undo
   window. Quoted history follows the existing Reply All Draft behavior.
 - Long-pressing a bubble opens archive, delete, mark unread, reply and open Thread.
+  As in the [conversation reader](product/messages-and-delivery.md), archive,
+  delete and mark unread act on the whole Thread, so every bubble of that Thread
+  changes together; the menu labels them as Thread actions. Reply and quick reply
+  target the pressed message.
 
 ## Summaries
 
