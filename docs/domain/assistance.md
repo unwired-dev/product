@@ -18,7 +18,7 @@ Explicitly requested help for composing, responding to, understanding, or transf
 _Avoid_: Email assistant, background AI processing, cloud inference
 
 **Mail Assistance Enablement**:
-A device-local opt-in scoped to one Product Account and Mail Profile that permits explicit On-Device Mail Assistance actions. It defaults off independently on every device, never starts inference by itself, and is cleared when the Product Account is removed.
+A device-local opt-in scoped to one Product Account and Mail Profile that permits explicit On-Device Mail Assistance actions and **Background Message Summaries**. It defaults off independently on every device, starts no inference by itself other than Background Message Summaries, and is cleared when the Product Account is removed.
 _Avoid_: Synchronized AI preference, automatic assistance, background enablement
 
 **Assistance Context**:
@@ -42,6 +42,10 @@ _Avoid_: automatic reply, authoritative completeness claim, automatic send
 **Understanding Assistance**:
 An explicitly requested, device-local, ephemeral, source-linked summary of already-local Thread message text within one Mail Profile, including supported actions, open questions, stated or inferred dates, and stated deadlines. It excludes attachments, Inline Images, Remote Message Content, unrelated correspondence, Product Sync, and Drafts; discloses omitted content; never fetches a missing body; and becomes stale when its local Thread sources change.
 _Avoid_: authoritative summary, background Thread analysis, full-Thread claim
+
+**Background Message Summary**:
+A device-local summary of one message's new content, created without a per-message request while **Mail Assistance Enablement** is on and shown in **Catch Up**. It is the only assistance that runs without an explicit request; it is stored only in the device's encrypted cache beside its message, deleted with it, and never synchronized. Planned; see [Catch Up](../catch-up.md).
+_Avoid_: Thread summary, cloud summary, synced summary
 
 **Translation Assistance**:
 An explicitly requested Apple Translation framework operation over one already-local message body or Draft selection. Incoming translations remain beside the original as non-authoritative text; Draft translations replace only the reviewed selection after explicit acceptance as one undoable edit. Language downloads use the system permission flow, and unsupported, failed, cancelled, stale, or rejected operations leave the source unchanged.

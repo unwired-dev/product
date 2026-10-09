@@ -35,6 +35,9 @@ system language model. There is no cloud or product-backend model fallback.
 Mail Assistance Enablement, the per-Profile opt-in, is not part of this slice;
 Mail Profiles do not exist yet.
 
+Planned [Catch Up](catch-up.md#summaries) background summaries reuse this binding
+but run without a per-message request; they are not part of this slice.
+
 ## Native binding
 
 Both hosts compile `native/private-inbox/bridge/UnwiredAssistance.swift` from the
