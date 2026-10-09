@@ -28,9 +28,12 @@ private func oversizedFile(_ url: URL, name: String, type: UTType? = nil) -> [St
 private func pickedFile(_ url: URL, name: String? = nil, type declared: UTType? = nil)
   -> [String: String]
 {
+  // A file without an extension, such as one the Mac open panel chose, keeps the content type the
+  // system recognized for it.
+  let recognized = (try? url.resourceValues(forKeys: [.contentTypeKey]))?.contentType
   let type =
-    declared?.preferredMIMEType ?? UTType(filenameExtension: url.pathExtension)?.preferredMIMEType
-    ?? ""
+    declared?.preferredMIMEType ?? recognized?.preferredMIMEType
+    ?? UTType(filenameExtension: url.pathExtension)?.preferredMIMEType ?? ""
   return ["uri": url.absoluteString, "name": name ?? url.lastPathComponent, "type": type]
 }
 
