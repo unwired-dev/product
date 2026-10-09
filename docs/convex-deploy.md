@@ -2,7 +2,9 @@
 
 The [Convex workflow](../.github/workflows/convex.yml) deploys `packages/convex`
 (functions, schema and auth configuration) to the production Convex deployment.
-It runs only when dispatched:
+It runs when dispatched, and before every TestFlight upload from `main`,
+including nightly and release uploads
+([TestFlight builds](testflight.md#request-a-build-from-ci)):
 
 ```sh
 gh workflow run convex.yml --ref main

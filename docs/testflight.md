@@ -1,6 +1,6 @@
 # TestFlight builds
 
-On-demand TestFlight builds of the iPhone/iPad and Mac hosts, for the owner's
+On-demand and nightly TestFlight builds of the iPhone/iPad and Mac hosts, for the owner's
 devices. Tracked in [#724](https://github.com/unwired-dev/product/issues/724).
 The qualified beta and its evidence remain
 [#628](https://github.com/unwired-dev/product/issues/628): an uploaded build is
@@ -14,8 +14,7 @@ app's Info.plist as `UnwiredCommit` and in the build's English TestFlight
 
 The timestamp has minute precision. Two uploads of the same host and marketing
 version in one minute can collide; queue them or wait for the next minute.
-CI serializes runs for the same ref, while different refs and local uploads
-need that coordination.
+CI serializes TestFlight runs across all refs; local uploads need that coordination.
 
 ## Request a build from CI
 
@@ -37,6 +36,18 @@ logs stay on the runner because Xcode diagnostics may contain signing tokens.
 The workflow deliberately has no approval gate. Write access and the selected
 branch's code are trusted with the App Store Connect key; a read-only GitHub
 token does not constrain what that code can do with the Apple credentials.
+
+The same workflow also uploads both hosts from `main` every night at 01:17 UTC,
+whether or not `main` changed since the previous night. GitHub can delay
+scheduled runs.
+
+Runs from `main`, including nightly and release uploads, first deploy the
+triggering main commit's backend through the [Convex workflow](convex-deploy.md).
+This updates functions, schema and auth configuration without resetting stored
+data. The optional build `ref` does not select the backend revision: a dispatch
+from `main` that builds an older tag still deploys the triggering main commit.
+A failed deploy stops the upload. Runs dispatched from another branch skip the
+deploy, because only `main` can read its key.
 
 After the upload, App Store Connect processes the build for several minutes. It
 then appears under **Unwired Mail** in the TestFlight app on every device of the

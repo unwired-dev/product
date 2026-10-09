@@ -24,6 +24,7 @@ Workflows hold the release credentials (App Store Connect key, Convex URL, OAuth
 #### Runs are bounded and owned
 
 - A job without `timeout-minutes`, or a pull-request workflow without a `concurrency` group that cancels superseded runs. Release and TestFlight runs never cancel in progress.
+- `testflight.yml` partitioning CI uploads by ref or trigger while `scripts/testflight.zsh` derives minute-precision build numbers. Trace scheduled, dispatched and `release.yml`-called paths: uploads of the same host and marketing version must share a queue across refs or use collision-proof build numbers, or overlapping runs can submit duplicates and fail. Keep pending upload requests queued rather than replacing them.
 - A native job that reuses a shared Simulator, DerivedData or result path, or that skips cleanup on failure or cancellation.
 - A cache keyed so a pull request can poison a cache that a privileged run restores, or a cache that stores credentials or signing material.
 - An artifact that can contain secrets, signing material or account data.
