@@ -666,6 +666,14 @@ Namespace-import style, `JSON.parse`, `typeof … === 'object'` guards, untagged
 
 #### Rich-body admission and speculative reads
 
+- `message-body.ts.presentation` rebuilding the same blocked-only document on
+  every remote-image batch or caching it under an incomplete admission key. Reuse
+  preparation for the same immutable body and admitted inline-image objects,
+  including fresh arrays containing those objects; Content-IDs alone do not bind
+  their bytes. Bound retained variants while the body remains live, and trace
+  `gmail-inbox.ts.presentRemote` and reader release. Otherwise incremental updates
+  repeat whole-HTML work, show stale inline bytes or accumulate old documents.
+
 - `html-sanitizer.ts.parseDeclarations` deduplicating before resolving validity
   and importance, or confusing source validity with output retention. Invalid
   important values must not suppress valid normal ones; valid unretained values

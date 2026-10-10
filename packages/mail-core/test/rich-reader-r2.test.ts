@@ -825,9 +825,11 @@ describe('rich-reader review regressions', () => {
         sources.map((source) => `<img src="${source}">`).join(''),
       );
       expect(result.remoteImages).toStrictEqual([expected, expected]);
-      expect(result.remoteNodes.map((_node, index) => index)).toStrictEqual([
-        0, 1,
-      ]);
+      expect(
+        result.remoteNodes.map(
+          (node) => /data-remote="(?<index>\d+)"/u.exec(node)?.[1],
+        ),
+      ).toStrictEqual(['0', '1']);
       expect(result.remoteNodes).toHaveLength(2);
     },
   );
@@ -927,6 +929,36 @@ describe('rich-reader review regressions', () => {
     });
     expect(presentation(document).rich?.remote.updates).toBe(
       blocked.rich.remote.updates,
+    );
+  });
+
+  it('keeps the blocked document tied to the admitted inline images, not just their Content-IDs', () => {
+    expect.hasAssertions();
+    const url = 'https://images.example.invalid/photo.png';
+    const document = {
+      version: 2 as const,
+      id: 'inline-cache',
+      html: `<img src="cid:logo"><img src="${url}">`,
+    };
+    const first = {
+      contentId: 'logo',
+      data: 'AQ==',
+      width: 4,
+      height: 3,
+      mimeType: 'image/png' as const,
+    };
+    const second = { ...first, data: 'Ag==' };
+    const remote = new Map([[url, first]]);
+    presentation(document, [first], remote);
+    const changed = presentation(document, [second], remote);
+    expect(changed.rich?.initialDocument).toBe(
+      presentation(document, [second]).rich?.document,
+    );
+    expect(changed.rich?.initialDocument).toContain('base64,Ag==');
+    const blocked = presentation(document, [], remote);
+    expect(blocked.rich?.initialDocument).not.toContain('data:image/png');
+    expect(presentation(document, [second], remote).rich?.initialDocument).toBe(
+      changed.rich?.initialDocument,
     );
   });
 

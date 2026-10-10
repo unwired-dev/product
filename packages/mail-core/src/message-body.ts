@@ -802,6 +802,33 @@ const encodeRemoteNodes = Schema.encodeSync(
   Schema.fromJsonString(Schema.Array(Schema.String)),
 );
 
+// Keep only the latest inline admission per body; remote updates reuse it without retaining
+// every document variant produced by changing reader budgets.
+const initialDocuments = new WeakMap<
+  BodyDocument,
+  Readonly<{ images: readonly InlineImage[]; document: string }>
+>();
+const initialDocument = (
+  document: BodyDocument,
+  html: string,
+  images: readonly InlineImage[],
+) => {
+  const cached = initialDocuments.get(document);
+  if (
+    cached !== undefined &&
+    cached.images.length === images.length &&
+    images.every((image, index) => image === cached.images[index])
+  ) {
+    return cached.document;
+  }
+  const prepared = sanitizeHtml(
+    html,
+    new Map(images.map((image) => [image.contentId, image])),
+  ).document;
+  initialDocuments.set(document, { images: [...images], document: prepared });
+  return prepared;
+};
+
 export function presentation(
   document: BodyDocument,
   images: readonly InlineImage[] = document.images?.admitted ?? [],
@@ -823,10 +850,7 @@ export function presentation(
             initialDocument:
               remote.size === 0
                 ? sanitized.document
-                : sanitizeHtml(
-                    document.html,
-                    new Map(images.map((image) => [image.contentId, image])),
-                  ).document,
+                : initialDocument(document, document.html, images),
             links: sanitized.links,
             remote: {
               images: sanitized.remoteImages,
