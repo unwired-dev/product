@@ -1627,8 +1627,8 @@ extension PrivateInboxTests {
     _ = try await survivor.signIn()
     _ = try await survivor.recover(with: shown)
 
-    // A device the account does not list prepares nothing.
-    #expect(try await remover.revoke("device-unknown")["revocationNotice"] == "superseded")
+    // A device the account does not list prepares nothing and claims no removal.
+    #expect(try await remover.revoke("device-unknown")["revocationNotice"] == nil)
     #expect(try remover.loadVault(account)?.revocation == nil)
 
     // The activation applies, but its reply is lost: the proposal and its key stay shown.
@@ -1658,7 +1658,7 @@ extension PrivateInboxTests {
         == ring)
     // Removing a device that is already gone prepares nothing new.
     let repeated = try await remover.revoke(targetId)
-    #expect(repeated["revocationNotice"] == "superseded")
+    #expect(repeated["revocationNotice"] == nil)
     #expect(repeated["revocationRecoveryKey"] == nil)
     #expect(backend.activations == 1)
   }
@@ -2165,6 +2165,71 @@ extension PrivateInboxTests {
           == "removed")
       #expect(backend.activations == 2)
     }
+  }
+
+  @Test @MainActor func aTargetThatEnrolledAgainIsNeverReportedRemoved() async throws {
+    let (creator, other) = (device(), device())
+    let account = "account-synthetic-product-subject"
+    defer { for keys in [creator, other] { remove(keys, accounts: [account]) } }
+    let google = SyntheticGoogleRegistrationProvider()
+    let backend = SyntheticProductSyncBackend()
+    let remover = backend.store(keys: creator, google: google)
+    let shown = try #require(try await remover.signIn()["recoveryKey"])
+    _ = try remover.confirmRecoveryKey(String(shown.suffix(4)))
+    let target = backend.store(keys: other, google: google)
+    _ = try await target.signIn()
+    _ = try await target.recover(with: shown)
+    let staleId = try #require(try target.load()?.product?.trustedDeviceId)
+    #expect(try await remover.refreshPrivateSync()["trustedDevices"]?.contains(staleId) == true)
+
+    // Before it is selected, the installation signs out and is admitted again under a new row.
+    let key = try #require(backend.deviceKeys[staleId])
+    backend.devices[account]?.removeAll { $0 == staleId }
+    backend.devices[account]?.append("device-enrolled-again")
+    backend.deviceKeys["device-enrolled-again"] = key
+    backend.epochs["device-enrolled-again"] = 1
+
+    // The stale selection prepares nothing and claims no removal; the refreshed list shows the
+    // device that is still trusted.
+    let result = try await remover.revoke(staleId)
+    #expect(result["revocationNotice"] == nil)
+    #expect(result["revocationRecoveryKey"] == nil)
+    #expect(result["trustedDevices"]?.contains("device-enrolled-again") == true)
+    #expect(try remover.loadVault(account)?.revocation == nil)
+    #expect(backend.activations == 0)
+  }
+
+  @Test @MainActor func aRejectedActivationAfterDeviceKeyLossNeverReportsItsTargetRemoved()
+    async throws
+  {
+    let (creator, other, joined) = (device(), device(), device())
+    let account = "account-synthetic-product-subject"
+    defer { for keys in [creator, other, joined] { remove(keys, accounts: [account]) } }
+    let google = SyntheticGoogleRegistrationProvider()
+    let backend = SyntheticProductSyncBackend()
+    let remover = backend.store(keys: creator, google: google)
+    let shown = try #require(try await remover.signIn()["recoveryKey"])
+    _ = try remover.confirmRecoveryKey(String(shown.suffix(4)))
+    let target = backend.store(keys: other, google: google)
+    _ = try await target.signIn()
+    _ = try await target.recover(with: shown)
+    let targetId = try #require(try target.load()?.product?.trustedDeviceId)
+    let proposed = try #require(try await remover.revoke(targetId)["revocationRecoveryKey"])
+    backend.failActivationBeforeCommit = true
+    _ = try await remover.confirmRevocation(String(proposed.suffix(4)))
+    backend.failActivationBeforeCommit = false
+
+    // A new recipient makes the unanswered proposal stale; losing the private key prevents renewal.
+    let newcomer = backend.store(keys: joined, google: google)
+    _ = try await newcomer.signIn()
+    _ = try await newcomer.recover(with: shown)
+    try creator.remove("product-sync-device-key." + account)
+    let rejected = try await remover.confirmRevocation(String(proposed.suffix(4)))
+    #expect(rejected["kind"] == "device-pending")
+    #expect(rejected["revocationNotice"] == nil)
+    #expect(rejected["revocationRecoveryKey"] == nil)
+    #expect(backend.devices[account]?.contains(targetId) == true)
+    #expect(backend.activations == 0)
   }
 
   @Test @MainActor func aLostDeviceKeyNeverDiscardsAnUnconfirmedRecoveryKey() async throws {

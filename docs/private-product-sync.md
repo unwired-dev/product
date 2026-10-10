@@ -62,6 +62,8 @@ and Recovery Key. Checking again or cancelling reconciles a committed removal;
 confirming again retries only the same previously submitted proposal. Once settled,
 the installation enrolls again. If another removal superseded its Recovery Key,
 only the current Recovery Key or another Trusted Device can authorize it.
+If retrying that unanswered removal conflicts with changed account state after the device lost
+its encryption key, it enters fresh enrollment without reporting the target as removed.
 
 ## Approving a new device
 
@@ -298,6 +300,9 @@ is explicitly removed.
   confirmed again; a key shown earlier never counts.
 - When another device removed the same device first, nothing applies and the shown
   key is discarded.
+- When the selected device is no longer listed as the removal is prepared, for
+  example because it signed out or enrolled again under a new listing, nothing is
+  prepared or reported as removed; the refreshed list shows what is still trusted.
 - When the reply is lost, the prepared removal and its key stay on screen.
   Confirming again repeats the same request, which never removes or rotates twice;
   the next synchronization also learns whether it applied. Cancel cannot discard

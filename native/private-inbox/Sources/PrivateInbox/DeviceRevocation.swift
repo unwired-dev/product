@@ -1,6 +1,10 @@
 import CryptoKit
 import Foundation
 
+// The fresh roster no longer lists the selected row: it may have signed out, or enrolled again
+// under a new row that is still trusted, so nothing proves it was removed.
+private struct RevocationTargetUnlisted: Error {}
+
 extension RegistrationStore {
   // Prepares removing another Trusted Device after a fresh interactive Product Sign-In. The new key
   // epoch is sealed separately to every remaining device's encryption key and to a replacement
@@ -21,8 +25,8 @@ extension RegistrationStore {
     do {
       vault.revocation = try await proposal(
         removing: trustedDeviceId, vault: vault, backend: backend, session: identity, product)
-    } catch RevocationFailure.targetRemoved {
-      return try await superseded(saved, removing: trustedDeviceId)
+    } catch is RevocationTargetUnlisted {
+      return try await refreshRevocationTarget(saved, removing: trustedDeviceId)
     }
     try saveVault(vault)
     return try status(saved)
@@ -65,16 +69,16 @@ extension RegistrationStore {
       vault.revocation = missingDeviceKey ? nil : pending
       try saveVault(vault)
       if missingDeviceKey {
-        return try status(await synchronize(saved)).merging(["revocationNotice": "superseded"]) { $1 }
+        return try status(await synchronize(saved))
       }
       vault = try await adoptRotation(vault, backend: backend, session: identity, product)
       do {
         vault.revocation = try await proposal(
           removing: target, vault: vault, backend: backend, session: identity, product)
-      } catch RevocationFailure.targetRemoved {
+      } catch is RevocationTargetUnlisted {
         vault.revocation = nil
         try saveVault(vault)
-        return try await superseded(saved, removing: target)
+        return try await refreshRevocationTarget(saved, removing: target)
       }
       try saveVault(vault)
       return try status(saved).merging(["revocationNotice": "renewed"]) { $1 }
@@ -82,7 +86,8 @@ extension RegistrationStore {
       // Another device removed it first; this proposal and its key never applied.
       vault.revocation = nil
       try saveVault(vault)
-      return try await superseded(saved, removing: target)
+      return try await refreshRevocationTarget(saved, removing: target)
+        .merging(["revocationNotice": "superseded"]) { $1 }
     } catch let error where error is URLError || error is CancellationError {
       // The outcome is unknown; the proposal stays, and confirming again repeats it safely.
       return try status(saved).merging(["revocationNotice": "unconfirmed"]) { $1 }
@@ -103,14 +108,14 @@ extension RegistrationStore {
     return try await revocationStatus(saved, vault: adoption.vault, outcome: adoption.outcome)
   }
 
-  // Another device removed the target first; the current state shows it gone.
-  func superseded(_ saved: SavedRegistration, removing target: String) async throws
-    -> [String: String]
-  {
+  // Forget the stale selection and refresh the list without inferring why the row disappeared.
+  func refreshRevocationTarget(
+    _ saved: SavedRegistration, removing target: String
+  ) async throws -> [String: String] {
     if let account = saved.product?.productAccountId {
       trustedDevices[account]?.removeAll { $0.id == target }
     }
-    return try status(await synchronize(saved)).merging(["revocationNotice": "superseded"]) { $1 }
+    return try status(await synchronize(saved))
   }
 
   // Discards the prepared removal; an activation sent without a reply is settled first.
@@ -183,7 +188,7 @@ extension RegistrationStore {
     let recovery = try await backend.recoveryEnvelope(session, product)
     let roster = try await backend.trustedDevices(session, product)
     guard roster.contains(where: { $0.id == trustedDeviceId }) else {
-      throw RevocationFailure.targetRemoved
+      throw RevocationTargetUnlisted()
     }
     // Every survivor's key comes from the roster; this device's must be the one it holds.
     guard

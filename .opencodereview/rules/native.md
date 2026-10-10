@@ -13,6 +13,15 @@ Native storage owns what TypeScript must never hold: Keychain items, the storage
 
 #### Keys, credentials and storage
 
+- `DeviceRevocation.proposal`, `confirmRevocation` or another removal-status path
+  reporting `removed` or `superseded` from roster absence, a conflict or lost-key
+  cleanup alone. Require an exact committed proposal receipt or a definite backend
+  target-removal result; a Trusted Device row can disappear through sign-out or
+  authorized reenrollment while its replacement stays trusted. Trace the shared
+  `revocationNotice` mapping and host copy, including conflict renewal and submitted
+  replay after private-key loss; otherwise the interface claims removal of a device
+  that retains access, or presents an uncommitted Recovery Key as current.
+
 - `PrivateInboxStore.fullSync(_:)` or another durability helper treating failure
   of a stronger guarantee as permission to succeed through a weaker fallback.
   Restrict fallback to the platform's documented unsupported-operation errors,
