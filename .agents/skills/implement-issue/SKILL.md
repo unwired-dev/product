@@ -43,8 +43,10 @@ accurately; do not substitute a different reviewer or claim a completed handoff.
    [implementation and review workflow](../../../docs/agents/implementation-review.md).
    The implementer must not open reviewer-only architecture documents or OCR
    rule bodies, including when an issue links to them; route those to the reviewer.
-4. Record the starting commit and working-tree state. Preserve unrelated edits.
-   Reuse an appropriate task branch or create one without committing to the
+4. Set up the task branch as in the workflow's
+   [implementer handoff](../../../docs/agents/implementation-review.md#implementer-handoff)
+   step 1: record and classify the working-tree state, select the branch, then
+   record the starting commit. Preserve unrelated edits and never commit to the
    default branch. Recheck the live `in progress` label before editing. Retain
    it for your existing claim or an explicitly authorized takeover; otherwise
    stop if it is present. If absent, claim the issue with
