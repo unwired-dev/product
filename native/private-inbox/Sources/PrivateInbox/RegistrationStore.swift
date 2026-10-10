@@ -23,6 +23,37 @@ enum RegistrationError: Error {
   var endsAccess: Bool { self == .revoked || self == .deleted }
 }
 
+extension RegistrationError {
+  var code: String {
+    switch self {
+    case .cancelled: "cancelled"
+    case .declined: "declined"
+    case .gmailUnavailable: "gmail-unavailable"
+    case .invalidIdentity: "invalid-identity"
+    case .unavailable: "unavailable"
+    case .identityOwned: "identity-owned"
+    case .staleAuthentication: "stale-authentication"
+    case .recoveryKeyMismatch: "recovery-key-mismatch"
+    case .enrollmentCodeInvalid: "enrollment-code-invalid"
+    case .enrollmentUnavailable: "enrollment-unavailable"
+    case .revoked: "revoked"
+    case .pendingDeviceUnavailable: "unavailable"
+    case .deleted: "deleted"
+    case .removalRefused, .appleAuthorizationRequired: "removal-refused"
+    }
+  }
+}
+
+extension RegistrationStore {
+  // The fixed code a vault operation rejects with. A known transport failure is `offline`, which
+  // lets the flow open the last verified saved Inbox; it reaches hosts as `unavailable`.
+  static func rejectionCode(_ error: any Error) -> String {
+    if let error = error as? RegistrationError { return error.code }
+    if (error as? PrivateInboxError) == .locked { return "locked" }
+    return transientMailboxFailure(error) ? "offline" : "unavailable"
+  }
+}
+
 enum SignInProvider: String, Codable {
   case google, apple
 }

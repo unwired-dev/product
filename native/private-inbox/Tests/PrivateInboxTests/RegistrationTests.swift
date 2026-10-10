@@ -378,4 +378,21 @@ extension PrivateInboxTests {
     #expect(renewed["pendingDeviceCredential"] as? String == credential)
     #expect(renewed["trustedDeviceCredential"] == nil)
   }
+
+  // The flow reads these fixed codes; only a known transport failure lets it open the saved Inbox.
+  @Test @MainActor func vaultOperationsRejectWithFixedCodesAndReportTransportFailuresAsOffline() {
+    for (error, code): (any Error, String) in [
+      (URLError(.notConnectedToInternet), "offline"), (URLError(.timedOut), "offline"),
+      (URLError(.cannotConnectToHost), "offline"),
+      (NSError(domain: "org.openid.appauth.general", code: -5), "offline"),
+      (URLError(.badServerResponse), "unavailable"),
+      (NSError(domain: "org.openid.appauth.general", code: -1), "unavailable"),
+      (RegistrationError.cancelled, "cancelled"), (RegistrationError.revoked, "revoked"),
+      (RegistrationError.pendingDeviceUnavailable, "unavailable"),
+      (RegistrationError.appleAuthorizationRequired, "removal-refused"),
+      (PrivateInboxError.locked, "locked"), (CancellationError(), "unavailable"),
+    ] {
+      #expect(RegistrationStore.rejectionCode(error) == code)
+    }
+  }
 }

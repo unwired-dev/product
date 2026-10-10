@@ -217,7 +217,10 @@ of the same account.
 
 The [registration flow](../google-registration.md#where-the-registration-flow-runs)
 runs in TypeScript, which never reads this record. It reads a projection without
-credentials, tokens, the installation identifier or provider subjects, and changes
+device credentials, Product Sign-In or provider tokens, the installation identifier
+or provider subjects. The `call` operation returns Convex reply bodies to TypeScript,
+including the one-time sign-in link ticket it presents to `/sign-in-links/complete`;
+native code attaches the requested credentials without returning them. TypeScript changes
 the record only through native operations named by purpose: saving the latest
 sign-in, connecting, adding, confirming or marking a connection, recording why
 setup ended, recording or withdrawing removal intent, and purging. Native code saves

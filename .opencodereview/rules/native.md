@@ -204,7 +204,12 @@ Native storage owns what TypeScript must never hold: Keychain items, the storage
   touches storage or returns plaintext, and suspended work can expose stale mail.
   Preserve the registration gate across the awaited transaction and keep file-lock
   serialization; a worker must never synchronously wait on the main actor under that lock.
-- A rejection code that TypeScript does not know. `packages/mail-core/src/diagnostics.ts` allow-lists the codes; a new code needs the matching store handling and allow-list entry in the same task.
+- A rejection code the owning TypeScript consumer cannot handle. Trace bridge
+  codes through `registration-flow.ts` and its `hostCodes` mapping before the
+  store derives diagnostics; flow-internal codes such as `offline` may become
+  an existing host code. A code that reaches diagnostics must be allow-listed in
+  `packages/mail-core/src/diagnostics.ts`; otherwise recovery can be misclassified
+  or an expected refusal loses its useful fixed diagnostic.
 - A rejection or diagnostic that carries a foreign error description, account identifier, email address, token or path. JavaScript logs can leave the device; reject with a fixed code and fixed text, as `UnwiredPrivateInbox.perform` does. Successful values may contain the documented local presentation data consumed by the shared store; they must not be logged.
 - A resolved payload whose shape changed without the `Schema` that decodes it in `mail-core` changing with it.
 - A promise that can resolve twice, never resolve, or resolve after its owner is gone; blocking native work on the main queue that demonstrably stalls the UI. Registration presentation is `@MainActor`; that annotation alone is not a defect.

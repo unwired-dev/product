@@ -72,8 +72,10 @@ The native vault keeps the full saved registration in device-only Keychain stora
 including Product Sign-In, Trusted or Pending Device, and mailbox credentials.
 The [TypeScript registration flow](google-registration.md#where-the-registration-flow-runs)
 reads only a non-secret projection and changes storage through native operations
-named by purpose. Credentials, tokens, installation identifiers and provider
-subjects never cross the bridge.
+named by purpose. Device credentials, Product Sign-In and provider tokens,
+installation identifiers and provider subjects never cross the bridge. Replies to
+the credentialed calls TypeScript names return to it, such as the one-time sign-in
+link ticket it presents to complete a link.
 
 A saved sign-in survives interruption before backend registration and resumes
 without replacing a committed Product Account or its encrypted Inbox. A record for

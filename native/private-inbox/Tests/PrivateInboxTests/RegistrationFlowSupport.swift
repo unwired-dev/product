@@ -133,7 +133,7 @@ extension RegistrationStore {
         let offline = connection.authorizationNeeded == true ? "unverified" : "cached"
         try markMailbox(
           connection.id,
-          access: Self.transientMailboxFailure(error) ? offline : "authorization")
+          access: Self.rejectionCode(error) == "offline" ? offline : "authorization")
       }
     }
     if try self.saved().usableConnections.contains(where: { verifiedMailboxes.contains($0.id) }) {
@@ -161,7 +161,7 @@ extension RegistrationStore {
     } catch let error as RegistrationError where error.endsAccess {
       throw error
     } catch {
-      if Self.transientMailboxFailure(error), let cached = try cachedMailbox((try? load()) ?? saved)
+      if Self.rejectionCode(error) == "offline", let cached = try cachedMailbox((try? load()) ?? saved)
       {
         return cached
       }

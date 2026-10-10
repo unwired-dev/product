@@ -118,27 +118,6 @@ import os
   }
 }
 
-extension RegistrationError {
-  var code: String {
-    switch self {
-    case .cancelled: "cancelled"
-    case .declined: "declined"
-    case .gmailUnavailable: "gmail-unavailable"
-    case .invalidIdentity: "invalid-identity"
-    case .unavailable: "unavailable"
-    case .identityOwned: "identity-owned"
-    case .staleAuthentication: "stale-authentication"
-    case .recoveryKeyMismatch: "recovery-key-mismatch"
-    case .enrollmentCodeInvalid: "enrollment-code-invalid"
-    case .enrollmentUnavailable: "enrollment-unavailable"
-    case .revoked: "revoked"
-    case .pendingDeviceUnavailable: "unavailable"
-    case .deleted: "deleted"
-    case .removalRefused, .appleAuthorizationRequired: "removal-refused"
-    }
-  }
-}
-
 @objc(UnwiredRegistration)
 final class UnwiredRegistration: NSObject {
   private static let logger = Logger(
@@ -339,11 +318,7 @@ final class UnwiredRegistration: NSObject {
         \(name, privacy: .public) failed: \(failure.domain, privacy: .public) \
         \(failure.code, privacy: .public) \(failure.localizedDescription, privacy: .private)
         """)
-      let code =
-        (error as? RegistrationError)?.code
-        ?? ((error as? PrivateInboxError) == .locked
-          ? "locked"
-          : RegistrationStore.transientMailboxFailure(error) ? "offline" : "unavailable")
+      let code = RegistrationStore.rejectionCode(error)
       let message =
         switch code {
         case "cancelled": "Sign-in was cancelled."
