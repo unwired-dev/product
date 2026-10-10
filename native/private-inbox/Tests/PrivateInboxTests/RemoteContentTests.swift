@@ -295,7 +295,12 @@ extension PrivateInboxTests {
     try small.clearRemoteContent()
     #expect(try admit("https://a.example/1"))
     #expect(try admit("https://a.example/2"))
-    _ = try stored("https://a.example/1")
+    // Showing 1 makes it recent; merely opening 2 afterwards, as an undisplayed cache probe does,
+    // does not, so 2 is evicted first.
+    try small.touchRemoteContent(
+      account: account, connection: connection, address: google.address, subject: google.subject, id: "m1",
+      url: "https://a.example/1")
+    #expect(try stored("https://a.example/2"))
     #expect(try admit("https://a.example/3"))
     #expect(try !stored("https://a.example/2"))
     #expect(try !admit("https://a.example/4", protecting: ["https://a.example/1", "https://a.example/3"]))

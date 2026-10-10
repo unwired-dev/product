@@ -155,6 +155,12 @@ export interface NativeGmailMailbox {
     mailbox: Readonly<{ address: string; generation: string }>,
     resource: RemoteResource,
   ) => Promise<unknown>;
+  // Marks a cached resource as shown, so least-recently-used eviction keeps it longer; opening
+  // alone does not.
+  readonly touchRemoteContent: (
+    mailbox: Readonly<{ address: string; generation: string }>,
+    resource: RemoteResource,
+  ) => Promise<unknown>;
   // Fetches one authorized HTTPS image through the isolated native path and resolves `{ data }`.
   // Rejects with 'refused' when its destination or response is not allowed.
   readonly fetchRemoteContent: (
@@ -188,9 +194,18 @@ type RemoteImageState =
   | { readonly kind: 'loaded'; readonly image: RemoteImage }
   // Not in the cache, and the presentation has not authorized fetching it.
   | { readonly kind: 'absent' }
+  // A full display budget or a transient native failure; a later request may retry it.
+  | { readonly kind: 'deferred' }
   | { readonly kind: 'failed' };
 
 const RemoteData = Schema.Struct({ data: Schema.NullOr(Schema.String) });
+
+type RemoteImageResult =
+  | RemoteImageState
+  | { readonly kind: 'restored'; readonly image: RemoteImage };
+
+const remoteImageLoaded = (result: RemoteImageResult) =>
+  result.kind === 'loaded' || result.kind === 'restored';
 let nextRemoteSession = 0;
 
 // The byte count standard base64 decodes to.
@@ -1803,8 +1818,8 @@ export function createGmailInbox(
     return presentation(document, visibleImages, remote.admitted);
   };
 
-  // Presents an opened message again for every reader, once more of its remote images loaded.
-  const presentRemote = (id: string) => {
+  // Updates every reader before the caller publishes its reconciled remote state.
+  const prepareRemotePresentations = (id: string) => {
     const document = documents.get(id);
     if (document === undefined || bodies.get(id)?.kind !== 'ready') {
       return;
@@ -1824,7 +1839,6 @@ export function createGmailInbox(
         });
       }
     }
-    notify(state);
   };
 
   // Remote Message Content currently shown, which the cache keeps while admitting more.
@@ -1857,21 +1871,23 @@ export function createGmailInbox(
     releaseRemote(id, 'mode');
     const remote = {
       ...previous,
-      images: new Map<string, RemoteImageState>(
-        [...retainedRemote.values()]
+      images: new Map<string, RemoteImageState>([
+        ...[...previous.images].filter(([, image]) => image.kind === 'failed'),
+        ...[...retainedRemote.values()]
           .filter(({ resource }) => resource[1] === id)
-          .map(({ resource, image }) => [
+          .map(({ resource, image }): [string, RemoteImageState] => [
             resource[2],
             { kind: 'loaded', image },
           ]),
-      ),
+      ]),
       abort: new AbortController(),
       near,
       networkUrls,
       network,
     };
     remoteImages.set(id, remote);
-    presentRemote(id);
+    prepareRemotePresentations(id);
+    notify(state);
     return remote;
   };
 
@@ -1892,25 +1908,68 @@ export function createGmailInbox(
     return interest;
   };
 
+  const shownRemoteImages = (id: string) => {
+    const views = [...viewReaders]
+      .filter(([, message]) => message === id)
+      .map(([reader]) => viewBodies.get(reader));
+    if ((legacyReaders.get(id) ?? 0) > 0) {
+      views.push(bodies.get(id));
+    }
+    return new Set(
+      views.flatMap((view) => {
+        const rich =
+          view?.kind === 'ready' ? view.presentation.rich : undefined;
+        return (
+          rich?.remote.images.filter(
+            (url) => !rich.remote.pending.includes(url),
+          ) ?? []
+        );
+      }),
+    );
+  };
+
   const settleRemoteImages = (
     id: string,
-    results: ReadonlyArray<readonly [string, RemoteImageState]>,
+    results: ReadonlyArray<readonly [string, RemoteImageResult]>,
     current: () => boolean,
   ) => {
     const remote = remoteImages.get(id);
     if (remote === undefined || !current()) {
-      return;
+      return [];
     }
     for (const [url, result] of results) {
       if (!remote.near.has(url) && result.kind !== 'loaded') {
         remote.images.delete(url);
       } else {
-        remote.images.set(url, result);
+        remote.images.set(
+          url,
+          result.kind === 'restored'
+            ? { kind: 'loaded', image: result.image }
+            : result,
+        );
       }
     }
-    if (results.some(([, result]) => result.kind === 'loaded')) {
-      presentRemote(id);
+    if (!results.some(([, result]) => remoteImageLoaded(result))) {
+      return [];
     }
+    prepareRemotePresentations(id);
+    const displayed = shownRemoteImages(id);
+    // Retention is not display admission: repeated occurrences and inline images also cost pixels.
+    const admitted = results.filter(([url, result]) => {
+      if (!remoteImageLoaded(result)) {
+        return false;
+      }
+      if (displayed.has(url)) {
+        return true;
+      }
+      retainedRemote.delete(`${id}\n${url}`);
+      remote.admitted -= 1;
+      remote.images.set(url, { kind: 'deferred' });
+      return false;
+    });
+    // Subscribers can replace viewport interest synchronously; publish only reconciled retention.
+    notify(state);
+    return admitted;
   };
 
   const reserveRemote = (resource: RemoteResource, image: RemoteImage) => {
@@ -1966,6 +2025,19 @@ export function createGmailInbox(
     return cached.data === null ? undefined : admittedRemote(cached.data);
   });
 
+  // Shown cached content becomes most recently used; a failure only ages it sooner.
+  const markRemoteShown = (scope: MailboxScope, resource: RemoteResource) =>
+    Effect.tryPromise({
+      try: () => native.touchRemoteContent(scope, resource),
+      catch: (cause) => rejected(cause, 'failed'),
+    }).pipe(
+      Effect.catchTag('SyncFailure', ({ cause, diagnostic }) =>
+        rejectionCode(cause) === 'locked'
+          ? Effect.void
+          : Effect.logError('Remote content use was not recorded:', diagnostic),
+      ),
+    );
+
   const remoteImage = Effect.fnUntraced(
     function* (
       scope: MailboxScope,
@@ -1987,9 +2059,10 @@ export function createGmailInbox(
         return { kind: 'failed' } as const;
       }
       if (restored !== undefined) {
-        return retain(restored)
-          ? ({ kind: 'loaded', image: restored } as const)
-          : ({ kind: 'failed' } as const);
+        if (!retain(restored)) {
+          return { kind: 'deferred' } as const;
+        }
+        return { kind: 'restored', image: restored } as const;
       }
       if (!network()) {
         return { kind: 'absent' } as const;
@@ -2005,36 +2078,57 @@ export function createGmailInbox(
         ),
       );
       const image = admittedRemote(fetched.data);
-      if (!current() || image === undefined || !retain(image)) {
+      if (!current() || image === undefined) {
         return { kind: 'failed' } as const;
       }
-      // A full cache still shows the image; it is fetched again after it closes.
-      yield* Effect.tryPromise({
-        try: () =>
-          native.commitRemoteContent(scope, resource, {
-            data: image.data,
-            protected: displayedRemote(),
-          }),
-        catch: (cause) => rejected(cause, 'failed'),
-      }).pipe(
-        Effect.flatMap((reply) =>
-          Schema.decodeUnknownEffect(
-            Schema.Struct({ admitted: Schema.Boolean }),
-          )(reply).pipe(Effect.mapError((error) => malformed(error, 'failed'))),
-        ),
-        Effect.catchTag('SyncFailure', ({ diagnostic }) =>
-          Effect.logError('Remote content could not be cached:', diagnostic),
-        ),
-      );
+      // An image the display budget cannot hold yet is neither shown nor cached, so the cache's
+      // recency follows display; a later request may fetch it again within the attempt limit.
+      if (!retain(image)) {
+        return { kind: 'deferred' } as const;
+      }
       return { kind: 'loaded', image } as const;
     },
-    Effect.catchTag('SyncFailure', ({ cause, diagnostic }) =>
-      (rejectionCode(cause) === 'refused'
-        ? Effect.void
-        : Effect.logError('Remote content failed:', diagnostic)
-      ).pipe(Effect.as<RemoteImageState>({ kind: 'failed' })),
-    ),
+    // A refused destination or response is final for the presentation; an unreachable server or
+    // locked storage may recover while the reader stays open.
+    Effect.catchTag('SyncFailure', ({ cause, diagnostic }) => {
+      const code = rejectionCode(cause);
+      if (code === 'refused') {
+        return Effect.succeed<RemoteImageState>({ kind: 'failed' });
+      }
+      return Effect.logError('Remote content failed:', diagnostic).pipe(
+        Effect.as<RemoteImageState>(
+          code === 'unavailable' || code === 'locked'
+            ? { kind: 'deferred' }
+            : { kind: 'failed' },
+        ),
+      );
+    }),
   );
+
+  // Cache only bytes admitted by the reader; a full cache still leaves the image displayed.
+  const cacheRemoteShown = Effect.fnUntraced(function* (
+    scope: MailboxScope,
+    resource: RemoteResource,
+    image: RemoteImage,
+  ) {
+    yield* Effect.tryPromise({
+      try: () =>
+        native.commitRemoteContent(scope, resource, {
+          data: image.data,
+          protected: displayedRemote(),
+        }),
+      catch: (cause) => rejected(cause, 'failed'),
+    }).pipe(
+      Effect.flatMap((reply) =>
+        Schema.decodeUnknownEffect(Schema.Struct({ admitted: Schema.Boolean }))(
+          reply,
+        ).pipe(Effect.mapError((error) => malformed(error, 'failed'))),
+      ),
+      Effect.catchTag('SyncFailure', ({ diagnostic }) =>
+        Effect.logError('Remote content could not be cached:', diagnostic),
+      ),
+    );
+  });
 
   // A refreshed body keeps a download only while its attachment's descriptor is unchanged; a
   // changed or removed attachment at the same position loses its saved file.
@@ -3912,12 +4006,16 @@ export function createGmailInbox(
         readable(id);
       return runLogged(
         Effect.gen(function* () {
+          // Each source is attempted at most once per request, so a deferred one cannot spin.
+          const probed = new Set<string>();
           while (remoteImages.get(id) === remote) {
             const eligible = [...remote.near].filter((url) => {
               const known = remote.images.get(url);
               return (
-                known === undefined ||
-                (remote.networkUrls.has(url) && known.kind === 'absent')
+                !probed.has(url) &&
+                (known === undefined ||
+                  known.kind === 'deferred' ||
+                  (remote.networkUrls.has(url) && known.kind === 'absent'))
               );
             });
             const network = eligible
@@ -3931,6 +4029,7 @@ export function createGmailInbox(
               return;
             }
             for (const url of wanted) {
+              probed.add(url);
               remote.images.set(url, { kind: 'loading' });
             }
             const lane = remoteLanes.get(id) ?? {
@@ -3977,13 +4076,31 @@ export function createGmailInbox(
               { concurrency: 'unbounded' },
             ).pipe(
               Effect.flatMap((results) =>
-                Effect.sync(() => {
+                Effect.sync(() =>
                   settleRemoteImages(
                     id,
                     results,
                     () => remoteImages.get(id) === remote,
-                  );
-                }),
+                  ),
+                ),
+              ),
+              Effect.flatMap((admittedResults) =>
+                Effect.forEach(
+                  admittedResults,
+                  ([url, result]) => {
+                    if (!current(url)) {
+                      return Effect.void;
+                    }
+                    const resource = { id, url };
+                    if (result.kind === 'restored') {
+                      return markRemoteShown(scope, resource);
+                    }
+                    return result.kind === 'loaded'
+                      ? cacheRemoteShown(scope, resource, result.image)
+                      : Effect.void;
+                  },
+                  { discard: true },
+                ),
               ),
             );
             // Misses publish no presentation; keep scanning only the current nearby sources.
@@ -3999,7 +4116,8 @@ export function createGmailInbox(
     forgetRemoteImages: (id: string) => {
       if (remoteImages.has(id)) {
         releaseRemote(id, 'policy');
-        presentRemote(id);
+        prepareRemotePresentations(id);
+        notify(state);
       }
     },
     // A failed rich view discards its document immediately and returns its image reservation.

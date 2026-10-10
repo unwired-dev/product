@@ -574,6 +574,11 @@ sources, including plain HTTP and internationalized host names, stay placeholder
   presentation budget after the message's inline images. The reader's CSP and
   isolation are unchanged. Images update in the existing document, preserving
   scroll position and link inspection. Hiding them restores their placeholders.
+  A source refused by the destination checks, or whose bytes are not a valid
+  image, stays a placeholder for the presentation. One that could not be shown
+  yet because the shared presentation budget was full, or that failed because the
+  server was unreachable or storage was locked, is tried again by a later request
+  for it, such as scrolling or **Load images**, within the attempt limit.
 - **Cache.** Validated images are kept in the separate
   [Authorized Remote Content Cache](private-inbox-storage.md#authorized-remote-content-cache);
   a full cache still shows the image for this presentation.

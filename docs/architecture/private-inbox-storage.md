@@ -204,7 +204,10 @@ entries.
 The native file-locked vault counts all connection remote directories toward a
 separate 250 MB stored-byte limit. It plans LRU eviction before deleting files
 and refuses admission when protected displayed resources cannot leave enough
-space. The shared account ledger sends connection/message/URL triples; native
+space. It advances recency through `touchRemoteContent` only after TypeScript
+admits cached bytes to an actual reader presentation; opening alone leaves recency
+unchanged. Fetched bytes are committed only after that same presentation admission.
+The shared account ledger sends connection/message/URL triples; native
 registration resolves each connection's saved subject/address before constructing
 its protected filename. Thus eviction for one connection cannot evict another
 connection's displayed content. Existing-key lookup happens before disposable

@@ -270,6 +270,172 @@ describe('remote message content', () => {
     }
   });
 
+  it('retries a source that failed transiently, keeps refusals final, and marks only shown cache entries', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    const flaky = 'https://images.example/flaky.png';
+    const refused = 'https://internal.example/secret.png';
+    gmail.serveRemote(flaky, { code: 'unavailable' });
+    gmail.serveRemote(refused, { code: 'refused' });
+    const id = gmail.deliver({
+      content: {
+        html: `<img src="${flaky}" alt="Flaky"><img src="${refused}" alt="Refused">`,
+      },
+    });
+    const inbox = createGmailInbox(gmail.native);
+    await inbox.load();
+    const reader = await open(inbox, id);
+    try {
+      await inbox.loadRemoteImages(id, [flaky, refused], true);
+      expect(reader.shown().remote.pending).toStrictEqual([flaky, refused]);
+      // The server recovers while the reader stays open; a later request retries only the
+      // transient failure.
+      gmail.serveRemote(flaky, { data: png(2, 2) });
+      // Leaving and returning to the viewport does not make a definite refusal retryable.
+      await inbox.loadRemoteImages(id, [], true);
+      await inbox.loadRemoteImages(id, [flaky, refused], true);
+      expect(reader.shown().remote.pending).toStrictEqual([refused]);
+      expect(gmail.remoteFetches).toStrictEqual([flaky, refused, flaky]);
+      // A fetched image is cached, not marked as shown from the cache.
+      expect(gmail.remoteTouches).toStrictEqual([]);
+    } finally {
+      reader.release();
+    }
+    // Restoring it in a later presentation marks the shown entry as recently used.
+    const later = await open(inbox, id);
+    try {
+      await inbox.loadRemoteImages(id, [flaky], false);
+      expect(later.shown().remote.pending).toStrictEqual([refused]);
+      expect(gmail.remoteTouches).toHaveLength(1);
+    } finally {
+      later.release();
+    }
+  });
+
+  it('retries deferred images in the same reader after another connection releases its budget', async () => {
+    expect.hasAssertions();
+    const shared = createBodyLoads();
+    const first = createSyntheticGmail();
+    const second = createSyntheticGmail({ address: 'sam@example.invalid' });
+    const photo = 'https://images.example/held.png';
+    const later = 'https://images.example/deferred.png';
+    const data = png(4096, 4096);
+    first.serveRemote(photo, { data });
+    second.serveRemote(photo, { data });
+    second.serveRemote(later, { data });
+    const aId = first.deliver({ content: { html: `<img src="${photo}">` } });
+    const bId = second.deliver({
+      content: { html: `<img src="${photo}"><img src="${later}">` },
+    });
+    const a = createGmailInbox(first.native, { shared, connection: 'a' });
+    const b = createGmailInbox(second.native, { shared, connection: 'b' });
+    await Promise.all([a.load(), b.load()]);
+    const aReader = await open(a, aId);
+    const bReader = await open(b, bId);
+    try {
+      await a.loadRemoteImages(aId, [photo], true);
+      await b.loadRemoteImages(bId, [photo, later], true);
+      expect(bReader.shown().remote.pending).toStrictEqual([later]);
+      expect(second.remoteCached(bId, later)).toBe(false);
+      aReader.release();
+      await b.loadRemoteImages(bId, [later], true);
+      expect(bReader.shown().remote.pending).toStrictEqual([]);
+      expect(second.remoteCached(bId, later)).toBe(true);
+      expect(second.remoteFetches).toStrictEqual([photo, later, later]);
+    } finally {
+      aReader.release();
+      bReader.release();
+    }
+  });
+
+  it('does not touch or cache an image that repeated display occurrences cannot admit', async () => {
+    expect.hasAssertions();
+    const shared = createBodyLoads();
+    const gmail = createSyntheticGmail();
+    const urls = Array.from(
+      { length: 20 },
+      (_, index) => `https://images.example/repeated/${index}.png`,
+    );
+    const photo = urls[0]!;
+    const data = png(3000, 3000);
+    gmail.serveRemote(photo, { data });
+    const id = gmail.deliver({
+      content: {
+        html: urls.map((url) => `<img src="${url}">`.repeat(4)).join(''),
+      },
+    });
+    const inbox = createGmailInbox(gmail.native, { shared, connection: 'a' });
+    await inbox.load();
+    const reader = await open(inbox, id);
+    let withdrawal: Promise<void> | undefined = undefined;
+    let unsubscribe: () => void = () => undefined;
+    gmail.pauseRemote();
+    const pending = inbox.loadRemoteImages(id, [photo], true);
+    try {
+      await waitForFetches(gmail.remoteInFlight, 1);
+      unsubscribe = inbox.subscribe(() => {
+        unsubscribe();
+        // A host can change viewport interest synchronously while consuming publication.
+        withdrawal = inbox.loadRemoteImages(id, [], true);
+      });
+      gmail.resumeRemote();
+      await pending;
+      await withdrawal;
+      expect(reader.shown().remote.pending).toStrictEqual(urls);
+      expect(reader.shown().document).not.toContain('data:image/png');
+      expect(gmail.remoteCached(id, photo)).toBe(false);
+      // Interest replacement must not inherit an undisplayed image as already loaded.
+      await inbox.loadRemoteImages(id, [photo], true);
+      expect(gmail.remoteFetches).toStrictEqual([photo, photo]);
+      // Undisplayed retention must not consume another connection's display budget.
+      const other = createSyntheticGmail({ address: 'sam@example.invalid' });
+      const otherUrls = [
+        'https://images.example/a.png',
+        'https://images.example/b.png',
+      ];
+      const large = png(4096, 4096);
+      for (const url of otherUrls) {
+        other.serveRemote(url, { data: large });
+      }
+      const otherId = other.deliver({
+        content: {
+          html: otherUrls.map((url) => `<img src="${url}">`).join(''),
+        },
+      });
+      const otherInbox = createGmailInbox(other.native, {
+        shared,
+        connection: 'b',
+      });
+      await otherInbox.load();
+      const otherReader = await open(otherInbox, otherId);
+      try {
+        await otherInbox.loadRemoteImages(otherId, otherUrls, true);
+        expect(otherReader.shown().remote.pending).toStrictEqual([]);
+      } finally {
+        otherReader.release();
+      }
+      // A previously cached copy is equally undisplayable; reading it must not refresh LRU.
+      const scope = await gmail.native.openMailbox();
+      for (const url of urls) {
+        await gmail.native.commitRemoteContent(
+          scope,
+          { id, url },
+          { data, protected: [] },
+        );
+      }
+      // A full deferred cache batch settles without repeatedly probing the same sources.
+      await inbox.loadRemoteImages(id, urls, false);
+      expect(reader.shown().remote.pending).toStrictEqual(urls);
+      expect(gmail.remoteTouches).toStrictEqual([]);
+    } finally {
+      unsubscribe();
+      reader.release();
+      gmail.resumeRemote();
+      await pending;
+      await withdrawal;
+    }
+  });
+
   it('cancels withdrawn window requests while another window authorizes different images', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail();

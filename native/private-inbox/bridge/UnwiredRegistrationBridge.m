@@ -26,6 +26,7 @@ RCT_EXTERN_METHOD(commitMessageBody:(NSDictionary *)mailbox id:(NSString *)id ad
 RCT_EXTERN_METHOD(listMessageBodies:(NSDictionary *)mailbox ids:(NSArray *)ids resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(retainMessageBodies:(NSDictionary *)mailbox ids:(NSArray *)ids protectedIds:(NSArray *)protectedIds resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(openRemoteContent:(NSDictionary *)mailbox resource:(NSDictionary *)resource resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
+RCT_EXTERN_METHOD(touchRemoteContent:(NSDictionary *)mailbox resource:(NSDictionary *)resource resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(fetchRemoteContent:(NSDictionary *)mailbox url:(NSString *)url request:(NSDictionary *)request resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(cancelRemoteContent:(NSDictionary *)mailbox session:(NSString *)session finished:(BOOL)finished resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(commitRemoteContent:(NSDictionary *)mailbox resource:(NSDictionary *)resource admission:(NSDictionary *)admission resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)

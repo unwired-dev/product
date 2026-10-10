@@ -469,6 +469,19 @@ extension RegistrationStore {
     return ["data": data?.base64EncodedString() ?? NSNull()]
   }
 
+  func touchRemoteContent(
+    connection: String, address: String, generation: String, id: String, url: String
+  ) async throws -> [String: Any] {
+    guard let account = try load()?.product?.productAccountId else { throw RegistrationError.unavailable }
+    try await bodyWork(
+      connection: connection, address: address, generation: generation, verified: false
+    ) {
+      try $0.touchRemoteContent(
+        account: account, connection: connection, address: address, subject: $1, id: id, url: url)
+    }
+    return [:]
+  }
+
   func commitRemoteContent(
     connection: String, address: String, generation: String, id: String, url: String,
     admission: [String: Any]

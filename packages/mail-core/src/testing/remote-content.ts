@@ -28,6 +28,7 @@ export function createSyntheticRemoteContent(
   >();
   const remoteCache = new Map<string, string>();
   const remoteFetches: string[] = [];
+  const remoteTouches: string[] = [];
   const remoteCommits: Array<ReadonlyArray<readonly [string, string, string]>> =
     [];
   const remoteSessions = new Map<string, AbortController>();
@@ -43,6 +44,14 @@ export function createSyntheticRemoteContent(
             data: remoteCache.get(remoteKey(owner.address, resource)) ?? null,
           })
         : rejection('mailbox-invalidated'),
+    // Records which cached resources the reader showed, in order.
+    touchRemoteContent: (owner, resource) => {
+      if (!current(owner)) {
+        return rejection('mailbox-invalidated');
+      }
+      remoteTouches.push(remoteKey(owner.address, resource));
+      return Promise.resolve(null);
+    },
     fetchRemoteContent: async (owner, url, request) => {
       if (!current(owner)) {
         return rejection('mailbox-invalidated');
@@ -102,6 +111,7 @@ export function createSyntheticRemoteContent(
   } satisfies Pick<
     NativeGmailMailbox,
     | 'openRemoteContent'
+    | 'touchRemoteContent'
     | 'fetchRemoteContent'
     | 'cancelRemoteContent'
     | 'commitRemoteContent'
@@ -119,6 +129,8 @@ export function createSyntheticRemoteContent(
         remoteServer.set(url, answer);
       },
       remoteFetches,
+      // Cached resources marked as shown, as `address\nid\nurl`.
+      remoteTouches,
       remoteCommits,
       remoteCached: (id: string, url: string) =>
         remoteCache.has(remoteKey(address(), { id, url })),

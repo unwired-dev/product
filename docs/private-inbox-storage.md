@@ -103,7 +103,8 @@ so nothing is shared between messages, connections or accounts. A damaged or
 mismatched entry reads as absent and is removed; unavailable keys preserve it.
 Opening an entry needs no network and works for a mailbox showing saved mail only.
 The 250 MB budget is device-wide and separate from the body cache: admission evicts
-least recently shown entries first and never evicts the resources currently
+least recently shown entries first, where opening an entry that the reader then
+cannot show does not count as showing it, and never evicts the resources currently
 displayed across all open connections and windows. An entry that cannot fit is not stored, and its image is shown for the
 current presentation only. **Clear remote content** on the account page removes
 every entry without touching mail or bodies. Removing a connection, and every

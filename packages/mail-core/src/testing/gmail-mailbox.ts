@@ -955,6 +955,9 @@ export function syntheticConnections(
       missing(),
     openRemoteContent: (mailbox, resource) =>
       of(mailbox.connection)?.openRemoteContent(mailbox, resource) ?? missing(),
+    touchRemoteContent: (mailbox, resource) =>
+      of(mailbox.connection)?.touchRemoteContent(mailbox, resource) ??
+      missing(),
     fetchRemoteContent: (mailbox, url, request) =>
       of(mailbox.connection)?.fetchRemoteContent(mailbox, url, request) ??
       missing(),

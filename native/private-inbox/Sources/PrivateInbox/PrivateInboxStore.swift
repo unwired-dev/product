@@ -814,8 +814,23 @@ public final class PrivateInboxStore: @unchecked Sendable {
         try FileManager.default.removeItem(at: file)
         return nil
       }
-      try FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: file.path)
+      // Recency follows display, which only TypeScript's presentation budget decides.
       return plaintext
+    }
+  }
+
+  // Marks a resource as shown, so least-recently-used eviction keeps it longer; an absent entry
+  // is left absent.
+  public func touchRemoteContent(
+    account: String, connection: String, address: String, subject: String, id: String, url: String
+  ) throws {
+    try transaction {
+      let (name, _) = try remoteName(
+        account: account, connection: connection, address: address, subject: subject, id: id, url: url)
+      let file = directory.appendingPathComponent(try connectionPath(connection, "remote/\(name)"))
+      do {
+        try FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: file.path)
+      } catch CocoaError.fileNoSuchFile {}
     }
   }
 

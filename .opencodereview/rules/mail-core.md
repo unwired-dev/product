@@ -72,6 +72,21 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   internal batches within one Effect run. Otherwise an all-miss first batch hides
   later cached content, or delayed work restores an old viewport or permission.
 
+- `gmail-inbox.ts.remoteImage` treating temporary native unavailability, locked
+  storage or display-budget refusal as a terminal source failure. Permit a later
+  request by the same reader to retry within its original attempt budget; keep
+  invalid bytes and definite refusals final across viewport/authorization-interest
+  changes. Bound each `loadRemoteImages` call to one probe per source, including
+  cache-only continuation batches, or a deferred result can spin indefinitely.
+- `gmail-inbox.ts` touching or committing remote cache entries after retention
+  alone rather than after `prepareRemotePresentations` admits them to a live
+  reader. Trace repeated occurrences, inline-image reservations and independent readers through
+  actual presentation admission; release undisplayed retention into retryable
+  state before notifying subscribers, which can synchronously replace viewport
+  interest and inherit tentative retention. Otherwise images the reader never
+  shows stay young in LRU eviction, populate the cache or consume a display budget
+  that later requests cannot use.
+
 - `createGmailInbox.store` or `retainBodies` changing body-cache membership
   without notifying the cache subscribers exposed by `createMailboxes.bodies`.
   Publish after admitted commits and successful pruning, using the coordinator
@@ -671,7 +686,7 @@ Namespace-import style, `JSON.parse`, `typeof … === 'object'` guards, untagged
   preparation for the same immutable body and admitted inline-image objects,
   including fresh arrays containing those objects; Content-IDs alone do not bind
   their bytes. Bound retained variants while the body remains live, and trace
-  `gmail-inbox.ts.presentRemote` and reader release. Otherwise incremental updates
+  `gmail-inbox.ts.prepareRemotePresentations` and reader release. Otherwise incremental updates
   repeat whole-HTML work, show stale inline bytes or accumulate old documents.
 
 - `html-sanitizer.ts.parseDeclarations` deduplicating before resolving validity

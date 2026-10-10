@@ -88,6 +88,8 @@ export const gmailMailboxes = createMailboxes(
       native().presentAttachment(mailbox, file, action),
     openRemoteContent: (mailbox, resource) =>
       native().openRemoteContent(mailbox, resource),
+    touchRemoteContent: (mailbox, resource) =>
+      native().touchRemoteContent(mailbox, resource),
     fetchRemoteContent: (mailbox, url, request) =>
       native().fetchRemoteContent(mailbox, url, request),
     cancelRemoteContent: (mailbox, session, finished) =>

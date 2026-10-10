@@ -73,6 +73,10 @@ export interface NativeGmailMailboxes {
     mailbox: Scope,
     resource: RemoteResource,
   ) => Promise<unknown>;
+  readonly touchRemoteContent: (
+    mailbox: Scope,
+    resource: RemoteResource,
+  ) => Promise<unknown>;
   readonly fetchRemoteContent: (
     mailbox: Scope,
     url: string,
@@ -136,6 +140,8 @@ const bound = (
       native.presentAttachment(scope(mailbox), file, action),
     openRemoteContent: (mailbox, resource) =>
       native.openRemoteContent(scope(mailbox), resource),
+    touchRemoteContent: (mailbox, resource) =>
+      native.touchRemoteContent(scope(mailbox), resource),
     fetchRemoteContent: (mailbox, url, request) =>
       native.fetchRemoteContent(scope(mailbox), url, request),
     cancelRemoteContent: (mailbox, session, finished) =>

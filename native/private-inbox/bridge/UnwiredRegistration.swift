@@ -973,6 +973,19 @@ extension UnwiredRegistration {
     }
   }
 
+  @objc(touchRemoteContent:resource:resolver:rejecter:)
+  func touchRemoteContent(
+    _ scope: [String: Any], resource: [String: Any], resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    mailbox("touchRemoteContent", resolve, reject: reject) {
+      let (connection, address, generation) = try Self.scope(scope)
+      let (id, url) = try Self.resource(resource)
+      return try await $0.touchRemoteContent(
+        connection: connection, address: address, generation: generation, id: id, url: url)
+    }
+  }
+
   @objc(commitRemoteContent:resource:admission:resolver:rejecter:)
   func commitRemoteContent(
     _ scope: [String: Any], resource: [String: Any], admission: [String: Any],

@@ -13,6 +13,12 @@ Native storage owns what TypeScript must never hold: Keychain items, the storage
 
 #### Keys, credentials and storage
 
+- `PrivateInboxStore.openRemoteContent` refreshing remote-cache recency on read.
+  Reads can be rejected later by TypeScript's display admission; update recency
+  only through the owning reader's explicit shown-content operation, under the
+  same file lock and mailbox/protected-data fences. Otherwise undisplayed entries
+  displace genuinely used images during least-recently-used eviction.
+
 - `PrivateInboxStore.fullSync(_:)` or another durability helper treating failure
   of a stronger guarantee as permission to succeed through a weaker fallback.
   Restrict fallback to the platform's documented unsupported-operation errors,
