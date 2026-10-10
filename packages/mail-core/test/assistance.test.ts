@@ -1,3 +1,5 @@
+import * as Schema from 'effect/Schema';
+
 import type { NativeAssistance, SummaryInput } from '../src/assistance.ts';
 import type { Draft } from '../src/drafts.ts';
 import type { SemanticDocument } from '../src/semantic-document.ts';
@@ -20,6 +22,11 @@ import {
   syntheticRewrite,
   syntheticSummary,
 } from '../src/testing/mock-session.ts';
+
+// Every model request is a JSON object of string fields.
+const parseRequest = Schema.decodeSync(
+  Schema.fromJsonString(Schema.Record(Schema.String, Schema.String)),
+);
 
 interface Asked {
   readonly request: string;
@@ -102,7 +109,7 @@ describe('on-device message summaries', () => {
       body: `${'a'.repeat(summaryInputLimit - prefix.length - 1)}😀 tail`,
     });
     expect(split?.text).toHaveLength(summaryInputLimit - 1);
-    expect(JSON.parse(admitted(split).text).body.isWellFormed()).toBe(true);
+    expect(parseRequest(admitted(split).text).body?.isWellFormed()).toBe(true);
     expect(split?.omitted).toBe(true);
   });
 
@@ -117,7 +124,7 @@ describe('on-device message summaries', () => {
     const call = await nth(0);
     expect(summary.getSnapshot(long)).toStrictEqual({ kind: 'summarizing' });
     expect(call.input).toHaveLength(summaryInputLimit);
-    expect(JSON.parse(call.input)).toMatchObject({
+    expect(parseRequest(call.input)).toMatchObject({
       operation: 'summary',
       subject: 'Plans',
       body: expect.stringMatching(/^Please confirm/u),
@@ -141,11 +148,11 @@ describe('on-device message summaries', () => {
     );
     const done = summary.summarize(message);
     const call = await nth(0);
-    const decoded = JSON.parse(call.input);
+    const decoded = parseRequest(call.input);
     expect(call.input.length).toBeLessThanOrEqual(summaryInputLimit);
     expect(decoded).toMatchObject({ operation: 'summary', subject });
     expect(decoded.body).toMatch(/^😀 "\\\n/u);
-    expect(decoded.body.isWellFormed()).toBe(true);
+    expect(decoded.body?.isWellFormed()).toBe(true);
     call.answer.resolve('A bounded summary.');
     await done;
     expect(summary.getSnapshot(message)).toMatchObject({
@@ -414,7 +421,7 @@ describe('on-device Draft rewrites and reply suggestions', () => {
     );
     const done = assistance.start(reply);
     const call = await nth(0);
-    expect(JSON.parse(call.input)).toStrictEqual({
+    expect(parseRequest(call.input)).toStrictEqual({
       operation: 'reply',
       recipientNames: 'Maya Chen',
       authoredText: 'Please clarify.',
@@ -437,7 +444,7 @@ describe('on-device Draft rewrites and reply suggestions', () => {
     const rewriting = assistance.start(rewrite);
     const first = await nth(0);
     expect(first.input.length).toBeLessThanOrEqual(summaryInputLimit);
-    expect(JSON.parse(first.input)).toStrictEqual({
+    expect(parseRequest(first.input)).toStrictEqual({
       operation: 'rewrite',
       authoredText: authored,
     });
@@ -470,14 +477,14 @@ describe('on-device Draft rewrites and reply suggestions', () => {
     );
     const replying = assistance.start(reply);
     const second = await nth(1);
-    const decoded = JSON.parse(second.input);
+    const decoded = parseRequest(second.input);
     expect(second.input.length).toBeLessThanOrEqual(summaryInputLimit);
     expect(decoded).toMatchObject({
       operation: 'reply',
       authoredText: 'Yes',
       recipientNames: 'Maya "Chen"',
     });
-    expect(decoded.quotedText.isWellFormed()).toBe(true);
+    expect(decoded.quotedText?.isWellFormed()).toBe(true);
     expect(decoded.quotedText).not.toMatch(/z|@/u);
     second.answer.resolve('Yes, thank you.');
     await replying;
@@ -691,7 +698,7 @@ describe('on-device Draft rewrites and reply suggestions', () => {
         },
       ],
     });
-    expect(JSON.parse(admitted(cut).text)).toMatchObject({
+    expect(parseRequest(admitted(cut).text)).toMatchObject({
       operation: 'reply',
       authoredText: '',
       quotedText: expect.stringMatching(/^q/u),
@@ -721,7 +728,7 @@ describe('on-device Draft rewrites and reply suggestions', () => {
         ],
         quoted: quoted('Hi'),
       });
-      expect(JSON.parse(admitted(named).text).quotedText).toContain('Hi');
+      expect(parseRequest(admitted(named).text).quotedText).toContain('Hi');
       expect(named?.text).not.toContain(fragment);
       const cut = replyInput({
         authored: '',
@@ -737,7 +744,7 @@ describe('on-device Draft rewrites and reply suggestions', () => {
           },
         ],
       });
-      expect(JSON.parse(admitted(cut).text)).toMatchObject({
+      expect(parseRequest(admitted(cut).text)).toMatchObject({
         operation: 'reply',
         authoredText: '',
         quotedText: expect.stringMatching(/^q/u),
@@ -757,7 +764,7 @@ describe('on-device Draft rewrites and reply suggestions', () => {
         },
       ],
     });
-    expect(JSON.parse(admitted(spaced).text).quotedText).toMatch(/^q/u);
+    expect(parseRequest(admitted(spaced).text).quotedText).toMatch(/^q/u);
     expect(spaced?.text).not.toContain('<m');
     expect(spaced?.omitted).toBe(true);
   });

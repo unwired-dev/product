@@ -87,12 +87,10 @@ export default buildOxlintConfig({
         },
       },
       {
-        // Tests read trusted fixtures; their assertions check the shape. Removed by #716.
         files: ['**/*.test.ts', '**/*.test.tsx'],
         // Vitest rule settings only apply where an override enables the plugin.
         plugins: ['vitest'],
         rules: {
-          ...boundaryExemptions,
           'node/no-sync': 'allow',
           // Conflicts with vitest/prefer-strict-boolean-matchers.
           'vitest/prefer-to-be-falsy': 'allow',
