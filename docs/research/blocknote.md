@@ -86,12 +86,17 @@ typing latency, and bridge traffic have not been measured.
 
 ## Document model and email output
 
-Our editor contract already includes paragraphs, headings 1–3, lists, quotes,
-code blocks, five text marks, inline image positions, and defined undo behavior.
+Our editor contract includes paragraphs, headings 1–3, lists, quotes, code blocks,
+bold, italic, underline, strikethrough, inline code, links, inline image positions,
+and defined undo/redo behavior. Selection/caret formatting, Markdown shortcuts
+and the Slash Command Menu operate on that same semantic document. Links and
+the menu remain later implementation slices in the current Draft guide, not
+completed qualification; they still belong to the replacement evaluation contract.
 It also requires ordered autosave, retryable failures, and preserving competing
 Mac edits as separate conflict Drafts. These behaviors must survive an editor
 replacement; a formatting demo is insufficient evidence.
 [Draft behavior](../drafts.md),
+[authored-body requirements](../product/messages-and-delivery.md#authored-content-and-delivery-attempts),
 [Semantic Message Document and Draft Asset definitions](../domain/messages-and-delivery.md).
 
 BlockNote can construct a schema containing only selected blocks, inline content,
@@ -205,13 +210,18 @@ current document subset on all three native form factors.
    and Mac. Confirm the shipped assets work with networking disabled.
 2. **Document fidelity:** round-trip existing Draft fixtures, all supported
    blocks/marks, mixed lists, empty paragraphs, Unicode, inline images and asset
-   IDs. Reject or explicitly normalize unsupported pasted content without silent
+   IDs. Include link creation, destination/text edits, removal and undo/redo;
+   reopening the saved semantic document must preserve linked text ranges and
+   destinations. Reject or explicitly normalize unsupported pasted content without silent
    loss. Keep quoted correspondence and recipients outside authored-body edits.
 3. **Editing quality:** require native spelling, autocorrection and predictive
    text under the [authored-body contract](../product/messages-and-delivery.md#authored-content-and-delivery-attempts).
    Exercise IME, dictation, selection, caret formatting, input shortcuts, hardware
    keyboard, VoiceOver, and grouped undo/redo. Test selection around inline images
-   and iPad keyboard/split-view transitions.
+   and iPad keyboard/split-view transitions. Verify Markdown marker conversion
+   and one-step Undo, literal pasted Markdown, and equivalent semantic formatting
+   through toolbar and pointer/touch/keyboard context actions. Hiding the toolbar
+   must leave those formatting paths available.
 4. **Durability and privacy:** race typing with saves, failures, close/reopen,
    app interruption, stale Mac windows and account removal. Demonstrate the same
    conflict/save outcomes as the existing composer, no credential/key transfer
@@ -223,6 +233,18 @@ current document subset on all three native form factors.
 6. **Cost and maintenance:** measure bundle size, startup, memory and editing
    responsiveness against the current composer; record required overrides or
    forks. Resolve XL multi-host licensing only if XL remains part of the proposal.
+
+On every host, qualify the Slash Command Menu against the
+[authored-body contract](../product/messages-and-delivery.md#authored-content-and-delivery-attempts):
+`/` opens it only as the first non-whitespace character in a block; subsequent
+text filters the supported catalog and context-eligible explicit assistance
+commands. Up/Down changes the highlighted selection, Return/Tab applies it and
+removes the slash query, and Escape or deleting `/` dismisses it. Prove the
+320-point regular-width menu tracks the caret and flips above it when needed,
+while iPhone placement clamps to composer width and the keyboard-safe area.
+Check internal scrolling, system appearance and body-editor focus preservation
+through menu and native-bridge interactions; assistance remains preview-first
+and never starts from ordinary typing.
 
 Apply the [replacement performance targets](expo-react-native-rewrite.md#verification-targets)
 as pass/fail gates: in Release on the iPhone 17 reference device with a warm

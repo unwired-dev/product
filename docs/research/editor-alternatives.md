@@ -34,11 +34,16 @@ React Native hosts. Do not adopt a library merely because its website says
 
 The editor must preserve paragraphs, headings 1–3, bulleted/numbered lists,
 quotes, code blocks, and five marks: bold, italic, underline, strike and inline
-code. Formatting applies to selections or subsequent typing; Markdown shortcuts
-and their undo behavior matter. Inline images occupy semantic positions and
+code, plus links. Formatting applies to selections or subsequent typing; Markdown
+shortcuts and their undo behavior matter. The Slash Command Menu must edit the
+same semantic document and expose only context-eligible, explicit assistance
+commands. Links and the menu remain later implementation slices in the current
+Draft guide, not completed qualification; they still belong to the replacement
+evaluation contract. Inline images occupy semantic positions and
 retain stable Draft Asset references through deletion and undo. Native code owns
 encrypted original bytes; the editor receives limited display thumbnails.
 [Draft behavior](../drafts.md#composing),
+[authored-body requirements](../product/messages-and-delivery.md#authored-content-and-delivery-attempts),
 [files and images](../drafts.md#files-and-images).
 
 The durable contract remains our **Semantic Message Document**, not editor HTML,
@@ -272,25 +277,44 @@ recipients and subject outside arbitrary body transformations.
 [assistance scope](../domain/assistance.md).
 
 Run the same small corpus and native journeys against the current composer and
-Tiptap first; add Lexical only if a concrete Tiptap-specific limitation or measured
-conversion advantage justifies it. General WebView failures in native keyboard,
+Tiptap first; add Lexical only if a concrete Tiptap-specific limitation justifies
+it. General WebView failures in native keyboard,
 accessibility or host behavior call for evaluating the native approach instead:
 
 1. **Every host:** local launch/offline use on iPhone, iPad and AppKit Mac; no web
    React packages in native bundles; proper focus, resizing and teardown.
 2. **Document fidelity:** all supported blocks/marks, empty paragraphs, mixed
    formatting, Unicode, image positions/IDs, paste normalization and undo/redo.
+   Include link creation, destination/text edits, removal and undo/redo;
+   reopening the saved semantic document must preserve linked text ranges and
+   destinations.
    Reopen the saved semantic document and compare meaning, not just screenshot.
 3. **Native editing:** require native spelling, autocorrection and predictive
    text under the [authored-body contract](../product/messages-and-delivery.md#authored-content-and-delivery-attempts).
    Exercise software/hardware keyboards, IME, dictation, selection handles,
-   VoiceOver, shortcuts, iPad split view and Mac menu/undo integration.
+   VoiceOver, shortcuts, iPad split view and Mac menu/undo integration. Verify
+   selection/caret formatting, Markdown marker conversion and one-step Undo,
+   literal pasted Markdown, and equivalent semantic formatting through toolbar
+   and pointer/touch/keyboard context actions. Hiding the toolbar must leave
+   those formatting paths available.
 4. **Durability/privacy:** type during save/import, fail saving, switch/close,
    reopen, race two Mac windows, remove the account, reject stale assistance.
    Observe actual network requests and reject unwanted plaintext persistence.
 5. **Delivery and cost:** recipient-client rendering with inline MIME images;
    measure shipped size, launch time, memory and typing responsiveness on the
    same devices. Record necessary patches and maintenance ownership.
+
+On every host, qualify the Slash Command Menu against the
+[authored-body contract](../product/messages-and-delivery.md#authored-content-and-delivery-attempts):
+`/` opens it only as the first non-whitespace character in a block; subsequent
+text filters the supported catalog and context-eligible explicit assistance
+commands. Up/Down changes the highlighted selection, Return/Tab applies it and
+removes the slash query, and Escape or deleting `/` dismisses it. Prove the
+320-point regular-width menu tracks the caret and flips above it when needed,
+while iPhone placement clamps to composer width and the keyboard-safe area.
+Check internal scrolling, system appearance and body-editor focus preservation
+through menu and native-bridge interactions; assistance remains preview-first
+and never starts from ordinary typing.
 
 Apply the [replacement performance targets](expo-react-native-rewrite.md#verification-targets)
 as pass/fail gates: in Release on the iPhone 17 reference device with a warm
