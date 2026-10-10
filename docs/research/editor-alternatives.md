@@ -2,8 +2,9 @@
 
 Researched 2026-10-09. Scope: replacing or improving the authored message-body
 editor on iPhone, iPad and native Mac. This is a sourced suitability assessment,
-not an adoption decision or evidence from a working integration. See the earlier
-[BlockNote assessment](blocknote.md) for that baseline.
+not an adoption decision or evidence from a working integration. This comparison
+supersedes the earlier [BlockNote assessment](blocknote.md)'s initial prototype
+priority; that report remains a conditional comparison baseline.
 
 Reviewed against main on 2026-10-10 at
 `506964efae8a39ea391f05b4578bc92ea851f5e6`. The current
@@ -14,7 +15,8 @@ their guides.
 ## Recommendation
 
 **Evaluate Tiptap core first, with TenTap as a possible mobile host adapter;
-keep Lexical as the second web-engine candidate.** These offer more control over
+keep Lexical as a fallback for a concrete Tiptap-specific limitation.** These
+offer more control over
 our small semantic email schema than adopting an entire block-document UI.
 This is a fit judgment, not a claim that either performs better than BlockNote.
 Tiptap and Lexical expose custom content models; neither documented web editor
@@ -64,7 +66,7 @@ The existing reader WebView is not evidence that editing works acceptably.
 | ----------------------------------- | ----------------------------------------------- | -------------------------------------------------------------------- | ----------------------------------------------------------------- |
 | **Tiptap / ProseMirror**            | Browser DOM; separate WebView in our hosts      | First engine to prototype; explicit schema and custom attributes     | Native bridge, keyboard/accessibility, semantic conversion        |
 | **TenTap**                          | Tiptap in a WebView with React Native controls  | Mobile accelerator for the same engine, not a separate engine choice | Mac host adaptation and save/flush protocol                       |
-| **Lexical**                         | Browser contenteditable; separate WebView       | Strong second engine when we want to own the UI                      | Host integration, custom nodes, conversion and toolbar            |
+| **Lexical**                         | Browser contenteditable; separate WebView       | Conditional fallback for a concrete Tiptap-specific limitation       | Host integration, custom nodes, conversion and toolbar            |
 | **Enriched HTML**                   | Native iOS/Android; separate Web implementation | Interesting native mobile alternative                                | No documented native Mac support; HTML and asset mapping          |
 | **Enriched Markdown**               | Native iOS/Android/macOS input                  | Relevant future candidate                                            | Missing composer formats; documented Mac accessibility gap        |
 | **Existing/native editor approach** | Native host components                          | Necessary UX/durability baseline                                     | Own richer editing semantics and platform-specific implementation |
@@ -226,7 +228,7 @@ from native keyboard and accessibility qualification.
   plugins and optional React UI. Their core repositories use MIT licenses.
   They are credible web candidates, but the documented integrations do not
   eliminate our WebView, semantic mapping or native qualification work. No
-  project-specific advantage found justifies a third initial web-engine spike.
+  project-specific advantage found justifies another web-engine spike.
   [Slate](https://docs.slatejs.org/),
   [Slate license](https://github.com/ianstormtaylor/slate/blob/main/License.md),
   [Plate installation](https://platejs.org/docs/installation),
@@ -270,8 +272,9 @@ recipients and subject outside arbitrary body transformations.
 [assistance scope](../domain/assistance.md).
 
 Run the same small corpus and native journeys against the current composer and
-Tiptap first; add Lexical only if the first candidate fails or conversion work
-suggests a meaningful advantage:
+Tiptap first; add Lexical only if a concrete Tiptap-specific limitation or measured
+conversion advantage justifies it. General WebView failures in native keyboard,
+accessibility or host behavior call for evaluating the native approach instead:
 
 1. **Every host:** local launch/offline use on iPhone, iPad and AppKit Mac; no web
    React packages in native bundles; proper focus, resizing and teardown.

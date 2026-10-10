@@ -15,15 +15,19 @@ separate from this library research.
 ## Recommendation
 
 **BlockNote is a plausible WebView composer candidate, but not a drop-in React
-Native editor. Prototype it before committing to production adoption.** Its
-formatting, extensible document model, and current mobile browser work are useful.
+Native editor.** The later [editor alternatives recommendation](editor-alternatives.md#recommendation)
+supersedes this report's initial prototype priority: evaluate Tiptap core first,
+with TenTap as a possible mobile host adapter. This report remains a comparison
+baseline; its proposed gates apply only if BlockNote is separately evaluated.
+
+Its formatting, extensible document model, and current mobile browser work are useful.
 The material cost is integrating a browser editor with our semantic document,
 native encrypted assets, save ordering, window conflicts, keyboard behavior, and
 accessibility. The evidence below supports feasibility, not compatibility already
 proved on our hosts.
 
-Prefer an initial core-only evaluation with a deliberately small schema. Keep the
-existing Semantic Message Document as the persistence and outgoing-content
+For a later BlockNote comparison, prefer a core-only evaluation with a deliberately
+small schema. Keep the existing Semantic Message Document as the persistence and outgoing-content
 contract. Do not introduce Yjs synchronization, cloud AI, or an XL subscription
 just to evaluate the editor. These are recommendations based on the product
 requirements and the documented integration surfaces below.
@@ -191,8 +195,9 @@ covers every host. No vendor contact or purchase occurred during this research.
 
 ## Proposed evaluation and decision gates
 
-These are proposed checks, not completed tests. Limit the first spike to core
-editing and our current document subset on all three native form factors.
+These are proposed checks, not completed tests. If BlockNote is separately
+evaluated after the Tiptap-first effort, limit its spike to core editing and our
+current document subset on all three native form factors.
 
 1. **Host boundary:** package a local web asset without adding React DOM to the
    native renderer; prove launch, focus, resize, and teardown on iPhone, iPad,

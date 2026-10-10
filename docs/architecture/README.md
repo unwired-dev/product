@@ -80,7 +80,8 @@ These directories remain whole reviewer-only sources; use their original filenam
 - [Technical research](../research/expo-react-native-rewrite.md).
 - [BlockNote composer assessment](../research/blocknote.md) and
   [editor alternatives and approved evaluation tickets](../research/editor-alternatives.md):
-  research and prototype proposals, without an editor adoption decision.
+  the alternatives report governs the Tiptap-first evaluation; BlockNote remains
+  a conditional comparison baseline, without an editor adoption decision.
 - [Platform and provider qualification](../qualification/).
 - [Historical archive index](../archive/README.md).
 
