@@ -212,6 +212,19 @@ for (const description of ['Review completed', 'Review approved']) {
   });
 }
 
+// Codex's newer format edits one summary comment and posts findings as a review.
+const codexSummary = (status) => ({
+  author: { login: 'chatgpt-codex-connector' },
+  body: `<!-- codex-pull-request-review-summary -->\n\n## Codex Review Summary\n\n| Review | Status | Commit | Review trigger |\n| --- | --- | --- | --- |\n| 📝 **Code Review** | ${status} <relative-time datetime="2026-10-07T09:00:00Z">2026-10-07T09:00:00Z</relative-time> | \`0123456\` | PR opened |\n`,
+  createdAt: hoursAgo(3),
+});
+
+test('merges a head cleared by the Codex review summary', () => {
+  const pr = cleared();
+  pr.comments.nodes = [codexSummary('✅ **Completed**')];
+  assert.deepEqual(run(pr), { output: '#7: merge', calls: [merge] });
+});
+
 test('reports decisions without acting in a dry run', () => {
   assert.deepEqual(run(cleared(), { DRY_RUN: '1' }), {
     output: '#7: merge',
@@ -272,6 +285,23 @@ const blocked = [
     (pr) => (pr.headRefOid = 'fedcba9876543210fedcba9876543210fedcba98'),
   ],
   ['no Codex clearance comment', (pr) => (pr.comments.nodes = [])],
+  [
+    'a Codex review summary still running',
+    (pr) => (pr.comments.nodes = [codexSummary('🔄 **Running** since')]),
+  ],
+  [
+    'a Codex summary with findings on the head commit',
+    (pr) => {
+      pr.comments.nodes = [codexSummary('✅ **Completed**')];
+      pr.reviews.nodes.push({
+        databaseId: 43,
+        author: { login: 'chatgpt-codex-connector' },
+        state: 'COMMENTED',
+        submittedAt: hoursAgo(3),
+        commit: { oid: head },
+      });
+    },
+  ],
   ['no CodeRabbit review', (pr) => (pr.reviews.nodes = [])],
   [
     'an unresolved review thread',

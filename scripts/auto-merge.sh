@@ -20,7 +20,7 @@ query='query($owner: String!, $name: String!, $number: Int!) {
       labels(first: 50) { totalCount nodes { name } }
       reactions(content: THUMBS_UP, first: 100) { nodes { user { login } } }
       comments(last: 100) { nodes { author { login } body createdAt } }
-      reviews(last: 100) { nodes { databaseId author { login } state submittedAt } }
+      reviews(last: 100) { nodes { databaseId author { login } state submittedAt commit { oid } } }
       reviewThreads(first: 100) { totalCount nodes { isResolved comments(last: 1) { nodes { createdAt } } } }
       commits(last: 1) { nodes { commit { committedDate statusCheckRollup { contexts(first: 100) {
         totalCount nodes { ... on CheckRun { name status conclusion checkSuite { app { databaseId } } } ... on StatusContext { context state description creator { login } } }
@@ -36,6 +36,9 @@ decide='
   | ([.reviews.nodes[] | select(.author.login == "coderabbitai" and (.state == "APPROVED" or .state == "CHANGES_REQUESTED" or (.state == "DISMISSED" and .databaseId == $dismissed)))] | last) as $rabbit
   | ([.comments.nodes[] | select(.author.login == "chatgpt-codex-connector" and (.body | contains("Didn'"'"'t find any major issues")))]
      | last | .body // "" | [capture("Reviewed commit:\\*\\* `(?<sha>[0-9a-f]+)`")] | .[0].sha // "") as $codexSha
+  # Codex now edits one summary comment instead of posting a clearance; findings arrive as a review of the commit.
+  | ([.comments.nodes[] | select(.author.login == "chatgpt-codex-connector" and (.body | contains("<!-- codex-pull-request-review-summary -->")))]
+     | last | .body // "" | [capture("Code Review\\*\\* \\| ✅ \\*\\*Completed\\*\\*[^|]*\\| `(?<sha>[0-9a-f]+)`")] | .[0].sha // "") as $codexSummarySha
   # CodeRabbit reports a successful status even when it paused or skipped a commit.
   | (any($commit.statusCheckRollup.contexts.nodes[]?; .context == "CodeRabbit" and .creator.login == "coderabbitai" and .state == "SUCCESS"
       and (.description | IN("Review completed", "Review approved")))) as $rabbitReviewedHead
@@ -61,7 +64,8 @@ decide='
     elif .reviewThreads.totalCount != (.reviewThreads.nodes | length) then "wait: too many review threads to verify"
     elif any(.reviewThreads.nodes[]; .isResolved | not) then "wait: unresolved review threads"
     elif all(.reactions.nodes[]; .user.login != "chatgpt-codex-connector[bot]") then "wait: no Codex 👍"
-    elif $codexSha == "" or ($head | startswith($codexSha) | not) then "wait: Codex has not cleared the head commit"
+    elif any(.reviews.nodes[]; .author.login == "chatgpt-codex-connector" and .commit.oid == $head) then "wait: Codex has findings on the head commit"
+    elif all($codexSha, $codexSummarySha; . as $sha | $sha == "" or ($head | startswith($sha) | not)) then "wait: Codex has not cleared the head commit"
     elif $rabbit == null then "wait: no CodeRabbit approval"
     elif $rabbit.state == "APPROVED" and $rabbitReviewedHead then "merge"
     elif $now - $lastActivity <= 7200 and $rabbit.state == "APPROVED"

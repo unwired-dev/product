@@ -105,8 +105,9 @@ can delay or skip. It squash-merges each open pull request to `main` that meets 
   from its required GitHub App when one is specified. When the ruleset requires
   branches to be up to date, the head must also contain the latest `main`.
 - Every review thread is resolved.
-- Codex reacted with 👍 and its latest "Didn't find any major issues" comment
-  names the current head commit.
+- Codex reacted with 👍, left no review on the head commit, and either its
+  latest "Didn't find any major issues" comment or its Codex Review Summary
+  comment's completed Code Review names the current head commit.
 - CodeRabbit's latest approving or change-requesting review approves, and its
   `CodeRabbit` status on the head commit is posted by `coderabbitai` and reads
   "Review completed" or "Review approved". A previous approval can remain after
