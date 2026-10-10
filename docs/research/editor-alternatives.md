@@ -288,7 +288,8 @@ it. General WebView failures in native keyboard,
 accessibility or host behavior call for evaluating the native approach instead:
 
 1. **Every host:** local launch/offline use on iPhone, iPad and AppKit Mac; no web
-   React packages in native bundles; proper focus, resizing and teardown.
+   React packages in native bundles; qualify focus, resizing, scrolling and
+   teardown against the [scoped host contract](#composer-host-qualification).
 2. **Document fidelity:** all supported blocks/marks, empty paragraphs, mixed
    formatting, Unicode, image positions/IDs, paste normalization and undo/redo.
    Include link creation, destination/text edits, removal and undo/redo;
@@ -328,6 +329,24 @@ accessibility or host behavior call for evaluating the native approach instead:
 5. **Delivery and cost:** recipient-client rendering with inline MIME images;
    measure shipped size, launch time, memory and typing responsiveness on the
    same devices. Record necessary patches and maintenance ownership.
+
+### Composer host qualification
+
+Use [current Draft behavior](../drafts.md#composing) and the applicable
+[composer presentation contract](../product/messages-and-delivery.md#prototype-composer-presentation),
+specified by [ADR 0057](../adr/0057-present-composing-inside-the-mail-shell.md),
+as the host acceptance authority. Record the presentation and scope qualified
+on each host; prototype overlay geometry is not a universal replacement requirement.
+
+For the single-scroll presentation, verify that the body grows with its content
+inside the same outer scroll as From, recipients, subject, formatting controls,
+attachments, quoted text and save/error status, with only the compact header fixed.
+A fixed-height WebView with its own competing vertical scroll does not pass that
+contract. Across adaptive layout and keyboard/split-view changes, and collapsed/expanded
+transitions where the host provides them, preserve the same Draft identity,
+Semantic Message Document, selection, focus, undo history and autosave state.
+Qualify the candidate's integration; record unavailable journeys as outstanding,
+without making an existing-host retrofit a prerequisite for collecting evidence.
 
 On every host, qualify the Slash Command Menu against the
 [authored-body contract](../product/messages-and-delivery.md#authored-content-and-delivery-attempts):

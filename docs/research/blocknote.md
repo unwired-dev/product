@@ -212,8 +212,9 @@ remain the acceptance contract in their current scope and qualification status;
 the checks below highlight journeys rather than replace that contract.
 
 1. **Host boundary:** package a local web asset without adding React DOM to the
-   native renderer; prove launch, focus, resize, and teardown on iPhone, iPad,
-   and Mac. Confirm the shipped assets work with networking disabled.
+   native renderer; prove launch and offline use on iPhone, iPad and Mac.
+   Qualify focus, resizing, scrolling and teardown against the same
+   [scoped host contract](editor-alternatives.md#composer-host-qualification).
 2. **Document fidelity:** round-trip existing Draft fixtures, all supported
    blocks/marks, mixed lists, empty paragraphs, Unicode, inline images and asset
    IDs. Include link creation, destination/text edits, removal and undo/redo;
