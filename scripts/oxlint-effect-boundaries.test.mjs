@@ -63,16 +63,14 @@ for (const config of [
   'apps/mobile/oxlint.config.ts',
   'apps/macos/oxlint.config.ts',
 ]) {
-  test(`${config} rejects hand-rolled boundary parsing`, () => {
-    assert.deepEqual(
-      boundaryDiagnostics(config, 'boundaries.ts'),
-      cases.flatMap(([, kind], index) =>
-        kind === null ? [] : [[index + 1, codes[kind], 'error']],
-      ),
-    );
-  });
-
-  test(`${config} exempts tests, which read trusted fixtures`, () => {
-    assert.deepEqual(boundaryDiagnostics(config, 'boundaries.test.tsx'), []);
-  });
+  for (const name of ['boundaries.ts', 'boundaries.test.tsx']) {
+    test(`${config} rejects hand-rolled boundary parsing in ${name}`, () => {
+      assert.deepEqual(
+        boundaryDiagnostics(config, name),
+        cases.flatMap(([, kind], index) =>
+          kind === null ? [] : [[index + 1, codes[kind], 'error']],
+        ),
+      );
+    });
+  }
 }

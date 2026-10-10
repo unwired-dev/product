@@ -1,3 +1,4 @@
+import * as Schema from 'effect/Schema';
 import PostalMime from 'postal-mime';
 
 import type { Draft } from '../src/drafts.ts';
@@ -20,6 +21,10 @@ import {
   sharedAccount,
   write,
 } from './outbox-fixture.ts';
+
+const parseJson = Schema.decodeSync(
+  Schema.fromJsonString(Schema.Record(Schema.String, Schema.Unknown)),
+);
 
 // Places a profile refresh at one controlled external boundary of delivery.
 async function renameDuring(
@@ -161,7 +166,7 @@ describe('sending a Draft through the Outbox', () => {
       },
     ]);
     expect(
-      JSON.parse(present(sending.storage.stored(), 'stored Drafts').document)
+      parseJson(present(sending.storage.stored(), 'stored Drafts').document)
         .outbox,
     ).toStrictEqual(sending.drafts.getOutbox());
     later(undoSendWindow - 1);
@@ -182,7 +187,7 @@ describe('sending a Draft through the Outbox', () => {
     expect(sent?.raw).toContain('Date: Fri, 09 Oct 2026 12:00:00 +0000');
     expect(sending.drafts.getOutbox()).toStrictEqual([]);
     expect(
-      JSON.parse(present(sending.storage.stored(), 'stored Drafts').document),
+      parseJson(present(sending.storage.stored(), 'stored Drafts').document),
     ).toMatchObject({ sent: [{ id, message: sent?.id, sentAt: clock.now }] });
     expect(sending.storage.stored()?.document).not.toContain('"outbox"');
     expect(sending.storage.assets()).toStrictEqual([]);

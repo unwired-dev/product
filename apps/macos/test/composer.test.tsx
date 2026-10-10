@@ -22,6 +22,7 @@ import {
   waitFor,
   within,
 } from '@testing-library/react-native';
+import * as Schema from 'effect/Schema';
 import { StrictMode, useMemo, useState, useSyncExternalStore } from 'react';
 import { AppState, View } from 'react-native';
 
@@ -34,6 +35,9 @@ import { MessageDetail } from '../src/message-detail.tsx';
 import { AssistanceContext } from '../src/message-summary.tsx';
 import { AccountContext } from '../src/registration-gate.tsx';
 import { TranslationContext } from '../src/translation.tsx';
+
+// oxlint-disable-next-line node/no-sync -- Pure JSON decoding of a recorded request, not synchronous I/O.
+const parseJson = Schema.decodeSync(Schema.fromJsonString(Schema.Unknown));
 
 const alex = syntheticMailboxes['alex@example.invalid'];
 const other = syntheticMailboxes['other@example.invalid'];
@@ -2159,7 +2163,7 @@ describe('composing Drafts', () => {
     // With nothing selected, the whole authored body is rewritten.
     await press('Rewrite the message body');
     expect(asked[0]?.operation).toBe('rewrite');
-    expect(JSON.parse(asked[0]!.input)).toStrictEqual({
+    expect(parseJson(asked[0]!.input)).toStrictEqual({
       operation: 'rewrite',
       authoredText: original,
     });
@@ -2183,7 +2187,7 @@ describe('composing Drafts', () => {
       nativeEvent: { selection: { start: 0, end: 17 } },
     });
     await press('Rewrite the selected text');
-    expect(JSON.parse(asked[1]!.input)).toStrictEqual({
+    expect(parseJson(asked[1]!.input)).toStrictEqual({
       operation: 'rewrite',
       authoredText: 'lets meet friday.',
     });
@@ -3225,7 +3229,7 @@ describe('replying to and forwarding from the reader', () => {
     await press('Suggest a reply to the quoted message');
     // Only display names, the authored text and the quoted message already in the Draft are read.
     expect(asked[0]?.operation).toBe('reply');
-    expect(JSON.parse(asked[0]!.input)).toMatchObject({
+    expect(parseJson(asked[0]!.input)).toMatchObject({
       operation: 'reply',
       recipientNames: 'Maya Chen, Bob',
       authoredText: 'Yes',

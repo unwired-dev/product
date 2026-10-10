@@ -8,12 +8,16 @@ import { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mai
 import { createMockMailSession } from '@private-email/mail-core/testing/mock-session';
 import { makeMockInboxStorage } from '@private-email/mail-core/testing/mock-storage';
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
+import * as Schema from 'effect/Schema';
 import { StrictMode, useLayoutEffect } from 'react';
 
 import { InboxProvider } from '../src/mailbox.tsx';
 import { GmailMessageBody } from '../src/message-body.tsx';
 import { MessageDetail } from '../src/message-detail.tsx';
 import { AssistanceContext, MessageSummary } from '../src/message-summary.tsx';
+
+// oxlint-disable-next-line node/no-sync -- Pure JSON decoding of a recorded request, not synchronous I/O.
+const parseJson = Schema.decodeSync(Schema.fromJsonString(Schema.Unknown));
 
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Jest's host adapter boundary.
 jest.mock('../src/private-storage.ts', () => ({
@@ -325,7 +329,7 @@ describe('on-device message summaries in the reader', () => {
         await screen.findByLabelText('Summarize this message'),
       );
       await screen.findByLabelText('Cancel summary');
-      expect(JSON.parse(asked[0]!.input)).toMatchObject({
+      expect(parseJson(asked[0]!.input)).toMatchObject({
         operation: 'summary',
         subject: 'A little more room to think',
         body: expect.stringMatching(/^Hi Alex,/u),

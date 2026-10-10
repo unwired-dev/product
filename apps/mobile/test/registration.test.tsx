@@ -1,5 +1,4 @@
 import type {
-  MailboxConnection,
   Registration,
   RegistrationSnapshot,
 } from '@private-email/mail-core/registration';
@@ -8,7 +7,10 @@ import type { SyntheticAddress } from '@private-email/mail-core/testing/registra
 import { english } from '@private-email/localization';
 import { createGmailInbox } from '@private-email/mail-core/gmail-inbox';
 import { createMailboxes } from '@private-email/mail-core/mailboxes';
-import { createRegistration } from '@private-email/mail-core/registration';
+import {
+  createRegistration,
+  mailboxesOf,
+} from '@private-email/mail-core/registration';
 import {
   createSyntheticGmail,
   syntheticConnections,
@@ -73,8 +75,7 @@ function ConnectedInbox() {
   const account = useContext(AccountContext);
   const listed = JSON.stringify(account?.mailboxes ?? []);
   const mailboxes = useMemo(() => {
-    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- Serialized by this component.
-    const connections = JSON.parse(listed) as readonly MailboxConnection[];
+    const connections = mailboxesOf({ mailboxes: listed });
     return gmailMailboxes(
       {
         subscribe: () => () => undefined,

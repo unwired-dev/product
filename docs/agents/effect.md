@@ -102,10 +102,9 @@ configurations:
   randomness, `fetch`, timers, `process.env`, and JSON globals inside Effect code.
 - `effect-boundaries/no-object-typeof-guard` rejects `typeof … === 'object'`
   guards, `effect-boundaries/no-json-parse` rejects `JSON.parse`, and
-  `effecttsgo/extends-native-error` rejects untagged error classes. Other
-  hand-rolled parsing is a review concern. Test files stay exempt until
-  [#716](https://github.com/unwired-dev/product/issues/716) removes the exemption,
-  and the legacy harness until [cutover #627](https://github.com/unwired-dev/product/issues/627).
+  `effecttsgo/extends-native-error` rejects untagged error classes, in tests as
+  in production code. Other hand-rolled parsing is a review concern. The legacy
+  harness stays exempt until [cutover #627](https://github.com/unwired-dev/product/issues/627).
 - `effect-imports/namespace-imports` requires
   `import * as Module from 'effect/Module'`.
 

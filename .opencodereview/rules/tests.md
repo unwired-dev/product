@@ -114,4 +114,4 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 
 #### Leave to tooling
 
-Vitest and Jest style rules, formatting, unused variables and type errors. `**/*.test.ts` and `**/*.test.tsx` are exempt from the `JSON.parse`, `typeof` guard and untagged-error lint rules by the documented, tracked exemption in the lint configurations; do not extend that exemption to other test/fixture names or languages. The merged Swift rule covers Swift test mechanics; this file's policy takes precedence where they differ.
+Vitest and Jest style rules, formatting, unused variables, type errors, and the enforced `JSON.parse`, `typeof` guard and untagged-error rules. Tests follow the same Effect boundary rules as production code; only the legacy `packages/mail-test-harness` remains exempt until #627. The merged Swift rule covers Swift test mechanics; this file's policy takes precedence where they differ.

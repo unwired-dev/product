@@ -1,6 +1,7 @@
 import { setImmediate } from 'node:timers/promises';
 
 import { english } from '@private-email/localization';
+import * as Schema from 'effect/Schema';
 
 import type { GmailInboxState, GmailMessage } from '../src/gmail-inbox.ts';
 
@@ -12,6 +13,8 @@ import {
 } from '../src/gmail-actions.ts';
 import { createGmailInbox } from '../src/gmail-inbox.ts';
 import { createSyntheticGmail } from '../src/testing/gmail-mailbox.ts';
+
+const parseJson = Schema.decodeSync(Schema.fromJsonString(Schema.Unknown));
 
 const ready = (state: GmailInboxState) => {
   if (state.kind !== 'ready') {
@@ -388,7 +391,9 @@ describe('organizing Gmail mail', () => {
     });
     expect(message(inbox, read).unread).toBe(false);
     const saved = String(gmail.commits.at(-1));
-    expect(JSON.parse(saved).pending[0].action.kind).toBe('read');
+    expect(parseJson(saved)).toMatchObject({
+      pending: [{ action: { kind: 'read' } }],
+    });
     expect(saved.split('"action":')).toHaveLength(2);
     expect(gmail.labelsOf(read)).toContain('UNREAD');
 
@@ -685,9 +690,10 @@ describe('organizing Gmail mail', () => {
     });
     await saved.promise;
     const cache = await gmail.native.openMailbox();
-    expect(
-      JSON.parse(required(cache.document, 'the cache')).pending,
-    ).toHaveLength(1);
+    expect(parseJson(required(cache.document, 'the cache'))).toHaveProperty(
+      'pending.length',
+      1,
+    );
     expect(gmail.modifies).toStrictEqual([]);
     inbox.forget();
     release.resolve(undefined);
@@ -912,9 +918,10 @@ describe('organizing Gmail mail', () => {
     );
     await inbox.organize(target, gmailAction.star);
     const cache = await gmail.native.openMailbox();
-    expect(
-      JSON.parse(required(cache.document, 'the cache')).pending,
-    ).toHaveLength(1);
+    expect(parseJson(required(cache.document, 'the cache'))).toHaveProperty(
+      'pending.length',
+      1,
+    );
     expect(ready(inbox.getSnapshot())).toMatchObject({ pending: 1, saving: 0 });
     await createGmailInbox(gmail.native).load();
     expect(gmail.labelsOf(target.id)).toContain('STARRED');
@@ -1755,7 +1762,9 @@ describe('organizing Gmail mail', () => {
       { address: 'alex@example.invalid', generation: '0' },
       gmail.commits.length,
       JSON.stringify({
-        ...JSON.parse(String(gmail.commits.at(-1))),
+        ...Schema.decodeSync(
+          Schema.fromJsonString(Schema.Record(Schema.String, Schema.Unknown)),
+        )(String(gmail.commits.at(-1))),
         messages: [legacy],
         pending: [
           { id: 'legacy-read', action: gmailAction.read, message: legacy },
