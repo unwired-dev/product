@@ -113,19 +113,50 @@ struct ProductRegistrationReceipt: Codable {
   var productSyncMaterialInitialized: Bool? = nil
 }
 
-struct SignInLinkRequest {
-  // Absent when the provider is already linked to this Product Account.
-  let linkTicket: String?
-  let signInProviders: [SignInProvider]
+// Convex's reply to productAccount:connect. A device the account has not admitted connects as a
+// Pending Device.
+struct ConnectReply: Decodable {
+  let productAccountId: String
+  let trustedDeviceId: String?
+  let trustedDeviceCredential: String?
+  let pendingDeviceId: String?
+  let pendingDeviceCredential: String?
+  let signInProviders: [SignInProvider]?
+  let productSyncMaterialInitialized: Bool?
 }
 
-// Backend steps for an explicit link: the current account vouches, then the new identity redeems.
-struct SignInLinking {
-  let request:
-    (ProductSignInIdentity, ProductRegistrationReceipt, SignInProvider) async throws ->
-      SignInLinkRequest
-  let complete:
-    (ProductSignInIdentity, ProductRegistrationReceipt, String) async throws -> [SignInProvider]
+extension ProductRegistrationReceipt {
+  // What a connect presents: a reconnect sends its existing credential and never creates or
+  // reaches another Product Account.
+  static func connectArguments(
+    deviceIdentifier: String, platform: String, previous: ProductRegistrationReceipt?
+  ) -> [String: Any] {
+    var args: [String: Any] = [
+      "deviceIdentifier": deviceIdentifier, "platform": platform,
+      "supportsDeviceCredentials": true,
+    ]
+    if let previous {
+      args[previous.pending == true ? "pendingDeviceCredential" : "trustedDeviceCredential"] =
+        previous.trustedDeviceCredential
+      args["expectedProductAccountId"] = previous.productAccountId
+    }
+    return args
+  }
+
+  // The receipt the reply issues: only for a Product Account, a device and a well-formed credential.
+  init(connected reply: ConnectReply) throws {
+    guard
+      let deviceId = reply.trustedDeviceId ?? reply.pendingDeviceId,
+      let credential = reply.trustedDeviceCredential ?? reply.pendingDeviceCredential,
+      !reply.productAccountId.isEmpty, !deviceId.isEmpty,
+      credential.range(of: "^[0-9a-f]{64}$", options: .regularExpression) != nil
+    else { throw RegistrationError.unavailable }
+    self.init(
+      productAccountId: reply.productAccountId, trustedDeviceId: deviceId,
+      trustedDeviceCredential: credential, pending: reply.pendingDeviceId != nil ? true : nil,
+      signInProviders: reply.signInProviders,
+      productSyncMaterialInitialized: reply.productSyncMaterialInitialized)
+  }
 }
 
 @MainActor protocol GoogleRegistrationProvider {
@@ -219,6 +250,25 @@ struct SavedRegistration: Codable {
   }
 }
 
+// One Convex request: a query or mutation by function path, or an HTTP action by route.
+struct BackendRequest {
+  enum Endpoint: String { case query, mutation, action }
+  let endpoint: Endpoint
+  let path: String
+  var args: [String: Any]
+  // The Product Sign-In whose token authenticates it, when the call needs one.
+  var identity: ProductSignInIdentity?
+  // The receipt whose device proof `args` carries, when the call needs one.
+  var product: ProductRegistrationReceipt?
+}
+
+// Sends a request and returns its HTTP status and body.
+typealias BackendTransport = @MainActor (BackendRequest) async throws -> (Int, Data)
+
+// The minimal native vault behind TypeScript's registration flow: the saved registration in the
+// Keychain, provider SDK sign-ins and credentialed backend calls. TypeScript decides the flow and
+// reads a projection without credentials, tokens or provider subjects; every change goes through an
+// operation named by its purpose.
 @MainActor final class RegistrationStore {
   static let gmailScope = "https://www.googleapis.com/auth/gmail.modify"
   let keys: DeviceKeychain
@@ -230,11 +280,11 @@ struct SavedRegistration: Codable {
   let connect:
     (ProductSignInIdentity, String, ProductRegistrationReceipt?) async throws ->
       ProductRegistrationReceipt
-  let linking: SignInLinking?
   let productSync: ProductSyncBackend?
-  let removal: AccountRemoval?
   // Whether the account revoked this device, answered for its credential without a Product Sign-In.
   let deviceRevoked: ((ProductRegistrationReceipt) async throws -> Bool)?
+  // The generic credentialed call TypeScript names; absent where a host has no backend.
+  let transport: BackendTransport?
   // Each connection's encrypted cache; account removal and connection removal clear it.
   let mailCache: PrivateInboxStore?
   // Per connection, invalidates suspended mailbox work without treating concurrent token renewal
@@ -247,6 +297,10 @@ struct SavedRegistration: Codable {
   var newlyAuthorizedMailboxes: Set<String> = []
   // The latest verified Product Sign-In in this process; Apple tokens cannot be renewed silently.
   var session: ProductSignInIdentity?
+  // The latest Product Sign-In in this process, verified or not; the next step presents it.
+  var identity: ProductSignInIdentity?
+  // The latest Gmail authorization, and its verified receipt, until a connection stores it.
+  var mailboxAuthorization: (identity: GoogleRegistrationIdentity, receipt: GmailRegistrationReceipt?)?
   // Other devices' enrollment requests by Product Account, as last listed in this process.
   var enrollmentRequests: [String: [PendingEnrollment]] = [:]
   // The account's other Trusted Devices by Product Account, as last listed in this process.
@@ -255,10 +309,9 @@ struct SavedRegistration: Codable {
   init(
     keys: DeviceKeychain, deployment: String, clientID: String,
     provider: any GoogleRegistrationProvider, apple: (any AppleRegistrationProvider)? = nil,
-    linking: SignInLinking? = nil, productSync: ProductSyncBackend? = nil,
-    removal: AccountRemoval? = nil,
+    productSync: ProductSyncBackend? = nil,
     deviceRevoked: ((ProductRegistrationReceipt) async throws -> Bool)? = nil,
-    mailCache: PrivateInboxStore? = nil,
+    transport: BackendTransport? = nil, mailCache: PrivateInboxStore? = nil,
     connect:
       @escaping (ProductSignInIdentity, String, ProductRegistrationReceipt?) async throws ->
       ProductRegistrationReceipt
@@ -268,10 +321,9 @@ struct SavedRegistration: Codable {
     self.clientID = clientID
     self.provider = provider
     self.apple = apple
-    self.linking = linking
     self.productSync = productSync
-    self.removal = removal
     self.deviceRevoked = deviceRevoked
+    self.transport = transport
     self.mailCache = mailCache
     self.connect = connect
   }
@@ -290,93 +342,52 @@ struct SavedRegistration: Codable {
     try keys.save(JSONEncoder().encode(saved), account: "registration")
   }
 
-  func account(_ saved: SavedRegistration, kind: String) throws -> [String: String] {
-    guard let product = saved.product else { throw RegistrationError.unavailable }
-    var result = [
-      "kind": kind, "productAccountId": product.productAccountId,
+  func saved() throws -> SavedRegistration {
+    guard let saved = try load() else { throw RegistrationError.unavailable }
+    return saved
+  }
+
+  // What TypeScript reads of the saved registration: no credential, token or provider subject.
+  func registration() throws -> [String: Any]? {
+    guard let saved = try load() else { return nil }
+    var result: [String: Any] = [
       "signInProvider": saved.provider.rawValue,
+      "mailboxes": saved.connections.map { connection in
+        var entry: [String: Any] = [
+          "id": connection.id, "address": connection.receipt.address,
+          "authorizationNeeded": connection.authorizationNeeded == true,
+          "access": verifiedMailboxes.contains(connection.id)
+            ? "verified" : cacheOnlyMailboxes.contains(connection.id) ? "cached" : "unverified",
+        ]
+        if let epoch = connection.epoch { entry["epoch"] = epoch }
+        return entry
+      },
+      "mailboxRemovalPending": !(saved.mailboxRemovals ?? []).isEmpty
+        || !(saved.mailboxCacheRemovals ?? []).isEmpty,
+      "session": session != nil,
     ]
-    if let email = saved.contactEmail, !email.isEmpty { result["contactEmail"] = email }
-    if let alternate = product.signInProviders?.first(where: { $0 != saved.provider }) {
-      result["alternateSignIn"] = alternate.rawValue
+    if let email = saved.contactEmail { result["contactEmail"] = email }
+    if let reason = saved.mailboxSetupReason { result["mailboxSetupReason"] = reason }
+    if let removal = saved.accountRemoval {
+      result["removal"] = [
+        "operation": removal.operation.rawValue, "acknowledged": removal.acknowledged,
+      ]
+    }
+    if let product = saved.product {
+      var receipt: [String: Any] = [
+        "productAccountId": product.productAccountId, "pending": product.pending == true,
+      ]
+      if let providers = product.signInProviders {
+        receipt["signInProviders"] = providers.map(\.rawValue)
+      }
+      result["product"] = receipt
     }
     // Unreadable local Product Sync state never fails registration or the mailbox.
-    let sync: [String: String]
-    do { sync = try privateSync(saved) } catch {
+    do { result["privateSync"] = try privateSync(saved) } catch {
       Self.logProductSyncFailure("Product Sync state unreadable", error)
-      sync = ["privateSync": "unavailable"]
-    }
-    result = result.merging(sync) { $1 }
-    if !(saved.mailboxRemovals ?? []).isEmpty || !(saved.mailboxCacheRemovals ?? []).isEmpty {
-      result["privateSyncPending"] = "mailbox"
+      result["privateSync"] = ["privateSync": "unavailable"]
     }
     return result
-  }
-
-  func pending(_ saved: SavedRegistration) throws -> [String: String] {
-    // A device the account has not admitted shows only its enrollment gate.
-    if saved.product?.pending == true { return try account(saved, kind: "device-pending") }
-    var result = try account(saved, kind: "mailbox-needed")
-    // Saved mailboxes that all need authorization again read as Gmail being unavailable.
-    let reason =
-      saved.mailboxSetupReason ?? (saved.connections.isEmpty ? nil : "gmail-unavailable")
-    if let reason { result["reason"] = reason }
-    // Without a verified Product Account no connection's state is known, so none is listed.
-    if reason != "unavailable", reason != "interrupted",
-      let mailboxes = try mailboxList(saved)
-    {
-      result["mailboxes"] = mailboxes
-    }
-    return result
-  }
-
-  // A connection's state on this device: verified, open from its cache only, or waiting for
-  // Gmail authorization again.
-  func mailboxState(_ connection: MailboxConnection) -> String {
-    if connection.authorizationNeeded == true { return "authorization" }
-    return cacheOnlyMailboxes.contains(connection.id) ? "cached" : "connected"
-  }
-
-  // JSON text listing this device's connections in the order they were added.
-  func mailboxList(_ saved: SavedRegistration) throws -> String? {
-    guard saved.product?.pending != true, !saved.connections.isEmpty else { return nil }
-    let entries = saved.connections.map { connection in
-      var entry = ["id": connection.id, "address": connection.receipt.address, "state": mailboxState(connection)]
-      if let epoch = connection.epoch { entry["epoch"] = epoch }
-      return entry
-    }
-    let encoder = JSONEncoder()
-    encoder.outputFormatting = .sortedKeys
-    return String(decoding: try encoder.encode(entries), as: UTF8.self)
-  }
-
-  func failure(_ saved: SavedRegistration, reason: String) throws -> [String: String] {
-    var next = saved
-    next.mailboxSetupReason = reason
-    try save(next)
-    return try pending(next)
-  }
-
-  func establish(_ saved: SavedRegistration, identity: ProductSignInIdentity) async throws
-    -> SavedRegistration
-  {
-    guard identity.provider == saved.provider, identity.subject == saved.subject else {
-      throw RegistrationError.invalidIdentity
-    }
-    var next = saved
-    next.identityCredential = identity.credential
-    // Apple returns the address only on first authorization; keep the earlier one.
-    if let email = identity.contactEmail { next.contactEmail = email }
-    // Persist successful identity authorization even if the backend request is interrupted.
-    try save(next)
-    let product = try await connect(identity, saved.deviceIdentifier, saved.product)
-    if let previous = saved.product, product.productAccountId != previous.productAccountId {
-      throw RegistrationError.invalidIdentity
-    }
-    next.product = product
-    try save(next)
-    session = identity
-    return try await synchronize(next)
   }
 
   func appleProvider() throws -> any AppleRegistrationProvider {
@@ -402,125 +413,108 @@ struct SavedRegistration: Codable {
     }
   }
 
-  func signIn(with signInProvider: SignInProvider = .google) async throws -> [String: String] {
-    var saved = try load()
-    // Explicit linking is required before another provider can reach a committed Product Account.
-    // The backend decides: the cached provider list may predate a link made on another device.
-    if let current = saved, current.product != nil, current.provider != signInProvider {
-      // Switching sign-ins keeps the mailbox; recheck it rather than restarting Gmail consent.
-      return try await mailboxStatus(switchSignIn(current, to: signInProvider))
+  // Whether an identity is the saved record's provider and account.
+  func opens(_ saved: SavedRegistration?, _ identity: ProductSignInIdentity) -> Bool {
+    saved.map { $0.provider == identity.provider && $0.subject == identity.subject } ?? false
+  }
+
+  // An interactive Product Sign-In; `hint` suggests the saved Google account.
+  func signInIdentity(_ signInProvider: SignInProvider, hint: Bool) async throws -> [String: Any] {
+    let saved = try load()
+    let signedIn = try await productIdentity(
+      signInProvider, hint: hint && saved?.provider == .google ? saved?.subject : nil)
+    identity = signedIn
+    return ["matches": opens(saved, signedIn)]
+  }
+
+  // Renews the saved Google Product Sign-In without a prompt.
+  func renewIdentity() async throws -> [String: Any] {
+    let saved = try saved()
+    guard saved.provider == .google else { throw RegistrationError.unavailable }
+    let google = try await provider.refresh(saved.identityCredential)
+    let renewed = ProductSignInIdentity(
+      provider: .google, subject: google.subject, idToken: google.idToken,
+      credential: google.credential, contactEmail: nil)
+    identity = renewed
+    return ["matches": opens(saved, renewed)]
+  }
+
+  // Native Sign in with Apple cannot renew an identity token silently; its grant is checked instead.
+  func appleCredentialState() async throws -> String {
+    let saved = try saved()
+    switch try await appleProvider().credentialState(saved.subject) {
+    case .authorized: return "authorized"
+    case .revoked: return "revoked"
+    case .unavailable: return "unavailable"
     }
-    let identity = try await productIdentity(
-      signInProvider, hint: saved?.provider == .google ? saved?.subject : nil)
-    // Only a sign-in that never received a Product Account may be replaced by another identity.
-    if let current = saved, current.product == nil,
-      current.provider != identity.provider || current.subject != identity.subject
-    {
-      saved = nil
+  }
+
+  func reuseSession() throws {
+    guard let session else { throw RegistrationError.unavailable }
+    identity = session
+  }
+
+  // Persists the latest sign-in before any backend request, so an interruption keeps it. Only a
+  // sign-in that never received a Product Account may be replaced by another identity.
+  func saveIdentity(replacing: Bool) throws {
+    guard let identity else { throw RegistrationError.unavailable }
+    let existing = try load()
+    if replacing, existing?.product != nil { throw RegistrationError.invalidIdentity }
+    if !replacing, let existing, !opens(existing, identity) {
+      throw RegistrationError.invalidIdentity
     }
-    let record =
-      saved
+    var next =
+      (replacing ? nil : existing)
       ?? SavedRegistration(
         deployment: deployment, clientID: clientID, deviceIdentifier: UUID().uuidString,
-        signInProvider: signInProvider, subject: identity.subject,
+        signInProvider: identity.provider, subject: identity.subject,
         identityCredential: identity.credential)
-    // Signing in again keeps a saved mailbox; recheck it rather than restarting Gmail consent.
-    return try await mailboxStatus(establish(record, identity: identity))
-  }
-
-  // Moves this device to a Linked Sign-In once the backend confirms it opens the same account.
-  func switchSignIn(_ saved: SavedRegistration, to signInProvider: SignInProvider) async throws
-    -> SavedRegistration
-  {
-    guard let previous = saved.product else { throw RegistrationError.unavailable }
-    // The linked identity is chosen explicitly; no mailbox or contact address hints it.
-    let identity = try await productIdentity(signInProvider, hint: nil)
-    let product = try await connect(identity, saved.deviceIdentifier, previous)
-    guard product.productAccountId == previous.productAccountId else {
-      throw RegistrationError.invalidIdentity
-    }
-    var next = saved
-    next.signInProvider = signInProvider
-    next.subject = identity.subject
     next.identityCredential = identity.credential
+    // Apple returns the address only on first authorization; keep the earlier one.
     if let email = identity.contactEmail { next.contactEmail = email }
-    next.product = product
     try save(next)
-    session = identity
-    return try await synchronize(next)
   }
 
-  // Verifies the current Product Account and then the identity being linked, both interactively.
-  func link(_ other: SignInProvider) async throws -> [String: String] {
-    guard let linking, var saved = try load(), var product = saved.product else {
-      throw RegistrationError.unavailable
+  enum ConnectMode: String {
+    // The saved identity reconnects.
+    case establish
+    // A Linked Sign-In of the same Product Account becomes this device's sign-in.
+    case `switch`
+    // Any sign-in of the account renews this device's proof; the record keeps its own sign-in.
+    case renew
+  }
+
+  // Connects the latest sign-in and stores the issued device credential before returning. A
+  // reconnect never creates or reaches another Product Account.
+  func connectIdentity(_ mode: ConnectMode) async throws {
+    guard let identity else { throw RegistrationError.unavailable }
+    var saved = try saved()
+    let previous = saved.product
+    switch mode {
+    case .establish:
+      guard opens(saved, identity) else { throw RegistrationError.invalidIdentity }
+    case .switch, .renew:
+      guard previous != nil else { throw RegistrationError.unavailable }
     }
-    guard other != saved.provider else { throw RegistrationError.invalidIdentity }
-    let current = try await productIdentity(
-      saved.provider, hint: saved.provider == .google ? saved.subject : nil)
-    guard current.provider == saved.provider, current.subject == saved.subject else {
+    let product = try await connect(identity, saved.deviceIdentifier, previous)
+    if let previous, product.productAccountId != previous.productAccountId {
       throw RegistrationError.invalidIdentity
     }
-    let request = try await linking.request(current, product, other)
-    var providers = request.signInProviders
-    if let ticket = request.linkTicket {
-      // Nothing is stored until the backend commits the link; an interruption changes nothing.
-      let identity = try await productIdentity(other, hint: nil)
-      providers = try await linking.complete(identity, product, ticket)
+    if mode == .switch {
+      saved.signInProvider = identity.provider
+      saved.subject = identity.subject
+      saved.identityCredential = identity.credential
+      if let email = identity.contactEmail { saved.contactEmail = email }
     }
-    product.signInProviders = providers
     saved.product = product
     try save(saved)
-    return try status(saved)
+    if mode != .renew { session = identity }
   }
 
-  // Confirms the retained Product Sign-In without an interactive session.
-  // A removed device purges before any provider renewal or prompt, which may fail or be cancelled.
-  // Offline, the check is skipped and the saved account stays usable.
-  func requireNotRevoked(_ product: ProductRegistrationReceipt) async throws {
-    if (try? await deviceRevoked?(product)) == true { throw RegistrationError.revoked }
-  }
-
-  func reconfirm(_ saved: SavedRegistration) async throws -> SavedRegistration {
-    switch saved.provider {
-    case .google:
-      let identity = try await provider.refresh(saved.identityCredential)
-      return try await establish(
-        saved,
-        identity: ProductSignInIdentity(
-          provider: .google, subject: identity.subject, idToken: identity.idToken,
-          credential: identity.credential, contactEmail: nil))
-    case .apple:
-      // Native Sign in with Apple cannot renew an identity token silently; check the grant instead.
-      guard saved.product != nil,
-        try await appleProvider().credentialState(saved.subject) == .authorized
-      else { throw RegistrationError.unavailable }
-      return saved
-    }
-  }
-
-  func restore() async throws -> [String: String] {
-    forgetMailboxAccess()
-    guard let retained = try load() else { return ["kind": "signed-out"] }
-    if let removal = try await removalStatus(retained) { return removal }
-    let saved = try await retryMailboxCleanup(retained)
-    // Apple Product Sign-In finishes interactively; an uncommitted one starts again.
-    if saved.provider == .apple, saved.product == nil { return ["kind": "signed-out"] }
-    var next: SavedRegistration
-    do {
-      next = try await reconfirm(saved)
-    } catch let error as RegistrationError where error.endsAccess {
-      throw error
-    } catch {
-      // Keep any identity credential that establish persisted before the backend failed.
-      if Self.transientMailboxFailure(error), let cached = try cachedMailbox((try? load()) ?? saved)
-      {
-        return cached
-      }
-      if saved.product != nil { return try failure((try? load()) ?? saved, reason: "unavailable") }
-      throw error
-    }
-    return try await mailboxStatus(next)
+  // Temporary until #757 moves Product Sync to TypeScript.
+  func synchronizeRegistration() async throws {
+    defer { newlyAuthorizedMailboxes = [] }
+    _ = try await synchronize(saved())
   }
 
   // Forgets which connections verified, invalidating all suspended mailbox work.
@@ -537,153 +531,153 @@ struct SavedRegistration: Codable {
     return generation
   }
 
-  // Reports each retained connection as connected only after its Gmail access verifies again,
-  // including one Gmail refused before. One connection's failure never changes another's state.
-  func mailboxStatus(_ saved: SavedRegistration) async throws -> [String: String] {
-    guard saved.product?.pending != true, !saved.connections.isEmpty else {
-      return try pending(saved)
-    }
-    var next = saved
-    for connection in saved.connections {
-      let id = connection.id
-      do {
-        let gmail = try await provider.refresh(connection.credential)
-        guard gmail.subject == connection.receipt.subject else {
-          throw RegistrationError.invalidIdentity
-        }
-        let receipt = try await checkedGmail(gmail)
-        next.update(id) {
-          $0.credential = gmail.credential
-          $0.receipt = receipt
-          $0.authorizationNeeded = nil
-        }
-        next.mailboxSetupReason = nil
-        verifiedMailboxes.insert(id)
-        cacheOnlyMailboxes.remove(id)
-      } catch let error as RegistrationError where error.endsAccess {
-        throw error
-      } catch {
-        // Cached consent is never proof of currently usable Gmail access; a refused grant never
-        // opens its saved mail.
-        verifiedMailboxes.remove(id)
-        if Self.transientMailboxFailure(error), connection.authorizationNeeded != true {
-          cacheOnlyMailboxes.insert(id)
-        } else if !Self.transientMailboxFailure(error) {
-          cacheOnlyMailboxes.remove(id)
-          next.update(id) { $0.authorizationNeeded = true }
-        }
-      }
-    }
-    try save(next)
-    let verified = next.usableConnections.contains { verifiedMailboxes.contains($0.id) }
-    return try status(verified ? await synchronize(next) : next)
+  func retryMailboxCleanup() async throws {
+    _ = try await retryMailboxCleanup(saved())
   }
 
-  func checkedGmail(_ identity: GoogleRegistrationIdentity) async throws -> GmailRegistrationReceipt
-  {
-    guard
-      identity.scopes.contains(Self.gmailScope)
-        || identity.scopes.contains("https://mail.google.com/")
-    else {
-      throw RegistrationError.declined
-    }
-    let receipt = try await provider.verifyGmail(identity)
-    guard receipt.subject == identity.subject, !receipt.address.isEmpty else {
+  // Renews a connection's Gmail authorization without a prompt; it must stay the same account.
+  func refreshMailbox(_ id: String) async throws -> [String: Any] {
+    guard let connection = try saved().connection(id) else { throw RegistrationError.unavailable }
+    let gmail = try await provider.refresh(connection.credential)
+    guard gmail.subject == connection.receipt.subject else {
       throw RegistrationError.invalidIdentity
     }
-    return receipt
+    mailboxAuthorization = (gmail, nil)
+    return ["scopes": gmail.scopes.sorted()]
   }
 
-  // Authorizes Gmail for the named connection again, or adds a mailbox when none is named. Adding
-  // a mailbox that is already connected repairs that connection instead of duplicating it. The
-  // first mailbox suggests the Google sign-in unless the person chooses another account.
-  func authorizeGmail(connection id: String? = nil, chooseAccount: Bool = false) async throws
-    -> [String: String]
-  {
-    // Gmail authorization follows admission; a Pending Device holds no mailbox.
-    guard let saved = try load(), let product = saved.product, product.pending != true else {
+  // An interactive Gmail authorization. A named connection suggests its own account; otherwise
+  // `suggest` offers the Google sign-in. An Apple identity is never a Google account hint.
+  func signInMailbox(_ id: String?, suggest: Bool) async throws -> [String: Any] {
+    let saved = try saved()
+    let hint =
+      id.flatMap(saved.connection)?.receipt.subject
+      ?? (suggest && saved.provider == .google ? saved.subject : nil)
+    let gmail = try await provider.signIn(mail: true, hint: hint)
+    mailboxAuthorization = (gmail, nil)
+    return ["scopes": gmail.scopes.sorted()]
+  }
+
+  // Reads the authorized mailbox's address; it names the same Google account.
+  func verifyGmail() async throws -> [String: Any] {
+    guard let gmail = mailboxAuthorization?.identity else { throw RegistrationError.unavailable }
+    let receipt = try await provider.verifyGmail(gmail)
+    guard receipt.subject == gmail.subject, !receipt.address.isEmpty else {
+      throw RegistrationError.invalidIdentity
+    }
+    mailboxAuthorization = (gmail, receipt)
+    return ["connection": MailboxConnection.id(subject: receipt.subject), "address": receipt.address]
+  }
+
+  // The verified authorization, consumed by the connection that stores it.
+  func verifiedAuthorization() throws -> (GoogleRegistrationIdentity, GmailRegistrationReceipt) {
+    guard let gmail = mailboxAuthorization?.identity, let receipt = mailboxAuthorization?.receipt
+    else { throw RegistrationError.unavailable }
+    mailboxAuthorization = nil
+    return (gmail, receipt)
+  }
+
+  // Saves a renewed authorization to the connection it verified for.
+  func confirmMailbox(_ id: String) throws {
+    let (gmail, receipt) = try verifiedAuthorization()
+    var saved = try saved()
+    guard MailboxConnection.id(subject: receipt.subject) == id, saved.connection(id) != nil else {
       throw RegistrationError.unavailable
     }
-    let existing = id.flatMap(saved.connection)
-    // A connection removed meanwhile is not added back by reauthorizing it.
-    if id != nil, existing == nil { throw RegistrationError.unavailable }
-    // A failure leaves other usable mailboxes as they are; the host reports it.
-    let keepsMailboxes = saved.usableConnections.contains { $0.id != id }
-    // Confirm the retained Product Sign-In independently of the mailbox selection.
-    var next: SavedRegistration
-    do {
-      next = try await reconfirm(saved)
-    } catch let error as RegistrationError where error.endsAccess {
-      throw error
-    } catch {
-      // Keep any identity credential that establish persisted before the backend failed.
-      return try failure(
-        (try? load()) ?? saved, reason: saved.provider == .apple ? "unavailable" : "interrupted")
+    saved.update(id) {
+      $0.credential = gmail.credential
+      $0.receipt = receipt
+      $0.authorizationNeeded = nil
     }
-    // An Apple identity or its relay address is never a Google account hint. Another mailbox is
-    // chosen without one.
-    let suggested = !chooseAccount && saved.connections.isEmpty && saved.provider == .google
-    let hint = existing?.receipt.subject ?? (suggested ? saved.subject : nil)
-    do {
-      let gmail = try await provider.signIn(mail: true, hint: hint)
-      let receipt = try await checkedGmail(gmail)
-      // Reauthorization repairs this connection; another Google account is added separately.
-      if let existing, existing.receipt.subject != receipt.subject {
-        throw RegistrationError.gmailUnavailable
-      }
-      next = try await retryMailboxCleanup(next)
-      let id = MailboxConnection.id(subject: receipt.subject)
-      // Never reuse a directory whose previous removal has not finished.
-      guard !(next.mailboxCacheRemovals ?? []).contains(id) else {
-        throw RegistrationError.unavailable
-      }
-      // The descriptors this device last read; absent before it ever read them.
-      let vault = try? next.product.flatMap { try loadVault($0.productAccountId) }
-      let observedEpoch = try? vault.flatMap {
-        try $0.descriptorEpochs?[$0.ring.identifier("mailbox", "gmail:" + receipt.subject)]
-      }
-      let connection = MailboxConnection(
-        credential: gmail.credential, receipt: receipt,
-        epoch: UUID().uuidString, observed: vault?.descriptorEpochs == nil ? nil : true,
-        observedEpoch: observedEpoch)
-      if next.connection(connection.id) == nil {
-        next.connections += [connection]
-      } else {
-        next.update(connection.id) {
-          $0.credential = gmail.credential
-          $0.receipt = receipt
-          $0.authorizationNeeded = nil
-        }
-      }
-      // Keep any unanswered removal until its old epoch is fenced in Product Sync.
-      next.mailboxSetupReason = nil
-      try save(next)
-      mailboxGenerations[connection.id] = UUID()
-      verifiedMailboxes.insert(connection.id)
-      cacheOnlyMailboxes.remove(connection.id)
-      newlyAuthorizedMailboxes.insert(connection.id)
-      defer { newlyAuthorizedMailboxes.remove(connection.id) }
-      return try await status(synchronize(next))
-    } catch let error as RegistrationError where error.endsAccess {
-      throw error
-    } catch {
-      if keepsMailboxes { throw error }
-      switch error {
-      case RegistrationError.cancelled: return try failure(next, reason: "cancelled")
-      case RegistrationError.declined: return try failure(next, reason: "declined")
-      case RegistrationError.gmailUnavailable:
-        return try failure(next, reason: "gmail-unavailable")
-      default: return try failure(next, reason: "interrupted")
+    saved.mailboxSetupReason = nil
+    try save(saved)
+    verifiedMailboxes.insert(id)
+    cacheOnlyMailboxes.remove(id)
+  }
+
+  // Adds the verified authorization as a connection, or repairs the existing one for its account.
+  func storeMailbox() throws {
+    let (gmail, receipt) = try verifiedAuthorization()
+    var next = try saved()
+    // Gmail authorization follows admission; a Pending Device holds no mailbox.
+    guard let product = next.product, product.pending != true else {
+      throw RegistrationError.unavailable
+    }
+    let id = MailboxConnection.id(subject: receipt.subject)
+    // Never reuse a directory whose previous removal has not finished.
+    guard !(next.mailboxCacheRemovals ?? []).contains(id) else {
+      throw RegistrationError.unavailable
+    }
+    // The descriptors this device last read; absent before it ever read them.
+    let vault = try? loadVault(product.productAccountId)
+    let observedEpoch = try? vault.flatMap {
+      try $0.descriptorEpochs?[$0.ring.identifier("mailbox", "gmail:" + receipt.subject)]
+    }
+    if next.connection(id) == nil {
+      next.connections += [
+        MailboxConnection(
+          credential: gmail.credential, receipt: receipt,
+          epoch: UUID().uuidString, observed: vault?.descriptorEpochs == nil ? nil : true,
+          observedEpoch: observedEpoch)
+      ]
+    } else {
+      next.update(id) {
+        $0.credential = gmail.credential
+        $0.receipt = receipt
+        $0.authorizationNeeded = nil
       }
     }
+    // Keep any unanswered removal until its old epoch is fenced in Product Sync.
+    next.mailboxSetupReason = nil
+    try save(next)
+    mailboxGenerations[id] = UUID()
+    verifiedMailboxes.insert(id)
+    cacheOnlyMailboxes.remove(id)
+    newlyAuthorizedMailboxes.insert(id)
+  }
+
+  // A connection that did not verify: open from its cache only, waiting for Gmail authorization
+  // again, or unverified while it already waits.
+  func markMailbox(_ id: String, access: String) throws {
+    verifiedMailboxes.remove(id)
+    switch access {
+    case "cached": cacheOnlyMailboxes.insert(id)
+    case "unverified": break
+    case "authorization":
+      cacheOnlyMailboxes.remove(id)
+      var saved = try saved()
+      saved.update(id) { $0.authorizationNeeded = true }
+      try save(saved)
+    default: throw RegistrationError.unavailable
+    }
+  }
+
+  // Why the latest mailbox authorization ended without a usable mailbox.
+  func recordMailboxSetup(_ reason: String) throws {
+    guard
+      ["cancelled", "declined", "gmail-unavailable", "interrupted", "unavailable"].contains(reason)
+    else { throw RegistrationError.unavailable }
+    var saved = try saved()
+    saved.mailboxSetupReason = reason
+    try save(saved)
+  }
+
+  // The Sign-In Providers that open the Product Account, as the backend reported them.
+  func saveSignInProviders(_ providers: [SignInProvider]) throws {
+    var saved = try saved()
+    guard var product = saved.product else { throw RegistrationError.unavailable }
+    product.signInProviders = providers
+    saved.product = product
+    try save(saved)
   }
 
   // Removes a connection from this Product Account: its credential and cached mail leave this
   // device, its synchronized descriptor is marked removed, and its Gmail mail is untouched.
-  func removeMailbox(_ id: String) async throws -> [String: String] {
-    guard var saved = try load(), saved.product?.pending != true,
-      let connection = saved.connection(id)
-    else { throw RegistrationError.unavailable }
+  func removeMailbox(_ id: String) async throws {
+    var saved = try saved()
+    guard saved.product?.pending != true, let connection = saved.connection(id) else {
+      throw RegistrationError.unavailable
+    }
     saved.connections = saved.connections.filter { $0.id != id }
     saved.mailboxRemovals =
       (saved.mailboxRemovals ?? []).filter { $0.subject != connection.receipt.subject } + [
@@ -694,15 +688,23 @@ struct SavedRegistration: Codable {
     saved.mailboxCacheRemovals = Array(Set((saved.mailboxCacheRemovals ?? []) + [id])).sorted()
     // Credentials leave the durable record before cleanup suspends; its locator stays retryable.
     try save(saved)
-    saved = try await retryMailboxCleanup(saved)
-    return try await status(synchronize(saved))
+    _ = try await synchronize(retryMailboxCleanup(saved))
+  }
+
+  // Confirms the retained Product Sign-In without an interactive session.
+  // A removed device purges before any provider renewal or prompt, which may fail or be cancelled.
+  // Offline, the check is skipped and the saved account stays usable.
+  func requireNotRevoked(_ product: ProductRegistrationReceipt) async throws {
+    if (try? await deviceRevoked?(product)) == true { throw RegistrationError.revoked }
   }
 
   // A revoked device keeps nothing of the Product Account: keys, requests and credentials go.
   // Every item is attempted; the registration record goes last, so a failed purge is retried.
-  func purge(notice: String? = nil) async throws -> [String: String] {
+  func purge(notice: String? = nil) async throws {
     forgetMailboxAccess()
     session = nil
+    identity = nil
+    mailboxAuthorization = nil
     enrollmentRequests = [:]
     trustedDevices = [:]
     let saved = try load()
@@ -722,43 +724,51 @@ struct SavedRegistration: Codable {
     }
     if let failure { throw failure }
     try keys.remove("registration")
-    if removalOperation == .signOut { return ["kind": "signed-out"] }
-    return ["kind": "signed-out", "notice": notice ?? "revoked"]
   }
 
-  // Every host operation runs through this, so whichever request learns of a revocation purges.
-  // A saved account is checked first: an operation may open a provider prompt before any backend
-  // request, and cancelling that prompt must not keep a removed device's keys and credentials.
-  func purgingIfRevoked(
-    _ operation: (RegistrationStore) async throws -> [String: String],
-    removing: AccountRemovalState.Operation? = nil
-  )
-    async throws -> [String: String]
-  {
-    do {
-      if let saved = try? load(), let removal = saved.accountRemoval,
-        removal.acknowledged || removal.operation != removing,
-        let status = try await removalStatus(saved)
-      {
-        return status
-      }
-      // An unreadable record skips the check; the operation reports that failure itself.
-      if let product = (try? load())?.product { try await requireNotRevoked(product) }
-      return try await operation(self)
-    } catch RegistrationError.revoked {
-      return try await purge()
-    } catch RegistrationError.deleted {
-      return try await purge(notice: "deleted")
+  // A Trusted Device's proof, or a Pending Device's for its own admission and removal.
+  static func proof(_ product: ProductRegistrationReceipt) -> [String: Any] {
+    product.pending == true
+      ? [
+        "pendingDeviceId": product.trustedDeviceId,
+        "pendingDeviceCredential": product.trustedDeviceCredential,
+      ]
+      : [
+        "trustedDeviceId": product.trustedDeviceId,
+        "trustedDeviceCredential": product.trustedDeviceCredential,
+      ]
+  }
+
+  // TypeScript names a Convex call; this device attaches the credentials it asks for and returns
+  // the reply. Connecting issues a credential, so it is only available as its own operation.
+  func call(_ request: [String: Any]) async throws -> [String: Any] {
+    guard let transport,
+      let endpoint = (request["endpoint"] as? String).flatMap(BackendRequest.Endpoint.init),
+      let path = request["path"] as? String, path != "productAccount:connect",
+      (endpoint == .action) == path.hasPrefix("/"),
+      var args = request["args"] as? [String: Any]
+    else { throw RegistrationError.unavailable }
+    let saved = try load()
+    var backend = BackendRequest(endpoint: endpoint, path: path, args: [:])
+    if request["identity"] as? Bool == true {
+      guard let identity else { throw RegistrationError.unavailable }
+      backend.identity = identity
     }
-  }
-
-  // Connected while any mailbox verified or saw no failure, saved-Inbox-only while every usable one
-  // is open from its cache, and otherwise waiting for a mailbox.
-  func status(_ saved: SavedRegistration) throws -> [String: String] {
-    let states = saved.usableConnections.map(mailboxState)
-    guard saved.product?.pending != true, !states.isEmpty else { return try pending(saved) }
-    var result = try account(saved, kind: states.contains("connected") ? "connected" : "cached")
-    if let mailboxes = try mailboxList(saved) { result["mailboxes"] = mailboxes }
-    return result
+    if request["device"] as? Bool == true {
+      guard let product = saved?.product else { throw RegistrationError.unavailable }
+      args.merge(Self.proof(product)) { $1 }
+      backend.product = product
+    }
+    if request["installation"] as? Bool == true {
+      guard let saved else { throw RegistrationError.unavailable }
+      args["deviceIdentifier"] = saved.deviceIdentifier
+    }
+    // Convex exchanges and revokes it with the client that issued it.
+    if request["appleAuthorization"] as? Bool == true, let code = identity?.authorizationCode {
+      args["authorizationCode"] = code
+    }
+    backend.args = args
+    let (status, data) = try await transport(backend)
+    return ["status": status, "body": String(decoding: data, as: UTF8.self)]
   }
 }

@@ -141,8 +141,8 @@ Shared store and rendered host tests check:
 - deletion reaches another installation on its next verification;
 - a deleted account cannot be reopened.
 
-The hosted native storage suite (`native/private-inbox/integration/test.zsh`) runs
-these with the real Keychain and synthetic backends:
+The [registration flow](google-registration.md#where-the-registration-flow-runs)'s
+tests run these sequences over a synthetic native vault and backend:
 
 - An offline sign-out changes nothing. A successful one unregisters this
   installation first and then holds no registration, keys or approval request.
@@ -160,6 +160,11 @@ these with the real Keychain and synthetic backends:
   earlier uncertainty and cannot reopen account access. Another identity of the same
   provider is rejected before any request. An unseen Apple link moves the next
   attempt to Apple.
+
+The hosted native storage suite (`native/private-inbox/integration/test.zsh`) keeps
+the Keychain work: purging after each removal leaves no registration, keys or
+approval request; an unconfirmed Recovery Key prevents sign-out; and removal intent
+is recorded before the backend request and withdrawn after a refusal.
 
 The implementer's iOS run passed its earlier 29-test suite in
 `artifacts/private-inbox/integration.ddqPp6/`. It predates the reviewer fixes.

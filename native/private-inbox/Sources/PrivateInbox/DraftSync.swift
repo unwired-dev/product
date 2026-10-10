@@ -165,8 +165,8 @@ extension RegistrationStore {
       throw PrivateInboxError.mailboxInvalidated
     }
     switch error {
-    case RegistrationError.revoked: _ = try await purge()
-    case RegistrationError.deleted: _ = try await purge(notice: "deleted")
+    case RegistrationError.revoked: try await purge()
+    case RegistrationError.deleted: try await purge(notice: "deleted")
     default: break
     }
     throw error

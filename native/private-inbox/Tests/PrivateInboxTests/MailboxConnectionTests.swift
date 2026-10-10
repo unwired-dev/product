@@ -85,7 +85,7 @@ extension PrivateInboxTests {
     #expect(try store.openMailbox(second)["document"] as? String == "second")
 
     // Removing one connection removes its credential and cache; the other is untouched.
-    let removed = try await store.removeMailbox(second)
+    let removed = try await store.flowRemoveMailbox(second)
     #expect(
       try mailboxDisplay(removed["mailboxes"])
         == mailboxList([("synthetic-product-subject", "same@example.invalid", "connected")]))
@@ -94,7 +94,7 @@ extension PrivateInboxTests {
       !FileManager.default.fileExists(
         atPath: directory.appendingPathComponent("mailboxes/\(second)").path))
     #expect(try store.openMailbox(first)["document"] as? String == "first")
-    await #expect(throws: RegistrationError.unavailable) { try await store.removeMailbox(second) }
+    await #expect(throws: RegistrationError.unavailable) { try await store.flowRemoveMailbox(second) }
     await #expect(throws: RegistrationError.unavailable) {
       try await store.authorizeGmail(connection: second)
     }
@@ -174,9 +174,9 @@ extension PrivateInboxTests {
     google.subject = "synthetic-other-mailbox"
     google.address = "other@example.invalid"
     _ = try await relaunched.authorizeGmail(chooseAccount: true)
-    _ = try await relaunched.removeMailbox(MailboxConnection.id(subject: google.subject))
+    _ = try await relaunched.flowRemoveMailbox(MailboxConnection.id(subject: google.subject))
     #expect(FileManager.default.fileExists(atPath: directory.appendingPathComponent("mailbox.enc").path))
-    _ = try await relaunched.removeMailbox(id)
+    _ = try await relaunched.flowRemoveMailbox(id)
     #expect(!FileManager.default.fileExists(atPath: directory.appendingPathComponent("mailbox.enc").path))
     #expect(!FileManager.default.fileExists(atPath: directory.appendingPathComponent("bodies").path))
     google.subject = subject
@@ -238,7 +238,7 @@ extension PrivateInboxTests {
     #expect(try store().load()?.connections.first?.published == true)
 
     // Removal marks the descriptor removed; credentials and mail never reach Product Sync.
-    let removed = try await store().removeMailbox(MailboxConnection.id(subject: subject))
+    let removed = try await store().flowRemoveMailbox(MailboxConnection.id(subject: subject))
     #expect(removed["kind"] == "mailbox-needed")
     #expect(removed["mailboxes"] == nil)
     #expect(removed["privateSyncMailboxes"] == nil)
@@ -280,7 +280,7 @@ extension PrivateInboxTests {
     // Removing while offline and adding back cannot inherit the pre-removal epoch.
     backend.offline = true
     let id = MailboxConnection.id(subject: subject)
-    _ = try await store().removeMailbox(id)
+    _ = try await store().flowRemoveMailbox(id)
     _ = try await store().authorizeGmail()
     #expect(try store().load()?.mailboxRemovals?.count == 1)
     backend.offline = false
@@ -300,7 +300,7 @@ extension PrivateInboxTests {
       schemaVersion: MailboxDescriptor.schemaVersion + 1)
     backend.records[account]?[identifier] = StoredPayload(
       payloadIdentifier: identifier, encryptedPayload: newer, updatedAt: 100)
-    let waiting = try await store().removeMailbox(id)
+    let waiting = try await store().flowRemoveMailbox(id)
     #expect(waiting["privateSyncPending"] == "mailbox")
     #expect(try store().load()?.mailboxRemovals?.count == 1)
     #expect(backend.records[account]?[identifier]?.encryptedPayload == newer)
@@ -313,7 +313,7 @@ extension PrivateInboxTests {
     // An absent descriptor also needs a tombstone; absence never acknowledges publication.
     _ = try await store().authorizeGmail()
     backend.records[account]?.removeValue(forKey: identifier)
-    _ = try await store().removeMailbox(id)
+    _ = try await store().flowRemoveMailbox(id)
     #expect(try descriptor()?.removed == true)
     #expect(try store().load()?.mailboxRemovals == nil)
 
@@ -327,7 +327,7 @@ extension PrivateInboxTests {
     // Fresh explicit consent after learning the tombstone can recreate it.
     #expect(try await store().authorizeGmail()["kind"] == "connected")
     #expect(try descriptor()?.removed != true)
-    _ = try await store().removeMailbox(id)
+    _ = try await store().flowRemoveMailbox(id)
     backend.offline = true
     _ = try await store().authorizeGmail()
     try put(MailboxDescriptor(
@@ -460,7 +460,7 @@ extension PrivateInboxTests {
 
     // Competing fresh recreations of the same tombstone converge too. Losing the later list
     // cannot discard the CAS winner that this device already confirmed and saved.
-    _ = try await store().removeMailbox(id)
+    _ = try await store().flowRemoveMailbox(id)
     backend.beforePut = { _, written in
       guard written == identifier else { return }
       backend.beforePut = nil
@@ -478,7 +478,7 @@ extension PrivateInboxTests {
     // The durable remove/re-add intent remains eligible after relaunch, but only for the
     // tombstone it names. A concurrent recreation winning that CAS supplies the new epoch.
     backend.offline = true
-    _ = try await store().removeMailbox(id)
+    _ = try await store().flowRemoveMailbox(id)
     _ = try await store().authorizeGmail()
     backend.offline = false
     var writes = 0
@@ -496,7 +496,7 @@ extension PrivateInboxTests {
 
     // An offline grant encountering absence may attempt publication on restore. It cannot
     // inherit a later incarnation that another device publishes before that CAS.
-    _ = try await store().removeMailbox(id)
+    _ = try await store().flowRemoveMailbox(id)
     backend.records[account]?.removeValue(forKey: identifier)
     backend.offline = true
     _ = try await store().authorizeGmail()
@@ -774,7 +774,7 @@ extension PrivateInboxTests {
     try put(epoch: nil)
     backend.offline = true
     let mailbox = MailboxConnection.id(subject: "synthetic-product-subject")
-    _ = try await store().removeMailbox(mailbox)
+    _ = try await store().flowRemoveMailbox(mailbox)
     try put(epoch: "newer-than-legacy-removal")
     backend.offline = false
     _ = try await store().restore()
@@ -789,7 +789,7 @@ extension PrivateInboxTests {
     try put(epoch: nil)
     backend.offline = true
     let recreating = store()
-    _ = try await recreating.removeMailbox(mailbox)
+    _ = try await recreating.flowRemoveMailbox(mailbox)
     _ = try await recreating.authorizeGmail()
     let recreatedEpoch = try #require(try store().load()?.connections.first?.epoch)
     try put(epoch: RegistrationStore.legacyMailboxEpoch)

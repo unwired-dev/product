@@ -161,66 +161,24 @@ extension PrivateInboxTests {
     }
   }
 
-  @Test @MainActor func googleRegistrationRetainsAccountAcrossConsentFailuresAndReselection()
-    async throws
-  {
-    let keys = DeviceKeychain(service: "dev.unwired.registration.tests.\(UUID().uuidString)")
-    defer { try? keys.remove("registration") }
-    let provider = SyntheticGoogleRegistrationProvider()
-    let first = provider.store(keys: keys)
-    let registered = try await first.signIn()
-    #expect(
-      registered == [
-        "kind": "mailbox-needed", "productAccountId": "account-synthetic-product-subject",
-        "signInProvider": "google",
-      ])
-    for failure in [RegistrationError.cancelled, .declined, .gmailUnavailable] {
-      provider.outcome = failure
-      let result = try await first.authorizeGmail()
-      #expect(result["kind"] == "mailbox-needed")
-      #expect(result["productAccountId"] == registered["productAccountId"])
-      #expect(try await provider.store(keys: keys).restore()["kind"] == "mailbox-needed")
-    }
-    provider.outcome = nil
-    // A signed-in Google identity with missing mail scopes cannot connect Gmail.
-    let declined = try await first.authorizeGmail()
-    #expect(declined["kind"] == "mailbox-needed")
-    #expect(declined["reason"] == "declined")
-    provider.scopes = [RegistrationStore.gmailScope]
-    provider.gmailAvailable = false
-    let unavailable = try await first.authorizeGmail()
-    #expect(unavailable["kind"] == "mailbox-needed")
-    #expect(unavailable["reason"] == "gmail-unavailable")
-    provider.gmailAvailable = true
-    provider.subject = "synthetic-mailbox-subject"
-    let connected = try await provider.store(keys: keys).authorizeGmail(chooseAccount: true)
-    #expect(
-      try displayed(connected) == [
-        "kind": "connected", "productAccountId": "account-synthetic-product-subject",
-        "signInProvider": "google",
-        "mailboxes": mailboxList([
-          ("synthetic-mailbox-subject", "same@example.invalid", "connected")
-        ]),
-      ])
-    #expect(try await provider.store(keys: keys).restore() == connected)
-    // A failed addition of another mailbox is reported without dropping the connected one.
-    for failure in [RegistrationError.cancelled, .declined, .gmailUnavailable] {
-      provider.outcome = failure
-      await #expect(throws: failure) { try await first.authorizeGmail(chooseAccount: true) }
-      #expect(try await provider.store(keys: keys).restore() == connected)
-    }
-    provider.outcome = nil
-    #expect(try first.load()?.subject == "synthetic-product-subject")
-    #expect(
-      !connected.values.contains(where: {
-        $0.contains("token") || $0.contains(String(repeating: "a", count: 64))
-      }))
-    provider.gmailAvailable = false
-    #expect(try await provider.store(keys: keys).restore()["kind"] == "mailbox-needed")
-  }
+  // The registration flow moved to TypeScript (packages/mail-core/test/registration-flow.test.ts).
+  // Each retired flow test names its replacement there:
+  // - googleRegistrationRetainsAccountAcrossConsentFailuresAndReselection: "keeps the Google Product
+  //   Account across Gmail consent failures and mailbox reselection"
+  // - interruptedGoogleRegistrationResumesWithoutReplacingIdentityOrExistingInbox: "resumes an
+  //   interrupted Google registration without replacing its Product identity", plus the native
+  //   storage half below
+  // - appleRegistrationContinuesIntoGmailWithoutLinkingIdentities: "continues Apple registration
+  //   into Gmail without linking identities"
+  // - interruptedAppleRegistrationRestartsWithoutAnUncommittedAccount: "restarts an interrupted
+  //   Apple registration without an uncommitted account"
+  // - linkingVerifiesBothIdentitiesAndOpensTheSameAccountFromEitherProvider: "links after verifying
+  //   both identities and opens the account from either provider"
+  // - linkingRejectsOwnedIdentitiesStaleSessionsAndUnlinkedSwitches: "refuses owned identities,
+  //   stale sessions and unlinked switches"
 
   @Test @MainActor
-  func interruptedGoogleRegistrationResumesWithoutReplacingIdentityOrExistingInbox() async throws {
+  func savedSignInSurvivesInterruptionAndNeverReplacesACommittedAccountOrInbox() async throws {
     let service = "dev.unwired.registration.tests.\(UUID().uuidString)"
     let keys = DeviceKeychain(service: service)
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -233,288 +191,191 @@ extension PrivateInboxTests {
     _ = try inbox.open(seed: seed)
     let ciphertext = try Data(contentsOf: directory.appendingPathComponent("inbox.enc"))
     let provider = SyntheticGoogleRegistrationProvider()
-    let interrupted = RegistrationStore(
-      keys: keys, deployment: "https://synthetic.example.invalid", clientID: "synthetic-client",
-      provider: provider,
-      connect: { _, _, _ in throw RegistrationError.unavailable })
-    await #expect(throws: (any Error).self) { try await interrupted.signIn() }
-    #expect(try interrupted.load()?.subject == "synthetic-product-subject")
-    let resumed = RegistrationStore(
-      keys: keys, deployment: "https://synthetic.example.invalid", clientID: "synthetic-client",
-      provider: provider,
-      connect: { identity, _, _ in
-        ProductRegistrationReceipt(
-          productAccountId: identity.subject, trustedDeviceId: "synthetic-device",
-          trustedDeviceCredential: "synthetic-device-proof")
-      })
-    #expect(try await resumed.restore()["kind"] == "mailbox-needed")
-    let beforeRefresh = try interrupted.load()?.identityCredential
-    let offline = try await interrupted.restore()
-    #expect(try interrupted.load()?.identityCredential != beforeRefresh)
-    #expect(offline["kind"] == "mailbox-needed")
-    #expect(offline["productAccountId"] == "synthetic-product-subject")
-    #expect(offline["reason"] == "unavailable")
-    // A Product identity failure before mailbox selection reports the retained account.
-    let reauthorize = try await interrupted.authorizeGmail(chooseAccount: true)
-    #expect(reauthorize["kind"] == "mailbox-needed")
-    #expect(reauthorize["reason"] == "interrupted")
-    // A record for another Google client is ignored rather than blocking a new sign-in.
-    let rotated = RegistrationStore(
-      keys: keys, deployment: "https://synthetic.example.invalid", clientID: "rotated-client",
-      provider: provider, connect: { _, _, _ in throw RegistrationError.unavailable })
-    #expect(try await rotated.restore() == ["kind": "signed-out"])
-    provider.subject = "different-product-subject"
-    await #expect(throws: (any Error).self) { try await resumed.signIn() }
-    #expect(try resumed.load()?.subject == "synthetic-product-subject")
-    #expect(try Data(contentsOf: directory.appendingPathComponent("inbox.enc")) == ciphertext)
-  }
-
-  @Test @MainActor func appleRegistrationContinuesIntoGmailWithoutLinkingIdentities() async throws {
-    let keys = DeviceKeychain(service: "dev.unwired.registration.tests.\(UUID().uuidString)")
-    defer { try? keys.remove("registration") }
-    let google = SyntheticGoogleRegistrationProvider()
-    let apple = SyntheticAppleRegistrationProvider()
-    func store() -> RegistrationStore { apple.store(keys: keys, google: google) }
-    apple.outcome = .cancelled
-    await #expect(throws: RegistrationError.cancelled) { try await store().signIn(with: .apple) }
-    #expect(try store().load() == nil)
-    apple.outcome = nil
-    let account = [
-      "productAccountId": "account-synthetic-apple-subject", "signInProvider": "apple",
-      "contactEmail": "relay@privaterelay.example.invalid",
-    ]
-    #expect(
-      try await store().signIn(with: .apple) == account.merging(["kind": "mailbox-needed"]) { $1 })
-    // Apple sign-in grants no mail scope; the first Gmail session is declined here.
-    let declined = try await store().authorizeGmail()
-    #expect(declined == account.merging(["kind": "mailbox-needed", "reason": "declined"]) { $1 })
-    // Restoring checks Apple's credential state without renewing the backend session.
-    #expect(try await store().restore() == declined)
-    // The Gmail account's address matches the relay address but is not a Linked Sign-In.
-    google.scopes = [RegistrationStore.gmailScope]
-    google.subject = "synthetic-mailbox-subject"
-    google.address = "relay@privaterelay.example.invalid"
-    let connected = try await store().authorizeGmail()
-    #expect(
-      try displayed(connected)
-        == account.merging([
-          "kind": "connected",
-          "mailboxes": mailboxList([
-            ("synthetic-mailbox-subject", "relay@privaterelay.example.invalid", "connected")
-          ]),
-        ]) { $1 })
-    #expect(try await store().restore() == connected)
-    // Neither the Apple subject nor its address is used to choose a Google mailbox.
-    #expect(google.hints == [nil, nil])
-    #expect(apple.presented.map(\.provider) == [.apple])
-    #expect(apple.presented.allSatisfy { $0.subject == "synthetic-apple-subject" })
-    // A committed Apple Product Account is not reachable through Google without explicit linking.
-    await #expect(throws: RegistrationError.invalidIdentity) {
-      try await store().signIn(with: .google)
-    }
-    // Reauthentication keeps the address Apple returned on first authorization.
-    #expect(try await store().signIn(with: .apple)["contactEmail"] == account["contactEmail"])
-    #expect(try await store().authorizeGmail() == connected)
-    apple.state = .revoked
-    #expect(
-      try await store().restore()
-        == account.merging(["kind": "mailbox-needed", "reason": "unavailable"]) { $1 })
-    #expect(try await store().authorizeGmail()["reason"] == "unavailable")
-    #expect(try store().load()?.product?.productAccountId == account["productAccountId"])
-  }
-
-  @Test @MainActor func interruptedAppleRegistrationRestartsWithoutAnUncommittedAccount()
-    async throws
-  {
-    let keys = DeviceKeychain(service: "dev.unwired.registration.tests.\(UUID().uuidString)")
-    defer { try? keys.remove("registration") }
-    let google = SyntheticGoogleRegistrationProvider()
-    let apple = SyntheticAppleRegistrationProvider()
     var online = false
     let store = RegistrationStore(
       keys: keys, deployment: "https://synthetic.example.invalid", clientID: "synthetic-client",
-      provider: google, apple: apple,
+      provider: provider,
       connect: { identity, _, _ in
         guard online else { throw RegistrationError.unavailable }
         return ProductRegistrationReceipt(
           productAccountId: "account-" + identity.subject, trustedDeviceId: "synthetic-device",
           trustedDeviceCredential: String(repeating: "a", count: 64))
       })
-    await #expect(throws: RegistrationError.unavailable) { try await store.signIn(with: .apple) }
-    #expect(try store.load()?.provider == .apple)
-    // Only an interactive Apple session can finish it, so restore reports the sign-in step.
-    #expect(try await store.restore() == ["kind": "signed-out"])
+    // The sign-in is stored before the backend request, so an interruption keeps it.
+    _ = try await store.signInIdentity(.google, hint: false)
+    try store.saveIdentity(replacing: true)
     await #expect(throws: RegistrationError.unavailable) {
-      try await store.authorizeGmail()
+      try await store.connectIdentity(.establish)
     }
+    #expect(try store.load()?.subject == "synthetic-product-subject")
+    #expect(try store.load()?.product == nil)
     online = true
-    // No Product Account was committed, so another Sign-In Provider may start fresh.
-    let registered = try await store.signIn(with: .google)
-    #expect(registered["productAccountId"] == "account-synthetic-product-subject")
-    #expect(registered["signInProvider"] == "google")
-    #expect(try store.load()?.contactEmail == nil)
-  }
-}
-
-// Enforces the backend's ownership rules: one owner per subject, never by email.
-@MainActor final class SyntheticSignInBackend {
-  var owners: [String: String] = [:]
-  var linked: [String: [SignInProvider]] = [:]
-  var pending: [String: (account: String, provider: SignInProvider)] = [:]
-  var stale = false
-  // Identities that verified each link request, in order.
-  var verified: [String] = []
-
-  func receipt(_ account: String) -> ProductRegistrationReceipt {
-    ProductRegistrationReceipt(
-      productAccountId: account, trustedDeviceId: "synthetic-device",
-      trustedDeviceCredential: String(repeating: "a", count: 64),
-      signInProviders: linked[account])
-  }
-  func connect(_ identity: ProductSignInIdentity, previous: ProductRegistrationReceipt?) throws
-    -> ProductRegistrationReceipt
-  {
-    let existing = owners[identity.subject]
-    if let previous, existing != previous.productAccountId {
-      throw RegistrationError.invalidIdentity
+    try await store.connectIdentity(.establish)
+    let installation = try #require(try store.load()?.deviceIdentifier)
+    // Once committed, another identity neither replaces the record nor reaches its account.
+    provider.subject = "different-product-subject"
+    #expect(try await store.signInIdentity(.google, hint: true)["matches"] as? Bool == false)
+    #expect(provider.hints.last == "synthetic-product-subject")
+    #expect(throws: RegistrationError.invalidIdentity) { try store.saveIdentity(replacing: true) }
+    #expect(throws: RegistrationError.invalidIdentity) { try store.saveIdentity(replacing: false) }
+    await #expect(throws: RegistrationError.invalidIdentity) {
+      try await store.connectIdentity(.establish)
     }
-    let account = existing ?? "account-" + identity.subject
-    owners[identity.subject] = account
-    if linked[account] == nil { linked[account] = [identity.provider] }
-    return receipt(account)
-  }
-  func store(
-    keys: DeviceKeychain, google: SyntheticGoogleRegistrationProvider,
-    apple: SyntheticAppleRegistrationProvider
-  ) -> RegistrationStore {
-    RegistrationStore(
-      keys: keys, deployment: "https://synthetic.example.invalid", clientID: "synthetic-client",
-      provider: google, apple: apple,
-      linking: SignInLinking(
-        request: { [self] identity, product, provider in
-          guard !stale else { throw RegistrationError.staleAuthentication }
-          guard owners[identity.subject] == product.productAccountId else {
-            throw RegistrationError.invalidIdentity
-          }
-          verified.append(identity.subject)
-          let providers = linked[product.productAccountId] ?? []
-          if providers.contains(provider) {
-            return SignInLinkRequest(linkTicket: nil, signInProviders: providers)
-          }
-          let ticket = UUID().uuidString
-          pending[ticket] = (product.productAccountId, provider)
-          return SignInLinkRequest(linkTicket: ticket, signInProviders: providers)
-        },
-        complete: { [self] identity, product, ticket in
-          guard let request = pending.removeValue(forKey: ticket),
-            request.account == product.productAccountId, request.provider == identity.provider
-          else { throw RegistrationError.staleAuthentication }
-          guard owners[identity.subject] == nil else { throw RegistrationError.identityOwned }
-          verified.append(identity.subject)
-          owners[identity.subject] = request.account
-          linked[request.account, default: []].append(identity.provider)
-          return linked[request.account] ?? []
-        }),
-      connect: { [self] identity, _, previous in try connect(identity, previous: previous) })
-  }
-}
-
-extension PrivateInboxTests {
-  @Test @MainActor func linkingVerifiesBothIdentitiesAndOpensTheSameAccountFromEitherProvider()
-    async throws
-  {
-    let keys = DeviceKeychain(service: "dev.unwired.registration.tests.\(UUID().uuidString)")
-    let otherDevice = DeviceKeychain(
-      service: "dev.unwired.registration.tests.\(UUID().uuidString)")
-    defer {
-      try? keys.remove("registration")
-      try? otherDevice.remove("registration")
-    }
-    let google = SyntheticGoogleRegistrationProvider()
-    let apple = SyntheticAppleRegistrationProvider()
-    let backend = SyntheticSignInBackend()
-    func store(_ keys: DeviceKeychain) -> RegistrationStore {
-      backend.store(keys: keys, google: google, apple: apple)
-    }
-    _ = try await store(keys).signIn(with: .apple)
-    google.scopes = [RegistrationStore.gmailScope]
-    google.subject = "synthetic-mailbox-subject"
-    let connected = try await store(keys).authorizeGmail()
-    #expect(connected["kind"] == "connected")
-    // The Gmail grant is a Mailbox Connection, never a Linked Sign-In.
-    #expect(connected["alternateSignIn"] == nil)
-    #expect(backend.owners["synthetic-mailbox-subject"] == nil)
-
-    // Cancelling the second identity leaves the account unchanged.
-    google.subject = "synthetic-linked-subject"
-    google.outcome = .cancelled
-    await #expect(throws: RegistrationError.cancelled) { try await store(keys).link(.google) }
-    #expect(try await store(keys).restore() == connected)
-    google.outcome = nil
-    google.hints = []
-    let linked = try await store(keys).link(.google)
-    #expect(linked == connected.merging(["alternateSignIn": "google"]) { $1 })
-    // Both identities were verified interactively; the mailbox never hinted the linked one.
-    #expect(
-      backend.verified == [
-        "synthetic-apple-subject", "synthetic-apple-subject", "synthetic-linked-subject",
-      ])
-    #expect(google.hints == [nil])
-    #expect(try await store(keys).restore() == linked)
-    // Linking again reports the existing link without another Google session.
-    #expect(try await store(keys).link(.google) == linked)
-    #expect(google.hints == [nil])
-
-    // On another installation the linked Google identity opens the same Product Account.
-    let alternate = try await store(otherDevice).signIn(with: .google)
-    #expect(alternate["productAccountId"] == "account-synthetic-apple-subject")
-    #expect(alternate["signInProvider"] == "google")
-    #expect(alternate["alternateSignIn"] == "apple")
-
-    // When Apple is revoked here, the Linked Sign-In recovers this device's account.
-    apple.state = .revoked
-    #expect(try await store(keys).restore()["reason"] == "unavailable")
-    // The connected mailbox is rechecked, not reauthorized, after switching sign-ins.
-    google.hints = []
-    let recovered = try await store(keys).signIn(with: .google)
-    #expect(
-      recovered
-        == connected.merging([
-          "signInProvider": "google", "alternateSignIn": "apple",
-        ]) { $1 })
-    #expect(google.hints == [nil])
+    #expect(try store.load()?.subject == "synthetic-product-subject")
+    #expect(try store.load()?.deviceIdentifier == installation)
+    // A record for another Google client is not read by this one.
+    let rotated = RegistrationStore(
+      keys: keys, deployment: "https://synthetic.example.invalid", clientID: "rotated-client",
+      provider: provider, connect: { _, _, _ in throw RegistrationError.unavailable })
+    #expect(try rotated.registration() == nil)
+    #expect(try Data(contentsOf: directory.appendingPathComponent("inbox.enc")) == ciphertext)
   }
 
-  @Test @MainActor func linkingRejectsOwnedIdentitiesStaleSessionsAndUnlinkedSwitches()
+  @Test @MainActor func registrationProjectionCarriesNoCredentialTokenOrProviderSubject()
     async throws
   {
     let keys = DeviceKeychain(service: "dev.unwired.registration.tests.\(UUID().uuidString)")
     defer { try? keys.remove("registration") }
-    let google = SyntheticGoogleRegistrationProvider()
-    let apple = SyntheticAppleRegistrationProvider()
-    let backend = SyntheticSignInBackend()
-    let store = backend.store(keys: keys, google: google, apple: apple)
-    // This Google identity already registered its own Product Account elsewhere.
-    _ = try backend.connect(
-      ProductSignInIdentity(
-        provider: .google, subject: "synthetic-product-subject", idToken: "", credential: Data(),
-        contactEmail: nil), previous: nil)
-    let registered = try await store.signIn(with: .apple)
-    // An unlinked provider cannot reach the committed account or create another one.
-    await #expect(throws: RegistrationError.invalidIdentity) {
-      try await store.signIn(with: .google)
+    let provider = SyntheticGoogleRegistrationProvider()
+    provider.scopes = [RegistrationStore.gmailScope]
+    // An account ID that does not spell the subject, so any subject in the projection is a leak.
+    let store = RegistrationStore(
+      keys: keys, deployment: "https://synthetic.example.invalid", clientID: "synthetic-client",
+      provider: provider,
+      connect: { _, _, _ in
+        ProductRegistrationReceipt(
+          productAccountId: "synthetic-account", trustedDeviceId: "synthetic-device",
+          trustedDeviceCredential: String(repeating: "a", count: 64))
+      })
+    _ = try await store.signIn()
+    #expect(try await store.authorizeGmail()["kind"] == "connected")
+    let saved = try #require(try store.load())
+    let projection = try #require(try store.registration())
+    let text = String(
+      decoding: try JSONSerialization.data(withJSONObject: projection, options: .sortedKeys),
+      as: UTF8.self)
+    for secret in [
+      "synthetic-product-subject", "synthetic-id-token", "synthetic-access-token",
+      String(repeating: "a", count: 64), saved.deviceIdentifier,
+      saved.identityCredential.base64EncodedString(),
+    ] {
+      #expect(!text.contains(secret))
     }
-    await #expect(throws: RegistrationError.identityOwned) { try await store.link(.google) }
-    backend.stale = true
-    await #expect(throws: RegistrationError.staleAuthentication) {
-      try await store.link(.google)
+    // The fields TypeScript decodes, and no others.
+    #expect(
+      Set(projection.keys) == [
+        "signInProvider", "product", "mailboxes", "mailboxRemovalPending", "privateSync", "session",
+      ])
+    #expect(
+      (projection["product"] as? [String: Any]).map { Set($0.keys) } == [
+        "productAccountId", "pending",
+      ])
+    let mailbox = try #require((projection["mailboxes"] as? [[String: Any]])?.first)
+    #expect(Set(mailbox.keys) == ["id", "address", "epoch", "authorizationNeeded", "access"])
+    #expect(mailbox["id"] as? String == MailboxConnection.id(subject: "synthetic-product-subject"))
+    #expect(mailbox["access"] as? String == "verified")
+  }
+
+  @Test @MainActor func credentialedCallsAttachOnlyRequestedCredentialsAndNeverConnect()
+    async throws
+  {
+    let keys = DeviceKeychain(service: "dev.unwired.registration.tests.\(UUID().uuidString)")
+    defer { try? keys.remove("registration") }
+    let provider = SyntheticGoogleRegistrationProvider()
+    var sent: [BackendRequest] = []
+    let store = RegistrationStore(
+      keys: keys, deployment: "https://synthetic.example.invalid", clientID: "synthetic-client",
+      provider: provider,
+      transport: { request in
+        sent.append(request)
+        return (403, Data(#"{"code":"SYNTHETIC"}"#.utf8))
+      },
+      connect: { identity, _, _ in
+        ProductRegistrationReceipt(
+          productAccountId: "account-" + identity.subject, trustedDeviceId: "synthetic-device",
+          trustedDeviceCredential: String(repeating: "a", count: 64))
+      })
+    let revocation: [String: Any] = [
+      "endpoint": "query", "path": "productAccount:isTrustedDeviceRevoked",
+      "args": ["productAccountId": "account-synthetic-product-subject"], "device": true,
+    ]
+    // Without a saved Product Account there is no proof to attach.
+    await #expect(throws: RegistrationError.unavailable) { _ = try await store.call(revocation) }
+    _ = try await store.signIn()
+    let reply = try await store.call(revocation)
+    #expect(reply["status"] as? Int == 403)
+    #expect(reply["body"] as? String == #"{"code":"SYNTHETIC"}"#)
+    #expect(sent.last?.identity == nil)
+    #expect(sent.last?.endpoint == .query)
+    #expect(sent.last?.args["trustedDeviceId"] as? String == "synthetic-device")
+    #expect(sent.last?.args["trustedDeviceCredential"] as? String == String(repeating: "a", count: 64))
+    #expect(sent.last?.args["productAccountId"] as? String == "account-synthetic-product-subject")
+    // The device proof replaces anything TypeScript names in its place.
+    _ = try await store.call([
+      "endpoint": "mutation", "path": "productAccount:unregisterTrustedDevice",
+      "args": ["trustedDeviceCredential": "forged"], "identity": true, "device": true,
+      "installation": true,
+    ])
+    #expect(sent.last?.identity?.subject == "synthetic-product-subject")
+    #expect(sent.last?.args["trustedDeviceCredential"] as? String == String(repeating: "a", count: 64))
+    #expect(sent.last?.args["deviceIdentifier"] as? String == (try store.load()?.deviceIdentifier))
+    // Only the purpose-specific connect operation may receive an issued credential.
+    for request: [String: Any] in [
+      ["endpoint": "mutation", "path": "productAccount:connect", "args": [:]],
+      ["endpoint": "action", "path": "productAccount:connect", "args": [:]],
+      ["endpoint": "query", "path": "/sign-in-links/request", "args": [:]],
+      ["endpoint": "action", "path": "productAccount:isTrustedDeviceRevoked", "args": [:]],
+      ["endpoint": "httpAction", "path": "/sign-in-links/request", "args": [:]],
+    ] {
+      await #expect(throws: RegistrationError.unavailable) { _ = try await store.call(request) }
     }
-    // A different Apple ID cannot vouch for this Product Account.
-    backend.stale = false
-    apple.subject = "another-apple-subject"
-    await #expect(throws: RegistrationError.invalidIdentity) { try await store.link(.google) }
-    #expect(try await store.restore() == registered)
-    #expect(backend.linked["account-synthetic-apple-subject"] == [.apple])
-    #expect(backend.owners.count == 2)
+    #expect(sent.count == 2)
+  }
+
+  // Covers the connect obligations #715 carried over: native validates the receipt it stores.
+  @Test func connectReceiptsNeedTheAccountTheDeviceAndAWellFormedCredential() throws {
+    let credential = String(repeating: "a", count: 64)
+    func receipt(_ json: String) throws -> ProductRegistrationReceipt {
+      try ProductRegistrationReceipt(
+        connected: JSONDecoder().decode(ConnectReply.self, from: Data(json.utf8)))
+    }
+    let trusted = try receipt(
+      #"{"productAccountId":"account","trustedDeviceId":"device","trustedDeviceCredential":"\#(credential)","signInProviders":["google"],"productSyncMaterialInitialized":true}"#
+    )
+    #expect(trusted.pending == nil)
+    #expect(trusted.trustedDeviceId == "device")
+    #expect(trusted.signInProviders == [.google])
+    #expect(trusted.productSyncMaterialInitialized == true)
+    let pending = try receipt(
+      #"{"productAccountId":"account","pendingDeviceId":"pending","pendingDeviceCredential":"\#(credential)"}"#
+    )
+    #expect(pending.pending == true)
+    #expect(pending.trustedDeviceId == "pending")
+    for json in [
+      #"{"productAccountId":"","trustedDeviceId":"device","trustedDeviceCredential":"\#(credential)"}"#,
+      #"{"productAccountId":"account","trustedDeviceCredential":"\#(credential)"}"#,
+      #"{"productAccountId":"account","trustedDeviceId":"","trustedDeviceCredential":"\#(credential)"}"#,
+      #"{"productAccountId":"account","trustedDeviceId":"device"}"#,
+      #"{"productAccountId":"account","trustedDeviceId":"device","trustedDeviceCredential":"abc"}"#,
+      #"{"productAccountId":"account","pendingDeviceId":"p","pendingDeviceCredential":"\#(credential.uppercased())"}"#,
+      #"{"trustedDeviceId":"device","trustedDeviceCredential":"\#(credential)"}"#,
+    ] {
+      #expect(throws: (any Error).self) { try receipt(json) }
+    }
+    let first = ProductRegistrationReceipt.connectArguments(
+      deviceIdentifier: "installation", platform: "ios", previous: nil)
+    #expect(first["deviceIdentifier"] as? String == "installation")
+    #expect(first["platform"] as? String == "ios")
+    #expect(first["supportsDeviceCredentials"] as? Bool == true)
+    #expect(first["expectedProductAccountId"] == nil)
+    let reconnect = ProductRegistrationReceipt.connectArguments(
+      deviceIdentifier: "installation", platform: "macos", previous: trusted)
+    #expect(reconnect["expectedProductAccountId"] as? String == "account")
+    #expect(reconnect["trustedDeviceCredential"] as? String == credential)
+    #expect(reconnect["pendingDeviceCredential"] == nil)
+    let renewed = ProductRegistrationReceipt.connectArguments(
+      deviceIdentifier: "installation", platform: "ios", previous: pending)
+    #expect(renewed["pendingDeviceCredential"] as? String == credential)
+    #expect(renewed["trustedDeviceCredential"] == nil)
   }
 }

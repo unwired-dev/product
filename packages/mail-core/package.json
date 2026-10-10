@@ -16,8 +16,10 @@
     "./inbox-seed": "./src/inbox-seed.ts",
     "./testing/mock-session": "./src/testing/mock-session.ts",
     "./registration": "./src/registration.ts",
+    "./registration-flow": "./src/registration-flow.ts",
     "./registration-mode": "./src/registration-mode.ts",
     "./testing/registration-session": "./src/testing/registration-session.ts",
+    "./testing/registration-vault": "./src/testing/registration-vault.ts",
     "./message-body": "./src/message-body.ts",
     "./link-inspection": "./src/link-inspection.ts",
     "./assistance": "./src/assistance.ts",
@@ -40,6 +42,8 @@
     "parse5": "catalog:"
   },
   "devDependencies": {
+    "@effect/vitest": "catalog:",
+    "@private-email/contracts": "workspace:*",
     "@rajzik/tsconfig": "catalog:",
     "@types/node": "catalog:",
     "postal-mime": "catalog:",

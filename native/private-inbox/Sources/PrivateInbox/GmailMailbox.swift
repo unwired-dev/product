@@ -31,17 +31,6 @@ extension RegistrationStore {
     return value.domain == "org.openid.appauth.general" && [-5, -6].contains(value.code)
   }
 
-  // Every usable connection opens from its cache only, until registration verifies again.
-  func cachedMailbox(_ saved: SavedRegistration) throws -> [String: String]? {
-    guard saved.product != nil, saved.accountRemoval == nil, !saved.usableConnections.isEmpty
-    else { return nil }
-    for connection in saved.usableConnections {
-      verifiedMailboxes.remove(connection.id)
-      cacheOnlyMailboxes.insert(connection.id)
-    }
-    return try status(saved)
-  }
-
   // The account this device still holds; a purged or removing one invalidates mailbox work.
   func mailboxAccount(_ id: String) throws -> ProductRegistrationReceipt {
     guard let saved = try load(), saved.accountRemoval == nil, let product = saved.product else {
@@ -61,7 +50,7 @@ extension RegistrationStore {
     do {
       try await requireNotRevoked(product)
     } catch RegistrationError.revoked {
-      _ = try await purge()
+      try await purge()
       throw RegistrationError.revoked
     }
     guard generation == mailboxGeneration(id) else { throw PrivateInboxError.mailboxInvalidated }
@@ -223,7 +212,7 @@ extension RegistrationStore {
       let product = try mailboxAccount(id)
       guard let deviceRevoked else { throw RegistrationError.unavailable }
       if try await deviceRevoked(product) {
-        _ = try await purge()
+        try await purge()
         throw RegistrationError.revoked
       }
       guard current() else { throw PrivateInboxError.mailboxInvalidated }

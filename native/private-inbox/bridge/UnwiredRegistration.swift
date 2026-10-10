@@ -171,39 +171,7 @@ final class UnwiredRegistration: NSObject {
         deployment: deployment, clientID: clientID,
         provider: NativeGoogleRegistrationProvider(clientID: clientID),
         apple: NativeAppleRegistrationProvider(audience: bundle),
-        linking: SignInLinking(
-          request: { identity, product, provider in
-            struct Response: Decodable {
-              let linkTicket: String?
-              let signInProviders: [SignInProvider]
-            }
-            let response: Response = try await Self.signInLink(
-              base: base, identity: identity, operation: "request",
-              args: [
-                "provider": provider.rawValue, "trustedDeviceId": product.trustedDeviceId,
-                "trustedDeviceCredential": product.trustedDeviceCredential,
-              ])
-            return SignInLinkRequest(
-              linkTicket: response.linkTicket, signInProviders: response.signInProviders)
-          },
-          complete: { identity, product, ticket in
-            struct Response: Decodable {
-              let productAccountId: String
-              let signInProviders: [SignInProvider]
-            }
-            let response: Response = try await Self.signInLink(
-              base: base, identity: identity, operation: "complete",
-              args: [
-                "linkTicket": ticket, "trustedDeviceId": product.trustedDeviceId,
-                "trustedDeviceCredential": product.trustedDeviceCredential,
-              ])
-            guard response.productAccountId == product.productAccountId else {
-              throw RegistrationError.invalidIdentity
-            }
-            return response.signInProviders
-          }),
         productSync: Self.productSync(base: base),
-        removal: Self.removal(base: base, bundle: bundle),
         deviceRevoked: { product in
           try await Self.mutation(
             base: base, identity: nil, path: "productAccount:isTrustedDeviceRevoked",
@@ -213,6 +181,7 @@ final class UnwiredRegistration: NSObject {
               "trustedDeviceCredential": product.trustedDeviceCredential,
             ], function: "query")
         },
+        transport: { request in try await Self.send(base: base, request) },
         mailCache: try await Self.launchMailCache(),
         connect: { identity, deviceIdentifier, previous in
           try await Self.connect(
@@ -260,25 +229,31 @@ final class UnwiredRegistration: NSObject {
     return url
   }
 
-  @MainActor private static func signInLink<Value: Decodable>(
-    base: URL, identity: ProductSignInIdentity, operation: String, args: [String: Any]
-  ) async throws -> Value {
-    var request = URLRequest(url: try site(base, path: "/sign-in-links/" + operation))
-    request.httpMethod = "POST"
-    request.timeoutInterval = 30
-    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-    request.setValue("Bearer " + identity.idToken, forHTTPHeaderField: "Authorization")
-    request.httpBody = try JSONSerialization.data(withJSONObject: args)
-    let (data, response) = try await URLSession.shared.data(for: request)
-    guard let result = try? JSONDecoder().decode(ConvexEnvelope<Value>.self, from: data) else {
-      throw RegistrationError.unavailable
+  // The deployment's Convex HTTP API for functions, or one of its HTTP action routes. The same
+  // transport serves TypeScript's credentialed calls and, until #757 and #758, native Product Sync,
+  // enrollment and revocation.
+  @MainActor static func send(base: URL, _ request: BackendRequest) async throws -> (Int, Data) {
+    var urlRequest: URLRequest
+    var body = request.args
+    switch request.endpoint {
+    case .action:
+      urlRequest = URLRequest(url: try site(base, path: request.path))
+      // Convex exchanges and revokes an Apple authorization code with the client that issued it.
+      if body["authorizationCode"] != nil { body["appleClientId"] = Bundle.main.bundleIdentifier }
+    case .query, .mutation:
+      urlRequest = URLRequest(url: base.appending(path: "api/" + request.endpoint.rawValue))
+      body = ["path": request.path, "args": request.args, "format": "json"]
     }
-    if result.status == "success", let value = result.value,
-      (response as? HTTPURLResponse)?.statusCode == 200
-    {
-      return value
+    urlRequest.httpMethod = "POST"
+    urlRequest.timeoutInterval = 30
+    urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    if let identity = request.identity {
+      urlRequest.setValue("Bearer " + identity.idToken, forHTTPHeaderField: "Authorization")
     }
-    throw result.errorData.flatMap { backendErrors[$0.code] } ?? RegistrationError.unavailable
+    urlRequest.httpBody = try JSONSerialization.data(withJSONObject: body)
+    let (data, response) = try await URLSession.shared.data(for: urlRequest)
+    guard let response = response as? HTTPURLResponse else { throw RegistrationError.unavailable }
+    return (response.statusCode, data)
   }
 
   @MainActor private static func mutation<Value: Decodable>(
@@ -293,27 +268,21 @@ final class UnwiredRegistration: NSObject {
   }
 
   // A successful null result is nil. Without an identity, only functions that take the Trusted
-  // Device credential as their proof can succeed.
+  // Device credential as their proof can succeed. Temporary for native callers until #757 and #758.
   @MainActor private static func optionalResult<Value: Decodable>(
     base: URL, identity: ProductSignInIdentity?, path: String, args: [String: Any],
     function: String = "mutation"
   ) async throws -> Value? {
-    var request = URLRequest(url: base.appending(path: "api/" + function))
-    request.httpMethod = "POST"
-    request.timeoutInterval = 30
-    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-    if let identity {
-      request.setValue("Bearer " + identity.idToken, forHTTPHeaderField: "Authorization")
-    }
-    request.httpBody = try JSONSerialization.data(withJSONObject: [
-      "path": path, "args": args, "format": "json",
-    ])
-    let (data, response) = try await URLSession.shared.data(for: request)
+    let (status, data) = try await send(
+      base: base,
+      BackendRequest(
+        endpoint: function == "query" ? .query : .mutation, path: path, args: args,
+        identity: identity))
     // Application errors carry a code in errorData whatever the HTTP status.
     guard let result = try? JSONDecoder().decode(ConvexEnvelope<Value>.self, from: data) else {
       throw RegistrationError.unavailable
     }
-    if result.status == "success", (response as? HTTPURLResponse)?.statusCode == 200 {
+    if result.status == "success", status == 200 {
       return result.value
     }
     if result.status == "error", path == "productSync:putEncryptedPayloadIfUnchanged",
@@ -333,128 +302,296 @@ final class UnwiredRegistration: NSObject {
     #else
       let platform = "macos"
     #endif
-    var args: [String: Any] = [
-      "deviceIdentifier": deviceIdentifier, "platform": platform,
-      "supportsDeviceCredentials": true,
-    ]
-    if let previous {
-      args[previous.pending == true ? "pendingDeviceCredential" : "trustedDeviceCredential"] =
-        previous.trustedDeviceCredential
-      // A reconnect never creates or reaches another Product Account.
-      args["expectedProductAccountId"] = previous.productAccountId
-    }
-    // A device the account has not admitted connects as a Pending Device.
-    struct Response: Decodable {
-      let productAccountId: String
-      let trustedDeviceId: String?
-      let trustedDeviceCredential: String?
-      let pendingDeviceId: String?
-      let pendingDeviceCredential: String?
-      let signInProviders: [SignInProvider]?
-      let productSyncMaterialInitialized: Bool?
-    }
-    let response: Response = try await mutation(
-      base: base, identity: identity, path: "productAccount:connect", args: args)
-    let pending = response.pendingDeviceId != nil
-    guard
-      let deviceId = response.trustedDeviceId ?? response.pendingDeviceId,
-      let credential = response.trustedDeviceCredential ?? response.pendingDeviceCredential,
-      !response.productAccountId.isEmpty, !deviceId.isEmpty,
-      credential.range(of: "^[0-9a-f]{64}$", options: .regularExpression) != nil
-    else { throw RegistrationError.unavailable }
-    return ProductRegistrationReceipt(
-      productAccountId: response.productAccountId, trustedDeviceId: deviceId,
-      trustedDeviceCredential: credential, pending: pending ? true : nil,
-      signInProviders: response.signInProviders,
-      productSyncMaterialInitialized: response.productSyncMaterialInitialized)
+    let reply: ConnectReply = try await mutation(
+      base: base, identity: identity, path: "productAccount:connect",
+      args: ProductRegistrationReceipt.connectArguments(
+        deviceIdentifier: deviceIdentifier, platform: platform, previous: previous))
+    return try ProductRegistrationReceipt(connected: reply)
   }
 
   private func perform(
     _ name: String, _ resolve: @escaping RCTPromiseResolveBlock,
     reject: @escaping RCTPromiseRejectBlock,
-    operation: @escaping @MainActor (RegistrationStore) async throws -> [String: String]
+    operation: @escaping @MainActor (RegistrationStore) async throws -> Any
   ) {
-    Task { @MainActor in
-      guard !Self.busy else {
-        reject("busy", "Authorization is already running.", nil)
-        return
-      }
-      Self.busy = true
-      defer { Self.busy = false }
-      do {
-        let removal: AccountRemovalState.Operation? =
-          name == "signOut" ? .signOut : name == "deleteProductAccount" ? .deletion : nil
-        resolve(
-          try await Self.operations.perform {
-            try await store().purgingIfRevoked(operation, removing: removal)
-          })
-      } catch {
-        // Descriptions stay private: SDK and transport errors can echo request details.
-        let failure = error as NSError
-        Self.logger.error(
-          """
-          \(name, privacy: .public) failed: \(failure.domain, privacy: .public) \
-          \(failure.code, privacy: .public) \(failure.localizedDescription, privacy: .private)
-          """)
-        let code =
-          (error as? RegistrationError)?.code
-          ?? ((error as? PrivateInboxError) == .locked ? "locked" : "unavailable")
-        let message =
-          switch code {
-          case "cancelled": "Sign-in was cancelled."
-          case "recovery-key-mismatch": "That does not match the end of your Recovery Key."
-          case "enrollment-code-invalid": "That code does not match the new device's code."
-          case "enrollment-unavailable": "That device request is no longer available."
-          case "locked": "Unlock your device to open your saved account."
-          default: "Registration could not finish. Retry with your saved account."
-          }
-        reject(code, message, nil)
-      }
+    Task { @MainActor in await self.settle(name, resolve, reject: reject, operation: operation) }
+  }
+
+  @MainActor private func settle(
+    _ name: String, _ resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock,
+    operation: @escaping @MainActor (RegistrationStore) async throws -> Any
+  ) async {
+    guard !Self.busy else {
+      reject("busy", "Authorization is already running.", nil)
+      return
+    }
+    Self.busy = true
+    defer { Self.busy = false }
+    do {
+      let value = try await Self.operations.perform { try await operation(store()) }
+      resolve(value)
+    } catch {
+      // Descriptions stay private: SDK and transport errors can echo request details.
+      let failure = error as NSError
+      Self.logger.error(
+        """
+        \(name, privacy: .public) failed: \(failure.domain, privacy: .public) \
+        \(failure.code, privacy: .public) \(failure.localizedDescription, privacy: .private)
+        """)
+      let code =
+        (error as? RegistrationError)?.code
+        ?? ((error as? PrivateInboxError) == .locked
+          ? "locked"
+          : RegistrationStore.transientMailboxFailure(error) ? "offline" : "unavailable")
+      let message =
+        switch code {
+        case "cancelled": "Sign-in was cancelled."
+        case "recovery-key-mismatch": "That does not match the end of your Recovery Key."
+        case "enrollment-code-invalid": "That code does not match the new device's code."
+        case "enrollment-unavailable": "That device request is no longer available."
+        case "locked": "Unlock your device to open your saved account."
+        default: "Registration could not finish. Retry with your saved account."
+        }
+      reject(code, message, nil)
     }
   }
 
-  @objc(restore:rejecter:)
-  func restore(_ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock)
-  {
-    perform("restore", resolve, reject: reject) { try await $0.restore() }
+  // An operation that resolves without a value.
+  private func performStep(
+    _ name: String, _ resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock,
+    operation: @escaping @MainActor (RegistrationStore) async throws -> Void
+  ) {
+    perform(name, resolve, reject: reject) { store -> Any in
+      try await operation(store)
+      return NSNull()
+    }
   }
-  @objc(signIn:resolver:rejecter:)
-  func signIn(
-    _ provider: String, resolve: @escaping RCTPromiseResolveBlock,
+
+  // The registration flow runs in TypeScript; each method is one purpose-named vault operation.
+  @objc(registration:rejecter:)
+  func registration(
+    _ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+  ) {
+    perform("registration", resolve, reject: reject) { store -> Any in
+      guard let projection = try store.registration() else { return NSNull() }
+      return projection
+    }
+  }
+  @objc(signInIdentity:hint:resolver:rejecter:)
+  func signInIdentity(
+    _ provider: String, hint: Bool, resolve: @escaping RCTPromiseResolveBlock,
     reject: @escaping RCTPromiseRejectBlock
   ) {
-    perform("signIn", resolve, reject: reject) {
+    perform("signInIdentity", resolve, reject: reject) {
       guard let provider = SignInProvider(rawValue: provider) else {
         throw RegistrationError.unavailable
       }
-      return try await $0.signIn(with: provider)
+      return try await $0.signInIdentity(provider, hint: hint)
     }
   }
-  @objc(link:resolver:rejecter:)
-  func link(
-    _ provider: String, resolve: @escaping RCTPromiseResolveBlock,
+  @objc(renewIdentity:rejecter:)
+  func renewIdentity(
+    _ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+  ) {
+    perform("renewIdentity", resolve, reject: reject) { try await $0.renewIdentity() }
+  }
+  @objc(appleCredentialState:rejecter:)
+  func appleCredentialState(
+    _ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+  ) {
+    perform("appleCredentialState", resolve, reject: reject) {
+      try await $0.appleCredentialState()
+    }
+  }
+  @objc(reuseSession:rejecter:)
+  func reuseSession(
+    _ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+  ) {
+    performStep("reuseSession", resolve, reject: reject) { try $0.reuseSession() }
+  }
+  @objc(saveIdentity:resolver:rejecter:)
+  func saveIdentity(
+    _ replacing: Bool, resolve: @escaping RCTPromiseResolveBlock,
     reject: @escaping RCTPromiseRejectBlock
   ) {
-    perform("link", resolve, reject: reject) {
-      guard let provider = SignInProvider(rawValue: provider) else {
+    performStep("saveIdentity", resolve, reject: reject) { try $0.saveIdentity(replacing: replacing) }
+  }
+  @objc(connect:resolver:rejecter:)
+  func connect(
+    _ mode: String, resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    performStep("connect", resolve, reject: reject) {
+      guard let mode = RegistrationStore.ConnectMode(rawValue: mode) else {
         throw RegistrationError.unavailable
       }
-      return try await $0.link(provider)
+      try await $0.connectIdentity(mode)
     }
+  }
+  @objc(synchronize:rejecter:)
+  func synchronize(
+    _ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+  ) {
+    performStep("synchronize", resolve, reject: reject) { try await $0.synchronizeRegistration() }
+  }
+  @objc(forgetMailboxAccess:rejecter:)
+  func forgetMailboxAccess(
+    _ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+  ) {
+    performStep("forgetMailboxAccess", resolve, reject: reject) { $0.forgetMailboxAccess() }
+  }
+  @objc(retryMailboxCleanup:rejecter:)
+  func retryMailboxCleanup(
+    _ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+  ) {
+    performStep("retryMailboxCleanup", resolve, reject: reject) {
+      try await $0.retryMailboxCleanup()
+    }
+  }
+  @objc(refreshMailbox:resolver:rejecter:)
+  func refreshMailbox(
+    _ connection: String, resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    perform("refreshMailbox", resolve, reject: reject) {
+      try await $0.refreshMailbox(connection)
+    }
+  }
+  @objc(signInMailbox:suggest:resolver:rejecter:)
+  func signInMailbox(
+    _ connection: String?, suggest: Bool, resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    perform("signInMailbox", resolve, reject: reject) {
+      try await $0.signInMailbox(connection, suggest: suggest)
+    }
+  }
+  @objc(verifyGmail:rejecter:)
+  func verifyGmail(
+    _ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+  ) {
+    perform("verifyGmail", resolve, reject: reject) { try await $0.verifyGmail() }
+  }
+  @objc(confirmMailbox:resolver:rejecter:)
+  func confirmMailbox(
+    _ connection: String, resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    performStep("confirmMailbox", resolve, reject: reject) { try $0.confirmMailbox(connection) }
+  }
+  @objc(storeMailbox:rejecter:)
+  func storeMailbox(
+    _ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+  ) {
+    performStep("storeMailbox", resolve, reject: reject) { try $0.storeMailbox() }
+  }
+  @objc(markMailbox:access:resolver:rejecter:)
+  func markMailbox(
+    _ connection: String, access: String, resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    performStep("markMailbox", resolve, reject: reject) {
+      try $0.markMailbox(connection, access: access)
+    }
+  }
+  @objc(recordMailboxSetup:resolver:rejecter:)
+  func recordMailboxSetup(
+    _ reason: String, resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    performStep("recordMailboxSetup", resolve, reject: reject) { try $0.recordMailboxSetup(reason) }
+  }
+  @objc(saveSignInProviders:resolver:rejecter:)
+  func saveSignInProviders(
+    _ providers: [String], resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    performStep("saveSignInProviders", resolve, reject: reject) {
+      let parsed = providers.compactMap(SignInProvider.init)
+      guard parsed.count == providers.count else { throw RegistrationError.unavailable }
+      try $0.saveSignInProviders(parsed)
+    }
+  }
+  @objc(recordRemoval:resolver:rejecter:)
+  func recordRemoval(
+    _ operation: String?, resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    performStep("recordRemoval", resolve, reject: reject) {
+      let parsed = operation.flatMap(AccountRemovalState.Operation.init)
+      guard (parsed == nil) == (operation == nil) else { throw RegistrationError.unavailable }
+      try $0.recordRemoval(parsed)
+    }
+  }
+  @objc(prepareSignOut:rejecter:)
+  func prepareSignOut(
+    _ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+  ) {
+    perform("prepareSignOut", resolve, reject: reject) { try await $0.prepareSignOut() }
+  }
+  @objc(endSession:rejecter:)
+  func endSession(
+    _ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+  ) {
+    performStep("endSession", resolve, reject: reject) { $0.endSession() }
+  }
+  @objc(purge:resolver:rejecter:)
+  func purge(
+    _ notice: String, resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    performStep("purge", resolve, reject: reject) {
+      guard ["revoked", "deleted", "signed-out"].contains(notice) else {
+        throw RegistrationError.unavailable
+      }
+      try await $0.purge(notice: notice)
+    }
+  }
+  @objc(call:resolver:rejecter:)
+  func call(
+    _ request: [String: Any], resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    perform("call", resolve, reject: reject) { try await $0.call(request) }
+  }
+  @objc(removeMailbox:resolver:rejecter:)
+  func removeMailbox(
+    _ connection: String, resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    performStep("removeMailbox", resolve, reject: reject) { try await $0.removeMailbox(connection) }
   }
   @objc(confirmRecoveryKey:resolver:rejecter:)
   func confirmRecoveryKey(
     _ entry: String, resolve: @escaping RCTPromiseResolveBlock,
     reject: @escaping RCTPromiseRejectBlock
   ) {
-    perform("confirmRecoveryKey", resolve, reject: reject) { try $0.confirmRecoveryKey(entry) }
+    performStep("confirmRecoveryKey", resolve, reject: reject) { try $0.confirmRecoveryKey(entry) }
+  }
+  @objc(readsAsRecoveryKey:resolver:rejecter:)
+  func readsAsRecoveryKey(
+    _ entry: String, resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    perform("readsAsRecoveryKey", resolve, reject: reject) { $0.readsAsRecoveryKey(entry) }
+  }
+  @objc(recoverWithRecoveryKey:resolver:rejecter:)
+  func recoverWithRecoveryKey(
+    _ entry: String, resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    perform("recoverWithRecoveryKey", resolve, reject: reject) {
+      ["rejected": try await $0.recover(with: entry)]
+    }
   }
   @objc(approveEnrollment:code:resolver:rejecter:)
   func approveEnrollment(
     _ requestId: String, code: String, resolve: @escaping RCTPromiseResolveBlock,
     reject: @escaping RCTPromiseRejectBlock
   ) {
-    perform("approveEnrollment", resolve, reject: reject) {
+    performStep("approveEnrollment", resolve, reject: reject) {
       try await $0.approveEnrollment(requestId, code: code)
     }
   }
@@ -463,7 +600,7 @@ final class UnwiredRegistration: NSObject {
     _ requestId: String, resolve: @escaping RCTPromiseResolveBlock,
     reject: @escaping RCTPromiseRejectBlock
   ) {
-    perform("declineEnrollment", resolve, reject: reject) {
+    performStep("declineEnrollment", resolve, reject: reject) {
       try await $0.declineEnrollment(requestId)
     }
   }
@@ -473,50 +610,8 @@ final class UnwiredRegistration: NSObject {
     reject: @escaping RCTPromiseRejectBlock
   ) {
     perform("revokeTrustedDevice", resolve, reject: reject) {
-      try await $0.revoke(trustedDeviceId)
+      try await $0.revoke(trustedDeviceId).map { ["notice": $0] } ?? [:]
     }
-  }
-  @objc(signOut:rejecter:)
-  func signOut(_ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock)
-  {
-    perform("signOut", resolve, reject: reject) { try await $0.signOut() }
-  }
-  @objc(deleteProductAccount:rejecter:)
-  func deleteProductAccount(
-    _ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
-  ) {
-    perform("deleteProductAccount", resolve, reject: reject) { try await $0.deleteAccount() }
-  }
-  @objc(refreshPrivateSync:rejecter:)
-  func refreshPrivateSync(
-    _ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
-  ) {
-    perform("refreshPrivateSync", resolve, reject: reject) { try await $0.refreshPrivateSync() }
-  }
-  @objc(addMailbox:resolver:rejecter:)
-  func addMailbox(
-    _ chooseAccount: Bool, resolve: @escaping RCTPromiseResolveBlock,
-    reject: @escaping RCTPromiseRejectBlock
-  ) {
-    perform("addMailbox", resolve, reject: reject) {
-      try await $0.authorizeGmail(chooseAccount: chooseAccount)
-    }
-  }
-  @objc(authorizeGmail:resolver:rejecter:)
-  func authorizeGmail(
-    _ connection: String, resolve: @escaping RCTPromiseResolveBlock,
-    reject: @escaping RCTPromiseRejectBlock
-  ) {
-    perform("authorizeGmail", resolve, reject: reject) {
-      try await $0.authorizeGmail(connection: connection)
-    }
-  }
-  @objc(removeMailbox:resolver:rejecter:)
-  func removeMailbox(
-    _ connection: String, resolve: @escaping RCTPromiseResolveBlock,
-    reject: @escaping RCTPromiseRejectBlock
-  ) {
-    perform("removeMailbox", resolve, reject: reject) { try await $0.removeMailbox(connection) }
   }
 }
 
@@ -1041,20 +1136,12 @@ extension UnwiredRegistration {
     }
   }
 
-  @objc(recoverWithRecoveryKey:resolver:rejecter:)
-  func recoverWithRecoveryKey(
-    _ entry: String, resolve: @escaping RCTPromiseResolveBlock,
-    reject: @escaping RCTPromiseRejectBlock
-  ) {
-    perform("recoverWithRecoveryKey", resolve, reject: reject) { try await $0.recover(with: entry) }
-  }
-
   // Every Product Sync call carries the device proof; Convex sees only opaque payloads.
   // The transport factory assembles all authenticated operations with the same device proof.
   // swiftlint:disable:next function_body_length
   @MainActor private static func productSync(base: URL) -> ProductSyncBackend {
     func proof(_ product: ProductRegistrationReceipt) -> [String: Any] {
-      Self.proof(product)
+      RegistrationStore.proof(product)
     }
     func json(_ payload: EncryptedPayload) throws -> Any {
       try JSONSerialization.jsonObject(with: JSONEncoder().encode(payload))
@@ -1232,66 +1319,6 @@ extension UnwiredRegistration {
           base: base, identity: identity, path: "draftDelivery:claim",
           args: proof(product).merging(["claimIdentifier": identifier]) { $1 })
         return response.claimed
-      })
-  }
-
-  // A Trusted Device's proof, or a Pending Device's for its own admission and removal.
-  @MainActor private static func proof(_ product: ProductRegistrationReceipt) -> [String: Any] {
-    product.pending == true
-      ? [
-        "pendingDeviceId": product.trustedDeviceId,
-        "pendingDeviceCredential": product.trustedDeviceCredential,
-      ]
-      : [
-        "trustedDeviceId": product.trustedDeviceId,
-        "trustedDeviceCredential": product.trustedDeviceCredential,
-      ]
-  }
-
-  @MainActor private static func removal(base: URL, bundle: String) -> AccountRemoval {
-    AccountRemoval(
-      unregister: { identity, product, deviceIdentifier in
-        struct Response: Decodable { let registered: Bool }
-        let _: Response = try await mutation(
-          base: base, identity: identity,
-          path: product.pending == true
-            ? "productAccount:unregisterPendingDevice" : "productAccount:unregisterTrustedDevice",
-          args: proof(product).merging(["deviceIdentifier": deviceIdentifier]) { $1 }
-        )
-      },
-      delete: { identity, product in
-        var request = URLRequest(url: try site(base, path: "/product-account/delete"))
-        request.httpMethod = "POST"
-        request.timeoutInterval = 30
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        // The fresh token is the recent-authentication proof.
-        request.setValue("Bearer " + identity.idToken, forHTTPHeaderField: "Authorization")
-        var args = proof(product)
-        if let code = identity.authorizationCode {
-          // Convex exchanges and revokes it with the client that issued it.
-          args["authorizationCode"] = code
-          args["appleClientId"] = bundle
-        }
-        request.httpBody = try JSONSerialization.data(withJSONObject: args)
-        let (data, response) = try await URLSession.shared.data(for: request)
-        struct Failure: Decodable { let code: String }
-        switch (response as? HTTPURLResponse)?.statusCode {
-        // Complete, or continuing on the backend; the account is fenced either way.
-        case 200:
-          struct Response: Decodable { let deleted: Bool }
-          _ = try JSONDecoder().decode(Response.self, from: data)
-          return
-        case 401: throw RegistrationError.staleAuthentication
-        // Refusals Convex returns before fencing the account.
-        case 400: throw RegistrationError.removalRefused
-        case 403:
-          throw (try? JSONDecoder().decode(Failure.self, from: data)).flatMap {
-            backendErrors[$0.code]
-          } ?? RegistrationError.removalRefused
-        case 409: throw RegistrationError.appleAuthorizationRequired
-        // Repeating the deletion after a lost reply reports it as complete.
-        default: throw RegistrationError.unavailable
-        }
       })
   }
 

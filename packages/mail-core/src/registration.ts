@@ -109,6 +109,18 @@ const Account = Schema.Struct({
     Schema.Literals(['removed', 'unconfirmed']),
   ),
 });
+// The account's Product Sync state, which native device storage reports.
+export const PrivateSyncStateSchema = Schema.Struct({
+  privateSync: Account.fields.privateSync,
+  recoveryKey: Account.fields.recoveryKey,
+  privateSyncMailboxes: Account.fields.privateSyncMailboxes,
+  privateSyncPending: Account.fields.privateSyncPending,
+  enrollmentCode: Account.fields.enrollmentCode,
+  enrollmentNotice: Account.fields.enrollmentNotice,
+  enrollmentRequest: Account.fields.enrollmentRequest,
+  enrollmentDevice: Account.fields.enrollmentDevice,
+  trustedDevices: Account.fields.trustedDevices,
+});
 export const RegistrationSnapshotSchema = Schema.Union([
   Schema.Struct({
     kind: Schema.Literal('signed-out'),
@@ -240,6 +252,13 @@ export interface NativeRegistration {
   readonly deleteProductAccount: () => Promise<unknown>;
 }
 
+// Shared flows compose with the store's run; native adapters keep their Promise interface.
+export type RegistrationPrograms = {
+  readonly [Method in keyof NativeRegistration]: (
+    ...args: Parameters<NativeRegistration[Method]>
+  ) => Effect.Effect<unknown, unknown>;
+};
+
 type RegistrationState = Readonly<{
   snapshot: RegistrationSnapshot;
   busy: boolean;
@@ -321,30 +340,35 @@ class RegistrationFailed extends Schema.TaggedError<RegistrationFailed>()(
 
 const decodeSnapshot = Schema.decodeUnknownEffect(RegistrationSnapshotSchema);
 
-// Calls a native registration operation and decodes the snapshot it resolves with.
+const registrationError = (cause: unknown) => {
+  if (isCancelled(cause)) {
+    return new RegistrationCancelled();
+  }
+  if (isLocked(cause)) {
+    return new RegistrationLocked();
+  }
+  if (isEnrollmentCodeInvalid(cause)) {
+    return new EnrollmentCodeInvalid();
+  }
+  return isRecoveryKeyMismatch(cause)
+    ? new RecoveryKeyMismatch()
+    : new RegistrationFailed({ cause, diagnostic: rejectionDiagnostic(cause) });
+};
+
+// Composes a registration program or a legacy native operation and decodes its snapshot.
 const request = Effect.fnUntraced(function* (
-  operation: () => Promise<unknown>,
+  operation: () => Promise<unknown> | Effect.Effect<unknown, unknown>,
 ) {
-  const value = yield* Effect.tryPromise({
-    try: operation,
-    catch: (cause) => {
-      if (isCancelled(cause)) {
-        return new RegistrationCancelled();
-      }
-      if (isLocked(cause)) {
-        return new RegistrationLocked();
-      }
-      if (isEnrollmentCodeInvalid(cause)) {
-        return new EnrollmentCodeInvalid();
-      }
-      return isRecoveryKeyMismatch(cause)
-        ? new RecoveryKeyMismatch()
-        : new RegistrationFailed({
-            cause,
-            diagnostic: rejectionDiagnostic(cause),
-          });
+  const program = yield* Effect.try({
+    try: () => {
+      const result = operation();
+      return Effect.isEffect(result)
+        ? result.pipe(Effect.mapError(registrationError))
+        : Effect.tryPromise({ try: () => result, catch: registrationError });
     },
+    catch: registrationError,
   });
+  const value = yield* program;
   return yield* decodeSnapshot(value).pipe(
     Effect.mapError(
       (error) =>
@@ -375,7 +399,9 @@ const enrollmentFailed = (
   enrollmentFailure: isEnrollmentUnavailable(cause) ? 'unavailable' : 'failed',
 });
 
-export function createRegistration(native: NativeRegistration) {
+export function createRegistration(
+  native: NativeRegistration | RegistrationPrograms,
+) {
   let state: RegistrationState = {
     snapshot: { kind: 'signed-out' },
     busy: true,
