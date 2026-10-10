@@ -56,11 +56,13 @@ not itself restrict filesystem or Git-history access.
 
 ## Implementer handoff
 
-1. Before editing, work on the task's branch: check out the head branch of the
-   task's existing PR when there is one; otherwise, from a detached HEAD,
-   `main`, or another task's branch, create a new task branch from the latest
-   `main`. Then record the starting commit, `git status --short`, and any
-   existing staged, unstaged or untracked changes. Preserve unrelated work.
+1. Before editing, record `git status --short` and any existing staged,
+   unstaged or untracked changes. Preserve unrelated work: when such changes
+   exist, put the task branch in a separate worktree instead of switching this
+   checkout. Then work on the task's branch: check out the head
+   branch of the task's existing PR when there is one; otherwise, from a
+   detached HEAD, `main`, or another task's branch, create a new task branch
+   from the latest `main`. Record that branch's starting commit.
 2. Implement the requested behavior and run the relevant checks under the
    [testing policy](testing.md). Documentation changes use formatting and local
    link checks.

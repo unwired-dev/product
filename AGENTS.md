@@ -137,7 +137,9 @@ before release. Legacy Swift checks are outside the maintained CI scope.
   [triage labels](docs/agents/issue-tracker.md#triage-labels) and native blocking dependencies.
 - Every implementation request ends in a PR: once both reviews finish, commit,
   push, and open a PR ready for review that references its issue, without
-  asking. The request itself authorizes the commit, push, and PR.
+  asking. The request itself authorizes the commit, push, and PR unless it
+  sets an explicit limit such as "local changes only" or "do not push"; then
+  stop before the excluded stage and report it.
 - Then babysit that PR until it is merged or closed, following the
   [repository policy](docs/agents/pull-request-babysitting.md).
   Independently validate feedback, record the disposition, and resolve handled
