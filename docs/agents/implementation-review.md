@@ -308,6 +308,6 @@ validated issues and verifying the final artifact, including the Open Code Revie
 delegation step and the thermo-nuclear code quality review. Unresolved findings or an
 unavailable reviewer leave implementation review incomplete; report them
 accurately. Review completion and required CI remain independent gates.
-Delivery then continues automatically: the implementer opens the PR and
-babysits it under the [implementer PR delivery](pull-request-babysitting.md#implementer-pr-delivery)
+Delivery then continues automatically, within any explicit user limit: the
+implementer opens the PR and babysits it under the [implementer PR delivery](pull-request-babysitting.md#implementer-pr-delivery)
 policy. Reviewers never open or babysit PRs.
