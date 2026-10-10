@@ -138,6 +138,20 @@ remain intact.
 
 ## Supersession and consequences
 
+### Lost-key reconciliation clarification
+
+The 2026-10-10 follow-up review panel unanimously selected retaining exact
+submitted-intent replay and receipt reconciliation after device-private-key loss,
+instead of prohibiting that replay and carrying unsettled intent through a new
+enrollment. Panelists `claude-fable-5-1`, `gpt-6.1-sol` and `gpt-6-astra` agreed
+that retry completes the already-confirmed intent without authorizing a new
+proposal. The exact receipt permits durable adoption of the original proposal's
+locally retained recovery envelope using its confirmed Recovery Key. It grants
+no ordinary sync or enrollment decisions; fresh enrollment remains required.
+Later supersession still requires the current Recovery Key or another Trusted
+Device. Native custody, recent authentication and backend device-proof checks
+remain unchanged.
+
 ### Staged native coordination exception
 
 The review decision panel on 2026-10-10 considered moving this issue's flow

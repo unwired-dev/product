@@ -1642,7 +1642,8 @@ extension PrivateInboxTests {
     #expect(backend.activations == 1)
   }
 
-  @Test @MainActor func anUnansweredActivationKeepsItsIdentityAcrossCancellationAndRestart()
+  @Test(arguments: [false, true]) @MainActor
+  func anUnansweredActivationKeepsItsIdentityAcrossCancellationAndRestart(losesDeviceKey: Bool)
     async throws
   {
     let (creator, other, kept) = (device(), device(), device())
@@ -1666,13 +1667,18 @@ extension PrivateInboxTests {
     #expect(
       try await remover.confirmRevocation(String(key.suffix(4)))["revocationNotice"]
         == "unconfirmed")
+    if losesDeviceKey { try creator.remove("product-sync-device-key." + account) }
     // The receipt does not exist yet; that cannot prove the original request was rejected.
     #expect(try await remover.cancelRevocation()["revocationNotice"] == "unconfirmed")
     #expect(try remover.loadVault(account)?.revocation?.request == proposal.request)
     let restarted = backend.store(keys: creator, google: google)
     // There is no in-process Product Sign-In after relaunch, but cancellation still preserves it.
     #expect(try await restarted.cancelRevocation()["revocationRecoveryKey"] == key)
-    #expect(try await restarted.revoke(ids[1])["revocationDevice"] == ids[0])
+    if losesDeviceKey {
+      await #expect(throws: RegistrationError.unavailable) { try await restarted.revoke(ids[1]) }
+    } else {
+      #expect(try await restarted.revoke(ids[1])["revocationDevice"] == ids[0])
+    }
     #expect(try restarted.loadVault(account)?.revocation?.request == proposal.request)
     backend.failActivationBeforeCommit = false
     backend.staleOnce = true
@@ -1688,6 +1694,10 @@ extension PrivateInboxTests {
     #expect(backend.activations == 1)
     #expect(backend.revoked.contains(ids[0]))
     #expect(!backend.revoked.contains(ids[1]))
+    if losesDeviceKey {
+      #expect(try restarted.load()?.product?.pending == true)
+      #expect(try await restarted.recover(with: key)["privateSync"] == "ready")
+    }
     #expect(try restarted.loadVault(account)?.ring.current == 2)
     #expect(try restarted.loadVault(account)?.revocation == nil)
   }
@@ -1951,6 +1961,106 @@ extension PrivateInboxTests {
       try await approver.confirmRevocation(String(key.suffix(4)))["revocationNotice"] == "removed")
     #expect(try await rejoined.refreshPrivateSync()["privateSync"] == "ready")
     #expect(try rejoined.loadVault(account)?.ring.current == 2)
+  }
+
+  @Test @MainActor func aLostDeviceKeyNeverDiscardsAnUnconfirmedRecoveryKey() async throws {
+    let keys = device()
+    let pendingKeys = device()
+    let account = "account-synthetic-product-subject"
+    defer { for keys in [keys, pendingKeys] { remove(keys, accounts: [account]) } }
+    let google = SyntheticGoogleRegistrationProvider()
+    let backend = SyntheticProductSyncBackend()
+    let creator = backend.store(keys: keys, google: google)
+    let shown = try #require(try await creator.signIn()["recoveryKey"])
+    let creatorId = try #require(try creator.load()?.product?.trustedDeviceId)
+    let candidate = backend.store(keys: pendingKeys, google: google)
+    let code = try #require(try await candidate.signIn()["enrollmentCode"])
+    let request = try #require(try await creator.refreshPrivateSync()["enrollmentRequest"])
+
+    // The device key goes missing before the account's only Recovery Key is confirmed: the vault and
+    // its key stay, and the key is still shown for confirmation.
+    try keys.remove("product-sync-device-key." + account)
+    let kept = try await creator.refreshPrivateSync()
+    #expect(kept["privateSync"] == "recovery-key")
+    #expect(kept["recoveryKey"] == shown)
+    #expect(try creator.load()?.product?.trustedDeviceId == creatorId)
+    #expect(try creator.loadVault(account)?.recoveryKey == RecoveryKey(parsing: shown).bytes)
+    #expect(kept["enrollmentRequest"] == nil)
+    #expect(kept["trustedDevices"] == nil)
+    await #expect(throws: RegistrationError.unavailable) {
+      try await creator.prepareDraftSync(owner: account)
+    }
+    await #expect(throws: RegistrationError.unavailable) {
+      try await creator.approveEnrollment(request, code: code)
+    }
+    await #expect(throws: RegistrationError.unavailable) { try await creator.declineEnrollment(request) }
+    #expect(try await candidate.refreshPrivateSync()["enrollmentCode"] == code)
+
+    // Once it is confirmed, the device enrolls again as a new installation.
+    _ = try creator.confirmRecoveryKey(String(shown.suffix(4)))
+    let rejoining = try await creator.refreshPrivateSync()
+    #expect(rejoining["kind"] == "device-pending")
+    #expect(try creator.load()?.product?.trustedDeviceId != creatorId)
+    #expect(try await creator.recover(with: shown)["privateSync"] == "ready")
+  }
+
+  @Test(arguments: ["refresh", "cancel", "confirm"], [false, true]) @MainActor
+  func aLostDeviceKeySettlesOnlyItsSubmittedRemovalBeforeFreshEnrollment(
+    action: String, superseded: Bool
+  ) async throws {
+    let keychains = (0..<4).map { _ in device() }
+    let account = "account-synthetic-product-subject"
+    defer { for keys in keychains { remove(keys, accounts: [account]) } }
+    let google = SyntheticGoogleRegistrationProvider()
+    let backend = SyntheticProductSyncBackend()
+    let remover = backend.store(keys: keychains[0], google: google)
+    let shown = try #require(try await remover.signIn()["recoveryKey"])
+    _ = try remover.confirmRecoveryKey(String(shown.suffix(4)))
+    var others: [RegistrationStore] = []
+    for keys in keychains.dropFirst() {
+      let store = backend.store(keys: keys, google: google)
+      _ = try await store.signIn()
+      _ = try await store.recover(with: shown)
+      others.append(store)
+    }
+    let target = try #require(try others[0].load()?.product?.trustedDeviceId)
+    let original = try #require(try remover.load()?.product?.trustedDeviceId)
+    let proposed = try #require(try await remover.revoke(target)["revocationRecoveryKey"])
+    backend.loseReply = true
+    _ = try await remover.confirmRevocation(String(proposed.suffix(4)))
+    var currentKey = proposed
+    if superseded {
+      let second = try #require(try others[2].load()?.product?.trustedDeviceId)
+      currentKey = try #require(try await others[1].revoke(second)["revocationRecoveryKey"])
+      _ = try await others[1].confirmRevocation(String(currentKey.suffix(4)))
+    }
+    try keychains[0].remove("product-sync-device-key." + account)
+    let retained = try remover.status(#require(try remover.load()))
+    #expect(retained["privateSync"] == "enrollment-needed")
+    #expect(retained["revocationRecoveryKey"] == proposed)
+    #expect(retained["trustedDevices"] == nil)
+    await #expect(throws: RegistrationError.unavailable) {
+      try await remover.prepareDraftSync(owner: account)
+    }
+    let settled: [String: String]
+    switch action {
+    case "refresh": settled = try await remover.refreshPrivateSync()
+    case "cancel": settled = try await remover.cancelRevocation()
+    default: settled = try await remover.confirmRevocation(String(proposed.suffix(4)))
+    }
+    #expect(settled["kind"] == "device-pending")
+    #expect(settled["revocationRecoveryKey"] == nil)
+    if action != "refresh" {
+      #expect(settled["revocationNotice"] == (superseded ? "superseded" : "removed"))
+    }
+    #expect(try remover.load()?.product?.trustedDeviceId != original)
+    #expect(backend.devices[account]?.contains(original) == true)
+    #expect(backend.activations == (superseded ? 2 : 1))
+    if superseded {
+      #expect(try await remover.recover(with: proposed)["recoveryNotice"] == "rejected")
+    }
+    #expect(try await remover.recover(with: currentKey)["privateSync"] == "ready")
+    #expect(try remover.loadVault(account)?.ring.current == (superseded ? 3 : 2))
   }
 
   @Test(arguments: [

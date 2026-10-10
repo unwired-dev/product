@@ -12,6 +12,7 @@ extension RegistrationStore {
       // Never replace a Recovery Key the person has not backed up yet.
       vault.recoveryKeyConfirmed
     else { throw RegistrationError.unavailable }
+    _ = try deviceKey(product.productAccountId)
     let identity = try await recentIdentity(saved)
     session = identity
     // An earlier activation without a reply may have applied; adopting settles it first.
@@ -35,6 +36,9 @@ extension RegistrationStore {
     guard try RecoveryKey(bytes: pending.recoveryKey).confirms(entry) else {
       throw RegistrationError.recoveryKeyMismatch
     }
+    let missingDeviceKey = try keys.read(deviceKeyAccount(product.productAccountId)) == nil
+    // A lost key permits only replay of intent that was already confirmed and submitted.
+    if missingDeviceKey, !pending.submitted { throw RegistrationError.unavailable }
     let target = pending.request.trustedDeviceId
     var identity: ProductSignInIdentity
     if let session { identity = session } else { identity = try await recentIdentity(saved) }
@@ -58,6 +62,9 @@ extension RegistrationStore {
       // key are confirmed again.
       vault.revocation = nil
       try saveVault(vault)
+      if missingDeviceKey {
+        return try status(await synchronize(saved)).merging(["revocationNotice": "superseded"]) { $1 }
+      }
       vault = try await adoptRotation(vault, backend: backend, session: identity, product)
       do {
         vault.revocation = try await proposal(
@@ -194,6 +201,21 @@ extension RegistrationStore {
       } else {
         nil as (keyEpoch: Int, recoveryKeyCurrent: Bool)?
       }
+    if try keys.read(deviceKeyAccount(account)) == nil {
+      if let outcome, let pending = vault.revocation {
+        // The receipt commits this exact proposal; its confirmed backup opens only that ring.
+        let ring = try KeyRingEnvelope.openRecovery(
+          pending.request.recovery, key: RecoveryKey(bytes: pending.recoveryKey), account: account)
+        guard ring.current == outcome.keyEpoch, vault.ring.keys.allSatisfy(ring.keys.contains) else {
+          throw ProductSyncError.rejected
+        }
+        next.ring = ring
+        next.revocation = nil
+        try saveVault(next)
+      }
+      // No rotation acknowledgement or ordinary synchronization without fresh device admission.
+      return next
+    }
     let rotation = try await backend.keyRotation(session, product)
     if let rotation, !next.ring.keys.contains(where: { $0.version == rotation.keyEpoch }) {
       let key = try deviceKey(account)

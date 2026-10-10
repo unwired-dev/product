@@ -54,6 +54,15 @@ A Trusted Device that lost its local keys shows **Unlock private data on this
 device** and offers [Recovery Key entry](#recovering-with-the-recovery-key), or
 signing out and in again so another device can approve it. Nothing is reset.
 
+If the device loses its encryption key before the initial Recovery Key was
+confirmed, that Recovery Key stays visible and must be confirmed before fresh
+enrollment. Retaining that backup does not permit Product Sync writes or decisions
+about another device's enrollment. An unanswered removal also keeps its proposal
+and Recovery Key. Checking again or cancelling reconciles a committed removal;
+confirming again retries only the same previously submitted proposal. Once settled,
+the installation enrolls again. If another removal superseded its Recovery Key,
+only the current Recovery Key or another Trusted Device can authorize it.
+
 ## Approving a new device
 
 Product Sign-In admits only the device that creates the account's keys. Every

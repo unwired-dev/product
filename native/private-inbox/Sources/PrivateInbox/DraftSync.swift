@@ -145,6 +145,7 @@ extension RegistrationStore {
       let vault = try loadVault(product.productAccountId), vault.published
     else { throw RegistrationError.unavailable }
     guard product.productAccountId == owner else { throw PrivateInboxError.mailboxInvalidated }
+    _ = try deviceKey(owner)
     return DraftSync(backend: backend, session: session, product: product, ring: vault.ring)
   }
 

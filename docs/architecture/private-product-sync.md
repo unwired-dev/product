@@ -294,6 +294,16 @@ an earlier unanswered attempt. A malformed success reply is an unknown outcome.
 When a later rotation replaced a successful proposal's Recovery Key, report the
 selected device's removal without claiming that key is current.
 
+Reenrollment after losing the device private key preserves an unconfirmed initial
+Recovery Key and any submitted proposal. Ordinary synchronization, enrollment
+decisions and new removal proposals require device-key custody. Receipt queries
+and replay of the exact previously confirmed, submitted proposal remain available.
+With its exact committed receipt, the retained proposal Recovery Key can open its
+locally stored recovery envelope, validate the committed epoch and retained history,
+and durably settle the proposal without the missing device key or an adoption
+acknowledgement. The installation then enters fresh authorized enrollment; a
+superseded proposal key cannot recover the newest ring.
+
 Each survivor opens its latest complete ring envelope and validates account,
 recipient/key, protocol version, epoch, key lengths and retention of held history.
 It stores the ring durably before acknowledging. Offline devices skip any number

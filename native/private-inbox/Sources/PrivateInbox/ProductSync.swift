@@ -194,6 +194,11 @@ struct ProductSyncVault: Codable {
   var descriptorEpochs: [String: String]?
   // A removal prepared on this device and not yet activated.
   var revocation: PendingRevocation?
+
+  // The only copy of a Recovery Key not yet backed up, or a removal whose outcome is unknown.
+  var holdsUnsettledKeys: Bool {
+    (recoveryKey != nil && !recoveryKeyConfirmed) || revocation?.submitted == true
+  }
 }
 
 struct PendingRevocation: Codable, Equatable {
@@ -286,10 +291,16 @@ extension RegistrationStore {
     let account = product.productAccountId
     var saved = try await retryMailboxCleanup(saved)
     do {
+      var retained = try loadVault(account)
       if product.pending != true,
-        try product.productSyncMaterialInitialized == true || loadVault(account)?.published == true,
+        product.productSyncMaterialInitialized == true || retained?.published == true,
         try keys.read(deviceKeyAccount(account)) == nil
       {
+        if let vault = retained, vault.revocation?.submitted == true {
+          retained = try await adoptRotation(vault, backend: backend, session: session, product)
+        }
+        // Never discard the only copy of an unconfirmed Recovery Key or an unanswered removal.
+        if retained?.holdsUnsettledKeys == true { return saved }
         // A lost private key cannot replace its immutable registration. Retain that row and
         // durably choose a new installation before asking for fresh authorization.
         saved.deviceIdentifier = UUID().uuidString
@@ -731,7 +742,9 @@ extension RegistrationStore {
         product.productSyncMaterialInitialized != true ? "setup-pending" : "enrollment-needed"
       return result
     }
-    if vault.published, try keys.read(deviceKeyAccount(product.productAccountId)) == nil {
+    let missingDeviceKey = try keys.read(deviceKeyAccount(product.productAccountId)) == nil
+    // Unsettled material stays visible, but does not confer device-key custody.
+    if vault.published, !vault.holdsUnsettledKeys, missingDeviceKey {
       return ["privateSync": "enrollment-needed"]
     }
     if !vault.published {
@@ -739,11 +752,13 @@ extension RegistrationStore {
     } else if !vault.recoveryKeyConfirmed, let recoveryKey = vault.recoveryKey {
       result["privateSync"] = "recovery-key"
       result["recoveryKey"] = try RecoveryKey(bytes: recoveryKey).display
+    } else if missingDeviceKey {
+      result["privateSync"] = "enrollment-needed"
     } else {
       result["privateSync"] = "ready"
     }
     // The newest request Convex listed as open; it rejects an approval that arrives too late.
-    if vault.published,
+    if vault.published, !missingDeviceKey,
       let request = enrollmentRequests[product.productAccountId]?.max(by: {
         $0.expiresAt < $1.expiresAt
       })
@@ -752,7 +767,9 @@ extension RegistrationStore {
       result["enrollmentDevice"] = request.deviceName
     }
     // Other devices this one can remove; it re-encrypts with keys and a Recovery Key it holds.
-    if vault.published, let devices = trustedDevices[product.productAccountId], !devices.isEmpty {
+    if vault.published, !missingDeviceKey,
+      let devices = trustedDevices[product.productAccountId], !devices.isEmpty
+    {
       result["trustedDevices"] = String(decoding: try JSONEncoder().encode(devices), as: UTF8.self)
     }
     // A prepared removal shows its replacement Recovery Key until it is confirmed or cancelled.
@@ -804,6 +821,7 @@ extension RegistrationStore {
         $0.pendingDeviceId == requestId
       })
     else { throw RegistrationError.enrollmentUnavailable }
+    _ = try deviceKey(product.productAccountId)
     // Only the account's newest key epoch is sealed; a pending one is adopted first.
     vault = try await adoptRotation(vault, backend: backend, session: session, product)
     let envelope = try KeyRingEnvelope.enrollment(
@@ -820,6 +838,7 @@ extension RegistrationStore {
     guard let backend = productSync, let session, let saved = try load(),
       let product = saved.product
     else { throw RegistrationError.enrollmentUnavailable }
+    _ = try deviceKey(product.productAccountId)
     try await backend.declineEnrollment(session, product, requestId)
     enrollmentRequests[product.productAccountId]?.removeAll { $0.pendingDeviceId == requestId }
     return try status(saved)

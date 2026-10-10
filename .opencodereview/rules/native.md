@@ -65,6 +65,20 @@ Native storage owns what TypeScript must never hold: Keychain items, the storage
 - A Keychain item that drops or weakens `kSecAttrAccessibleWhenUnlockedThisDeviceOnly` on creation, `kSecAttrSynchronizable: false` or the Mac Data Protection Keychain selection, or a new item that bypasses `DeviceKeychain` without preserving its policy. These keep keys on the device and out of iCloud Keychain and backups.
 - Native database keys, Product Sync account-key material or provider/device credentials returned across the bridge. The intended local presentation payloads are permitted: decrypted Inbox snapshots and registration display fields, including the user-held Recovery Key during setup (`RegistrationSnapshotSchema`). None may enter logs, crash annotations, unprotected persistence or plaintext temporary files; temporary storage writes hold ciphertext only.
 - A new key generated when the expected one is missing on an initialized account. A missing account key requires trusted-device approval or the current Recovery Key. A missing bound device private key requires a fresh Pending Device installation and authorization, even when the old ring remains; never replace the immutable public key on its old registration. Otherwise sign-in fabricates usable key custody or reenrollment remains stranded.
+- `RegistrationStore.synchronize` or another destructive reenrollment/cleanup path
+  discarding a vault with an unconfirmed Recovery Key or a submitted removal
+  before its exact outcome is reconciled. Preserve the sole backup and durable
+  proposal locator, including after device-private-key loss; retaining them must
+  not permit ordinary Product Sync writes, enrollment decisions or new removals.
+  Trace `draftSync`, `approveEnrollment`, `declineEnrollment` and revocation
+  confirmation/cancellation: exact submitted-intent replay may reconcile its
+  receipt and locally retained proposal envelope, but fresh enrollment remains
+  required before ordinary use. An absent receipt retains intent, and a later
+  superseding rotation cannot make that proposal's Recovery Key current.
+  Explicit account deletion and credential-proven revocation purge retain their
+  destructive cleanup contracts.
+  Otherwise cleanup loses recovery access, or its guard strands reconciliation
+  or silently preserves keyless Trusted Device privileges.
 - Ciphertext written without atomic replacement and file synchronization before the call resolves, without complete file protection on iOS, or into a directory included in backup.
 - A read-modify-write, including first-run seeding, performed outside the native file lock, or that rewrites more than the requested record from a stale in-memory copy.
 - AES-GCM used with a reused or predictable nonce, or a failed authentication treated as empty data rather than an error. Product Sync records and envelopes must retain their purpose-specific account, record/request/device, schema and epoch binding in `ProductSyncSeal`; the separate synthetic Inbox fixture retains its `dev.unwired.private-inbox.v1` context and is not account-scoped Product Sync storage.
