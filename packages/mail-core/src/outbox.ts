@@ -89,6 +89,11 @@ const withState = (
   ...(problem === undefined ? {} : { problem }),
 });
 
+// Handed to Gmail without a recorded answer. Another store opening meanwhile marks the entry
+// unknown; the store that handed it off still records the answer it got.
+const awaitingOutcome = (state: OutboxEntry['state'] | undefined) =>
+  state === 'sending' || state === 'unknown';
+
 // One Outbox step from state `from`; any other state refuses it.
 const step =
   <T>(from: OutboxEntry['state'], next: (entry: OutboxEntry) => T) =>
@@ -135,7 +140,7 @@ export function createOutbox({
       return Math.max(entry.sendAt, retryAt.get(entry.id) ?? 0);
     }
     return entry.state === 'queued' ||
-      (entry.state === 'sending' && unrecorded.has(entry.id))
+      (awaitingOutcome(entry.state) && unrecorded.has(entry.id))
       ? (retryAt.get(entry.id) ?? 0)
       : Number.POSITIVE_INFINITY;
   };
@@ -171,25 +176,26 @@ export function createOutbox({
 
   const record = (id: string, outcome: SendOutcome) => {
     if (outcome.kind === 'sent') {
-      return drafts.deliver(
-        id,
-        step('sending', () => ({
-          id,
-          ...(outcome.message === undefined
-            ? {}
-            : { message: outcome.message }),
-          sentAt: Date.now(),
-        })),
+      return drafts.deliver(id, (entry) =>
+        awaitingOutcome(entry.state)
+          ? {
+              id,
+              ...(outcome.message === undefined
+                ? {}
+                : { message: outcome.message }),
+              sentAt: Date.now(),
+            }
+          : undefined,
       );
     }
-    return drafts.deliver(
-      id,
-      step('sending', (entry) =>
-        outcome.kind === 'unknown'
-          ? withState(entry, 'unknown')
-          : withState(entry, outcome.kind, outcome.problem),
-      ),
-    );
+    return drafts.deliver(id, (entry) => {
+      if (!awaitingOutcome(entry.state)) {
+        return undefined;
+      }
+      return outcome.kind === 'unknown'
+        ? withState(entry, 'unknown')
+        : withState(entry, outcome.kind, outcome.problem);
+    });
   };
 
   // Resolves true only once storage holds this device's confirmed claim on a queued message.
@@ -234,7 +240,7 @@ export function createOutbox({
   const keep = async (id: string, outcome: SendOutcome) => {
     if (await record(id, outcome)) {
       unrecorded.delete(id);
-    } else if (!disposed && entryOf(id)?.state === 'sending') {
+    } else if (!disposed && awaitingOutcome(entryOf(id)?.state)) {
       unrecorded.set(id, outcome);
     }
   };
@@ -246,7 +252,7 @@ export function createOutbox({
       return false;
     }
     unrecorded.delete(entry.id);
-    if (entry.state === 'sending') {
+    if (awaitingOutcome(entry.state)) {
       await keep(entry.id, outcome);
     }
     return true;
@@ -450,7 +456,7 @@ export function createOutbox({
       seen = outbox;
       const sending = new Set(
         outbox
-          .filter((entry) => entry.state === 'sending')
+          .filter((entry) => awaitingOutcome(entry.state))
           .map((entry) => entry.id),
       );
       for (const id of unrecorded.keys()) {
@@ -488,9 +494,19 @@ export function createOutbox({
       }
       const sendAt = Date.now() + undoSendWindow;
       // Resolved at write time, so an editor rebound to a conflict copy admits its own copy.
+      // The identifier follows an editor rebound to its conflict copy; the content stays the
+      // version the message was built from, so a later change is refused rather than admitted.
+      const pinned = () => {
+        const current = expected();
+        return {
+          ...draft,
+          id: current.id,
+          ...(current.conflict === true ? { conflict: true as const } : {}),
+        };
+      };
       const admitted = await drafts.admit(
         () => expected().id,
-        expected,
+        pinned,
         (stored) => ({
           id: stored.id,
           draft: stored,
