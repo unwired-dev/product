@@ -8,6 +8,33 @@ requests from common dependency and automation bots are skipped, as are pull
 requests whose title contains `[WIP]`, `[skip review]` or `Version packages`, or that carry the
 `do-not-review` label. Generated Convex client files are excluded from review.
 
+## Implementer PR delivery
+
+An implementation request authorizes the full delivery without further
+confirmation. After both [implementation reviews](implementation-review.md)
+finish, the implementer:
+
+1. Creates a task branch when the checkout is on `main`, commits the reviewed
+   changes (preserving unrelated work), and pushes the branch.
+2. Opens a PR ready for review against `main` that references its issue, using
+   the `pr` skill for the body and recording any decision-panel outcomes.
+   In T3 Code, link the PR to the thread with `link_pull_request`.
+3. Invokes the `babysit-pr` skill for that PR alone and keeps it until the PR is
+   merged or closed. In T3 Code, call `watch_pull_request` and end the turn;
+   each wakeup runs one babysitting pass. Elsewhere, use the session's
+   scheduler or monitor rather than a busy loop.
+
+Each pass follows the rules below: synchronize a stale base, validate review
+findings, repair required CI, reply with a disposition, and resolve handled
+threads. Implementation edits made while babysitting require another pinned
+review by both reviewers before they are pushed. The pass completes when the PR
+is merged or closed; [automatic merge](#automatic-merge) performs the merge.
+Then call `unwatch_pull_request` in T3 Code and report the outcome. A missing
+credential or permission is a blocker to report, not a reason to stop
+babysitting other gates.
+
+## Scheduled sweep
+
 Codex can close the feedback loop with a
 [Scheduled task](https://learn.chatgpt.com/docs/automations?surface=app) and an installed
 `babysit-pr` skill. Resolve that skill through the session skill catalogue; this

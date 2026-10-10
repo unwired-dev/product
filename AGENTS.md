@@ -135,11 +135,14 @@ before release. Legacy Swift checks are outside the maintained CI scope.
   tests, and internal refactors may omit one.
 - Track work in [GitHub Issues](docs/agents/issue-tracker.md) using the
   [triage labels](docs/agents/issue-tracker.md#triage-labels) and native blocking dependencies.
-- Open PRs ready for review and reference their issue. Independently validate
-  feedback, record the disposition, and resolve handled conversations, including
-  deferred work. Keep reviewer and CI completion gates independent.
-- Before PR babysitting, follow the
-  [repository policy](docs/agents/pull-request-babysitting.md).
+- Every implementation request ends in a PR: once both reviews finish, commit,
+  push, and open a PR ready for review that references its issue, without
+  asking. The request itself authorizes the commit, push, and PR.
+- Then babysit that PR until it is merged or closed, following the
+  [implementer babysitting policy](docs/agents/pull-request-babysitting.md#implementer-pr-delivery).
+  Independently validate feedback, record the disposition, and resolve handled
+  conversations, including deferred work. Keep reviewer and CI completion gates
+  independent.
 - Report verification results and unavailable checks accurately.
 
 ## Effect
