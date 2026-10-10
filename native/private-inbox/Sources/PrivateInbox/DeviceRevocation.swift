@@ -6,22 +6,23 @@ import Foundation
 private struct RevocationTargetUnlisted: Error {}
 
 extension RegistrationStore {
-  // Prepares removing another Trusted Device after a fresh interactive Product Sign-In. The new key
-  // epoch is sealed separately to every remaining device's encryption key and to a replacement
-  // Recovery Key, which is shown first; nothing reaches the backend until the person confirms it.
-  func revoke(_ trustedDeviceId: String) async throws -> [String: String] {
+  // Prepares removing another Trusted Device with the fresh interactive Product Sign-In the flow
+  // just collected. The new key epoch is sealed separately to every remaining device's encryption
+  // key and to a replacement Recovery Key, which is shown first; nothing reaches the backend until
+  // the person confirms it. Returns no notice: the snapshot shows the proposal. Temporary until #758.
+  func revoke(_ trustedDeviceId: String) async throws -> String? {
     guard let backend = productSync, let saved = try load(), let product = saved.product,
       product.pending != true, trustedDeviceId != product.trustedDeviceId,
       var vault = try loadVault(product.productAccountId), vault.published,
       // Never replace a Recovery Key the person has not backed up yet.
-      vault.recoveryKeyConfirmed
+      vault.recoveryKeyConfirmed, let identity
     else { throw RegistrationError.unavailable }
+    guard opens(saved, identity) else { throw RegistrationError.invalidIdentity }
     _ = try deviceKey(product.productAccountId)
-    let identity = try await recentIdentity(saved)
     session = identity
     // An earlier activation without a reply may have applied; adopting settles it first.
     vault = try await adoptRotation(vault, backend: backend, session: identity, product)
-    if vault.revocation != nil { return try status(saved) }
+    if vault.revocation != nil { return nil }
     do {
       vault.revocation = try await proposal(
         removing: trustedDeviceId, vault: vault, backend: backend, session: identity, product)
@@ -29,11 +30,13 @@ extension RegistrationStore {
       return try await refreshRevocationTarget(saved, removing: trustedDeviceId)
     }
     try saveVault(vault)
-    return try status(saved)
+    return nil
   }
 
-  // Activates the prepared removal once the entry matches the end of its replacement Recovery Key.
-  func confirmRevocation(_ entry: String) async throws -> [String: String] {
+  // Activates the prepared removal once the entry matches the end of its replacement Recovery Key,
+  // and returns its notice. A sign-in that is no longer recent rejects as stale authentication, so
+  // the flow renews it and confirms again. Temporary until #758.
+  func confirmRevocation(_ entry: String) async throws -> String? {
     guard let backend = productSync, let saved = try load(), let product = saved.product,
       var vault = try loadVault(product.productAccountId), var pending = vault.revocation
     else { throw RegistrationError.unavailable }
@@ -44,8 +47,10 @@ extension RegistrationStore {
     // A lost key permits only replay of intent that was already confirmed and submitted.
     if missingDeviceKey, !pending.submitted { throw RegistrationError.unavailable }
     let target = pending.request.trustedDeviceId
-    var identity: ProductSignInIdentity
-    if let session { identity = session } else { identity = try await recentIdentity(saved) }
+    guard let identity = self.identity ?? session else {
+      throw RegistrationError.staleAuthentication
+    }
+    guard opens(saved, identity) else { throw RegistrationError.invalidIdentity }
     session = identity
     let wasSubmitted = pending.submitted
     // Kept before sending: a lost reply is settled by sending this same request again.
@@ -53,14 +58,7 @@ extension RegistrationStore {
     vault.revocation = pending
     try saveVault(vault)
     do {
-      do {
-        _ = try await backend.activateRevocation(identity, product, pending.request)
-      } catch RegistrationError.staleAuthentication {
-        // Preparing outlasted the recent sign-in that activation requires.
-        identity = try await recentIdentity(saved)
-        session = identity
-        _ = try await backend.activateRevocation(identity, product, pending.request)
-      }
+      _ = try await backend.activateRevocation(identity, product, pending.request)
     } catch RevocationFailure.conflict {
       // The account changed since preparing, so this proposal never applied. A fresh proposal and
       // key are confirmed again.
@@ -69,7 +67,8 @@ extension RegistrationStore {
       vault.revocation = missingDeviceKey ? nil : pending
       try saveVault(vault)
       if missingDeviceKey {
-        return try status(await synchronize(saved))
+        _ = try await synchronize(saved)
+        return nil
       }
       vault = try await adoptRotation(vault, backend: backend, session: identity, product)
       do {
@@ -81,18 +80,19 @@ extension RegistrationStore {
         return try await refreshRevocationTarget(saved, removing: target)
       }
       try saveVault(vault)
-      return try status(saved).merging(["revocationNotice": "renewed"]) { $1 }
+      return "renewed"
     } catch RevocationFailure.targetRemoved {
       // Another device removed it first; this proposal and its key never applied.
       vault.revocation = nil
       try saveVault(vault)
-      return try await refreshRevocationTarget(saved, removing: target)
-        .merging(["revocationNotice": "superseded"]) { $1 }
+      _ = try await refreshRevocationTarget(saved, removing: target)
+      return "superseded"
     } catch let error where error is URLError || error is CancellationError {
       // The outcome is unknown; the proposal stays, and confirming again repeats it safely.
-      return try status(saved).merging(["revocationNotice": "unconfirmed"]) { $1 }
+      return "unconfirmed"
     } catch {
-      // A definite refusal settles this attempt, but not an earlier unanswered submission.
+      // A definite refusal, including a sign-in that is no longer recent, settles this attempt but
+      // not an earlier unanswered submission.
       pending.submitted = wasSubmitted
       vault.revocation = pending
       try saveVault(vault)
@@ -100,7 +100,7 @@ extension RegistrationStore {
     }
     // Read before adopting: a failed read then leaves the proposal to settle on the next attempt.
     guard try await backend.revocationOutcome(identity, product, pending.request.proposalId) != nil
-    else { return try status(saved).merging(["revocationNotice": "unconfirmed"]) { $1 } }
+    else { return "unconfirmed" }
     // Keep the receipt locator until this device durably adopts the committed ring.
     let adoption = try await adoptRotationWithOutcome(
       vault, backend: backend, session: identity, product)
@@ -111,21 +111,23 @@ extension RegistrationStore {
   // Forget the stale selection and refresh the list without inferring why the row disappeared.
   func refreshRevocationTarget(
     _ saved: SavedRegistration, removing target: String
-  ) async throws -> [String: String] {
+  ) async throws -> String? {
     if let account = saved.product?.productAccountId {
       trustedDevices[account]?.removeAll { $0.id == target }
     }
-    return try status(await synchronize(saved))
+    _ = try await synchronize(saved)
+    return nil
   }
 
-  // Discards the prepared removal; an activation sent without a reply is settled first.
-  func cancelRevocation() async throws -> [String: String] {
+  // Discards the prepared removal and returns its notice; an activation sent without a reply is
+  // settled first. Temporary until #758.
+  func cancelRevocation() async throws -> String? {
     guard let saved = try load(), let product = saved.product,
       var vault = try loadVault(product.productAccountId), let pending = vault.revocation
     else { throw RegistrationError.unavailable }
     if pending.submitted {
       // Read before adopting, so a failed read leaves the proposal in place.
-      if let backend = productSync, let session,
+      if let backend = productSync, let session = identity ?? session,
         try await backend.revocationOutcome(session, product, pending.request.proposalId) != nil
       {
         let adoption = try await adoptRotationWithOutcome(
@@ -135,18 +137,18 @@ extension RegistrationStore {
         }
       }
       // An absent receipt cannot rule out a request that is still reaching the backend.
-      return try status(saved).merging(["revocationNotice": "unconfirmed"]) { $1 }
+      return "unconfirmed"
     }
     vault.revocation = nil
     try saveVault(vault)
-    return try status(saved)
+    return nil
   }
 
   // Synchronization may adopt a later rotation; unreadable state must not reject settled removal.
   func revocationStatus(
     _ saved: SavedRegistration, vault: ProductSyncVault,
     outcome: (keyEpoch: Int, recoveryKeyCurrent: Bool)?
-  ) async throws -> [String: String] {
+  ) async throws -> String? {
     let saved = try await synchronize(saved)
     let epoch: Int
     do {
@@ -156,26 +158,14 @@ extension RegistrationStore {
         // Lost-key reenrollment intentionally removes the just-settled vault.
         epoch = vault.ring.current
       } else {
-        return try status(saved)
+        return nil
       }
     } catch {
       Self.logProductSyncFailure("Product Sync state unreadable", error)
-      return try status(saved)
+      return nil
     }
     let recoveryKeyCurrent = outcome?.recoveryKeyCurrent == true && outcome?.keyEpoch == epoch
-    return try status(saved).merging([
-      "revocationNotice": recoveryKeyCurrent ? "removed" : "superseded"
-    ]) { $1 }
-  }
-
-  // A fresh interactive Product Sign-In of this registration's identity.
-  func recentIdentity(_ saved: SavedRegistration) async throws -> ProductSignInIdentity {
-    let identity = try await productIdentity(
-      saved.provider, hint: saved.provider == .google ? saved.subject : nil)
-    guard identity.provider == saved.provider, identity.subject == saved.subject else {
-      throw RegistrationError.invalidIdentity
-    }
-    return identity
+    return recoveryKeyCurrent ? "removed" : "superseded"
   }
 
   // Seals a new epoch to every remaining device's bound encryption key, including this

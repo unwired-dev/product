@@ -158,11 +158,15 @@ The review decision panel on 2026-10-10 considered moving this issue's flow
 coordination into TypeScript now, or extending the existing native coordinator
 until the already ordered migration. All three panelists (`claude-fable-5-1`,
 `gpt-6.1-sol`, `gpt-6-astra`) selected the latter: #757 depends on #753 and owns
-moving initialization, enrollment, recovery and rotation coordination.
+moving Product Sync initialization and synchronization, followed by #758 for
+enrollment, recovery, rotation and revocation coordination.
 
 For #753 only, preparation/activation sequencing, retry/reconciliation and the
 corresponding native synthetic backend may extend the existing native flow.
-This temporary exception to ADR 0067 ends with #757. It authorizes no new native
+This temporary exception to ADR 0067 ends with the respective #757 and #758
+migrations. Issue #756 has already moved registration sequencing and recent-sign-in
+renewal to TypeScript; the remaining native operations return fixed notices and
+non-secret state projections. The exception authorizes no new native
 application subsystem and changes neither key/credential custody nor durable
 storage before acknowledgement. The TypeScript ownership decision and its
 ordered #756–#759 migration remain in force.

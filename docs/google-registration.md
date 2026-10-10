@@ -36,6 +36,28 @@ Convex. Convex receives the Product identity JWT and existing trusted-device pro
 only. No mailbox connection metadata or provider credential is uploaded. The Product
 identity JWT can contain Google profile claims, including the sign-in email.
 
+## Where the registration flow runs
+
+Both hosts share the TypeScript registration flow in `packages/mail-core`. It
+owns restoring and resuming setup, Product Sign-In, switching and linking sign-ins,
+mailbox authorization sequencing, sign-out and deletion sequencing, and the statuses
+shown to the person. The hosts only wire native adapters. Every native result is
+Schema-decoded and malformed replies fail closed against the shared Convex
+contracts. Host-facing rejection codes and fixed texts are unchanged.
+
+The native vault owns Google and Apple SDKs, device-only credentials and storage,
+and backend calls that carry credentials. Tokens, credentials, installation
+identifiers and provider subjects never enter TypeScript. Native stores every
+issued device credential before returning its non-secret receipt. A reconnect
+must open the retained Product Account. Product Sync, enrollment, recovery and
+revocation remain temporary native operations until
+[#757](https://github.com/unwired-dev/product/issues/757) and
+[#758](https://github.com/unwired-dev/product/issues/758) move them.
+
+Offline restore retains the Product Account and opens a previously verified
+mailbox's saved Inbox when available. Without one, it reports mailbox setup as
+unavailable. A record for another deployment or Google client is ignored.
+
 Interruption after identity authorization can resume the same subject and installation ID. Pending setup offers
 interactive sign-in again when the saved account cannot be verified or authorization
 is interrupted. Cancelling Product Sign-In returns to the previous status without
@@ -97,13 +119,20 @@ JavaScript still receives only the stable registration failure code.
 
 Shared application and rendered host tests use fixed synthetic registration
 sessions. They exercise consent separation, errors, retry, adding, reauthorizing and
-removing mailboxes, and remounting. Convex tests exercise public account operations with authenticated
+removing mailboxes, and remounting. The flow's own tests run it over a synthetic
+native vault (`packages/mail-core/src/testing/registration-vault.ts`): consent
+failures, interrupted Google and Apple registration, offline restore, another
+client's record, linking and its refusals, sign-out and deletion sequencing,
+revocation, Convex reply decoding and the fixed rejection codes. Convex tests exercise public account operations with authenticated
 test identities and prove same-address Apple and Google isolation; `convex-test`
 does not exercise the deployment's JWT gateway.
 
-The hosted native storage suite exercises real Keychain persistence, interrupted
-registration, consent failures, Gmail verification failure, several mailbox
-connections, wrong-subject rejection and preservation of existing encrypted Inbox bytes. Its
+The hosted native storage suite exercises real Keychain persistence of an
+interrupted sign-in, connect receipt validation, credential attachment to
+credentialed calls, a projection free of secrets and provider subjects, Gmail
+verification failure, several mailbox connections, wrong-subject rejection and
+preservation of existing encrypted Inbox bytes. Its tests reach registration states
+through the vault operations in the flow's order. Its
 Google and backend boundaries are controlled synthetic providers. The nonce,
 issuer, audience and expiry checks run there too. These checks are deterministic
 native application integration evidence, not real OAuth evidence.

@@ -375,7 +375,7 @@ extension PrivateInboxTests {
 
     // Removing a connection removes its cache and invalidates its work; the others stay.
     let secondGeneration = store.generation("synthetic-other-mailbox")
-    let removed = try await store.removeMailbox(second)
+    let removed = try await store.flowRemoveMailbox(second)
     #expect(!FileManager.default.fileExists(atPath: file("synthetic-other-mailbox").path))
     #expect(FileManager.default.fileExists(atPath: file(firstSubject).path))
     #expect(
@@ -472,7 +472,7 @@ extension PrivateInboxTests {
       }
       await pause.reached()
       if stage == "remove" {
-        _ = try await store.removeMailbox(current)
+        _ = try await store.flowRemoveMailbox(current)
       } else {
         _ = try await store.purge()
       }
@@ -814,7 +814,7 @@ extension PrivateInboxTests {
         connection: other, address: google.address, subject: google.subject, id: "b",
         document: text, tier: .opened, protectedIds: ["a", "b"]))
     #expect(try files().isEmpty)
-    _ = try await store.removeMailbox(first)
+    _ = try await store.flowRemoveMailbox(first)
     #expect(!FileManager.default.fileExists(atPath: bodies.path))
     #expect(
       try await store.listMessageBodies(

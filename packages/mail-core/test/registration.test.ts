@@ -1029,6 +1029,18 @@ describe('product registration', () => {
     expect(revocationNotice(english, unconfirmed, false)).toBe(
       english('revocation.unconfirmed'),
     );
+    // A wrong retry entry cannot settle an earlier activation whose reply was lost.
+    confirmation = () =>
+      Promise.reject(
+        Object.assign(new Error('Synthetic Recovery Key mismatch'), {
+          code: 'recovery-key-mismatch',
+        }),
+      );
+    await store.confirmRevocation('WRNG');
+    expect(store.getSnapshot()).toStrictEqual({
+      ...settled(unconfirmed),
+      revocationFailure: 'mismatch',
+    });
     confirmation = () =>
       Promise.reject(new Error('Synthetic activation interrupted'));
     await store.confirmRevocation('5J0V');

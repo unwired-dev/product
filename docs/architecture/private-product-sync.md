@@ -220,8 +220,9 @@ It reads the encrypted mailbox descriptors; Gmail credentials remain device-loca
 and require their own authorization.
 
 Reconnect may create or refresh an enrollment request before the key is checked.
-If the key cannot open the envelope, native recovery resolves with the current
-registration status plus a transient `recoveryNotice: "rejected"`. The shared store
+If the key cannot open the envelope, native recovery reports rejection; the
+TypeScript flow assembles the current registration status with a transient
+`recoveryNotice: "rejected"`. The shared store
 consumes the notice and publishes that snapshot with `recoveryFailure: "rejected"`,
 so an expired or cancelled request's replacement Enrollment Code remains visible.
 Malformed keys use the same status-and-notice reply without reconnecting. The
@@ -321,9 +322,10 @@ ciphertext. This replaces post-removal confirmation and the temporary previous-k
 allowance in #750. Only the current key can recover when all Trusted Devices are
 lost; losing it leaves account deletion.
 
-Every registration bridge operation enters `RegistrationStore.purgingIfRevoked`.
-When a readable saved registration contains a Product Account, this boundary calls
-`requireNotRevoked` using `productAccount:isTrustedDeviceRevoked` before invoking
+Every registration flow program enters `createRegistrationFlow.guarded` in
+`packages/mail-core`. When a readable saved registration contains a Trusted
+Device's Product Account, this boundary calls `requireNotRevoked` using
+`productAccount:isTrustedDeviceRevoked` before invoking
 the requested operation. Restore, Linked Sign-In, signing in again, provider
 switching, Recovery Key unlock and removal therefore check before provider
 validation or an interactive prompt. Failed provider renewal or prompt
@@ -363,10 +365,11 @@ access. Hosts show the enrollment gate and permit Gmail authorization only after
 admission. ADR 0069 supersedes the temporary previous-Recovery-Key allowance;
 only the current key provides current recovery access.
 
-The retained flow still uses the existing native coordinator. ADR 0067 stages its
-move to TypeScript through #756–759; native key custody, credentialed transport
-and persist-before-acknowledge guarantees remain in force during that migration.
-This slice does not claim those later flow migrations or live-provider qualification.
+Issue #756 moves registration sequencing and the revocation guard to TypeScript.
+Product Sync, enrollment, recovery and rotation operations retain their native
+implementation until #757–758; native key custody, credentialed transport and
+persist-before-acknowledge guarantees remain in force. This slice does not claim
+those later migrations or live-provider qualification.
 
 ## Mailbox Connections (#606)
 

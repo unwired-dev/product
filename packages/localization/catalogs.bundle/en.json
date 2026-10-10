@@ -235,7 +235,7 @@
     "proposal": "Save a new Recovery Key to remove {{name}}",
     "prompt": "Write down this new Recovery Key and keep it safe. To confirm you saved it, enter its last four characters. {{name}} is removed only then, and your previous Recovery Key stops opening new private data.",
     "label": "Last four characters of the new Recovery Key",
-    "mismatch": "That does not match the end of the new Recovery Key. Check your written copy and try again. Nothing was removed.",
+    "mismatch": "That does not match the end of the new Recovery Key. Check your written copy and try again.",
     "device": "device",
     "removed": "The device was removed. The new Recovery Key you confirmed is now your Recovery Key; your previous one no longer opens new private data.",
     "renewed": "Your Product Account changed before the removal finished, so nothing was removed. Save the new Recovery Key shown now and confirm it again; the key shown before will not work.",

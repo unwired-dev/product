@@ -90,14 +90,15 @@ connected address comes from the Gmail grant. Convex tests prove an Apple identi
 and a Google identity sharing a relay address remain separate Product Accounts.
 Neither persists that address.
 
-The hosted native storage suite uses a controlled Apple boundary with real
-Keychain persistence. It checks Apple cancellation and Gmail decline and
-connection. It confirms that no Google hint or Google identity is derived from
-the Apple account. It also covers rejection of an unlinked provider after
-registration, retention of the first contact address and revoked-credential
-recovery. An interrupted registration restarts with Product Sign-In. Claim tests
-reject a Google token presented as Apple. These are deterministic native
-application checks, not real Apple or Google evidence.
+The [registration flow](google-registration.md#where-the-registration-flow-runs)'s
+tests use a controlled Apple boundary in a synthetic native vault. They check Apple
+cancellation and Gmail decline and connection, and confirm that no Google hint or
+Google identity is derived from the Apple account. They also cover rejection of an
+unlinked provider after registration, retention of the first contact address and
+revoked-credential recovery. An interrupted registration restarts with Product
+Sign-In. The hosted native storage suite's claim tests reject a Google token
+presented as Apple. These are deterministic checks, not real Apple or Google
+evidence.
 
 The `registration-apple` Mock Mail Session drives the packaged journey: it signs
 in with a synthetic Apple identity and a relay address, and declines the Gmail
