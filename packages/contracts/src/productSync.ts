@@ -109,23 +109,3 @@ export const encryptedProductSyncPayloadListResponseValidator = v.union(
 export type EncryptedProductSyncPayloadListResponse = Infer<
   typeof encryptedProductSyncPayloadListResponseValidator
 >;
-
-export const encryptedProductSyncPayloadFixture: EncryptedProductSyncPayload = {
-  encryptedPayload: {
-    algorithm: 'AES-GCM-256',
-    ciphertextBase64: 'Y2lwaGVydGV4dA',
-    keyVersion: 1,
-    nonceBase64: 'bm9uY2U',
-    schemaVersion: 1,
-    tagBase64: 'dGFn',
-  },
-  payloadIdentifier: 'fixture-payload-001',
-  updatedAt: 1_781_200_000_000,
-};
-
-export const encryptedProductSyncPayloadPageFixture: EncryptedProductSyncPayloadPage =
-  {
-    continueCursor: '',
-    isDone: true,
-    page: [encryptedProductSyncPayloadFixture],
-  };

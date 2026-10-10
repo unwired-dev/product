@@ -18,14 +18,3 @@ export type DevicePushRegistrationResponse = Infer<
 export type GmailPushVerificationResponse = Infer<
   typeof gmailPushVerificationResponseValidator
 >;
-
-export const devicePushRegistrationResponseFixture: DevicePushRegistrationResponse =
-  {
-    registered: true,
-  };
-
-export const gmailPushVerificationResponseFixture: GmailPushVerificationResponse =
-  {
-    routeId: 'gmailPushRouteFixtureId',
-    verified: true,
-  };

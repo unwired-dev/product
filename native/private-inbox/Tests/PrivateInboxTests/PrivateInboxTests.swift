@@ -1,4 +1,3 @@
-import CryptoKit
 import Foundation
 import Security
 import Testing
@@ -37,11 +36,10 @@ struct PrivateInboxTests {
       #expect(ciphertext.range(of: Data(plaintext.utf8)) == nil)
     }
     let key = try #require(try keys.read("encryption-key"))
-    #expect(throws: (any Error).self) {
-      try AES.GCM.open(
-        AES.GCM.SealedBox(combined: ciphertext), using: SymmetricKey(size: .bits256),
-        authenticating: Data("dev.unwired.private-inbox.v1".utf8))
-    }
+    // Another 32-byte key in the Keychain never opens or replaces the existing store.
+    try keys.save(Data(repeating: 7, count: 32), account: "encryption-key")
+    #expect(throws: PrivateInboxError.invalidStore) { try reopened.open(seed: seed) }
+    #expect(try Data(contentsOf: path) == ciphertext)
     try keys.remove("encryption-key")
     // Unlocking never restores a missing key, so the store must not ask the person to unlock.
     #expect(throws: PrivateInboxError.unavailable) { try reopened.open(seed: seed) }
