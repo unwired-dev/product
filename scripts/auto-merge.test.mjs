@@ -132,6 +132,7 @@ if (a[0] === 'api' && a[1] === 'graphql') {
 const count = fs.readFileSync(dir + '/gh.log', 'utf8').trim().split('\\n').map(JSON.parse).filter(call => call[1] === 'graphql').length;
 const snapshots = JSON.parse(fs.readFileSync(dir + '/pr.json'));
 for (const snapshot of snapshots) snapshot.reviews.totalCount ??= snapshot.reviews.nodes.length;
+for (const snapshot of snapshots) snapshot.editedComments ??= snapshot.comments;
 console.log(JSON.stringify({ data: { repository: { pullRequest: snapshots[Math.min(count - 1, snapshots.length - 1)] } } }));
 process.exit(0);
 }
@@ -223,6 +224,13 @@ const codexSummary = (status) => ({
 test('merges a head cleared by the Codex review summary', () => {
   const pr = cleared();
   pr.comments.nodes = [codexSummary('✅ **Completed**')];
+  assert.deepEqual(run(pr), { output: '#7: merge', calls: [merge] });
+});
+
+test('finds a Codex summary edited after newer comments were posted', () => {
+  const pr = cleared();
+  pr.comments.nodes = [];
+  pr.editedComments = { nodes: [codexSummary('✅ **Completed**')] };
   assert.deepEqual(run(pr), { output: '#7: merge', calls: [merge] });
 });
 

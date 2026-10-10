@@ -20,6 +20,8 @@ query='query($owner: String!, $name: String!, $number: Int!) {
       labels(first: 50) { totalCount nodes { name } }
       reactions(content: THUMBS_UP, first: 100) { nodes { user { login } } }
       comments(last: 100) { nodes { author { login } body createdAt } }
+      # Codex edits its summary in place, so find it among the most recently updated comments.
+      editedComments: comments(last: 100, orderBy: { field: UPDATED_AT, direction: ASC }) { nodes { author { login } body } }
       reviews(last: 100) { totalCount nodes { databaseId author { login } state submittedAt commit { oid } } }
       reviewThreads(first: 100) { totalCount nodes { isResolved comments(last: 1) { nodes { createdAt } } } }
       commits(last: 1) { nodes { commit { committedDate statusCheckRollup { contexts(first: 100) {
@@ -37,7 +39,7 @@ decide='
   | ([.comments.nodes[] | select(.author.login == "chatgpt-codex-connector" and (.body | contains("Didn'"'"'t find any major issues")))]
      | last | .body // "" | [capture("Reviewed commit:\\*\\* `(?<sha>[0-9a-f]+)`")] | .[0].sha // "") as $codexSha
   # Codex now edits one summary comment instead of posting a clearance; findings arrive as a review of the commit.
-  | ([.comments.nodes[] | select(.author.login == "chatgpt-codex-connector" and (.body | contains("<!-- codex-pull-request-review-summary -->")))]
+  | ([.editedComments.nodes[] | select(.author.login == "chatgpt-codex-connector" and (.body | contains("<!-- codex-pull-request-review-summary -->")))]
      | last | .body // "" | [capture("Code Review\\*\\* \\| ✅ \\*\\*Completed\\*\\*[^|]*\\| `(?<sha>[0-9a-f]+)`")] | .[0].sha // "") as $codexSummarySha
   # CodeRabbit reports a successful status even when it paused or skipped a commit.
   | (any($commit.statusCheckRollup.contexts.nodes[]?; .context == "CodeRabbit" and .creator.login == "coderabbitai" and .state == "SUCCESS"
