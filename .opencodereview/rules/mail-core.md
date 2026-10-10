@@ -78,6 +78,21 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   invalid bytes and definite refusals final across viewport/authorization-interest
   changes. Bound each `loadRemoteImages` call to one probe per source, including
   cache-only continuation batches, or a deferred result can spin indefinitely.
+- `gmail-inbox.ts.prepareRemotePresentations` replacing an unchanged reader
+  snapshot, or `settleRemoteImages` notifying when a cache hit cannot fit the
+  displayed-occurrence budget. Trace the mounted `RichDocument` measurement
+  effect as well as direct store calls: a new rich object restarts measurement
+  and retries deferred sources, so one viewport event can repeatedly restore,
+  sanitize and discard cached bytes. Preserve unchanged presentation identities
+  and publish actual display changes; later viewport requests must still retry
+  after shared budget is released.
+- `gmail-inbox.ts.releaseReader` reconciling remote interest before removing a
+  closing reader's view and shared-image reservation, or skipping re-presentation
+  when the surviving readers' URLs and authorization are unchanged. Re-admit
+  remaining rich readers after releasing the reservation, preserving legacy
+  multiplicity, terminal plain fallbacks and owner fences, then publish. Otherwise
+  a surviving window keeps a placeholder for an already-loaded image despite
+  available display budget, because later requests skip the loaded source.
 - `gmail-inbox.ts` touching or committing remote cache entries after retention
   alone rather than after `prepareRemotePresentations` admits them to a live
   reader. Trace repeated occurrences, inline-image reservations and independent readers through

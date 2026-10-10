@@ -1818,35 +1818,52 @@ export function createGmailInbox(
     return presentation(document, visibleImages, remote.admitted);
   };
 
+  const refreshedRemotePresentation = (
+    previous: Extract<MessageBodyState, { kind: 'ready' }>,
+    next: MessagePresentation,
+  ): MessageBodyState => {
+    // Replacing an unchanged presentation would make measured readers retry deferred cache hits.
+    if (
+      previous.presentation.rich?.document === next.rich?.document &&
+      previous.presentation.rich?.initialDocument === next.rich?.initialDocument
+    ) {
+      return previous;
+    }
+    return { kind: 'ready', presentation: next };
+  };
+
   // Updates every reader before the caller publishes its reconciled remote state.
   const prepareRemotePresentations = (id: string) => {
     const document = documents.get(id);
     const body = bodies.get(id);
     if (document === undefined || body?.kind !== 'ready') {
-      return;
+      return false;
     }
+    let legacyChanged = false;
     const count = legacyReaders.get(id) ?? 0;
     if (count > 0 && body.presentation.rich !== undefined) {
-      bodies.set(id, {
-        kind: 'ready',
-        presentation: present(id, document, count),
-      });
+      const next = refreshedRemotePresentation(
+        body,
+        present(id, document, count),
+      );
+      legacyChanged = next !== body;
+      bodies.set(id, next);
     }
     // A terminal fallback stays plain until a fresh body or reader prepares a rich presentation.
-    const rich = [...viewReaders].filter(([reader, message]) => {
+    const rich = [...viewReaders].flatMap(([reader, message]) => {
       const view = viewBodies.get(reader);
-      return (
-        message === id &&
+      return message === id &&
         view?.kind === 'ready' &&
         view.presentation.rich !== undefined
-      );
+        ? [[reader, view] as const]
+        : [];
     });
-    for (const [reader] of rich) {
-      viewBodies.set(reader, {
-        kind: 'ready',
-        presentation: present(reader, document),
-      });
-    }
+    const changed = rich.map(([reader, view]) => {
+      const next = refreshedRemotePresentation(view, present(reader, document));
+      viewBodies.set(reader, next);
+      return next !== view;
+    });
+    return [legacyChanged, ...changed].includes(true);
   };
 
   // Remote Message Content currently shown, which the cache keeps while admitting more.
@@ -1897,6 +1914,28 @@ export function createGmailInbox(
     prepareRemotePresentations(id);
     notify(state);
     return remote;
+  };
+
+  // A closing reader's view and reservation go before reconciliation, so the readers that remain
+  // are presented again with the budget it held.
+  const releaseReader = (id: string, reader: symbol | undefined) => {
+    if (reader === undefined) {
+      releaseLegacyReader(id);
+      if (!legacyReaders.has(id)) {
+        remoteImages.get(id)?.readers.delete(id);
+        refreshRemoteInterest(id);
+      }
+    } else {
+      viewReaders.delete(reader);
+      viewBodies.delete(reader);
+      imageReservations.delete(reader);
+      remoteImages.get(id)?.readers.delete(reader);
+      refreshRemoteInterest(id);
+    }
+    if (remoteImages.has(id)) {
+      prepareRemotePresentations(id);
+      notify(state);
+    }
   };
 
   const remoteReaderInterest = (
@@ -1989,7 +2028,7 @@ export function createGmailInbox(
     if (!results.some(([, result]) => remoteImageLoaded(result))) {
       return [];
     }
-    prepareRemotePresentations(id);
+    const changed = prepareRemotePresentations(id);
     const displayed = shownRemoteImages(id);
     // Retention is not display admission: repeated occurrences and inline images also cost pixels.
     const admitted = results.filter(([url, result]) => {
@@ -2005,7 +2044,9 @@ export function createGmailInbox(
       return false;
     });
     // Subscribers can replace viewport interest synchronously; publish only reconciled retention.
-    notify(state);
+    if (changed) {
+      notify(state);
+    }
     return admitted;
   };
 
@@ -3831,19 +3872,7 @@ export function createGmailInbox(
         if (owner !== retainedOwner) {
           return;
         }
-        if (reader === undefined) {
-          releaseLegacyReader(id);
-          if (!legacyReaders.has(id)) {
-            remoteImages.get(id)?.readers.delete(id);
-            refreshRemoteInterest(id);
-          }
-        } else {
-          viewReaders.delete(reader);
-          remoteImages.get(id)?.readers.delete(reader);
-          refreshRemoteInterest(id);
-          viewBodies.delete(reader);
-          imageReservations.delete(reader);
-        }
+        releaseReader(id, reader);
         const count = (readers.get(id) ?? 1) - 1;
         if (count === 0) {
           readers.delete(id);

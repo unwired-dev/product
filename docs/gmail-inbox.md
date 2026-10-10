@@ -548,11 +548,13 @@ sources, including plain HTTP and internationalized host names, stay placeholder
 - **Never** shows no remote content, including content cached earlier, which stays
   until eviction or **Clear remote content**. Switching an open message's mailbox to
   **Never**, even briefly from another window, withdraws that presentation's Ask
-  consent; returning to **Ask** requires **Load images** again. A reader whose rich
-  view fails falls back to plain text and ends its remote requests; nothing they
-  return is shown, cached or counted as used. Images no remaining rich reader
-  displays release their shared image budget and cache eviction protection.
-  **Always load** loads without asking.
+  consent, as does showing the same Gmail ID from another Inbox; returning to **Ask**
+  requires **Load images** again.
+- **Always load** loads without asking.
+- **Rich-view failure.** A reader whose rich view fails falls back to plain text and
+  ends its remote requests; nothing they return is shown, cached or counted as used.
+  Images no remaining rich reader displays release their shared image budget and
+  cache eviction protection.
 - **Viewport.** Under every policy, loading starts only for images within the
   visible range or one viewport above or below it. Queued work rechecks current
   eligibility before starting. In a document taller than the 20,000-point view, images below its first

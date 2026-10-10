@@ -50,6 +50,15 @@ const measured = (top: number) => ({
   remoteImages: [{ index: 0, top, bottom: top + 100 }],
 });
 
+// The reader's scroll view is the only host element above the message.
+const readerRoot = () => {
+  const scroll = screen.root;
+  if (scroll === null) {
+    throw new Error('Expected the reader to render');
+  }
+  return scroll;
+};
+
 async function openReader(
   settings: RemoteContentSettingsStore,
   html = `<p>Weekly news</p><img src="${source}" alt="Photo">`,
@@ -72,11 +81,7 @@ async function openReader(
       </ReaderScrollView>
     </RemoteContentContext>,
   );
-  // The reader's scroll view is the only host element above the message.
-  const scroll = screen.root;
-  if (scroll === null) {
-    throw new Error('Expected the reader to render');
-  }
+  const scroll = readerRoot();
   await act(() => {
     fireEvent(scroll, 'layout', { nativeEvent: { layout: { height: 600 } } });
   });
@@ -186,6 +191,92 @@ describe('remote message content in the reader', () => {
         });
       });
       expect(gmail.remoteFetches).toStrictEqual([source]);
+      expect(screen.getByRole('button', { name: 'Load images' })).toBeVisible();
+    } finally {
+      await app.unmount();
+    }
+  });
+
+  it('requires Load images again after another Inbox shows the same Gmail ID', async () => {
+    expect.hasAssertions();
+    placeDocument();
+    const settings = settingsWith(null);
+    await settings.load();
+    const later = 'https://images.example/later.png';
+    const html = `<p>Weekly news</p><img src="${source}" alt="Photo"><img src="${later}" alt="Later">`;
+    const make = async () => {
+      const gmail = createSyntheticGmail();
+      gmail.serveRemote(source, { data: photo });
+      gmail.serveRemote(later, { data: photo });
+      const id = gmail.deliver({ content: { html } });
+      const inbox = createGmailInbox(gmail.native);
+      await inbox.load();
+      return { gmail, inbox, id };
+    };
+    const first = await make();
+    const other = await make();
+    // Gmail IDs repeat across mailboxes; these synthetic Inboxes number theirs the same way.
+    expect(other.id).toBe(first.id);
+    const reader = (inbox: typeof first.inbox) => (
+      <RemoteContentContext value={settings}>
+        <ReaderScrollView>
+          <GmailMessageBody
+            inbox={inbox}
+            id={first.id}
+            connection="connection-a"
+          />
+        </ReaderScrollView>
+      </RemoteContentContext>
+    );
+    const both = {
+      contentSize: { width: 320, height: 4000 },
+      remoteImages: [
+        { index: 0, top: 0, bottom: 100 },
+        { index: 1, top: 3000, bottom: 3100 },
+      ],
+    };
+    const app = await render(reader(first.inbox));
+    try {
+      const scroll = readerRoot();
+      await act(() => {
+        fireEvent(scroll, 'layout', {
+          nativeEvent: { layout: { height: 600 } },
+        });
+      });
+      await act(async () => {
+        fireEvent(
+          await screen.findByTestId('message-webview'),
+          'contentSizeChange',
+          {
+            nativeEvent: both,
+          },
+        );
+      });
+      await act(() => {
+        fireEvent.press(screen.getByRole('button', { name: 'Load images' }));
+      });
+      expect(first.gmail.remoteFetches).toStrictEqual([source]);
+      // The same reader shows the other Inbox's message, then the first one again.
+      await act(() => app.rerender(reader(other.inbox)));
+      await act(() => app.rerender(reader(first.inbox)));
+      await act(async () => {
+        fireEvent(
+          await screen.findByTestId('message-webview'),
+          'contentSizeChange',
+          {
+            nativeEvent: both,
+          },
+        );
+      });
+      await act(() => {
+        fireEvent.scroll(scroll, {
+          nativeEvent: {
+            contentOffset: { y: 2600 },
+            layoutMeasurement: { height: 600 },
+          },
+        });
+      });
+      expect(first.gmail.remoteFetches).toStrictEqual([source]);
       expect(screen.getByRole('button', { name: 'Load images' })).toBeVisible();
     } finally {
       await app.unmount();

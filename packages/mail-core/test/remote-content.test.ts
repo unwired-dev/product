@@ -378,6 +378,101 @@ describe('remote message content', () => {
     }
   });
 
+  it('lets a surviving window show an image the closed window held in the shared budget', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    const photo = 'https://images.example/shared-budget.png';
+    gmail.serveRemote(photo, { data: png(4096, 4096) });
+    const id = gmail.deliver({
+      content: { html: `<p>Hello</p><img src="${photo}" alt="Photo">` },
+    });
+    const inbox = createGmailInbox(gmail.native);
+    await inbox.load();
+    const windows = [
+      await open(inbox, id),
+      await open(inbox, id),
+      await open(inbox, id),
+    ] as const;
+    try {
+      for (const window of windows) {
+        await inbox.loadRemoteImages(id, [photo], {
+          network: true,
+          reader: window.reader,
+        });
+      }
+      // Two 16-megapixel copies fill the shared budget, so the third window keeps a placeholder.
+      expect(
+        windows.map((window) => window.shown().remote.pending),
+      ).toStrictEqual([[], [], [photo]]);
+      windows[0].release();
+      expect(windows[2].shown().remote.pending).toStrictEqual([]);
+      expect(gmail.remoteFetches).toStrictEqual([photo]);
+    } finally {
+      windows[1].release();
+      windows[2].release();
+    }
+  });
+
+  it('does not publish an undisplayable cache hit and lets a later request retry it', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    const photo = 'https://images.example/repeated-budget.png';
+    gmail.serveRemote(photo, { data: png(4096, 4096) });
+    const image = `<img src="${photo}" alt="Photo">`;
+    const id = gmail.deliver({
+      content: { html: `<p>Target</p>${image}${image}` },
+    });
+    const other = gmail.deliver({ content: { html: `<p>Other</p>${image}` } });
+    const inbox = createGmailInbox(gmail.native);
+    await inbox.load();
+    const seed = await open(inbox, id);
+    try {
+      await inbox.loadRemoteImages(id, [photo], {
+        network: true,
+        reader: seed.reader,
+      });
+      expect(gmail.remoteCached(id, photo)).toBe(true);
+    } finally {
+      seed.release();
+    }
+    const holder = await open(inbox, other);
+    try {
+      await inbox.loadRemoteImages(other, [photo], {
+        network: true,
+        reader: holder.reader,
+      });
+      const reader = await open(inbox, id);
+      let notifications = 0;
+      const unsubscribe = inbox.subscribe(() => {
+        notifications += 1;
+      });
+      try {
+        const previous = inbox.messageBody(id, reader.reader);
+        // The cache's one copy fits retention, but two displayed copies cannot fit beside Other.
+        await inbox.loadRemoteImages(id, [photo], {
+          network: false,
+          reader: reader.reader,
+        });
+        expect(reader.shown().remote.pending).toStrictEqual([photo]);
+        expect(inbox.messageBody(id, reader.reader)).toBe(previous);
+        expect(notifications).toBe(0);
+        // Hiding the other view's images returns its budget for a later cache-only request.
+        inbox.forgetRemoteImages(other);
+        await inbox.loadRemoteImages(id, [photo], {
+          network: false,
+          reader: reader.reader,
+        });
+        expect(reader.shown().remote.pending).toStrictEqual([]);
+        expect(gmail.remoteFetches).toStrictEqual([photo, photo]);
+      } finally {
+        unsubscribe();
+        reader.release();
+      }
+    } finally {
+      holder.release();
+    }
+  });
+
   it('cancels withdrawn window requests while another window authorizes different images', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail();

@@ -857,8 +857,12 @@ export function GmailMessageBody({
     readonly inbox: GmailInbox;
     readonly id: string;
   }>();
-  // Never revokes this presentation's Ask consent, so a later Ask must be consented again.
-  if (policy === 'never' && consent !== undefined) {
+  // Never, or another Inbox showing the same Gmail ID, revokes this presentation's Ask consent,
+  // so a later Ask must be consented again.
+  if (
+    consent !== undefined &&
+    (policy === 'never' || consent.inbox !== inbox)
+  ) {
     setConsent(undefined);
   }
   const consented = consent?.inbox === inbox && consent.id === id;
