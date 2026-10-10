@@ -25,8 +25,8 @@ finish, the implementer:
    to the thread with `link_pull_request`.
 3. Invokes the `babysit-pr` skill for that PR alone and keeps it until the PR is
    merged or closed. In T3 Code, call `watch_pull_request` and end the turn;
-   each wakeup runs one babysitting pass. Elsewhere, use the session's
-   scheduler or monitor rather than a busy loop.
+   each wakeup runs one babysitting pass. Elsewhere, use the host's PR watcher
+   or the skill's supported monitoring mechanism, never a recurring schedule.
 
 Each pass follows the rules below: synchronize a stale base, validate review
 findings, repair required CI, reply with a disposition, and resolve handled
