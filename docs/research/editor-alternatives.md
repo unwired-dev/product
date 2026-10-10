@@ -281,14 +281,26 @@ accessibility or host behavior call for evaluating the native approach instead:
 2. **Document fidelity:** all supported blocks/marks, empty paragraphs, mixed
    formatting, Unicode, image positions/IDs, paste normalization and undo/redo.
    Reopen the saved semantic document and compare meaning, not just screenshot.
-3. **Native editing:** software/hardware keyboards, IME, dictation, selection
-   handles, VoiceOver, shortcuts, iPad split view and Mac menu/undo integration.
+3. **Native editing:** require native spelling, autocorrection and predictive
+   text under the [authored-body contract](../product/messages-and-delivery.md#authored-content-and-delivery-attempts).
+   Exercise software/hardware keyboards, IME, dictation, selection handles,
+   VoiceOver, shortcuts, iPad split view and Mac menu/undo integration.
 4. **Durability/privacy:** type during save/import, fail saving, switch/close,
    reopen, race two Mac windows, remove the account, reject stale assistance.
    Observe actual network requests and reject unwanted plaintext persistence.
 5. **Delivery and cost:** recipient-client rendering with inline MIME images;
    measure shipped size, launch time, memory and typing responsiveness on the
    same devices. Record necessary patches and maintenance ownership.
+
+Apply the [replacement performance targets](expo-react-native-rewrite.md#verification-targets)
+as pass/fail gates: in Release on the iPhone 17 reference device with a warm
+encrypted cache, warm Draft opening must reach rendered interactive content within
+200 ms at p95 from user selection; empty Draft opening must do so within 300 ms.
+Typing and formatting must give visible feedback on the next rendered frame.
+No main-thread stall may last 100 ms or longer, including during formatting and autosave.
+Measure provider/network latency separately. Nominate and record iPad and Mac
+reference hardware; their performance baselines remain unmeasured. Hosted-runner
+multipliers do not relax product targets.
 
 Adopt only if semantic fidelity, durability and native usability pass without a
 large editor fork. No dependencies were installed and no editor, native build,

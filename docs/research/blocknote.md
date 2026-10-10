@@ -74,8 +74,9 @@ Mobile browser support is real, but does not establish native-host quality. The
 official guide moves the toolbar above the software keyboard, recommends
 `interactive-widget=resizes-content`, and notes that iOS lacks that viewport
 feature and benefits from a scroll-container layout. **Unverified:** WKWebView
-focus, selection, hardware keyboard shortcuts, IME composition, dictation,
-VoiceOver, split-screen resizing, and Mac menu/undo integration in our app.
+focus, selection, native spelling, autocorrection, predictive text, hardware
+keyboard shortcuts, IME composition, dictation, VoiceOver, split-screen resizing,
+and Mac menu/undo integration in our app.
 [Mobile compatibility](https://www.blocknotejs.org/docs/getting-started#mobile-compatibility).
 
 No first-party React Native host adapter or qualification evidence for our native
@@ -206,9 +207,11 @@ current document subset on all three native form factors.
    blocks/marks, mixed lists, empty paragraphs, Unicode, inline images and asset
    IDs. Reject or explicitly normalize unsupported pasted content without silent
    loss. Keep quoted correspondence and recipients outside authored-body edits.
-3. **Editing quality:** exercise IME, dictation, selection, caret formatting,
-   input shortcuts, hardware keyboard, VoiceOver, and grouped undo/redo. Test
-   selection around inline images and iPad keyboard/split-view transitions.
+3. **Editing quality:** require native spelling, autocorrection and predictive
+   text under the [authored-body contract](../product/messages-and-delivery.md#authored-content-and-delivery-attempts).
+   Exercise IME, dictation, selection, caret formatting, input shortcuts, hardware
+   keyboard, VoiceOver, and grouped undo/redo. Test selection around inline images
+   and iPad keyboard/split-view transitions.
 4. **Durability and privacy:** race typing with saves, failures, close/reopen,
    app interruption, stale Mac windows and account removal. Demonstrate the same
    conflict/save outcomes as the existing composer, no credential/key transfer
@@ -220,6 +223,16 @@ current document subset on all three native form factors.
 6. **Cost and maintenance:** measure bundle size, startup, memory and editing
    responsiveness against the current composer; record required overrides or
    forks. Resolve XL multi-host licensing only if XL remains part of the proposal.
+
+Apply the [replacement performance targets](expo-react-native-rewrite.md#verification-targets)
+as pass/fail gates: in Release on the iPhone 17 reference device with a warm
+encrypted cache, warm Draft opening must reach rendered interactive content within
+200 ms at p95 from user selection; empty Draft opening must do so within 300 ms.
+Typing and formatting must give visible feedback on the next rendered frame.
+No main-thread stall may last 100 ms or longer, including during formatting and autosave.
+Measure provider/network latency separately. Nominate and record iPad and Mac
+reference hardware; their performance baselines remain unmeasured. Hosted-runner
+multipliers do not relax product targets.
 
 Proceed only if the native experience and document/durability invariants pass
 without a substantial editor fork. Stop if the required native behavior cannot
