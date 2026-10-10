@@ -205,8 +205,9 @@ These are proposed checks, not completed tests. If BlockNote is separately
 evaluated after the Tiptap-first effort, limit its spike to core editing and our
 current document subset on all three native form factors.
 
-The [authored-body requirements](../product/messages-and-delivery.md#authored-content-and-delivery-attempts)
-and [Draft behavior](../drafts.md#composing), including [files and images](../drafts.md#files-and-images),
+The [authored-body requirements](../product/messages-and-delivery.md#authored-content-and-delivery-attempts),
+[Draft behavior](../drafts.md#composing), including [files and images](../drafts.md#files-and-images),
+[Draft assistance](../draft-assistance.md#behavior) and [Draft translation](../message-translation.md#behavior)
 remain the acceptance contract in their current scope and qualification status;
 the checks below highlight journeys rather than replace that contract.
 
@@ -237,6 +238,15 @@ the checks below highlight journeys rather than replace that contract.
    app interruption, stale Mac windows and account removal. Demonstrate the same
    conflict/save outcomes as the existing composer, no credential/key transfer
    into web code, and no unintended remote file/proxy requests.
+   On every host, accept selection and whole-body rewrites, a reply suggestion,
+   and a Draft translation through the native bridge. Each replaces only its
+   captured content as one edit: one Undo restores the prior semantic document
+   and one Redo reapplies the accepted change. Verify the documented whitespace
+   and block/inline formatting rules and unchanged recipients, subject, quoted
+   correspondence, attachments, Inline Images outside the capture and delivery
+   state; save/reopen both accepted and undone content. Use text admitted by the
+   current assistance guides, including their Inline Image refusal, and separate
+   mocked bridge journeys from the deferred live model and Translation checks.
 5. **Email output:** compare our semantic renderer with any proposed exporter
    using real Gmail, Apple Mail and Outlook rendering, including CID images,
    lists, quotes and plain-text alternatives. A browser preview alone is not

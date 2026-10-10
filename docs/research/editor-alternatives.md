@@ -276,8 +276,9 @@ recipients and subject outside arbitrary body transformations.
 [Delivery terminology](../domain/messages-and-delivery.md),
 [assistance scope](../domain/assistance.md).
 
-The [authored-body requirements](../product/messages-and-delivery.md#authored-content-and-delivery-attempts)
-and [Draft behavior](../drafts.md#composing), including [files and images](../drafts.md#files-and-images),
+The [authored-body requirements](../product/messages-and-delivery.md#authored-content-and-delivery-attempts),
+[Draft behavior](../drafts.md#composing), including [files and images](../drafts.md#files-and-images),
+[Draft assistance](../draft-assistance.md#behavior) and [Draft translation](../message-translation.md#behavior)
 remain the acceptance contract in their current scope and qualification status;
 the checks below highlight journeys rather than replace that contract.
 
@@ -311,6 +312,15 @@ accessibility or host behavior call for evaluating the native approach instead:
 4. **Durability/privacy:** type during save/import, fail saving, switch/close,
    reopen, race two Mac windows, remove the account, reject stale assistance.
    Observe actual network requests and reject unwanted plaintext persistence.
+   On every host, accept selection and whole-body rewrites, a reply suggestion,
+   and a Draft translation through the native bridge. Each replaces only its
+   captured content as one edit: one Undo restores the prior semantic document
+   and one Redo reapplies the accepted change. Verify the documented whitespace
+   and block/inline formatting rules and unchanged recipients, subject, quoted
+   correspondence, attachments, Inline Images outside the capture and delivery
+   state; save/reopen both accepted and undone content. Use text admitted by the
+   current assistance guides, including their Inline Image refusal, and separate
+   mocked bridge journeys from the deferred live model and Translation checks.
 5. **Delivery and cost:** recipient-client rendering with inline MIME images;
    measure shipped size, launch time, memory and typing responsiveness on the
    same devices. Record necessary patches and maintenance ownership.
