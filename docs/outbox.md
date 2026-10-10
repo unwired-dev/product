@@ -70,6 +70,9 @@ with the app in the background or with Mac windows closed is
   records the message as sent and removes it from the Outbox. No confirmation,
   conflicting evidence, or Gmail being unreachable keeps it
   unknown; after **Check Again**, the row says Gmail did not confirm it.
+  If the check finds locked storage, the Inbox hides its mail; device removal
+  closes it, and refused Gmail access asks for authorization again, including
+  after an offline retry. The delivery outcome remains unknown.
 - **Edit** on an unknown message first warns that Gmail may already have sent it,
   and asks to check Sent in Gmail. **Edit Anyway** returns it to the Drafts; sending
   it again is the person's deliberate choice.

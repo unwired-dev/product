@@ -55,6 +55,14 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 - A log, annotation or error message that carries `cause`, `error.message`, `String(error)`, a payload, an email address, a token or an account, device or message identifier. Any field of a host or provider error can hold mail or account data; log only what `rejectionDiagnostic` and `decodeDiagnostic` in `src/diagnostics.ts` produce.
 - A new native rejection code handled in a store without being added to `nativeCodes` in `src/diagnostics.ts` (it logs as `unrecognized code` and cannot be diagnosed), or that allow-list widened to pass through arbitrary strings.
 - `Effect.catch`/`catchAll`-style recovery that swallows a failure the caller's contract does not permit recovering, or `Effect.orDie` on a failure a user can trigger.
+- `createGmailInbox.findSent` or another auxiliary provider read reducing a
+  lifecycle-changing `SyncFailure` to its operation's fallback without running
+  the Inbox's owner-fenced recovery. The first discovery of locked storage,
+  device revocation or rejected Gmail authorization must update the owning
+  store even when delivery evidence remains unknown. Preserve stale-owner and
+  invalidation fences and distinguish quota/transient failures from refused
+  grants; otherwise cached mail stays visible after lock or removal, or the
+  authorization notice waits for an unrelated synchronization.
 
 #### Running programs and shared state
 

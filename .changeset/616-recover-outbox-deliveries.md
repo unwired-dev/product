@@ -11,3 +11,7 @@ when it becomes unknown, when the app starts or becomes active, and on
 **Check Again**; exactly one match records it as sent, and anything else keeps it
 unknown without resending. **Edit** on an unknown message warns that Gmail may
 already have sent it before returning it to the Drafts.
+
+Sent checks also recover locked storage, device removal and refused Gmail access,
+showing the authorization action even after an offline retry while keeping the
+delivery outcome unknown.

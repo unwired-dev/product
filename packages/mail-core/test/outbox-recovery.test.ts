@@ -187,6 +187,48 @@ describe('recovering Outbox outcomes and late Send refusals', () => {
     }
   });
 
+  it.each([401, 403])(
+    'asks for Gmail after a Sent check rejects authorization with %i while the Inbox was offline',
+    async (status) => {
+      expect.hasAssertions();
+      const { server, gmail } = sharedAccount();
+      const received = gmail.deliver();
+      const sending = await sender(server, gmail, 'phone');
+      try {
+        const id = await addressed(sending);
+        await sending.outbox.send(() => sending.draft(id));
+        later(undoSendWindow);
+        gmail.failSend({ status: 503, body: '{}' });
+        await sending.outbox.process();
+        const { inbox } = present(
+          sending.mailboxes.getSnapshot()[0],
+          'an open mailbox',
+        );
+        gmail.fail({ status: 503 });
+        await inbox.load();
+        expect(inbox.getSnapshot()).toMatchObject({
+          kind: 'ready',
+          sync: 'retry',
+        });
+        gmail.fail({ status });
+
+        await expect(sending.outbox.check(id)).resolves.toBe(false);
+
+        expect(inbox.getSnapshot()).toMatchObject({
+          kind: 'ready',
+          sync: 'authentication',
+          messages: [{ id: received }],
+        });
+        expect(sending.drafts.getOutbox()).toMatchObject([
+          { id, state: 'unknown' },
+        ]);
+        expect(gmail.sends).toStrictEqual([]);
+      } finally {
+        sending.outbox.dispose();
+      }
+    },
+  );
+
   it.each([
     { outcome: 'sent', status: 200, states: [], editable: false },
     // Gmail never kept it, so it stays unknown; the person may still choose to edit it.
@@ -411,6 +453,33 @@ describe('recovering Outbox outcomes and late Send refusals', () => {
       await sending.outbox.process();
       expect(gmail.sends).toHaveLength(1);
       expect(sending.drafts.getOutbox()).toStrictEqual([]);
+    } finally {
+      sending.outbox.dispose();
+    }
+  });
+
+  it('locks the Inbox when a Sent check finds storage locked, keeping the message unknown', async () => {
+    expect.hasAssertions();
+    const { server, gmail } = sharedAccount();
+    const sending = await sender(server, gmail, 'phone');
+    try {
+      const id = await addressed(sending);
+      await sending.outbox.send(() => sending.draft(id));
+      later(undoSendWindow);
+      // Gmail answers with a server error without keeping the message.
+      gmail.failSend({ status: 503, body: '{}' });
+      await sending.outbox.process();
+      gmail.fail({ code: 'locked' });
+
+      await expect(sending.outbox.check(id)).resolves.toBe(false);
+
+      expect(
+        sending.mailboxes.getSnapshot()[0]?.inbox.getSnapshot(),
+      ).toMatchObject({ kind: 'locked' });
+      expect(sending.drafts.getOutbox()).toMatchObject([
+        { id, state: 'unknown' },
+      ]);
+      expect(gmail.sends).toStrictEqual([]);
     } finally {
       sending.outbox.dispose();
     }

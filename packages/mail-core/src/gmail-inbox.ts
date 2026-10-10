@@ -3186,7 +3186,7 @@ export function createGmailInbox(
     return Effect.sync(() => {
       if (owner === reading && opened !== undefined) {
         authenticationRejected = true;
-        publish(render());
+        settle('authentication');
       }
       return searchUnavailable('authentication');
     });
@@ -3467,14 +3467,15 @@ export function createGmailInbox(
       if (scope === undefined || forgotten) {
         return Promise.resolve<SendOutcome>({ kind: 'unknown' });
       }
+      const reading = owner;
       return runLogged(
         sentWith(scope, boundary).pipe(
           Effect.catchTags({
-            SyncFailure: ({ kind, diagnostic }) =>
-              (kind === 'failed'
-                ? Effect.logError('Gmail Sent check failed:', diagnostic)
-                : Effect.void
-              ).pipe(Effect.as<SendOutcome>({ kind: 'unknown' })),
+            // A lock, revocation or refused grant found here recovers the Inbox as a search does.
+            SyncFailure: (failure) =>
+              searchFailed(failure, reading).pipe(
+                Effect.as<SendOutcome>({ kind: 'unknown' }),
+              ),
             GmailNotFound: () =>
               Effect.succeed<SendOutcome>({ kind: 'unknown' }),
             GmailInvalidPage: () =>
