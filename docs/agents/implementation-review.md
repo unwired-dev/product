@@ -60,7 +60,8 @@ not itself restrict filesystem or Git-history access.
    unstaged or untracked changes. Preserve unrelated work: when such changes
    exist, put the task branch in a separate worktree instead of switching this
    checkout. Then work on the task's branch: check out the head
-   branch of the task's existing PR when there is one; otherwise, from a
+   branch of the task's existing same-repository PR when there is one (a fork
+   head is a delivery blocker to report); otherwise, from a
    detached HEAD, `main`, or another task's branch, create a new task branch
    from the latest `main`. Record that branch's starting commit; for an
    existing PR with commits no completed review covered, use its merge-base

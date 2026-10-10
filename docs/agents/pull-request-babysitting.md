@@ -18,7 +18,7 @@ finish, the implementer:
 
 1. Commits the reviewed changes (preserving unrelated work) on the task branch
    created before implementation, and pushes the branch.
-2. Updates the task's existing PR when one exists, marking a draft ready for
+2. Updates the task's existing same-repository PR when one exists, marking a draft ready for
    review. Otherwise opens a PR ready
    for review against `main` that references its issue, using the `pr` skill for
    the body and recording any decision-panel outcomes. In T3 Code, link the PR
