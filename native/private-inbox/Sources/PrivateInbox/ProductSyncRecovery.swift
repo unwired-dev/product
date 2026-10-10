@@ -37,7 +37,8 @@ extension RegistrationStore {
     if product.pending == true {
       guard
         let released = try await backend.recoverPending(
-          session, product, KeyRingEnvelope.recoveryProof(key, account: account))
+          session, product, KeyRingEnvelope.recoveryProof(key, account: account),
+          deviceKey(account).publicKey)
       else { return try rejected() }
       envelope = released
     } else {
@@ -45,6 +46,15 @@ extension RegistrationStore {
     }
     guard let ring = try? KeyRingEnvelope.openRecovery(envelope, key: key, account: account) else {
       return try rejected()
+    }
+    // A Trusted Device that never bound an encryption key binds one with this Recovery Key, so later
+    // removals seal their keys to it; a Pending Device binds its key once admitted.
+    if product.pending != true {
+      guard
+        try await backend.bindDeviceKey(
+          session, product, deviceKey(account).publicKey,
+          KeyRingEnvelope.recoveryProof(key, account: account))
+      else { return try rejected() }
     }
     // The person holds the Recovery Key already, so this device neither keeps nor shows it.
     try saveVault(

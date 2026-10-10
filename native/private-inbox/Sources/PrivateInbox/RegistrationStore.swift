@@ -157,7 +157,7 @@ struct SavedRegistration: Codable {
   var version = 1
   let deployment: String
   let clientID: String
-  let deviceIdentifier: String
+  var deviceIdentifier: String
   // Records written before Apple sign-in carry no provider and are Google.
   var signInProvider: SignInProvider?
   var subject: String
@@ -716,7 +716,7 @@ struct SavedRegistration: Codable {
     var failure: (any Error)?
     do { try await removeMailboxCaches() } catch { failure = error }
     if let account = saved?.product?.productAccountId {
-      for item in [vaultAccount(account), enrollmentAccount(account)] {
+      for item in [vaultAccount(account), enrollmentAccount(account), deviceKeyAccount(account)] {
         do { try keys.remove(item) } catch { failure = failure ?? error }
       }
     }

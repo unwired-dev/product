@@ -476,6 +476,21 @@ final class UnwiredRegistration: NSObject {
       try await $0.revoke(trustedDeviceId)
     }
   }
+  @objc(confirmRevocation:resolver:rejecter:)
+  func confirmRevocation(
+    _ entry: String, resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    perform("confirmRevocation", resolve, reject: reject) {
+      try await $0.confirmRevocation(entry)
+    }
+  }
+  @objc(cancelRevocation:rejecter:)
+  func cancelRevocation(
+    _ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+  ) {
+    perform("cancelRevocation", resolve, reject: reject) { try await $0.cancelRevocation() }
+  }
   @objc(signOut:rejecter:)
   func signOut(_ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock)
   {
@@ -1060,12 +1075,13 @@ extension UnwiredRegistration {
       try JSONSerialization.jsonObject(with: JSONEncoder().encode(payload))
     }
     return ProductSyncBackend(
-      initialize: { identity, product, envelope, verifier in
+      initialize: { identity, product, envelope, verifier, deviceKey in
         struct Response: Decodable { let initialized: Bool }
         let response: Response = try await mutation(
           base: base, identity: identity, path: "productSync:initialize",
           args: proof(product).merging([
             "encryptedPayload": try json(envelope), "recoveryVerifier": verifier,
+            "deviceEncryptionPublicKey": deviceKey.rawRepresentation.base64EncodedString(),
           ]) { $1 })
         return response.initialized
       },
@@ -1101,32 +1117,49 @@ extension UnwiredRegistration {
           base: base, identity: identity, path: "productSync:putEncryptedPayloadIfUnchanged",
           args: args)
       },
-      requestEnrollment: { identity, product, publicKey in
+      requestEnrollment: { identity, product, publicKey, deviceKey in
         struct Response: Decodable { let expiresAt: Double }
         let _: Response = try await mutation(
           base: base, identity: identity, path: "productSyncEnrollment:request",
           args: proof(product).merging([
-            "enrollmentPublicKey": publicKey.rawRepresentation.base64EncodedString()
+            "enrollmentPublicKey": publicKey.rawRepresentation.base64EncodedString(),
+            "deviceEncryptionPublicKey": deviceKey.rawRepresentation.base64EncodedString(),
           ]) { $1 })
       },
       enrollmentStatus: { identity, product in
         try await readEnrollmentStatus(base: base, identity: identity, args: proof(product))
       },
-      completeEnrollment: { identity, product, keyVersion in
+      completeEnrollment: { identity, product, keyVersion, deviceKey in
         struct Response: Decodable {
           let admitted: Bool
           let trustedDeviceId: String?
         }
         let response: Response = try await mutation(
           base: base, identity: identity, path: "productSyncEnrollment:complete",
-          args: proof(product).merging(["keyVersion": keyVersion]) { $1 })
+          args: proof(product).merging([
+            "keyVersion": keyVersion,
+            "deviceEncryptionPublicKey": deviceKey.rawRepresentation.base64EncodedString(),
+          ]) { $1 })
         return response.admitted ? response.trustedDeviceId : nil
       },
-      recoverPending: { identity, product, recoveryProof in
+      bindDeviceKey: { identity, product, deviceKey, recoveryProof in
+        struct Response: Decodable { let bound: Bool }
+        let response: Response = try await mutation(
+          base: base, identity: identity, path: "productSync:bindDeviceEncryptionKey",
+          args: proof(product).merging([
+            "deviceEncryptionPublicKey": deviceKey.rawRepresentation.base64EncodedString(),
+            "recoveryProof": recoveryProof,
+          ]) { $1 })
+        return response.bound
+      },
+      recoverPending: { identity, product, recoveryProof, deviceKey in
         // A successful null result is a proof that matches no Recovery Key of the account.
         try await optionalResult(
           base: base, identity: identity, path: "productSyncEnrollment:recover",
-          args: proof(product).merging(["recoveryProof": recoveryProof]) { $1 })
+          args: proof(product).merging([
+            "recoveryProof": recoveryProof,
+            "deviceEncryptionPublicKey": deviceKey.rawRepresentation.base64EncodedString(),
+          ]) { $1 })
       },
       pendingEnrollments: { identity, product in
         try await readPendingEnrollments(base: base, identity: identity, args: proof(product))
@@ -1138,6 +1171,7 @@ extension UnwiredRegistration {
           args: proof(product).merging([
             "pendingDeviceId": request.pendingDeviceId,
             "enrollmentPublicKey": request.publicKey.rawRepresentation.base64EncodedString(),
+            "deviceEncryptionPublicKey": request.deviceKey.rawRepresentation.base64EncodedString(),
             "keyVersion": keyVersion,
             "encapsulatedKeyBase64": envelope.encapsulatedKey.base64EncodedString(),
             "ciphertextBase64": envelope.ciphertext.base64EncodedString(),
@@ -1161,13 +1195,18 @@ extension UnwiredRegistration {
       keyRotation: { identity, product in
         struct Response: Decodable {
           let keyEpoch: Int
-          let encryptedTransition: EncryptedPayload
+          let encapsulatedKeyBase64: String
+          let ciphertextBase64: String
         }
         let response: Response? = try await optionalResult(
           base: base, identity: identity, path: "productAccount:getProductSyncKeyRotation",
           args: proof(product), function: "query")
-        return response.map {
-          KeyRotation(keyEpoch: $0.keyEpoch, transition: $0.encryptedTransition)
+        return try response.map {
+          guard let encapsulatedKey = Data(base64Encoded: $0.encapsulatedKeyBase64),
+            let ciphertext = Data(base64Encoded: $0.ciphertextBase64)
+          else { throw RegistrationError.unavailable }
+          return KeyRingEnvelope.Rotation(
+            keyEpoch: $0.keyEpoch, encapsulatedKey: encapsulatedKey, ciphertext: ciphertext)
         }
       },
       acknowledgeRotation: { identity, product, keyEpoch in
@@ -1181,16 +1220,18 @@ extension UnwiredRegistration {
           let id: String
           let displayName: String
           let registeredAt: Double
+          let deviceEncryptionPublicKey: String?
         }
         let devices: [Device] = try await mutation(
           base: base, identity: identity, path: "productAccount:listTrustedDevices",
           args: proof(product), function: "query")
         return devices.map {
-          TrustedDevice(id: $0.id, name: $0.displayName, registeredAt: $0.registeredAt)
+          TrustedDevice(
+            id: $0.id, name: $0.displayName, registeredAt: $0.registeredAt,
+            encryptionKey: $0.deviceEncryptionPublicKey.flatMap { Data(base64Encoded: $0) })
         }
       },
-      revoke: {
-        identity, product, trustedDeviceToRevokeId, transition, recovery, verifier, updatedAt in
+      activateRevocation: { identity, product, revocation in
         var request = URLRequest(url: try site(base, path: "/trusted-devices/revoke"))
         request.httpMethod = "POST"
         request.timeoutInterval = 30
@@ -1198,27 +1239,51 @@ extension UnwiredRegistration {
         request.setValue("Bearer " + identity.idToken, forHTTPHeaderField: "Authorization")
         request.httpBody = try JSONSerialization.data(
           withJSONObject: proof(product).merging([
-            "trustedDeviceToRevokeId": trustedDeviceToRevokeId,
-            "encryptedTransition": try json(transition),
-            "recoveryWrappedAccountKey": try json(recovery),
-            "recoveryVerifier": verifier,
-            "expectedRecoveryUpdatedAt": updatedAt,
+            "trustedDeviceToRevokeId": revocation.trustedDeviceId,
+            "proposalId": revocation.proposalId,
+            "expectedKeyEpoch": revocation.expectedKeyEpoch,
+            "expectedRecoveryUpdatedAt": revocation.expectedRecoveryUpdatedAt,
+            "keyEnvelopes": revocation.envelopes.map {
+              [
+                "trustedDeviceId": $0.trustedDeviceId,
+                "deviceEncryptionPublicKey": $0.publicKey.base64EncodedString(),
+                "encapsulatedKeyBase64": $0.envelope.encapsulatedKey.base64EncodedString(),
+                "ciphertextBase64": $0.envelope.ciphertext.base64EncodedString(),
+              ]
+            },
+            "recoveryWrappedAccountKey": try json(revocation.recovery),
+            "recoveryVerifier": revocation.recoveryVerifier,
           ]) { $1 })
         let (data, response) = try await URLSession.shared.data(for: request)
         struct Failure: Decodable { let code: String }
+        struct Activated: Decodable { let keyEpoch: Int }
+        let code = (try? JSONDecoder().decode(Failure.self, from: data))?.code
         switch (response as? HTTPURLResponse)?.statusCode {
-        case 200: return
+        case 200:
+          guard let activated = try? JSONDecoder().decode(Activated.self, from: data) else {
+            throw URLError(.badServerResponse)
+          }
+          return activated.keyEpoch
         case 401: throw RegistrationError.staleAuthentication
-        case 403:
-          throw (try? JSONDecoder().decode(Failure.self, from: data)).flatMap {
-            backendErrors[$0.code]
-          } ?? RegistrationError.unavailable
-        case 400, 404, 409: throw RegistrationError.unavailable
+        case 403: throw code.flatMap { backendErrors[$0] } ?? RegistrationError.unavailable
+        case 409:
+          throw code.flatMap(RevocationFailure.init(rawValue:)) ?? RegistrationError.unavailable
+        case 400, 404: throw RegistrationError.unavailable
         default:
-          // A server/proxy failure can follow a committed mutation. Preserve the pending key
-          // until synchronization compares its exact transition with the authoritative one.
+          // A server/proxy failure can follow a committed mutation. The proposal is kept until
+          // its outcome is read or the same request is sent again.
           throw URLError(.badServerResponse)
         }
+      },
+      revocationOutcome: { identity, product, proposalId in
+        struct Response: Decodable {
+          let keyEpoch: Int
+          let recoveryKeyCurrent: Bool
+        }
+        let response: Response? = try await optionalResult(
+          base: base, identity: identity, path: "productAccount:getKeyRotationProposal",
+          args: proof(product).merging(["proposalId": proposalId]) { $1 }, function: "query")
+        return response.map { ($0.keyEpoch, $0.recoveryKeyCurrent) }
       },
       get: { identity, product, identifier in
         try await optionalResult(
@@ -1329,6 +1394,7 @@ extension UnwiredRegistration {
     struct Request: Decodable {
       let pendingDeviceId: String
       let enrollmentPublicKey: String
+      let deviceEncryptionPublicKey: String
       let displayName: String
       let expiresAt: Double
     }
@@ -1337,10 +1403,12 @@ extension UnwiredRegistration {
       args: args)
     return requests.compactMap { request in
       guard let raw = Data(base64Encoded: request.enrollmentPublicKey),
-        let publicKey = try? Curve25519.KeyAgreement.PublicKey(rawRepresentation: raw)
+        let publicKey = try? Curve25519.KeyAgreement.PublicKey(rawRepresentation: raw),
+        let deviceRaw = Data(base64Encoded: request.deviceEncryptionPublicKey),
+        let deviceKey = try? Curve25519.KeyAgreement.PublicKey(rawRepresentation: deviceRaw)
       else { return nil }
       return PendingEnrollment(
-        pendingDeviceId: request.pendingDeviceId, publicKey: publicKey,
+        pendingDeviceId: request.pendingDeviceId, publicKey: publicKey, deviceKey: deviceKey,
         deviceName: request.displayName, expiresAt: request.expiresAt)
     }
   }

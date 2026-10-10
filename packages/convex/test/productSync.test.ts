@@ -12,7 +12,13 @@ import type { Id } from '../convex/_generated/dataModel.js';
 import payloadChangedError from '../../contracts/fixtures/productSync.payloadChanged.error.json' with { type: 'json' };
 import { api } from '../convex/_generated/api.js';
 import schema from '../convex/schema.js';
-import { connectTrusted, recoveryVerifier } from './devices.js';
+import {
+  connectTrusted,
+  deviceEncryptionPublicKey,
+  recoveryProof,
+  recoveryVerifier,
+  replacementRecoveryProof,
+} from './devices.js';
 
 const modules = import.meta.glob('../convex/**/*.ts');
 
@@ -69,6 +75,7 @@ async function initializeProductSync(
   }>,
 ) {
   return asUser.mutation(api.productSync.initialize, {
+    deviceEncryptionPublicKey: deviceEncryptionPublicKey('initializing-device'),
     recoveryVerifier,
     encryptedPayload: recoveryEnvelope,
     trustedDeviceCredential: proof.trustedDeviceCredential,
@@ -475,7 +482,9 @@ describe('productSync encrypted payloads', () => {
           },
         ],
       }),
-    ).rejects.toThrow('Product Sync key rotation required');
+    ).rejects.toMatchObject({
+      data: { code: 'PRODUCT_SYNC_KEY_ROTATION_REQUIRED' },
+    });
   });
 
   it('rejects reuse of a consumed atomic revision', async () => {
@@ -1212,27 +1221,46 @@ describe('productSync initialization', () => {
     };
   }
 
-  it('creates key material once for a new Product Account and lets only the winning device retry', async () => {
-    expect.assertions(4);
+  /* oxlint-disable vitest/max-expects -- Each binding journey proves a key is bound once and never replaced. */
+  it('creates key material once, binding only the winning device key, and lets only that device retry', async () => {
+    expect.hasAssertions();
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(googleIdentity);
     const first = await connectDevice(t, asUser, 'installation-001');
     const second = await connectDevice(t, asUser, 'installation-002');
+    const firstKey = deviceEncryptionPublicKey('installation-001');
+    const listedKeys = async () => {
+      const listed = await asUser.query(
+        api.productAccount.listTrustedDevices,
+        first.proof,
+      );
+      return Object.fromEntries(
+        listed.map(({ deviceEncryptionPublicKey: key, id }) => [id, key]),
+      );
+    };
+    const secondKey = deviceEncryptionPublicKey('installation-002');
     expect(first.connection).toMatchObject({
       productSyncMaterialInitialized: false,
+    });
+    // Signing in binds nothing.
+    await expect(listedKeys()).resolves.toStrictEqual({
+      [first.proof.trustedDeviceId]: undefined,
+      [second.proof.trustedDeviceId]: secondKey,
     });
 
     await expect(
       asUser.mutation(api.productSync.initialize, {
+        deviceEncryptionPublicKey: firstKey,
         recoveryVerifier,
         ...first.proof,
         encryptedPayload: recoveryEnvelope,
       }),
     ).resolves.toStrictEqual({ initialized: true });
-    // A lost response retries with the same envelope; another device's material is refused.
+    // A lost response retries with the same envelope and key; another key is never bound over it.
     await expect(
       asUser.mutation(api.productSync.initialize, {
+        deviceEncryptionPublicKey: firstKey,
         recoveryVerifier,
         ...first.proof,
         encryptedPayload: recoveryEnvelope,
@@ -1240,12 +1268,102 @@ describe('productSync initialization', () => {
     ).resolves.toStrictEqual({ initialized: true });
     await expect(
       asUser.mutation(api.productSync.initialize, {
+        deviceEncryptionPublicKey: deviceEncryptionPublicKey('substitute'),
+        recoveryVerifier,
+        ...first.proof,
+        encryptedPayload: recoveryEnvelope,
+      }),
+    ).rejects.toMatchObject({ data: { code: 'DEVICE_ENCRYPTION_KEY_BOUND' } });
+    // Another device's material is refused and binds nothing.
+    await expect(
+      asUser.mutation(api.productSync.initialize, {
+        deviceEncryptionPublicKey: secondKey,
         recoveryVerifier,
         ...second.proof,
         encryptedPayload: { ...recoveryEnvelope, ciphertextBase64: 'b3RoZXI' },
       }),
     ).resolves.toStrictEqual({ initialized: false });
+    // A later sign-in keeps the bound key.
+    await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'installation-001',
+      platform: 'ios',
+      supportsDeviceCredentials: true,
+      trustedDeviceCredential: first.proof.trustedDeviceCredential,
+    });
+    await expect(listedKeys()).resolves.toStrictEqual({
+      [first.proof.trustedDeviceId]: firstKey,
+      [second.proof.trustedDeviceId]: secondKey,
+    });
   });
+
+  it('binds a missing device key only with the current Recovery Key and never replaces one', async () => {
+    expect.hasAssertions();
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(googleIdentity);
+    const first = await connectDevice(t, asUser, 'installation-001');
+    await asUser.mutation(api.productSync.initialize, {
+      deviceEncryptionPublicKey: deviceEncryptionPublicKey('installation-001'),
+      recoveryVerifier,
+      ...first.proof,
+      encryptedPayload: recoveryEnvelope,
+    });
+    // A Trusted Device that never bound a key, such as one whose key was lost.
+    const unbound = await connectDevice(t, asUser, 'installation-002');
+    await t.run(async (ctx) => {
+      await ctx.db.patch('trustedDevices', unbound.proof.trustedDeviceId, {
+        deviceEncryptionPublicKey: undefined,
+        productSyncKeyEpoch: undefined,
+      });
+    });
+    const newKey = deviceEncryptionPublicKey('installation-002-renewed');
+    const bind = (
+      proof: typeof first.proof,
+      recoveryProof: string,
+      key = newKey,
+    ) =>
+      asUser.mutation(api.productSync.bindDeviceEncryptionKey, {
+        ...proof,
+        deviceEncryptionPublicKey: key,
+        recoveryProof,
+      });
+    const stored = async () =>
+      t.run(async (ctx) =>
+        ctx.db.get('trustedDevices', unbound.proof.trustedDeviceId),
+      );
+
+    await expect(
+      bind(unbound.proof, replacementRecoveryProof),
+    ).resolves.toStrictEqual({
+      bound: false,
+    });
+    await expect(stored()).resolves.not.toHaveProperty(
+      'deviceEncryptionPublicKey',
+    );
+    await expect(bind(unbound.proof, recoveryProof)).resolves.toStrictEqual({
+      bound: true,
+    });
+    // It opened the current recovery envelope, so it holds the current epoch.
+    await expect(stored()).resolves.toMatchObject({
+      deviceEncryptionPublicKey: newKey,
+      productSyncKeyEpoch: 1,
+    });
+    // A retry after a lost reply is idempotent; another key is never bound over it.
+    await expect(bind(unbound.proof, recoveryProof)).resolves.toStrictEqual({
+      bound: true,
+    });
+    await expect(
+      bind(unbound.proof, recoveryProof, deviceEncryptionPublicKey('other')),
+    ).rejects.toMatchObject({ data: { code: 'DEVICE_ENCRYPTION_KEY_BOUND' } });
+    await expect(bind(first.proof, recoveryProof)).rejects.toMatchObject({
+      data: { code: 'DEVICE_ENCRYPTION_KEY_BOUND' },
+    });
+    await expect(stored()).resolves.toMatchObject({
+      deviceEncryptionPublicKey: newKey,
+    });
+  });
+
+  /* oxlint-enable vitest/max-expects */
 
   it('shares the winning recovery envelope with later devices but keeps it out of record writes', async () => {
     expect.assertions(3);
@@ -1254,6 +1372,9 @@ describe('productSync initialization', () => {
     const asUser = t.withIdentity(googleIdentity);
     const first = await connectDevice(t, asUser, 'installation-001');
     await asUser.mutation(api.productSync.initialize, {
+      deviceEncryptionPublicKey: deviceEncryptionPublicKey(
+        'initializing-device',
+      ),
       recoveryVerifier,
       ...first.proof,
       encryptedPayload: recoveryEnvelope,
@@ -1293,6 +1414,9 @@ describe('productSync initialization', () => {
     // The refused marker leaves the account free to publish its first envelope.
     await expect(
       asUser.mutation(api.productSync.initialize, {
+        deviceEncryptionPublicKey: deviceEncryptionPublicKey(
+          'initializing-device',
+        ),
         recoveryVerifier,
         ...device.proof,
         encryptedPayload: recoveryEnvelope,
@@ -1325,6 +1449,9 @@ describe('productSync initialization', () => {
     // The refused writes leave the account free to publish its first envelope.
     await expect(
       asUser.mutation(api.productSync.initialize, {
+        deviceEncryptionPublicKey: deviceEncryptionPublicKey(
+          'initializing-device',
+        ),
         recoveryVerifier,
         ...device.proof,
         encryptedPayload: recoveryEnvelope,
@@ -1372,6 +1499,9 @@ describe('productSync initialization', () => {
 
       await expect(
         asUser.mutation(api.productSync.initialize, {
+          deviceEncryptionPublicKey: deviceEncryptionPublicKey(
+            'initializing-device',
+          ),
           recoveryVerifier,
           ...proof,
           encryptedPayload: recoveryEnvelope,
@@ -1416,6 +1546,9 @@ describe('productSync initialization', () => {
 
     await expect(
       asOther.mutation(api.productSync.initialize, {
+        deviceEncryptionPublicKey: deviceEncryptionPublicKey(
+          'initializing-device',
+        ),
         recoveryVerifier,
         ...owner.proof,
         encryptedPayload: recoveryEnvelope,
@@ -1423,6 +1556,9 @@ describe('productSync initialization', () => {
     ).rejects.toThrow('Trusted device required');
     await expect(
       t.withIdentity(googleIdentity).mutation(api.productSync.initialize, {
+        deviceEncryptionPublicKey: deviceEncryptionPublicKey(
+          'initializing-device',
+        ),
         recoveryVerifier,
         trustedDeviceId: owner.proof.trustedDeviceId,
         encryptedPayload: recoveryEnvelope,

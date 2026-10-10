@@ -103,10 +103,16 @@ const Account = Schema.Struct({
   trustedDevices: Schema.optionalKey(trustedDevicesText),
   // JSON text listing this device's Mailbox Connections; absent before the first one.
   mailboxes: Schema.optionalKey(mailboxesText),
-  // Only in the reply to a removal of another Trusted Device: 'unconfirmed' when this device has
-  // not adopted its own new keys, for example because another device removed it first.
+  // A prepared removal of this listed Trusted Device waits for its replacement Recovery Key to be
+  // confirmed, or for the outcome of its activation, which may already have committed.
+  revocationDevice: Schema.optionalKey(Schema.NonEmptyString),
+  // That proposal's replacement Recovery Key; it becomes current only when the removal activates.
+  revocationRecoveryKey: Schema.optionalKey(Schema.NonEmptyString),
+  // Only in the reply to a removal call: 'renewed' replaced the proposal and its key after the
+  // account changed, 'unconfirmed' kept the proposal after a lost reply, and 'superseded'
+  // discarded a key that never activated or was replaced by a later removal.
   revocationNotice: Schema.optionalKey(
-    Schema.Literals(['removed', 'unconfirmed']),
+    Schema.Literals(['removed', 'renewed', 'unconfirmed', 'superseded']),
   ),
 });
 export const RegistrationSnapshotSchema = Schema.Union([
@@ -197,6 +203,7 @@ const isRecoveryKeyMismatch = Schema.is(
   Schema.Struct({ code: Schema.Literal('recovery-key-mismatch') }),
 );
 export type RecoveryKeyFailure = 'mismatch' | 'failed';
+export type RevocationFailure = 'mismatch' | 'failed';
 
 export type RecoveryFailure = 'rejected' | 'failed';
 
@@ -230,8 +237,14 @@ export interface NativeRegistration {
     code: string,
   ) => Promise<unknown>;
   readonly declineEnrollment: (requestId: string) => Promise<unknown>;
-  // Removes another Trusted Device after an interactive Product Sign-In and rotates the keys.
+  // Prepares the removal of another Trusted Device after an interactive Product Sign-In; the
+  // backend is unchanged until its replacement Recovery Key is confirmed.
   readonly revokeTrustedDevice: (trustedDeviceId: string) => Promise<unknown>;
+  // Confirms the replacement Recovery Key with its final group, then removes the device and
+  // rotates the keys.
+  readonly confirmRevocation: (entry: string) => Promise<unknown>;
+  // Discards an unsent proposal; an unanswered activation must be reconciled first.
+  readonly cancelRevocation: () => Promise<unknown>;
   // Checks for an approval of this device, or for another device waiting for one.
   readonly refreshPrivateSync: () => Promise<unknown>;
   // Unregisters this Trusted Device, then removes the Product Account's data from this device.
@@ -253,7 +266,8 @@ type RegistrationState = Readonly<{
   recoveryFailure?: RecoveryFailure;
   // A failed approval leaves this device and the requesting one unchanged.
   enrollmentFailure?: EnrollmentFailure;
-  revocationFailed?: true;
+  // A failed removal step keeps any prepared proposal; a mismatch sends nothing.
+  revocationFailure?: RevocationFailure;
   // Removal may have applied before its reply or local cleanup failed; retry confirms it.
   removalFailure?: RemovalFailure;
 }>;
@@ -291,6 +305,12 @@ class RegistrationLocked extends Schema.TaggedError<RegistrationLocked>()(
 // An entry that does not match the Recovery Key's final group is an expected state.
 class RecoveryKeyMismatch extends Schema.TaggedError<RecoveryKeyMismatch>()(
   'RecoveryKeyMismatch',
+  {},
+) {}
+
+// The same mismatch while confirming the replacement Recovery Key of a prepared removal.
+class RevocationKeyMismatch extends Schema.TaggedError<RevocationKeyMismatch>()(
+  'RevocationKeyMismatch',
   {},
 ) {}
 
@@ -366,6 +386,13 @@ const recoveryOutcome = (snapshot: RegistrationSnapshot) => {
   return Effect.fail(new RecoveryKeyRejected({ snapshot: current }));
 };
 
+const revocationFailed = (
+  snapshot: RegistrationSnapshot,
+): RegistrationState => ({
+  ...settled(snapshot),
+  revocationFailure: 'failed',
+});
+
 // A request that expired, was cancelled or was already approved cannot be approved again.
 const enrollmentFailed = (
   snapshot: RegistrationSnapshot,
@@ -405,6 +432,7 @@ export function createRegistration(native: NativeRegistration) {
       | RegistrationCancelled
       | RegistrationLocked
       | RecoveryKeyMismatch
+      | RevocationKeyMismatch
       | RecoveryKeyRejected
       | EnrollmentCodeInvalid
       | LinkRefused
@@ -462,6 +490,11 @@ export function createRegistration(native: NativeRegistration) {
               Effect.sync((): RegistrationState => ({
                 ...settled(state.snapshot),
                 recoveryKeyFailure: 'mismatch',
+              })),
+            RevocationKeyMismatch: () =>
+              Effect.sync((): RegistrationState => ({
+                ...settled(state.snapshot),
+                revocationFailure: 'mismatch',
               })),
             RecoveryKeyRejected: ({ snapshot }) =>
               Effect.sync((): RegistrationState => ({
@@ -652,8 +685,19 @@ export function createRegistration(native: NativeRegistration) {
     revokeTrustedDevice: (trustedDeviceId: string) =>
       execute(
         request(() => native.revokeTrustedDevice(trustedDeviceId)),
-        (snapshot) => ({ ...settled(snapshot), revocationFailed: true }),
+        revocationFailed,
       ),
+    confirmRevocation: (entry: string) =>
+      execute(
+        request(() => native.confirmRevocation(entry)).pipe(
+          Effect.catchTag('RecoveryKeyMismatch', () =>
+            Effect.fail(new RevocationKeyMismatch()),
+          ),
+        ),
+        revocationFailed,
+      ),
+    cancelRevocation: () =>
+      execute(request(native.cancelRevocation), revocationFailed),
     refreshPrivateSync: () => execute(request(native.refreshPrivateSync)),
     signOut: () =>
       execute(
@@ -1029,9 +1073,28 @@ export function inboxLanding(
   return { account, setup, valid, destination } as const;
 }
 
+// A prepared removal waiting for its replacement Recovery Key to be confirmed, if any.
+export function revocationProposal(
+  t: Translate,
+  account: Readonly<{
+    trustedDevices?: string;
+    revocationDevice?: string;
+    revocationRecoveryKey?: string;
+  }>,
+) {
+  const { revocationDevice: id, revocationRecoveryKey: recoveryKey } = account;
+  if (id === undefined || recoveryKey === undefined) {
+    return undefined;
+  }
+  const device = trustedDevicesOf(account).find((item) => item.id === id);
+  return { name: device?.name ?? t('revocation.device'), recoveryKey };
+}
+
 export const revocationNotice = (
   t: Translate,
-  account: Readonly<{ revocationNotice?: 'removed' | 'unconfirmed' }>,
+  account: Readonly<{
+    revocationNotice?: 'removed' | 'renewed' | 'unconfirmed' | 'superseded';
+  }>,
   failed: boolean,
 ) => {
   if (failed) {

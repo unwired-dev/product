@@ -1,5 +1,12 @@
 # End-to-end encrypted product sync
 
+> For the replacement hosts, [ADR 0069](0069-seal-key-rotations-to-each-remaining-trusted-device.md)
+> supersedes removal's post-activation Recovery Key confirmation and the
+> pending-rotation recovery/sign-out exceptions below. Removal confirms the
+> proposed key before atomic activation; recovery changes in that transaction,
+> and adoption acknowledgements do not gate commitment. Other recovery-publication,
+> privacy, conflict and key-custody requirements remain in force.
+
 An unacknowledged publication of the opaque Recovery Key wrapper leaves the corresponding Recovery Key and its exact encrypted wrapper identity in the device-only local Keychain and blocks sign-out across app launches until that matching key presentation is explicitly acknowledged. A rejected or superseded wrapper cannot make its preserved key appear current, and interactive sheet dismissal does not acknowledge the key.
 
 The product uses its own account system and backend to sync product-owned email organization data across a user's Apple devices. We will make this sync end-to-end encrypted so the backend can transport and store synced data, but cannot read synced categories or message-category assignments. This preserves the privacy promise while accepting additional complexity in trusted device enrollment, account recovery, support, and sync conflict handling.

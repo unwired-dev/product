@@ -221,6 +221,8 @@ function renderConnected(
     approveEnrollment: () => Promise.reject(new Error('No device')),
     declineEnrollment: () => Promise.reject(new Error('No device')),
     revokeTrustedDevice: () => Promise.reject(new Error('No device')),
+    confirmRevocation: () => Promise.reject(new Error('No device')),
+    cancelRevocation: () => Promise.reject(new Error('No device')),
     refreshPrivateSync: () => Promise.reject(new Error('No sync')),
     signOut: () => Promise.reject(new Error('Not signing out')),
     deleteProductAccount: () => Promise.reject(new Error('Not deleting')),

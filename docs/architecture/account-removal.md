@@ -55,9 +55,14 @@ state that restore processes before provider work. The purge path also owns
 revocation and deleted-account rejection, retaining their distinct notices.
 
 Sign-out renews Google silently or Apple interactively, matches the saved identity,
-reconciles rotation and retains unconfirmed Recovery Keys. A held confirmed key must
-open the current authoritative recovery envelope outside a matching pending epoch.
-This preserves the backup and rotation guards in
+reconciles rotation and retains unconfirmed setup Recovery Keys. An unanswered
+submitted removal proposal also blocks sign-out until its outcome and ring are
+durably reconciled; an absent receipt cannot prove that an in-flight request failed.
+The former held-key comparison and matching-pending-epoch exception are superseded
+for the replacement by
+[ADR 0069](../adr/0069-seal-key-rotations-to-each-remaining-trusted-device.md):
+rotation and recovery activate together after pre-activation key confirmation.
+This preserves the other backup guards in
 [ADR 0001](../adr/0001-end-to-end-encrypted-product-sync.md) and
 [ADR 0020](../adr/0020-revoke-devices-with-sync-key-rotation.md).
 

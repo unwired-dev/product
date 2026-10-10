@@ -5,6 +5,13 @@ Read under the [implementation and review workflow](../agents/implementation-rev
 Extracted passages retain their source scope; prototype details do not establish
 replacement requirements or release qualification.
 
+[ADR 0069](../adr/0069-seal-key-rotations-to-each-remaining-trusted-device.md)
+owns the accepted #753 protocol below, recorded before runtime implementation.
+It supersedes #602's shared-key pending transitions, acknowledgement-gated
+commitment, post-removal Recovery Key confirmation and #750's temporary
+previous-Recovery-Key allowance. Existing #602/#750 evidence establishes their
+foundation, not implementation or qualification of #753.
+
 ## Keys and envelopes
 
 Each Product Account has a
@@ -15,7 +22,18 @@ or recovering device receives only the key ring.
 
 - **Key ring.** A random 256-bit AES key per epoch, starting at epoch 1. Earlier
   epochs stay in the ring for older records, matching
-  [ADR 0020](../adr/0020-revoke-devices-with-sync-key-rotation.md) rotation.
+  [ADR 0069](../adr/0069-seal-key-rotations-to-each-remaining-trusted-device.md) rotation.
+- **Device encryption key.** An account-scoped, long-lived X25519 key pair per
+  installation, separate from the one-time enrollment key. Its device-only
+  private key remains native. Setup or authorized admission binds the public key
+  immutably; losing the private key requires fresh authorized enrollment and
+  does not replace or remove the abandoned registration through sign-in.
+- **Rotation envelope.** A complete ring sealed independently to each remaining
+  Trusted Device with HPKE base mode, X25519/HKDF-SHA-256/ChaCha20-Poly1305.
+  Length-prefixed info and authenticated data bind purpose, protocol version,
+  account, recipient device, exact public key and epoch. No earlier shared key
+  protects the new ring. Each device retains its latest envelope for direct
+  catch-up, irrespective of acknowledgements.
 - **Records.** AES-GCM-256 with a fresh random 96-bit nonce for every seal.
   The authenticated data binds the Product Account ID, the opaque record
   identifier, the algorithm, the key epoch and the record schema. Convex stores
@@ -112,7 +130,10 @@ The trusted person transfers the code directly from the requesting device to
 the key-holding device. The backend never receives it. The approver seals its
 existing key ring with CryptoKit's Curve25519/SHA-256/ChaChaPoly HPKE PSK mode.
 Length-prefixed info and associated data bind account, Pending Device and key
-epoch. The current one-time public key and code fence renewal of the request. A backend public-key substitution yields ciphertext it cannot open
+epoch. The current one-time public key and code fence renewal of the request.
+The authenticated enrollment context also binds the candidate long-lived encryption
+public key; changing it invalidates authorization, and confirmation binds the same
+key to the trusted registration. A backend public-key substitution yields ciphertext it cannot open
 without the code, and a forged approval without the code cannot be opened by the
 requester. Native decoding also validates the envelope's declared key epoch and
 key lengths. This flow uses normal authenticated device access and explicit
@@ -135,7 +156,7 @@ admission transaction enforces. `listPending` and `status` are mutations used as
 explicit refresh operations, so each evaluates fresh server time.
 
 Approval requires a live Trusted Device of the same account acknowledged at the
-newest epoch. The native approver adopts a pending rotation first. Approval also
+newest epoch. The approver adopts the latest committed ring first. Approval also
 names the public key it sealed to, so a concurrent request renewal cannot collect
 that ring. Status and confirmation revalidate approver membership and the newest
 epoch. Confirmation names the epoch actually stored in the vault; an older saved
@@ -156,7 +177,8 @@ the client discards unusable saved keys and asks again with a fresh key and code
 Credential reissue after a lost connection reply likewise clears old authorization.
 Sign-out removes the pending record; when confirmation already committed but its
 reply was lost, the same credential unregisters that admitted installation instead.
-The two mutations arbitrate in one transaction order, preserving rotation completion.
+The two mutations arbitrate in one transaction order, preserving admission and
+rotation roster validation.
 Account deletion drains all pending records in bounded batches. Expired approvals
 are withheld until cleanup, renewal, sign-out or deletion removes them.
 
@@ -182,12 +204,12 @@ identity, including after relaunch. Reusing an in-process Apple token would stra
 retries after expiry and violate [ADR 0001](../adr/0001-end-to-end-encrypted-product-sync.md)'s
 recovery authentication requirement.
 
-Already-trusted devices may read the committed reserved recovery envelope with
-their authenticated device proof. A Pending Device receives only the envelope
-its proof authorized: the pending replacement envelope during rotation, otherwise
-the committed envelope. During a pending rotation the previous Recovery Key
-admits no new device, but remains usable by already-trusted devices until commit.
-On commit the replacement verifier moves with its envelope to committed state.
+Already-trusted devices may read the current reserved recovery envelope with
+their authenticated device proof. A Pending Device receives only the current
+envelope its proof authorized. Rotation replaces the recovery envelope and
+verifier in the activation transaction, without an acknowledgement-waiting state.
+The previous Recovery Key provides no current recovery access to either pending
+or already-trusted devices; retained older ciphertext remains historically readable.
 
 Native CryptoKit opens schema 3 using the entered Recovery Key and the
 Product Account binding. Adoption also requires the declared current epoch to
@@ -213,12 +235,10 @@ discarded before renewed approval or proof. The Recovery Key itself is not store
 by the recovering device. A wrong proof returns nothing and preserves the current
 Enrollment Code. These operations do not reset encrypted data or touch provider mail.
 
-Losing all Trusted Devices while holding only the previous Recovery Key during a
-pending rotation leaves deletion as the only remaining path. A remaining device
-that never reconnects can keep that rotation pending. This is the accepted recovery
-limit, not an implicit reset or authorization bypass. Losing every key-holding
-device and the Recovery Key leaves encrypted product data unrecoverable; this
-interface offers no reset.
+After activation, only the current Recovery Key can restore access when every
+Trusted Device is lost. Losing it leaves deletion as the only remaining path;
+there is no reset or authorization bypass. Offline survivors do not delay
+activation or replacement recovery access.
 
 The [qualification record](../qualification/expo-react-native-client.md#recovery-key-evidence-2026-10-04)
 records the 2026-10-04 iOS storage and packaged recovery/enrollment passes after
@@ -233,58 +253,73 @@ provider qualification remain deferred.
 
 ## Device revocation
 
-Issue [#602](https://github.com/unwired-dev/product/issues/602) connects the
-replacement hosts to the existing recent-authenticated revocation route for
-Google and Apple. Native code adopts a pending epoch before proposing a fresh
-one, retains every prior epoch, and seals the rotation ring with the committed
-epoch's key using account-bound purpose `rotation`, schema 1. Backend device
-proof and tombstones withhold that transition from the removed device even though
-it held the committed key. Key possession alone never authorizes its retrieval.
+[ADR 0069](../adr/0069-seal-key-rotations-to-each-remaining-trusted-device.md)
+replaces the shared-key transition protocol shipped by
+[#602](https://github.com/unwired-dev/product/issues/602) / PR #751. The removed
+device's secrets plus read access to every current or retained backend payload
+must not open the removal epoch or a later one. Active backend tampering/key
+substitution, compromised survivors and later authorized reenrollment are excluded;
+existing enrollment protections and historical-data limits remain intact.
 
-This is an authorization fence, not cryptographic exclusion from stored
-transitions. The removed device's committed epoch key plus read access to Convex
-storage can open the pending transition and obtain the new ring. Per-device
-sealing to secrets the removed device never held requires a protocol change and
-is tracked in [#753](https://github.com/unwired-dev/product/issues/753), blocked
-by #602. This slice does not establish that stronger guarantee.
+The initiator adopts the latest ring and captures the epoch, exact survivor
+roster/public keys and recovery revision. It durably prepares a proposal identity,
+new epoch with every historical key, one sealed ring per survivor and a replacement
+Recovery Key envelope/verifier. It shows the proposed Recovery Key and requires
+saved-key confirmation before activation. Cancellation changes nothing remotely;
+a rejected or superseded proposal is not current. A conflict requiring a fresh
+proposal/key requires fresh presentation and confirmation. Prepared keys are not
+used for ordinary writes.
 
-Each applied removal creates a new Recovery Key and schema 3 recovery envelope,
-so the previous Recovery Key cannot open the replacement recovery envelope.
-Revocation is idempotent by installation within the Product Account, including
-retained row IDs from before sign-out and reconnect. After authenticating the
-caller and resolving the account-owned live or retained target,
-`productAccount.revokeTrustedDevice` compares the authenticated live device's
-`deviceIdentifier` with the target's identifier and refuses self-removal with the
-existing sign-out error, including through an earlier retained row ID. This guard
-precedes the installation tombstone check and either rotation path, so an alias
-cannot remove the caller's current row or strand rotation without a surviving
-device. The mutation then checks the installation's `deviceIdentifier` tombstone.
-A previously removed installation returns
-the current pending or committed rotation status without replacing the transition
-or recovery envelope and without adding another tombstone. The exact-ID retry
-check remains available even when no retained target exists.
-Before sending, the native vault durably preserves the generated Recovery Key,
-exact transition and requested target ID.
-A lost connection, cancellation or ambiguous server response keeps this marker;
-a known refusal clears it. Synchronization promotes the preserved Recovery Key
-only when the authoritative pending transition matches. A successful idempotent
-revocation reply alone proves no adoption: the target may already be revoked
-without applying this request. The host emits `revocationNotice: "removed"`
-only when the stored Recovery Key matches this removal's generated key after
-synchronization; otherwise it emits `unconfirmed` and preserves the confirmed
-key. A failed transition read retains the pending marker for the next
-synchronization; an authoritative mismatch clears it without promoting the
-unapplied key. It durably saves the adopted ring before acknowledging. A retried
-`revoke` that adopts its unanswered attempt returns the `recovery-key` snapshot
-instead of throwing on the unconfirmed-key guard; it emits `removed` only when
-the saved target ID matches the requested target. A different target, or an older
-marker without a target ID, still surfaces the adopted key but claims no removal
-for that request. An already shown, unconfirmed key likewise returns its status
-without a notice. Neither path sends another removal or replaces the key before
-confirmation. Surviving devices open the transition with a held
-key and require it to retain every held key. The backend publishes the new
-recovery envelope only after every remaining device acknowledges; until then
-backup guidance retains the previous key as well as the new one.
+Under recent Google or Apple Product Sign-In and Trusted Device proof, Convex
+validates that snapshot and exact envelope coverage. A single transaction removes
+the target and its push routes, activates the epoch, publishes exactly one envelope
+per surviving Trusted Device including the initiator, and replaces the recovery
+envelope/verifier. Pending, removed, foreign-account, missing, duplicate or extra
+recipients are refused. Concurrent enrollment, removal or recovery cannot commit
+a stale snapshot or a partial change. Recent authentication is renewed when
+preparation outlasts its freshness window. Installation-level self-removal refusal
+and account-scoped tombstones remain in force, including retained row-ID aliases.
+
+A durable proposal receipt distinguishes rejected activation, committed activation
+and a commit followed by later rotation, even after a lost reply or restart.
+Duplicate requests cannot rotate twice or activate a different proposal. A target
+tombstone or current epoch alone cannot prove which Recovery Key activated; no
+receipt contains plaintext keys. Reconciliation must not present an uncommitted
+or subsequently superseded Recovery Key as current.
+
+Retain a submitted proposal until its receipt and adopted ring are durable.
+An absent receipt cannot rule out an in-flight activation: cancellation, a new
+removal or sign-out must not discard it. A later definite refusal cannot settle
+an earlier unanswered attempt. A malformed success reply is an unknown outcome.
+When a later rotation replaced a successful proposal's Recovery Key, report the
+selected device's removal without claiming that key is current.
+
+Reenrollment after losing the device private key preserves an unconfirmed initial
+Recovery Key and any submitted proposal. Ordinary synchronization, enrollment
+decisions and new removal proposals require device-key custody. Receipt queries
+and replay of the exact previously confirmed, submitted proposal remain available.
+With its exact committed receipt, the retained proposal Recovery Key can open its
+locally stored recovery envelope, validate the committed epoch and retained history,
+and durably settle the proposal without the missing device key or an adoption
+acknowledgement. The installation then enters fresh authorized enrollment; a
+superseded proposal key cannot recover the newest ring.
+
+Each survivor opens its latest complete ring envelope and validates account,
+recipient/key, protocol version, epoch, key lengths and retention of held history.
+It stores the ring durably before acknowledging. Offline devices skip any number
+of rotations directly; another device's acknowledgement never discards their only
+catch-up envelope. Acknowledgements are adoption tracking only, cannot regress
+state, and gate neither activation, later removals nor recovery replacement.
+Old-epoch writes fail immediately after activation: retain local changes, adopt
+and reseal on retry without bypassing record-conflict checks. No generic queued-write
+system is required. Enrollment approval requires the latest ring; confirmation
+overtaken by activation fails and requires fresh current-epoch authorization.
+
+The replacement Recovery Key is current in the same transaction. Previous keys
+receive no envelope containing the new epoch, though they can open retained old
+ciphertext. This replaces post-removal confirmation and the temporary previous-key
+allowance in #750. Only the current key can recover when all Trusted Devices are
+lost; losing it leaves account deletion.
 
 Every registration bridge operation enters `RegistrationStore.purgingIfRevoked`.
 When a readable saved registration contains a Product Account, this boundary calls
@@ -325,7 +360,8 @@ identifier-history migration. Issue #750 removes the lock, migration gate,
 migration mutation and registration history. The removed installation identifier
 and credential stay refused; an invented identifier gains only Pending Device
 access. Hosts show the enrollment gate and permit Gmail authorization only after
-admission. The previous key's continued use applies to already-trusted devices.
+admission. ADR 0069 supersedes the temporary previous-Recovery-Key allowance;
+only the current key provides current recovery access.
 
 The retained flow still uses the existing native coordinator. ADR 0067 stages its
 move to TypeScript through #756–759; native key custody, credentialed transport

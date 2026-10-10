@@ -1,5 +1,13 @@
 # Revoke devices with Product Sync key rotation
 
+> For the replacement hosts, [ADR 0069](0069-seal-key-rotations-to-each-remaining-trusted-device.md)
+> supersedes the shared-key pending transitions, pending-or-committed write
+> acceptance, acknowledgement-gated commitment and delayed recovery publication
+> below. It requires per-device sealing and confirmation of the replacement
+> Recovery Key before atomic activation. Authorization, self-removal refusal,
+> tombstones, purge and historical-data limits remain in force. Superseded
+> passages remain as historical context, not replacement requirements.
+
 > [ADR 0066](0066-admit-devices-only-through-authorized-enrollment.md) replaces the
 > account-wide refusal of previously unseen device identifiers described below,
 > and supersedes the identifier-history migration below. Issue #750 removes both;

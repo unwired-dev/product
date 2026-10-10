@@ -64,7 +64,21 @@ Native storage owns what TypeScript must never hold: Keychain items, the storage
 
 - A Keychain item that drops or weakens `kSecAttrAccessibleWhenUnlockedThisDeviceOnly` on creation, `kSecAttrSynchronizable: false` or the Mac Data Protection Keychain selection, or a new item that bypasses `DeviceKeychain` without preserving its policy. These keep keys on the device and out of iCloud Keychain and backups.
 - Native database keys, Product Sync account-key material or provider/device credentials returned across the bridge. The intended local presentation payloads are permitted: decrypted Inbox snapshots and registration display fields, including the user-held Recovery Key during setup (`RegistrationSnapshotSchema`). None may enter logs, crash annotations, unprotected persistence or plaintext temporary files; temporary storage writes hold ciphertext only.
-- A new key generated when the expected one is missing on an initialized account. A missing key means trusted-device approval or the user-held Recovery Key; a replacement key makes existing ciphertext unreadable.
+- A new key generated when the expected one is missing on an initialized account. A missing account key requires trusted-device approval or the current Recovery Key. A missing bound device private key requires a fresh Pending Device installation and authorization, even when the old ring remains; never replace the immutable public key on its old registration. Otherwise sign-in fabricates usable key custody or reenrollment remains stranded.
+- `RegistrationStore.synchronize` or another destructive reenrollment/cleanup path
+  discarding a vault with an unconfirmed Recovery Key or a submitted removal
+  before its exact outcome is reconciled. Preserve the sole backup and durable
+  proposal locator, including after device-private-key loss; retaining them must
+  not permit ordinary Product Sync writes, enrollment decisions or new removals.
+  Trace `draftSync`, `approveEnrollment`, `declineEnrollment` and revocation
+  confirmation/cancellation: exact submitted-intent replay may reconcile its
+  receipt and locally retained proposal envelope, but fresh enrollment remains
+  required before ordinary use. An absent receipt retains intent, and a later
+  superseding rotation cannot make that proposal's Recovery Key current.
+  Explicit account deletion and credential-proven revocation purge retain their
+  destructive cleanup contracts.
+  Otherwise cleanup loses recovery access, or its guard strands reconciliation
+  or silently preserves keyless Trusted Device privileges.
 - Ciphertext written without atomic replacement and file synchronization before the call resolves, without complete file protection on iOS, or into a directory included in backup.
 - A read-modify-write, including first-run seeding, performed outside the native file lock, or that rewrites more than the requested record from a stale in-memory copy.
 - AES-GCM used with a reused or predictable nonce, or a failed authentication treated as empty data rather than an error. Product Sync records and envelopes must retain their purpose-specific account, record/request/device, schema and epoch binding in `ProductSyncSeal`; the separate synthetic Inbox fixture retains its `dev.unwired.private-inbox.v1` context and is not account-scoped Product Sync storage.
@@ -218,8 +232,24 @@ Native storage owns what TypeScript must never hold: Keychain items, the storage
 - State from one Product Account, sign-in provider, device or deployment reused after any of them changes; an enrollment or recovery step that proceeds on a stale epoch or a stale authentication.
 - Recovery Key verification that sends the key, an envelope encryption key or any derived secret beyond ADR 0066's explicit purpose-specific admission proof off the device, or a rejected key that leaves the device without its current enrollment status.
 - A recent-authentication requirement removed from an operation that needs it.
-- A client treating success from an idempotent backend operation as proof that its own proposal applied. `RegistrationStore.revoke` must verify exact-transition adoption through `adoptRotation` before presenting its generated Recovery Key or claiming that key is current; an already-completed removal may return success without applying this request, and post-success synchronization can fail. Promoting unmatched material can strand recovery, while an unconditional completion notice asks the user to save a key the client never adopted.
-- A retry that reconciles an unanswered write but throws on a precondition the adopted effects created, leaving the caller's snapshot stale. `RegistrationStore.revoke` must return its adopted, unconfirmed Recovery Key for presentation before refusing a new removal. Attribute a completion notice to the saved attempt's target as well as its exact transition; adopting device A's removal while the caller requests device B cannot claim B was removed. Preserve the adopted key and start no new removal until confirmation.
+- A rotation sealed with an earlier shared account key or an enrollment/recovery secret the removed device held. Follow ADR 0069: seal the complete ring with HPKE independently to every surviving Trusted Device's bound key, including the initiator, and authenticate account, exact recipient/key, epoch and protocol version. Never omit an unbound survivor. Otherwise backend read access plus removed secrets exposes the removal epoch or strands a survivor.
+- `RegistrationStore.confirmRevocation` or `cancelRevocation` treating a tombstone, current epoch or duplicate success as proof that this proposal's Recovery Key is current. Use the freshest exact durable proposal receipt observed during adoption, including when a lost device key permits restoring only the original proposal's ring. Its recovery-current result must also agree with the latest durable epoch after subsequent synchronization; a newer observed ring supersedes its earlier current-key result. Unreadable local state cannot justify that assertion or reject an already settled removal. Otherwise an old confirmed key is presented as current recovery access.
+- `RegistrationStore.confirmRevocation`, `cancelRevocation` or `adoptRotation`
+  rejecting after durable adoption has cleared the proposal because a follow-up
+  remote read or adoption acknowledgement failed. Complete fallible reads needed
+  for the result before that local transition; keep post-adoption acknowledgement
+  failures nonfatal and retry them during later synchronization, while preserving
+  revoked/deleted rejections and purge. Exercise Confirm and Cancel with failures
+  at those boundaries. Otherwise the host retains a proposal whose native locator
+  is gone, so neither action can settle it.
+- `RegistrationStore.confirmRevocation` clearing a definitely rejected proposal
+  before fallible conflict renewal finishes. Retain it as unsubmitted and
+  cancellable until the replacement proposal is durable, then require the new
+  key's confirmation; clear it when the target is definitively gone. Otherwise
+  a failed roster or recovery-record read leaves the old proposal on screen but
+  removes its native Confirm/Cancel locator.
+- `revoke`, `cancelRevocation` or `signOut` replacing/discarding a submitted proposal before its outcome and committed ring are durably adopted. An absent receipt cannot rule out an in-flight request, and a definite refusal on a retry cannot settle an earlier unanswered attempt. Preserve the exact request through relaunch, cancellation and failed post-commit adoption. Treat malformed success replies as unknown outcomes. Otherwise interruption loses the sole reconciliation locator or recovery backup.
+- Removal submitted before its proposed replacement Recovery Key is saved and confirmed, or a stale proposal renewed without requiring confirmation of the new key. Preparation must not change the backend epoch or ordinary write key; otherwise cancellation removes a device or discarded-key confirmation authorizes different material.
 
 - `PrivateInboxStore.openMailbox` selecting encrypted cached mail by address alone.
   Bind the saved owner to the immutable provider subject as well; a recycled

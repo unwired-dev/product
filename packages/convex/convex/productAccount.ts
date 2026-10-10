@@ -7,7 +7,11 @@ import {
   trustedDeviceUnregistrationResponseValidator,
   trustedDeviceSummaryValidator,
 } from '@private-email/contracts/productAccount';
-import { encryptedProductSyncPayloadBodyValidator } from '@private-email/contracts/productSync';
+import {
+  encryptedProductSyncPayloadBodyValidator,
+  productSyncKeyEnvelopeValidator,
+  productSyncKeyRotationProposalValidator,
+} from '@private-email/contracts/productSync';
 import { ConvexError, v } from 'convex/values';
 
 import type { Doc, Id } from './_generated/dataModel.js';
@@ -18,19 +22,22 @@ import { opaqueGmailConnectionId } from './gmailRouting.js';
 import {
   enrollmentLifetimeMilliseconds,
   initialProductSyncKeyEpoch,
+  isRecoveryVerifier,
+  isSealedKeyRing,
   issueTrustedDeviceCredential,
+  newestProductSyncKeyEpoch,
   pendingDeviceProofArgs,
   productAccountForSignIn,
   requireAuthenticatedPendingDevice,
   requireAuthenticatedTrustedDevice,
   requireProductAccount,
   requireProductAccountNotDeleted,
-  requireRecoveryVerifier,
   requireTrustedDevice,
   signInProvidersForAccount,
   trustedDeviceCredentialArgs,
   trustedDeviceCredentialDigest,
   throwTrustedDeviceRevoked,
+  x25519KeyPattern,
 } from './productAccountAuth.js';
 
 const gmailConnectionLimitPerTrustedDevice = 20;
@@ -148,6 +155,7 @@ export function trustedDeviceDisplayName(
 }
 
 function trustedDeviceSummary(device: Readonly<Doc<'trustedDevices'>>): {
+  deviceEncryptionPublicKey?: string;
   displayName: string;
   id: string;
   lastSeenAt: number;
@@ -155,6 +163,9 @@ function trustedDeviceSummary(device: Readonly<Doc<'trustedDevices'>>): {
   registeredAt: number;
 } {
   return {
+    ...(device.deviceEncryptionPublicKey === undefined
+      ? {}
+      : { deviceEncryptionPublicKey: device.deviceEncryptionPublicKey }),
     displayName: trustedDeviceDisplayName(device),
     id: device._id,
     lastSeenAt: device.lastSeenAt,
@@ -776,6 +787,17 @@ async function deleteTrustedDeviceAndRoutes(
     trustedDeviceId,
   );
   await deleteTrustedDeviceHeartbeat(ctx, trustedDeviceId);
+  const envelope = await ctx.db
+    .query('productSyncKeyEnvelopes')
+    .withIndex('by_productAccountId_and_trustedDeviceId', (q) =>
+      q
+        .eq('productAccountId', productAccountId)
+        .eq('trustedDeviceId', trustedDeviceId),
+    )
+    .unique();
+  if (envelope !== null) {
+    await ctx.db.delete('productSyncKeyEnvelopes', envelope._id);
+  }
   if ((await ctx.db.get('trustedDevices', trustedDeviceId)) !== null) {
     await ctx.db.delete('trustedDevices', trustedDeviceId);
   }
@@ -831,70 +853,6 @@ async function deleteRevocationTargetDevicesAndRoutes(
   if (pendingDevice !== null) {
     await ctx.db.delete('pendingDevices', pendingDevice._id);
   }
-}
-
-async function pendingRotationDeviceCount(
-  ctx: QueryCtx | MutationCtx,
-  productAccountId: Id<'productAccounts'>,
-  keyEpoch: number,
-): Promise<number> {
-  const devices = await ctx.db
-    .query('trustedDevices')
-    .withIndex('by_productAccountId_and_deviceIdentifier', (q) =>
-      q.eq('productAccountId', productAccountId),
-    )
-    .take(trustedDeviceLimitPerProductAccount + 1);
-  if (devices.length > trustedDeviceLimitPerProductAccount) {
-    throw new Error('Trusted Device limit exceeded');
-  }
-  return devices.filter(
-    (device) =>
-      (device.productSyncKeyEpoch ?? initialProductSyncKeyEpoch) !== keyEpoch,
-  ).length;
-}
-
-async function commitPendingProductSyncKeyRotation(
-  ctx: MutationCtx,
-  request: Readonly<{
-    account: Doc<'productAccounts'>;
-    keyEpoch: number;
-    trustedDeviceId: Id<'trustedDevices'>;
-  }>,
-): Promise<void> {
-  if (
-    request.account.productSyncPendingRecoveryWrappedAccountKey === undefined
-  ) {
-    throw new Error('Product Sync key rotation material is unavailable');
-  }
-  // The replacement Recovery Key now admits devices; the previous one no longer opens anything.
-  const recoveryMaterial = await ctx.db
-    .query('encryptedProductSyncPayloads')
-    .withIndex('by_productAccountId_and_payloadIdentifier', (q) =>
-      q
-        .eq('productAccountId', request.account._id)
-        .eq('payloadIdentifier', recoveryPayloadIdentifier),
-    )
-    .unique();
-  if (recoveryMaterial === null) {
-    throw new Error('Recovery material required');
-  }
-  const now = Math.max(Date.now(), recoveryMaterial.updatedAt + 1);
-  await ctx.db.patch('encryptedProductSyncPayloads', recoveryMaterial._id, {
-    encryptedPayload:
-      request.account.productSyncPendingRecoveryWrappedAccountKey,
-    trustedDeviceId: request.trustedDeviceId,
-    updatedAt: now,
-    writtenAt: now,
-  });
-  await ctx.db.patch('productAccounts', request.account._id, {
-    productSyncKeyEpoch: request.keyEpoch,
-    productSyncPendingEncryptedTransition: undefined,
-    productSyncPendingKeyEpoch: undefined,
-    productSyncPendingRecoveryVerifier: undefined,
-    productSyncPendingRecoveryWrappedAccountKey: undefined,
-    productSyncRecoveryVerifier:
-      request.account.productSyncPendingRecoveryVerifier,
-  });
 }
 
 export const connect = mutation({
@@ -1069,121 +1027,215 @@ export const renameTrustedDevice = mutation({
   returns: trustedDeviceSummaryValidator,
 });
 
-type RevokeTrustedDeviceArgs = Readonly<{
-  encryptedTransition: EncryptedProductSyncPayload['encryptedPayload'];
+export const keyRotationErrorCodes = {
+  alreadyRemoved: 'TRUSTED_DEVICE_ALREADY_REMOVED',
+  conflict: 'KEY_ROTATION_CONFLICT',
+  invalid: 'KEY_ROTATION_INVALID',
+} as const;
+
+type KeyRotationErrorCode =
+  (typeof keyRotationErrorCodes)[keyof typeof keyRotationErrorCodes];
+
+function throwKeyRotationFailure(code: KeyRotationErrorCode): never {
+  throw new ConvexError({ code });
+}
+
+const proposalIdPattern = /^[0-9a-f]{32}$/u;
+
+type SealedKeyEnvelope = Readonly<{
+  ciphertextBase64: string;
+  deviceEncryptionPublicKey: string;
+  encapsulatedKeyBase64: string;
+  trustedDeviceId: Id<'trustedDevices'>;
+}>;
+
+type KeyRotationActivation = Readonly<{
+  expectedKeyEpoch: number;
   expectedRecoveryUpdatedAt: number;
+  keyEnvelopes: ReadonlyArray<
+    Omit<SealedKeyEnvelope, 'trustedDeviceId'> & { trustedDeviceId: string }
+  >;
+  proposalId: string;
   recoveryVerifier: string;
   recoveryWrappedAccountKey: EncryptedProductSyncPayload['encryptedPayload'];
   trustedDeviceId: Id<'trustedDevices'>;
   trustedDeviceToRevokeId: Id<'trustedDevices'>;
 }>;
 
-type ProductSyncKeyRotationResponse = Readonly<{
-  keyEpoch: number;
-  pendingDeviceCount: number;
-  state: 'complete' | 'pending';
-}>;
-
-function productSyncKeyRotationResponse(
-  keyEpoch: number,
-  pendingDeviceCount: number,
-): ProductSyncKeyRotationResponse {
-  return {
-    keyEpoch,
-    pendingDeviceCount,
-    state: pendingDeviceCount === 0 ? 'complete' : 'pending',
-  };
-}
-
-async function completedRevocationResponse(
+// Material that could never activate, whatever the account's state, is refused before any read.
+// fallow-ignore-next-line complexity -- Every malformed field fails closed with the same invalid response.
+function validKeyEnvelopes(
   ctx: MutationCtx,
-  account: Readonly<Doc<'productAccounts'>>,
-): Promise<ProductSyncKeyRotationResponse> {
-  if (account.productSyncPendingKeyEpoch !== undefined) {
-    return productSyncKeyRotationResponse(
-      account.productSyncPendingKeyEpoch,
-      await pendingRotationDeviceCount(
-        ctx,
-        account._id,
-        account.productSyncPendingKeyEpoch,
-      ),
-    );
+  args: KeyRotationActivation,
+): SealedKeyEnvelope[] {
+  const { recoveryWrappedAccountKey } = args;
+  if (
+    !proposalIdPattern.test(args.proposalId) ||
+    !isRecoveryVerifier(args.recoveryVerifier) ||
+    recoveryWrappedAccountKey.keyVersion !== args.expectedKeyEpoch + 1 ||
+    recoveryWrappedAccountKey.schemaVersion !==
+      recoveryWrappedAccountKeySchemaVersion ||
+    args.keyEnvelopes.length > trustedDeviceLimitPerProductAccount
+  ) {
+    throwKeyRotationFailure(keyRotationErrorCodes.invalid);
   }
-  return productSyncKeyRotationResponse(
-    account.productSyncKeyEpoch ?? initialProductSyncKeyEpoch,
-    0,
-  );
+  const envelopes = args.keyEnvelopes.map((envelope) => {
+    const trustedDeviceId = ctx.db.normalizeId(
+      'trustedDevices',
+      envelope.trustedDeviceId,
+    );
+    // The removed device never receives the new ring.
+    if (
+      trustedDeviceId === null ||
+      trustedDeviceId === args.trustedDeviceToRevokeId ||
+      !x25519KeyPattern.test(envelope.deviceEncryptionPublicKey) ||
+      !isSealedKeyRing(envelope)
+    ) {
+      throwKeyRotationFailure(keyRotationErrorCodes.invalid);
+    }
+    return { ...envelope, trustedDeviceId };
+  });
+  if (
+    new Set(envelopes.map(({ trustedDeviceId }) => trustedDeviceId)).size !==
+    envelopes.length
+  ) {
+    throwKeyRotationFailure(keyRotationErrorCodes.invalid);
+  }
+  return envelopes;
 }
 
-type PendingKeyRotationRevocation = Readonly<{
+async function activatedProposal(
+  ctx: QueryCtx | MutationCtx,
+  productAccountId: Id<'productAccounts'>,
+  proposalId: string,
+): Promise<Doc<'productSyncKeyRotationProposals'> | null> {
+  return ctx.db
+    .query('productSyncKeyRotationProposals')
+    .withIndex('by_productAccountId_and_proposalId', (q) =>
+      q.eq('productAccountId', productAccountId).eq('proposalId', proposalId),
+    )
+    .unique();
+}
+
+type KeyRotationSnapshot = Readonly<{
   account: Readonly<Doc<'productAccounts'>>;
-  args: RevokeTrustedDeviceArgs;
-  pendingKeyEpoch: number;
+  args: KeyRotationActivation;
+  envelopes: readonly SealedKeyEnvelope[];
   target: TrustedDeviceRevocationTarget;
 }>;
 
-async function requireUnchangedRecoveryMaterial(
+// The activation commits only against the account exactly as the initiator prepared it: the same
+// epoch and Recovery Key revision, and one envelope for each remaining Trusted Device's bound key.
+// A concurrent removal, enrollment or recovery change makes the proposal stale.
+// fallow-ignore-next-line complexity -- Each stale part of the snapshot fails closed before anything changes.
+async function requireUnchangedKeyRotationSnapshot(
   ctx: MutationCtx,
-  request: Readonly<{
-    expectedKeyVersion?: number;
-    expectedUpdatedAt: number;
-    productAccountId: Id<'productAccounts'>;
-  }>,
-): Promise<void> {
-  const { expectedKeyVersion, expectedUpdatedAt, productAccountId } = request;
-  const recoveryMaterial = await ctx.db
+  snapshot: KeyRotationSnapshot,
+): Promise<Doc<'encryptedProductSyncPayloads'>> {
+  const { account, args, envelopes, target } = snapshot;
+  const recovery = await ctx.db
     .query('encryptedProductSyncPayloads')
     .withIndex('by_productAccountId_and_payloadIdentifier', (q) =>
       q
-        .eq('productAccountId', productAccountId)
+        .eq('productAccountId', account._id)
         .eq('payloadIdentifier', recoveryPayloadIdentifier),
     )
     .unique();
   if (
-    recoveryMaterial === null ||
-    recoveryMaterial.updatedAt !== expectedUpdatedAt ||
-    (expectedKeyVersion !== undefined &&
-      recoveryMaterial.encryptedPayload.keyVersion !== expectedKeyVersion)
+    newestProductSyncKeyEpoch(account) !== args.expectedKeyEpoch ||
+    recovery === null ||
+    recovery.updatedAt !== args.expectedRecoveryUpdatedAt
   ) {
-    throw new Error('Recovery material changed');
+    throwKeyRotationFailure(keyRotationErrorCodes.conflict);
   }
+  const devices = await ctx.db
+    .query('trustedDevices')
+    .withIndex('by_productAccountId_and_deviceIdentifier', (q) =>
+      q.eq('productAccountId', account._id),
+    )
+    .take(trustedDeviceLimitPerProductAccount + 1);
+  if (devices.length > trustedDeviceLimitPerProductAccount) {
+    throw new Error('Trusted Device limit exceeded');
+  }
+  // The initiator seals the ring to itself too, so it needs a bound key of its own.
+  if (
+    devices.find(({ _id }) => _id === args.trustedDeviceId)
+      ?.deviceEncryptionPublicKey === undefined
+  ) {
+    throwKeyRotationFailure(keyRotationErrorCodes.invalid);
+  }
+  const remainingKeys = new Map(
+    devices
+      .filter(
+        (device) =>
+          device._id !== args.trustedDeviceToRevokeId &&
+          device.deviceIdentifier !== target.deviceIdentifier,
+      )
+      .map((device) => [device._id, device.deviceEncryptionPublicKey]),
+  );
+  if (
+    envelopes.length !== remainingKeys.size ||
+    envelopes.some(
+      (envelope) =>
+        remainingKeys.get(envelope.trustedDeviceId) !==
+        envelope.deviceEncryptionPublicKey,
+    )
+  ) {
+    throwKeyRotationFailure(keyRotationErrorCodes.conflict);
+  }
+  return recovery;
 }
 
-type TrustedDeviceRevocation = Readonly<{
-  account: Readonly<Doc<'productAccounts'>>;
-  args: RevokeTrustedDeviceArgs;
-  nextKeyEpoch: number;
-  target: TrustedDeviceRevocationTarget;
-}>;
-
-async function applyTrustedDeviceRevocation(
+async function replaceKeyEnvelope(
   ctx: MutationCtx,
-  request: TrustedDeviceRevocation,
-): Promise<Id<'productAccounts'>> {
-  const { account, args, nextKeyEpoch, target } = request;
-  if (
-    args.recoveryWrappedAccountKey.keyVersion !== nextKeyEpoch ||
-    args.recoveryWrappedAccountKey.schemaVersion !==
-      recoveryWrappedAccountKeySchemaVersion
-  ) {
-    throw new Error('Product Sync key rotation material is invalid');
-  }
-  requireRecoveryVerifier(args.recoveryVerifier);
+  request: Readonly<{
+    envelope: SealedKeyEnvelope;
+    keyEpoch: number;
+    productAccountId: Id<'productAccounts'>;
+  }>,
+): Promise<void> {
+  const { envelope, keyEpoch, productAccountId } = request;
+  const sealed = {
+    ciphertextBase64: envelope.ciphertextBase64,
+    encapsulatedKeyBase64: envelope.encapsulatedKeyBase64,
+    keyEpoch,
+  };
+  const existing = await ctx.db
+    .query('productSyncKeyEnvelopes')
+    .withIndex('by_productAccountId_and_trustedDeviceId', (q) =>
+      q
+        .eq('productAccountId', productAccountId)
+        .eq('trustedDeviceId', envelope.trustedDeviceId),
+    )
+    .unique();
+  await (existing === null
+    ? ctx.db.insert('productSyncKeyEnvelopes', {
+        ...sealed,
+        productAccountId,
+        trustedDeviceId: envelope.trustedDeviceId,
+      })
+    : ctx.db.patch('productSyncKeyEnvelopes', existing._id, sealed));
+}
+
+// Removal, the new epoch, every survivor's envelope, the Recovery Key and the receipt commit in
+// this one transaction, so no partially revoked or partially rotated state is ever visible.
+async function activateKeyRotation(
+  ctx: MutationCtx,
+  activation: KeyRotationSnapshot &
+    Readonly<{ recovery: Doc<'encryptedProductSyncPayloads'> }>,
+): Promise<number> {
+  const { account, args, envelopes, recovery, target } = activation;
   const productAccountId = account._id;
-  await requireUnchangedRecoveryMaterial(ctx, {
-    expectedKeyVersion:
-      account.productSyncKeyEpoch ?? initialProductSyncKeyEpoch,
-    expectedUpdatedAt: args.expectedRecoveryUpdatedAt,
-    productAccountId,
-  });
+  const keyEpoch = args.expectedKeyEpoch + 1;
+  const now = Date.now();
   await ctx.db.insert('revokedTrustedDevices', {
     ...(target.credentialDigest === undefined
       ? {}
       : { credentialDigest: target.credentialDigest }),
     deviceIdentifier: target.deviceIdentifier,
     productAccountId,
-    productSyncKeyEpoch: nextKeyEpoch,
-    revokedAt: Date.now(),
+    productSyncKeyEpoch: keyEpoch,
+    revokedAt: now,
     trustedDeviceId: args.trustedDeviceToRevokeId,
   });
   await deleteRevocationTargetDevicesAndRoutes(ctx, {
@@ -1191,84 +1243,35 @@ async function applyTrustedDeviceRevocation(
     target,
     trustedDeviceId: args.trustedDeviceToRevokeId,
   });
-  return productAccountId;
-}
-
-async function revokeDuringPendingKeyRotation(
-  ctx: MutationCtx,
-  request: PendingKeyRotationRevocation,
-): Promise<ProductSyncKeyRotationResponse> {
-  const { account, args, pendingKeyEpoch, target } = request;
-  const currentKeyEpoch =
-    account.productSyncKeyEpoch ?? initialProductSyncKeyEpoch;
-  const nextKeyEpoch = pendingKeyEpoch + 1;
-  if (
-    account.productSyncPendingEncryptedTransition === undefined ||
-    args.encryptedTransition.keyVersion !== currentKeyEpoch
-  ) {
-    throw new Error('Product Sync key rotation transition is stale');
+  for (const envelope of envelopes) {
+    await replaceKeyEnvelope(ctx, { envelope, keyEpoch, productAccountId });
   }
-  const productAccountId = await applyTrustedDeviceRevocation(ctx, {
-    account,
-    args,
-    nextKeyEpoch,
-    target,
+  const recoveryUpdatedAt = Math.max(now, recovery.updatedAt + 1);
+  await ctx.db.patch('encryptedProductSyncPayloads', recovery._id, {
+    encryptedPayload: args.recoveryWrappedAccountKey,
+    trustedDeviceId: args.trustedDeviceId,
+    updatedAt: recoveryUpdatedAt,
+    writtenAt: recoveryUpdatedAt,
   });
+  // The previous Recovery Key stops admitting devices in the same commit.
   await ctx.db.patch('productAccounts', productAccountId, {
-    productSyncPendingEncryptedTransition: args.encryptedTransition,
-    productSyncPendingKeyEpoch: nextKeyEpoch,
-    productSyncPendingRecoveryVerifier: args.recoveryVerifier,
-    productSyncPendingRecoveryWrappedAccountKey: args.recoveryWrappedAccountKey,
+    productSyncKeyEpoch: keyEpoch,
+    productSyncRecoveryProposalId: args.proposalId,
+    productSyncRecoveryVerifier: args.recoveryVerifier,
   });
-
-  return productSyncKeyRotationResponse(
-    nextKeyEpoch,
-    await pendingRotationDeviceCount(ctx, productAccountId, nextKeyEpoch),
-  );
+  await ctx.db.patch('trustedDevices', args.trustedDeviceId, {
+    productSyncKeyEpoch: keyEpoch,
+  });
+  await ctx.db.insert('productSyncKeyRotationProposals', {
+    activatedAt: now,
+    initiatorTrustedDeviceId: args.trustedDeviceId,
+    keyEpoch,
+    productAccountId,
+    proposalId: args.proposalId,
+    trustedDeviceToRevokeId: args.trustedDeviceToRevokeId,
+  });
+  return keyEpoch;
 }
-
-type NewKeyRotationRevocation = Readonly<{
-  account: Readonly<Doc<'productAccounts'>>;
-  args: RevokeTrustedDeviceArgs;
-  target: TrustedDeviceRevocationTarget;
-}>;
-
-async function startProductSyncKeyRotation(
-  ctx: MutationCtx,
-  request: NewKeyRotationRevocation,
-): Promise<ProductSyncKeyRotationResponse> {
-  const { account, args, target } = request;
-  const currentKeyEpoch =
-    account.productSyncKeyEpoch ?? initialProductSyncKeyEpoch;
-  const nextKeyEpoch = currentKeyEpoch + 1;
-  if (args.encryptedTransition.keyVersion !== currentKeyEpoch) {
-    throw new Error('Product Sync key rotation transition is stale');
-  }
-  const productAccountId = await applyTrustedDeviceRevocation(ctx, {
-    account,
-    args,
-    nextKeyEpoch,
-    target,
-  });
-  await ctx.db.patch('productAccounts', productAccountId, {
-    productSyncKeyEpoch: currentKeyEpoch,
-    productSyncPendingEncryptedTransition: args.encryptedTransition,
-    productSyncPendingKeyEpoch: nextKeyEpoch,
-    productSyncPendingRecoveryVerifier: args.recoveryVerifier,
-    productSyncPendingRecoveryWrappedAccountKey: args.recoveryWrappedAccountKey,
-  });
-
-  return productSyncKeyRotationResponse(
-    nextKeyEpoch,
-    await pendingRotationDeviceCount(ctx, productAccountId, nextKeyEpoch),
-  );
-}
-
-const productSyncKeyRotationResponseValidator = v.object({
-  keyEpoch: v.number(),
-  pendingDeviceCount: v.number(),
-  state: v.union(v.literal('pending'), v.literal('complete')),
-});
 
 async function findTrustedDeviceRevocationTarget(
   ctx: MutationCtx,
@@ -1299,8 +1302,7 @@ async function findTrustedDeviceRevocationTarget(
 
 // Compares installations, not row ids, which a sign-out and reconnect replace. A retained id of
 // the caller's own installation would remove its current row too, so it is refused. An installation
-// already removed under another id is complete: another rotation would only replace the Recovery
-// Key and add a second tombstone for the installation.
+// already removed under another id needs no second rotation.
 async function installationAlreadyRevoked(
   ctx: MutationCtx,
   request: Readonly<{
@@ -1331,13 +1333,23 @@ async function installationAlreadyRevoked(
 export const revokeTrustedDevice = internalMutation({
   args: {
     ...trustedDeviceCredentialArgs,
-    encryptedTransition: encryptedProductSyncPayloadBodyValidator,
+    expectedKeyEpoch: v.number(),
     expectedRecoveryUpdatedAt: v.number(),
+    keyEnvelopes: v.array(
+      v.object({
+        ciphertextBase64: v.string(),
+        deviceEncryptionPublicKey: v.string(),
+        encapsulatedKeyBase64: v.string(),
+        trustedDeviceId: v.string(),
+      }),
+    ),
+    proposalId: v.string(),
     recoveryVerifier: v.string(),
     recoveryWrappedAccountKey: encryptedProductSyncPayloadBodyValidator,
     trustedDeviceId: v.string(),
     trustedDeviceToRevokeId: v.string(),
   },
+  // fallow-ignore-next-line complexity -- Replays, removed targets and stale snapshots each resolve before the single commit.
   handler: async (ctx, rawArgs) => {
     const trustedDeviceId = ctx.db.normalizeId(
       'trustedDevices',
@@ -1351,7 +1363,7 @@ export const revokeTrustedDevice = internalMutation({
       throw new Error('Trusted device required');
     }
     const args = { ...rawArgs, trustedDeviceId, trustedDeviceToRevokeId };
-    const authenticatedAccount = await requireAuthenticatedTrustedDevice(
+    const { productAccountId } = await requireAuthenticatedTrustedDevice(
       ctx,
       args.trustedDeviceId,
       args.trustedDeviceCredential,
@@ -1359,14 +1371,23 @@ export const revokeTrustedDevice = internalMutation({
     if (args.trustedDeviceId === args.trustedDeviceToRevokeId) {
       throw new Error('Use sign out to remove the current Trusted Device');
     }
-    const account = await ctx.db.get(
-      'productAccounts',
-      authenticatedAccount.productAccountId,
+    const envelopes = validKeyEnvelopes(ctx, args);
+    // A retried activation returns its original result, even after later rotations.
+    const receipt = await activatedProposal(
+      ctx,
+      productAccountId,
+      args.proposalId,
     );
+    if (receipt !== null) {
+      if (receipt.trustedDeviceToRevokeId !== args.trustedDeviceToRevokeId) {
+        throwKeyRotationFailure(keyRotationErrorCodes.conflict);
+      }
+      return { keyEpoch: receipt.keyEpoch };
+    }
+    const account = await ctx.db.get('productAccounts', productAccountId);
     if (account === null) {
       throw new Error('Product Account required');
     }
-    const productAccountId = account._id;
     const completedRevocation = await ctx.db
       .query('revokedTrustedDevices')
       .withIndex('by_productAccountId_and_trustedDeviceId', (q) =>
@@ -1376,9 +1397,8 @@ export const revokeTrustedDevice = internalMutation({
       )
       .unique();
     if (completedRevocation !== null) {
-      return completedRevocationResponse(ctx, account);
+      throwKeyRotationFailure(keyRotationErrorCodes.alreadyRemoved);
     }
-
     const target = await findTrustedDeviceRevocationTarget(ctx, {
       productAccountId,
       trustedDeviceId: args.trustedDeviceToRevokeId,
@@ -1390,19 +1410,15 @@ export const revokeTrustedDevice = internalMutation({
         target,
       })
     ) {
-      return completedRevocationResponse(ctx, account);
+      throwKeyRotationFailure(keyRotationErrorCodes.alreadyRemoved);
     }
-    if (account.productSyncPendingKeyEpoch !== undefined) {
-      return revokeDuringPendingKeyRotation(ctx, {
-        account,
-        args,
-        pendingKeyEpoch: account.productSyncPendingKeyEpoch,
-        target,
-      });
-    }
-    return startProductSyncKeyRotation(ctx, { account, args, target });
+    const snapshot = { account, args, envelopes, target };
+    const recovery = await requireUnchangedKeyRotationSnapshot(ctx, snapshot);
+    return {
+      keyEpoch: await activateKeyRotation(ctx, { ...snapshot, recovery }),
+    };
   },
-  returns: productSyncKeyRotationResponseValidator,
+  returns: v.object({ keyEpoch: v.number() }),
 });
 
 // Without a Product Sign-In, as on an Apple relaunch: only the device holding the revoked
@@ -1466,48 +1482,40 @@ export const isTrustedDeviceRevoked = query({
   returns: v.boolean(),
 });
 
+// The caller's newest sealed key ring, which only its device private key opens. A device that
+// missed several rotations reads just this one.
 export const getProductSyncKeyRotation = query({
   args: {
     ...trustedDeviceCredentialArgs,
     trustedDeviceId: v.id('trustedDevices'),
   },
   handler: async (ctx, args) => {
-    const authenticatedAccount = await requireAuthenticatedTrustedDevice(
+    const { productAccountId } = await requireAuthenticatedTrustedDevice(
       ctx,
       args.trustedDeviceId,
       args.trustedDeviceCredential,
     );
-    const account = await ctx.db.get(
-      'productAccounts',
-      authenticatedAccount.productAccountId,
-    );
-    if (
-      account === null ||
-      account.productSyncPendingEncryptedTransition === undefined ||
-      account.productSyncPendingKeyEpoch === undefined
-    ) {
-      return null;
-    }
-    return {
-      encryptedTransition: account.productSyncPendingEncryptedTransition,
-      keyEpoch: account.productSyncPendingKeyEpoch,
-      pendingDeviceCount: await pendingRotationDeviceCount(
-        ctx,
-        authenticatedAccount.productAccountId,
-        account.productSyncPendingKeyEpoch,
-      ),
-    };
+    const envelope = await ctx.db
+      .query('productSyncKeyEnvelopes')
+      .withIndex('by_productAccountId_and_trustedDeviceId', (q) =>
+        q
+          .eq('productAccountId', productAccountId)
+          .eq('trustedDeviceId', args.trustedDeviceId),
+      )
+      .unique();
+    return envelope === null
+      ? null
+      : {
+          ciphertextBase64: envelope.ciphertextBase64,
+          encapsulatedKeyBase64: envelope.encapsulatedKeyBase64,
+          keyEpoch: envelope.keyEpoch,
+        };
   },
-  returns: v.union(
-    v.null(),
-    v.object({
-      encryptedTransition: encryptedProductSyncPayloadBodyValidator,
-      keyEpoch: v.number(),
-      pendingDeviceCount: v.number(),
-    }),
-  ),
+  returns: v.union(v.null(), productSyncKeyEnvelopeValidator),
 });
 
+// Records adoption only, after the device stored the ring durably. Stale or repeated reports never
+// regress it, and nothing waits for it.
 export const acknowledgeProductSyncKeyRotation = mutation({
   args: {
     ...trustedDeviceCredentialArgs,
@@ -1515,65 +1523,66 @@ export const acknowledgeProductSyncKeyRotation = mutation({
     trustedDeviceId: v.id('trustedDevices'),
   },
   handler: async (ctx, args) => {
-    const authenticatedAccount = await requireAuthenticatedTrustedDevice(
+    const account = await requireAuthenticatedTrustedDevice(
       ctx,
       args.trustedDeviceId,
       args.trustedDeviceCredential,
     );
-    const account = await ctx.db.get(
-      'productAccounts',
-      authenticatedAccount.productAccountId,
-    );
-    if (account === null) {
-      throw new Error('Product Account required');
+    if (
+      !Number.isInteger(args.keyEpoch) ||
+      args.keyEpoch > newestProductSyncKeyEpoch(account)
+    ) {
+      throw new Error('Product Sync key epoch is unknown');
     }
-    if (account.productSyncPendingKeyEpoch === undefined) {
-      if (
-        (account.productSyncKeyEpoch ?? initialProductSyncKeyEpoch) ===
-        args.keyEpoch
-      ) {
-        return {
-          keyEpoch: args.keyEpoch,
-          pendingDeviceCount: 0,
-          state: 'complete' as const,
-        };
-      }
-      throw new Error('Product Sync key rotation required');
+    const device = await ctx.db.get('trustedDevices', args.trustedDeviceId);
+    if (device === null) {
+      throw new Error('Trusted device required');
     }
-    if (account.productSyncPendingKeyEpoch !== args.keyEpoch) {
-      throw new Error('Product Sync key rotation changed');
-    }
-    await ctx.db.patch('trustedDevices', args.trustedDeviceId, {
-      productSyncKeyEpoch: args.keyEpoch,
-    });
-    const pendingDeviceCount = await pendingRotationDeviceCount(
-      ctx,
-      authenticatedAccount.productAccountId,
+    const keyEpoch = Math.max(
+      device.productSyncKeyEpoch ?? initialProductSyncKeyEpoch,
       args.keyEpoch,
     );
-    if (pendingDeviceCount > 0) {
-      return {
-        keyEpoch: args.keyEpoch,
-        pendingDeviceCount,
-        state: 'pending' as const,
-      };
+    if (keyEpoch !== device.productSyncKeyEpoch) {
+      await ctx.db.patch('trustedDevices', args.trustedDeviceId, {
+        productSyncKeyEpoch: keyEpoch,
+      });
     }
-    await commitPendingProductSyncKeyRotation(ctx, {
-      account,
-      keyEpoch: args.keyEpoch,
-      trustedDeviceId: args.trustedDeviceId,
-    });
-    return {
-      keyEpoch: args.keyEpoch,
-      pendingDeviceCount: 0,
-      state: 'complete' as const,
-    };
+    return { keyEpoch };
   },
-  returns: productSyncKeyRotationResponseValidator,
+  returns: v.object({ keyEpoch: v.number() }),
 });
 
-// Unregistration also resolves an admission whose reply was lost, with the same cleanup and
-// rotation completion as an ordinary Trusted Device sign-out.
+// Reconciles an activation whose reply was lost: whether it committed, and whether its Recovery
+// Key is still current or a later activation replaced it.
+export const getKeyRotationProposal = query({
+  args: {
+    ...trustedDeviceCredentialArgs,
+    proposalId: v.string(),
+    trustedDeviceId: v.id('trustedDevices'),
+  },
+  handler: async (ctx, args) => {
+    const { productAccountId } = await requireAuthenticatedTrustedDevice(
+      ctx,
+      args.trustedDeviceId,
+      args.trustedDeviceCredential,
+    );
+    const [account, receipt] = await Promise.all([
+      ctx.db.get('productAccounts', productAccountId),
+      activatedProposal(ctx, productAccountId, args.proposalId),
+    ]);
+    return account === null || receipt === null
+      ? null
+      : {
+          keyEpoch: receipt.keyEpoch,
+          recoveryKeyCurrent:
+            account.productSyncRecoveryProposalId === args.proposalId,
+        };
+  },
+  returns: v.union(v.null(), productSyncKeyRotationProposalValidator),
+});
+
+// Unregistration also resolves an admission whose reply was lost, with the same cleanup as an
+// ordinary Trusted Device sign-out.
 async function unregisterOwnedTrustedDevice(
   ctx: MutationCtx,
   account: Readonly<{ productAccountId: Id<'productAccounts'> }>,
@@ -1588,24 +1597,6 @@ async function unregisterOwnedTrustedDevice(
     trustedDeviceId: device._id,
   });
   await deleteTrustedDeviceAndRoutes(ctx, account.productAccountId, device._id);
-  const productAccount = await ctx.db.get(
-    'productAccounts',
-    account.productAccountId,
-  );
-  if (productAccount?.productSyncPendingKeyEpoch !== undefined) {
-    const pendingDeviceCount = await pendingRotationDeviceCount(
-      ctx,
-      account.productAccountId,
-      productAccount.productSyncPendingKeyEpoch,
-    );
-    if (pendingDeviceCount === 0) {
-      await commitPendingProductSyncKeyRotation(ctx, {
-        account: productAccount,
-        keyEpoch: productAccount.productSyncPendingKeyEpoch,
-        trustedDeviceId: device._id,
-      });
-    }
-  }
 }
 
 export const unregisterTrustedDevice = mutation({

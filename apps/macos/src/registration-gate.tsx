@@ -9,10 +9,8 @@ import type {
   RecoveryKeyFailure,
   Registration,
   RemovalFailure,
-  TrustedDevice,
 } from '@private-email/mail-core/registration';
 import type { ReactNode } from 'react';
-import type { StyleProp, TextStyle } from 'react-native';
 
 import {
   approvesDevices,
@@ -26,9 +24,7 @@ import {
   recoveryKeyEntry,
   registrationActions,
   registrationCopy,
-  revocationNotice,
   signInMethodsCopy,
-  trustedDevicesOf,
 } from '@private-email/mail-core/registration';
 import { previewInbox } from '@private-email/mail-core/registration-mode';
 import {
@@ -44,7 +40,6 @@ import {
   AppState,
   Pressable,
   ScrollView,
-  StyleSheet,
   Text,
   TextInput,
   View,
@@ -52,42 +47,11 @@ import {
 
 import { LanguageSelector } from './language-selector.tsx';
 import { useLocalization } from './localization.ts';
+import { RegistrationLabel as Label } from './registration-label.tsx';
+import { registrationStyles as styles } from './registration-styles.ts';
 import { registration } from './registration.ts';
 import { usePalette } from './theme.ts';
-
-const styles = StyleSheet.create({
-  page: { flex: 1 },
-  scroll: {
-    flexGrow: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 32,
-  },
-  content: { maxWidth: 420, width: '100%', gap: 20 },
-  title: { fontSize: 28, fontWeight: '600' },
-  heading: { fontSize: 20, fontWeight: '600' },
-  text: { fontSize: 17, lineHeight: 25 },
-  button: {
-    padding: 16,
-    borderWidth: 1,
-    borderRadius: 12,
-    borderCurve: 'continuous',
-  },
-  recoveryKey: {
-    fontSize: 19,
-    lineHeight: 30,
-    fontFamily: 'Menlo',
-    fontVariant: ['tabular-nums'],
-  },
-  input: {
-    fontSize: 17,
-    padding: 12,
-    borderWidth: 1,
-    borderRadius: 10,
-    borderCurve: 'continuous',
-  },
-  device: { gap: 8 },
-});
+import { TrustedDevices } from './trusted-devices.tsx';
 
 // The connected Inbox opens the account page and asks for Gmail permission again through this.
 export const AccountContext = createContext<
@@ -171,26 +135,6 @@ function Mailboxes({
       ))}
       {button(t('mailboxes.add'), () => store.addMailbox(true))}
     </>
-  );
-}
-
-// React Native macOS exposes plain Text to accessibility only through an accessible parent.
-function Label({
-  children,
-  accessibilityRole = 'text',
-  style,
-}: {
-  readonly children: string;
-  readonly accessibilityRole?: 'alert' | 'header' | 'text';
-  readonly style: StyleProp<TextStyle>;
-}) {
-  return (
-    <View
-      accessible
-      accessibilityRole={accessibilityRole}
-      accessibilityLabel={children}>
-      <Text style={style}>{children}</Text>
-    </View>
   );
 }
 
@@ -421,90 +365,6 @@ function DeviceApproval({
   );
 }
 
-// Removing another Trusted Device is confirmed here; the native side then asks for a new sign-in.
-function TrustedDevices({
-  account,
-  button,
-  failed,
-  store,
-}: {
-  readonly account: Readonly<{
-    privateSync?: PrivateSyncState;
-    trustedDevices?: string;
-    revocationNotice?: 'removed' | 'unconfirmed';
-  }>;
-  readonly button: (label: string, action: () => Promise<void>) => ReactNode;
-  readonly failed: boolean;
-  readonly store: Registration;
-}) {
-  const colors = usePalette();
-  const { t, settings } = useLocalization();
-  const added = useMemo(
-    () => new Intl.DateTimeFormat(settings.locale, { dateStyle: 'medium' }),
-    [settings.locale],
-  );
-  const [confirming, setConfirming] = useState<TrustedDevice['id']>();
-  if (!approvesDevices(account.privateSync)) {
-    return null;
-  }
-  const devices =
-    account.privateSync === 'ready' ? trustedDevicesOf(account) : [];
-  const notice = revocationNotice(t, account, failed);
-  if (devices.length === 0 && notice === undefined) {
-    return null;
-  }
-  return (
-    <>
-      <Label
-        accessibilityRole="header"
-        style={[styles.heading, { color: colors.foreground }]}>
-        {t('revocation.title')}
-      </Label>
-      {notice === undefined ? null : (
-        <Label
-          accessibilityRole="alert"
-          style={[styles.text, { color: colors.foreground }]}>
-          {notice}
-        </Label>
-      )}
-      {devices.length === 0 ? null : (
-        <Label style={[styles.text, { color: colors.secondary }]}>
-          {t('revocation.description')}
-        </Label>
-      )}
-      {devices.map((device) => (
-        <View
-          key={device.id}
-          style={styles.device}>
-          <Label style={[styles.text, { color: colors.foreground }]}>
-            {device.name}
-          </Label>
-          <Label style={[styles.text, { color: colors.secondary }]}>
-            {t('revocation.added', { date: added.format(device.registeredAt) })}
-          </Label>
-          {confirming === device.id ? (
-            <>
-              <Label style={[styles.text, { color: colors.foreground }]}>
-                {t('revocation.confirm', { name: device.name })}
-              </Label>
-              {button(t('revocation.remove', { name: device.name }), () =>
-                store.revokeTrustedDevice(device.id),
-              )}
-              {button(t('revocation.cancel'), async () => {
-                setConfirming(undefined);
-              })}
-            </>
-          ) : (
-            button(t('revocation.remove', { name: device.name }), async () => {
-              setConfirming(device.id);
-            })
-          )}
-        </View>
-      ))}
-    </>
-  );
-}
-
 // Account settings: Linked Sign-Ins never come from a mailbox grant or a matching email.
 function SignInMethods({
   account,
@@ -636,7 +496,7 @@ function AccountSettings({
     recoveryKeyFailure,
     recoveryFailure,
     enrollmentFailure,
-    revocationFailed,
+    revocationFailure,
   } = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const { t } = useLocalization();
   if (snapshot.kind === 'signed-out') {
@@ -693,7 +553,7 @@ function AccountSettings({
       <TrustedDevices
         account={snapshot}
         button={button}
-        failed={revocationFailed === true}
+        failure={revocationFailure}
         store={store}
       />
       <SignInMethods
