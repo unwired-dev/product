@@ -79,6 +79,9 @@ These directories remain whole reviewer-only sources; use their original filenam
 - [Architecture decision records](../adr/README.md): an index of every ADR, with duplicate numbers disambiguated; accepted replacement decisions and earlier privacy, identity, transport and delivery decisions.
 - [Code documentation and architecture patterns](../../.patterns/README.md).
 - [Technical research](../research/expo-react-native-rewrite.md).
+- [DeBERTa v3 email categorization assessment](../research/deberta-v3-email-classification.md):
+  sourced model sizes and proposed evaluation inputs for the approved spike,
+  without an adoption decision or native qualification evidence.
 - [BlockNote composer assessment](../research/blocknote.md) and
   [editor alternatives and approved evaluation tickets](../research/editor-alternatives.md):
   the alternatives report governs the Tiptap-first evaluation; BlockNote remains

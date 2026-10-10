@@ -1,6 +1,8 @@
 import { setImmediate } from 'node:timers/promises';
 import { deflateSync } from 'node:zlib';
 
+import * as Schema from 'effect/Schema';
+
 import type { GmailInbox, MessageBodyState } from '../src/gmail-inbox.ts';
 
 import { createGmailInbox } from '../src/gmail-inbox.ts';
@@ -8,6 +10,10 @@ import { inspectImage } from '../src/inline-images.ts';
 import { inspectLink, linkWarnings } from '../src/link-inspection.ts';
 import { imageTally, singleReadablePart } from '../src/message-body.ts';
 import { createSyntheticGmail } from '../src/testing/gmail-mailbox.ts';
+
+const parseJson = Schema.decodeSync(
+  Schema.fromJsonString(Schema.Record(Schema.String, Schema.Unknown)),
+);
 
 const read = async (inbox: GmailInbox, id: string, reader?: symbol) => {
   await inbox.readMessage(id);
@@ -454,7 +460,7 @@ describe('the isolated rich reader', () => {
       expect(gmail.bodyCommits).toHaveLength(excluded.length + allowed.length);
     });
     for (const id of excluded) {
-      expect(JSON.parse(String(gmail.cachedBodies().get(id)))).toMatchObject({
+      expect(parseJson(String(gmail.cachedBodies().get(id)))).toMatchObject({
         excluded: true,
       });
       expect(
@@ -905,7 +911,7 @@ describe('the isolated rich reader', () => {
     expect(rich(await read(online, id)).document).toContain(
       'src="data:image/png;base64,',
     );
-    expect(JSON.parse(String(gmail.cachedBodies().get(id)))).toMatchObject({
+    expect(parseJson(String(gmail.cachedBodies().get(id)))).toMatchObject({
       images: { refused: [] },
     });
   });
@@ -930,7 +936,7 @@ describe('the isolated rich reader', () => {
       await first.load();
       expect(rich(await read(first, id)).document).toContain('Cached mail');
       const cached = gmail.cachedBodies().get(id);
-      expect(JSON.parse(String(cached)).images).toBeUndefined();
+      expect(parseJson(String(cached))).not.toHaveProperty('images');
 
       const reopened = createGmailInbox(gmail.native);
       await reopened.load();
@@ -1010,8 +1016,9 @@ describe('the isolated rich reader', () => {
       text: 'Readable mail',
     });
     expect(downloaded).toHaveLength(4);
-    const saved = JSON.parse(String(gmail.cachedBodies().get(id)));
-    expect(saved.images).toStrictEqual({
+    expect(
+      parseJson(String(gmail.cachedBodies().get(id))).images,
+    ).toStrictEqual({
       admitted: [],
       refused: contentIds,
     });
@@ -1324,7 +1331,7 @@ describe('the isolated rich reader', () => {
       ['Content-Type', 'Content-Disposition'],
     ]);
     expect(
-      JSON.parse(String(gmail.cachedBodies().get(multipart))),
+      parseJson(String(gmail.cachedBodies().get(multipart))),
     ).toMatchObject({
       excluded: true,
     });
@@ -1499,7 +1506,7 @@ describe('the isolated rich reader', () => {
       expect(gmail.bodyCommits).toHaveLength(malformed.length);
     });
     for (const id of malformed) {
-      expect(JSON.parse(String(gmail.cachedBodies().get(id)))).toMatchObject({
+      expect(parseJson(String(gmail.cachedBodies().get(id)))).toMatchObject({
         excluded: true,
       });
       expect(
@@ -1552,7 +1559,7 @@ describe('the isolated rich reader', () => {
       const inbox = createGmailInbox(gmail.native);
       await inbox.load();
       await vi.waitFor(() => {
-        expect(JSON.parse(String(gmail.cachedBodies().get(id)))).toStrictEqual({
+        expect(parseJson(String(gmail.cachedBodies().get(id)))).toStrictEqual({
           version: 2,
           id,
           excluded: true,

@@ -5,6 +5,8 @@ import { createHash, createHmac, generateKeyPairSync, sign } from 'node:crypto';
 import type { TestConvexForDataModel } from 'convex-test';
 
 import { convexTest } from 'convex-test';
+import * as Option from 'effect/Option';
+import * as Schema from 'effect/Schema';
 
 import type { DataModel, Id } from '../convex/_generated/dataModel.js';
 
@@ -16,6 +18,8 @@ import {
 import { opaqueGmailConnectionId } from '../convex/gmailRouting.js';
 import schema from '../convex/schema.js';
 import { connectTrusted } from './devices.js';
+
+const parseJson = Schema.decodeSync(Schema.fromJsonString(Schema.Unknown));
 
 type ObservedApnsRequest = Readonly<{
   authority: string;
@@ -213,27 +217,22 @@ function routingDigest(emailAddress: string): string {
   return versionedRoutingDigest(emailAddress, 'gmail-routing-test-key', 1);
 }
 
+const decodeIdentityClaims = Schema.decodeOption(
+  Schema.fromJsonString(Schema.Struct({ sub: Schema.String })),
+);
+
 function opaqueConnectionIdFromIdentityToken(identityToken: string): string {
-  try {
-    const claimsSegment = identityToken.split('.').at(1);
-    if (claimsSegment === undefined) {
-      return 'opaque:untrusted';
-    }
-    const claims: unknown = JSON.parse(
-      Buffer.from(claimsSegment, 'base64url').toString('utf8'),
-    );
-    if (
-      typeof claims === 'object' &&
-      claims !== null &&
-      'sub' in claims &&
-      typeof claims.sub === 'string'
-    ) {
-      return opaqueConnectionId(claims.sub);
-    }
-  } catch {
-    // Invalid proof inputs still need an opaque route argument for auth-first tests.
-  }
-  return 'opaque:untrusted';
+  const claimsSegment = identityToken.split('.').at(1);
+  // Invalid proof inputs still need an opaque route argument for auth-first tests.
+  return Option.match(
+    decodeIdentityClaims(
+      Buffer.from(claimsSegment ?? '', 'base64url').toString('utf8'),
+    ),
+    {
+      onNone: () => 'opaque:untrusted',
+      onSome: ({ sub }) => opaqueConnectionId(sub),
+    },
+  );
 }
 
 async function registerGmailConnection(
@@ -3497,7 +3496,7 @@ describe('gmail push relay', () => {
         pushType: 'background',
         topic: 'dev.unwired.mail',
       });
-      expect(JSON.parse(request.payload)).toStrictEqual({
+      expect(parseJson(request.payload)).toStrictEqual({
         aps: { 'content-available': 1 },
         historyId: 'history-123',
         provider: 'gmail',
@@ -3869,7 +3868,7 @@ describe('gmail push relay', () => {
         ctx.db.query('microsoftGraphWakeupStates').collect(),
       );
       expect({
-        payload: JSON.parse(apnsMock.requests[0]!.payload),
+        payload: parseJson(apnsMock.requests[0]!.payload),
         payloadContainsProviderData: apnsMock.requests[0]!.payload.includes(
           'provider-message-id',
         ),

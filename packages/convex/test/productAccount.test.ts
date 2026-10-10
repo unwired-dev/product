@@ -5,6 +5,7 @@ import { createHash, generateKeyPairSync, sign } from 'node:crypto';
 import type { TestConvex } from 'convex-test';
 
 import { convexTest } from 'convex-test';
+import * as Schema from 'effect/Schema';
 
 import type { Id } from '../convex/_generated/dataModel.js';
 
@@ -23,6 +24,9 @@ import {
 } from './devices.js';
 
 const modules = import.meta.glob('../convex/**/*.ts');
+const decodeClaims = Schema.decodeSync(
+  Schema.fromJsonString(Schema.Struct({ sub: Schema.String })),
+);
 
 const appleIdentity = {
   issuer: 'https://appleid.apple.com',
@@ -3829,7 +3833,7 @@ describe('gmail operational connection registration', () => {
           ).split('.');
           return {
             clientId: form.get('client_id'),
-            clientSecretSubject: JSON.parse(
+            clientSecretSubject: decodeClaims(
               Buffer.from(String(clientSecretClaims), 'base64url').toString(),
             ).sub,
           };
