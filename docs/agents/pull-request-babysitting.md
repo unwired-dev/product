@@ -31,9 +31,10 @@ finish, the implementer:
 Each pass follows the rules below: synchronize a stale base, validate review
 findings, repair required CI, reply with a disposition, and resolve handled
 threads. Implementation edits made while babysitting require another pinned
-review by both reviewers before they are pushed. The pass completes when the PR
-is merged or closed; [automatic merge](#automatic-merge) performs the merge.
-Then call `unwatch_pull_request` in T3 Code and report the outcome. A missing
+review by both reviewers before they are pushed. Each pass ends once it has
+handled the feedback and gate state available now. Babysitting as a whole ends
+when the PR is merged or closed; [automatic merge](#automatic-merge) performs
+the merge. Then call `unwatch_pull_request` in T3 Code and report the outcome. A missing
 credential or permission is a blocker to report, not a reason to stop
 babysitting other gates.
 

@@ -62,7 +62,9 @@ not itself restrict filesystem or Git-history access.
    checkout. Then work on the task's branch: check out the head
    branch of the task's existing PR when there is one; otherwise, from a
    detached HEAD, `main`, or another task's branch, create a new task branch
-   from the latest `main`. Record that branch's starting commit.
+   from the latest `main`. Record that branch's starting commit; for an
+   existing PR with commits no completed review covered, use its merge-base
+   with `main` so both reviews see the whole PR diff.
 2. Implement the requested behavior and run the relevant checks under the
    [testing policy](testing.md). Documentation changes use formatting and local
    link checks.
