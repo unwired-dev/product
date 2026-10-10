@@ -1,9 +1,10 @@
+import type { AppStateStatus } from 'react-native';
+
 import { createGmailInbox } from '@private-email/mail-core/gmail-inbox';
 import {
   createMailboxes,
   singleMailbox,
 } from '@private-email/mail-core/mailboxes';
-import { makeMockInboxStorage } from '@private-email/mail-core/mock-storage';
 import { createPersistentInbox } from '@private-email/mail-core/persistent-inbox';
 import { createRegistration } from '@private-email/mail-core/registration';
 import {
@@ -11,12 +12,14 @@ import {
   syntheticConnections,
 } from '@private-email/mail-core/testing/gmail-mailbox';
 import { createMockMailSession } from '@private-email/mail-core/testing/mock-session';
+import { makeMockInboxStorage } from '@private-email/mail-core/testing/mock-storage';
 import { syntheticMailboxes } from '@private-email/mail-core/testing/registration-session';
 import { act, fireEvent, render, within } from '@testing-library/react-native';
-import { AccessibilityInfo, View } from 'react-native';
+import { AccessibilityInfo, AppState, View } from 'react-native';
 
 import type { mailboxes } from '../src/private-storage.ts';
 
+import { InboxProvider } from '../src/mailbox.tsx';
 import { RegistrationGate } from '../src/registration-gate.tsx';
 import { PreviewWindow as InboxWindow } from '../src/window.tsx';
 
@@ -583,4 +586,56 @@ describe('mac windows over a connected Gmail mailbox', () => {
     expect(app.queryByText(/stored data has been kept/u)).toBeNull();
   });
   /* oxlint-enable vitest/max-expects */
+});
+
+describe('mac windows sharing the mailbox list', () => {
+  it('opens the mailboxes once per app activation however many windows are open', async () => {
+    expect.hasAssertions();
+    // Substitute only the platform's dispatch/removal boundary.
+    const listeners = new Set<(state: AppStateStatus) => void>();
+    const lifecycle = jest
+      .spyOn(AppState, 'addEventListener')
+      .mockImplementation((_event, listener) => {
+        listeners.add(listener);
+        return {
+          remove: () => {
+            listeners.delete(listener);
+          },
+        };
+      });
+    const list = singleMailbox(
+      createPersistentInbox(makeMockInboxStorage()),
+      'preview',
+    );
+    const load = jest.spyOn(list, 'load');
+    const window = () => (
+      <InboxProvider mailboxes={list}>
+        <View />
+      </InboxProvider>
+    );
+    const activate = () =>
+      act(async () => {
+        for (const listener of listeners) {
+          listener('active');
+        }
+      });
+    const first = await render(window());
+    const second = await render(window());
+    try {
+      // oxlint-disable-next-line vitest/prefer-called-once -- Jest has no toHaveBeenCalledOnce matcher.
+      expect(load).toHaveBeenCalledTimes(1);
+      await activate();
+      expect(load).toHaveBeenCalledTimes(2);
+      await first.unmount();
+      await activate();
+      expect(load).toHaveBeenCalledTimes(3);
+      await second.unmount();
+      expect(listeners.size).toBe(0);
+    } finally {
+      await first.unmount();
+      await second.unmount();
+      load.mockRestore();
+      lifecycle.mockRestore();
+    }
+  });
 });

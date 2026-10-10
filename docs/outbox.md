@@ -27,7 +27,8 @@ in the background or with Mac windows closed is
   - cannot be saved.
 - While Send is pending, the composer accepts no edits: its fields, Undo, Redo,
   formatting and Discard wait until the message is admitted or Send is refused.
-  Send dismisses an open translation preview; a refused Send restores editing.
+  Send dismisses any translation or writing-help preview and prevents new requests;
+  a refused Send restores editing and assistance actions.
 - If a mailbox changes its address, **From** keeps the Draft's original address
   visible with an explanation. Choose that mailbox again to use its current
   address, or choose another mailbox.

@@ -18,4 +18,5 @@ address visible and asks for the mailbox to be chosen again. Queued messages
 stop before Gmail handoff if their chosen sender is no longer available.
 
 The composer is read-only while Send is pending and becomes editable again if
-admission is refused. Send dismisses any open translation preview.
+admission is refused. Send dismisses any open translation or writing-help preview
+and prevents new requests while admission is pending.

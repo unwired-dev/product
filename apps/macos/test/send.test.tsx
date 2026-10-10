@@ -1,6 +1,9 @@
+import { ok } from 'node:assert/strict';
+
+import type { NativeAssistance } from '@private-email/mail-core/assistance';
 import type { RegistrationSnapshot } from '@private-email/mail-core/registration';
 
-import { createDrafts } from '@private-email/mail-core/drafts';
+import { createDrafts, draftsOf } from '@private-email/mail-core/drafts';
 import { createMailboxes } from '@private-email/mail-core/mailboxes';
 import { createOutbox } from '@private-email/mail-core/outbox';
 import { mailboxesOf } from '@private-email/mail-core/registration';
@@ -25,6 +28,7 @@ import { useState } from 'react';
 import { Composer } from '../src/composer.tsx';
 import { Inbox } from '../src/inbox.tsx';
 import { InboxProvider } from '../src/mailbox.tsx';
+import { AssistanceContext } from '../src/message-summary.tsx';
 import { AccountContext } from '../src/registration-gate.tsx';
 
 const alex = syntheticMailboxes['alex@example.invalid'];
@@ -102,6 +106,21 @@ const press = async (name: string) => {
   await act(async () => {
     await fireEvent.press(button);
   });
+};
+
+// The same composite-fiber boundary used by fireEvent, retained before disabled props commit.
+const queuedPress = (label: string) => {
+  let fiber = screen.getByLabelText(label).unstable_fiber;
+  while (fiber !== null) {
+    const handler = fiber.memoizedProps?.onPress;
+    if (typeof handler === 'function') {
+      return () => {
+        handler();
+      };
+    }
+    fiber = fiber.return;
+  }
+  throw new Error('Expected a rendered input handler');
 };
 
 // A new message to Sam, with the recipient still being typed when Send is pressed.
@@ -273,6 +292,123 @@ describe('sending a Draft', () => {
       sender.outbox.dispose();
     }
   });
+
+  it.each([
+    {
+      purpose: 'rewrite',
+      captureLabel: 'Rewrite the message body',
+      applyLabel: 'Replace your text with this rewrite',
+      region: 'Rewrite of your text',
+      context: {},
+    },
+    {
+      purpose: 'reply',
+      captureLabel: 'Suggest a reply to the quoted message',
+      applyLabel: 'Replace your reply with this suggestion',
+      region: 'Suggested reply',
+      context: {
+        response: {
+          kind: 'reply',
+          message: 'source',
+          thread: { connection: alex, id: 'thread' },
+          references: [],
+        },
+        quoted: [{ kind: 'paragraph', spans: [{ text: 'Lunch tomorrow?' }] }],
+      },
+    },
+  ] as const)(
+    'retires $purpose assistance during Send, including queued actions, and restores it after refusal',
+    async ({ captureLabel, applyLabel, region, context }) => {
+      expect.hasAssertions();
+      const sender = device();
+      const native: NativeAssistance = {
+        availability: () => Promise.resolve('available'),
+        summarize: () => Promise.reject(new Error('unused')),
+        rewrite: () => Promise.resolve('Reviewed text'),
+        suggestReply: () => Promise.resolve('Reviewed text'),
+        cancel: () => Promise.resolve(null),
+      };
+      try {
+        await sender.drafts.load();
+        await sender.mailboxes.load();
+        const id = await sender.drafts.create({
+          id: alex,
+          address: 'alex@example.invalid',
+        });
+        ok(id);
+        await sender.drafts.fill(
+          id,
+          (draft) => ({
+            ...draft,
+            subject: 'Lunch',
+            to: [{ address: 'sam@example.invalid' }],
+            body: [{ kind: 'paragraph', spans: [{ text: 'See you' }] }],
+            ...context,
+          }),
+          [],
+        );
+        await render(
+          <AssistanceContext value={native}>
+            <App sender={sender} />
+          </AssistanceContext>,
+        );
+        await press(
+          'Draft. Lunch. To sam@example.invalid. From alex@example.invalid',
+        );
+        await press(captureLabel);
+        await screen.findByText('Reviewed text');
+        const capture = queuedPress(captureLabel);
+        const apply = queuedPress(applyLabel);
+        const close = queuedPress('Keep your text and close this suggestion');
+        sender.storage.hold();
+        sender.storage.failNextCommit('locked');
+        await act(async () => {
+          const pressed = fireEvent.press(
+            screen.getByRole('button', { name: 'Send' }),
+          );
+          apply();
+          close();
+          capture();
+          await pressed;
+        });
+        expect(screen.queryByLabelText(region)).toBeNull();
+        expect(
+          screen.getByRole('button', { name: captureLabel }),
+        ).toBeDisabled();
+        expect(screen.getByLabelText('Message body')).toHaveTextContent(
+          'See you',
+          { exact: true },
+        );
+        await act(async () => {
+          sender.storage.release();
+        });
+        await screen.findByRole('alert', {
+          name: 'This message could not be queued because Drafts are not saved. Try again.',
+        });
+        expect(
+          screen.getByRole('button', { name: captureLabel }),
+        ).not.toBeDisabled();
+        await press(captureLabel);
+        await screen.findByText('Reviewed text');
+        await press(applyLabel);
+        expect(screen.getByLabelText('Message body')).toHaveTextContent(
+          'Reviewed text',
+          { exact: true },
+        );
+        await press('Send');
+        await waitFor(() => {
+          expect(screen.queryByLabelText('Subject')).toBeNull();
+        });
+        expect(draftsOf(sender.drafts.getSnapshot())).toStrictEqual([]);
+        await later(sender, 10_000);
+        expect(sender.gmail.sends).toHaveLength(1);
+        expect(sender.gmail.sends[0]?.raw).toContain('Subject: Lunch');
+      } finally {
+        sender.storage.release();
+        sender.outbox.dispose();
+      }
+    },
+  );
 
   it('restores editing after refused admission and saves the next edits', async () => {
     expect.hasAssertions();

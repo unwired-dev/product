@@ -12,7 +12,7 @@ replacement requirements or release qualification.
 Preview mail comes from the existing synthetic Inbox fixture. Registration
 journeys use a three-message synthetic Gmail mailbox over two pages through the
 new Gmail adapter and its real encrypted cache. Assistance
-returns a fixed summary and translation with a synthetic language list.
+returns fixed summary, rewrite, reply and translation text with a synthetic language list.
 
 Metro resolves the normal seed module to the selected
 test module at build time.

@@ -2,13 +2,13 @@ import type { NativeTranslation } from '@private-email/mail-core/translation';
 
 import { createGmailInbox } from '@private-email/mail-core/gmail-inbox';
 import { singleMailbox } from '@private-email/mail-core/mailboxes';
-import { makeMockInboxStorage } from '@private-email/mail-core/mock-storage';
 import { createPersistentInbox } from '@private-email/mail-core/persistent-inbox';
 import { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mailbox';
 import {
   createMockMailSession,
   syntheticTranslation,
 } from '@private-email/mail-core/testing/mock-session';
+import { makeMockInboxStorage } from '@private-email/mail-core/testing/mock-storage';
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 
 import { InboxProvider } from '../src/mailbox.tsx';

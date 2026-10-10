@@ -1,6 +1,6 @@
-import type { NativeInboxStorage } from './persistent-inbox.ts';
+import type { NativeInboxStorage } from '../persistent-inbox.ts';
 
-import { fixtureMessages } from './index.ts';
+import { fixtureMessages } from '../index.ts';
 
 export function makeMockInboxStorage(): NativeInboxStorage {
   let messages = fixtureMessages;

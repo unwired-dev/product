@@ -17,9 +17,11 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   admission. Disable text, keyboard, pointer and accessibility editing controls,
   and fence their callbacks synchronously before awaiting admission: render props
   and ancestor `pointerEvents` do not retire queued native input. Include history,
-  Markdown, translation Apply, sender/recipient changes and asset Remove/Cancel;
+  Markdown, translation and assistance Apply/Close, sender/recipient changes and asset Remove/Cancel;
   keep picker/paste/drop lifetime fences. On refusal restore editing and ordinary
   saving. Otherwise an accepted edit is neither sent nor saved when Send closes.
+  Dismiss captured translation and assistance input at Send and fence new captures;
+  otherwise queued native input can restart generation while admission is pending.
   Exercise queued callbacks before React commits, successful admission and refusal
   followed by durable editing; props-only assertions miss this data-loss window.
 
@@ -28,6 +30,16 @@ A host owns views and native adapters. It renders shared stores from `@private-e
   Undo/Redo and Markdown edits that bypass `change`; preserve feedback while a
   frozen Send is pending. Otherwise restoring a valid recipient still announces
   that the message has none. Exercise the visible refused-Send-then-Undo journey.
+- `composer.tsx.Editor` eligibility checks repeating whole-document projection
+  through a shared helper. Follow render-called helpers, including `selectedText`:
+  a capped result does not bound its earlier `bounds`/`covered` allocations. For
+  a collapsed-caret Rewrite existence check, use `assistance.ts.canRewrite`'s
+  early exit over non-image authored spans rather than a whole-body selection.
+  When a render check needs a document length, reuse the existing `display` for
+  that body revision; otherwise every keystroke repeats document-wide allocation.
+  Preserve selected-range eligibility and capture-time size/image refusal.
+  Press handlers must still use `authored.current` and event-facing selection
+  so reuse does not admit stale input before React commits.
 
 - `apps/macos/src/mailbox.tsx.InboxProvider` installing one application lifecycle
   subscription per mounted window on the shared Draft store. Give that store one

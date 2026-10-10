@@ -14,6 +14,9 @@ const Scenario = Schema.Literals([
 
 // The fixed summary every available Mock Mail Session returns; native mock builds return the same.
 export const syntheticSummary = 'Synthetic summary of local mail.';
+// The fixed Draft rewrite and reply suggestion; native mock builds return the same.
+export const syntheticRewrite = 'Synthetic rewrite of local mail.';
+export const syntheticReply = 'Synthetic reply to local mail.';
 // The fixed translation, identified source language and target languages every available Mock
 // Mail Session offers; native mock builds return the same.
 export const syntheticTranslation = 'Synthetic translation of local mail.';
@@ -60,6 +63,14 @@ export function createMockMailSession(selection: unknown) {
         scenario === 'assistance-unavailable'
           ? unavailable()
           : Promise.resolve(syntheticSummary),
+      rewrite: () =>
+        scenario === 'assistance-unavailable'
+          ? unavailable()
+          : Promise.resolve(syntheticRewrite),
+      suggestReply: () =>
+        scenario === 'assistance-unavailable'
+          ? unavailable()
+          : Promise.resolve(syntheticReply),
       cancel: () => Promise.resolve(null),
     }) satisfies NativeAssistance,
     // The native translation contract with fixed outcomes; it never reads the input it is given.

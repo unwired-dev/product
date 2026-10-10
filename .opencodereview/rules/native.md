@@ -13,6 +13,13 @@ Native storage owns what TypeScript must never hold: Keychain items, the storage
 
 #### Keys, credentials and storage
 
+- `PrivateInboxStore.fullSync(_:)` or another durability helper treating failure
+  of a stronger guarantee as permission to succeed through a weaker fallback.
+  Restrict fallback to the platform's documented unsupported-operation errors,
+  retry interrupted calls and inspect their failure code before another operation
+  can overwrite it. Propagate real I/O and other failures before publishing success;
+  otherwise a failed drive-cache flush can be reported as a durable mutation.
+
 - `DraftSync.push` mapping every failed expected-revision write to a conflict.
   Only the coded conditional-write refusal, reconciled with authenticated record
   absence, can become `committed: false`; preserve transport, cancellation and
@@ -67,6 +74,16 @@ Native storage owns what TypeScript must never hold: Keychain items, the storage
 - `AccountRemoval.signOut` or `deleteAccount` sending irreversible remote work without durable local intent, or `purge` deleting dependent items before recording acknowledgement. Relaunch must finish acknowledged cleanup before provider work and keep unanswered removal from reconnecting an unregistered device; a lost reply is not proof that nothing was removed. `deleteAccount` must clear newly recorded intent after a definite refusal, but cannot clear an earlier unanswered attempt or make the bridge claim nothing was removed; otherwise a refused retry can reopen locally retained private state after remote deletion. Sign-out must reconcile rotation and retain any unconfirmed Recovery Key instead of discarding its sole backup.
 
 #### Bridge contract
+
+- `assistance.ts` input builders or `UnwiredAssistance` model prompts using flat
+  labelled concatenation instead of a typed JSON request with an explicit
+  operation and distinct fields for each admitted context source,
+  as required by ADR 0052. Quoted labels or field names must remain escaped data,
+  never authored intent or framing. Measure the complete encoded payload against
+  the input bound, preserve full admitted authored text, surrogate-safe cuts,
+  cut-word address removal and omission disclosure, and keep fixed native
+  instructions aligned with the fields. Otherwise adversarial correspondence
+  can impersonate the person's reply or escaping can exceed the model budget.
 
 - `RegistrationStore.readDraftAsset` returning full decrypted image bytes as a
   base64 URI merely to show a composer thumbnail, or decoding previews on the

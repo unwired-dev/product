@@ -1,4 +1,5 @@
 import type { Translate } from '@private-email/localization';
+import type { CapturedDraftText } from '@private-email/mail-core/assistance';
 import type {
   AssetPreview,
   Draft,
@@ -18,6 +19,13 @@ import type {
 } from '@private-email/mail-core/semantic-document';
 import type { StyleProp, TextInputChangeEvent, TextStyle } from 'react-native';
 
+import {
+  canRewrite,
+  canSuggestReply,
+  captureDraftText,
+  draftReplacement,
+  sameDraftAssistanceSource,
+} from '@private-email/mail-core/assistance';
 import {
   addRecipients,
   draftOf,
@@ -54,7 +62,6 @@ import {
 } from '@private-email/mail-core/semantic-document';
 import { spacing } from '@private-email/mail-core/theme';
 import {
-  draftReplacement,
   hasTranslatableText,
   translationInputLimit,
 } from '@private-email/mail-core/translation';
@@ -82,6 +89,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-screens/experimental';
 
+import { DraftAssistance } from './draft-assistance.tsx';
 import { useLocalization } from './localization.ts';
 import {
   useComposerNavigation,
@@ -973,6 +981,28 @@ function QuotedText({ quoted }: { readonly quoted: SemanticDocument }) {
   );
 }
 
+const rewriteLabel = (at: Selection) =>
+  at.start === at.end
+    ? 'assistance.rewriteDraftLabel'
+    : 'assistance.rewriteSelectionLabel';
+
+// Why the last Send left the Draft in the composer, if it did.
+function SendRefusalNotice({
+  refused,
+}: {
+  readonly refused: SendRefusal | undefined;
+}) {
+  const colors = usePalette();
+  const { t } = useLocalization();
+  return refused === undefined ? null : (
+    <Text
+      accessibilityRole="alert"
+      style={[styles.notice, { color: colors.foreground }]}>
+      {t(`drafts.sendRefused.${refused}`)}
+    </Text>
+  );
+}
+
 function Editor({
   initial,
   onClose,
@@ -1057,16 +1087,12 @@ function Editor({
     }
   }, [rebind, store]);
   const [selection, setSelection] = useState<Selection>({ start: 0, end: 0 });
-  // Body text captured for an explicitly requested translation, until it is applied or kept.
-  const [translating, setTranslating] = useState<
-    Readonly<{
-      body: Draft['body'];
-      selection: Selection;
-      text: string;
-      id: number;
-    }>
+  // Body text captured for an explicitly requested translation, rewrite or reply suggestion, until
+  // its result is applied or the original kept.
+  const [captured, setCaptured] = useState<
+    CapturedDraftText & { readonly id: number }
   >();
-  const captureNow = useRef<typeof translating>(undefined);
+  const captureNow = useRef<typeof captured>(undefined);
   const captureGeneration = useRef(0);
   // The latest body selection, ahead of rendering, for text events that follow a caret move.
   const selectionNow = useRef(selection);
@@ -1090,15 +1116,20 @@ function Editor({
   const [sending, setSending] = useState(false);
   // Native callbacks can arrive before the disabled props commit.
   const sendingNow = useRef(false);
+  // A control that also waits while Send is pending.
+  const lockedUnless = (available: boolean) => sending || !available;
   const outbox = useOutbox();
   const caret = useRef<number | undefined>(undefined);
   const typingField = useRef<string | undefined>(undefined);
   const subjectSelection = useRef<Selection>({ start: 0, end: 0 });
   const subjectCaret = useRef<number | undefined>(undefined);
   const draft = history.present;
-  // Any body edit makes the captured text stale, so its translation is forgotten.
-  if (translating !== undefined && translating.body !== draft.body) {
-    setTranslating(undefined);
+  // A body or admitted reply-context revision retires the captured input.
+  if (
+    captured !== undefined &&
+    !sameDraftAssistanceSource(captured.draft, draft, captured.purpose)
+  ) {
+    setCaptured(undefined);
   }
   const breakTyping = () => {
     commitHistory((current) => ({ ...current, typing: false }));
@@ -1115,9 +1146,14 @@ function Editor({
         next.id === previous.id
           ? next
           : { ...next, id: previous.id, conflict: true as const };
-      if (bound.body !== previous.body) {
+      const capture = captureNow.current;
+      if (
+        bound.body !== previous.body ||
+        (capture !== undefined &&
+          !sameDraftAssistanceSource(capture.draft, bound, capture.purpose))
+      ) {
         captureNow.current = undefined;
-        setTranslating(undefined);
+        setCaptured(undefined);
       }
       authored.current = bound;
       if (!discarded.current) {
@@ -1293,30 +1329,53 @@ function Editor({
     }
     change({ ...latest, body: toggleMark(latest.body, at, mark) });
   };
-  // Replaces exactly the captured selection with its reviewed translation as one undoable edit.
-  // Recipients, attachments and delivery state are left as they are.
-  const applyTranslation = (translated: string) => {
+  // Replaces exactly the captured text with its reviewed result as one undoable edit. Recipients,
+  // the subject, quoted text, attachments and delivery state are left as they are.
+  const applyCaptured = (replacement: string) => {
     const latest = authored.current;
     if (
       sendingNow.current ||
       !lifetime.current.mounted ||
-      translating === undefined ||
-      captureNow.current !== translating ||
-      latest.body !== translating.body
+      captured === undefined ||
+      captureNow.current !== captured ||
+      !sameDraftAssistanceSource(captured.draft, latest, captured.purpose)
     ) {
       return;
     }
     captureNow.current = undefined;
-    setTranslating(undefined);
+    setCaptured(undefined);
     const result = replaceSelection(
       latest.body,
-      translating.selection,
-      draftReplacement(translating.text, translated),
+      captured.selection,
+      draftReplacement(captured.text, replacement),
     );
     change({ ...latest, body: result.document });
     placeTyping(undefined);
     selectionNow.current = result.selection ?? selectionNow.current;
     setPlaced(result.selection);
+  };
+  const closeCaptured = () => {
+    if (
+      !sendingNow.current &&
+      captured !== undefined &&
+      captureNow.current === captured
+    ) {
+      captureNow.current = undefined;
+      setCaptured(undefined);
+    }
+  };
+  // Captures authored text for an explicitly requested translation, rewrite or reply suggestion.
+  const capture = (purpose: CapturedDraftText['purpose'], at: Selection) => {
+    if (sendingNow.current || !lifetime.current.mounted) {
+      return;
+    }
+    captureGeneration.current += 1;
+    const next = {
+      ...captureDraftText(purpose, authored.current, at),
+      id: captureGeneration.current,
+    };
+    captureNow.current = next;
+    setCaptured(next);
   };
   const block = (kind: BlockKind) => {
     if (sendingNow.current) {
@@ -1445,7 +1504,7 @@ function Editor({
     sendingNow.current = true;
     setSending(true);
     captureNow.current = undefined;
-    setTranslating(undefined);
+    setCaptured(undefined);
     // As for Discard, later edits wait: the version shown at Send is the one sent.
     discarded.current = true;
     lifetime.current.finishing += 1;
@@ -1514,14 +1573,14 @@ function Editor({
             {title}
           </Text>
           <Action
-            disabled={sending || history.past.length === 0}
+            disabled={lockedUnless(history.past.length > 0)}
             label={t('drafts.undo')}
             onPress={() => {
               travel(undo);
             }}
           />
           <Action
-            disabled={sending || history.future.length === 0}
+            disabled={lockedUnless(history.future.length > 0)}
             label={t('drafts.redo')}
             onPress={() => {
               travel(redo);
@@ -1578,13 +1637,7 @@ function Editor({
             {t('drafts.invalidRecipients')}
           </Text>
         ) : null}
-        {refused === undefined ? null : (
-          <Text
-            accessibilityRole="alert"
-            style={[styles.notice, { color: colors.foreground }]}>
-            {t(`drafts.sendRefused.${refused}`)}
-          </Text>
-        )}
+        <SendRefusalNotice refused={refused} />
         {closing === 'discard' ? (
           <View style={styles.bar}>
             <Text
@@ -1745,12 +1798,11 @@ function Editor({
             </Pressable>
           ))}
           <Action
-            disabled={
-              sending ||
-              !hasTranslatableText(
+            disabled={lockedUnless(
+              hasTranslatableText(
                 selectedText(draft.body, selection, translationInputLimit + 1),
-              )
-            }
+              ),
+            )}
             label={t('translation.translate')}
             accessibilityLabel={t('translation.translateSelectionLabel')}
             onPress={() => {
@@ -1764,17 +1816,35 @@ function Editor({
               ) {
                 return;
               }
-              captureGeneration.current += 1;
-              const capture = {
-                body,
-                selection: at,
-                text,
-                id: captureGeneration.current,
-              };
-              captureNow.current = capture;
-              setTranslating(capture);
+              capture('translate', at);
             }}
           />
+          <Action
+            disabled={lockedUnless(canRewrite(draft.body, selection))}
+            label={t('assistance.rewrite')}
+            accessibilityLabel={t(rewriteLabel(selection))}
+            onPress={() => {
+              const at = selectionNow.current;
+              if (
+                lifetime.current.mounted &&
+                canRewrite(authored.current.body, at)
+              ) {
+                capture('rewrite', at);
+              }
+            }}
+          />
+          {canSuggestReply(draft) ? (
+            <Action
+              disabled={sending}
+              label={t('assistance.suggestReply')}
+              accessibilityLabel={t('assistance.suggestReplyLabel')}
+              onPress={() => {
+                if (lifetime.current.mounted) {
+                  capture('reply', selectionNow.current);
+                }
+              }}
+            />
+          ) : null}
         </View>
         <View
           accessibilityLabel={t('drafts.assets.toolbar')}
@@ -1809,17 +1879,22 @@ function Editor({
             }}
           />
         </View>
-        {translating === undefined ? null : (
+        {captured?.purpose === 'translate' ? (
           <DraftTranslation
-            key={translating.id}
-            text={translating.text}
-            onApply={applyTranslation}
-            onClose={() => {
-              if (captureNow.current === translating) {
-                captureNow.current = undefined;
-                setTranslating(undefined);
-              }
-            }}
+            key={captured.id}
+            text={captured.text}
+            onApply={applyCaptured}
+            onClose={closeCaptured}
+          />
+        ) : null}
+        {captured === undefined || captured.purpose === 'translate' ? null : (
+          <DraftAssistance
+            key={captured.id}
+            purpose={captured.purpose}
+            issue={captured.issue}
+            input={captured.input}
+            onApply={applyCaptured}
+            onClose={closeCaptured}
           />
         )}
         <TextInput

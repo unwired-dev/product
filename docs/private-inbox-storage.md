@@ -37,8 +37,8 @@ a permanently lost key. There is no reset or key-export API in the app.
 Independent windows or native store instances cannot
 overwrite completed changes using an older snapshot. An error never falls back to an in-memory Inbox.
 
-The synthetic credential fixture creates, uses and removes a random secret only
-in native code, independently of the database key. It has no JavaScript secret getter, network client,
+Only the native test target compiles the synthetic credential fixture. It creates,
+uses and removes a random secret independently of the database key. It has no JavaScript secret getter, network client,
 logging, or Convex integration. Removing it leaves the database key intact. It
 is an integration fixture, not Gmail authorization or a production token API.
 

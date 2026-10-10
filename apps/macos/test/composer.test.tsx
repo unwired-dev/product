@@ -1,5 +1,6 @@
 import { ok } from 'node:assert/strict';
 
+import type { NativeAssistance } from '@private-email/mail-core/assistance';
 import type { RegistrationSnapshot } from '@private-email/mail-core/registration';
 import type { NativeTranslation } from '@private-email/mail-core/translation';
 
@@ -30,6 +31,7 @@ import { Composer } from '../src/composer.tsx';
 import { Inbox } from '../src/inbox.tsx';
 import { InboxProvider } from '../src/mailbox.tsx';
 import { MessageDetail } from '../src/message-detail.tsx';
+import { AssistanceContext } from '../src/message-summary.tsx';
 import { AccountContext } from '../src/registration-gate.tsx';
 import { TranslationContext } from '../src/translation.tsx';
 
@@ -38,7 +40,7 @@ const other = syntheticMailboxes['other@example.invalid'];
 
 const connected = (
   addresses: ReadonlyArray<keyof typeof syntheticMailboxes>,
-): RegistrationSnapshot => ({
+): Extract<RegistrationSnapshot, { kind: 'connected' }> => ({
   kind: 'connected',
   productAccountId: 'synthetic-product-account',
   signInProvider: 'google',
@@ -82,6 +84,34 @@ function deferred() {
     fail = reject;
   });
   return { promise, resolve: settle, reject: fail };
+}
+
+// A native model whose answers the test settles, recording each operation and its input.
+function scriptedDraftAssistance() {
+  const asked: Array<{
+    operation: 'rewrite' | 'reply';
+    request: string;
+    input: string;
+    answer: ReturnType<typeof deferred>;
+  }> = [];
+  const cancelled: string[] = [];
+  const respond =
+    (operation: 'rewrite' | 'reply') => (request: string, input: string) => {
+      const answer = deferred();
+      asked.push({ operation, request, input, answer });
+      return answer.promise;
+    };
+  const native: NativeAssistance = {
+    availability: () => Promise.resolve('available'),
+    summarize: () => Promise.reject(new Error('unused')),
+    rewrite: respond('rewrite'),
+    suggestReply: respond('reply'),
+    cancel: (request) => {
+      cancelled.push(request);
+      return Promise.resolve(null);
+    },
+  };
+  return { native, asked, cancelled };
 }
 
 // Capture queued native input at the same composite-fiber boundary used by fireEvent.
@@ -2096,6 +2126,139 @@ describe('composing Drafts', () => {
       { exact: true },
     );
   });
+
+  it('rewrites the body or a selection and applies it only after review as one undoable edit', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const { native, asked, cancelled } = scriptedDraftAssistance();
+    await render(
+      <AssistanceContext value={native}>
+        <App
+          drafts={createDrafts(storage.native, registration)}
+          registration={registration}
+        />
+      </AssistanceContext>,
+    );
+    await press('New Message');
+    await fireEvent.changeText(
+      screen.getByLabelText('To'),
+      'maya@example.com, ',
+    );
+    const recipient = screen.getByRole('button', {
+      name: 'To: maya@example.com',
+    });
+    // Nothing to rewrite in an empty body.
+    expect(
+      screen.getByRole('button', { name: 'Rewrite the message body' }),
+    ).toBeDisabled();
+    const original = 'lets meet friday. thanks';
+    await fireEvent.changeText(screen.getByLabelText('Message body'), original);
+    const body = () => screen.getByLabelText('Message body');
+
+    // With nothing selected, the whole authored body is rewritten.
+    await press('Rewrite the message body');
+    expect(asked[0]?.operation).toBe('rewrite');
+    expect(JSON.parse(asked[0]!.input)).toStrictEqual({
+      operation: 'rewrite',
+      authoredText: original,
+    });
+    await screen.findByLabelText('Cancel writing help');
+    asked[0]?.answer.resolve('Let us meet on Friday. Thanks!');
+    await screen.findByText('Let us meet on Friday. Thanks!');
+    // The Draft is unchanged until the result is applied.
+    expect(body()).toHaveTextContent(original, { exact: true });
+    await press('Replace your text with this rewrite');
+    expect(body()).toHaveTextContent('Let us meet on Friday. Thanks!', {
+      exact: true,
+    });
+    expect(screen.queryByLabelText('Rewrite of your text')).toBeNull();
+    expect(recipient).toBeOnTheScreen();
+    // One Undo restores the original text.
+    await press('Undo');
+    expect(body()).toHaveTextContent(original, { exact: true });
+
+    // A selection is rewritten alone; keeping the original changes nothing.
+    await fireEvent(body(), 'selectionChange', {
+      nativeEvent: { selection: { start: 0, end: 17 } },
+    });
+    await press('Rewrite the selected text');
+    expect(JSON.parse(asked[1]!.input)).toStrictEqual({
+      operation: 'rewrite',
+      authoredText: 'lets meet friday.',
+    });
+    asked[1]?.answer.resolve('Shall we meet on Friday?');
+    await screen.findByText('Shall we meet on Friday?');
+    const replace = queuedPress('Replace your text with this rewrite');
+    const keep = queuedPress('Keep your text and close this suggestion');
+    await act(() => {
+      keep();
+      replace();
+    });
+    expect(screen.queryByText('Shall we meet on Friday?')).toBeNull();
+    expect(body()).toHaveTextContent(original, { exact: true });
+
+    // A refusal leaves the text unchanged and offers no retry.
+    await press('Rewrite the selected text');
+    await act(async () => {
+      asked[2]?.answer.reject(
+        Object.assign(new Error('refused'), { code: 'refused' }),
+      );
+      await asked[2]?.answer.promise.catch(() => undefined);
+    });
+    await screen.findByText(
+      'This request cannot be answered. Your text is unchanged.',
+    );
+    expect(screen.queryByLabelText('Try writing help again')).toBeNull();
+    await press('Keep your text and close this suggestion');
+
+    // Cancelling stops the native request; Try again asks once more.
+    await press('Rewrite the selected text');
+    await press('Cancel writing help');
+    expect(cancelled).toStrictEqual([asked[3]?.request]);
+    await screen.findByText('Cancelled. Your text is unchanged.');
+    await press('Try writing help again');
+    expect(asked).toHaveLength(5);
+
+    // Editing the Draft while a rewrite is pending makes it stale: it is cancelled and its late
+    // result is never offered.
+    await fireEvent.changeText(body(), 'lets meet saturday. thanks');
+    expect(screen.queryByLabelText('Rewrite of your text')).toBeNull();
+    expect(cancelled).toStrictEqual([asked[3]?.request, asked[4]?.request]);
+    asked[4]?.answer.resolve('Too late.');
+    await expect(
+      screen.findByRole('button', { name: 'Rewrite the selected text' }),
+    ).resolves.toBeOnTheScreen();
+    expect(screen.queryByText('Too late.')).toBeNull();
+    expect(body()).toHaveTextContent('lets meet saturday. thanks', {
+      exact: true,
+    });
+
+    // Account replacement retires the composer and its pending assistance, even with the same mailbox.
+    await press('Rewrite the selected text');
+    const oldRewrite = queuedPress('Rewrite the selected text');
+    await act(() => {
+      registration.change({
+        ...connected(['alex@example.invalid']),
+        productAccountId: 'replacement-product-account',
+      });
+    });
+    await act(() => {
+      oldRewrite();
+    });
+    asked[5]?.answer.resolve('Late for the old account.');
+    await act(async () => {
+      await asked[5]?.answer.promise;
+    });
+    expect(screen.queryByLabelText('Message body')).toBeNull();
+    expect(screen.queryByText('Late for the old account.')).toBeNull();
+    expect(asked).toHaveLength(6);
+    expect(cancelled).toStrictEqual([
+      asked[3]?.request,
+      asked[4]?.request,
+      asked[5]?.request,
+    ]);
+  });
   /* oxlint-enable vitest/max-expects */
 });
 
@@ -3009,6 +3172,134 @@ describe('replying to and forwarding from the reader', () => {
     expect(draftsOf(drafts.getSnapshot())[0]?.quoted).toStrictEqual(
       draft?.quoted,
     );
+  });
+
+  it('suggests a reply from local context and applies it only to the authored body', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const gmail = createSyntheticGmail({ messages: 0 });
+    const message = gmail.deliver({
+      subject: 'Plans',
+      content: { text: 'Shall we meet on Friday?' },
+      headers: {
+        To: 'alex@example.invalid, Bob <bob@example.invalid>',
+        Cc: 'carol@example.invalid',
+        'Message-ID': '<plans@example.invalid>',
+      },
+    });
+    const drafts = createDrafts(storage.native, registration);
+    const { native, asked, cancelled } = scriptedDraftAssistance();
+    await render(
+      <AssistanceContext value={native}>
+        <ReaderApp
+          drafts={drafts}
+          gmail={gmail}
+          message={message}
+          registration={registration}
+        />
+      </AssistanceContext>,
+    );
+    await press('Reply All');
+    await screen.findByLabelText('Subject');
+    const [draft] = draftsOf(drafts.getSnapshot());
+    const requests = gmail.requests.length;
+    const oversized = '"'.repeat(3000);
+    await fireEvent.changeText(
+      screen.getByLabelText('Message body'),
+      oversized,
+    );
+    await press('Suggest a reply to the quoted message');
+    await expect(
+      screen.findByText(
+        'Your reply is too long for a suggestion. Up to 6,000 characters can be read.',
+      ),
+    ).resolves.toHaveProp('selectable', true);
+    expect(screen.getByLabelText('Message body')).toHaveTextContent(oversized, {
+      exact: true,
+    });
+    expect(asked).toHaveLength(0);
+    expect(gmail.requests).toHaveLength(requests);
+    await press('Keep your text and close this suggestion');
+    await fireEvent.changeText(screen.getByLabelText('Message body'), 'Yes');
+    await press('Suggest a reply to the quoted message');
+    // Only display names, the authored text and the quoted message already in the Draft are read.
+    expect(asked[0]?.operation).toBe('reply');
+    expect(JSON.parse(asked[0]!.input)).toMatchObject({
+      operation: 'reply',
+      recipientNames: 'Maya Chen, Bob',
+      authoredText: 'Yes',
+      quotedText: expect.stringContaining('Shall we meet on Friday?'),
+    });
+    expect(asked[0]?.input).toContain('Shall we meet on Friday?');
+    // No raw address is admitted, including the sender in the quoted attribution line.
+    expect(asked[0]?.input).not.toContain('@');
+    expect(gmail.requests).toHaveLength(requests);
+    asked[0]?.answer.resolve('Yes, Friday works. See you then.');
+    await screen.findByText('Yes, Friday works. See you then.');
+    expect(screen.getByLabelText('Message body')).toHaveTextContent('Yes', {
+      exact: true,
+    });
+    await press('Replace your reply with this suggestion');
+    expect(screen.getByLabelText('Message body')).toHaveTextContent(
+      'Yes, Friday works. See you then.',
+      { exact: true },
+    );
+    await waitFor(() => {
+      expect(storage.stored()?.document).toContain('See you then.');
+    });
+    // Recipients, sender, quoted text and threading are unchanged, and nothing was sent.
+    const [applied] = draftsOf(drafts.getSnapshot());
+    expect(applied).toMatchObject({
+      from: draft?.from,
+      to: draft?.to,
+      cc: draft?.cc,
+      bcc: draft?.bcc,
+      quoted: draft?.quoted,
+      response: draft?.response,
+    });
+    expect(gmail.requests).toHaveLength(requests);
+    await press('Undo');
+    expect(screen.getByLabelText('Message body')).toHaveTextContent('Yes', {
+      exact: true,
+    });
+
+    // Recipient edits retire the captured reply input even when Undo restores it before commit.
+    await press('Suggest a reply to the quoted message');
+    asked[1]?.answer.resolve('Ready for the old recipients.');
+    await screen.findByText('Ready for the old recipients.');
+    const apply = queuedPress('Replace your reply with this suggestion');
+    const removeBob = queuedPress('To: Bob <bob@example.invalid>');
+    const undo = queuedPress('Undo');
+    await act(() => {
+      removeBob();
+      undo();
+      apply();
+    });
+    expect(screen.queryByText('Ready for the old recipients.')).toBeNull();
+    expect(screen.getByLabelText('Message body')).toHaveTextContent('Yes', {
+      exact: true,
+    });
+
+    // A pending request is also cancelled on recipient editing; its late result stays hidden.
+    await press('Suggest a reply to the quoted message');
+    await press('To: Bob <bob@example.invalid>');
+    asked[2]?.answer.resolve('Late for the old recipients.');
+    await act(async () => {
+      await asked[2]?.answer.promise;
+    });
+    expect(screen.queryByLabelText('Suggested reply')).toBeNull();
+    expect(screen.queryByText('Late for the old recipients.')).toBeNull();
+    expect(cancelled).toStrictEqual([asked[2]?.request]);
+    await press('Undo');
+
+    // Closing the Draft while a suggestion is pending cancels it.
+    await press('Suggest a reply to the quoted message');
+    await screen.findByLabelText('Cancel writing help');
+    await press('Close');
+    await waitFor(() => {
+      expect(cancelled).toStrictEqual([asked[2]?.request, asked[3]?.request]);
+    });
   });
 
   it('starts only the first queued response and ignores its old reader callback', async () => {

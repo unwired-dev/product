@@ -11,6 +11,8 @@ import type {
 
 import { mailboxesOf } from '../registration.ts';
 
+// The Mock Mail Session scenarios this fake implements, each one also in
+// scripts/mock-mail-scenarios.json, plus the test-only 'registration-success'.
 const Scenario = Schema.Literals([
   'registration-cancelled',
   'registration-declined',
@@ -26,6 +28,8 @@ const Scenario = Schema.Literals([
   // sign-in waits for approval like any other device after the first.
   'registration-revoked',
 ]);
+
+export const registrationScenarios = Scenario.literals;
 
 // A well-formed synthetic Recovery Key; it protects nothing.
 export const syntheticRecoveryKey =
