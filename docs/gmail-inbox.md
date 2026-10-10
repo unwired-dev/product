@@ -268,8 +268,9 @@ children never supply either. The first child may itself contain readable
 alternatives and related images, including when the container is nested in mixed
 mail. A message nested more than 32 multipart levels deep, or with more than
 10,000 parts, is reported as not downloaded instead of being read. Sender-controlled
-MIME metadata is bounded before any header is parsed: at most 10,000 headers and
-1,048,576 UTF-16 code units of header text per message. Header names and Content-IDs
+MIME metadata is bounded before any header is parsed: at most 100,000 headers and
+4,194,304 UTF-16 code units of header text per message, room for several headers
+on each of 10,000 parts. Header names and Content-IDs
 are limited to 998 units, header values to 262,144 units and a Gmail MIME type to
 255 units. An explicit open of a message over any budget reports the body as
 failed; metadata is never truncated, because hiding a declaration could change body

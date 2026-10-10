@@ -91,15 +91,16 @@ export const decodeFullMessage = Schema.decodeUnknownEffect(
 
 // Sender-controlled MIME metadata a message may carry before any of it is parsed. A type and
 // subtype are at most 127 characters each (RFC 6838); a header name and a Content-ID fit one
-// 998-character line (RFC 5322). Values, header count and total header text are bounded well
-// above real mail. Metadata is never truncated: hiding a declaration could change the body.
+// 998-character line (RFC 5322). Values are bounded well above real mail; header count and
+// total header text leave room for several headers on each of the 10,000 parts admitted above.
+// Metadata is never truncated: hiding a declaration could change the body.
 const metadataLimits = {
   mimeType: 255,
   name: 998,
   contentId: 998,
   value: 256 * 1024,
-  headers: 10_000,
-  text: 1024 * 1024,
+  headers: 100_000,
+  text: 4 * 1024 * 1024,
 };
 
 export const withinMetadataBudgets = (payload: GmailPart) => {

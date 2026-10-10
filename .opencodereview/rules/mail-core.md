@@ -661,6 +661,12 @@ Namespace-import style, `JSON.parse`, `typeof … === 'object'` guards, untagged
   through their existing states. Delimiter scans must avoid eager match arrays
   and repeated suffix scans on unterminated quoted strings; otherwise a compact
   sender-controlled header can stall or exhaust every host's shared runtime.
+- `message-body.ts.metadataLimits` aggregate header-count or text budgets chosen
+  without checking `mimeTreeLimits.parts` and supported attachment trees. Several
+  ordinary headers belong to each part; independent numeric caps can otherwise
+  reject a message deliberately admitted near the part limit. Verify both
+  over-budget rejection across parts and successful reads of admitted trees,
+  including the existing large-attachment journeys in both host test suites.
 - `html-sanitizer.ts.parseDeclarations` deduplicating before resolving validity
   and importance, or confusing source validity with output retention. Invalid
   important values must not suppress valid normal ones; valid unretained values

@@ -497,7 +497,7 @@ describe('reading Gmail message bodies', () => {
         gmail.deliver(),
         {
           mimeType: 'multipart/mixed',
-          parts: [5000, 5001].map((length) =>
+          parts: [50_000, 50_001].map((length) =>
             text(Array.from({ length }, () => ({ name: 'X-A', value: '' }))),
           ),
         },
@@ -524,7 +524,7 @@ describe('reading Gmail message bodies', () => {
         gmail.deliver(),
         {
           mimeType: 'multipart/mixed',
-          parts: Array.from({ length: 5 }, () =>
+          parts: Array.from({ length: 17 }, () =>
             text([{ name: 'X-A', value: 'a'.repeat(value) }]),
           ),
         },
