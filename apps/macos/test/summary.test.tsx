@@ -53,6 +53,9 @@ function scriptedAssistance() {
       new Promise((resolve) => {
         asked.push({ request, input, answer: resolve });
       }),
+    // The reader never asks for Draft assistance.
+    rewrite: () => Promise.reject(new Error('unused')),
+    suggestReply: () => Promise.reject(new Error('unused')),
     cancel: (request) => {
       cancelled.push(request);
       return Promise.resolve(null);
@@ -183,7 +186,11 @@ describe('on-device message summaries in the reader', () => {
         screen.findByText('Summarizing on this device…'),
       ).resolves.toBeOnTheScreen();
       expect(asked.map(({ input }) => input)).toStrictEqual([
-        'Subject: Venue\n\nPlease confirm the venue by Friday.',
+        JSON.stringify({
+          operation: 'summary',
+          subject: 'Venue',
+          body: 'Please confirm the venue by Friday.',
+        }),
       ]);
       asked[0]?.answer('Confirm the venue by Friday.');
       await expect(
@@ -313,9 +320,11 @@ describe('on-device message summaries in the reader', () => {
         await screen.findByLabelText('Summarize this message'),
       );
       await screen.findByLabelText('Cancel summary');
-      expect(asked[0]?.input).toMatch(
-        /^Subject: A little more room to think\n\nHi Alex,/u,
-      );
+      expect(JSON.parse(asked[0]!.input)).toMatchObject({
+        operation: 'summary',
+        subject: 'A little more room to think',
+        body: expect.stringMatching(/^Hi Alex,/u),
+      });
       // The fixture body is local, so the summary control stays mounted across messages.
       await app.rerender(reader('weekend-walk'));
       expect(cancelled).toStrictEqual([asked[0]?.request]);

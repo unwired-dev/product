@@ -13,6 +13,17 @@ A host owns views and native adapters. It renders shared stores from `@private-e
 
 #### React correctness
 
+- `composer.tsx.Editor` eligibility checks repeating whole-document projection
+  through a shared helper. Follow render-called helpers, including `selectedText`:
+  a capped result does not bound its earlier `bounds`/`covered` allocations. For
+  a collapsed-caret Rewrite existence check, use `assistance.ts.canRewrite`'s
+  early exit over non-image authored spans rather than a whole-body selection.
+  When a render check needs a document length, reuse the existing `display` for
+  that body revision; otherwise every keystroke repeats document-wide allocation.
+  Preserve selected-range eligibility and capture-time size/image refusal.
+  Press handlers must still use `authored.current` and event-facing selection
+  so reuse does not admit stale input before React commits.
+
 - `apps/macos/src/mailbox.tsx.InboxProvider` installing one application lifecycle
   subscription per mounted window on the shared Draft store. Give that store one
   subscription owner across windows, preserving later distinct transitions and

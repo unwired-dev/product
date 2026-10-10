@@ -10,12 +10,12 @@ import type {
 import type { ReactNode } from 'react';
 import type { TurboModule } from 'react-native';
 
+import { draftTextIssue } from '@private-email/mail-core/assistance';
 import { spacing } from '@private-email/mail-core/theme';
 import {
   canRetryTranslation,
   createTranslation,
   draftTranslationInput,
-  draftTranslationIssue,
   hasTranslatableText,
   messageTranslationInput,
   readerText,
@@ -491,7 +491,7 @@ export function DraftTranslation({
       }}
     />
   );
-  const issue = draftTranslationIssue(text);
+  const issue = draftTextIssue(text);
   if (issue !== undefined) {
     return (
       <View

@@ -26,6 +26,15 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 - A native bridge result, seed, persisted JSON value, HTTP body, token or route parameter used before a `Schema` decode, or narrowed with `as`, a hand-written property check or a truthiness test. The Apple host's checks do not make its results trusted in TypeScript.
 - A decode failure that becomes a default, an empty list or a `ready` state. It must map to the boundary's existing tagged error, with the decode error as `cause`, and surface as a non-ready state.
 - A schema widened (`Schema.Unknown`, optional field, loose union) to make a fixture or a new native result pass, without the consumer handling the widened case.
+- `assistance.ts.decodeDraftText`, `translation.ts.decodeTranslation` or another
+  generated-text decoder admitting content the Draft editor cannot insert as
+  reviewed. Validate against `draftReplacement` and
+  `semantic-document.ts.replaceSelection` before publishing `ready`, including
+  rejecting U+FFFC image placeholders that replacement strips. Otherwise a
+  nonblank preview can become an empty insertion and delete captured authored
+  text, or the accepted edit silently differs from its preview. Fail closed
+  rather than silently sanitizing the generated result; test the public store
+  with placeholder-only and mixed-text output.
 - `drafts.ts.readAsset` using the verify-only response schema for a requested
   image preview. Require a nonempty URI or the explicit `uri: null` no-thumbnail
   success reply, mapping the latter to verified bytes without a picture. Admit
@@ -151,6 +160,54 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
 - A service identifier that does not follow `@private-email/<package>/<Name>`; identifiers key the context, and a collision silently resolves the wrong service.
 
 #### Product behavior the stores own
+
+- `assistance.ts.captureDraftText` or a host recomputing refusal guidance from
+  raw text instead of the input builder's actual refusal cause. Encoded authored
+  text and request framing can exhaust the reply budget despite fitting the raw
+  cap; redaction or cut-word removal can instead leave no usable quoted context.
+  Carry the builder's diagnosis to both panels, or a refused reply shows generic
+  failure for encoded overflow or asks to shorten even an empty authored body.
+
+- `assistance.ts` input builders or `UnwiredAssistance` model prompts using flat
+  labelled concatenation instead of a typed JSON request with an explicit
+  operation and distinct fields for each admitted context source,
+  as required by ADR 0052. Quoted labels or field names must remain escaped data,
+  never authored intent or framing. Measure the complete encoded payload against
+  the input bound, preserve full admitted authored text, surrogate-safe cuts,
+  cut-word address removal and omission disclosure, and keep fixed native
+  instructions aligned with the fields. Otherwise adversarial correspondence
+  can impersonate the person's reply or escaping can exceed the model budget.
+
+- `assistance.ts.canRewrite` or another shared document helper called during
+  host rendering projecting the whole body for an existence check or to derive
+  a value the caller already holds for that body revision. Trace its render
+  callers and `selectedText`'s `bounds`/`covered` work: a capped text result does
+  not bound earlier document-wide traversal or allocation. A collapsed-caret
+  Rewrite existence check must stop at the first visible non-image authored span;
+  reuse the caller's existing projection when a check needs a document length.
+  Otherwise every keystroke repeats whole-body allocation and can stall the
+  shared JavaScript runtime for large Drafts. Preserve selected-range eligibility
+  and capture-time size/image refusal. Keep event-time callers tied to their
+  latest authored body rather than a previous render's projection.
+
+- `assistance.ts.replyInput` or `quotedInput` excluding recipient address fields
+  while admitting raw addresses embedded in To/Cc display names, quoted
+  attribution lines or other admitted source-message text. Check the complete
+  model input, not only its selected fields; otherwise Response Assistance
+  processes identities its context contract excludes. Keep traversal and string
+  work bounded before filtering, and preserve surrogate-safe cuts even when
+  redaction shortens a prefix below its final output bound.
+  Charge the cumulative raw recipient-name prefix before redaction; a
+  post-redaction length cap can scan the entire recipient list when addresses
+  consume no output, multiplying synchronous work beyond the admitted prefix.
+  Independently bound recipient entries, including missing or empty names: a
+  name-character budget alone cannot stop an address-only list. Trace
+  `captureDraftText` too; spreading whole To/Cc arrays before truncation leaves
+  collection and allocation unbounded even when `replyInput` stops early.
+  A cut can omit the "@" while retaining an address fragment. Drop the entire
+  cut whitespace token even when preceding punctuation or text makes it longer
+  than an address local part, and bound before trimming leading whitespace;
+  otherwise a length heuristic or hidden cutoff admits the fragment.
 
 - `readable-text.ts.paragraphBuilder` or another readable-content filter dropping
   an admitted image occurrence because its alt text is empty or whitespace-only.

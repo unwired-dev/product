@@ -9,6 +9,7 @@ import type { ReadableBody } from './readable-text.ts';
 import {
   boundedInput,
   createAssistanceRequest,
+  draftTextIssue,
   malformedFields,
   rejectionFields,
   summaryInputLimit,
@@ -55,7 +56,10 @@ const decodeTranslation = Schema.decodeUnknownEffect(
   Schema.Struct({
     source: LanguageCode,
     // Translated text can be longer than its source, but not without bound.
-    text: Schema.String.check(Schema.isMaxLength(summaryInputLimit * 4)),
+    text: Schema.String.check(
+      Schema.isMaxLength(summaryInputLimit * 4),
+      Schema.makeFilter((text) => !text.includes(imageCharacter)),
+    ),
   }),
 );
 const decodeOutcome = Schema.decodeUnknownOption(
@@ -113,27 +117,14 @@ export const messageTranslationInput = (
   return { ...bounded, omitted: bounded.omitted || cut, target };
 };
 
-// A text translation cannot retain selected semantic image spans. Refuse them before inference.
-export const draftTranslationIssue = (text: string) => {
-  if (text.length > summaryInputLimit) {
-    return 'too-long';
-  }
-  return text.includes(imageCharacter) ? 'inline-image' : undefined;
-};
-
 // Selected Draft text is never cut: accepting a translation replaces the whole selection.
 export const draftTranslationInput = (
   text: string,
   target: string,
 ): TranslationInput | undefined =>
-  hasVisibleText(text) && draftTranslationIssue(text) === undefined
+  hasVisibleText(text) && draftTextIssue(text) === undefined
     ? { text, omitted: false, target }
     : undefined;
-
-// The text that replaces a Draft selection: its translation, trimmed for the preview, between the
-// selection's own leading and trailing whitespace so neighbouring words stay separated.
-export const draftReplacement = (selected: string, translated: string) =>
-  `${/^\s*/u.exec(selected)?.[0] ?? ''}${translated.trim()}${/\s*$/u.exec(selected)?.[0] ?? ''}`;
 
 export type TranslationState =
   | { readonly kind: 'idle' }

@@ -68,6 +68,16 @@ Native storage owns what TypeScript must never hold: Keychain items, the storage
 
 #### Bridge contract
 
+- `assistance.ts` input builders or `UnwiredAssistance` model prompts using flat
+  labelled concatenation instead of a typed JSON request with an explicit
+  operation and distinct fields for each admitted context source,
+  as required by ADR 0052. Quoted labels or field names must remain escaped data,
+  never authored intent or framing. Measure the complete encoded payload against
+  the input bound, preserve full admitted authored text, surrogate-safe cuts,
+  cut-word address removal and omission disclosure, and keep fixed native
+  instructions aligned with the fields. Otherwise adversarial correspondence
+  can impersonate the person's reply or escaping can exceed the model budget.
+
 - `RegistrationStore.readDraftAsset` returning full decrypted image bytes as a
   base64 URI merely to show a composer thumbnail, or decoding previews on the
   main actor. Keep verification and thumbnail work off-main, return bounded

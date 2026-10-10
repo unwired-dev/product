@@ -4,9 +4,11 @@ import type {
   TranslationInput,
 } from '../src/translation.ts';
 
+import { draftReplacement } from '../src/assistance.ts';
 import {
   displayOf,
   historyOf,
+  imageCharacter,
   record,
   replaceSelection,
   selectedText,
@@ -18,7 +20,6 @@ import {
 } from '../src/testing/mock-session.ts';
 import {
   createTranslation,
-  draftReplacement,
   draftTranslationInput,
   messageTranslationInput,
   readerText,
@@ -221,6 +222,27 @@ describe('on-device translation', () => {
       await done;
       expect(translation.getSnapshot(input)).toStrictEqual({ kind: 'failed' });
       expect(JSON.stringify(logged.mock.calls)).not.toContain('Lunch');
+    },
+  );
+
+  it.each([imageCharacter, `Almuerzo ${imageCharacter}`])(
+    'rejects a result containing an image placeholder, which Draft insertion would drop: %j',
+    async (text) => {
+      expect.hasAssertions();
+      const logged = vi.spyOn(console, 'error').mockReturnValue(undefined);
+      const { native, nth } = scriptedTranslation();
+      const translation = createTranslation(native);
+      const input = message('Lunch at noon?');
+      const done = translation.start(input);
+      const call = await nth(0);
+      call.answer.resolve({ source: 'en', text });
+      await done;
+      expect(translation.getSnapshot(input)).toStrictEqual({ kind: 'failed' });
+      expect(logged).toHaveBeenCalledWith(
+        expect.any(String),
+        'On-device translation failed:',
+        'invalid at text',
+      );
     },
   );
 

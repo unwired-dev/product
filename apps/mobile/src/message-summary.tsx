@@ -7,7 +7,7 @@ import type { ReadableBody } from '@private-email/mail-core/message-body';
 import type { TurboModule } from 'react-native';
 
 import {
-  canRetrySummary,
+  canRetryAssistance,
   createMessageSummary,
   readableBodyText,
   summaryInput,
@@ -61,6 +61,8 @@ const native = () =>
 export const AssistanceContext = createContext<NativeAssistance>({
   availability: () => native().availability(),
   summarize: (request, input) => native().summarize(request, input),
+  rewrite: (request, input) => native().rewrite(request, input),
+  suggestReply: (request, input) => native().suggestReply(request, input),
   cancel: (request) => native().cancel(request),
 });
 
@@ -114,7 +116,7 @@ function SummaryContent({
         <Text
           selectable
           style={[styles.text, { color: colors.foreground }]}>
-          {state.summary}
+          {state.text}
         </Text>
         {state.omitted ? (
           <Text style={[styles.secondary, { color: colors.secondary }]}>
@@ -138,7 +140,7 @@ function SummaryContent({
         )}
       </Text>
       <View style={styles.row}>
-        {canRetrySummary(state) ? (
+        {canRetryAssistance(state) ? (
           <Action
             label={t('common.retry')}
             accessibilityLabel={t('summary.summarizeAgainLabel')}
