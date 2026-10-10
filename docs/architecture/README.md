@@ -78,6 +78,10 @@ These directories remain whole reviewer-only sources; use their original filenam
 - [Architecture decision records](../adr/README.md): an index of every ADR, with duplicate numbers disambiguated; accepted replacement decisions and earlier privacy, identity, transport and delivery decisions.
 - [Code documentation and architecture patterns](../../.patterns/README.md).
 - [Technical research](../research/expo-react-native-rewrite.md).
+- [BlockNote composer assessment](../research/blocknote.md) and
+  [editor alternatives and approved evaluation tickets](../research/editor-alternatives.md):
+  the alternatives report governs the Tiptap-first evaluation; BlockNote remains
+  a conditional comparison baseline, without an editor adoption decision.
 - [Platform and provider qualification](../qualification/).
 - [Historical archive index](../archive/README.md).
 
