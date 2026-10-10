@@ -56,8 +56,22 @@ not itself restrict filesystem or Git-history access.
 
 ## Implementer handoff
 
-1. Before editing, record the starting commit, `git status --short`, and any
-   existing staged, unstaged or untracked changes. Preserve unrelated work.
+1. Before editing, set up the task branch in this order:
+   1. Record `git status --short` and classify each existing staged, unstaged
+      or untracked change as task-owned or unrelated. Unrelated work stays
+      untouched and out of task commits.
+   2. Select the branch: the head of the task's open same-repository PR against
+      `main` when one exists, converted to draft now if the request forbids
+      merging but allows PR changes (a fork head is a delivery blocker to
+      report);
+      otherwise an existing branch that already holds this task's work;
+      otherwise a new task branch from the latest `main`.
+   3. Work where that branch is usable without moving unrelated changes: this
+      checkout, the worktree that already has it checked out (record and
+      classify its status too), or a new worktree. Carry only the task-owned
+      changes there, for example as a patch, and leave unrelated ones behind.
+   4. Record the starting commit: the branch head, or for a reused PR or branch
+      with commits no completed review covered, its merge-base with `main`.
 2. Implement the requested behavior and run the relevant checks under the
    [testing policy](testing.md). Documentation changes use formatting and local
    link checks.
@@ -303,5 +317,6 @@ validated issues and verifying the final artifact, including the Open Code Revie
 delegation step and the thermo-nuclear code quality review. Unresolved findings or an
 unavailable reviewer leave implementation review incomplete; report them
 accurately. Review completion and required CI remain independent gates.
-For PR work, also follow the existing
-[PR babysitting policy](pull-request-babysitting.md).
+Delivery then continues automatically, within any explicit user limit: the
+implementer opens the PR and babysits it under the [implementer PR delivery](pull-request-babysitting.md#implementer-pr-delivery)
+policy. Reviewers never open or babysit PRs.
