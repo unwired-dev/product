@@ -142,8 +142,9 @@ can delay or skip. It squash-merges each open pull request to `main` that meets 
   from its required GitHub App when one is specified. When the ruleset requires
   branches to be up to date, the head must also contain the latest `main`.
 - Every review thread is resolved.
-- Codex reacted with 👍 and its latest "Didn't find any major issues" comment
-  names the current head commit.
+- Codex reacted with 👍, left no review on the head commit, and either its
+  latest "Didn't find any major issues" comment or its Codex Review Summary
+  comment's completed Code Review names the current head commit.
 - CodeRabbit's latest approving or change-requesting review approves, and its
   `CodeRabbit` status on the head commit is posted by `coderabbitai` and reads
   "Review completed" or "Review approved". A previous approval can remain after
@@ -155,7 +156,7 @@ has had no new commits, comments or reviews for more than 2 hours. It then merge
 first dismissing a change request as stale. It never merges a pull request
 without both reviewers, a pull request CodeRabbit is configured to skip, a fork
 head, a bot-authored pull request, or the `changeset-release/main` version pull request.
-Incomplete label, required-check or review-thread pages block the merge. The merge uses the
+Incomplete label, required-check, review or review-thread pages block the merge. The merge uses the
 `GH_TOKEN` personal token so the push to `main` runs its workflows; because that
 token's owner may bypass the ruleset, the script checks the required status
 checks itself. Eligibility is checked again before acting and after a stale-review
