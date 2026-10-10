@@ -62,12 +62,13 @@ not itself restrict filesystem or Git-history access.
       untouched and out of task commits.
    2. Select the branch: the head of the task's open same-repository PR against
       `main` when one exists (a fork head is a delivery blocker to report);
+      otherwise an existing branch that already holds this task's work;
       otherwise a new task branch from the latest `main`.
    3. Work where that branch is usable without moving unrelated changes: this
       checkout, the worktree that already has it checked out (record and
       classify its status too), or a new worktree.
-   4. Record the starting commit: the branch head, or for an existing PR with
-      commits no completed review covered, its merge-base with `main`.
+   4. Record the starting commit: the branch head, or for a reused PR or branch
+      with commits no completed review covered, its merge-base with `main`.
 2. Implement the requested behavior and run the relevant checks under the
    [testing policy](testing.md). Documentation changes use formatting and local
    link checks.
