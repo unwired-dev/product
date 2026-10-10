@@ -62,12 +62,22 @@ from that Keychain, standing in for a person typing it on another device.
 In `registration-recovery`, the same synthetic device is lost and never approves.
 The journey types the account's fixed synthetic Recovery Key instead, which the
 backend checks against the account's Recovery Key verifier.
-In `registration-revocation`, the new account also has a synthetic iPad. The
-journey removes it, confirms the replacement Recovery Key and relaunches without
-it. In `registration-revoked`, another device removes this one after its first
+In `registration-revocation`, the new account also has a synthetic iPad with its
+own encryption key. The journey prepares removing it, cancels, prepares again,
+confirms the replacement Recovery Key's last four characters, and relaunches
+without it. The synthetic backend activates the removal only against the account's
+current key epoch, with an envelope for this device alone. In `registration-revoked`, another device removes this one after its first
 sign-in. The relaunch purges the account. Signing in again mints a new device
 identifier, which waits for approval as a Pending Device, and the journey signs
 out of that gate.
+
+The rendered mobile and Mac registration journeys also use fixed synthetic controls
+to add a second removable device and lose this installation's encryption key. They
+cover successive removals, the ready presentation after native adoption, renewed
+Pending Device enrollment and recovery only with the latest confirmed key. These
+controls exist only in the shared test fixture; hosted native tests separately prove
+multi-epoch cryptographic catch-up and reenrollment on the same Keychain installation.
+
 In `registration-removal`, the journey saves and confirms its Recovery Key, then
 signs out and relaunches with nothing kept.
 Signing in again leads to an approval request. It then deletes the account,

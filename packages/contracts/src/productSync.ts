@@ -5,6 +5,9 @@ import { v } from 'convex/values';
 // A conditional write expected a record that no longer exists; other failures are not conflicts.
 export const productSyncPayloadChangedErrorCode =
   'PRODUCT_SYNC_PAYLOAD_CHANGED';
+// The write was sealed under an earlier key epoch; the device adopts the newest ring and reseals.
+export const productSyncKeyRotationRequiredErrorCode =
+  'PRODUCT_SYNC_KEY_ROTATION_REQUIRED';
 
 export const encryptedProductSyncPayloadBodyValidator = v.object({
   algorithm: v.literal('AES-GCM-256'),
@@ -35,6 +38,8 @@ export const productSyncEnrollmentRequestResponseValidator = v.object({
 
 export const productSyncEnrollmentPendingRequestValidator = v.object({
   createdAt: v.number(),
+  // The long-lived key the device becomes a Trusted Device with; the approver confirms it too.
+  deviceEncryptionPublicKey: v.string(),
   displayName: v.string(),
   enrollmentPublicKey: v.string(),
   expiresAt: v.number(),
@@ -75,6 +80,27 @@ export const productSyncEnrollmentCompletionValidator = v.union(
   v.object({ admitted: v.literal(true), trustedDeviceId: v.string() }),
   v.object({ admitted: v.literal(false) }),
 );
+
+// The newest complete key ring sealed to one Trusted Device's encryption key; opaque to Convex.
+export const productSyncKeyEnvelopeValidator = v.object({
+  ciphertextBase64: v.string(),
+  encapsulatedKeyBase64: v.string(),
+  keyEpoch: v.number(),
+});
+
+export type ProductSyncKeyEnvelope = Infer<
+  typeof productSyncKeyEnvelopeValidator
+>;
+
+// A committed removal; its Recovery Key is current only until a later activation replaces it.
+export const productSyncKeyRotationProposalValidator = v.object({
+  keyEpoch: v.number(),
+  recoveryKeyCurrent: v.boolean(),
+});
+
+export type ProductSyncKeyRotationProposal = Infer<
+  typeof productSyncKeyRotationProposalValidator
+>;
 
 export const encryptedProductSyncPayloadValidator = v.object({
   encryptedPayload: encryptedProductSyncPayloadBodyValidator,

@@ -17,12 +17,16 @@ import type { AuthenticatedProductAccount } from './productAccountAuth.js';
 
 import { internalMutation, mutation, query } from './_generated/server.js';
 import {
+  newestProductSyncKeyEpoch,
+  provesCurrentRecoveryKey,
   requireCurrentProductSyncKeyEpoch,
   requireAuthenticatedTrustedDevice,
+  requireDeviceEncryptionPublicKey,
   requireRecoveryVerifier,
   trustedDeviceCredentialArgs,
 } from './productAccountAuth.js';
 
+export const deviceEncryptionKeyBoundErrorCode = 'DEVICE_ENCRYPTION_KEY_BOUND';
 const encryptedProductSyncPayloadPageSize = 100;
 const encryptedProductSyncAtomicMutationLimit = 100;
 const recoveryPayloadIdentifier = 'product-account-recovery-v1';
@@ -205,6 +209,25 @@ async function adoptPublishedRecoveryMaterial(
   return initialized;
 }
 
+// A Trusted Device's bound encryption key is never replaced, so a sign-in cannot redirect rotations.
+async function requireUnboundOrSameDeviceEncryptionKey(
+  ctx: MutationCtx,
+  trustedDeviceId: Id<'trustedDevices'>,
+  deviceEncryptionPublicKey: string,
+): Promise<Doc<'trustedDevices'>> {
+  const device = await ctx.db.get('trustedDevices', trustedDeviceId);
+  if (device === null) {
+    throw new Error('Trusted device required');
+  }
+  if (
+    device.deviceEncryptionPublicKey !== undefined &&
+    device.deviceEncryptionPublicKey !== deviceEncryptionPublicKey
+  ) {
+    throw new ConvexError({ code: deviceEncryptionKeyBoundErrorCode });
+  }
+  return device;
+}
+
 // Creates Product Sync key material only for an account that has never had any: the first
 // recovery envelope and the initialized marker commit together, and exactly one device wins.
 async function publishFirstRecoveryEnvelope(
@@ -244,6 +267,8 @@ async function publishFirstRecoveryEnvelope(
 export const initialize = mutation({
   args: {
     ...trustedDeviceCredentialArgs,
+    // Bound to the caller only when this call creates the account's key material.
+    deviceEncryptionPublicKey: v.string(),
     encryptedPayload: encryptedProductSyncPayloadBodyValidator,
     // Published with the first recovery envelope so the Recovery Key can admit a Pending Device.
     recoveryVerifier: v.string(),
@@ -251,6 +276,7 @@ export const initialize = mutation({
   },
   handler: async (ctx, args) => {
     requireRecoveryVerifier(args.recoveryVerifier);
+    requireDeviceEncryptionPublicKey(args.deviceEncryptionPublicKey);
     const account = await requireAuthenticatedTrustedDevice(
       ctx,
       args.trustedDeviceId,
@@ -259,6 +285,11 @@ export const initialize = mutation({
     requireCurrentProductSyncKeyEpoch(
       account,
       args.encryptedPayload.keyVersion,
+    );
+    await requireUnboundOrSameDeviceEncryptionKey(
+      ctx,
+      args.trustedDeviceId,
+      args.deviceEncryptionPublicKey,
     );
     const existing = await findPayload(
       ctx,
@@ -273,12 +304,58 @@ export const initialize = mutation({
         }),
       };
     }
-    return {
-      initialized:
-        (await publishFirstRecoveryEnvelope(ctx, account, args)) !== null,
-    };
+    if ((await publishFirstRecoveryEnvelope(ctx, account, args)) === null) {
+      return { initialized: false };
+    }
+    await ctx.db.patch('trustedDevices', args.trustedDeviceId, {
+      deviceEncryptionPublicKey: args.deviceEncryptionPublicKey,
+    });
+    return { initialized: true };
   },
   returns: productSyncInitializationResponseValidator,
+});
+
+// A Trusted Device without a bound encryption key binds one by proving the current Recovery Key,
+// which also opens the current recovery envelope it adopts. A wrong proof changes nothing.
+export const bindDeviceEncryptionKey = mutation({
+  args: {
+    ...trustedDeviceCredentialArgs,
+    deviceEncryptionPublicKey: v.string(),
+    recoveryProof: v.string(),
+    trustedDeviceId: v.id('trustedDevices'),
+  },
+  // fallow-ignore-next-line complexity -- Missing material or a wrong proof binds nothing.
+  handler: async (ctx, args) => {
+    requireDeviceEncryptionPublicKey(args.deviceEncryptionPublicKey);
+    const { productAccountId } = await requireAuthenticatedTrustedDevice(
+      ctx,
+      args.trustedDeviceId,
+      args.trustedDeviceCredential,
+    );
+    const device = await requireUnboundOrSameDeviceEncryptionKey(
+      ctx,
+      args.trustedDeviceId,
+      args.deviceEncryptionPublicKey,
+    );
+    const account = await ctx.db.get('productAccounts', productAccountId);
+    if (
+      account === null ||
+      (await findPayload(ctx, productAccountId, recoveryPayloadIdentifier)) ===
+        null ||
+      !(await provesCurrentRecoveryKey(account, args.recoveryProof))
+    ) {
+      return { bound: false };
+    }
+    // Repeating the same binding after a lost reply is not a replacement.
+    if (device.deviceEncryptionPublicKey === undefined) {
+      await ctx.db.patch('trustedDevices', args.trustedDeviceId, {
+        deviceEncryptionPublicKey: args.deviceEncryptionPublicKey,
+        productSyncKeyEpoch: newestProductSyncKeyEpoch(account),
+      });
+    }
+    return { bound: true };
+  },
+  returns: v.object({ bound: v.boolean() }),
 });
 
 const encryptedPayloadRevisionValidator = v.object({
@@ -519,17 +596,16 @@ export const replaceRecoveryMaterialIfUnchanged = internalMutation({
       trustedDeviceId,
       args.trustedDeviceCredential,
     );
-    if (account.productSyncPendingKeyEpoch !== undefined) {
-      throw new Error('Product Sync key rotation already in progress');
-    }
     const payload = await writeEncryptedPayloadIfUnchanged(ctx, {
       ...args,
       payloadIdentifier: recoveryPayloadIdentifier,
       trustedDeviceId,
     });
-    // The verifier follows the envelope that won; a lost compare-and-set publishes nothing.
+    // The verifier follows the envelope that won; a lost compare-and-set publishes nothing. A
+    // removal's Recovery Key stops being current once this one replaces it.
     if (sameEncryptedPayload(payload.encryptedPayload, args.encryptedPayload)) {
       await ctx.db.patch('productAccounts', account.productAccountId, {
+        productSyncRecoveryProposalId: undefined,
         productSyncRecoveryVerifier: args.recoveryVerifier,
       });
     }

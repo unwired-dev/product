@@ -8,7 +8,11 @@ import type { Id } from '../convex/_generated/dataModel.js';
 
 import { api, internal } from '../convex/_generated/api.js';
 import schema from '../convex/schema.js';
-import { connectTrusted, recoveryVerifier } from './devices.js';
+import {
+  connectTrusted,
+  deviceEncryptionPublicKey,
+  recoveryVerifier,
+} from './devices.js';
 
 const modules = import.meta.glob('../convex/**/*.ts');
 
@@ -93,6 +97,7 @@ async function fixture() {
     platform: 'ios',
   });
   await asUser.mutation(api.productSync.initialize, {
+    deviceEncryptionPublicKey: deviceEncryptionPublicKey('initializing-device'),
     recoveryVerifier,
     encryptedPayload: { ...encryptedPayload, schemaVersion: 3 },
     trustedDeviceId: device.trustedDeviceId,

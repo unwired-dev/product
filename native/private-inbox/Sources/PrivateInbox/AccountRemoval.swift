@@ -71,23 +71,12 @@ extension RegistrationStore {
         if vault.published {
           vault = try await adoptRotation(vault, backend: backend, session: identity, product)
         }
+        if vault.revocation?.submitted == true {
+          return try status(saved).merging(["revocationNotice": "unconfirmed"]) { $1 }
+        }
         // Never discard a published or unanswered Recovery Key the person has not backed up.
         if vault.recoveryKey != nil, !vault.recoveryKeyConfirmed || !vault.published {
           return try status(saved)
-        }
-        if let bytes = vault.recoveryKey {
-          if let rotation = try await backend.keyRotation(identity, product) {
-            guard rotation.keyEpoch == vault.ring.current else {
-              throw RegistrationError.unavailable
-            }
-          } else {
-            let envelope = try await backend.recoveryEnvelope(identity, product).encryptedPayload
-            guard
-              try KeyRingEnvelope.openRecovery(
-                envelope, key: RecoveryKey(bytes: bytes), account: product.productAccountId
-              ) == vault.ring
-            else { throw RegistrationError.unavailable }
-          }
         }
       }
       saved.accountRemoval = AccountRemovalState(operation: .signOut)

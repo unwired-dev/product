@@ -1,5 +1,6 @@
 import type { SignInProvider } from '@private-email/contracts/productAccount';
 
+import { productSyncKeyRotationRequiredErrorCode } from '@private-email/contracts/productSync';
 import { ConvexError, v } from 'convex/values';
 
 import type { Doc, Id } from './_generated/dataModel.js';
@@ -135,7 +136,6 @@ export type AuthenticatedProductAccount = Readonly<{
   productAccountId: Id<'productAccounts'>;
   productSyncKeyEpoch: number | undefined;
   productSyncMaterialInitializedAt: number | undefined;
-  productSyncPendingKeyEpoch: number | undefined;
 }>;
 
 export const initialProductSyncKeyEpoch = 1;
@@ -180,10 +180,49 @@ export async function trustedDeviceCredentialDigest(
 }
 
 // A SHA-256 digest, as hex, of the value the Recovery Key derives for admitting a Pending Device.
+export function isRecoveryVerifier(verifier: string): boolean {
+  return /^[0-9a-f]{64}$/u.test(verifier);
+}
+
 export function requireRecoveryVerifier(verifier: string): void {
-  if (!/^[0-9a-f]{64}$/u.test(verifier)) {
+  if (!isRecoveryVerifier(verifier)) {
     throw new Error('Recovery Key verifier is invalid');
   }
+}
+
+// Standard base64 of a raw 32-byte X25519 public key or HPKE encapsulated key.
+export const x25519KeyPattern = /^[A-Za-z0-9+/]{43}=$/u;
+const base64Pattern = /^[A-Za-z0-9+/]+={0,2}$/u;
+const sealedKeyRingMaximumLength = 64 * 1024;
+const recoveryProofPattern = /^[0-9a-f]{64}$/u;
+
+export function isSealedKeyRing(
+  sealed: Readonly<{ ciphertextBase64: string; encapsulatedKeyBase64: string }>,
+): boolean {
+  return (
+    x25519KeyPattern.test(sealed.encapsulatedKeyBase64) &&
+    sealed.ciphertextBase64.length <= sealedKeyRingMaximumLength &&
+    base64Pattern.test(sealed.ciphertextBase64)
+  );
+}
+
+export function requireDeviceEncryptionPublicKey(publicKey: string): void {
+  if (!x25519KeyPattern.test(publicKey)) {
+    throw new Error('Device encryption public key is invalid');
+  }
+}
+
+// Whether a value derived from the Recovery Key matches the account's current verifier.
+export async function provesCurrentRecoveryKey(
+  account: Readonly<{ productSyncRecoveryVerifier?: string }>,
+  recoveryProof: string,
+): Promise<boolean> {
+  return (
+    account.productSyncRecoveryVerifier !== undefined &&
+    recoveryProofPattern.test(recoveryProof) &&
+    (await trustedDeviceCredentialDigest(recoveryProof)) ===
+      account.productSyncRecoveryVerifier
+  );
 }
 
 export function throwTrustedDeviceRevoked(): never {
@@ -217,8 +256,14 @@ export async function requireProductAccount(
     productAccountId: account._id,
     productSyncKeyEpoch: account.productSyncKeyEpoch,
     productSyncMaterialInitializedAt: account.productSyncMaterialInitializedAt,
-    productSyncPendingKeyEpoch: account.productSyncPendingKeyEpoch,
   };
+}
+
+export function throwProductSyncKeyRotationRequired(): never {
+  throw new ConvexError({
+    code: productSyncKeyRotationRequiredErrorCode,
+    message: 'Product Sync key rotation required',
+  });
 }
 
 export function requireCurrentProductSyncKeyEpoch(
@@ -226,7 +271,7 @@ export function requireCurrentProductSyncKeyEpoch(
   keyVersion: number,
 ): void {
   if (keyVersion !== newestProductSyncKeyEpoch(account)) {
-    throw new Error('Product Sync key rotation required');
+    throwProductSyncKeyRotationRequired();
   }
 }
 
@@ -327,16 +372,9 @@ function throwPendingDeviceUnavailable(): never {
 }
 
 export function newestProductSyncKeyEpoch(
-  account: Readonly<{
-    productSyncKeyEpoch?: number;
-    productSyncPendingKeyEpoch?: number;
-  }>,
+  account: Readonly<{ productSyncKeyEpoch?: number }>,
 ): number {
-  return (
-    account.productSyncPendingKeyEpoch ??
-    account.productSyncKeyEpoch ??
-    initialProductSyncKeyEpoch
-  );
+  return account.productSyncKeyEpoch ?? initialProductSyncKeyEpoch;
 }
 
 type PendingDeviceProof = Readonly<{

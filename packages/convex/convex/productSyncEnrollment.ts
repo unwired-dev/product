@@ -24,23 +24,22 @@ import {
 } from './productAccount.js';
 import {
   enrollmentLifetimeMilliseconds,
+  isSealedKeyRing,
   newestProductSyncKeyEpoch,
   pendingDeviceProofArgs,
+  provesCurrentRecoveryKey,
   requireAuthenticatedPendingDevice,
   requireAuthenticatedTrustedDevice,
   requireCurrentProductSyncKeyEpoch,
+  requireDeviceEncryptionPublicKey,
+  throwProductSyncKeyRotationRequired,
   trustedDeviceCredentialArgs,
-  trustedDeviceCredentialDigest,
+  x25519KeyPattern,
 } from './productAccountAuth.js';
 
 // An account has at most three Pending Devices; expired ones are skipped after the index scan.
 const pendingDeviceScanLimit = 10;
-const sealedKeyRingMaximumLength = 64 * 1024;
 const recoveryPayloadIdentifier = 'product-account-recovery-v1';
-// Standard base64 of a raw 32-byte X25519 public key or HPKE encapsulated key.
-const x25519KeyPattern = /^[A-Za-z0-9+/]{43}=$/u;
-const base64Pattern = /^[A-Za-z0-9+/]+={0,2}$/u;
-const recoveryProofPattern = /^[0-9a-f]{64}$/u;
 
 const productSyncEnrollmentErrorCodes = {
   notInitialized: 'PRODUCT_SYNC_NOT_INITIALIZED',
@@ -129,14 +128,20 @@ const trustedProofArgs = {
   trustedDeviceId: v.id('trustedDevices'),
 };
 
-// A Pending Device publishes a one-time key for approval; asking again replaces the earlier key,
-// so an approval sealed to it can never be collected, and renews the Enrollment Code's lifetime.
+// A Pending Device publishes a one-time key for approval with its long-lived device key; asking
+// again replaces both, so an approval sealed to the earlier one can never be collected, and renews
+// the Enrollment Code's lifetime.
 export const request = mutation({
-  args: { ...pendingDeviceProofArgs, enrollmentPublicKey: v.string() },
+  args: {
+    ...pendingDeviceProofArgs,
+    deviceEncryptionPublicKey: v.string(),
+    enrollmentPublicKey: v.string(),
+  },
   handler: async (ctx, args) => {
     if (!x25519KeyPattern.test(args.enrollmentPublicKey)) {
       throw new Error('Enrollment public key is invalid');
     }
+    requireDeviceEncryptionPublicKey(args.deviceEncryptionPublicKey);
     const { account, pendingDevice } = await requireAuthenticatedPendingDevice(
       ctx,
       args,
@@ -146,8 +151,10 @@ export const request = mutation({
     const expiresAt = now + enrollmentLifetimeMilliseconds;
     await ctx.db.patch('pendingDevices', pendingDevice._id, {
       approval: undefined,
+      deviceEncryptionPublicKey: args.deviceEncryptionPublicKey,
       enrollmentPublicKey: args.enrollmentPublicKey,
       expiresAt,
+      recoveryKeyVersion: undefined,
       requestedAt: now,
     });
     return { expiresAt };
@@ -175,13 +182,16 @@ export const listPending = mutation({
       .order('desc')
       .take(pendingDeviceScanLimit);
     return candidates.flatMap(
+      // fallow-ignore-next-line complexity -- Only an open request with both of its keys is listed.
       (candidate): ProductSyncEnrollmentPendingRequest[] =>
         candidate.enrollmentPublicKey === undefined ||
+        candidate.deviceEncryptionPublicKey === undefined ||
         candidate.approval !== undefined
           ? []
           : [
               {
                 createdAt: candidate.requestedAt ?? candidate.createdAt,
+                deviceEncryptionPublicKey: candidate.deviceEncryptionPublicKey,
                 displayName: trustedDeviceDisplayName(candidate),
                 enrollmentPublicKey: candidate.enrollmentPublicKey,
                 expiresAt: candidate.expiresAt,
@@ -197,21 +207,18 @@ export const listPending = mutation({
 function requireSealedKeyRing(
   args: Readonly<{ ciphertextBase64: string; encapsulatedKeyBase64: string }>,
 ): void {
-  if (
-    !x25519KeyPattern.test(args.encapsulatedKeyBase64) ||
-    args.ciphertextBase64.length > sealedKeyRingMaximumLength ||
-    !base64Pattern.test(args.ciphertextBase64)
-  ) {
+  if (!isSealedKeyRing(args)) {
     throw new Error('Sealed Product Sync key ring is invalid');
   }
 }
 
 // A Trusted Device holding the account's newest key epoch seals that ring to the Pending Device's
-// current one-time key. An approver behind a pending epoch adopts it first.
+// current one-time key. An approver behind the newest epoch adopts it first.
 export const approve = mutation({
   args: {
     ...trustedProofArgs,
     ciphertextBase64: v.string(),
+    deviceEncryptionPublicKey: v.string(),
     encapsulatedKeyBase64: v.string(),
     enrollmentPublicKey: v.string(),
     keyVersion: v.number(),
@@ -229,12 +236,13 @@ export const approve = mutation({
     requireCurrentProductSyncKeyEpoch(account, args.keyVersion);
     const approver = await ctx.db.get('trustedDevices', args.trustedDeviceId);
     if (approver?.productSyncKeyEpoch !== args.keyVersion) {
-      throw new Error('Product Sync key rotation required');
+      throwProductSyncKeyRotationRequired();
     }
     const pendingDevice = await openRequest(ctx, account, args.pendingDeviceId);
     if (
       pendingDevice.approval !== undefined ||
-      pendingDevice.enrollmentPublicKey !== args.enrollmentPublicKey
+      pendingDevice.enrollmentPublicKey !== args.enrollmentPublicKey ||
+      pendingDevice.deviceEncryptionPublicKey !== args.deviceEncryptionPublicKey
     ) {
       throwUnavailable();
     }
@@ -311,78 +319,61 @@ export const status = mutation({
   returns: productSyncEnrollmentStatusValidator,
 });
 
-// The newest recovery envelope and the verifier of the Recovery Key that opens it. While a
-// rotation is pending, only the replacement Recovery Key that the removal issued admits a device.
-// fallow-ignore-next-line complexity -- Missing committed or pending material admits nobody.
-async function admittingRecoveryEnvelope(
-  ctx: MutationCtx,
-  productAccountId: Id<'productAccounts'>,
-): Promise<Readonly<{
-  envelope: Doc<'encryptedProductSyncPayloads'>['encryptedPayload'];
-  verifier: string;
-}> | null> {
-  const account = await ctx.db.get('productAccounts', productAccountId);
-  if (account === null) {
-    return null;
-  }
-  if (account.productSyncPendingKeyEpoch !== undefined) {
-    const envelope = account.productSyncPendingRecoveryWrappedAccountKey;
-    const verifier = account.productSyncPendingRecoveryVerifier;
-    return envelope === undefined || verifier === undefined
-      ? null
-      : { envelope, verifier };
-  }
-  const recovery = await ctx.db
-    .query('encryptedProductSyncPayloads')
-    .withIndex('by_productAccountId_and_payloadIdentifier', (q) =>
-      q
-        .eq('productAccountId', productAccountId)
-        .eq('payloadIdentifier', recoveryPayloadIdentifier),
-    )
-    .unique();
-  const verifier = account.productSyncRecoveryVerifier;
-  return recovery === null || verifier === undefined
-    ? null
-    : { envelope: recovery.encryptedPayload, verifier };
-}
-
-// A Pending Device proves the Recovery Key with a value derived from it for this purpose only.
-// A match returns the newest recovery envelope, which the device opens itself, and authorizes its
-// admission at that epoch; a mismatch returns nothing and changes nothing.
+// A Pending Device proves the current Recovery Key with a value derived from it for this purpose
+// only. A match returns the current recovery envelope, which the device opens itself, and
+// authorizes its admission at that epoch with the device key it presented; a mismatch returns
+// nothing and changes nothing.
 export const recover = mutation({
-  args: { ...pendingDeviceProofArgs, recoveryProof: v.string() },
+  args: {
+    ...pendingDeviceProofArgs,
+    deviceEncryptionPublicKey: v.string(),
+    recoveryProof: v.string(),
+  },
   handler: async (ctx, args) => {
+    requireDeviceEncryptionPublicKey(args.deviceEncryptionPublicKey);
     const { account, pendingDevice } = await requireAuthenticatedPendingDevice(
       ctx,
       args,
     );
     requireInitialized(account);
-    const admitting = await admittingRecoveryEnvelope(
-      ctx,
-      account.productAccountId,
-    );
+    const [productAccount, recovery] = await Promise.all([
+      ctx.db.get('productAccounts', account.productAccountId),
+      ctx.db
+        .query('encryptedProductSyncPayloads')
+        .withIndex('by_productAccountId_and_payloadIdentifier', (q) =>
+          q
+            .eq('productAccountId', account.productAccountId)
+            .eq('payloadIdentifier', recoveryPayloadIdentifier),
+        )
+        .unique(),
+    ]);
     if (
-      admitting === null ||
-      !recoveryProofPattern.test(args.recoveryProof) ||
-      (await trustedDeviceCredentialDigest(args.recoveryProof)) !==
-        admitting.verifier
+      productAccount === null ||
+      recovery === null ||
+      !(await provesCurrentRecoveryKey(productAccount, args.recoveryProof))
     ) {
       return null;
     }
     await ctx.db.patch('pendingDevices', pendingDevice._id, {
-      recoveryKeyVersion: admitting.envelope.keyVersion,
+      deviceEncryptionPublicKey: args.deviceEncryptionPublicKey,
+      recoveryKeyVersion: recovery.encryptedPayload.keyVersion,
     });
-    return admitting.envelope;
+    return recovery.encryptedPayload;
   },
   returns: v.union(v.null(), encryptedProductSyncPayloadBodyValidator),
 });
 
 // Sent after the Pending Device stored the keys durably. It becomes a Trusted Device acknowledged
-// at the authorized epoch, so it never fetches a transition, and keeps its credential.
+// at the authorized epoch, keeps its credential and binds the encryption key later rotations seal to.
 export const complete = mutation({
-  args: { ...pendingDeviceProofArgs, keyVersion: v.number() },
+  args: {
+    ...pendingDeviceProofArgs,
+    deviceEncryptionPublicKey: v.string(),
+    keyVersion: v.number(),
+  },
   // fallow-ignore-next-line complexity -- Refused identifiers, stale epochs and void authorizations cannot admit a device.
   handler: async (ctx, args) => {
+    requireDeviceEncryptionPublicKey(args.deviceEncryptionPublicKey);
     const { account, pendingDevice } = await requireAuthenticatedPendingDevice(
       ctx,
       args,
@@ -401,8 +392,11 @@ export const complete = mutation({
       await ctx.db.delete('pendingDevices', pendingDevice._id);
       return { admitted: false as const };
     }
+    // Only the device key presented in the authorizing request or Recovery Key proof is bound.
     if (
       args.keyVersion !== keyEpoch ||
+      args.deviceEncryptionPublicKey !==
+        pendingDevice.deviceEncryptionPublicKey ||
       (pendingDevice.recoveryKeyVersion !== keyEpoch &&
         !(await approvalStillTrusted(ctx, account, pendingDevice)))
     ) {
@@ -412,6 +406,7 @@ export const complete = mutation({
     const now = Date.now();
     const trustedDeviceId = await ctx.db.insert('trustedDevices', {
       credentialDigest: pendingDevice.credentialDigest,
+      deviceEncryptionPublicKey: args.deviceEncryptionPublicKey,
       deviceIdentifier: pendingDevice.deviceIdentifier,
       ...(pendingDevice.displayName === undefined
         ? {}

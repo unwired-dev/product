@@ -214,8 +214,8 @@ final class InboxTests: XCTestCase {
     app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", value)).firstMatch
   }
 
-  // This device created the keys; removing the account's iPad rotates them and replaces the
-  // Recovery Key, which is confirmed like the first one.
+  // This device created the keys; removing the account's iPad first proposes a replacement
+  // Recovery Key, and only its confirmation removes the device and rotates the keys.
   private func revocationJourney(_ app: XCUIApplication) {
     app.buttons["Sign in with Google"].tap()
     XCTAssertTrue(app.staticTexts["recovery-key"].waitForExistence(timeout: 15))
@@ -224,20 +224,30 @@ final class InboxTests: XCTestCase {
     initialEntry.tap()
     initialEntry.typeText(String(first.suffix(4)) + "\n")
     app.buttons["Confirm Recovery Key"].tap()
-    XCTAssertTrue(app.buttons["Remove iPad"].waitForExistence(timeout: 15))
-    app.buttons["Remove iPad"].tap()
-    XCTAssertTrue(text("cannot be erased remotely", in: app).waitForExistence(timeout: 15))
+    let proposed = app.staticTexts["revocation-recovery-key"]
+    func prepare() {
+      XCTAssertTrue(app.buttons["Remove iPad"].waitForExistence(timeout: 15))
+      app.buttons["Remove iPad"].tap()
+      XCTAssertTrue(text("cannot be erased remotely", in: app).waitForExistence(timeout: 15))
+      app.buttons["Remove iPad"].tap()
+      XCTAssertTrue(proposed.waitForExistence(timeout: 15))
+    }
+    prepare()
+    // Cancelling the prepared removal keeps the device.
+    app.buttons["Cancel"].tap()
+    XCTAssertTrue(proposed.waitForNonExistence(timeout: 15))
+    prepare()
+    let replaced = proposed.label
+    XCTAssertEqual(replaced.count, 64)
+    XCTAssertNotEqual(replaced, first)
+    let entry = app.textFields["Last four characters of the new Recovery Key"]
+    entry.tap()
+    entry.typeText(String(replaced.suffix(4)) + "\n")
     app.buttons["Remove iPad"].tap()
     XCTAssertTrue(text("The device was removed.", in: app).waitForExistence(timeout: 15))
     XCTAssertFalse(app.buttons["Remove iPad"].exists)
-    let replaced = app.staticTexts["recovery-key"].label
-    XCTAssertEqual(replaced.count, 64)
-    XCTAssertNotEqual(replaced, first)
-    let entry = app.textFields["Last four characters"]
-    entry.tap()
-    entry.typeText(String(replaced.suffix(4)) + "\n")
-    app.buttons["Confirm Recovery Key"].tap()
-    XCTAssertTrue(app.staticTexts["Private sync is on"].waitForExistence(timeout: 15))
+    XCTAssertFalse(app.staticTexts["recovery-key"].exists)
+    XCTAssertTrue(app.staticTexts["Private sync is on"].exists)
     app.terminate()
     app.launch()
     XCTAssertTrue(app.staticTexts["Private sync is on"].waitForExistence(timeout: 15))

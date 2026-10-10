@@ -41,14 +41,23 @@ export const syntheticEnrollmentCode =
 
 export const syntheticEnrollmentRequest = 'synthetic-enrollment-request';
 
-// The Recovery Key that replaces the first one after a removal; it protects nothing.
+// The Recovery Key a prepared removal proposes to replace the first one; it protects nothing.
 export const syntheticReplacementRecoveryKey =
   'M3TR-8KWD-5BXN-2QHF-7CJP-0VGA-9ZEY-4RMS-6TKB-1NDW-3PXH-8QCF-5J0V';
+
+// The key of the fresh proposal that replaces a stale one; it protects nothing.
+export const syntheticRenewedRecoveryKey =
+  'P8VD-3RKQ-6WMA-1XTF-9HCN-4BZE-7JGS-2YQP-5KDR-0MWT-8FXB-3NHC-6Q1A';
 
 export const syntheticTrustedDevice = {
   id: 'synthetic-ipad',
   name: 'iPad',
   registeredAt: Date.UTC(2026, 8, 1),
+} as const;
+export const syntheticSecondTrustedDevice = {
+  id: 'synthetic-mac',
+  name: 'Mac',
+  registeredAt: Date.UTC(2026, 8, 2),
 } as const;
 const normalizedCode = (code: string) =>
   code.replaceAll(/[\s-]/gu, '').toUpperCase();
@@ -200,6 +209,12 @@ export function createMockRegistrationSession(
   let snapshot: RegistrationSnapshot = { kind: 'signed-out' };
   let attempted = false;
   let removed = false;
+  // Another device changed the account after this one prepared a removal.
+  let stale = false;
+  let currentRecoveryKey = syntheticRecoveryKey;
+  let removableDevices: Array<
+    Readonly<{ id: string; name: string; registeredAt: number }>
+  > = [syntheticTrustedDevice];
   // The Google account a mailbox chooser picks next.
   let chosen: SyntheticAddress = 'other@example.invalid';
   // Each synthetic sign-in identity owns its own Product Account, except the
@@ -411,7 +426,7 @@ export function createMockRegistrationSession(
         return rejection('Synthetic recovery unavailable', 'unavailable');
       }
       // A key that unlocks nothing reports the current status with a notice.
-      if (normalizedCode(entry) !== normalizedCode(syntheticRecoveryKey)) {
+      if (normalizedCode(entry) !== normalizedCode(currentRecoveryKey)) {
         return Promise.resolve({ ...snapshot, recoveryNotice: 'rejected' });
       }
       const shared = syncAccount(snapshot.productAccountId);
@@ -453,22 +468,74 @@ export function createMockRegistrationSession(
       snapshot = withoutRequest(snapshot);
       return Promise.resolve(snapshot);
     },
-    // Removing the iPad rotates the keys, so this device shows a new Recovery Key to save.
+    // Preparing the iPad's removal proposes a replacement Recovery Key; nothing is removed yet.
     revokeTrustedDevice: (trustedDeviceId) => {
       if (
         snapshot.kind === 'signed-out' ||
         snapshot.trustedDevices === undefined ||
-        trustedDeviceId !== syntheticTrustedDevice.id
+        !removableDevices.some(({ id }) => id === trustedDeviceId)
       ) {
         return rejection('Synthetic device unavailable', 'unavailable');
       }
-      const { trustedDevices: _devices, ...rest } = snapshot;
+      snapshot = {
+        ...snapshot,
+        revocationDevice: trustedDeviceId,
+        revocationRecoveryKey:
+          currentRecoveryKey === syntheticReplacementRecoveryKey
+            ? syntheticRenewedRecoveryKey
+            : syntheticReplacementRecoveryKey,
+      };
+      return Promise.resolve(snapshot);
+    },
+    // The confirmed replacement key activates the removal, unless the account changed meanwhile.
+    confirmRevocation: (entry) => {
+      if (
+        snapshot.kind === 'signed-out' ||
+        snapshot.revocationRecoveryKey === undefined
+      ) {
+        return rejection('Synthetic removal unavailable', 'unavailable');
+      }
+      if (normalizedCode(entry) !== snapshot.revocationRecoveryKey.slice(-4)) {
+        return rejection(
+          'Synthetic Recovery Key mismatch',
+          'recovery-key-mismatch',
+        );
+      }
+      if (stale) {
+        stale = false;
+        snapshot = {
+          ...snapshot,
+          revocationRecoveryKey: syntheticRenewedRecoveryKey,
+        };
+        return Promise.resolve({ ...snapshot, revocationNotice: 'renewed' });
+      }
+      currentRecoveryKey = snapshot.revocationRecoveryKey;
+      const removing = snapshot.revocationDevice;
+      removableDevices = removableDevices.filter(({ id }) => id !== removing);
+      const {
+        trustedDevices: _devices,
+        revocationDevice: _device,
+        revocationRecoveryKey: _key,
+        ...rest
+      } = snapshot;
       snapshot = {
         ...rest,
-        privateSync: 'recovery-key',
-        recoveryKey: syntheticReplacementRecoveryKey,
+        ...(removableDevices.length === 0
+          ? {}
+          : { trustedDevices: JSON.stringify(removableDevices) }),
       };
       return Promise.resolve({ ...snapshot, revocationNotice: 'removed' });
+    },
+    cancelRevocation: () => {
+      if (snapshot.kind !== 'signed-out') {
+        const {
+          revocationDevice: _device,
+          revocationRecoveryKey: _key,
+          ...rest
+        } = snapshot;
+        snapshot = rest;
+      }
+      return Promise.resolve(snapshot);
     },
     signOut: () => {
       if (
@@ -515,6 +582,33 @@ export function createMockRegistrationSession(
   };
   return Object.freeze({
     native,
+    // Fixed synthetic controls for successive-removal and same-installation key-loss journeys.
+    addSecondTrustedDevice: () => {
+      removableDevices.push(syntheticSecondTrustedDevice);
+      if (snapshot.kind !== 'signed-out') {
+        snapshot = {
+          ...snapshot,
+          trustedDevices: JSON.stringify(removableDevices),
+        };
+      }
+    },
+    loseDeviceKey: () => {
+      if (snapshot.kind !== 'signed-out') {
+        syncAccount(snapshot.productAccountId).enrollment = {
+          state: 'pending',
+        };
+        snapshot = {
+          kind: 'device-pending',
+          ...account(snapshot),
+          privateSync: 'enrollment-pending',
+          enrollmentCode: syntheticEnrollmentCode,
+        };
+      }
+    },
+    // Another device changes the account, so the next confirmed removal renews its proposal.
+    changeAccount: () => {
+      stale = true;
+    },
     // The next mailbox chooser picks this Google account.
     choose: (address: SyntheticAddress) => {
       chosen = address;

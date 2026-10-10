@@ -167,6 +167,13 @@ extension RegistrationStore {
     switch error {
     case RegistrationError.revoked: _ = try await purge()
     case RegistrationError.deleted: _ = try await purge(notice: "deleted")
+    case ProductSyncWriteFailure.keyRotationRequired:
+      // A removal landed meanwhile; the retried write is sealed at the epoch adopted here.
+      let sync = try draftSync(owner: owner)
+      if let vault = try loadVault(owner) {
+        _ = try await adoptRotation(
+          vault, backend: sync.backend, session: sync.session, sync.product)
+      }
     default: break
     }
     throw error

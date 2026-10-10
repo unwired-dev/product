@@ -818,6 +818,30 @@ async function deleteNextBatchData(
     }
     return false;
   }
+  const keyEnvelopes = await ctx.db
+    .query('productSyncKeyEnvelopes')
+    .withIndex('by_productAccountId_and_trustedDeviceId', (q) =>
+      q.eq('productAccountId', request.productAccountId),
+    )
+    .take(deletionBatchSize);
+  if (keyEnvelopes.length > 0) {
+    for (const keyEnvelope of keyEnvelopes) {
+      await ctx.db.delete('productSyncKeyEnvelopes', keyEnvelope._id);
+    }
+    return false;
+  }
+  const rotationProposals = await ctx.db
+    .query('productSyncKeyRotationProposals')
+    .withIndex('by_productAccountId_and_proposalId', (q) =>
+      q.eq('productAccountId', request.productAccountId),
+    )
+    .take(deletionBatchSize);
+  if (rotationProposals.length > 0) {
+    for (const proposal of rotationProposals) {
+      await ctx.db.delete('productSyncKeyRotationProposals', proposal._id);
+    }
+    return false;
+  }
   const devices = await ctx.db
     .query('trustedDevices')
     .withIndex('by_productAccountId_and_deviceIdentifier', (q) =>

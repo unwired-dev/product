@@ -60,13 +60,14 @@ release scopes; a moved passage is not a new requirement or proof of qualificati
 - [Device admission through authorized enrollment](../adr/0066-admit-devices-only-through-authorized-enrollment.md)
 - [Minimal native vault and TypeScript-owned client logic](../adr/0067-keep-native-code-to-a-minimal-vault.md)
 - [Device-local Background Message Summaries for planned Catch Up](../adr/0068-allow-device-local-background-message-summaries.md)
+- [Per-device sealed rotation and atomic recovery activation](../adr/0069-seal-key-rotations-to-each-remaining-trusted-device.md)
 - [Interview decisions and research](../research/expo-react-native-rewrite.md)
 - [Platform qualification and deferred native evidence](../qualification/expo-react-native-client.md)
 - [Complete ticket and dependency coverage](../qualification/expo-rewrite-ticket-coverage.md)
 
 The resolved OCR checklist requires the review agent to check applicable privacy,
 encryption, identity-isolation, transport and delivery guarantees in the earlier
-[ADRs](../adr/). ADR 0059 through 0068 take
+[ADRs](../adr/). ADR 0059 through 0069 take
 precedence where they explicitly replace prototype architecture or release scope.
 Earlier provider support, Profile features, Apple-only login, and cross-device
 scheduled delivery are not implicit first-release requirements.

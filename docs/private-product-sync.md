@@ -74,8 +74,14 @@ newest request. **Approve a new device** names the requesting device and asks fo
 accepted. The last character is a check digit. An invalid check digit is reported on
 the trusted device and nothing is sent. A different code with a valid check digit
 cannot unlock the requesting device. **Decline** cancels the request. The approving
-device seals the account's newest key epoch; while a removal's rotation is pending,
-it adopts the new epoch first.
+device seals the account's newest key epoch; one that missed a removal adopts that
+removal's key epoch first.
+
+Each request also names the long-lived encryption key the new device will keep as
+a Trusted Device. The approval is bound to that key as well as to the account, the
+device and the key epoch, so it does not open on the device under any other key.
+The same holds for a Recovery Key proof, which names that key too, and Convex admits
+the device only with the key its approval or proof named.
 
 On the new device, **Check for approval** collects the approval. The device stores
 the account keys and then confirms them; only that confirmation makes it a Trusted
@@ -140,12 +146,23 @@ on** with the mailbox list decrypted from Product Sync, and **Authorize Gmail**
 appears. Gmail on this device still needs its own authorization. The device does
 not keep or show the Recovery Key afterwards.
 
-While a removal's key rotation is pending, only the replacement Recovery Key that
-the removal issued admits a Pending Device, at the new key epoch. The previous
-Recovery Key keeps working for devices that are already trusted until rotation
-completes, but admits no new device. A person who loses every Trusted Device while
-holding only the previous Recovery Key during that interval cannot regain access;
-deleting the Product Account is the only path left.
+Only the current Recovery Key unlocks a device. A removal replaces it in the same
+step that activates the removal's key epoch, so the previous Recovery Key admits no
+device and opens nothing of that epoch or later, although it still opens recovery
+envelopes copied earlier. A person who loses every Trusted Device and the current
+Recovery Key cannot regain access; deleting the Product Account is the only path
+left.
+
+Each Trusted Device holds a long-lived encryption key of its own for the Product
+Account, which never leaves the device. The device that creates the account's keys
+binds its public key with the first recovery envelope, and an admitted device binds
+its key when it confirms admission. A Trusted Device that never bound a key, for
+example one that lost a race to create the keys, binds one when the current Recovery
+Key unlocks it. A bound key is never replaced, and a Product Sign-In alone binds
+none. When a device loses its private key, even if its old account ring remains,
+the next authenticated check assigns a fresh installation identifier and enters
+Pending Device enrollment. Another Trusted Device or the current Recovery Key must
+authorize it again; its earlier registration stays listed until it is removed.
 
 A key that is mistyped, incomplete, or belongs to another Product Account unlocks
 nothing. The device reports that the Recovery Key does not unlock this Product
@@ -229,8 +246,8 @@ revocation client must send its identity token as the Authorization bearer heade
 `POST /trusted-devices/revoke`, and the handler applies the same five-minute
 `iat` check as the [sign-in link routes](linked-sign-in.md#identity-boundaries).
 The revocation mutation is internal, so callers cannot bypass that check. The
-rotated recovery envelope must use the replacement's recovery schema 3; prototype
-schemas are rejected.
+replacement recovery envelope must use the replacement's recovery schema 3;
+prototype schemas are rejected.
 
 ## Removing a Trusted Device
 
@@ -239,34 +256,60 @@ and offers to remove each one. The host first explains the consequences: the
 removed device is blocked immediately and the other devices switch to new keys.
 Anything a device that stays offline or is compromised already holds cannot be
 erased remotely. Confirming starts an interactive Product Sign-In with the
-device's own provider, for Google as well as Apple. The fresh token is the bearer
-proof for the revocation route.
+device's own provider, for Google as well as Apple.
 
-Removal presents a new Recovery Key until its final group is confirmed. Confirm
-and keep this key before removing another device. Keep the previous Recovery Key
-until every remaining device has connected and adopted the new keys: during that
-interval an already-trusted device still recovers with the previous key, and a new
-device is admitted only with the new key. New synchronized changes use the new key
-epoch.
-The host reports the removal as complete only after this device has adopted its
-own new keys. When another device removed the same device first, or
-synchronization could not adopt this removal's new keys, the host reports the
-removal as unconfirmed and shows no new Recovery Key. The next synchronization
-resolves it.
+The device then prepares the removal without changing anything in the account. It
+adopts the account's newest keys, creates a new key epoch and seals the complete
+key ring separately to each remaining Trusted Device's encryption key, its own
+included, and to a new Recovery Key. The host shows that replacement Recovery Key
+and asks for its last four characters. Cancelling discards the prepared removal and
+its key; nothing reaches the account. An entry that does not match removes nothing.
 
-If a removal applies but its reply is lost, trying to remove that same listed
-device again shows the adopted replacement Recovery Key and reports the earlier
-removal as complete. It does not remove again or replace that key. Choosing
-another device while the earlier removal is unresolved shows the earlier key
-without reporting the newly chosen device as removed; confirm the key before
-removing that device. An already shown, unconfirmed key likewise stays visible
-without a new removal notice or another removal.
+A matching entry activates the removal. The fresh sign-in is the bearer proof; when
+saving the key took longer than five minutes, the device asks for another sign-in
+first. Convex checks that the account's key epoch, recovery record and remaining
+devices are still those the removal was prepared against, and that it carries
+exactly one envelope for every remaining Trusted Device,
+each sealed to that device's bound key. Then, in one step, it removes the device
+and its push routes, activates the new key epoch, stores each remaining device's
+envelope and makes the replacement Recovery Key current. Either all of it applies
+or none of it does; no other device has to connect first. Product Sync writes
+sealed at an earlier epoch are refused from then on. A device whose write is
+refused adopts the new epoch and seals its pending change again, keeping the usual
+record conflict checks.
 
-Sign-out and reconnect can change a device's listed ID. Repeating removal through
-an earlier ID of the same installation returns the existing rotation status;
-it does not start another rotation or replace the Recovery Key again.
-Removing the current installation through one of its earlier IDs is refused too;
-use [sign-out](account-removal.md) to remove the current Trusted Device.
+A surviving Trusted Device without a bound encryption key cannot be skipped;
+preparation and activation refuse that incomplete roster until it binds a key or
+is explicitly removed.
+
+- **The device was removed**: the replacement Recovery Key is now current, and the
+  previous one stops working for new data.
+- When another removal, approval or recovery changed the account meanwhile, nothing
+  applies. The host shows a fresh replacement Recovery Key, which must be saved and
+  confirmed again; a key shown earlier never counts.
+- When another device removed the same device first, nothing applies and the shown
+  key is discarded.
+- When the reply is lost, the prepared removal and its key stay on screen.
+  Confirming again repeats the same request, which never removes or rotates twice;
+  the next synchronization also learns whether it applied. Cancel cannot discard
+  a submitted proposal whose outcome is still unknown, even after relaunch. A
+  missing receipt may mean the request is still arriving; sign-out and preparing
+  another removal retain that proposal too. A later definite refusal settles only
+  that retry, not an earlier unanswered attempt.
+- When this removal applied but another removal replaced its Recovery Key before
+  its reply was reconciled, the host reports that the prepared key is not current.
+  The proposal is cleared only after its receipt and the committed ring have been
+  durably adopted; a failed post-activation synchronization cannot discard the locator.
+
+A device that was offline during one or more removals reads only its latest
+envelope when it reconnects. It adopts the newest key ring directly, keeps every
+earlier key for older data and needs no Recovery Key. It then acknowledges the
+epoch. Acknowledgements only record adoption: they never hold back a removal or a
+replacement Recovery Key.
+
+Sign-out and reconnect can change a device's listed ID. Removing the current
+installation through one of its earlier IDs is refused; use
+[sign-out](account-removal.md) to remove the current Trusted Device.
 
 Whichever request first learns that this device was removed purges its local
 account keys, enrollment material, identity and mailbox credentials. Every
@@ -284,8 +327,10 @@ and that Gmail mail and previously copied offline data are unaffected.
 A removed device's own installation identifier and Trusted Device Credential stay
 refused with **This device was removed**. A fresh sign-in mints a new identifier,
 which is an ordinary [Pending Device](#approving-a-new-device): it never receives a
-rotation transition, a recovery envelope or a newer key epoch unless a Trusted
-Device approves it or the replacement Recovery Key unlocks it. A removed device
+key ring envelope, a recovery envelope or a newer key epoch unless a Trusted
+Device approves it or the current Recovery Key unlocks it. Nothing the removed device
+held, including its encryption key, earlier key rings, enrollment secrets and
+earlier Recovery Keys, opens the epoch its removal created or any later one. A removed device
 with a live Product Sign-In can still delete the Product Account's synchronized
 data, but it can read none of it. See the
 [architecture companion](architecture/private-product-sync.md#device-revocation)

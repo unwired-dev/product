@@ -8,9 +8,12 @@ import { api, internal } from '../convex/_generated/api.js';
 import { trustedDeviceCredentialDigest } from '../convex/productAccountAuth.js';
 import schema from '../convex/schema.js';
 import {
+  deviceEncryptionPublicKey,
   pendingConnection,
+  preparedRemoval,
   recoveryProof,
   recoveryVerifier,
+  replacementRecoveryProof,
   trustedConnection,
 } from './devices.js';
 
@@ -37,11 +40,6 @@ const recoveryEnvelope = {
   tagBase64: 'dGFn',
 };
 const encryptedRecord = { ...recoveryEnvelope, schemaVersion: 1 };
-
-// The value and digest a removal's replacement Recovery Key would derive.
-const replacementRecoveryProof = 'c'.repeat(64);
-const replacementRecoveryVerifier =
-  '52b6419d27bd7f547cee3b92f8c17a908b8a49601ecbec161e5030de1dfe9e0a';
 
 const enrollmentPublicKey = `${'A'.repeat(43)}=`;
 const renewedPublicKey = `${'C'.repeat(43)}=`;
@@ -108,6 +106,9 @@ async function enrollmentAccount(identity = googleIdentity) {
   const asUser = t.withIdentity(identity);
   const holder = await trustedDevice(asUser, 'installation-001');
   await asUser.mutation(api.productSync.initialize, {
+    deviceEncryptionPublicKey: deviceEncryptionPublicKey(
+      holder.deviceIdentifier,
+    ),
     ...holder.proof,
     encryptedPayload: recoveryEnvelope,
     recoveryVerifier,
@@ -123,6 +124,9 @@ async function request(
 ) {
   return asUser.mutation(api.productSyncEnrollment.request, {
     ...device.proof,
+    deviceEncryptionPublicKey: deviceEncryptionPublicKey(
+      device.deviceIdentifier,
+    ),
     enrollmentPublicKey: publicKey,
   });
 }
@@ -132,6 +136,7 @@ async function approve(
   approver: Trusted,
   sealed: Readonly<{
     device: Pending;
+    deviceEncryptionPublicKey?: string;
     enrollmentPublicKey?: string;
     keyVersion?: number;
   }>,
@@ -139,6 +144,9 @@ async function approve(
   return asUser.mutation(api.productSyncEnrollment.approve, {
     ...approver.proof,
     ...sealedKeyRing,
+    deviceEncryptionPublicKey:
+      sealed.deviceEncryptionPublicKey ??
+      deviceEncryptionPublicKey(sealed.device.deviceIdentifier),
     enrollmentPublicKey: sealed.enrollmentPublicKey ?? enrollmentPublicKey,
     keyVersion: sealed.keyVersion ?? 1,
     pendingDeviceId: sealed.device.proof.pendingDeviceId,
@@ -149,16 +157,32 @@ async function status(asUser: Client, device: Pending) {
   return asUser.mutation(api.productSyncEnrollment.status, device.proof);
 }
 
-async function complete(asUser: Client, device: Pending, keyVersion = 1) {
+async function complete(
+  asUser: Client,
+  device: Pending,
+  {
+    devicePublicKey = deviceEncryptionPublicKey(device.deviceIdentifier),
+    keyVersion = 1,
+  }: Readonly<{ devicePublicKey?: string; keyVersion?: number }> = {},
+) {
   return asUser.mutation(api.productSyncEnrollment.complete, {
     ...device.proof,
+    deviceEncryptionPublicKey: devicePublicKey,
     keyVersion,
   });
 }
 
-async function recover(asUser: Client, device: Pending, proof = recoveryProof) {
+async function recover(
+  asUser: Client,
+  device: Pending,
+  {
+    devicePublicKey = deviceEncryptionPublicKey(device.deviceIdentifier),
+    proof = recoveryProof,
+  }: Readonly<{ devicePublicKey?: string; proof?: string }> = {},
+) {
   return asUser.mutation(api.productSyncEnrollment.recover, {
     ...device.proof,
+    deviceEncryptionPublicKey: devicePublicKey,
     recoveryProof: proof,
   });
 }
@@ -174,7 +198,7 @@ async function admit(
   device: Pending,
   keyVersion = 1,
 ): Promise<Trusted> {
-  const completion = await complete(asUser, device, keyVersion);
+  const completion = await complete(asUser, device, { keyVersion });
   if (!completion.admitted) {
     throw new Error('Pending Device was not admitted');
   }
@@ -188,26 +212,16 @@ async function admit(
   };
 }
 
-// Removes a device and starts a key rotation, as the recently authenticated HTTP route does.
-async function revoke(asUser: Client, remover: Trusted, target: Trusted) {
-  const recovery = await asUser.query(
-    api.productSync.getEncryptedPayloadForTrustedDevice,
-    { ...remover.proof, payloadIdentifier: 'product-account-recovery-v1' },
+// Removes a device with a prepared key rotation, as the recently authenticated HTTP route does.
+async function revoke(
+  { asUser, t }: Readonly<{ asUser: Client; t: Backend }>,
+  remover: Trusted,
+  target: Trusted,
+) {
+  return asUser.mutation(
+    internal.productAccount.revokeTrustedDevice,
+    await preparedRemoval(t, remover.proof, target.proof.trustedDeviceId),
   );
-  const account = await asUser.query(
-    api.productAccount.getProductSyncKeyRotation,
-    remover.proof,
-  );
-  const committedEpoch = recovery?.encryptedPayload.keyVersion ?? 1;
-  const nextEpoch = (account?.keyEpoch ?? committedEpoch) + 1;
-  return asUser.mutation(internal.productAccount.revokeTrustedDevice, {
-    ...remover.proof,
-    encryptedTransition: { ...encryptedRecord, keyVersion: committedEpoch },
-    expectedRecoveryUpdatedAt: recovery?.updatedAt ?? 0,
-    recoveryVerifier: replacementRecoveryVerifier,
-    recoveryWrappedAccountKey: { ...recoveryEnvelope, keyVersion: nextEpoch },
-    trustedDeviceToRevokeId: target.proof.trustedDeviceId,
-  });
 }
 
 // Convex omits iat from the identity, so freshness comes only from the bearer token.
@@ -252,6 +266,9 @@ describe('pending device admission', () => {
     ).resolves.toStrictEqual([
       {
         createdAt: expiresAt - enrollmentLifetime,
+        deviceEncryptionPublicKey: deviceEncryptionPublicKey(
+          newcomer.deviceIdentifier,
+        ),
         displayName: 'Mac',
         enrollmentPublicKey,
         expiresAt,
@@ -268,6 +285,13 @@ describe('pending device admission', () => {
       admitted: false,
     });
 
+    // The approver confirms the device key the request carried; another one is refused.
+    await expect(
+      approve(asUser, holder, {
+        device: newcomer,
+        deviceEncryptionPublicKey: deviceEncryptionPublicKey('substitute'),
+      }),
+    ).rejects.toMatchObject(unavailable);
     await expect(
       approve(asUser, holder, { device: newcomer }),
     ).resolves.toStrictEqual({
@@ -281,8 +305,22 @@ describe('pending device admission', () => {
       state: 'approved',
     });
 
+    // Confirmation binds only the authorized device key.
+    await expect(
+      complete(asUser, newcomer, {
+        devicePublicKey: deviceEncryptionPublicKey('substitute'),
+      }),
+    ).resolves.toStrictEqual({ admitted: false });
     const device = await admit(asUser, newcomer);
     // The admitted device keeps its credential and reads Product Sync like any Trusted Device.
+    await expect(listTrusted(asUser, device)).resolves.toContainEqual(
+      expect.objectContaining({
+        deviceEncryptionPublicKey: deviceEncryptionPublicKey(
+          newcomer.deviceIdentifier,
+        ),
+        id: device.proof.trustedDeviceId,
+      }),
+    );
     await expect(listTrusted(asUser, device)).resolves.toHaveLength(2);
     await expect(
       asUser.query(api.productSync.getEncryptedPayloadForTrustedDevice, {
@@ -330,6 +368,17 @@ describe('pending device admission', () => {
         () =>
           asUser.query(api.productAccount.getProductSyncKeyRotation, asTrusted),
         () =>
+          asUser.query(api.productAccount.getKeyRotationProposal, {
+            ...asTrusted,
+            proposalId: 'a'.repeat(32),
+          }),
+        () =>
+          asUser.mutation(api.productSync.bindDeviceEncryptionKey, {
+            ...asTrusted,
+            deviceEncryptionPublicKey: enrollmentPublicKey,
+            recoveryProof,
+          }),
+        () =>
           asUser.query(api.productSync.getEncryptedPayloadForTrustedDevice, {
             ...asTrusted,
             payloadIdentifier: 'product-account-recovery-v1',
@@ -357,6 +406,7 @@ describe('pending device admission', () => {
           asUser.mutation(api.productSyncEnrollment.approve, {
             ...asTrusted,
             ...sealedKeyRing,
+            deviceEncryptionPublicKey: enrollmentPublicKey,
             enrollmentPublicKey,
             keyVersion: 1,
             pendingDeviceId: newcomer.proof.pendingDeviceId,
@@ -376,8 +426,10 @@ describe('pending device admission', () => {
         () =>
           asUser.mutation(internal.productAccount.revokeTrustedDevice, {
             ...asTrusted,
-            encryptedTransition: encryptedRecord,
+            expectedKeyEpoch: 1,
             expectedRecoveryUpdatedAt: 0,
+            keyEnvelopes: [],
+            proposalId: 'a'.repeat(32),
             recoveryVerifier,
             recoveryWrappedAccountKey: { ...recoveryEnvelope, keyVersion: 2 },
             trustedDeviceToRevokeId: holder.proof.trustedDeviceId,
@@ -403,35 +455,51 @@ describe('pending device admission', () => {
         );
       }
     }
-    // It never sees another device's request, a transition or the trusted list.
+    // It never sees another device's request, a key envelope or the trusted list.
     await expect(listTrusted(asUser, holder)).resolves.toHaveLength(1);
   });
 
-  it('lets an approver behind a pending epoch approve only after it adopts the newest epoch', async () => {
+  it('commits a removal without waiting for a Pending Device, whose approver must then adopt the new epoch', async () => {
     expect.hasAssertions();
 
-    const { asUser, holder, t } = await enrollmentAccount();
-    // Admit a second Trusted Device by Recovery Key, then remove a third to start a rotation.
+    const { asUser, holder, newcomer, t } = await enrollmentAccount();
+    // Admit a second Trusted Device by Recovery Key, then remove a third.
     const secondPending = await pendingDevice(asUser, 'installation-003');
     await recover(asUser, secondPending);
     const approver = await admit(asUser, secondPending);
     const removedPending = await pendingDevice(asUser, 'installation-004');
     await recover(asUser, removedPending);
     const removed = await admit(asUser, removedPending);
-    await expect(revoke(asUser, holder, removed)).resolves.toMatchObject({
-      keyEpoch: 2,
-      state: 'pending',
-    });
-
-    const newcomer = await pendingDevice(asUser, 'installation-005');
+    // A waiting Pending Device neither receives the new ring nor holds the removal back.
     await request(asUser, newcomer);
-    // Only the newest epoch may be sealed, and only by an approver that holds it.
+    await expect(revoke({ asUser, t }, holder, removed)).resolves.toStrictEqual(
+      {
+        keyEpoch: 2,
+      },
+    );
+    await expect(
+      t.run(async (ctx) => ctx.db.query('productSyncKeyEnvelopes').collect()),
+    ).resolves.toMatchObject([
+      { keyEpoch: 2, trustedDeviceId: holder.proof.trustedDeviceId },
+      { keyEpoch: 2, trustedDeviceId: approver.proof.trustedDeviceId },
+    ]);
+
+    // Only the newest epoch may be sealed, and only by an approver that adopted it.
+    const rotationRequired = {
+      data: { code: 'PRODUCT_SYNC_KEY_ROTATION_REQUIRED' },
+    };
     await expect(
       approve(asUser, approver, { device: newcomer }),
-    ).rejects.toThrow('Product Sync key rotation required');
+    ).rejects.toMatchObject(rotationRequired);
     await expect(
       approve(asUser, approver, { device: newcomer, keyVersion: 2 }),
-    ).rejects.toThrow('Product Sync key rotation required');
+    ).rejects.toMatchObject(rotationRequired);
+    await expect(
+      asUser.query(
+        api.productAccount.getProductSyncKeyRotation,
+        approver.proof,
+      ),
+    ).resolves.toMatchObject({ keyEpoch: 2 });
     await asUser.mutation(
       api.productAccount.acknowledgeProductSyncKeyRotation,
       {
@@ -444,30 +512,34 @@ describe('pending device admission', () => {
     ).resolves.toStrictEqual({ approved: true });
 
     // A delayed confirmation for a previously stored ring cannot acknowledge the newer approval.
-    await expect(complete(asUser, newcomer, 1)).resolves.toStrictEqual({
+    await expect(
+      complete(asUser, newcomer, { keyVersion: 1 }),
+    ).resolves.toStrictEqual({
       admitted: false,
     });
-    const completion = await complete(asUser, newcomer, 2);
+    const completion = await complete(asUser, newcomer, { keyVersion: 2 });
     expect(completion.admitted).toBe(true);
-    // The admitted device is acknowledged at the epoch it received, so it never fetches a
-    // transition; only the holder still has to adopt it.
+    // The admitted device holds the epoch it received and the key it bound at confirmation.
     const stored = await t.run(async (ctx) =>
       ctx.db.query('trustedDevices').collect(),
     );
     expect(
       stored.find(
-        ({ deviceIdentifier }) => deviceIdentifier === 'installation-005',
-      )?.productSyncKeyEpoch,
-    ).toBe(2);
-    await expect(
-      asUser.query(api.productAccount.getProductSyncKeyRotation, holder.proof),
-    ).resolves.toMatchObject({ keyEpoch: 2, pendingDeviceCount: 1 });
+        ({ deviceIdentifier }) =>
+          deviceIdentifier === newcomer.deviceIdentifier,
+      ),
+    ).toMatchObject({
+      deviceEncryptionPublicKey: deviceEncryptionPublicKey(
+        newcomer.deviceIdentifier,
+      ),
+      productSyncKeyEpoch: 2,
+    });
   });
 
   it('keeps the device pending when its approval cannot be opened, its approver leaves, or its epoch is superseded', async () => {
     expect.hasAssertions();
 
-    const { asUser, holder, newcomer } = await enrollmentAccount();
+    const { asUser, holder, newcomer, t } = await enrollmentAccount();
     const other = await pendingDevice(asUser, 'installation-003', 'ios');
     await recover(asUser, other);
     const approver = await admit(asUser, other);
@@ -494,7 +566,7 @@ describe('pending device admission', () => {
       device: newcomer,
       enrollmentPublicKey: renewedPublicKey,
     });
-    await revoke(asUser, holder, approver);
+    await revoke({ asUser, t }, holder, approver);
     await expect(status(asUser, newcomer)).resolves.toStrictEqual({
       state: 'cancelled',
     });
@@ -502,26 +574,26 @@ describe('pending device admission', () => {
       admitted: false,
     });
 
-    // An approval at an epoch that a later removal superseded is void too.
-    await asUser.mutation(
-      api.productAccount.acknowledgeProductSyncKeyRotation,
-      {
-        ...holder.proof,
-        keyEpoch: 2,
-      },
-    );
+    // An approval at an epoch that a later removal superseded is void too; the initiator of the
+    // removal already holds the new epoch.
     await request(asUser, newcomer);
     await approve(asUser, holder, { device: newcomer, keyVersion: 2 });
     const third = await pendingDevice(asUser, 'installation-004', 'ios');
-    await recover(asUser, third, replacementRecoveryProof);
-    await revoke(asUser, holder, await admit(asUser, third, 2));
-    await expect(complete(asUser, newcomer)).resolves.toStrictEqual({
+    await recover(asUser, third, { proof: replacementRecoveryProof });
+    await revoke({ asUser, t }, holder, await admit(asUser, third, 2));
+    await expect(status(asUser, newcomer)).resolves.toStrictEqual({
+      state: 'cancelled',
+    });
+    await expect(
+      complete(asUser, newcomer, { keyVersion: 2 }),
+    ).resolves.toStrictEqual({
       admitted: false,
     });
-    // Still pending and not acknowledged: it never counts toward the rotation.
     await expect(
-      asUser.query(api.productAccount.getProductSyncKeyRotation, holder.proof),
-    ).resolves.toMatchObject({ keyEpoch: 3, pendingDeviceCount: 1 });
+      complete(asUser, newcomer, { keyVersion: 3 }),
+    ).resolves.toStrictEqual({
+      admitted: false,
+    });
     await expect(request(asUser, newcomer)).resolves.toMatchObject({
       expiresAt: expect.any(Number),
     });
@@ -560,9 +632,11 @@ describe('pending device admission', () => {
     const { expiresAt } = await request(asUser, newcomer);
     // A wrong proof returns nothing and leaves the device pending with its current code.
     await expect(
-      recover(asUser, newcomer, replacementRecoveryProof),
+      recover(asUser, newcomer, { proof: replacementRecoveryProof }),
     ).resolves.toBeNull();
-    await expect(recover(asUser, newcomer, 'not-a-proof')).resolves.toBeNull();
+    await expect(
+      recover(asUser, newcomer, { proof: 'not-a-proof' }),
+    ).resolves.toBeNull();
     await expect(status(asUser, newcomer)).resolves.toStrictEqual({
       expiresAt,
       state: 'pending',
@@ -574,21 +648,45 @@ describe('pending device admission', () => {
     await expect(recover(asUser, newcomer)).resolves.toStrictEqual(
       recoveryEnvelope,
     );
-    // A device that fails before confirming proves the Recovery Key again; the proof is idempotent.
-    await expect(recover(asUser, newcomer)).resolves.toStrictEqual(
-      recoveryEnvelope,
+    // Renewing the request cannot carry an earlier Recovery Key grant to a new device key.
+    const recoveredKey = deviceEncryptionPublicKey('recovered-key');
+    await asUser.mutation(api.productSyncEnrollment.request, {
+      ...newcomer.proof,
+      deviceEncryptionPublicKey: recoveredKey,
+      enrollmentPublicKey: renewedPublicKey,
+    });
+    await expect(
+      complete(asUser, newcomer, { devicePublicKey: recoveredKey }),
+    ).resolves.toStrictEqual({ admitted: false });
+    // A device that fails before confirming proves the Recovery Key again; the proof is idempotent
+    // and binds the device key presented with it.
+    await expect(
+      recover(asUser, newcomer, { devicePublicKey: recoveredKey }),
+    ).resolves.toStrictEqual(recoveryEnvelope);
+    await expect(complete(asUser, newcomer)).resolves.toStrictEqual({
+      admitted: false,
+    });
+    await expect(
+      complete(asUser, newcomer, { devicePublicKey: recoveredKey }),
+    ).resolves.toMatchObject({ admitted: true });
+    await expect(listTrusted(asUser, holder)).resolves.toContainEqual(
+      expect.objectContaining({ deviceEncryptionPublicKey: recoveredKey }),
     );
-    await admit(asUser, newcomer);
     await expect(listTrusted(asUser, holder)).resolves.toHaveLength(2);
   });
 
-  it('during a pending rotation admits only with the replacement Recovery Key, at the newest epoch', async () => {
+  it('after a removal admits only with the replacement Recovery Key, at the new epoch', async () => {
     expect.hasAssertions();
 
     const { asUser, holder, newcomer, t } = await enrollmentAccount();
     await recover(asUser, newcomer);
     const removed = await admit(asUser, newcomer);
-    await revoke(asUser, holder, removed);
+    // This device proved the previous Recovery Key, but has not confirmed before the removal.
+    const overtaken = await pendingDevice(asUser, 'installation-overtaken');
+    await expect(recover(asUser, overtaken)).resolves.toStrictEqual(
+      recoveryEnvelope,
+    );
+    await revoke({ asUser, t }, holder, removed);
 
     // The removed device mints a new identifier: it is an ordinary Pending Device.
     const returning = await pendingDevice(asUser, 'installation-minted');
@@ -597,19 +695,30 @@ describe('pending device admission', () => {
     ).rejects.toMatchObject({ data: { code: 'TRUSTED_DEVICE_REVOKED' } });
     // The previous Recovery Key, which the removed device may know, admits nobody new.
     await expect(recover(asUser, returning)).resolves.toBeNull();
-    // The holder still adopts with the transition; the previous key stays its recovery until then.
+    await expect(recover(asUser, overtaken)).resolves.toBeNull();
+    await expect(
+      complete(asUser, overtaken, { keyVersion: 1 }),
+    ).resolves.toStrictEqual({
+      admitted: false,
+    });
+    await expect(
+      complete(asUser, overtaken, { keyVersion: 2 }),
+    ).resolves.toStrictEqual({
+      admitted: false,
+    });
+
+    // The replacement Recovery Key is current at once and yields the new epoch's envelope.
+    const replacementEnvelope = await recover(asUser, returning, {
+      proof: replacementRecoveryProof,
+    });
+    expect(replacementEnvelope).toMatchObject({ keyVersion: 2 });
     await expect(
       asUser.query(api.productSync.getEncryptedPayloadForTrustedDevice, {
         ...holder.proof,
         payloadIdentifier: 'product-account-recovery-v1',
       }),
-    ).resolves.toMatchObject({ encryptedPayload: recoveryEnvelope });
-
-    // The replacement Recovery Key yields the newest epoch's envelope.
-    await expect(
-      recover(asUser, returning, replacementRecoveryProof),
-    ).resolves.toStrictEqual({ ...recoveryEnvelope, keyVersion: 2 });
-    const readmitted = await complete(asUser, returning, 2);
+    ).resolves.toMatchObject({ encryptedPayload: replacementEnvelope });
+    const readmitted = await complete(asUser, returning, { keyVersion: 2 });
     expect(readmitted.admitted).toBe(true);
     const devices = await t.run(async (ctx) =>
       ctx.db.query('trustedDevices').collect(),
@@ -620,23 +729,9 @@ describe('pending device admission', () => {
         productSyncKeyEpoch,
       ]),
     ).toStrictEqual([
-      ['installation-001', 1],
+      ['installation-001', 2],
       ['installation-minted', 2],
     ]);
-
-    // Completing the rotation makes the replacement key the only one that admits.
-    await asUser.mutation(
-      api.productAccount.acknowledgeProductSyncKeyRotation,
-      {
-        ...holder.proof,
-        keyEpoch: 2,
-      },
-    );
-    const later = await pendingDevice(asUser, 'installation-later');
-    await expect(recover(asUser, later)).resolves.toBeNull();
-    await expect(
-      recover(asUser, later, replacementRecoveryProof),
-    ).resolves.toStrictEqual({ ...recoveryEnvelope, keyVersion: 2 });
   });
 
   it('never admits an installation removed through its retained id while it waited again after signing out', async () => {
@@ -654,13 +749,13 @@ describe('pending device admission', () => {
 
     // Removing it through its retained Trusted Device id refuses the waiting record too, so the
     // replacement Recovery Key cannot admit it.
-    await revoke(asUser, holder, signedOut);
+    await revoke({ asUser, t }, holder, signedOut);
     await expect(
-      recover(asUser, waiting, replacementRecoveryProof),
+      recover(asUser, waiting, { proof: replacementRecoveryProof }),
     ).rejects.toMatchObject(pendingUnavailable);
-    await expect(complete(asUser, waiting, 2)).rejects.toMatchObject(
-      pendingUnavailable,
-    );
+    await expect(
+      complete(asUser, waiting, { keyVersion: 2 }),
+    ).rejects.toMatchObject(pendingUnavailable);
     await expect(
       connect(asUser, newcomer.deviceIdentifier),
     ).rejects.toMatchObject({ data: { code: 'TRUSTED_DEVICE_REVOKED' } });
@@ -683,44 +778,15 @@ describe('pending device admission', () => {
       ...waiting,
       proof: { ...waiting.proof, pendingDeviceId: outlivedId },
     };
-    await expect(complete(asUser, outlived, 2)).resolves.toStrictEqual({
+    await expect(
+      complete(asUser, outlived, { keyVersion: 2 }),
+    ).resolves.toStrictEqual({
       admitted: false,
     });
     await expect(
       t.run(async (ctx) => ctx.db.query('pendingDevices').collect()),
     ).resolves.toStrictEqual([]);
     await expect(listTrusted(asUser, holder)).resolves.toHaveLength(1);
-  });
-
-  it('completes a pending rotation without waiting for a Pending Device', async () => {
-    expect.hasAssertions();
-
-    const { asUser, holder, newcomer } = await enrollmentAccount();
-    await recover(asUser, newcomer);
-    const admittedDevice = await admit(asUser, newcomer);
-    // After admission it behaves like any Trusted Device, including its later removal.
-    await expect(revoke(asUser, holder, admittedDevice)).resolves.toStrictEqual(
-      { keyEpoch: 2, pendingDeviceCount: 1, state: 'pending' },
-    );
-    await expect(listTrusted(asUser, admittedDevice)).rejects.toMatchObject({
-      data: { code: 'TRUSTED_DEVICE_REVOKED' },
-    });
-
-    const waiting = await pendingDevice(asUser, 'installation-waiting');
-    await request(asUser, waiting);
-    await expect(
-      asUser.mutation(api.productAccount.acknowledgeProductSyncKeyRotation, {
-        ...holder.proof,
-        keyEpoch: 2,
-      }),
-    ).resolves.toStrictEqual({
-      keyEpoch: 2,
-      pendingDeviceCount: 0,
-      state: 'complete',
-    });
-    await expect(
-      asUser.query(api.productAccount.getProductSyncKeyRotation, holder.proof),
-    ).resolves.toBeNull();
   });
 
   it('limits Pending Devices per identifier and account, ends them with their code, and enforces the Trusted Device limit at admission', async () => {
@@ -874,6 +940,9 @@ describe('pending device admission', () => {
     const asOther = t.withIdentity(otherAppleIdentity);
     const stranger = await trustedDevice(asOther, 'installation-other');
     await asOther.mutation(api.productSync.initialize, {
+      deviceEncryptionPublicKey: deviceEncryptionPublicKey(
+        stranger.deviceIdentifier,
+      ),
       ...stranger.proof,
       encryptedPayload: recoveryEnvelope,
       recoveryVerifier,

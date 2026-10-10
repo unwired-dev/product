@@ -4,6 +4,15 @@ status: accepted
 
 # Admit devices only through authorized enrollment
 
+> [ADR 0069](0069-seal-key-rotations-to-each-remaining-trusted-device.md) supersedes
+> this decision's pending-rotation mechanics and temporary previous-Recovery-Key
+> allowance for already-trusted devices. Rotation and replacement recovery now
+> activate atomically without waiting for adoption acknowledgements. It adds an
+> immutable long-lived device public-key binding at authorized admission. All
+> other Pending Device authorization, recovery proof, current-epoch confirmation,
+> limits and tombstone protections stand. The corresponding pending-rotation
+> rationale and consequences below describe historical context.
+
 A device becomes a **Trusted Device** only when an existing Trusted Device approves
 it or the **Recovery Key** unlocks it. **Product Sign-In** alone admits nobody
 except the device that creates a Product Account's keys. This replaces the
@@ -12,7 +21,8 @@ account-wide rule in
 previously unseen device identifier once an account has a revocation tombstone.
 That rule stopped a removed device from rejoining under an invented identifier,
 and it also stopped every legitimate new device. It also supersedes ADR 0020's
-identifier migration, which served that rule. The rest of ADR 0020 stands.
+identifier migration, which served that rule. The rest of ADR 0020 stands except
+where subsequently superseded by ADR 0069.
 Issue #750 owns the implementation.
 
 ## Decision

@@ -10,6 +10,7 @@ import {
   privateSyncCopy,
   registrationActions,
   revocationNotice,
+  revocationProposal,
   trustedDevicesOf,
 } from '../src/registration.ts';
 import {
@@ -20,6 +21,8 @@ import {
   syntheticEnrollmentRequest,
   syntheticMailboxes,
   syntheticRecoveryKey,
+  syntheticRenewedRecoveryKey,
+  syntheticReplacementRecoveryKey,
   syntheticTrustedDevice,
 } from '../src/testing/registration-session.ts';
 
@@ -28,6 +31,13 @@ const connectedTo = (address: keyof typeof syntheticMailboxes) =>
   JSON.stringify([
     { id: syntheticMailboxes[address], address, state: 'connected' },
   ]);
+
+// The store state after an operation that finished without a failure.
+const settled = (snapshot: RegistrationSnapshot) => ({
+  snapshot,
+  busy: false,
+  failed: false,
+});
 
 // A new Product Account presents its Recovery Key until setup is confirmed.
 const unconfirmed = {
@@ -893,7 +903,7 @@ describe('product registration', () => {
     });
   });
 
-  it('keeps the account when a removal fails', async () => {
+  it('keeps the account when preparing a removal fails', async () => {
     expect.hasAssertions();
     const session = createMockRegistrationSession('registration-revocation');
     const store = createRegistration({
@@ -909,68 +919,143 @@ describe('product registration', () => {
       snapshot,
       busy: false,
       failed: false,
-      revocationFailed: true,
+      revocationFailure: 'failed',
     });
   });
 
-  it('shows a later removal failure instead of the earlier success, while cancellation stays quiet', async () => {
+  /* oxlint-disable vitest/max-expects -- Each journey proves one sequence of removal states. */
+  // Mocked journey: the deterministic Mock Mail Session stands in for native preparation and
+  // activation, so this proves the store's states, not the protocol.
+  it('removes a device only after its replacement Recovery Key is confirmed, renewing a stale proposal', async () => {
     expect.hasAssertions();
     const session = createMockRegistrationSession('registration-revocation');
-    const otherDevice = {
-      ...syntheticTrustedDevice,
-      id: 'synthetic-mac',
-      name: 'Mac',
-    };
-    const initial = {
+    const store = createRegistration(session.native);
+    await store.register('google');
+    await store.confirmRecoveryKey(syntheticRecoveryKey.slice(-4));
+    const remaining = {
       kind: 'mailbox-needed',
       signInProvider: 'google',
-      ...accounts.google,
-      trustedDevices: JSON.stringify([syntheticTrustedDevice, otherDevice]),
+      productAccountId: 'synthetic-product-account',
+      privateSync: 'ready',
     } as const;
-    const removed = {
-      ...initial,
-      trustedDevices: JSON.stringify([otherDevice]),
-      revocationNotice: 'removed',
+    const ready = {
+      ...remaining,
+      trustedDevices: JSON.stringify([syntheticTrustedDevice]),
+    };
+    expect(store.getSnapshot()).toStrictEqual(settled(ready));
+    const proposed = {
+      ...ready,
+      revocationDevice: syntheticTrustedDevice.id,
+      revocationRecoveryKey: syntheticReplacementRecoveryKey,
+    };
+    await store.revokeTrustedDevice(syntheticTrustedDevice.id);
+    expect(store.getSnapshot()).toStrictEqual(settled(proposed));
+    expect(revocationProposal(english, proposed)).toStrictEqual({
+      name: syntheticTrustedDevice.name,
+      recoveryKey: syntheticReplacementRecoveryKey,
+    });
+    // Cancellation discards the proposal and leaves the device listed.
+    await store.cancelRevocation();
+    expect(store.getSnapshot()).toStrictEqual(settled(ready));
+    await store.revokeTrustedDevice(syntheticTrustedDevice.id);
+    // A wrong entry sends nothing and keeps the proposal.
+    await store.confirmRevocation(syntheticRecoveryKey.slice(-4));
+    expect(store.getSnapshot()).toStrictEqual({
+      ...settled(proposed),
+      revocationFailure: 'mismatch',
+    });
+    // The account changed meanwhile: a fresh key replaces the confirmed one and nothing is removed.
+    session.changeAccount();
+    await store.confirmRevocation(syntheticReplacementRecoveryKey.slice(-4));
+    const renewed = {
+      ...proposed,
+      revocationRecoveryKey: syntheticRenewedRecoveryKey,
+      revocationNotice: 'renewed',
     } as const;
-    let removal: () => Promise<unknown> = () => Promise.resolve(removed);
+    expect(store.getSnapshot()).toStrictEqual(settled(renewed));
+    expect(trustedDevicesOf(renewed)).toStrictEqual([syntheticTrustedDevice]);
+    // Confirming the discarded key does not count.
+    await store.confirmRevocation(syntheticReplacementRecoveryKey.slice(-4));
+    expect(store.getSnapshot().revocationFailure).toBe('mismatch');
+    await store.confirmRevocation(
+      ` ${syntheticRenewedRecoveryKey.slice(-4).toLowerCase()}`,
+    );
+    expect(store.getSnapshot()).toStrictEqual(
+      settled({ ...remaining, revocationNotice: 'removed' }),
+    );
+  });
+
+  it('keeps an unconfirmed proposal, drops a superseded one, and shows a later failure instead of an earlier notice', async () => {
+    expect.hasAssertions();
+    const session = createMockRegistrationSession('registration-revocation');
+    const proposed = {
+      kind: 'mailbox-needed',
+      signInProvider: 'google',
+      productAccountId: 'synthetic-product-account',
+      privateSync: 'ready',
+      trustedDevices: JSON.stringify([syntheticTrustedDevice]),
+      revocationDevice: syntheticTrustedDevice.id,
+      revocationRecoveryKey: syntheticReplacementRecoveryKey,
+    } as const;
+    // The reply was lost: the proposal stays, and confirming again retries it.
+    const unconfirmed = {
+      ...proposed,
+      revocationNotice: 'unconfirmed',
+    } as const;
+    const {
+      revocationDevice: _device,
+      revocationRecoveryKey: _key,
+      trustedDevices: _devices,
+      ...discarded
+    } = proposed;
+    // Another device removed the target first; its key never became current.
+    const superseded = {
+      ...discarded,
+      revocationNotice: 'superseded',
+    } as const;
+    let confirmation: () => Promise<unknown> = () =>
+      Promise.resolve(unconfirmed);
     const store = createRegistration({
       ...session.native,
-      signIn: () => Promise.resolve(initial),
-      revokeTrustedDevice: () => removal(),
+      signIn: () => Promise.resolve(proposed),
+      confirmRevocation: () => confirmation(),
     });
     await store.register('google');
-    await store.revokeTrustedDevice(syntheticTrustedDevice.id);
-    removal = () => Promise.reject(new Error('Synthetic removal interrupted'));
-    await store.revokeTrustedDevice(otherDevice.id);
+    await store.confirmRevocation('5J0V');
+    expect(store.getSnapshot()).toStrictEqual(settled(unconfirmed));
+    expect(revocationProposal(english, unconfirmed)?.recoveryKey).toBe(
+      syntheticReplacementRecoveryKey,
+    );
+    expect(revocationNotice(english, unconfirmed, false)).toBe(
+      english('revocation.unconfirmed'),
+    );
+    confirmation = () =>
+      Promise.reject(new Error('Synthetic activation interrupted'));
+    await store.confirmRevocation('5J0V');
     const failed = store.getSnapshot();
     expect(failed).toStrictEqual({
-      snapshot: removed,
-      busy: false,
-      failed: false,
-      revocationFailed: true,
+      ...settled(unconfirmed),
+      revocationFailure: 'failed',
     });
     expect(
-      revocationNotice(english, removed, failed.revocationFailed === true),
+      revocationNotice(
+        english,
+        unconfirmed,
+        failed.revocationFailure === 'failed',
+      ),
     ).toBe('The device could not be removed. Try again.');
-    removal = () =>
+    confirmation = () =>
       Promise.reject(
         Object.assign(new Error('Synthetic cancelled'), { code: 'cancelled' }),
       );
-    await store.revokeTrustedDevice(otherDevice.id);
-    expect(store.getSnapshot()).toStrictEqual({
-      snapshot: removed,
-      busy: false,
-      failed: false,
-    });
-    // A removal this device did not complete itself reports no new Recovery Key.
-    const unconfirmed = {
-      ...removed,
-      revocationNotice: 'unconfirmed',
-    } as const;
-    removal = () => Promise.resolve(unconfirmed);
-    await store.revokeTrustedDevice(otherDevice.id);
-    expect(store.getSnapshot().snapshot).toStrictEqual(unconfirmed);
+    await store.confirmRevocation('5J0V');
+    expect(store.getSnapshot()).toStrictEqual(settled(unconfirmed));
+    confirmation = () => Promise.resolve(superseded);
+    await store.confirmRevocation('5J0V');
+    expect(store.getSnapshot()).toStrictEqual(settled(superseded));
   });
+
+  /* oxlint-enable vitest/max-expects */
 });
 
 describe('registration page actions', () => {

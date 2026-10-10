@@ -1,5 +1,4 @@
 import { signInProviderValidator } from '@private-email/contracts/productAccount';
-import { encryptedProductSyncPayloadBodyValidator } from '@private-email/contracts/productSync';
 import { defineSchema, defineTable } from 'convex/server';
 import { v } from 'convex/values';
 
@@ -10,17 +9,10 @@ export default defineSchema({
     lastSeenAt: v.number(),
     productSyncKeyEpoch: v.optional(v.number()),
     productSyncMaterialInitializedAt: v.optional(v.number()),
-    productSyncPendingEncryptedTransition: v.optional(
-      encryptedProductSyncPayloadBodyValidator,
-    ),
-    productSyncPendingKeyEpoch: v.optional(v.number()),
-    productSyncPendingRecoveryWrappedAccountKey: v.optional(
-      encryptedProductSyncPayloadBodyValidator,
-    ),
-    // Digests of a value derived from the Recovery Key for this purpose only; a Pending Device that
-    // presents the value receives the recovery envelope. The pending one is the replacement
-    // Recovery Key a removal issued, the only one that admits devices until rotation completes.
-    productSyncPendingRecoveryVerifier: v.optional(v.string()),
+    // The removal whose activation installed the current Recovery Key; absent after first setup.
+    productSyncRecoveryProposalId: v.optional(v.string()),
+    // Digest of a value derived from the Recovery Key for this purpose only; a Pending Device that
+    // presents the value receives the recovery envelope.
     productSyncRecoveryVerifier: v.optional(v.string()),
     tokenIdentifier: v.string(),
   }).index('by_tokenIdentifier', ['tokenIdentifier']),
@@ -100,9 +92,12 @@ export default defineSchema({
     gmailPushProofsInvalidatedAt: v.optional(v.number()),
     pushCleanupGeneration: v.optional(v.number()),
     deviceIdentifier: v.string(),
+    // The installation's long-lived X25519 key that rotations seal to; bound once, never replaced.
+    deviceEncryptionPublicKey: v.optional(v.string()),
     lastSeenAt: v.number(),
     platform: v.string(),
     productAccountId: v.id('productAccounts'),
+    // The newest key epoch the device reported adopting.
     productSyncKeyEpoch: v.optional(v.number()),
     registeredAt: v.number(),
     scheduledDeliveryAuthorizationDigest: v.optional(v.string()),
@@ -147,6 +142,32 @@ export default defineSchema({
       'productAccountId',
       'trustedDeviceId',
     ]),
+
+  // Each Trusted Device's latest complete key ring, sealed to its encryption key, so it catches up
+  // directly after any number of missed rotations. Replaced by the next activation.
+  productSyncKeyEnvelopes: defineTable({
+    ciphertextBase64: v.string(),
+    encapsulatedKeyBase64: v.string(),
+    keyEpoch: v.number(),
+    productAccountId: v.id('productAccounts'),
+    trustedDeviceId: v.id('trustedDevices'),
+  }).index('by_productAccountId_and_trustedDeviceId', [
+    'productAccountId',
+    'trustedDeviceId',
+  ]),
+
+  // A durable receipt of an activated removal, without key material, so a retry reconciles it.
+  productSyncKeyRotationProposals: defineTable({
+    activatedAt: v.number(),
+    initiatorTrustedDeviceId: v.id('trustedDevices'),
+    keyEpoch: v.number(),
+    productAccountId: v.id('productAccounts'),
+    proposalId: v.string(),
+    trustedDeviceToRevokeId: v.id('trustedDevices'),
+  }).index('by_productAccountId_and_proposalId', [
+    'productAccountId',
+    'proposalId',
+  ]),
 
   devicePushRouteHeartbeats: defineTable({
     refreshedAt: v.number(),
@@ -238,6 +259,8 @@ export default defineSchema({
     ),
     createdAt: v.number(),
     credentialDigest: v.string(),
+    // The long-lived key it asked or proved the Recovery Key with; admission binds exactly this one.
+    deviceEncryptionPublicKey: v.optional(v.string()),
     deviceIdentifier: v.string(),
     displayName: v.optional(v.string()),
     // Absent until the device asks for approval, and after a Trusted Device declines it.
