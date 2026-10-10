@@ -217,42 +217,43 @@ describe('recovering Outbox outcomes and late Send refusals', () => {
     }
   });
 
-  it('refuses a Draft changed after its message was built rather than admitting it', async () => {
+  it('refuses a Draft changed during verification rather than admitting it with earlier content', async () => {
     expect.hasAssertions();
     let phone: Device | undefined = undefined;
     const { server, gmail } = sharedAccount(() => phone);
     const sending = await sender(server, gmail, 'phone');
     phone = sending;
-    const id = await addressed(sending);
-    const draft = sending.draft(id);
-    sending.storage.addFile('file:///notes.txt', 'notes');
-    const notes = sending.drafts.prepare({
-      name: 'notes.txt',
-      type: 'text/plain',
-    });
-    await sending.drafts.update({ ...draft, attachments: [notes] }, draft);
-    await sending.drafts.importAsset(notes, {
-      kind: 'file',
-      uri: 'file:///notes.txt',
-    });
-    const outbox = createOutbox({
-      drafts: {
-        ...sending.drafts,
-        // The Draft changes while its files are verified, after the message was built.
-        readAsset: async (asset, options) => {
-          const current = sending.draft(id);
-          await sending.drafts.update(
-            { ...current, subject: 'Changed meanwhile' },
-            current,
-          );
-          return sending.drafts.readAsset(asset, options);
-        },
-      },
-      mailboxes: sending.mailboxes,
-      registration: sending.registration,
-      claims: sending.storage.delivery,
-    });
+    let outbox: ReturnType<typeof createOutbox> | undefined = undefined;
     try {
+      const id = await addressed(sending);
+      const draft = sending.draft(id);
+      sending.storage.addFile('file:///notes.txt', 'notes');
+      const notes = sending.drafts.prepare({
+        name: 'notes.txt',
+        type: 'text/plain',
+      });
+      await sending.drafts.update({ ...draft, attachments: [notes] }, draft);
+      await sending.drafts.importAsset(notes, {
+        kind: 'file',
+        uri: 'file:///notes.txt',
+      });
+      outbox = createOutbox({
+        drafts: {
+          ...sending.drafts,
+          // The Draft changes while its files are verified, before admission.
+          readAsset: async (asset, options) => {
+            const current = sending.draft(id);
+            await sending.drafts.update(
+              { ...current, subject: 'Changed meanwhile' },
+              current,
+            );
+            return sending.drafts.readAsset(asset, options);
+          },
+        },
+        mailboxes: sending.mailboxes,
+        registration: sending.registration,
+        claims: sending.storage.delivery,
+      });
       // A caller whose callback follows the live Draft.
       await expect(outbox.send(() => sending.draft(id))).resolves.toBe(
         'changed',
@@ -261,7 +262,7 @@ describe('recovering Outbox outcomes and late Send refusals', () => {
       expect(sending.drafts.getOutbox()).toStrictEqual([]);
       expect(sending.draft(id).subject).toBe('Changed meanwhile');
     } finally {
-      outbox.dispose();
+      outbox?.dispose();
       sending.outbox.dispose();
     }
   });

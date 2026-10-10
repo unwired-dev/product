@@ -127,7 +127,7 @@ export function createOutbox({
 }>) {
   // When each pending message may try again; one without an entry uses its Send deadline.
   const retryAt = new Map<string, number>();
-  // Outcomes Gmail gave that storage refused to record; saved again while the message is 'sending'.
+  // Outcomes Gmail gave that storage refused to record; saved again while awaiting an outcome.
   const unrecorded = new Map<string, SendOutcome>();
   let timer: AbortController | undefined = undefined;
   let disposed = false;
@@ -493,7 +493,6 @@ export function createOutbox({
         return 'too-large';
       }
       const sendAt = Date.now() + undoSendWindow;
-      // Resolved at write time, so an editor rebound to a conflict copy admits its own copy.
       // The identifier follows an editor rebound to its conflict copy; the content stays the
       // version the message was built from, so a later change is refused rather than admitted.
       const pinned = () => {

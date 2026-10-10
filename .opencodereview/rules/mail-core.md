@@ -160,6 +160,11 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   outcomes when their entries disappear or advance, on account invalidation and
   disposal, including late completion after disposal; otherwise safe non-delivery
   stays stranded as unknown or old delivery identifiers remain in memory.
+  A recovering writer may conservatively save `unknown` while the live handoff
+  still awaits Gmail: that state must not erase the live owner's definite answer.
+  Only the instance that performed this handoff may upgrade it from its received
+  or retained outcome; a recovering instance without that answer cannot resend.
+  Exercise both orderings of the recovery save and the provider answer.
 - `outbox.ts.send` or another admission check validating mutable eligibility only
   before awaited asset reads or preparation. Repeat every applicable refusal check
   after the await and before admission, preserving the frozen content and live
@@ -185,6 +190,12 @@ Apply every section of `.opencodereview/rules/common.md` to this file first; rea
   writer's version and admits it alongside the first editor's rendered message.
   Hold a native asset read, trigger a real editor rebind, and verify admission,
   the other writer's retained Draft and reopened storage.
+  Compare the admitted Draft against the content used to build the message,
+  allowing only the live binding's identifier and conflict-copy metadata to
+  follow a rebind. A callback returning newly edited content is not evidence
+  that the earlier rendered message matches; refuse the changed Draft rather
+  than removing it with an older message. Exercise a same-identifier edit during
+  verification as well as a content-preserving conflict-copy rebind.
 - `outgoing-message.ts` allowing non-ASCII/control text into native-bound MIME
   segments. Names, subjects and filenames need their existing encodings; raw
   sender/recipient addresses must be refused before Outbox admission, and invalid
