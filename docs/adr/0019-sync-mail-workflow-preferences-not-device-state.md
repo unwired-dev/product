@@ -25,3 +25,12 @@ change synchronized reading preferences or provider read state. The decision
 panel for [PR #814](https://github.com/unwired-dev/product/pull/814) selected this
 boundary with two matching votes (`claude-fable-5-1` and `gpt-6.1-sol`);
 `gpt-6-astra` was pending when the majority was established.
+
+## Amendment — 2026-10-10: Catch Up view choice
+
+For planned [Catch Up](../catch-up.md), each device, and each Mac window,
+remembers its own last list/chat choice; the choice never synchronizes. The list
+is the default. This is device-local presentation state under the boundary
+above, separate from synchronized Inbox presentation preferences. The product
+owner confirmed this scope on
+[PR #814](https://github.com/unwired-dev/product/pull/814).
