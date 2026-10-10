@@ -62,7 +62,8 @@ not itself restrict filesystem or Git-history access.
       untouched and out of task commits.
    2. Select the branch: the head of the task's open same-repository PR against
       `main` when one exists, converted to draft now if the request forbids
-      merging (a fork head is a delivery blocker to report);
+      merging but allows PR changes (a fork head is a delivery blocker to
+      report);
       otherwise an existing branch that already holds this task's work;
       otherwise a new task branch from the latest `main`.
    3. Work where that branch is usable without moving unrelated changes: this
