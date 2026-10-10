@@ -7,6 +7,7 @@ import type {
   GmailMessage,
   GmailSearchPage,
   NativeGmailMailbox,
+  RemoteResource,
 } from './gmail-inbox.ts';
 import type { Registration, RegistrationSnapshot } from './registration.ts';
 
@@ -68,6 +69,25 @@ export interface NativeGmailMailboxes {
     file: string,
     action: 'open' | 'share',
   ) => Promise<unknown>;
+  readonly openRemoteContent: (
+    mailbox: Scope,
+    resource: RemoteResource,
+  ) => Promise<unknown>;
+  readonly fetchRemoteContent: (
+    mailbox: Scope,
+    url: string,
+    request: Readonly<{ session: string; request: string }>,
+  ) => Promise<unknown>;
+  readonly cancelRemoteContent: (
+    mailbox: Scope,
+    session: string,
+    finished: boolean,
+  ) => Promise<unknown>;
+  readonly commitRemoteContent: (
+    mailbox: Scope,
+    resource: RemoteResource,
+    admission: Parameters<NativeGmailMailbox['commitRemoteContent']>[2],
+  ) => Promise<unknown>;
 }
 
 // One connection's view of the native module: every call names that connection, and only the
@@ -114,6 +134,14 @@ const bound = (
       native.discardAttachment(scope(mailbox), file),
     presentAttachment: (mailbox, file, action) =>
       native.presentAttachment(scope(mailbox), file, action),
+    openRemoteContent: (mailbox, resource) =>
+      native.openRemoteContent(scope(mailbox), resource),
+    fetchRemoteContent: (mailbox, url, request) =>
+      native.fetchRemoteContent(scope(mailbox), url, request),
+    cancelRemoteContent: (mailbox, session, finished) =>
+      native.cancelRemoteContent(scope(mailbox), session, finished),
+    commitRemoteContent: (mailbox, resource, admission) =>
+      native.commitRemoteContent(scope(mailbox), resource, admission),
   };
 };
 
@@ -211,7 +239,11 @@ export function createMailboxes(
   ) => {
     const added = open.filter(({ id }) => !inboxes.has(id));
     for (const { id, address, owner } of added) {
-      const inbox = createGmailInbox(bound(native, id), { removed, shared });
+      const inbox = createGmailInbox(bound(native, id), {
+        removed,
+        shared,
+        connection: id,
+      });
       inboxes.set(id, {
         owner,
         address,

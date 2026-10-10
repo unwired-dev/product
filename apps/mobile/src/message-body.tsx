@@ -9,7 +9,7 @@ import type {
   ReadableBody,
 } from '@private-email/mail-core/message-body';
 import type { ReactNode } from 'react';
-import type { LayoutChangeEvent } from 'react-native';
+import type { LayoutChangeEvent, ScrollViewProps } from 'react-native';
 import type {
   ShouldStartLoadRequest,
   WebViewEvent,
@@ -19,7 +19,10 @@ import {
   inspectLink,
   messageLinkAt,
 } from '@private-email/mail-core/link-inspection';
-import { decodeMessageContentHeight } from '@private-email/mail-core/message-body';
+import {
+  decodeMessageContentHeight,
+  decodeRemoteImagePositions,
+} from '@private-email/mail-core/message-body';
 import { spacing } from '@private-email/mail-core/theme';
 import {
   createContext,
@@ -37,6 +40,7 @@ import {
   Clipboard,
   Linking,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -46,6 +50,7 @@ import { WebView } from 'react-native-webview';
 import { Action } from './action.tsx';
 import { useLocalization } from './localization.ts';
 import { MessageSummary } from './message-summary.tsx';
+import { useRemoteContentPolicy } from './remote-content.tsx';
 import { usePalette } from './theme.ts';
 import { MessageTranslation } from './translation.tsx';
 
@@ -78,6 +83,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: spacing.small,
   },
+  notice: { gap: spacing.small },
   rich: { width: '100%', backgroundColor: '#FFFFFF' },
   hidden: { opacity: 0 },
   fill: { flex: 1 },
@@ -330,23 +336,135 @@ function ReadableText({
   ));
 }
 
+// What the reader's scroll view shows, so Remote Message Content loads only near it.
+interface ReaderViewport {
+  readonly subscribe: (listener: () => void) => () => void;
+  readonly get: () => Readonly<{ offset: number; height: number }>;
+  readonly content: () =>
+    | ReturnType<ScrollView['getNativeScrollRef']>
+    | undefined;
+}
+
+const ReaderViewportContext = createContext<ReaderViewport | undefined>(
+  undefined,
+);
+
+// The reader's scrolling content, reporting its visible range to the documents inside it.
+export function ReaderScrollView({
+  children,
+  contentContainerStyle,
+}: Pick<ScrollViewProps, 'children' | 'contentContainerStyle'>) {
+  const scroll = useRef<ScrollView>(null);
+  // oxlint-disable-next-line react/hook-use-state -- The viewport store is created once and updates its listeners.
+  const [viewport] = useState(() => {
+    const listeners = new Set<() => void>();
+    let visible = { offset: 0, height: 0 };
+    return {
+      subscribe: (listener: () => void) => {
+        listeners.add(listener);
+        return () => {
+          listeners.delete(listener);
+        };
+      },
+      get: () => visible,
+      content: () => scroll.current?.getNativeScrollRef(),
+      update: (next: Partial<typeof visible>) => {
+        visible = { ...visible, ...next };
+        for (const listener of listeners) {
+          listener();
+        }
+      },
+    };
+  });
+  return (
+    <ReaderViewportContext value={viewport}>
+      <ScrollView
+        ref={scroll}
+        contentContainerStyle={contentContainerStyle}
+        scrollEventThrottle={100}
+        onLayout={({ nativeEvent }) => {
+          viewport.update({ height: nativeEvent.layout.height });
+        }}
+        onScroll={({ nativeEvent }) => {
+          viewport.update({
+            offset: nativeEvent.contentOffset.y,
+            height: nativeEvent.layoutMeasurement.height,
+          });
+        }}>
+        {children}
+      </ScrollView>
+    </ReaderViewportContext>
+  );
+}
+
 // The sanitized document in an isolated WebKit view: no page JavaScript, non-persistent data,
 // no link previews, and every navigation cancelled. A chosen link goes to the confirmation.
-// The view stays hidden behind a placeholder until its first layout is measured.
+// The view stays hidden behind a placeholder until its first layout is measured. Blocked remote
+// images within one viewport of the visible range are reported as they come near.
 function RichDocument({
   rich,
   onChoose,
   onFailure,
+  onNear,
 }: {
   readonly rich: NonNullable<MessagePresentation['rich']>;
   readonly onChoose: (link: BodyLink) => void;
   readonly onFailure: () => void;
+  readonly onNear: (urls: readonly string[]) => void;
 }) {
   // The laid-out width; a later different width lays the document out and measures it again.
   const { t } = useLocalization();
   const width = useRef<number>(undefined);
+  // oxlint-disable-next-line react/hook-use-state -- This mounted navigation keeps its original source.
+  const [source] = useState(() => ({ html: rich.initialDocument }));
+  const container = useRef<View>(null);
+  const viewport = use(ReaderViewportContext);
   const [layout, setLayout] = useState(0);
   const [height, setHeight] = useState<number>();
+  const [positions, setPositions] = useState<
+    ReturnType<typeof decodeRemoteImagePositions>
+  >([]);
+  useEffect(() => {
+    if (
+      viewport === undefined ||
+      height === undefined ||
+      positions.length === 0
+    ) {
+      return undefined;
+    }
+    let active = true;
+    let measurement = 0;
+    const request = () => {
+      measurement += 1;
+      const revision = measurement;
+      const { offset, height: visible } = viewport.get();
+      const content = viewport.content();
+      if (content === undefined || content === null) {
+        return;
+      }
+      container.current?.measureLayout(content, (_left, top) => {
+        if (!active || revision !== measurement) {
+          return;
+        }
+        // A document taller than its view scrolls inside it; only its first view is placed.
+        const urls = positions
+          .filter(
+            (position) =>
+              position.top < heightCap &&
+              top + position.bottom >= offset - visible &&
+              top + position.top <= offset + 2 * visible,
+          )
+          .flatMap(({ index }) => rich.remote.images[index] ?? []);
+        onNear(urls);
+      });
+    };
+    request();
+    const unsubscribe = viewport.subscribe(request);
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, [viewport, height, positions, rich, onNear]);
   const choose = ({ url, navigationType }: ShouldStartLoadRequest) => {
     if (url === 'about:blank') {
       return navigationType === 'other';
@@ -361,6 +479,7 @@ function RichDocument({
   };
   return (
     <View
+      ref={container}
       onLayout={({ nativeEvent }: LayoutChangeEvent) => {
         const next = Math.round(nativeEvent.layout.width);
         if (width.current !== undefined && width.current !== next) {
@@ -388,6 +507,7 @@ function RichDocument({
           onContentSizeChange={(event: WebViewEvent) => {
             const measured = decodeMessageContentHeight(event.nativeEvent);
             if (measured !== undefined) {
+              setPositions(decodeRemoteImagePositions(event.nativeEvent));
               setHeight(measured);
             }
           }}
@@ -397,7 +517,8 @@ function RichDocument({
           originWhitelist={['*']}
           scrollEnabled={height !== undefined && height > heightCap}
           setSupportMultipleWindows={false}
-          source={{ html: rich.document }}
+          source={source}
+          nativeConfig={{ props: { remoteImageUpdates: rich.remote.updates } }}
           style={[
             styles.rich,
             { height: Math.min(height ?? 1, heightCap) },
@@ -409,38 +530,64 @@ function RichDocument({
   );
 }
 
-// Each rich document gets its own native view, so a late failure or size from a replaced
-// document cannot reach its replacement.
-const documentKeys = new WeakMap<object, number>();
-let documents = 0;
-const documentKey = (rich: object) => {
-  const key = documentKeys.get(rich) ?? (documents += 1);
-  documentKeys.set(rich, key);
-  return key;
-};
-
 function Presentation({
   presentation,
   onChoose,
   onFailure,
+  onNear,
+  onLoadImages,
 }: {
   readonly presentation: MessagePresentation;
   readonly onChoose: (link: BodyLink) => void;
   readonly onFailure: () => void;
+  readonly onNear: (urls: readonly string[]) => void;
+  // Present while this presentation still needs consent to load its remote images.
+  readonly onLoadImages: (() => void) | undefined;
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
   const { rich, readable } = presentation;
-  const richKey = rich === undefined ? undefined : documentKey(rich);
+  // A new source gets a new native view; remote-image node changes keep this navigation.
+  const [navigation, setNavigation] = useState(() => ({
+    document: rich?.initialDocument,
+    key: 0,
+  }));
+  let current = navigation;
+  if (navigation.document !== rich?.initialDocument) {
+    current = { document: rich?.initialDocument, key: navigation.key + 1 };
+    setNavigation(current);
+  }
+  const richKey = current.key;
   // Keep only the failed document's identity so its HTML and inline bytes can be released.
   const [failed, setFailed] = useState<number>();
+  const offered =
+    onLoadImages !== undefined &&
+    rich !== undefined &&
+    failed !== richKey &&
+    rich.remote.pending.length > 0;
+  let notice: ReactNode = null;
+  if (offered) {
+    notice = (
+      <View style={styles.notice}>
+        <Text style={[styles.secondary, { color: colors.secondary }]}>
+          {t('messageBody.remoteImages')}
+        </Text>
+        <Action
+          label={t('messageBody.loadImages')}
+          onPress={onLoadImages}
+        />
+      </View>
+    );
+  } else if (readable.hidesImages) {
+    notice = (
+      <Text style={[styles.secondary, { color: colors.secondary }]}>
+        {t('messageBody.images')}
+      </Text>
+    );
+  }
   return (
     <>
-      {readable.hidesImages ? (
-        <Text style={[styles.secondary, { color: colors.secondary }]}>
-          {t('messageBody.images')}
-        </Text>
-      ) : null}
+      {notice}
       {rich === undefined || failed === richKey ? (
         <ReadableText
           readable={readable}
@@ -451,6 +598,7 @@ function Presentation({
           <RichDocument
             key={richKey}
             rich={rich}
+            onNear={onNear}
             onChoose={onChoose}
             onFailure={() => {
               setFailed(richKey);
@@ -692,31 +840,52 @@ export function GmailMessageBody({
   inbox,
   id,
   subject,
+  connection,
 }: {
   readonly inbox: GmailInbox;
   readonly id: string;
   // Read by an explicitly requested summary with the body.
   readonly subject?: string | undefined;
+  // The Mailbox Connection whose remote content policy applies.
+  readonly connection?: string | undefined;
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
+  const policy = useRemoteContentPolicy(connection);
+  // Consent under Ask belongs to this message's presentation; Gmail IDs repeat across mailboxes.
+  const [consent, setConsent] = useState<{
+    readonly inbox: GmailInbox;
+    readonly id: string;
+  }>();
+  const consented = consent?.inbox === inbox && consent.id === id;
   // oxlint-disable-next-line react/hook-use-state -- This immutable reader identity has no setter.
   const [reader] = useState(() => Symbol('message reader'));
+  // Retire network permission before queued native measurements can observe the new policy.
+  useLayoutEffect(() => {
+    if (policy === 'never') {
+      inbox.forgetRemoteImages(id);
+    } else if (policy === 'ask' && !consented) {
+      void inbox.loadRemoteImages(id, [], { network: false, reader });
+    }
+  }, [inbox, id, policy, consented, reader]);
   const body = useSyncExternalStore(inbox.subscribe, () =>
     inbox.messageBody(id, reader),
   );
   const confirm = use(LinkConfirmationContext);
   // The message this reader shows, cleared as soon as it changes or closes, so input queued for a
   // previous message is recognized before any passive cleanup runs.
-  const showing = useRef<{ readonly inbox: GmailInbox; readonly id: string }>(
-    undefined,
-  );
+  const showing = useRef<{
+    readonly inbox: GmailInbox;
+    readonly id: string;
+    readonly policy: typeof policy;
+    readonly consented: boolean;
+  }>(undefined);
   useLayoutEffect(() => {
-    showing.current = { inbox, id };
+    showing.current = { inbox, id, policy, consented };
     return () => {
       showing.current = undefined;
     };
-  }, [inbox, id]);
+  }, [inbox, id, policy, consented]);
   useEffect(() => {
     const release = inbox.retainMessage(id, reader);
     void inbox.readMessage(id);
@@ -782,6 +951,29 @@ export function GmailMessageBody({
       />
       <Presentation
         presentation={body.presentation}
+        // Never shows no remote content, even what an earlier authorization cached.
+        onNear={(urls) => {
+          if (
+            policy !== 'never' &&
+            current() &&
+            showing.current?.policy === policy &&
+            showing.current.consented === consented
+          ) {
+            void inbox.loadRemoteImages(id, urls, {
+              network: policy === 'always' || consented,
+              reader,
+            });
+          }
+        }}
+        onLoadImages={
+          policy === 'ask' && !consented
+            ? () => {
+                if (current()) {
+                  setConsent({ inbox, id });
+                }
+              }
+            : undefined
+        }
         onFailure={() => {
           inbox.discardRichMessage(id, body.presentation, reader);
         }}

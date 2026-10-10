@@ -189,6 +189,29 @@ This adds platform storage operations permitted by
 [ADR 0067](../adr/0067-keep-native-code-to-a-minimal-vault.md); MIME decoding,
 presentation preparation and application sequencing remain in TypeScript.
 
+## Authorized Remote Content Cache
+
+Issue #763 adds disposable remote image ciphertext under each connection's
+`remote/`, separate from body and metadata caches. A collision-free encoded
+identity binds Product Account, connection, provider subject, mailbox address,
+message ID and source URL into both the digest filename and AES-GCM associated
+data. Gmail message content is immutable: the normalized request reference within that
+stable message identifies the resource revision. Profiles remain deferred under
+[ADR 0059](../adr/0059-replace-the-client-for-a-shared-cross-platform-product.md); their
+future migration must add Profile identity without reusing another Profile's
+entries.
+
+The native file-locked vault counts all connection remote directories toward a
+separate 250 MB stored-byte limit. It plans LRU eviction before deleting files
+and refuses admission when protected displayed resources cannot leave enough
+space. The shared account ledger sends connection/message/URL triples; native
+registration resolves each connection's saved subject/address before constructing
+its protected filename. Thus eviction for one connection cannot evict another
+connection's displayed content. Existing-key lookup happens before disposable
+authentication failure handling, preserving ciphertext on Keychain failure.
+Connection removal and account purge remove these directories before keys, and
+Clear Remote Content removes only remote entries.
+
 ## Legacy cache ownership and cleanup
 
 The earlier root `mailbox.enc` and `bodies/` are lazily adopted only after their

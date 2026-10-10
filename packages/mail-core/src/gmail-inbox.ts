@@ -2,16 +2,19 @@ import * as Arr from 'effect/Array';
 import * as DateTime from 'effect/DateTime';
 import * as Deferred from 'effect/Deferred';
 import * as Effect from 'effect/Effect';
+import * as Base64 from 'effect/encoding/Base64';
 import * as Latch from 'effect/Latch';
 import * as Option from 'effect/Option';
 import * as Order from 'effect/Order';
 import * as Random from 'effect/Random';
+import * as Result from 'effect/Result';
 import * as Schedule from 'effect/Schedule';
 import * as Schema from 'effect/Schema';
 import * as Semaphore from 'effect/Semaphore';
 
 import type { DeliveryProblem } from './draft-model.ts';
 import type { GmailAction, GmailLabel } from './gmail-actions.ts';
+import type { RemoteImage } from './html-sanitizer.ts';
 import type {
   BodyDocument,
   GmailPart,
@@ -33,7 +36,7 @@ import {
   relabel,
 } from './gmail-actions.ts';
 import { sanitizeHtml } from './html-sanitizer.ts';
-import { inlineImageLimits } from './inline-images.ts';
+import { inlineImageLimits, inspectImage } from './inline-images.ts';
 import {
   attachmentLimit,
   bodyParts,
@@ -146,7 +149,60 @@ export interface NativeGmailMailbox {
     file: string,
     action: 'open' | 'share',
   ) => Promise<unknown>;
+  // The Authorized Remote Content Cache, bound to the mailbox, message and exact source. Opening
+  // resolves `{ data }`, standard base64 or null when absent; it never contacts a server.
+  readonly openRemoteContent: (
+    mailbox: Readonly<{ address: string; generation: string }>,
+    resource: RemoteResource,
+  ) => Promise<unknown>;
+  // Fetches one authorized HTTPS image through the isolated native path and resolves `{ data }`.
+  // Rejects with 'refused' when its destination or response is not allowed.
+  readonly fetchRemoteContent: (
+    mailbox: Readonly<{ address: string; generation: string }>,
+    url: string,
+    request: Readonly<{ session: string; request: string }>,
+  ) => Promise<unknown>;
+  readonly cancelRemoteContent: (
+    mailbox: Readonly<{ address: string; generation: string }>,
+    session: string,
+    finished: boolean,
+  ) => Promise<unknown>;
+  // Stores validated bytes, evicting least recently shown entries outside the displayed
+  // `[connection, id, url]` resources; resolves `{ admitted }`, false when they cannot fit.
+  readonly commitRemoteContent: (
+    mailbox: Readonly<{ address: string; generation: string }>,
+    resource: RemoteResource,
+    admission: Readonly<{
+      data: string;
+      protected: ReadonlyArray<readonly [string, string, string]>;
+    }>,
+  ) => Promise<unknown>;
 }
+
+// One message's remote image source: the cache's scope below the mailbox.
+export type RemoteResource = Readonly<{ id: string; url: string }>;
+
+// One remote image source of an opened message.
+type RemoteImageState =
+  | { readonly kind: 'loading' }
+  | { readonly kind: 'loaded'; readonly image: RemoteImage }
+  // Not in the cache, and the presentation has not authorized fetching it.
+  | { readonly kind: 'absent' }
+  | { readonly kind: 'failed' };
+
+const RemoteData = Schema.Struct({ data: Schema.NullOr(Schema.String) });
+let nextRemoteSession = 0;
+
+// The byte count standard base64 decodes to.
+const decodedSize = (data: string) =>
+  (data.length * 3) / 4 - (/=+$/u.exec(data)?.[0].length ?? 0);
+
+// Remote bytes become content only as one complete supported image within the per-image bounds.
+const admittedRemote = (data: string): RemoteImage | undefined => {
+  const bytes = Result.getOrUndefined(Base64.decode(data));
+  const facts = bytes === undefined ? undefined : inspectImage(bytes);
+  return facts === undefined ? undefined : { ...facts, data };
+};
 
 type BodyTier = 'opened' | 'prefetched' | 'excluded';
 
@@ -1007,6 +1063,18 @@ export function createBodyLoads() {
       }),
     } as const,
     loads: Semaphore.makeUnsafe(4),
+    // Remote Message Content requests, twelve at a time account-wide.
+    remote: Semaphore.makeUnsafe(12),
+    remoteImages: new Map<
+      symbol,
+      Map<
+        string,
+        Readonly<{
+          resource: readonly [string, string, string];
+          image: RemoteImage;
+        }>
+      >
+    >(),
     // Separate owner ledgers share one presentation budget without colliding on Gmail IDs.
     images: new Map<
       symbol,
@@ -1032,11 +1100,13 @@ export function createGmailInbox(
   {
     removed,
     shared = createBodyLoads(),
+    connection = '',
   }: Readonly<{
     // Called after native code purged this device because another device removed it; the account
     // page, not the Inbox, explains what happened.
     removed?: (() => void) | undefined;
     shared?: Readonly<BodyLoads>;
+    connection?: string;
   }> = {},
 ) {
   // One Gmail read; a missing resource is GmailNotFound and other HTTP failures are classified.
@@ -1356,6 +1426,83 @@ export function createGmailInbox(
     { bytes: number; pixels: number }
   >();
   const readingBodies = new Map<string, Promise<void>>();
+  interface RemoteLoad {
+    readonly images: Map<string, RemoteImageState>;
+    readonly session: string;
+    readonly scope: MailboxScope;
+    readonly abort: AbortController;
+    readonly network: boolean;
+    readonly readers: Map<
+      string | symbol,
+      Readonly<{ urls: ReadonlySet<string>; network: boolean }>
+    >;
+    networkUrls: ReadonlySet<string>;
+    near: ReadonlySet<string>;
+    attempts: number;
+    sequence: number;
+    admitted: number;
+  }
+  const remoteImages = new Map<string, RemoteLoad>();
+  // Retired work keeps its lane until it settles, so reopening cannot double the six permits.
+  const remoteLanes = new Map<
+    string,
+    { permits: Semaphore.Semaphore; pending: number }
+  >();
+  const retainedRemote = new Map<
+    string,
+    Readonly<{
+      resource: readonly [string, string, string];
+      image: RemoteImage;
+    }>
+  >();
+  const releaseRemote = (
+    id: string,
+    disposition: 'close' | 'policy' | 'mode' = 'close',
+  ) => {
+    const remote = remoteImages.get(id);
+    if (remote === undefined) {
+      return;
+    }
+    remoteImages.delete(id);
+    remote.abort.abort();
+    if (disposition !== 'mode') {
+      for (const key of retainedRemote.keys()) {
+        if (key.startsWith(`${id}\n`)) {
+          retainedRemote.delete(key);
+        }
+      }
+    }
+    void runLogged(
+      Effect.tryPromise({
+        try: () =>
+          native.cancelRemoteContent(
+            remote.scope,
+            remote.session,
+            disposition === 'close',
+          ),
+        catch: (cause) => rejected(cause, 'failed'),
+      }).pipe(
+        Effect.catchTag('SyncFailure', ({ diagnostic }) =>
+          Effect.logError('Remote content cancellation failed:', diagnostic),
+        ),
+      ),
+    );
+    if (disposition === 'policy') {
+      remoteImages.set(id, {
+        ...remote,
+        images: new Map(),
+        abort: new AbortController(),
+        network: false,
+        near: new Set(),
+        networkUrls: new Set(),
+        readers: new Map(),
+        admitted: 0,
+      });
+    }
+    if (remoteLanes.get(id)?.pending === 0) {
+      remoteLanes.delete(id);
+    }
+  };
   // Each opened message's attachment downloads by `id\nlocator`. A saved file belongs to the
   // mailbox scope it was saved in and is deleted when its message leaves memory.
   type Download = Readonly<{
@@ -1397,6 +1544,7 @@ export function createGmailInbox(
   };
   const releaseBody = (id: string) => {
     discardDownloads(id);
+    releaseRemote(id);
     bodies.delete(id);
     documents.delete(id);
     imageReservations.delete(id);
@@ -1575,6 +1723,37 @@ export function createGmailInbox(
     return { bytes, pixels };
   };
 
+  // A message's loaded Remote Message Content admitted within what the shared presentation
+  // budget leaves after its inline images; resolves the images and the bytes and pixels reserved.
+  const admitRemote = (
+    id: string,
+    occurrences: readonly string[],
+    budget: Readonly<{ bytes: number; pixels: number; count: number }>,
+  ) => {
+    const loaded = remoteImages.get(id)?.images;
+    const admitted = new Map<string, RemoteImage>();
+    let bytes = 0;
+    let pixels = 0;
+    for (const url of new Set(occurrences)) {
+      const known = loaded?.get(url);
+      if (known?.kind === 'loaded') {
+        const copies =
+          budget.count * occurrences.filter((source) => source === url).length;
+        const size = decodedSize(known.image.data) * copies;
+        const area = known.image.width * known.image.height * copies;
+        if (
+          budget.bytes + bytes + size <= inlineImageLimits.aggregateBytes &&
+          budget.pixels + pixels + area <= inlineImageLimits.aggregatePixels
+        ) {
+          bytes += size;
+          pixels += area;
+          admitted.set(url, known.image);
+        }
+      }
+    }
+    return { admitted, bytes, pixels };
+  };
+
   // Admits a body's inline images in document order while the budget shared by every displayed
   // body allows; the rest stay placeholders.
   const present = (key: string | symbol, document: BodyDocument, count = 1) => {
@@ -1582,11 +1761,12 @@ export function createGmailInbox(
     let { bytes, pixels } = reservedImages(key);
     shared.images.set(imageOwner, imageReservations);
     let occurrences: readonly string[] = [];
+    let remoteOccurrences: readonly string[] = [];
     try {
-      occurrences =
-        document.html === undefined
-          ? []
-          : sanitizeHtml(document.html).contentIdOccurrences;
+      // A body without HTML has no image references.
+      const sanitized = sanitizeHtml(document.html ?? '');
+      occurrences = sanitized.contentIdOccurrences;
+      remoteOccurrences = sanitized.remoteImages;
     } catch {
       imageReservations.delete(key);
       return presentation({
@@ -1601,10 +1781,7 @@ export function createGmailInbox(
       const occurrencesCount = occurrences.filter(
         (contentId) => contentId === image.contentId,
       ).length;
-      const size =
-        ((image.data.length * 3) / 4 -
-          (/=+$/u.exec(image.data)?.[0].length ?? 0)) *
-        occurrencesCount;
+      const size = decodedSize(image.data) * occurrencesCount;
       const area = image.width * image.height * occurrencesCount;
       if (
         bytes + size * count > inlineImageLimits.aggregateBytes ||
@@ -1618,12 +1795,246 @@ export function createGmailInbox(
       reservedPixels += area * count;
       return true;
     });
+    const remote = admitRemote(id, remoteOccurrences, { bytes, pixels, count });
     imageReservations.set(key, {
-      bytes: reservedBytes,
-      pixels: reservedPixels,
+      bytes: reservedBytes + remote.bytes,
+      pixels: reservedPixels + remote.pixels,
     });
-    return presentation(document, visibleImages);
+    return presentation(document, visibleImages, remote.admitted);
   };
+
+  // Presents an opened message again for every reader, once more of its remote images loaded.
+  const presentRemote = (id: string) => {
+    const document = documents.get(id);
+    if (document === undefined || bodies.get(id)?.kind !== 'ready') {
+      return;
+    }
+    const count = legacyReaders.get(id) ?? 0;
+    if (count > 0) {
+      bodies.set(id, {
+        kind: 'ready',
+        presentation: present(id, document, count),
+      });
+    }
+    for (const [reader, message] of viewReaders) {
+      if (message === id) {
+        viewBodies.set(reader, {
+          kind: 'ready',
+          presentation: present(reader, document),
+        });
+      }
+    }
+    notify(state);
+  };
+
+  // Remote Message Content currently shown, which the cache keeps while admitting more.
+  const displayedRemote = () =>
+    [...shared.remoteImages.values()].flatMap((images) =>
+      [...images.values()].map(({ resource }) => resource),
+    );
+
+  const refreshRemoteInterest = (id: string) => {
+    const previous = remoteImages.get(id);
+    if (previous === undefined) {
+      return undefined;
+    }
+    const interest = [...previous.readers.values()];
+    const near = new Set(interest.flatMap(({ urls }) => [...urls]));
+    const networkUrls = new Set(
+      interest
+        .filter(({ network }) => network)
+        .flatMap(({ urls }) => [...urls]),
+    );
+    const network = networkUrls.size > 0;
+    const withdrawn = [...previous.networkUrls].some(
+      (url) => !networkUrls.has(url),
+    );
+    if (previous.network === network && !withdrawn) {
+      previous.near = near;
+      previous.networkUrls = networkUrls;
+      return previous;
+    }
+    releaseRemote(id, 'mode');
+    const remote = {
+      ...previous,
+      images: new Map<string, RemoteImageState>(
+        [...retainedRemote.values()]
+          .filter(({ resource }) => resource[1] === id)
+          .map(({ resource, image }) => [
+            resource[2],
+            { kind: 'loaded', image },
+          ]),
+      ),
+      abort: new AbortController(),
+      near,
+      networkUrls,
+      network,
+    };
+    remoteImages.set(id, remote);
+    presentRemote(id);
+    return remote;
+  };
+
+  const remoteReaderInterest = (
+    id: string,
+    authorization: boolean | Readonly<{ network: boolean; reader: symbol }>,
+  ) => {
+    const interest =
+      typeof authorization === 'boolean'
+        ? { network: authorization, reader: id }
+        : authorization;
+    if (
+      typeof interest.reader === 'symbol' &&
+      viewReaders.get(interest.reader) !== id
+    ) {
+      return undefined;
+    }
+    return interest;
+  };
+
+  const settleRemoteImages = (
+    id: string,
+    results: ReadonlyArray<readonly [string, RemoteImageState]>,
+    current: () => boolean,
+  ) => {
+    const remote = remoteImages.get(id);
+    if (remote === undefined || !current()) {
+      return;
+    }
+    for (const [url, result] of results) {
+      if (!remote.near.has(url) && result.kind !== 'loaded') {
+        remote.images.delete(url);
+      } else {
+        remote.images.set(url, result);
+      }
+    }
+    if (results.some(([, result]) => result.kind === 'loaded')) {
+      presentRemote(id);
+    }
+  };
+
+  const reserveRemote = (resource: RemoteResource, image: RemoteImage) => {
+    const { id, url } = resource;
+    const remote = remoteImages.get(id);
+    if (
+      remote === undefined ||
+      !remote.near.has(url) ||
+      remote.admitted + (documents.get(id)?.images?.admitted.length ?? 0) >=
+        inlineImageLimits.admitted
+    ) {
+      return false;
+    }
+    let bytes = decodedSize(image.data);
+    let pixels = image.width * image.height;
+    for (const images of shared.remoteImages.values()) {
+      for (const held of images.values()) {
+        bytes += decodedSize(held.image.data);
+        pixels += held.image.width * held.image.height;
+      }
+    }
+    if (
+      bytes > inlineImageLimits.aggregateBytes ||
+      pixels > inlineImageLimits.aggregatePixels
+    ) {
+      return false;
+    }
+    remote.admitted += 1;
+    retainedRemote.set(`${id}\n${url}`, {
+      resource: [connection, id, url],
+      image,
+    });
+    shared.remoteImages.set(imageOwner, retainedRemote);
+    return true;
+  };
+
+  // One remote image from the Authorized Remote Content Cache, or, when the presentation
+  // authorized it, through the isolated native fetch, validated and then cached.
+  const restoreRemoteContent = Effect.fnUntraced(function* (
+    scope: MailboxScope,
+    resource: RemoteResource,
+  ) {
+    const cached = yield* Effect.tryPromise({
+      try: () => native.openRemoteContent(scope, resource),
+      catch: (cause) => rejected(cause, 'failed'),
+    }).pipe(
+      Effect.flatMap((reply) =>
+        Schema.decodeUnknownEffect(RemoteData)(reply).pipe(
+          Effect.mapError((error) => malformed(error, 'failed')),
+        ),
+      ),
+    );
+    return cached.data === null ? undefined : admittedRemote(cached.data);
+  });
+
+  const remoteImage = Effect.fnUntraced(
+    function* (
+      scope: MailboxScope,
+      resource: RemoteResource,
+      authorized: Readonly<{
+        network: () => boolean;
+        request: Readonly<{ session: string; request: string }>;
+        current: () => boolean;
+        retain: (image: RemoteImage) => boolean;
+      }>,
+    ) {
+      const { network, request, current, retain } = authorized;
+      if (!current()) {
+        return { kind: 'failed' } as const;
+      }
+      const { url } = resource;
+      const restored = yield* restoreRemoteContent(scope, resource);
+      if (!current()) {
+        return { kind: 'failed' } as const;
+      }
+      if (restored !== undefined) {
+        return retain(restored)
+          ? ({ kind: 'loaded', image: restored } as const)
+          : ({ kind: 'failed' } as const);
+      }
+      if (!network()) {
+        return { kind: 'absent' } as const;
+      }
+      const fetched = yield* Effect.tryPromise({
+        try: () => native.fetchRemoteContent(scope, url, request),
+        catch: (cause) => rejected(cause, 'failed'),
+      }).pipe(
+        Effect.flatMap((reply) =>
+          Schema.decodeUnknownEffect(Schema.Struct({ data: Schema.String }))(
+            reply,
+          ).pipe(Effect.mapError((error) => malformed(error, 'failed'))),
+        ),
+      );
+      const image = admittedRemote(fetched.data);
+      if (!current() || image === undefined || !retain(image)) {
+        return { kind: 'failed' } as const;
+      }
+      // A full cache still shows the image; it is fetched again after it closes.
+      yield* Effect.tryPromise({
+        try: () =>
+          native.commitRemoteContent(scope, resource, {
+            data: image.data,
+            protected: displayedRemote(),
+          }),
+        catch: (cause) => rejected(cause, 'failed'),
+      }).pipe(
+        Effect.flatMap((reply) =>
+          Schema.decodeUnknownEffect(
+            Schema.Struct({ admitted: Schema.Boolean }),
+          )(reply).pipe(Effect.mapError((error) => malformed(error, 'failed'))),
+        ),
+        Effect.catchTag('SyncFailure', ({ diagnostic }) =>
+          Effect.logError('Remote content could not be cached:', diagnostic),
+        ),
+      );
+      return { kind: 'loaded', image } as const;
+    },
+    Effect.catchTag('SyncFailure', ({ cause, diagnostic }) =>
+      (rejectionCode(cause) === 'refused'
+        ? Effect.void
+        : Effect.logError('Remote content failed:', diagnostic)
+      ).pipe(Effect.as<RemoteImageState>({ kind: 'failed' })),
+    ),
+  );
 
   // A refreshed body keeps a download only while its attachment's descriptor is unchanged; a
   // changed or removed attachment at the same position loses its saved file.
@@ -1671,6 +2082,50 @@ export function createGmailInbox(
   // The reader also opens online search results, which the cache never keeps.
   const readable = (id: string) =>
     state.kind === 'ready' && (listed(id) || found.has(id));
+
+  const prepareRemoteLoad = (
+    id: string,
+    urls: readonly string[],
+    authorization: boolean | Readonly<{ network: boolean; reader: symbol }>,
+  ) => {
+    const scope = opened;
+    const body = bodies.get(id);
+    if (
+      scope === undefined ||
+      !readers.has(id) ||
+      body?.kind !== 'ready' ||
+      !readable(id)
+    ) {
+      return undefined;
+    }
+    const interest = remoteReaderInterest(id, authorization);
+    if (interest === undefined) {
+      return undefined;
+    }
+    const initial = remoteImages.get(id) ?? {
+      images: new Map<string, RemoteImageState>(),
+      session: `remote-${(nextRemoteSession += 1)}`,
+      scope,
+      abort: new AbortController(),
+      network: false,
+      near: new Set<string>(),
+      networkUrls: new Set<string>(),
+      readers: new Map<
+        string | symbol,
+        Readonly<{ urls: ReadonlySet<string>; network: boolean }>
+      >(),
+      attempts: 0,
+      sequence: 0,
+      admitted: 0,
+    };
+    remoteImages.set(id, initial);
+    const allowed = new Set(body.presentation.rich?.remote.images);
+    initial.readers.set(interest.reader, {
+      urls: new Set(urls.filter((url) => allowed.has(url))),
+      network: interest.network,
+    });
+    return refreshRemoteInterest(id) ?? initial;
+  };
 
   // One Gmail body read; listing-page token errors cannot occur for these resources.
   const gmailRead =
@@ -2493,6 +2948,10 @@ export function createGmailInbox(
   const forgetOpenInbox = () => {
     ownership += 1;
     owner += 1;
+    for (const id of remoteImages.keys()) {
+      releaseRemote(id);
+    }
+    shared.remoteImages.delete(imageOwner);
     queued.length = 0;
     shown = undefined;
     notice = undefined;
@@ -3249,8 +3708,14 @@ export function createGmailInbox(
         }
         if (reader === undefined) {
           releaseLegacyReader(id);
+          if (!legacyReaders.has(id)) {
+            remoteImages.get(id)?.readers.delete(id);
+            refreshRemoteInterest(id);
+          }
         } else {
           viewReaders.delete(reader);
+          remoteImages.get(id)?.readers.delete(reader);
+          refreshRemoteInterest(id);
           viewBodies.delete(reader);
           imageReservations.delete(reader);
         }
@@ -3423,6 +3888,112 @@ export function createGmailInbox(
     // Searches this mailbox in Gmail; undefined when the Inbox closed or changed meanwhile.
     searchGmail: (query: string, pageToken?: string) =>
       runLogged(searchGmail(query, pageToken)),
+    // Loads an opened message's Remote Message Content: from the Authorized Remote Content Cache,
+    // and with `network` also through the isolated native fetch, which only an authorized
+    // presentation asks for. Six requests run per message and twelve account-wide; the readers
+    // are presented again once the requested sources settle.
+    loadRemoteImages: (
+      id: string,
+      urls: readonly string[],
+      authorization: boolean | Readonly<{ network: boolean; reader: symbol }>,
+    ) => {
+      const remote = prepareRemoteLoad(id, urls, authorization);
+      if (remote === undefined) {
+        return Promise.resolve();
+      }
+      const { scope } = remote;
+      const eligible = [...remote.near].filter((url) => {
+        const known = remote.images.get(url);
+        return (
+          known === undefined ||
+          (remote.networkUrls.has(url) && known.kind === 'absent')
+        );
+      });
+      const network = eligible
+        .filter((url) => remote.networkUrls.has(url))
+        .slice(0, inlineImageLimits.attempts - remote.attempts);
+      const cached = eligible
+        .filter((url) => !remote.networkUrls.has(url))
+        .slice(0, inlineImageLimits.attempts);
+      const wanted = [...network, ...cached];
+      if (wanted.length === 0) {
+        return Promise.resolve();
+      }
+      for (const url of wanted) {
+        remote.images.set(url, { kind: 'loading' });
+      }
+      const reading = owner;
+      const current = (url: string) =>
+        owner === reading &&
+        !remote.abort.signal.aborted &&
+        remoteImages.get(id) === remote &&
+        remote.near.has(url) &&
+        readers.has(id) &&
+        readable(id);
+      const lane = remoteLanes.get(id) ?? {
+        permits: Semaphore.makeUnsafe(6),
+        pending: 0,
+      };
+      remoteLanes.set(id, lane);
+      lane.pending += wanted.length;
+      const attemptStart = remote.sequence;
+      remote.sequence += wanted.length;
+      remote.attempts += network.length;
+      return runLogged(
+        Effect.forEach(
+          wanted,
+          (url) =>
+            lane.permits
+              .withPermit(
+                shared.remote.withPermit(
+                  remoteImage(
+                    scope,
+                    { id, url },
+                    {
+                      network: () => remote.networkUrls.has(url),
+                      request: {
+                        session: remote.session,
+                        request: `${remote.session}:${attemptStart + wanted.indexOf(url)}`,
+                      },
+                      current: () => current(url),
+                      retain: (image) => reserveRemote({ id, url }, image),
+                    },
+                  ),
+                ),
+              )
+              .pipe(
+                Effect.map((result) => [url, result] as const),
+                Effect.ensuring(
+                  Effect.sync(() => {
+                    lane.pending -= 1;
+                    if (lane.pending === 0 && !remoteImages.has(id)) {
+                      remoteLanes.delete(id);
+                    }
+                  }),
+                ),
+              ),
+          { concurrency: 'unbounded' },
+        ).pipe(
+          Effect.flatMap((results) =>
+            Effect.sync(() => {
+              settleRemoteImages(
+                id,
+                results,
+                () => remoteImages.get(id) === remote,
+              );
+            }),
+          ),
+        ),
+      );
+    },
+    // Drops a message's loaded Remote Message Content from memory and presents it again, as when
+    // its policy becomes Never; cached bytes stay until eviction or Clear Remote Content.
+    forgetRemoteImages: (id: string) => {
+      if (remoteImages.has(id)) {
+        releaseRemote(id, 'policy');
+        presentRemote(id);
+      }
+    },
     // A failed rich view discards its document immediately and returns its image reservation.
     discardRichMessage: (
       id: string,

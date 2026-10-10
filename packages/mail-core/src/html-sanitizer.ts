@@ -25,6 +25,10 @@ export interface InlineImage extends ImageFacts {
   readonly data: string;
 }
 
+// Admitted Remote Message Content: validated bytes the app fetched or restored for an authorized
+// presentation, keyed by its exact HTTPS source.
+export type RemoteImage = ImageFacts & Readonly<{ data: string }>;
+
 export interface BodyLink {
   readonly href: string;
   // The link's visible text, for inspection and keyboard access.
@@ -42,6 +46,11 @@ export interface SanitizedHtml {
   readonly contentIds: readonly string[];
   // Every visible occurrence, including duplicates, for the presentation image budget.
   readonly contentIdOccurrences: readonly string[];
+  // Every visible, non-tracking HTTPS image occurrence in document order, admitted or not; a
+  // placeholder's `data-remote` attribute is its index here.
+  readonly remoteImages: readonly string[];
+  // App-generated image or placeholder markup at the matching remote occurrence index.
+  readonly remoteNodes: readonly string[];
   readonly links: readonly BodyLink[];
 }
 
@@ -1136,6 +1145,30 @@ const contentIdReference = (source: string) => {
   }
 };
 
+// An HTTPS image source that may become Remote Message Content: printable ASCII without
+// credentials. Native code validates the destination again before any request.
+const remoteReference = (source: string) => {
+  const reference = source.trim();
+  if (
+    !/^https:\/\/[^/?#@]+(?:[/?#][\u0021-\u007E]*)?$/iu.test(reference) ||
+    !/^[\u0021-\u007E]+$/u.test(reference)
+  ) {
+    return undefined;
+  }
+  const matched = /^https:\/\/(?<authority>[^/?#@]+)(?<path>[^#]*)/iu.exec(
+    reference,
+  );
+  if (matched === null) {
+    return undefined;
+  }
+  // Positional captures survive the host's named-group transform on Hermes.
+  const authority = (matched[1] ?? '')
+    .toLowerCase()
+    .replace(/^(?<host>[^:[\]]+|\[[0-9a-f:.]+\]):443$/u, '$1');
+  const path = matched[2] ?? '';
+  return `https://${authority}${path.startsWith('/') ? path : `/${path}`}`;
+};
+
 const isElement = (node: Node): node is Element => 'tagName' in node;
 
 const visibilityIn = (style: FilteredStyle, parent: string) => {
@@ -1552,10 +1585,19 @@ const whiteSpaceIn = (
 export function sanitizeHtml(
   html: string,
   images: ReadonlyMap<string, InlineImage> = new Map(),
-  preserveImages = false,
+  {
+    preserveImages = false,
+    remote = new Map(),
+  }: Readonly<{
+    preserveImages?: boolean;
+    // Admitted Remote Message Content by exact source; other HTTPS images stay placeholders.
+    remote?: ReadonlyMap<string, RemoteImage>;
+  }> = {},
 ): SanitizedHtml {
   const builder = paragraphBuilder();
   const contentIds: string[] = [];
+  const remoteImages: string[] = [];
+  const remoteNodes: string[] = [];
   const discovered = new Set<string>();
   const contentIdOccurrences: string[] = [];
   const links: BodyLink[] = [];
@@ -1693,15 +1735,49 @@ export function sanitizeHtml(
     }
   };
 
-  const placeholder = (alt: string, style: FilteredStyle) => {
+  const placeholderGeometry = (element: Element, style: FilteredStyle) =>
+    ['width', 'height'].flatMap((name) => {
+      const retained = style.retained.get(name);
+      const declared = attributeOf(element, name) ?? '';
+      let value = retained;
+      if (value === undefined && length.test(declared)) {
+        value = /^\d+$/u.test(declared) ? `${declared}px` : declared;
+      }
+      return value === undefined ||
+        (name === 'height' && farRight(value, fontPixels))
+        ? []
+        : [`${name}: ${value}`];
+    });
+
+  const placeholder = (
+    element: Element,
+    style: FilteredStyle,
+    // The remote occurrence it stands for, which the reader may load.
+    remoteIndex: number | undefined,
+  ) => {
+    const alt = (attributeOf(element, 'alt') ?? '').trim();
+    const description =
+      alt === ''
+        ? { label: 'Image not loaded', text: 'Image' }
+        : { label: alt, text: alt };
     hidesImages = true;
     describeImage(alt);
+    const geometry =
+      remoteIndex === undefined ? [] : placeholderGeometry(element, style);
     const values = [
+      ...(geometry.length === 0
+        ? []
+        : ['display: inline-block', 'max-width: 100%', ...geometry]),
       ...(fontPixels < minimumTextPixels ? [`font-size: ${fontPixels}px`] : []),
       ...(style.retained.has('visibility') ? ['visibility: visible'] : []),
     ];
-    const override = values.length === 0 ? '' : ` style="${values.join('; ')}"`;
-    output += `<span class="blocked-image"${override} role="img" aria-label="${escapeAttribute(alt === '' ? 'Image not loaded' : alt)}">${escapeText(alt === '' ? 'Image' : alt)}</span>`;
+    const override =
+      values.length === 0
+        ? ''
+        : ` style="${escapeAttribute(values.join('; '))}"`;
+    const marker =
+      remoteIndex === undefined ? '' : ` data-remote="${remoteIndex}"`;
+    output += `<span class="blocked-image"${marker}${override} role="img" aria-label="${escapeAttribute(description.label)}">${escapeText(description.text)}</span>`;
   };
 
   // Records a visible Content-ID reference for MIME resolution. Resolution attempts only the
@@ -1718,6 +1794,34 @@ export function sanitizeHtml(
       }
     }
     return contentId === undefined ? undefined : images.get(contentId);
+  };
+
+  // A visible HTTPS image occurrence, recorded in document order with its admitted bytes, if any.
+  const remoteOccurrence = (element: Element) => {
+    const url = remoteReference(attributeOf(element, 'src') ?? '');
+    return url === undefined
+      ? undefined
+      : { index: remoteImages.push(url) - 1, admitted: remote.get(url) };
+  };
+
+  // A visible image from admitted bytes, inline or remote, or a blocked-image placeholder.
+  const shownImage = (element: Element, style: FilteredStyle) => {
+    const alt = (attributeOf(element, 'alt') ?? '').trim();
+    const inline = reference(element);
+    const occurrence = remoteOccurrence(element);
+    const admittedImage = inline ?? occurrence?.admitted;
+    const start = output.length;
+    if (admittedImage === undefined) {
+      placeholder(element, style, occurrence?.index);
+    } else {
+      const marker =
+        occurrence === undefined ? '' : ` data-remote="${occurrence.index}"`;
+      output += `<img${marker}${attributes(element, style)} src="data:${admittedImage.mimeType};base64,${admittedImage.data}">`;
+      describeImage(alt, false, inline?.contentId);
+    }
+    if (occurrence !== undefined) {
+      remoteNodes.push(output.slice(start));
+    }
   };
 
   const image = (element: Element, style: FilteredStyle) => {
@@ -1743,14 +1847,7 @@ export function sanitizeHtml(
     }
     resetBreaks();
     visibleContent += 1;
-    const alt = (attributeOf(element, 'alt') ?? '').trim();
-    const admittedImage = reference(element);
-    if (admittedImage === undefined) {
-      placeholder(alt, style);
-      return;
-    }
-    output += `<img${attributes(element, style)} src="data:${admittedImage.mimeType};base64,${admittedImage.data}">`;
-    describeImage(alt, false, admittedImage.contentId);
+    shownImage(element, style);
   };
 
   const anchor = (element: Element, style: FilteredStyle) => {
@@ -1865,10 +1962,14 @@ export function sanitizeHtml(
     ],
   ]);
 
+  // An image shown from admitted bytes rather than a blocked-image placeholder.
+  const shownFromBytes = (node: Element) =>
+    images.has(contentIdReference(attributeOf(node, 'src') ?? '') ?? '') ||
+    remote.has(remoteReference(attributeOf(node, 'src') ?? '') ?? '');
+
   // A blocked-image span drops the source image's margins along with its geometry.
   const textMargins = (node: Element, style: FilteredStyle) =>
-    node.tagName === 'img' &&
-    !images.has(contentIdReference(attributeOf(node, 'src') ?? '') ?? '')
+    node.tagName === 'img' && !shownFromBytes(node)
       ? new Map<string, string>()
       : marginEdges(style.retained, margins);
 
@@ -1887,9 +1988,7 @@ export function sanitizeHtml(
       style.retained.get('font-family'),
       parentSystemFont,
     );
-    const replacedImage =
-      node.tagName === 'img' &&
-      !images.has(contentIdReference(attributeOf(node, 'src') ?? '') ?? '');
+    const replacedImage = node.tagName === 'img' && !shownFromBytes(node);
     fontPixels = replacedImage
       ? parentFont * 0.85
       : fontSizeIn(style.retained.get('font-size'), parentFont, node.tagName);
@@ -1994,9 +2093,14 @@ export function sanitizeHtml(
     readable,
     // A blocked-image placeholder is visible content too, so an image-only message renders.
     renderable:
-      hasReadableText(readable) || contentIds.length > 0 || hidesImages,
+      hasReadableText(readable) ||
+      contentIds.length > 0 ||
+      remoteImages.length > 0 ||
+      hidesImages,
     contentIds,
     contentIdOccurrences,
+    remoteImages,
+    remoteNodes,
     links,
   };
 }

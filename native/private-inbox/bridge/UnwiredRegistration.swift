@@ -147,6 +147,11 @@ final class UnwiredRegistration: NSObject {
   @MainActor private static let operations = RegistrationOperationGate()
   @MainActor private static var sharedStore: RegistrationStore?
   @MainActor private static var reads: [String: Task<Void, Never>] = [:]
+  @MainActor private static var remoteLoads: [String: RemoteLoad] = [:]
+  private final class RemoteLoad {
+    let budget = RemoteContentBudget()
+    var requests: [String: Task<Void, Never>] = [:]
+  }
 
   @MainActor private func store() async throws -> RegistrationStore {
     if let store = Self.sharedStore { return store }
@@ -945,6 +950,153 @@ extension UnwiredRegistration {
         connection: connection, address: address, generation: generation,
         expectedRevision: revision, ids: ids, protectedIds: protectedIds)
     }
+  }
+
+  // The message and exact source a remote content call names below its mailbox.
+  private static func resource(_ resource: [String: Any]) throws -> (String, String) {
+    guard let id = resource["id"] as? String, let url = resource["url"] as? String else {
+      throw RegistrationError.unavailable
+    }
+    return (id, url)
+  }
+
+  @objc(openRemoteContent:resource:resolver:rejecter:)
+  func openRemoteContent(
+    _ scope: [String: Any], resource: [String: Any], resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    mailbox("openRemoteContent", resolve, reject: reject) {
+      let (connection, address, generation) = try Self.scope(scope)
+      let (id, url) = try Self.resource(resource)
+      return try await $0.openRemoteContent(
+        connection: connection, address: address, generation: generation, id: id, url: url)
+    }
+  }
+
+  @objc(commitRemoteContent:resource:admission:resolver:rejecter:)
+  func commitRemoteContent(
+    _ scope: [String: Any], resource: [String: Any], admission: [String: Any],
+    resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+  ) {
+    mailbox("commitRemoteContent", resolve, reject: reject) {
+      let (connection, address, generation) = try Self.scope(scope)
+      let (id, url) = try Self.resource(resource)
+      return try await $0.commitRemoteContent(
+        connection: connection, address: address, generation: generation, id: id, url: url,
+        admission: admission)
+    }
+  }
+
+  // Checks the mailbox under the operation gate, then fetches without holding it, so a slow image
+  // server never stalls Gmail or registration, and checks the mailbox again before resolving.
+  @objc(fetchRemoteContent:url:request:resolver:rejecter:)
+  func fetchRemoteContent(
+    _ scope: [String: Any], url: String, request: [String: Any], resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    DispatchQueue.main.async {
+      guard let session = request["session"] as? String,
+        let requestID = request["request"] as? String,
+        let key = try? Self.remoteLoadKey(scope, session: session)
+      else {
+        reject("refused", "The image cannot be loaded.", nil)
+        return
+      }
+      let load = Self.remoteLoads[key] ?? RemoteLoad()
+      let budget = load.budget
+      Self.remoteLoads[key] = load
+      guard load.requests[requestID] == nil else {
+        reject("refused", "The image cannot be loaded.", nil)
+        return
+      }
+      load.requests[requestID] = Task { @MainActor in
+        defer { load.requests.removeValue(forKey: requestID) }
+        do {
+          let (connection, address, generation) = try Self.scope(scope)
+          let owned = {
+            try await Self.operations.perform {
+              try await self.store().remoteContentOwner(
+                connection: connection, address: address, generation: generation)
+            }
+          }
+          try Task.checkCancellation()
+          try budget.checkDeadline()
+          try await owned()
+          #if UNWIRED_REGISTRATION_MOCK || UNWIRED_ASSISTANCE_MOCK
+            // Every mock scenario build stays deterministic and never reaches a real server.
+            throw RemoteContentError.refused
+          #else
+            guard let target = URL(string: url) else { throw RemoteContentError.refused }
+            let data = try await RemoteContentFetcher(
+              exchange: { try await RemoteTransport(budget: budget).exchange($0) },
+              budget: budget
+            ).fetch(target)
+            try Task.checkCancellation()
+            try await owned()
+            resolve(["data": data.base64EncodedString()])
+          #endif
+        } catch RemoteContentError.refused {
+          reject("refused", "The image cannot be loaded.", nil)
+        } catch RemoteContentError.unavailable {
+          reject("unavailable", "The image could not be reached.", nil)
+        } catch {
+          Self.rejectMailbox("fetchRemoteContent", error, reject)
+        }
+      }
+    }
+  }
+
+  private static func remoteLoadKey(_ scope: [String: Any], session: String) throws -> String {
+    let (connection, address, generation) = try Self.scope(scope)
+    return try JSONEncoder().encode([connection, address, generation, session]).base64EncodedString()
+  }
+
+  @objc(cancelRemoteContent:session:finished:resolver:rejecter:)
+  func cancelRemoteContent(
+    _ scope: [String: Any], session: String, finished: Bool, resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    DispatchQueue.main.async {
+      do {
+        let key = try Self.remoteLoadKey(scope, session: session)
+        if let load = Self.remoteLoads[key] {
+          for task in load.requests.values { task.cancel() }
+          load.requests.removeAll()
+          if finished { Self.remoteLoads.removeValue(forKey: key) }
+        }
+        resolve([:])
+      } catch { Self.rejectMailbox("cancelRemoteContent", error, reject) }
+    }
+  }
+
+  @objc(clearRemoteContent:rejecter:)
+  func clearRemoteContent(
+    _ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+  ) {
+    mailbox("clearRemoteContent", resolve, reject: reject) {
+      try await $0.clearRemoteContent()
+      return [:]
+    }
+  }
+
+  // The device-local remote content policies, as TypeScript encoded them; never synchronized.
+  private static let remoteContentSettingsKey = "dev.unwired.remote-content-settings"
+
+  @objc(remoteContentSettings:rejecter:)
+  func remoteContentSettings(
+    _ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+  ) {
+    let settings = UserDefaults.standard.string(forKey: Self.remoteContentSettingsKey)
+    resolve(["settings": settings.map { $0 as Any } ?? NSNull()])
+  }
+
+  @objc(setRemoteContentSettings:resolver:rejecter:)
+  func setRemoteContentSettings(
+    _ settings: String, resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    UserDefaults.standard.set(settings, forKey: Self.remoteContentSettingsKey)
+    resolve([:])
   }
 
   @objc(saveAttachment:attachment:resolver:rejecter:)

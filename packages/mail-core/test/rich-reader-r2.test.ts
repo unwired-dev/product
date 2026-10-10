@@ -16,6 +16,16 @@ import {
 import { messageLinkLimit, readableText } from '../src/readable-text.ts';
 import { createSyntheticGmail } from '../src/testing/gmail-mailbox.ts';
 
+// Models the host transform while retaining positional captures.
+const nativeExec = RegExp.prototype.exec;
+function withoutNamedGroups(this: RegExp, text: string) {
+  const result = nativeExec.call(this, text);
+  if (result !== null) {
+    delete result.groups;
+  }
+  return result;
+}
+
 const parseJson = Schema.decodeSync(Schema.fromJsonString(Schema.Unknown));
 
 const textPart = (mimeType: string, content: string): GmailPart => ({
@@ -788,15 +798,151 @@ describe('rich-reader review regressions', () => {
     });
   });
 
-  it.each(['cid:missing', 'https://images.example.invalid/photo.png'])(
+  it.each([
+    [
+      [
+        'HTTPS://IMAGES.EXAMPLE:443/photo.png#first',
+        'https://images.example/photo.png#second',
+      ],
+      'https://images.example/photo.png',
+    ],
+    [
+      ['https://IMAGES.EXAMPLE:443', 'https://images.example/#fragment'],
+      'https://images.example/',
+    ],
+    [
+      [
+        'https://IMAGES.EXAMPLE:443?token=A%2fb#first',
+        'https://images.example/?token=A%2fb',
+      ],
+      'https://images.example/?token=A%2fb',
+    ],
+  ] as const)(
+    'normalizes equivalent remote requests while retaining every occurrence: %s',
+    (sources, expected) => {
+      expect.hasAssertions();
+      const result = sanitizeHtml(
+        sources.map((source) => `<img src="${source}">`).join(''),
+      );
+      expect(result.remoteImages).toStrictEqual([expected, expected]);
+      expect(result.remoteNodes.map((_node, index) => index)).toStrictEqual([
+        0, 1,
+      ]);
+      expect(result.remoteNodes).toHaveLength(2);
+    },
+  );
+
+  it('keeps encoded reserved remote paths and exact query bytes distinct', () => {
+    expect.hasAssertions();
+    const sources = [
+      'https://images.example/a%2Fb?token=A%2fb',
+      'https://images.example/a/b?token=A%2fb',
+      'https://images.example/a%2Fb?token=A%2Fb',
+      'https://images.example:443:443/',
+    ];
+    const result = sanitizeHtml(
+      sources.map((source) => `<img src="${source}">`).join(''),
+    );
+    expect(result.remoteImages).toStrictEqual(sources);
+  });
+
+  it('retains remote destinations when regex results omit named groups on Hermes', () => {
+    expect.hasAssertions();
+    const spy = vi
+      .spyOn(RegExp.prototype, 'exec')
+      .mockImplementation(withoutNamedGroups);
+    try {
+      const result = sanitizeHtml(
+        '<img src="HTTPS://IMAGES.EXAMPLE:443/photo.png?token=A%2fb#open">',
+      );
+      expect(result.remoteImages).toStrictEqual([
+        'https://images.example/photo.png?token=A%2fb',
+      ]);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('retains admitted remote placeholder geometry without collecting tracking pixels', () => {
+    expect.hasAssertions();
+    const result = sanitizeHtml(
+      '<img src="https://images.example/photo" width="400" height="200"><img src="https://images.example/styled" style="width:50%;height:80px"><img src="https://images.example/pixel" width="1" height="1">',
+    );
+    expect(result.remoteNodes).toStrictEqual([
+      '<span class="blocked-image" data-remote="0" style="display: inline-block; max-width: 100%; width: 400px; height: 200px" role="img" aria-label="Image not loaded">Image</span>',
+      '<span class="blocked-image" data-remote="1" style="display: inline-block; max-width: 100%; width: 50%; height: 80px" role="img" aria-label="Image not loaded">Image</span>',
+    ]);
+    expect(result.remoteImages).toStrictEqual([
+      'https://images.example/photo',
+      'https://images.example/styled',
+    ]);
+  });
+
+  it('keeps oversized remote placeholder height hints out of emitted geometry', () => {
+    expect.hasAssertions();
+    const result = sanitizeHtml(
+      '<img src="https://images.example/tall" height="99999"><img src="https://images.example/percent" height="100%"><img src="https://images.example/override" style="height:10000px" height="10000">',
+    );
+    expect(result.remoteNodes).toHaveLength(3);
+    expect(result.remoteNodes.join('')).not.toContain('height:');
+  });
+
+  it('keeps image-only remote mail renderable with safe reversible node updates', () => {
+    expect.hasAssertions();
+    const url = 'https://images.example.invalid/photo.png';
+    const document = {
+      version: 2 as const,
+      id: 'remote-nodes',
+      html: `<img src="${url}" width="400" height="200" alt="" onload="bad()"><img src="https://tracker.invalid/pixel" width="1" height="1">`,
+    };
+    const blocked = presentation(document);
+    const loaded = presentation(
+      document,
+      [],
+      new Map([
+        [
+          url,
+          {
+            data: 'AA==',
+            width: 400,
+            height: 200,
+            mimeType: 'image/png' as const,
+          },
+        ],
+      ]),
+    );
+    assert.ok(blocked.rich);
+    assert.ok(loaded.rich);
+    expect(loaded.rich.initialDocument).toBe(blocked.rich.document);
+    const nodes = Schema.decodeSync(
+      Schema.fromJsonString(Schema.Array(Schema.String)),
+    )(loaded.rich.remote.updates);
+    expect(nodes).toStrictEqual([
+      '<img data-remote="0" width="400" height="200" alt="" src="data:image/png;base64,AA==">',
+    ]);
+    expect(loaded.rich.remote.pending).toStrictEqual([]);
+    expect(loaded.readable).toStrictEqual({
+      paragraphs: [],
+      hidesImages: false,
+    });
+    expect(presentation(document).rich?.remote.updates).toBe(
+      blocked.rich.remote.updates,
+    );
+  });
+
+  // Only an HTTPS source can become Remote Message Content, so only it is marked.
+  it.each([
+    ['cid:missing', ''],
+    ['https://images.example.invalid/photo.png', ' data-remote="0"'],
+  ])(
     'preserves restored visibility when %s becomes a placeholder',
-    (source) => {
+    (source, marker) => {
       expect.hasAssertions();
       const result = sanitizeHtml(
         `<div style="visibility:hidden"><img style="visibility:visible" src="${source}" alt="Restored image"></div>`,
       );
       expect(result.document).toContain(
-        '<span class="blocked-image" style="visibility: visible" role="img" aria-label="Restored image">Restored image</span>',
+        `<span class="blocked-image"${marker} style="visibility: visible" role="img" aria-label="Restored image">Restored image</span>`,
       );
       expect(result.readable).toStrictEqual({
         paragraphs: [[{ text: 'Restored image' }]],
