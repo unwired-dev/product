@@ -630,12 +630,12 @@
       "unknown": "Delivery unknown. Check Sent in Gmail before sending it again."
     },
     "queued": {
-      "offline": "Waiting to send. It sends when this device can reach Gmail and your other devices.",
+      "offline": "Waiting to send. It sends when this device can reach Gmail and your Unwired Mail account.",
       "locked": "Waiting to send while private storage is locked. Unlock your device.",
       "rate-limited": "Waiting to send. Gmail asked to wait before sending more."
     },
     "failed": {
-      "claimed": "Not sent. Another of your devices is sending this message.",
+      "claimed": "Not sent. Another of your devices claimed this message to send it.",
       "authorization": "Not sent. This mailbox needs Gmail access again.",
       "mailbox": "Not sent. This mailbox is no longer connected.",
       "assets": "Not sent. Its files are no longer on this device.",

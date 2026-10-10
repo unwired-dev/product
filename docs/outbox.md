@@ -4,8 +4,9 @@ Setup, coding rules, validation and observable requirements remain in this file.
 
 [#615](https://github.com/unwired-dev/product/issues/615) adds **Send** to the
 composer on iPhone, iPad and Mac. A sent Draft leaves the Drafts list for the
-**Outbox**, waits out the **Undo Send Window**, and is handed to Gmail once, from
-this device. Recovery after an interrupted send is
+**Outbox**, waits out the **Undo Send Window**, and is handed to Gmail from this
+device. A handoff whose outcome is uncertain is never resubmitted; only a definite
+refusal, such as a rate limit, is tried again. Recovery after an interrupted send is
 [#616](https://github.com/unwired-dev/product/issues/616), and sending with the app
 in the background or with Mac windows closed is
 [#618](https://github.com/unwired-dev/product/issues/618).
