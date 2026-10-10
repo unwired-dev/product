@@ -25,6 +25,10 @@ _Avoid_: Category, Mailbox, bottom tab
 The permanent **Mail View** that shows every Thread in the selected mailbox scope and is labeled “All” in compact navigation.
 _Avoid_: All Mail, All emails
 
+**Catch Up**:
+A planned chat-style presentation of the Inbox that shows each message as one bubble with its **Background Message Summary** or preview, except for collapsed category mail. It is an alternative to the message list, not a **Mail View**; see the [Catch Up requirements](../catch-up.md).
+_Avoid_: Chat View, group chat, Conversation Feed, digest
+
 **Pin**:
 A product-owned marker that keeps a **Thread** in the unified pinned view across trusted devices without changing provider flags.
 _Avoid_: Message pin, Gmail star, IMAP flag, provider pin

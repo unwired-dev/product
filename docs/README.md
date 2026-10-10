@@ -17,6 +17,7 @@ their scope below; publication of a plan does not prove implementation or releas
 - [Apple registration continuing into Gmail authorization](apple-registration.md)
 - [Gmail Inbox synchronization and its encrypted cache](gmail-inbox.md)
 - [On-device message summaries](message-summaries.md)
+- [Catch Up, the planned chat-style Inbox, and background summaries](catch-up.md)
 - [On-device translation](message-translation.md)
 - [On-device Draft rewrites and reply suggestions](draft-assistance.md)
 - [Local rich-text Drafts and the composer](drafts.md)

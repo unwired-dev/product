@@ -2,7 +2,8 @@
 
 [Domain index](../../GLOSSARY.md) · [behavior notes](../product/assistance.md)
 
-Explicit on-device assistance remains part of the replacement. Profile-specific
+On-device assistance remains part of the replacement. Planned Catch Up adds
+Background Message Summaries alongside explicit assistance. Profile-specific
 terms also describe prototype or follow-up behavior; platform and launch scope
 come from the accepted replacement decisions.
 
@@ -14,11 +15,11 @@ for launch scope; a term's presence does not establish implementation or release
 ## Language
 
 **On-Device Mail Assistance**:
-Explicitly requested help for composing, responding to, understanding, or transforming mail through Apple system models on a trusted device, with no cloud or product-backend model fallback.
-_Avoid_: Email assistant, background AI processing, cloud inference
+Help for composing, responding to, understanding, or transforming mail through Apple system models on a trusted device, with no cloud or product-backend model fallback. It requires an explicit request except for **Background Message Summaries**.
+_Avoid_: Email assistant, cloud inference
 
 **Mail Assistance Enablement**:
-A device-local opt-in scoped to one Product Account and Mail Profile that permits explicit On-Device Mail Assistance actions. It defaults off independently on every device, never starts inference by itself, and is cleared when the Product Account is removed.
+A device-local, default-off opt-in scoped to one Product Account and Mail Profile that permits explicit On-Device Mail Assistance actions and **Background Message Summaries**. See the [enablement requirements](../product/assistance.md#assistance-inputs-previews-and-acceptance).
 _Avoid_: Synchronized AI preference, automatic assistance, background enablement
 
 **Assistance Context**:
@@ -42,6 +43,10 @@ _Avoid_: automatic reply, authoritative completeness claim, automatic send
 **Understanding Assistance**:
 An explicitly requested, device-local, ephemeral, source-linked summary of already-local Thread message text within one Mail Profile, including supported actions, open questions, stated or inferred dates, and stated deadlines. It excludes attachments, Inline Images, Remote Message Content, unrelated correspondence, Product Sync, and Drafts; discloses omitted content; never fetches a missing body; and becomes stale when its local Thread sources change.
 _Avoid_: authoritative summary, background Thread analysis, full-Thread claim
+
+**Background Message Summary**:
+A planned, device-local summary of one message's new content, created without a per-message request while **Mail Assistance Enablement** is on and shown in **Catch Up**. See the [Catch Up requirements](../catch-up.md#summaries) and [ADR 0068](../adr/0068-allow-device-local-background-message-summaries.md).
+_Avoid_: Thread summary, cloud summary, synced summary
 
 **Translation Assistance**:
 An explicitly requested Apple Translation framework operation over one already-local message body or Draft selection. Incoming translations remain beside the original as non-authoritative text; Draft translations replace only the reviewed selection after explicit acceptance as one undoable edit. Language downloads use the system permission flow, and unsupported, failed, cancelled, stale, or rejected operations leave the source unchanged.

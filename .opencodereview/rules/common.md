@@ -34,7 +34,11 @@ For providers, message identity, caches, attachments, rendering, search, pending
 
 #### R7 — Assistance and notifications (conditional)
 
-For AI/translation or notifications, read ADRs 0052, 0053 and 0063 and docs/architecture/product/assistance.md and applicable privacy/sync companions. Assistance is explicitly invoked and on-device, takes bounded already-local untrusted input, has no provider/backend/network/tool dependency, and returns a preview rather than mutating source. Revalidate owner and input revisions; cancellation, staleness, refusal or unavailability must not mutate mail or Drafts and ordinary mail remains usable. Retain the separate translation boundary and capability/enablement checks. Replacement new-Inbox notifications require permission and per-connection eligibility, exclude historical sync, default to generic content and require explicit opt-in for previews; device evaluation and backend-content privacy remain intact. Deferred categorization must not become a prerequisite for replacement notifications.
+For AI/translation or notifications, read ADRs 0052, 0053, 0063 and 0068 and docs/architecture/product/assistance.md and applicable privacy/sync companions. Assistance is on-device, takes bounded already-local untrusted input, has no provider/backend/network/tool dependency, and never mutates source. Except for planned Catch Up Background Message Summaries, it is explicitly invoked and returns an ephemeral preview. For that exception, verify device-local default-off enablement and body-cache storage, quota and removal lifecycle against ADR 0068; summaries never synchronize or reach a server.
+
+Revalidate owner and input revisions; cancellation, staleness, refusal or unavailability must not mutate mail or Drafts and ordinary mail remains usable. Retain the separate translation boundary and capability/enablement checks.
+
+Replacement new-Inbox notifications require permission and per-connection eligibility, exclude historical sync, default to generic content and require explicit opt-in for previews; device evaluation and backend-content privacy remain intact. Deferred categorization must not become a prerequisite for replacement notifications.
 
 #### R8 — Host and workspace boundaries (conditional)
 

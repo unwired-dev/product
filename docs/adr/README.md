@@ -90,3 +90,4 @@ ADRs take the next number after the highest in this index.
 | 0065   | [Scope Effect adoption](0065-scope-effect-adoption.md)                                                                                         |
 | 0066   | [Admit devices only through authorized enrollment](0066-admit-devices-only-through-authorized-enrollment.md)                                   |
 | 0067   | [Keep native code to a minimal vault](0067-keep-native-code-to-a-minimal-vault.md)                                                             |
+| 0068   | [Allow device-local Background Message Summaries](0068-allow-device-local-background-message-summaries.md)                                     |

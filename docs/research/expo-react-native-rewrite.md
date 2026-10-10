@@ -126,7 +126,11 @@ not replace availability handling.
 
 The existing [Mail Assistance decision](../adr/0052-keep-mail-assistance-on-device-and-input-bound.md)
 requires explicit, input-bounded on-device inference and useful mail functionality
-when assistance is unavailable. Apple's iOS 27 overview also describes Private
+when assistance is unavailable. For planned Catch Up only,
+[ADR 0068](../adr/0068-allow-device-local-background-message-summaries.md)
+supersedes that explicit-invocation restriction for device-local Background
+Message Summaries; the remaining privacy and availability requirements persist.
+Apple's iOS 27 overview also describes Private
 Cloud Compute access. Adopting a newer API must not silently change the existing
 on-device-only product promise.
 
