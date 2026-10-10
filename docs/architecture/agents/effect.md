@@ -27,3 +27,8 @@ enumerated or copied, as `ConfigProvider.fromEnv` requires. It logs to
 through a Promise so Convex calls stay in the function's async context. Convex code
 calls `fetch` through `Effect.tryPromise` rather than `HttpClient`, which keeps
 fetch's abort deadlines and test fetch mocks.
+
+The registration flow exposes Effect programs. `createRegistration` composes
+these with snapshot validation, error recovery and its semaphore before the
+single `runLogged` at each store action. Its existing Promise-returning native
+adapter remains supported for mock sessions; the flow starts no nested runtime.

@@ -1,11 +1,11 @@
+import { createRegistration } from '@private-email/mail-core/registration';
+import { createRegistrationFlow } from '@private-email/mail-core/registration-flow';
 import {
   createSyntheticGmail,
   syntheticConnections,
 } from '@private-email/mail-core/testing/gmail-mailbox';
-import {
-  createMockRegistrationSession,
-  syntheticMailboxes,
-} from '@private-email/mail-core/testing/registration-session';
+import { syntheticMailboxes } from '@private-email/mail-core/testing/registration-session';
+import { createSyntheticVault } from '@private-email/mail-core/testing/registration-vault';
 import {
   BackgroundTaskResult,
   BackgroundTaskStatus,
@@ -41,17 +41,15 @@ describe('headless Gmail freshness', () => {
   /* oxlint-disable vitest/max-expects -- One journey checks headless refresh, scheduler failures and active/background/disposal transitions through the real stores. */
   it('restores mail on a headless entry, handles scheduling failures and polls real mail only while active', async () => {
     expect.hasAssertions();
-    const session = createMockRegistrationSession(
-      'registration-success',
-    ).native;
-    await session.signIn('google');
-    await session.addMailbox(false);
+    const { vault } = createSyntheticVault();
+    const flow = createRegistration(createRegistrationFlow(vault));
+    await flow.register('google');
     const gmail = createSyntheticGmail();
     gmail.deliver({ subject: 'Arrived while terminated' });
     const id = syntheticMailboxes['alex@example.invalid'];
     const native = {
       getConstants: () => ({}),
-      ...session,
+      ...vault,
       ...syntheticConnections({ [id]: gmail }),
     };
     const bridge = jest
