@@ -1818,6 +1818,89 @@ describe('product registration', () => {
   });
   /* oxlint-enable vitest/max-expects */
 
+  // Mocked presentation: native separately proves exact replay and retention without a receipt.
+  /* oxlint-disable vitest/max-expects -- One journey covers keyless routing, Cancel retention and Confirm settlement. */
+  it.each(['mailbox-needed', 'connected', 'cached'] as const)(
+    'keeps a retained removal proposal confirmable after this device loses its key (%s)',
+    async (kind) => {
+      expect.hasAssertions();
+      const retained = {
+        kind,
+        productAccountId: 'synthetic-product-account',
+        signInProvider: 'google',
+        privateSync: 'enrollment-needed',
+        mailboxes: connectedTo('alex@example.invalid'),
+        revocationDevice: syntheticTrustedDevice.id,
+        revocationRecoveryKey: syntheticReplacementRecoveryKey,
+      } as const;
+      const session = createMockRegistrationSession('registration-revocation');
+      await render(
+        <RegistrationGate
+          store={createRegistration({
+            ...session.native,
+            restore: () => Promise.resolve(retained),
+            cancelRevocation: () =>
+              Promise.resolve({ ...retained, revocationNotice: 'unconfirmed' }),
+            confirmRevocation: (entry) => {
+              expect(entry).toBe(syntheticReplacementRecoveryKey.slice(-4));
+              return Promise.resolve({
+                kind: 'device-pending',
+                productAccountId: retained.productAccountId,
+                signInProvider: retained.signInProvider,
+                privateSync: 'enrollment-pending',
+                enrollmentCode: syntheticEnrollmentCode,
+              });
+            },
+          })}
+          preview={false}>
+          {null}
+        </RegistrationGate>,
+      );
+      await expect(
+        screen.findByTestId('revocation-recovery-key'),
+      ).resolves.toHaveTextContent(syntheticReplacementRecoveryKey);
+      const remove = english('revocation.remove', {
+        name: english('revocation.device'),
+      });
+      expect(screen.getByRole('button', { name: remove })).toBeOnTheScreen();
+      expect(
+        screen.queryByRole('button', {
+          name: english('revocation.remove', {
+            name: syntheticTrustedDevice.name,
+          }),
+        }),
+      ).toBeNull();
+      expect(
+        screen.getByRole('button', { name: english('recovery.unlock') }),
+      ).toBeOnTheScreen();
+      await act(async () => {
+        await fireEvent.press(
+          screen.getByRole('button', { name: english('revocation.cancel') }),
+        );
+      });
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        english('revocation.unconfirmed'),
+      );
+      expect(screen.getByTestId('revocation-recovery-key')).toHaveTextContent(
+        syntheticReplacementRecoveryKey,
+      );
+      await act(async () => {
+        await fireEvent.changeText(
+          screen.getByLabelText(english('revocation.label')),
+          syntheticReplacementRecoveryKey.slice(-4),
+        );
+      });
+      await act(async () => {
+        await fireEvent.press(screen.getByRole('button', { name: remove }));
+      });
+      await expect(
+        screen.findByTestId('enrollment-code'),
+      ).resolves.toHaveTextContent(syntheticEnrollmentCode);
+      expect(screen.queryByTestId('revocation-recovery-key')).toBeNull();
+    },
+  );
+  /* oxlint-enable vitest/max-expects */
+
   // Mocked journey: native outcomes after a lost reply and after another device's removal.
   it('keeps an unconfirmed removal proposal, then explains a superseded one without its key', async () => {
     expect.hasAssertions();

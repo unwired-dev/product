@@ -111,10 +111,12 @@ export function TrustedDevices({
     [settings.locale],
   );
   const [confirming, setConfirming] = useState<TrustedDevice['id']>();
-  if (!approvesDevices(account.privateSync)) {
+  const proposal = revocationProposal(t, account);
+  // A retained proposal stays confirmable after this device loses its encryption key, when it
+  // can no longer approve devices but may still need to repeat the exact removal it sent.
+  if (!approvesDevices(account.privateSync) && proposal === undefined) {
     return null;
   }
-  const proposal = revocationProposal(t, account);
   // While a removal waits for confirmation, no other one starts.
   const devices =
     account.privateSync === 'ready' && proposal === undefined
