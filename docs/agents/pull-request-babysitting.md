@@ -13,7 +13,8 @@ requests whose title contains `[WIP]`, `[skip review]` or `Version packages`, or
 An implementation request authorizes the full delivery without further
 confirmation, unless it sets an explicit limit such as "local changes only" or
 "do not push". Then stop before the excluded stage and report the completed
-work and the stages left undone. After both [implementation reviews](implementation-review.md)
+work and the stages left undone. A request that forbids merging gets a draft
+PR, which [automatic merge](#automatic-merge) skips. After both [implementation reviews](implementation-review.md)
 finish, the implementer:
 
 1. Commits the reviewed changes (preserving unrelated work) on the task branch
