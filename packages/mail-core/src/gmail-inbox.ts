@@ -934,7 +934,9 @@ const rejectionOutcomes = new Map<string, SendOutcome>([
   ['delivery-unknown', { kind: 'unknown' }],
   ['gmail-unavailable', { kind: 'failed', problem: 'authorization' }],
   ['mailbox-revoked', { kind: 'failed', problem: 'mailbox' }],
-  ['mailbox-invalidated', { kind: 'failed', problem: 'mailbox' }],
+  // A mailbox generation refreshed meanwhile, as on returning to the app: nothing left the device,
+  // so it waits. A connection that is really gone fails on the next pass, before any handoff.
+  ['mailbox-invalidated', { kind: 'queued', problem: 'offline' }],
   ['attachment-missing', { kind: 'failed', problem: 'assets' }],
   ['too-large', { kind: 'failed', problem: 'too-large' }],
   ['locked', { kind: 'queued', problem: 'locked' }],

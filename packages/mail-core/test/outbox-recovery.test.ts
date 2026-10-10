@@ -266,4 +266,29 @@ describe('recovering Outbox outcomes and late Send refusals', () => {
       sending.outbox.dispose();
     }
   });
+
+  it('keeps a message waiting when its mailbox generation refreshes during the handoff', async () => {
+    expect.hasAssertions();
+    const { server, gmail } = sharedAccount();
+    const sending = await sender(server, gmail, 'phone');
+    try {
+      const id = await addressed(sending);
+      await sending.outbox.send(() => sending.draft(id));
+      later(undoSendWindow);
+      // Returning to the app refreshes the mailbox while the claimed message is handed over.
+      gmail.failSend({ code: 'mailbox-invalidated' });
+
+      await sending.outbox.process();
+
+      expect(sending.drafts.getOutbox()).toMatchObject([
+        { id, state: 'queued', claim: 'held', problem: 'offline' },
+      ]);
+      later(30_000);
+      await sending.outbox.process();
+      expect(gmail.sends).toHaveLength(1);
+      expect(sending.drafts.getOutbox()).toStrictEqual([]);
+    } finally {
+      sending.outbox.dispose();
+    }
+  });
 });
