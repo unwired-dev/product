@@ -653,6 +653,14 @@ Namespace-import style, `JSON.parse`, `typeof … === 'object'` guards, untagged
 
 #### Rich-body admission and speculative reads
 
+- MIME parsing in `message-body.ts` or `gmail-inbox.ts` that runs before
+  `withinMetadataBudgets` admits the whole message, including discarded subtrees.
+  Bound names before case folding and values before comment, parameter and CID
+  parsing; count headers and text across all parts. Preserve semantic headers
+  without truncation, and reject explicit reads or exclude speculative bodies
+  through their existing states. Delimiter scans must avoid eager match arrays
+  and repeated suffix scans on unterminated quoted strings; otherwise a compact
+  sender-controlled header can stall or exhaust every host's shared runtime.
 - `html-sanitizer.ts.parseDeclarations` deduplicating before resolving validity
   and importance, or confusing source validity with output retention. Invalid
   important values must not suppress valid normal ones; valid unretained values

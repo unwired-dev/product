@@ -88,6 +88,47 @@ export const decodeFullMessage = Schema.decodeUnknownEffect(
     }),
   ),
 );
+
+// Sender-controlled MIME metadata a message may carry before any of it is parsed. A type and
+// subtype are at most 127 characters each (RFC 6838); a header name and a Content-ID fit one
+// 998-character line (RFC 5322). Values, header count and total header text are bounded well
+// above real mail. Metadata is never truncated: hiding a declaration could change the body.
+const metadataLimits = {
+  mimeType: 255,
+  name: 998,
+  contentId: 998,
+  value: 256 * 1024,
+  headers: 10_000,
+  text: 1024 * 1024,
+};
+
+export const withinMetadataBudgets = (payload: GmailPart) => {
+  let headers = 0;
+  let text = 0;
+  const parts = [payload];
+  for (const part of parts) {
+    parts.push(...(part.parts ?? []));
+    if ((part.mimeType?.length ?? 0) > metadataLimits.mimeType) {
+      return false;
+    }
+    for (const { name, value } of part.headers ?? []) {
+      headers += 1;
+      text += name.length + value.length;
+      if (
+        headers > metadataLimits.headers ||
+        text > metadataLimits.text ||
+        name.length > metadataLimits.name ||
+        value.length > metadataLimits.value ||
+        (value.length > metadataLimits.contentId &&
+          name.toLowerCase() === 'content-id')
+      ) {
+        return false;
+      }
+    }
+  }
+  return true;
+};
+
 export const decodeAttachment = Schema.decodeUnknownEffect(
   Schema.fromJsonString(
     Schema.Struct({
@@ -220,10 +261,26 @@ const commentEnd = (value: string, from: number) => {
   return depth === 0 ? at : undefined;
 };
 
-const commentDelimiters = (value: string) =>
-  [...value.matchAll(/"(?:\\.|[^"\\])*"|[()]/gu)].filter(
-    (match) => match[0].length === 1,
-  );
+// Parenthesis offsets outside quoted strings, found in one pass. A quoted string that never closes
+// is ordinary text, and so is every later quote its scan consumed as an escape: rescanning from
+// those would be quadratic in sender-controlled text.
+function* commentDelimiters(value: string) {
+  const quoted = /"(?:\\.|[^"\\])*/uy;
+  let unterminated = -1;
+  for (let at = 0; at < value.length; at += 1) {
+    if (value[at] === '(' || value[at] === ')') {
+      yield at;
+    } else if (value[at] === '"' && at > unterminated) {
+      quoted.lastIndex = at;
+      quoted.exec(value);
+      if (value[quoted.lastIndex] === '"') {
+        at = quoted.lastIndex;
+      } else {
+        unterminated = quoted.lastIndex;
+      }
+    }
+  }
+}
 
 // RFC comments may be nested and may escape parentheses; they are not header tokens.
 // Comments become the separator, empty by default; a Content-ID passes a space so a comment
@@ -232,15 +289,13 @@ export const withoutComments = (value: string, separator = '') => {
   let from = 0;
   let output = '';
   for (const delimiter of commentDelimiters(value)) {
-    if (delimiter.index >= from) {
+    if (delimiter >= from) {
       const end =
-        delimiter[0] === '('
-          ? commentEnd(value, delimiter.index + 1)
-          : undefined;
+        value[delimiter] === '(' ? commentEnd(value, delimiter + 1) : undefined;
       if (end === undefined) {
         return '';
       }
-      output += value.slice(from, delimiter.index) + separator;
+      output += value.slice(from, delimiter) + separator;
       from = end;
     }
   }
@@ -605,8 +660,9 @@ const wellFormedHeaders = (part: GmailPart) =>
   );
 
 // Prefetch reads only messages Gmail reports as one plain-text or HTML part with wholly well-
-// formed MIME headers; any malformed header keeps the body on demand.
+// formed MIME headers within their budgets; any other header keeps the body on demand.
 export const singleReadablePart = (payload: GmailPart) =>
+  withinMetadataBudgets(payload) &&
   (mimeType(payload) === 'text/plain' || mimeType(payload) === 'text/html') &&
   (payload.parts ?? []).length === 0 &&
   wellFormedHeaders(payload) &&
