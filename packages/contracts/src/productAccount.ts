@@ -63,17 +63,6 @@ export type TrustedDeviceUnregistrationResponse = Infer<
   typeof trustedDeviceUnregistrationResponseValidator
 >;
 
-export const productAccountConnectResponseFixture: ProductAccountConnectResponse =
-  {
-    accountCreated: true,
-    deviceRegistered: true,
-    productSyncMaterialInitialized: false,
-    productAccountId: 'productAccountFixtureId',
-    signInProviders: ['apple'],
-    trustedDeviceCredential: 'trustedDeviceCredentialFixture',
-    trustedDeviceId: 'trustedDeviceFixtureId',
-  };
-
 export const signInLinkRequestResponseValidator = v.object({
   // Absent when the requested Sign-In Provider is already linked.
   linkTicket: v.optional(v.string()),
@@ -114,14 +103,3 @@ export const gmailProviderConnectionStatusValidator = v.object({
 export type GmailProviderConnectionStatus = Infer<
   typeof gmailProviderConnectionStatusValidator
 >;
-
-export const gmailProviderConnectionStatusFixture: GmailProviderConnectionStatus =
-  {
-    connectedAt: 1_781_200_000_000,
-    emailAddress: 'user@example.com',
-    lastVerifiedAt: 1_781_200_000_000,
-    provider: 'gmail',
-    providerAccountIdentifier: 'gmail-user-001',
-    trustedDeviceId: 'trustedDeviceFixtureId',
-    updatedAt: 1_781_200_000_000,
-  };

@@ -4,9 +4,7 @@ export {
   type HealthResponse,
 } from './health.ts';
 export {
-  gmailProviderConnectionStatusFixture,
   gmailProviderConnectionStatusValidator,
-  productAccountConnectResponseFixture,
   productAccountConnectResponseValidator,
   productAccountDeletionResponseValidator,
   signInLinkRequestResponseValidator,
@@ -23,8 +21,6 @@ export {
 } from './productAccount.ts';
 export {
   encryptedProductSyncPayloadBodyValidator,
-  encryptedProductSyncPayloadFixture,
-  encryptedProductSyncPayloadPageFixture,
   encryptedProductSyncPayloadPageValidator,
   encryptedProductSyncPayloadValidator,
   productSyncInitializationResponseValidator,
@@ -34,9 +30,7 @@ export {
   type ProductSyncInitializationResponse,
 } from './productSync.ts';
 export {
-  devicePushRegistrationResponseFixture,
   devicePushRegistrationResponseValidator,
-  gmailPushVerificationResponseFixture,
   gmailPushVerificationResponseValidator,
   type DevicePushRegistrationResponse,
   type GmailPushVerificationResponse,
