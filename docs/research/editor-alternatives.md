@@ -312,6 +312,10 @@ accessibility or host behavior call for evaluating the native approach instead:
 4. **Durability/privacy:** type during save/import, fail saving, switch/close,
    reopen, race two Mac windows, remove the account, reject stale assistance.
    Observe actual network requests and reject unwanted plaintext persistence.
+   Require a non-persistent browser data store and inspect website data after
+   teardown, relaunch and account removal: browser storage must retain no plaintext
+   Draft content or display images. Durable Drafts remain in the
+   [encrypted native Draft store](../private-inbox-storage.md#draft-storage).
    On every host, accept selection and whole-body rewrites, a reply suggestion,
    and a Draft translation through the native bridge. Each replaces only its
    captured content as one edit: one Undo restores the prior semantic document

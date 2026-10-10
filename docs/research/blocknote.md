@@ -238,6 +238,10 @@ the checks below highlight journeys rather than replace that contract.
    app interruption, stale Mac windows and account removal. Demonstrate the same
    conflict/save outcomes as the existing composer, no credential/key transfer
    into web code, and no unintended remote file/proxy requests.
+   Require a non-persistent browser data store and inspect website data after
+   teardown, relaunch and account removal: browser storage must retain no plaintext
+   Draft content or display images. Durable Drafts remain in the
+   [encrypted native Draft store](../private-inbox-storage.md#draft-storage).
    On every host, accept selection and whole-body rewrites, a reply suggestion,
    and a Draft translation through the native bridge. Each replaces only its
    captured content as one edit: one Undo restores the prior semantic document
