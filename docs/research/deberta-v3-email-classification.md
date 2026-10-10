@@ -119,7 +119,7 @@ Observed repository revisions, in table order:
 The product forbids sending message content to a server for AI processing.
 Its categories can overlap: Orders, Newsletters & Promotions, Invites, Flights,
 and user-defined Custom Categories are independently applicable. People is a
-fallback for direct correspondence when no purpose-specific System Category
+fallback for direct correspondence when no purpose-specific Category
 matches. Messages can remain uncategorized. Classification starts with metadata,
 subject, snippet, and headers before considering already-local body text;
 categorization never fetches a missing body from a provider.
@@ -233,8 +233,8 @@ The steps below provide research starting points within that approved scope:
    error costs for downstream cleanup and contact suggestions; overall accuracy
    alone is insufficient.
 5. Export the best small candidates. Verify tokenizer and output parity before
-   and after FP16/INT8 conversion. On physical supported iPhone, iPad, and Mac
-   devices, measure final download size, peak memory, cold load, warm p50/p95
+   and after FP16/INT8 conversion. On supported physical devices (iPhone, iPad,
+   and Mac), measure final download size, peak memory, cold load, warm p50/p95
    latency, sustained batch energy/thermal behavior, and CPU versus Core ML
    execution. Include simultaneous Inbox activity and background cancellation.
 6. Adopt only if quality improves enough over rules to justify measured storage,
