@@ -392,7 +392,10 @@ describe('composing Drafts', () => {
       screen.findByRole('button', {
         name: 'Send from alex@example.invalid',
       }),
-    ).resolves.toHaveProp('accessibilityState', { selected: true });
+    ).resolves.toHaveProp('accessibilityState', {
+      selected: true,
+      disabled: false,
+    });
 
     // Recipients become tokens; invalid text stays for correction and duplicates are refused.
     const to = screen.getByLabelText('To');
@@ -525,7 +528,7 @@ describe('composing Drafts', () => {
     ).toBeOnTheScreen();
     expect(
       screen.getByRole('button', { name: 'Send from renamed@example.invalid' }),
-    ).toHaveProp('accessibilityState', { selected: false });
+    ).toHaveProp('accessibilityState', { selected: false, disabled: false });
     await press('Close');
     await press(
       'Draft. Studio review. To Maya Chen, oliver@example.com. From alex@example.invalid',
@@ -536,7 +539,7 @@ describe('composing Drafts', () => {
     ).not.toBeOnTheScreen();
     expect(
       screen.getByRole('button', { name: 'Send from renamed@example.invalid' }),
-    ).toHaveProp('accessibilityState', { selected: true });
+    ).toHaveProp('accessibilityState', { selected: true, disabled: false });
     await press('Close');
     await press(
       'Draft. Studio review. To Maya Chen, oliver@example.com. From renamed@example.invalid',
@@ -555,7 +558,7 @@ describe('composing Drafts', () => {
     await press('Send from other@example.invalid');
     expect(
       screen.getByRole('button', { name: 'Send from other@example.invalid' }),
-    ).toHaveProp('accessibilityState', { selected: true });
+    ).toHaveProp('accessibilityState', { selected: true, disabled: false });
   });
 
   it('keeps a Draft open while it cannot be saved', async () => {
@@ -1465,12 +1468,12 @@ describe('composing Drafts', () => {
     });
     expect(screen.getByRole('button', { name: 'Bold' })).toHaveProp(
       'accessibilityState',
-      { selected: true },
+      { selected: true, disabled: false },
     );
     await press('Bold');
     expect(screen.getByRole('button', { name: 'Bold' })).toHaveProp(
       'accessibilityState',
-      { selected: false },
+      { selected: false, disabled: false },
     );
     await fireEvent.changeText(body, 'Xaaac');
     expect(draftsOf(drafts.getSnapshot())[0]?.body[0]?.spans).toStrictEqual([
@@ -1484,7 +1487,7 @@ describe('composing Drafts', () => {
     });
     expect(screen.getByRole('button', { name: 'Bold' })).toHaveProp(
       'accessibilityState',
-      { selected: true },
+      { selected: true, disabled: false },
     );
   });
 

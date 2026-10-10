@@ -16,3 +16,6 @@ whose outcome is unknown, which are never sent again automatically.
 If a mailbox changes its address, the composer keeps the Draft's chosen From
 address visible and asks for the mailbox to be chosen again. Queued messages
 stop before Gmail handoff if their chosen sender is no longer available.
+
+The composer is read-only while Send is pending and becomes editable again if
+admission is refused. Send dismisses any open translation preview.

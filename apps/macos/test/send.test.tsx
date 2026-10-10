@@ -216,15 +216,47 @@ describe('sending a Draft', () => {
       });
       await render(<App sender={sender} />);
       await compose('Lunch');
+      await act(async () => {
+        await sender.drafts.save();
+      });
+      // These callbacks were dispatched before native received the read-only props.
+      const changeSubject = screen.getByLabelText('Subject').props.onChangeText;
+      const changeBody =
+        screen.getByLabelText('Message body').props.onChangeText;
+      const changeTo = screen.getByLabelText('To').props.onChangeText;
       // Storage holds the admission, as a slow write would.
       sender.storage.hold();
 
-      await press('Send');
+      await act(async () => {
+        const pressed = fireEvent.press(
+          screen.getByRole('button', { name: 'Send' }),
+        );
+        changeSubject('Lost subject');
+        changeBody('Lost body');
+        changeTo('maya@example.invalid');
+        await pressed;
+      });
 
+      expect(screen.getByLabelText('Subject')).toHaveProp('value', 'Lunch');
+      expect(screen.getByLabelText('Message body')).toHaveTextContent(
+        'See you',
+      );
+      expect(
+        screen.queryByRole('button', { name: 'To: maya@example.invalid' }),
+      ).toBeNull();
       for (const field of ['To', 'Subject', 'Message body']) {
         expect(screen.getByLabelText(field)).toHaveProp('editable', false);
+        expect(screen.getByLabelText(field)).toBeDisabled();
       }
-      for (const name of ['Undo', 'Discard', 'Send']) {
+      for (const name of [
+        'Close',
+        'Undo',
+        'Redo',
+        'Discard',
+        'Send',
+        'Bold',
+        'Show Cc and Bcc',
+      ]) {
         expect(screen.getByRole('button', { name })).toBeDisabled();
       }
       await act(async () => {
@@ -237,6 +269,60 @@ describe('sending a Draft', () => {
         screen.getByLabelText('Lunch. To sam@example.invalid. Sending soon'),
       ).toBeOnTheScreen();
     } finally {
+      sender.storage.release();
+      sender.outbox.dispose();
+    }
+  });
+
+  it('restores editing after refused admission and saves the next edits', async () => {
+    expect.hasAssertions();
+    const sender = device();
+    try {
+      await act(async () => {
+        await sender.mailboxes.load();
+      });
+      await render(<App sender={sender} />);
+      await compose('Lunch');
+      await act(async () => {
+        await sender.drafts.save();
+      });
+      await fireEvent(screen.getByLabelText('To'), 'submitEditing');
+      await press('To: sam@example.invalid');
+      await press('Send');
+      await screen.findByRole('alert', {
+        name: 'Add a recipient before sending.',
+      });
+      expect(screen.getByLabelText('Subject')).toHaveProp('editable', true);
+      for (const field of ['To', 'Subject', 'Message body']) {
+        expect(screen.getByLabelText(field)).not.toBeDisabled();
+      }
+      expect(screen.queryByRole('header', { name: 'Outbox' })).toBeNull();
+      await fireEvent.changeText(
+        screen.getByLabelText('To'),
+        'sam@example.invalid',
+      );
+      await fireEvent.changeText(
+        screen.getByLabelText('Subject'),
+        'After refusal',
+      );
+      await fireEvent.changeText(
+        screen.getByLabelText('Message body'),
+        'Kept edits',
+      );
+      await press('Close');
+      await press(
+        'Draft. After refusal. To sam@example.invalid. From alex@example.invalid',
+      );
+      expect(screen.getByLabelText('Subject')).toHaveProp(
+        'value',
+        'After refusal',
+      );
+      expect(screen.getByLabelText('Message body')).toHaveTextContent(
+        'Kept edits',
+      );
+      expect(sender.storage.stored()?.document).toContain('After refusal');
+    } finally {
+      sender.storage.release();
       sender.outbox.dispose();
     }
   });

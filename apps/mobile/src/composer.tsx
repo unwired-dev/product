@@ -116,7 +116,6 @@ const styles = StyleSheet.create({
     gap: spacing.small,
   },
   grow: { flex: 1 },
-  editing: { gap: spacing.medium },
   action: { minHeight: 44, justifyContent: 'center', paddingHorizontal: 8 },
   actionText: { fontSize: 16 },
   status: { fontSize: 13 },
@@ -486,8 +485,10 @@ export function DraftHeading() {
 function SendingMailbox({
   draft,
   onChange,
+  editable,
 }: {
   readonly draft: Draft;
+  readonly editable: boolean;
   readonly onChange: (mailbox: MailboxConnection) => void;
 }) {
   const account = use(AccountContext);
@@ -530,7 +531,8 @@ function SendingMailbox({
                 { address },
               )}
               accessibilityRole="button"
-              accessibilityState={{ selected }}
+              accessibilityState={{ selected, disabled: !editable }}
+              disabled={!editable}
               onPress={() => {
                 onChange(mailbox);
               }}
@@ -580,6 +582,9 @@ function Recipients({
   const caret = useRef<number | undefined>(undefined);
   const name = t(`drafts.fields.${field}`);
   const add = (value: string, all: boolean, typing = false) => {
+    if (!editable) {
+      return;
+    }
     const current = getDraft();
     const result = addRecipients(current, { field, text: value, all });
     if (result.draft !== current) {
@@ -604,6 +609,8 @@ function Recipients({
               recipient: recipientLabel(recipient),
             })}
             accessibilityRole="button"
+            accessibilityState={{ disabled: !editable }}
+            disabled={!editable}
             onPress={() => {
               const current = getDraft();
               onChange(
@@ -627,6 +634,7 @@ function Recipients({
       <TextInput
         accessibilityLabel={name}
         editable={editable}
+        accessibilityState={{ disabled: !editable }}
         autoCapitalize="none"
         autoComplete="email"
         autoCorrect={false}
@@ -781,6 +789,7 @@ function usePreview(asset: Asset, inline: boolean) {
 
 function AssetRow({
   asset,
+  editable,
   inline,
   running,
   onRemove,
@@ -789,6 +798,7 @@ function AssetRow({
   readonly asset: Asset;
   readonly inline: boolean;
   readonly running: boolean;
+  readonly editable: boolean;
   readonly onRemove: (id: string) => void;
   readonly onCancel: (id: string) => void;
 }) {
@@ -830,6 +840,7 @@ function AssetRow({
       </View>
       {preview?.kind === 'locked' || preview?.kind === 'incomplete' ? (
         <Action
+          disabled={!editable}
           accessibilityLabel={t('drafts.assets.retryLabel', {
             name: asset.name,
           })}
@@ -839,6 +850,7 @@ function AssetRow({
       ) : null}
       {running ? (
         <Action
+          disabled={!editable}
           accessibilityLabel={t('drafts.assets.cancelLabel', {
             name: asset.name,
           })}
@@ -849,6 +861,7 @@ function AssetRow({
         />
       ) : null}
       <Action
+        disabled={!editable}
         accessibilityLabel={t('drafts.assets.removeLabel', {
           name: asset.name,
         })}
@@ -864,10 +877,12 @@ function AssetRow({
 // A Draft's attachments and inline images, with what can still be done to each.
 function DraftAssets({
   draft,
+  editable,
   onRemove,
   onCancel,
 }: {
   readonly draft: Draft;
+  readonly editable: boolean;
   readonly onRemove: (id: string) => void;
   readonly onCancel: (id: string) => void;
 }) {
@@ -892,6 +907,7 @@ function DraftAssets({
       <AssetRow
         key={asset.id}
         asset={asset}
+        editable={editable}
         inline={inline}
         onCancel={onCancel}
         onRemove={onRemove}
@@ -1072,6 +1088,8 @@ function Editor({
   const [refused, setRefused] = useState<SendRefusal>();
   // While Send is pending the editor accepts no edits, so nothing typed then is lost.
   const [sending, setSending] = useState(false);
+  // Native callbacks can arrive before the disabled props commit.
+  const sendingNow = useRef(false);
   const outbox = useOutbox();
   const caret = useRef<number | undefined>(undefined);
   const typingField = useRef<string | undefined>(undefined);
@@ -1110,6 +1128,9 @@ function Editor({
     [rebind, store],
   );
   const change = (next: Draft, word = false, field?: string) => {
+    if (sendingNow.current) {
+      return;
+    }
     const continuing = typingField.current === field;
     commitHistory((current) =>
       keepIdentity(
@@ -1173,6 +1194,9 @@ function Editor({
     }
   };
   const choose = async (source: PickSource, inline: boolean) => {
+    if (discarded.current) {
+      return;
+    }
     addFiles(
       await store.pick(
         source,
@@ -1185,6 +1209,9 @@ function Editor({
     );
   };
   const removeAsset = (id: string) => {
+    if (sendingNow.current) {
+      return;
+    }
     void store.cancelImport(id);
     const latest = authored.current;
     change({
@@ -1202,11 +1229,17 @@ function Editor({
   };
   // Undo and Redo step from the latest history, so repeated presses each move one step.
   const travel = (step: (current: typeof history) => typeof history) => {
+    if (sendingNow.current) {
+      return;
+    }
     commitHistory((current) => keepIdentity(step(current)));
     placeTyping(undefined);
     update(historyNow.current.present);
   };
   const edit = (text: string) => {
+    if (sendingNow.current) {
+      return;
+    }
     const at = selectionNow.current;
     const latest = authored.current;
     const textBefore = displayOf(latest.body).text;
@@ -1249,6 +1282,9 @@ function Editor({
     }
   };
   const format = (mark: Mark) => {
+    if (sendingNow.current) {
+      return;
+    }
     const at = selectionNow.current;
     const latest = authored.current;
     if (at.start === at.end) {
@@ -1262,6 +1298,7 @@ function Editor({
   const applyTranslation = (translated: string) => {
     const latest = authored.current;
     if (
+      sendingNow.current ||
       !lifetime.current.mounted ||
       translating === undefined ||
       captureNow.current !== translating ||
@@ -1282,6 +1319,9 @@ function Editor({
     setPlaced(result.selection);
   };
   const block = (kind: BlockKind) => {
+    if (sendingNow.current) {
+      return;
+    }
     const at = selectionNow.current;
     const latest = authored.current;
     const result = setBlockKind(latest.body, at, kind);
@@ -1402,7 +1442,10 @@ function Editor({
     const previous = authored.current;
     setRefused(undefined);
     setClosing('saving');
+    sendingNow.current = true;
     setSending(true);
+    captureNow.current = undefined;
+    setTranslating(undefined);
     // As for Discard, later edits wait: the version shown at Send is the one sent.
     discarded.current = true;
     lifetime.current.finishing += 1;
@@ -1417,6 +1460,7 @@ function Editor({
       // An unexpected rejection keeps the Draft open to send again.
     }
     if (refusal !== undefined) {
+      sendingNow.current = false;
       discarded.current = false;
       if (authored.current !== previous) {
         void store.update(authored.current, baseline(), rebind);
@@ -1488,7 +1532,9 @@ function Editor({
             disabled={sending}
             label={t('drafts.discard')}
             onPress={() => {
-              setClosing('discard');
+              if (!sendingNow.current) {
+                setClosing('discard');
+              }
             }}
           />
           <Action
@@ -1565,266 +1611,278 @@ function Editor({
             />
           </View>
         ) : null}
-        <View
-          pointerEvents={sending ? 'none' : 'auto'}
-          style={styles.editing}>
-          <SendingMailbox
-            draft={draft}
-            onChange={(mailbox) => {
-              change(withSender(authored.current, mailbox));
-            }}
-          />
-          <Recipients
-            draft={draft}
-            getDraft={getDraft}
-            editable={!sending}
-            field="to"
-            onChange={change}
-            onCaretMove={breakTyping}
-          />
-          {draft.copies === true || draft.cc.length + draft.bcc.length > 0 ? (
-            <>
-              <Recipients
-                draft={draft}
-                getDraft={getDraft}
-                editable={!sending}
-                field="cc"
-                onChange={change}
-                onCaretMove={breakTyping}
-              />
-              <Recipients
-                draft={draft}
-                getDraft={getDraft}
-                editable={!sending}
-                field="bcc"
-                onChange={change}
-                onCaretMove={breakTyping}
-              />
-            </>
-          ) : (
-            <Action
-              accessibilityLabel={t('drafts.showCcBcc')}
-              label={t('drafts.ccBcc')}
-              onPress={() => {
-                change({ ...authored.current, copies: true });
-              }}
-            />
-          )}
-          <View style={styles.field}>
-            <TextInput
-              accessibilityLabel={t('drafts.subject')}
+        <SendingMailbox
+          draft={draft}
+          editable={!sending}
+          onChange={(mailbox) => {
+            change(withSender(authored.current, mailbox));
+          }}
+        />
+        <Recipients
+          draft={draft}
+          getDraft={getDraft}
+          editable={!sending}
+          field="to"
+          onChange={change}
+          onCaretMove={breakTyping}
+        />
+        {draft.copies === true || draft.cc.length + draft.bcc.length > 0 ? (
+          <>
+            <Recipients
+              draft={draft}
+              getDraft={getDraft}
               editable={!sending}
-              onChangeText={(subject) => {
-                const previous = authored.current.subject;
-                subjectCaret.current =
-                  subjectSelection.current.end +
-                  subject.length -
-                  previous.length;
-                // One character added at the caret continues a typing step until a word ends.
-                const added =
-                  subjectSelection.current.start ===
-                    subjectSelection.current.end &&
-                  subject.length === previous.length + 1;
-                const typed = subject[subjectSelection.current.start] ?? ' ';
-                change(
-                  { ...authored.current, subject },
-                  added && !/\s/u.test(typed),
-                  'subject',
-                );
-              }}
-              onSelectionChange={({ nativeEvent }) => {
-                const next = nativeEvent.selection;
-                if (
-                  next.start !== next.end ||
-                  next.start !== subjectCaret.current
-                ) {
-                  commitHistory((current) => ({ ...current, typing: false }));
-                }
-                subjectCaret.current = undefined;
-                subjectSelection.current = next;
-              }}
-              placeholder={t('drafts.subject')}
-              placeholderTextColor={colors.secondary}
-              style={[styles.input, { color: colors.foreground }]}
-              value={draft.subject}
+              field="cc"
+              onChange={change}
+              onCaretMove={breakTyping}
             />
-          </View>
-          <View
-            accessibilityLabel={t('drafts.formatting')}
-            accessibilityRole="toolbar"
-            style={styles.bar}>
-            {markControls.map(([mark, label, name, style]) => (
-              <Pressable
-                key={mark}
-                accessibilityLabel={t(name)}
-                accessibilityRole="button"
-                accessibilityState={{ selected: active.includes(mark) }}
-                onPress={() => {
-                  format(mark);
-                }}
-                style={[
-                  styles.format,
-                  {
-                    backgroundColor: active.includes(mark)
-                      ? colors.selected
-                      : 'transparent',
-                  },
-                ]}>
-                <Text style={[{ color: colors.foreground }, style]}>
-                  {label}
-                </Text>
-              </Pressable>
-            ))}
-            {blockControls.map(([value, label, name]) => (
-              <Pressable
-                key={value}
-                accessibilityLabel={t(name)}
-                accessibilityRole="button"
-                accessibilityState={{ selected: kind === value }}
-                onPress={() => {
-                  block(value);
-                }}
-                style={[
-                  styles.format,
-                  {
-                    backgroundColor:
-                      kind === value ? colors.selected : 'transparent',
-                  },
-                ]}>
-                <Text style={{ color: colors.foreground }}>{label}</Text>
-              </Pressable>
-            ))}
-            <Action
-              disabled={
-                !hasTranslatableText(
-                  selectedText(
-                    draft.body,
-                    selection,
-                    translationInputLimit + 1,
-                  ),
-                )
-              }
-              label={t('translation.translate')}
-              accessibilityLabel={t('translation.translateSelectionLabel')}
-              onPress={() => {
-                const at = selectionNow.current;
-                const { body } = authored.current;
-                const text = selectedText(body, at, translationInputLimit + 1);
-                if (!lifetime.current.mounted || !hasTranslatableText(text)) {
-                  return;
-                }
-                captureGeneration.current += 1;
-                const capture = {
-                  body,
-                  selection: at,
-                  text,
-                  id: captureGeneration.current,
-                };
-                captureNow.current = capture;
-                setTranslating(capture);
-              }}
+            <Recipients
+              draft={draft}
+              getDraft={getDraft}
+              editable={!sending}
+              field="bcc"
+              onChange={change}
+              onCaretMove={breakTyping}
             />
-          </View>
-          <View
-            accessibilityLabel={t('drafts.assets.toolbar')}
-            accessibilityRole="toolbar"
-            style={styles.bar}>
-            <Action
-              label={t('drafts.assets.attachFile')}
-              onPress={() => {
-                void choose('files', false);
-              }}
-            />
-            <Action
-              label={t('drafts.assets.attachPhoto')}
-              onPress={() => {
-                void choose('photos', false);
-              }}
-            />
-            <Action
-              label={t('drafts.assets.insertImage')}
-              onPress={() => {
-                void choose('photos', true);
-              }}
-            />
-            <Action
-              label={t('drafts.assets.pasteImage')}
-              onPress={() => {
-                void choose('paste', true);
-              }}
-            />
-          </View>
-          {translating === undefined ? null : (
-            <DraftTranslation
-              key={translating.id}
-              text={translating.text}
-              onApply={applyTranslation}
-              onClose={() => {
-                if (captureNow.current === translating) {
-                  captureNow.current = undefined;
-                  setTranslating(undefined);
-                }
-              }}
-            />
-          )}
-          <TextInput
-            accessibilityLabel={t('drafts.body')}
-            editable={!sending}
-            multiline
-            onChange={({ nativeEvent }: BodyChangeEvent) => {
-              changedSelection.current = nativeEvent.selection;
+          </>
+        ) : (
+          <Action
+            disabled={sending}
+            accessibilityLabel={t('drafts.showCcBcc')}
+            label={t('drafts.ccBcc')}
+            onPress={() => {
+              change({ ...authored.current, copies: true });
             }}
-            onChangeText={edit}
+          />
+        )}
+        <View style={styles.field}>
+          <TextInput
+            accessibilityLabel={t('drafts.subject')}
+            editable={!sending}
+            accessibilityState={{ disabled: sending }}
+            onChangeText={(subject) => {
+              const previous = authored.current.subject;
+              subjectCaret.current =
+                subjectSelection.current.end + subject.length - previous.length;
+              // One character added at the caret continues a typing step until a word ends.
+              const added =
+                subjectSelection.current.start ===
+                  subjectSelection.current.end &&
+                subject.length === previous.length + 1;
+              const typed = subject[subjectSelection.current.start] ?? ' ';
+              change(
+                { ...authored.current, subject },
+                added && !/\s/u.test(typed),
+                'subject',
+              );
+            }}
             onSelectionChange={({ nativeEvent }) => {
               const next = nativeEvent.selection;
-              // Moving the caret anywhere but past typed text ends marks toggled for typing.
-              if (next.start !== next.end || next.start !== caret.current) {
-                placeTyping(undefined);
+              if (
+                next.start !== next.end ||
+                next.start !== subjectCaret.current
+              ) {
                 commitHistory((current) => ({ ...current, typing: false }));
               }
-              caret.current = undefined;
-              setPlaced(undefined);
-              selectionNow.current = next;
-              setSelection(next);
+              subjectCaret.current = undefined;
+              subjectSelection.current = next;
             }}
-            placeholder={t('drafts.bodyPlaceholder')}
+            placeholder={t('drafts.subject')}
             placeholderTextColor={colors.secondary}
-            scrollEnabled={false}
-            selection={placed}
-            style={[styles.body, { color: colors.foreground }]}
-            textAlignVertical="top">
-            {display.lines.map((line, index) => (
-              <Text
-                // oxlint-disable-next-line react/no-array-index-key -- Blocks are positional.
-                key={index}
-                style={[
-                  kindStyles[line.kind],
-                  line.kind === 'quote' ? { color: colors.secondary } : null,
-                ]}>
-                {line.marker}
-                {line.spans.map((span, at) => (
-                  <Text
-                    // oxlint-disable-next-line react/no-array-index-key -- Spans are positional.
-                    key={at}
-                    style={markStyle(span.marks)}>
-                    {span.text}
-                  </Text>
-                ))}
-                {index < display.lines.length - 1 ? '\n' : ''}
-              </Text>
-            ))}
-          </TextInput>
-          {draft.quoted === undefined ? null : (
-            <QuotedText quoted={draft.quoted} />
-          )}
-          <DraftAssets
-            draft={draft}
-            onCancel={(id) => {
-              void store.cancelImport(id);
-            }}
-            onRemove={removeAsset}
+            style={[styles.input, { color: colors.foreground }]}
+            value={draft.subject}
           />
         </View>
+        <View
+          accessibilityLabel={t('drafts.formatting')}
+          accessibilityRole="toolbar"
+          style={styles.bar}>
+          {markControls.map(([mark, label, name, style]) => (
+            <Pressable
+              key={mark}
+              accessibilityLabel={t(name)}
+              accessibilityRole="button"
+              accessibilityState={{
+                selected: active.includes(mark),
+                disabled: sending,
+              }}
+              disabled={sending}
+              onPress={() => {
+                format(mark);
+              }}
+              style={[
+                styles.format,
+                {
+                  backgroundColor: active.includes(mark)
+                    ? colors.selected
+                    : 'transparent',
+                },
+              ]}>
+              <Text style={[{ color: colors.foreground }, style]}>{label}</Text>
+            </Pressable>
+          ))}
+          {blockControls.map(([value, label, name]) => (
+            <Pressable
+              key={value}
+              accessibilityLabel={t(name)}
+              accessibilityRole="button"
+              accessibilityState={{
+                selected: kind === value,
+                disabled: sending,
+              }}
+              disabled={sending}
+              onPress={() => {
+                block(value);
+              }}
+              style={[
+                styles.format,
+                {
+                  backgroundColor:
+                    kind === value ? colors.selected : 'transparent',
+                },
+              ]}>
+              <Text style={{ color: colors.foreground }}>{label}</Text>
+            </Pressable>
+          ))}
+          <Action
+            disabled={
+              sending ||
+              !hasTranslatableText(
+                selectedText(draft.body, selection, translationInputLimit + 1),
+              )
+            }
+            label={t('translation.translate')}
+            accessibilityLabel={t('translation.translateSelectionLabel')}
+            onPress={() => {
+              const at = selectionNow.current;
+              const { body } = authored.current;
+              const text = selectedText(body, at, translationInputLimit + 1);
+              if (
+                sendingNow.current ||
+                !lifetime.current.mounted ||
+                !hasTranslatableText(text)
+              ) {
+                return;
+              }
+              captureGeneration.current += 1;
+              const capture = {
+                body,
+                selection: at,
+                text,
+                id: captureGeneration.current,
+              };
+              captureNow.current = capture;
+              setTranslating(capture);
+            }}
+          />
+        </View>
+        <View
+          accessibilityLabel={t('drafts.assets.toolbar')}
+          accessibilityRole="toolbar"
+          style={styles.bar}>
+          <Action
+            disabled={sending}
+            label={t('drafts.assets.attachFile')}
+            onPress={() => {
+              void choose('files', false);
+            }}
+          />
+          <Action
+            disabled={sending}
+            label={t('drafts.assets.attachPhoto')}
+            onPress={() => {
+              void choose('photos', false);
+            }}
+          />
+          <Action
+            disabled={sending}
+            label={t('drafts.assets.insertImage')}
+            onPress={() => {
+              void choose('photos', true);
+            }}
+          />
+          <Action
+            disabled={sending}
+            label={t('drafts.assets.pasteImage')}
+            onPress={() => {
+              void choose('paste', true);
+            }}
+          />
+        </View>
+        {translating === undefined ? null : (
+          <DraftTranslation
+            key={translating.id}
+            text={translating.text}
+            onApply={applyTranslation}
+            onClose={() => {
+              if (captureNow.current === translating) {
+                captureNow.current = undefined;
+                setTranslating(undefined);
+              }
+            }}
+          />
+        )}
+        <TextInput
+          accessibilityLabel={t('drafts.body')}
+          editable={!sending}
+          accessibilityState={{ disabled: sending }}
+          multiline
+          onChange={({ nativeEvent }: BodyChangeEvent) => {
+            changedSelection.current = nativeEvent.selection;
+          }}
+          onChangeText={edit}
+          onSelectionChange={({ nativeEvent }) => {
+            const next = nativeEvent.selection;
+            // Moving the caret anywhere but past typed text ends marks toggled for typing.
+            if (next.start !== next.end || next.start !== caret.current) {
+              placeTyping(undefined);
+              commitHistory((current) => ({ ...current, typing: false }));
+            }
+            caret.current = undefined;
+            setPlaced(undefined);
+            selectionNow.current = next;
+            setSelection(next);
+          }}
+          placeholder={t('drafts.bodyPlaceholder')}
+          placeholderTextColor={colors.secondary}
+          scrollEnabled={false}
+          selection={placed}
+          style={[styles.body, { color: colors.foreground }]}
+          textAlignVertical="top">
+          {display.lines.map((line, index) => (
+            <Text
+              // oxlint-disable-next-line react/no-array-index-key -- Blocks are positional.
+              key={index}
+              style={[
+                kindStyles[line.kind],
+                line.kind === 'quote' ? { color: colors.secondary } : null,
+              ]}>
+              {line.marker}
+              {line.spans.map((span, at) => (
+                <Text
+                  // oxlint-disable-next-line react/no-array-index-key -- Spans are positional.
+                  key={at}
+                  style={markStyle(span.marks)}>
+                  {span.text}
+                </Text>
+              ))}
+              {index < display.lines.length - 1 ? '\n' : ''}
+            </Text>
+          ))}
+        </TextInput>
+        {draft.quoted === undefined ? null : (
+          <QuotedText quoted={draft.quoted} />
+        )}
+        <DraftAssets
+          draft={draft}
+          editable={!sending}
+          onCancel={(id) => {
+            if (!sendingNow.current) {
+              void store.cancelImport(id);
+            }
+          }}
+          onRemove={removeAsset}
+        />
       </ScrollView>
     </SafeAreaView>
   );

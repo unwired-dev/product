@@ -13,6 +13,16 @@ A host owns views and native adapters. It renders shared stores from `@private-e
 
 #### React correctness
 
+- `composer.tsx.Editor` accepting edits while Send freezes an immutable Draft for
+  admission. Disable text, keyboard, pointer and accessibility editing controls,
+  and fence their callbacks synchronously before awaiting admission: render props
+  and ancestor `pointerEvents` do not retire queued native input. Include history,
+  Markdown, translation Apply, sender/recipient changes and asset Remove/Cancel;
+  keep picker/paste/drop lifetime fences. On refusal restore editing and ordinary
+  saving. Otherwise an accepted edit is neither sent nor saved when Send closes.
+  Exercise queued callbacks before React commits, successful admission and refusal
+  followed by durable editing; props-only assertions miss this data-loss window.
+
 - `composer.tsx` clearing a Send refusal only on one editing path. Clear stale
   refusal feedback whenever an accepted edit changes the authored Draft, including
   Undo/Redo and Markdown edits that bypass `change`; preserve feedback while a
