@@ -14,11 +14,13 @@ An implementation request authorizes the full delivery without further
 confirmation. After both [implementation reviews](implementation-review.md)
 finish, the implementer:
 
-1. Creates a task branch when the checkout is on `main`, commits the reviewed
-   changes (preserving unrelated work), and pushes the branch.
-2. Opens a PR ready for review against `main` that references its issue, using
-   the `pr` skill for the body and recording any decision-panel outcomes.
-   In T3 Code, link the PR to the thread with `link_pull_request`.
+1. Works on a branch that belongs to the task: a detached HEAD, `main`, or
+   another task's branch gets a new task branch first. Commits the reviewed
+   changes (preserving unrelated work) and pushes the branch.
+2. Updates the task's existing PR when one exists. Otherwise opens a PR ready
+   for review against `main` that references its issue, using the `pr` skill for
+   the body and recording any decision-panel outcomes. In T3 Code, link the PR
+   to the thread with `link_pull_request`.
 3. Invokes the `babysit-pr` skill for that PR alone and keeps it until the PR is
    merged or closed. In T3 Code, call `watch_pull_request` and end the turn;
    each wakeup runs one babysitting pass. Elsewhere, use the session's
